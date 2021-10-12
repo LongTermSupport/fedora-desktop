@@ -39,8 +39,10 @@ promptForValue(){
   item="$1"
   yn=n
   while [[ "$yn" != "y" ]]; do
-    read -sp "Please enter your $item:" v
-    read -sp "Confirm correct value for $item is $v" -n 1 yn
+    echo
+    read -p "Please enter your $item: " v
+    echo
+    read -sp "Confirm correct value for $item is $v (y/n) " -n 1 yn
   done
   echo "$v"
 }
@@ -119,9 +121,9 @@ completed
 
 title "Now running Ansible to compelte configuration"
 cd ~/Projects/fedora-desktop
-./playbooks/playbook-main.yml
+./playbooks/playbook-main.yml --ask-become-pass
 completed
 
-
 title "And now your system needs to be rebooted"
+confirm "Happy to Reboot ?"
 sudo reboot now
