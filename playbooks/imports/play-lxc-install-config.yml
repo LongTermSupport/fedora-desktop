@@ -4,8 +4,8 @@
     root_dir: "{{ inventory_dir }}/../../"
   tasks:
     - name: Enable LXD Copr Repository
-      shell:
-        cmd: dnf copr enable ganto/lxc4 -y
+      copr:
+        name: @ganto/lxc4
 
     - name: Install Packages
       package:
