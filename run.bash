@@ -22,6 +22,16 @@ completed(){
   printf "\nDone...\n"
 }
 
+confirm(){
+  local msg="$1"
+  local yn=n
+  while [[ "$yn" != "y" ]]; do
+    echo
+    read -sp "$msg (y/n)" -n 1 yn
+  done
+  printf "\n\n$msg confirmed\n\n"
+}
+
 promptForValue(){
   local item v yn
   item="$1"
@@ -59,18 +69,15 @@ completed
 
 title "Creating SSH Key Pair\n\nNOTE - you must set a password\n\nSuggest you use your login password"
 ssh-keygen -t ed25519
+completed
 
 title "You now need to save this public key to your github account"
-title "https://github.com/settings/ssh/new"
+echo "URL: https://github.com/settings/ssh/new"
+echo "SSH Key to copy/paste below:"
 cat ~/.ssh/id_ed25519.pub
-while true; do
-    read -sp "please confirm you have saved your new key in github" -n 1 yn
-    case $yn in
-        [Yy]* ) break;;
-        [Nn]* ) continue;;
-        * ) echo "Please answer yes or no.";;
-    esac
-done
+echo "please confirm you have saved your new key in github"
+confirm "key saved in github"
+completed
 
 title "Creating Projects directory"
 mkdir -p ~/Projects
@@ -107,4 +114,8 @@ title "Now running Ansible to compelte configuration"
 cd ~/Projects/fedora-desktop
 ./playbooks/playbook-main.yml
 completed
+
+
+title "And now your system needs to be rebooted"
+
 exit 0
