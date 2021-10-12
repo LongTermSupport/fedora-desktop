@@ -12,14 +12,7 @@
         name:
         - lxc
         - lxc-templates
-
-    - name: Add firewall rule for LXD to allow IP allocation and network access
-      firewalld:
-        zone: trusted
-        state: enabled
-        interface: lxdbr0
-        permanent: yes
-        immediate: true
+        - libvirt
 
     - name: Put SELinux in permissive mode, logging actions that would be blocked.
       selinux:
@@ -32,5 +25,4 @@
         state: started
         enabled: yes
       with_items:
-        - lxc-net
         - lxc
