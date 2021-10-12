@@ -5,7 +5,7 @@
   tasks:
     - name: Enable LXD Copr Repository
       copr:
-        name: @ganto/lxc4
+        name: "@ganto/lxc4"
 
     - name: Install Packages
       package:
