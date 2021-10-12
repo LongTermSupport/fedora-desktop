@@ -1,0 +1,22 @@
+- hosts: desktop
+  become: true
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  tasks:
+    - name: Basic packages
+      package:
+        name: "{{ packages }}"
+        state: present
+      vars:
+        packages:
+          - vim
+          - wget
+          - bash-completion
+          - htop
+
+    - name: Vim Colours
+      get_url:
+        url: https://raw.githubusercontent.com/ajmwagar/vim-deus/master/colors/deus.vim
+        dest: /usr/share/vim/vimfiles/colors/deus.vim
+
+    - name: Vim Configs
