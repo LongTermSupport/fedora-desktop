@@ -1,0 +1,39 @@
+# Git is already installed as it was used to clone this repo,
+# so we just need to configure it
+- hosts: desktop
+  become: true
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  tasks:
+    - name: Setup Git Config - root
+      shell: |
+        git config --global user.email "{{ user_email }}"
+        git config --global user.name "{{ user_name }}"
+        git config --global color.ui auto
+        git config --global push.default simple;
+        git config --global help.autocorrect 30;
+    - name: Setup Git Config - user
+      become: yes
+      become_user: "{{ user_login }}"
+      shell: |
+        git config --global user.email "{{ user_email }}"
+        git config --global user.name "{{ users_name }}"
+        git config --global color.ui auto
+        git config --global push.default simple;
+        git config --global help.autocorrect 30;
+    - name: Enable Git Bash Prompt
+        become: true
+        become_user: "{{ user_login }}"
+        command: "git clone https://github.com/magicmonty/bash-git-prompt.git ~/.bash-git-prompt --depth=1"
+        args:
+          creates: /home/{{ users_name }}/.bash-git-prompt
+
+    - name: Update ~/.bashrc File for the Bash Git Prompt
+      blockinfile:
+        path: /home/{{ user_login }}/.bashrc
+        marker: "# {mark} ANSIBLE MANAGED: Git Bash Prompt"
+        block: |
+          GIT_PROMPT_ONLY_IN_REPO=1
+          GIT_PROMPT_THEME=Solarized
+          GIT_PROMPT_START=$PS1
+          source ~/.bash-git-prompt/gitprompt.sh
