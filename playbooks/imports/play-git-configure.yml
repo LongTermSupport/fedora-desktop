@@ -18,7 +18,7 @@
       become_user: "{{ user_login }}"
       shell: |
         git config --global user.email "{{ user_email }}"
-        git config --global user.name "{{ users_name }}"
+        git config --global user.name "{{ user_name }}"
         git config --global color.ui auto
         git config --global push.default simple;
         git config --global help.autocorrect 30;
@@ -28,7 +28,7 @@
       become_user: "{{ user_login }}"
       command: "git clone https://github.com/magicmonty/bash-git-prompt.git ~/.bash-git-prompt --depth=1"
       args:
-        creates: /home/{{ users_name }}/.bash-git-prompt
+        creates: /home/{{ user_login }}/.bash-git-prompt
 
     - name: Update ~/.bashrc File for the Bash Git Prompt
       blockinfile:

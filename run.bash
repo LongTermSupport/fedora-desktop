@@ -12,7 +12,7 @@ title(){
   printf "\n$1\n"
 }
 
-done(){
+completed(){
   printf "\nDone...\n"
 }
 
@@ -31,15 +31,15 @@ sudo dnf -y install \
   python3 \
   python3-pip \
   grubby
-done
+completed
 
 title "Updating Grub Configs for Cgroups"
 grubby --update-kernel=ALL --args="systemd.unified_cgroup_hierarchy=0"
-done
+completed
 
 title "Installing Ansible with Pip"
 pip3 install ansible
-done
+completed
 
 title "Creating SSH Key Pair\n\nNOTE - you must set a password\n\nSuggest you use your login password"
 ssh-keygen -t ed25519
@@ -57,12 +57,31 @@ while true; do
 done
 
 title "Creating Projects directory"
-mkdir ~/Projects
+mkdir -p ~/Projects
 cd ~/Projects
-done
+completed
 
 title "Cloning Fedora Desktop Repo"
 git@github.com:LongTermSupport/fedora-desktop.git
-done
+completed
 
 cd fedora-desktop
+
+echo "
+
+Some manual configuration required:
+
+First, copy the host config:
+
+  cp environment/localhost/host_vars/localhost.yml.dist environment/localhost/host_vars/localhost.yml
+
+You need to edit that file and replace all values with correct information
+
+  vim environment/localhost/host_vars/localhost.yml
+
+Then you need to run this command:
+
+  ~/Projects/fedora-desktop/playbooks/playbook-main.yml
+
+"
+exit 0
