@@ -7,8 +7,8 @@ Uses a bash script which installs basic dependencies including git and ansible a
 ## Run
 curl, wget or just copy paste the [run.bash](./run.bash) script
 
-For example:
+Suggested to copy paste into your bash terminal:
 
 ```
-curl https://raw.githubusercontent.com/LongTermSupport/fedora-desktop/main/run.bash | bash
+(source <(curl https://raw.githubusercontent.com/LongTermSupport/fedora-desktop/main/run.bash))
 ```

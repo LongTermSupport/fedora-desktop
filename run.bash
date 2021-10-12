@@ -68,7 +68,11 @@ pip3 install ansible
 completed
 
 title "Creating SSH Key Pair\n\nNOTE - you must set a password\n\nSuggest you use your login password"
-ssh-keygen -t ed25519
+if [[ ! -f ~/.ssh/id_ed25519 ]]; then
+  ssh-keygen -t ed25519
+else
+  echo " - found existing key"
+fi
 completed
 
 title "You now need to save this public key to your github account"
@@ -86,7 +90,7 @@ completed
 title "Cloning Fedora Desktop Repo"
 cd ~/Projects
 if [[ ! -d ~/Projects/fedora-desktop ]]; then
-  git@github.com:LongTermSupport/fedora-desktop.git
+  git clone git@github.com:LongTermSupport/fedora-desktop.git
 fi
 completed
 
