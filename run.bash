@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 
 ## Setup
-set -euo pipefail
+set -e
+set -u
+set -o pipefail
 standardIFS="$IFS"
 IFS=$'\n\t'
 
@@ -60,7 +62,7 @@ sudo dnf -y install \
 completed
 
 title "Updating Grub Configs for Cgroups"
-grubby --update-kernel=ALL --args="systemd.unified_cgroup_hierarchy=0"
+sudo grubby --update-kernel=ALL --args="systemd.unified_cgroup_hierarchy=0"
 completed
 
 title "Installing Ansible with Pip"
@@ -77,9 +79,9 @@ completed
 
 title "You now need to save this public key to your github account"
 echo "URL: https://github.com/settings/ssh/new"
-echo "SSH Key to copy/paste below:"
+printf "\nSSH Key to copy/paste below:\n\n"
 cat ~/.ssh/id_ed25519.pub
-echo "please confirm you have saved your new key in github"
+printf "\n\nplease confirm you have saved your new key in github\n"
 confirm "key saved in github"
 completed
 
