@@ -4,7 +4,7 @@
     root_dir: "{{ inventory_dir }}/../../"
   tasks:
     - name: Enable LXD Copr Repository
-      copr:
+      community.general.copr:
         name: "@ganto/lxc4"
 
     - name: Install Packages
