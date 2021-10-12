@@ -12,7 +12,7 @@ title(){
   printf "\n$1\n"
 }
 
-done(){
+completed(){
   printf "\nDone...\n"
 }
 
@@ -30,19 +30,34 @@ sudo dnf -y install \
   git \
   python3 \
   python3-pip
-done
+completed
   
 title "Installing Ansible with Pip"
 pip3 install ansible
-done
+completed
 
 title "Creating Projects directory"
-mkdir ~/Projects
+mkdir -p ~/Projects
 cd ~/Projects
-done
+completed
 
 title "Cloning Fedora Desktop Repo"
 git clone https://github.com/LongTermSupport/fedora-desktop.git
-done
+complete
 
 cd fedora-desktop
+
+cp environment/localhost/host_vars/localhost.yml.dist environment/localhost/host_vars/localhost.yml
+
+echo "
+
+New file created at cp environment/localhost/host_vars/localhost.yml.dist environment/localhost/host_vars/localhost.yml
+
+You need to edit that file and replace all values with correct information
+
+Then you need to run this command:
+
+~/Projects/fedora-desktop/playbooks/playbook-main.yml
+
+"
+exit 0
