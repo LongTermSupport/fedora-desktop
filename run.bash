@@ -37,6 +37,7 @@ confirm(){
 promptForValue(){
   local item v yn
   item="$1"
+  yn=n
   while [[ "$yn" != "y" ]]; do
     read -sp "Please enter your $item:" v
     read -sp "Confirm correct value for $item is $v" -n 1 yn
