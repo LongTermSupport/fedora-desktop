@@ -19,6 +19,12 @@
         state: enabled
         interface: lxdbr0
         permanent: yes
+        immediate: true
+
+    - name: Put SELinux in permissive mode, logging actions that would be blocked.
+      selinux:
+        policy: targeted
+        state: permissive
 
     - name: Setup Service
       systemd:
