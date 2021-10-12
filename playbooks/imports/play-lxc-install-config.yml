@@ -19,10 +19,16 @@
         policy: targeted
         state: permissive
 
+    - name: Tell LXC to use libvirt bridge and avoid firewalld issues
+      replace:
+        path: /etc/lxc/default.conf
+        regexp: lxcbr0
+        replace: virbr0
+
     - name: Setup Service
       systemd:
         name: "{{ item }}"
-        state: started
+        state: restarted
         enabled: yes
       with_items:
         - lxc

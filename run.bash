@@ -6,6 +6,12 @@ standardIFS="$IFS"
 IFS=$'\n\t'
 
 ## Assertions
+if [[ "$(whoami)" == "root" ]];
+then
+  printf "\n\n ERROR - please do not run this as root\n\nSimply run as your normal user\n\n"
+  exit 1
+fi
+
 ## Functions
 
 title(){
@@ -14,6 +20,16 @@ title(){
 
 completed(){
   printf "\nDone...\n"
+}
+
+promptForValue(){
+  local item v yn
+  item="$1"
+  while [[ "$yn" != "y" ]]; do
+    read -sp "Please enter your $item:" v
+    read -sp "Confirm correct value for $item is $v" -n 1 yn
+  done
+  echo "$v"
 }
 
 ## Process
@@ -48,7 +64,7 @@ title "You now need to save this public key to your github account"
 title "https://github.com/settings/ssh/new"
 cat ~/.ssh/id_ed25519.pub
 while true; do
-    read -p "please confirm you have saved your new key in github" yn
+    read -sp "please confirm you have saved your new key in github" -n 1 yn
     case $yn in
         [Yy]* ) break;;
         [Nn]* ) continue;;
@@ -58,30 +74,37 @@ done
 
 title "Creating Projects directory"
 mkdir -p ~/Projects
-cd ~/Projects
 completed
 
 title "Cloning Fedora Desktop Repo"
-git@github.com:LongTermSupport/fedora-desktop.git
+cd ~/Projects
+if [[ ! -d ~/Projects/fedora-desktop ]]; then
+  git@github.com:LongTermSupport/fedora-desktop.git
+fi
 completed
 
-cd fedora-desktop
 
-echo "
+title "Collecting required configs"
+echo "Your user login (probably $(whoami))"
+user_login="$(promptForValue user_login)"
 
-Some manual configuration required:
+echo "Your full name"
+user_name="$(promptForValue user_full_name)"
 
-First, copy the host config:
+echo "Your email address"
+user_email="$(promptForValue user_email)"
+completed
 
-  cp environment/localhost/host_vars/localhost.yml.dist environment/localhost/host_vars/localhost.yml
+title "Updating ansible localhost config in environment/localhost/host_vars/localhost.yml"
+cat <<EOF > ~/Projects/fedora-desktop/environment/localhost/host_vars/localhost.yml
+user_login: "$user_login"
+user_name: "$user_name"
+user_email: "$user_email"
+EOF
+completed
 
-You need to edit that file and replace all values with correct information
-
-  vim environment/localhost/host_vars/localhost.yml
-
-Then you need to run this command:
-
-  ~/Projects/fedora-desktop/playbooks/playbook-main.yml
-
-"
+title "Now running Ansible to compelte configuration"
+cd ~/Projects/fedora-desktop
+./playbooks/playbook-main.yml
+completed
 exit 0
