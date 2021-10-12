@@ -117,5 +117,4 @@ completed
 
 
 title "And now your system needs to be rebooted"
-
-exit 0
+sudo reboot now
