@@ -26,7 +26,7 @@
     - name: Enable Git Bash Prompt
       shell: "git clone https://github.com/magicmonty/bash-git-prompt.git ~/.bash-git-prompt --depth=1"
       args:
-        creates: /home/{{ user_login }}/.bash-git-prompt
+        creates: /home/{{ user_login }}/.bash-git-prompt/.git/config
 
     - name: Update ~/.bashrc File for the Bash Git Prompt
       blockinfile:
