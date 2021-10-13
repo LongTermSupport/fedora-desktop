@@ -39,9 +39,9 @@ promptForValue(){
   item="$1"
   yn=n
   while [[ "$yn" != "y" ]]; do
-    echo
+    echo 1>&2
     read -p "Please enter your $item: " v
-    echo
+    echo 1>&2
     read -sp "Confirm correct value for $item is $v (y/n) " -n 1 yn
   done
   echo "$v"
