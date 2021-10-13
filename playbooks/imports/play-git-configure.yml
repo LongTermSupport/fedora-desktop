@@ -31,7 +31,10 @@
           *.secret
           /untracked
           /vendor
-
+        path: "{{ item }}/.config/git/ignore"
+      with_items:
+        - "/home/{{ user_login }}"
+        - "/root/"
 
     - name: Enable Git Bash Prompt
       become: true

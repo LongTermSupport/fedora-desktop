@@ -100,28 +100,34 @@ fi
 completed
 
 
-title "Collecting required configs"
-echo "Your user login (probably $(whoami))"
-user_login="$(promptForValue user_login)"
+if [[ ! -f ~/Projects/fedora-desktop/environment/localhost/host_vars/localhost.yml ]]; then
+  title "Collecting required configs"
+  echo "Your user login (probably $(whoami))"
+  user_login="$(promptForValue user_login)"
 
-echo "Your full name"
-user_name="$(promptForValue user_full_name)"
+  echo "Your full name"
+  user_name="$(promptForValue user_full_name)"
 
-echo "Your email address"
-user_email="$(promptForValue user_email)"
-completed
+  echo "Your email address"
+  user_email="$(promptForValue user_email)"
+  completed
 
-title "Updating ansible localhost config in environment/localhost/host_vars/localhost.yml"
-cat <<EOF > ~/Projects/fedora-desktop/environment/localhost/host_vars/localhost.yml
+  title "Updating ansible localhost config in environment/localhost/host_vars/localhost.yml"
+  cat <<EOF > ~/Projects/fedora-desktop/environment/localhost/host_vars/localhost.yml
 user_login: "$user_login"
 user_name: "$user_name"
 user_email: "$user_email"
 EOF
-completed
+  completed
+fi
 
-title "Now running Ansible to compelte configuration"
+title "Now running Ansible to complete configuration"
 cd ~/Projects/fedora-desktop
-./playbooks/playbook-main.yml --ask-become-pass
+if sudo -n true; then
+  ./playbooks/playbook-main.yml
+else
+  ./playbooks/playbook-main.yml --ask-become-pass
+fi
 completed
 
 title "And now your system needs to be rebooted"
