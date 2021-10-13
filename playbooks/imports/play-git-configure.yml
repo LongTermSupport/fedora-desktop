@@ -23,6 +23,16 @@
         git config --global push.default simple;
         git config --global help.autocorrect 30;
 
+    - name: Set up Global Git Ignores
+      blockinfile:
+        create: true
+        block: |
+          /.idea
+          *.secret
+          /untracked
+          /vendor
+
+
     - name: Enable Git Bash Prompt
       become: true
       become_user: "{{ user_login }}"

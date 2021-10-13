@@ -14,9 +14,22 @@
           - bash-completion
           - htop
 
-    - name: Vim Colours
-      get_url:
-        url: https://raw.githubusercontent.com/ajmwagar/vim-deus/master/colors/deus.vim
-        dest: /usr/share/vim/vimfiles/colors/deus.vim
+    - name: Passwordless Sudo
+      copy:
+        path: /etc/sudoers.d/{{ login_user }}.sudo.conf
+        content: "{{ login_user }} ALL=(ALL) NOPASSWD: ALL"
+        create: true
 
-    - name: Vim Configs
+    - name: Vim Colours
+      block:
+        - name: Get Colourscheme
+          get_url:
+            url: https://raw.githubusercontent.com/ajmwagar/vim-deus/master/colors/deus.vim
+            dest: /usr/share/vim/vimfiles/colors/deus.vim
+
+        - name: Vim Configs
+          blockinfile:
+            marker: "\" {mark} Vim Colourscheme"
+            block: colors deus
+            path: /etc/vimrc.local
+            create: true
