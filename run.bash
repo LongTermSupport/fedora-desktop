@@ -121,8 +121,12 @@ EOF
   completed
 fi
 
-title "Now running Ansible to complete configuration"
+title "Ensuring repo is up to date"
 cd ~/Projects/fedora-desktop
+git pull
+completed
+
+title "Now running Ansible to complete configuration"
 if sudo -n true; then
   ./playbooks/playbook-main.yml
 else
