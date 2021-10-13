@@ -1,21 +1,11 @@
 # Git is already installed as it was used to clone this repo,
 # so we just need to configure it
 - hosts: desktop
-  become: true
+  become: false
   vars:
     root_dir: "{{ inventory_dir }}/../../"
   tasks:
-    - name: Setup Git Config - root
-      shell: |
-        git config --global user.email "{{ user_email }}"
-        git config --global user.name "{{ user_name }}"
-        git config --global color.ui auto
-        git config --global push.default simple;
-        git config --global help.autocorrect 30;
-
     - name: Setup Git Config - user
-      become: yes
-      become_user: "{{ user_login }}"
       shell: |
         git config --global user.email "{{ user_email }}"
         git config --global user.name "{{ user_name }}"
@@ -31,14 +21,9 @@
           *.secret
           /untracked
           /vendor
-        path: "{{ item }}/.config/git/ignore"
-      with_items:
-        - "/home/{{ user_login }}"
-        - "/root/"
+        path: "~/.config/git/ignore"
 
     - name: Enable Git Bash Prompt
-      become: true
-      become_user: "{{ user_login }}"
       command: "git clone https://github.com/magicmonty/bash-git-prompt.git ~/.bash-git-prompt --depth=1"
       args:
         creates: /home/{{ user_login }}/.bash-git-prompt

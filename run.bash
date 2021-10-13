@@ -127,6 +127,7 @@ git pull
 completed
 
 title "Now running Ansible to complete configuration"
+# checking for passwordless sudo
 if sudo -n true; then
   ./playbooks/playbook-main.yml
 else
