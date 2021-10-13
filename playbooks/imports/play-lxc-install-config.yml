@@ -45,3 +45,5 @@
         block: |
           Host "192.168.122.*"
             IdentityFile ~/.ssh/id_lxc
+            UserKnownHostsFile=/dev/null
+            StrictHostKeyChecking=no
