@@ -43,6 +43,8 @@
     - name: Set up SSH Config for LXC Containers
       blockinfile:
         marker: "# {mark} LXC Containers Insecure Key"
+        path: "/home/{{ user_login }}/.ssh/config"
+        create: true
         block: |
           Host "192.168.122.*"
             IdentityFile ~/.ssh/id_lxc
