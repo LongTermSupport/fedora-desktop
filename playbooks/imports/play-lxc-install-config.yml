@@ -37,7 +37,8 @@
       become: true
       become_user: "{{ user_login }}"
       shell: ssh-keygen -t rsa -f ~/.ssh/id_lxc -q -P ""
-      creates: "/home/{{ user_login }}/.ssh/id_lxc"
+      args:
+        creates: "/home/{{ user_login }}/.ssh/id_lxc"
 
     - name: Set up SSH Config for LXC Containers
       blockinfile:
