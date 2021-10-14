@@ -1,3 +1,4 @@
+# see https://raw.githubusercontent.com/jaredhocutt/ansible-jetbrains-toolbox/master/tasks/main.yml
 - hosts: desktop
   tasks:
   - name: Check if JetBrains Toolbox is already installed
@@ -31,6 +32,9 @@
           suffix: ".jetbrains_toolbox_download"
         register: jetbrains_toolbox_download_dir
         changed_when: no
+
+      - name: Install JMESPath
+        pip
 
       - name: Download JetBrains Toolbox
         get_url:

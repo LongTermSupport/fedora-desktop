@@ -2,3 +2,4 @@
 - import_playbook: imports/play-basic-configs.yml
 - import_playbook: imports/play-git-configure.yml
 - import_playbook: imports/play-lxc-install-config.yml
+- import_playbook: imports/play-toolbox-install.yml

@@ -69,12 +69,22 @@ sudo grubby --update-kernel=ALL --args="systemd.unified_cgroup_hierarchy=0"
 completed
 
 title "Installing Ansible with Pip"
-pip3 install ansible
+pip3 install \
+  ansible \
+  jmespath
 completed
 
 title "Creating SSH Key Pair\n\nNOTE - you must set a password\n\nSuggest you use your login password"
 if [[ ! -f ~/.ssh/id_ed25519 ]]; then
-  ssh-keygen -t ed25519
+  while true; do
+    read -s -p "Password: " password
+    echo
+    read -s -p "Password (confirm): " password2
+    echo
+    [ "$password" = "$password2" ] && break
+    echo "Passwords not matched, please try again"
+  done
+  ssh-keygen -t ed25519 -f ~/.ssh/id -P "$password"
 else
   echo " - found existing key"
 fi
@@ -83,7 +93,7 @@ completed
 title "You now need to save this public key to your github account"
 echo "URL: https://github.com/settings/ssh/new"
 printf "\nSSH Key to copy/paste below:\n\n"
-cat ~/.ssh/id_ed25519.pub
+cat ~/.ssh/id.pub
 printf "\n\nplease confirm you have saved your new key in github\n"
 confirm "key saved in github"
 completed
