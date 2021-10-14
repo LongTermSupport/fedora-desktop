@@ -75,7 +75,7 @@ pip3 install \
 completed
 
 title "Creating SSH Key Pair\n\nNOTE - you must set a password\n\nSuggest you use your login password"
-if [[ ! -f ~/.ssh/id_ed25519 ]]; then
+if [[ ! -f ~/.ssh/id ]]; then
   while true; do
     read -s -p "Password: " password
     echo
