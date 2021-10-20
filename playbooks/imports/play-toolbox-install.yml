@@ -33,9 +33,6 @@
         register: jetbrains_toolbox_download_dir
         changed_when: no
 
-      - name: Install JMESPath
-        pip
-
       - name: Download JetBrains Toolbox
         get_url:
           url: "{{ jetbrains_toolbox_available_releases.json | json_query(jetbrains_toolbox_download_query) | first }}"

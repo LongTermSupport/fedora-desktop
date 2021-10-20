@@ -64,13 +64,6 @@ then
 
     alias gti=git
 
-    ## To install
-    ## dnf -y install bash-completion
-    source /usr/share/bash-completion/bash_completion
-    for f in /usr/share/bash-completion/completions/*; do
-        source $f 2> /dev/null
-    done
-
     complete -r cd  # completion on symlinks is unusual and a __complete__ pain in the arse. Let's remove it
 
     export EDITOR=vim

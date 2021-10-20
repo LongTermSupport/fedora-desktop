@@ -36,4 +36,5 @@
     - name: Basic Bash Tweaks
       copy:
         src: "{{ root_dir }}/files/etc/profile/zz_lts-fedora-desktop.bash"
-        dest: /etc/profile/zz_lts-fedora-desktop.bash
+        dest: /etc/profile.d/zz_lts-fedora-desktop.bash
+
