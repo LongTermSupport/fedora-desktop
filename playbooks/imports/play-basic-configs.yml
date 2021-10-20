@@ -17,7 +17,7 @@
     - name: Passwordless Sudo
       copy:
         dest: /etc/sudoers.d/{{ user_login }}.sudo.conf
-        content: "{{ user_login }} ALL=(ALL) NOPASSWD: ALL"
+        content: "{{ user_login }} ALL=(ALL) NOPASSWD: ALL\n"
 
     - name: Vim Colours
       block:

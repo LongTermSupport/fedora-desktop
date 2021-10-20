@@ -1,0 +1,20 @@
+- hosts: desktop
+  become: true
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  vars_files:
+    - "{{ root_dir }}/vars/project.yml"
+  tasks:
+    - name: Check Ansible
+      assert:
+        that:
+          - ansible_version.full is version_compare('2.9.9', '>=')
+        fail_msg: |
+          This project requires Ansible 2.9.9 or greater
+
+    - name: Check Fedora 
+      assert:
+        that:
+          - ansible_os_family == 'RedHat'
+          - ansible_distribution_major_version | int >= 7
+        fail_msg: 'This project requires Centos 7'
