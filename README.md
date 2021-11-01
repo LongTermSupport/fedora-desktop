@@ -21,7 +21,14 @@ Some manual, optional tasks
 
 https://github.com/rpmfusion-infra/fedy#installation
 
-Fedy is a very convenient way to install various apps and common tweaks
+Fedy is a very convenient way to install various apps and common tweaks, such as:
+
+* Google Chrome
+* Slack
+* Skype
+* Microsoft Truetype Fonts
+* Multimedia Codecs
+* Lots of other things...
 
 ### Gnome Shell Extensions
 
