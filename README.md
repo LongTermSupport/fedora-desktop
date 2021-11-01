@@ -12,3 +12,30 @@ Suggested to copy paste into your bash terminal:
 ```
 (source <(curl -sS https://raw.githubusercontent.com/LongTermSupport/fedora-desktop/main/run.bash))
 ```
+
+## Manual Tasks
+
+Some manual, optional tasks
+
+### Use Fedy to Install Various Things
+
+https://github.com/rpmfusion-infra/fedy#installation
+
+Fedy is a very convenient way to install various apps and common tweaks
+
+### Gnome Shell Extensions
+
+**Suggest that you keep the number of extensions to a bare minimum to aid in stability and performance**
+
+You need to open firefox, go to https://extensions.gnome.org/ and install the addon that is suggested
+
+Once this is installed, you can add and enable/disable gnome shell extensions.
+
+#### Pixel Saver
+This extension is great for small screens/laptops or those who like to get the most out of their screen real estate
+
+https://extensions.gnome.org/extension/723/pixel-saver/
+
+### Firefox Extensions
+
+https://addons.mozilla.org/en-GB/firefox/addon/ublock-origin/
