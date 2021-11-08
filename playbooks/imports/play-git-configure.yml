@@ -21,6 +21,7 @@
           *.secret
           /untracked
           /vendor
+          .phpunit.result.cache
         path: "~/.config/git/ignore"
 
     - name: Enable Git Bash Prompt
