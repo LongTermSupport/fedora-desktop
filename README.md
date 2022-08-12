@@ -43,6 +43,12 @@ This extension is great for small screens/laptops or those who like to get the m
 
 https://extensions.gnome.org/extension/723/pixel-saver/
 
+#### Customised Workspace
+
+This extension makes workspaces, work the way you want
+
+https://extensions.gnome.org/extension/1583/worksets/
+
 ### Firefox Extensions
 
 https://addons.mozilla.org/en-GB/firefox/addon/ublock-origin/

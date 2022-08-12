@@ -25,6 +25,9 @@
         regexp: lxcbr0
         replace: virbr0
 
+    - name: Switch virbr0 to trusted firewall zone
+      command: nmcli connection modify virbr0 connection.zone trusted 
+
     - name: Setup Service
       systemd:
         name: "{{ item }}"
