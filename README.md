@@ -4,6 +4,8 @@ Taking a freshly installed Fedora and getting it ready for development work
 
 Uses a bash script which installs basic dependencies including git and ansible and from there, clones this repo and uses ansible to do the full provision
 
+**Make sure you opt to enable third party repos on the Fedora install**
+
 ## Run
 curl, wget or just copy paste the [run.bash](./run.bash) script
 
