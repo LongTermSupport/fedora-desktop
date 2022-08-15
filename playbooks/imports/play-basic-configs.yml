@@ -35,8 +35,21 @@
             path: /etc/vimrc.local
             create: true
 
-    - name: Basic Bash Tweaks
+    - name: Basic Bash Tweaks File
       copy:
         src: "{{ root_dir }}/files/etc/profile/zz_lts-fedora-desktop.bash"
         dest: /etc/profile.d/zz_lts-fedora-desktop.bash
+
+    - name: Ensure Bash Tweaks are Loaded
+      blockinfile:
+        marker: "# {mark} ANSIBLE MANAGED: Bash Tweaks"
+        block: source /etc/profile.d/zz_lts-fedora-desktop.bash
+        path: "{{ item }}"
+        create: false
+      loop:
+        - /root/.bashrc
+        - /root/.bash_profile
+        - /home/{{ user_login }}/.bashrc
+        - /home/{{ user_login }}/.bash_profile
+
 
