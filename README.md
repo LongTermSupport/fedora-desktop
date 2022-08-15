@@ -4,9 +4,35 @@ Taking a freshly installed Fedora and getting it ready for development work
 
 Uses a bash script which installs basic dependencies including git and ansible and from there, clones this repo and uses ansible to do the full provision
 
+## Manual Task - Install Fedora
+
+First you need to install Fedora. Currently, this repo is targeting F36.
+
+For standard desktop use it is suggested that you install with custom partitioning and avoid having a separate root and home directory. Generally trying to maintain the same home directory whilst switching versions of OS is an advanced move and generally it's cleaner to just rebuild everything so its simpler to have one partition for everything.
+
+A suggested partition configuration might be:
+
+| mount point | size | format | notes         |
+|-------------|------|--------|---------------|
+| /boot     | 500M | ext4 |               |
+| /boot/efi | 100M | efi |               |
+| /swap     | half RAM size | swap |               |
+| /         | all available spare space| ext4 or btrfs | **encrypted** |
+
+
+It is **very strongly recommended** that you do opt to encrypt the main root filesystem.
+
+### Enable Third Party Repos
+There is an option to enable third party repos as you are installing Fedora. You need to accept this.
+
 **Make sure you opt to enable third party repos on the Fedora install**
 
+
+
 ## Run
+
+Once you have an install, have logged in and created your main desktop user - then run this command, as your normal desktop user.
+
 curl, wget or just copy paste the [run.bash](./run.bash) script
 
 Suggested to copy paste into your bash terminal:
@@ -19,18 +45,17 @@ Suggested to copy paste into your bash terminal:
 
 Some manual, optional tasks
 
-### Use Fedy to Install Various Things
+### Run Extra Playbooks
 
-https://github.com/rpmfusion-infra/fedy#installation
+There are some playbooks which are not currently run as part of the main playbook.
 
-Fedy is a very convenient way to install various apps and common tweaks, such as:
+You can also create your own.
 
-* Google Chrome
-* Slack
-* Skype
-* Microsoft Truetype Fonts
-* Multimedia Codecs
-* Lots of other things...
+You would run these with, for example:
+
+```bash
+ansible-playbook ./playbooks/imports/play-install-flatpaks.yml
+```
 
 ### Gnome Shell Extensions
 
@@ -54,3 +79,18 @@ https://extensions.gnome.org/extension/1583/worksets/
 ### Firefox Extensions
 
 https://addons.mozilla.org/en-GB/firefox/addon/ublock-origin/
+
+### Use Fedy to Install Various Things
+
+(Not currently updated since F36 at time of writing)
+
+https://github.com/rpmfusion-infra/fedy#installation
+
+Fedy is a very convenient way to install various apps and common tweaks, such as:
+
+* Google Chrome
+* Slack
+* Skype
+* Microsoft Truetype Fonts
+* Multimedia Codecs
+* Lots of other things...
