@@ -1,8 +1,8 @@
 ### --main
 
 # Only apply configs once even if sourced multiple times
-if [[ -z ${lts-bash-tweaks-active+x} ]]; then
-  export lts-bash-tweaks-active=1
+if [[ -z ${lts_bash_tweaks_active+x} ]]; then
+  export lts_bash_tweaks_active=1
 
   # User specific aliases and functions
   alias rm='rm -i'
