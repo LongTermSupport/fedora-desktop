@@ -25,16 +25,21 @@
         regexp: lxcbr0
         replace: virbr0
 
-    - name: Switch virbr0 to trusted firewall zone
-      command: nmcli connection modify virbr0 connection.zone trusted 
+    - name: Start Libvirt Service to create Virbr0
+      systemd:
+        name: libvirtd
+        state: started
 
-    - name: Setup Service
+    - name: Setup LXC Service
       systemd:
         name: "{{ item }}"
         state: restarted
         enabled: yes
       with_items:
         - lxc
+
+    - name: Switch virbr0 to trusted firewall zone
+      command: nmcli connection modify virbr0 connection.zone trusted 
 
     - name: Create Insecure SSH Key for Connecting to Container
       become: true
