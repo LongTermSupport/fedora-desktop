@@ -1,0 +1,28 @@
+# Customisations for Gnome Shell - only worth doing if you actually use Gnome
+- hosts: desktop
+  become: true
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  tasks:
+    - name: Install Gnome Shell Extension Installer
+      shell: |
+        cd /usr/bin
+        wget -O gnome-shell-extension-installer "https://github.com/brunelli/gnome-shell-extension-installer/raw/master/gnome-shell-extension-installer"
+        chmod +x gnome-shell-extension-installer
+      args:
+        creates: /usr/bin/gnome-shell-extension-installer
+
+    - name: Install DNF packages
+      dnf:
+        name:
+          - xprop
+          - gnome-shell-extension-dash-to-dock
+          - gnome-shell-extension-just-perfection
+
+    - name: Install Gnome Shell Extensions Not Included with DNF
+      become: false
+      command: gnome-shell-extension-installer --yes --restart-shell {{ item.id }}
+      loop:
+        - name: Unite
+          id: 1287
+

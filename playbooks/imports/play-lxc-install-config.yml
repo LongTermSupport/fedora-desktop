@@ -53,8 +53,12 @@
         marker: "# {mark} LXC Containers Insecure Key"
         path: "/home/{{ user_login }}/.ssh/config"
         create: true
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
         block: |
           Host "192.168.122.*"
             IdentityFile ~/.ssh/id_lxc
             UserKnownHostsFile=/dev/null
             StrictHostKeyChecking=no
+
+
