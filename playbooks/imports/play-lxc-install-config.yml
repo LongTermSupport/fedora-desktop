@@ -25,10 +25,11 @@
         regexp: lxcbr0
         replace: virbr0
 
-    - name: Start Libvirt Service to create Virbr0
+    - name: Start and Enable libvirtd Service to create "virbr0"
       systemd:
         name: libvirtd
         state: started
+        enabled: true
 
     - name: Setup LXC Service
       systemd:
