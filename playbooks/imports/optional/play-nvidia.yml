@@ -1,4 +1,4 @@
-# Customisations for Gnome Shell - only worth doing if you actually use Gnome
+# Install nvautoinstall and then use it to install nvidia driver
 - hosts: desktop
   become: true
   vars:
