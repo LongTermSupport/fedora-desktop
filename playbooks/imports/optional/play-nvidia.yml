@@ -1,0 +1,16 @@
+# Customisations for Gnome Shell - only worth doing if you actually use Gnome
+- hosts: desktop
+  become: true
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  tasks:
+   - name: Install Auto Installer
+     shell: |
+        dnf install dnf-plugins-core -y
+        dnf copr enable t0xic0der/nvidia-auto-installer-for-fedora -y
+        dnf install nvautoinstall -y
+     args:
+        creates: /usr/bin/nvautoinstall
+
+   - name: Install Driver
+     shell: nvautoinstall compat && nvautoinstall rpmadd && nvautoinstall driver
