@@ -65,32 +65,24 @@ You need to open firefox, go to https://extensions.gnome.org/ and install the ad
 
 Once this is installed, you can add and enable/disable gnome shell extensions.
 
-#### Pixel Saver
-This extension is great for small screens/laptops or those who like to get the most out of their screen real estate
+#### GTK Title Bar
+This extension is great for small screens/laptops or those who like to get the most out of their screen real estate.
+It removes the stupidly fat title bars on windows like PHPStorm
 
-https://extensions.gnome.org/extension/723/pixel-saver/
+https://extensions.gnome.org/extension/1732/gtk-title-bar/
 
-#### Customised Workspace
+### Dash to Dock
 
-This extension makes workspaces, work the way you want
+This one makes the dash work more like a dock, basically you can access it by just moving your mouse to the bottom fo the screen instead of having to load the overview
 
-https://extensions.gnome.org/extension/1583/worksets/
+https://extensions.gnome.org/extension/307/dash-to-dock/
+
+### Ubuntu Like Panel
+
+Purely aesthetic, this makes the top panel translucent and nice
+
+https://extensions.gnome.org/extension/2660/transparent-panel/
 
 ### Firefox Extensions
 
 https://addons.mozilla.org/en-GB/firefox/addon/ublock-origin/
-
-### Use Fedy to Install Various Things
-
-(Not currently updated since F36 at time of writing)
-
-https://github.com/rpmfusion-infra/fedy#installation
-
-Fedy is a very convenient way to install various apps and common tweaks, such as:
-
-* Google Chrome
-* Slack
-* Skype
-* Microsoft Truetype Fonts
-* Multimedia Codecs
-* Lots of other things...
