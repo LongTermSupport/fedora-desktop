@@ -83,6 +83,13 @@ Purely aesthetic, this makes the top panel translucent and nice
 
 https://extensions.gnome.org/extension/2660/transparent-panel/
 
-### Firefox Extensions
+### Tray Icons: Reloaded
 
+Get the system tray icons (eg slack) somewhere you can actually see them!
+
+https://extensions.gnome.org/extension/2890/tray-icons-reloaded/
+
+## Firefox Extensions
+
+### Ublock Origin - essential equipment
 https://addons.mozilla.org/en-GB/firefox/addon/ublock-origin/
