@@ -71,5 +71,40 @@ if [[ -z ${lts_bash_tweaks_active+x} ]]; then
 
       export EDITOR=vim
       alias vi="vim"
+      
+      # Docker Node stuff
+      DOCKER_NODE_VER=${DOCKER_NODE_VER:-16}
+      docker-node-version() {
+        case "$1" in
+          -s|--set)
+            if [ "$2" ]; then
+                DOCKER_NODE_VER="$2"
+              echo 
+              echo "docker-node will now use node:$2 image!"
+            fi
+            return 0
+        esac
+        echo $DOCKER_NODE_VER
+      }
+      docker-node-image() {
+        echo -n "node:$(docker-node-version)"
+      }
+      docker-node-run() {
+      set -x
+        local dp
+        [ "$1" = "bash" ] && dp="-it"
+        dp="$dp --rm"
+        dp="$dp -v "$PWD":/usr/src/app"
+        dp="$dp -w /usr/src/app"
+        docker run $dp $(docker-node-image) "$@"
+      set +x
+      }
+      node() { docker-node-run "$@"; }
+      npm() { docker-node-run npm "$@"; }
+      npx() { docker-node-run npx "$@"; }
+      yarn() { docker-node-run yarn "$@"; }
+
+
+      
   fi
 fi
