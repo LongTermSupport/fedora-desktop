@@ -1,0 +1,16 @@
+- hosts: desktop
+  become: true
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  tasks:
+    - name: Install required packages
+      dnf:
+        name:
+          - curl 
+          - cabextract 
+          - xorg-x11-font-utils 
+          - fontconfig
+
+    - name: Install Fonts
+      dnf:
+        name: https://downloads.sourceforge.net/project/mscorefonts2/rpms/msttcore-fonts-installer-2.6-1.noarch.rpm
