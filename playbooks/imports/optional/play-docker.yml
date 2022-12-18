@@ -25,6 +25,7 @@
           - docker-ce-cli 
           - containerd.io 
           - docker-compose-plugin
+          - docker-compose
 
     - name: Setup ID Maps
       blockinfile:
