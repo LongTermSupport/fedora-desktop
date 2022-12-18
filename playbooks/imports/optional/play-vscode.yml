@@ -1,0 +1,17 @@
+# Flatpak is already installed by default, we just need to add to it
+- hosts: desktop
+  become: false
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  tasks:
+    - name: Install VS Code
+      become: true 
+      shell: | 
+        set -x; 
+        rpm --import https://packages.microsoft.com/keys/microsoft.asc  && \
+        echo -e "[code]\nname=Visual Studio Code\nbaseurl=https://packages.microsoft.com/yumrepos/vscode\nenabled=1\ngpgcheck=1\ngpgkey=https://packages.microsoft.com/keys/microsoft.asc" > /etc/yum.repos.d/vscode.repo && \
+        dnf check-update && \
+        dnf -y install code
+      args:
+        executable: /bin/bash
+        creates: /usr/bin/vscode
