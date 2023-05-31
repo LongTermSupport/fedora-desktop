@@ -1,4 +1,5 @@
 - hosts: desktop
+  name: Preflight Sanity
   become: true
   vars:
     root_dir: "{{ inventory_dir }}/../../"

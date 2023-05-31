@@ -1,5 +1,6 @@
 # see https://raw.githubusercontent.com/jaredhocutt/ansible-jetbrains-toolbox/master/tasks/main.yml
 - hosts: desktop
+  name: Jetbrains Toolbox Installation
   tasks:
   - name: Check if JetBrains Toolbox is already installed
     stat:

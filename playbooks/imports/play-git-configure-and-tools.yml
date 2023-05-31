@@ -1,6 +1,7 @@
 # Git is already installed as it was used to clone this repo,
 # so we just need to configure it
 - hosts: desktop
+  name: Git Configure and Tools
   become: false
   vars:
     root_dir: "{{ inventory_dir }}/../../"

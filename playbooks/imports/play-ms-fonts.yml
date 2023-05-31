@@ -1,4 +1,5 @@
 - hosts: desktop
+  name: MS Fonts
   become: true
   vars:
     root_dir: "{{ inventory_dir }}/../../"

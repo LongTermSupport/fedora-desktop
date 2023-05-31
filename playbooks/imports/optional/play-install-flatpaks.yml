@@ -12,7 +12,7 @@
       become_user: "{{ user_login }}"
       command: flatpak install flathub com.slack.Slack -y
 
-    - name: Install Anydesk
-      become: true
-      become_user: "{{ user_login }}"
-      command: flatpak install flathub com.anydesk.Anydesk -y
+#    - name: Install Anydesk
+#      become: true
+#      become_user: "{{ user_login }}"
+#      command: flatpak install flathub com.anydesk.Anydesk -y
