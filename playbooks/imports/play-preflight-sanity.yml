@@ -17,5 +17,5 @@
         that:
           - ansible_os_family == 'RedHat'
           - ansible_distribution == 'Fedora'
-          - ansible_distribution_major_version | int == 34
-        fail_msg: 'This project expects Fedora 34'
+          - ansible_distribution_major_version | int == 38
+        fail_msg: 'This project expects Fedora 38'

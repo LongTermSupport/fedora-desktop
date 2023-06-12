@@ -14,6 +14,8 @@
           - wget
           - bash-completion
           - htop
+          - wireguard-tools
+      tags: packages
 
     - name: Passwordless Sudo
       blockinfile:
@@ -52,5 +54,16 @@
         - /root/.bash_profile
         - /home/{{ user_login }}/.bashrc
         - /home/{{ user_login }}/.bash_profile
+
+    - name: Copy SSH ID to root
+      copy:
+        remote_src: true
+        src: /home/{{user_login}}/.ssh/{{item}}
+        dest: /root/.ssh/{{item}}
+        owner: root
+        mode: 0600
+      loop:
+        - id
+        - id.pub
 
 

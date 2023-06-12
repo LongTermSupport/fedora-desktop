@@ -13,24 +13,12 @@
         name:
         - lxc
         - lxc-templates
-        - libvirt
 
     - name: Put SELinux in permissive mode, logging actions that would be blocked.
       selinux:
         policy: targeted
         state: permissive
 
-    - name: Tell LXC to use libvirt bridge and avoid firewalld issues
-      replace:
-        path: /etc/lxc/default.conf
-        regexp: lxcbr0
-        replace: virbr0
-
-    - name: Start and Enable libvirtd Service to create "virbr0"
-      systemd:
-        name: libvirtd
-        state: started
-        enabled: true
 
     - name: Setup LXC Service
       systemd:
@@ -40,8 +28,8 @@
       with_items:
         - lxc
 
-    - name: Switch virbr0 to trusted firewall zone
-      command: nmcli connection modify virbr0 connection.zone trusted 
+    - name: Switch lxcbr0 to trusted firewall zone
+      command: nmcli connection modify lxcbr0 connection.zone trusted
 
     - name: Create Insecure SSH Key for Connecting to Container
       become: true
@@ -62,5 +50,18 @@
             IdentityFile ~/.ssh/id_lxc
             UserKnownHostsFile=/dev/null
             StrictHostKeyChecking=no
+
+    - name: Clone LXC Bash
+      become: true
+      become_user: "{{ user_login }}"
+      git:
+        repo: git@github.com:LongTermSupport/lxc-bash.git
+        dest: /home/{{ user_login }}/Projects/lxc-bash
+
+    - name: Add Aliases to bashrc file
+      lineinfile:
+        line: source /home/{{ user_login }}/Projects/lxc-bash/lxc-bash-completion.bash
+        path: /home/{{ user_login }}/.bashrc
+
 
 
