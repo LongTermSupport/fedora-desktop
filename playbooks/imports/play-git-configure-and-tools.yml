@@ -13,6 +13,7 @@
         git config --global color.ui auto
         git config --global push.default simple;
         git config --global help.autocorrect 30;
+        git config --global core.editor "vim"
 
     - name: Set up Global Git Ignores
       blockinfile:
