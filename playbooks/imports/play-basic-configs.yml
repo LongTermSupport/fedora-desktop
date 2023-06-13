@@ -67,8 +67,9 @@
         - id.pub
 
     - name: Install YQ
+      become: true
       shell: |
-         sudo bash -c "wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq && chmod +x /usr/bin/yq"
+         wget https://github.com/mikefarah/yq/releases/download/3.4.1/yq_linux_amd64 -O /usr/bin/yq && chmod +x /usr/bin/yq
       args:
         creates: /usr/bin/yq
       tags: yq
