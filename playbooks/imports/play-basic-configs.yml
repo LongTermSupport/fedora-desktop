@@ -14,7 +14,6 @@
           - wget
           - bash-completion
           - htop
-          - wireguard-tools
       tags: packages
 
     - name: Passwordless Sudo
