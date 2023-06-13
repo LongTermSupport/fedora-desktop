@@ -1,0 +1,56 @@
+- hosts: desktop
+  name: TLP Battery Optimisation
+  become: true
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  tasks:
+    - name: Install Packages
+      dnf:
+        name:
+          - tlp
+          - tlp-rdw
+      notify: restart
+
+    - name: Uninstall Conflicting Packages
+      dnf:
+        name: power-profiles-daemon
+        state: absent
+
+    - name: Enable Service
+      systemd:
+        name: tlp.service
+        state: restarted
+        enabled: true
+
+    - name: Mask Services
+      systemd:
+        name: "{{ item }}"
+        masked: true
+      loop:
+        - systemd-rfkill.service
+        - systemd-rfkill.socket
+
+    - name: Set Battery Threshold
+      copy:
+        dest: /etc/tlp.d/battery.conf
+        content: |
+          START_CHARGE_THRESH_BAT0=75
+          STOP_CHARGE_THRESH_BAT0=80
+      notify: restart
+
+    - name: Radio Devices
+      copy:
+        dest: /etc/tlp.d/radio.conf
+        content: |
+          DEVICES_TO_DISABLE_ON_LAN_CONNECT="wifi wwan"
+          DEVICES_TO_DISABLE_ON_WIFI_CONNECT="wwan"
+          DEVICES_TO_DISABLE_ON_WWAN_CONNECT="wifi"
+          DEVICES_TO_ENABLE_ON_LAN_DISCONNECT="wifi wwan"
+      notify: restart
+
+  handlers:
+    - name: restart
+      systemd:
+        name: tlp.service
+        state: restarted
+        enabled: true
