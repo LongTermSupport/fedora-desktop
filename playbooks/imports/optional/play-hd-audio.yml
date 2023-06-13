@@ -1,0 +1,39 @@
+# Set Pipewire Configs to Support Variable and Higher Bitrates
+- hosts: desktop
+  name: HD Audio
+  tasks:
+    - name: Copy Pipewire Config to User Home
+      copy:
+        remote_src: true
+        src: /usr/share/pipewire/
+        dest: /home/{{ user_login }}/.config/pipewire
+        # don't copy if already copied
+        force: false
+
+    - name: Update pipewire.conf
+      lineinfile:
+        line: "{{ item.line }}"
+        path: /home/{{ user_login }}/.config/pipewire/pipewire.conf
+        regexp: "{{ item.regexp }}"
+      loop:
+        - line: "    default.clock.allowed-rates = [ 44100 48000 88200 96000 192000 ]"
+          regexp: default\.clock\.allowed-rates
+        - line: "    default.clock.rate          = 192000"
+          regexp: default\.clock\.rate
+        - line: "    default.clock.min-quantum   = 16"
+          regexp: default\.clock\.min-quantum
+
+    - name: Update client.conf
+      lineinfile:
+        path: /home/{{ user_login }}/.config/pipewire/client.conf
+        line: "    resample.quality      = 10"
+        regexp: resample\.quality
+
+    - name: Update pipewire-pulse.conf
+      lineinfile:
+        path: /home/{{ user_login }}/.config/pipewire/pipewire-pulse.conf
+        line: "    resample.quality      = 10"
+        regexp: resample\.quality
+
+
+
