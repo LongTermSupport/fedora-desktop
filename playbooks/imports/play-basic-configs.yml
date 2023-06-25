@@ -73,3 +73,16 @@
         creates: /usr/bin/yq
       tags: yq
 
+    - name: DNF Parallel
+      lineinfile:
+        path: /etc/dnf/dnf.conf
+        line: max_parallel_downloads=10
+
+    - name: Hardware
+      shell: |
+        fwupdmgr get-devices 
+        fwupdmgr refresh --force 
+        fwupdmgr get-updates 
+        fwupdmgr update
+
+
