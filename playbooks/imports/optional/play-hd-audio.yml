@@ -21,7 +21,7 @@
           regexp: default\.clock\.allowed-rates
         - line: "    default.clock.rate          = 192000"
           regexp: default\.clock\.rate
-        - line: "    default.clock.min-quantum   = 64"
+        - line: "    default.clock.min-quantum   = 32"
           regexp: default\.clock\.min-quantum
       notify: pw-restart
 
