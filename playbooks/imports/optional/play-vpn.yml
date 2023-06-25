@@ -21,3 +21,7 @@
           nmcli connection import type wireguard file $f
         done
         exit 0
+
+    - name: Add OpenVPN to Firewalld
+      shell: |
+        firewall-cmd --add-service openvpn --permanent 

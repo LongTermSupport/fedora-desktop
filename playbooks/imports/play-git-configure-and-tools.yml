@@ -58,3 +58,14 @@
       dnf:
         name:
          - git-filter-repo
+
+    - name: Git Aliases
+      blockinfile:
+        path: /home/{{ user_login }}/.bashrc
+        marker: "# {mark} ANSIBLE MANAGED: Git Aliases"
+        block: |
+          alias gu="git push"
+          alias gd="git pull"
+          alias gs="git status"
+          alias c="git commit"
+      tags: alias
