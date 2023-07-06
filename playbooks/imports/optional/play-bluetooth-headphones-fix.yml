@@ -1,19 +1,47 @@
 # Flatpak is already installed by default, we just need to add to it
 - hosts: desktop
-  become: true
   vars:
     root_dir: "{{ inventory_dir }}/../../"
   tasks:
     - name: Set Controller Mode to bredr to Fix Bluetooth Headphones
+      become: true
       blockinfile:
         marker: "# {mark} ANSIBLE MANAGED: Set Controller Mode to bredr to Fix Bluetooth Headphones"
         block: |
           ControllerMode = bredr
         path: /etc/bluetooth/main.conf
         insertafter: \[General\]
-      notify: restart
+      notify: restart-bt
+
+    - name: Set Bluetooth Quality Settings
+      become: true
+      blockinfile:
+        marker: "-- {mark} ANSIBLE MANAGED: Bluetooth Headphones LDAC Quality"
+        path: /usr/share/wireplumber/bluetooth.lua.d/50-bluez-config.lua
+        insertafter: --\["bluez5.a2dp.ldac.quality"\] = "auto",
+        block: |
+          ["bluez5.a2dp.ldac.quality"] = "hq",
+      notify: restart-pw
+
+    - name: Set Bluetooth Quality Settings
+      become: true
+      blockinfile:
+        marker: "-- {mark} ANSIBLE MANAGED: Bluetooth Headphones Quality Configs"
+        path: /usr/share/wireplumber/bluetooth.lua.d/50-bluez-config.lua
+        insertafter: --\["bluez5.default.rate"\] = 48000,
+        block: |
+          ["bluez5.default.rate"] = 96000,
+      notify: restart-pw
+
   handlers:
-    - name: restart
+    - name: restart-pw
+      systemd:
+        scope: user
+        name: pipewire
+        state: restarted
+
+    - name: restart-bt
+      become: true
       systemd:
         name: bluetooth
         state: restarted
