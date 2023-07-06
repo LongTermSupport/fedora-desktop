@@ -1,0 +1,19 @@
+# Flatpak is already installed by default, we just need to add to it
+- hosts: desktop
+  become: true
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  tasks:
+    - name: Set Controller Mode to bredr to Fix Bluetooth Headphones
+      blockinfile:
+        marker: "# {mark} ANSIBLE MANAGED: Set Controller Mode to bredr to Fix Bluetooth Headphones"
+        block: |
+          ControllerMode = bredr
+        path: /etc/bluetooth/main.conf
+        insertafter: \[General\]
+      notify: restart
+  handlers:
+    - name: restart
+      systemd:
+        name: bluetooth
+        state: restarted
