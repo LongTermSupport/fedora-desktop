@@ -1,0 +1,11 @@
+- hosts: desktop
+  name: GSettings 
+  tasks:
+    - name: Apply Gsettings
+      become: true
+      become_user: "{{ user_login }}"
+      shell: "{{ item }}"
+      loop:
+        # disable caps lock key
+        - gsettings set org.gnome.desktop.input-sources xkb-options \[\'caps:none\'\]
+
