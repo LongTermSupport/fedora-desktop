@@ -68,5 +68,21 @@
         line: source /home/{{ user_login }}/Projects/lxc-bash/lxc-bash-completion.bash
         path: /home/{{ user_login }}/.bashrc
 
+    - name: Increase System Limits
+      blockinfile:
+        path: /etc/sysctl.conf
+        marker: "# {mark} ANSIBLE MANAGED - LXC Install"
+        block: |
+          fs.inotify.max_user_instances=8192
+          fs.inotify.max_user_watches=524288
+      notify: sysctl
+      tags: sysctl
+
+  handlers:
+    - name: sysctl
+      command: sysctl -p
+          
+      
+
 
 
