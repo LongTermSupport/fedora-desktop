@@ -2,3 +2,6 @@ user_login: "yourname"
 user_name: "Firstname Lastname"
 user_email: "yourname@yourdomain.com"
 
+# Optional Qobuz ClI Related
+# lastpass_secret: !vault |...
+# lastpass_secret: !vault |...

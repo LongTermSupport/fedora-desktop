@@ -1,0 +1,92 @@
+- hosts: desktop
+  name: Qobuz CLI Apps - Gapless HD Audio Streaming from Qobuz
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+    hifiRsVersion: 0.2.1
+    hifiRsUrl: "https://github.com/iamdb/hifi.rs/releases/download/v{{ hifiRsVersion }}/hifi-rs-x86_64-unknown-linux-gnu.tar.gz"
+    hifiRsPath: "/home/{{ user_login }}/.local/bin/hifi-rs"
+    rescrobbledVersion: 0.7.0
+    rescrobbledUrl: "https://github.com/InputUsername/rescrobbled/releases/download/v{{ rescrobbledVersion }}/rescrobbled"
+    rescrobbledPath: "/home/{{ user_login }}/.local/bin/rescrobbled"
+  tasks:
+    - name: Install hifi-rs
+      shell: |
+        cd /home/{{ user_login }}/Downloads
+        rm -rf hifi-rs*
+        wget "{{ hifiRsUrl }}"        
+        tar -xf hifi-rs-x86_64-unknown-linux-gnu.tar.gz
+        mv hifi-rs "{{ hifiRsPath }}"
+      args:
+        executable: /bin/bash
+        creates: "{{ hifiRsPath }}"
+
+    - name: Install Recsrobbled
+      shell: |
+        cd /home/{{ user_login }}/Downloads
+        rm -rf rescrobbled*
+        wget "{{ rescrobbledUrl }}"
+        mv rescrobbled "{{ rescrobbledPath }}"
+        chmod u+x "{{ rescrobbledPath }}"
+      args:
+        executable: /bin/bash
+        creates: "{{ rescrobbledPath }}"
+
+    - name: Create Rescrobbled Config Dir
+      file:
+        state: directory
+        path: /home/{{ user_login }}/.config/rescrobbled/
+
+    # Needs Last FM API Account
+    # Visit https://www.last.fm/api/account/create
+    - name: Configure Rescrobbled
+      copy:
+        content: |
+          lastfm-key = "{{ lastpass_api_key }}"
+          lastfm-secret = "{{ lastpass_api_secret }}"
+        dest: /home/{{ user_login }}/.config/rescrobbled/config.toml
+
+    - name: Create Systemd User Dir
+      file:
+        state: directory
+        path: /home/{{ user_login }}/.config/systemd/user/
+
+    - name: Rescrobbled Systemd Config
+      copy:
+        content: |
+          [Unit]
+          Description=An MPRIS scrobbler
+          Documentation=https://github.com/InputUsername/rescrobbled
+          Wants=network-online.target
+          After=network-online.target
+          
+          [Service]
+          ExecStart=%h/.local/bin/rescrobbled
+          
+          [Install]
+          WantedBy=default.target
+        dest: /home/{{ user_login }}/.config/systemd/user/rescrobbled.service
+
+    - name: Start and Enable Rescrobbled Service
+      systemd:
+        name: rescrobbled
+        state: started
+        enabled: true
+        scope: user
+
+    - name: Check for Session File For Rescrobbled
+      stat: /home/{{ user_login }}/.config/rescrobbled/session
+      regster: rescrobbled_session_file
+
+    - name: If No Session File, You Need to Manually Run "rescrobbled"
+      fail: |
+        please do the following: 
+          - run rescrobbled
+          - enter your login details
+          - confirm it logs in properly
+          - ctrl c to kill that
+          - systemcl --user restart rescrobbled
+          - systemctl status rescrobbled
+
+      
+      
+    
