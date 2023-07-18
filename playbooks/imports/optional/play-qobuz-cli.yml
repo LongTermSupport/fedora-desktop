@@ -2,7 +2,7 @@
   name: Qobuz CLI Apps - Gapless HD Audio Streaming from Qobuz
   vars:
     root_dir: "{{ inventory_dir }}/../../"
-    hifiRsVersion: 0.2.1
+    hifiRsVersion: 0.2.4
     hifiRsUrl: "https://github.com/iamdb/hifi.rs/releases/download/v{{ hifiRsVersion }}/hifi-rs-x86_64-unknown-linux-gnu.tar.gz"
     hifiRsPath: "/home/{{ user_login }}/.local/bin/hifi-rs"
     rescrobbledVersion: 0.7.0
@@ -11,14 +11,22 @@
   tasks:
     - name: Install hifi-rs
       shell: |
+        set -ex
+        if [[ -f {{ hifiRsPath }} ]]; then
+          installedVersion="$(hifi-rs --version | grep -Po '[0-9.]+')"
+          desiredVersion="{{ hifiRsVersion }}"
+          if ( printf '%s\n' "$desiredVersion" "$installedVersion" | sort -C -V ); then
+            echo "installed version $installedVersion is up to date with desired version $desiredVersion"
+            exit 0
+          fi
+        fi
         cd /home/{{ user_login }}/Downloads
         rm -rf hifi-rs*
         wget "{{ hifiRsUrl }}"        
         tar -xf hifi-rs-x86_64-unknown-linux-gnu.tar.gz
-        mv hifi-rs "{{ hifiRsPath }}"
+        mv -f hifi-rs "{{ hifiRsPath }}"
       args:
         executable: /bin/bash
-        creates: "{{ hifiRsPath }}"
 
     - name: Install Recsrobbled
       shell: |
@@ -74,19 +82,21 @@
         scope: user
 
     - name: Check for Session File For Rescrobbled
-      stat: /home/{{ user_login }}/.config/rescrobbled/session
-      regster: rescrobbled_session_file
+      stat: 
+        path: /home/{{ user_login }}/.config/rescrobbled/session
+      register: rescrobbled_session_file
 
     - name: If No Session File, You Need to Manually Run "rescrobbled"
-      fail: |
-        please do the following: 
+      fail:
+        msg: |
+          please do the following 
           - run rescrobbled
           - enter your login details
           - confirm it logs in properly
           - ctrl c to kill that
           - systemcl --user restart rescrobbled
           - systemctl status rescrobbled
-
+      when: rescrobbled_session_file.stat.islnk is not defined
       
       
     
