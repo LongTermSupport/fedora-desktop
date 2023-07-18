@@ -2,7 +2,7 @@
   name: Qobuz CLI Apps - Gapless HD Audio Streaming from Qobuz
   vars:
     root_dir: "{{ inventory_dir }}/../../"
-    hifiRsVersion: 0.2.4
+    hifiRsVersion: 0.2.3
     hifiRsUrl: "https://github.com/iamdb/hifi.rs/releases/download/v{{ hifiRsVersion }}/hifi-rs-x86_64-unknown-linux-gnu.tar.gz"
     hifiRsPath: "/home/{{ user_login }}/.local/bin/hifi-rs"
     rescrobbledVersion: 0.7.0
@@ -15,8 +15,8 @@
         if [[ -f {{ hifiRsPath }} ]]; then
           installedVersion="$(hifi-rs --version | grep -Po '[0-9.]+')"
           desiredVersion="{{ hifiRsVersion }}"
-          if ( printf '%s\n' "$desiredVersion" "$installedVersion" | sort -C -V ); then
-            echo "installed version $installedVersion is up to date with desired version $desiredVersion"
+          if  [[ "$installedVersion" == "$desiredVersion" ]]; then
+            echo "installed version $installedVersion is the same as the desired version $desiredVersion"
             exit 0
           fi
         fi
