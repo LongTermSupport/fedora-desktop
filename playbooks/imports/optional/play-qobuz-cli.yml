@@ -49,8 +49,8 @@
     - name: Configure Rescrobbled
       copy:
         content: |
-          lastfm-key = "{{ lastpass_api_key }}"
-          lastfm-secret = "{{ lastpass_api_secret }}"
+          lastfm-key = "{{ lastfm_api_key }}"
+          lastfm-secret = "{{ lastfm_api_secret }}"
         dest: /home/{{ user_login }}/.config/rescrobbled/config.toml
 
     - name: Create Systemd User Dir
