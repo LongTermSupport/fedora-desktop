@@ -102,6 +102,17 @@ title "Configuring Github CLI (https://cli.github.com/)
 We're now going to log into Github - you will need to authenticate with your browser
 "
 echo 'export GH_HOST="github.com"' >> ~/.bashrc
+echo "
+
+
+###################################################
+
+  PLEASE CHOOSE SSH AS THE AUTHENTICATION METHOD!
+
+###################################################
+
+
+"
 gh auth login
 completed
 
