@@ -90,12 +90,22 @@ else
 fi
 completed
 
-title "You now need to save this public key to your github account"
-echo "URL: https://github.com/settings/ssh/new"
-printf "\nSSH Key to copy/paste below:\n\n"
-cat ~/.ssh/id.pub
-printf "\n\nplease confirm you have saved your new key in github\n"
-confirm "key saved in github"
+title "Installing Github CLI"
+sudo dnf install 'dnf-command(config-manager)'
+sudo dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
+sudo dnf install gh
+completed
+
+title "Configuring Github CLI (https://cli.github.com/)
+
+We're now going to log into Github - you will need to authenticate with your browser
+"
+echo 'export GH_HOST="github.com"' >> ~/.bashrc
+gh auth login
+completed
+
+title "Adding SSH Key to Github"
+gh ssh-key add ~/.ssh/id.pub --title="Added by fedora-desktop setup script on $(date +%Y-%m-%d)" --type=authentication
 completed
 
 title "Creating Projects directory"
