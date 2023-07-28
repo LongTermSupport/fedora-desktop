@@ -164,7 +164,7 @@ git pull
 completed
 
 title "Setting up Vault Password"
-if [[ -f ~/projects/fedora-desktop/vault-pass.secret ]]; then
+if [[ -f ~/Projects/fedora-desktop/vault-pass.secret ]]; then
   echo " - found existing vault password"
 else
   echo "paste your vault password, or leave blank to generate a new one"
@@ -172,7 +172,7 @@ else
   if [[ "" == "$vaultPass" ]]; then
     vaultPass="$(openssl rand -base64 32)"
   fi
-  echo "$vaultPass" > ~/projects/fedora-desktop/vault-pass.secret
+  echo "$vaultPass" > ~/Projects/fedora-desktop/vault-pass.secret
 fi
 
 title "Now running Ansible to complete configuration"
