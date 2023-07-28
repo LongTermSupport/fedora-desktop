@@ -1,6 +1,7 @@
 # DisplayLink is used by USB Docks for Extra Monitors
 # This RPM will install everything and it pretty much just works
 - hosts: desktop
+  become: true
   vars:
     root_dir: "{{ inventory_dir }}/../../"
   tasks:

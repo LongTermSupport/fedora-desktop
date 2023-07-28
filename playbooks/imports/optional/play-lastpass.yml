@@ -1,0 +1,21 @@
+- hosts: desktop
+  name: GSettings
+  tasks:
+    - name: 'Install Lastpass'
+      dnf:
+        name: lastpass-cli
+        state: present
+
+    - name: 'Get lastpass Login'
+      ## https://docs.ansible.com/ansible/latest/user_guide/playbooks_prompts.html
+      vars_prompt:
+        - name: "lastpass_username"
+          prompt: "Enter your lastpass username"
+          private: no
+      register: lastpass_username
+
+    - name: 'Login to Lastpass'
+      shell: |
+        set -ex
+        lpass login "{{ lastpass_username }}"
+        lpass sync

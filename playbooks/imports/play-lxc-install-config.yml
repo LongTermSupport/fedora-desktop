@@ -51,10 +51,16 @@
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         block: |
-          Host "192.168.122.*"
+          Host "10.0.*.*"
             IdentityFile ~/.ssh/id_lxc
             UserKnownHostsFile=/dev/null
             StrictHostKeyChecking=no
+
+    - name: Enable DHPC on lxcbr0
+      blockinfile:
+        block: LXC_DHCP_CONFILE=/etc/lxc/dhcp.conf
+        marker: "# {mark} ANSIBLE MANAGED - LXC Install"
+        path: /etc/sysconfig/lxc-net
 
     - name: Clone LXC Bash
       become: true
