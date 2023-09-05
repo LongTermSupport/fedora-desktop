@@ -1,0 +1,139 @@
+- hosts: desktop
+  name: Install Virtualbox
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+
+  tasks:
+    - name: Install Virtualbox Dependencies
+      become: true
+      dnf:
+        name:
+          - "@development-tools"
+          - kernel-headers
+          - kernel-devel
+          - dkms
+          - akmod-VirtualBox
+
+    - name: Install Repo
+      become: true
+      get_url:
+        url: https://download.virtualbox.org/virtualbox/rpm/fedora/virtualbox.repo
+        dest: /etc/yum.repos.d/virtualbox.repo
+        mode: 0644
+
+    - name: Install Virtualbox
+      become: true
+      dnf:
+        name: VirtualBox
+        state: present
+      notify: akmod
+
+    - name: Add user to vboxusers group
+      become: true
+      user:
+        name: "{{ user_login }}"
+        groups: vboxusers
+        append: yes
+
+  handlers:
+    - name: akmod
+      become: true
+      shell: akmods --kernels 6.4.11-200.fc38.x86_64 && systemctl restart vboxdrv.service
+
+- hosts: desktop
+  name: Setup Windows VMs
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+
+  tasks:
+    - name: Download Windows 11 VM
+      get_url:
+        url: https://aka.ms/windev_VM_virtualbox
+        dest: /home/{{ user_login }}/Downloads/Win11VirtualBox.zip
+        mode: 0644
+
+    - name: Unzip Windows 11 VM
+      unarchive:
+        src: /home/{{ user_login }}/Downloads/Win11VirtualBox.zip
+        dest: /home/{{ user_login }}/Downloads/
+        remote_src: yes
+        creates: "/home/{{ user_login }}/Downloads/WinDev2308Eval.ova"
+
+    - name: Import Windows 11 VM
+      shell: |
+        set -ex
+        echo "Check if VM exists"
+        if VBoxManage list vms | grep -q WinDev2308Eval; then
+          echo "already imported"
+          exit 0
+        fi
+        echo "Import VM and configure"
+        VBoxManage import /home/{{ user_login }}/Downloads/WinDev2308Eval.ova
+        VBoxManage modifyvm "WinDev2308Eval" --cpus 2
+        VBoxManage modifyvm "WinDev2308Eval" --memory 4096
+        VBoxManage modifyvm "WinDev2308Eval" --vram 128
+        VBoxManage modifyvm "WinDev2308Eval" --ioapic on
+        VBoxManage modifyvm "WinDev2308Eval" --hwvirtex on
+        VBoxManage modifyvm "WinDev2308Eval" --nested-hw-virt on
+        VBoxManage modifyvm "WinDev2308Eval" --largepages on
+        VBoxManage modifyvm "WinDev2308Eval" --firmware efi
+        VBoxManage modifyvm "WinDev2308Eval" --graphicscontroller vboxvga
+        VBoxManage modifyvm "WinDev2308Eval" --mouse usbtablet
+        VBoxManage modifyvm "WinDev2308Eval" --boot1 disk
+        VBoxManage modifyvm "WinDev2308Eval" --boot2 dvd
+        VBoxManage modifyvm "WinDev2308Eval" --boot3 none
+        VBoxManage modifyvm "WinDev2308Eval" --boot4 none
+        VBoxManage modifyvm "WinDev2308Eval" --usb on
+        VBoxManage modifyvm "WinDev2308Eval" --usbehci on
+      args:
+        executable: /bin/bash
+        creates: "/home/{{ user_login }}/VirtualBox VMs/WinDev2308Eval/WinDev2308Eval.vbox"
+
+    - name: Download Windows 10 ISO
+      get_url:
+        url: "https://go.microsoft.com/fwlink/p/?LinkID=2208844&clcid=0x809&culture=en-gb&country=GB"
+        dest: /home/{{ user_login }}/Downloads/Win10.iso
+        mode: 0644
+
+    - name: Download Guest Additions ISO
+      get_url:
+        url: "https://download.virtualbox.org/virtualbox/7.0.10/VBoxGuestAdditions_7.0.10.iso"
+        dest: /home/{{ user_login }}/Downloads/VBoxGuestAdditions_7.0.10.iso
+
+
+    # TODO - this is not working, need to figure out how to do unattended install
+    - name: Unattended Windows 10 VM Install
+      shell: |
+        set -ex
+        echo "Check if VM exists"
+        if ! VBoxManage list vms | grep -q win10; then
+          echo "Create VM unattended"
+          VBoxManage createvm --name win10 --ostype Windows10_64 --register
+        fi
+        VBoxManage modifyvm "win10" --cpus 2
+        VBoxManage modifyvm "win10" --memory 4096
+        VBoxManage modifyvm "win10" --vram 128
+        VBoxManage modifyvm "win10" --ioapic on
+        VBoxManage modifyvm "win10" --hwvirtex on
+        VBoxManage modifyvm "win10" --nested-hw-virt on
+        VBoxManage modifyvm "win10" --largepages on
+        VBoxManage modifyvm "win10" --firmware efi
+        VBoxManage modifyvm "win10" --graphicscontroller vboxvga
+        VBoxManage modifyvm "win10" --mouse usbtablet
+        VBoxManage modifyvm "win10" --boot1 disk
+        VBoxManage modifyvm "win10" --boot2 none
+        VBoxManage modifyvm "win10" --boot3 none
+        VBoxManage modifyvm "win10" --boot4 none
+        VBoxManage modifyvm "win10" --usb on
+        VBoxManage modifyvm "win10" --usbehci on
+        echo "Run unattended install"
+        VBoxManage unattended install win10 \
+          --iso=/home/{{ user_login }}/Downloads/Win10.iso \
+          --user={{ user_login }} \
+          --password=W1nd0z3 \
+          --install-additions \
+          --time-zone=UTC \
+          --additions-iso=/home/{{ user_login }}/Downloads/VBoxGuestAdditions_7.0.10.iso
+          --post-install-command='VBoxControl guestproperty set installation_finished y'
+      args:
+        executable: /bin/bash
