@@ -2,7 +2,7 @@
   name: Qobuz CLI Apps - Gapless HD Audio Streaming from Qobuz
   vars:
     root_dir: "{{ inventory_dir }}/../../"
-    hifiRsVersion: 0.2.5
+    hifiRsVersion: 0.3.4
     hifiRsUrl: "https://github.com/iamdb/hifi.rs/releases/download/v{{ hifiRsVersion }}/hifi-rs-x86_64-unknown-linux-gnu.tar.gz"
     hifiRsPath: "/home/{{ user_login }}/.local/bin/hifi-rs"
     rescrobbledVersion: 0.7.0
@@ -74,13 +74,6 @@
           WantedBy=default.target
         dest: /home/{{ user_login }}/.config/systemd/user/rescrobbled.service
 
-    - name: Start and Enable Rescrobbled Service
-      systemd:
-        name: rescrobbled
-        state: started
-        enabled: true
-        scope: user
-
     - name: Check for Session File For Rescrobbled
       stat: 
         path: /home/{{ user_login }}/.config/rescrobbled/session
@@ -98,5 +91,10 @@
           - systemctl status rescrobbled
       when: rescrobbled_session_file.stat.islnk is not defined
       
-      
+    - name: Start and Enable Rescrobbled Service
+      systemd:
+        name: rescrobbled
+        state: started
+        enabled: true
+        scope: user
     
