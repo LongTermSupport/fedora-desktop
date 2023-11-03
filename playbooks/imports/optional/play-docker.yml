@@ -8,15 +8,16 @@
       become: true 
       dnf:
         name: dnf-plugins-core
+
     - name: Add Docker Repo
       become: true
-      command:
-        cmd: |
+      shell: |
           dnf config-manager \
             --add-repo \
             https://download.docker.com/linux/fedora/docker-ce.repo 
-        args:
-          creates: /yum/repos.d/docker-ce.repo
+      args:
+        creates: /yum/repos.d/docker-ce.repo
+
     - name: Install Docker
       become: true
       dnf:
@@ -28,13 +29,14 @@
           - docker-compose
 
     - name: Setup ID Maps
+      become: true
       blockinfile:
         path: "{{ item }}"
         block: |
           {{user_login}}:100000:65536
       loop:
         - /etc/subuid
-        - /etc/suggid
+        - /etc/subgid
 
     - name: Run Rootless Setup
       command: dockerd-rootless-setuptool.sh install
@@ -44,6 +46,6 @@
     - name: Enable and Start User Rootless Docker Sytemd Service
       systemd:
         name: docker
-        start: started
+        state: started
         enabled: yes
         scope: user
