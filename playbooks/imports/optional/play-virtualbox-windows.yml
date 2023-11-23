@@ -46,6 +46,36 @@
     root_dir: "{{ inventory_dir }}/../../"
 
   tasks:
+    - name: Get Embedded Windows Key
+      become: true
+      dnf:
+        name: acpica-tools
+        state: present
+      tags: key
+
+    - name: Run Commands to get Windows Key
+      become: true
+      shell: |
+        echo "A few different ways to get windows key"
+        echo 
+        echo "First and most simple:"
+        cat /sys/firmware/acpi/tables/MSDM | cut -d ' ' -f 4
+        echo
+        echo "Second, using acpidump:"
+        echo
+        acpidump -n MSDM | tail -4
+      args:
+        executable: /bin/bash
+      register: windows_key
+      tags: key
+
+    - name: |
+        Show Windows Key - This is the key that is embedded on your machine, if it is present.
+        The key is the bit at the end of the outputs below.
+      debug:
+        msg: "{{ windows_key.stdout_lines }}"
+      tags: key
+
     - name: Download Windows 11 VM
       get_url:
         url: https://aka.ms/windev_VM_virtualbox
@@ -89,51 +119,52 @@
         executable: /bin/bash
         creates: "/home/{{ user_login }}/VirtualBox VMs/WinDev2308Eval/WinDev2308Eval.vbox"
 
-    - name: Download Windows 10 ISO
-      get_url:
-        url: "https://go.microsoft.com/fwlink/p/?LinkID=2208844&clcid=0x809&culture=en-gb&country=GB"
-        dest: /home/{{ user_login }}/Downloads/Win10.iso
-        mode: 0644
-
-    - name: Download Guest Additions ISO
-      get_url:
-        url: "https://download.virtualbox.org/virtualbox/7.0.10/VBoxGuestAdditions_7.0.10.iso"
-        dest: /home/{{ user_login }}/Downloads/VBoxGuestAdditions_7.0.10.iso
-
-
-    # TODO - this is not working, need to figure out how to do unattended install
-    - name: Unattended Windows 10 VM Install
-      shell: |
-        set -ex
-        echo "Check if VM exists"
-        if ! VBoxManage list vms | grep -q win10; then
-          echo "Create VM unattended"
-          VBoxManage createvm --name win10 --ostype Windows10_64 --register
-        fi
-        VBoxManage modifyvm "win10" --cpus 2
-        VBoxManage modifyvm "win10" --memory 4096
-        VBoxManage modifyvm "win10" --vram 128
-        VBoxManage modifyvm "win10" --ioapic on
-        VBoxManage modifyvm "win10" --hwvirtex on
-        VBoxManage modifyvm "win10" --nested-hw-virt on
-        VBoxManage modifyvm "win10" --largepages on
-        VBoxManage modifyvm "win10" --firmware efi
-        VBoxManage modifyvm "win10" --graphicscontroller vboxvga
-        VBoxManage modifyvm "win10" --mouse usbtablet
-        VBoxManage modifyvm "win10" --boot1 disk
-        VBoxManage modifyvm "win10" --boot2 none
-        VBoxManage modifyvm "win10" --boot3 none
-        VBoxManage modifyvm "win10" --boot4 none
-        VBoxManage modifyvm "win10" --usb on
-        VBoxManage modifyvm "win10" --usbehci on
-        echo "Run unattended install"
-        VBoxManage unattended install win10 \
-          --iso=/home/{{ user_login }}/Downloads/Win10.iso \
-          --user={{ user_login }} \
-          --password=W1nd0z3 \
-          --install-additions \
-          --time-zone=UTC \
-          --additions-iso=/home/{{ user_login }}/Downloads/VBoxGuestAdditions_7.0.10.iso
-          --post-install-command='VBoxControl guestproperty set installation_finished y'
-      args:
-        executable: /bin/bash
+##### This not Working At the moment
+#    - name: Download Windows 10 ISO
+#      get_url:
+#        url: "https://go.microsoft.com/fwlink/p/?LinkID=2208844&clcid=0x809&culture=en-gb&country=GB"
+#        dest: /home/{{ user_login }}/Downloads/Win10.iso
+#        mode: 0644
+#
+#    - name: Download Guest Additions ISO
+#      get_url:
+#        url: "https://download.virtualbox.org/virtualbox/7.0.10/VBoxGuestAdditions_7.0.10.iso"
+#        dest: /home/{{ user_login }}/Downloads/VBoxGuestAdditions_7.0.10.iso
+#
+#
+#    # TODO - this is not working, need to figure out how to do unattended install
+#    - name: Unattended Windows 10 VM Install
+#      shell: |
+#        set -ex
+#        echo "Check if VM exists"
+#        if ! VBoxManage list vms | grep -q win10; then
+#          echo "Create VM unattended"
+#          VBoxManage createvm --name win10 --ostype Windows10_64 --register
+#        fi
+#        VBoxManage modifyvm "win10" --cpus 2
+#        VBoxManage modifyvm "win10" --memory 4096
+#        VBoxManage modifyvm "win10" --vram 128
+#        VBoxManage modifyvm "win10" --ioapic on
+#        VBoxManage modifyvm "win10" --hwvirtex on
+#        VBoxManage modifyvm "win10" --nested-hw-virt on
+#        VBoxManage modifyvm "win10" --largepages on
+#        VBoxManage modifyvm "win10" --firmware efi
+#        VBoxManage modifyvm "win10" --graphicscontroller vboxvga
+#        VBoxManage modifyvm "win10" --mouse usbtablet
+#        VBoxManage modifyvm "win10" --boot1 disk
+#        VBoxManage modifyvm "win10" --boot2 none
+#        VBoxManage modifyvm "win10" --boot3 none
+#        VBoxManage modifyvm "win10" --boot4 none
+#        VBoxManage modifyvm "win10" --usb on
+#        VBoxManage modifyvm "win10" --usbehci on
+#        echo "Run unattended install"
+#        VBoxManage unattended install win10 \
+#          --iso=/home/{{ user_login }}/Downloads/Win10.iso \
+#          --user={{ user_login }} \
+#          --password=W1nd0z3 \
+#          --install-additions \
+#          --time-zone=UTC \
+#          --additions-iso=/home/{{ user_login }}/Downloads/VBoxGuestAdditions_7.0.10.iso \
+#          --post-install-command='VBoxControl guestproperty set installation_finished y'
+#      args:
+#        executable: /bin/bash
