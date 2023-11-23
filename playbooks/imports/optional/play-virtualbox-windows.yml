@@ -58,9 +58,9 @@
       shell: |
         echo "A few different ways to get windows key"
         echo 
-        echo "First and most simple:"
+        echo "Windows Key:"
         cat /sys/firmware/acpi/tables/MSDM | grep -aPo '\w{5}-\w{5}-\w{5}-\w{5}-\w{5}'
-        echo "Same, with no dashes"
+        echo "Windows Key, with no dashes (for copy/paste):"
         cat /sys/firmware/acpi/tables/MSDM | grep -aPo '\w{5}-\w{5}-\w{5}-\w{5}-\w{5}' | tr -d "-"
         echo
         echo "Second, using acpidump:"
