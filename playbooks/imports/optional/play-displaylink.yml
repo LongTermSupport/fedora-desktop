@@ -7,4 +7,4 @@
   tasks:
     - name: Install DisplayLink RPM
       dnf:
-        name: https://github.com/displaylink-rpm/displaylink-rpm/releases/download/v5.7.0-1/fedora-38-displaylink-1.13.1-2.x86_64.rpm
+        name: https://github.com/displaylink-rpm/displaylink-rpm/releases/download/v5.8.0/fedora-38-displaylink-1.14.1-1.x86_64.rpm

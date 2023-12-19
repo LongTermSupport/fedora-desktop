@@ -17,7 +17,7 @@
         path: /home/{{ user_login }}/.config/pipewire/pipewire.conf
         regexp: "{{ item.regexp }}"
       loop:
-        - line: "    default.clock.allowed-rates = [ 44100 48000 88200 96000 192000 ]"
+        - line: "    default.clock.allowed-rates = [ 44100 48000 88200 96000 176400 192000 ]"
           regexp: default\.clock\.allowed-rates
         - line: "    default.clock.rate          = 192000"
           regexp: default\.clock\.rate
