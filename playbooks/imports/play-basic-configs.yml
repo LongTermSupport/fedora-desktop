@@ -21,7 +21,7 @@
           purpleBold
           lightblue
           lightblueBold
-        
+
       default: lightblueBold
   tasks:
     - name: Basic packages

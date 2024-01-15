@@ -136,9 +136,10 @@ echo "
 
 
 "
-set +e
 if ! gh auth status; then
+  set +e
   loginOutput=$(gh auth login 2&>1)
+  set -e
   if [[ "0" != "$!" ]]; then
     echo "login error"
     if [[ "$loginOutput" == *"key is already in use"* ]]; then

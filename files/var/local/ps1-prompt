@@ -1,0 +1,87 @@
+#!/bin/bash
+source /var/local/colours
+source /var/local/ps1-prompt-colour
+
+# current directory in bold
+function currentDirectory(){
+   whiteBold "$PWD"
+}
+
+# current user colour coded blue or red
+function currentUser() {
+  local u
+  u="$(whoami)"
+  if [[ "$u" == "root" ]]; then
+    redBold "$u"
+  else
+    lightblue "$u"
+  fi
+}
+
+# current host colour coded on env using env prefix on host
+function currentHost(){
+  local h
+  h="$(hostname)"
+  colourFunction="${PS1_COLOUR:-lightblue}"
+  $colourFunction "$h"
+}
+
+# if the last command exit code is not zero, then give some details
+function lastCommandError(){
+  if [[ ${lastExitCode:-0} == "0" ]]; then
+    return 0
+  fi
+  echo
+  if [[  "$lastExitCode" == 1 ]]; then
+    red "Last Command Error: General error "
+  elif [ "$lastExitCode" == 2 ]; then
+    red "Last Command Error: Missing keyword, command, or permission problem "
+  elif [ "$lastExitCode" == 126 ]; then
+    red "Last Command Error: Permission problem or command is not an executable "
+  elif [ "$lastExitCode" == 127 ]; then
+    red "Last Command Error: Command not found "
+  elif [ "$lastExitCode" == 128 ]; then
+    red "Last Command Error: Invalid argument to exit "
+  elif [ "$lastExitCode" == 129 ]; then
+    red "Last Command Error: Fatal error signal 1 "
+  elif [ "$lastExitCode" == 130 ]; then
+    red "Last Command Error: Script terminated by Control-C "
+  elif [ "$lastExitCode" == 131 ]; then
+    red "Last Command Error: Fatal error signal 3 "
+  elif [ "$lastExitCode" == 132 ]; then
+    red "Last Command Error: Fatal error signal 4 "
+  elif [ "$lastExitCode" == 133 ]; then
+    red "Last Command Error: Fatal error signal 5 "
+  elif [ "$lastExitCode" == 134 ]; then
+    red "Last Command Error: Fatal error signal 6 "
+  elif [ "$lastExitCode" == 135 ]; then
+    red "Last Command Error: Fatal error signal 7 "
+  elif [ "$lastExitCode" == 136 ]; then
+    red "Last Command Error: Fatal error signal 8 "
+  elif [ "$lastExitCode" == 137 ]; then
+    red "Last Command Error: Fatal error signal 9 "
+  elif [ "$lastExitCode" -gt 255 ]; then
+    red "Last Command Error: Exit status out of range "
+  else
+    red "Last Command Error: Unknown error code "
+  fi
+}
+
+# Are we in a screen session, if so then display it in the prompt
+function screenSession(){
+  if [[ "" == "$STY" ]]; then
+    return
+  fi
+  purple "Screen Session: $STY"
+}
+
+function ps1Prompt(){
+  # account for git prompt
+  lastExitCode="${GIT_PROMPT_LAST_COMMAND_STATE:-$?}"
+  echo -en "\033]0;$(whoami)@$(hostname)\a"
+  # to solve problems around colours confusing bash on how long the ps1 is, we just start a new empty line at the end
+  export PS1='$(screenSession)$(lastCommandError)\n\D{%H:%M:%S} $(currentDirectory)\n$(currentUser)@$(currentHost)\n '
+}
+
+PROMPT_COMMAND='ps1Prompt'
+ps1Prompt
