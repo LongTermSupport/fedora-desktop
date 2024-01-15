@@ -3,6 +3,26 @@
   become: true
   vars:
     root_dir: "{{ inventory_dir }}/../../"
+  vars_prompt:
+    - name: PS1_Colour
+      prompt: |
+        Enter Prompt Colour. Must be one of:
+          white
+          whiteBold
+          red
+          redBold
+          green
+          greenBold
+          yellow
+          yellowBold
+          blue
+          blueBold
+          purple
+          purpleBold
+          lightblue
+          lightblueBold
+        
+      default: lightblueBold
   tasks:
     - name: Basic packages
       package:
@@ -37,10 +57,19 @@
             path: /etc/vimrc.local
             create: true
 
-    - name: Basic Bash Tweaks File
+    - name: Basic Bash Tweaks Files
       copy:
-        src: "{{ root_dir }}/files/etc/profile/zz_lts-fedora-desktop.bash"
-        dest: /etc/profile.d/zz_lts-fedora-desktop.bash
+        src: "{{ root_dir }}/files{{ item }}"
+        dest: "{{ item }}"
+      loop:
+       - /etc/profile.d/zz_lts-fedora-desktop.bash
+       - /var/local/colours
+       - /var/local/ps1-prompt
+
+    - name: Prompt Colour File
+      copy:
+          content: "export PS1_COLOUR={{ PS1_Colour }}"
+          dest: /var/local/ps1-prompt-colour
 
     - name: Ensure Bash Tweaks are Loaded
       blockinfile:

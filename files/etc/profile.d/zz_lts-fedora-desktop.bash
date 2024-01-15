@@ -41,18 +41,19 @@ if [[ $- == *i* ]]
 then
 
     #Prompt
-    function redPrompt(){
-        export PS1='\[\e[1m\]$PWD\[\e[0m\]'"\n\[\033[38;5;1m\]\u\[$(tput sgr0)\]\[\033[38;5;15m\]@\[$(tput sgr0)\]\[\033[38;5;9m\]\h\[$(tput sgr0)\] "
-    }
-    function bluePrompt(){
-        export PS1='\[\e[1m\]$PWD\[\e[0m\]'"\n\[\033[38;5;32m\]\u\[$(tput sgr0)\]\[\033[38;5;15m\]@\[$(tput sgr0)\]\[\033[38;5;32m\]\h\[$(tput sgr0)\] "
-    }
-    if [[ "$(whoami)" == "root" ]]
-    then
-        redPrompt
-    else
-        bluePrompt
-    fi
+#    function redPrompt(){
+#        export PS1='\[\e[1m\]$PWD\[\e[0m\]'"\n\[\033[38;5;1m\]\u\[$(tput sgr0)\]\[\033[38;5;15m\]@\[$(tput sgr0)\]\[\033[38;5;9m\]\h\[$(tput sgr0)\] "
+#    }
+#    function bluePrompt(){
+#        export PS1='\[\e[1m\]$PWD\[\e[0m\]'"\n\[\033[38;5;32m\]\u\[$(tput sgr0)\]\[\033[38;5;15m\]@\[$(tput sgr0)\]\[\033[38;5;32m\]\h\[$(tput sgr0)\] "
+#    }
+#    if [[ "$(whoami)" == "root" ]]
+#    then
+#        redPrompt
+#    else
+#        bluePrompt
+#    fi
+    source /var/local/ps1-prompt
 
     #Prevent Ctrl+S Freezing things
     stty -ixon
