@@ -62,7 +62,8 @@ sudo dnf -y install \
   python3 \
   python3-pip \
   grubby \
-  jq
+  jq \
+  openssl
 completed
 
 title "Updating Grub Configs for Cgroups"
@@ -155,7 +156,7 @@ completed
 title "Checking SSH Key Github Account and gh CLI Account match"
 ghAuthLoginName="$(gh api user | jq -r '.login')"
 set +e
-sshGithubName="$(ssh -T git@github.com |& grep -Po '(?<=Hi ).*(?=! You)')"
+sshGithubName="$(ssh -T git@github.com -i ~/.ssh/id |& grep -Po '(?<=Hi ).*(?=! You)')"
 set -e
 echo "Github login name: $ghAuthLoginName"
 echo "SSH login name: $sshGithubName"
@@ -163,6 +164,7 @@ if [[ "$ghAuthLoginName" != "$sshGithubName" ]]; then
   echo "ERROR - Github login name does not match SSH login name"
   echo "Please fix this before continuing"
   echo "To fix this, you can run 'gh auth logout' and then try again, you will be prompted to login again. Please log in as the same user as the SSH key"
+  echo "If there is no SSH key login, please make sure you select to upload your key when doing the gh login"
   exit 1
 fi
 completed
@@ -228,6 +230,7 @@ else
 fi
 
 title "Now running Ansible to complete configuration"
+ansible-galaxy collection install ansible.posix
 # checking for passwordless sudo
 if sudo -n true; then
   ./playbooks/playbook-main.yml
