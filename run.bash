@@ -136,7 +136,7 @@ echo "
 
 
 "
-if ! gh auth status; then
+if gh auth status | grep "Failed to log in"; then
   set +e
   loginOutput=$(gh auth login 2&>1)
   set -e
