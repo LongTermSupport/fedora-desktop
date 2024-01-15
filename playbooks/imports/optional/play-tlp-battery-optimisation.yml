@@ -1,3 +1,11 @@
+# This play will save your battery life!
+# It will install TLP, configure it to only charge your battery to 80% and then disable the radio devices when you are connected to LAN or WiFi
+# It will also mask the rfkill service, which is known to cause issues with WiFi on some laptops
+# It will also remove the power-profiles-daemon package, which is known to cause issues with WiFi on some laptops
+# It configures charging to min 75% and max 80%.
+# To do a full charge, run:
+#  sudo tlp fullcharge
+# Once you disconnect the power, it will go back to the min/max charge thanks to the RESTORE_THRESHOLDS_ON_BAT=1
 - hosts: desktop
   name: TLP Battery Optimisation
   become: true
@@ -30,12 +38,18 @@
         - systemd-rfkill.service
         - systemd-rfkill.socket
 
+    # This defines a max charge of 80% and a min charge of 75%
+    # If you want to do a full charge, you can run:
+    #   sudo tlp fullcharge
+    # Once you disconnect the power,
+    # it will go back to the min/max charge thanks to the RESTORE_THRESHOLDS_ON_BAT=1
     - name: Set Battery Threshold
       copy:
         dest: /etc/tlp.d/battery.conf
         content: |
           START_CHARGE_THRESH_BAT0=75
           STOP_CHARGE_THRESH_BAT0=80
+          RESTORE_THRESHOLDS_ON_BAT=1
       notify: restart
 
     - name: Radio Devices
