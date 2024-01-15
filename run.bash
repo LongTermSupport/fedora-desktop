@@ -151,7 +151,24 @@ if gh auth status | grep "Failed to log in"; then
 fi
 completed
 
+
+title "Checking SSH Key Github Account and gh CLI Account match"
+ghAuthLoginName="$(gh api user | jq -r '.login')"
+set +e
+sshGithubName="$(ssh -T git@github.com |& grep -Po '(?<=Hi ).*(?=! You)')"
+set -e
+echo "Github login name: $ghAuthLoginName"
+echo "SSH login name: $sshGithubName"
+if [[ "$ghAuthLoginName" != "$sshGithubName" ]]; then
+  echo "ERROR - Github login name does not match SSH login name"
+  echo "Please fix this before continuing"
+  echo "To fix this, you can run 'gh auth logout' and then try again, you will be prompted to login again. Please log in as the same user as the SSH key"
+  exit 1
+fi
+completed
+
 title "Adding SSH Key to Github"
+ghCheckTokenPermission "admin:public_key"
 gh ssh-key add ~/.ssh/id.pub --title="$(hostname) Added by fedora-desktop setup script on $(date +%Y-%m-%d)" --type=authentication
 completed
 
