@@ -137,17 +137,9 @@ echo "
 
 "
 if gh auth status | grep "Failed to log in"; then
-  set +e
-  loginOutput=$(gh auth login 2&>1)
-  set -e
-  if [[ "0" != "$!" ]]; then
-    echo "login error"
-    if [[ "$loginOutput" == *"key is already in use"* ]]; then
-      echo " - ignoring key already in use error"
-    else
-      echo "unexpected login error, please check output and try to run gh auth login manually"
-      exit 1
-    fi
+  if ! gh auth login; then
+    echo "Failed to login to Github, please try again or try running 'gh auth login' manually"
+    exit 1
   fi
 fi
 completed
