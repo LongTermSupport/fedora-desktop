@@ -31,6 +31,8 @@
     - name: Switch lxcbr0 to trusted firewall zone
       command: nmcli connection modify lxcbr0 connection.zone trusted
 
+    # This one doesn't seem to take effect and might need to be re run at some later point
+    # If this hasn't taken effect, containers can be started but they wont get an IP address
     - name: Firewalld trusted
       shell: |
         firewall-cmd --zone=trusted --change-interface=lxcbr0 --permanent
