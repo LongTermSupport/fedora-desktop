@@ -5,6 +5,7 @@
     root_dir: "{{ inventory_dir }}/../../"
   vars_prompt:
     - name: PS1_Colour
+      private: false
       prompt: |
         Enter Prompt Colour. Must be one of:
           white
