@@ -102,6 +102,29 @@ title "Configuring Github CLI (https://cli.github.com/)
 We're now going to log into Github - you will need to authenticate with your browser
 "
 echo 'export GH_HOST="github.com"' >> ~/.bashrc
+
+# When setting up the github token, some required permissions might be missed out
+# This function allows us to check for the required permissions
+function ghCheckTokenPermission(){
+  local permission="$1"
+  local failSilent="${2:-false}"
+  local scopes
+  scopes="$(gh api -i user | grep 'X-Oauth-Scopes')"
+  if [[ "$scopes" == *"$permission"* ]]; then
+    echo " - found $permission permission"
+    return 0
+  else
+    if [[ "$failSilent" == "true" ]]; then
+      return 1
+    fi
+    echo " - missing $permission permission"
+    echo "Please run this command ON THE MACHINE ITSELF, NOT REMOTELY
+    gh auth refresh -h github.com -s '$permission'
+    "
+    return 1
+  fi
+}
+
 echo "
 
 
@@ -113,7 +136,19 @@ echo "
 
 
 "
-gh auth login
+set +e
+if ! gh auth status; then
+  loginOutput=$(gh auth login 2&>1)
+  if [[ "0" != "$!" ]]; then
+    echo "login error"
+    if [[ "$loginOutput" == *"key is already in use"* ]]; then
+      echo " - ignoring key already in use error"
+    else
+      echo "unexpected login error, please check output and try to run gh auth login manually"
+      exit 1
+    fi
+  fi
+fi
 completed
 
 title "Adding SSH Key to Github"
