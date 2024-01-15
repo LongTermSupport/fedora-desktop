@@ -91,6 +91,13 @@ else
 fi
 completed
 
+title "Set Custom Hostname"
+if [[ "$(hostname)" == "fedora" ]]; then
+  echo "found default hostname, please choose a new one:"
+  read -p "Hostname: " hostname
+  sudo hostnamectl set-hostname "$hostname"
+fi
+
 title "Installing Github CLI"
 sudo dnf -y install 'dnf-command(config-manager)'
 sudo dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
@@ -142,10 +149,10 @@ if gh auth status | grep "Failed to log in"; then
     exit 1
   fi
 fi
-completed
+completedssh
 
 title "Adding SSH Key to Github"
-gh ssh-key add ~/.ssh/id.pub --title="Added by fedora-desktop setup script on $(date +%Y-%m-%d)" --type=authentication
+gh ssh-key add ~/.ssh/id.pub --title="$(hostname) Added by fedora-desktop setup script on $(date +%Y-%m-%d)" --type=authentication
 completed
 
 title "Adding Github Host Key"
