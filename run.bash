@@ -149,7 +149,7 @@ if gh auth status | grep "Failed to log in"; then
     exit 1
   fi
 fi
-completedssh
+completed
 
 title "Adding SSH Key to Github"
 gh ssh-key add ~/.ssh/id.pub --title="$(hostname) Added by fedora-desktop setup script on $(date +%Y-%m-%d)" --type=authentication
