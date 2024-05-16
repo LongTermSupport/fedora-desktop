@@ -7,8 +7,8 @@
         remote_src: true
         src: /usr/share/pipewire/
         dest: /home/{{ user_login }}/.config/pipewire
-        # don't copy if already copied
-        force: false
+#        # don't copy if already copied
+#        force: false
       notify: pw-restart
 
     - name: Update pipewire.conf

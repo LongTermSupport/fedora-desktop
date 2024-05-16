@@ -4,5 +4,13 @@
     - name: Install RPM Fusion
       become: true
       shell: |
+        set -x
         dnf -y install https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm
         dnf -y install https://download1.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm
+        dnf -y config-manager --enable fedora-cisco-openh264
+        dnf -y update @core
+        dnf -y group install multimedia --allowerasing
+        dnf -y update @multimedia --setopt="install_weak_deps=False" --exclude=PackageKit-gstreamer-plugin
+        dnf -y install intel-media-driver
+      args:
+        executable: /bin/bash
