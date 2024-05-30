@@ -1,0 +1,47 @@
+- hosts: desktop
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  tasks:
+    # @see https://pkg.cloudflareclient.com/#rhel
+    - name: Install Repo
+      shell: |
+        curl -fsSl https://pkg.cloudflareclient.com/cloudflare-warp-ascii.repo | sudo tee /etc/yum.repos.d/cloudflare-warp.repo
+        dnf update
+      args:
+        executable: /bin/bash
+        creates: /etc/yum.repos.d/cloudflare-warp.repo
+
+    - name: Install
+      dnf:
+        name: cloudflare-warp
+        state: updated
+
+    # @see https://developers.cloudflare.com/warp-client/get-started/linux/
+    - name: Configure
+      become: true
+      become_user: "{{ user_login }}"
+      shell: |
+        # untested, hopefully works
+        yes | warp-cli registration new
+        warp-cli connect
+        warp-cli mode doh
+        warp-cli dns families malware
+
+    - name: Systemd Resolved Config
+      lineinfile:
+        path: /etc/systemd/resolved.conf
+        line: DNS=127.0.2.2 127.0.2.3
+        notify: resolved-reload
+        regexp: ^DNS=
+
+  handlers:
+    - name: resolved-reload
+      systemd:
+        name: systemd-resolved
+        state: reloaded
+        enabled: yes
+
+      
+        
+        
+        
