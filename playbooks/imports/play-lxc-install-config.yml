@@ -58,6 +58,15 @@
             UserKnownHostsFile=/dev/null
             StrictHostKeyChecking=no
 
+    - name: Ensure /etc/lxc/dhcp.conf File Exists
+      file:
+        path: /etc/lxc/dhcp.conf
+        state: touch
+        owner: root
+        group: root
+        mode: '0644'
+
+
     - name: Enable DHPC on lxcbr0
       blockinfile:
         block: LXC_DHCP_CONFILE=/etc/lxc/dhcp.conf
