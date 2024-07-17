@@ -23,24 +23,26 @@
       become_user: "{{ user_login }}"
       shell: |
         # untested, hopefully works
-        yes | warp-cli registration new
-        warp-cli connect
-        warp-cli mode doh
-        warp-cli dns families malware
+        set -ex
+        yes | warp-cli --accept-tos registration new
+        warp-cli --accept-tos connect 
+        warp-cli --accept-tos mode doh
+        warp-cli --accept-tos dns families malware
 
     - name: Systemd Resolved Config
-      lineinfile:
-        path: /etc/systemd/resolved.conf
-        line: DNS=127.0.2.2 127.0.2.3
-        notify: resolved-reload
-        regexp: ^DNS=
+      copy:
+        dest: /etc/systemd/resolved.conf
+        content: |
+          [Resolve]
+          DNS=127.0.2.2 127.0.2.3
+#      notify: resolved-reload
 
-  handlers:
-    - name: resolved-reload
-      systemd:
-        name: systemd-resolved
-        state: reloaded
-        enabled: yes
+#  handlers:
+#    - name: resolved-reload
+#      systemd:
+#        name: systemd-resolved
+#        state: reloaded
+#        enabled: yes
 
       
         
