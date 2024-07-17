@@ -1,0 +1,14 @@
+- hosts: desktop
+  become: true
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  tasks:
+    - name: Install PDM
+      pip:
+        name: pdm
+        executable: pip3
+        state: latest
+
+    - name: PDM Self Update
+      shell: pdm self update
+
