@@ -1,11 +1,10 @@
 - hosts: desktop
-  become: false
+  become: true
   vars:
     root_dir: "{{ inventory_dir }}/../../"
   tasks:
     # Install Firefox
     - name: Install Firefox
-      become: true
       package:
         name:
           - firefox
