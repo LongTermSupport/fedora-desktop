@@ -6,9 +6,13 @@ Uses a bash script which installs basic dependencies including git and ansible a
 
 ## Manual Task - Install Fedora
 
-First you need to install Fedora. Currently, this repo is targeting F36.
+First you need to install Fedora. Currently, this repo is targeting F40.
 
-For standard desktop use it is suggested that you install with custom partitioning and avoid having a separate root and home directory. Generally trying to maintain the same home directory whilst switching versions of OS is an advanced move and generally it's cleaner to just rebuild everything so its simpler to have one partition for everything.
+This repo is in active development and is generally updated a bit of time after each Fedora release (as I get around to reinstalling/testing)
+
+_It looks like Fedora 40 no longer needs custom partitioning_
+
+~~For standard desktop use it is suggested that you install with custom partitioning and avoid having a separate root and home directory. Generally trying to maintain the same home directory whilst switching versions of OS is an advanced move and generally it's cleaner to just rebuild everything so its simpler to have one partition for everything.~~
 
 A suggested partition configuration might be:
 
@@ -17,10 +21,10 @@ A suggested partition configuration might be:
 | /boot     | 500M | ext4 |               |
 | /boot/efi | 100M | efi |               |
 | /swap     | half RAM size | swap |               |
-| /         | all available spare space| ext4 or btrfs | **encrypted** |
+| /         | all available spare space| ext4 or btrfs | **encrypted** |~~
 
 
-It is **very strongly recommended** that you do opt to encrypt the main root filesystem.
+It is **very strongly recommended** that you encrypt the main root filesystem.
 
 ### Enable Third Party Repos
 There is an option to enable third party repos as you are installing Fedora. You need to accept this.
@@ -40,7 +44,6 @@ Suggested to copy paste into your bash terminal:
 ```
 (source <(curl -sS https://raw.githubusercontent.com/LongTermSupport/fedora-desktop/main/run.bash?$(date +%s)))
 ```
-```
 
 ## Manual Tasks
 
@@ -58,39 +61,9 @@ You would run these with, for example:
 ansible-playbook ./playbooks/imports/play-install-flatpaks.yml
 ```
 
-### Gnome Shell Extensions
+### Development
 
-**Suggest that you keep the number of extensions to a bare minimum to aid in stability and performance**
+Written using pycharm community and these extensions
 
-You need to open firefox, go to https://extensions.gnome.org/ and install the addon that is suggested
-
-Once this is installed, you can add and enable/disable gnome shell extensions.
-
-#### GTK Title Bar
-This extension is great for small screens/laptops or those who like to get the most out of their screen real estate.
-It removes the stupidly fat title bars on windows like PHPStorm
-
-https://extensions.gnome.org/extension/1732/gtk-title-bar/
-
-### Dash to Dock
-
-This one makes the dash work more like a dock, basically you can access it by just moving your mouse to the bottom fo the screen instead of having to load the overview
-
-https://extensions.gnome.org/extension/307/dash-to-dock/
-
-### Ubuntu Like Panel
-
-Purely aesthetic, this makes the top panel translucent and nice
-
-https://extensions.gnome.org/extension/2660/transparent-panel/
-
-### Tray Icons: Reloaded
-
-Get the system tray icons (eg slack) somewhere you can actually see them!
-
-https://extensions.gnome.org/extension/2890/tray-icons-reloaded/
-
-## Firefox Extensions
-
-### Ublock Origin - essential equipment
-https://addons.mozilla.org/en-GB/firefox/addon/ublock-origin/
+https://plugins.jetbrains.com/plugin/14893-ansible
+https://plugins.jetbrains.com/plugin/14278-ansible-vault-editor
