@@ -1,0 +1,29 @@
+- hosts: desktop
+  become: false
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  tasks:
+    # Install Firefox
+    - name: Install Firefox
+      become: true
+      package:
+        name:
+          - firefox
+        state: present
+
+    - name: Make /etc/firefox/policies Directory
+      file:
+        path: /etc/firefox/policies
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+
+    # Set Policies
+    # see:
+    # - https://linuxconfig.org/how-to-customize-firefox-using-the-policies-json-file
+    # - https://mozilla.github.io/policy-templates/
+    - name: Set Policies
+      copy:
+        src: "{{ root_dir }}/files/etc/firefox/policies/policies.json"
+        dest: /etc/firefox/policies/policies.json

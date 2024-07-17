@@ -1,0 +1,15 @@
+{
+  "policies": {
+    "OfferToSaveLogins": false,
+    "OfferToSaveLoginsDefault": false,
+    "PasswordManagerEnabled": false,
+    "Extensions": {
+      "Install": [
+        "https://addons.mozilla.org/firefox/downloads/file/4246455/lastpass_password_manager-4.127.0.1.xpi",
+        "https://addons.mozilla.org/firefox/downloads/file/4290466/ublock_origin-1.58.0.xpi",
+        "https://addons.mozilla.org/firefox/downloads/file/4298698/consent_o_matic-1.1.0.xpi",
+        "https://addons.mozilla.org/firefox/downloads/file/4141260/xdebug_helper_for_firefox-1.0.10.xpi"
+      ]
+    }
+  }
+}
