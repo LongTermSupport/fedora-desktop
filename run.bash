@@ -144,7 +144,7 @@ echo "
 
 
 "
-if gh auth status | grep "Failed to log in"; then
+if ! gh auth status; then
   if ! gh auth login; then
     echo "Failed to login to Github, please try again or try running 'gh auth login' manually"
     exit 1
