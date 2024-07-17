@@ -4,7 +4,7 @@
   vars:
     root_dir: "{{ inventory_dir }}/../../"
     # Update this when targeting a new version of Fedora
-    fedoraVersion: 39
+    fedoraVersion: 40
   vars_files:
   tasks:
     - name: Check Ansible
