@@ -1,5 +1,5 @@
 - hosts: desktop
-  name: GSettings
+  name: Last Pass
   tasks:
     - name: 'Install Lastpass'
       dnf:
