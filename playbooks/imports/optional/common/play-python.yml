@@ -1,14 +1,76 @@
+# This play installs things you need for Python and AI development
 - hosts: desktop
-  become: true
   vars:
     root_dir: "{{ inventory_dir }}/../../"
+    pyenv_versions:
+      - 3.11.9
+      - 3.12.4
   tasks:
+    - name: Ensure pipx Installed
+      become: true
+      dnf:
+        name: pipx
+
     - name: Install PDM
-      pip:
+      community.general.pipx:
         name: pdm
-        executable: pip3
         state: latest
 
     - name: PDM Self Update
       shell: pdm self update
 
+    - name: Hugging Face CLI
+      community.general.pipx:
+        name: huggingface_hub
+        state: latest
+
+    - name: Install Pyenv Build Dependencies
+      become: true
+      dnf:
+        name:
+          - make
+          - gcc
+          - patch
+          - zlib-devel
+          - bzip2
+          - bzip2-devel
+          - readline-devel
+          - sqlite
+          - sqlite-devel
+          - openssl-devel
+          - tk-devel
+          - libffi-devel
+          - xz-devel
+          - libuuid-devel
+          - gdbm-libs
+          - libnsl2
+
+    - name: Pyenv Python Version Management
+      shell: |
+        curl -L https://github.com/pyenv/pyenv-installer/raw/master/bin/pyenv-installer | bash
+      args:
+        executable: /bin/bash
+        creates: /home/{{ user_login }}/.pyenv
+        
+    - name: Pyenv Bashrc Config
+      blockinfile:
+        path: "{{ item }}"
+        marker: "# {mark} ANSIBLE MANAGED BLOCK - Pyenv"
+        block: |
+          export PYENV_ROOT="$HOME/.pyenv"
+          command -v pyenv >/dev/null || export PATH="$PYENV_ROOT/bin:$PATH"
+          eval "$(pyenv init -)"
+      loop:
+        - /home/{{ user_login }}/.bashrc
+        - /home/{{ user_login }}/.bash_profile
+
+    - name: Install Pyenv Versions
+      shell: |
+        source ~/.bash_profile
+        pyenv install {{ item }}
+      args:
+        executable: /bin/bash
+      loop: "{{ pyenv_versions }}"
+      tags:
+        - pyenv
+        - pyenv_install_versions

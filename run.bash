@@ -63,7 +63,8 @@ sudo dnf -y install \
   python3-pip \
   grubby \
   jq \
-  openssl
+  openssl \
+  pipx
 completed
 
 title "Updating Grub Configs for Cgroups"
@@ -71,7 +72,7 @@ sudo grubby --update-kernel=ALL --args="systemd.unified_cgroup_hierarchy=0"
 completed
 
 title "Installing Ansible with Pip"
-pip3 install \
+pip install \
   ansible \
   jmespath
 completed
@@ -230,7 +231,7 @@ else
 fi
 
 title "Now running Ansible to complete configuration"
-ansible-galaxy collection install ansible.posix
+ansible-galaxy install  -r requirements.yml
 # checking for passwordless sudo
 if sudo -n true; then
   ./playbooks/playbook-main.yml
