@@ -6,29 +6,13 @@
       - 3.11.9
       - 3.12.4
   tasks:
-    - name: Ensure pipx Installed
-      become: true
-      dnf:
-        name: pipx
-
-    - name: Install PDM
-      community.general.pipx:
-        name: pdm
-        state: latest
-
-    - name: PDM Self Update
-      shell: pdm self update
-
-    - name: Hugging Face CLI
-      community.general.pipx:
-        name: huggingface_hub
-        state: latest
-
-    - name: Install Pyenv Build Dependencies
+    - name: Ensure pipx Installed, Pyenv dependencies, and dependencies required by various python packages
       become: true
       dnf:
         name:
+          - pipx
           - make
+          - cmake
           - gcc
           - patch
           - zlib-devel
@@ -44,6 +28,20 @@
           - libuuid-devel
           - gdbm-libs
           - libnsl2
+
+    - name: Install PDM
+      community.general.pipx:
+        name: pdm
+        state: latest
+
+    - name: PDM Self Update
+      shell: pdm self update
+
+    - name: Hugging Face CLI
+      community.general.pipx:
+        name: huggingface_hub
+        state: latest
+
 
     - name: Pyenv Python Version Management
       shell: |
