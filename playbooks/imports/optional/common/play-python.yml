@@ -13,6 +13,7 @@
           - pipx
           - make
           - cmake
+          - gcc-c++
           - gcc
           - patch
           - zlib-devel
