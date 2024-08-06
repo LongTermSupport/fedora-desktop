@@ -5,6 +5,7 @@
     pyenv_versions:
       - 3.11.9
       - 3.12.4
+      - 3.9.19
   tasks:
     - name: Ensure pipx Installed, Pyenv dependencies, and dependencies required by various python packages
       become: true
@@ -29,6 +30,14 @@
           - libuuid-devel
           - gdbm-libs
           - libnsl2
+          - SDL2-devel
+          - SDL2_image-devel
+          - SDL2_mixer-devel
+          - SDL2_ttf-devel
+          - libjpeg-devel
+          - portmidi-devel
+          - portaudio-devel
+          - python3-devel
 
     - name: Install PDM
       community.general.pipx:
@@ -73,3 +82,13 @@
       tags:
         - pyenv
         - pyenv_install_versions
+
+    # Note this one is using pyenv to set a specific python version for pipx to use
+    - name: Install l2mac AI Code Generator
+      shell: |
+        set -ex
+        source ~/.bash_profile
+        pyenv shell 3.9.19
+        pipx install l2mac -v --python $(which python)
+        
+        
