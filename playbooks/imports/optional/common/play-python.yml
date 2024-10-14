@@ -52,6 +52,11 @@
         name: huggingface_hub
         state: latest
 
+    - name: Aider Chat https://github.com/paul-gauthier/aider
+      community.general.pipx:
+        name: aider-chat
+        state: latest
+
 
     - name: Pyenv Python Version Management
       shell: |

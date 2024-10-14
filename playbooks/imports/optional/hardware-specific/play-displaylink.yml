@@ -7,5 +7,5 @@
   tasks:
     - name: Install DisplayLink RPM
       dnf:
-        name: "https://github.com/displaylink-rpm/displaylink-rpm/releases/download/v5.8.0-2/fedora-39-displaylink-1.14.3-1.github_evdi.x86_64.rpm" 
+        name: "https://github.com/displaylink-rpm/displaylink-rpm/releases/download/v6.0.0-1/fedora-39-displaylink-1.14.6-1.github_evdi.x86_64.rpm"
         disable_gpg_check: true

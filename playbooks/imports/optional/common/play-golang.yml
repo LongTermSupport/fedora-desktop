@@ -1,0 +1,8 @@
+# This play installs things you need for Golang development
+- hosts: desktop
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  tasks:
+    - name: DNF
+      dnf:
+        name: golang
