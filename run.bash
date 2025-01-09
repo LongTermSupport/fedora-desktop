@@ -72,9 +72,10 @@ sudo grubby --update-kernel=ALL --args="systemd.unified_cgroup_hierarchy=0"
 completed
 
 title "Installing Ansible with Pip"
-pip install \
+pipx install \
   ansible \
   jmespath
+pipx inject ansible passlib
 completed
 
 title "Creating SSH Key Pair\n\nNOTE - you must set a password\n\nSuggest you use your login password"
