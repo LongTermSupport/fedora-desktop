@@ -1,0 +1,12 @@
+# Installing Claude Code And Deps
+- hosts: desktop
+  become: false
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  tasks:
+    - name: Install packages
+      become: true
+      dnf:
+        name:
+          - ripgrep
+          - nodejs20-npm

@@ -1,4 +1,3 @@
-# Flatpak is already installed by default, we just need to add to it
 - hosts: desktop
   become: false
   vars:
