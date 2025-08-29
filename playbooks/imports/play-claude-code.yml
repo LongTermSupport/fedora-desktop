@@ -3,33 +3,8 @@
   become: false
   vars:
     root_dir: "{{ inventory_dir }}/../../"
-    claude_code_version: "latest"
+    claude_code_version: "stable"
   tasks:
-    - name: Verify NVM and Node.js are Available
-      shell: |
-        export NVM_DIR="$HOME/.nvm"
-        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-        command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1
-      environment:
-        HOME: "/home/{{ user_login }}"
-      register: node_check
-      failed_when: node_check.rc != 0
-      changed_when: false
-
-    - name: Display Node.js Version for Claude Code
-      shell: |
-        export NVM_DIR="$HOME/.nvm"
-        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-        echo "Node.js: $(node --version)"
-        echo "NPM: $(npm --version)"
-      environment:
-        HOME: "/home/{{ user_login }}"
-      register: node_versions
-      changed_when: false
-
-    - name: Show Node.js Environment
-      debug:
-        msg: "{{ node_versions.stdout_lines }}"
 
     - name: Install Claude Code Dependencies (System Level)
       become: true
@@ -39,43 +14,27 @@
       vars:
         packages:
           - ripgrep
-          - bat
-          - fd-find
-          - fzf
-          - tree
-          - jq
           - curl
           - wget
+          - jq
           - git
           - openssh-clients
 
-    - name: Check if YQ is Already Installed
+    - name: Check if Claude Code is Already Installed
       stat:
-        path: /usr/bin/yq
-      register: yq_installed
+        path: "/home/{{ user_login }}/.local/bin/claude"
+      register: claude_installed
 
-    - name: Install YQ (YAML processor)
-      become: true
+    - name: Install Claude Code CLI via Official Installer
       shell: |
-        wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq
-        chmod +x /usr/bin/yq
-      when: not yq_installed.stat.exists
-
-    - name: Install Claude Code CLI via NPM
-      shell: |
-        export NVM_DIR="$HOME/.nvm"
-        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-        npm install -g @anthropic/claude-code@{{ claude_code_version }}
+        curl -fsSL https://claude.ai/install.sh | bash -s {{ claude_code_version }}
       environment:
         HOME: "/home/{{ user_login }}"
-      args:
-        creates: "/home/{{ user_login }}/.npm-global/bin/claude"
+      when: not claude_installed.stat.exists
 
     - name: Verify Claude Code Installation
       shell: |
-        export NVM_DIR="$HOME/.nvm"
-        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-        export PATH="$HOME/.npm-global/bin:$PATH"
+        export PATH="$HOME/.local/bin:$PATH"
         claude --version
       environment:
         HOME: "/home/{{ user_login }}"
@@ -86,54 +45,25 @@
       debug:
         msg: "Claude Code installed successfully: {{ claude_code_version_check.stdout }}"
 
-    - name: Create Claude Code Configuration Directory
-      file:
-        path: "/home/{{ user_login }}/.config/claude-code"
-        state: directory
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: '0755'
-
     - name: Configure Claude Code Shell Integration
       blockinfile:
         path: "/home/{{ user_login }}/.bashrc"
         marker: "# {mark} ANSIBLE MANAGED: Claude Code Integration"
         block: |
-          # Claude Code CLI alias
-          alias cc='claude update && claude'
+          # Claude Code CLI alias and PATH
+          export PATH="$HOME/.local/bin:$PATH"
+          alias cc='claude'
         create: false
-
-    - name: Install Additional Development Tools for Claude Code
-      shell: |
-        export NVM_DIR="$HOME/.nvm"
-        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-        npm install -g \
-          typescript \
-          eslint \
-          prettier \
-          @types/node
-      environment:
-        HOME: "/home/{{ user_login }}"
-      args:
-        creates: "/home/{{ user_login }}/.npm-global/lib/node_modules/typescript"
-
 
     - name: Final Claude Code Installation Verification
       shell: |
-        export NVM_DIR="$HOME/.nvm"
-        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-        export PATH="$HOME/.npm-global/bin:$PATH"
+        export PATH="$HOME/.local/bin:$PATH"
         echo "=== Claude Code Installation Summary ==="
         echo "Claude Code Version: $(claude --version)"
-        echo "Node.js Version: $(node --version)"
-        echo "NPM Version: $(npm --version)"
+        echo "Claude Code Location: $(which claude)"
         echo "Dependencies Available:"
         echo "  - ripgrep: $(rg --version | head -1)"
-        echo "  - bat: $(bat --version | head -1)"
-        echo "  - fd: $(fd --version)"
-        echo "  - fzf: $(fzf --version)"
         echo "  - jq: $(jq --version)"
-        echo "  - yq: $(yq --version)"
         echo "Installation completed successfully!"
       environment:
         HOME: "/home/{{ user_login }}"
