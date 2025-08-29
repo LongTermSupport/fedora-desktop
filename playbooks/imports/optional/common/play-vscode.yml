@@ -8,10 +8,11 @@
     - name: Install VS Code
       become: true 
       shell: | 
-        set -x; 
-        rpm --import https://packages.microsoft.com/keys/microsoft.asc  && \
-        echo -e "[code]\nname=Visual Studio Code\nbaseurl=https://packages.microsoft.com/yumrepos/vscode\nenabled=1\nautorefresh=1\ntype=rpm-md\ngpgcheck=1\ngpgkey=https://packages.microsoft.com/keys/microsoft.asc" > /etc/yum.repos.d/vscode.repo && \
-        dnf check-update && \
+        set -x
+        rpm --import https://packages.microsoft.com/keys/microsoft.asc
+        echo -e "[code]\nname=Visual Studio Code\nbaseurl=https://packages.microsoft.com/yumrepos/vscode\nenabled=1\nautorefresh=1\ntype=rpm-md\ngpgcheck=1\ngpgkey=https://packages.microsoft.com/keys/microsoft.asc" > /etc/yum.repos.d/vscode.repo
+        # dnf check-update returns 100 if updates are available, which is normal
+        dnf check-update || true
         dnf -y install code
       args:
         executable: /bin/bash
