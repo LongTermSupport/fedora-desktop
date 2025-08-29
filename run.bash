@@ -498,10 +498,10 @@ if confirm "Would you like to install optional components?"; then
       echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
       info "Analyzing your hardware..."
       
-      local i=1
+      i=1
       for pb in "${hw_playbooks[@]}"; do
-        local name=$(basename "$pb" .yml | sed 's/^play-//' | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
-        local status=$(check_hardware "$pb")
+        name=$(basename "$pb" .yml | sed 's/^play-//' | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
+        status=$(check_hardware "$pb")
         echo -e "  ${BOLD}$i)${NC} $name $status"
         ((i++))
       done
