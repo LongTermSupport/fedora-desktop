@@ -52,7 +52,7 @@
         block: |
           # Claude Code CLI alias and PATH
           export PATH="$HOME/.local/bin:$PATH"
-          alias cc='claude'
+          alias cc='claude update && claude'
         create: false
 
     - name: Final Claude Code Installation Verification
