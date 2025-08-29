@@ -94,13 +94,18 @@ error(){
 
 confirm(){
   local msg="$1"
-  local yn=n
-  while [[ "$yn" != "y" ]]; do
-    echo
-    echo -e "${YELLOW}${ARROW}${NC} $msg"
-    read -sp "   Press 'y' to confirm: " -n 1 yn
-  done
-  echo -e "\n${GREEN}${CHECK} Confirmed${NC}\n"
+  local yn=""
+  echo
+  echo -e "${YELLOW}${ARROW}${NC} $msg"
+  read -sp "   Press 'y' to confirm, 'n' to skip: " -n 1 yn
+  echo
+  if [[ "$yn" == "y" ]]; then
+    echo -e "${GREEN}${CHECK} Confirmed${NC}\n"
+    return 0
+  else
+    echo -e "${YELLOW}${INFO} Skipped${NC}\n"
+    return 1
+  fi
 }
 
 promptForValue(){
@@ -355,11 +360,189 @@ fi
 completed
 
 echo -e "\n${GREEN}${BOLD}╔══════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}${BOLD}║              INSTALLATION COMPLETE!                         ║${NC}"
+echo -e "${GREEN}${BOLD}║              MAIN INSTALLATION COMPLETE!                    ║${NC}"
 echo -e "${GREEN}${BOLD}╚══════════════════════════════════════════════════════════════╝${NC}\n"
 
-title "System Reboot Required"
-warning "Your system needs to be rebooted to complete the configuration"
-confirm "Ready to reboot now?"
-echo -e "${YELLOW}${INFO} Rebooting system...${NC}"
-sudo reboot now
+## Optional Playbooks Menu System
+
+# Function to run a playbook
+run_playbook() {
+  local playbook="$1"
+  local name="$2"
+  echo -e "\n${CYAN}${ARROW} Running: $name${NC}"
+  if sudo -n true 2>/dev/null; then
+    "$playbook"
+  else
+    "$playbook" --ask-become-pass
+  fi
+  if [[ $? -eq 0 ]]; then
+    success "Completed: $name"
+  else
+    error "Failed: $name"
+  fi
+}
+
+# Function to display menu
+show_menu() {
+  local category="$1"
+  shift
+  local playbooks=("$@")
+  local choice
+  
+  while true; do
+    echo -e "\n${CYAN}${BOLD}$category Playbooks${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    
+    local i=1
+    for pb in "${playbooks[@]}"; do
+      local name=$(basename "$pb" .yml | sed 's/^play-//' | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
+      echo -e "  ${BOLD}$i)${NC} $name"
+      ((i++))
+    done
+    echo -e "  ${BOLD}A)${NC} Run all"
+    echo -e "  ${BOLD}S)${NC} Skip to next section"
+    echo -e "  ${BOLD}Q)${NC} Quit optional installations"
+    
+    echo
+    read -p "Enter your choice: " choice
+    
+    case "$choice" in
+      [1-9]|[1-9][0-9])
+        if [[ $choice -le ${#playbooks[@]} ]]; then
+          local selected="${playbooks[$((choice-1))]}"
+          local name=$(basename "$selected" .yml | sed 's/^play-//' | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
+          run_playbook "$selected" "$name"
+        else
+          error "Invalid selection"
+        fi
+        ;;
+      [Aa])
+        for pb in "${playbooks[@]}"; do
+          local name=$(basename "$pb" .yml | sed 's/^play-//' | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
+          run_playbook "$pb" "$name"
+        done
+        break
+        ;;
+      [Ss])
+        break
+        ;;
+      [Qq])
+        return 1
+        ;;
+      *)
+        error "Invalid choice"
+        ;;
+    esac
+  done
+  return 0
+}
+
+# Hardware detection function
+check_hardware() {
+  local playbook="$1"
+  local pb_name=$(basename "$playbook")
+  
+  case "$pb_name" in
+    *nvidia*)
+      if lspci 2>/dev/null | grep -qi nvidia; then
+        echo "${GREEN}[RECOMMENDED]${NC}"
+      elif lsmod 2>/dev/null | grep -qi nouveau; then
+        echo "${YELLOW}[MAYBE]${NC}"
+      else
+        echo "${RED}[NOT DETECTED]${NC}"
+      fi
+      ;;
+    *displaylink*)
+      if lsusb 2>/dev/null | grep -qi displaylink; then
+        echo "${GREEN}[RECOMMENDED]${NC}"
+      else
+        echo "${YELLOW}[MANUAL CHECK]${NC}"
+      fi
+      ;;
+    *tlp*|*battery*)
+      if [[ -d /sys/class/power_supply/BAT0 ]] || [[ -d /sys/class/power_supply/BAT1 ]]; then
+        echo "${GREEN}[RECOMMENDED]${NC}"
+      else
+        echo "${RED}[DESKTOP]${NC}"
+      fi
+      ;;
+    *)
+      echo "${YELLOW}[CHECK MANUALLY]${NC}"
+      ;;
+  esac
+}
+
+# Optional Playbooks Section
+echo -e "\n${MAGENTA}${BOLD}Optional Configurations${NC}"
+echo -e "${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+
+if confirm "Would you like to install optional components?"; then
+  cd ~/Projects/fedora-desktop
+  
+  # Common optional playbooks
+  if [[ -d playbooks/imports/optional/common ]]; then
+    mapfile -t common_playbooks < <(find playbooks/imports/optional/common -name "*.yml" -type f | sort)
+    if [[ ${#common_playbooks[@]} -gt 0 ]]; then
+      info "Found ${#common_playbooks[@]} common optional playbooks"
+      if ! show_menu "Common Optional" "${common_playbooks[@]}"; then
+        info "Skipping remaining optional installations"
+      fi
+    fi
+  fi
+  
+  # Hardware-specific playbooks
+  if [[ -d playbooks/imports/optional/hardware-specific ]]; then
+    mapfile -t hw_playbooks < <(find playbooks/imports/optional/hardware-specific -name "*.yml" -type f | sort)
+    if [[ ${#hw_playbooks[@]} -gt 0 ]]; then
+      echo -e "\n${CYAN}${BOLD}Hardware-Specific Playbooks${NC}"
+      echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      info "Analyzing your hardware..."
+      
+      local i=1
+      for pb in "${hw_playbooks[@]}"; do
+        local name=$(basename "$pb" .yml | sed 's/^play-//' | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
+        local status=$(check_hardware "$pb")
+        echo -e "  ${BOLD}$i)${NC} $name $status"
+        ((i++))
+      done
+      echo
+      
+      if confirm "Would you like to configure hardware-specific components?"; then
+        show_menu "Hardware-Specific" "${hw_playbooks[@]}"
+      fi
+    fi
+  fi
+  
+  # Experimental playbooks warning
+  if [[ -d playbooks/imports/optional/experimental ]]; then
+    mapfile -t exp_playbooks < <(find playbooks/imports/optional/experimental -name "*.yml" -type f | sort)
+    if [[ ${#exp_playbooks[@]} -gt 0 ]]; then
+      echo -e "\n${YELLOW}${BOLD}⚠ Experimental Playbooks${NC}"
+      echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      warning "Found ${#exp_playbooks[@]} experimental playbooks"
+      echo -e "${YELLOW}These are experimental and should only be run if you know what you're doing:${NC}"
+      for pb in "${exp_playbooks[@]}"; do
+        local name=$(basename "$pb" .yml | sed 's/^play-//' | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
+        echo -e "  ${YELLOW}•${NC} $name"
+      done
+      echo -e "\n${YELLOW}Run these manually if needed: ${BOLD}./playbooks/imports/optional/experimental/play-*.yml${NC}"
+    fi
+  fi
+fi
+
+# Final completion message
+echo -e "\n${GREEN}${BOLD}╔══════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}${BOLD}║                    ALL DONE!                                ║${NC}"
+echo -e "${GREEN}${BOLD}╚══════════════════════════════════════════════════════════════╝${NC}\n"
+
+# Reboot section
+title "System Reboot"
+warning "A reboot is recommended to complete the configuration"
+if confirm "Ready to reboot now?"; then
+  echo -e "${YELLOW}${INFO} Rebooting system...${NC}"
+  sudo reboot now
+else
+  success "Installation complete!"
+  echo -e "${YELLOW}${INFO} Remember to reboot your system when convenient${NC}"
+  exit 0
+fi
