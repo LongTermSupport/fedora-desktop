@@ -91,8 +91,8 @@
           - enter your login details
           - confirm it logs in properly
           - ctrl c to kill that
-          - systemcl --user restart rescrobbled
-          - systemctl status rescrobbled
+          - systemctl --user restart rescrobbled
+          - systemctl --user status rescrobbled
       when: rescrobbled_session_file.stat.islnk is not defined
       
     - name: Start and Enable Rescrobbled Service
