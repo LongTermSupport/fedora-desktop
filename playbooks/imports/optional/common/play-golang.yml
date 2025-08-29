@@ -4,6 +4,7 @@
   vars:
     root_dir: "{{ inventory_dir }}/../../"
   tasks:
-    - name: DNF
+    - name: Install Golang
+      become: true
       dnf:
         name: golang
