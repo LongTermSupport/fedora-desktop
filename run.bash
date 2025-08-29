@@ -61,6 +61,7 @@ sudo dnf -y install \
   git \
   python3 \
   python3-pip \
+  python3-libdnf5 \
   grubby \
   jq \
   openssl \
@@ -72,7 +73,7 @@ sudo grubby --update-kernel=ALL --args="systemd.unified_cgroup_hierarchy=0"
 completed
 
 title "Installing Ansible with Pip"
-pipx install --force --include-deps \
+pipx install --include-deps \
   ansible \
   jmespath
 pipx inject ansible passlib
