@@ -72,7 +72,7 @@ sudo grubby --update-kernel=ALL --args="systemd.unified_cgroup_hierarchy=0"
 completed
 
 title "Installing Ansible with Pipx"
-pipx install \
+pipx install --include-deps \
   ansible \
   jmespath
 pipx inject ansible passlib
@@ -105,7 +105,7 @@ fi
 
 title "Installing Github CLI"
 sudo dnf -y install 'dnf-command(config-manager)'
-sudo dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
+sudo dnf config-manager addrepo --overwrite --from-repofile=https://cli.github.com/packages/rpm/gh-cli.repo
 sudo dnf -y install gh
 completed
 

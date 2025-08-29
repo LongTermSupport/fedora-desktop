@@ -35,6 +35,7 @@
           - wget
           - bash-completion
           - htop
+          - python3-libdnf5
       tags: packages
 
     - name: Passwordless Sudo
