@@ -1,3 +1,4 @@
+#!/usr/bin/env ansible-playbook
 # Customisations for Gnome Shell - only worth doing if you actually use Gnome
 - hosts: desktop
   name: Gnome Shell Extensions

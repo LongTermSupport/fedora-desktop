@@ -1,3 +1,4 @@
+#!/usr/bin/env ansible-playbook
 # This play installs things you need for Python and AI development
 - hosts: desktop
   vars:

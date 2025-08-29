@@ -1,3 +1,4 @@
+#!/usr/bin/env ansible-playbook
 # DisplayLink is used by USB Docks for Extra Monitors
 # This RPM will install everything and it pretty much just works
 - hosts: desktop
