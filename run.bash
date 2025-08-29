@@ -284,7 +284,9 @@ completed
 
 title "Updating SSH Known Hosts"
 info "Configuring GitHub host keys"
-ssh-keygen -R github.com 2>/dev/null || true
+# Remove existing GitHub entries silently
+ssh-keygen -R github.com &>/dev/null || true
+# Add fresh GitHub host keys
 curl -sL https://api.github.com/meta | jq -r '.ssh_keys | .[]' | sed -e 's/^/github.com /' >> ~/.ssh/known_hosts
 success "GitHub host keys updated"
 completed
