@@ -90,9 +90,8 @@ sudo grubby --update-kernel=ALL --args="systemd.unified_cgroup_hierarchy=0"
 completed
 
 title "Installing Ansible with Pipx"
-pipx install --include-deps \
-  ansible \
-  jmespath
+pipx install --include-deps ansible
+pipx inject ansible jmespath
 pipx inject ansible passlib
 pipx inject ansible ansible-lint
 ln -s ~/.local/share/pipx/venvs/ansible/bin/ansible-lint ~/.local/bin/
