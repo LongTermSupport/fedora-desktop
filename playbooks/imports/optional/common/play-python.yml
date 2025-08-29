@@ -86,14 +86,3 @@
         - pyenv
         - pyenv_install_versions
 
-    # Note this one is using pyenv to set a specific python version for pipx to use
-    - name: Install l2mac AI Code Generator
-      shell: |
-        set -ex
-        source ~/.bash_profile
-        # Use the first installed Python 3.11 version
-        PYTHON_VERSION=$(pyenv versions --bare | grep '^3\.11\.' | head -1)
-        pyenv shell $PYTHON_VERSION
-        pipx install l2mac -v --python $(which python)
-        
-        
