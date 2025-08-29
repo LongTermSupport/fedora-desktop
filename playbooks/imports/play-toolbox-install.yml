@@ -52,7 +52,7 @@
         register: jetbrains_toolbox_unarchive
 
       - name: Install JetBrains Toolbox
-        command: "{{ jetbrains_toolbox_download_dir.path }}/{{ jetbrains_toolbox_unarchive.files | first }}/jetbrains-toolbox --install"
+        command: "{{ jetbrains_toolbox_download_dir.path }}/{{ jetbrains_toolbox_unarchive.files | first | regex_replace('/$', '') }}/jetbrains-toolbox --install"
     when: st_jetbrains_toolbox.stat.exists == False
     always:
       - name: Delete temporary download directory
