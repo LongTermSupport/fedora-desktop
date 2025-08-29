@@ -34,7 +34,13 @@
         recurse: true
         state: directory
 
-    - name: Configure NVM in Bash Profile Files
+    - name: Check if NVM is already configured in bashrc
+      shell: grep -q 'NVM_DIR' "/home/{{ user_login }}/.bashrc"
+      register: nvm_in_bashrc
+      failed_when: false
+      changed_when: false
+
+    - name: Configure NVM in Bash Profile Files (only if not already present)
       blockinfile:
         path: "{{ item }}"
         marker: "# {mark} ANSIBLE MANAGED: NVM Configuration"
@@ -46,6 +52,7 @@
       loop:
         - "/home/{{ user_login }}/.bashrc"
         - "/home/{{ user_login }}/.bash_profile"
+      when: nvm_in_bashrc.rc != 0
 
     - name: Source NVM and Install Latest Node.js LTS
       shell: |
@@ -74,20 +81,5 @@
       debug:
         msg: "Node.js and npm installed successfully: {{ node_version_check.stdout_lines }}"
 
-    - name: Configure NPM Global Directory
-      shell: |
-        export NVM_DIR="$HOME/.nvm"
-        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-        npm config set prefix "$HOME/.npm-global"
-      environment:
-        HOME: "/home/{{ user_login }}"
-      args:
-        creates: "/home/{{ user_login }}/.npm-global"
-
-    - name: Add NPM Global Directory to PATH
-      blockinfile:
-        path: "/home/{{ user_login }}/.bashrc"
-        marker: "# {mark} ANSIBLE MANAGED: NPM Global Path"
-        block: |
-          export PATH="$HOME/.npm-global/bin:$PATH"
-        create: false
+    # Removed NPM Global Directory configuration as it conflicts with NVM
+    # NVM manages its own global packages per Node version
