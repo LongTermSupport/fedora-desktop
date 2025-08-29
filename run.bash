@@ -94,7 +94,10 @@ pipx install --include-deps ansible
 pipx inject ansible jmespath
 pipx inject ansible passlib
 pipx inject ansible ansible-lint
-ln -s ~/.local/share/pipx/venvs/ansible/bin/ansible-lint ~/.local/bin/
+# Only create symlink if it doesn't already exist
+if [ ! -L ~/.local/bin/ansible-lint ]; then
+    ln -s ~/.local/share/pipx/venvs/ansible/bin/ansible-lint ~/.local/bin/
+fi
 completed
 
 title "Creating SSH Key Pair\n\nNOTE - you must set a password\n\nSuggest you use your login password"
@@ -122,7 +125,7 @@ fi
 
 title "Installing Github CLI"
 sudo dnf -y install 'dnf-command(config-manager)'
-sudo dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
+sudo dnf config-manager addrepo --from-repofile=https://cli.github.com/packages/rpm/gh-cli.repo
 sudo dnf -y install gh
 completed
 
