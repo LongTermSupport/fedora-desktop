@@ -78,7 +78,7 @@
     - name: Install Pyenv Versions
       shell: |
         source ~/.bash_profile
-        pyenv install {{ item }}
+        pyenv install -s {{ item }}  # -s/--skip-existing skips if already installed
       args:
         executable: /bin/bash
       loop: "{{ pyenv_versions }}"
