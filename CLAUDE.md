@@ -93,6 +93,285 @@ fedora-desktop/
   - Optional/hardware-specific: Hardware drivers/configs
   - Optional/experimental: Bleeding-edge features
 
+## Ansible Style Rules
+
+### File Modification Preferences
+
+#### blockinfile vs lineinfile Usage
+- **Prefer `blockinfile` for multi-line configurations and complex content**:
+  ```yaml
+  # PREFERRED: For complex configurations
+  - name: Update ~/.bashrc File for the Bash Git Prompt
+    blockinfile:
+      path: /home/{{ user_login }}/.bashrc
+      marker: "# {mark} ANSIBLE MANAGED: Git Bash Prompt"
+      block: |
+        GIT_PROMPT_ONLY_IN_REPO=1
+        GIT_PROMPT_THEME=Solarized
+        GIT_PROMPT_START=$PS1
+        source ~/.bash-git-prompt/gitprompt.sh
+  ```
+
+- **Use `lineinfile` only for single-line configuration changes**:
+  ```yaml
+  # ACCEPTABLE: For simple single-line configurations
+  - name: DNF Parallel Downloads
+    lineinfile:
+      path: /etc/dnf/dnf.conf
+      line: max_parallel_downloads=10
+  ```
+
+#### Marker Patterns
+- **Use descriptive markers with consistent format**:
+  ```yaml
+  marker: "# {mark} ANSIBLE MANAGED: [Purpose Description]"
+  marker: "## {mark} [specific purpose] for {{ user_login}}"  # For sudoers
+  marker: "\" {mark} [Purpose]"  # For vim configs
+  marker: "-- {mark} ANSIBLE MANAGED: [Purpose]"  # For Lua configs
+  ```
+
+### Package Management Patterns
+
+#### Package Module Usage
+- **Use `package` module for simple installations**:
+  ```yaml
+  - name: Basic packages
+    package:
+      name: "{{ packages }}"
+      state: present
+    vars:
+      packages:
+        - vim
+        - wget
+        - bash-completion
+  ```
+
+- **Use `dnf` module for Fedora-specific features**:
+  ```yaml
+  - name: Install with DNF-specific options
+    dnf:
+      name:
+        - docker-ce
+        - docker-ce-cli
+        - containerd.io
+  ```
+
+#### Package List Organization
+- **Group packages logically with descriptive comments**:
+  ```yaml
+  packages:
+    # Essential system tools
+    - vim
+    - wget
+    - bash-completion
+    # Development dependencies  
+    - gcc
+    - gcc-c++
+    - cmake
+  ```
+
+### Service Management Patterns
+
+#### SystemD Service Handling
+- **Use consistent systemd service patterns**:
+  ```yaml
+  # For system services
+  - name: Enable and Start Service
+    systemd:
+      name: service_name
+      state: started
+      enabled: yes
+
+  # For user services
+  - name: Enable User Service
+    systemd:
+      name: docker
+      state: started
+      enabled: yes
+      scope: user
+  ```
+
+#### Service Restart via Handlers
+- **Use handlers for service restarts triggered by config changes**:
+  ```yaml
+  tasks:
+    - name: Update Config
+      lineinfile:
+        path: /path/to/config
+        line: "setting = value"
+      notify: restart-service
+
+  handlers:
+    - name: restart-service
+      systemd:
+        name: service_name
+        state: restarted
+  ```
+
+### User vs System Configuration Patterns
+
+#### Privilege Escalation
+- **Be explicit about become usage**:
+  ```yaml
+  # System-level changes
+  - name: System Configuration
+    become: true
+    blockinfile:
+      path: /etc/config
+
+  # User-level changes with specific user
+  - name: User Configuration  
+    become: true
+    become_user: "{{ user_login }}"
+    command: user_specific_command
+  ```
+
+#### File Ownership and Permissions
+- **Always set appropriate ownership for user files**:
+  ```yaml
+  - name: User SSH Config
+    blockinfile:
+      path: "/home/{{ user_login }}/.ssh/config"
+      create: true
+      owner: "{{ user_login }}"
+      group: "{{ user_login }}"
+      mode: '0600'
+  ```
+
+### Error Handling and Validation Patterns
+
+#### Idempotency with creates
+- **Use `creates` parameter for shell commands that should run once**:
+  ```yaml
+  - name: Install from URL
+    shell: |
+      wget https://example.com/installer.sh
+      chmod +x installer.sh && ./installer.sh
+    args:
+      creates: /usr/bin/installed_binary
+  ```
+
+#### Validation and Assertions
+- **Include preflight checks for critical requirements**:
+  ```yaml
+  - name: Check System Requirements
+    assert:
+      that:
+        - ansible_version.full is version_compare('2.9.9', '>=')
+        - ansible_distribution == 'Fedora'
+      fail_msg: 'System requirements not met'
+  ```
+
+### Variable Usage Patterns
+
+#### Variable Naming Conventions
+- **Use descriptive, consistent variable names**:
+  ```yaml
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+    pyenv_versions:
+      - 3.11.9
+      - 3.12.4
+  ```
+
+#### Template References
+- **Consistently reference template variables**:
+  ```yaml
+  # Always use the root_dir pattern for file references
+  copy:
+    src: "{{ root_dir }}/files{{ item }}"
+    dest: "{{ item }}"
+  ```
+
+### Task Organization and Naming
+
+#### Task Names
+- **Use descriptive, action-oriented task names**:
+  ```yaml
+  - name: Install YQ Binary from GitHub
+  - name: Set up SSH Config for LXC Containers  
+  - name: Enable Flathub Repository
+  - name: Copy SSH ID to root User
+  ```
+
+#### Task Grouping
+- **Group related tasks with `block` when appropriate**:
+  ```yaml
+  - name: Vim Configuration Setup
+    block:
+      - name: Get Colourscheme
+        get_url:
+          url: https://raw.githubusercontent.com/ajmwagar/vim-deus/master/colors/deus.vim
+          dest: /usr/share/vim/vimfiles/colors/deus.vim
+
+      - name: Vim Configs
+        blockinfile:
+          marker: "\" {mark} Vim Colourscheme"  
+          block: colors deus
+          path: /etc/vimrc.local
+          create: true
+  ```
+
+#### Tagging Strategy
+- **Use meaningful tags for selective execution**:
+  ```yaml
+  tags:
+    - packages      # Package installation tasks
+    - yq            # Specific tool installation
+    - sysctl        # System configuration changes
+    - pyenv         # Python environment setup
+  ```
+
+### Special Configuration Patterns
+
+#### Multi-file Loop Operations
+- **Use loops for applying same operation to multiple files**:
+  ```yaml
+  - name: Ensure Bash Tweaks are Loaded
+    blockinfile:
+      marker: "# {mark} ANSIBLE MANAGED: Bash Tweaks"
+      block: source /etc/profile.d/zz_lts-fedora-desktop.bash
+      path: "{{ item }}"
+      create: false
+    loop:
+      - /root/.bashrc
+      - /root/.bash_profile
+      - /home/{{ user_login }}/.bashrc
+      - /home/{{ user_login }}/.bash_profile
+  ```
+
+#### External Repository Integration
+- **Use shell modules with proper error handling for external installs**:
+  ```yaml
+  - name: Install from External Source
+    shell: |
+      set -x  # Enable command echoing for debugging
+      command1 && \
+      command2 && \
+      command3
+    args:
+      executable: /bin/bash
+      creates: /expected/result/file
+  ```
+
+### Code Quality Guidelines
+
+#### Comments and Documentation
+- **Include relevant comments for complex operations**:
+  ```yaml
+  # Set Controller Mode to bredr to Fix Bluetooth Headphones
+  # @see https://gitlab.freedesktop.org/pipewire/pipewire/-/wikis/Performance-tuning
+  ```
+
+#### Conditional Logic
+- **Keep conditional logic simple and readable**:
+  ```yaml
+  # Use when conditions sparingly and clearly
+  when: ansible_distribution == 'Fedora'
+  ```
+
+These style rules ensure consistency across the project, improve maintainability, and follow Ansible best practices while accommodating the specific needs of Fedora desktop configuration management.
+
 ## Technology Stack
 
 ### Core Technologies
