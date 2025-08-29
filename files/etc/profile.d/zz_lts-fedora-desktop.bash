@@ -100,9 +100,9 @@ then
       docker run $dp $(docker-node-image) "$@"
     set +x
     }
-    node() { docker-node-run "$@"; }
-    npm() { docker-node-run npm "$@"; }
-    npx() { docker-node-run npx "$@"; }
-    yarn() { docker-node-run yarn "$@"; }
+    dnode() { docker-node-run "$@"; }
+    dnpm() { docker-node-run npm "$@"; }
+    dnpx() { docker-node-run npx "$@"; }
+    dyarn() { docker-node-run yarn "$@"; }
 
 fi
