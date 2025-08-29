@@ -260,11 +260,23 @@ success "Account verification passed: $ghAuthLoginName"
 completed
 
 title "Configuring GitHub SSH Access"
-ghCheckTokenPermission "admin:public_key" > /dev/null 2>&1
+# Check if we have the required permission
+if ! ghCheckTokenPermission "admin:public_key" > /dev/null 2>&1; then
+  warning "Missing admin:public_key permission - requesting it now"
+  gh auth refresh -h github.com -s admin:public_key
+fi
+
 ssh_key_fingerprint=$(ssh-keygen -lf ~/.ssh/id.pub | awk '{print $2}')
 if ! gh ssh-key list | grep -q "$ssh_key_fingerprint" 2>/dev/null; then
-  gh ssh-key add ~/.ssh/id.pub --title="$(hostname) Added by fedora-desktop setup script on $(date +%Y-%m-%d)" --type=authentication > /dev/null 2>&1
-  success "SSH key added to GitHub"
+  # Add SSH key for authentication only (not signing)
+  if gh ssh-key add ~/.ssh/id.pub --title="$(hostname) Added by fedora-desktop setup script on $(date +%Y-%m-%d)" --type=authentication 2>&1; then
+    success "SSH authentication key added to GitHub"
+  else
+    error "Failed to add SSH key to GitHub"
+    echo -e "${YELLOW}${ARROW} Try manually adding your SSH key:${NC}"
+    echo -e "   cat ~/.ssh/id.pub | gh ssh-key add --title='$(hostname)' --type=authentication"
+    exit 1
+  fi
 else
   success "SSH key already configured on GitHub"
 fi
