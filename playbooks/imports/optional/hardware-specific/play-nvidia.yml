@@ -1,3 +1,4 @@
+#!/usr/bin/env ansible-playbook
 # Install nvautoinstall and then use it to install nvidia driver
 - hosts: desktop
   become: true
