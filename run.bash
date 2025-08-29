@@ -513,6 +513,27 @@ if confirm "Would you like to install optional components?"; then
     fi
   fi
   
+  # Untested playbooks warning
+  if [[ -d playbooks/imports/optional/untested ]]; then
+    mapfile -t untested_playbooks < <(find playbooks/imports/optional/untested -name "*.yml" -type f | sort)
+    if [[ ${#untested_playbooks[@]} -gt 0 ]]; then
+      echo -e "\n${RED}${BOLD}⚠ UNTESTED Playbooks (Fedora $fedora_version)${NC}"
+      echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+      error "Found ${#untested_playbooks[@]} untested playbooks for Fedora $fedora_version"
+      echo -e "${RED}${BOLD}These have NOT been tested on Fedora $fedora_version and may fail:${NC}"
+      for pb in "${untested_playbooks[@]}"; do
+        local name=$(basename "$pb" .yml | sed 's/^play-//' | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
+        echo -e "  ${RED}⚠${NC} $name"
+      done
+      echo -e "\n${YELLOW}These require careful manual testing before use.${NC}"
+      
+      if confirm "Would you like to attempt running untested playbooks? (NOT RECOMMENDED)"; then
+        echo -e "${RED}${BOLD}WARNING: These playbooks may fail or cause issues!${NC}"
+        show_menu "Untested (USE WITH CAUTION)" "${untested_playbooks[@]}"
+      fi
+    fi
+  fi
+  
   # Experimental playbooks warning
   if [[ -d playbooks/imports/optional/experimental ]]; then
     mapfile -t exp_playbooks < <(find playbooks/imports/optional/experimental -name "*.yml" -type f | sort)
