@@ -47,12 +47,25 @@
         unarchive:
           src: "{{ jetbrains_toolbox_download_dir.path }}/jetbrains_toolbox.tar.gz"
           dest: "{{ jetbrains_toolbox_download_dir.path }}"
-          list_files: yes
           remote_src: yes
-        register: jetbrains_toolbox_unarchive
 
-      - name: Install JetBrains Toolbox
-        command: "{{ jetbrains_toolbox_download_dir.path }}/{{ jetbrains_toolbox_unarchive.files | first | regex_replace('/$', '') }}/jetbrains-toolbox --install"
+      - name: Run JetBrains Toolbox installer
+        shell: |
+          # The binary is always at jetbrains-toolbox-VERSION/bin/jetbrains-toolbox
+          cd {{ jetbrains_toolbox_download_dir.path }}
+          TOOLBOX_DIR=$(ls -d jetbrains-toolbox-* | head -1)
+          TOOLBOX_BIN="${TOOLBOX_DIR}/bin/jetbrains-toolbox"
+          
+          if [ ! -f "$TOOLBOX_BIN" ]; then
+            echo "ERROR: Could not find jetbrains-toolbox binary at $TOOLBOX_BIN"
+            exit 1
+          fi
+          
+          echo "Running installer: $TOOLBOX_BIN"
+          chmod +x "$TOOLBOX_BIN"
+          "$TOOLBOX_BIN" --install
+        args:
+          executable: /bin/bash
     when: st_jetbrains_toolbox.stat.exists == False
     always:
       - name: Delete temporary download directory
