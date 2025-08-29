@@ -2,10 +2,12 @@
 - hosts: desktop
   vars:
     root_dir: "{{ inventory_dir }}/../../"
+    # Python versions to install - using latest stable releases
+    # To update: pyenv install --list | grep -E "^\s*3\.(11|12|13)\.[0-9]+$" | tail -3
     pyenv_versions:
-      - 3.11.13
-      - 3.12.11
-      - 3.13.1
+      - 3.11.13  # LTS version - security support until Oct 2027
+      - 3.12.11  # Stable version - security support until Oct 2028  
+      - 3.13.1   # Latest stable
   tasks:
     - name: Ensure pipx Installed, Pyenv dependencies, and dependencies required by various python packages
       become: true
