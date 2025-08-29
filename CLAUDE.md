@@ -98,7 +98,7 @@ fedora-desktop/
 ### File Modification Preferences
 
 #### blockinfile vs lineinfile Usage
-- **Prefer `blockinfile` for multi-line configurations and complex content**:
+- **Prefer `blockinfile` for all file content modifications**:
   ```yaml
   # PREFERRED: For complex configurations
   - name: Update ~/.bashrc File for the Bash Git Prompt
@@ -112,18 +112,9 @@ fedora-desktop/
         source ~/.bash-git-prompt/gitprompt.sh
   ```
 
-- **Use `lineinfile` only for single-line configuration changes**:
-  ```yaml
-  # ACCEPTABLE: For simple single-line configurations
-  - name: DNF Parallel Downloads
-    lineinfile:
-      path: /etc/dnf/dnf.conf
-      line: max_parallel_downloads=10
-  ```
-
 #### Marker Patterns
 - **Use descriptive markers with consistent format**:
-  ```yaml
+```yaml
   marker: "# {mark} ANSIBLE MANAGED: [Purpose Description]"
   marker: "## {mark} [specific purpose] for {{ user_login}}"  # For sudoers
   marker: "\" {mark} [Purpose]"  # For vim configs
