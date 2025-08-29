@@ -145,11 +145,6 @@ sudo dnf -y install \
   pipx > /dev/null 2>&1
 completed
 
-title "Configuring System Settings"
-info "Updating GRUB configuration for cgroups"
-sudo grubby --update-kernel=ALL --args="systemd.unified_cgroup_hierarchy=0" > /dev/null 2>&1
-completed
-
 title "Setting up Ansible Environment"
 info "Installing Ansible and dependencies"
 pipx install --include-deps ansible > /dev/null 2>&1 || success "Ansible already installed"
