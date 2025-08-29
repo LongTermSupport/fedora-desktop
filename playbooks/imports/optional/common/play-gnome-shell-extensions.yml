@@ -29,4 +29,12 @@
       loop:
         - name: Unite
           id: 1287
+        - name: Blur my Shell
+          id: 3193
+        - name: Vitals
+          id: 1460
+        - name: AppIndicator and KStatusNotifierItem Support
+          id: 615
+        - name: Clipboard Indicator
+          id: 779
 
