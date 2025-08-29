@@ -90,10 +90,10 @@ sudo grubby --update-kernel=ALL --args="systemd.unified_cgroup_hierarchy=0"
 completed
 
 title "Installing Ansible with Pipx"
-pipx install --include-deps ansible
-pipx inject ansible jmespath
-pipx inject ansible passlib
-pipx inject ansible ansible-lint
+pipx install --include-deps ansible || echo "Ansible already installed"
+pipx inject ansible jmespath || echo "jmespath already injected"
+pipx inject ansible passlib || echo "passlib already injected"
+pipx inject ansible ansible-lint || echo "ansible-lint already injected"
 # Only create symlink if it doesn't already exist
 if [ ! -L ~/.local/bin/ansible-lint ]; then
     ln -s ~/.local/share/pipx/venvs/ansible/bin/ansible-lint ~/.local/bin/
@@ -125,7 +125,12 @@ fi
 
 title "Installing Github CLI"
 sudo dnf -y install 'dnf-command(config-manager)'
-sudo dnf config-manager addrepo --from-repofile=https://cli.github.com/packages/rpm/gh-cli.repo
+# Check if gh-cli repo already exists before adding
+if ! sudo dnf repolist | grep -q "gh-cli"; then
+  sudo dnf config-manager addrepo --from-repofile=https://cli.github.com/packages/rpm/gh-cli.repo
+else
+  echo "GitHub CLI repository already configured"
+fi
 sudo dnf -y install gh
 completed
 
@@ -133,7 +138,10 @@ title "Configuring Github CLI (https://cli.github.com/)
 
 We're now going to log into Github - you will need to authenticate with your browser
 "
-echo 'export GH_HOST="github.com"' >> ~/.bashrc
+# Only add GH_HOST if not already present
+if ! grep -q 'export GH_HOST="github.com"' ~/.bashrc; then
+  echo 'export GH_HOST="github.com"' >> ~/.bashrc
+fi
 
 # When setting up the github token, some required permissions might be missed out
 # This function allows us to check for the required permissions
@@ -195,11 +203,19 @@ completed
 
 title "Adding SSH Key to Github"
 ghCheckTokenPermission "admin:public_key"
-gh ssh-key add ~/.ssh/id.pub --title="$(hostname) Added by fedora-desktop setup script on $(date +%Y-%m-%d)" --type=authentication
+# Check if key already exists on GitHub
+ssh_key_fingerprint=$(ssh-keygen -lf ~/.ssh/id.pub | awk '{print $2}')
+if ! gh ssh-key list | grep -q "$ssh_key_fingerprint"; then
+  gh ssh-key add ~/.ssh/id.pub --title="$(hostname) Added by fedora-desktop setup script on $(date +%Y-%m-%d)" --type=authentication
+else
+  echo "SSH key already added to GitHub"
+fi
 completed
 
 title "Adding Github Host Key"
-ssh-keygen -R github.com || echo "No existing key to remove"
+# Remove old github.com entries to avoid duplicates
+ssh-keygen -R github.com 2>/dev/null || echo "No existing key to remove"
+# Add fresh github.com host keys
 curl -L https://api.github.com/meta | jq -r '.ssh_keys | .[]' | sed -e 's/^/github.com /' >> ~/.ssh/known_hosts
 completed
 
