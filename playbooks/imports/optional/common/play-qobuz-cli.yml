@@ -3,10 +3,13 @@
   name: Qobuz CLI Apps - Gapless HD Audio Streaming from Qobuz
   vars:
     root_dir: "{{ inventory_dir }}/../../"
+    # Latest versions as of 2025-08
+    # Check https://github.com/iamdb/hifi.rs/releases for updates
     hifiRsVersion: 0.3.8
     hifiRsUrl: "https://github.com/iamdb/hifi.rs/releases/download/v{{ hifiRsVersion }}/hifi-rs-x86_64-unknown-linux-gnu.tar.gz"
     hifiRsPath: "/home/{{ user_login }}/.local/bin/hifi-rs"
-    rescrobbledVersion: 0.7.0
+    # Check https://github.com/InputUsername/rescrobbled/releases for updates
+    rescrobbledVersion: 0.8.0
     rescrobbledUrl: "https://github.com/InputUsername/rescrobbled/releases/download/v{{ rescrobbledVersion }}/rescrobbled"
     rescrobbledPath: "/home/{{ user_login }}/.local/bin/rescrobbled"
   tasks:

@@ -41,10 +41,18 @@
         regexp: resample\.quality
       notify: pw-restart
 
+    - name: Check if speech-dispatcher config exists
+      stat:
+        path: /etc/speech-dispatcher/speechd.conf
+      register: speechd_conf
+      become: true
+
     - name: Disable Speech Dispatcher Autospawn
+      become: true
       lineinfile:
         path: /etc/speech-dispatcher/speechd.conf
         line: "DisableAutoSpawn"
+      when: speechd_conf.stat.exists
 
 #    - name: Install realtiome-setup
 #      dnf:

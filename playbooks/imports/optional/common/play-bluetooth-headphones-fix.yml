@@ -13,24 +13,30 @@
         insertafter: \[General\]
       notify: restart-bt
 
-    - name: Set Bluetooth Quality Settings
+    - name: Create WirePlumber configuration directory
       become: true
-      blockinfile:
-        marker: "-- {mark} ANSIBLE MANAGED: Bluetooth Headphones LDAC Quality"
-        path: /usr/share/wireplumber/bluetooth.lua.d/50-bluez-config.lua
-        insertafter: --\["bluez5.a2dp.ldac.quality"\] = "auto",
-        block: |
-          ["bluez5.a2dp.ldac.quality"] = "hq",
-      notify: restart-pw
+      file:
+        path: /etc/wireplumber/wireplumber.conf.d
+        state: directory
+        mode: '0755'
 
-    - name: Set Bluetooth Quality Settings
+    - name: Configure Bluetooth settings for WirePlumber 0.5+
       become: true
       blockinfile:
-        marker: "-- {mark} ANSIBLE MANAGED: Bluetooth Headphones Quality Configs"
-        path: /usr/share/wireplumber/bluetooth.lua.d/50-bluez-config.lua
-        insertafter: --\["bluez5.default.rate"\] = 48000,
+        path: /etc/wireplumber/wireplumber.conf.d/50-bluetooth.conf
+        marker: "# {mark} ANSIBLE MANAGED: Bluetooth Headphones Quality Settings"
+        create: true
+        mode: '0644'
         block: |
-          ["bluez5.default.rate"] = 96000,
+          monitor.bluez.properties = {
+            bluez5.enable-sbc-xq = true
+            bluez5.enable-msbc = true
+            bluez5.enable-hw-volume = true
+            bluez5.headset-roles = [ hsp_hs hsp_ag hfp_hf hfp_ag ]
+            bluez5.codecs = [ sbc sbc_xq aac ldac aptx aptx_hd aptx_ll aptx_ll_duplex ]
+            bluez5.default.rate = 48000
+            bluez5.a2dp.ldac.quality = hq
+          }
       notify: restart-pw
 
   handlers:
