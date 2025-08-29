@@ -83,17 +83,42 @@
         path: /home/{{ user_login }}/.config/rescrobbled/session
       register: rescrobbled_session_file
 
-    - name: If No Session File, You Need to Manually Run "rescrobbled"
-      fail:
-        msg: |
-          please do the following 
-          - run rescrobbled
-          - enter your login details
-          - confirm it logs in properly
-          - ctrl c to kill that
-          - systemctl --user restart rescrobbled
-          - systemctl --user status rescrobbled
-      when: rescrobbled_session_file.stat.islnk is not defined
+    - name: Manual Rescrobbled Setup Required
+      block:
+        - name: Display Setup Instructions
+          pause:
+            prompt: |
+              
+              ============================================
+              RESCROBBLED SETUP REQUIRED
+              ============================================
+              
+              Please do the following in a NEW terminal:
+              1. Run: rescrobbled
+              2. Enter your Last.fm login details
+              3. Confirm it logs in properly
+              4. Press Ctrl+C to exit rescrobbled
+              
+              Then press ENTER here to continue...
+          
+        - name: Check if Session File Now Exists
+          stat:
+            path: /home/{{ user_login }}/.config/rescrobbled/session
+          register: rescrobbled_session_check
+          
+        - name: Verify Session File Created
+          fail:
+            msg: |
+              Session file still not found at ~/.config/rescrobbled/session
+              Please ensure you completed the rescrobbled login process.
+              Run this playbook again after successfully logging in.
+          when: not rescrobbled_session_check.stat.exists
+      when: not rescrobbled_session_file.stat.exists | default(true)
+      
+    - name: Reload systemd daemon for user
+      systemd:
+        daemon_reload: yes
+        scope: user
       
     - name: Start and Enable Rescrobbled Service
       systemd:
@@ -101,4 +126,19 @@
         state: started
         enabled: true
         scope: user
+    
+    - name: Verify Rescrobbled Service is Running
+      command: systemctl --user is-active rescrobbled
+      register: rescrobbled_status
+      changed_when: false
+      failed_when: rescrobbled_status.stdout != "active"
+      
+    - name: Display Success Message
+      debug:
+        msg: |
+          ✓ Rescrobbled successfully installed and running!
+          ✓ Your music will now be scrobbled to Last.fm
+          
+          To check status: systemctl --user status rescrobbled
+          To view logs: journalctl --user -u rescrobbled -f
     
