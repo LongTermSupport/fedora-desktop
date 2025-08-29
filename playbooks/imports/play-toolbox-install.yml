@@ -73,3 +73,34 @@
           path: "{{ jetbrains_toolbox_download_dir.path }}"
           state: absent
         changed_when: no
+
+  - name: Check for JetBrains Toolbox system integration
+    stat:
+      path: ~/.local/bin/jetbrains-toolbox
+    register: st_jetbrains_symlink
+
+  - name: Check for JetBrains Toolbox desktop entry
+    stat:
+      path: ~/.local/share/applications/jetbrains-toolbox.desktop
+    register: st_jetbrains_desktop
+
+  - name: Launch JetBrains Toolbox to complete setup if integration missing
+    shell: |
+      # Find the installed toolbox binary
+      TOOLBOX_BIN=$(find ~/.local/share/JetBrains/Toolbox -name "jetbrains-toolbox" -type f 2>/dev/null | head -1)
+      
+      if [ -n "$TOOLBOX_BIN" ] && [ -x "$TOOLBOX_BIN" ]; then
+        echo "Launching JetBrains Toolbox to complete system integration at: $TOOLBOX_BIN"
+        # Launch in background and detach from terminal
+        nohup "$TOOLBOX_BIN" > /dev/null 2>&1 &
+        # Give it a moment to start and create integration files
+        sleep 5
+        echo "JetBrains Toolbox launched successfully"
+      else
+        echo "WARNING: Could not find JetBrains Toolbox binary after installation"
+      fi
+    args:
+      executable: /bin/bash
+    when: 
+      - st_jetbrains_toolbox.stat.exists == True
+      - st_jetbrains_symlink.stat.exists == False or st_jetbrains_desktop.stat.exists == False
