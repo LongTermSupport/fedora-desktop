@@ -21,20 +21,29 @@
         name:
           - xprop
           - gnome-shell-extension-dash-to-dock
-          - gnome-shell-extension-just-perfection
+          # Note: just-perfection is installed via ID below as DNF package may be outdated
 
     - name: Install Gnome Shell Extensions Not Included with DNF
       become: false
       command: gnome-shell-extension-installer --yes --restart-shell {{ item.id }}
       loop:
-        - name: Unite
-          id: 1287
+        # All verified compatible with GNOME Shell 48 (Fedora 42)
         - name: Blur my Shell
           id: 3193
+          # https://extensions.gnome.org/extension/3193/blur-my-shell/
         - name: Vitals
           id: 1460
+          # https://extensions.gnome.org/extension/1460/vitals/
         - name: AppIndicator and KStatusNotifierItem Support
           id: 615
+          # https://extensions.gnome.org/extension/615/appindicator-support/
         - name: Clipboard Indicator
           id: 779
+          # https://extensions.gnome.org/extension/779/clipboard-indicator/
+        - name: Just Perfection
+          id: 3843
+          # https://extensions.gnome.org/extension/3843/just-perfection/
+        - name: Tiling Shell
+          id: 7065
+          # https://extensions.gnome.org/extension/7065/tiling-shell/
 
