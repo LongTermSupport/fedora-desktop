@@ -6,9 +6,46 @@ Uses a bash script which installs basic dependencies including git and ansible a
 
 ## Manual Task - Install Fedora
 
-First you need to install Fedora. Currently, this repo is targeting F40.
+First you need to install Fedora. The target version for this branch is defined in `vars/fedora-version.yml`.
 
-This repo is in active development and is generally updated a bit of time after each Fedora release (as I get around to reinstalling/testing)
+## Fedora Version Branching Strategy
+
+This repository uses a branching strategy where each Fedora version has its own branch:
+
+- **Branch Naming**: `F<VERSION>` (e.g., `F42`, `F43`)
+- **Default Branch**: Updated to the latest Fedora version being worked on
+- **Version Configuration**: Each branch has its target Fedora version defined in `vars/fedora-version.yml`
+
+### Creating a New Fedora Version Branch
+
+When a new Fedora version is released, follow these steps to create a new branch:
+
+```bash
+# 1. Update the Fedora version in the centralized config
+vim vars/fedora-version.yml
+# Change: fedora_version: 43
+
+# 2. Commit the version update
+git add vars/fedora-version.yml
+git commit -m "Update target Fedora version to 43"
+
+# 3. Create and push the new branch
+git checkout -b F43
+git push -u origin F43
+
+# 4. Set the new branch as default on GitHub
+gh repo edit --default-branch F43
+
+# 5. Update any branch-specific documentation or configurations as needed
+```
+
+### Branch Lifecycle
+
+- **Active Development**: Latest Fedora version branch
+- **Maintenance**: Previous version branches receive critical fixes only
+- **Archive**: Older branches are kept for reference but not actively maintained
+
+This repo is in active development and is generally updated shortly after each Fedora release.
 
 _It looks like Fedora 40 no longer needs custom partitioning_
 

@@ -3,9 +3,8 @@
   become: true
   vars:
     root_dir: "{{ inventory_dir }}/../../"
-    # Update this when targeting a new version of Fedora
-    fedoraVersion: 42
   vars_files:
+    - "{{ root_dir }}/vars/fedora-version.yml"
   tasks:
     - name: Check Ansible
       assert:
@@ -19,5 +18,5 @@
         that:
           - ansible_os_family == 'RedHat'
           - ansible_distribution == 'Fedora'
-          - ansible_distribution_major_version | int == {{ fedoraVersion }}
-        fail_msg: 'This project expects Fedora {{ fedoraVersion }}'
+          - ansible_distribution_major_version | int == {{ fedora_version }}
+        fail_msg: 'This project expects Fedora {{ fedora_version }}'

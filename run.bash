@@ -14,6 +14,24 @@ then
   exit 1
 fi
 
+# Check Fedora version matches expected version from config
+if [[ -f ./vars/fedora-version.yml ]]; then
+  expected_version=$(grep "fedora_version:" ./vars/fedora-version.yml | cut -d: -f2 | tr -d ' ')
+  actual_version=$(grep "^VERSION_ID=" /etc/os-release | cut -d= -f2)
+  
+  if [[ "$actual_version" != "$expected_version" ]]; then
+    printf "\n\n ERROR - Fedora version mismatch\n"
+    printf "Expected: Fedora $expected_version\n"
+    printf "Actual: Fedora $actual_version\n"
+    printf "Please check out the correct branch for your Fedora version\n\n"
+    exit 1
+  fi
+  printf "✓ Fedora version check passed: $actual_version\n"
+else
+  printf "\n\n WARNING - Could not find vars/fedora-version.yml\n"
+  printf "Skipping version check, but this may cause issues\n\n"
+fi
+
 ## Functions
 
 title(){
@@ -105,7 +123,7 @@ fi
 
 title "Installing Github CLI"
 sudo dnf -y install 'dnf-command(config-manager)'
-sudo dnf config-manager addrepo --overwrite --from-repofile=https://cli.github.com/packages/rpm/gh-cli.repo
+sudo dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
 sudo dnf -y install gh
 completed
 
