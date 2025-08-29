@@ -2,6 +2,8 @@
 - import_playbook: imports/play-AA-preflight-sanity.yml
 - import_playbook: imports/play-basic-configs.yml
 - import_playbook: imports/play-git-configure-and-tools.yml
+- import_playbook: imports/play-nvm-install.yml
+- import_playbook: imports/play-claude-code.yml
 - import_playbook: imports/play-lxc-install-config.yml
 - import_playbook: imports/play-ms-fonts.yml
 - import_playbook: imports/play-rpm-fusion.yml

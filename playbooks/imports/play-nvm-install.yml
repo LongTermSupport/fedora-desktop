@@ -1,0 +1,93 @@
+- hosts: desktop
+  name: NVM Installation and Node Setup
+  become: false
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+    nvm_version: "0.40.1"
+    node_version: "lts/*"
+  tasks:
+    - name: Install NVM Dependencies
+      become: true
+      package:
+        name: "{{ packages }}"
+        state: present
+      vars:
+        packages:
+          - curl
+          - wget
+          - bash-completion
+
+    - name: Download and Install NVM
+      shell: |
+        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v{{ nvm_version }}/install.sh | bash
+      args:
+        creates: "/home/{{ user_login }}/.nvm/nvm.sh"
+        chdir: "/home/{{ user_login }}"
+      environment:
+        HOME: "/home/{{ user_login }}"
+
+    - name: Set NVM Directory Permissions
+      file:
+        path: "/home/{{ user_login }}/.nvm"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        recurse: true
+        state: directory
+
+    - name: Configure NVM in Bash Profile Files
+      blockinfile:
+        path: "{{ item }}"
+        marker: "# {mark} ANSIBLE MANAGED: NVM Configuration"
+        block: |
+          export NVM_DIR="$HOME/.nvm"
+          [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+          [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+        create: false
+      loop:
+        - "/home/{{ user_login }}/.bashrc"
+        - "/home/{{ user_login }}/.bash_profile"
+
+    - name: Source NVM and Install Latest Node.js LTS
+      shell: |
+        export NVM_DIR="$HOME/.nvm"
+        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+        nvm install {{ node_version }}
+        nvm use {{ node_version }}
+        nvm alias default {{ node_version }}
+      args:
+        creates: "/home/{{ user_login }}/.nvm/versions/node"
+        chdir: "/home/{{ user_login }}"
+      environment:
+        HOME: "/home/{{ user_login }}"
+
+    - name: Verify Node.js Installation
+      shell: |
+        export NVM_DIR="$HOME/.nvm"
+        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+        node --version && npm --version
+      environment:
+        HOME: "/home/{{ user_login }}"
+      register: node_version_check
+      changed_when: false
+
+    - name: Display Node.js Version
+      debug:
+        msg: "Node.js and npm installed successfully: {{ node_version_check.stdout_lines }}"
+
+    - name: Configure NPM Global Directory
+      shell: |
+        export NVM_DIR="$HOME/.nvm"
+        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+        npm config set prefix "$HOME/.npm-global"
+      environment:
+        HOME: "/home/{{ user_login }}"
+      args:
+        creates: "/home/{{ user_login }}/.npm-global"
+
+    - name: Add NPM Global Directory to PATH
+      blockinfile:
+        path: "/home/{{ user_login }}/.bashrc"
+        marker: "# {mark} ANSIBLE MANAGED: NPM Global Path"
+        block: |
+          export PATH="$HOME/.npm-global/bin:$PATH"
+        create: false
