@@ -58,9 +58,11 @@ if [[ -f ./vars/fedora-version.yml ]]; then
     exit 1
   fi
   echo -e "${GREEN}${CHECK} Fedora version check passed: $actual_version${NC}"
+  fedora_version="$actual_version"
 else
   echo -e "${YELLOW}${WARN} WARNING - Could not find vars/fedora-version.yml${NC}"
   echo -e "   Skipping version check, but this may cause issues\n"
+  fedora_version=$(grep "^VERSION_ID=" /etc/os-release | cut -d= -f2)
 fi
 
 ## Functions
@@ -97,15 +99,19 @@ confirm(){
   local yn=""
   echo
   echo -e "${YELLOW}${ARROW}${NC} $msg"
-  read -sp "   Press 'y' to confirm, 'n' to skip: " -n 1 yn
-  echo
-  if [[ "$yn" == "y" ]]; then
-    echo -e "${GREEN}${CHECK} Confirmed${NC}\n"
-    return 0
-  else
-    echo -e "${YELLOW}${INFO} Skipped${NC}\n"
-    return 1
-  fi
+  while true; do
+    read -sp "   Press 'y' to confirm, 'n' to skip: " -n 1 yn
+    echo
+    if [[ "$yn" == "y" ]]; then
+      echo -e "${GREEN}${CHECK} Confirmed${NC}\n"
+      return 0
+    elif [[ "$yn" == "n" ]]; then
+      echo -e "${YELLOW}${INFO} Skipped${NC}\n"
+      return 1
+    else
+      echo -e "${RED}${CROSS} Invalid input. Please press 'y' or 'n'${NC}"
+    fi
+  done
 }
 
 promptForValue(){
@@ -267,7 +273,8 @@ if ! ghCheckTokenPermission "admin:public_key" > /dev/null 2>&1; then
 fi
 
 ssh_key_fingerprint=$(ssh-keygen -lf ~/.ssh/id.pub | awk '{print $2}')
-if ! gh ssh-key list | grep -q "$ssh_key_fingerprint" 2>/dev/null; then
+# Use gh api to check for SSH keys without triggering signing key scope warning
+if ! gh api user/keys 2>/dev/null | grep -q "$ssh_key_fingerprint"; then
   # Add SSH key for authentication only (not signing)
   if gh ssh-key add ~/.ssh/id.pub --title="$(hostname) Added by fedora-desktop setup script on $(date +%Y-%m-%d)" --type=authentication 2>&1; then
     success "SSH authentication key added to GitHub"
@@ -427,7 +434,9 @@ show_menu() {
           local name=$(basename "$selected" .yml | sed 's/^play-//' | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
           run_playbook "$selected" "$name"
         else
-          error "Invalid selection"
+          error "Invalid selection: $choice (choose 1-${#playbooks[@]})"
+          echo -e "${YELLOW}${ARROW} Please try again${NC}\n"
+          sleep 1
         fi
         ;;
       [Aa])
@@ -444,7 +453,9 @@ show_menu() {
         return 1
         ;;
       *)
-        error "Invalid choice"
+        error "Invalid choice: '$choice'"
+        echo -e "${YELLOW}${ARROW} Please enter a number (1-${#playbooks[@]}), A, S, or Q${NC}\n"
+        sleep 1
         ;;
     esac
   done
