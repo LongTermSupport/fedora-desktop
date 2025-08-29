@@ -71,11 +71,13 @@ title "Updating Grub Configs for Cgroups"
 sudo grubby --update-kernel=ALL --args="systemd.unified_cgroup_hierarchy=0"
 completed
 
-title "Installing Ansible with Pip"
+title "Installing Ansible with Pipx"
 pipx install \
   ansible \
   jmespath
 pipx inject ansible passlib
+pipx inject ansible ansible-lint
+ln -s ~/.local/share/pipx/venvs/ansible/bin/ansible-lint ~/.local/bin/
 completed
 
 title "Creating SSH Key Pair\n\nNOTE - you must set a password\n\nSuggest you use your login password"

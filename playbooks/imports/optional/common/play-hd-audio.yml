@@ -1,4 +1,5 @@
 # Set Pipewire Configs to Support Variable and Higher Bitrates
+# @see https://gitlab.freedesktop.org/pipewire/pipewire/-/wikis/Performance-tuning
 - hosts: desktop
   name: HD Audio
   tasks:
@@ -38,6 +39,30 @@
         line: "    resample.quality      = 10"
         regexp: resample\.quality
       notify: pw-restart
+
+    - name: Disable Speech Dispatcher Autospawn
+      lineinfile:
+        path: /etc/speech-dispatcher/speechd.conf
+        line: "DisableAutoSpawn"
+
+#    - name: Install realtiome-setup
+#      dnf:
+#        name: realtime-setup
+#
+#    - name: Enable Realtime Services
+#      systemd:
+#        service: "{{ item }}"
+#        enabled: true
+#        state: started
+#      loop:
+#        - realtime-entsk.service
+#        - realtime-setup.service
+#
+#    - name: Add current user to realtime group
+#      user:
+#        name: "{{ user_login }}"
+#        groups: realtime
+#        append: true
 
   handlers:
     - name: pw-restart
