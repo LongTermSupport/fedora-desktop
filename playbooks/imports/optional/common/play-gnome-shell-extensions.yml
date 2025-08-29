@@ -9,7 +9,9 @@
     - name: Install Gnome Shell Extension Installer
       shell: |
         cd /usr/bin
-        wget -O gnome-shell-extension-installer "https://github.com/brunelli/gnome-shell-extension-installer/raw/master/gnome-shell-extension-installer"
+        # Pin to specific commit for reproducibility and security
+        # Current master as of 2025-08, update if needed
+        wget -O gnome-shell-extension-installer "https://github.com/brunelli/gnome-shell-extension-installer/raw/1200bd8566b2fbc55f8ccc96f07394996dfc2da9/gnome-shell-extension-installer"
         chmod +x gnome-shell-extension-installer
       args:
         creates: /usr/bin/gnome-shell-extension-installer

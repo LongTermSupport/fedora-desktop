@@ -39,7 +39,7 @@
   handlers:
     - name: akmod
       become: true
-      shell: akmods --kernels 6.4.11-200.fc38.x86_64 && systemctl restart vboxdrv.service
+      shell: akmods --kernels $(uname -r) && systemctl restart vboxdrv.service
 
 - hosts: desktop
   name: Setup Windows VMs

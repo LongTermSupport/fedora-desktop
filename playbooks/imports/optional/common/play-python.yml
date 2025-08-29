@@ -96,7 +96,9 @@
       shell: |
         set -ex
         source ~/.bash_profile
-        pyenv shell 3.11.13
+        # Use the first installed Python 3.11 version
+        PYTHON_VERSION=$(pyenv versions --bare | grep '^3\.11\.' | head -1)
+        pyenv shell $PYTHON_VERSION
         pipx install l2mac -v --python $(which python)
         
         
