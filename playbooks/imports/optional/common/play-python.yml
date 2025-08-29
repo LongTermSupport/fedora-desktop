@@ -3,9 +3,9 @@
   vars:
     root_dir: "{{ inventory_dir }}/../../"
     pyenv_versions:
-      - 3.11.9
-      - 3.12.4
-      - 3.9.19
+      - 3.11.13
+      - 3.12.11
+      - 3.13.1
   tasks:
     - name: Ensure pipx Installed, Pyenv dependencies, and dependencies required by various python packages
       become: true
@@ -93,7 +93,7 @@
       shell: |
         set -ex
         source ~/.bash_profile
-        pyenv shell 3.9.19
+        pyenv shell 3.11.13
         pipx install l2mac -v --python $(which python)
         
         
