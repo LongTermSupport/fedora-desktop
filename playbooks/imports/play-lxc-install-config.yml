@@ -95,6 +95,23 @@
       notify: sysctl
       tags: sysctl
 
+    # Docker and other networking tools in LXC containers require certain kernel modules
+    # to be loaded on the host for proper operation. These are standard Linux networking
+    # modules that are safe to load and commonly used by various applications.
+    - name: Ensure kernel modules loaded for Docker/OpenVPN in LXC containers
+      modprobe:
+        name: "{{ item }}"
+        state: present
+        persistent: present  # Ensures modules are loaded at boot via /etc/modules-load.d/
+      loop:
+        # Core iptables modules needed by Docker for NAT and packet filtering
+        - ip_tables      # Core IPv4 packet filtering framework
+        - iptable_filter # Basic packet filtering (ACCEPT/DROP/REJECT)
+        - iptable_nat    # Network Address Translation for port mapping
+        - iptable_mangle # Packet modification (TTL, TOS, etc)
+        # Note: IPv6 modules are typically auto-loaded by firewalld
+      tags: [kernel_modules, lxc_docker]
+
   handlers:
     - name: sysctl
       command: sysctl -p
