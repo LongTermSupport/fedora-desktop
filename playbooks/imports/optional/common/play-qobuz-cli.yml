@@ -141,4 +141,20 @@
           
           To check status: systemctl --user status rescrobbled
           To view logs: journalctl --user -u rescrobbled -f
+
+    - name: Create hifi-rs bashrc include file
+      copy:
+        content: |
+          # hifi-rs play function to handle URLs
+          play() {
+              if [ -z "$1" ]; then
+                  echo "Usage: play <qobuz_url>"
+                  return 1
+              fi
+              hifi-rs play "$1"
+          }
+        dest: /home/{{ user_login }}/.bashrc-includes/hifi-rs
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
     
