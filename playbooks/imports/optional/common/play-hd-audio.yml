@@ -1,28 +1,39 @@
 #!/usr/bin/env ansible-playbook
-# Set Pipewire Configs to Support Variable and Higher Bitrates
+# Comprehensive Audio Enhancement Configuration
+# Includes HD audio support, dynamic rate switching, and Bluetooth audio fixes
 # @see https://gitlab.freedesktop.org/pipewire/pipewire/-/wikis/Performance-tuning
 - hosts: desktop
-  name: HD Audio
+  name: Audio Enhancements (HD Audio & Bluetooth)
   vars:
     pipewire_config_dir: "/home/{{ user_login }}/.config/pipewire"
+    wireplumber_config_dir: "/home/{{ user_login }}/.config/wireplumber"
   tasks:
-    - name: Check if PipeWire config directory exists
-      stat:
-        path: "{{ pipewire_config_dir }}"
-      register: pw_config_exists
+    - name: Check for existing audio enhancement configs
+      find:
+        paths: 
+          - "{{ pipewire_config_dir }}/pipewire.conf.d"
+          - "{{ pipewire_config_dir }}/pipewire-pulse.conf.d"
+          - "{{ pipewire_config_dir }}/client.conf.d"
+        patterns: 
+          - "*hd-audio*.conf"
+          - "*bluetooth*.conf"
+          - "*alsa-properties*.conf"
+      register: existing_audio_configs
+      failed_when: false
 
-    - name: Prompt for config removal if exists
+    - name: Prompt for audio config removal if exists
       pause:
-        prompt: "Existing PipeWire configuration found. Remove and start fresh? (yes/no)"
+        prompt: "Existing audio enhancement configuration found. Remove and recreate? (yes/no)"
       register: remove_config
-      when: pw_config_exists.stat.exists
+      when: existing_audio_configs.files | default([]) | length > 0
 
-    - name: Remove existing PipeWire configuration
+    - name: Remove existing audio enhancement configs only
       file:
-        path: "{{ pipewire_config_dir }}"
+        path: "{{ item.path }}"
         state: absent
+      loop: "{{ existing_audio_configs.files | default([]) }}"
       when: 
-        - pw_config_exists.stat.exists
+        - existing_audio_configs.files | default([]) | length > 0
         - remove_config.user_input | default('yes') | lower == 'yes'
 
     - name: Create PipeWire config directory structure
@@ -207,13 +218,56 @@
           DisableAutoSpawn
       when: speechd_conf.stat.exists
 
-    - name: Create wireplumber config directory
+    # Bluetooth Audio Configuration
+    - name: Set Bluetooth Controller Mode to bredr for compatibility
+      become: true
+      blockinfile:
+        marker: "# {mark} ANSIBLE MANAGED: Bluetooth Audio Enhancement"
+        block: |
+          # Enable classic Bluetooth + LE for better headphone compatibility
+          ControllerMode = bredr
+        path: /etc/bluetooth/main.conf
+        insertafter: \[General\]
+      notify: restart-bt
+
+    - name: Configure PipeWire Bluetooth latency settings
+      copy:
+        dest: "{{ pipewire_config_dir }}/pipewire.conf.d/99-bluetooth-latency.conf"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+        content: |
+          # Bluetooth latency optimization for PipeWire
+          
+          pulse.properties = {
+              # Lower latency for Bluetooth devices
+              pulse.min.req     = 128/48000
+              pulse.min.quantum = 128/48000
+          }
+          
+          # Bluetooth-specific module settings
+          context.modules = [
+              {   name = libpipewire-module-rt
+                  args = {
+                      nice.level    = -11
+                      rt.prio       = 88
+                  }
+                  flags = [ ifexists nofail ]
+              }
+          ]
+      notify: pw-restart
+
+    - name: Create WirePlumber config directories
       file:
-        path: "/home/{{ user_login }}/.config/wireplumber/main.lua.d"
+        path: "{{ item }}"
         state: directory
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: '0755'
+      loop:
+        - "{{ wireplumber_config_dir }}"
+        - "{{ wireplumber_config_dir }}/main.lua.d"
+        - "{{ wireplumber_config_dir }}/bluetooth.lua.d"
 
     - name: Configure WirePlumber for HD Audio
       copy:
@@ -243,6 +297,41 @@
           }
       notify: wm-restart
 
+    - name: Configure WirePlumber Bluetooth settings
+      copy:
+        dest: "{{ wireplumber_config_dir }}/bluetooth.lua.d/99-bluetooth-quality.lua"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+        content: |
+          -- Bluetooth headphones quality settings for WirePlumber 0.5+
+          
+          bluez_monitor.properties = {
+            ["bluez5.enable-sbc-xq"] = true,
+            ["bluez5.enable-msbc"] = true,
+            ["bluez5.enable-hw-volume"] = true,
+            ["bluez5.headset-roles"] = "[ hsp_hs hsp_ag hfp_hf hfp_ag ]",
+            ["bluez5.codecs"] = "[ sbc sbc_xq aac ldac aptx aptx_hd aptx_ll aptx_ll_duplex ]",
+            ["bluez5.default.rate"] = 48000,
+            ["bluez5.a2dp.ldac.quality"] = "hq"
+          }
+          
+          bluez_monitor.rules = {
+            {
+              matches = {
+                {
+                  { "device.name", "matches", "bluez_*" },
+                },
+              },
+              apply_properties = {
+                ["node.pause-on-idle"] = false,
+                ["session.suspend-timeout-seconds"] = 0,  -- Disable suspend
+                ["bluez5.auto-connect"] = "[ hfp_hf hsp_hs a2dp_sink ]",
+              },
+            },
+          }
+      notify: wm-restart
+
   handlers:
     - name: pw-restart
       become: true
@@ -263,3 +352,9 @@
         name: wireplumber
         state: restarted
         scope: user
+
+    - name: restart-bt
+      become: true
+      systemd:
+        name: bluetooth
+        state: restarted
