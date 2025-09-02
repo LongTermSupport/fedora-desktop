@@ -119,21 +119,25 @@
         prompt: |
           
           ========================================================================
-          DisplayLink installation complete!
+          DisplayLink Installation Status
+          ========================================================================
           
           {% if 'SecureBoot enabled' in secure_boot_state.stdout and mok_import is changed %}
-          NEXT STEPS:
+          ACTION REQUIRED: MOK ENROLLMENT
+          
           1. Reboot your system now
           2. Enroll the MOK key using the password you memorized
           3. After successful enrollment, DisplayLink will work automatically
           
           To reboot now, run: sudo reboot
-          {% elif 'SecureBoot enabled' in secure_boot_state.stdout %}
-          MOK key is already enrolled. DisplayLink should be working.
+          {% elif 'SecureBoot enabled' in secure_boot_state.stdout and 'is already enrolled' in mok_enrolled.stdout | default('') %}
+          ✅ MOK key is already enrolled. DisplayLink is configured.
           {% else %}
-          Secure Boot is disabled. DisplayLink should be working immediately.
+          ✅ Secure Boot is disabled. DisplayLink is configured.
           {% endif %}
+          
+          To verify the installation status, run:
+          {{ root_dir }}/scripts/check-displaylink-status.sh
           
           Press ENTER to continue...
           ========================================================================
-      when: displaylink_install is changed
