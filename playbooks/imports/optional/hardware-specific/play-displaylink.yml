@@ -1,12 +1,139 @@
 #!/usr/bin/env ansible-playbook
 # DisplayLink is used by USB Docks for Extra Monitors
-# This RPM will install everything and it pretty much just works
+# Handles Secure Boot by enrolling MOK key for kernel module signing
 - hosts: desktop
   become: true
   vars:
     root_dir: "{{ inventory_dir }}/../../"
   tasks:
+    - name: Check if Secure Boot is enabled
+      shell: mokutil --sb-state
+      register: secure_boot_state
+      changed_when: false
+      failed_when: false
+
+    - name: Validate MOK password is in vault
+      assert:
+        that:
+          - mok_password is defined
+        fail_msg: |
+          ERROR: MOK password not found in vault!
+          
+          Please add 'mok_password' to your vault configuration:
+          ansible-vault edit environment/localhost/host_vars/localhost.yml
+          
+          Add: mok_password: "your-password"
+          
+          This password will be used once during boot to enroll the MOK key.
+      when: "'SecureBoot enabled' in secure_boot_state.stdout"
+
+    - name: Install prerequisites for DisplayLink
+      package:
+        name:
+          - mokutil
+          - dkms
+          - kernel-devel
+          - kernel-headers
+          - expect
+        state: present
+
     - name: Install DisplayLink RPM
       dnf:
         name: "https://github.com/displaylink-rpm/displaylink-rpm/releases/download/v6.1.1-1/fedora-42-displaylink-1.14.10-1.github_evdi.x86_64.rpm"
         disable_gpg_check: true
+      register: displaylink_install
+
+    - name: Check if DKMS MOK key exists
+      stat:
+        path: /var/lib/dkms/mok.pub
+      register: mok_key
+
+    - name: Check if MOK is already enrolled
+      shell: mokutil --test-key /var/lib/dkms/mok.pub
+      register: mok_enrolled
+      changed_when: false
+      failed_when: false
+      when: 
+        - "'SecureBoot enabled' in secure_boot_state.stdout"
+        - mok_key.stat.exists
+
+    - name: Import MOK key for enrollment
+      shell: |
+        expect -c "
+        spawn mokutil --import /var/lib/dkms/mok.pub
+        expect \"input password:\"
+        send \"{{ mok_password }}\r\"
+        expect \"input password again:\"
+        send \"{{ mok_password }}\r\"
+        expect eof
+        "
+      when:
+        - "'SecureBoot enabled' in secure_boot_state.stdout"
+        - mok_key.stat.exists
+        - "'is not enrolled' in mok_enrolled.stdout | default('')"
+      register: mok_import
+
+    - name: Display MOK enrollment password
+      pause:
+        prompt: |
+          
+          ========================================================================
+          IMPORTANT: SECURE BOOT MOK ENROLLMENT REQUIRED
+          ========================================================================
+          
+          Your MOK enrollment password is: {{ mok_password }}
+          
+          MEMORIZE THIS PASSWORD NOW!
+          
+          After reboot:
+          1. You will see a blue MOK Manager screen
+          2. Select "Enroll MOK"
+          3. Select "Continue"
+          4. Select "Yes"
+          5. Enter the password shown above: {{ mok_password }}
+          6. Select "Reboot"
+          
+          The password will ONLY be needed this one time during enrollment.
+          
+          Press ENTER only after you have memorized the password...
+          ========================================================================
+      when:
+        - "'SecureBoot enabled' in secure_boot_state.stdout"
+        - mok_import is changed
+
+    - name: Run DKMS autoinstall
+      command: dkms autoinstall
+      when:
+        - "'SecureBoot enabled' in secure_boot_state.stdout"
+        - "'is already enrolled' in mok_enrolled.stdout | default('')"
+
+    - name: Ensure DisplayLink service is started
+      systemd:
+        name: displaylink-driver
+        state: started
+        enabled: yes
+      when: "'is already enrolled' in mok_enrolled.stdout | default('') or 'SecureBoot disabled' in secure_boot_state.stdout"
+
+    - name: Final instructions
+      pause:
+        prompt: |
+          
+          ========================================================================
+          DisplayLink installation complete!
+          
+          {% if 'SecureBoot enabled' in secure_boot_state.stdout and mok_import is changed %}
+          NEXT STEPS:
+          1. Reboot your system now
+          2. Enroll the MOK key using the password you memorized
+          3. After successful enrollment, DisplayLink will work automatically
+          
+          To reboot now, run: sudo reboot
+          {% elif 'SecureBoot enabled' in secure_boot_state.stdout %}
+          MOK key is already enrolled. DisplayLink should be working.
+          {% else %}
+          Secure Boot is disabled. DisplayLink should be working immediately.
+          {% endif %}
+          
+          Press ENTER to continue...
+          ========================================================================
+      when: displaylink_install is changed
