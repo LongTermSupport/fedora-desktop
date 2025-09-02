@@ -1,3 +1,4 @@
 environment/localhost/host_vars/localhost.yml
 *.secret
 .idea
+roles/vendor/*
