@@ -1,0 +1,265 @@
+#!/usr/bin/env ansible-playbook
+# Set Pipewire Configs to Support Variable and Higher Bitrates
+# @see https://gitlab.freedesktop.org/pipewire/pipewire/-/wikis/Performance-tuning
+- hosts: desktop
+  name: HD Audio
+  vars:
+    pipewire_config_dir: "/home/{{ user_login }}/.config/pipewire"
+  tasks:
+    - name: Check if PipeWire config directory exists
+      stat:
+        path: "{{ pipewire_config_dir }}"
+      register: pw_config_exists
+
+    - name: Prompt for config removal if exists
+      pause:
+        prompt: "Existing PipeWire configuration found. Remove and start fresh? (yes/no)"
+      register: remove_config
+      when: pw_config_exists.stat.exists
+
+    - name: Remove existing PipeWire configuration
+      file:
+        path: "{{ pipewire_config_dir }}"
+        state: absent
+      when: 
+        - pw_config_exists.stat.exists
+        - remove_config.user_input | default('yes') | lower == 'yes'
+
+    - name: Create PipeWire config directory structure
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+      loop:
+        - "{{ pipewire_config_dir }}"
+        - "{{ pipewire_config_dir }}/pipewire.conf.d"
+        - "{{ pipewire_config_dir }}/pipewire-pulse.conf.d"
+        - "{{ pipewire_config_dir }}/client.conf.d"
+
+    - name: Configure HD Audio - Main PipeWire config
+      copy:
+        dest: "{{ pipewire_config_dir }}/pipewire.conf.d/99-hd-audio.conf"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+        content: |
+          # HD Audio Configuration for PipeWire
+          # Enables dynamic sample rate switching and high-quality audio
+          
+          context.properties = {
+              # Allow dynamic rate switching based on active streams
+              default.clock.rate          = 48000
+              default.clock.allowed-rates = [ 44100 48000 88200 96000 176400 192000 ]
+              default.clock.quantum       = 1024
+              default.clock.min-quantum   = 32
+              default.clock.max-quantum   = 8192
+          }
+          
+          context.modules = [
+              {   name = libpipewire-module-rt
+                  args = {
+                      nice.level    = -11
+                      rt.prio       = 88
+                      rt.time.soft  = 2000000
+                      rt.time.hard  = 2000000
+                  }
+                  flags = [ ifexists nofail ]
+              }
+          ]
+      notify: pw-restart
+
+    - name: Configure HD Audio - ALSA properties
+      copy:
+        dest: "{{ pipewire_config_dir }}/pipewire.conf.d/99-alsa-properties.conf"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+        content: |
+          # ALSA device properties for HD Audio
+          
+          alsa.properties = {
+              # Increase buffer sizes for better stability at high sample rates
+              api.alsa.period-size   = 1024
+              api.alsa.period-num    = 32
+              api.alsa.headroom      = 1024
+              api.alsa.disable-mmap  = false
+              api.alsa.disable-batch = false
+          }
+          
+          # Rules for all ALSA devices
+          alsa.rules = [
+              {
+                  matches = [
+                      {
+                          # Match all ALSA devices
+                          device.name = "~alsa_.*"
+                      }
+                  ]
+                  actions = {
+                      update-props = {
+                          # Enable rate adaptation
+                          audio.rate                = 0
+                          audio.allowed-rates       = [ 44100 48000 88200 96000 176400 192000 ]
+                          audio.format              = "F32"
+                          
+                          # High quality resampling
+                          resample.quality          = 10
+                          resample.disable          = false
+                          
+                          # Keep devices active
+                          session.suspend-timeout-seconds = 0
+                          
+                          # Use ACP (Audio Control Profiles) for proper device handling
+                          api.alsa.use-acp         = true
+                          api.alsa.ignore-dB       = false
+                      }
+                  }
+              }
+              {
+                  matches = [
+                      {
+                          # Specific settings for USB audio devices like Steinberg
+                          device.name = "~alsa_.*usb.*"
+                      }
+                  ]
+                  actions = {
+                      update-props = {
+                          # USB devices often need larger buffers
+                          api.alsa.period-size     = 2048
+                          api.alsa.period-num      = 3
+                          api.alsa.headroom        = 2048
+                      }
+                  }
+              }
+          ]
+      notify: pw-restart
+
+    - name: Configure HD Audio - PulseAudio compatibility
+      copy:
+        dest: "{{ pipewire_config_dir }}/pipewire-pulse.conf.d/99-hd-audio.conf"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+        content: |
+          # PulseAudio compatibility layer configuration for HD Audio
+          
+          pulse.properties = {
+              # Match the main PipeWire sample rates
+              pulse.default.rate       = 48000
+              pulse.allowed-rates      = [ 44100 48000 88200 96000 176400 192000 ]
+              
+              # Minimum latency settings
+              pulse.min.req            = 256/48000
+              pulse.min.quantum        = 256/48000
+              pulse.default.req        = 1024/48000
+              pulse.default.quantum    = 1024/48000
+              pulse.max.quantum        = 8192/48000
+          }
+          
+          stream.properties = {
+              # High quality resampling for PulseAudio clients
+              resample.quality         = 10
+              channelmix.normalize     = true
+              channelmix.upmix         = true
+              channelmix.upmix-method  = psd
+              channelmix.lfe-cutoff    = 150
+              channelmix.fc-cutoff     = 12000
+              channelmix.rear-delay    = 12.0
+          }
+      notify: pw-restart
+
+    - name: Configure HD Audio - Client defaults
+      copy:
+        dest: "{{ pipewire_config_dir }}/client.conf.d/99-hd-audio.conf"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+        content: |
+          # Client configuration for HD Audio
+          
+          stream.properties = {
+              # Default properties for all clients
+              resample.quality         = 10
+              channelmix.normalize     = true
+              
+              # Allow rate adaptation by default
+              node.rate                = 0
+              node.autoconnect         = true
+              node.latency             = 1024/48000
+          }
+      notify: pw-restart
+
+    - name: Check if speech-dispatcher config exists
+      stat:
+        path: /etc/speech-dispatcher/speechd.conf
+      register: speechd_conf
+      become: true
+
+    - name: Disable Speech Dispatcher Autospawn
+      become: true
+      blockinfile:
+        path: /etc/speech-dispatcher/speechd.conf
+        marker: "# {mark} ANSIBLE MANAGED: HD Audio - Disable Autospawn"
+        block: |
+          # Disable autospawn to prevent audio conflicts
+          DisableAutoSpawn
+      when: speechd_conf.stat.exists
+
+    - name: Create wireplumber config directory
+      file:
+        path: "/home/{{ user_login }}/.config/wireplumber/main.lua.d"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+
+    - name: Configure WirePlumber for HD Audio
+      copy:
+        dest: "/home/{{ user_login }}/.config/wireplumber/main.lua.d/99-hd-audio.lua"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+        content: |
+          -- HD Audio configuration for WirePlumber
+          
+          -- Enable rate switching policy
+          alsa_monitor.rules = {
+            {
+              matches = {
+                {
+                  { "device.name", "matches", "alsa_*" },
+                },
+              },
+              apply_properties = {
+                ["audio.rate"] = 0,  -- Allow dynamic rate
+                ["audio.allowed-rates"] = "44100,48000,88200,96000,176400,192000",
+                ["api.alsa.period-size"] = 1024,
+                ["api.alsa.headroom"] = 1024,
+                ["session.suspend-timeout-seconds"] = 0,
+              },
+            },
+          }
+      notify: wm-restart
+
+  handlers:
+    - name: pw-restart
+      become: true
+      become_user: "{{ user_login }}"
+      systemd:
+        name: "{{ item }}"
+        state: restarted
+        scope: user
+      loop:
+        - pipewire
+        - pipewire-pulse
+        - wireplumber
+
+    - name: wm-restart
+      become: true
+      become_user: "{{ user_login }}"
+      systemd:
+        name: wireplumber
+        state: restarted
+        scope: user
