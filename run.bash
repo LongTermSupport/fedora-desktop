@@ -134,16 +134,27 @@ echo -e "\n${MAGENTA}${BOLD}Installation Process${NC}"
 echo -e "${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "\n${YELLOW}${INFO} You will be asked for your sudo password${NC}\n"
 title "Installing System Dependencies"
-info "Installing: git, python3, grubby, jq, openssl, pipx"
+info "Installing: git, python3, python3-libdnf5, grubby, jq, openssl, pipx"
 sudo dnf -y install \
   git \
   python3 \
   python3-pip \
+  python3-libdnf5 \
   grubby \
   jq \
   openssl \
   pipx > /dev/null 2>&1
 completed
+
+title "Checking for Legacy Grub Configurations"
+info "Checking for old cgroup settings"
+if sudo grubby --info=ALL 2>/dev/null | grep -q "systemd.unified_cgroup_hierarchy=0"; then
+  warning "Found legacy cgroup configuration, removing..."
+  sudo grubby --update-kernel=ALL --remove-args="systemd.unified_cgroup_hierarchy=0"
+  success "Legacy cgroup configuration removed"
+else
+  success "No legacy cgroup configuration found"
+fi
 
 title "Setting up Ansible Environment"
 info "Installing Ansible and dependencies"
