@@ -2,6 +2,10 @@ user_login: "yourname"
 user_name: "Firstname Lastname"
 user_email: "yourname@yourdomain.com"
 
-# Optional Qobuz ClI Related
+# Optional Qobuz CLI Related
 # lastfm_api_key: !vault |...
 # lastfm_secret: !vault |...
+
+# Optional MOK Password for Secure Boot (DisplayLink, NVIDIA, etc.)
+# Required when installing kernel modules with Secure Boot enabled
+# mok_password: !vault |...
