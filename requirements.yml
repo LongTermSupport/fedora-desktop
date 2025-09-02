@@ -1,5 +1,10 @@
 ---
-roles: []
+roles:
+  # Vault Script
+  - src: https://github.com/LongTermSupport/ansible-role-vault-scripts
+    scm: git
+    name: lts.vault-scripts
+    version: master
 collections:
   - name: community.general
   - name: ansible.posix
