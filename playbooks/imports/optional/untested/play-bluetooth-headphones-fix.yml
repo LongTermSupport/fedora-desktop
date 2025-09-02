@@ -1,5 +1,7 @@
 #!/usr/bin/env ansible-playbook
+# Fix Bluetooth headphones audio quality and connectivity issues
 - hosts: desktop
+  name: Bluetooth Headphones Fix
   vars:
     root_dir: "{{ inventory_dir }}/../../"
   tasks:
@@ -13,37 +15,93 @@
         insertafter: \[General\]
       notify: restart-bt
 
-    - name: Create WirePlumber configuration directory
-      become: true
+    - name: Create user WirePlumber Bluetooth configuration directory
       file:
-        path: /etc/wireplumber/wireplumber.conf.d
+        path: "/home/{{ user_login }}/.config/wireplumber/bluetooth.lua.d"
         state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
         mode: '0755'
 
-    - name: Configure Bluetooth settings for WirePlumber 0.5+
-      become: true
-      blockinfile:
-        path: /etc/wireplumber/wireplumber.conf.d/50-bluetooth.conf
-        marker: "# {mark} ANSIBLE MANAGED: Bluetooth Headphones Quality Settings"
-        create: true
+    - name: Configure Bluetooth settings for WirePlumber 0.5+ (user-level)
+      copy:
+        dest: "/home/{{ user_login }}/.config/wireplumber/bluetooth.lua.d/99-bluetooth-quality.lua"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
         mode: '0644'
-        block: |
-          monitor.bluez.properties = {
-            bluez5.enable-sbc-xq = true
-            bluez5.enable-msbc = true
-            bluez5.enable-hw-volume = true
-            bluez5.headset-roles = [ hsp_hs hsp_ag hfp_hf hfp_ag ]
-            bluez5.codecs = [ sbc sbc_xq aac ldac aptx aptx_hd aptx_ll aptx_ll_duplex ]
-            bluez5.default.rate = 48000
-            bluez5.a2dp.ldac.quality = hq
+        content: |
+          -- Bluetooth headphones quality settings for WirePlumber 0.5+
+          
+          bluez_monitor.properties = {
+            ["bluez5.enable-sbc-xq"] = true,
+            ["bluez5.enable-msbc"] = true,
+            ["bluez5.enable-hw-volume"] = true,
+            ["bluez5.headset-roles"] = "[ hsp_hs hsp_ag hfp_hf hfp_ag ]",
+            ["bluez5.codecs"] = "[ sbc sbc_xq aac ldac aptx aptx_hd aptx_ll aptx_ll_duplex ]",
+            ["bluez5.default.rate"] = 48000,
+            ["bluez5.a2dp.ldac.quality"] = "hq"
+          }
+          
+          bluez_monitor.rules = {
+            {
+              matches = {
+                {
+                  { "device.name", "matches", "bluez_*" },
+                },
+              },
+              apply_properties = {
+                ["node.pause-on-idle"] = false,
+                ["session.suspend-timeout-seconds"] = 0,  -- Disable suspend
+                ["bluez5.auto-connect"] = "[ hfp_hf hsp_hs a2dp_sink ]",
+              },
+            },
+          }
+      notify: restart-wm
+
+    - name: Configure PipeWire Bluetooth latency settings
+      copy:
+        dest: "/home/{{ user_login }}/.config/pipewire/pipewire.conf.d/99-bluetooth-latency.conf"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+        content: |
+          # Bluetooth latency optimization for PipeWire
+          
+          context.modules = [
+            {   name = libpipewire-module-rt
+                args = {
+                    nice.level    = -11
+                    rt.prio       = 88
+                }
+                flags = [ ifexists nofail ]
+            }
+          ]
+          
+          pulse.properties = {
+              # Lower latency for Bluetooth devices
+              pulse.min.req     = 128/48000
+              pulse.min.quantum = 128/48000
           }
       notify: restart-pw
 
   handlers:
     - name: restart-pw
+      become: true
+      become_user: "{{ user_login }}"
       systemd:
         scope: user
-        name: pipewire
+        name: "{{ item }}"
+        state: restarted
+      loop:
+        - pipewire
+        - pipewire-pulse
+
+    - name: restart-wm
+      become: true
+      become_user: "{{ user_login }}"
+      systemd:
+        scope: user
+        name: wireplumber
         state: restarted
 
     - name: restart-bt
