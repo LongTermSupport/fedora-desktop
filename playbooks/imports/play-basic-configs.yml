@@ -95,6 +95,17 @@
           content: "export PS1_COLOUR={{ PS1_Colour }}"
           dest: /var/local/ps1-prompt-colour
 
+    - name: Create .bashrc-includes directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ item.split('/')[2] if '/home/' in item else 'root' }}"
+        group: "{{ item.split('/')[2] if '/home/' in item else 'root' }}"
+        mode: '0755'
+      loop:
+        - /root/.bashrc-includes
+        - /home/{{ user_login }}/.bashrc-includes
+
     - name: Ensure Bash Tweaks are Loaded
       blockinfile:
         marker: "# {mark} ANSIBLE MANAGED: Bash Tweaks"
@@ -106,6 +117,21 @@
         - /root/.bash_profile
         - /home/{{ user_login }}/.bashrc
         - /home/{{ user_login }}/.bash_profile
+
+    - name: Add bashrc includes sourcing
+      blockinfile:
+        marker: "# {mark} ANSIBLE MANAGED: Source bashrc includes"
+        block: |
+          if [ -d ~/.bashrc-includes ]; then
+            for file in ~/.bashrc-includes/*; do
+              [ -r "$file" ] && source "$file"
+            done
+          fi
+        path: "{{ item }}"
+        create: false
+      loop:
+        - /root/.bashrc
+        - /home/{{ user_login }}/.bashrc
 
     - name: Copy SSH ID to root
       copy:
