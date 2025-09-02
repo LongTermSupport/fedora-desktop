@@ -542,7 +542,7 @@ if confirm "Would you like to install optional components?"; then
       error "Found ${#untested_playbooks[@]} untested playbooks for Fedora $fedora_version"
       echo -e "${RED}${BOLD}These have NOT been tested on Fedora $fedora_version and may fail:${NC}"
       for pb in "${untested_playbooks[@]}"; do
-        local name=$(basename "$pb" .yml | sed 's/^play-//' | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
+        name=$(basename "$pb" .yml | sed 's/^play-//' | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
         echo -e "  ${RED}⚠${NC} $name"
       done
       echo -e "\n${YELLOW}These require careful manual testing before use.${NC}"
@@ -563,7 +563,7 @@ if confirm "Would you like to install optional components?"; then
       warning "Found ${#exp_playbooks[@]} experimental playbooks"
       echo -e "${YELLOW}These are experimental and should only be run if you know what you're doing:${NC}"
       for pb in "${exp_playbooks[@]}"; do
-        local name=$(basename "$pb" .yml | sed 's/^play-//' | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
+        name=$(basename "$pb" .yml | sed 's/^play-//' | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
         echo -e "  ${YELLOW}•${NC} $name"
       done
       echo -e "\n${YELLOW}Run these manually if needed: ${BOLD}./playbooks/imports/optional/experimental/play-*.yml${NC}"
