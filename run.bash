@@ -353,10 +353,19 @@ completed
 
 title "Checking for Legacy Grub Configurations"
 info "Checking for old cgroup settings"
-if sudo grubby --info=ALL 2>/dev/null | grep -q "systemd.unified_cgroup_hierarchy=0"; then
+if sudo grubby --info=ALL 2>/dev/null | grep -q "systemd.unified_cgroup_hierarchy"; then
   warning "Found legacy cgroup configuration, removing..."
   sudo grubby --update-kernel=ALL --remove-args="systemd.unified_cgroup_hierarchy=0"
-  success "Legacy cgroup configuration removed"
+  sudo grubby --update-kernel=ALL --remove-args="systemd.unified_cgroup_hierarchy=1"
+  
+  # Verify the removal worked
+  if sudo grubby --info=ALL 2>/dev/null | grep -q "systemd.unified_cgroup_hierarchy"; then
+    error "Failed to remove cgroup configuration - may need manual intervention"
+    echo -e "${YELLOW}${INFO} To manually remove, run:${NC}"
+    echo -e "   sudo grubby --update-kernel=ALL --remove-args='systemd.unified_cgroup_hierarchy=0'"
+  else
+    success "Legacy cgroup configuration removed successfully"
+  fi
 else
   success "No legacy cgroup configuration found"
 fi
