@@ -19,6 +19,13 @@
         owner: root
         group: root
 
+    # Install Firefox Profile Switcher Connector
+    - name: Install Firefox Profile Switcher Connector RPM
+      dnf:
+        name: https://github.com/null-dev/firefox-profile-switcher-connector/releases/latest/download/linux-x64.rpm
+        state: present
+        disable_gpg_check: yes
+
     # Set Policies
     # see:
     # - https://linuxconfig.org/how-to-customize-firefox-using-the-policies-json-file
