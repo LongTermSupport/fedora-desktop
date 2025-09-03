@@ -10,7 +10,7 @@
       shell: gh --version | grep -oP '\d+\.\d+\.\d+' | head -1
       register: gh_version_output
       changed_when: false
-      failed_when: false
+      failed_when: gh_version_output.rc != 0
       check_mode: false
 
     - name: Verify gh supports multi-account (v2.40.0+)
@@ -22,10 +22,9 @@
         success_msg: "GitHub CLI {{ gh_version_output.stdout }} supports multi-account"
 
     - name: Check current gh authentication status
-      shell: gh auth status 2>&1
+      shell: gh auth status 2>&1 || true
       register: auth_status
       changed_when: false
-      failed_when: false
       check_mode: false
 
     - name: Display current authentication status
@@ -144,10 +143,10 @@
         gh auth status 2>&1 | grep -q "{{ item.value }}" && echo "authenticated" || echo "needs_auth"
       register: account_auth_status
       changed_when: false
-      failed_when: false
       check_mode: false
       loop: "{{ github_accounts | default({}) | dict2items }}"
       when: github_accounts_configured and github_accounts is defined
+
 
     - name: Display accounts needing authentication
       debug:
@@ -199,11 +198,29 @@
                   IdentitiesOnly yes
           loop: "{{ github_accounts | default({}) | dict2items }}"
 
-        - name: Display SSH public keys
-          shell: cat "/home/{{ user_login }}/.ssh/github_{{ item.key }}.pub"
-          register: ssh_public_keys
+        - name: Test SSH connections
+          shell: ssh -T git@github.com-{{ item.key }} 2>&1 || true
+          register: ssh_test
           changed_when: false
           loop: "{{ github_accounts | default({}) | dict2items }}"
+
+        - name: Check which SSH keys need to be added
+          set_fact:
+            ssh_keys_to_add: |
+              {% set keys = [] %}
+              {% for item in ssh_test.results %}
+              {%   if 'successfully authenticated' not in item.stdout %}
+              {%     set _ = keys.append(item) %}
+              {%   endif %}
+              {% endfor %}
+              {{ keys }}
+
+        - name: Display SSH public keys for accounts that need setup
+          shell: cat "/home/{{ user_login }}/.ssh/github_{{ item.item.key }}.pub"
+          register: ssh_public_keys
+          changed_when: false
+          loop: "{{ ssh_keys_to_add }}"
+          when: ssh_keys_to_add | length > 0
 
         - name: Instructions for adding SSH keys to GitHub
           pause:
@@ -213,13 +230,15 @@
               ADD SSH KEYS TO GITHUB
               ========================================================================
               
+              The following accounts need SSH keys added to GitHub:
+              
               {% for item in ssh_public_keys.results %}
-              Account: {{ item.item.key }} ({{ item.item.value }})
+              Account: {{ item.item.item.key }} ({{ item.item.item.value }})
               ----------------------------------------
               1. Go to: https://github.com/settings/keys
-              2. Log in as: {{ item.item.value }}
+              2. Log in as: {{ item.item.item.value }}
               3. Click "New SSH key"
-              4. Title: "{{ ansible_hostname }}-{{ item.item.key }}"
+              4. Title: "{{ ansible_hostname }}-{{ item.item.item.key }}"
               5. Paste this key:
               
               {{ item.stdout }}
@@ -228,34 +247,129 @@
               ========================================================================
               
               Press Enter after adding all keys to GitHub
+          when: ssh_keys_to_add | length > 0
 
-        - name: Test SSH connections
+        - name: Re-test SSH connections after adding keys
           shell: ssh -T git@github.com-{{ item.key }} 2>&1 || true
-          register: ssh_test
+          register: ssh_retest
           changed_when: false
-          failed_when: false
           loop: "{{ github_accounts | default({}) | dict2items }}"
+          when: ssh_keys_to_add | length > 0
 
         - name: Display SSH test results
           debug:
-            msg: "{{ item.item.key }}: {{ 'Connected ✓' if 'successfully authenticated' in item.stdout else 'Not connected' }}"
+            msg: "{{ item.item.key }}: {{ 'Connected ✓' if 'successfully authenticated' in item.stdout else 'Not connected - SSH key needs to be added to GitHub' }}"
           loop: "{{ ssh_test.results }}"
 
-        - name: Check gh auth status for each host alias
+        - name: Skip SSH key setup message if all connected
+          debug:
+            msg: "All SSH keys are already configured on GitHub ✓"
+          when: ssh_keys_to_add | length == 0
+
+        - name: Check gh auth status for each account
           shell: |
-            gh auth status --hostname github.com-{{ item.item.key }} 2>&1 || true
-          register: gh_auth_status
+            gh auth status 2>&1 | grep -q "{{ item.value }}" && echo "authenticated" || echo "not authenticated"
+          register: gh_auth_check
           changed_when: false
-          loop: "{{ ssh_test.results }}"
-          when: "'successfully authenticated' in item.stdout"
+          loop: "{{ github_accounts | default({}) | dict2items }}"
           
-        - name: Display gh auth status
+        - name: Display accounts needing gh CLI authentication
           debug:
             msg: |
-              Account {{ item.item.item.key }}: 
-              {% if 'Logged in to github.com' in item.stdout %}✓ Authenticated{% else %}✗ Not authenticated - run: gh auth login --hostname github.com-{{ item.item.item.key }}{% endif %}
-          loop: "{{ gh_auth_status.results }}"
-          when: item.stdout is defined
+              Account '{{ item.item.key }}' ({{ item.item.value }}): 
+              {% if item.stdout == 'authenticated' %}✓ Already authenticated with gh CLI{% else %}⚠ Needs gh CLI authentication{% endif %}
+          loop: "{{ gh_auth_check.results }}"
+          
+        - name: Create gh authentication script
+          copy:
+            content: |
+              #!/bin/bash
+              
+              echo "========================================"
+              echo "GitHub CLI Authentication Setup"
+              echo "========================================"
+              echo ""
+              echo "This script will authenticate the following GitHub accounts:"
+              {% for item in gh_auth_check.results %}
+              {% if item.stdout != 'authenticated' %}
+              echo "  - {{ item.item.key }} ({{ item.item.value }})"
+              {% endif %}
+              {% endfor %}
+              echo ""
+              echo "You will be prompted for each account."
+              echo "Choose 'Login with a web browser' for easiest setup."
+              echo ""
+              echo "Press Enter to continue..."
+              read
+              
+              {% for item in gh_auth_check.results %}
+              {% if item.stdout != 'authenticated' %}
+              echo ""
+              echo "========================================"
+              echo "Authenticating: {{ item.item.key }} ({{ item.item.value }})"
+              echo "========================================"
+              gh auth login --hostname github.com --git-protocol ssh
+              {% endif %}
+              {% endfor %}
+              
+              echo ""
+              echo "========================================"
+              echo "Authentication Complete!"
+              echo "========================================"
+              echo ""
+              echo "Current status:"
+              gh auth status
+              echo ""
+              echo "Press Enter to close this window..."
+              read
+            dest: /tmp/gh-auth-setup.sh
+            mode: '0755'
+            owner: "{{ user_login }}"
+            group: "{{ user_login }}"
+          when: gh_auth_check.results | selectattr('stdout', 'equalto', 'not authenticated') | list | length > 0
+          
+        - name: Wait for authentication completion
+          pause:
+            prompt: |
+              
+              ========================================
+              GITHUB CLI AUTHENTICATION REQUIRED
+              ========================================
+              
+              Please open a new terminal and run:
+              
+                bash /tmp/gh-auth-setup.sh
+              
+              Complete the authentication process, then
+              press Enter here to continue...
+          when: gh_auth_check.results | selectattr('stdout', 'equalto', 'not authenticated') | list | length > 0
+          
+        - name: Verify all accounts are now authenticated
+          shell: gh auth status 2>&1 | grep -q "{{ item.value }}" && echo "authenticated" || echo "not authenticated"
+          register: final_auth_check
+          changed_when: false
+          loop: "{{ github_accounts | default({}) | dict2items }}"
+          
+        - name: Display final authentication status
+          debug:
+            msg: |
+              Final authentication status:
+              {% for item in final_auth_check.results %}
+              {{ item.item.key }} ({{ item.item.value }}): {% if item.stdout == 'authenticated' %}✓ Authenticated{% else %}✗ NOT authenticated - needs manual setup{% endif %}
+              {% endfor %}
+          
+        - name: Check if any accounts still need authentication
+          assert:
+            that: item.stdout == 'authenticated'
+            fail_msg: "Account {{ item.item.key }} ({{ item.item.value }}) is NOT authenticated. Run: gh auth login --hostname github.com --git-protocol ssh"
+            success_msg: "Account {{ item.item.key }} ({{ item.item.value }}) is authenticated ✓"
+          loop: "{{ final_auth_check.results }}"
+          register: auth_assertions
+          
+        - name: Summary of failed authentications
+          fail:
+            msg: "Some accounts failed to authenticate. Check the messages above and run the gh auth login commands manually."
+          when: auth_assertions.results | selectattr('failed', 'defined') | selectattr('failed') | list | length > 0
       when: github_accounts_configured
 
     # SINGLE ACCOUNT - simple setup
@@ -312,7 +426,7 @@
                       {% for alias, username in github_accounts.items() %}
                       {{ alias }})
                           echo "Switching to {{ alias }} ({{ username }})..."
-                          gh auth switch --user "{{ username }}"
+                          gh auth switch --hostname github.com --user "{{ username }}"
                           
                           # Optional: Update git config for this account
                           if [[ "$2" == "--update-git" ]]; then
@@ -347,24 +461,103 @@
                   esac
               }
               
-              # Account-specific aliases using SSH host aliases
+              # Get or set the default GitHub account
+              function gh-get-default() {
+                  local default_file="$HOME/.config/gh/default-account"
+                  if [[ -f "$default_file" ]]; then
+                      cat "$default_file"
+                  else
+                      # If no default set, return the currently active account
+                      gh auth status 2>&1 | grep "Active account: true" -B1 | grep "account" | grep -oE "account [^ ]+" | awk '{print $2}'
+                  fi
+              }
+              
+              function gh-set-default() {
+                  local account="$1"
+                  if [[ -z "$account" ]]; then
+                      echo "Usage: gh-set-default <username>"
+                      return 1
+                  fi
+                  mkdir -p "$HOME/.config/gh"
+                  echo "$account" > "$HOME/.config/gh/default-account"
+                  echo "Default GitHub account set to: $account"
+                  # Switch to the new default immediately
+                  gh auth switch --hostname github.com --user "$account" 2>/dev/null
+              }
+              
+              # Account-specific aliases
               {% for alias, username in github_accounts.items() %}
               function gh-{{ alias }}() {
-                  # Use gh with SSH host alias
-                  GH_HOST=github.com-{{ alias }} gh "$@"
+                  # Get the default account to restore later
+                  local default_account=$(gh-get-default)
+                  
+                  # First ensure we're switched to the right account for github.com
+                  local current_active=$(gh auth status 2>&1 | grep -A1 "account {{ username }}" | grep "Active account" | grep -c "true")
+                  if [ "$current_active" -eq 0 ]; then
+                      echo "Switching to {{ username }}..."
+                      gh auth switch --hostname github.com --user "{{ username }}" 2>/dev/null || {
+                          echo "Error: Account {{ username }} not authenticated. Run:"
+                          echo "  gh auth login --hostname github.com --git-protocol ssh"
+                          return 1
+                      }
+                  fi
+                  
+                  # Run the gh command with all arguments
+                  gh "$@"
+                  local exit_code=$?
+                  
+                  # Switch back to default account if different
+                  if [[ -n "$default_account" && "$default_account" != "{{ username }}" ]]; then
+                      gh auth switch --hostname github.com --user "$default_account" 2>/dev/null
+                  fi
+                  
+                  return $exit_code
+              }
+              
+              function gh-{{ alias }}-make-default() {
+                  gh-set-default "{{ username }}"
+                  echo "{{ username }} ({{ alias }}) is now the default GitHub account"
               }
               
               function clone-{{ alias }}() {
-                  # Clone using SSH host alias
+                  # Get the default account to restore later
+                  local default_account=$(gh-get-default)
+                  
+                  # Clone using specific account's SSH key
                   local repo="$1"
+                  local repo_path=""
+                  
+                  # Extract repo path from various formats
                   if [[ "$repo" == https://github.com/* ]]; then
-                      repo=$(echo "$repo" | sed 's|https://github.com/|git@github.com-{{ alias }}:|')
+                      repo_path=$(echo "$repo" | sed 's|https://github.com/||' | sed 's|\.git$||')
                   elif [[ "$repo" == git@github.com:* ]]; then
-                      repo=$(echo "$repo" | sed 's|git@github.com:|git@github.com-{{ alias }}:|')
+                      repo_path=$(echo "$repo" | sed 's|git@github.com:||' | sed 's|\.git$||')
                   elif [[ ! "$repo" == *:* ]]; then
-                      repo="git@github.com-{{ alias }}:$repo.git"
+                      repo_path="$repo"
+                      repo_path="${repo_path%.git}"
                   fi
-                  git clone "$repo"
+                  
+                  # Switch to the right account and clone
+                  gh auth switch --hostname github.com --user "{{ username }}" 2>/dev/null
+                  gh repo clone "$repo_path" -- --config core.sshCommand="ssh -i ~/.ssh/github_{{ alias }} -o IdentitiesOnly=yes"
+                  local exit_code=$?
+                  
+                  # Set the remote to use the specific SSH key
+                  if [[ -n "$repo_path" ]]; then
+                      local dir_name=$(basename "$repo_path")
+                      if [[ -d "$dir_name" ]]; then
+                          cd "$dir_name"
+                          git remote set-url origin "git@github.com-{{ alias }}:${repo_path}.git"
+                          cd - > /dev/null
+                      fi
+                  fi
+                  
+                  # Switch back to default account if different
+                  if [[ -n "$default_account" && "$default_account" != "{{ username }}" ]]; then
+                      gh auth switch --hostname github.com --user "$default_account" 2>/dev/null
+                  fi
+                  
+                  return $exit_code
               }
               
               function remote-{{ alias }}() {
@@ -393,7 +586,7 @@
               
               # Show current active GitHub account
               function gh-whoami() {
-                  gh auth status 2>&1 | grep "Active account: true" -B1 | head -1 | sed 's/.*account //' | sed 's/ .*//'
+                  gh auth status 2>&1 | grep "Active account: true" -B1 | head -1 | sed 's/.*account //' | sed 's/ (.*//'
               }
               
               # List all configured GitHub accounts
@@ -407,9 +600,34 @@
               # Helper to get token for specific account
               {% for alias, username in github_accounts.items() %}
               function gh-token-{{ alias }}() {
-                  gh auth token --user "{{ username }}"
+                  gh auth switch --hostname github.com --user "{{ username }}" 2>/dev/null
+                  gh auth token
               }
               {% endfor %}
+              
+              # Clone helper that properly configures remotes
+              function github-clone() {
+                  local account="$1"
+                  local repo="$2"
+                  
+                  if [[ -z "$repo" ]]; then
+                      echo "Usage: github-clone <account> <repo>"
+                      echo "Available accounts: {% for alias in github_accounts.keys() %}{{ alias }}{% if not loop.last %}, {% endif %}{% endfor %}"
+                      return 1
+                  fi
+                  
+                  case "$account" in
+                      {% for alias, username in github_accounts.items() %}
+                      {{ alias }})
+                          clone-{{ alias }} "$repo"
+                          ;;
+                      {% endfor %}
+                      *)
+                          echo "Unknown account: $account"
+                          return 1
+                          ;;
+                  esac
+              }
 
         - name: Display multi-account completion
           pause:
