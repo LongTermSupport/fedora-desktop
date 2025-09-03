@@ -1,6 +1,12 @@
 #!/bin/bash
 # DisplayLink Installation Status Checker
 
+# Check for --check flag (silent mode for automation)
+CHECK_ONLY=0
+if [[ "$1" == "--check" ]]; then
+    CHECK_ONLY=1
+fi
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -8,17 +14,21 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 BOLD='\033[1m'
 
-echo -e "${BOLD}========================================================================${NC}"
-echo -e "${BOLD}                 DISPLAYLINK INSTALLATION STATUS CHECK                 ${NC}"
-echo -e "${BOLD}========================================================================${NC}"
-echo ""
+if [[ $CHECK_ONLY -eq 0 ]]; then
+    echo -e "${BOLD}========================================================================${NC}"
+    echo -e "${BOLD}                 DISPLAYLINK INSTALLATION STATUS CHECK                 ${NC}"
+    echo -e "${BOLD}========================================================================${NC}"
+    echo ""
+fi
 
 # Function to print status
 print_status() {
-    if [ "$1" -eq 0 ]; then
-        echo -e "  ${GREEN}✅${NC} $2"
-    else
-        echo -e "  ${RED}❌${NC} $2"
+    if [[ $CHECK_ONLY -eq 0 ]]; then
+        if [ "$1" -eq 0 ]; then
+            echo -e "  ${GREEN}✅${NC} $2"
+        else
+            echo -e "  ${RED}❌${NC} $2"
+        fi
     fi
 }
 
@@ -55,11 +65,13 @@ else
     fi
     MOK_ENROLLED=0
 fi
-echo ""
+[[ $CHECK_ONLY -eq 0 ]] && echo ""
 
 # 2. Check Package Installation
-echo -e "${BLUE}${BOLD}2. PACKAGE INSTALLATION${NC}"
-echo -e "${BLUE}────────────────────────${NC}"
+if [[ $CHECK_ONLY -eq 0 ]]; then
+    echo -e "${BLUE}${BOLD}2. PACKAGE INSTALLATION${NC}"
+    echo -e "${BLUE}────────────────────────${NC}"
+fi
 
 DISPLAYLINK_PKG=$(rpm -qa | grep -i displaylink)
 if [ -n "$DISPLAYLINK_PKG" ]; then
