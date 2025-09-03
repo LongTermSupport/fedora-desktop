@@ -107,6 +107,40 @@
         - "'SecureBoot enabled' in secure_boot_state.stdout"
         - "'is already enrolled' in mok_enrolled.stdout | default('')"
 
+    # Configure suspend/resume handling for DisplayLink
+    # This prevents display configuration getting stuck after suspend/resume cycles
+    # Alternative approaches if simple restart doesn't work:
+    # 1. USB unbind/bind cycle: lsusb | grep displaylink -> unbind before suspend -> rescan bus after resume
+    # 2. USB power management: disable autosuspend for DisplayLink devices
+    # 3. EVDI module reload: modprobe -r evdi && modprobe evdi
+    - name: Create DisplayLink suspend/resume service
+      copy:
+        content: |
+          [Unit]
+          Description=DisplayLink Suspend/Resume Handler
+          Before=sleep.target
+          StopWhenUnneeded=yes
+
+          [Service]
+          Type=oneshot
+          RemainAfterExit=yes
+          # Simple approach: just restart DisplayLink service after resume
+          # This fixes stale display configuration issues
+          ExecStart=/bin/true
+          ExecStop=/bin/bash -c 'sleep 3; systemctl restart displaylink-driver.service'
+          
+          [Install]
+          WantedBy=sleep.target
+        dest: /etc/systemd/system/displaylink-suspend.service
+        mode: '0644'
+      register: suspend_service
+
+    - name: Enable DisplayLink suspend service
+      systemd:
+        name: displaylink-suspend.service
+        enabled: yes
+        daemon_reload: "{{ suspend_service.changed }}"
+
     - name: Ensure DisplayLink service is started
       systemd:
         name: displaylink-driver
