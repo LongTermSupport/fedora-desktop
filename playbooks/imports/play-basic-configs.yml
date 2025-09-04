@@ -133,6 +133,17 @@
         - /root/.bashrc
         - /home/{{ user_login }}/.bashrc
 
+    - name: Deploy shutdown-with-update alias
+      copy:
+        src: "{{ root_dir }}/files/home/bashrc-includes/shutdown-with-update.bash"
+        dest: "{{ item }}/.bashrc-includes/shutdown-with-update.bash"
+        owner: "{{ item.split('/')[2] if item != '/root' else 'root' }}"
+        group: "{{ item.split('/')[2] if item != '/root' else 'root' }}"
+        mode: '0644'
+      loop:
+        - /root
+        - /home/{{ user_login }}
+
     - name: Copy SSH ID to root
       copy:
         remote_src: true
