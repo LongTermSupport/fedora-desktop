@@ -1,12 +1,31 @@
 # Fedora Desktop
 
-Taking a freshly installed Fedora and getting it ready for development work
+Automated configuration management for Fedora desktop environments, transforming a fresh installation into a fully-configured development workstation.
 
-Uses a bash script which installs basic dependencies including git and ansible and from there, clones this repo and uses ansible to do the full provision
+## Overview
 
-## Manual Task - Install Fedora
+This project uses Ansible to automate the setup of a Fedora desktop system with development tools, customizations, and optional components. A bootstrap script handles initial setup, then Ansible playbooks configure the system according to your preferences.
 
-First you need to install Fedora. The target version for this branch is defined in `vars/fedora-version.yml`.
+## Documentation
+
+Comprehensive documentation is available in the [docs/](docs/) directory:
+
+- **[Installation Guide](docs/installation.md)** - Getting started and installation methods
+- **[Architecture Overview](docs/architecture.md)** - Project structure and execution flow
+- **[Playbooks Reference](docs/playbooks.md)** - Available playbooks and their functions
+- **[Configuration Guide](docs/configuration.md)** - Customization and settings
+- **[Development Guide](docs/development.md)** - Contributing and development workflow
+
+For a complete index, see [docs/README.md](docs/README.md)
+
+## Quick Start
+
+### Prerequisites
+
+1. **Install Fedora** - Target version for this branch is defined in `vars/fedora-version.yml`
+2. **Enable third-party repositories** during installation (required for many packages)
+3. **Encrypt root filesystem** (strongly recommended)
+4. **Create your user account** and log in
 
 ## Fedora Version Branching Strategy
 
@@ -25,71 +44,59 @@ This repository uses a branching strategy where each Fedora version has its own 
 This repo is in active development and is generally updated shortly after each Fedora release.
 
 
-It is **very strongly recommended** that you encrypt the main root filesystem.
+### Installation
 
-### Enable Third Party Repos
-There is an option to enable third party repos as you are installing Fedora. You need to accept this.
-
-**Make sure you opt to enable third party repos on the Fedora install**
-
-
-
-## Run
-
-Once you have an install, have logged in and created your main desktop user - then run this command, as your normal desktop user.
-
-curl, wget or just copy paste the [run.bash](./run.bash) script
-
-Suggested to copy paste into your bash terminal:
+Once Fedora is installed and you're logged in as your regular user, run:
 
 ```
 (source <(curl -sS https://raw.githubusercontent.com/LongTermSupport/fedora-desktop/HEAD/run.bash?$(date +%s)))
 ```
 
-## Manual Tasks
+This will:
+- Install dependencies (git, ansible, python3)
+- Configure GitHub CLI and SSH keys
+- Clone this repository
+- Run the main configuration playbook
 
-Some manual, optional tasks
+## Features
 
-### Run Extra Playbooks
+### Core Components (Automatic)
+- System package installation and DNF optimization
+- Bash environment with custom prompt and Git integration
+- Development tools (Git, ripgrep, GitHub CLI)
+- Node.js via NVM
+- Claude Code CLI
+- LXC container support
+- Microsoft fonts
+- RPM Fusion repositories
+- JetBrains Toolbox
 
-There are some playbooks which are not currently run as part of the main playbook.
+### Optional Components
+Additional features can be installed as needed:
+- Docker and container tools
+- Programming languages (Python, Go)
+- VS Code and development IDEs
+- Audio enhancements
+- Hardware drivers (NVIDIA, DisplayLink)
+- VPN clients
+- And more...
 
-You can also create your own.
+See [Playbooks Documentation](docs/playbooks.md) for the complete list.
 
-You would run these with, for example:
+## Contributing
 
-```bash
-ansible-playbook ./playbooks/imports/play-install-flatpaks.yml
-```
+See the [Development Guide](docs/development.md) for information on:
+- Setting up a development environment
+- Project structure and conventions
+- Creating new playbooks
+- Testing and debugging
+- Submitting pull requests
 
-## Development
+## Support
 
-### Creating a New Fedora Version Branch
+- [GitHub Issues](https://github.com/LongTermSupport/fedora-desktop/issues)
+- [Documentation](docs/README.md)
 
-When a new Fedora version is released, follow these steps to create a new branch:
+## License
 
-```bash
-# 1. Update the Fedora version in the centralized config
-vim vars/fedora-version.yml
-# Change: fedora_version: 43
-
-# 2. Commit the version update
-git add vars/fedora-version.yml
-git commit -m "Update target Fedora version to 43"
-
-# 3. Create and push the new branch
-git checkout -b F43
-git push -u origin F43
-
-# 4. Set the new branch as default on GitHub
-gh repo edit --default-branch F43
-
-# 5. Update any branch-specific documentation or configurations as needed
-```
-
-### Development
-
-Written using pycharm community and these extensions
-
-https://plugins.jetbrains.com/plugin/14893-ansible
-https://plugins.jetbrains.com/plugin/14278-ansible-vault-editor
+This project is open source under the MIT License. See [LICENSE](LICENSE) file for details.
