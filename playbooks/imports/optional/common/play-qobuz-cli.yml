@@ -145,16 +145,78 @@
     - name: Create hifi-rs bashrc include file
       copy:
         content: |
-          # hifi-rs play function to handle URLs
+          # hifi-rs play function to handle Qobuz URLs
+          # Usage: play https://play.qobuz.com/album/v7hnd6neb7w0b
           play() {
               if [ -z "$1" ]; then
                   echo "Usage: play <qobuz_url>"
+                  echo "Example: play https://play.qobuz.com/album/v7hnd6neb7w0b"
                   return 1
               fi
-              hifi-rs play "$1"
+
+              # Check if hifi-rs is available
+              if ! command -v hifi-rs &> /dev/null; then
+                  echo "Error: hifi-rs not found in PATH"
+                  return 1
+              fi
+
+              hifi-rs play --url "$1"
           }
         dest: /home/{{ user_login }}/.bashrc-includes/hifi-rs
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: '0644'
+
+    - name: Check if hifi-rs is configured with Qobuz credentials
+      shell: |
+        hifi-rs api search test -o json 2>&1
+      register: hifirs_api_check
+      failed_when: false
+      changed_when: false
+
+    - name: Manual hifi-rs Setup Required
+      block:
+        - name: Display hifi-rs Setup Instructions
+          pause:
+            prompt: |
+
+              ============================================
+              HIFI-RS SETUP REQUIRED
+              ============================================
+
+              Please configure hifi-rs with your Qobuz credentials.
+              Run the following commands in a NEW terminal:
+
+              1. Set your Qobuz username:
+                 hifi-rs config username
+
+              2. Set your Qobuz password:
+                 hifi-rs config password
+
+              3. Set audio quality (recommended: hifi192):
+                 hifi-rs config default-quality
+                 Options: mp3, cd, hifi96, hifi192
+
+              4. Test that the API works:
+                 hifi-rs api search mozart -o json
+
+              5. Test playback with a Qobuz URL:
+                 play https://play.qobuz.com/album/v7hnd6neb7w0b
+
+              Press ENTER here once configuration is complete...
+
+        - name: Verify hifi-rs API Access
+          shell: |
+            hifi-rs api search test -o json
+          register: hifirs_api_verify
+          changed_when: false
+
+        - name: Display Success Message
+          debug:
+            msg: |
+              ✓ hifi-rs successfully configured and ready!
+              ✓ You can now use: play <qobuz_url>
+
+              Example: play https://play.qobuz.com/album/v7hnd6neb7w0b
+      when: hifirs_api_check.rc != 0 or 'error' in hifirs_api_check.stdout.lower() or 'unauthorized' in hifirs_api_check.stdout.lower()
     
