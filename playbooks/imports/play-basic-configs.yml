@@ -58,6 +58,8 @@
           - bash-completion
           - htop
           - python3-libdnf5
+          - multitail
+          - figlet
       tags: packages
 
     - name: Passwordless Sudo
@@ -133,10 +135,29 @@
         - /root/.bashrc
         - /home/{{ user_login }}/.bashrc
 
+    - name: Deploy shutdown-with-update script
+      copy:
+        src: "{{ root_dir }}/files/usr/local/bin/shutdown-with-update"
+        dest: /usr/local/bin/shutdown-with-update
+        owner: root
+        group: root
+        mode: '0755'
+
     - name: Deploy shutdown-with-update alias
       copy:
         src: "{{ root_dir }}/files/home/bashrc-includes/shutdown-with-update.bash"
         dest: "{{ item }}/.bashrc-includes/shutdown-with-update.bash"
+        owner: "{{ item.split('/')[2] if item != '/root' else 'root' }}"
+        group: "{{ item.split('/')[2] if item != '/root' else 'root' }}"
+        mode: '0644'
+      loop:
+        - /root
+        - /home/{{ user_login }}
+
+    - name: Deploy USB audio fix script
+      copy:
+        src: "{{ root_dir }}/files/home/bashrc-includes/usb-audio-fix.bash"
+        dest: "{{ item }}/.bashrc-includes/usb-audio-fix.bash"
         owner: "{{ item.split('/')[2] if item != '/root' else 'root' }}"
         group: "{{ item.split('/')[2] if item != '/root' else 'root' }}"
         mode: '0644'

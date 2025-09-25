@@ -1,0 +1,58 @@
+#!/bin/bash
+# Shutdown with Update - Updates firmware and packages before shutdown
+
+# Trap Ctrl+C and exit cleanly
+trap 'echo -e "\nShutdown cancelled by user."; exit 1' INT TERM
+
+echo "Starting firmware updates..."
+if ! fwupdmgr refresh --force; then
+    echo "Warning: Firmware refresh failed, continuing..."
+fi
+
+if ! fwupdmgr update -y; then
+    echo "Warning: Firmware update failed or no updates available, continuing..."
+fi
+
+echo "Starting system package updates..."
+if ! dnf -y upgrade; then
+    echo "Error: Package updates failed"
+    exit 1
+fi
+
+echo "Updates complete. Checking for kernel module builds..."
+# Check if akmods is actually running (not just active/exited)
+if pgrep -f "akmods" > /dev/null || systemctl status akmods 2>/dev/null | grep -q "Building"; then
+    echo "Waiting for akmods to complete kernel module builds..."
+    echo "(Press Ctrl+C to cancel shutdown)"
+    
+    count=0
+    while (pgrep -f "akmods" > /dev/null || systemctl status akmods 2>/dev/null | grep -q "Building") && [ $count -lt 60 ]; do
+        sleep 5
+        ((count++))
+        echo -n "."
+    done
+    echo ""
+    
+    if [ $count -ge 60 ]; then
+        echo "Warning: akmods took longer than 5 minutes, proceeding anyway"
+    else
+        echo "Kernel modules built successfully."
+    fi
+fi
+
+echo "Attempting shutdown..."
+if ! shutdown -h now 2>&1; then
+    echo ""
+    echo "Shutdown blocked by inhibitors or logged-in users."
+    echo "Current inhibitors:"
+    systemd-inhibit --list --no-pager | grep -v "^WHO"
+    echo ""
+    read -p "Force shutdown anyway? (y/N): " -n 1 -r
+    echo ""
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        echo "Forcing shutdown..."
+        systemctl poweroff -i
+    else
+        echo "Shutdown cancelled."
+    fi
+fi
