@@ -1,0 +1,176 @@
+#!/usr/bin/env ansible-playbook
+# This play installs Rust development tools and environment
+- hosts: desktop
+  become: false
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+    # Common Rust development tools
+    cargo_tools:
+      - cargo-watch       # Automatically run commands when files change
+      - cargo-edit        # Add, remove, and upgrade dependencies from command line
+      - cargo-audit       # Audit dependencies for security vulnerabilities
+      - cargo-outdated    # Display outdated dependencies
+      - cargo-expand      # Show macro expansion output
+      - cargo-machete     # Remove unused dependencies
+      - cargo-nextest     # Next-generation test runner
+      - cargo-deny        # Lint dependencies
+      - cargo-tarpaulin   # Code coverage tool
+  tasks:
+    - name: Install System Dependencies for Rust Development
+      become: true
+      dnf:
+        name:
+          # Build essentials
+          - gcc
+          - gcc-c++
+          - make
+          - cmake
+          - pkg-config
+          # Common development libraries
+          - openssl-devel
+          - sqlite-devel
+          - postgresql-devel
+          - mysql-devel
+          # Additional useful tools
+          - git
+          - curl
+          - wget
+        state: present
+
+    - name: Install Rustup (Rust toolchain installer)
+      shell: |
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+      args:
+        executable: /bin/bash
+        creates: /home/{{ user_login }}/.cargo/bin/rustup
+      become: true
+      become_user: "{{ user_login }}"
+
+    - name: Setup Cargo Environment in Shell RC Files
+      blockinfile:
+        path: "{{ item }}"
+        marker: "# {mark} ANSIBLE MANAGED: Rust/Cargo Environment"
+        block: |
+          # Rust/Cargo environment setup
+          export PATH="$HOME/.cargo/bin:$PATH"
+          source "$HOME/.cargo/env"
+        create: false
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+      loop:
+        - /home/{{ user_login }}/.bashrc
+        - /home/{{ user_login }}/.bash_profile
+      become: true
+
+    - name: Ensure Rust Stable Toolchain is Up to Date
+      shell: |
+        source ~/.cargo/env
+        rustup update stable
+        rustup default stable
+      args:
+        executable: /bin/bash
+      become: true
+      become_user: "{{ user_login }}"
+
+    - name: Install Additional Rust Components
+      shell: |
+        source ~/.cargo/env
+        rustup component add {{ item }}
+      args:
+        executable: /bin/bash
+      loop:
+        - rustfmt          # Code formatter
+        - clippy           # Linter
+        - rust-analyzer    # Language server
+        - rust-src         # Source code for standard library
+        - llvm-tools-preview # LLVM tools for coverage
+      become: true
+      become_user: "{{ user_login }}"
+      tags:
+        - rust-components
+
+    - name: Install cargo-binstall for Faster Binary Installation
+      shell: |
+        source ~/.cargo/env
+        curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+      args:
+        executable: /bin/bash
+        creates: /home/{{ user_login }}/.cargo/bin/cargo-binstall
+      become: true
+      become_user: "{{ user_login }}"
+      tags:
+        - cargo-tools
+
+    - name: Install Common Cargo Development Tools Using Precompiled Binaries
+      shell: |
+        source ~/.cargo/env
+        if ! command -v {{ item }} &> /dev/null; then
+          cargo binstall -y {{ item }}
+        fi
+      args:
+        executable: /bin/bash
+      loop: "{{ cargo_tools }}"
+      become: true
+      become_user: "{{ user_login }}"
+      register: cargo_tools_install
+      changed_when: "'Installing' in cargo_tools_install.stdout or 'Downloading' in cargo_tools_install.stdout"
+      tags:
+        - cargo-tools
+
+    - name: Create Cargo Configuration Directory
+      file:
+        path: /home/{{ user_login }}/.cargo
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+      become: true
+
+    - name: Setup Cargo Configuration for Faster Builds and Better Defaults
+      blockinfile:
+        path: /home/{{ user_login }}/.cargo/config.toml
+        marker: "# {mark} ANSIBLE MANAGED: Cargo Configuration"
+        block: |
+          [build]
+          jobs = 4
+
+          [cargo-new]
+          vcs = "git"
+
+          [net]
+          git-fetch-with-cli = true
+
+          [registries.crates-io]
+          protocol = "sparse"
+        create: true
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+      become: true
+
+    - name: Install rust-analyzer Binary for LSP Support
+      shell: |
+        source ~/.cargo/env
+        rustup component add rust-analyzer
+      args:
+        executable: /bin/bash
+      become: true
+      become_user: "{{ user_login }}"
+      tags:
+        - rust-analyzer
+
+    - name: Verify Rust Installation
+      shell: |
+        source ~/.cargo/env
+        rustc --version
+        cargo --version
+        rustup --version
+      args:
+        executable: /bin/bash
+      register: rust_version_output
+      become: true
+      become_user: "{{ user_login }}"
+
+    - name: Display Rust Installation Info
+      debug:
+        var: rust_version_output.stdout_lines
