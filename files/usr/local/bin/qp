@@ -47,6 +47,7 @@ Supported inputs:
 Notes:
   - The --shuffle flag is ignored for non-playlist URLs.
   - The input URL may optionally omit the scheme (e.g., play.qobuz.com/album/...).
+  - URLs from open.qobuz.com are automatically converted to play.qobuz.com format.
   - Query strings or fragments are ignored.
 
 Examples:
@@ -504,6 +505,12 @@ if [[ -n "$url" ]]; then
   # Normalize URL: allow "play.qobuz.com/..." without scheme
   if [[ "$url" != http://* && "$url" != https://* ]]; then
     url="https://$url"
+  fi
+
+  # Convert open.qobuz.com URLs to play.qobuz.com
+  if [[ "$url" =~ ^(https?://)open\.qobuz\.com/(.*)$ ]]; then
+    url="${BASH_REMATCH[1]}play.qobuz.com/${BASH_REMATCH[2]}"
+    echo "Converting URL to: $url" >&2
   fi
 
   # Extract host, resource and id from URL
