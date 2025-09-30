@@ -44,14 +44,20 @@
       register: qobuzPlayerLatestVersion
       when: qobuzPlayerVersion == "latest"
       changed_when: false
+      tags:
+        - qobuz-player
 
     - name: Set qobuz-player version
       set_fact:
         qobuzPlayerVersionFinal: "{{ qobuzPlayerLatestVersion.stdout if qobuzPlayerVersion == 'latest' else qobuzPlayerVersion }}"
+      tags:
+        - qobuz-player
 
     - name: Set qobuz-player URL
       set_fact:
         qobuzPlayerUrl: "https://github.com/SofusA/qobuz-player/releases/download/v{{ qobuzPlayerVersionFinal }}/qobuz-player-x86_64-unknown-linux-gnu.tar.gz"
+      tags:
+        - qobuz-player
 
     - name: Install hifi-rs
       shell: |
@@ -66,22 +72,27 @@
         fi
         cd /home/{{ user_login }}/Downloads
         rm -rf hifi-rs*
-        wget "{{ hifiRsUrl }}"        
+        wget "{{ hifiRsUrl }}"
         tar -xf hifi-rs-x86_64-unknown-linux-gnu.tar.gz
         mv -f hifi-rs "{{ hifiRsPath }}"
       args:
         executable: /bin/bash
+      tags:
+        - hifi-rs
 
     - name: Install qobuz-player
       shell: |
         set -ex
         if [[ -f {{ qobuzPlayerPath }} ]]; then
-          installedVersion="$(qobuz-player --version 2>/dev/null | grep -Po '[0-9.]+' || echo '')"
+          installedVersion="$(qobuz-player --version 2>/dev/null | grep -Po '[0-9.-]+' || echo '')"
           desiredVersion="{{ qobuzPlayerVersionFinal }}"
-          if [[ "$installedVersion" == "$desiredVersion" ]]; then
-            echo "installed version $installedVersion is the same as the desired version $desiredVersion"
+          # Strip any pre-release suffix from desired version for comparison (e.g., 0.3.2-3 -> 0.3.2)
+          desiredVersionBase="${desiredVersion%%-*}"
+          if [[ "$installedVersion" == "$desiredVersion" ]] || [[ "$installedVersion" == "$desiredVersionBase" ]]; then
+            echo "installed version $installedVersion matches desired version $desiredVersion"
             exit 0
           fi
+          echo "upgrading from $installedVersion to $desiredVersion"
         fi
         cd /home/{{ user_login }}/Downloads
         rm -rf qobuz-player*
@@ -91,6 +102,8 @@
         chmod +x "{{ qobuzPlayerPath }}"
       args:
         executable: /bin/bash
+      tags:
+        - qobuz-player
 
     - name: Install qp controller script
       become: true
