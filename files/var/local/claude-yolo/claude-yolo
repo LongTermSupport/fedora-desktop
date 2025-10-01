@@ -1,0 +1,186 @@
+#!/bin/bash
+# Claude Code YOLO Mode Wrapper
+# Runs Claude Code with --dangerously-skip-permissions in isolated Docker container
+
+set -e
+
+IMAGE_NAME="claude-yolo:latest"
+DOCKERFILE_DIR="/opt/claude-yolo"
+VERSION_CACHE="$HOME/.cache/claude-yolo-version"
+CACHE_DURATION=3600  # 1 hour in seconds
+
+# Show help if requested
+if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+    cat << 'EOF'
+Claude Code YOLO Mode (ccy) - Container-based execution with --dangerously-skip-permissions
+
+Usage: ccy [OPTIONS] [CLAUDE_ARGS...]
+
+Wrapper Options:
+  --rebuild         Force rebuild of container image (clears cache)
+  --help, -h        Show this help message
+
+All other arguments are passed directly to Claude Code with --dangerously-skip-permissions
+
+Features:
+  • Runs in isolated Docker container (no git/gh access)
+  • Auto-updates Claude Code (cached for 1 hour)
+  • Mounts current directory as /workspace
+  • Files created have correct host user ownership
+  • Shares Claude auth config (read-only)
+
+Security:
+  ⚠  YOLO mode bypasses all permission checks
+  ✓  Container isolation prevents unintended host access
+  ✓  Cannot run as root user (safety check)
+
+Examples:
+  ccy                           # Start Claude Code YOLO mode
+  ccy --rebuild                 # Rebuild container and start
+  ccy "implement feature X"     # Start with specific task
+
+EOF
+
+    # Check if container image exists to show Claude Code help
+    if docker image inspect "$IMAGE_NAME" &> /dev/null 2>&1; then
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo "Claude Code Help (from container):"
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo ""
+        # Run claude --help in container to show actual Claude Code options
+        docker run --rm "$IMAGE_NAME" claude --help 2>/dev/null || echo "Note: Container exists but Claude Code help unavailable"
+    else
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo "Claude Code Help:"
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo ""
+        echo "Container image not built yet. Run 'ccy --rebuild' first to build the container,"
+        echo "then run 'ccy --help' again to see Claude Code options."
+    fi
+
+    exit 0
+fi
+
+# Check for --rebuild flag
+FORCE_REBUILD=false
+CLAUDE_ARGS=()
+for arg in "$@"; do
+    if [ "$arg" = "--rebuild" ]; then
+        FORCE_REBUILD=true
+    else
+        CLAUDE_ARGS+=("$arg")
+    fi
+done
+
+# Get current user's UID and GID for proper file ownership
+HOST_UID=$(id -u)
+HOST_GID=$(id -g)
+
+# Safety check: Never run as root (UID 0)
+if [ "$HOST_UID" -eq 0 ]; then
+    echo "ERROR: Cannot run Claude Code YOLO mode as root user (UID 0)"
+    echo "This is a security restriction for --dangerously-skip-permissions mode"
+    echo "Please run this command as a regular user, not with sudo or as root"
+    exit 1
+fi
+
+# Ensure cache directory exists
+mkdir -p "$(dirname "$VERSION_CACHE")"
+
+# Force rebuild if --rebuild flag was provided
+if [ "$FORCE_REBUILD" = true ]; then
+    echo "Forcing container rebuild..."
+    if [ ! -f "$DOCKERFILE_DIR/Dockerfile" ]; then
+        echo "Error: Dockerfile not found at $DOCKERFILE_DIR/Dockerfile"
+        echo "Please run the ansible playbook: playbooks/imports/optional/common/play-install-claude-yolo.yml"
+        exit 1
+    fi
+    docker build --no-cache -t "$IMAGE_NAME" "$DOCKERFILE_DIR"
+    # Clear version cache to force Claude Code update check
+    rm -f "$VERSION_CACHE"
+    echo "✓ Container image rebuilt successfully"
+fi
+
+# Check if Docker image exists
+if ! docker image inspect "$IMAGE_NAME" &> /dev/null; then
+    echo "Building Claude YOLO container image (first time setup)..."
+    if [ ! -f "$DOCKERFILE_DIR/Dockerfile" ]; then
+        echo "Error: Dockerfile not found at $DOCKERFILE_DIR/Dockerfile"
+        echo "Please run the ansible playbook: playbooks/imports/optional/common/play-install-claude-yolo.yml"
+        exit 1
+    fi
+    docker build -t "$IMAGE_NAME" "$DOCKERFILE_DIR"
+    echo "✓ Container image built successfully"
+fi
+
+# Check if Claude Code needs updating (with caching to keep it fast)
+should_update_claude=false
+if [ -f "$VERSION_CACHE" ]; then
+    # Check cache age
+    cache_age=$(($(date +%s) - $(stat -c %Y "$VERSION_CACHE" 2>/dev/null || echo 0)))
+    if [ $cache_age -gt $CACHE_DURATION ]; then
+        should_update_claude=true
+    fi
+else
+    should_update_claude=true
+fi
+
+# Update Claude Code in container if needed
+if [ "$should_update_claude" = true ]; then
+    echo "Checking for Claude Code updates..."
+    # Run as root to update npm package, then update cache
+    docker run --rm --user root "$IMAGE_NAME" sh -c "npm update -g @anthropic-ai/claude-code 2>&1" | grep -v "npm WARN" || true
+    # Update cache timestamp
+    touch "$VERSION_CACHE"
+fi
+
+# Create temp directory for config files to copy into container
+CONFIG_TEMP="/tmp/claude-yolo-$$"
+mkdir -p "$CONFIG_TEMP"
+chmod 755 "$CONFIG_TEMP"
+
+# Check if authentication exists
+if [ ! -f "$HOME/.claude/.credentials.json" ]; then
+    echo "WARNING: No credentials found at $HOME/.claude/.credentials.json"
+    echo "You may need to run 'claude' (normal) first to authenticate"
+else
+    cp "$HOME/.claude/.credentials.json" "$CONFIG_TEMP/credentials.json"
+    chmod 644 "$CONFIG_TEMP/credentials.json"
+fi
+
+# Copy settings (theme, preferences)
+if [ -f "$HOME/.claude/settings.json" ]; then
+    cp "$HOME/.claude/settings.json" "$CONFIG_TEMP/settings.json"
+    chmod 644 "$CONFIG_TEMP/settings.json"
+else
+    echo "{}" > "$CONFIG_TEMP/settings.json"
+    chmod 644 "$CONFIG_TEMP/settings.json"
+fi
+
+# Copy global config but modify installMethod for container
+if [ -f "$HOME/.claude.json" ]; then
+    # Read the config and change installMethod to "npm" since container uses global npm install
+    jq '.installMethod = "npm"' "$HOME/.claude.json" > "$CONFIG_TEMP/config.json"
+    chmod 644 "$CONFIG_TEMP/config.json"
+else
+    echo '{"numStartups":0,"installMethod":"npm"}' > "$CONFIG_TEMP/config.json"
+    chmod 644 "$CONFIG_TEMP/config.json"
+fi
+
+# Cleanup function
+cleanup() {
+    rm -rf "$CONFIG_TEMP"
+}
+trap cleanup EXIT
+
+# Run container with config files mounted temporarily
+# The entrypoint script will copy these files to the proper locations inside the container
+# All Claude Code state (history, todos, projects) stays inside container and is discarded
+docker run -it --rm \
+    --user "$HOST_UID:$HOST_GID" \
+    -v "$PWD:/workspace" \
+    -v "$CONFIG_TEMP:/tmp/claude-config-import:ro" \
+    -e HOME=/home/claude \
+    -w /workspace \
+    "$IMAGE_NAME" \
+    claude --dangerously-skip-permissions "${CLAUDE_ARGS[@]}"

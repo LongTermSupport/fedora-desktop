@@ -1,0 +1,129 @@
+#!/usr/bin/env ansible-playbook
+- hosts: desktop
+  name: Claude Code YOLO Mode - Container-based Installation
+  become: false
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  tasks:
+    - name: Check if Docker is Installed
+      command: which docker
+      register: docker_check
+      failed_when: false
+      changed_when: false
+
+    - name: Verify Docker is Available
+      fail:
+        msg: |
+          Docker is not installed or not in PATH.
+          Please run the Docker installation playbook first:
+            ansible-playbook playbooks/imports/optional/common/play-docker.yml
+      when: docker_check.rc != 0
+
+    - name: Check Docker Service is Running
+      command: docker ps
+      register: docker_service_check
+      failed_when: false
+      changed_when: false
+
+    - name: Verify Docker Service
+      fail:
+        msg: |
+          Docker service is not running.
+          Please start Docker:
+            systemctl --user start docker
+      when: docker_service_check.rc != 0
+
+    - name: Create Claude YOLO Directory
+      become: true
+      file:
+        path: /opt/claude-yolo
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Copy Dockerfile
+      become: true
+      copy:
+        src: "{{ root_dir }}/files/var/local/claude-yolo/Dockerfile"
+        dest: /opt/claude-yolo/Dockerfile
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Copy Entrypoint Script
+      become: true
+      copy:
+        src: "{{ root_dir }}/files/var/local/claude-yolo/entrypoint.sh"
+        dest: /opt/claude-yolo/entrypoint.sh
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Copy Wrapper Script
+      become: true
+      copy:
+        src: "{{ root_dir }}/files/var/local/claude-yolo/claude-yolo"
+        dest: /usr/local/bin/claude-yolo
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Deploy Bashrc Include for Root
+      become: true
+      copy:
+        src: "{{ root_dir }}/files/home/bashrc-includes/claude-yolo.bash"
+        dest: /root/.bashrc-includes/claude-yolo.bash
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Deploy Bashrc Include for User
+      copy:
+        src: "{{ root_dir }}/files/home/bashrc-includes/claude-yolo.bash"
+        dest: /home/{{ user_login }}/.bashrc-includes/claude-yolo.bash
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+
+    - name: Build Claude YOLO Container Image
+      command: docker build -t claude-yolo:latest /opt/claude-yolo
+      register: docker_build
+      changed_when: "'Successfully built' in docker_build.stdout or 'Successfully tagged' in docker_build.stdout"
+
+    - name: Verify Container Image
+      command: docker image inspect claude-yolo:latest
+      register: image_verify
+      changed_when: false
+
+    - name: Display Installation Summary
+      debug:
+        msg:
+          - "============================================"
+          - "Claude Code YOLO Mode Installation Complete"
+          - "============================================"
+          - ""
+          - "✓ Container image built: claude-yolo:latest"
+          - "✓ Wrapper script installed: /usr/local/bin/claude-yolo"
+          - "✓ Bash alias configured: ccy"
+          - ""
+          - "Usage:"
+          - "  ccy                    - Run Claude Code in YOLO mode"
+          - "  ccy --help             - Show Claude Code help"
+          - "  cd /your/project && ccy - Run YOLO mode in specific directory"
+          - ""
+          - "Features:"
+          - "  • Runs with --dangerously-skip-permissions (no prompts)"
+          - "  • Isolated Docker container (no access to git/gh)"
+          - "  • Auto-updates Claude Code (cached for 1 hour)"
+          - "  • Mounts current directory as /workspace"
+          - "  • Shares Claude auth config (read-only)"
+          - ""
+          - "Security:"
+          - "  ⚠ YOLO mode bypasses all permission checks"
+          - "  ✓ Container isolation prevents host access"
+          - "  ✓ No git/gh available (cannot push/commit)"
+          - "  ✓ Separate from normal 'claude' or 'cc' commands"
+          - ""
+          - "Reload your shell to enable the 'ccy' alias:"
+          - "  source ~/.bashrc"
