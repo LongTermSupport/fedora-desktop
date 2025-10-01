@@ -1,6 +1,6 @@
 #!/bin/bash
 # Claude Code YOLO Container Entrypoint
-# Copies configuration files from mounted temp directory
+# In rootless Docker, UID 0 = host user, so this is safe
 
 set -e
 
@@ -27,5 +27,8 @@ else
     echo '{"numStartups":0}' > ~/.claude.json
 fi
 
-# Execute the command passed to the container
+# Set sandbox mode to bypass root detection
+export IS_SANDBOX=1
+
+# Execute the command
 exec "$@"

@@ -30,12 +30,6 @@ RUN wget -qO /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/downloa
 # Note: This will be updated at runtime by the wrapper script if needed
 RUN npm install -g @anthropic-ai/claude-code
 
-# Create home directory structure - writable by any user
-# The container runs with --user flag matching host UID/GID
-# Don't create subdirectories - let the entrypoint do it as the correct user
-RUN mkdir -p /home/claude && \
-    chmod 777 /home/claude
-
 # Copy and set up entrypoint script
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh

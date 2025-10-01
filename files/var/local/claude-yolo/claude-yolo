@@ -84,6 +84,26 @@ if [ "$HOST_UID" -eq 0 ]; then
     exit 1
 fi
 
+# Safety check: Only run in rootless Docker
+DOCKER_CONTEXT=$(docker context inspect 2>/dev/null | grep -o '"Name": *"[^"]*"' | head -1 | cut -d'"' -f4)
+if [ "$DOCKER_CONTEXT" != "rootless" ]; then
+    echo "ERROR: Claude Code YOLO mode requires rootless Docker"
+    echo "Current Docker context: ${DOCKER_CONTEXT:-default}"
+    echo ""
+    echo "This is a security requirement because:"
+    echo "  • YOLO mode bypasses all permission checks"
+    echo "  • Running in rootless Docker provides isolation"
+    echo "  • Non-rootless Docker would give actual root privileges"
+    echo ""
+    echo "To set up rootless Docker:"
+    echo "  1. Install: dockerd-rootless-setuptool.sh install"
+    echo "  2. Switch context: docker context use rootless"
+    echo ""
+    echo "Or run the Docker playbook:"
+    echo "  ansible-playbook playbooks/imports/optional/common/play-docker.yml"
+    exit 1
+fi
+
 # Ensure cache directory exists
 mkdir -p "$(dirname "$VERSION_CACHE")"
 
@@ -128,8 +148,7 @@ fi
 # Update Claude Code in container if needed
 if [ "$should_update_claude" = true ]; then
     echo "Checking for Claude Code updates..."
-    # Run as root to update npm package, then update cache
-    docker run --rm --user root "$IMAGE_NAME" sh -c "npm update -g @anthropic-ai/claude-code 2>&1" | grep -v "npm WARN" || true
+    docker run --rm "$IMAGE_NAME" sh -c "npm update -g @anthropic-ai/claude-code 2>&1" | grep -v "npm WARN" || true
     # Update cache timestamp
     touch "$VERSION_CACHE"
 fi
@@ -177,10 +196,8 @@ trap cleanup EXIT
 # The entrypoint script will copy these files to the proper locations inside the container
 # All Claude Code state (history, todos, projects) stays inside container and is discarded
 docker run -it --rm \
-    --user "$HOST_UID:$HOST_GID" \
     -v "$PWD:/workspace" \
     -v "$CONFIG_TEMP:/tmp/claude-config-import:ro" \
-    -e HOME=/home/claude \
     -w /workspace \
     "$IMAGE_NAME" \
     claude --dangerously-skip-permissions "${CLAUDE_ARGS[@]}"
