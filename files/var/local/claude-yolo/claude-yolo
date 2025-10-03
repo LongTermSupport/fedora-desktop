@@ -23,11 +23,11 @@ Wrapper Options:
 All other arguments are passed directly to Claude Code with --dangerously-skip-permissions
 
 Features:
-  • Runs in isolated Docker container (no git/gh access)
+  • Runs in isolated Docker container with git/gh
   • Auto-updates Claude Code (cached for 1 hour)
   • Mounts current directory as /workspace
   • Files created have correct host user ownership
-  • Shares Claude auth config (read-only)
+  • Shares Claude auth, SSH keys, and gh config (read-only)
 
 Security:
   ⚠  YOLO mode bypasses all permission checks
@@ -192,12 +192,28 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Get GitHub token from gh CLI
+if ! command -v gh &> /dev/null; then
+    echo "ERROR: gh (GitHub CLI) not found"
+    echo "Install it with: ansible-playbook playbooks/imports/play-git-configure-and-tools.yml"
+    exit 1
+fi
+
+GH_TOKEN=$(gh auth token 2>/dev/null)
+if [ -z "$GH_TOKEN" ]; then
+    echo "ERROR: Not authenticated with GitHub CLI"
+    echo "Run: gh auth login"
+    exit 1
+fi
+
 # Run container with config files mounted temporarily
 # The entrypoint script will copy these files to the proper locations inside the container
 # All Claude Code state (history, todos, projects) stays inside container and is discarded
 docker run -it --rm \
     -v "$PWD:/workspace" \
     -v "$CONFIG_TEMP:/tmp/claude-config-import:ro" \
+    -v "$HOME/.ssh:/home/node/.ssh:ro" \
+    -e "GH_TOKEN=$GH_TOKEN" \
     -w /workspace \
     "$IMAGE_NAME" \
     claude --dangerously-skip-permissions "${CLAUDE_ARGS[@]}"
