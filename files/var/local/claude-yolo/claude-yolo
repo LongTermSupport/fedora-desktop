@@ -48,7 +48,7 @@ EOF
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo ""
         # Run claude --help in container to show actual Claude Code options
-        docker run --rm "$IMAGE_NAME" claude --help 2>/dev/null || echo "Note: Container exists but Claude Code help unavailable"
+        docker run --rm --entrypoint claude "$IMAGE_NAME" --help 2>/dev/null || echo "Note: Container exists but Claude Code help unavailable"
     else
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo "Claude Code Help:"
@@ -148,7 +148,7 @@ fi
 # Update Claude Code in container if needed
 if [ "$should_update_claude" = true ]; then
     echo "Checking for Claude Code updates..."
-    docker run --rm "$IMAGE_NAME" sh -c "npm update -g @anthropic-ai/claude-code 2>&1" | grep -v "npm WARN" || true
+    docker run --rm --entrypoint sh "$IMAGE_NAME" -c "npm update -g @anthropic-ai/claude-code 2>&1" | grep -v "npm WARN" || true
     # Update cache timestamp
     touch "$VERSION_CACHE"
 fi
