@@ -45,11 +45,9 @@ if ! gh auth status 2>&1; then
     exit 1
 fi
 
-# Configure SSH for git operations
-chmod 700 ~/.ssh
-chmod 600 ~/.ssh/id_*
+# Configure SSH for git operations (mounted read-only from host)
 eval "$(ssh-agent -s)" > /dev/null
-ssh-add ~/.ssh/id_*
+ssh-add ~/.ssh/id_* 2>/dev/null
 
 # Set sandbox mode to bypass root detection
 export IS_SANDBOX=1
