@@ -56,6 +56,15 @@ else
     echo "To add SSH keys: ccy --ssh-key ~/.ssh/id_ed25519"
 fi
 
+# Add GitHub host keys to avoid SSH verification prompts
+mkdir -p ~/.ssh
+chmod 700 ~/.ssh
+if ! curl -sL https://api.github.com/meta | jq -r '.ssh_keys | .[]' | sed -e 's/^/github.com /' >> ~/.ssh/known_hosts 2>&1; then
+    echo "WARNING: Failed to fetch GitHub SSH host keys. SSH operations may require manual verification."
+else
+    chmod 600 ~/.ssh/known_hosts
+fi
+
 # Set sandbox mode to bypass root detection
 export IS_SANDBOX=1
 
