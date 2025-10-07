@@ -18,6 +18,7 @@ Usage: ccy [OPTIONS] [CLAUDE_ARGS...]
 
 Wrapper Options:
   --rebuild         Force rebuild of container image (clears cache)
+  --debug           Enable debug output (bash -x)
   --help, -h        Show this help message
 
 All other arguments are passed directly to Claude Code with --dangerously-skip-permissions
@@ -61,12 +62,16 @@ EOF
     exit 0
 fi
 
-# Check for --rebuild flag
+# Check for wrapper flags
 FORCE_REBUILD=false
+DEBUG_MODE=false
 CLAUDE_ARGS=()
 for arg in "$@"; do
     if [ "$arg" = "--rebuild" ]; then
         FORCE_REBUILD=true
+    elif [ "$arg" = "--debug" ]; then
+        DEBUG_MODE=true
+        set -x
     else
         CLAUDE_ARGS+=("$arg")
     fi
@@ -202,6 +207,7 @@ docker run -it --rm \
     -v "$CONFIG_TEMP:/tmp/claude-config-import:ro" \
     -v "$HOME/.ssh:/root/.ssh:ro" \
     -e "GH_TOKEN=$GH_TOKEN" \
+    -e "DEBUG_MODE=$DEBUG_MODE" \
     -w /workspace \
     "$IMAGE_NAME" \
     claude --dangerously-skip-permissions "${CLAUDE_ARGS[@]}"

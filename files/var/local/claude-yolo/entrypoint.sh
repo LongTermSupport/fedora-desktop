@@ -4,6 +4,11 @@
 
 set -e
 
+# Enable debug mode if requested
+if [ "$DEBUG_MODE" = "true" ]; then
+    set -x
+fi
+
 # Verify GH_TOKEN is set
 if [ -z "$GH_TOKEN" ]; then
     echo "ERROR: GH_TOKEN environment variable not set" >&2
