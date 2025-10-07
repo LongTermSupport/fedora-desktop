@@ -4,28 +4,37 @@
 
 set -e
 
-# Create config directories
+# Verify GH_TOKEN is set
+if [ -z "$GH_TOKEN" ]; then
+    echo "ERROR: GH_TOKEN environment variable not set" >&2
+    exit 1
+fi
+
+# Verify SSH directory exists
+if [ ! -d ~/.ssh ]; then
+    echo "ERROR: ~/.ssh directory not mounted" >&2
+    exit 1
+fi
+
+# Copy Claude Code config files
 mkdir -p ~/.claude
+cp /tmp/claude-config-import/credentials.json ~/.claude/.credentials.json
+cp /tmp/claude-config-import/settings.json ~/.claude/settings.json
+cp /tmp/claude-config-import/config.json ~/.claude.json
+chmod 600 ~/.claude/.credentials.json
 
-# Copy credentials if available
-if [ -f "/tmp/claude-config-import/credentials.json" ]; then
-    cp "/tmp/claude-config-import/credentials.json" ~/.claude/.credentials.json
-    chmod 600 ~/.claude/.credentials.json
-fi
+# Configure git
+cp /tmp/claude-config-import/gitconfig ~/.gitconfig
 
-# Copy settings if available
-if [ -f "/tmp/claude-config-import/settings.json" ]; then
-    cp "/tmp/claude-config-import/settings.json" ~/.claude/settings.json
-else
-    echo "{}" > ~/.claude/settings.json
-fi
+# Configure GitHub CLI with token
+mkdir -p ~/.config/gh
+echo "$GH_TOKEN" | gh auth login --with-token
 
-# Copy global config if available
-if [ -f "/tmp/claude-config-import/config.json" ]; then
-    cp "/tmp/claude-config-import/config.json" ~/.claude.json
-else
-    echo '{"numStartups":0}' > ~/.claude.json
-fi
+# Configure SSH for git operations
+chmod 700 ~/.ssh
+chmod 600 ~/.ssh/id_*
+eval "$(ssh-agent -s)" > /dev/null
+ssh-add ~/.ssh/id_*
 
 # Set sandbox mode to bypass root detection
 export IS_SANDBOX=1

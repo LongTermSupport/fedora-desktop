@@ -158,33 +158,21 @@ CONFIG_TEMP="/tmp/claude-yolo-$$"
 mkdir -p "$CONFIG_TEMP"
 chmod 755 "$CONFIG_TEMP"
 
-# Check if authentication exists
-if [ ! -f "$HOME/.claude/.credentials.json" ]; then
-    echo "WARNING: No credentials found at $HOME/.claude/.credentials.json"
-    echo "You may need to run 'claude' (normal) first to authenticate"
-else
-    cp "$HOME/.claude/.credentials.json" "$CONFIG_TEMP/credentials.json"
-    chmod 644 "$CONFIG_TEMP/credentials.json"
-fi
+# Copy Claude Code credentials
+cp "$HOME/.claude/.credentials.json" "$CONFIG_TEMP/credentials.json"
+chmod 644 "$CONFIG_TEMP/credentials.json"
 
-# Copy settings (theme, preferences)
-if [ -f "$HOME/.claude/settings.json" ]; then
-    cp "$HOME/.claude/settings.json" "$CONFIG_TEMP/settings.json"
-    chmod 644 "$CONFIG_TEMP/settings.json"
-else
-    echo "{}" > "$CONFIG_TEMP/settings.json"
-    chmod 644 "$CONFIG_TEMP/settings.json"
-fi
+# Copy Claude Code settings
+cp "$HOME/.claude/settings.json" "$CONFIG_TEMP/settings.json"
+chmod 644 "$CONFIG_TEMP/settings.json"
 
-# Copy global config but modify installMethod for container
-if [ -f "$HOME/.claude.json" ]; then
-    # Read the config and change installMethod to "npm" since container uses global npm install
-    jq '.installMethod = "npm"' "$HOME/.claude.json" > "$CONFIG_TEMP/config.json"
-    chmod 644 "$CONFIG_TEMP/config.json"
-else
-    echo '{"numStartups":0,"installMethod":"npm"}' > "$CONFIG_TEMP/config.json"
-    chmod 644 "$CONFIG_TEMP/config.json"
-fi
+# Copy global config and modify installMethod for container
+jq '.installMethod = "npm"' "$HOME/.claude.json" > "$CONFIG_TEMP/config.json"
+chmod 644 "$CONFIG_TEMP/config.json"
+
+# Copy git config
+cp "$HOME/.gitconfig" "$CONFIG_TEMP/gitconfig"
+chmod 644 "$CONFIG_TEMP/gitconfig"
 
 # Cleanup function
 cleanup() {
@@ -212,7 +200,7 @@ fi
 docker run -it --rm \
     -v "$PWD:/workspace" \
     -v "$CONFIG_TEMP:/tmp/claude-config-import:ro" \
-    -v "$HOME/.ssh:/home/node/.ssh:ro" \
+    -v "$HOME/.ssh:/root/.ssh:ro" \
     -e "GH_TOKEN=$GH_TOKEN" \
     -w /workspace \
     "$IMAGE_NAME" \
