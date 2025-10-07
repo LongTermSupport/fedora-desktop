@@ -33,7 +33,10 @@ cp /tmp/claude-config-import/gitconfig ~/.gitconfig
 
 # Configure GitHub CLI with token
 mkdir -p ~/.config/gh
-echo "$GH_TOKEN" | gh auth login --with-token 2>/dev/null
+if ! echo "$GH_TOKEN" | gh auth login --with-token 2>&1; then
+    echo "ERROR: gh auth login failed" >&2
+    exit 1
+fi
 
 if ! gh auth status 2>&1; then
     echo "ERROR: GitHub CLI authentication failed" >&2
