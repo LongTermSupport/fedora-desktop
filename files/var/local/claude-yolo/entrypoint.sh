@@ -15,11 +15,6 @@ if [ -z "$GH_TOKEN" ]; then
     exit 1
 fi
 
-# Verify SSH directory exists
-if [ ! -d ~/.ssh ]; then
-    echo "ERROR: ~/.ssh directory not mounted" >&2
-    exit 1
-fi
 
 # Copy Claude Code config files
 mkdir -p ~/.claude
@@ -45,9 +40,21 @@ if ! gh auth status 2>&1; then
     exit 1
 fi
 
-# Configure SSH for git operations (mounted read-only from host)
-eval "$(ssh-agent -s)" > /dev/null
-ssh-add ~/.ssh/id_* 2>/dev/null
+# Configure SSH for git operations if keys provided
+if [ -n "$SSH_KEY_PATHS" ]; then
+    eval "$(ssh-agent -s)" > /dev/null 2>&1
+
+    IFS=: read -ra KEYS <<< "$SSH_KEY_PATHS"
+    for key in "${KEYS[@]}"; do
+        if ! ssh-add "$key" 2>&1; then
+            echo "ERROR: Failed to add SSH key: $key" >&2
+            exit 1
+        fi
+    done
+else
+    echo "WARNING: No SSH keys provided. Git push operations will not work."
+    echo "To add SSH keys: ccy --ssh-key ~/.ssh/id_ed25519"
+fi
 
 # Set sandbox mode to bypass root detection
 export IS_SANDBOX=1

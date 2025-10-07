@@ -19,6 +19,7 @@ Usage: ccy [OPTIONS] [CLAUDE_ARGS...]
 Wrapper Options:
   --rebuild         Force rebuild of container image (clears cache)
   --debug           Enable debug output (bash -x)
+  --ssh-key PATH    SSH private key to mount (can be specified multiple times)
   --help, -h        Show this help message
 
 All other arguments are passed directly to Claude Code with --dangerously-skip-permissions
@@ -65,13 +66,25 @@ fi
 # Check for wrapper flags
 FORCE_REBUILD=false
 DEBUG_MODE=false
+SSH_KEYS=()
 CLAUDE_ARGS=()
+NEXT_IS_SSH_KEY=false
+
 for arg in "$@"; do
-    if [ "$arg" = "--rebuild" ]; then
+    if [ "$NEXT_IS_SSH_KEY" = true ]; then
+        if [ ! -f "$arg" ]; then
+            echo "ERROR: SSH key not found: $arg"
+            exit 1
+        fi
+        SSH_KEYS+=("$arg")
+        NEXT_IS_SSH_KEY=false
+    elif [ "$arg" = "--rebuild" ]; then
         FORCE_REBUILD=true
     elif [ "$arg" = "--debug" ]; then
         DEBUG_MODE=true
         set -x
+    elif [ "$arg" = "--ssh-key" ]; then
+        NEXT_IS_SSH_KEY=true
     else
         CLAUDE_ARGS+=("$arg")
     fi
@@ -199,15 +212,27 @@ if [ -z "$GH_TOKEN" ]; then
     exit 1
 fi
 
+# Build SSH key mount arguments
+SSH_MOUNTS=()
+SSH_KEY_PATHS=()
+for i in "${!SSH_KEYS[@]}"; do
+    SSH_MOUNTS+=("-v" "${SSH_KEYS[$i]}:/root/.ssh/key_$i:ro")
+    SSH_KEY_PATHS+=("/root/.ssh/key_$i")
+done
+
+# Convert SSH_KEY_PATHS array to colon-separated string
+SSH_KEY_PATHS_STR=$(IFS=:; echo "${SSH_KEY_PATHS[*]}")
+
 # Run container with config files mounted temporarily
 # The entrypoint script will copy these files to the proper locations inside the container
 # All Claude Code state (history, todos, projects) stays inside container and is discarded
 docker run -it --rm \
     -v "$PWD:/workspace" \
     -v "$CONFIG_TEMP:/tmp/claude-config-import:ro" \
-    -v "$HOME/.ssh:/root/.ssh:ro" \
+    "${SSH_MOUNTS[@]}" \
     -e "GH_TOKEN=$GH_TOKEN" \
     -e "DEBUG_MODE=$DEBUG_MODE" \
+    -e "SSH_KEY_PATHS=$SSH_KEY_PATHS_STR" \
     -w /workspace \
     "$IMAGE_NAME" \
     claude --dangerously-skip-permissions "${CLAUDE_ARGS[@]}"
