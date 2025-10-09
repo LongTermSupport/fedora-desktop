@@ -2,3 +2,17 @@ environment/localhost/host_vars/localhost.yml
 *.secret
 .idea
 roles/vendor/*
+
+# Claude Code local settings (keep custom commands)
+.claude/settings.local.json
+
+# Safety net for common sensitive file types
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+.env
+.env.*
+!.env.example
+!.env.dist
