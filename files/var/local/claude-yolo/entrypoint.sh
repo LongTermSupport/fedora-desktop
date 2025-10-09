@@ -30,9 +30,25 @@ cp /tmp/claude-config-import/gitconfig ~/.gitconfig
 mkdir -p ~/.config/gh
 TEMP_TOKEN="$GH_TOKEN"
 unset GH_TOKEN
+
 if ! echo "$TEMP_TOKEN" | gh auth login --with-token 2>&1; then
     echo "ERROR: gh auth login failed" >&2
     exit 1
+fi
+
+# Verify the authenticated account matches the expected GitHub username
+if [ -n "$GITHUB_USERNAME" ]; then
+    AUTHENTICATED_USER=$(gh api user --jq .login 2>/dev/null)
+    if [ "$AUTHENTICATED_USER" != "$GITHUB_USERNAME" ]; then
+        echo "ERROR: Token authentication mismatch" >&2
+        echo "Expected: $GITHUB_USERNAME" >&2
+        echo "Got: $AUTHENTICATED_USER" >&2
+        echo "" >&2
+        echo "This means the gh-token-<alias> function on the host returned the wrong token." >&2
+        echo "Please ensure play-github-cli-multi.yml is properly configured." >&2
+        exit 1
+    fi
+    echo "✓ Authenticated as GitHub account: $GITHUB_USERNAME"
 fi
 
 if ! gh auth status 2>&1; then

@@ -270,6 +270,38 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Build SSH key mount arguments and extract GitHub account
+SSH_MOUNTS=()
+SSH_KEY_PATHS=()
+GITHUB_USERNAME=""
+
+for i in "${!SSH_KEYS[@]}"; do
+    SSH_MOUNTS+=("-v" "${SSH_KEYS[$i]}:/root/.ssh/key_$i:ro")
+    SSH_KEY_PATHS+=("/root/.ssh/key_$i")
+
+    # Extract GitHub username by testing SSH connection with the key
+    # This works for any SSH key (github_ or otherwise)
+    # ssh -T will respond with: "Hi <username>! You've successfully authenticated..."
+    GITHUB_USERNAME=$(ssh -T -i "${SSH_KEYS[$i]}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=no git@github.com 2>&1 | grep -oP "Hi \K[^!]+")
+
+    if [ -z "$GITHUB_USERNAME" ]; then
+        echo "ERROR: SSH key authentication to GitHub failed: ${SSH_KEYS[$i]}"
+        echo ""
+        echo "The selected SSH key is not registered with any GitHub account."
+        echo ""
+        echo "To fix this:"
+        echo "  1. Go to https://github.com/settings/keys"
+        echo "  2. Click 'New SSH key'"
+        echo "  3. Add the public key from: ${SSH_KEYS[$i]}.pub"
+        echo ""
+        echo "Or set up GitHub keys with:"
+        echo "  ansible-playbook playbooks/imports/optional/common/play-github-cli-multi.yml"
+        exit 1
+    fi
+
+    echo "✓ Detected GitHub account for SSH key: $GITHUB_USERNAME"
+done
+
 # Get GitHub token from gh CLI
 if ! command -v gh &> /dev/null; then
     echo "ERROR: gh (GitHub CLI) not found"
@@ -277,20 +309,67 @@ if ! command -v gh &> /dev/null; then
     exit 1
 fi
 
-GH_TOKEN=$(gh auth token 2>/dev/null)
-if [ -z "$GH_TOKEN" ]; then
-    echo "ERROR: Not authenticated with GitHub CLI"
-    echo "Run: gh auth login"
-    exit 1
-fi
+# If we detected a GitHub username from SSH key, get the account-specific token
+# This requires play-github-cli-multi.yml to be configured and shell reloaded
+if [ -n "$GITHUB_USERNAME" ] && [ ${#SSH_KEYS[@]} -gt 0 ]; then
+    # Extract alias from the first SSH key
+    key_basename=$(basename "${SSH_KEYS[0]}")
+    if [[ "$key_basename" =~ ^github_(.+)$ ]]; then
+        alias="${BASH_REMATCH[1]}"
+        token_func="gh-token-${alias}"
 
-# Build SSH key mount arguments
-SSH_MOUNTS=()
-SSH_KEY_PATHS=()
-for i in "${!SSH_KEYS[@]}"; do
-    SSH_MOUNTS+=("-v" "${SSH_KEYS[$i]}:/root/.ssh/key_$i:ro")
-    SSH_KEY_PATHS+=("/root/.ssh/key_$i")
-done
+        # Load gh aliases if not already loaded (script runs in subshell)
+        if ! type "$token_func" &>/dev/null; then
+            if [ -f "$HOME/.bashrc-includes/gh-aliases.inc.bash" ]; then
+                source "$HOME/.bashrc-includes/gh-aliases.inc.bash"
+            fi
+        fi
+
+        # Check if the gh-token-<alias> function exists (from play-github-cli-multi.yml)
+        if ! type "$token_func" &>/dev/null; then
+            echo "ERROR: GitHub multi-account function not found: $token_func"
+            echo ""
+            echo "Selected SSH key: ${SSH_KEYS[0]}"
+            echo "Expected file: ~/.bashrc-includes/gh-aliases.inc.bash"
+            echo "Expected function: $token_func"
+            echo ""
+            echo "Required: gh-token-<alias> functions from play-github-cli-multi.yml"
+            echo ""
+            echo "To fix:"
+            echo "  1. Run: ansible-playbook playbooks/imports/optional/common/play-github-cli-multi.yml"
+            echo "  2. Verify: ls -la ~/.bashrc-includes/gh-aliases.inc.bash"
+            echo "  3. Verify: grep $token_func ~/.bashrc-includes/gh-aliases.inc.bash"
+            exit 1
+        fi
+
+        # Get the token for the specific account
+        GH_TOKEN=$($token_func 2>/dev/null)
+        if [ -z "$GH_TOKEN" ]; then
+            echo "ERROR: Failed to retrieve token for account: $GITHUB_USERNAME"
+            echo ""
+            echo "Function $token_func returned no token."
+            echo "Account is not authenticated with gh CLI."
+            echo ""
+            echo "Fix: ansible-playbook playbooks/imports/optional/common/play-github-cli-multi.yml"
+            exit 1
+        fi
+
+        echo "✓ Retrieved token for GitHub account: $GITHUB_USERNAME (via $token_func)"
+    fi
+else
+    # No GitHub username detected - fall back to default token
+    GH_TOKEN=$(gh auth token 2>/dev/null)
+
+    if [ -z "$GH_TOKEN" ]; then
+        echo "ERROR: Not authenticated with GitHub CLI"
+        echo ""
+        echo "Run: gh auth login"
+        echo ""
+        echo "For multi-account setup with github_ SSH keys, run:"
+        echo "  ansible-playbook playbooks/imports/optional/common/play-github-cli-multi.yml"
+        exit 1
+    fi
+fi
 
 # Convert SSH_KEY_PATHS array to colon-separated string
 SSH_KEY_PATHS_STR=$(IFS=:; echo "${SSH_KEY_PATHS[*]}")
@@ -303,6 +382,7 @@ docker run -it --rm \
     -v "$CONFIG_TEMP:/tmp/claude-config-import:ro" \
     "${SSH_MOUNTS[@]}" \
     -e "GH_TOKEN=$GH_TOKEN" \
+    -e "GITHUB_USERNAME=$GITHUB_USERNAME" \
     -e "DEBUG_MODE=$DEBUG_MODE" \
     -e "SSH_KEY_PATHS=$SSH_KEY_PATHS_STR" \
     -w /workspace \

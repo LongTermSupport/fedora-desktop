@@ -93,6 +93,75 @@ fedora-desktop/
   - Optional/hardware-specific: Hardware drivers/configs
   - Optional/experimental: Bleeding-edge features
 
+## Development Principles
+
+### Core Principles
+All code in this project must adhere to these fundamental principles:
+
+#### Fail Fast
+- **Exit immediately on errors** - Use `set -e` in all bash scripts
+- **Validate early** - Check prerequisites before starting work
+- **No silent failures** - Every error must stop execution with clear message
+- **Explicit error handling** - Don't hide errors or use fallback values
+- **Exit codes matter** - Always check command success with `if !` or `&&`
+
+Examples:
+```bash
+# GOOD: Fail fast with clear error
+if [ -z "$REQUIRED_VAR" ]; then
+    echo "ERROR: REQUIRED_VAR is not set" >&2
+    exit 1
+fi
+
+# BAD: Silent failure with default
+REQUIRED_VAR="${REQUIRED_VAR:-default}"
+```
+
+#### YAGNI (You Aren't Gonna Need It)
+- **Don't add features** until they are actually needed
+- **No speculative code** - Only solve current problems
+- **Remove unused code** - Delete, don't comment out
+- **Simple solutions first** - Complex solutions only when simple ones fail
+
+#### DRY (Don't Repeat Yourself)
+- **Extract common patterns** into reusable functions/tasks
+- **Use variables** for repeated values
+- **Create includes** for repeated task blocks
+- **Reference, don't duplicate** documentation and configs
+
+#### Idempotent Operations
+- **Safe to run multiple times** - Same result every time
+- **Check before change** - Use `creates`, `unless`, conditionals
+- **Declarative over imperative** - Describe state, not steps
+- **No side effects** on re-runs
+
+Examples:
+```yaml
+# GOOD: Idempotent with creates
+- name: Install from URL
+  shell: wget https://example.com/install.sh && bash install.sh
+  args:
+    creates: /usr/bin/installed_binary
+
+# BAD: Will fail on second run
+- name: Install from URL
+  shell: wget https://example.com/install.sh && bash install.sh
+```
+
+#### Security First
+- **Never hardcode secrets** in version control
+- **Use vault for sensitive data** - API keys, passwords, tokens
+- **Validate inputs** before using them
+- **Principle of least privilege** - Minimal permissions required
+- **No credentials in logs** - Sanitize output
+
+### Code Quality Standards
+- **Self-documenting code** - Clear names over comments
+- **Comments explain WHY** not what - Code shows what
+- **Consistent formatting** - Follow project patterns
+- **Meaningful error messages** - Tell user how to fix
+- **Test critical paths** - Especially preflight checks
+
 ## Ansible Style Rules
 
 ### File Modification Preferences
