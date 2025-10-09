@@ -95,6 +95,44 @@ fedora-desktop/
 
 ## Development Principles
 
+### ⚠️ PUBLIC REPOSITORY WARNING
+
+**THIS IS A PUBLIC REPOSITORY - EXTREME CAUTION REQUIRED**
+
+This repository is publicly accessible on GitHub. **NEVER** commit:
+
+- ❌ **Personal information** - Names, email addresses, usernames, account IDs
+- ❌ **Local configuration** - File paths with usernames, home directories, hostnames
+- ❌ **Credentials** - API keys, tokens, passwords, SSH keys, certificates
+- ❌ **Private data** - IP addresses, internal URLs, company information
+- ❌ **Sensitive examples** - Real usernames in code examples or comments
+- ❌ **Vault passwords** - vault-pass.secret is gitignored for a reason
+- ❌ **Debug output** - Logs or error messages containing sensitive data
+- ❌ **Account mappings** - Hardcoded user-to-account associations
+
+**ALWAYS use:**
+- ✅ **Generic placeholders** - `user`, `example.com`, `<username>`, `{{ user_login }}`
+- ✅ **Ansible variables** - Reference variables instead of hardcoded values
+- ✅ **Ansible Vault** - Encrypt ALL sensitive data in host_vars/localhost.yml
+- ✅ **Dynamic detection** - Query systems at runtime (e.g., `gh api user`, `ssh -T`)
+- ✅ **Documentation variables** - Use `{{ user_login }}` in examples, never real usernames
+- ✅ **Gitignore** - Keep sensitive files out of git (.credentials, .secret, etc.)
+
+**Before committing:**
+1. Review ALL changes with `git diff`
+2. Search for usernames: `git diff | grep -i "yourname"`
+3. Check for email addresses: `git diff | grep -E "[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}"`
+4. Verify no hardcoded paths: `git diff | grep "/home/"`
+5. Confirm no tokens/keys visible: `git diff | grep -E "(token|key|password|secret)"`
+
+**If accidentally committed:**
+1. DO NOT just delete in next commit - it's still in git history
+2. Use `git filter-branch` or BFG Repo-Cleaner to purge from history
+3. Rotate ALL exposed credentials immediately
+4. Inform team/users if credentials were pushed to remote
+
+This is not paranoia - it's basic security hygiene for public repositories.
+
 ### Core Principles
 All code in this project must adhere to these fundamental principles:
 
