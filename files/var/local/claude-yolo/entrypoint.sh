@@ -52,8 +52,25 @@ if [ -n "$SSH_KEY_PATHS" ]; then
         fi
     done
 else
-    echo "WARNING: No SSH keys provided. Git push operations will not work."
-    echo "To add SSH keys: ccy --ssh-key ~/.ssh/id_ed25519"
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo "⚠  WARNING: Running without SSH keys"
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+    echo "Git push operations will NOT work."
+    echo ""
+    echo "To add SSH keys, use one of these methods:"
+    echo ""
+    echo "  1. Use github_ keys (recommended):"
+    echo "     ccy --ssh-key ~/.ssh/github_<alias>"
+    echo ""
+    echo "     Set up github_ keys with:"
+    echo "     ansible-playbook playbooks/imports/optional/common/play-github-cli-multi.yml"
+    echo ""
+    echo "  2. Use existing SSH key:"
+    echo "     ccy --ssh-key ~/.ssh/id_ed25519"
+    echo ""
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
 fi
 
 # Add GitHub host keys to avoid SSH verification prompts

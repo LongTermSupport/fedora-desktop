@@ -90,6 +90,78 @@ for arg in "$@"; do
     fi
 done
 
+# Discover github_ SSH keys if no --ssh-key was passed
+# These keys are managed by play-github-cli-multi.yml which creates keys with
+# the pattern ~/.ssh/github_<alias> for each configured GitHub account.
+# See: playbooks/imports/optional/common/play-github-cli-multi.yml:163-183
+if [ ${#SSH_KEYS[@]} -eq 0 ]; then
+    GITHUB_KEYS=($(find "$HOME/.ssh" -type f -name "github_*" ! -name "*.pub" 2>/dev/null | sort))
+
+    if [ ${#GITHUB_KEYS[@]} -gt 0 ]; then
+        echo ""
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo "SSH Key Selection for Claude YOLO"
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo ""
+        echo "No SSH key was specified with --ssh-key flag."
+        echo ""
+        echo "Available GitHub SSH keys (managed by play-github-cli-multi.yml):"
+        echo ""
+        echo "  0) Continue without SSH key (git push will NOT work)"
+        echo ""
+
+        for i in "${!GITHUB_KEYS[@]}"; do
+            key_name=$(basename "${GITHUB_KEYS[$i]}")
+            echo "  $((i+1))) ${GITHUB_KEYS[$i]}"
+        done
+
+        echo ""
+        echo "You can also specify keys manually with: ccy --ssh-key <path>"
+        echo ""
+        read -p "Select SSH key [0-${#GITHUB_KEYS[@]}]: " selection
+        echo ""
+
+        if [ -z "$selection" ]; then
+            echo "No selection made. Exiting."
+            exit 1
+        fi
+
+        if [ "$selection" = "0" ]; then
+            echo "⚠  Continuing WITHOUT SSH key - git push operations will fail"
+            echo ""
+        elif [ "$selection" -ge 1 ] && [ "$selection" -le ${#GITHUB_KEYS[@]} ]; then
+            SSH_KEYS+=("${GITHUB_KEYS[$((selection-1))]}")
+            echo "✓ Selected: ${GITHUB_KEYS[$((selection-1))]}"
+            echo ""
+        else
+            echo "ERROR: Invalid selection: $selection"
+            exit 1
+        fi
+
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo ""
+    else
+        echo ""
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo "⚠  WARNING: No SSH Keys Available"
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo ""
+        echo "No github_ SSH keys found in ~/.ssh/"
+        echo "Git push operations will NOT work without SSH keys."
+        echo ""
+        echo "To set up GitHub SSH keys, run:"
+        echo "  ansible-playbook playbooks/imports/optional/common/play-github-cli-multi.yml"
+        echo ""
+        echo "Or specify a key manually:"
+        echo "  ccy --ssh-key ~/.ssh/id_ed25519"
+        echo ""
+        read -p "Press Enter to continue WITHOUT SSH key, or Ctrl+C to cancel: "
+        echo ""
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo ""
+    fi
+fi
+
 # Get current user's UID and GID for proper file ownership
 HOST_UID=$(id -u)
 HOST_GID=$(id -g)
