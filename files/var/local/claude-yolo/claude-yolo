@@ -4,6 +4,22 @@
 
 set -e
 
+# Fail fast: Must be run from a git repository root
+if [ ! -d .git ]; then
+    echo "ERROR: Not in a git repository root directory" >&2
+    echo "" >&2
+    echo "Claude YOLO (ccy) must be run from the root of a git repository." >&2
+    echo "This ensures Claude Code operates on the correct codebase." >&2
+    echo "" >&2
+    echo "Current directory: $PWD" >&2
+    echo "" >&2
+    echo "To fix:" >&2
+    echo "  1. Navigate to your git repository root: cd /path/to/your/repo" >&2
+    echo "  2. Verify .git exists: ls -la .git" >&2
+    echo "  3. Run ccy from there: ccy" >&2
+    exit 1
+fi
+
 IMAGE_NAME="claude-yolo:latest"
 DOCKERFILE_DIR="/opt/claude-yolo"
 VERSION_CACHE="$HOME/.cache/claude-yolo-version"
