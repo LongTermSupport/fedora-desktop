@@ -1,6 +1,7 @@
 #!/bin/bash
 # Claude Code YOLO Container Entrypoint
 # In rootless Docker, UID 0 = host user, so this is safe
+# IMPORTANT: Uses ccy-specific tokens from ~/.claude-tokens/ccy/ (NOT desktop tokens)
 
 set -e
 
@@ -16,7 +17,8 @@ if [ -z "$GH_TOKEN" ]; then
 fi
 
 
-# Copy Claude Code config files
+# Copy Claude Code config files from ccy token storage
+# These are SEPARATE from desktop Claude Code (~/.claude/) to prevent OAuth conflicts
 mkdir -p ~/.claude
 cp /tmp/claude-config-import/credentials.json ~/.claude/.credentials.json
 cp /tmp/claude-config-import/settings.json ~/.claude/settings.json

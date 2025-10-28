@@ -1,6 +1,7 @@
 #!/bin/bash
 # Claude Code YOLO Mode Wrapper
 # Runs Claude Code with --dangerously-skip-permissions in isolated Docker container
+# IMPORTANT: Uses separate token storage from desktop Claude Code to prevent OAuth conflicts
 
 set -e
 
@@ -24,6 +25,7 @@ IMAGE_NAME="claude-yolo:latest"
 DOCKERFILE_DIR="/opt/claude-yolo"
 VERSION_CACHE="$HOME/.cache/claude-yolo-version"
 CACHE_DURATION=3600  # 1 hour in seconds
+TOKEN_DIR="$HOME/.claude-tokens/ccy"
 
 # Show help if requested
 if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
@@ -36,26 +38,39 @@ Wrapper Options:
   --rebuild         Force rebuild of container image (clears cache)
   --debug           Enable debug output (bash -x)
   --ssh-key PATH    SSH private key to mount (can be specified multiple times)
+  --token NAME      Use specific named token
+  --create-token    Create a new named token
+  --list-tokens     List available tokens
   --help, -h        Show this help message
 
 All other arguments are passed directly to Claude Code with --dangerously-skip-permissions
 
 Features:
   • Runs in isolated Docker container with git/gh
+  • Separate token storage (no conflicts with desktop Claude Code)
+  • Named tokens for multiple Claude accounts (personal/work)
   • Auto-updates Claude Code (cached for 1 hour)
   • Mounts current directory as /workspace
   • Files created have correct host user ownership
-  • Shares Claude auth, SSH keys, and gh config (read-only)
 
 Security:
   ⚠  YOLO mode bypasses all permission checks
   ✓  Container isolation prevents unintended host access
   ✓  Cannot run as root user (safety check)
+  ✓  Tokens isolated from desktop Claude Code
 
 Examples:
-  ccy                           # Start Claude Code YOLO mode
+  ccy                           # Start (prompts for token selection)
+  ccy --create-token            # Create a new named token
+  ccy --token personal          # Use "personal" token
+  ccy --list-tokens             # List available tokens
   ccy --rebuild                 # Rebuild container and start
   ccy "implement feature X"     # Start with specific task
+
+Token Management:
+  Tokens are stored in: ~/.claude-tokens/ccy/
+  Each token is a separate Claude account (prevents OAuth conflicts)
+  Desktop Claude Code (~/.claude/) is NEVER modified
 
 EOF
 
@@ -79,12 +94,242 @@ EOF
     exit 0
 fi
 
+# Function to list available tokens
+list_tokens() {
+    echo ""
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo "Available Claude Code Tokens for YOLO Mode"
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+
+    if [ ! -d "$TOKEN_DIR" ] || [ -z "$(ls -A "$TOKEN_DIR"/*.json 2>/dev/null)" ]; then
+        echo "No tokens found in: $TOKEN_DIR"
+        echo ""
+        echo "Create a token with: ccy --create-token"
+        echo ""
+        return 1
+    fi
+
+    echo "Token storage: $TOKEN_DIR"
+    echo ""
+
+    for token_file in "$TOKEN_DIR"/*.json; do
+        if [ -f "$token_file" ]; then
+            token_name=$(basename "$token_file" .json)
+            file_size=$(stat -c%s "$token_file")
+            mod_time=$(stat -c%y "$token_file" | cut -d' ' -f1,2 | cut -d: -f1,2)
+
+            echo "  • $token_name"
+            echo "    File: $token_file"
+            echo "    Modified: $mod_time"
+            echo "    Size: $file_size bytes"
+
+            # Try to extract account info if available
+            if command -v jq &> /dev/null; then
+                expires=$(jq -r '.claudeAiOauth.expiresAt // empty' "$token_file" 2>/dev/null)
+                if [ -n "$expires" ]; then
+                    expires_date=$(date -d "@$((expires/1000))" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
+                    echo "    Expires: $expires_date"
+                fi
+            fi
+            echo ""
+        fi
+    done
+
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+}
+
+# Function to create a new token
+create_token() {
+    echo ""
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo "Create New Claude Code Token for YOLO Mode"
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+    echo "This will create a new OAuth token for ccy (Claude Code YOLO)."
+    echo "This token is SEPARATE from your desktop Claude Code installation."
+    echo ""
+    echo "Use cases:"
+    echo "  • Personal account for open source work"
+    echo "  • Work account for company projects"
+    echo "  • Separate account to isolate ccy from desktop"
+    echo ""
+
+    # Prompt for token name
+    while true; do
+        read -p "Enter a name for this token (e.g., 'personal', 'work', 'default'): " token_name
+
+        if [ -z "$token_name" ]; then
+            echo "ERROR: Token name cannot be empty"
+            continue
+        fi
+
+        # Validate token name (alphanumeric, dash, underscore only)
+        if ! [[ "$token_name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+            echo "ERROR: Token name must contain only letters, numbers, dashes, and underscores"
+            continue
+        fi
+
+        token_file="$TOKEN_DIR/${token_name}.json"
+
+        if [ -f "$token_file" ]; then
+            read -p "Token '$token_name' already exists. Overwrite? (y/N): " overwrite
+            if [ "$overwrite" != "y" ] && [ "$overwrite" != "Y" ]; then
+                echo "Cancelled. Token not created."
+                exit 0
+            fi
+        fi
+
+        break
+    done
+
+    echo ""
+    echo "Creating token: $token_name"
+    echo "Storage: $token_file"
+    echo ""
+
+    # Ensure token directory exists
+    mkdir -p "$TOKEN_DIR"
+    chmod 700 "$TOKEN_DIR"
+
+    # Create temporary directory for token creation
+    tmp_token_dir="$TOKEN_DIR/.tmp-${token_name}-$$"
+    mkdir -p "$tmp_token_dir/.claude"
+    chmod 700 "$tmp_token_dir"
+    chmod 700 "$tmp_token_dir/.claude"
+
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+    echo "Launching Claude Code container for OAuth login..."
+    echo ""
+    echo "INSTRUCTIONS:"
+    echo "  1. When Claude Code starts, use the /login command"
+    echo "  2. Follow the OAuth flow to authenticate"
+    echo "  3. After successful login, type /exit or press Ctrl+D"
+    echo "  4. Your token will be saved automatically"
+    echo ""
+    echo "Press Enter to continue..."
+    read
+
+    # Run container with bind mount for token creation
+    # The container will create credentials in the mounted directory
+    if docker run -it --rm \
+        -v "$tmp_token_dir/.claude:/root/.claude" \
+        -w /tmp \
+        "$IMAGE_NAME" \
+        claude 2>&1; then
+
+        # Check if credentials were created
+        if [ -f "$tmp_token_dir/.claude/.credentials.json" ]; then
+            # Move credentials to final location
+            mv "$tmp_token_dir/.claude/.credentials.json" "$token_file"
+            chmod 600 "$token_file"
+
+            echo ""
+            echo "════════════════════════════════════════════════════════════════════════════"
+            echo "✓ Token created successfully: $token_name"
+            echo "════════════════════════════════════════════════════════════════════════════"
+            echo ""
+            echo "Token saved to: $token_file"
+            echo ""
+            echo "You can now use this token with:"
+            echo "  ccy --token $token_name"
+            echo ""
+            echo "Or just run 'ccy' and select it from the menu."
+            echo ""
+        else
+            echo ""
+            echo "════════════════════════════════════════════════════════════════════════════"
+            echo "⚠  WARNING: No credentials found"
+            echo "════════════════════════════════════════════════════════════════════════════"
+            echo ""
+            echo "The login process did not create credentials."
+            echo "This usually means:"
+            echo "  • You didn't complete the /login command"
+            echo "  • You exited before authentication completed"
+            echo "  • There was an error during the OAuth flow"
+            echo ""
+            echo "Try again with: ccy --create-token"
+            echo ""
+        fi
+    else
+        echo ""
+        echo "ERROR: Container execution failed"
+        echo "Token creation cancelled."
+        echo ""
+    fi
+
+    # Cleanup temporary directory
+    rm -rf "$tmp_token_dir"
+
+    exit 0
+}
+
+# Function to select a token interactively
+select_token() {
+    if [ ! -d "$TOKEN_DIR" ]; then
+        return 1
+    fi
+
+    # Get list of token files
+    mapfile -t token_files < <(find "$TOKEN_DIR" -maxdepth 1 -name "*.json" -type f 2>/dev/null | sort)
+
+    if [ ${#token_files[@]} -eq 0 ]; then
+        return 1
+    fi
+
+    echo ""
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo "Claude Code Token Selection for YOLO Mode"
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+    echo "Available tokens:"
+    echo ""
+    echo "  0) Create new token"
+    echo ""
+
+    for i in "${!token_files[@]}"; do
+        token_name=$(basename "${token_files[$i]}" .json)
+        echo "  $((i+1))) $token_name"
+    done
+
+    echo ""
+    read -p "Select token [0-${#token_files[@]}]: " selection
+    echo ""
+
+    if [ -z "$selection" ]; then
+        echo "No selection made. Exiting."
+        exit 1
+    fi
+
+    if [ "$selection" = "0" ]; then
+        create_token
+        exit 0
+    elif [ "$selection" -ge 1 ] && [ "$selection" -le ${#token_files[@]} ]; then
+        SELECTED_TOKEN="${token_files[$((selection-1))]}"
+        token_name=$(basename "$SELECTED_TOKEN" .json)
+        echo "✓ Selected token: $token_name"
+        echo ""
+        echo "════════════════════════════════════════════════════════════════════════════"
+        echo ""
+        return 0
+    else
+        echo "ERROR: Invalid selection: $selection"
+        exit 1
+    fi
+}
+
 # Check for wrapper flags
 FORCE_REBUILD=false
 DEBUG_MODE=false
 SSH_KEYS=()
 CLAUDE_ARGS=()
 NEXT_IS_SSH_KEY=false
+NEXT_IS_TOKEN=false
+SPECIFIED_TOKEN=""
+CREATE_TOKEN_MODE=false
+LIST_TOKENS_MODE=false
 
 for arg in "$@"; do
     if [ "$NEXT_IS_SSH_KEY" = true ]; then
@@ -94,6 +339,9 @@ for arg in "$@"; do
         fi
         SSH_KEYS+=("$arg")
         NEXT_IS_SSH_KEY=false
+    elif [ "$NEXT_IS_TOKEN" = true ]; then
+        SPECIFIED_TOKEN="$arg"
+        NEXT_IS_TOKEN=false
     elif [ "$arg" = "--rebuild" ]; then
         FORCE_REBUILD=true
     elif [ "$arg" = "--debug" ]; then
@@ -101,10 +349,27 @@ for arg in "$@"; do
         set -x
     elif [ "$arg" = "--ssh-key" ]; then
         NEXT_IS_SSH_KEY=true
+    elif [ "$arg" = "--token" ]; then
+        NEXT_IS_TOKEN=true
+    elif [ "$arg" = "--create-token" ]; then
+        CREATE_TOKEN_MODE=true
+    elif [ "$arg" = "--list-tokens" ]; then
+        LIST_TOKENS_MODE=true
     else
         CLAUDE_ARGS+=("$arg")
     fi
 done
+
+# Handle special modes
+if [ "$LIST_TOKENS_MODE" = true ]; then
+    list_tokens
+    exit 0
+fi
+
+if [ "$CREATE_TOKEN_MODE" = true ]; then
+    create_token
+    exit 0
+fi
 
 # Discover github_ SSH keys if no --ssh-key was passed
 # These keys are managed by play-github-cli-multi.yml which creates keys with
@@ -176,6 +441,59 @@ if [ ${#SSH_KEYS[@]} -eq 0 ]; then
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo ""
     fi
+fi
+
+# Token selection logic
+SELECTED_TOKEN=""
+
+if [ -n "$SPECIFIED_TOKEN" ]; then
+    # Token specified via --token flag
+    if [[ "$SPECIFIED_TOKEN" =~ / ]]; then
+        # Full path provided
+        SELECTED_TOKEN="$SPECIFIED_TOKEN"
+    else
+        # Token name provided, construct path
+        SELECTED_TOKEN="$TOKEN_DIR/${SPECIFIED_TOKEN}.json"
+    fi
+
+    if [ ! -f "$SELECTED_TOKEN" ]; then
+        echo "ERROR: Token not found: $SELECTED_TOKEN"
+        echo ""
+        echo "Available tokens:"
+        list_tokens
+        exit 1
+    fi
+
+    echo "✓ Using token: $(basename "$SELECTED_TOKEN" .json)"
+else
+    # No token specified, check if tokens exist
+    if [ ! -d "$TOKEN_DIR" ] || [ -z "$(ls -A "$TOKEN_DIR"/*.json 2>/dev/null)" ]; then
+        echo ""
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo "No Claude Code Tokens Found"
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo ""
+        echo "ccy uses separate tokens from desktop Claude Code to prevent OAuth conflicts."
+        echo ""
+        echo "You need to create a token before using ccy."
+        echo ""
+        read -p "Create a token now? (Y/n): " create_now
+
+        if [ "$create_now" = "n" ] || [ "$create_now" = "N" ]; then
+            echo "Cancelled. Create a token later with: ccy --create-token"
+            exit 0
+        fi
+
+        create_token
+        exit 0
+    fi
+
+    # Multiple tokens exist or single token - show selection
+    select_token || {
+        echo "ERROR: No tokens available"
+        echo "Create a token with: ccy --create-token"
+        exit 1
+    }
 fi
 
 # Get current user's UID and GID for proper file ownership
@@ -264,21 +582,30 @@ CONFIG_TEMP="/tmp/claude-yolo-$$"
 mkdir -p "$CONFIG_TEMP"
 chmod 755 "$CONFIG_TEMP"
 
-# Copy Claude Code credentials
-cp "$HOME/.claude/.credentials.json" "$CONFIG_TEMP/credentials.json"
+# Copy selected Claude Code credentials (NOT from desktop)
+cp "$SELECTED_TOKEN" "$CONFIG_TEMP/credentials.json"
 chmod 644 "$CONFIG_TEMP/credentials.json"
 
-# Copy Claude Code settings
-cp "$HOME/.claude/settings.json" "$CONFIG_TEMP/settings.json"
+# Create minimal settings.json if not exists
+if [ -f "$HOME/.claude/settings.json" ]; then
+    cp "$HOME/.claude/settings.json" "$CONFIG_TEMP/settings.json"
+else
+    echo '{}' > "$CONFIG_TEMP/settings.json"
+fi
 chmod 644 "$CONFIG_TEMP/settings.json"
 
-# Copy global config and modify installMethod for container
-jq '.installMethod = "npm"' "$HOME/.claude.json" > "$CONFIG_TEMP/config.json"
+# Create minimal config.json for container
+echo '{"installMethod":"npm"}' > "$CONFIG_TEMP/config.json"
 chmod 644 "$CONFIG_TEMP/config.json"
 
 # Copy git config
-cp "$HOME/.gitconfig" "$CONFIG_TEMP/gitconfig"
-chmod 644 "$CONFIG_TEMP/gitconfig"
+if [ -f "$HOME/.gitconfig" ]; then
+    cp "$HOME/.gitconfig" "$CONFIG_TEMP/gitconfig"
+    chmod 644 "$CONFIG_TEMP/gitconfig"
+else
+    touch "$CONFIG_TEMP/gitconfig"
+    chmod 644 "$CONFIG_TEMP/gitconfig"
+fi
 
 # Cleanup function
 cleanup() {

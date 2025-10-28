@@ -95,6 +95,14 @@
         group: "{{ user_login }}"
         mode: '0644'
 
+    - name: Create Claude YOLO Token Directory
+      file:
+        path: /home/{{ user_login }}/.claude-tokens/ccy
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0700'
+
     - name: Build Claude YOLO Container Image
       command: docker build -t claude-yolo:latest /opt/claude-yolo
       register: docker_build
@@ -115,24 +123,36 @@
           - "✓ Container image built: claude-yolo:latest"
           - "✓ Wrapper script installed: /usr/local/bin/claude-yolo"
           - "✓ Bash alias configured: ccy"
+          - "✓ Token directory created: ~/.claude-tokens/ccy/"
           - ""
-          - "Usage:"
-          - "  ccy                    - Run Claude Code in YOLO mode"
-          - "  ccy --help             - Show Claude Code help"
-          - "  cd /your/project && ccy - Run YOLO mode in specific directory"
+          - "IMPORTANT: Token Management"
+          - "  ccy uses SEPARATE tokens from desktop Claude Code"
+          - "  This prevents OAuth refresh token conflicts"
+          - ""
+          - "First Run:"
+          - "  1. cd /your/project"
+          - "  2. ccy"
+          - "  3. Follow prompts to create your first token"
+          - "  4. Use /login in Claude Code to authenticate"
+          - ""
+          - "Token Commands:"
+          - "  ccy --create-token     - Create new named token"
+          - "  ccy --list-tokens      - List available tokens"
+          - "  ccy --token personal   - Use specific token"
+          - "  ccy --help             - Show all options"
           - ""
           - "Features:"
           - "  • Runs with --dangerously-skip-permissions (no prompts)"
-          - "  • Isolated Docker container (no access to git/gh)"
+          - "  • Multiple Claude accounts (personal/work)"
+          - "  • Isolated Docker container with git/gh"
           - "  • Auto-updates Claude Code (cached for 1 hour)"
-          - "  • Mounts current directory as /workspace"
-          - "  • Shares Claude auth config (read-only)"
+          - "  • Desktop Claude Code (~/.claude/) NEVER modified"
           - ""
           - "Security:"
           - "  ⚠ YOLO mode bypasses all permission checks"
-          - "  ✓ Container isolation prevents host access"
-          - "  ✓ No git/gh available (cannot push/commit)"
-          - "  ✓ Separate from normal 'claude' or 'cc' commands"
+          - "  ✓ Container isolation prevents unintended host access"
+          - "  ✓ Separate token storage prevents OAuth conflicts"
+          - "  ✓ Requires rootless Docker for safety"
           - ""
           - "Reload your shell to enable the 'ccy' alias:"
           - "  source ~/.bashrc"
