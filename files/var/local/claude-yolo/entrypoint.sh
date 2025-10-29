@@ -16,17 +16,14 @@ if [ -z "$GH_TOKEN" ]; then
     exit 1
 fi
 
-
-# Copy Claude Code config files from ccy token storage
-# These are SEPARATE from desktop Claude Code (~/.claude/) to prevent OAuth conflicts
-mkdir -p ~/.claude
-cp /tmp/claude-config-import/credentials.json ~/.claude/.credentials.json
-cp /tmp/claude-config-import/settings.json ~/.claude/settings.json
-cp /tmp/claude-config-import/config.json ~/.claude.json
-chmod 600 ~/.claude/.credentials.json
+# Note: ~/.claude is already mounted with project-specific state
+# It contains credentials, settings, and all conversation history
+# We only need to set up git, gh CLI, and SSH
 
 # Configure git
-cp /tmp/claude-config-import/gitconfig ~/.gitconfig
+if [ -f /tmp/claude-config-import/gitconfig ]; then
+    cp /tmp/claude-config-import/gitconfig ~/.gitconfig
+fi
 
 # Configure GitHub CLI with token
 mkdir -p ~/.config/gh

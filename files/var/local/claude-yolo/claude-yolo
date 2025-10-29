@@ -25,7 +25,9 @@ IMAGE_NAME="claude-yolo:latest"
 DOCKERFILE_DIR="/opt/claude-yolo"
 VERSION_CACHE="$HOME/.cache/claude-yolo-version"
 CACHE_DURATION=3600  # 1 hour in seconds
-TOKEN_DIR="$HOME/.claude-tokens/ccy"
+CCY_ROOT="$HOME/.claude-tokens/ccy"
+TOKEN_DIR="$CCY_ROOT/tokens"
+PROJECT_DIR="$CCY_ROOT/projects"
 
 # Show help if requested
 if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
@@ -40,6 +42,7 @@ Wrapper Options:
   --ssh-key PATH    SSH private key to mount (can be specified multiple times)
   --token NAME      Use specific named token
   --create-token    Create a new named token
+  --refresh-token   Refresh an expired OAuth token (mounts token writable)
   --list-tokens     List available tokens
   --help, -h        Show this help message
 
@@ -102,7 +105,7 @@ list_tokens() {
     echo "════════════════════════════════════════════════════════════════════════════════"
     echo ""
 
-    if [ ! -d "$TOKEN_DIR" ] || [ -z "$(ls -A "$TOKEN_DIR"/*.json 2>/dev/null)" ]; then
+    if [ ! -d "$TOKEN_DIR" ] || [ -z "$(ls -A "$TOKEN_DIR"/*.token.json 2>/dev/null)" ]; then
         echo "No tokens found in: $TOKEN_DIR"
         echo ""
         echo "Create a token with: ccy --create-token"
@@ -113,9 +116,9 @@ list_tokens() {
     echo "Token storage: $TOKEN_DIR"
     echo ""
 
-    for token_file in "$TOKEN_DIR"/*.json; do
+    for token_file in "$TOKEN_DIR"/*.token.json; do
         if [ -f "$token_file" ]; then
-            token_name=$(basename "$token_file" .json)
+            token_name=$(basename "$token_file" .token.json)
             file_size=$(stat -c%s "$token_file")
             mod_time=$(stat -c%y "$token_file" | cut -d' ' -f1,2 | cut -d: -f1,2)
 
@@ -171,7 +174,7 @@ create_token() {
             continue
         fi
 
-        token_file="$TOKEN_DIR/${token_name}.json"
+        token_file="$TOKEN_DIR/${token_name}.token.json"
 
         if [ -f "$token_file" ]; then
             read -p "Token '$token_name' already exists. Overwrite? (y/N): " overwrite
@@ -189,15 +192,11 @@ create_token() {
     echo "Storage: $token_file"
     echo ""
 
-    # Ensure token directory exists
-    mkdir -p "$TOKEN_DIR"
-    chmod 700 "$TOKEN_DIR"
-
-    # Create temporary directory for token creation
+    # Create temporary directory for token creation - mount entire /root
     tmp_token_dir="$TOKEN_DIR/.tmp-${token_name}-$$"
-    mkdir -p "$tmp_token_dir/.claude"
+    mkdir -p "$tmp_token_dir/root"
     chmod 700 "$tmp_token_dir"
-    chmod 700 "$tmp_token_dir/.claude"
+    chmod 700 "$tmp_token_dir/root"
 
     echo "════════════════════════════════════════════════════════════════════════════════"
     echo ""
@@ -212,26 +211,86 @@ create_token() {
     echo "Press Enter to continue..."
     read
 
-    # Run container with bind mount for token creation
-    # The container will create credentials in the mounted directory
+    # Run container with entire /root directory mounted
+    # This captures ALL files Claude Code creates, not just .claude/
+    # Use the GH_TOKEN that was already selected via SSH key selection
+    # Override entrypoint to skip credential copying (we're creating them!)
+    # DO NOT mount workspace - token creation doesn't need git repo access
     if docker run -it --rm \
-        -v "$tmp_token_dir/.claude:/root/.claude" \
-        -w /tmp \
-        "$IMAGE_NAME" \
-        claude 2>&1; then
+        -v "$tmp_token_dir/root:/root" \
+        -e "GH_TOKEN=$GH_TOKEN" \
+        --entrypoint claude \
+        "$IMAGE_NAME" 2>&1; then
+
+        # After container exits, everything from /root is in tmp_token_dir/root
+        echo ""
+        echo "Debug: Checking what files were created in container's /root..."
+        echo "Directory: $tmp_token_dir/root"
+        echo ""
+        echo "All files:"
+        find "$tmp_token_dir/root" -type f 2>/dev/null | head -20
+        echo ""
+        echo ".claude directory contents:"
+        ls -la "$tmp_token_dir/root/.claude/" 2>/dev/null || echo "(no .claude directory)"
+        echo ""
 
         # Check if credentials were created
-        if [ -f "$tmp_token_dir/.claude/.credentials.json" ]; then
+        if [ -f "$tmp_token_dir/root/.claude/.credentials.json" ]; then
             # Move credentials to final location
-            mv "$tmp_token_dir/.claude/.credentials.json" "$token_file"
+            mv "$tmp_token_dir/root/.claude/.credentials.json" "$token_file"
             chmod 600 "$token_file"
+            echo "✓ Captured .credentials.json"
+
+            # Save ALL Claude Code settings/state created during setup
+            # This includes UI preferences, settings, etc.
+            settings_file="$TOKEN_DIR/${token_name}.settings.json"
+            if [ -f "$tmp_token_dir/root/.claude/settings.json" ]; then
+                mv "$tmp_token_dir/root/.claude/settings.json" "$settings_file"
+                chmod 600 "$settings_file"
+                echo "✓ Captured settings.json"
+            else
+                echo "⚠ settings.json NOT created during setup"
+                # Copy from desktop Claude as fallback template if it exists
+                if [ -f "$HOME/.claude/settings.json" ]; then
+                    cp "$HOME/.claude/settings.json" "$settings_file"
+                    chmod 600 "$settings_file"
+                    echo "✓ Copied settings.json template from desktop Claude"
+                else
+                    echo "⚠ No desktop Claude settings.json found - will show setup screen on first run"
+                fi
+            fi
+
+            # Save .claude.json if it exists (config file)
+            config_file="$TOKEN_DIR/${token_name}.config.json"
+            if [ -f "$tmp_token_dir/root/.claude.json" ]; then
+                mv "$tmp_token_dir/root/.claude.json" "$config_file"
+                chmod 600 "$config_file"
+                echo "✓ Captured .claude.json"
+            else
+                echo "⚠ .claude.json NOT created during setup"
+                # Copy from desktop Claude as fallback if it exists
+                if [ -f "$HOME/.claude.json" ]; then
+                    cp "$HOME/.claude.json" "$config_file"
+                    chmod 600 "$config_file"
+                    echo "✓ Copied .claude.json template from desktop Claude"
+                else
+                    echo "⚠ No desktop Claude .claude.json found"
+                fi
+            fi
 
             echo ""
             echo "════════════════════════════════════════════════════════════════════════════"
             echo "✓ Token created successfully: $token_name"
             echo "════════════════════════════════════════════════════════════════════════════"
             echo ""
-            echo "Token saved to: $token_file"
+            echo "Saved files:"
+            echo "  Credentials: $token_file"
+            if [ -f "$settings_file" ]; then
+                echo "  Settings: $settings_file"
+            fi
+            if [ -f "$config_file" ]; then
+                echo "  Config: $config_file"
+            fi
             echo ""
             echo "You can now use this token with:"
             echo "  ccy --token $token_name"
@@ -266,14 +325,69 @@ create_token() {
     exit 0
 }
 
+# Function to get project-specific state directory
+# Returns path to project's .claude directory based on git repo identifier
+# Note: Only called after git repo check passes (line 8-22)
+get_project_state_dir() {
+    local repo_path="$PWD"
+
+    # Get git remote URL - fail fast if not configured
+    local git_remote=$(git remote get-url origin 2>/dev/null)
+    if [ -z "$git_remote" ]; then
+        echo "ERROR: No git remote 'origin' configured" >&2
+        echo "" >&2
+        echo "Claude YOLO requires a git remote to identify the project." >&2
+        echo "This ensures conversations are properly tied to the correct repository." >&2
+        echo "" >&2
+        echo "To fix:" >&2
+        echo "  git remote add origin <url>" >&2
+        echo "" >&2
+        echo "Current directory: $repo_path" >&2
+        exit 1
+    fi
+
+    # Extract repo name from git remote URL
+    # Examples:
+    #   git@github.com:user/repo.git -> user_repo
+    #   https://github.com/user/repo.git -> user_repo
+    local project_name=$(echo "$git_remote" | sed -E 's|.*[:/]([^/]+)/([^/]+)(\.git)?$|\1_\2|')
+
+    local project_root="$PROJECT_DIR/$project_name"
+    local project_claude_dir="$project_root/.claude"
+
+    # Create project structure if it doesn't exist
+    if [ ! -d "$project_root" ]; then
+        mkdir -p "$project_root"
+        chmod 700 "$project_root"
+
+        # Create metadata file for reference
+        cat > "$project_root/.project-info" <<EOF
+# Claude Code YOLO Project State
+Repository Path: $repo_path
+Git Remote: $git_remote
+Project Name: $project_name
+Created: $(date -Iseconds)
+EOF
+        chmod 600 "$project_root/.project-info"
+    fi
+
+    # Create .claude directory if it doesn't exist
+    if [ ! -d "$project_claude_dir" ]; then
+        mkdir -p "$project_claude_dir"
+        chmod 700 "$project_claude_dir"
+    fi
+
+    echo "$project_claude_dir"
+}
+
 # Function to select a token interactively
 select_token() {
     if [ ! -d "$TOKEN_DIR" ]; then
         return 1
     fi
 
-    # Get list of token files
-    mapfile -t token_files < <(find "$TOKEN_DIR" -maxdepth 1 -name "*.json" -type f 2>/dev/null | sort)
+    # Get list of token files (only .token.json files)
+    mapfile -t token_files < <(find "$TOKEN_DIR" -maxdepth 1 -name "*.token.json" -type f 2>/dev/null | sort)
 
     if [ ${#token_files[@]} -eq 0 ]; then
         return 1
@@ -290,7 +404,7 @@ select_token() {
     echo ""
 
     for i in "${!token_files[@]}"; do
-        token_name=$(basename "${token_files[$i]}" .json)
+        token_name=$(basename "${token_files[$i]}" .token.json)
         echo "  $((i+1))) $token_name"
     done
 
@@ -308,7 +422,7 @@ select_token() {
         exit 0
     elif [ "$selection" -ge 1 ] && [ "$selection" -le ${#token_files[@]} ]; then
         SELECTED_TOKEN="${token_files[$((selection-1))]}"
-        token_name=$(basename "$SELECTED_TOKEN" .json)
+        token_name=$(basename "$SELECTED_TOKEN" .token.json)
         echo "✓ Selected token: $token_name"
         echo ""
         echo "════════════════════════════════════════════════════════════════════════════"
@@ -329,6 +443,7 @@ NEXT_IS_SSH_KEY=false
 NEXT_IS_TOKEN=false
 SPECIFIED_TOKEN=""
 CREATE_TOKEN_MODE=false
+REFRESH_TOKEN_MODE=false
 LIST_TOKENS_MODE=false
 
 for arg in "$@"; do
@@ -346,13 +461,19 @@ for arg in "$@"; do
         FORCE_REBUILD=true
     elif [ "$arg" = "--debug" ]; then
         DEBUG_MODE=true
+        DEBUG_LOG="/tmp/ccy-debug-$(date +%Y%m%d-%H%M%S).log"
+        # Redirect all output to both terminal and log file
+        exec > >(tee -a "$DEBUG_LOG") 2>&1
         set -x
+        echo "Debug logging to: $DEBUG_LOG"
     elif [ "$arg" = "--ssh-key" ]; then
         NEXT_IS_SSH_KEY=true
     elif [ "$arg" = "--token" ]; then
         NEXT_IS_TOKEN=true
     elif [ "$arg" = "--create-token" ]; then
         CREATE_TOKEN_MODE=true
+    elif [ "$arg" = "--refresh-token" ]; then
+        REFRESH_TOKEN_MODE=true
     elif [ "$arg" = "--list-tokens" ]; then
         LIST_TOKENS_MODE=true
     else
@@ -360,14 +481,17 @@ for arg in "$@"; do
     fi
 done
 
-# Handle special modes
+# Ensure directory structure exists early
+mkdir -p "$CCY_ROOT"
+chmod 700 "$CCY_ROOT"
+mkdir -p "$TOKEN_DIR"
+chmod 700 "$TOKEN_DIR"
+mkdir -p "$PROJECT_DIR"
+chmod 700 "$PROJECT_DIR"
+
+# Handle list tokens mode (doesn't need SSH/GH setup)
 if [ "$LIST_TOKENS_MODE" = true ]; then
     list_tokens
-    exit 0
-fi
-
-if [ "$CREATE_TOKEN_MODE" = true ]; then
-    create_token
     exit 0
 fi
 
@@ -443,177 +567,8 @@ if [ ${#SSH_KEYS[@]} -eq 0 ]; then
     fi
 fi
 
-# Token selection logic
-SELECTED_TOKEN=""
-
-if [ -n "$SPECIFIED_TOKEN" ]; then
-    # Token specified via --token flag
-    if [[ "$SPECIFIED_TOKEN" =~ / ]]; then
-        # Full path provided
-        SELECTED_TOKEN="$SPECIFIED_TOKEN"
-    else
-        # Token name provided, construct path
-        SELECTED_TOKEN="$TOKEN_DIR/${SPECIFIED_TOKEN}.json"
-    fi
-
-    if [ ! -f "$SELECTED_TOKEN" ]; then
-        echo "ERROR: Token not found: $SELECTED_TOKEN"
-        echo ""
-        echo "Available tokens:"
-        list_tokens
-        exit 1
-    fi
-
-    echo "✓ Using token: $(basename "$SELECTED_TOKEN" .json)"
-else
-    # No token specified, check if tokens exist
-    if [ ! -d "$TOKEN_DIR" ] || [ -z "$(ls -A "$TOKEN_DIR"/*.json 2>/dev/null)" ]; then
-        echo ""
-        echo "════════════════════════════════════════════════════════════════════════════════"
-        echo "No Claude Code Tokens Found"
-        echo "════════════════════════════════════════════════════════════════════════════════"
-        echo ""
-        echo "ccy uses separate tokens from desktop Claude Code to prevent OAuth conflicts."
-        echo ""
-        echo "You need to create a token before using ccy."
-        echo ""
-        read -p "Create a token now? (Y/n): " create_now
-
-        if [ "$create_now" = "n" ] || [ "$create_now" = "N" ]; then
-            echo "Cancelled. Create a token later with: ccy --create-token"
-            exit 0
-        fi
-
-        create_token
-        exit 0
-    fi
-
-    # Multiple tokens exist or single token - show selection
-    select_token || {
-        echo "ERROR: No tokens available"
-        echo "Create a token with: ccy --create-token"
-        exit 1
-    }
-fi
-
-# Get current user's UID and GID for proper file ownership
-HOST_UID=$(id -u)
-HOST_GID=$(id -g)
-
-# Safety check: Never run as root (UID 0)
-if [ "$HOST_UID" -eq 0 ]; then
-    echo "ERROR: Cannot run Claude Code YOLO mode as root user (UID 0)"
-    echo "This is a security restriction for --dangerously-skip-permissions mode"
-    echo "Please run this command as a regular user, not with sudo or as root"
-    exit 1
-fi
-
-# Safety check: Only run in rootless Docker
-DOCKER_CONTEXT=$(docker context inspect 2>/dev/null | grep -o '"Name": *"[^"]*"' | head -1 | cut -d'"' -f4)
-if [ "$DOCKER_CONTEXT" != "rootless" ]; then
-    echo "ERROR: Claude Code YOLO mode requires rootless Docker"
-    echo "Current Docker context: ${DOCKER_CONTEXT:-default}"
-    echo ""
-    echo "This is a security requirement because:"
-    echo "  • YOLO mode bypasses all permission checks"
-    echo "  • Running in rootless Docker provides isolation"
-    echo "  • Non-rootless Docker would give actual root privileges"
-    echo ""
-    echo "To set up rootless Docker:"
-    echo "  1. Install: dockerd-rootless-setuptool.sh install"
-    echo "  2. Switch context: docker context use rootless"
-    echo ""
-    echo "Or run the Docker playbook:"
-    echo "  ansible-playbook playbooks/imports/optional/common/play-docker.yml"
-    exit 1
-fi
-
-# Ensure cache directory exists
-mkdir -p "$(dirname "$VERSION_CACHE")"
-
-# Force rebuild if --rebuild flag was provided
-if [ "$FORCE_REBUILD" = true ]; then
-    echo "Forcing container rebuild..."
-    if [ ! -f "$DOCKERFILE_DIR/Dockerfile" ]; then
-        echo "Error: Dockerfile not found at $DOCKERFILE_DIR/Dockerfile"
-        echo "Please run the ansible playbook: playbooks/imports/optional/common/play-install-claude-yolo.yml"
-        exit 1
-    fi
-    docker build --no-cache -t "$IMAGE_NAME" "$DOCKERFILE_DIR"
-    # Clear version cache to force Claude Code update check
-    rm -f "$VERSION_CACHE"
-    echo "✓ Container image rebuilt successfully"
-fi
-
-# Check if Docker image exists
-if ! docker image inspect "$IMAGE_NAME" &> /dev/null; then
-    echo "Building Claude YOLO container image (first time setup)..."
-    if [ ! -f "$DOCKERFILE_DIR/Dockerfile" ]; then
-        echo "Error: Dockerfile not found at $DOCKERFILE_DIR/Dockerfile"
-        echo "Please run the ansible playbook: playbooks/imports/optional/common/play-install-claude-yolo.yml"
-        exit 1
-    fi
-    docker build -t "$IMAGE_NAME" "$DOCKERFILE_DIR"
-    echo "✓ Container image built successfully"
-fi
-
-# Check if Claude Code needs updating (with caching to keep it fast)
-should_update_claude=false
-if [ -f "$VERSION_CACHE" ]; then
-    # Check cache age
-    cache_age=$(($(date +%s) - $(stat -c %Y "$VERSION_CACHE" 2>/dev/null || echo 0)))
-    if [ $cache_age -gt $CACHE_DURATION ]; then
-        should_update_claude=true
-    fi
-else
-    should_update_claude=true
-fi
-
-# Update Claude Code in container if needed
-if [ "$should_update_claude" = true ]; then
-    echo "Checking for Claude Code updates..."
-    docker run --rm --entrypoint sh "$IMAGE_NAME" -c "npm update -g @anthropic-ai/claude-code 2>&1" | grep -v "npm WARN" || true
-    # Update cache timestamp
-    touch "$VERSION_CACHE"
-fi
-
-# Create temp directory for config files to copy into container
-CONFIG_TEMP="/tmp/claude-yolo-$$"
-mkdir -p "$CONFIG_TEMP"
-chmod 755 "$CONFIG_TEMP"
-
-# Copy selected Claude Code credentials (NOT from desktop)
-cp "$SELECTED_TOKEN" "$CONFIG_TEMP/credentials.json"
-chmod 644 "$CONFIG_TEMP/credentials.json"
-
-# Create minimal settings.json if not exists
-if [ -f "$HOME/.claude/settings.json" ]; then
-    cp "$HOME/.claude/settings.json" "$CONFIG_TEMP/settings.json"
-else
-    echo '{}' > "$CONFIG_TEMP/settings.json"
-fi
-chmod 644 "$CONFIG_TEMP/settings.json"
-
-# Create minimal config.json for container
-echo '{"installMethod":"npm"}' > "$CONFIG_TEMP/config.json"
-chmod 644 "$CONFIG_TEMP/config.json"
-
-# Copy git config
-if [ -f "$HOME/.gitconfig" ]; then
-    cp "$HOME/.gitconfig" "$CONFIG_TEMP/gitconfig"
-    chmod 644 "$CONFIG_TEMP/gitconfig"
-else
-    touch "$CONFIG_TEMP/gitconfig"
-    chmod 644 "$CONFIG_TEMP/gitconfig"
-fi
-
-# Cleanup function
-cleanup() {
-    rm -rf "$CONFIG_TEMP"
-}
-trap cleanup EXIT
-
 # Build SSH key mount arguments and extract GitHub account
+# This needs to happen early so GH_TOKEN is available for create_token
 SSH_MOUNTS=()
 SSH_KEY_PATHS=()
 GITHUB_USERNAME=""
@@ -714,15 +669,352 @@ else
     fi
 fi
 
+# Token selection logic
+SELECTED_TOKEN=""
+
+if [ -n "$SPECIFIED_TOKEN" ]; then
+    # Token specified via --token flag
+    if [[ "$SPECIFIED_TOKEN" =~ / ]]; then
+        # Full path provided
+        SELECTED_TOKEN="$SPECIFIED_TOKEN"
+    else
+        # Token name provided, construct path
+        SELECTED_TOKEN="$TOKEN_DIR/${SPECIFIED_TOKEN}.token.json"
+    fi
+
+    if [ ! -f "$SELECTED_TOKEN" ]; then
+        echo "ERROR: Token not found: $SELECTED_TOKEN"
+        echo ""
+        echo "Available tokens:"
+        list_tokens
+        exit 1
+    fi
+
+    echo "✓ Using token: $(basename "$SELECTED_TOKEN" .token.json)"
+else
+    # No token specified, check if tokens exist
+    if [ ! -d "$TOKEN_DIR" ] || [ -z "$(ls -A "$TOKEN_DIR"/*.token.json 2>/dev/null)" ]; then
+        echo ""
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo "No Claude Code Tokens Found"
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo ""
+        echo "ccy uses separate tokens from desktop Claude Code to prevent OAuth conflicts."
+        echo ""
+        echo "You need to create a token before using ccy."
+        echo ""
+        read -p "Create a token now? (Y/n): " create_now
+
+        if [ "$create_now" = "n" ] || [ "$create_now" = "N" ]; then
+            echo "Cancelled. Create a token later with: ccy --create-token"
+            exit 0
+        fi
+
+        # Set flag to create token after GH_TOKEN is set up
+        CREATE_TOKEN_MODE=true
+    else
+        # Multiple tokens exist or single token - show selection
+        select_token || {
+            echo "ERROR: No tokens available"
+            echo "Create a token with: ccy --create-token"
+            exit 1
+        }
+    fi
+fi
+
+# Handle create token mode (after SSH/GH setup is complete, before token operations)
+if [ "$CREATE_TOKEN_MODE" = true ]; then
+    create_token
+    exit 0
+fi
+
+# Handle refresh token mode (after SSH/GH setup and token selection)
+if [ "$REFRESH_TOKEN_MODE" = true ]; then
+    # Token already selected, just set flag to mount writable
+    echo ""
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo "Token Refresh Mode"
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+    echo "Token will be mounted WRITABLE to allow Claude Code to refresh OAuth credentials."
+    echo ""
+    echo "IMPORTANT: Only run this in ONE project at a time to avoid race conditions!"
+    echo ""
+    echo "After Claude Code refreshes the token, all other projects will use the new token."
+    echo ""
+    TOKEN_MOUNT_MODE="rw"
+else
+    # Normal mode - read-only token
+    TOKEN_MOUNT_MODE="ro"
+fi
+
+# Get current user's UID and GID for proper file ownership
+HOST_UID=$(id -u)
+HOST_GID=$(id -g)
+
+# Safety check: Never run as root (UID 0)
+if [ "$HOST_UID" -eq 0 ]; then
+    echo "ERROR: Cannot run Claude Code YOLO mode as root user (UID 0)"
+    echo "This is a security restriction for --dangerously-skip-permissions mode"
+    echo "Please run this command as a regular user, not with sudo or as root"
+    exit 1
+fi
+
+# Safety check: Only run in rootless Docker
+DOCKER_CONTEXT=$(docker context inspect 2>/dev/null | grep -o '"Name": *"[^"]*"' | head -1 | cut -d'"' -f4)
+if [ "$DOCKER_CONTEXT" != "rootless" ]; then
+    echo "ERROR: Claude Code YOLO mode requires rootless Docker"
+    echo "Current Docker context: ${DOCKER_CONTEXT:-default}"
+    echo ""
+    echo "This is a security requirement because:"
+    echo "  • YOLO mode bypasses all permission checks"
+    echo "  • Running in rootless Docker provides isolation"
+    echo "  • Non-rootless Docker would give actual root privileges"
+    echo ""
+    echo "To set up rootless Docker:"
+    echo "  1. Install: dockerd-rootless-setuptool.sh install"
+    echo "  2. Switch context: docker context use rootless"
+    echo ""
+    echo "Or run the Docker playbook:"
+    echo "  ansible-playbook playbooks/imports/optional/common/play-docker.yml"
+    exit 1
+fi
+
+# Ensure cache directory exists
+mkdir -p "$(dirname "$VERSION_CACHE")"
+
+# Force rebuild if --rebuild flag was provided
+if [ "$FORCE_REBUILD" = true ]; then
+    echo "Forcing container rebuild..."
+    if [ ! -f "$DOCKERFILE_DIR/Dockerfile" ]; then
+        echo "Error: Dockerfile not found at $DOCKERFILE_DIR/Dockerfile"
+        echo "Please run the ansible playbook: playbooks/imports/optional/common/play-install-claude-yolo.yml"
+        exit 1
+    fi
+    docker build --no-cache -t "$IMAGE_NAME" "$DOCKERFILE_DIR"
+    # Clear version cache to force Claude Code update check
+    rm -f "$VERSION_CACHE"
+    echo "✓ Container image rebuilt successfully"
+fi
+
+# Check if Docker image exists
+if ! docker image inspect "$IMAGE_NAME" &> /dev/null; then
+    echo "Building Claude YOLO container image (first time setup)..."
+    if [ ! -f "$DOCKERFILE_DIR/Dockerfile" ]; then
+        echo "Error: Dockerfile not found at $DOCKERFILE_DIR/Dockerfile"
+        echo "Please run the ansible playbook: playbooks/imports/optional/common/play-install-claude-yolo.yml"
+        exit 1
+    fi
+    docker build -t "$IMAGE_NAME" "$DOCKERFILE_DIR"
+    echo "✓ Container image built successfully"
+fi
+
+# Check if Claude Code needs updating (with caching to keep it fast)
+should_update_claude=false
+if [ -f "$VERSION_CACHE" ]; then
+    # Check cache age
+    cache_age=$(($(date +%s) - $(stat -c %Y "$VERSION_CACHE" 2>/dev/null || echo 0)))
+    if [ $cache_age -gt $CACHE_DURATION ]; then
+        should_update_claude=true
+    fi
+else
+    should_update_claude=true
+fi
+
+# Update Claude Code in container if needed
+if [ "$should_update_claude" = true ]; then
+    echo "Checking for Claude Code updates..."
+    docker run --rm --entrypoint sh "$IMAGE_NAME" -c "npm update -g @anthropic-ai/claude-code 2>&1" | grep -v "npm WARN" || true
+    # Update cache timestamp
+    touch "$VERSION_CACHE"
+fi
+
+# Get project-specific state directory (entire .claude directory)
+PROJECT_CLAUDE_DIR=$(get_project_state_dir)
+echo "✓ Project state: $PROJECT_CLAUDE_DIR"
+echo "✓ Token mount mode: $TOKEN_MOUNT_MODE"
+
+if [ "$DEBUG_MODE" = true ]; then
+    echo ""
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo "DEBUG: Pre-mount setup"
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo "Selected token file: $SELECTED_TOKEN"
+    echo "Token exists: $([ -f "$SELECTED_TOKEN" ] && echo "YES" || echo "NO")"
+    echo "Token size: $(stat -c%s "$SELECTED_TOKEN" 2>/dev/null || echo "N/A") bytes"
+    echo ""
+    echo "Project .claude directory: $PROJECT_CLAUDE_DIR"
+    echo "Directory exists: $([ -d "$PROJECT_CLAUDE_DIR" ] && echo "YES" || echo "NO")"
+    echo ""
+    echo "Files in project .claude directory:"
+    ls -lah "$PROJECT_CLAUDE_DIR" 2>/dev/null || echo "  (empty or doesn't exist)"
+    echo ""
+fi
+
+# Copy token settings template if project settings don't exist yet
+# This ensures first run in a new project inherits UI preferences from token
+token_name=$(basename "$SELECTED_TOKEN" .token.json)
+token_settings="$TOKEN_DIR/${token_name}.settings.json"
+project_settings="$PROJECT_CLAUDE_DIR/settings.json"
+
+if [ "$DEBUG_MODE" = true ]; then
+    echo "Token settings template: $token_settings"
+    echo "Template exists: $([ -f "$token_settings" ] && echo "YES" || echo "NO")"
+    echo "Project settings: $project_settings"
+    echo "Project settings exists: $([ -f "$project_settings" ] && echo "YES" || echo "NO")"
+    echo ""
+fi
+
+if [ ! -f "$project_settings" ] && [ -f "$token_settings" ]; then
+    # First time in this project - copy settings template from token
+    cp "$token_settings" "$project_settings"
+    chmod 600 "$project_settings"
+    [ "$DEBUG_MODE" = true ] && echo "✓ Copied settings template to project"
+elif [ ! -f "$project_settings" ]; then
+    [ "$DEBUG_MODE" = true ] && echo "⚠ No settings template available, Claude will show setup screen"
+fi
+
+# Copy .claude.json config to project if it doesn't exist
+# This needs to be writable (Claude Code updates numStartups, etc.)
+token_config="$TOKEN_DIR/${token_name}.config.json"
+project_config="$PROJECT_CLAUDE_DIR/../.claude.json"  # In project root, not inside .claude/
+
+if [ ! -f "$project_config" ] && [ -f "$token_config" ]; then
+    cp "$token_config" "$project_config"
+    chmod 600 "$project_config"
+    [ "$DEBUG_MODE" = true ] && echo "✓ Copied .claude.json config to project"
+elif [ ! -f "$project_config" ]; then
+    [ "$DEBUG_MODE" = true ] && echo "⚠ No .claude.json config available"
+fi
+
+# CRITICAL: Remove .credentials.json from project directory if it exists
+# Credentials should ONLY come from the file mount, never stored in project dir
+if [ -f "$PROJECT_CLAUDE_DIR/.credentials.json" ]; then
+    if [ "$DEBUG_MODE" = true ]; then
+        echo "⚠ Found .credentials.json in project directory (should not exist)"
+        echo "  Size: $(stat -c%s "$PROJECT_CLAUDE_DIR/.credentials.json") bytes"
+        echo "  Removing to prevent mount conflicts..."
+    fi
+    rm -f "$PROJECT_CLAUDE_DIR/.credentials.json"
+    [ "$DEBUG_MODE" = true ] && echo "✓ Removed .credentials.json from project directory"
+fi
+
+if [ "$DEBUG_MODE" = true ]; then
+    echo ""
+    echo "Files in project .claude directory (after setup):"
+    ls -lah "$PROJECT_CLAUDE_DIR" 2>/dev/null || echo "  (empty)"
+    if [ -f "$project_config" ]; then
+        echo ""
+        echo "Project .claude.json config:"
+        ls -lh "$project_config"
+    fi
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+fi
+
+# Note:
+# - Token (.credentials.json) mounted read-only from central storage (or writable with --refresh-token)
+# - Config (.claude.json) copied to project directory and mounted writable (Claude updates numStartups, etc.)
+# - All other files (history.jsonl, todos/, settings.json, etc.) persist in project directory
+
+# Create temp directory ONLY for gitconfig (can't mount directly into container root)
+CONFIG_TEMP="/tmp/claude-yolo-$$"
+mkdir -p "$CONFIG_TEMP"
+chmod 755 "$CONFIG_TEMP"
+
+# Copy git config to temp location for entrypoint
+if [ -f "$HOME/.gitconfig" ]; then
+    cp "$HOME/.gitconfig" "$CONFIG_TEMP/gitconfig"
+    chmod 644 "$CONFIG_TEMP/gitconfig"
+else
+    touch "$CONFIG_TEMP/gitconfig"
+    chmod 644 "$CONFIG_TEMP/gitconfig"
+fi
+
+# Cleanup function
+cleanup() {
+    rm -rf "$CONFIG_TEMP"
+
+    # Show debug log if in debug mode
+    if [ "$DEBUG_MODE" = true ] && [ -n "$DEBUG_LOG" ]; then
+        echo ""
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo "DEBUG LOG (saved to $DEBUG_LOG)"
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        cat "$DEBUG_LOG"
+        echo "════════════════════════════════════════════════════════════════════════════════"
+    fi
+}
+trap cleanup EXIT
+
 # Convert SSH_KEY_PATHS array to colon-separated string
 SSH_KEY_PATHS_STR=$(IFS=:; echo "${SSH_KEY_PATHS[*]}")
 
-# Run container with config files mounted temporarily
-# The entrypoint script will copy these files to the proper locations inside the container
-# All Claude Code state (history, todos, projects) stays inside container and is discarded
+if [ "$DEBUG_MODE" = true ]; then
+    echo ""
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo "DEBUG: Docker run configuration"
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo "Workspace: $PWD"
+    echo "Project .claude dir: $PROJECT_CLAUDE_DIR"
+    echo "Token file: $SELECTED_TOKEN (mode: $TOKEN_MOUNT_MODE)"
+    echo "SSH keys mounted: ${#SSH_KEYS[@]}"
+    echo ""
+    echo "Docker command (simplified):"
+    echo "  docker run -it --rm \\"
+    echo "    -v $PWD:/workspace \\"
+    echo "    -v $SELECTED_TOKEN:/root/.claude/.credentials.json:$TOKEN_MOUNT_MODE \\"
+    if [ -f "$project_config" ]; then
+        echo "    -v $project_config:/root/.claude.json \\"
+    fi
+    echo "    -v $PROJECT_CLAUDE_DIR:/root/.claude \\"
+    echo "    ... (other mounts) ..."
+    echo "    $IMAGE_NAME \\"
+    echo "    claude --dangerously-skip-permissions ${CLAUDE_ARGS[@]}"
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+    echo "Debug log saved to: $DEBUG_LOG"
+    echo ""
+    echo "Container will start now. Once inside, you can check:"
+    echo "  ls -la ~/.claude/"
+    echo "  cat ~/.claude/settings.json"
+    echo ""
+    echo "After exiting, review the debug log with:"
+    echo "  cat $DEBUG_LOG"
+    echo ""
+    read -p "Press Enter to continue..."
+fi
+
+# Run container with project-specific state directory
+# All Claude Code state (history, todos, conversations) persists per-project
+# Token and config are mounted separately
+#
+# MOUNT ORDER MATTERS:
+# 1. Credentials file FIRST - creates the file at target path
+# 2. Config file to home directory root (WRITABLE - Claude updates it)
+# 3. Project directory LAST - overlays everything else but credentials already exists
+
+# Build mount arguments
+DOCKER_MOUNTS=(
+    -v "$PWD:/workspace"
+    -v "$SELECTED_TOKEN:/root/.claude/.credentials.json:$TOKEN_MOUNT_MODE"
+)
+
+# Mount config file if it exists (contains onboarding state, must be WRITABLE)
+if [ -f "$project_config" ]; then
+    DOCKER_MOUNTS+=(-v "$project_config:/root/.claude.json")
+    [ "$DEBUG_MODE" = true ] && echo "✓ Mounting config file (writable): $project_config"
+else
+    [ "$DEBUG_MODE" = true ] && echo "⚠ Config file not found: $project_config (onboarding will be required)"
+fi
+
+DOCKER_MOUNTS+=(
+    -v "$PROJECT_CLAUDE_DIR:/root/.claude"
+    -v "$CONFIG_TEMP:/tmp/claude-config-import:ro"
+)
+
 docker run -it --rm \
-    -v "$PWD:/workspace" \
-    -v "$CONFIG_TEMP:/tmp/claude-config-import:ro" \
+    "${DOCKER_MOUNTS[@]}" \
     "${SSH_MOUNTS[@]}" \
     -e "GH_TOKEN=$GH_TOKEN" \
     -e "GITHUB_USERNAME=$GITHUB_USERNAME" \

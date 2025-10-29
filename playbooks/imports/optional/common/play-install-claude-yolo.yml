@@ -95,9 +95,25 @@
         group: "{{ user_login }}"
         mode: '0644'
 
-    - name: Create Claude YOLO Token Directory
+    - name: Create Claude YOLO Root Directory
       file:
         path: /home/{{ user_login }}/.claude-tokens/ccy
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0700'
+
+    - name: Create Claude YOLO Tokens Directory
+      file:
+        path: /home/{{ user_login }}/.claude-tokens/ccy/tokens
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0700'
+
+    - name: Create Claude YOLO Projects Directory
+      file:
+        path: /home/{{ user_login }}/.claude-tokens/ccy/projects
         state: directory
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
