@@ -6,6 +6,9 @@
   vars:
     root_dir: "{{ inventory_dir }}/../../"
   tasks:
+    # TODO: Consider adding GPG commit signing (commit.gpgsign true)
+    # Needs investigation: gpg-agent forwarding to containers (similar to SSH agent forwarding)
+    # See: gpg-agent extra-socket, GPG_AGENT_INFO env var, mounting sockets into containers
     - name: Setup Git Config - user
       shell: |
         git config --global user.email "{{ user_email }}"
@@ -14,6 +17,11 @@
         git config --global push.default simple;
         git config --global help.autocorrect 30;
         git config --global core.editor "vim"
+        git config --global init.defaultBranch main
+        git config --global fetch.prune true
+        git config --global pull.rebase false
+        git config --global branch.autoSetupMerge simple
+        git config --global core.autocrlf input
 
     - name: Set up Global Git Ignores
       blockinfile:

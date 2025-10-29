@@ -5,6 +5,11 @@
   become: true
   vars:
     root_dir: "{{ inventory_dir }}/../../"
+    # Version configuration
+    displaylink_version: "v6.1.1-1"
+    evdi_version: "1.14.10"
+    # Set to true to bypass version check (use with caution)
+    force_install: false
   tasks:
     - name: Check if Secure Boot is enabled
       shell: mokutil --sb-state
@@ -37,9 +42,71 @@
           - expect
         state: present
 
+    - name: Fetch latest DisplayLink release from GitHub
+      uri:
+        url: https://api.github.com/repos/displaylink-rpm/displaylink-rpm/releases/latest
+        return_content: yes
+      register: github_release
+      changed_when: false
+      failed_when: false
+
+    - name: Parse latest version information
+      set_fact:
+        latest_version: "{{ github_release.json.tag_name | default('unknown') }}"
+        version_check_failed: "{{ github_release.status != 200 }}"
+      when: github_release is defined
+
+    - name: Display version information
+      debug:
+        msg:
+          - "Playbook version: {{ displaylink_version }}"
+          - "Latest GitHub version: {{ latest_version | default('Unable to fetch') }}"
+          - "Status: {{ 'UP TO DATE' if (latest_version | default('') == displaylink_version) else ('VERSION CHECK FAILED' if version_check_failed else 'NOT UP TO DATE') }}"
+          - "{{ 'Installation: FORCED (bypassing version check)' if (force_install and latest_version | default('') != displaylink_version and not version_check_failed) else '' }}"
+
+    - name: Validate DisplayLink package version is current
+      assert:
+        that:
+          - force_install or version_check_failed or (latest_version == displaylink_version)
+        fail_msg: |
+          ERROR: DisplayLink package version is outdated!
+
+          Playbook version: {{ displaylink_version }}
+          Latest version:   {{ latest_version }}
+
+          This playbook is using an outdated DisplayLink package which may not be
+          compatible with your current kernel version.
+
+          To fix this issue:
+
+          1. Update the playbook with the latest version:
+             - Edit: playbooks/imports/optional/hardware-specific/play-displaylink.yml
+             - Update 'displaylink_version' variable to: {{ latest_version }}
+             - Update the download URL in 'Install DisplayLink RPM' task
+
+          2. Check the latest release at:
+             https://github.com/displaylink-rpm/displaylink-rpm/releases/latest
+
+          3. To force installation anyway (NOT RECOMMENDED), run with:
+             ansible-playbook playbooks/imports/optional/hardware-specific/play-displaylink.yml \
+               -e force_install=true
+
+          Note: Installing an outdated version may fail to build against newer kernels.
+        success_msg: "DisplayLink package version is current: {{ displaylink_version }}"
+      when: not version_check_failed
+
+    - name: Warning about version check failure
+      debug:
+        msg:
+          - "WARNING: Unable to verify DisplayLink package version against GitHub"
+          - "Proceeding with installation of version: {{ displaylink_version }}"
+          - "If installation fails, manually check for updates at:"
+          - "https://github.com/displaylink-rpm/displaylink-rpm/releases"
+      when: version_check_failed
+
     - name: Install DisplayLink RPM
       dnf:
-        name: "https://github.com/displaylink-rpm/displaylink-rpm/releases/download/v6.1.1-1/fedora-42-displaylink-1.14.10-1.github_evdi.x86_64.rpm"
+        name: "https://github.com/displaylink-rpm/displaylink-rpm/releases/download/{{ displaylink_version }}/fedora-42-displaylink-{{ evdi_version }}-1.github_evdi.x86_64.rpm"
         disable_gpg_check: true
       register: displaylink_install
 
