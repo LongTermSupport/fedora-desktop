@@ -1621,41 +1621,126 @@ DOCKER_MOUNTS+=(
     -v "$CONFIG_TEMP:/tmp/claude-config-import:ro"
 )
 
-# Check for Docker/compose files and show helpful hints
-if [ -f "docker-compose.yml" ] || [ -f "compose.yaml" ] || [ -f "Dockerfile" ]; then
+# Auto-detect and offer network connection
+NETWORK_FLAG=""
+AUTO_CONNECT_NETWORK=""
+
+# Check for networks matching project name (same logic as --connect)
+MATCHING_NETWORKS=()
+while IFS= read -r net; do
+    # Skip default networks
+    if [[ "$net" != "bridge" ]] && [[ "$net" != "host" ]] && [[ "$net" != "none" ]]; then
+        # Check if network name contains project name
+        if [[ "$net" == *"$PROJECT_NAME"* ]]; then
+            MATCHING_NETWORKS+=("$net")
+        fi
+    fi
+done < <(docker network ls --format "{{.Name}}" 2>/dev/null)
+
+if [ ${#MATCHING_NETWORKS[@]} -gt 0 ]; then
     echo ""
     echo "════════════════════════════════════════════════════════════════════════════════"
-    echo "Docker Configuration Detected"
+    echo "Docker Network Auto-Detection"
     echo "════════════════════════════════════════════════════════════════════════════════"
     echo ""
 
-    if [ -f "docker-compose.yml" ] || [ -f "compose.yaml" ]; then
-        echo "Found: docker-compose configuration"
+    if [ ${#MATCHING_NETWORKS[@]} -eq 1 ]; then
+        # Single match - offer to connect
+        AUTO_CONNECT_NETWORK="${MATCHING_NETWORKS[0]}"
+        echo "Found network: $AUTO_CONNECT_NETWORK"
         echo ""
-        echo "To connect yolo to your project containers:"
-        echo "  1. Start containers: docker-compose up -d"
-        echo "  2. Find network: docker network ls | grep ${PROJECT_NAME}"
-        echo "  3. Connect yolo: ccy-connect <network_name>"
+
+        while true; do
+            read -p "Connect to this network? (Y/n): " connect_choice
+            connect_choice=${connect_choice:-Y}  # Default to Yes
+            echo ""
+
+            case "$connect_choice" in
+                Y|y|Yes|yes)
+                    NETWORK_FLAG="--network $AUTO_CONNECT_NETWORK"
+                    echo "✓ Will connect to: $AUTO_CONNECT_NETWORK"
+                    break
+                    ;;
+                N|n|No|no)
+                    echo "Skipping network connection"
+                    echo "Use 'ccy --connect' later to connect manually"
+                    break
+                    ;;
+                *)
+                    echo "Invalid choice. Please enter Y or n"
+                    echo ""
+                    ;;
+            esac
+        done
+    else
+        # Multiple matches - default to first, offer choice
+        AUTO_CONNECT_NETWORK="${MATCHING_NETWORKS[0]}"
+        echo "Found ${#MATCHING_NETWORKS[@]} matching networks"
+        echo "Best match: $AUTO_CONNECT_NETWORK"
         echo ""
+
+        while true; do
+            read -p "Connect to this network? (Y/n/list): " connect_choice
+            connect_choice=${connect_choice:-Y}
+            echo ""
+
+            case "$connect_choice" in
+                Y|y|Yes|yes)
+                    NETWORK_FLAG="--network $AUTO_CONNECT_NETWORK"
+                    echo "✓ Will connect to: $AUTO_CONNECT_NETWORK"
+                    break
+                    ;;
+                N|n|No|no)
+                    echo "Skipping network connection"
+                    echo "Use 'ccy --connect' later to connect manually"
+                    AUTO_CONNECT_NETWORK=""
+                    break
+                    ;;
+                list|l|List|L)
+                    # Show full menu
+                    echo "Available networks:"
+                    echo ""
+                    echo "  0) Don't connect"
+                    for i in "${!MATCHING_NETWORKS[@]}"; do
+                        echo "  $((i+1))) ${MATCHING_NETWORKS[$i]}"
+                    done
+                    echo ""
+
+                    while true; do
+                        read -p "Select [0-${#MATCHING_NETWORKS[@]}]: " net_choice
+                        echo ""
+
+                        if [ "$net_choice" = "0" ]; then
+                            echo "Skipping network connection"
+                            AUTO_CONNECT_NETWORK=""
+                            break 2
+                        elif [ "$net_choice" -ge 1 ] && [ "$net_choice" -le ${#MATCHING_NETWORKS[@]} ] 2>/dev/null; then
+                            AUTO_CONNECT_NETWORK="${MATCHING_NETWORKS[$((net_choice-1))]}"
+                            NETWORK_FLAG="--network $AUTO_CONNECT_NETWORK"
+                            echo "✓ Will connect to: $AUTO_CONNECT_NETWORK"
+                            break 2
+                        else
+                            echo "Invalid selection: $net_choice"
+                            echo "Please enter 0-${#MATCHING_NETWORKS[@]}"
+                            echo ""
+                        fi
+                    done
+                    ;;
+                *)
+                    echo "Invalid choice. Please enter Y, n, or 'list'"
+                    echo ""
+                    ;;
+            esac
+        done
     fi
 
-    if [ -f "Dockerfile" ]; then
-        echo "Found: Dockerfile"
-        echo ""
-        echo "To connect yolo to containers built from this Dockerfile:"
-        echo "  1. Create network: docker network create ${PROJECT_NAME}_network"
-        echo "  2. Run container: docker run --network ${PROJECT_NAME}_network ..."
-        echo "  3. Connect yolo: ccy-connect ${PROJECT_NAME}_network"
-        echo ""
-    fi
-
-    echo "View yolo networks: ccy-networks"
     echo "════════════════════════════════════════════════════════════════════════════════"
     echo ""
 fi
 
 docker run -it --rm \
     --name "${PROJECT_NAME}_yolo" \
+    $NETWORK_FLAG \
     "${DOCKER_MOUNTS[@]}" \
     "${SSH_MOUNTS[@]}" \
     -e "CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_OAUTH_TOKEN" \
