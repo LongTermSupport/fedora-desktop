@@ -15,4 +15,7 @@ roles/vendor/*
 .env
 .env.*
 !.env.example
-!.env.dist
+!.env.dist# Security incident documentation - DO NOT COMMIT
+SECURITY-INCIDENT-LOG.md
+FORCE-PUSH-REQUIRED.md
+*-incident*.md

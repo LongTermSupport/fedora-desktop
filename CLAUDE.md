@@ -133,6 +133,44 @@ This repository is publicly accessible on GitHub. **NEVER** commit:
 
 This is not paranoia - it's basic security hygiene for public repositories.
 
+**Automated Protection - Git Hooks:**
+
+This repository uses version-controlled git hooks to prevent accidental leaks:
+- **`scripts/git-hooks/pre-commit`**: Scans staged files for sensitive patterns
+- **`scripts/git-hooks/commit-msg`**: Validates commit messages for sensitive information
+
+The hooks are automatically configured and enforced by:
+- **Initial Setup**: `run.bash` calls `play-git-hooks-security.yml` during bootstrap
+- **Ongoing Enforcement**: `playbook-main.yml` includes `play-git-hooks-security.yml`
+- **Verification**: Ansible validates hooks exist, are executable, and are configured
+
+This ensures:
+- ✓ Hooks are tracked in version control and distributed with the repository
+- ✓ All contributors automatically get the latest hook versions
+- ✓ Updates to hooks are pulled with normal `git pull`
+- ✓ Hook configuration is verified every time the main playbook runs
+- ✓ No way to accidentally disable the hooks
+
+**What the hooks protect against:**
+- ✓ API keys, tokens, passwords, SSH keys
+- ✓ Private email domains (.dev, .internal, .corp, .local)
+- ✓ Specific username patterns (e.g., acme-username.token)
+- ✓ Hardcoded paths with usernames
+- ✓ Private IP addresses
+
+**Safe placeholders allowed:**
+- ✓ example_user, test_user, {{ user_login }}
+- ✓ user@example.com, admin@example.com
+- ✓ 192.168.x.x, 10.x.x.x
+
+**Manual installation** (for existing clones):
+```bash
+cd ~/Projects/fedora-desktop
+git config core.hooksPath scripts/git-hooks
+```
+
+**Note:** Hooks can be bypassed with `git commit --no-verify`, but this is **strongly discouraged**.
+
 ### Core Principles
 All code in this project must adhere to these fundamental principles:
 

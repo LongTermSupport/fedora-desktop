@@ -567,6 +567,13 @@ git pull > /dev/null 2>&1
 success "Repository updated"
 completed
 
+title "Configuring Git Security Hooks"
+info "Enabling git hooks to prevent accidental commits of sensitive information"
+ansible-playbook ~/Projects/fedora-desktop/playbooks/imports/play-git-hooks-security.yml \
+  --ask-become-pass 2>&1 | tee -a "$LOG_FILE" || handle_playbook_failure ~/Projects/fedora-desktop/playbooks/imports/play-git-hooks-security.yml $?
+success "Git security hooks configured and verified"
+completed
+
 title "Ansible Vault Configuration"
 if [[ -f ~/Projects/fedora-desktop/vault-pass.secret ]]; then
   success "Existing vault password found"

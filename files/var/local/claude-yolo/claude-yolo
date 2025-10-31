@@ -42,7 +42,6 @@ Wrapper Options:
   --ssh-key PATH    SSH private key to mount (can be specified multiple times)
   --token NAME      Use specific named token
   --create-token    Create a new named token
-  --refresh-token   Refresh an expired OAuth token (mounts token writable)
   --list-tokens     List available tokens
   --help, -h        Show this help message
 
@@ -50,8 +49,9 @@ All other arguments are passed directly to Claude Code with --dangerously-skip-p
 
 Features:
   • Runs in isolated Docker container with git/gh
-  • Separate token storage (no conflicts with desktop Claude Code)
-  • Named tokens for multiple Claude accounts (personal/work)
+  • Long-lived OAuth tokens (sk-ant-oat01-...) - same as GitHub Actions
+  • Named tokens with expiry tracking for multiple Claude accounts
+  • Automatic expiry checking - forces new token when expired
   • Auto-updates Claude Code (cached for 1 hour)
   • Mounts current directory as /workspace
   • Files created have correct host user ownership
@@ -71,8 +71,10 @@ Examples:
   ccy "implement feature X"     # Start with specific task
 
 Token Management:
-  Tokens are stored in: ~/.claude-tokens/ccy/
-  Each token is a separate Claude account (prevents OAuth conflicts)
+  Tokens stored in: ~/.claude-tokens/ccy/tokens/
+  Format: NAME.YYYY-MM-DD.token (expiry date in filename)
+  Long-lived OAuth tokens (sk-ant-oat01-...) created via 'claude setup-token'
+  Expiry checked on launch - forces recreation when expired or expiring today
   Desktop Claude Code (~/.claude/) is NEVER modified
 
 EOF
@@ -97,6 +99,32 @@ EOF
     exit 0
 fi
 
+# Function to check if a token is valid (not expired or expiring today)
+# Args: token_file_path
+# Returns: 0 (true) if valid, 1 (false) if expired/expiring
+is_token_valid() {
+    local token_file="$1"
+    local filename=$(basename "$token_file")
+
+    # Extract expiry date from filename: NAME.YYYY-MM-DD.token
+    if [[ "$filename" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2})\.token$ ]]; then
+        local expiry_date="${BASH_REMATCH[1]}"
+        local today=$(date +%Y-%m-%d)
+
+        # Compare dates
+        if [[ "$expiry_date" < "$today" ]]; then
+            return 1  # Expired
+        elif [[ "$expiry_date" == "$today" ]]; then
+            return 1  # Expiring today
+        else
+            return 0  # Valid
+        fi
+    else
+        # Old format token without expiry date - treat as expired
+        return 1
+    fi
+}
+
 # Function to list available tokens
 list_tokens() {
     echo ""
@@ -105,7 +133,7 @@ list_tokens() {
     echo "════════════════════════════════════════════════════════════════════════════════"
     echo ""
 
-    if [ ! -d "$TOKEN_DIR" ] || [ -z "$(ls -A "$TOKEN_DIR"/*.token.json 2>/dev/null)" ]; then
+    if [ ! -d "$TOKEN_DIR" ] || [ -z "$(ls -A "$TOKEN_DIR"/*.token 2>/dev/null)" ]; then
         echo "No tokens found in: $TOKEN_DIR"
         echo ""
         echo "Create a token with: ccy --create-token"
@@ -116,24 +144,31 @@ list_tokens() {
     echo "Token storage: $TOKEN_DIR"
     echo ""
 
-    for token_file in "$TOKEN_DIR"/*.token.json; do
+    local today=$(date +%Y-%m-%d)
+
+    for token_file in "$TOKEN_DIR"/*.token; do
         if [ -f "$token_file" ]; then
-            token_name=$(basename "$token_file" .token.json)
-            file_size=$(stat -c%s "$token_file")
-            mod_time=$(stat -c%y "$token_file" | cut -d' ' -f1,2 | cut -d: -f1,2)
+            local filename=$(basename "$token_file")
+            local token_name="${filename%.*.token}"
 
-            echo "  • $token_name"
-            echo "    File: $token_file"
-            echo "    Modified: $mod_time"
-            echo "    Size: $file_size bytes"
+            # Extract expiry date from filename
+            if [[ "$filename" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2})\.token$ ]]; then
+                local expiry_date="${BASH_REMATCH[1]}"
+                local status="✓ Valid"
 
-            # Try to extract account info if available
-            if command -v jq &> /dev/null; then
-                expires=$(jq -r '.claudeAiOauth.expiresAt // empty' "$token_file" 2>/dev/null)
-                if [ -n "$expires" ]; then
-                    expires_date=$(date -d "@$((expires/1000))" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
-                    echo "    Expires: $expires_date"
+                if [[ "$expiry_date" < "$today" ]]; then
+                    status="✗ EXPIRED"
+                elif [[ "$expiry_date" == "$today" ]]; then
+                    status="⚠ Expires TODAY"
                 fi
+
+                echo "  • $token_name"
+                echo "    File: $token_file"
+                echo "    Expires: $expiry_date ($status)"
+            else
+                echo "  • $filename"
+                echo "    File: $token_file"
+                echo "    Status: ✗ INVALID FORMAT (missing expiry date)"
             fi
             echo ""
         fi
@@ -143,20 +178,32 @@ list_tokens() {
     echo ""
 }
 
-# Function to create a new token
+# Function to create a new long-lived token
 create_token() {
+    # CRITICAL: GH_TOKEN must be set before calling this function
+    # It's required for the container's git/gh functionality
+    if [ -z "$GH_TOKEN" ]; then
+        echo "" >&2
+        echo "ERROR: create_token() called without GH_TOKEN" >&2
+        echo "This is an internal script error." >&2
+        echo "" >&2
+        echo "GH_TOKEN is required for the container's git/gh functionality." >&2
+        echo "Token creation must happen AFTER SSH/GH setup." >&2
+        exit 1
+    fi
+
     echo ""
     echo "════════════════════════════════════════════════════════════════════════════════"
-    echo "Create New Claude Code Token for YOLO Mode"
+    echo "Create New Long-Lived Token for YOLO Mode"
     echo "════════════════════════════════════════════════════════════════════════════════"
     echo ""
-    echo "This will create a new OAuth token for ccy (Claude Code YOLO)."
-    echo "This token is SEPARATE from your desktop Claude Code installation."
+    echo "This will create a long-lived OAuth token (sk-ant-oat01-...) for ccy."
+    echo "These tokens are designed for container/CI-CD usage and last much longer"
+    echo "than regular OAuth tokens."
     echo ""
-    echo "Use cases:"
-    echo "  • Personal account for open source work"
-    echo "  • Work account for company projects"
-    echo "  • Separate account to isolate ccy from desktop"
+    echo "Requirements:"
+    echo "  • Active Claude Pro or Max subscription"
+    echo "  • Authentication will happen in a clean container"
     echo ""
 
     # Prompt for token name
@@ -174,123 +221,102 @@ create_token() {
             continue
         fi
 
-        token_file="$TOKEN_DIR/${token_name}.token.json"
-
-        if [ -f "$token_file" ]; then
-            read -p "Token '$token_name' already exists. Overwrite? (y/N): " overwrite
-            if [ "$overwrite" != "y" ] && [ "$overwrite" != "Y" ]; then
-                echo "Cancelled. Token not created."
-                exit 0
-            fi
-        fi
-
         break
     done
 
+    # Use conservative 90-day expiry estimate
+    # NOTE: claude setup-token doesn't tell us when the token actually expires,
+    # so we use 90 days as a conservative estimate. If you get auth errors before
+    # that, just recreate the token.
+    local expiry_date=$(date -d "+90 days" +%Y-%m-%d)
+    echo ""
+    echo "Token expiry: $expiry_date (90 days from today)"
+    echo "Note: This is an estimate - recreate the token if you get auth errors"
+    echo ""
+
+    token_file="$TOKEN_DIR/${token_name}.${expiry_date}.token"
+
+    # Check if token already exists
+    local existing_tokens=("$TOKEN_DIR/${token_name}".*.token)
+    if [ -f "${existing_tokens[0]}" ] && [ "${existing_tokens[0]}" != "$TOKEN_DIR/${token_name}.*.token" ]; then
+        echo ""
+        echo "⚠  Found existing token(s) for '$token_name':"
+        for old_token in "$TOKEN_DIR/${token_name}".*.token; do
+            if [ -f "$old_token" ]; then
+                echo "    $(basename "$old_token")"
+            fi
+        done
+        echo ""
+        read -p "Overwrite? (y/N): " overwrite
+        if [ "$overwrite" != "y" ] && [ "$overwrite" != "Y" ]; then
+            echo "Cancelled. Token not created."
+            exit 0
+        fi
+    fi
+
     echo ""
     echo "Creating token: $token_name"
+    echo "Expiry date: $expiry_date"
     echo "Storage: $token_file"
     echo ""
 
-    # Create temporary directory for token creation - mount entire /root
-    tmp_token_dir="$TOKEN_DIR/.tmp-${token_name}-$$"
-    mkdir -p "$tmp_token_dir/root"
-    chmod 700 "$tmp_token_dir"
-    chmod 700 "$tmp_token_dir/root"
+    # Create temporary output file for token
+    tmp_output="/tmp/ccy-token-setup-$$"
 
     echo "════════════════════════════════════════════════════════════════════════════════"
     echo ""
-    echo "Launching Claude Code container for OAuth login..."
+    echo "Launching Claude Code container for token setup..."
     echo ""
     echo "INSTRUCTIONS:"
-    echo "  1. When Claude Code starts, use the /login command"
-    echo "  2. Follow the OAuth flow to authenticate"
-    echo "  3. After successful login, type /exit or press Ctrl+D"
-    echo "  4. Your token will be saved automatically"
+    echo "  1. The container will run 'claude setup-token'"
+    echo "  2. Follow the authentication flow (CLI → Browser → CLI)"
+    echo "  3. Copy the token when it's displayed (starts with sk-ant-oat01-)"
+    echo "  4. The process will save it automatically"
     echo ""
     echo "Press Enter to continue..."
     read
+    echo ""
 
-    # Run container with entire /root directory mounted
-    # This captures ALL files Claude Code creates, not just .claude/
-    # Use the GH_TOKEN that was already selected via SSH key selection
-    # Override entrypoint to skip credential copying (we're creating them!)
-    # DO NOT mount workspace - token creation doesn't need git repo access
+    # Run setup-token via claude CLI entrypoint
+    # GH_TOKEN provided for container's gh CLI (not for Claude auth)
+    # Claude auth happens via OAuth flow in browser
+    echo "Running: docker run --rm --entrypoint claude \"$IMAGE_NAME\" setup-token"
+    echo ""
+
     if docker run -it --rm \
-        -v "$tmp_token_dir/root:/root" \
-        -e "GH_TOKEN=$GH_TOKEN" \
         --entrypoint claude \
-        "$IMAGE_NAME" 2>&1; then
+        -e "GH_TOKEN=$GH_TOKEN" \
+        "$IMAGE_NAME" \
+        setup-token 2>&1 | tee "$tmp_output"; then
 
-        # After container exits, everything from /root is in tmp_token_dir/root
         echo ""
-        echo "Debug: Checking what files were created in container's /root..."
-        echo "Directory: $tmp_token_dir/root"
-        echo ""
-        echo "All files:"
-        find "$tmp_token_dir/root" -type f 2>/dev/null | head -20
-        echo ""
-        echo ".claude directory contents:"
-        ls -la "$tmp_token_dir/root/.claude/" 2>/dev/null || echo "(no .claude directory)"
+        echo "════════════════════════════════════════════════════════════════════════════"
         echo ""
 
-        # Check if credentials were created
-        if [ -f "$tmp_token_dir/root/.claude/.credentials.json" ]; then
-            # Move credentials to final location
-            mv "$tmp_token_dir/root/.claude/.credentials.json" "$token_file"
+        # Try to extract token from output
+        token=$(grep -o 'sk-ant-oat01-[a-zA-Z0-9_-]\+' "$tmp_output" | head -1)
+
+        if [ -n "$token" ]; then
+            # Save token to file
+            echo "$token" > "$token_file"
             chmod 600 "$token_file"
-            echo "✓ Captured .credentials.json"
 
-            # Save ALL Claude Code settings/state created during setup
-            # This includes UI preferences, settings, etc.
-            settings_file="$TOKEN_DIR/${token_name}.settings.json"
-            if [ -f "$tmp_token_dir/root/.claude/settings.json" ]; then
-                mv "$tmp_token_dir/root/.claude/settings.json" "$settings_file"
-                chmod 600 "$settings_file"
-                echo "✓ Captured settings.json"
-            else
-                echo "⚠ settings.json NOT created during setup"
-                # Copy from desktop Claude as fallback template if it exists
-                if [ -f "$HOME/.claude/settings.json" ]; then
-                    cp "$HOME/.claude/settings.json" "$settings_file"
-                    chmod 600 "$settings_file"
-                    echo "✓ Copied settings.json template from desktop Claude"
-                else
-                    echo "⚠ No desktop Claude settings.json found - will show setup screen on first run"
+            # Remove old tokens for this name
+            for old_token in "$TOKEN_DIR/${token_name}".*.token; do
+                if [ -f "$old_token" ] && [ "$old_token" != "$token_file" ]; then
+                    echo "✓ Removed old token: $(basename "$old_token")"
+                    rm -f "$old_token"
                 fi
-            fi
-
-            # Save .claude.json if it exists (config file)
-            config_file="$TOKEN_DIR/${token_name}.config.json"
-            if [ -f "$tmp_token_dir/root/.claude.json" ]; then
-                mv "$tmp_token_dir/root/.claude.json" "$config_file"
-                chmod 600 "$config_file"
-                echo "✓ Captured .claude.json"
-            else
-                echo "⚠ .claude.json NOT created during setup"
-                # Copy from desktop Claude as fallback if it exists
-                if [ -f "$HOME/.claude.json" ]; then
-                    cp "$HOME/.claude.json" "$config_file"
-                    chmod 600 "$config_file"
-                    echo "✓ Copied .claude.json template from desktop Claude"
-                else
-                    echo "⚠ No desktop Claude .claude.json found"
-                fi
-            fi
+            done
 
             echo ""
             echo "════════════════════════════════════════════════════════════════════════════"
-            echo "✓ Token created successfully: $token_name"
+            echo "✓ Token created successfully!"
             echo "════════════════════════════════════════════════════════════════════════════"
             echo ""
-            echo "Saved files:"
-            echo "  Credentials: $token_file"
-            if [ -f "$settings_file" ]; then
-                echo "  Settings: $settings_file"
-            fi
-            if [ -f "$config_file" ]; then
-                echo "  Config: $config_file"
-            fi
+            echo "Token: $token_name"
+            echo "Expires: $expiry_date"
+            echo "File: $token_file"
             echo ""
             echo "You can now use this token with:"
             echo "  ccy --token $token_name"
@@ -300,27 +326,75 @@ create_token() {
         else
             echo ""
             echo "════════════════════════════════════════════════════════════════════════════"
-            echo "⚠  WARNING: No credentials found"
+            echo "⚠  WARNING: Could not extract token from output"
             echo "════════════════════════════════════════════════════════════════════════════"
             echo ""
-            echo "The login process did not create credentials."
-            echo "This usually means:"
-            echo "  • You didn't complete the /login command"
-            echo "  • You exited before authentication completed"
-            echo "  • There was an error during the OAuth flow"
+            echo "The setup-token command ran, but we couldn't automatically extract the token."
             echo ""
-            echo "Try again with: ccy --create-token"
-            echo ""
+            echo "Please manually paste the token (starts with sk-ant-oat01-):"
+            read -p "Token: " manual_token
+
+            if [ -n "$manual_token" ] && [[ "$manual_token" =~ ^sk-ant-oat01- ]]; then
+                echo "$manual_token" > "$token_file"
+                chmod 600 "$token_file"
+
+                # Remove old tokens
+                for old_token in "$TOKEN_DIR/${token_name}".*.token; do
+                    if [ -f "$old_token" ] && [ "$old_token" != "$token_file" ]; then
+                        rm -f "$old_token"
+                    fi
+                done
+
+                echo ""
+                echo "✓ Token saved successfully!"
+                echo ""
+            else
+                echo ""
+                echo "ERROR: Invalid token format"
+                echo "Token must start with 'sk-ant-oat01-'"
+                echo ""
+                echo "Try again with: ccy --create-token"
+                rm -f "$tmp_output"
+                exit 1
+            fi
         fi
     else
+        docker_exit_code=$?
         echo ""
-        echo "ERROR: Container execution failed"
-        echo "Token creation cancelled."
+        echo "════════════════════════════════════════════════════════════════════════════"
+        echo "ERROR: Token Creation Failed"
+        echo "════════════════════════════════════════════════════════════════════════════"
         echo ""
+
+        if [ $docker_exit_code -eq 125 ]; then
+            echo "Docker container failed to start."
+            echo "The container image may be corrupted."
+            echo ""
+            echo "Try rebuilding: ccy --rebuild"
+        elif [ $docker_exit_code -eq 126 ] || [ $docker_exit_code -eq 127 ]; then
+            echo "Command not found in container."
+            echo "Container image may be corrupted or incompatible."
+            echo ""
+            echo "Try rebuilding: ccy --rebuild"
+        else
+            echo "Claude setup-token command failed (exit code: $docker_exit_code)"
+            echo ""
+            echo "This usually indicates:"
+            echo "  • Authentication flow was cancelled or failed"
+            echo "  • No active Claude Pro/Max subscription"
+            echo "  • Network connectivity issues"
+            echo "  • Browser authentication not completed"
+            echo ""
+            echo "Please try again and ensure you complete the full OAuth flow."
+        fi
+
+        echo ""
+        rm -f "$tmp_output"
+        exit 1
     fi
 
-    # Cleanup temporary directory
-    rm -rf "$tmp_token_dir"
+    # Cleanup
+    rm -f "$tmp_output"
 
     exit 0
 }
@@ -386,10 +460,36 @@ select_token() {
         return 1
     fi
 
-    # Get list of token files (only .token.json files)
-    mapfile -t token_files < <(find "$TOKEN_DIR" -maxdepth 1 -name "*.token.json" -type f 2>/dev/null | sort)
+    # Get list of valid (non-expired) token files
+    local valid_tokens=()
+    local expired_tokens=()
+    local today=$(date +%Y-%m-%d)
 
-    if [ ${#token_files[@]} -eq 0 ]; then
+    for token_file in "$TOKEN_DIR"/*.token; do
+        if [ -f "$token_file" ]; then
+            if is_token_valid "$token_file"; then
+                valid_tokens+=("$token_file")
+            else
+                expired_tokens+=("$token_file")
+            fi
+        fi
+    done
+
+    # Show expired tokens warning
+    if [ ${#expired_tokens[@]} -gt 0 ]; then
+        echo ""
+        echo "⚠  Found ${#expired_tokens[@]} expired/expiring token(s):"
+        for token_file in "${expired_tokens[@]}"; do
+            local filename=$(basename "$token_file")
+            echo "    $filename"
+        done
+        echo ""
+        echo "These will NOT be available for selection."
+        echo "Create new tokens to replace them."
+        echo ""
+    fi
+
+    if [ ${#valid_tokens[@]} -eq 0 ]; then
         return 1
     fi
 
@@ -403,13 +503,22 @@ select_token() {
     echo "  0) Create new token"
     echo ""
 
-    for i in "${!token_files[@]}"; do
-        token_name=$(basename "${token_files[$i]}" .token.json)
-        echo "  $((i+1))) $token_name"
+    for i in "${!valid_tokens[@]}"; do
+        local token_file="${valid_tokens[$i]}"
+        local filename=$(basename "$token_file")
+        local token_name="${filename%.*.token}"
+
+        # Extract expiry
+        if [[ "$filename" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2})\.token$ ]]; then
+            local expiry_date="${BASH_REMATCH[1]}"
+            echo "  $((i+1))) $token_name (expires: $expiry_date)"
+        else
+            echo "  $((i+1))) $token_name"
+        fi
     done
 
     echo ""
-    read -p "Select token [0-${#token_files[@]}]: " selection
+    read -p "Select token [0-${#valid_tokens[@]}]: " selection
     echo ""
 
     if [ -z "$selection" ]; then
@@ -420,9 +529,11 @@ select_token() {
     if [ "$selection" = "0" ]; then
         create_token
         exit 0
-    elif [ "$selection" -ge 1 ] && [ "$selection" -le ${#token_files[@]} ]; then
-        SELECTED_TOKEN="${token_files[$((selection-1))]}"
-        token_name=$(basename "$SELECTED_TOKEN" .token.json)
+    elif [ "$selection" -ge 1 ] && [ "$selection" -le ${#valid_tokens[@]} ]; then
+        SELECTED_TOKEN="${valid_tokens[$((selection-1))]}"
+        local filename=$(basename "$SELECTED_TOKEN")
+        local token_name="${filename%.*.token}"
+
         echo "✓ Selected token: $token_name"
         echo ""
         echo "════════════════════════════════════════════════════════════════════════════"
@@ -443,7 +554,6 @@ NEXT_IS_SSH_KEY=false
 NEXT_IS_TOKEN=false
 SPECIFIED_TOKEN=""
 CREATE_TOKEN_MODE=false
-REFRESH_TOKEN_MODE=false
 LIST_TOKENS_MODE=false
 
 for arg in "$@"; do
@@ -472,8 +582,6 @@ for arg in "$@"; do
         NEXT_IS_TOKEN=true
     elif [ "$arg" = "--create-token" ]; then
         CREATE_TOKEN_MODE=true
-    elif [ "$arg" = "--refresh-token" ]; then
-        REFRESH_TOKEN_MODE=true
     elif [ "$arg" = "--list-tokens" ]; then
         LIST_TOKENS_MODE=true
     else
@@ -669,8 +777,15 @@ else
     fi
 fi
 
+# Handle create token mode (requires SSH/GH setup for container functionality)
+if [ "$CREATE_TOKEN_MODE" = true ]; then
+    create_token
+    exit 0
+fi
+
 # Token selection logic
 SELECTED_TOKEN=""
+CLAUDE_OAUTH_TOKEN=""
 
 if [ -n "$SPECIFIED_TOKEN" ]; then
     # Token specified via --token flag
@@ -678,28 +793,59 @@ if [ -n "$SPECIFIED_TOKEN" ]; then
         # Full path provided
         SELECTED_TOKEN="$SPECIFIED_TOKEN"
     else
-        # Token name provided, construct path
-        SELECTED_TOKEN="$TOKEN_DIR/${SPECIFIED_TOKEN}.token.json"
+        # Token name provided, find matching token with any expiry date
+        matching_tokens=("$TOKEN_DIR/${SPECIFIED_TOKEN}".*.token)
+        if [ -f "${matching_tokens[0]}" ]; then
+            SELECTED_TOKEN="${matching_tokens[0]}"
+        else
+            echo "ERROR: No token found with name: $SPECIFIED_TOKEN"
+            echo ""
+            echo "Available tokens:"
+            list_tokens
+            exit 1
+        fi
     fi
 
     if [ ! -f "$SELECTED_TOKEN" ]; then
-        echo "ERROR: Token not found: $SELECTED_TOKEN"
+        echo "ERROR: Token file not found: $SELECTED_TOKEN"
         echo ""
         echo "Available tokens:"
         list_tokens
         exit 1
     fi
 
-    echo "✓ Using token: $(basename "$SELECTED_TOKEN" .token.json)"
+    # Check if token is expired or expiring today
+    if ! is_token_valid "$SELECTED_TOKEN"; then
+        local filename=$(basename "$SELECTED_TOKEN")
+        echo ""
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo "⚠  TOKEN EXPIRED OR EXPIRING TODAY"
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo ""
+        echo "Token: $filename"
+        echo ""
+        echo "This token cannot be used. You must create a new token."
+        echo ""
+        read -p "Create a new token now? (Y/n): " create_now
+        if [ "$create_now" != "n" ] && [ "$create_now" != "N" ]; then
+            create_token
+        fi
+        echo "Cancelled. Create a token with: ccy --create-token"
+        exit 1
+    fi
+
+    local filename=$(basename "$SELECTED_TOKEN")
+    local token_name="${filename%.*.token}"
+    echo "✓ Using token: $token_name"
 else
     # No token specified, check if tokens exist
-    if [ ! -d "$TOKEN_DIR" ] || [ -z "$(ls -A "$TOKEN_DIR"/*.token.json 2>/dev/null)" ]; then
+    if [ ! -d "$TOKEN_DIR" ] || [ -z "$(ls -A "$TOKEN_DIR"/*.token 2>/dev/null)" ]; then
         echo ""
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo "No Claude Code Tokens Found"
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo ""
-        echo "ccy uses separate tokens from desktop Claude Code to prevent OAuth conflicts."
+        echo "ccy uses long-lived OAuth tokens for container authentication."
         echo ""
         echo "You need to create a token before using ccy."
         echo ""
@@ -710,42 +856,41 @@ else
             exit 0
         fi
 
-        # Set flag to create token after GH_TOKEN is set up
-        CREATE_TOKEN_MODE=true
+        # Jump directly to token creation
+        create_token
+        exit 0
     else
         # Multiple tokens exist or single token - show selection
         select_token || {
-            echo "ERROR: No tokens available"
-            echo "Create a token with: ccy --create-token"
+            echo ""
+            echo "════════════════════════════════════════════════════════════════════════════════"
+            echo "No Valid Tokens Available"
+            echo "════════════════════════════════════════════════════════════════════════════════"
+            echo ""
+            echo "All tokens are expired or expiring today."
+            echo "You must create a new token."
+            echo ""
+            read -p "Create a token now? (Y/n): " create_now
+            if [ "$create_now" != "n" ] && [ "$create_now" != "N" ]; then
+                create_token
+            fi
+            echo "Cancelled. Create a token with: ccy --create-token"
             exit 1
         }
     fi
 fi
 
-# Handle create token mode (after SSH/GH setup is complete, before token operations)
-if [ "$CREATE_TOKEN_MODE" = true ]; then
-    create_token
-    exit 0
+# Load token content (it's just the token string)
+CLAUDE_OAUTH_TOKEN=$(cat "$SELECTED_TOKEN")
+if [ -z "$CLAUDE_OAUTH_TOKEN" ]; then
+    echo "ERROR: Token file is empty: $SELECTED_TOKEN"
+    exit 1
 fi
 
-# Handle refresh token mode (after SSH/GH setup and token selection)
-if [ "$REFRESH_TOKEN_MODE" = true ]; then
-    # Token already selected, just set flag to mount writable
-    echo ""
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo "Token Refresh Mode"
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo ""
-    echo "Token will be mounted WRITABLE to allow Claude Code to refresh OAuth credentials."
-    echo ""
-    echo "IMPORTANT: Only run this in ONE project at a time to avoid race conditions!"
-    echo ""
-    echo "After Claude Code refreshes the token, all other projects will use the new token."
-    echo ""
-    TOKEN_MOUNT_MODE="rw"
-else
-    # Normal mode - read-only token
-    TOKEN_MOUNT_MODE="ro"
+if ! [[ "$CLAUDE_OAUTH_TOKEN" =~ ^sk-ant-oat01- ]]; then
+    echo "ERROR: Invalid token format in file: $SELECTED_TOKEN"
+    echo "Token must start with 'sk-ant-oat01-'"
+    exit 1
 fi
 
 # Get current user's UID and GID for proper file ownership
@@ -832,7 +977,7 @@ fi
 # Get project-specific state directory (entire .claude directory)
 PROJECT_CLAUDE_DIR=$(get_project_state_dir)
 echo "✓ Project state: $PROJECT_CLAUDE_DIR"
-echo "✓ Token mount mode: $TOKEN_MOUNT_MODE"
+echo "✓ Token: Long-lived OAuth (CLAUDE_CODE_OAUTH_TOKEN)"
 
 if [ "$DEBUG_MODE" = true ]; then
     echo ""
@@ -851,52 +996,36 @@ if [ "$DEBUG_MODE" = true ]; then
     echo ""
 fi
 
-# Copy token settings template if project settings don't exist yet
-# This ensures first run in a new project inherits UI preferences from token
-token_name=$(basename "$SELECTED_TOKEN" .token.json)
-token_settings="$TOKEN_DIR/${token_name}.settings.json"
-project_settings="$PROJECT_CLAUDE_DIR/settings.json"
-
-if [ "$DEBUG_MODE" = true ]; then
-    echo "Token settings template: $token_settings"
-    echo "Template exists: $([ -f "$token_settings" ] && echo "YES" || echo "NO")"
-    echo "Project settings: $project_settings"
-    echo "Project settings exists: $([ -f "$project_settings" ] && echo "YES" || echo "NO")"
-    echo ""
-fi
-
-if [ ! -f "$project_settings" ] && [ -f "$token_settings" ]; then
-    # First time in this project - copy settings template from token
-    cp "$token_settings" "$project_settings"
-    chmod 600 "$project_settings"
-    [ "$DEBUG_MODE" = true ] && echo "✓ Copied settings template to project"
-elif [ ! -f "$project_settings" ]; then
-    [ "$DEBUG_MODE" = true ] && echo "⚠ No settings template available, Claude will show setup screen"
-fi
-
-# Copy .claude.json config to project if it doesn't exist
-# This needs to be writable (Claude Code updates numStartups, etc.)
-token_config="$TOKEN_DIR/${token_name}.config.json"
+# Create .claude.json config in project root to skip onboarding
+# Long-lived tokens via CLAUDE_CODE_OAUTH_TOKEN require this flag
 project_config="$PROJECT_CLAUDE_DIR/../.claude.json"  # In project root, not inside .claude/
 
-if [ ! -f "$project_config" ] && [ -f "$token_config" ]; then
-    cp "$token_config" "$project_config"
+if [ ! -f "$project_config" ]; then
+    cat > "$project_config" <<'EOF'
+{
+  "hasCompletedOnboarding": true,
+  "installMethod": "npm"
+}
+EOF
     chmod 600 "$project_config"
-    [ "$DEBUG_MODE" = true ] && echo "✓ Copied .claude.json config to project"
-elif [ ! -f "$project_config" ]; then
-    [ "$DEBUG_MODE" = true ] && echo "⚠ No .claude.json config available"
+    [ "$DEBUG_MODE" = true ] && echo "✓ Created .claude.json with hasCompletedOnboarding=true"
+else
+    # Update existing config to ensure onboarding is complete
+    if command -v jq &> /dev/null; then
+        jq '.hasCompletedOnboarding = true' "$project_config" > "$project_config.tmp" && mv "$project_config.tmp" "$project_config"
+        [ "$DEBUG_MODE" = true ] && echo "✓ Updated .claude.json to skip onboarding"
+    fi
 fi
 
 # CRITICAL: Remove .credentials.json from project directory if it exists
-# Credentials should ONLY come from the file mount, never stored in project dir
+# Credentials come via CLAUDE_CODE_OAUTH_TOKEN environment variable now
 if [ -f "$PROJECT_CLAUDE_DIR/.credentials.json" ]; then
     if [ "$DEBUG_MODE" = true ]; then
-        echo "⚠ Found .credentials.json in project directory (should not exist)"
-        echo "  Size: $(stat -c%s "$PROJECT_CLAUDE_DIR/.credentials.json") bytes"
-        echo "  Removing to prevent mount conflicts..."
+        echo "⚠ Found legacy .credentials.json in project directory"
+        echo "  Removing - we use CLAUDE_CODE_OAUTH_TOKEN now..."
     fi
     rm -f "$PROJECT_CLAUDE_DIR/.credentials.json"
-    [ "$DEBUG_MODE" = true ] && echo "✓ Removed .credentials.json from project directory"
+    [ "$DEBUG_MODE" = true ] && echo "✓ Removed legacy .credentials.json"
 fi
 
 if [ "$DEBUG_MODE" = true ]; then
@@ -913,9 +1042,15 @@ if [ "$DEBUG_MODE" = true ]; then
 fi
 
 # Note:
-# - Token (.credentials.json) mounted read-only from central storage (or writable with --refresh-token)
-# - Config (.claude.json) copied to project directory and mounted writable (Claude updates numStartups, etc.)
-# - All other files (history.jsonl, todos/, settings.json, etc.) persist in project directory
+# - Token passed via CLAUDE_CODE_OAUTH_TOKEN environment variable (no file mount)
+# - Long-lived tokens (sk-ant-oat01-...) from `claude setup-token`
+# - Config (.claude.json) in project root with hasCompletedOnboarding=true to skip setup
+# - All Claude Code state (history, todos/, settings.json, etc.) persists in project directory
+#
+# This is the same approach GitHub Actions use:
+# - Long-lived OAuth tokens via CLAUDE_CODE_OAUTH_TOKEN env var
+# - No credential files, no refresh needed
+# - Clean, simple, reliable
 
 # Create temp directory ONLY for gitconfig (can't mount directly into container root)
 CONFIG_TEMP="/tmp/claude-yolo-$$"
@@ -957,13 +1092,14 @@ if [ "$DEBUG_MODE" = true ]; then
     echo "════════════════════════════════════════════════════════════════════════════════"
     echo "Workspace: $PWD"
     echo "Project .claude dir: $PROJECT_CLAUDE_DIR"
-    echo "Token file: $SELECTED_TOKEN (mode: $TOKEN_MOUNT_MODE)"
+    echo "Token file: $SELECTED_TOKEN"
+    echo "Token type: Long-lived OAuth (CLAUDE_CODE_OAUTH_TOKEN)"
     echo "SSH keys mounted: ${#SSH_KEYS[@]}"
     echo ""
     echo "Docker command (simplified):"
     echo "  docker run -it --rm \\"
+    echo "    -e CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-... \\"
     echo "    -v $PWD:/workspace \\"
-    echo "    -v $SELECTED_TOKEN:/root/.claude/.credentials.json:$TOKEN_MOUNT_MODE \\"
     if [ -f "$project_config" ]; then
         echo "    -v $project_config:/root/.claude.json \\"
     fi
@@ -977,7 +1113,7 @@ if [ "$DEBUG_MODE" = true ]; then
     echo ""
     echo "Container will start now. Once inside, you can check:"
     echo "  ls -la ~/.claude/"
-    echo "  cat ~/.claude/settings.json"
+    echo "  echo \$CLAUDE_CODE_OAUTH_TOKEN"
     echo ""
     echo "After exiting, review the debug log with:"
     echo "  cat $DEBUG_LOG"
@@ -987,17 +1123,21 @@ fi
 
 # Run container with project-specific state directory
 # All Claude Code state (history, todos, conversations) persists per-project
-# Token and config are mounted separately
+#
+# Authentication:
+# - Long-lived OAuth token passed via CLAUDE_CODE_OAUTH_TOKEN environment variable
+# - No credential files needed (same approach as GitHub Actions)
+# - Token stored in ~/.claude-tokens/ccy/tokens/NAME.YYYY-MM-DD.token on host
 #
 # MOUNT ORDER MATTERS:
-# 1. Credentials file FIRST - creates the file at target path
-# 2. Config file to home directory root (WRITABLE - Claude updates it)
-# 3. Project directory LAST - overlays everything else but credentials already exists
+# 1. Config file to home directory root (RW - Claude updates numStartups, etc.)
+# 2. Project directory LAST - contains all conversation history and state
+#
+# No credentials mounted - token via environment variable
 
 # Build mount arguments
 DOCKER_MOUNTS=(
     -v "$PWD:/workspace"
-    -v "$SELECTED_TOKEN:/root/.claude/.credentials.json:$TOKEN_MOUNT_MODE"
 )
 
 # Mount config file if it exists (contains onboarding state, must be WRITABLE)
@@ -1005,7 +1145,7 @@ if [ -f "$project_config" ]; then
     DOCKER_MOUNTS+=(-v "$project_config:/root/.claude.json")
     [ "$DEBUG_MODE" = true ] && echo "✓ Mounting config file (writable): $project_config"
 else
-    [ "$DEBUG_MODE" = true ] && echo "⚠ Config file not found: $project_config (onboarding will be required)"
+    [ "$DEBUG_MODE" = true ] && echo "⚠ Config file not found: $project_config (will be created)"
 fi
 
 DOCKER_MOUNTS+=(
@@ -1016,6 +1156,7 @@ DOCKER_MOUNTS+=(
 docker run -it --rm \
     "${DOCKER_MOUNTS[@]}" \
     "${SSH_MOUNTS[@]}" \
+    -e "CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_OAUTH_TOKEN" \
     -e "GH_TOKEN=$GH_TOKEN" \
     -e "GITHUB_USERNAME=$GITHUB_USERNAME" \
     -e "DEBUG_MODE=$DEBUG_MODE" \
