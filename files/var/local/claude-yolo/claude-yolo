@@ -565,31 +565,35 @@ select_token() {
     done
 
     echo ""
-    read -p "Select token [0-${#valid_tokens[@]}]: " selection
-    echo ""
 
-    if [ -z "$selection" ]; then
-        echo "No selection made. Exiting."
-        exit 1
-    fi
-
-    if [ "$selection" = "0" ]; then
-        create_token
-        exit 0
-    elif [ "$selection" -ge 1 ] && [ "$selection" -le ${#valid_tokens[@]} ]; then
-        SELECTED_TOKEN="${valid_tokens[$((selection-1))]}"
-        local filename=$(basename "$SELECTED_TOKEN")
-        local token_name="${filename%.*.token}"
-
-        echo "✓ Selected token: $token_name"
+    while true; do
+        read -p "Select token [0-${#valid_tokens[@]}]: " selection
         echo ""
-        echo "════════════════════════════════════════════════════════════════════════════"
-        echo ""
-        return 0
-    else
-        echo "ERROR: Invalid selection: $selection"
-        exit 1
-    fi
+
+        if [ -z "$selection" ]; then
+            echo "No selection made. Exiting."
+            exit 1
+        fi
+
+        if [ "$selection" = "0" ]; then
+            create_token
+            exit 0
+        elif [ "$selection" -ge 1 ] && [ "$selection" -le ${#valid_tokens[@]} ] 2>/dev/null; then
+            SELECTED_TOKEN="${valid_tokens[$((selection-1))]}"
+            local filename=$(basename "$SELECTED_TOKEN")
+            local token_name="${filename%.*.token}"
+
+            echo "✓ Selected token: $token_name"
+            echo ""
+            echo "════════════════════════════════════════════════════════════════════════════"
+            echo ""
+            return 0
+        else
+            echo "Invalid selection: $selection"
+            echo "Please enter a number between 0 and ${#valid_tokens[@]}"
+            echo ""
+        fi
+    done
 }
 
 # Function to connect running yolo container to a Docker network
@@ -661,28 +665,39 @@ connect_to_network() {
         done
 
         echo ""
-        if [ -n "$best_match" ]; then
-            read -p "Select network [0-${#networks[@]}] (0): " selection
-            selection=${selection:-0}  # Default to 0 if empty
-        else
-            read -p "Select network [1-${#networks[@]}]: " selection
-        fi
-        echo ""
 
-        if [ -z "$selection" ]; then
-            echo "Cancelled."
-            exit 0
-        fi
+        while true; do
+            if [ -n "$best_match" ]; then
+                read -p "Select network [0-${#networks[@]}] (0): " selection
+                selection=${selection:-0}  # Default to 0 if empty
+            else
+                read -p "Select network [1-${#networks[@]}]: " selection
+            fi
+            echo ""
 
-        # Handle selection
-        if [ -n "$best_match" ] && [ "$selection" = "0" ]; then
-            network_name="$best_match"
-        elif [ "$selection" -ge 1 ] && [ "$selection" -le ${#networks[@]} ]; then
-            network_name="${networks[$((selection - 1))]}"
-        else
-            echo "ERROR: Invalid selection: $selection"
-            exit 1
-        fi
+            if [ -z "$selection" ]; then
+                echo "Cancelled."
+                exit 0
+            fi
+
+            # Handle selection
+            if [ -n "$best_match" ] && [ "$selection" = "0" ]; then
+                network_name="$best_match"
+                break
+            elif [ "$selection" -ge 1 ] && [ "$selection" -le ${#networks[@]} ] 2>/dev/null; then
+                network_name="${networks[$((selection - 1))]}"
+                break
+            else
+                if [ -n "$best_match" ]; then
+                    echo "Invalid selection: $selection"
+                    echo "Please enter a number between 0 and ${#networks[@]}"
+                else
+                    echo "Invalid selection: $selection"
+                    echo "Please enter a number between 1 and ${#networks[@]}"
+                fi
+                echo ""
+            fi
+        done
 
         echo "Selected: $network_name"
         echo ""
@@ -744,31 +759,40 @@ custom_dockerfile() {
         echo "  3) Replace with a template"
         echo "  4) Cancel"
         echo ""
-        read -p "Select [1-4]: " choice
-        echo ""
 
-        case "$choice" in
-            1)
-                # Launch ccy with customization prompt
-                echo "Launching Claude Code to help customize your Dockerfile..."
-                echo ""
-                exec "$0" "Read .claude/ccy/Dockerfile - it has instructions for you in the comments. Follow those instructions to customize this Dockerfile for the project."
-                ;;
-            2)
-                ${EDITOR:-vi} "$project_dockerfile"
-                echo "✓ Dockerfile edited"
-                echo ""
-                echo "Run 'ccy --rebuild' to rebuild with changes"
-                exit 0
-                ;;
-            3)
-                # Continue to template selection
-                ;;
-            *)
-                echo "Cancelled."
-                exit 0
-                ;;
-        esac
+        while true; do
+            read -p "Select [1-4]: " choice
+            echo ""
+
+            case "$choice" in
+                1)
+                    # Launch ccy with customization prompt
+                    echo "Launching Claude Code to help customize your Dockerfile..."
+                    echo ""
+                    exec "$0" "Read .claude/ccy/Dockerfile - it has instructions for you in the comments. Follow those instructions to customize this Dockerfile for the project."
+                    ;;
+                2)
+                    ${EDITOR:-vi} "$project_dockerfile"
+                    echo "✓ Dockerfile edited"
+                    echo ""
+                    echo "Run 'ccy --rebuild' to rebuild with changes"
+                    exit 0
+                    ;;
+                3)
+                    # Continue to template selection
+                    break
+                    ;;
+                4|"")
+                    echo "Cancelled."
+                    exit 0
+                    ;;
+                *)
+                    echo "Invalid selection: $choice"
+                    echo "Please enter 1, 2, 3, or 4"
+                    echo ""
+                    ;;
+            esac
+        done
     fi
 
     # List available templates
@@ -805,16 +829,30 @@ custom_dockerfile() {
 
     echo "Tip: Use 'project-template' if none of the examples match your stack"
     echo ""
-    read -p "Select template [1-${#templates[@]}]: " selection
-    echo ""
 
-    if [ -z "$selection" ] || [ "$selection" -lt 1 ] || [ "$selection" -gt ${#templates[@]} ]; then
-        echo "Invalid selection. Cancelled."
-        exit 1
-    fi
+    local selection
+    local selected_template
+    local template_name
 
-    local selected_template="${templates[$((selection-1))]}"
-    local template_name=$(basename "$selected_template")
+    while true; do
+        read -p "Select template [1-${#templates[@]}]: " selection
+        echo ""
+
+        if [ -z "$selection" ]; then
+            echo "Cancelled."
+            exit 0
+        fi
+
+        if [ "$selection" -ge 1 ] && [ "$selection" -le ${#templates[@]} ] 2>/dev/null; then
+            selected_template="${templates[$((selection-1))]}"
+            template_name=$(basename "$selected_template")
+            break
+        else
+            echo "Invalid selection: $selection"
+            echo "Please enter a number between 1 and ${#templates[@]}"
+            echo ""
+        fi
+    done
 
     echo "Selected: $template_name"
     echo ""
@@ -833,29 +871,41 @@ custom_dockerfile() {
     echo "  2) Edit manually (\$EDITOR)"
     echo "  3) Use as-is"
     echo ""
-    read -p "Select [1-3]: " edit_choice
-    echo ""
 
-    case "$edit_choice" in
-        1)
-            echo "Launching Claude Code to help customize..."
-            echo ""
-            exec "$0" "Read .claude/ccy/Dockerfile - it has instructions for you in the comments. Follow those instructions to customize this Dockerfile for the project."
-            ;;
-        2)
-            ${EDITOR:-vi} "$project_dockerfile"
-            echo "✓ Dockerfile edited"
-            echo ""
-            echo "Run 'ccy --rebuild' to build, then 'ccy' to start"
-            ;;
-        3)
-            echo "✓ Using template as-is"
-            echo ""
-            echo "Run 'ccy' to build and start with this template"
-            ;;
-    esac
+    while true; do
+        read -p "Select [1-3]: " edit_choice
+        echo ""
 
-    exit 0
+        case "$edit_choice" in
+            1)
+                echo "Launching Claude Code to help customize..."
+                echo ""
+                exec "$0" "Read .claude/ccy/Dockerfile - it has instructions for you in the comments. Follow those instructions to customize this Dockerfile for the project."
+                ;;
+            2)
+                ${EDITOR:-vi} "$project_dockerfile"
+                echo "✓ Dockerfile edited"
+                echo ""
+                echo "Run 'ccy --rebuild' to build, then 'ccy' to start"
+                exit 0
+                ;;
+            3)
+                echo "✓ Using template as-is"
+                echo ""
+                echo "Run 'ccy' to build and start with this template"
+                exit 0
+                ;;
+            "")
+                echo "Cancelled."
+                exit 0
+                ;;
+            *)
+                echo "Invalid selection: $edit_choice"
+                echo "Please enter 1, 2, or 3"
+                echo ""
+                ;;
+        esac
+    done
 }
 
 # Check for wrapper flags
@@ -968,25 +1018,31 @@ if [ ${#SSH_KEYS[@]} -eq 0 ]; then
         echo ""
         echo "You can also specify keys manually with: ccy --ssh-key <path>"
         echo ""
-        read -p "Select SSH key [0-${#GITHUB_KEYS[@]}]: " selection
-        echo ""
 
-        if [ -z "$selection" ]; then
-            echo "No selection made. Exiting."
-            exit 1
-        fi
+        while true; do
+            read -p "Select SSH key [0-${#GITHUB_KEYS[@]}]: " selection
+            echo ""
 
-        if [ "$selection" = "0" ]; then
-            echo "⚠  Continuing WITHOUT SSH key - git push operations will fail"
-            echo ""
-        elif [ "$selection" -ge 1 ] && [ "$selection" -le ${#GITHUB_KEYS[@]} ]; then
-            SSH_KEYS+=("${GITHUB_KEYS[$((selection-1))]}")
-            echo "✓ Selected: ${GITHUB_KEYS[$((selection-1))]}"
-            echo ""
-        else
-            echo "ERROR: Invalid selection: $selection"
-            exit 1
-        fi
+            if [ -z "$selection" ]; then
+                echo "No selection made. Exiting."
+                exit 1
+            fi
+
+            if [ "$selection" = "0" ]; then
+                echo "⚠  Continuing WITHOUT SSH key - git push operations will fail"
+                echo ""
+                break
+            elif [ "$selection" -ge 1 ] && [ "$selection" -le ${#GITHUB_KEYS[@]} ] 2>/dev/null; then
+                SSH_KEYS+=("${GITHUB_KEYS[$((selection-1))]}")
+                echo "✓ Selected: ${GITHUB_KEYS[$((selection-1))]}"
+                echo ""
+                break
+            else
+                echo "Invalid selection: $selection"
+                echo "Please enter a number between 0 and ${#GITHUB_KEYS[@]}"
+                echo ""
+            fi
+        done
 
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo ""
