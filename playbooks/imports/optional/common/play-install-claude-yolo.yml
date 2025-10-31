@@ -33,10 +33,19 @@
             systemctl --user start docker
       when: docker_service_check.rc != 0
 
-    - name: Create Claude YOLO Directory
+    - name: Create Claude YOLO Base Directory
       become: true
       file:
         path: /opt/claude-yolo
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Create Custom Dockerfiles Directory
+      become: true
+      file:
+        path: /opt/claude-yolo/custom-dockerfiles
         state: directory
         owner: root
         group: root
@@ -65,6 +74,23 @@
       tags:
         - scripts
         - entrypoint
+
+    - name: Copy Custom Dockerfile Templates (Never Overwrite User Changes)
+      become: true
+      copy:
+        src: "{{ item }}"
+        dest: "/opt/claude-yolo/custom-dockerfiles/{{ item | basename }}"
+        owner: root
+        group: root
+        mode: '0644'
+        force: no  # NEVER overwrite - users can customize these
+      loop:
+        - "{{ root_dir }}/files/var/local/claude-yolo/Dockerfile.project-template"
+        - "{{ root_dir }}/files/var/local/claude-yolo/Dockerfile.example-ansible"
+        - "{{ root_dir }}/files/var/local/claude-yolo/Dockerfile.example-golang"
+      tags:
+        - scripts
+        - templates
 
     - name: Copy Wrapper Script
       become: true
@@ -140,6 +166,7 @@
           - "✓ Wrapper script installed: /usr/local/bin/claude-yolo"
           - "✓ Bash alias configured: ccy"
           - "✓ Token directory created: ~/.claude-tokens/ccy/"
+          - "✓ Custom Dockerfiles: /opt/claude-yolo/custom-dockerfiles/"
           - ""
           - "IMPORTANT: Token Management"
           - "  ccy uses SEPARATE tokens from desktop Claude Code"
@@ -169,6 +196,17 @@
           - "  ✓ Container isolation prevents unintended host access"
           - "  ✓ Separate token storage prevents OAuth conflicts"
           - "  ✓ Requires rootless Docker for safety"
+          - ""
+          - "Project-Specific Container Extensions:"
+          - "  ccy --custom                   # Interactive Dockerfile creation"
+          - "  ccy --connect <network>        # Connect to Docker network"
+          - "  Custom Dockerfiles: /opt/claude-yolo/custom-dockerfiles/"
+          - "    • Dockerfile.project-template    (blank template)"
+          - "    • Dockerfile.example-ansible     (Ansible + tools)"
+          - "    • Dockerfile.example-golang      (Go + tools)"
+          - "    • Add your own!                  (never overwritten)"
+          - "  Image cached as: claude-yolo:<project-name>"
+          - "  Rebuild only when Dockerfile changes (automatic)"
           - ""
           - "Reload your shell to enable the 'ccy' alias:"
           - "  source ~/.bashrc"
