@@ -619,14 +619,73 @@ connect_to_network() {
 
         echo "Available networks:"
         echo ""
-        docker network ls --format "  {{.Name}}"
-        echo ""
-        read -p "Enter network name to connect to: " network_name
 
-        if [ -z "$network_name" ]; then
+        # Get list of networks (excluding bridge, host, none)
+        local networks=()
+        local best_match=""
+        local best_match_index=""
+
+        while IFS= read -r net; do
+            # Skip default networks
+            if [[ "$net" != "bridge" ]] && [[ "$net" != "host" ]] && [[ "$net" != "none" ]]; then
+                networks+=("$net")
+
+                # Check for best match (network name contains project name)
+                if [[ "$net" == *"$project_name"* ]] && [ -z "$best_match" ]; then
+                    best_match="$net"
+                    best_match_index=$((${#networks[@]} - 1))
+                fi
+            fi
+        done < <(docker network ls --format "{{.Name}}" | sort)
+
+        if [ ${#networks[@]} -eq 0 ]; then
+            echo "No user-defined networks found."
+            echo ""
+            echo "Create a network first:"
+            echo "  docker network create ${project_name}_network"
+            exit 1
+        fi
+
+        # Show networks with optional default
+        local start_index=1
+        if [ -n "$best_match" ]; then
+            echo "  0) $best_match (default - matches project name)"
+            echo ""
+            start_index=1
+        fi
+
+        for i in "${!networks[@]}"; do
+            if [ "$i" != "$best_match_index" ]; then
+                echo "  $((i + 1))) ${networks[$i]}"
+            fi
+        done
+
+        echo ""
+        if [ -n "$best_match" ]; then
+            read -p "Select network [0-${#networks[@]}] (0): " selection
+            selection=${selection:-0}  # Default to 0 if empty
+        else
+            read -p "Select network [1-${#networks[@]}]: " selection
+        fi
+        echo ""
+
+        if [ -z "$selection" ]; then
             echo "Cancelled."
             exit 0
         fi
+
+        # Handle selection
+        if [ -n "$best_match" ] && [ "$selection" = "0" ]; then
+            network_name="$best_match"
+        elif [ "$selection" -ge 1 ] && [ "$selection" -le ${#networks[@]} ]; then
+            network_name="${networks[$((selection - 1))]}"
+        else
+            echo "ERROR: Invalid selection: $selection"
+            exit 1
+        fi
+
+        echo "Selected: $network_name"
+        echo ""
     fi
 
     # Check if container is running
