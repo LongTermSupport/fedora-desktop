@@ -600,7 +600,75 @@ select_token() {
 connect_to_network() {
     local network_name="$1"
     local project_name=$(basename "$PWD")
-    local container_name="${project_name}_yolo"
+    local base_name="${project_name}_yolo"
+    local container_name=""
+
+    # Find all running containers matching this project
+    local matching_containers=()
+    while IFS= read -r name; do
+        matching_containers+=("$name")
+    done < <(docker ps --format '{{.Names}}' | grep "^${base_name}" || true)
+
+    # Check if any containers are running
+    if [ ${#matching_containers[@]} -eq 0 ]; then
+        echo ""
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo "Connect YOLO Container to Docker Network"
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo ""
+        echo "ERROR: No running containers found for project: $project_name"
+        echo ""
+        echo "Start ccy first, then run this in another terminal:"
+        echo "  ccy --connect <network_name>"
+        echo ""
+        exit 1
+    fi
+
+    # Determine if we should connect all or select one
+    local connect_all=false
+    if [ ${#matching_containers[@]} -eq 1 ]; then
+        # Only one container, use it automatically
+        container_name="${matching_containers[0]}"
+    else
+        # Multiple containers - show selection menu with "all" option
+        if [ -z "$network_name" ]; then
+            echo ""
+            echo "════════════════════════════════════════════════════════════════════════════════"
+            echo "Select YOLO Container(s)"
+            echo "════════════════════════════════════════════════════════════════════════════════"
+            echo ""
+            echo "Multiple containers found for project: $project_name"
+            echo ""
+            echo "  0) All containers (default)"
+            echo ""
+
+            for i in "${!matching_containers[@]}"; do
+                echo "  $((i + 1))) ${matching_containers[$i]}"
+            done
+            echo ""
+
+            while true; do
+                read -p "Select container [0-${#matching_containers[@]}] (0): " selection
+                selection=${selection:-0}  # Default to 0 if empty
+                echo ""
+
+                if [ "$selection" = "0" ]; then
+                    connect_all=true
+                    break
+                elif [ "$selection" -ge 1 ] && [ "$selection" -le ${#matching_containers[@]} ] 2>/dev/null; then
+                    container_name="${matching_containers[$((selection - 1))]}"
+                    break
+                else
+                    echo "Invalid selection: $selection"
+                    echo "Please enter a number between 0 and ${#matching_containers[@]}"
+                    echo ""
+                fi
+            done
+        else
+            # Network name provided via command line - connect all by default
+            connect_all=true
+        fi
+    fi
 
     if [ -z "$network_name" ]; then
         echo ""
@@ -608,18 +676,14 @@ connect_to_network() {
         echo "Connect YOLO Container to Docker Network"
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo ""
-        echo "Container: $container_name"
-        echo ""
 
-        # Check if container is running
-        if ! docker ps --format '{{.Names}}' | grep -q "^${container_name}$"; then
-            echo "ERROR: Container not running: $container_name"
-            echo ""
-            echo "Start ccy first, then run this in another terminal:"
-            echo "  ccy --connect <network_name>"
-            echo ""
-            exit 1
+        # Display what we're connecting
+        if [ "$connect_all" = true ]; then
+            echo "Containers: All ${#matching_containers[@]} running containers"
+        else
+            echo "Container: $container_name"
         fi
+        echo ""
 
         echo "Available networks:"
         echo ""
@@ -703,15 +767,6 @@ connect_to_network() {
         echo ""
     fi
 
-    # Check if container is running
-    if ! docker ps --format '{{.Names}}' | grep -q "^${container_name}$"; then
-        echo "ERROR: Container not running: $container_name"
-        echo ""
-        echo "Running yolo containers:"
-        docker ps --filter "name=_yolo" --format "  {{.Names}}"
-        exit 1
-    fi
-
     # Check if network exists
     if ! docker network ls --format '{{.Name}}' | grep -q "^${network_name}$"; then
         echo "ERROR: Network not found: $network_name"
@@ -721,17 +776,50 @@ connect_to_network() {
         exit 1
     fi
 
-    echo "Connecting $container_name to $network_name..."
-    if docker network connect "$network_name" "$container_name" 2>/dev/null; then
-        echo "✓ Connected successfully!"
+    # Connect container(s) to network
+    if [ "$connect_all" = true ]; then
+        # Connect all containers
+        echo "Connecting all containers to $network_name..."
+        echo ""
+
+        local success_count=0
+        local already_connected_count=0
+
+        for container in "${matching_containers[@]}"; do
+            echo "  → $container"
+            if docker network connect "$network_name" "$container" 2>/dev/null; then
+                echo "    ✓ Connected successfully!"
+                success_count=$((success_count + 1))
+            else
+                echo "    ⚠ Already connected or failed"
+                already_connected_count=$((already_connected_count + 1))
+            fi
+        done
+
+        echo ""
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo "Summary:"
+        echo "  ✓ Connected: $success_count"
+        if [ $already_connected_count -gt 0 ]; then
+            echo "  ⚠ Already connected: $already_connected_count"
+        fi
         echo ""
         echo "You can now access project containers from inside ccy."
         echo "Example: curl http://container-name:port"
     else
-        echo "⚠  Container may already be connected to this network"
-        echo ""
-        echo "Container networks:"
-        docker inspect "$container_name" --format '{{range $k, $v := .NetworkSettings.Networks}}  {{$k}}{{"\n"}}{{end}}'
+        # Connect single container
+        echo "Connecting $container_name to $network_name..."
+        if docker network connect "$network_name" "$container_name" 2>/dev/null; then
+            echo "✓ Connected successfully!"
+            echo ""
+            echo "You can now access project containers from inside ccy."
+            echo "Example: curl http://container-name:port"
+        else
+            echo "⚠ Container may already be connected to this network"
+            echo ""
+            echo "Container networks:"
+            docker inspect "$container_name" --format '{{range $k, $v := .NetworkSettings.Networks}}  {{$k}}{{"\n"}}{{end}}'
+        fi
     fi
 
     exit 0
@@ -1367,6 +1455,35 @@ if [ "$should_update_claude" = true ]; then
     touch "$VERSION_CACHE"
 fi
 
+# Function to find next available container name with suffix
+get_next_container_name() {
+    local project_name="$1"
+    local base_name="${project_name}_yolo"
+
+    # Get all running containers matching this project
+    local existing_containers=$(docker ps --format '{{.Names}}' | grep "^${base_name}" || true)
+
+    # If no container exists, use base name (no suffix)
+    if [ -z "$existing_containers" ]; then
+        echo "$base_name"
+        return
+    fi
+
+    # If base name (no suffix) is not in use, use it
+    if ! echo "$existing_containers" | grep -q "^${base_name}$"; then
+        echo "$base_name"
+        return
+    fi
+
+    # Find next available number
+    local max_num=1
+    while echo "$existing_containers" | grep -q "^${base_name}_${max_num}$"; do
+        max_num=$((max_num + 1))
+    done
+
+    echo "${base_name}_${max_num}"
+}
+
 # Check for project-specific Dockerfile extension
 PROJECT_NAME=$(basename "$PWD")
 PROJECT_DOCKERFILE=".claude/ccy/Dockerfile"
@@ -1738,8 +1855,13 @@ if [ ${#MATCHING_NETWORKS[@]} -gt 0 ]; then
     echo ""
 fi
 
+# Determine container name with appropriate suffix
+CONTAINER_NAME=$(get_next_container_name "$PROJECT_NAME")
+echo "Container name: $CONTAINER_NAME"
+echo ""
+
 docker run -it --rm \
-    --name "${PROJECT_NAME}_yolo" \
+    --name "$CONTAINER_NAME" \
     $NETWORK_FLAG \
     "${DOCKER_MOUNTS[@]}" \
     "${SSH_MOUNTS[@]}" \
