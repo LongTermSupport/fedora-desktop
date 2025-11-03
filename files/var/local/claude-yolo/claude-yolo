@@ -2,8 +2,22 @@
 # Claude Code YOLO Mode Wrapper
 # Runs Claude Code with --dangerously-skip-permissions in isolated Docker container
 # IMPORTANT: Uses separate token storage from desktop Claude Code to prevent OAuth conflicts
+#
+# Version: 1.0.0
+#
+# IMPORTANT: When modifying this script, ALWAYS increment CCY_VERSION!
+# The hash validates script integrity - if hash changes but version doesn't,
+# users will get a warning that version wasn't properly updated.
+#
+CCY_VERSION="1.0.0"
 
 set -e
+
+# Calculate script hash (exclude this variable line to avoid circular dependency)
+CCY_HASH=$(grep -v '^CCY_HASH=' "$0" | md5sum | cut -d' ' -f1 | cut -c1-16)
+
+# Configuration file schema version
+CONFIG_VERSION=1
 
 # Fail fast: Must be run from a git repository root
 if [ ! -d .git ]; then
@@ -40,9 +54,12 @@ Wrapper Options:
   --rebuild              Force rebuild of container image (clears cache)
   --debug                Enable debug output (bash -x)
   --ssh-key PATH         SSH private key to mount (can be specified multiple times)
+  --no-ssh               Skip SSH key selection (git push will not work)
   --token NAME           Use specific named token
   --create-token         Create a new named token
   --list-tokens          List available tokens
+  --network NETWORK      Auto-connect to specified Docker network on launch
+  --no-network           Skip network auto-detection
   --connect [NETWORK]    Connect running yolo container to Docker network
   --custom               Create/edit custom project Dockerfile interactively
   --help, -h             Show this help message
@@ -499,6 +516,147 @@ EOF
     fi
 
     echo "$project_claude_dir"
+}
+
+# Function to load last launch configuration for current project
+# Returns 0 if valid config loaded, 1 if no config or invalid
+load_launch_config() {
+    local project_claude_dir="$1"
+    local config_file="$project_claude_dir/../.last-launch.conf"
+
+    # Check if config exists
+    if [[ ! -f "$config_file" ]]; then
+        return 1  # No config, use interactive
+    fi
+
+    # Source config
+    source "$config_file" 2>/dev/null || {
+        echo "Warning: Config file corrupted, reconfiguring..." >&2
+        rm -f "$config_file"
+        return 1
+    }
+
+    # Validate CONFIG_VERSION (schema version)
+    if [[ "${SAVED_CONFIG_VERSION:-0}" != "$CONFIG_VERSION" ]]; then
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "⚠️  Config schema outdated" >&2
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "Saved config:  v${SAVED_CONFIG_VERSION:-0}" >&2
+        echo "Expected:      v${CONFIG_VERSION}" >&2
+        echo "" >&2
+        echo "Your saved launch configuration uses an old format." >&2
+        echo "Reconfiguring with interactive prompts..." >&2
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "" >&2
+        rm -f "$config_file"
+        return 1
+    fi
+
+    # Validate CCY_VERSION and CCY_HASH together
+    local version_match=false
+    local hash_match=false
+
+    [[ "${CCY_VERSION}" == "${SAVED_CCY_VERSION:-}" ]] && version_match=true
+    [[ "${CCY_HASH}" == "${SAVED_CCY_HASH:-}" ]] && hash_match=true
+
+    if $version_match && $hash_match; then
+        # Perfect match - config is valid
+        return 0
+
+    elif $version_match && ! $hash_match; then
+        # VERSION same but HASH different = Developer forgot to update version!
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "⚠️  DEVELOPER ERROR: CCY script modified without version bump" >&2
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "Version:       ${CCY_VERSION} (unchanged)" >&2
+        echo "Saved hash:    ${SAVED_CCY_HASH:-unknown}" >&2
+        echo "Current hash:  ${CCY_HASH}" >&2
+        echo "" >&2
+        echo "The CCY script has been modified but CCY_VERSION was not updated." >&2
+        echo "This is a developer error - version numbers must be incremented" >&2
+        echo "when the script changes to ensure config compatibility." >&2
+        echo "" >&2
+        echo "Forcing reconfiguration for safety..." >&2
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "" >&2
+        rm -f "$config_file"
+        return 1
+
+    elif ! $version_match; then
+        # VERSION different = Normal upgrade/downgrade
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "ℹ️  CCY version changed" >&2
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "Saved config:  v${SAVED_CCY_VERSION:-unknown}" >&2
+        echo "Current CCY:   v${CCY_VERSION}" >&2
+        echo "" >&2
+        echo "Reconfiguring for compatibility with new version..." >&2
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "" >&2
+        rm -f "$config_file"
+        return 1
+    fi
+}
+
+# Function to save launch configuration for current project
+save_launch_config() {
+    local project_claude_dir="$1"
+    local token_name="$2"
+    local ssh_keys_str="$3"
+    local network="$4"
+
+    local config_file="$project_claude_dir/../.last-launch.conf"
+
+    cat > "$config_file" <<EOF
+# CCY Launch Configuration
+# Config Version: ${CONFIG_VERSION}
+# CCY Version: ${CCY_VERSION}
+# CCY Hash: ${CCY_HASH}
+# Generated: $(date '+%Y-%m-%d %H:%M:%S')
+SAVED_CONFIG_VERSION=${CONFIG_VERSION}
+SAVED_CCY_VERSION="${CCY_VERSION}"
+SAVED_CCY_HASH="${CCY_HASH}"
+LAST_TOKEN="${token_name}"
+LAST_SSH_KEYS="${ssh_keys_str}"
+LAST_NETWORK="${network}"
+LAST_LAUNCH_DATE="$(date '+%Y-%m-%d')"
+EOF
+
+    chmod 600 "$config_file"
+}
+
+# Function to display quick launch command preview
+show_quick_launch_command() {
+    local token_name="$1"
+    shift
+    local ssh_keys=("$@")
+
+    echo "╔══════════════════════════════════════════════════════════════════════════════╗"
+    echo "║ Quick Launch Command (copy to skip prompts next time):                      ║"
+    echo "╠══════════════════════════════════════════════════════════════════════════════╣"
+    echo "║                                                                              ║"
+
+    local cmd="  ccy"
+    [[ -n "$token_name" ]] && cmd+=" --token $token_name"
+
+    if [ ${#ssh_keys[@]} -gt 0 ]; then
+        for key in "${ssh_keys[@]}"; do
+            cmd+=" \\"
+            printf "║ %-76s ║\n" "$cmd"
+            cmd="      --ssh-key $key"
+        done
+    fi
+
+    if [[ -n "$SAVED_NETWORK" ]]; then
+        cmd+=" \\"
+        printf "║ %-76s ║\n" "$cmd"
+        cmd="      --network $SAVED_NETWORK"
+    fi
+
+    printf "║ %-76s ║\n" "$cmd"
+    echo "║                                                                              ║"
+    echo "╚══════════════════════════════════════════════════════════════════════════════╝"
+    echo ""
 }
 
 # Function to select a token interactively
@@ -1004,12 +1162,16 @@ CLAUDE_ARGS=()
 NEXT_IS_SSH_KEY=false
 NEXT_IS_TOKEN=false
 NEXT_IS_CONNECT=false
+NEXT_IS_NETWORK=false
 SPECIFIED_TOKEN=""
 CREATE_TOKEN_MODE=false
 LIST_TOKENS_MODE=false
 CONNECT_MODE=false
 CUSTOM_MODE=false
 CONNECT_NETWORK=""
+NO_SSH_MODE=false
+SPECIFIED_NETWORK=""
+NO_NETWORK_MODE=false
 
 for arg in "$@"; do
     if [ "$NEXT_IS_SSH_KEY" = true ]; then
@@ -1025,8 +1187,15 @@ for arg in "$@"; do
     elif [ "$NEXT_IS_CONNECT" = true ]; then
         CONNECT_NETWORK="$arg"
         NEXT_IS_CONNECT=false
+    elif [ "$NEXT_IS_NETWORK" = true ]; then
+        SPECIFIED_NETWORK="$arg"
+        NEXT_IS_NETWORK=false
     elif [ "$arg" = "--rebuild" ]; then
         FORCE_REBUILD=true
+    elif [ "$arg" = "--no-ssh" ]; then
+        NO_SSH_MODE=true
+    elif [ "$arg" = "--no-network" ]; then
+        NO_NETWORK_MODE=true
     elif [ "$arg" = "--debug" ]; then
         DEBUG_MODE=true
         DEBUG_LOG="/tmp/ccy-debug-$(date +%Y%m%d-%H%M%S).log"
@@ -1042,6 +1211,8 @@ for arg in "$@"; do
         CREATE_TOKEN_MODE=true
     elif [ "$arg" = "--list-tokens" ]; then
         LIST_TOKENS_MODE=true
+    elif [ "$arg" = "--network" ]; then
+        NEXT_IS_NETWORK=true
     elif [ "$arg" = "--connect" ]; then
         CONNECT_MODE=true
         NEXT_IS_CONNECT=true
@@ -1078,11 +1249,90 @@ if [ "$CUSTOM_MODE" = true ]; then
     exit 0
 fi
 
-# Discover github_ SSH keys if no --ssh-key was passed
-# These keys are managed by play-github-cli-multi.yml which creates keys with
-# the pattern ~/.ssh/github_<alias> for each configured GitHub account.
-# See: playbooks/imports/optional/common/play-github-cli-multi.yml:163-183
-if [ ${#SSH_KEYS[@]} -eq 0 ]; then
+# Get project state directory early for config loading
+# We need this before prompts to load previous configuration
+PROJECT_CLAUDE_DIR_EARLY=$(get_project_state_dir)
+
+# Try to load previous launch configuration (if no flags specified)
+CONFIG_LOADED=false
+SAVED_NETWORK=""
+
+if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
+   [[ -z "$SPECIFIED_TOKEN" ]] && [[ -z "$SPECIFIED_NETWORK" ]] && \
+   [[ "$NO_NETWORK_MODE" = false ]]; then
+    # No flags provided - try to load config
+    if load_launch_config "$PROJECT_CLAUDE_DIR_EARLY"; then
+        CONFIG_LOADED=true
+
+        echo ""
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo "Quick Launch Available"
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo ""
+        echo "Found previous launch configuration (${LAST_LAUNCH_DATE:-unknown}):"
+        echo "  Token:   ${LAST_TOKEN:-none}"
+        echo "  SSH Key: ${LAST_SSH_KEYS:-none}"
+        echo "  Network: ${LAST_NETWORK:-none}"
+        echo ""
+
+        while true; do
+            read -p "Use same configuration? [Y/n] " use_config
+            use_config=${use_config:-Y}
+            echo ""
+
+            case "$use_config" in
+                Y|y|Yes|yes)
+                    echo "Quick launching with previous configuration..."
+                    echo ""
+
+                    # Load config values
+                    if [[ -n "$LAST_TOKEN" ]]; then
+                        SPECIFIED_TOKEN="$LAST_TOKEN"
+                    fi
+                    if [[ -n "$LAST_SSH_KEYS" ]]; then
+                        IFS=' ' read -ra SSH_KEYS <<< "$LAST_SSH_KEYS"
+                    fi
+                    if [[ -n "$LAST_NETWORK" ]]; then
+                        SPECIFIED_NETWORK="$LAST_NETWORK"
+                    fi
+                    break
+                    ;;
+                N|n|No|no)
+                    echo "Reconfiguring with interactive prompts..."
+                    echo ""
+                    CONFIG_LOADED=false
+                    break
+                    ;;
+                *)
+                    echo "Invalid choice. Please enter Y or n"
+                    echo ""
+                    ;;
+            esac
+        done
+
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo ""
+    fi
+fi
+
+# Discover github_ SSH keys if no --ssh-key was passed and not in --no-ssh mode
+if [ "$NO_SSH_MODE" = true ]; then
+    # Skip SSH entirely
+    echo ""
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo "⚠  No SSH Mode"
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+    echo "Skipping SSH key selection (--no-ssh flag)"
+    echo "Git push operations will NOT work."
+    echo ""
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+elif [ ${#SSH_KEYS[@]} -eq 0 ]; then
+    # No SSH keys from config or flags - discover or prompt
+    # These keys are managed by play-github-cli-multi.yml which creates keys with
+    # the pattern ~/.ssh/github_<alias> for each configured GitHub account.
+    # See: playbooks/imports/optional/common/play-github-cli-multi.yml:163-183
     GITHUB_KEYS=($(find "$HOME/.ssh" -type f -name "github_*" ! -name "*.pub" 2>/dev/null | sort))
 
     if [ ${#GITHUB_KEYS[@]} -gt 0 ]; then
@@ -1315,8 +1565,8 @@ if [ -n "$SPECIFIED_TOKEN" ]; then
         exit 1
     fi
 
-    local filename=$(basename "$SELECTED_TOKEN")
-    local token_name="${filename%.*.token}"
+    filename=$(basename "$SELECTED_TOKEN")
+    token_name="${filename%.*.token}"
     echo "✓ Using token: $token_name"
 else
     # No token specified, check if tokens exist
@@ -1742,17 +1992,39 @@ DOCKER_MOUNTS+=(
 NETWORK_FLAG=""
 AUTO_CONNECT_NETWORK=""
 
-# Check for networks matching project name (same logic as --connect)
-MATCHING_NETWORKS=()
-while IFS= read -r net; do
-    # Skip default networks
-    if [[ "$net" != "bridge" ]] && [[ "$net" != "host" ]] && [[ "$net" != "none" ]]; then
-        # Check if network name contains project name
-        if [[ "$net" == *"$PROJECT_NAME"* ]]; then
-            MATCHING_NETWORKS+=("$net")
-        fi
+# Handle network flags
+if [[ -n "$SPECIFIED_NETWORK" ]]; then
+    # --network flag provided
+    # Verify network exists
+    if docker network ls --format '{{.Name}}' | grep -q "^${SPECIFIED_NETWORK}$"; then
+        NETWORK_FLAG="--network $SPECIFIED_NETWORK"
+        AUTO_CONNECT_NETWORK="$SPECIFIED_NETWORK"
+        echo "✓ Will connect to network: $SPECIFIED_NETWORK (via --network flag)"
+        echo ""
+    else
+        echo "ERROR: Network not found: $SPECIFIED_NETWORK" >&2
+        echo "" >&2
+        echo "Available networks:" >&2
+        docker network ls --format "  {{.Name}}" >&2
+        exit 1
     fi
-done < <(docker network ls --format "{{.Name}}" 2>/dev/null)
+elif [[ "$NO_NETWORK_MODE" = true ]]; then
+    # --no-network flag provided
+    echo "✓ Skipping network connection (--no-network flag)"
+    echo ""
+else
+    # No network flags - auto-detect and offer connection
+    # Check for networks matching project name (same logic as --connect)
+    MATCHING_NETWORKS=()
+    while IFS= read -r net; do
+        # Skip default networks
+        if [[ "$net" != "bridge" ]] && [[ "$net" != "host" ]] && [[ "$net" != "none" ]]; then
+            # Check if network name contains project name
+            if [[ "$net" == *"$PROJECT_NAME"* ]]; then
+                MATCHING_NETWORKS+=("$net")
+            fi
+        fi
+    done < <(docker network ls --format "{{.Name}}" 2>/dev/null)
 
 if [ ${#MATCHING_NETWORKS[@]} -gt 0 ]; then
     echo ""
@@ -1854,6 +2126,31 @@ if [ ${#MATCHING_NETWORKS[@]} -gt 0 ]; then
     echo "════════════════════════════════════════════════════════════════════════════════"
     echo ""
 fi
+fi  # End of network flag handling (if/elif/else)
+
+# Display command preview box and save configuration
+# Extract token name from selected token file
+TOKEN_NAME_FOR_CONFIG=""
+if [[ -n "$SELECTED_TOKEN" ]]; then
+    filename=$(basename "$SELECTED_TOKEN")
+    TOKEN_NAME_FOR_CONFIG="${filename%.*.token}"
+fi
+
+# Build SSH keys string for config
+SSH_KEYS_STR="${SSH_KEYS[*]}"
+
+# Show quick launch command preview
+if [[ "$CONFIG_LOADED" = false ]]; then
+    # Only show if this was an interactive launch (not quick launch)
+    echo ""
+    show_quick_launch_command "$TOKEN_NAME_FOR_CONFIG" "${SSH_KEYS[@]}"
+fi
+
+# Save configuration for next launch
+save_launch_config "$PROJECT_CLAUDE_DIR" "$TOKEN_NAME_FOR_CONFIG" "$SSH_KEYS_STR" "$AUTO_CONNECT_NETWORK"
+echo "✓ Configuration saved for quick launch next time"
+echo "✓ CCY version: $CCY_VERSION"
+echo ""
 
 # Determine container name with appropriate suffix
 CONTAINER_NAME=$(get_next_container_name "$PROJECT_NAME")
