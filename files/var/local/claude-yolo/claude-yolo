@@ -3,13 +3,13 @@
 # Runs Claude Code with --dangerously-skip-permissions in isolated Docker container
 # IMPORTANT: Uses separate token storage from desktop Claude Code to prevent OAuth conflicts
 #
-# Version: 1.1.0
+# Version: 1.2.0
 #
 # IMPORTANT: When modifying this script, ALWAYS increment CCY_VERSION!
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="1.1.0"
+CCY_VERSION="1.2.0"
 
 set -e
 
@@ -1176,6 +1176,7 @@ CUSTOM_MODE=false
 CONNECT_NETWORK=""
 NO_SSH_MODE=false
 SPECIFIED_NETWORK=""
+NETWORK_FROM_CONFIG=false
 NO_NETWORK_MODE=false
 HEADLESS_MODE=false
 PROMPT_TEXT=""
@@ -1322,6 +1323,7 @@ if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
                     fi
                     if [[ -n "$LAST_NETWORK" ]]; then
                         SPECIFIED_NETWORK="$LAST_NETWORK"
+                        NETWORK_FROM_CONFIG=true
                     fi
                     break
                     ;;
@@ -2022,19 +2024,73 @@ AUTO_CONNECT_NETWORK=""
 
 # Handle network flags
 if [[ -n "$SPECIFIED_NETWORK" ]]; then
-    # --network flag provided
+    # --network flag provided (or loaded from config)
     # Verify network exists
     if docker network ls --format '{{.Name}}' | grep -q "^${SPECIFIED_NETWORK}$"; then
         NETWORK_FLAG="--network $SPECIFIED_NETWORK"
         AUTO_CONNECT_NETWORK="$SPECIFIED_NETWORK"
-        echo "✓ Will connect to network: $SPECIFIED_NETWORK (via --network flag)"
+        if [[ "$NETWORK_FROM_CONFIG" = true ]]; then
+            echo "✓ Will connect to network: $SPECIFIED_NETWORK (from saved config)"
+        else
+            echo "✓ Will connect to network: $SPECIFIED_NETWORK (via --network flag)"
+        fi
         echo ""
     else
-        echo "ERROR: Network not found: $SPECIFIED_NETWORK" >&2
-        echo "" >&2
-        echo "Available networks:" >&2
-        docker network ls --format "  {{.Name}}" >&2
-        exit 1
+        # Network not found - different handling for config vs explicit flag
+        if [[ "$NETWORK_FROM_CONFIG" = true ]]; then
+            # From config - warn but continue
+            echo ""
+            echo "════════════════════════════════════════════════════════════════════════════════"
+            echo "⚠  WARNING: Saved network no longer exists"
+            echo "════════════════════════════════════════════════════════════════════════════════"
+            echo ""
+            echo "Network from config: $SPECIFIED_NETWORK"
+            echo ""
+            echo "This network was saved from your last launch but is no longer available."
+            echo "Common causes:"
+            echo "  • Docker Compose project stopped (docker-compose down)"
+            echo "  • Docker daemon restarted"
+            echo "  • Network manually deleted"
+            echo ""
+            echo "Available networks:"
+            docker network ls --format "  {{.Name}}" | grep -v "^bridge$\|^host$\|^none$" || echo "  (no user-defined networks found)"
+            echo ""
+
+            while true; do
+                read -p "Continue without network connection? [Y/n] " continue_choice
+                continue_choice=${continue_choice:-Y}
+                echo ""
+
+                case "$continue_choice" in
+                    Y|y|Yes|yes)
+                        echo "Continuing without network connection..."
+                        echo "════════════════════════════════════════════════════════════════════════════════"
+                        echo ""
+                        # Clear the network flag so we continue without it
+                        SPECIFIED_NETWORK=""
+                        break
+                        ;;
+                    N|n|No|no)
+                        echo "Cancelled. Fix the network and try again:"
+                        echo "  • Restart your docker-compose project"
+                        echo "  • Or use: ccy --no-network"
+                        echo "  • Or use: ccy --network <different-network>"
+                        exit 0
+                        ;;
+                    *)
+                        echo "Invalid choice. Please enter Y or n"
+                        echo ""
+                        ;;
+                esac
+            done
+        else
+            # Explicit --network flag - this is an error
+            echo "ERROR: Network not found: $SPECIFIED_NETWORK" >&2
+            echo "" >&2
+            echo "Available networks:" >&2
+            docker network ls --format "  {{.Name}}" >&2
+            exit 1
+        fi
     fi
 elif [[ "$NO_NETWORK_MODE" = true ]]; then
     # --no-network flag provided
