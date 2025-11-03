@@ -2255,7 +2255,14 @@ fi
 # Add any other arguments passed through
 CLAUDE_CMD_ARGS+=("${CLAUDE_ARGS[@]}")
 
-docker run -it --rm \
+# Use -it for interactive, -i only for headless (no TTY required)
+if [ "$HEADLESS_MODE" = true ]; then
+    DOCKER_FLAGS="-i"
+else
+    DOCKER_FLAGS="-it"
+fi
+
+docker run $DOCKER_FLAGS --rm \
     --name "$CONTAINER_NAME" \
     $NETWORK_FLAG \
     "${DOCKER_MOUNTS[@]}" \
