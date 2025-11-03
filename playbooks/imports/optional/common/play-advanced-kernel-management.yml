@@ -1,0 +1,110 @@
+#!/usr/bin/env ansible-playbook
+---
+- hosts: desktop
+  name: Advanced Kernel Management - Auto-retain Previous Minor Version
+  become: true
+
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+
+  tasks:
+    - name: Install DNF Versionlock Plugin
+      package:
+        name: python3-dnf-plugin-versionlock
+        state: present
+      tags:
+        - packages
+        - kernel-mgmt
+
+    - name: Configure DNF to Keep 4 Kernels
+      blockinfile:
+        path: /etc/dnf/dnf.conf
+        marker: "# {mark} ANSIBLE MANAGED: Advanced Kernel Management"
+        block: |
+          # Keep 4 kernels to accommodate:
+          # - Latest minor version (multiple patches)
+          # - Previous minor version (locked for hardware compatibility)
+          installonly_limit=4
+        create: false
+      tags:
+        - config
+        - kernel-mgmt
+
+    - name: Deploy Kernel Version Management Script
+      copy:
+        src: "{{ root_dir }}/files/usr/local/bin/manage-kernel-versions.py"
+        dest: /usr/local/bin/manage-kernel-versions.py
+        owner: root
+        group: root
+        mode: '0755'
+      tags:
+        - scripts
+        - kernel-mgmt
+
+    - name: Deploy Systemd Service Unit
+      template:
+        src: "{{ root_dir }}/files/etc/systemd/system/kernel-version-manager.service"
+        dest: /etc/systemd/system/kernel-version-manager.service
+        owner: root
+        group: root
+        mode: '0644'
+      notify: reload-systemd
+      tags:
+        - systemd
+        - kernel-mgmt
+
+    - name: Deploy Systemd Path Unit
+      copy:
+        src: "{{ root_dir }}/files/etc/systemd/system/kernel-version-manager.path"
+        dest: /etc/systemd/system/kernel-version-manager.path
+        owner: root
+        group: root
+        mode: '0644'
+      notify: reload-systemd
+      tags:
+        - systemd
+        - kernel-mgmt
+
+    - name: Enable and Start Kernel Version Manager Path Unit
+      systemd:
+        name: kernel-version-manager.path
+        enabled: yes
+        state: started
+        daemon_reload: yes
+      tags:
+        - systemd
+        - kernel-mgmt
+
+    - name: Run Initial Kernel Version Analysis
+      command: /usr/bin/python3 /usr/local/bin/manage-kernel-versions.py
+      register: kernel_mgmt_output
+      changed_when: false
+      failed_when: false
+      tags:
+        - kernel-mgmt
+
+    - name: Display Kernel Management Results
+      debug:
+        msg: "{{ kernel_mgmt_output.stdout_lines }}"
+      when: kernel_mgmt_output.stdout_lines is defined
+      tags:
+        - kernel-mgmt
+
+    - name: Verify Kernel Versionlock Status
+      command: dnf versionlock list
+      register: versionlock_status
+      changed_when: false
+      failed_when: false
+      tags:
+        - kernel-mgmt
+
+    - name: Display Current Versionlock Status
+      debug:
+        msg: "{{ versionlock_status.stdout_lines | default(['No version locks configured']) }}"
+      tags:
+        - kernel-mgmt
+
+  handlers:
+    - name: reload-systemd
+      systemd:
+        daemon_reload: yes

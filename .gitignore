@@ -3,6 +3,11 @@ environment/localhost/host_vars/localhost.yml
 .idea
 roles/vendor/*
 
+# Python bytecode cache
+__pycache__/
+*.pyc
+*.pyo
+
 # Claude Code local settings (keep custom commands)
 .claude/settings.local.json
 

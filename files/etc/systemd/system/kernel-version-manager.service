@@ -1,0 +1,15 @@
+[Unit]
+Description=Kernel Minor Version Manager
+Documentation=file:///usr/local/bin/manage-kernel-versions.py
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/bin/manage-kernel-versions.py
+Environment="NOTIFY_USER={{ user_login }}"
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=kernel-version-manager
+
+[Install]
+WantedBy=multi-user.target
