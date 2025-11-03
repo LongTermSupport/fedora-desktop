@@ -3,13 +3,13 @@
 # Runs Claude Code with --dangerously-skip-permissions in isolated Docker container
 # IMPORTANT: Uses separate token storage from desktop Claude Code to prevent OAuth conflicts
 #
-# Version: 1.0.0
+# Version: 1.1.0
 #
 # IMPORTANT: When modifying this script, ALWAYS increment CCY_VERSION!
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="1.0.0"
+CCY_VERSION="1.1.0"
 
 set -e
 
@@ -62,6 +62,8 @@ Wrapper Options:
   --no-network           Skip network auto-detection
   --connect [NETWORK]    Connect running yolo container to Docker network
   --custom               Create/edit custom project Dockerfile interactively
+  --prompt "text"        Start Claude Code with a preseeded prompt
+  --headless             Run in headless mode (requires --prompt)
   --help, -h             Show this help message
 
 All other arguments are passed directly to Claude Code with --dangerously-skip-permissions
@@ -88,6 +90,8 @@ Examples:
   ccy --token personal          # Use "personal" token
   ccy --list-tokens             # List available tokens
   ccy "implement feature X"     # Start with specific task
+  ccy --prompt "fix the bug"    # Start interactive session with prompt
+  ccy --headless --prompt "run tests"  # Run in headless mode
 
 Custom Dockerfile (Claude-assisted):
   ccy --custom                  # Interactive workflow
@@ -1163,6 +1167,7 @@ NEXT_IS_SSH_KEY=false
 NEXT_IS_TOKEN=false
 NEXT_IS_CONNECT=false
 NEXT_IS_NETWORK=false
+NEXT_IS_PROMPT=false
 SPECIFIED_TOKEN=""
 CREATE_TOKEN_MODE=false
 LIST_TOKENS_MODE=false
@@ -1172,6 +1177,8 @@ CONNECT_NETWORK=""
 NO_SSH_MODE=false
 SPECIFIED_NETWORK=""
 NO_NETWORK_MODE=false
+HEADLESS_MODE=false
+PROMPT_TEXT=""
 
 for arg in "$@"; do
     if [ "$NEXT_IS_SSH_KEY" = true ]; then
@@ -1190,12 +1197,19 @@ for arg in "$@"; do
     elif [ "$NEXT_IS_NETWORK" = true ]; then
         SPECIFIED_NETWORK="$arg"
         NEXT_IS_NETWORK=false
+    elif [ "$NEXT_IS_PROMPT" = true ]; then
+        PROMPT_TEXT="$arg"
+        NEXT_IS_PROMPT=false
     elif [ "$arg" = "--rebuild" ]; then
         FORCE_REBUILD=true
     elif [ "$arg" = "--no-ssh" ]; then
         NO_SSH_MODE=true
     elif [ "$arg" = "--no-network" ]; then
         NO_NETWORK_MODE=true
+    elif [ "$arg" = "--headless" ]; then
+        HEADLESS_MODE=true
+    elif [ "$arg" = "--prompt" ]; then
+        NEXT_IS_PROMPT=true
     elif [ "$arg" = "--debug" ]; then
         DEBUG_MODE=true
         DEBUG_LOG="/tmp/ccy-debug-$(date +%Y%m%d-%H%M%S).log"
@@ -1230,6 +1244,20 @@ mkdir -p "$TOKEN_DIR"
 chmod 700 "$TOKEN_DIR"
 mkdir -p "$PROJECT_DIR"
 chmod 700 "$PROJECT_DIR"
+
+# Validate --headless requires --prompt
+if [ "$HEADLESS_MODE" = true ]; then
+    if [ -z "$PROMPT_TEXT" ]; then
+        echo "ERROR: --headless flag requires --prompt with content" >&2
+        echo "" >&2
+        echo "Usage:" >&2
+        echo "  ccy --headless --prompt \"your prompt here\"" >&2
+        echo "" >&2
+        echo "The --headless flag runs Claude Code in non-interactive mode," >&2
+        echo "which requires a prompt to execute." >&2
+        exit 1
+    fi
+fi
 
 # Handle list tokens mode (doesn't need SSH/GH setup)
 if [ "$LIST_TOKENS_MODE" = true ]; then
@@ -2157,6 +2185,20 @@ CONTAINER_NAME=$(get_next_container_name "$PROJECT_NAME")
 echo "Container name: $CONTAINER_NAME"
 echo ""
 
+# Build Claude Code command arguments based on flags
+CLAUDE_CMD_ARGS=()
+
+if [ "$HEADLESS_MODE" = true ]; then
+    # Headless mode: use -p flag
+    CLAUDE_CMD_ARGS+=("-p" "$PROMPT_TEXT")
+elif [ -n "$PROMPT_TEXT" ]; then
+    # Interactive mode with prompt: pass prompt as argument
+    CLAUDE_CMD_ARGS+=("$PROMPT_TEXT")
+fi
+
+# Add any other arguments passed through
+CLAUDE_CMD_ARGS+=("${CLAUDE_ARGS[@]}")
+
 docker run -it --rm \
     --name "$CONTAINER_NAME" \
     $NETWORK_FLAG \
@@ -2169,4 +2211,4 @@ docker run -it --rm \
     -e "SSH_KEY_PATHS=$SSH_KEY_PATHS_STR" \
     -w /workspace \
     "$IMAGE_NAME" \
-    claude --dangerously-skip-permissions "${CLAUDE_ARGS[@]}"
+    claude --dangerously-skip-permissions "${CLAUDE_CMD_ARGS[@]}"
