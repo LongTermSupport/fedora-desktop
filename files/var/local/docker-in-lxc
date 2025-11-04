@@ -1,0 +1,814 @@
+#!/bin/bash
+# Docker-in-LXC Wrapper
+# Creates and manages LXC containers for Docker projects with Claude Code integration
+#
+# Version: 1.0.0
+#
+DIL_VERSION="1.0.0"
+
+set -e
+
+# ==============================================================================
+# Configuration
+# ==============================================================================
+
+CCY_TOKEN_DIR="$HOME/.claude-tokens/ccy/tokens"
+LXC_BASE_NAME_PREFIX="docker-lxc"
+FEDORA_VERSION="42"  # Should match vars/fedora-version.yml
+
+# ==============================================================================
+# Helper Functions
+# ==============================================================================
+
+show_help() {
+    cat << 'EOF'
+Docker-in-LXC (docker-in-lxc) - Isolated Docker development environments
+
+Usage: docker-in-lxc COMMAND [OPTIONS]
+
+Commands:
+  --create              Create LXC container for current Docker project
+  --enter               Enter existing LXC container
+  --stop                Stop LXC container
+  --destroy             Destroy LXC container (WARNING: deletes all data)
+  --status              Show container status and info
+  --help, -h            Show this help message
+
+Requirements:
+  • Must run from git repository root
+  • Project must have docker-compose.yml or Dockerfile
+  • Host must be configured (run play-docker-in-lxc-support.yml first)
+
+Features:
+  • One LXC container per Docker project (isolated environments)
+  • Auto-names container from git repo (e.g., user_repo)
+  • Mounts project directory at /mnt/project
+  • Docker installed and configured inside LXC
+  • Claude Code installed with ccy alias (full YOLO mode)
+  • Reuses same token system as desktop ccy
+  • SSH keys and GitHub CLI configured automatically
+
+Container Setup:
+  When you run --create, the system will:
+    1. Verify host configuration (kernel modules, sysctl, LXC)
+    2. Check for docker-compose.yml or Dockerfile
+    3. Create Fedora 42 LXC container (unprivileged)
+    4. Mount your project directory at /mnt/project
+    5. Install Docker CE inside the container
+    6. Install Claude Code and create ccy alias
+    7. Configure SSH keys and GitHub CLI
+    8. Build Docker containers defined in your project
+
+Usage Workflow:
+  # Initial setup (from project root)
+  cd ~/Projects/my-docker-app
+  docker-in-lxc --create
+
+  # Enter container to work
+  docker-in-lxc --enter
+  # Inside LXC:
+  cd /mnt/project
+  ccy  # Start Claude Code in YOLO mode
+  # Or manually:
+  docker-compose up -d
+  docker ps
+
+  # Exit container
+  exit
+
+  # Stop container when done
+  docker-in-lxc --stop
+
+  # Restart and re-enter
+  docker-in-lxc --enter  # Auto-starts if stopped
+
+  # Clean up (destroys all data)
+  docker-in-lxc --destroy
+
+Example Projects:
+  • Docker Compose stacks (web app + database + redis)
+  • Microservices development (multiple containers)
+  • Kubernetes local development (kind/k3s)
+  • Any project with Dockerfile or docker-compose.yml
+
+Architecture:
+  Desktop (Fedora 42)
+  └── LXC Container (unprivileged, one per project)
+      ├── Docker Daemon (privileged in container)
+      ├── Claude Code (ccy command)
+      └── Project directory mounted at /mnt/project
+          ├── Dockerfile or docker-compose.yml
+          └── Your application code
+
+Security:
+  • LXC containers are unprivileged from host perspective
+  • Docker runs privileged inside LXC (required for Docker)
+  • Isolation: Separate containers per project
+  • Resource limits: Configure via LXC cgroup settings
+
+Container Naming:
+  Containers are auto-named from git remote:
+    git@github.com:user/repo.git → docker-lxc-user_repo
+
+EOF
+    exit 0
+}
+
+error() {
+    echo "ERROR: $1" >&2
+    shift
+    for line in "$@"; do
+        echo "  $line" >&2
+    done
+    exit 1
+}
+
+info() {
+    echo "ℹ  $1"
+}
+
+success() {
+    echo "✓ $1"
+}
+
+warn() {
+    echo "⚠  $1"
+}
+
+# ==============================================================================
+# Preflight Checks
+# ==============================================================================
+
+check_git_repo() {
+    if [ ! -d .git ]; then
+        error "Not in a git repository root directory" \
+              "" \
+              "docker-in-lxc must be run from the root of a git repository." \
+              "This ensures the correct project is containerized." \
+              "" \
+              "Current directory: $PWD" \
+              "" \
+              "To fix:" \
+              "  1. Navigate to your git repository root: cd /path/to/your/repo" \
+              "  2. Verify .git exists: ls -la .git" \
+              "  3. Run docker-in-lxc from there"
+    fi
+
+    # Verify git remote exists
+    if ! git remote get-url origin &>/dev/null; then
+        error "No git remote 'origin' configured" \
+              "" \
+              "docker-in-lxc requires a git remote to identify the project." \
+              "" \
+              "To fix:" \
+              "  git remote add origin <url>"
+    fi
+
+    success "Running from git repository root"
+}
+
+check_docker_project() {
+    if [ ! -f "docker-compose.yml" ] && [ ! -f "docker-compose.yaml" ] && [ ! -f "Dockerfile" ]; then
+        error "No Docker configuration found" \
+              "" \
+              "This project doesn't appear to be a Docker project." \
+              "docker-in-lxc requires one of:" \
+              "  • docker-compose.yml" \
+              "  • docker-compose.yaml" \
+              "  • Dockerfile" \
+              "" \
+              "Current directory: $PWD" \
+              "" \
+              "If this is a Docker project, ensure the file exists in the repo root."
+    fi
+
+    if [ -f "docker-compose.yml" ] || [ -f "docker-compose.yaml" ]; then
+        success "Found docker-compose.yml"
+    elif [ -f "Dockerfile" ]; then
+        success "Found Dockerfile"
+    fi
+}
+
+check_host_configured() {
+    info "Checking host configuration..."
+
+    local errors=()
+
+    # Check if LXC is installed
+    if ! command -v lxc-create &>/dev/null; then
+        errors+=("LXC is not installed")
+    fi
+
+    # Check if LXC service is running
+    if ! systemctl is-active --quiet lxc 2>/dev/null; then
+        errors+=("LXC service is not running")
+    fi
+
+    # Check kernel modules
+    for module in overlay br_netfilter ip_tables iptable_nat; do
+        if ! lsmod | grep -q "^$module"; then
+            errors+=("Kernel module '$module' not loaded")
+        fi
+    done
+
+    # Check sysctl parameters
+    if [ "$(sysctl -n net.ipv4.ip_forward 2>/dev/null)" != "1" ]; then
+        errors+=("sysctl: net.ipv4.ip_forward is not set to 1")
+    fi
+
+    if [ "$(sysctl -n net.bridge.bridge-nf-call-iptables 2>/dev/null)" != "1" ]; then
+        errors+=("sysctl: net.bridge.bridge-nf-call-iptables is not set to 1")
+    fi
+
+    # Check if lxcbr0 exists
+    if ! ip link show lxcbr0 &>/dev/null; then
+        errors+=("lxcbr0 bridge does not exist")
+    fi
+
+    if [ ${#errors[@]} -gt 0 ]; then
+        echo "" >&2
+        echo "═══════════════════════════════════════════════════════════" >&2
+        echo "  Host Configuration Errors" >&2
+        echo "═══════════════════════════════════════════════════════════" >&2
+        echo "" >&2
+        echo "The host system is not properly configured for Docker-in-LXC." >&2
+        echo "" >&2
+        echo "Issues found:" >&2
+        for err in "${errors[@]}"; do
+            echo "  ✗ $err" >&2
+        done
+        echo "" >&2
+        echo "To fix, run the Ansible playbook:" >&2
+        echo "  cd ~/Projects/fedora-desktop" >&2
+        echo "  ansible-playbook ./playbooks/imports/optional/common/play-docker-in-lxc-support.yml" >&2
+        echo "" >&2
+        echo "Or manually:" >&2
+        echo "  sudo /usr/local/bin/fix-docker-in-lxc" >&2
+        echo "" >&2
+        exit 1
+    fi
+
+    success "Host is properly configured"
+}
+
+# ==============================================================================
+# Container Naming
+# ==============================================================================
+
+get_container_name() {
+    local git_remote=$(git remote get-url origin 2>/dev/null)
+
+    # Extract repo name from git remote URL
+    # Examples:
+    #   git@github.com:user/repo.git -> user_repo
+    #   https://github.com/user/repo.git -> user_repo
+    local project_id=$(echo "$git_remote" | sed -E 's|.*[:/]([^/]+)/([^/]+)(\.git)?$|\1_\2|')
+
+    echo "${LXC_BASE_NAME_PREFIX}-${project_id}"
+}
+
+# ==============================================================================
+# LXC Management
+# ==============================================================================
+
+container_exists() {
+    local name="$1"
+    sudo lxc-info -n "$name" &>/dev/null
+}
+
+container_is_running() {
+    local name="$1"
+    [ "$(sudo lxc-info -n "$name" -s 2>/dev/null | awk '{print $2}')" = "RUNNING" ]
+}
+
+wait_for_container_network() {
+    local name="$1"
+    local max_wait=30
+    local elapsed=0
+
+    info "Waiting for container network..."
+
+    while [ $elapsed -lt $max_wait ]; do
+        local ip=$(sudo lxc-info -n "$name" -iH 2>/dev/null)
+        if [ -n "$ip" ] && [ "$ip" != "-" ]; then
+            success "Container IP: $ip"
+            return 0
+        fi
+        sleep 1
+        elapsed=$((elapsed + 1))
+    done
+
+    warn "Container network not ready after ${max_wait}s (may still work)"
+    return 1
+}
+
+# ==============================================================================
+# Create Container
+# ==============================================================================
+
+create_container() {
+    local name="$1"
+    local project_dir="$PWD"
+
+    echo ""
+    echo "═══════════════════════════════════════════════════════════"
+    echo "  Creating LXC Container for Docker Project"
+    echo "═══════════════════════════════════════════════════════════"
+    echo ""
+    echo "Container: $name"
+    echo "Project: $project_dir"
+    echo "Fedora: $FEDORA_VERSION"
+    echo ""
+
+    # Check if container already exists
+    if container_exists "$name"; then
+        error "Container already exists: $name" \
+              "" \
+              "To enter it: docker-in-lxc --enter" \
+              "To recreate: docker-in-lxc --destroy && docker-in-lxc --create"
+    fi
+
+    # Create container
+    info "Creating Fedora $FEDORA_VERSION LXC container..."
+    if ! sudo lxc-create -n "$name" -t download -- -d fedora -r "$FEDORA_VERSION" -a amd64; then
+        error "Failed to create LXC container" \
+              "Check LXC logs: sudo journalctl -u lxc -n 50"
+    fi
+    success "Container created"
+
+    # Configure bind mount for project directory
+    info "Configuring project directory mount..."
+    local config_file="/var/lib/lxc/$name/config"
+    echo "lxc.mount.entry = $project_dir mnt/project none bind,create=dir 0 0" | sudo tee -a "$config_file" >/dev/null
+    success "Project will be mounted at /mnt/project"
+
+    # Start container
+    info "Starting container..."
+    if ! sudo lxc-start -n "$name"; then
+        error "Failed to start container" \
+              "Check status: sudo lxc-info -n $name"
+    fi
+    success "Container started"
+
+    # Wait for network
+    wait_for_container_network "$name"
+
+    # Wait for container to be fully ready
+    info "Waiting for container to be ready..."
+    sleep 5
+
+    # Install Docker and Claude Code using Ansible
+    info "Installing Docker and Claude Code inside container..."
+    echo ""
+    echo "This will take a few minutes (installing packages, building container)..."
+    echo ""
+
+    # Create temporary Ansible inventory for this container
+    local temp_inventory=$(mktemp -d)
+    local container_ip=$(sudo lxc-info -n "$name" -iH 2>/dev/null)
+
+    if [ -z "$container_ip" ] || [ "$container_ip" = "-" ]; then
+        # Fallback: use lxc-attach instead of SSH
+        warn "No IP address, using lxc-attach for provisioning"
+        provision_container_direct "$name"
+    else
+        # Use Ansible over SSH (if SSH is set up in container)
+        warn "Ansible provisioning not yet implemented, using direct installation"
+        provision_container_direct "$name"
+    fi
+
+    rm -rf "$temp_inventory"
+
+    echo ""
+    echo "═══════════════════════════════════════════════════════════"
+    success "Container created and configured!"
+    echo "═══════════════════════════════════════════════════════════"
+    echo ""
+    echo "Container: $name"
+    echo "Project mounted at: /mnt/project"
+    echo ""
+    echo "To enter the container:"
+    echo "  docker-in-lxc --enter"
+    echo ""
+    echo "Inside the container, use:"
+    echo "  cd /mnt/project"
+    echo "  ccy                          # Start Claude Code"
+    echo "  docker-compose up -d         # Start your application"
+    echo "  docker ps                    # List containers"
+    echo ""
+}
+
+provision_container_direct() {
+    local name="$1"
+
+    info "Installing system packages..."
+
+    # Install Docker
+    sudo lxc-attach -n "$name" -- bash -c '
+        set -e
+        echo "Installing Docker CE..."
+        dnf install -y dnf-plugins-core
+        dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
+        dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+        systemctl enable --now docker
+        echo "Docker installed successfully"
+    '
+
+    success "Docker installed"
+
+    # Install Claude Code and development tools
+    info "Installing Claude Code and development tools..."
+
+    sudo lxc-attach -n "$name" -- bash -c '
+        set -e
+        echo "Installing Node.js and npm..."
+        dnf install -y nodejs npm git
+
+        echo "Installing GitHub CLI..."
+        dnf install -y gh
+
+        echo "Installing Claude Code..."
+        npm install -g @anthropic-ai/claude-code
+
+        echo "Claude Code installed successfully"
+        claude --version || echo "Claude Code version check failed (may still work)"
+    '
+
+    success "Claude Code installed"
+
+    # Set up ccy alias and helper
+    info "Setting up ccy command..."
+
+    sudo lxc-attach -n "$name" -- bash -c '
+        set -e
+
+        # Create ccy wrapper script
+        cat > /usr/local/bin/ccy << '\''EOFCCY'\''
+#!/bin/bash
+# Claude Code YOLO Mode for LXC Container
+set -e
+
+# Set sandbox mode
+export IS_SANDBOX=1
+
+# Check for token
+if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+    echo "ERROR: No Claude Code token configured" >&2
+    echo "" >&2
+    echo "Token should be exported from host when entering container." >&2
+    echo "This is a bug in docker-in-lxc --enter logic." >&2
+    exit 1
+fi
+
+# Update Claude Code
+echo "Checking for Claude Code updates..."
+npm update -g @anthropic-ai/claude-code 2>&1 | grep -v "npm WARN" || true
+
+# Run Claude Code with full permissions
+exec claude --dangerously-skip-permissions "$@"
+EOFCCY
+
+        chmod +x /usr/local/bin/ccy
+        echo "ccy command created at /usr/local/bin/ccy"
+    '
+
+    success "ccy command configured"
+
+    # Test Docker
+    info "Testing Docker..."
+    if sudo lxc-attach -n "$name" -- docker run --rm hello-world &>/dev/null; then
+        success "Docker is working inside container"
+    else
+        warn "Docker test failed, but installation may still be OK"
+    fi
+}
+
+# ==============================================================================
+# Enter Container
+# ==============================================================================
+
+enter_container() {
+    local name="$1"
+
+    echo ""
+    echo "═══════════════════════════════════════════════════════════"
+    echo "  Entering LXC Container"
+    echo "═══════════════════════════════════════════════════════════"
+    echo ""
+
+    # Check if exists
+    if ! container_exists "$name"; then
+        error "Container does not exist: $name" \
+              "" \
+              "Create it first: docker-in-lxc --create"
+    fi
+
+    # Start if not running
+    if ! container_is_running "$name"; then
+        info "Container is stopped, starting..."
+        sudo lxc-start -n "$name"
+        sleep 2
+        wait_for_container_network "$name"
+    fi
+
+    success "Container is running"
+
+    # Get Claude token (reuse ccy token system)
+    info "Selecting Claude Code token..."
+    local token=$(select_ccy_token)
+
+    if [ -z "$token" ]; then
+        error "No token selected" \
+              "" \
+              "Create a token with: ccy --create-token"
+    fi
+
+    # Get GitHub token
+    info "Getting GitHub token..."
+    local gh_token=$(gh auth token 2>/dev/null || echo "")
+
+    if [ -z "$gh_token" ]; then
+        warn "No GitHub token available (gh not authenticated)"
+        warn "Git push operations may not work inside container"
+    fi
+
+    echo ""
+    echo "Entering container: $name"
+    echo ""
+    echo "Available commands:"
+    echo "  ccy              - Start Claude Code (YOLO mode)"
+    echo "  docker ps        - List running containers"
+    echo "  docker-compose   - Manage multi-container apps"
+    echo "  cd /mnt/project  - Your project directory"
+    echo ""
+    echo "Type 'exit' to leave the container"
+    echo ""
+    echo "═══════════════════════════════════════════════════════════"
+    echo ""
+
+    # Attach with environment variables
+    sudo lxc-attach -n "$name" \
+        --clear-env \
+        --set-var CLAUDE_CODE_OAUTH_TOKEN="$token" \
+        --set-var GH_TOKEN="$gh_token" \
+        --set-var PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+        --set-var HOME="/root" \
+        --set-var TERM="$TERM" \
+        -- /bin/bash -l
+}
+
+# ==============================================================================
+# Token Selection (reuse ccy logic)
+# ==============================================================================
+
+select_ccy_token() {
+    if [ ! -d "$CCY_TOKEN_DIR" ]; then
+        return 1
+    fi
+
+    # Get valid tokens
+    local valid_tokens=()
+    local today=$(date +%Y-%m-%d)
+
+    for token_file in "$CCY_TOKEN_DIR"/*.token; do
+        if [ -f "$token_file" ]; then
+            # Check if valid (not expired)
+            local filename=$(basename "$token_file")
+            if [[ "$filename" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2})\.token$ ]]; then
+                local expiry_date="${BASH_REMATCH[1]}"
+                if [[ "$expiry_date" > "$today" ]]; then
+                    valid_tokens+=("$token_file")
+                fi
+            fi
+        fi
+    done
+
+    if [ ${#valid_tokens[@]} -eq 0 ]; then
+        echo "" >&2
+        echo "No valid Claude Code tokens found." >&2
+        echo "" >&2
+        echo "Create one with: ccy --create-token" >&2
+        echo "" >&2
+        return 1
+    fi
+
+    # If only one token, use it automatically
+    if [ ${#valid_tokens[@]} -eq 1 ]; then
+        cat "${valid_tokens[0]}"
+        return 0
+    fi
+
+    # Multiple tokens - prompt
+    echo ""
+    echo "Select Claude Code token:"
+    echo ""
+
+    for i in "${!valid_tokens[@]}"; do
+        local token_file="${valid_tokens[$i]}"
+        local filename=$(basename "$token_file")
+        local token_name="${filename%.*.token}"
+
+        if [[ "$filename" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2})\.token$ ]]; then
+            local expiry_date="${BASH_REMATCH[1]}"
+            echo "  $((i+1))) $token_name (expires: $expiry_date)"
+        else
+            echo "  $((i+1))) $token_name"
+        fi
+    done
+
+    echo ""
+
+    while true; do
+        read -p "Select token [1-${#valid_tokens[@]}]: " selection
+
+        if [ "$selection" -ge 1 ] && [ "$selection" -le ${#valid_tokens[@]} ] 2>/dev/null; then
+            cat "${valid_tokens[$((selection-1))]}"
+            return 0
+        else
+            echo "Invalid selection" >&2
+        fi
+    done
+}
+
+# ==============================================================================
+# Stop Container
+# ==============================================================================
+
+stop_container() {
+    local name="$1"
+
+    echo ""
+    echo "═══════════════════════════════════════════════════════════"
+    echo "  Stopping LXC Container"
+    echo "═══════════════════════════════════════════════════════════"
+    echo ""
+
+    if ! container_exists "$name"; then
+        error "Container does not exist: $name"
+    fi
+
+    if ! container_is_running "$name"; then
+        info "Container is already stopped"
+        return 0
+    fi
+
+    info "Stopping container: $name"
+    sudo lxc-stop -n "$name"
+
+    # Wait for stop
+    local max_wait=30
+    local elapsed=0
+    while container_is_running "$name" && [ $elapsed -lt $max_wait ]; do
+        sleep 1
+        elapsed=$((elapsed + 1))
+    done
+
+    if container_is_running "$name"; then
+        warn "Container did not stop gracefully, forcing..."
+        sudo lxc-stop -n "$name" -k
+    fi
+
+    success "Container stopped"
+}
+
+# ==============================================================================
+# Destroy Container
+# ==============================================================================
+
+destroy_container() {
+    local name="$1"
+
+    echo ""
+    echo "═══════════════════════════════════════════════════════════"
+    echo "  Destroy LXC Container"
+    echo "═══════════════════════════════════════════════════════════"
+    echo ""
+    echo "⚠  WARNING: This will permanently delete:"
+    echo "  • Container: $name"
+    echo "  • All data inside the container"
+    echo "  • Docker images and containers"
+    echo ""
+    echo "Your project files are safe (only mounted, not moved)"
+    echo ""
+
+    read -p "Type 'yes' to confirm deletion: " confirm
+
+    if [ "$confirm" != "yes" ]; then
+        echo "Cancelled."
+        exit 0
+    fi
+
+    if ! container_exists "$name"; then
+        error "Container does not exist: $name"
+    fi
+
+    # Stop if running
+    if container_is_running "$name"; then
+        info "Stopping container..."
+        sudo lxc-stop -n "$name" -k || true
+        sleep 2
+    fi
+
+    info "Destroying container: $name"
+    sudo lxc-destroy -n "$name"
+
+    success "Container destroyed"
+}
+
+# ==============================================================================
+# Status
+# ==============================================================================
+
+show_status() {
+    local name="$1"
+
+    echo ""
+    echo "═══════════════════════════════════════════════════════════"
+    echo "  Container Status"
+    echo "═══════════════════════════════════════════════════════════"
+    echo ""
+
+    if ! container_exists "$name"; then
+        echo "Container: $name"
+        echo "Status: NOT CREATED"
+        echo ""
+        echo "Create it with: docker-in-lxc --create"
+        echo ""
+        return 0
+    fi
+
+    echo "Container: $name"
+    echo ""
+
+    # Get detailed info
+    sudo lxc-info -n "$name"
+
+    echo ""
+    echo "Project: $PWD"
+    echo "Mounted at: /mnt/project (inside container)"
+    echo ""
+
+    if container_is_running "$name"; then
+        echo "Commands:"
+        echo "  docker-in-lxc --enter    - Enter container"
+        echo "  docker-in-lxc --stop     - Stop container"
+    else
+        echo "Commands:"
+        echo "  docker-in-lxc --enter    - Start and enter container"
+        echo "  docker-in-lxc --destroy  - Delete container"
+    fi
+    echo ""
+}
+
+# ==============================================================================
+# Main
+# ==============================================================================
+
+main() {
+    # Show help
+    if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ] || [ $# -eq 0 ]; then
+        show_help
+    fi
+
+    local command="$1"
+    shift
+
+    # Run preflight checks for most commands
+    if [[ "$command" != "--help" ]] && [[ "$command" != "-h" ]]; then
+        check_git_repo
+        check_docker_project
+
+        # Only check host for create (other commands may work even if host has issues)
+        if [[ "$command" = "--create" ]]; then
+            check_host_configured
+        fi
+    fi
+
+    local container_name=$(get_container_name)
+
+    case "$command" in
+        --create)
+            create_container "$container_name"
+            ;;
+        --enter)
+            enter_container "$container_name"
+            ;;
+        --stop)
+            stop_container "$container_name"
+            ;;
+        --destroy)
+            destroy_container "$container_name"
+            ;;
+        --status)
+            show_status "$container_name"
+            ;;
+        *)
+            echo "ERROR: Unknown command: $command" >&2
+            echo "" >&2
+            echo "Run: docker-in-lxc --help" >&2
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"

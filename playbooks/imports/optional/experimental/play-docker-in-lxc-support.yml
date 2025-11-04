@@ -1,0 +1,92 @@
+---
+# Docker-in-LXC Support Playbook
+# This playbook configures the host system to support Docker running inside LXC containers
+# It extends the base LXC configuration with Docker-specific requirements
+
+- hosts: desktop
+  name: Configure Docker-in-LXC Support
+  become: true
+
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+
+  tasks:
+    - name: Load Kernel Modules Required for Docker-in-LXC
+      community.general.modprobe:
+        name: "{{ item }}"
+        state: present
+        persistent: present
+      loop:
+        - overlay          # Docker overlay storage driver
+        - br_netfilter     # Bridge netfilter for Docker networking
+
+    - name: Create Persistent Module Load Configuration
+      lineinfile:
+        path: "/etc/modules-load.d/{{ item }}.conf"
+        line: "{{ item }}"
+        create: true
+        mode: '0644'
+      loop:
+        - overlay
+        - br_netfilter
+
+    - name: Configure Sysctl Parameters for Docker-in-LXC
+      ansible.posix.sysctl:
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        state: present
+        sysctl_file: /etc/sysctl.conf
+        reload: true
+      loop:
+        # Enable IP forwarding for Docker container networking
+        - key: net.ipv4.ip_forward
+          value: '1'
+
+        # Enable bridge netfilter for iptables to work with bridges
+        # Required for Docker to manage container networking via iptables
+        - key: net.bridge.bridge-nf-call-iptables
+          value: '1'
+
+        # Enable bridge netfilter for IPv6
+        - key: net.bridge.bridge-nf-call-ip6tables
+          value: '1'
+
+        # Allow unprivileged users to create user namespaces
+        # Required for rootless Docker inside containers
+        - key: kernel.unprivileged_userns_clone
+          value: '1'
+
+    - name: Install Docker-in-LXC Script
+      copy:
+        src: "{{ root_dir }}/files/var/local/docker-in-lxc"
+        dest: /var/local/docker-in-lxc
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Create Symlink for Easy Access
+      file:
+        src: /var/local/docker-in-lxc
+        dest: /usr/local/bin/docker-in-lxc
+        state: link
+        force: true
+
+    - name: Display Configuration Summary
+      debug:
+        msg:
+          - "Docker-in-LXC support has been configured on the host system."
+          - ""
+          - "Kernel modules loaded: overlay, br_netfilter"
+          - "Sysctl parameters set: IP forwarding, bridge netfilter, user namespaces"
+          - ""
+          - "Command installed: docker-in-lxc"
+          - ""
+          - "Usage:"
+          - "  1. Navigate to a Docker project (with docker-compose.yml or Dockerfile)"
+          - "  2. cd ~/Projects/my-docker-app"
+          - "  3. docker-in-lxc --create    # Create LXC container for this project"
+          - "  4. docker-in-lxc --enter     # Enter the container"
+          - "  5. Inside: ccy                # Start Claude Code in YOLO mode"
+          - "  6. Inside: docker-compose up  # Start your application"
+          - ""
+          - "For help: docker-in-lxc --help"
