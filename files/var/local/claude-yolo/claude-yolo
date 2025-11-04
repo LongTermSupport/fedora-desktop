@@ -3,13 +3,17 @@
 # Runs Claude Code with --dangerously-skip-permissions in isolated Docker container
 # IMPORTANT: Uses separate token storage from desktop Claude Code to prevent OAuth conflicts
 #
-# Version: 1.2.0
+# Version: 1.3.0
 #
 # IMPORTANT: When modifying this script, ALWAYS increment CCY_VERSION!
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="1.2.0"
+CCY_VERSION="1.3.0"
+
+# IMPORTANT: When modifying the Dockerfile, ALWAYS increment REQUIRED_CONTAINER_VERSION!
+# This ensures users automatically rebuild when critical container changes are made.
+REQUIRED_CONTAINER_VERSION="1.2"
 
 set -e
 
@@ -1158,6 +1162,105 @@ custom_dockerfile() {
     done
 }
 
+# Function to validate container version and rebuild if needed
+# Args: $1 = image name, $2 = Dockerfile path
+# Validates both version and hash (like CCY_VERSION/CCY_HASH pattern)
+validate_container_version() {
+    local image_name="$1"
+    local dockerfile_path="$2"
+
+    # Get version and hash from built image
+    local image_version=$(docker image inspect "$image_name" \
+        --format '{{index .Config.Labels "claude-yolo-version"}}' 2>/dev/null || echo "0")
+    local image_hash=$(docker image inspect "$image_name" \
+        --format '{{index .Config.Labels "claude-yolo-dockerfile-hash"}}' 2>/dev/null || echo "unknown")
+
+    # Calculate current Dockerfile hash (16 char md5, like CCY_HASH)
+    local current_hash=$(md5sum "$dockerfile_path" | cut -d' ' -f1 | cut -c1-16)
+
+    # Validate version and hash together (like CCY version validation)
+    local version_match=false
+    local hash_match=false
+
+    [[ "$image_version" == "$REQUIRED_CONTAINER_VERSION" ]] && version_match=true
+    [[ "$image_hash" == "$current_hash" ]] && hash_match=true
+
+    # Special case: "unknown" hash means image was built before hash tracking
+    # This happens during migration from old system or Ansible builds without hash arg
+    local is_migration=false
+    [[ "$image_hash" == "unknown" ]] && is_migration=true
+
+    if $version_match && $hash_match; then
+        # Perfect match - container is up to date
+        return 0
+
+    elif $is_migration && $version_match; then
+        # Migration from old system - rebuild without scary warning
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "ℹ️  Migrating to hash-based version tracking"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "Version: v$REQUIRED_CONTAINER_VERSION"
+        echo ""
+        echo "Rebuilding container with hash tracking enabled..."
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        return 1
+
+    elif $version_match && ! $hash_match; then
+        # VERSION same but HASH different = Developer forgot to update version!
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "⚠️  DEVELOPER ERROR: Dockerfile modified without version bump" >&2
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "Version:       $REQUIRED_CONTAINER_VERSION (unchanged)" >&2
+        echo "Image hash:    $image_hash" >&2
+        echo "Current hash:  $current_hash" >&2
+        echo "" >&2
+        echo "The Dockerfile has been modified but claude-yolo-version was not updated." >&2
+        echo "This is a developer error - version numbers must be incremented" >&2
+        echo "when the Dockerfile changes to ensure proper deployment." >&2
+        echo "" >&2
+        echo "Rebuilding container automatically..." >&2
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "" >&2
+        return 1
+
+    elif ! $version_match; then
+        # VERSION different = Normal upgrade
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "ℹ️  Container version update required"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "Image version: v$image_version"
+        echo "Required:      v$REQUIRED_CONTAINER_VERSION"
+        echo ""
+        echo "Rebuilding container with latest changes..."
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        return 1
+    fi
+}
+
+# Function to build container with hash
+# Args: $1 = image name, $2 = dockerfile directory, $3 = additional flags (optional)
+build_container_with_hash() {
+    local image_name="$1"
+    local dockerfile_dir="$2"
+    local additional_flags="$3"
+    local dockerfile_path="$dockerfile_dir/Dockerfile"
+
+    # Calculate Dockerfile hash
+    local dockerfile_hash=$(md5sum "$dockerfile_path" | cut -d' ' -f1 | cut -c1-16)
+
+    # Build with hash as build arg
+    docker build \
+        $additional_flags \
+        --build-arg DOCKERFILE_HASH="$dockerfile_hash" \
+        -t "$image_name" \
+        "$dockerfile_dir"
+}
+
 # Check for wrapper flags
 FORCE_REBUILD=false
 DEBUG_MODE=false
@@ -1697,7 +1800,7 @@ if [ "$FORCE_REBUILD" = true ]; then
         echo "Please run the ansible playbook: playbooks/imports/optional/common/play-install-claude-yolo.yml"
         exit 1
     fi
-    docker build --no-cache -t "$IMAGE_NAME" "$DOCKERFILE_DIR"
+    build_container_with_hash "$IMAGE_NAME" "$DOCKERFILE_DIR" "--no-cache"
     # Clear version cache to force Claude Code update check
     rm -f "$VERSION_CACHE"
     echo "✓ Container image rebuilt successfully"
@@ -1711,8 +1814,15 @@ if ! docker image inspect "$IMAGE_NAME" &> /dev/null; then
         echo "Please run the ansible playbook: playbooks/imports/optional/common/play-install-claude-yolo.yml"
         exit 1
     fi
-    docker build -t "$IMAGE_NAME" "$DOCKERFILE_DIR"
+    build_container_with_hash "$IMAGE_NAME" "$DOCKERFILE_DIR"
     echo "✓ Container image built successfully"
+fi
+
+# Validate container version and hash (auto-rebuild if needed)
+if ! validate_container_version "$IMAGE_NAME" "$DOCKERFILE_DIR/Dockerfile"; then
+    # Version/hash mismatch - rebuild required
+    build_container_with_hash "$IMAGE_NAME" "$DOCKERFILE_DIR"
+    echo "✓ Container image rebuilt with version $REQUIRED_CONTAINER_VERSION"
 fi
 
 # Check if Claude Code needs updating (with caching to keep it fast)
@@ -1768,7 +1878,8 @@ get_next_container_name() {
 PROJECT_NAME=$(basename "$PWD")
 PROJECT_DOCKERFILE=".claude/ccy/Dockerfile"
 PROJECT_IMAGE_NAME="claude-yolo:${PROJECT_NAME}"
-DOCKERFILE_HASH_FILE="$HOME/.cache/claude-yolo-${PROJECT_NAME}-dockerfile-hash"
+PROJECT_DOCKERFILE_HASH_FILE="$HOME/.cache/claude-yolo-${PROJECT_NAME}-dockerfile-hash"
+PROJECT_BASE_VERSION_FILE="$HOME/.cache/claude-yolo-${PROJECT_NAME}-base-version"
 
 if [ -f "$PROJECT_DOCKERFILE" ]; then
     echo ""
@@ -1780,26 +1891,55 @@ if [ -f "$PROJECT_DOCKERFILE" ]; then
     echo "Project image: $PROJECT_IMAGE_NAME"
     echo ""
 
-    # Calculate hash of Dockerfile to detect changes
-    current_hash=$(sha256sum "$PROJECT_DOCKERFILE" | cut -d' ' -f1)
-    previous_hash=""
-    if [ -f "$DOCKERFILE_HASH_FILE" ]; then
-        previous_hash=$(cat "$DOCKERFILE_HASH_FILE")
+    # Calculate hash of project Dockerfile (md5sum, 16 char - consistent with base)
+    current_project_hash=$(md5sum "$PROJECT_DOCKERFILE" | cut -d' ' -f1 | cut -c1-16)
+    previous_project_hash=""
+    if [ -f "$PROJECT_DOCKERFILE_HASH_FILE" ]; then
+        previous_project_hash=$(cat "$PROJECT_DOCKERFILE_HASH_FILE")
     fi
 
-    # Build if image doesn't exist, Dockerfile changed, or --rebuild flag
+    # Get current base image version
+    current_base_version=$(docker image inspect "claude-yolo:latest" \
+        --format '{{index .Config.Labels "claude-yolo-version"}}' 2>/dev/null || echo "unknown")
+
+    # Get base version that project image was built with
+    previous_base_version=""
+    if [ -f "$PROJECT_BASE_VERSION_FILE" ]; then
+        previous_base_version=$(cat "$PROJECT_BASE_VERSION_FILE")
+    fi
+
+    # Build if image doesn't exist, Dockerfile changed, base image updated, or --rebuild flag
     should_build=false
+    rebuild_reason=""
+
     if ! docker image inspect "$PROJECT_IMAGE_NAME" &> /dev/null; then
         echo "Building project-specific image (first time)..."
         should_build=true
-    elif [ "$current_hash" != "$previous_hash" ]; then
-        echo "Dockerfile changed, rebuilding image..."
+        rebuild_reason="first time"
+    elif [ "$current_project_hash" != "$previous_project_hash" ]; then
+        echo "Project Dockerfile changed, rebuilding image..."
         should_build=true
+        rebuild_reason="Dockerfile changed"
+    elif [ "$current_base_version" != "$previous_base_version" ]; then
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "ℹ️  Base image updated - rebuilding project image"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "Previous base: v$previous_base_version"
+        echo "Current base:  v$current_base_version"
+        echo ""
+        echo "Project images inherit from claude-yolo:latest."
+        echo "Rebuilding to include base image changes (e.g., tini, security fixes)..."
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        should_build=true
+        rebuild_reason="base image updated"
     elif [ "$FORCE_REBUILD" = true ]; then
         echo "Force rebuild requested..."
         should_build=true
+        rebuild_reason="--rebuild flag"
     else
-        echo "Using cached project image (Dockerfile unchanged)"
+        echo "✓ Using cached project image (Dockerfile and base unchanged)"
     fi
 
     if [ "$should_build" = true ]; then
@@ -1809,22 +1949,28 @@ if [ -f "$PROJECT_DOCKERFILE" ]; then
         echo "Tip: apt/npm packages are cached between builds for speed"
         echo ""
 
-        # Use buildkit for cache mounts
+        # Calculate project Dockerfile hash for build arg
+        project_dockerfile_hash=$(md5sum "$PROJECT_DOCKERFILE" | cut -d' ' -f1 | cut -c1-16)
+
+        # Use buildkit for cache mounts and pass Dockerfile hash
         if DOCKER_BUILDKIT=1 docker build \
             --build-arg BUILDKIT_INLINE_CACHE=1 \
+            --build-arg DOCKERFILE_HASH="$project_dockerfile_hash" \
             -t "$PROJECT_IMAGE_NAME" \
             -f "$PROJECT_DOCKERFILE" \
             .; then
 
-            # Save hash to track changes
-            echo "$current_hash" > "$DOCKERFILE_HASH_FILE"
+            # Save hashes and versions to track changes
+            echo "$current_project_hash" > "$PROJECT_DOCKERFILE_HASH_FILE"
+            echo "$current_base_version" > "$PROJECT_BASE_VERSION_FILE"
             echo ""
             echo "✓ Project image built successfully: $PROJECT_IMAGE_NAME"
+            [ -n "$rebuild_reason" ] && echo "  Rebuild reason: $rebuild_reason"
         else
             echo ""
             echo "ERROR: Failed to build project-specific image"
             echo ""
-            echo "Falling back to base image: $IMAGE_NAME"
+            echo "Falling back to base image: claude-yolo:latest"
             echo ""
         fi
     fi

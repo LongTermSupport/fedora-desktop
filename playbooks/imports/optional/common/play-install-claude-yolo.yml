@@ -145,8 +145,17 @@
         group: "{{ user_login }}"
         mode: '0700'
 
-    - name: Build Claude YOLO Container Image
-      command: docker build -t claude-yolo:latest /opt/claude-yolo
+    - name: Calculate Dockerfile Hash for Build
+      shell: md5sum /opt/claude-yolo/Dockerfile | cut -d' ' -f1 | cut -c1-16
+      register: dockerfile_hash
+      changed_when: false
+
+    - name: Build Claude YOLO Container Image with Hash
+      command: >
+        docker build
+        --build-arg DOCKERFILE_HASH={{ dockerfile_hash.stdout }}
+        -t claude-yolo:latest
+        /opt/claude-yolo
       register: docker_build
       changed_when: "'Successfully built' in docker_build.stdout or 'Successfully tagged' in docker_build.stdout"
 

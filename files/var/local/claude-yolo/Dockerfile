@@ -1,7 +1,14 @@
 FROM node:20-slim
 
+# Accept build arg for Dockerfile hash (calculated by wrapper at build time)
+ARG DOCKERFILE_HASH="unknown"
+
 # Metadata
-LABEL claude-yolo-version="1.0"
+# IMPORTANT: When modifying this Dockerfile, ALWAYS increment claude-yolo-version!
+# The hash validates Dockerfile integrity - if hash changes but version doesn't,
+# users will get a warning that version wasn't properly updated.
+LABEL claude-yolo-version="1.2"
+LABEL claude-yolo-dockerfile-hash="${DOCKERFILE_HASH}"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 
 # Install system dependencies
@@ -24,6 +31,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
     python3-yaml \
+    tini \
+    tree \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -54,8 +63,8 @@ WORKDIR /workspace
 # Note: USER directive is NOT set here - we use --user flag at runtime
 # This allows dynamic UID/GID mapping to match the host user
 
-# Use entrypoint to handle config setup
-ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+# Use tini as PID 1 to properly handle signals and reap zombie processes
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]
 
 # Default command (will be overridden by wrapper)
 CMD ["claude", "--help"]
