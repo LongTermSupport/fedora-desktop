@@ -3,13 +3,13 @@
 # Runs Claude Code with --dangerously-skip-permissions in isolated Docker container
 # IMPORTANT: Uses separate token storage from desktop Claude Code to prevent OAuth conflicts
 #
-# Version: 1.5.0
+# Version: 1.5.1
 #
 # IMPORTANT: When modifying this script, ALWAYS increment CCY_VERSION!
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="1.5.0"
+CCY_VERSION="1.5.1"
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -2407,7 +2407,8 @@ CAPABILITIES:
 • Full development environment (git, gh, ripgrep, jq, Node.js, Python)
 • GitHub CLI authenticated (can create PRs, issues, etc.)
 • SSH keys mounted for git operations
-• Can install packages and tools (container is ephemeral)
+• Running as root user - install packages freely (apt, npm, pip, etc.)
+• Container is ephemeral - for permanent tools, extend the Dockerfile
 • YOLO mode = fast iteration, no permission prompts
 
 Your project files are at /workspace. Use git, write code, run tests, create commits and PRs!"
