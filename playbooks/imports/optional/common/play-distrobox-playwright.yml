@@ -233,18 +233,19 @@
       args:
         executable: /bin/bash
 
-    - name: Configure Global MCP Servers for Claude Code
+    - name: Configure Global MCP Servers for Claude Code CLI
       shell: |
         distrobox enter {{ distrobox_name }} -- bash -c '
-          mkdir -p ~/.config/claude
-          cat > ~/.config/claude/mcp_servers.json << "EOF"
+          cat > ~/.claude.json << "EOF"
         {
           "mcpServers": {
             "playwright": {
+              "type": "stdio",
               "command": "npx",
               "args": ["-y", "@playwright/mcp@latest"]
             },
             "puppeteer": {
+              "type": "stdio",
               "command": "npx",
               "args": ["-y", "@cloudflare/puppeteer-mcp-server@latest"]
             }
