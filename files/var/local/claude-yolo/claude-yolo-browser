@@ -1,0 +1,222 @@
+#!/bin/bash
+# Claude Code Browser Automation Mode
+# Runs Claude Code inside playwright-tests distrobox for MCP browser control
+#
+# Version: 1.0.0
+#
+CCY_BROWSER_VERSION="1.0.0"
+
+set -e
+
+# Load shared helpers
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/lib/common.bash" ]; then
+    source "$SCRIPT_DIR/lib/common.bash"
+else
+    # Fallback if library not found
+    echo "ERROR: Shared library not found at $SCRIPT_DIR/lib/common.bash" >&2
+    exit 1
+fi
+
+DISTROBOX_NAME="playwright-tests"
+
+# Show help if requested
+if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+    cat << 'EOF'
+Claude Code Browser Automation Mode (ccy-browser)
+
+Usage: ccy-browser [CLAUDE_ARGS...]
+
+Description:
+  Launches Claude Code inside the playwright-tests distrobox container for
+  interactive MCP browser automation, debugging, and exploration.
+
+  Runs in YOLO mode (--dangerously-skip-permissions) for rapid development.
+
+  Use this to watch Claude Code control browsers through MCP in real-time,
+  perfect for debugging web applications, scraping, and acceptance testing.
+
+Features:
+  • Full development environment (git, gh, ripgrep, jq, yq, vim, python)
+  • Playwright + browsers (Chromium, Firefox, WebKit)
+  • Node.js LTS v20 environment
+  • GUI browsers visible on desktop (X11/Wayland)
+  • SSH keys and git config (shared from host)
+  • Access to all your project files (auto-mounted)
+  • Claude Code tokens (shared from host ~/.claude/)
+  • YOLO mode for fast iteration (bypasses permission checks)
+  • MCP server support for browser automation
+
+Requirements:
+  • playwright-tests distrobox must be created first
+    Run: ansible-playbook playbooks/imports/optional/common/play-distrobox-playwright.yml
+
+Common Usage:
+  ccy-browser                     # Start interactive MCP browser session
+  ccy-browser "explore the login flow"  # Start with specific task
+  ccy-browser --version           # Show Claude Code version
+
+Examples:
+  # Interactive browser exploration
+  cd ~/Projects/my-app
+  ccy-browser
+  # Ask: "Explore the checkout flow and find issues"
+  # Watch: Claude controls browser through MCP in real-time
+  # See: Browsers execute on your desktop with visual feedback
+
+  # Debug web application
+  cd ~/Projects/scraper
+  ccy-browser "help me debug why the scraper is failing"
+  # Claude opens browsers, inspects elements, finds issues
+
+  # Acceptance test engineering
+  cd ~/Projects/app/tests
+  ccy-browser "write playwright tests for user registration"
+  # Claude can write AND run tests interactively
+
+Management:
+  playwright-distrobox status     # Check container status
+  playwright-distrobox update     # Update browsers
+  playwright-distrobox recreate   # Rebuild container
+  playwright-distrobox help       # Show all commands
+
+Token Management:
+  Tokens are automatically shared from host ~/.claude/
+  No separate token setup needed!
+
+  To create/manage tokens:
+    claude setup-token           # From desktop
+    ccy --create-token           # From docker (long-lived tokens)
+
+For more information:
+  https://github.com/LongTermSupport/fedora-desktop/blob/F42/docs/containerization.md#playwright-distrobox-automated
+
+EOF
+    exit 0
+fi
+
+# Show version if requested
+if [ "$1" = "--version" ] || [ "$1" = "-v" ]; then
+    echo "ccy-browser version $CCY_BROWSER_VERSION"
+    echo ""
+    if command_exists distrobox && distrobox list --no-color 2>/dev/null | grep -qw "$DISTROBOX_NAME"; then
+        echo "Container: $DISTROBOX_NAME"
+        echo "Claude Code: $(distrobox enter "$DISTROBOX_NAME" -- claude --version 2>/dev/null || echo 'not installed')"
+    fi
+    exit 0
+fi
+
+# Preflight checks
+print_header "Claude Code Browser Automation Mode"
+echo ""
+
+# Check if distrobox is installed
+if ! command_exists distrobox; then
+    print_error "distrobox is not installed"
+    echo "" >&2
+    echo "Please install distrobox first:" >&2
+    echo "  ansible-playbook playbooks/imports/optional/common/play-install-distrobox.yml" >&2
+    exit 1
+fi
+
+# Check if playwright-tests container exists
+if ! distrobox list --no-color 2>/dev/null | grep -qw "$DISTROBOX_NAME"; then
+    print_error "'$DISTROBOX_NAME' distrobox container not found"
+    echo "" >&2
+    echo "The playwright distrobox must be created before using ccy-browser." >&2
+    echo "" >&2
+    echo "To create it:" >&2
+    echo "  ansible-playbook playbooks/imports/optional/common/play-distrobox-playwright.yml" >&2
+    echo "" >&2
+    echo "This creates a comprehensive browser automation environment with:" >&2
+    echo "  • Full development tools (git, gh, ripgrep, jq, yq, vim, python)" >&2
+    echo "  • Node.js LTS v20" >&2
+    echo "  • Playwright browsers (Chromium, Firefox, WebKit)" >&2
+    echo "  • GUI support for visible testing" >&2
+    echo "  • Claude Code configured for MCP" >&2
+    echo "" >&2
+    echo "For more information:" >&2
+    echo "  playwright-distrobox help" >&2
+    exit 1
+fi
+
+# Check if Claude Code is installed in the container
+if ! distrobox enter "$DISTROBOX_NAME" -- bash -c 'command -v claude &> /dev/null'; then
+    print_error "Claude Code is not installed in the $DISTROBOX_NAME container"
+    echo "" >&2
+    echo "Please run the Playwright distrobox playbook to install Claude Code:" >&2
+    echo "  ansible-playbook playbooks/imports/optional/common/play-distrobox-playwright.yml" >&2
+    echo "" >&2
+    echo "This will configure the container with:" >&2
+    echo "  • Claude Code CLI" >&2
+    echo "  • Node.js and Playwright browsers" >&2
+    echo "  • All required dependencies" >&2
+    exit 1
+fi
+
+# Optional: Check if in a git repository (helpful but not required for browser work)
+if ! is_git_repo; then
+    print_warning "Not in a git repository root"
+    echo "   Current directory: $PWD" >&2
+    echo "   Continuing anyway (browser automation doesn't require git)..." >&2
+    echo "" >&2
+fi
+
+# Check for Claude token (warn but don't fail - distrobox shares ~/.claude/)
+if ! has_claude_token; then
+    print_warning "No Claude Code token detected in ~/.claude/"
+    echo "" >&2
+    echo "You'll need to authenticate when Claude Code starts." >&2
+    echo "" >&2
+    echo "To set up a token before starting:" >&2
+    echo "  claude setup-token  # From desktop (quick)" >&2
+    echo "  ccy --create-token  # From docker (long-lived)" >&2
+    echo "" >&2
+    echo "Tokens are automatically shared with distrobox containers." >&2
+    echo "" >&2
+
+    if ! confirm "Continue without token?" "y"; then
+        exit 0
+    fi
+fi
+
+# Get current directory (will be preserved in distrobox)
+CURRENT_DIR="$PWD"
+
+# Build the Claude Code command with YOLO mode
+CLAUDE_CMD="cd '$CURRENT_DIR' && claude --dangerously-skip-permissions"
+
+# Add any arguments passed to the script
+if [ $# -gt 0 ]; then
+    # Properly quote arguments for shell
+    ARGS=""
+    for arg in "$@"; do
+        # Escape single quotes in arguments
+        escaped_arg="${arg//\'/\'\\\'\'}"
+        ARGS="$ARGS '$escaped_arg'"
+    done
+    CLAUDE_CMD="$CLAUDE_CMD $ARGS"
+fi
+
+# Display startup message
+print_header "Starting Browser Automation Session"
+echo ""
+print_success "Container: $DISTROBOX_NAME"
+print_success "Directory: $CURRENT_DIR"
+echo ""
+echo "Environment:"
+echo "  • Node.js LTS v20"
+echo "  • Playwright browsers (Chromium, Firefox, WebKit)"
+echo "  • GUI windows will appear on your desktop"
+echo "  • Full development tooling available"
+echo "  • MCP browser control ready"
+echo ""
+
+# Show YOLO warning
+show_yolo_warning
+
+echo "Launching Claude Code..."
+echo ""
+
+# Enter distrobox and run Claude Code
+exec distrobox enter "$DISTROBOX_NAME" -- bash -c "$CLAUDE_CMD"

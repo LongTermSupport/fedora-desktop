@@ -96,6 +96,89 @@
       args:
         executable: /bin/bash
 
+    # Development tools installation (feature parity with claude-yolo Docker)
+    - name: Install Essential Development Tools
+      shell: |
+        distrobox enter {{ distrobox_name }} -- bash -c '
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends \
+            git \
+            vim \
+            nano \
+            ripgrep \
+            jq \
+            curl \
+            wget \
+            ca-certificates \
+            openssh-client \
+            python3 \
+            python3-pip \
+            bash-completion \
+            less \
+            tree \
+            unzip
+        '
+      args:
+        executable: /bin/bash
+
+    # GitHub CLI installation
+    - name: Check if GitHub CLI is Installed
+      shell: |
+        distrobox enter {{ distrobox_name }} -- bash -c 'command -v gh' || true
+      register: gh_check
+      changed_when: false
+
+    - name: Install GitHub CLI
+      shell: |
+        distrobox enter {{ distrobox_name }} -- bash -c '
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg &&
+          sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg &&
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null &&
+          sudo apt-get update &&
+          sudo apt-get install -y gh
+        '
+      when: gh_check.stdout == ""
+      args:
+        executable: /bin/bash
+
+    # yq installation
+    - name: Check if yq is Installed
+      shell: |
+        distrobox enter {{ distrobox_name }} -- bash -c 'command -v yq' || true
+      register: yq_check
+      changed_when: false
+
+    - name: Install yq (YAML processor)
+      shell: |
+        distrobox enter {{ distrobox_name }} -- bash -c '
+          sudo wget -qO /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 &&
+          sudo chmod +x /usr/bin/yq
+        '
+      when: yq_check.stdout == ""
+      args:
+        executable: /bin/bash
+
+    # SSH configuration (home directory shared, so SSH keys already accessible)
+    - name: Configure SSH in Container
+      shell: |
+        distrobox enter {{ distrobox_name }} -- bash -c '
+          # SSH directory is shared from host, just ensure permissions
+          if [ -d ~/.ssh ]; then
+            chmod 700 ~/.ssh
+            chmod 600 ~/.ssh/id* 2>/dev/null || true
+          fi
+        '
+      args:
+        executable: /bin/bash
+
+    # Git configuration (shared from host via home directory)
+    - name: Verify Git Configuration Accessible
+      shell: |
+        distrobox enter {{ distrobox_name }} -- bash -c '
+          git config --global user.name || echo "Git config shared from host"
+        '
+      register: git_config_check
+      changed_when: false
+
     # Claude Code installation
     - name: Check if Claude Code is Installed in Container
       shell: |
@@ -263,24 +346,77 @@
         state: present
         create: false
 
-    # Claude Code Browser Automation Mode
-    - name: Install ccy-browser Command
+    # Claude Code Browser Automation Mode (DRY architecture)
+    - name: Create Claude YOLO Library Directory
       become: true
-      copy:
-        src: "{{ root_dir }}/files/usr/local/bin/ccy-browser"
-        dest: /usr/local/bin/ccy-browser
+      file:
+        path: /var/local/claude-yolo/lib
+        state: directory
         owner: root
         group: root
         mode: '0755'
+
+    - name: Install Shared Helper Library
+      become: true
+      copy:
+        src: "{{ root_dir }}/files/var/local/claude-yolo/lib/common.bash"
+        dest: /var/local/claude-yolo/lib/common.bash
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Install claude-yolo-browser Command
+      become: true
+      copy:
+        src: "{{ root_dir }}/files/var/local/claude-yolo/claude-yolo-browser"
+        dest: /var/local/claude-yolo/claude-yolo-browser
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Create Symlink for ccy-browser in PATH
+      become: true
+      file:
+        src: /var/local/claude-yolo/claude-yolo-browser
+        dest: /usr/local/bin/claude-yolo-browser
+        state: link
+        force: true
+
+    - name: Install ccy-browser Bash Aliases
+      copy:
+        src: "{{ root_dir }}/files/home/bashrc-includes/claude-yolo-browser.bash"
+        dest: "/home/{{ user_login }}/.bashrc-includes/claude-yolo-browser.bash"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
 
     # Verification
     - name: Verify Playwright Container Configuration
       shell: |
         distrobox enter {{ distrobox_name }} -- bash -c '
-          echo "Node.js: $(node --version)"
-          echo "npm: $(npm --version)"
-          echo "Browsers: $(ls -1 ~/.cache/ms-playwright/ 2>/dev/null | grep -E "^(chromium|firefox|webkit)" | wc -l) installed"
-          echo "Claude Code: $(claude --version 2>/dev/null || echo "not found")"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "Container Environment:"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "Node.js: $(node --version 2>/dev/null || echo "not found")"
+          echo "npm: $(npm --version 2>/dev/null || echo "not found")"
+          echo "Playwright Browsers: $(ls -1 ~/.cache/ms-playwright/ 2>/dev/null | grep -E "^(chromium|firefox|webkit)" | wc -l) installed"
+          echo ""
+          echo "Development Tools:"
+          echo "  git: $(git --version 2>/dev/null | cut -d\" \" -f3 || echo "not found")"
+          echo "  gh: $(gh --version 2>/dev/null | head -1 | cut -d\" \" -f3 || echo "not found")"
+          echo "  ripgrep: $(rg --version 2>/dev/null | head -1 | cut -d\" \" -f2 || echo "not found")"
+          echo "  jq: $(jq --version 2>/dev/null | cut -d\"-\" -f2 || echo "not found")"
+          echo "  yq: $(yq --version 2>/dev/null | cut -d\" \" -f4 || echo "not found")"
+          echo "  python3: $(python3 --version 2>/dev/null | cut -d\" \" -f2 || echo "not found")"
+          echo "  vim: $(vim --version 2>/dev/null | head -1 | grep -oP \"(?<=VIM - Vi IMproved )[0-9.]+\" || echo "not found")"
+          echo ""
+          echo "Claude Code:"
+          echo "  $(claude --version 2>/dev/null || echo "not found")"
+          echo ""
+          echo "SSH & Git Config:"
+          echo "  SSH keys: $(ls -1 ~/.ssh/id* 2>/dev/null | wc -l) keys found"
+          echo "  Git user: $(git config --global user.name 2>/dev/null || echo "not configured")"
+          echo "  Git email: $(git config --global user.email 2>/dev/null || echo "not configured")"
         '
       register: verification
       changed_when: false
@@ -294,40 +430,49 @@
           - ""
           - "Container: {{ distrobox_name }}"
           - "Base Image: {{ distrobox_image }}"
+          - ""
           - "{{ verification.stdout }}"
           - ""
           - "Quick Commands:"
-          - "  playwright-test              # Enter container"
-          - "  ccy-browser                  # Launch Claude Code in browser mode"
+          - "  ccy-browser                  # Claude Code with MCP browser automation (YOLO mode)"
+          - "  playwright-test              # Enter container manually"
           - "  playwright-distrobox status  # Show status"
           - "  playwright-distrobox update  # Update browsers"
-          - "  playwright-distrobox help    # Show all commands"
           - ""
-          - "Usage in Projects:"
+          - "Interactive MCP Browser Automation:"
+          - "  cd ~/Projects/my-project"
+          - "  ccy-browser"
+          - "  # Ask Claude to explore/debug web applications"
+          - "  # Watch browsers execute in real-time on your desktop"
+          - "  # Claude uses MCP to control Playwright interactively"
+          - ""
+          - "Manual Test Development:"
           - "  cd ~/Projects/my-project/tests"
           - "  playwright-test              # Enter container"
-          - "  npm install                  # Install project deps"
-          - "  npm test                     # Run tests (GUI on desktop)"
+          - "  npm install && npm test      # Run tests manually"
           - ""
-          - "Claude Code Browser Automation:"
-          - "  cd ~/Projects/my-project/tests"
-          - "  ccy-browser                  # Claude Code with Playwright"
-          - "  # Claude can help write/debug browser tests"
-          - "  # Browsers visible on your desktop"
-          - ""
-          - "Features:"
-          - "  ✓ Ubuntu 22.04 (Playwright officially supported)"
+          - "Environment Features:"
+          - "  ✓ Full development environment (git, gh, ripgrep, jq, yq, vim)"
+          - "  ✓ Claude Code with YOLO mode"
           - "  ✓ Node.js LTS v{{ node_version }}"
-          - "  ✓ Chromium, Firefox, WebKit browsers"
+          - "  ✓ Playwright browsers (Chromium, Firefox, WebKit)"
           - "  ✓ GUI support (X11/Wayland automatic)"
-          - "  ✓ Shared across all projects in ~/Projects/"
-          - "  ✓ Each project keeps own node_modules/"
+          - "  ✓ SSH keys and git config (shared from host)"
+          - "  ✓ Python 3 with pip"
+          - "  ✓ All Claude Code dependencies"
           - ""
-          - "Benefits:"
-          - "  • Zero Fedora desktop pollution"
-          - "  • ~400MB browsers shared across projects"
-          - "  • Different Playwright versions per project"
-          - "  • Browser windows visible on desktop"
+          - "Key Benefits:"
+          - "  • Watch Claude Code control browsers through MCP"
+          - "  • Interactive debugging with visual feedback"
+          - "  • Full dev tooling (same as claude-yolo Docker)"
+          - "  • Zero desktop pollution (isolated environment)"
+          - "  • Seamless GUI integration (Distrobox magic)"
+          - ""
+          - "Use Cases:"
+          - "  • MCP browser automation and exploration"
+          - "  • Interactive web scraping development"
+          - "  • Visual debugging of browser tests"
+          - "  • Acceptance test engineering"
           - ""
           - "Documentation: docs/containerization.md"
           - "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

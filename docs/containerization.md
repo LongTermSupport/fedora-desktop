@@ -286,19 +286,21 @@ ls ~/   # Your actual home directory
 
 ### Playwright Distrobox (Automated)
 
-This project provides an automated Playwright testing environment via distrobox:
+This project provides a comprehensive browser automation environment via distrobox:
 
 ```bash
 # Install and configure
 ansible-playbook playbooks/imports/optional/common/play-distrobox-playwright.yml
 ```
 
-This creates a shared `playwright-tests` container that:
-- Uses Ubuntu 22.04 (Playwright officially supported)
-- Installs Node.js LTS v20
-- Installs Chromium, Firefox, and WebKit browsers
-- Provides GUI support for visible browser testing
-- Can be used by any project in `~/Projects/`
+This creates a feature-complete `playwright-tests` container with:
+- **Full development environment**: git, gh, ripgrep, jq, yq, vim, python
+- **Browser automation**: Chromium, Firefox, WebKit with Playwright
+- **Claude Code**: Configured for MCP browser control
+- **Node.js LTS v20**: Latest stable JavaScript runtime
+- **GUI support**: Browsers visible on desktop (X11/Wayland)
+- **Shared tooling**: Available to all projects in `~/Projects/`
+- **SSH & Git**: Keys and config shared from host
 
 **Usage:**
 ```bash
