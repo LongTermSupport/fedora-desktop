@@ -8,8 +8,19 @@
     distrobox_name: playwright-tests
     distrobox_image: ubuntu:22.04
     node_version: "20"
+    ccyb_home: /var/local/claude-yolo/ccyb/home
 
   tasks:
+    # Create isolated home directory for ccyb
+    - name: Create ccyb Isolated Home Directory
+      become: true
+      file:
+        path: "{{ ccyb_home }}"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0700'
+
     # Preflight checks
     - name: Check if Distrobox is Installed
       command: which distrobox
@@ -32,13 +43,18 @@
       register: container_exists
       changed_when: false
 
-    - name: Create Playwright Distrobox Container
+    - name: Remove Old Container (if switching to isolated home)
+      command: distrobox rm {{ distrobox_name }} --force
+      when: container_exists.stdout != ""
+      register: container_removed
+
+    - name: Create Playwright Distrobox Container with Isolated Home
       command: >
         distrobox create
         --name {{ distrobox_name }}
         --image {{ distrobox_image }}
+        --home {{ ccyb_home }}
         --yes
-      when: container_exists.stdout == ""
       register: container_created
 
     - name: Wait for Container to be Ready

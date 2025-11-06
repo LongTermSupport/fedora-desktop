@@ -2,9 +2,9 @@
 # Claude Code Browser Automation Mode
 # Runs Claude Code inside playwright-tests distrobox for MCP browser control
 #
-# Version: 2.3.0
+# Version: 3.0.0
 #
-CCY_BROWSER_VERSION="2.3.0"
+CCY_BROWSER_VERSION="3.0.0"
 
 set -e
 
@@ -385,15 +385,37 @@ for ssh_key in "${SSH_KEYS[@]}"; do
     fi
 done
 
+# ccyb uses isolated home directory for security
+CCYB_HOME="/var/local/claude-yolo/ccyb/home"
+
+# Copy SSH key into isolated home (if provided)
+if [ ${#SSH_KEYS[@]} -gt 0 ]; then
+    SSH_KEY_PATH="${SSH_KEYS[0]}"  # Use first key
+    CCYB_SSH_DIR="$CCYB_HOME/.ssh"
+    CCYB_SSH_KEY="$CCYB_SSH_DIR/id_ccyb"
+
+    # Create .ssh directory in isolated home
+    mkdir -p "$CCYB_SSH_DIR"
+    chmod 700 "$CCYB_SSH_DIR"
+
+    # Copy selected SSH key to isolated home
+    cp "$SSH_KEY_PATH" "$CCYB_SSH_KEY"
+    chmod 600 "$CCYB_SSH_KEY"
+
+    # Also copy public key if it exists
+    if [ -f "${SSH_KEY_PATH}.pub" ]; then
+        cp "${SSH_KEY_PATH}.pub" "${CCYB_SSH_KEY}.pub"
+        chmod 644 "${CCYB_SSH_KEY}.pub"
+    fi
+fi
+
 # Build the Claude Code command with YOLO mode
 CLAUDE_CMD="cd '$CURRENT_DIR'"
 
 # Set up SSH if keys provided
 if [ ${#SSH_KEYS[@]} -gt 0 ]; then
-    # Distrobox shares ~/.ssh/ from host, so keys are already accessible
-    # Set GIT_SSH_COMMAND to use the selected key
-    SSH_KEY_PATH="${SSH_KEYS[0]}"  # Use first key
-    CLAUDE_CMD="$CLAUDE_CMD && export GIT_SSH_COMMAND='ssh -i $SSH_KEY_PATH -F /dev/null -o IdentitiesOnly=yes'"
+    # Use the copied key from isolated home
+    CLAUDE_CMD="$CLAUDE_CMD && export GIT_SSH_COMMAND='ssh -i ~/.ssh/id_ccyb -F /dev/null -o IdentitiesOnly=yes'"
 fi
 
 # Add Claude Code with token
@@ -406,10 +428,11 @@ if [ ${#REMAINING_ARGS[@]} -eq 0 ]; then
     BROWSER_INTRO="You are a Browser Automation Powerhouse running in YOLO mode (--dangerously-skip-permissions)!
 
 ENVIRONMENT:
-• Distrobox container (Ubuntu) with seamless host integration
-• Your project files are mounted from the host filesystem at $CURRENT_DIR
+• Isolated distrobox container (Ubuntu) with project directory mounted
+• Your project files are at $CURRENT_DIR (auto-mounted from host)
 • GUI browsers will appear on the host desktop (X11/Wayland shared)
-• You have full access to host home directory and SSH keys
+• Isolated home directory (no access to host files for security)
+• Selected SSH key copied in for git operations
 
 CAPABILITIES:
 • MCP servers for browser control: Playwright and Puppeteer
