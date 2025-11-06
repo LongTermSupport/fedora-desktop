@@ -365,6 +365,13 @@
         group: root
         mode: '0755'
 
+    # Remove old symlinks (cleanup from previous versions)
+    - name: Remove Old Symlink in /usr/local/bin
+      become: true
+      file:
+        path: /usr/local/bin/claude-yolo-browser
+        state: absent
+
     - name: Install claude-yolo-browser Command
       become: true
       copy:

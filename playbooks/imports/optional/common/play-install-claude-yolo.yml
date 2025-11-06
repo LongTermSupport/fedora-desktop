@@ -114,6 +114,16 @@
         - scripts
         - library
 
+    # Remove old symlinks (cleanup from previous versions)
+    - name: Remove Old Symlink in /usr/local/bin
+      become: true
+      file:
+        path: /usr/local/bin/claude-yolo
+        state: absent
+      tags:
+        - scripts
+        - cleanup
+
     - name: Copy Wrapper Script to /var/local/
       become: true
       copy:
