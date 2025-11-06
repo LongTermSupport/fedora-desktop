@@ -299,34 +299,6 @@ list_ccy_tokens() {
     echo ""
 }
 
-# Export functions for use in other scripts
-export -f print_error
-export -f print_warning
-export -f print_success
-export -f print_header
-export -f is_git_repo
-export -f check_git_repo
-export -f get_project_name
-export -f show_yolo_warning
-export -f has_claude_token
-export -f check_claude_token
-export -f version_greater_than
-export -f print_help_section
-export -f print_option
-export -f print_example
-export -f show_spinner
-export -f confirm
-export -f command_exists
-export -f is_in_container
-export -f is_in_distrobox
-export -f get_claude_version
-export -f is_token_valid
-export -f list_ccy_tokens
-export -f get_project_state_dir
-export -f load_launch_config
-export -f save_launch_config
-export -f discover_github_ssh_keys
-
 # CCY Project Configuration System
 # Shared between ccy (Docker) and ccy-browser (Distrobox)
 
@@ -508,4 +480,32 @@ EOFCONFIG
 discover_github_ssh_keys() {
     GITHUB_KEYS=($(find "$HOME/.ssh" -type f -name "github_*" ! -name "*.pub" 2>/dev/null | sort))
 }
+
+# Export functions for use in other scripts
+export -f print_error
+export -f print_warning
+export -f print_success
+export -f print_header
+export -f is_git_repo
+export -f check_git_repo
+export -f get_project_name
+export -f show_yolo_warning
+export -f has_claude_token
+export -f check_claude_token
+export -f version_greater_than
+export -f print_help_section
+export -f print_option
+export -f print_example
+export -f show_spinner
+export -f confirm
+export -f command_exists
+export -f is_in_container
+export -f is_in_distrobox
+export -f get_claude_version
+export -f is_token_valid
+export -f list_ccy_tokens
+export -f get_project_state_dir
+export -f load_launch_config
+export -f save_launch_config
+export -f discover_github_ssh_keys
 
