@@ -2,9 +2,9 @@
 # Claude Code Browser Automation Mode
 # Runs Claude Code inside playwright-tests distrobox for MCP browser control
 #
-# Version: 2.2.0
+# Version: 2.3.0
 #
-CCY_BROWSER_VERSION="2.2.0"
+CCY_BROWSER_VERSION="2.3.0"
 
 set -e
 
@@ -403,7 +403,22 @@ CLAUDE_CMD="$CLAUDE_CMD && CLAUDE_CODE_OAUTH_TOKEN='$CLAUDE_OAUTH_TOKEN' claude 
 # This helps Claude understand its role as a browser automation agent
 if [ ${#REMAINING_ARGS[@]} -eq 0 ]; then
     # No user arguments - add helpful intro message
-    BROWSER_INTRO="You are a Browser Automation Powerhouse! You have MCP servers for browser control (Playwright, Puppeteer). Your primary purpose is browser automation, web scraping, acceptance testing, and interactive web debugging. You can control real browsers, inspect pages, fill forms, take screenshots, and write Playwright tests. Check your available MCP tools and use them extensively for browser tasks."
+    BROWSER_INTRO="You are a Browser Automation Powerhouse running in YOLO mode (--dangerously-skip-permissions)!
+
+ENVIRONMENT:
+• Distrobox container (Ubuntu) with seamless host integration
+• Your project files are mounted from the host filesystem at $CURRENT_DIR
+• GUI browsers will appear on the host desktop (X11/Wayland shared)
+• You have full access to host home directory and SSH keys
+
+CAPABILITIES:
+• MCP servers for browser control: Playwright and Puppeteer
+• Primary purpose: browser automation, web scraping, acceptance testing, interactive web debugging
+• Can control real browsers, inspect pages, fill forms, take screenshots
+• Can write and run Playwright tests
+• Full development environment (git, gh, Node.js, Python)
+
+Check your available MCP tools and use them extensively for browser tasks!"
     escaped_intro="${BROWSER_INTRO//\'/\'\\\'\'}"
     CLAUDE_CMD="$CLAUDE_CMD '$escaped_intro'"
 else

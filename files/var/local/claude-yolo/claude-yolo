@@ -3,13 +3,13 @@
 # Runs Claude Code with --dangerously-skip-permissions in isolated Docker container
 # IMPORTANT: Uses separate token storage from desktop Claude Code to prevent OAuth conflicts
 #
-# Version: 1.4.0
+# Version: 1.5.0
 #
 # IMPORTANT: When modifying this script, ALWAYS increment CCY_VERSION!
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="1.4.0"
+CCY_VERSION="1.5.0"
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -2393,6 +2393,25 @@ if [ "$HEADLESS_MODE" = true ]; then
 elif [ -n "$PROMPT_TEXT" ]; then
     # Interactive mode with prompt: pass prompt as argument
     CLAUDE_CMD_ARGS+=("$PROMPT_TEXT")
+elif [ ${#CLAUDE_ARGS[@]} -eq 0 ]; then
+    # No user arguments - add system context about Docker environment
+    DOCKER_INTRO="You are running in YOLO mode (--dangerously-skip-permissions) inside an isolated Docker container!
+
+ENVIRONMENT:
+• Docker container: $CONTAINER_NAME
+• Working directory: /workspace (your project mounted from host)
+• Isolated from host system (secure sandbox)
+$(if [ -n "$NETWORK_FLAG" ]; then echo "• Connected to Docker network: $NETWORK_FLAG"; else echo "• No Docker network (isolated)"; fi)
+
+CAPABILITIES:
+• Full development environment (git, gh, ripgrep, jq, Node.js, Python)
+• GitHub CLI authenticated (can create PRs, issues, etc.)
+• SSH keys mounted for git operations
+• Can install packages and tools (container is ephemeral)
+• YOLO mode = fast iteration, no permission prompts
+
+Your project files are at /workspace. Use git, write code, run tests, create commits and PRs!"
+    CLAUDE_CMD_ARGS+=("$DOCKER_INTRO")
 fi
 
 # Add any other arguments passed through
