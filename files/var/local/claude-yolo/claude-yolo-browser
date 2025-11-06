@@ -2,9 +2,9 @@
 # Claude Code Browser Automation Mode
 # Runs Claude Code inside playwright-tests distrobox for MCP browser control
 #
-# Version: 1.0.0
+# Version: 2.0.0
 #
-CCY_BROWSER_VERSION="1.0.0"
+CCY_BROWSER_VERSION="2.0.0"
 
 set -e
 
@@ -19,13 +19,22 @@ else
 fi
 
 DISTROBOX_NAME="playwright-tests"
+CCY_ROOT="$HOME/.claude-tokens/ccy"
+TOKEN_DIR="$CCY_ROOT/tokens"
 
 # Show help if requested
 if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
     cat << 'EOF'
-Claude Code Browser Automation Mode (ccy-browser)
+Claude Code Browser Automation Mode (ccy-browser / ccyb)
 
-Usage: ccy-browser [CLAUDE_ARGS...]
+Usage: ccy-browser [OPTIONS] [CLAUDE_ARGS...]
+
+Wrapper Options:
+  --token NAME           Use specific named token
+  --list-tokens          List available tokens
+  --help, -h             Show this help message
+
+All other arguments are passed directly to Claude Code with --dangerously-skip-permissions
 
 Description:
   Launches Claude Code inside the playwright-tests distrobox container for
@@ -43,9 +52,17 @@ Features:
   • GUI browsers visible on desktop (X11/Wayland)
   • SSH keys and git config (shared from host)
   • Access to all your project files (auto-mounted)
-  • Claude Code tokens (shared from host ~/.claude/)
   • YOLO mode for fast iteration (bypasses permission checks)
   • MCP server support for browser automation
+  • Uses same ccy token pool
+
+Token Management:
+  Tokens stored in: ~/.claude-tokens/ccy/tokens/
+  Format: NAME.YYYY-MM-DD.token (expiry date in filename)
+  Long-lived OAuth tokens (sk-ant-oat01-...) created via 'ccy --create-token'
+  Expiry checked on launch - forces recreation when expired or expiring today
+  
+  To create new tokens: ccy --create-token
 
 Requirements:
   • playwright-tests distrobox must be created first
@@ -54,7 +71,8 @@ Requirements:
 Common Usage:
   ccy-browser                     # Start interactive MCP browser session
   ccy-browser "explore the login flow"  # Start with specific task
-  ccy-browser --version           # Show Claude Code version
+  ccy-browser --token personal    # Use specific token
+  ccy-browser --list-tokens       # List available tokens
 
 Examples:
   # Interactive browser exploration
@@ -80,14 +98,6 @@ Management:
   playwright-distrobox recreate   # Rebuild container
   playwright-distrobox help       # Show all commands
 
-Token Management:
-  Tokens are automatically shared from host ~/.claude/
-  No separate token setup needed!
-
-  To create/manage tokens:
-    claude setup-token           # From desktop
-    ccy --create-token           # From docker (long-lived tokens)
-
 For more information:
   https://github.com/LongTermSupport/fedora-desktop/blob/F42/docs/containerization.md#playwright-distrobox-automated
 
@@ -103,6 +113,12 @@ if [ "$1" = "--version" ] || [ "$1" = "-v" ]; then
         echo "Container: $DISTROBOX_NAME"
         echo "Claude Code: $(distrobox enter "$DISTROBOX_NAME" -- claude --version 2>/dev/null || echo 'not installed')"
     fi
+    exit 0
+fi
+
+# Handle --list-tokens
+if [ "$1" = "--list-tokens" ]; then
+    list_ccy_tokens "$TOKEN_DIR"
     exit 0
 fi
 
@@ -127,16 +143,6 @@ if ! distrobox list --no-color 2>/dev/null | grep -qw "$DISTROBOX_NAME"; then
     echo "" >&2
     echo "To create it:" >&2
     echo "  ansible-playbook playbooks/imports/optional/common/play-distrobox-playwright.yml" >&2
-    echo "" >&2
-    echo "This creates a comprehensive browser automation environment with:" >&2
-    echo "  • Full development tools (git, gh, ripgrep, jq, yq, vim, python)" >&2
-    echo "  • Node.js LTS v20" >&2
-    echo "  • Playwright browsers (Chromium, Firefox, WebKit)" >&2
-    echo "  • GUI support for visible testing" >&2
-    echo "  • Claude Code configured for MCP" >&2
-    echo "" >&2
-    echo "For more information:" >&2
-    echo "  playwright-distrobox help" >&2
     exit 1
 fi
 
@@ -146,56 +152,145 @@ if ! distrobox enter "$DISTROBOX_NAME" -- bash -c 'command -v claude &> /dev/nul
     echo "" >&2
     echo "Please run the Playwright distrobox playbook to install Claude Code:" >&2
     echo "  ansible-playbook playbooks/imports/optional/common/play-distrobox-playwright.yml" >&2
-    echo "" >&2
-    echo "This will configure the container with:" >&2
-    echo "  • Claude Code CLI" >&2
-    echo "  • Node.js and Playwright browsers" >&2
-    echo "  • All required dependencies" >&2
     exit 1
 fi
 
-# Optional: Check if in a git repository (helpful but not required for browser work)
-if ! is_git_repo; then
-    print_warning "Not in a git repository root"
-    echo "   Current directory: $PWD" >&2
-    echo "   Continuing anyway (browser automation doesn't require git)..." >&2
-    echo "" >&2
-fi
-
-# Check for Claude token (warn but don't fail - distrobox shares ~/.claude/)
-if ! has_claude_token; then
-    print_warning "No Claude Code token detected in ~/.claude/"
-    echo "" >&2
-    echo "You'll need to authenticate when Claude Code starts." >&2
-    echo "" >&2
-    echo "To set up a token before starting:" >&2
-    echo "  claude setup-token  # From desktop (quick)" >&2
-    echo "  ccy --create-token  # From docker (long-lived)" >&2
-    echo "" >&2
-    echo "Tokens are automatically shared with distrobox containers." >&2
-    echo "" >&2
-
-    if ! confirm "Continue without token?" "y"; then
-        exit 0
-    fi
-fi
+# Must be run from a git repository root
+check_git_repo || exit 1
 
 # Get current directory (will be preserved in distrobox)
 CURRENT_DIR="$PWD"
 
-# Build the Claude Code command with YOLO mode
-CLAUDE_CMD="cd '$CURRENT_DIR' && claude --dangerously-skip-permissions"
+# Token Selection
+# Check for --token flag
+SPECIFIED_TOKEN=""
+REMAINING_ARGS=()
 
-# Add any arguments passed to the script
-if [ $# -gt 0 ]; then
-    # Properly quote arguments for shell
-    ARGS=""
-    for arg in "$@"; do
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --token)
+            SPECIFIED_TOKEN="$2"
+            shift 2
+            ;;
+        *)
+            REMAINING_ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
+
+# Select token
+SELECTED_TOKEN=""
+
+if [ -n "$SPECIFIED_TOKEN" ]; then
+    # User specified a token name
+    for token_file in "$TOKEN_DIR"/*.token; do
+        if [ -f "$token_file" ]; then
+            filename=$(basename "$token_file")
+            token_name="${filename%.*.token}"
+            if [ "$token_name" = "$SPECIFIED_TOKEN" ]; then
+                SELECTED_TOKEN="$token_file"
+                break
+            fi
+        fi
+    done
+
+    if [ -z "$SELECTED_TOKEN" ]; then
+        print_error "Token not found: $SPECIFIED_TOKEN"
+        echo ""
+        echo "Available tokens:"
+        list_ccy_tokens "$TOKEN_DIR"
+        exit 1
+    fi
+else
+    # Auto-select or prompt
+    if [ ! -d "$TOKEN_DIR" ] || [ -z "$(ls -A "$TOKEN_DIR"/*.token 2>/dev/null)" ]; then
+        print_error "No tokens found in $TOKEN_DIR"
+        echo ""
+        echo "Create a token with: ccy --create-token"
+        echo ""
+        exit 1
+    fi
+
+    # Count valid tokens
+    VALID_TOKENS=()
+    for token_file in "$TOKEN_DIR"/*.token; do
+        if [ -f "$token_file" ] && is_token_valid "$token_file"; then
+            VALID_TOKENS+=("$token_file")
+        fi
+    done
+
+    if [ ${#VALID_TOKENS[@]} -eq 0 ]; then
+        print_error "No valid (non-expired) tokens found"
+        echo ""
+        list_ccy_tokens "$TOKEN_DIR"
+        echo ""
+        echo "Create a new token with: ccy --create-token"
+        exit 1
+    elif [ ${#VALID_TOKENS[@]} -eq 1 ]; then
+        # Auto-select the only valid token
+        SELECTED_TOKEN="${VALID_TOKENS[0]}"
+        token_name=$(basename "$SELECTED_TOKEN" | sed 's/\.[0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\.token$//')
+        echo "Using token: $token_name"
+        echo ""
+    else
+        # Multiple valid tokens - prompt user
+        list_ccy_tokens "$TOKEN_DIR"
+        echo "Multiple tokens available. Please select:"
+        echo ""
+        
+        idx=1
+        declare -A TOKEN_MAP
+        for token_file in "${VALID_TOKENS[@]}"; do
+            token_name=$(basename "$token_file" | sed 's/\.[0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\.token$//')
+            echo "  $idx) $token_name"
+            TOKEN_MAP[$idx]="$token_file"
+            ((idx++))
+        done
+        echo ""
+        
+        while true; do
+            read -p "Select token [1-${#VALID_TOKENS[@]}]: " selection
+            if [[ "$selection" =~ ^[0-9]+$ ]] && [ "$selection" -ge 1 ] && [ "$selection" -le "${#VALID_TOKENS[@]}" ]; then
+                SELECTED_TOKEN="${TOKEN_MAP[$selection]}"
+                break
+            else
+                echo "Invalid selection. Please enter a number between 1 and ${#VALID_TOKENS[@]}"
+            fi
+        done
+    fi
+fi
+
+# Validate selected token one more time
+if ! is_token_valid "$SELECTED_TOKEN"; then
+    print_error "Selected token is expired or invalid"
+    exit 1
+fi
+
+# Read token content
+CLAUDE_OAUTH_TOKEN=$(cat "$SELECTED_TOKEN")
+
+if [ -z "$CLAUDE_OAUTH_TOKEN" ]; then
+    print_error "Token file is empty: $SELECTED_TOKEN"
+    exit 1
+fi
+
+if ! [[ "$CLAUDE_OAUTH_TOKEN" =~ ^sk-ant-oat01- ]]; then
+    print_error "Invalid token format in file: $SELECTED_TOKEN"
+    echo "Token must start with 'sk-ant-oat01-'"
+    exit 1
+fi
+
+# Build the Claude Code command with YOLO mode
+CLAUDE_CMD="cd '$CURRENT_DIR' && CLAUDE_CODE_OAUTH_TOKEN='$CLAUDE_OAUTH_TOKEN' claude --dangerously-skip-permissions"
+
+# Add any remaining arguments passed to the script
+if [ ${#REMAINING_ARGS[@]} -gt 0 ]; then
+    for arg in "${REMAINING_ARGS[@]}"; do
         # Escape single quotes in arguments
         escaped_arg="${arg//\'/\'\\\'\'}"
-        ARGS="$ARGS '$escaped_arg'"
+        CLAUDE_CMD="$CLAUDE_CMD '$escaped_arg'"
     done
-    CLAUDE_CMD="$CLAUDE_CMD $ARGS"
 fi
 
 # Display startup message
@@ -203,6 +298,7 @@ print_header "Starting Browser Automation Session"
 echo ""
 print_success "Container: $DISTROBOX_NAME"
 print_success "Directory: $CURRENT_DIR"
+print_success "Token: $(basename "$SELECTED_TOKEN")"
 echo ""
 echo "Environment:"
 echo "  • Node.js LTS v20"

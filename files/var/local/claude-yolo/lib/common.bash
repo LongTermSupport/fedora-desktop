@@ -213,6 +213,92 @@ get_claude_version() {
     claude --version 2>/dev/null | head -1 || echo "unknown"
 }
 
+# CCY Token Management
+# These functions work with the ccy token directory structure
+
+# Check if a token is valid (not expired or expiring today)
+# Args: token_file_path
+# Returns: 0 (true) if valid, 1 (false) if expired/expiring
+is_token_valid() {
+    local token_file="$1"
+    local filename=$(basename "$token_file")
+
+    # Extract expiry date from filename: NAME.YYYY-MM-DD.token
+    if [[ "$filename" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2})\.token$ ]]; then
+        local expiry_date="${BASH_REMATCH[1]}"
+        local today=$(date +%Y-%m-%d)
+
+        # Compare dates
+        if [[ "$expiry_date" < "$today" ]]; then
+            return 1  # Expired
+        elif [[ "$expiry_date" == "$today" ]]; then
+            return 1  # Expiring today
+        else
+            return 0  # Valid
+        fi
+    else
+        # Old format token without expiry date - treat as expired
+        return 1
+    fi
+}
+
+# List available ccy tokens
+# Args: token_dir
+# Returns: 0 if tokens exist, 1 if no tokens
+list_ccy_tokens() {
+    local token_dir="$1"
+
+    echo ""
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo "Available Claude Code Tokens for YOLO Mode"
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+
+    if [ ! -d "$token_dir" ] || [ -z "$(ls -A "$token_dir"/*.token 2>/dev/null)" ]; then
+        echo "No tokens found in: $token_dir"
+        echo ""
+        echo "Create a token with: ccy --create-token"
+        echo ""
+        return 1
+    fi
+
+    echo "Token storage: $token_dir"
+    echo ""
+
+    local today=$(date +%Y-%m-%d)
+
+    for token_file in "$token_dir"/*.token; do
+        if [ -f "$token_file" ]; then
+            local filename=$(basename "$token_file")
+            local token_name="${filename%.*.token}"
+
+            # Extract expiry date from filename
+            if [[ "$filename" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2})\.token$ ]]; then
+                local expiry_date="${BASH_REMATCH[1]}"
+                local status="✓ Valid"
+
+                if [[ "$expiry_date" < "$today" ]]; then
+                    status="✗ EXPIRED"
+                elif [[ "$expiry_date" == "$today" ]]; then
+                    status="⚠ Expires TODAY"
+                fi
+
+                echo "  • $token_name"
+                echo "    File: $token_file"
+                echo "    Expires: $expiry_date ($status)"
+            else
+                echo "  • $filename"
+                echo "    File: $token_file"
+                echo "    Status: ✗ INVALID FORMAT (missing expiry date)"
+            fi
+            echo ""
+        fi
+    done
+
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+}
+
 # Export functions for use in other scripts
 export -f print_error
 export -f print_warning
@@ -234,3 +320,5 @@ export -f command_exists
 export -f is_in_container
 export -f is_in_distrobox
 export -f get_claude_version
+export -f is_token_valid
+export -f list_ccy_tokens
