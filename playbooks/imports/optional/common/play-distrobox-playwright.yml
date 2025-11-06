@@ -374,14 +374,6 @@
         group: root
         mode: '0755'
 
-    - name: Create Symlink for ccy-browser in PATH
-      become: true
-      file:
-        src: /var/local/claude-yolo/claude-yolo-browser
-        dest: /usr/local/bin/claude-yolo-browser
-        state: link
-        force: true
-
     - name: Install ccy-browser Bash Aliases
       copy:
         src: "{{ root_dir }}/files/home/bashrc-includes/claude-yolo-browser.bash"

@@ -3,7 +3,7 @@
 # Alias for interactive MCP browser control with Claude Code
 
 # Main command alias
-alias ccy-browser='claude-yolo-browser'
+alias ccy-browser='/var/local/claude-yolo/claude-yolo-browser'
 
 # Helpful shortcuts
-alias ccyb='claude-yolo-browser'  # Short form
+alias ccyb='/var/local/claude-yolo/claude-yolo-browser'  # Short form

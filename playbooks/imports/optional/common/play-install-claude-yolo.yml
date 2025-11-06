@@ -126,17 +126,6 @@
         - scripts
         - wrapper
 
-    - name: Create Symlink for ccy in PATH
-      become: true
-      file:
-        src: /var/local/claude-yolo/claude-yolo
-        dest: /usr/local/bin/claude-yolo
-        state: link
-        force: true
-      tags:
-        - scripts
-        - wrapper
-
     - name: Deploy Bashrc Include for Root
       become: true
       copy:
