@@ -2,9 +2,9 @@
 # Claude Code Browser Automation Mode
 # Runs Claude Code inside playwright-tests distrobox for MCP browser control
 #
-# Version: 3.0.0
+# Version: 3.0.1
 #
-CCY_BROWSER_VERSION="3.0.0"
+CCY_BROWSER_VERSION="3.0.1"
 
 set -e
 
@@ -418,8 +418,8 @@ if [ ${#SSH_KEYS[@]} -gt 0 ]; then
     CLAUDE_CMD="$CLAUDE_CMD && export GIT_SSH_COMMAND='ssh -i ~/.ssh/id_ccyb -F /dev/null -o IdentitiesOnly=yes'"
 fi
 
-# Add Claude Code with token
-CLAUDE_CMD="$CLAUDE_CMD && CLAUDE_CODE_OAUTH_TOKEN='$CLAUDE_OAUTH_TOKEN' claude --dangerously-skip-permissions"
+# Add Claude Code with token (expand token value into command string)
+CLAUDE_CMD="$CLAUDE_CMD && CLAUDE_CODE_OAUTH_TOKEN=\"$CLAUDE_OAUTH_TOKEN\" claude --dangerously-skip-permissions"
 
 # Add initial system context about browser automation capabilities
 # This helps Claude understand its role as a browser automation agent
