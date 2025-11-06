@@ -92,14 +92,47 @@
         - scripts
         - templates
 
-    - name: Copy Wrapper Script
+    # Shared library for DRY helpers (used by ccy and ccy-browser)
+    - name: Create Shared Library Directory
       become: true
-      copy:
-        src: "{{ root_dir }}/files/var/local/claude-yolo/claude-yolo"
-        dest: /usr/local/bin/claude-yolo
+      file:
+        path: /var/local/claude-yolo/lib
+        state: directory
         owner: root
         group: root
         mode: '0755'
+
+    - name: Install Shared Helper Library
+      become: true
+      copy:
+        src: "{{ root_dir }}/files/var/local/claude-yolo/lib/common.bash"
+        dest: /var/local/claude-yolo/lib/common.bash
+        owner: root
+        group: root
+        mode: '0755'
+      tags:
+        - scripts
+        - library
+
+    - name: Copy Wrapper Script to /var/local/
+      become: true
+      copy:
+        src: "{{ root_dir }}/files/var/local/claude-yolo/claude-yolo"
+        dest: /var/local/claude-yolo/claude-yolo
+        owner: root
+        group: root
+        mode: '0755'
+      tags:
+        - scripts
+        - wrapper
+
+    - name: Create Symlink for ccy in PATH
+      become: true
+      file:
+        src: /var/local/claude-yolo/claude-yolo
+        dest: /usr/local/bin/claude-yolo
+        state: link
+        force: true
       tags:
         - scripts
         - wrapper

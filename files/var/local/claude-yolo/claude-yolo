@@ -3,13 +3,23 @@
 # Runs Claude Code with --dangerously-skip-permissions in isolated Docker container
 # IMPORTANT: Uses separate token storage from desktop Claude Code to prevent OAuth conflicts
 #
-# Version: 1.3.0
+# Version: 1.4.0
 #
 # IMPORTANT: When modifying this script, ALWAYS increment CCY_VERSION!
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="1.3.0"
+CCY_VERSION="1.4.0"
+
+# Load shared helpers
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/lib/common.bash" ]; then
+    source "$SCRIPT_DIR/lib/common.bash"
+else
+    # Fallback if library not found
+    print_error "Shared library not found at $SCRIPT_DIR/lib/common.bash"
+    exit 1
+fi
 
 # IMPORTANT: When modifying the Dockerfile, ALWAYS increment REQUIRED_CONTAINER_VERSION!
 # This ensures users automatically rebuild when critical container changes are made.
@@ -24,20 +34,7 @@ CCY_HASH=$(grep -v '^CCY_HASH=' "$0" | md5sum | cut -d' ' -f1 | cut -c1-16)
 CONFIG_VERSION=1
 
 # Fail fast: Must be run from a git repository root
-if [ ! -d .git ]; then
-    echo "ERROR: Not in a git repository root directory" >&2
-    echo "" >&2
-    echo "Claude YOLO (ccy) must be run from the root of a git repository." >&2
-    echo "This ensures Claude Code operates on the correct codebase." >&2
-    echo "" >&2
-    echo "Current directory: $PWD" >&2
-    echo "" >&2
-    echo "To fix:" >&2
-    echo "  1. Navigate to your git repository root: cd /path/to/your/repo" >&2
-    echo "  2. Verify .git exists: ls -la .git" >&2
-    echo "  3. Run ccy from there: ccy" >&2
-    exit 1
-fi
+check_git_repo || exit 1
 
 IMAGE_NAME="claude-yolo:latest"
 DOCKERFILE_DIR="/opt/claude-yolo"
@@ -256,7 +253,7 @@ create_token() {
     # It's required for the container's git/gh functionality
     if [ -z "$GH_TOKEN" ]; then
         echo "" >&2
-        echo "ERROR: create_token() called without GH_TOKEN" >&2
+        print_error "create_token() called without GH_TOKEN"
         echo "This is an internal script error." >&2
         echo "" >&2
         echo "GH_TOKEN is required for the container's git/gh functionality." >&2
@@ -283,13 +280,13 @@ create_token() {
         read -p "Enter a name for this token (e.g., 'personal', 'work', 'default'): " token_name
 
         if [ -z "$token_name" ]; then
-            echo "ERROR: Token name cannot be empty"
+            print_error "Token name cannot be empty"
             continue
         fi
 
         # Validate token name (alphanumeric, dash, underscore only)
         if ! [[ "$token_name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
-            echo "ERROR: Token name must contain only letters, numbers, dashes, and underscores"
+            print_error "Token name must contain only letters, numbers, dashes, and underscores"
             continue
         fi
 
@@ -422,7 +419,7 @@ create_token() {
                 echo ""
             else
                 echo ""
-                echo "ERROR: Invalid token format"
+                print_error "Invalid token format"
                 echo "Token must start with 'sk-ant-oat01-'"
                 echo ""
                 echo "Try again with: ccy --create-token"
@@ -434,7 +431,7 @@ create_token() {
         docker_exit_code=$?
         echo ""
         echo "════════════════════════════════════════════════════════════════════════════"
-        echo "ERROR: Token Creation Failed"
+        print_error "Token Creation Failed"
         echo "════════════════════════════════════════════════════════════════════════════"
         echo ""
 
@@ -480,7 +477,7 @@ get_project_state_dir() {
     # Get git remote URL - fail fast if not configured
     local git_remote=$(git remote get-url origin 2>/dev/null)
     if [ -z "$git_remote" ]; then
-        echo "ERROR: No git remote 'origin' configured" >&2
+        print_error "No git remote 'origin' configured"
         echo "" >&2
         echo "Claude YOLO requires a git remote to identify the project." >&2
         echo "This ensures conversations are properly tied to the correct repository." >&2
@@ -782,7 +779,7 @@ connect_to_network() {
         echo "Connect YOLO Container to Docker Network"
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo ""
-        echo "ERROR: No running containers found for project: $project_name"
+        print_error "No running containers found for project: $project_name"
         echo ""
         echo "Start ccy first, then run this in another terminal:"
         echo "  ccy --connect <network_name>"
@@ -935,7 +932,7 @@ connect_to_network() {
 
     # Check if network exists
     if ! docker network ls --format '{{.Name}}' | grep -q "^${network_name}$"; then
-        echo "ERROR: Network not found: $network_name"
+        print_error "Network not found: $network_name"
         echo ""
         echo "Available networks:"
         docker network ls --format "  {{.Name}}"
@@ -1074,7 +1071,7 @@ custom_dockerfile() {
     done
 
     if [ ${#templates[@]} -eq 0 ]; then
-        echo "ERROR: No templates found in $custom_dir"
+        print_error "No templates found in $custom_dir"
         echo ""
         echo "Run the ansible playbook to install templates:"
         echo "  ansible-playbook playbooks/imports/optional/common/play-install-claude-yolo.yml"
@@ -1287,7 +1284,7 @@ PROMPT_TEXT=""
 for arg in "$@"; do
     if [ "$NEXT_IS_SSH_KEY" = true ]; then
         if [ ! -f "$arg" ]; then
-            echo "ERROR: SSH key not found: $arg"
+            print_error "SSH key not found: $arg"
             exit 1
         fi
         SSH_KEYS+=("$arg")
@@ -1352,7 +1349,7 @@ chmod 700 "$PROJECT_DIR"
 # Validate --headless requires --prompt
 if [ "$HEADLESS_MODE" = true ]; then
     if [ -z "$PROMPT_TEXT" ]; then
-        echo "ERROR: --headless flag requires --prompt with content" >&2
+        print_error "--headless flag requires --prompt with content"
         echo "" >&2
         echo "Usage:" >&2
         echo "  ccy --headless --prompt \"your prompt here\"" >&2
@@ -1555,7 +1552,7 @@ for i in "${!SSH_KEYS[@]}"; do
     GITHUB_USERNAME=$(ssh -T -i "${SSH_KEYS[$i]}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=no git@github.com 2>&1 | grep -oP "Hi \K[^!]+")
 
     if [ -z "$GITHUB_USERNAME" ]; then
-        echo "ERROR: SSH key authentication to GitHub failed: ${SSH_KEYS[$i]}"
+        print_error "SSH key authentication to GitHub failed: ${SSH_KEYS[$i]}"
         echo ""
         echo "The selected SSH key is not registered with any GitHub account."
         echo ""
@@ -1573,8 +1570,8 @@ for i in "${!SSH_KEYS[@]}"; do
 done
 
 # Get GitHub token from gh CLI
-if ! command -v gh &> /dev/null; then
-    echo "ERROR: gh (GitHub CLI) not found"
+if ! command_exists gh; then
+    print_error "gh (GitHub CLI) not found"
     echo "Install it with: ansible-playbook playbooks/imports/play-git-configure-and-tools.yml"
     exit 1
 fi
@@ -1597,7 +1594,7 @@ if [ -n "$GITHUB_USERNAME" ] && [ ${#SSH_KEYS[@]} -gt 0 ]; then
 
         # Check if the gh-token-<alias> function exists (from play-github-cli-multi.yml)
         if ! type "$token_func" &>/dev/null; then
-            echo "ERROR: GitHub multi-account function not found: $token_func"
+            print_error "GitHub multi-account function not found: $token_func"
             echo ""
             echo "Selected SSH key: ${SSH_KEYS[0]}"
             echo "Expected file: ~/.bashrc-includes/gh-aliases.inc.bash"
@@ -1615,7 +1612,7 @@ if [ -n "$GITHUB_USERNAME" ] && [ ${#SSH_KEYS[@]} -gt 0 ]; then
         # Get the token for the specific account
         GH_TOKEN=$($token_func 2>/dev/null)
         if [ -z "$GH_TOKEN" ]; then
-            echo "ERROR: Failed to retrieve token for account: $GITHUB_USERNAME"
+            print_error "Failed to retrieve token for account: $GITHUB_USERNAME"
             echo ""
             echo "Function $token_func returned no token."
             echo "Account is not authenticated with gh CLI."
@@ -1631,7 +1628,7 @@ else
     GH_TOKEN=$(gh auth token 2>/dev/null)
 
     if [ -z "$GH_TOKEN" ]; then
-        echo "ERROR: Not authenticated with GitHub CLI"
+        print_error "Not authenticated with GitHub CLI"
         echo ""
         echo "Run: gh auth login"
         echo ""
@@ -1662,7 +1659,7 @@ if [ -n "$SPECIFIED_TOKEN" ]; then
         if [ -f "${matching_tokens[0]}" ]; then
             SELECTED_TOKEN="${matching_tokens[0]}"
         else
-            echo "ERROR: No token found with name: $SPECIFIED_TOKEN"
+            print_error "No token found with name: $SPECIFIED_TOKEN"
             echo ""
             echo "Available tokens:"
             list_tokens
@@ -1671,7 +1668,7 @@ if [ -n "$SPECIFIED_TOKEN" ]; then
     fi
 
     if [ ! -f "$SELECTED_TOKEN" ]; then
-        echo "ERROR: Token file not found: $SELECTED_TOKEN"
+        print_error "Token file not found: $SELECTED_TOKEN"
         echo ""
         echo "Available tokens:"
         list_tokens
@@ -1747,12 +1744,12 @@ fi
 # Load token content (it's just the token string)
 CLAUDE_OAUTH_TOKEN=$(cat "$SELECTED_TOKEN")
 if [ -z "$CLAUDE_OAUTH_TOKEN" ]; then
-    echo "ERROR: Token file is empty: $SELECTED_TOKEN"
+    print_error "Token file is empty: $SELECTED_TOKEN"
     exit 1
 fi
 
 if ! [[ "$CLAUDE_OAUTH_TOKEN" =~ ^sk-ant-oat01- ]]; then
-    echo "ERROR: Invalid token format in file: $SELECTED_TOKEN"
+    print_error "Invalid token format in file: $SELECTED_TOKEN"
     echo "Token must start with 'sk-ant-oat01-'"
     exit 1
 fi
@@ -1763,7 +1760,7 @@ HOST_GID=$(id -g)
 
 # Safety check: Never run as root (UID 0)
 if [ "$HOST_UID" -eq 0 ]; then
-    echo "ERROR: Cannot run Claude Code YOLO mode as root user (UID 0)"
+    print_error "Cannot run Claude Code YOLO mode as root user (UID 0)"
     echo "This is a security restriction for --dangerously-skip-permissions mode"
     echo "Please run this command as a regular user, not with sudo or as root"
     exit 1
@@ -1772,7 +1769,7 @@ fi
 # Safety check: Only run in rootless Docker
 DOCKER_CONTEXT=$(docker context inspect 2>/dev/null | grep -o '"Name": *"[^"]*"' | head -1 | cut -d'"' -f4)
 if [ "$DOCKER_CONTEXT" != "rootless" ]; then
-    echo "ERROR: Claude Code YOLO mode requires rootless Docker"
+    print_error "Claude Code YOLO mode requires rootless Docker"
     echo "Current Docker context: ${DOCKER_CONTEXT:-default}"
     echo ""
     echo "This is a security requirement because:"
@@ -1968,7 +1965,7 @@ if [ -f "$PROJECT_DOCKERFILE" ]; then
             [ -n "$rebuild_reason" ] && echo "  Rebuild reason: $rebuild_reason"
         else
             echo ""
-            echo "ERROR: Failed to build project-specific image"
+            print_error "Failed to build project-specific image"
             echo ""
             echo "Falling back to base image: claude-yolo:latest"
             echo ""
@@ -2022,7 +2019,7 @@ EOF
     [ "$DEBUG_MODE" = true ] && echo "✓ Created .claude.json with hasCompletedOnboarding=true"
 else
     # Update existing config to ensure onboarding is complete
-    if command -v jq &> /dev/null; then
+    if command_exists jq; then
         jq '.hasCompletedOnboarding = true' "$project_config" > "$project_config.tmp" && mv "$project_config.tmp" "$project_config"
         [ "$DEBUG_MODE" = true ] && echo "✓ Updated .claude.json to skip onboarding"
     fi
@@ -2231,7 +2228,7 @@ if [[ -n "$SPECIFIED_NETWORK" ]]; then
             done
         else
             # Explicit --network flag - this is an error
-            echo "ERROR: Network not found: $SPECIFIED_NETWORK" >&2
+            print_error "Network not found: $SPECIFIED_NETWORK"
             echo "" >&2
             echo "Available networks:" >&2
             docker network ls --format "  {{.Name}}" >&2
