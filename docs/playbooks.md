@@ -1,8 +1,22 @@
-# Playbooks Documentation
+# Playbooks Reference
+
+Complete catalog of available features and how to use them.
+
+## Quick Navigation
+
+**Just installed?** Start with [Optional Playbooks](#optional-playbooks) to see what you can add.
+
+**Creating your own?** See [Creating Custom Playbooks](#creating-custom-playbooks) for templates.
+
+**Common tasks:**
+- [Install Docker](#play-dockeryml) - Rootless Docker setup
+- [Set up Distrobox](#play-install-distroboxyml) - Seamless dev environments
+- [Python development](#play-pythonyml) - pyenv and PDM
+- [Playwright testing](#play-distrobox-playwrightyml) - Automated browser testing
 
 ## Core Playbooks (Automatically Run)
 
-These playbooks are executed automatically by `playbook-main.yml`:
+These playbooks are executed automatically by `playbook-main.yml` during initial installation:
 
 ### play-AA-preflight-sanity.yml
 **Purpose**: Validates system requirements  
@@ -74,12 +88,19 @@ These playbooks are executed automatically by `playbook-main.yml`:
 
 ## Optional Playbooks
 
-Run these manually as needed with:
+Run these manually as needed after the main installation completes.
+
+**General syntax:**
 ```bash
+cd ~/Projects/fedora-desktop
 ansible-playbook playbooks/imports/optional/<category>/<playbook>.yml
 ```
 
+**Note:** Most optional playbooks don't require `--ask-become-pass` as they use sudo internally. If prompted for a password, just enter your sudo password.
+
 ### Common Optional Features
+
+Popular add-ons for development work:
 
 #### play-install-flatpaks.yml
 Installs Flatpak applications:
@@ -90,8 +111,46 @@ Installs Flatpak applications:
 Docker container platform:
 - Adds Docker repository
 - Installs Docker CE and tools
-- Configures user permissions
-- Enables Docker service
+- Configures rootless Docker (user systemd service)
+- Configures subuid/subgid for user namespaces
+- See [Containerization Guide](containerization.md) for details
+
+#### play-install-distrobox.yml
+Distrobox installation:
+- Installs distrobox package
+- Provides seamless container integration for development
+- Enables running GUI apps from other distros
+- Auto-shares home directory with containers
+- See [Containerization Guide](containerization.md) for comparison with LXC/Docker
+
+#### play-distrobox-playwright.yml
+Playwright browser testing environment:
+- Creates shared `playwright-tests` container (Ubuntu 22.04)
+- Installs Node.js LTS v20
+- Installs Playwright browsers (Chromium, Firefox, WebKit)
+- Provides GUI support for visible testing
+- Shared across all projects in ~/Projects/
+- Each project maintains own dependencies
+- Adds `playwright-test` alias and helper commands
+- Includes `playwright-distrobox` management script
+- **Requires**: `play-install-distrobox.yml` must be run first
+
+**Benefits**:
+- Zero Fedora desktop pollution (all tools in container)
+- ~400MB browsers shared across projects
+- Different Playwright versions per project supported
+- Browser windows appear on desktop
+
+**Usage**:
+```bash
+# Quick access
+playwright-test  # Enter container
+
+# Management
+playwright-distrobox status    # Show status
+playwright-distrobox update    # Update browsers
+playwright-distrobox recreate  # Rebuild container
+```
 
 #### play-firefox.yml
 Firefox enhancements:
@@ -171,6 +230,24 @@ DisplayLink dock support:
 
 ### Experimental
 
+#### play-docker-in-lxc-support.yml
+Docker-in-LXC support:
+- Configures host for Docker inside LXC containers
+- Loads kernel modules (overlay, br_netfilter)
+- Configures sysctl for IP forwarding
+- Enables user namespaces for rootless Docker
+- Installs `docker-in-lxc` command for project-based containers
+- **Requires**: `play-lxc-install-config.yml` (core)
+- See [Containerization Guide](containerization.md) for advanced use cases
+
+**Usage**:
+```bash
+cd ~/Projects/my-docker-project
+docker-in-lxc --create  # Create LXC for this project
+docker-in-lxc --enter   # Enter the container
+# Inside: docker-compose up
+```
+
 #### play-lxde-install.yml
 Lightweight desktop environment:
 - Installs LXDE as alternative to GNOME
@@ -197,11 +274,20 @@ ansible-playbook playbooks/imports/optional/common/play-install-flatpaks.yml
 # Set up Docker
 ansible-playbook playbooks/imports/optional/common/play-docker.yml
 
+# Install Distrobox
+ansible-playbook playbooks/imports/optional/common/play-install-distrobox.yml
+
+# Set up Playwright testing environment (requires distrobox)
+ansible-playbook playbooks/imports/optional/common/play-distrobox-playwright.yml
+
 # Install NVIDIA drivers
 ansible-playbook playbooks/imports/optional/hardware-specific/play-nvidia.yml
 
 # Configure multiple GitHub accounts
 ansible-playbook playbooks/imports/optional/common/play-github-cli-multi.yml
+
+# Advanced: Docker-in-LXC support
+ansible-playbook playbooks/imports/optional/experimental/play-docker-in-lxc-support.yml
 ```
 
 ## Creating Custom Playbooks

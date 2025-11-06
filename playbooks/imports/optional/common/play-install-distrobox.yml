@@ -1,0 +1,35 @@
+#!/usr/bin/env ansible-playbook
+---
+- hosts: desktop
+  name: Install Distrobox
+  become: true
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  tasks:
+    - name: Install Distrobox Package
+      package:
+        name: distrobox
+        state: present
+
+    - name: Verify Distrobox Installation
+      command: distrobox version
+      register: distrobox_version
+      changed_when: false
+      become: false
+
+    - name: Display Installation Summary
+      debug:
+        msg:
+          - "Distrobox has been installed successfully"
+          - "Version: {{ distrobox_version.stdout }}"
+          - ""
+          - "Distrobox provides seamless container integration for development"
+          - ""
+          - "Quick Start:"
+          - "  distrobox create --name ubuntu-dev --image ubuntu:22.04"
+          - "  distrobox enter ubuntu-dev"
+          - ""
+          - "For Playwright browser testing, run:"
+          - "  ansible-playbook playbooks/imports/optional/common/play-distrobox-playwright.yml"
+          - ""
+          - "Documentation: docs/containerization.md"

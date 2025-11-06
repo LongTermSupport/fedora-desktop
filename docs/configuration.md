@@ -1,5 +1,22 @@
 # Configuration Guide
 
+Learn how to customize your Fedora desktop configuration.
+
+## Quick Reference
+
+**Common tasks:**
+- [Change user settings](#user-configuration) - Name, email, vault password
+- [Customize bash prompt](#prompt-color-configuration) - Color preferences
+- [Manage secrets](#vault-configuration) - API keys and passwords
+- [Add custom configurations](#adding-custom-configurations) - Your own playbooks
+- [Debug issues](#troubleshooting-configuration) - Configuration problems
+
+**Important files:**
+- `environment/localhost/host_vars/localhost.yml` - Your settings (encrypted)
+- `vault-pass.secret` - Vault password (gitignored)
+- `/etc/profile.d/zz_lts-fedora-desktop.bash` - Custom bash configs
+- `~/.ssh/config` - SSH configuration
+
 ## User Configuration
 
 ### Host Variables

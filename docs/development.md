@@ -1,5 +1,27 @@
 # Development Guide
 
+Contributing to the Fedora Desktop Configuration Manager.
+
+## Welcome Contributors!
+
+This guide helps you:
+- Set up your development environment
+- Understand the branching strategy
+- Follow Ansible style guidelines
+- Test your changes
+- Submit pull requests
+
+**Essential reading for:**
+- First-time contributors
+- Anyone adding new playbooks
+- Maintainers creating version branches
+
+**Quick links:**
+- [Development setup](#development-environment) - Get started
+- [Ansible style guide](#ansible-style-guide) - Code standards
+- [Testing procedures](#testing) - Verify your changes
+- [Pull request process](#contributing) - Submit changes
+
 ## Development Environment
 
 ### Recommended Setup

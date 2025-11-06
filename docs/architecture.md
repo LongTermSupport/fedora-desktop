@@ -1,5 +1,20 @@
 # Project Architecture
 
+Technical deep dive into how the project is structured and how it works.
+
+## Quick Overview
+
+**What you'll learn:**
+- [Directory structure](#directory-structure) - Where everything lives
+- [Execution flow](#execution-flow) - Bootstrap → main → optional
+- [Configuration management](#configuration-management) - How settings work
+- [Branching strategy](#branching-strategy) - Version-specific branches
+- [Security model](#security-model) - Vault encryption and SSH keys
+
+**Best for:** Contributors, system administrators, and curious developers who want to understand the internals.
+
+**Time to read:** 8-10 minutes
+
 ## Directory Structure
 
 ```
