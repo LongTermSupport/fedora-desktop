@@ -2,9 +2,9 @@
 # Claude Code Browser Automation Mode
 # Runs Claude Code inside playwright-tests distrobox for MCP browser control
 #
-# Version: 3.0.1
+# Version: 3.1.0
 #
-CCY_BROWSER_VERSION="3.0.1"
+CCY_BROWSER_VERSION="3.1.0"
 
 set -e
 
@@ -435,13 +435,17 @@ ENVIRONMENT:
 • Selected SSH key copied in for git operations
 
 CAPABILITIES:
-• MCP servers for browser control: Playwright and Puppeteer
-• Primary purpose: browser automation, web scraping, acceptance testing, interactive web debugging
-• Can control real browsers, inspect pages, fill forms, take screenshots
+• Playwright MCP server for complete browser automation (25+ tools)
+• Console access, JavaScript evaluation, DOM inspection, error detection
+• Navigate, click, fill, screenshot, assertions, network inspection, tracing
+• Primary purpose: browser automation, web scraping, acceptance testing, interactive debugging
 • Can write and run Playwright tests
 • Full development environment (git, gh, Node.js, Python)
 
-Check your available MCP tools and use them extensively for browser tasks!"
+IMPORTANT:
+• Check your available MCP tools to see what you can do
+• Read the docs: https://github.com/microsoft/playwright-mcp
+• Use MCP tools extensively for all browser tasks!"
     escaped_intro="${BROWSER_INTRO//\'/\'\\\'\'}"
     CLAUDE_CMD="$CLAUDE_CMD '$escaped_intro'"
 else

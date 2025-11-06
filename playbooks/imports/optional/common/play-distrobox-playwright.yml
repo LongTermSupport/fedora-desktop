@@ -259,11 +259,6 @@
               "type": "stdio",
               "command": "npx",
               "args": ["-y", "@playwright/mcp@latest"]
-            },
-            "puppeteer": {
-              "type": "stdio",
-              "command": "npx",
-              "args": ["-y", "@cloudflare/puppeteer-mcp-server@latest"]
             }
           }
         }
