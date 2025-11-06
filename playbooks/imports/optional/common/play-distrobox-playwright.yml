@@ -96,6 +96,22 @@
       args:
         executable: /bin/bash
 
+    # Claude Code installation
+    - name: Check if Claude Code is Installed in Container
+      shell: |
+        distrobox enter {{ distrobox_name }} -- bash -c 'command -v claude' || true
+      register: claude_check
+      changed_when: false
+
+    - name: Install Claude Code in Playwright Container
+      shell: |
+        distrobox enter {{ distrobox_name }} -- bash -c '
+          curl -fsSL https://storage.googleapis.com/anthropic-cli/install.sh | bash
+        '
+      when: claude_check.stdout == ""
+      args:
+        executable: /bin/bash
+
     # User environment setup
     - name: Add playwright-test Alias to .bashrc
       blockinfile:
@@ -264,6 +280,7 @@
           echo "Node.js: $(node --version)"
           echo "npm: $(npm --version)"
           echo "Browsers: $(ls -1 ~/.cache/ms-playwright/ 2>/dev/null | grep -E "^(chromium|firefox|webkit)" | wc -l) installed"
+          echo "Claude Code: $(claude --version 2>/dev/null || echo "not found")"
         '
       register: verification
       changed_when: false

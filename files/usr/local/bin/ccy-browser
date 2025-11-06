@@ -21,12 +21,15 @@ Description:
   Launches Claude Code inside the playwright-tests distrobox container for
   browser automation development and testing.
 
+  Runs in YOLO mode (--dangerously-skip-permissions) for rapid development.
+
 Features:
   • Playwright + browsers (Chromium, Firefox, WebKit) available
   • Node.js LTS v20 environment
   • GUI browsers visible on desktop (X11/Wayland)
   • Access to all your project files (auto-mounted)
   • Same Claude Code tokens as desktop
+  • YOLO mode for fast iteration (bypasses permission checks)
 
 Requirements:
   • playwright-tests distrobox must be created first
@@ -99,29 +102,22 @@ fi
 if ! distrobox enter "$DISTROBOX_NAME" -- bash -c 'command -v claude &> /dev/null'; then
     echo "ERROR: Claude Code is not installed in the $DISTROBOX_NAME container" >&2
     echo "" >&2
-    echo "Installing Claude Code in distrobox..." >&2
+    echo "Please run the Playwright distrobox playbook to install Claude Code:" >&2
+    echo "  ansible-playbook playbooks/imports/optional/common/play-distrobox-playwright.yml" >&2
     echo "" >&2
-
-    # Install Claude Code in the container
-    distrobox enter "$DISTROBOX_NAME" -- bash -c '
-        curl -fsSL https://storage.googleapis.com/anthropic-cli/install.sh | bash
-    '
-
-    if [ $? -ne 0 ]; then
-        echo "ERROR: Failed to install Claude Code in container" >&2
-        exit 1
-    fi
-
-    echo "" >&2
-    echo "✓ Claude Code installed successfully" >&2
-    echo "" >&2
+    echo "This will configure the container with:" >&2
+    echo "  • Claude Code CLI" >&2
+    echo "  • Node.js and Playwright browsers" >&2
+    echo "  • All required dependencies" >&2
+    exit 1
 fi
 
 # Get current directory (will be preserved in distrobox)
 CURRENT_DIR="$PWD"
 
-# Build the Claude Code command
-CLAUDE_CMD="cd '$CURRENT_DIR' && claude"
+# Build the Claude Code command with YOLO mode
+# YOLO mode (--dangerously-skip-permissions) for rapid browser automation development
+CLAUDE_CMD="cd '$CURRENT_DIR' && claude --dangerously-skip-permissions"
 
 # Add any arguments passed to the script
 if [ $# -gt 0 ]; then
