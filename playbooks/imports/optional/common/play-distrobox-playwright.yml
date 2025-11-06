@@ -195,6 +195,66 @@
       args:
         executable: /bin/bash
 
+    # Copy Fedora bashrc files into distrobox
+    - name: Create profile.d Directory in Container
+      shell: |
+        distrobox enter {{ distrobox_name }} -- bash -c '
+          sudo mkdir -p /etc/profile.d
+        '
+
+    - name: Copy Fedora Bashrc Tweaks into Container
+      shell: |
+        distrobox enter {{ distrobox_name }} -- bash -c '
+          sudo tee /etc/profile.d/zz_lts-fedora-desktop.bash > /dev/null
+        ' < {{ root_dir }}/files/etc/profile.d/zz_lts-fedora-desktop.bash
+
+    - name: Copy PS1 Prompt Script into Container
+      shell: |
+        distrobox enter {{ distrobox_name }} -- bash -c '
+          sudo tee /var/local/ps1-prompt > /dev/null
+        ' < {{ root_dir }}/files/var/local/ps1-prompt
+
+    # MCP servers for browser automation
+    - name: Check if Playwright MCP is Installed
+      shell: |
+        distrobox enter {{ distrobox_name }} -- bash -c '
+          npm list -g @playwright/mcp &>/dev/null && echo "installed" || echo "not installed"
+        '
+      register: playwright_mcp_check
+      changed_when: false
+      failed_when: false
+
+    - name: Install Playwright MCP Server
+      shell: |
+        distrobox enter {{ distrobox_name }} -- bash -c '
+          npm install -g @playwright/mcp
+        '
+      when: playwright_mcp_check.stdout == "not installed"
+      args:
+        executable: /bin/bash
+
+    - name: Configure Global MCP Servers for Claude Code
+      shell: |
+        distrobox enter {{ distrobox_name }} -- bash -c '
+          mkdir -p ~/.config/claude
+          cat > ~/.config/claude/mcp_servers.json << "EOF"
+        {
+          "mcpServers": {
+            "playwright": {
+              "command": "npx",
+              "args": ["-y", "@playwright/mcp@latest"]
+            },
+            "puppeteer": {
+              "command": "npx",
+              "args": ["-y", "@cloudflare/puppeteer-mcp-server@latest"]
+            }
+          }
+        }
+        EOF
+        '
+      args:
+        executable: /bin/bash
+
     # User environment setup
     - name: Add playwright-test Alias to .bashrc
       blockinfile:

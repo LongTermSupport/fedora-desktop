@@ -2,9 +2,9 @@
 # Claude Code Browser Automation Mode
 # Runs Claude Code inside playwright-tests distrobox for MCP browser control
 #
-# Version: 2.1.0
+# Version: 2.2.0
 #
-CCY_BROWSER_VERSION="2.1.0"
+CCY_BROWSER_VERSION="2.2.0"
 
 set -e
 
@@ -53,6 +53,9 @@ Description:
   Shares SSH keys and remembers your choices per project.
 
 Features:
+  • Browser Automation Powerhouse - Claude knows its role!
+  • MCP servers pre-configured (Playwright, Puppeteer)
+  • Automatic system context for browser automation tasks
   • Full development environment (git, gh, ripgrep, jq, yq, vim, python)
   • Playwright + browsers (Chromium, Firefox, WebKit)
   • Node.js LTS v20 environment
@@ -60,7 +63,6 @@ Features:
   • SSH keys and git config (shared from host)
   • Access to all your project files (auto-mounted)
   • YOLO mode for fast iteration (bypasses permission checks)
-  • MCP server support for browser automation
   • Uses same ccy token pool and project config
 
 Token Management:
@@ -77,9 +79,20 @@ Requirements:
 
 Common Usage:
   ccy-browser                     # Prompts for token/SSH (or reuses last)
+                                  # Claude auto-knows it's browser automation!
   ccy-browser "explore the site"  # Start with specific task
   ccy-browser --token personal    # Use specific token
   ccy-browser --list-tokens       # List available tokens
+
+Browser Automation:
+  When launched without arguments, Claude Code automatically receives context
+  about its browser automation capabilities. It will check available MCP tools
+  and use them extensively for browser tasks. Ask it to:
+  • Control browsers and inspect pages
+  • Fill forms and take screenshots
+  • Write and run Playwright tests
+  • Debug web applications interactively
+  • Scrape websites with real browser rendering
 
 Examples:
   # Interactive browser exploration
@@ -386,8 +399,15 @@ fi
 # Add Claude Code with token
 CLAUDE_CMD="$CLAUDE_CMD && CLAUDE_CODE_OAUTH_TOKEN='$CLAUDE_OAUTH_TOKEN' claude --dangerously-skip-permissions"
 
-# Add any remaining arguments passed to the script
-if [ ${#REMAINING_ARGS[@]} -gt 0 ]; then
+# Add initial system context about browser automation capabilities
+# This helps Claude understand its role as a browser automation agent
+if [ ${#REMAINING_ARGS[@]} -eq 0 ]; then
+    # No user arguments - add helpful intro message
+    BROWSER_INTRO="You are a Browser Automation Powerhouse! You have MCP servers for browser control (Playwright, Puppeteer). Your primary purpose is browser automation, web scraping, acceptance testing, and interactive web debugging. You can control real browsers, inspect pages, fill forms, take screenshots, and write Playwright tests. Check your available MCP tools and use them extensively for browser tasks."
+    escaped_intro="${BROWSER_INTRO//\'/\'\\\'\'}"
+    CLAUDE_CMD="$CLAUDE_CMD '$escaped_intro'"
+else
+    # User provided arguments - use them
     for arg in "${REMAINING_ARGS[@]}"; do
         # Escape single quotes in arguments
         escaped_arg="${arg//\'/\'\\\'\'}"
