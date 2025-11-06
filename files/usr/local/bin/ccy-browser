@@ -1,0 +1,155 @@
+#!/bin/bash
+# Claude Code Browser Automation Mode
+# Runs Claude Code inside the playwright distrobox for browser automation work
+#
+# Version: 1.0.0
+#
+CCY_BROWSER_VERSION="1.0.0"
+
+set -e
+
+DISTROBOX_NAME="playwright-tests"
+
+# Show help if requested
+if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+    cat << 'EOF'
+Claude Code Browser Automation Mode (ccy-browser)
+
+Usage: ccy-browser [CLAUDE_ARGS...]
+
+Description:
+  Launches Claude Code inside the playwright-tests distrobox container for
+  browser automation development and testing.
+
+Features:
+  • Playwright + browsers (Chromium, Firefox, WebKit) available
+  • Node.js LTS v20 environment
+  • GUI browsers visible on desktop (X11/Wayland)
+  • Access to all your project files (auto-mounted)
+  • Same Claude Code tokens as desktop
+
+Requirements:
+  • playwright-tests distrobox must be created first
+    Run: ansible-playbook playbooks/imports/optional/common/play-distrobox-playwright.yml
+
+Common Usage:
+  ccy-browser                     # Start interactive session
+  ccy-browser "write browser tests"  # Start with specific task
+  ccy-browser --version           # Show Claude Code version
+
+Examples:
+  # Navigate to your test directory
+  cd ~/Projects/my-app/tests
+
+  # Start Claude Code in browser automation mode
+  ccy-browser
+
+  # Inside: Claude can help write/debug Playwright tests
+  # Browsers will appear on your desktop when tests run
+
+Management:
+  playwright-distrobox status     # Check container status
+  playwright-distrobox update     # Update browsers
+  playwright-distrobox recreate   # Rebuild container
+
+For more information:
+  https://github.com/LongTermSupport/fedora-desktop/blob/F42/docs/containerization.md#playwright-distrobox-automated
+
+EOF
+    exit 0
+fi
+
+# Check if distrobox is installed
+if ! command -v distrobox &> /dev/null; then
+    echo "ERROR: distrobox is not installed" >&2
+    echo "" >&2
+    echo "Please install distrobox first:" >&2
+    echo "  ansible-playbook playbooks/imports/optional/common/play-install-distrobox.yml" >&2
+    exit 1
+fi
+
+# Check if playwright-tests container exists
+if ! distrobox list --no-color 2>/dev/null | grep -qw "$DISTROBOX_NAME"; then
+    echo "ERROR: '$DISTROBOX_NAME' distrobox container not found" >&2
+    echo "" >&2
+    echo "The playwright distrobox must be created before using ccy-browser." >&2
+    echo "" >&2
+    echo "To create it:" >&2
+    echo "  ansible-playbook playbooks/imports/optional/common/play-distrobox-playwright.yml" >&2
+    echo "" >&2
+    echo "This creates a shared browser automation environment with:" >&2
+    echo "  • Node.js LTS v20" >&2
+    echo "  • Playwright browsers (Chromium, Firefox, WebKit)" >&2
+    echo "  • GUI support for visible testing" >&2
+    echo "" >&2
+    echo "For more information:" >&2
+    echo "  playwright-distrobox help" >&2
+    exit 1
+fi
+
+# Optional: Check if in a git repository (helpful but not required)
+if [ ! -d .git ]; then
+    echo "⚠  Warning: Not in a git repository root" >&2
+    echo "   Current directory: $PWD" >&2
+    echo "   Continuing anyway..." >&2
+    echo "" >&2
+fi
+
+# Check if Claude Code is installed in the container
+if ! distrobox enter "$DISTROBOX_NAME" -- bash -c 'command -v claude &> /dev/null'; then
+    echo "ERROR: Claude Code is not installed in the $DISTROBOX_NAME container" >&2
+    echo "" >&2
+    echo "Installing Claude Code in distrobox..." >&2
+    echo "" >&2
+
+    # Install Claude Code in the container
+    distrobox enter "$DISTROBOX_NAME" -- bash -c '
+        curl -fsSL https://storage.googleapis.com/anthropic-cli/install.sh | bash
+    '
+
+    if [ $? -ne 0 ]; then
+        echo "ERROR: Failed to install Claude Code in container" >&2
+        exit 1
+    fi
+
+    echo "" >&2
+    echo "✓ Claude Code installed successfully" >&2
+    echo "" >&2
+fi
+
+# Get current directory (will be preserved in distrobox)
+CURRENT_DIR="$PWD"
+
+# Build the Claude Code command
+CLAUDE_CMD="cd '$CURRENT_DIR' && claude"
+
+# Add any arguments passed to the script
+if [ $# -gt 0 ]; then
+    # Properly quote arguments for shell
+    ARGS=""
+    for arg in "$@"; do
+        # Escape single quotes in arguments
+        escaped_arg="${arg//\'/\'\\\'\'}"
+        ARGS="$ARGS '$escaped_arg'"
+    done
+    CLAUDE_CMD="$CLAUDE_CMD $ARGS"
+fi
+
+# Display startup message
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+echo "Claude Code - Browser Automation Mode" >&2
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+echo "" >&2
+echo "Container: $DISTROBOX_NAME" >&2
+echo "Directory: $CURRENT_DIR" >&2
+echo "" >&2
+echo "Environment:" >&2
+echo "  • Node.js LTS v20" >&2
+echo "  • Playwright browsers (Chromium, Firefox, WebKit)" >&2
+echo "  • GUI windows will appear on your desktop" >&2
+echo "" >&2
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+echo "" >&2
+
+# Enter distrobox and run Claude Code
+exec distrobox enter "$DISTROBOX_NAME" -- bash -c "$CLAUDE_CMD"

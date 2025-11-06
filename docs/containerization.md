@@ -305,14 +305,31 @@ This creates a shared `playwright-tests` container that:
 # From any project directory
 cd ~/Projects/my-project/tests
 
-# Enter Playwright container
+# Option 1: Enter Playwright container directly
 distrobox enter playwright-tests
-
-# Install project-specific dependencies
 npm install
-
-# Run tests (browsers appear on your desktop)
 npm test
+
+# Option 2: Use Claude Code for browser automation (recommended)
+ccy-browser
+# Claude Code launches inside the container
+# Can help write/debug Playwright tests interactively
+# Browsers appear on your desktop
+```
+
+**Claude Code Browser Automation Mode:**
+
+The `ccy-browser` command launches Claude Code inside the Playwright container for AI-assisted browser automation:
+
+```bash
+cd ~/Projects/my-project/tests
+ccy-browser
+
+# Inside Claude Code:
+# - Ask Claude to write Playwright tests
+# - Debug failing browser tests interactively
+# - Explore web applications with live browser feedback
+# - All browsers visible on your desktop
 ```
 
 **Benefits:**
@@ -321,6 +338,7 @@ npm test
 - Each project maintains its own `node_modules/` and `package.json`
 - Different Playwright versions per project (no conflicts)
 - One-time setup via Ansible
+- AI-assisted test development with `ccy-browser`
 
 ## Choosing the Right Technology
 

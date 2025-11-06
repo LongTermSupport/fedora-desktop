@@ -247,6 +247,16 @@
         state: present
         create: false
 
+    # Claude Code Browser Automation Mode
+    - name: Install ccy-browser Command
+      become: true
+      copy:
+        src: "{{ root_dir }}/files/usr/local/bin/ccy-browser"
+        dest: /usr/local/bin/ccy-browser
+        owner: root
+        group: root
+        mode: '0755'
+
     # Verification
     - name: Verify Playwright Container Configuration
       shell: |
@@ -271,6 +281,7 @@
           - ""
           - "Quick Commands:"
           - "  playwright-test              # Enter container"
+          - "  ccy-browser                  # Launch Claude Code in browser mode"
           - "  playwright-distrobox status  # Show status"
           - "  playwright-distrobox update  # Update browsers"
           - "  playwright-distrobox help    # Show all commands"
@@ -280,6 +291,12 @@
           - "  playwright-test              # Enter container"
           - "  npm install                  # Install project deps"
           - "  npm test                     # Run tests (GUI on desktop)"
+          - ""
+          - "Claude Code Browser Automation:"
+          - "  cd ~/Projects/my-project/tests"
+          - "  ccy-browser                  # Claude Code with Playwright"
+          - "  # Claude can help write/debug browser tests"
+          - "  # Browsers visible on your desktop"
           - ""
           - "Features:"
           - "  ✓ Ubuntu 22.04 (Playwright officially supported)"

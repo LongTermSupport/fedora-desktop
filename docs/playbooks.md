@@ -133,6 +133,7 @@ Playwright browser testing environment:
 - Each project maintains own dependencies
 - Adds `playwright-test` alias and helper commands
 - Includes `playwright-distrobox` management script
+- Installs `ccy-browser` command for AI-assisted browser automation
 - **Requires**: `play-install-distrobox.yml` must be run first
 
 **Benefits**:
@@ -140,16 +141,28 @@ Playwright browser testing environment:
 - ~400MB browsers shared across projects
 - Different Playwright versions per project supported
 - Browser windows appear on desktop
+- AI-assisted test development with Claude Code
 
 **Usage**:
 ```bash
 # Quick access
-playwright-test  # Enter container
+playwright-test  # Enter container manually
+ccy-browser      # Launch Claude Code in browser mode
 
 # Management
 playwright-distrobox status    # Show status
 playwright-distrobox update    # Update browsers
 playwright-distrobox recreate  # Rebuild container
+```
+
+**Claude Code Browser Automation**:
+```bash
+cd ~/Projects/my-project/tests
+ccy-browser
+# Claude Code launches inside Playwright container
+# - Write/debug tests with AI assistance
+# - Live browser feedback on desktop
+# - Full Playwright environment available
 ```
 
 #### play-firefox.yml
