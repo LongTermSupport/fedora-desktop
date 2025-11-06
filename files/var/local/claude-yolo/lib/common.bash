@@ -322,3 +322,190 @@ export -f is_in_distrobox
 export -f get_claude_version
 export -f is_token_valid
 export -f list_ccy_tokens
+export -f get_project_state_dir
+export -f load_launch_config
+export -f save_launch_config
+export -f discover_github_ssh_keys
+
+# CCY Project Configuration System
+# Shared between ccy (Docker) and ccy-browser (Distrobox)
+
+# Get project state directory based on git remote
+# Args: ccy_root (e.g., ~/.claude-tokens/ccy)
+# Returns: path to project's .claude directory
+get_project_state_dir() {
+    local ccy_root="$1"
+    local project_dir="$ccy_root/projects"
+    local repo_path="$PWD"
+
+    # Get git remote URL - fail fast if not configured
+    local git_remote=$(git remote get-url origin 2>/dev/null)
+    if [ -z "$git_remote" ]; then
+        print_error "No git remote 'origin' configured"
+        echo "" >&2
+        echo "Claude YOLO requires a git remote to identify the project." >&2
+        echo "This ensures conversations are properly tied to the correct repository." >&2
+        echo "" >&2
+        echo "To fix:" >&2
+        echo "  git remote add origin <url>" >&2
+        echo "" >&2
+        echo "Current directory: $repo_path" >&2
+        return 1
+    fi
+
+    # Extract repo name from git remote URL
+    # Examples:
+    #   git@github.com:user/repo.git -> user_repo
+    #   https://github.com/user/repo.git -> user_repo
+    local project_name=$(echo "$git_remote" | sed -E 's|.*[:/]([^/]+)/([^/]+)(\.git)?$|\1_\2|')
+
+    local project_root="$project_dir/$project_name"
+    local project_claude_dir="$project_root/.claude"
+
+    # Create project structure if it doesn't exist
+    if [ ! -d "$project_root" ]; then
+        mkdir -p "$project_root"
+        chmod 700 "$project_root"
+
+        # Create metadata file for reference
+        cat > "$project_root/.project-info" <<EOFINFO
+# Claude Code YOLO Project State
+Repository Path: $repo_path
+Git Remote: $git_remote
+Project Name: $project_name
+Created: $(date -Iseconds)
+EOFINFO
+        chmod 600 "$project_root/.project-info"
+    fi
+
+    # Create .claude directory if it doesn't exist
+    if [ ! -d "$project_claude_dir" ]; then
+        mkdir -p "$project_claude_dir"
+        chmod 700 "$project_claude_dir"
+    fi
+
+    echo "$project_claude_dir"
+}
+
+# Load last launch configuration for current project
+# Args: project_claude_dir, config_version, tool_version, tool_hash
+# Returns: 0 if valid config loaded, 1 if no config or invalid
+# Sets: SAVED_* variables if successful
+load_launch_config() {
+    local project_claude_dir="$1"
+    local config_version="$2"
+    local tool_version="$3"
+    local tool_hash="$4"
+    local config_file="$project_claude_dir/../.last-launch.conf"
+
+    # Check if config exists
+    if [[ ! -f "$config_file" ]]; then
+        return 1  # No config, use interactive
+    fi
+
+    # Source config
+    source "$config_file" 2>/dev/null || {
+        echo "Warning: Config file corrupted, reconfiguring..." >&2
+        rm -f "$config_file"
+        return 1
+    }
+
+    # Validate CONFIG_VERSION (schema version)
+    if [[ "${SAVED_CONFIG_VERSION:-0}" != "$config_version" ]]; then
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "⚠️  Config schema outdated" >&2
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "Saved config:  v${SAVED_CONFIG_VERSION:-0}" >&2
+        echo "Expected:      v${config_version}" >&2
+        echo "" >&2
+        echo "Your saved launch configuration uses an old format." >&2
+        echo "Reconfiguring with interactive prompts..." >&2
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "" >&2
+        rm -f "$config_file"
+        return 1
+    fi
+
+    # Validate tool version and hash together
+    local version_match=false
+    local hash_match=false
+
+    [[ "$tool_version" == "${SAVED_TOOL_VERSION:-}" ]] && version_match=true
+    [[ "$tool_hash" == "${SAVED_TOOL_HASH:-}" ]] && hash_match=true
+
+    if $version_match && $hash_match; then
+        # Perfect match - config is valid
+        return 0
+
+    elif $version_match && ! $hash_match; then
+        # VERSION same but HASH different = Developer forgot to update version!
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "⚠️  DEVELOPER ERROR: Script modified without version bump" >&2
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "Version:       ${tool_version} (unchanged)" >&2
+        echo "Saved hash:    ${SAVED_TOOL_HASH:-unknown}" >&2
+        echo "Current hash:  ${tool_hash}" >&2
+        echo "" >&2
+        echo "The script has been modified but version was not updated." >&2
+        echo "This is a developer error - version numbers must be incremented" >&2
+        echo "when the script changes to ensure config compatibility." >&2
+        echo "" >&2
+        echo "Forcing reconfiguration for safety..." >&2
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "" >&2
+        rm -f "$config_file"
+        return 1
+
+    elif ! $version_match; then
+        # VERSION different = Normal upgrade/downgrade
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "ℹ️  Tool version changed" >&2
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "Saved config:  v${SAVED_TOOL_VERSION:-unknown}" >&2
+        echo "Current tool:  v${tool_version}" >&2
+        echo "" >&2
+        echo "Reconfiguring for compatibility with new version..." >&2
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "" >&2
+        rm -f "$config_file"
+        return 1
+    fi
+}
+
+# Save launch configuration for current project
+# Args: project_claude_dir, config_version, tool_version, tool_hash, token_name, ssh_keys_str, network
+save_launch_config() {
+    local project_claude_dir="$1"
+    local config_version="$2"
+    local tool_version="$3"
+    local tool_hash="$4"
+    local token_name="$5"
+    local ssh_keys_str="$6"
+    local network="$7"
+
+    local config_file="$project_claude_dir/../.last-launch.conf"
+
+    cat > "$config_file" <<EOFCONFIG
+# CCY Launch Configuration  
+# Config Version: ${config_version}
+# Tool Version: ${tool_version}
+# Tool Hash: ${tool_hash}
+# Generated: $(date '+%Y-%m-%d %H:%M:%S')
+SAVED_CONFIG_VERSION=${config_version}
+SAVED_TOOL_VERSION="${tool_version}"
+SAVED_TOOL_HASH="${tool_hash}"
+LAST_TOKEN="${token_name}"
+LAST_SSH_KEYS="${ssh_keys_str}"
+LAST_NETWORK="${network}"
+LAST_LAUNCH_DATE="$(date '+%Y-%m-%d')"
+EOFCONFIG
+
+    chmod 600 "$config_file"
+}
+
+# Discover github_ SSH keys in ~/.ssh/
+# Returns: array of SSH key paths in GITHUB_KEYS global variable
+discover_github_ssh_keys() {
+    GITHUB_KEYS=($(find "$HOME/.ssh" -type f -name "github_*" ! -name "*.pub" 2>/dev/null | sort))
+}
+
