@@ -254,6 +254,9 @@
         distrobox enter {{ distrobox_name }} -- bash -c '
           cat > ~/.claude.json << "EOF"
         {
+          "installMethod": "global",
+          "hasCompletedOnboarding": true,
+          "firstStartTime": "2025-01-01T00:00:00.000Z",
           "mcpServers": {
             "playwright": {
               "type": "stdio",
