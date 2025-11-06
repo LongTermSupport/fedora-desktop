@@ -106,7 +106,7 @@ Choose what you need from these curated playbooks:
 - Docker (rootless) for application containers
 - Distrobox for seamless development environments
 - Docker-in-LXC for isolated project testing
-- Playwright testing environment (automated browser setup)
+- [Playwright testing environment](docs/containerization.md#playwright-distrobox-automated) (automated browser setup)
 
 **Programming Languages**
 - Python with pyenv, PDM, Hugging Face tools
