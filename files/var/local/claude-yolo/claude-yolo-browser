@@ -2,9 +2,9 @@
 # Claude Code Browser Automation Mode
 # Runs Claude Code inside playwright-tests distrobox for MCP browser control
 #
-# Version: 3.1.0
+# Version: 3.1.1
 #
-CCY_BROWSER_VERSION="3.1.0"
+CCY_BROWSER_VERSION="3.1.1"
 
 set -e
 
@@ -491,4 +491,5 @@ echo "Launching Claude Code..."
 echo ""
 
 # Enter distrobox and run Claude Code
-exec distrobox enter "$DISTROBOX_NAME" -- bash -c "$CLAUDE_CMD"
+# Mount current directory so it's accessible inside the isolated container
+exec distrobox enter "$DISTROBOX_NAME" --additional-flags "--volume $CURRENT_DIR:$CURRENT_DIR" -- bash -c "$CLAUDE_CMD"
