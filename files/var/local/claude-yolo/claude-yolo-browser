@@ -518,4 +518,5 @@ echo ""
 
 # Enter distrobox and run Claude Code
 # Projects directory is mounted at container creation time
-exec distrobox enter "$DISTROBOX_NAME" -- bash -c "$CLAUDE_CMD"
+# --no-workdir: Don't preserve CWD (we cd manually in CLAUDE_CMD)
+exec distrobox enter "$DISTROBOX_NAME" --no-workdir -- bash -c "$CLAUDE_CMD"
