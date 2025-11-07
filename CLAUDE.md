@@ -610,13 +610,14 @@ git pull && ansible-galaxy install -r requirements.yml
 - **Vault issues**: Check vault password file exists and is readable
 - **Package installation**: Verify third-party repos are enabled during Fedora installation
 - **Permissions**: Ensure user has sudo privileges for system modifications
+- **Distrobox issues**: Check container logs with `podman logs <container-id>` or recreate container with playbook
 
 ### Debug Commands
 ```bash
 # Check Ansible connectivity
 ansible desktop -m ping
 
-# Verify vault access  
+# Verify vault access
 ansible-vault view environment/localhost/host_vars/localhost.yml
 
 # Test specific component
@@ -624,6 +625,13 @@ ansible desktop -m setup --tree untracked/facts/
 
 # Check DNF configuration
 cat /etc/dnf/dnf.conf | grep max_parallel
+
+# Debug distrobox containers
+distrobox list                           # List all containers
+podman logs <container-id>               # View container logs
+journalctl --user -u podman              # View podman service logs
+podman ps -a                             # Show all containers including stopped
+podman inspect <container-name>          # Detailed container configuration
 ```
 
 ## Project Maintenance
