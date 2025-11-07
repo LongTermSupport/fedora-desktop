@@ -2,9 +2,9 @@
 # Claude Code Browser Automation Mode
 # Runs Claude Code inside playwright-tests distrobox for MCP browser control
 #
-# Version: 3.1.2
+# Version: 3.1.3
 #
-CCY_BROWSER_VERSION="3.1.2"
+CCY_BROWSER_VERSION="3.1.3"
 
 set -e
 
@@ -129,7 +129,7 @@ if [ "$1" = "--version" ] || [ "$1" = "-v" ]; then
     echo ""
     if command_exists distrobox && distrobox list --no-color 2>/dev/null | grep -qw "$DISTROBOX_NAME"; then
         echo "Container: $DISTROBOX_NAME"
-        echo "Claude Code: $(distrobox enter "$DISTROBOX_NAME" -- bash -c 'cd / && claude --version' 2>/dev/null || echo 'not installed')"
+        echo "Claude Code: $(distrobox enter "$DISTROBOX_NAME" --no-workdir -- claude --version 2>/dev/null || echo 'not installed')"
     fi
     exit 0
 fi
@@ -165,8 +165,8 @@ if ! distrobox list --no-color 2>/dev/null | grep -qw "$DISTROBOX_NAME"; then
 fi
 
 # Check if Claude Code is installed in the container
-# Use cd / to ensure we're in a directory that exists (isolated home doesn't have host paths)
-if ! distrobox enter "$DISTROBOX_NAME" -- bash -c 'cd / && command -v claude &> /dev/null'; then
+# Use --no-workdir to avoid trying to cd to host CWD (which doesn't exist in isolated container)
+if ! distrobox enter "$DISTROBOX_NAME" --no-workdir -- bash -c 'command -v claude &> /dev/null'; then
     print_error "Claude Code is not installed in the $DISTROBOX_NAME container"
     echo "" >&2
     echo "Please run the Playwright distrobox playbook to install Claude Code:" >&2
