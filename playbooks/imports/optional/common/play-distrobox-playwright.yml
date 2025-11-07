@@ -37,6 +37,27 @@
             ansible-playbook playbooks/imports/optional/common/play-install-distrobox.yml
       when: distrobox_check.rc != 0
 
+    - name: Check if Projects Directory Exists
+      stat:
+        path: "/home/{{ user_login }}/Projects"
+      register: projects_dir
+
+    - name: Fail if Projects Directory Does Not Exist
+      fail:
+        msg: |
+          ERROR: Projects directory does not exist at /home/{{ user_login }}/Projects
+
+          The ccyb browser automation container requires a Projects directory to mount.
+          This is where your git repositories should be located.
+
+          To fix:
+            mkdir -p ~/Projects
+            cd ~/Projects
+            git clone <your-repos>
+
+          Then re-run this playbook.
+      when: not projects_dir.stat.exists
+
     # Container lifecycle management
     - name: Check if Playwright Container Exists
       shell: distrobox list --no-color | grep -w "{{ distrobox_name }}" || true

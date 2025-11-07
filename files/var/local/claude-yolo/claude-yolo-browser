@@ -2,9 +2,9 @@
 # Claude Code Browser Automation Mode
 # Runs Claude Code inside playwright-tests distrobox for MCP browser control
 #
-# Version: 3.2.0
+# Version: 3.2.1
 #
-CCY_BROWSER_VERSION="3.2.0"
+CCY_BROWSER_VERSION="3.2.1"
 
 set -e
 
@@ -179,6 +179,31 @@ check_git_repo || exit 1
 
 # Get current directory (will be preserved in distrobox)
 CURRENT_DIR="$PWD"
+
+# Validate we're inside ~/Projects (required for container mount)
+PROJECTS_DIR="$HOME/Projects"
+if [ ! -d "$PROJECTS_DIR" ]; then
+    print_error "Projects directory does not exist: $PROJECTS_DIR"
+    echo "" >&2
+    echo "The ccyb container requires a ~/Projects directory to mount your code." >&2
+    echo "" >&2
+    echo "To fix:" >&2
+    echo "  mkdir -p ~/Projects" >&2
+    echo "  cd ~/Projects" >&2
+    echo "  git clone <your-repos>" >&2
+    exit 1
+fi
+
+if [[ "$CURRENT_DIR" != "$PROJECTS_DIR"* ]]; then
+    print_error "Must run ccyb from within ~/Projects directory"
+    echo "" >&2
+    echo "Current directory: $CURRENT_DIR" >&2
+    echo "Required location: $PROJECTS_DIR/<your-repo>" >&2
+    echo "" >&2
+    echo "The container only has access to ~/Projects and subdirectories." >&2
+    echo "Your project files must be within this directory to be accessible." >&2
+    exit 1
+fi
 
 # Get project state directory (shared with ccy)
 PROJECT_CLAUDE_DIR=$(get_project_state_dir "$CCY_ROOT") || exit 1
