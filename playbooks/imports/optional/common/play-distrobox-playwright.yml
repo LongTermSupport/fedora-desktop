@@ -54,6 +54,7 @@
         --name {{ distrobox_name }}
         --image {{ distrobox_image }}
         --home {{ ccyb_home }}
+        --volume /home/{{ user_login }}/Projects:/home/{{ user_login }}/Projects
         --yes
       register: container_created
 

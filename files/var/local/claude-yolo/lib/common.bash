@@ -2,7 +2,7 @@
 # Claude YOLO Common Library
 # Shared helpers for claude-yolo and claude-yolo-browser
 #
-# Version: 1.0.0
+# Version: 1.0.1
 
 # Color codes for consistent output
 readonly COLOR_RESET='\033[0m'
@@ -62,9 +62,9 @@ get_project_name() {
 # YOLO mode warning
 show_yolo_warning() {
     echo "" >&2
-    echo "⚠️  ${COLOR_YELLOW}YOLO MODE WARNING${COLOR_RESET}" >&2
+    echo -e "⚠️  ${COLOR_YELLOW}YOLO MODE WARNING${COLOR_RESET}" >&2
     echo "" >&2
-    echo "Running with ${COLOR_BOLD}--dangerously-skip-permissions${COLOR_RESET}" >&2
+    echo -e "Running with ${COLOR_BOLD}--dangerously-skip-permissions${COLOR_RESET}" >&2
     echo "" >&2
     echo "This mode bypasses ALL permission checks for rapid development." >&2
     echo "Claude Code can modify any file without confirmation." >&2
