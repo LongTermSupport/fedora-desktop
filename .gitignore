@@ -11,6 +11,9 @@ __pycache__/
 # Claude Code local settings (keep custom commands)
 .claude/settings.local.json
 
+# MCP cache and runtime data
+.playwright-mcp/
+
 # Safety net for common sensitive file types
 *.key
 *.pem

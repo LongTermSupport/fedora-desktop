@@ -16,15 +16,15 @@
         - packages
         - kernel-mgmt
 
-    - name: Configure DNF to Keep 4 Kernels
+    - name: Configure DNF to Keep 3 Kernels
       blockinfile:
         path: /etc/dnf/dnf.conf
         marker: "# {mark} ANSIBLE MANAGED: Advanced Kernel Management"
         block: |
-          # Keep 4 kernels to accommodate:
+          # Keep 3 kernels to accommodate:
           # - Latest minor version (multiple patches)
           # - Previous minor version (locked for hardware compatibility)
-          installonly_limit=4
+          installonly_limit=3
         create: false
       tags:
         - config

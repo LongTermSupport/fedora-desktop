@@ -69,6 +69,9 @@
       when: container_exists.stdout != ""
       register: container_removed
 
+    # Mount Projects directory and /var/lib/lxc
+    # Projects: Required for accessing git repositories
+    # /var/lib/lxc: Required for following symlinks in ~/Projects that point to LXC containers
     - name: Create Playwright Distrobox Container with Isolated Home
       command: >
         distrobox create
@@ -76,6 +79,7 @@
         --image {{ distrobox_image }}
         --home {{ ccyb_home }}
         --volume /home/{{ user_login }}/Projects:/home/{{ user_login }}/Projects
+        --volume /var/lib/lxc:/var/lib/lxc
         --yes
       register: container_created
 
@@ -218,9 +222,10 @@
       changed_when: false
 
     # Claude Code installation
+    # Check for Claude Code in the isolated home, not the host home
     - name: Check if Claude Code is Installed in Container
       shell: |
-        distrobox enter {{ distrobox_name }} -- bash -c 'command -v claude' || true
+        distrobox enter {{ distrobox_name }} -- bash -c 'test -f $HOME/.local/bin/claude && echo found || echo ""' || echo ""
       register: claude_check
       changed_when: false
 
@@ -229,7 +234,7 @@
         distrobox enter {{ distrobox_name }} -- bash -c '
           curl -fsSL https://storage.googleapis.com/anthropic-cli/install.sh | bash
         '
-      when: claude_check.stdout == ""
+      when: claude_check.stdout != "found"
       args:
         executable: /bin/bash
 
