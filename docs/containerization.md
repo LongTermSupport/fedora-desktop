@@ -284,63 +284,69 @@ ls ~/   # Your actual home directory
 - Available packages
 - Init system (limited)
 
-### Playwright Distrobox (Automated)
+### Claude Code Browser (ccb) - Docker-Based Automation
 
-This project provides a comprehensive browser automation environment via distrobox:
+This project provides a comprehensive browser automation environment via Docker:
 
 ```bash
 # Install and configure
-ansible-playbook playbooks/imports/optional/common/play-distrobox-playwright.yml
+ansible-playbook playbooks/imports/optional/common/play-install-claude-browser.yml
 ```
 
-This creates a feature-complete `playwright-tests` container with:
+This creates a feature-complete Docker-based `claude-browser` container with:
 - **Full development environment**: git, gh, ripgrep, jq, yq, vim, python
 - **Browser automation**: Chromium, Firefox, WebKit with Playwright
-- **Claude Code**: Configured for MCP browser control
+- **Claude Code + MCP**: Playwright MCP server for browser control
 - **Node.js LTS v20**: Latest stable JavaScript runtime
-- **GUI support**: Browsers visible on desktop (X11/Wayland)
-- **Shared tooling**: Available to all projects in `~/Projects/`
-- **SSH & Git**: Keys and config shared from host
+- **GUI support**: Headed browser windows visible on desktop (Wayland/X11)
+- **Proper isolation**: Container home, no /tmp sharing (secure)
+- **Token sharing**: Uses same token pool as `ccy` (unified auth)
+- **SSH & Git**: Keys and config mounted from host
 
 **Usage:**
 ```bash
-# From any project directory
-cd ~/Projects/my-project/tests
+# Navigate to any project
+cd ~/Projects/my-project
 
-# Option 1: Enter Playwright container directly
-distrobox enter playwright-tests
-npm install
-npm test
+# Launch Claude Code with browser automation
+ccb
 
-# Option 2: Use Claude Code for browser automation (recommended)
-ccy-browser
-# Claude Code launches inside the container
-# Can help write/debug Playwright tests interactively
-# Browsers appear on your desktop
-```
-
-**Claude Code Browser Automation Mode:**
-
-The `ccy-browser` command launches Claude Code inside the Playwright container for AI-assisted browser automation:
-
-```bash
-cd ~/Projects/my-project/tests
-ccy-browser
+# Or use specific token
+ccb --token your_token_name
 
 # Inside Claude Code:
-# - Ask Claude to write Playwright tests
-# - Debug failing browser tests interactively
-# - Explore web applications with live browser feedback
-# - All browsers visible on your desktop
+# - Ask Claude to navigate to websites
+# - Take screenshots and interact with pages
+# - Write and debug Playwright tests interactively
+# - Browsers appear as visible windows on your desktop
 ```
 
+**Key Features:**
+
+**Headed Browser Mode:**
+- Browser windows appear on your Wayland/X11 desktop
+- Watch Claude interact with websites in real-time
+- Visual debugging of browser automation
+- Full desktop integration via XDG_RUNTIME_DIR mount
+
+**Proper Isolation:**
+- Separate container home directory (no host pollution)
+- No /tmp sharing (security benefit over distrobox)
+- MCP cache stays in container
+- Separate project state from `ccy` (no config pollution)
+
+**Unified Token Management:**
+- Shares token pool with `ccy` (`~/.claude-tokens/ccy/`)
+- Use `ccy --create-token` to create tokens for both
+- No duplicate token management
+
 **Benefits:**
-- Zero pollution of Fedora desktop (all test tools in container)
-- ~400MB browsers shared across all projects
-- Each project maintains its own `node_modules/` and `package.json`
-- Different Playwright versions per project (no conflicts)
-- One-time setup via Ansible
-- AI-assisted test development with `ccy-browser`
+- ✅ Headed browser mode working reliably
+- ✅ Better isolation than distrobox
+- ✅ Consistent architecture with `ccy` (both Docker-based)
+- ✅ Proper Wayland support with full XDG runtime
+- ✅ No host desktop pollution
+- ✅ AI-assisted browser automation with visible feedback
 
 ## Choosing the Right Technology
 
@@ -386,13 +392,14 @@ npm install && npm run dev  # Browser opens on host desktop
 
 ### Example 2: Browser Automation Testing
 ```bash
-# Bad: Install Playwright on Fedora (unsupported, may break)
-npm install playwright  # ❌ System library conflicts
+# Bad: Install Playwright on Fedora (pollutes host, may break)
+npm install playwright  # ❌ System library conflicts, desktop pollution
 
-# Good: Use Playwright distrobox
-distrobox enter playwright-tests
-npm install playwright
-npm test  # ✅ Works perfectly, browsers on desktop
+# Good: Use Claude Code Browser (ccb)
+cd ~/Projects/my-project
+ccb  # ✅ Docker-based, isolated, headed browser mode
+# Ask Claude to navigate websites, take screenshots, debug tests
+# Browser windows appear on your desktop for visual feedback
 ```
 
 ### Example 3: Multi-Distro Testing
