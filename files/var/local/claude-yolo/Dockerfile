@@ -57,6 +57,10 @@ RUN npm install -g @anthropic-ai/claude-code
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
+# Copy startup info file
+COPY ccy-startup-info.txt /opt/claude-yolo/ccy-startup-info.txt
+RUN chmod 444 /opt/claude-yolo/ccy-startup-info.txt
+
 # Set workspace directory
 WORKDIR /workspace
 

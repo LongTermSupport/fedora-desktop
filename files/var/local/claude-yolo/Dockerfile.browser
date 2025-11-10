@@ -83,6 +83,10 @@ RUN npm install -g @playwright/mcp@latest
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
+# Copy startup info file
+COPY ccb-startup-info.txt /opt/claude-browser/ccb-startup-info.txt
+RUN chmod 444 /opt/claude-browser/ccb-startup-info.txt
+
 # Create Playwright MCP configuration file for browser launch options (JSON format)
 # MCP format uses "browser.launchOptions" not "use.launchOptions"
 # Configures Wayland support and software rendering for Docker

@@ -2403,48 +2403,16 @@ elif [ -n "$PROMPT_TEXT" ]; then
     # Interactive mode with prompt: pass prompt as argument
     CLAUDE_CMD_ARGS+=("$PROMPT_TEXT")
 elif [ ${#CLAUDE_ARGS[@]} -eq 0 ]; then
-    # BROWSER MODE: Updated intro message for browser automation
-    # No user arguments - add system context about Docker environment
-    # Detect display type for intro message
-    DISPLAY_TYPE="Unknown"
-    if [ -n "$WAYLAND_DISPLAY" ]; then
-        DISPLAY_TYPE="Wayland"
-    elif [ -n "$DISPLAY" ]; then
-        DISPLAY_TYPE="X11"
+    # BROWSER MODE: No user arguments - pass startup info via system prompt instead of user message
+    # This prevents informational messages from triggering Claude thinking
+    STARTUP_INFO_FILE="/opt/claude-browser/ccb-startup-info.txt"
+    if [ ! -f "$STARTUP_INFO_FILE" ]; then
+        print_error "Startup info file not found: $STARTUP_INFO_FILE"
+        exit 1
     fi
-
-    DOCKER_INTRO="You are running in Browser Automation Mode with Playwright MCP!
-
-ENVIRONMENT:
-• Docker container: $CONTAINER_NAME
-• Browser GUI support enabled ($DISPLAY_TYPE)
-• Playwright MCP for browser control
-• Chromium, Firefox, and WebKit browsers installed
-• Working directory: /workspace (your project mounted from host)
-• Isolated from host system (secure sandbox)
-$(if [ -n "$NETWORK_FLAG" ]; then echo "• Connected to Docker network: $NETWORK_FLAG"; else echo "• No Docker network (isolated)"; fi)
-
-CAPABILITIES:
-• Control real browsers through Playwright MCP
-• Browsers open on your desktop for visual debugging
-• Full development environment (git, gh, ripgrep, jq, Node.js, Python)
-• GitHub CLI authenticated (can create PRs, issues, etc.)
-• SSH keys mounted for git operations
-• Running as root user - install packages freely (apt, npm, pip, etc.)
-• Container is ephemeral - for permanent tools, extend the Dockerfile
-
-BROWSER AUTOMATION:
-• Use Playwright MCP tools to control browsers
-• Create acceptance tests interactively
-• Debug and explore web applications visually
-• Scrape and automate web workflows
-
-IMPORTANT - ERROR HANDLING:
-• If you get 'Browser is already in use' error: First use browser_close tool, then retry navigation
-• Always close browser contexts when switching tasks or if navigation fails
-
-Your project files are at /workspace. Browsers are ready!"
-    CLAUDE_CMD_ARGS+=("$DOCKER_INTRO")
+    # Read startup info and pass to Claude via --append-system-prompt
+    STARTUP_INFO=$(cat "$STARTUP_INFO_FILE")
+    CLAUDE_CMD_ARGS+=("--append-system-prompt" "$STARTUP_INFO")
 fi
 
 # Add any other arguments passed through
