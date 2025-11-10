@@ -2,7 +2,7 @@
 # Claude YOLO Common Library
 # Shared helpers for claude-yolo and claude-yolo-browser
 #
-# Version: 1.0.1
+# Version: 1.1.0
 
 # Color codes for consistent output
 readonly COLOR_RESET='\033[0m'
@@ -11,6 +11,14 @@ readonly COLOR_GREEN='\033[0;32m'
 readonly COLOR_YELLOW='\033[0;33m'
 readonly COLOR_BLUE='\033[0;34m'
 readonly COLOR_BOLD='\033[1m'
+
+# Source additional library modules
+LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$LIB_DIR/token-management.bash"
+source "$LIB_DIR/ssh-handling.bash"
+source "$LIB_DIR/network-management.bash"
+source "$LIB_DIR/dockerfile-custom.bash"
+source "$LIB_DIR/ui-helpers.bash"
 
 # Output formatting helpers
 print_error() {
