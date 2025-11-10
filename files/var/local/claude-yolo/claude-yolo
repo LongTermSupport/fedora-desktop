@@ -167,33 +167,6 @@ EOF
 
     exit 0
 fi
-
-# Function to check if a token is valid (not expired or expiring today)
-# Args: token_file_path
-# Returns: 0 (true) if valid, 1 (false) if expired/expiring
-is_token_valid() {
-    local token_file="$1"
-    local filename=$(basename "$token_file")
-
-    # Extract expiry date from filename: NAME.YYYY-MM-DD.token
-    if [[ "$filename" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2})\.token$ ]]; then
-        local expiry_date="${BASH_REMATCH[1]}"
-        local today=$(date +%Y-%m-%d)
-
-        # Compare dates
-        if [[ "$expiry_date" < "$today" ]]; then
-            return 1  # Expired
-        elif [[ "$expiry_date" == "$today" ]]; then
-            return 1  # Expiring today
-        else
-            return 0  # Valid
-        fi
-    else
-        # Old format token without expiry date - treat as expired
-        return 1
-    fi
-}
-
 # Function to list available tokens
 list_tokens() {
     echo ""
@@ -466,61 +439,6 @@ create_token() {
     rm -f "$tmp_output"
 
     exit 0
-}
-
-# Function to get project-specific state directory
-# Returns path to project's .claude directory based on git repo identifier
-# Note: Only called after git repo check passes (line 8-22)
-get_project_state_dir() {
-    local repo_path="$PWD"
-
-    # Get git remote URL - fail fast if not configured
-    local git_remote=$(git remote get-url origin 2>/dev/null)
-    if [ -z "$git_remote" ]; then
-        print_error "No git remote 'origin' configured"
-        echo "" >&2
-        echo "Claude YOLO requires a git remote to identify the project." >&2
-        echo "This ensures conversations are properly tied to the correct repository." >&2
-        echo "" >&2
-        echo "To fix:" >&2
-        echo "  git remote add origin <url>" >&2
-        echo "" >&2
-        echo "Current directory: $repo_path" >&2
-        exit 1
-    fi
-
-    # Extract repo name from git remote URL
-    # Examples:
-    #   git@github.com:user/repo.git -> user_repo
-    #   https://github.com/user/repo.git -> user_repo
-    local project_name=$(echo "$git_remote" | sed -E 's|.*[:/]([^/]+)/([^/]+)(\.git)?$|\1_\2|')
-
-    local project_root="$PROJECT_DIR/$project_name"
-    local project_claude_dir="$project_root/.claude"
-
-    # Create project structure if it doesn't exist
-    if [ ! -d "$project_root" ]; then
-        mkdir -p "$project_root"
-        chmod 700 "$project_root"
-
-        # Create metadata file for reference
-        cat > "$project_root/.project-info" <<EOF
-# Claude Code YOLO Project State
-Repository Path: $repo_path
-Git Remote: $git_remote
-Project Name: $project_name
-Created: $(date -Iseconds)
-EOF
-        chmod 600 "$project_root/.project-info"
-    fi
-
-    # Create .claude directory if it doesn't exist
-    if [ ! -d "$project_claude_dir" ]; then
-        mkdir -p "$project_claude_dir"
-        chmod 700 "$project_claude_dir"
-    fi
-
-    echo "$project_claude_dir"
 }
 
 # Function to load last launch configuration for current project
@@ -1159,105 +1077,6 @@ custom_dockerfile() {
     done
 }
 
-# Function to validate container version and rebuild if needed
-# Args: $1 = image name, $2 = Dockerfile path
-# Validates both version and hash (like CCY_VERSION/CCY_HASH pattern)
-validate_container_version() {
-    local image_name="$1"
-    local dockerfile_path="$2"
-
-    # Get version and hash from built image
-    local image_version=$(docker image inspect "$image_name" \
-        --format '{{index .Config.Labels "claude-yolo-version"}}' 2>/dev/null || echo "0")
-    local image_hash=$(docker image inspect "$image_name" \
-        --format '{{index .Config.Labels "claude-yolo-dockerfile-hash"}}' 2>/dev/null || echo "unknown")
-
-    # Calculate current Dockerfile hash (16 char md5, like CCY_HASH)
-    local current_hash=$(md5sum "$dockerfile_path" | cut -d' ' -f1 | cut -c1-16)
-
-    # Validate version and hash together (like CCY version validation)
-    local version_match=false
-    local hash_match=false
-
-    [[ "$image_version" == "$REQUIRED_CONTAINER_VERSION" ]] && version_match=true
-    [[ "$image_hash" == "$current_hash" ]] && hash_match=true
-
-    # Special case: "unknown" hash means image was built before hash tracking
-    # This happens during migration from old system or Ansible builds without hash arg
-    local is_migration=false
-    [[ "$image_hash" == "unknown" ]] && is_migration=true
-
-    if $version_match && $hash_match; then
-        # Perfect match - container is up to date
-        return 0
-
-    elif $is_migration && $version_match; then
-        # Migration from old system - rebuild without scary warning
-        echo ""
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        echo "ℹ️  Migrating to hash-based version tracking"
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        echo "Version: v$REQUIRED_CONTAINER_VERSION"
-        echo ""
-        echo "Rebuilding container with hash tracking enabled..."
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        echo ""
-        return 1
-
-    elif $version_match && ! $hash_match; then
-        # VERSION same but HASH different = Developer forgot to update version!
-        echo ""
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
-        echo "⚠️  DEVELOPER ERROR: Dockerfile modified without version bump" >&2
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
-        echo "Version:       $REQUIRED_CONTAINER_VERSION (unchanged)" >&2
-        echo "Image hash:    $image_hash" >&2
-        echo "Current hash:  $current_hash" >&2
-        echo "" >&2
-        echo "The Dockerfile has been modified but claude-yolo-version was not updated." >&2
-        echo "This is a developer error - version numbers must be incremented" >&2
-        echo "when the Dockerfile changes to ensure proper deployment." >&2
-        echo "" >&2
-        echo "Rebuilding container automatically..." >&2
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
-        echo "" >&2
-        return 1
-
-    elif ! $version_match; then
-        # VERSION different = Normal upgrade
-        echo ""
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        echo "ℹ️  Container version update required"
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        echo "Image version: v$image_version"
-        echo "Required:      v$REQUIRED_CONTAINER_VERSION"
-        echo ""
-        echo "Rebuilding container with latest changes..."
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        echo ""
-        return 1
-    fi
-}
-
-# Function to build container with hash
-# Args: $1 = image name, $2 = dockerfile directory, $3 = additional flags (optional)
-build_container_with_hash() {
-    local image_name="$1"
-    local dockerfile_dir="$2"
-    local additional_flags="$3"
-    local dockerfile_path="$dockerfile_dir/Dockerfile"
-
-    # Calculate Dockerfile hash
-    local dockerfile_hash=$(md5sum "$dockerfile_path" | cut -d' ' -f1 | cut -c1-16)
-
-    # Build with hash as build arg
-    docker build \
-        $additional_flags \
-        --build-arg DOCKERFILE_HASH="$dockerfile_hash" \
-        -t "$image_name" \
-        "$dockerfile_dir"
-}
-
 # Check for wrapper flags
 FORCE_REBUILD=false
 DEBUG_MODE=false
@@ -1380,7 +1199,7 @@ fi
 
 # Get project state directory early for config loading
 # We need this before prompts to load previous configuration
-PROJECT_CLAUDE_DIR_EARLY=$(get_project_state_dir)
+PROJECT_CLAUDE_DIR_EARLY=$(get_project_state_dir "$CCY_ROOT")
 
 # Try to load previous launch configuration (if no flags specified)
 CONFIG_LOADED=false
@@ -1816,7 +1635,7 @@ if ! docker image inspect "$IMAGE_NAME" &> /dev/null; then
 fi
 
 # Validate container version and hash (auto-rebuild if needed)
-if ! validate_container_version "$IMAGE_NAME" "$DOCKERFILE_DIR/Dockerfile"; then
+if ! validate_container_version "$IMAGE_NAME" "$DOCKERFILE_DIR/Dockerfile" "$REQUIRED_CONTAINER_VERSION"; then
     # Version/hash mismatch - rebuild required
     build_container_with_hash "$IMAGE_NAME" "$DOCKERFILE_DIR"
     echo "✓ Container image rebuilt with version $REQUIRED_CONTAINER_VERSION"
@@ -1983,7 +1802,7 @@ if [ -f "$PROJECT_DOCKERFILE" ]; then
 fi
 
 # Get project-specific state directory (entire .claude directory)
-PROJECT_CLAUDE_DIR=$(get_project_state_dir)
+PROJECT_CLAUDE_DIR=$(get_project_state_dir "$CCY_ROOT")
 echo "✓ Project state: $PROJECT_CLAUDE_DIR"
 echo "✓ Token: Long-lived OAuth (CLAUDE_CODE_OAUTH_TOKEN)"
 

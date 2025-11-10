@@ -481,6 +481,110 @@ discover_github_ssh_keys() {
     GITHUB_KEYS=($(find "$HOME/.ssh" -type f -name "github_*" ! -name "*.pub" 2>/dev/null | sort))
 }
 
+# Container version validation and build helpers
+# These functions work with Docker/Podman container labels for version tracking
+
+# Validate container version and rebuild if needed
+# Args: $1 = image name, $2 = Dockerfile path, $3 = REQUIRED_CONTAINER_VERSION
+# Validates both version and hash (like CCY_VERSION/CCY_HASH pattern)
+# Returns: 0 if container is up to date, 1 if rebuild needed
+validate_container_version() {
+    local image_name="$1"
+    local dockerfile_path="$2"
+    local required_version="$3"
+
+    # Get version and hash from built image
+    local image_version=$(docker image inspect "$image_name" \
+        --format '{{index .Config.Labels "claude-yolo-version"}}' 2>/dev/null || echo "0")
+    local image_hash=$(docker image inspect "$image_name" \
+        --format '{{index .Config.Labels "claude-yolo-dockerfile-hash"}}' 2>/dev/null || echo "unknown")
+
+    # Calculate current Dockerfile hash (16 char md5, like CCY_HASH)
+    local current_hash=$(md5sum "$dockerfile_path" | cut -d' ' -f1 | cut -c1-16)
+
+    # Validate version and hash together (like CCY version validation)
+    local version_match=false
+    local hash_match=false
+
+    [[ "$image_version" == "$required_version" ]] && version_match=true
+    [[ "$image_hash" == "$current_hash" ]] && hash_match=true
+
+    # Special case: "unknown" hash means image was built before hash tracking
+    # This happens during migration from old system or Ansible builds without hash arg
+    local is_migration=false
+    [[ "$image_hash" == "unknown" ]] && is_migration=true
+
+    if $version_match && $hash_match; then
+        # Perfect match - container is up to date
+        return 0
+
+    elif $is_migration && $version_match; then
+        # Migration from old system - rebuild without scary warning
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "ℹ️  Migrating to hash-based version tracking"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "Version: v$required_version"
+        echo ""
+        echo "Rebuilding container with hash tracking enabled..."
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        return 1
+
+    elif $version_match && ! $hash_match; then
+        # VERSION same but HASH different = Developer forgot to update version!
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "⚠️  DEVELOPER ERROR: Dockerfile modified without version bump" >&2
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "Version:       $required_version (unchanged)" >&2
+        echo "Image hash:    $image_hash" >&2
+        echo "Current hash:  $current_hash" >&2
+        echo "" >&2
+        echo "The Dockerfile has been modified but claude-yolo-version was not updated." >&2
+        echo "This is a developer error - version numbers must be incremented" >&2
+        echo "when the Dockerfile changes to ensure proper deployment." >&2
+        echo "" >&2
+        echo "Rebuilding container automatically..." >&2
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "" >&2
+        return 1
+
+    elif ! $version_match; then
+        # VERSION different = Normal upgrade
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "ℹ️  Container version update required"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "Image version: v$image_version"
+        echo "Required:      v$required_version"
+        echo ""
+        echo "Rebuilding container with latest changes..."
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        return 1
+    fi
+}
+
+# Build container with hash
+# Args: $1 = image name, $2 = dockerfile directory, $3 = additional flags (optional)
+build_container_with_hash() {
+    local image_name="$1"
+    local dockerfile_dir="$2"
+    local additional_flags="$3"
+    local dockerfile_path="$dockerfile_dir/Dockerfile"
+
+    # Calculate Dockerfile hash
+    local dockerfile_hash=$(md5sum "$dockerfile_path" | cut -d' ' -f1 | cut -c1-16)
+
+    # Build with hash as build arg
+    docker build \
+        $additional_flags \
+        --build-arg DOCKERFILE_HASH="$dockerfile_hash" \
+        -t "$image_name" \
+        "$dockerfile_dir"
+}
+
 # Export functions for use in other scripts
 export -f print_error
 export -f print_warning
@@ -508,4 +612,6 @@ export -f get_project_state_dir
 export -f load_launch_config
 export -f save_launch_config
 export -f discover_github_ssh_keys
+export -f validate_container_version
+export -f build_container_with_hash
 
