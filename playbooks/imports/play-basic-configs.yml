@@ -3,28 +3,50 @@
   become: true
   vars:
     root_dir: "{{ inventory_dir }}/../../"
-  vars_prompt:
-    - name: PS1_Colour
-      private: false
-      prompt: |
-        Enter Prompt Colour. Must be one of:
-          white
-          whiteBold
-          red
-          redBold
-          green
-          greenBold
-          yellow
-          yellowBold
-          blue
-          blueBold
-          purple
-          purpleBold
-          lightblue
-          lightblueBold
-
-      default: lightblueBold
   tasks:
+    - name: Check if PS1 prompt colour already configured
+      stat:
+        path: /var/local/ps1-prompt-colour
+      register: ps1_colour_file
+
+    - name: Read existing PS1 colour if present
+      slurp:
+        src: /var/local/ps1-prompt-colour
+      register: existing_ps1_colour
+      when: ps1_colour_file.stat.exists
+
+    - name: Set PS1_Colour from existing config
+      set_fact:
+        PS1_Colour: "{{ (existing_ps1_colour.content | b64decode).split('=')[1] | trim }}"
+      when: ps1_colour_file.stat.exists
+
+    - name: Prompt for PS1 colour if not already configured
+      pause:
+        prompt: |
+          Enter Prompt Colour. Must be one of:
+            white
+            whiteBold
+            red
+            redBold
+            green
+            greenBold
+            yellow
+            yellowBold
+            blue
+            blueBold
+            purple
+            purpleBold
+            lightblue
+            lightblueBold
+          
+          (default: lightblueBold)
+      register: ps1_colour_prompt
+      when: not ps1_colour_file.stat.exists
+
+    - name: Set PS1_Colour from prompt
+      set_fact:
+        PS1_Colour: "{{ ps1_colour_prompt.user_input | default('lightblueBold') }}"
+      when: not ps1_colour_file.stat.exists
     - name: Basic packages
       package:
         name: "{{ packages }}"
@@ -36,6 +58,8 @@
           - bash-completion
           - htop
           - python3-libdnf5
+          - multitail
+          - figlet
       tags: packages
 
     - name: Passwordless Sudo
@@ -73,6 +97,17 @@
           content: "export PS1_COLOUR={{ PS1_Colour }}"
           dest: /var/local/ps1-prompt-colour
 
+    - name: Create .bashrc-includes directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ item.split('/')[2] if '/home/' in item else 'root' }}"
+        group: "{{ item.split('/')[2] if '/home/' in item else 'root' }}"
+        mode: '0755'
+      loop:
+        - /root/.bashrc-includes
+        - /home/{{ user_login }}/.bashrc-includes
+
     - name: Ensure Bash Tweaks are Loaded
       blockinfile:
         marker: "# {mark} ANSIBLE MANAGED: Bash Tweaks"
@@ -84,6 +119,51 @@
         - /root/.bash_profile
         - /home/{{ user_login }}/.bashrc
         - /home/{{ user_login }}/.bash_profile
+
+    - name: Add bashrc includes sourcing
+      blockinfile:
+        marker: "# {mark} ANSIBLE MANAGED: Source bashrc includes"
+        block: |
+          if [ -d ~/.bashrc-includes ]; then
+            for file in ~/.bashrc-includes/*; do
+              [ -r "$file" ] && source "$file"
+            done
+          fi
+        path: "{{ item }}"
+        create: false
+      loop:
+        - /root/.bashrc
+        - /home/{{ user_login }}/.bashrc
+
+    - name: Deploy shutdown-with-update script
+      copy:
+        src: "{{ root_dir }}/files/usr/local/bin/shutdown-with-update"
+        dest: /usr/local/bin/shutdown-with-update
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Deploy shutdown-with-update alias
+      copy:
+        src: "{{ root_dir }}/files/home/bashrc-includes/shutdown-with-update.bash"
+        dest: "{{ item }}/.bashrc-includes/shutdown-with-update.bash"
+        owner: "{{ item.split('/')[2] if item != '/root' else 'root' }}"
+        group: "{{ item.split('/')[2] if item != '/root' else 'root' }}"
+        mode: '0644'
+      loop:
+        - /root
+        - /home/{{ user_login }}
+
+    - name: Deploy USB audio fix script
+      copy:
+        src: "{{ root_dir }}/files/home/bashrc-includes/usb-audio-fix.bash"
+        dest: "{{ item }}/.bashrc-includes/usb-audio-fix.bash"
+        owner: "{{ item.split('/')[2] if item != '/root' else 'root' }}"
+        group: "{{ item.split('/')[2] if item != '/root' else 'root' }}"
+        mode: '0644'
+      loop:
+        - /root
+        - /home/{{ user_login }}
 
     - name: Copy SSH ID to root
       copy:
@@ -99,9 +179,7 @@
     - name: Install YQ
       become: true
       shell: |
-         wget https://github.com/mikefarah/yq/releases/download/3.4.1/yq_linux_amd64 -O /usr/bin/yq && chmod +x /usr/bin/yq
-      args:
-        creates: /usr/bin/yq
+         wget -qO /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 && chmod +x /usr/bin/yq
       tags: yq
 
     - name: DNF Parallel

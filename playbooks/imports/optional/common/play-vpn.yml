@@ -1,3 +1,4 @@
+#!/usr/bin/env ansible-playbook
 - hosts: desktop
   name: Wireguard Install and Configure
   become: true

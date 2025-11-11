@@ -1,0 +1,603 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# PID file location for tracking qobuz-player instance
+PID_FILE="/tmp/qobuz-player.pid"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  qp                           Open web interface (default)
+  qp status                    Check if qobuz-player is running
+  qp now|current               Show currently playing track
+  qp stop|kill                 Stop qobuz-player
+  qp restart                   Restart qobuz-player
+  qp [-v] [--shuffle] <url>    Play Qobuz URL via web API
+  qp --web                     Open web interface explicitly
+
+Description:
+  Controls qobuz-player via web API. Starts qobuz-player in web mode if not running.
+  When called without arguments, opens the web interface in your default browser.
+
+Commands:
+  status    Check if qobuz-player is running and show PID
+  now       Show currently playing track info
+  current   Same as now
+  stop      Stop the running qobuz-player instance
+  kill      Same as stop
+  restart   Stop and restart qobuz-player
+
+Options:
+  -v, --verbose   Show verbose output including API calls
+  --shuffle       Shuffle playlist (playlist URLs only)
+  --web           Open web interface in browser
+
+Supported inputs:
+  - Artist:   https://play.qobuz.com/artist/<id>
+              -> http://localhost:9888/artist/<id>/play-top-track/0
+
+  - Album:    https://play.qobuz.com/album/<id>
+              -> http://localhost:9888/album/<id>/play
+
+  - Playlist: https://play.qobuz.com/playlist/<id>
+              -> http://localhost:9888/playlist/<id>/play
+              With --shuffle:
+              -> http://localhost:9888/playlist/<id>/play/shuffle
+
+Notes:
+  - The --shuffle flag is ignored for non-playlist URLs.
+  - The input URL may optionally omit the scheme (e.g., play.qobuz.com/album/...).
+  - URLs from open.qobuz.com are automatically converted to play.qobuz.com format.
+  - Query strings or fragments are ignored.
+
+Examples:
+  qp                                              # Open web interface
+  qp status                                       # Check status
+  qp now                                          # Show currently playing track
+  qp stop                                         # Stop qobuz-player
+  qp restart                                      # Restart qobuz-player
+  qp --web                                        # Open web interface
+  qp 'https://play.qobuz.com/artist/4062'
+  qp 'https://play.qobuz.com/album/lpvcysp231mrc'
+  qp 'https://play.qobuz.com/playlist/31407333'
+  qp --shuffle 'https://play.qobuz.com/playlist/31407333'
+EOF
+}
+
+shuffle=false
+verbose=false
+open_web=false
+url=""
+command=""
+
+# Parse args - collect all arguments first
+args=("$@")
+parsed_args=()
+
+# First pass: extract global flags
+for arg in "${args[@]}"; do
+  case "$arg" in
+    -v|--verbose)
+      verbose=true
+      ;;
+    --shuffle)
+      shuffle=true
+      ;;
+    --web)
+      open_web=true
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      parsed_args+=("$arg")
+      ;;
+  esac
+done
+
+# Second pass: parse remaining arguments (commands and URLs)
+for arg in "${parsed_args[@]}"; do
+  case "$arg" in
+    status|stop|kill|restart|now|current)
+      command="$arg"
+      if [[ "$arg" == "kill" ]]; then
+        command="stop"  # Treat kill as stop
+      elif [[ "$arg" == "current" ]]; then
+        command="now"  # Treat current as now
+      fi
+      ;;
+    -*)
+      echo "Unknown option: $arg" >&2
+      usage
+      exit 2
+      ;;
+    *)
+      if [[ -z "${url:-}" ]]; then
+        url="$arg"
+      else
+        echo "Unexpected argument: $arg" >&2
+        usage
+        exit 2
+      fi
+      ;;
+  esac
+done
+
+# Wrapper for curl with verbose support
+curl_wrapper() {
+  local curl_args=()
+  local verbose_output=""
+
+  # Parse arguments to separate URL from options
+  while [[ $# -gt 0 ]]; do
+    curl_args+=("$1")
+    shift
+  done
+
+  # Add verbose or silent flag based on mode
+  if $verbose; then
+    echo "=== CURL REQUEST ===" >&2
+    echo "curl ${curl_args[*]}" >&2
+    # Run curl with verbose output to stderr, body to stdout
+    local output
+    local stderr_file=$(mktemp)
+    output=$(curl -v "${curl_args[@]}" 2>"$stderr_file")
+    local exit_code=$?
+
+    echo "=== CURL VERBOSE OUTPUT ===" >&2
+    cat "$stderr_file" >&2
+    echo "=== RESPONSE BODY ===" >&2
+    echo "$output" >&2
+    echo "=== END CURL ===" >&2
+    rm -f "$stderr_file"
+
+    echo "$output"
+    return $exit_code
+  else
+    # Silent mode
+    curl -s "${curl_args[@]}"
+    return $?
+  fi
+}
+
+# Check if qobuz-player is running on port 9888
+check_qobuz_player() {
+  # Use timeout to prevent hanging, and check the root endpoint
+  local http_code
+  if $verbose; then
+    echo "Checking if qobuz-player is running..." >&2
+  fi
+
+  # Don't use wrapper for simple connectivity check - it complicates output parsing
+  http_code=$(curl -s -f -o /dev/null --max-time 2 -w "%{http_code}" "http://localhost:9888/" 2>/dev/null || echo "000")
+
+  if $verbose; then
+    echo "HTTP response code: $http_code" >&2
+  fi
+
+  case "$http_code" in
+    200|301|302|401)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+# Check if PID file exists and process is running
+check_pid_file() {
+  if [[ -f "$PID_FILE" ]]; then
+    local pid=$(cat "$PID_FILE")
+    if kill -0 "$pid" 2>/dev/null; then
+      return 0  # Process is running
+    else
+      # PID file exists but process is not running, clean up
+      rm -f "$PID_FILE"
+      return 1
+    fi
+  else
+    return 1  # No PID file
+  fi
+}
+
+# Get PID of qobuz-player (from file or by finding process)
+get_qobuz_pid() {
+  if [[ -f "$PID_FILE" ]]; then
+    local pid=$(cat "$PID_FILE")
+    if kill -0 "$pid" 2>/dev/null; then
+      echo "$pid"
+      return 0
+    fi
+  fi
+
+  # Try to find by process name
+  local pid=$(pgrep -f "qobuz-player open --web" 2>/dev/null | head -n1)
+  if [[ -n "$pid" ]]; then
+    echo "$pid"
+    echo "$pid" > "$PID_FILE"
+    return 0
+  fi
+
+  return 1
+}
+
+# Stop qobuz-player
+stop_qobuz_player() {
+  if pid=$(get_qobuz_pid); then
+    echo "Stopping qobuz-player (PID: $pid)..."
+    kill "$pid" 2>/dev/null || true
+
+    # Wait for process to stop (up to 5 seconds)
+    local count=0
+    while kill -0 "$pid" 2>/dev/null && [[ $count -lt 10 ]]; do
+      sleep 0.5
+      ((count++))
+    done
+
+    # Force kill if still running
+    if kill -0 "$pid" 2>/dev/null; then
+      echo "Force killing qobuz-player..."
+      kill -9 "$pid" 2>/dev/null || true
+    fi
+
+    rm -f "$PID_FILE"
+    echo "qobuz-player stopped."
+    return 0
+  else
+    echo "qobuz-player is not running."
+    return 1
+  fi
+}
+
+# Show currently playing track
+show_now_playing() {
+  if ! check_qobuz_player; then
+    echo "qobuz-player is not running."
+    return 1
+  fi
+
+  echo "Fetching current track info..."
+
+  if now_playing=$(curl_wrapper -fS --max-time 2 "http://localhost:9888/now-playing"); then
+    # Extract info from the HTML response
+    # The track title is in a span with class="text-lg truncate"
+    title=$(echo "$now_playing" | sed -n 's/.*<span class="text-lg truncate">\([^<]*\)<\/span>.*/\1/p' | head -1 || echo "")
+
+    # Extract artist name and ID from href="/artist/..."
+    artist_line=$(echo "$now_playing" | grep -o '<a href="/artist/[^"]*"[^>]*>[^<]*</a>' | head -1 || echo "")
+    artist=$(echo "$artist_line" | sed -n 's/.*>\([^<]*\)<\/a>.*/\1/p' || echo "")
+    artist_id=$(echo "$artist_line" | sed -n 's/.*href="\/artist\/\([^"]*\)".*/\1/p' || echo "")
+
+    # Extract album name and ID from href="/album/..."
+    album_line=$(echo "$now_playing" | grep -o '<a href="/album/[^"]*"[^>]*>[^<]*</a>' | head -1 || echo "")
+    album=$(echo "$album_line" | sed -n 's/.*>\([^<]*\)<\/a>.*/\1/p' || echo "")
+    album_id=$(echo "$album_line" | sed -n 's/.*href="\/album\/\([^"]*\)".*/\1/p' || echo "")
+
+    if [[ -n "$title" ]] || [[ -n "$artist" ]]; then
+      echo ""
+      echo "Now playing:"
+      echo ""
+
+      # Format output in columns
+      {
+        [[ -n "$title" ]] && echo "Title:	$title"
+        [[ -n "$artist" ]] && echo "Artist:	$artist"
+        [[ -n "$album" ]] && echo "Album:	$album"
+
+        # Get player status
+        if status_html=$(curl -fS --max-time 2 "http://localhost:9888/status" 2>/dev/null); then
+          if echo "$status_html" | grep -q 'id="play-button"'; then
+            echo "Status:	Paused"
+          elif echo "$status_html" | grep -q 'id="pause-button"'; then
+            echo "Status:	Playing"
+          fi
+        fi
+
+        echo ""
+        echo "Qobuz URLs:"
+        [[ -n "$artist_id" ]] && echo "Artist:	https://play.qobuz.com/artist/$artist_id"
+        [[ -n "$album_id" ]] && echo "Album:	https://play.qobuz.com/album/$album_id"
+      } | column -t -s $'\t'
+    else
+      echo "No track currently playing or unable to parse track info."
+    fi
+  else
+    echo "Error: Could not fetch now playing info from qobuz-player" >&2
+    return 1
+  fi
+}
+
+# Show status
+show_status() {
+  echo "Checking qobuz-player status..."
+  echo ""
+
+  local pid_status="Not running"
+  local pid=""
+  if pid=$(get_qobuz_pid); then
+    pid_status="Running (PID: $pid)"
+  fi
+
+  local web_status="Not responding"
+  if check_qobuz_player; then
+    web_status="Responding on http://localhost:9888"
+  fi
+
+  echo "Process status: $pid_status"
+  echo "Web interface: $web_status"
+
+  if [[ -f "$PID_FILE" ]]; then
+    echo "PID file: $PID_FILE (exists)"
+  else
+    echo "PID file: $PID_FILE (not found)"
+  fi
+
+  # Check if process exists without our PID file
+  local orphan_pids=$(pgrep -f "qobuz-player open --web" 2>/dev/null || true)
+  if [[ -n "$orphan_pids" ]] && [[ "$orphan_pids" != "$pid" ]]; then
+    echo ""
+    echo "Warning: Found qobuz-player process(es) not tracked by qp:"
+    echo "$orphan_pids"
+    echo "You may want to run 'qp restart' to clean up."
+  fi
+}
+
+# Handle commands
+if [[ -n "$command" ]]; then
+  case "$command" in
+    status)
+      show_status
+      exit 0
+      ;;
+    now)
+      show_now_playing
+      exit $?
+      ;;
+    stop)
+      stop_qobuz_player
+      exit $?
+      ;;
+    restart)
+      echo "Restarting qobuz-player..."
+      stop_qobuz_player || true
+      sleep 1
+      open_web=true  # Open web interface after restart
+      ;;
+  esac
+fi
+
+# If no URL provided and not explicitly --web, default to opening web interface
+if [[ -z "${url:-}" ]] && [[ -z "$command" ]]; then
+  open_web=true
+fi
+
+# Function to start qobuz-player if not running
+ensure_qobuz_player_running() {
+  if ! check_qobuz_player; then
+    echo "qobuz-player not running, starting in web mode..."
+
+    # Check if qobuz-player is installed
+    if ! command -v qobuz-player &> /dev/null; then
+      echo "Error: qobuz-player not found in PATH" >&2
+      echo "Please install qobuz-player first" >&2
+      exit 1
+    fi
+
+    # Start qobuz-player in background - completely detach from terminal
+    setsid qobuz-player open --web </dev/null >/dev/null 2>&1 &
+    local pid=$!
+    echo "$pid" > "$PID_FILE"
+
+    # Wait for it to become available (up to 10 seconds)
+    echo -n "Waiting for qobuz-player to start"
+    for i in {1..20}; do
+      if check_qobuz_player; then
+        echo " OK (PID: $pid)"
+        break
+      fi
+      echo -n "."
+      sleep 0.5
+    done
+
+    if ! check_qobuz_player; then
+      echo " FAILED" >&2
+      echo "Error: qobuz-player failed to start on port 9888" >&2
+      rm -f "$PID_FILE"
+      exit 1
+    fi
+  fi
+}
+
+# Function to open URL in browser
+open_browser() {
+  local url="$1"
+  local opened=false
+
+  echo "Opening web interface: $url"
+
+  # Try different methods to open the browser
+  if command -v xdg-open &> /dev/null; then
+    if xdg-open "$url" 2>/dev/null; then
+      opened=true
+    fi
+  elif command -v open &> /dev/null; then
+    if open "$url" 2>/dev/null; then
+      opened=true
+    fi
+  elif command -v firefox &> /dev/null; then
+    if firefox "$url" 2>/dev/null & then
+      opened=true
+    fi
+  elif command -v chrome &> /dev/null; then
+    if chrome "$url" 2>/dev/null & then
+      opened=true
+    fi
+  elif command -v chromium &> /dev/null; then
+    if chromium "$url" 2>/dev/null & then
+      opened=true
+    fi
+  fi
+
+  if ! $opened; then
+    echo ""
+    echo "Could not automatically open browser."
+    echo "Please manually open: $url"
+    echo ""
+    echo "To open manually:"
+    echo "  - Copy the URL above"
+    echo "  - Open your web browser"
+    echo "  - Paste the URL in the address bar"
+  else
+    echo "Browser opened successfully."
+  fi
+}
+
+# Handle web interface opening
+if $open_web; then
+  web_url="http://localhost:9888"
+
+  # Ensure qobuz-player is running
+  if ! check_qobuz_player; then
+    echo "Starting qobuz-player web interface..."
+
+    if ! command -v qobuz-player &> /dev/null; then
+      echo "Error: qobuz-player not found in PATH" >&2
+      echo "Please install qobuz-player first" >&2
+      exit 1
+    fi
+
+    # Completely detach from terminal using setsid
+    setsid qobuz-player open --web </dev/null >/dev/null 2>&1 &
+    local pid=$!
+    echo "$pid" > "$PID_FILE"
+
+    echo -n "Waiting for qobuz-player to start"
+    for i in {1..20}; do
+      if check_qobuz_player; then
+        echo " OK (PID: $pid)"
+        break
+      fi
+      echo -n "."
+      sleep 0.5
+    done
+
+    if ! check_qobuz_player; then
+      echo " FAILED" >&2
+      echo "Error: qobuz-player failed to start" >&2
+      rm -f "$PID_FILE"
+      exit 1
+    fi
+  else
+    echo "qobuz-player web interface is already running."
+    if pid=$(get_qobuz_pid); then
+      echo "PID: $pid"
+    fi
+  fi
+
+  open_browser "$web_url"
+  exit 0
+fi
+
+# Handle URL playing (original functionality)
+if [[ -n "$url" ]]; then
+  # Normalize URL: allow "play.qobuz.com/..." without scheme
+  if [[ "$url" != http://* && "$url" != https://* ]]; then
+    url="https://$url"
+  fi
+
+  # Convert open.qobuz.com URLs to play.qobuz.com
+  if [[ "$url" =~ ^(https?://)open\.qobuz\.com/(.*)$ ]]; then
+    url="${BASH_REMATCH[1]}play.qobuz.com/${BASH_REMATCH[2]}"
+    echo "Converting URL to: $url" >&2
+  fi
+
+  # Extract host, resource and id from URL
+  # Accepts: https?://play.qobuz.com/<resource>/<id>[...]
+  if ! [[ "$url" =~ ^https?://([^/]+)/([^/?#]+)/([^/?#]+) ]]; then
+    echo "Error: URL format not recognized: $url" >&2
+    exit 2
+  fi
+
+  host="${BASH_REMATCH[1]}"
+  resource="${BASH_REMATCH[2]}"
+  id="${BASH_REMATCH[3]}"
+
+  if [[ "$host" != "play.qobuz.com" ]]; then
+    echo "Error: Expected host play.qobuz.com, got: $host" >&2
+    exit 2
+  fi
+
+  # Ensure qobuz-player is running before making API call
+  ensure_qobuz_player_running
+
+  base="http://localhost:9888"
+  target=""
+
+  case "$resource" in
+    artist)
+      # /artist/<id> -> /artist/<id>/play-top-track/0
+      target="$base/artist/$id/play-top-track/0"
+      ;;
+    album)
+      # /album/<id> -> /album/<id>/play
+      target="$base/album/$id/play"
+      ;;
+    playlist)
+      # /playlist/<id> -> /playlist/<id>/play[(/shuffle if flag)]
+      target="$base/playlist/$id/play"
+      if $shuffle; then
+        target="$target/shuffle"
+      fi
+      ;;
+    *)
+      echo "Error: Unsupported resource '$resource'. Supported: artist, album, playlist." >&2
+      exit 2
+      ;;
+  esac
+
+  if $verbose; then
+    echo "Sending play request to: $target"
+  fi
+  # Use PUT with empty body; some servers require explicit Content-Length: 0
+  # Add timeout to prevent hanging
+  if curl_wrapper -fS --max-time 5 -X PUT -H 'Content-Length: 0' "$target" >/dev/null; then
+    # Wait a moment for the player to start playing
+    sleep 0.5
+
+    # Fetch current playing info
+    if now_playing=$(curl_wrapper -fS --max-time 2 "http://localhost:9888/now-playing"); then
+      # Extract title
+      title=$(echo "$now_playing" | sed -n 's/.*<span class="text-lg truncate">\([^<]*\)<\/span>.*/\1/p' | head -1 || echo "")
+
+      # Extract artist name and ID
+      artist_line=$(echo "$now_playing" | grep -o '<a href="/artist/[^"]*"[^>]*>[^<]*</a>' | head -1 || echo "")
+      artist=$(echo "$artist_line" | sed -n 's/.*>\([^<]*\)<\/a>.*/\1/p' || echo "")
+      artist_id=$(echo "$artist_line" | sed -n 's/.*href="\/artist\/\([^"]*\)".*/\1/p' || echo "")
+
+      # Extract album name and ID
+      album_line=$(echo "$now_playing" | grep -o '<a href="/album/[^"]*"[^>]*>[^<]*</a>' | head -1 || echo "")
+      album=$(echo "$album_line" | sed -n 's/.*>\([^<]*\)<\/a>.*/\1/p' || echo "")
+      album_id=$(echo "$album_line" | sed -n 's/.*href="\/album\/\([^"]*\)".*/\1/p' || echo "")
+
+      if [[ -n "$title" ]] || [[ -n "$artist" ]]; then
+        echo ""
+        echo "Now playing:"
+        echo ""
+        {
+          [[ -n "$title" ]] && echo "Title:	$title"
+          [[ -n "$artist" ]] && echo "Artist:	$artist"
+          [[ -n "$album" ]] && echo "Album:	$album"
+          echo ""
+          echo "Qobuz URLs:"
+          [[ -n "$artist_id" ]] && echo "Artist:	https://play.qobuz.com/artist/$artist_id"
+          [[ -n "$album_id" ]] && echo "Album:	https://play.qobuz.com/album/$album_id"
+        } | column -t -s $'\t'
+      fi
+    fi
+  else
+    echo "Error: Failed to play URL" >&2
+    exit 1
+  fi
+fi

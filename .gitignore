@@ -1,3 +1,29 @@
 environment/localhost/host_vars/localhost.yml
 *.secret
 .idea
+roles/vendor/*
+
+# Python bytecode cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Claude Code local settings (keep custom commands)
+.claude/settings.local.json
+
+# MCP cache and runtime data
+.playwright-mcp/
+
+# Safety net for common sensitive file types
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+.env
+.env.*
+!.env.example
+!.env.dist# Security incident documentation - DO NOT COMMIT
+SECURITY-INCIDENT-LOG.md
+FORCE-PUSH-REQUIRED.md
+*-incident*.md

@@ -1,20 +1,70 @@
+#!/usr/bin/env ansible-playbook
 - hosts: desktop
   name: Qobuz CLI Apps - Gapless HD Audio Streaming from Qobuz
   vars:
     root_dir: "{{ inventory_dir }}/../../"
-    hifiRsVersion: 0.3.8
-    hifiRsUrl: "https://github.com/iamdb/hifi.rs/releases/download/v{{ hifiRsVersion }}/hifi-rs-x86_64-unknown-linux-gnu.tar.gz"
+    # hifi-rs configuration
+    # Set to "latest" for automatic version detection or specify version like "0.3.8"
+    hifiRsVersion: "latest"
     hifiRsPath: "/home/{{ user_login }}/.local/bin/hifi-rs"
-    rescrobbledVersion: 0.7.0
+
+    # qobuz-player configuration (fork of hifi-rs with enhanced features)
+    # Set to "latest" for automatic version detection or specify version like "0.4.0"
+    qobuzPlayerVersion: "latest"
+    qobuzPlayerPath: "/home/{{ user_login }}/.local/bin/qobuz-player"
+
+    # Rescrobbled configuration for Last.fm scrobbling
+    # Check https://github.com/InputUsername/rescrobbled/releases for updates
+    rescrobbledVersion: 0.8.0
     rescrobbledUrl: "https://github.com/InputUsername/rescrobbled/releases/download/v{{ rescrobbledVersion }}/rescrobbled"
     rescrobbledPath: "/home/{{ user_login }}/.local/bin/rescrobbled"
   tasks:
+    # Version detection for hifi-rs
+    - name: Get latest hifi-rs version
+      shell: |
+        curl -s https://api.github.com/repos/iamdb/hifi.rs/releases/latest |
+        jq -r '.tag_name' | sed 's/^v//'
+      register: hifiRsLatestVersion
+      when: hifiRsVersion == "latest"
+      changed_when: false
+
+    - name: Set hifi-rs version
+      set_fact:
+        hifiRsVersionFinal: "{{ hifiRsLatestVersion.stdout if hifiRsVersion == 'latest' else hifiRsVersion }}"
+
+    - name: Set hifi-rs URL
+      set_fact:
+        hifiRsUrl: "https://github.com/iamdb/hifi.rs/releases/download/v{{ hifiRsVersionFinal }}/hifi-rs-x86_64-unknown-linux-gnu.tar.gz"
+
+    # Version detection for qobuz-player
+    - name: Get latest qobuz-player version
+      shell: |
+        curl -s https://api.github.com/repos/SofusA/qobuz-player/releases/latest |
+        jq -r '.tag_name' | sed 's/^v//'
+      register: qobuzPlayerLatestVersion
+      when: qobuzPlayerVersion == "latest"
+      changed_when: false
+      tags:
+        - qobuz-player
+
+    - name: Set qobuz-player version
+      set_fact:
+        qobuzPlayerVersionFinal: "{{ qobuzPlayerLatestVersion.stdout if qobuzPlayerVersion == 'latest' else qobuzPlayerVersion }}"
+      tags:
+        - qobuz-player
+
+    - name: Set qobuz-player URL
+      set_fact:
+        qobuzPlayerUrl: "https://github.com/SofusA/qobuz-player/releases/download/v{{ qobuzPlayerVersionFinal }}/qobuz-player-x86_64-unknown-linux-gnu.tar.gz"
+      tags:
+        - qobuz-player
+
     - name: Install hifi-rs
       shell: |
         set -ex
         if [[ -f {{ hifiRsPath }} ]]; then
           installedVersion="$(hifi-rs --version | grep -Po '[0-9.]+')"
-          desiredVersion="{{ hifiRsVersion }}"
+          desiredVersion="{{ hifiRsVersionFinal }}"
           if  [[ "$installedVersion" == "$desiredVersion" ]]; then
             echo "installed version $installedVersion is the same as the desired version $desiredVersion"
             exit 0
@@ -22,11 +72,47 @@
         fi
         cd /home/{{ user_login }}/Downloads
         rm -rf hifi-rs*
-        wget "{{ hifiRsUrl }}"        
+        wget "{{ hifiRsUrl }}"
         tar -xf hifi-rs-x86_64-unknown-linux-gnu.tar.gz
         mv -f hifi-rs "{{ hifiRsPath }}"
       args:
         executable: /bin/bash
+      tags:
+        - hifi-rs
+
+    - name: Install qobuz-player
+      shell: |
+        set -ex
+        if [[ -f {{ qobuzPlayerPath }} ]]; then
+          installedVersion="$(qobuz-player --version 2>/dev/null | grep -Po '[0-9.-]+' || echo '')"
+          desiredVersion="{{ qobuzPlayerVersionFinal }}"
+          # Strip any pre-release suffix from desired version for comparison (e.g., 0.3.2-3 -> 0.3.2)
+          desiredVersionBase="${desiredVersion%%-*}"
+          if [[ "$installedVersion" == "$desiredVersion" ]] || [[ "$installedVersion" == "$desiredVersionBase" ]]; then
+            echo "installed version $installedVersion matches desired version $desiredVersion"
+            exit 0
+          fi
+          echo "upgrading from $installedVersion to $desiredVersion"
+        fi
+        cd /home/{{ user_login }}/Downloads
+        rm -rf qobuz-player*
+        wget "{{ qobuzPlayerUrl }}"
+        tar -xf qobuz-player-x86_64-unknown-linux-gnu.tar.gz
+        mv -f qobuz-player "{{ qobuzPlayerPath }}"
+        chmod +x "{{ qobuzPlayerPath }}"
+      args:
+        executable: /bin/bash
+      tags:
+        - qobuz-player
+
+    - name: Install qp controller script
+      become: true
+      copy:
+        src: "{{ root_dir }}/files/usr/local/bin/qp"
+        dest: /usr/local/bin/qp
+        owner: root
+        group: root
+        mode: '0755'
 
     - name: Install Recsrobbled
       shell: |
@@ -79,17 +165,96 @@
         path: /home/{{ user_login }}/.config/rescrobbled/session
       register: rescrobbled_session_file
 
-    - name: If No Session File, You Need to Manually Run "rescrobbled"
-      fail:
+    - name: Manual Rescrobbled Setup Required
+      block:
+        - name: Display Setup Instructions
+          pause:
+            prompt: |
+              
+              ============================================
+              RESCROBBLED SETUP REQUIRED
+              ============================================
+              
+              Please do the following in a NEW terminal:
+              1. Run: rescrobbled
+              2. Enter your Last.fm login details
+              3. Confirm it logs in properly
+              4. Press Ctrl+C to exit rescrobbled
+              
+              Then press ENTER here to continue...
+          
+        - name: Check if Session File Now Exists
+          stat:
+            path: /home/{{ user_login }}/.config/rescrobbled/session
+          register: rescrobbled_session_check
+          
+        - name: Verify Session File Created
+          fail:
+            msg: |
+              Session file still not found at ~/.config/rescrobbled/session
+              Please ensure you completed the rescrobbled login process.
+              Run this playbook again after successfully logging in.
+          when: not rescrobbled_session_check.stat.exists
+      when: not rescrobbled_session_file.stat.exists | default(true)
+
+    # Configure qobuz-player with vault credentials if available
+    - name: Check if qobuz credentials are defined
+      set_fact:
+        has_qobuz_credentials: "{{ qobuz_username is defined and qobuz_password is defined }}"
+
+    - name: Configure qobuz-player with credentials
+      block:
+        - name: Set qobuz-player username
+          shell: |
+            {{ qobuzPlayerPath }} config username "{{ qobuz_username }}"
+          no_log: true
+
+        - name: Set qobuz-player password
+          shell: |
+            {{ qobuzPlayerPath }} config password "{{ qobuz_password }}"
+          no_log: true
+
+        - name: Set qobuz-player audio quality
+          shell: |
+            {{ qobuzPlayerPath }} config max-audio-quality hifi192
+
+        - name: Verify qobuz-player configuration
+          shell: |
+            {{ qobuzPlayerPath }} api search test 2>&1
+          register: qobuz_player_verify
+          failed_when: false
+          changed_when: false
+          no_log: true
+
+        - name: Display qobuz-player configuration status
+          debug:
+            msg: |
+              ✓ qobuz-player configured with provided credentials
+              ✓ Audio quality set to hifi192
+          when: qobuz_player_verify.rc == 0
+
+        - name: Warn if qobuz-player configuration failed
+          debug:
+            msg: |
+              ⚠ qobuz-player configuration may have failed
+              Please verify credentials and run: qobuz-player api search test
+          when: qobuz_player_verify.rc != 0
+      when: has_qobuz_credentials
+
+    - name: Manual qobuz-player setup required
+      debug:
         msg: |
-          please do the following 
-          - run rescrobbled
-          - enter your login details
-          - confirm it logs in properly
-          - ctrl c to kill that
-          - systemcl --user restart rescrobbled
-          - systemctl status rescrobbled
-      when: rescrobbled_session_file.stat.islnk is not defined
+          ℹ qobuz-player installed but not configured
+          To configure manually:
+            qobuz-player config username
+            qobuz-player config password
+            qobuz-player config default-quality
+      when: not has_qobuz_credentials
+
+    - name: Reload systemd daemon for user
+      systemd:
+        daemon_reload: yes
+        scope: user
       
     - name: Start and Enable Rescrobbled Service
       systemd:
@@ -98,3 +263,230 @@
         enabled: true
         scope: user
     
+    - name: Verify Rescrobbled Service is Running
+      command: systemctl --user is-active rescrobbled
+      register: rescrobbled_status
+      changed_when: false
+      failed_when: rescrobbled_status.stdout != "active"
+      
+    - name: Display Success Message
+      debug:
+        msg: |
+          ✓ Rescrobbled successfully installed and running!
+          ✓ Your music will now be scrobbled to Last.fm
+          
+          To check status: systemctl --user status rescrobbled
+          To view logs: journalctl --user -u rescrobbled -f
+
+    - name: Create qobuz-players bashrc include file
+      copy:
+        content: |
+          # Qobuz Players Configuration
+          # Set QOBUZ_PLAYER to choose default: "hifi-rs" or "qobuz-player"
+          export QOBUZ_PLAYER="${QOBUZ_PLAYER:-qobuz-player}"
+
+          # hifi-rs play function
+          play_hifi_rs() {
+              if ! command -v hifi-rs &> /dev/null; then
+                  echo "Error: hifi-rs not found in PATH"
+                  return 1
+              fi
+              hifi-rs play --url "$1"
+          }
+
+          # qobuz-player play function
+          play_qobuz_player() {
+              if ! command -v qobuz-player &> /dev/null; then
+                  echo "Error: qobuz-player not found in PATH"
+                  return 1
+              fi
+              # qobuz-player uses different CLI syntax
+              qobuz-player play "$1"
+          }
+
+          # Main play function - routes to configured player
+          play() {
+              if [ -z "$1" ]; then
+                  echo "Usage: play <qobuz_url>"
+                  echo "Current player: $QOBUZ_PLAYER"
+                  echo ""
+                  echo "To change player for this session:"
+                  echo "  export QOBUZ_PLAYER=qobuz-player"
+                  echo "  export QOBUZ_PLAYER=hifi-rs"
+                  echo ""
+                  echo "Or use direct commands:"
+                  echo "  hplay <url>  - Always use hifi-rs"
+                  echo "  qplay <url>  - Always use qobuz-player"
+                  return 1
+              fi
+
+              case "$QOBUZ_PLAYER" in
+                  hifi-rs)
+                      play_hifi_rs "$@"
+                      ;;
+                  qobuz-player|qobuz)
+                      play_qobuz_player "$@"
+                      ;;
+                  *)
+                      echo "Error: Invalid QOBUZ_PLAYER value: $QOBUZ_PLAYER"
+                      echo "Valid options: hifi-rs, qobuz-player"
+                      return 1
+                      ;;
+              esac
+          }
+
+          # Direct access aliases
+          alias hplay='play_hifi_rs'
+          alias qplay='play_qobuz_player'
+
+          # Quick switcher function
+          qobuz_switch() {
+              case "$1" in
+                  hifi|hifi-rs|h)
+                      export QOBUZ_PLAYER="hifi-rs"
+                      echo "✓ Switched to hifi-rs"
+                      ;;
+                  qobuz|qobuz-player|q)
+                      export QOBUZ_PLAYER="qobuz-player"
+                      echo "✓ Switched to qobuz-player"
+                      ;;
+                  *)
+                      echo "Current player: $QOBUZ_PLAYER"
+                      echo ""
+                      echo "Usage: qobuz_switch [hifi|qobuz]"
+                      echo "  hifi, h  - Switch to hifi-rs"
+                      echo "  qobuz, q - Switch to qobuz-player"
+                      ;;
+              esac
+          }
+
+          # Launch qobuz-player web interface
+          qobuz_web() {
+              if ! command -v qobuz-player &> /dev/null; then
+                  echo "Error: qobuz-player not found"
+                  return 1
+              fi
+              echo "Starting qobuz-player web interface..."
+              echo "Access at: http://localhost:9888"
+              qobuz-player open --web &
+          }
+
+          # qp command - controller for qobuz-player web API
+          # Usage: qp <qobuz_url> or qp --shuffle <playlist_url>
+          # This is a system-wide command installed in /usr/local/bin
+
+          # Show player status
+          qobuz_status() {
+              echo "Qobuz Players Status:"
+              echo "====================="
+              echo "Default player: $QOBUZ_PLAYER"
+              echo ""
+
+              if command -v hifi-rs &> /dev/null; then
+                  version=$(hifi-rs --version 2>/dev/null | grep -Po '[0-9.]+' || echo "unknown")
+                  echo "✓ hifi-rs: v$version"
+              else
+                  echo "✗ hifi-rs: not installed"
+              fi
+
+              if command -v qobuz-player &> /dev/null; then
+                  version=$(qobuz-player --version 2>/dev/null | grep -Po '[0-9.]+' || echo "unknown")
+                  echo "✓ qobuz-player: v$version"
+              else
+                  echo "✗ qobuz-player: not installed"
+              fi
+          }
+        dest: /home/{{ user_login }}/.bashrc-includes/qobuz-players
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+
+    # Set default player preference in .bashrc
+    - name: Set default Qobuz player in bashrc
+      blockinfile:
+        path: /home/{{ user_login }}/.bashrc
+        marker: "# {mark} ANSIBLE MANAGED: Default Qobuz Player"
+        block: |
+          # Default Qobuz player (hifi-rs or qobuz-player)
+          export QOBUZ_PLAYER="qobuz-player"
+        create: false
+
+    - name: Check if hifi-rs is configured with Qobuz credentials
+      shell: |
+        hifi-rs api search test -o json 2>&1
+      register: hifirs_api_check
+      failed_when: false
+      changed_when: false
+
+    - name: Manual hifi-rs Setup Required
+      block:
+        - name: Display hifi-rs Setup Instructions
+          pause:
+            prompt: |
+
+              ============================================
+              HIFI-RS SETUP REQUIRED
+              ============================================
+
+              Please configure hifi-rs with your Qobuz credentials.
+              Run the following commands in a NEW terminal:
+
+              1. Set your Qobuz username:
+                 hifi-rs config username
+
+              2. Set your Qobuz password:
+                 hifi-rs config password
+
+              3. Set audio quality (recommended: hifi192):
+                 hifi-rs config default-quality
+                 Options: mp3, cd, hifi96, hifi192
+
+              4. Test that the API works:
+                 hifi-rs api search mozart -o json
+
+              5. Test playback with a Qobuz URL:
+                 play https://play.qobuz.com/album/v7hnd6neb7w0b
+
+              Press ENTER here once configuration is complete...
+
+        - name: Verify hifi-rs API Access
+          shell: |
+            hifi-rs api search test -o json
+          register: hifirs_api_verify
+          changed_when: false
+
+        - name: Display Success Message
+          debug:
+            msg: |
+              ✓ hifi-rs successfully configured and ready!
+              ✓ You can now use: play <qobuz_url>
+
+              Example: play https://play.qobuz.com/album/v7hnd6neb7w0b
+      when: hifirs_api_check.rc != 0 or 'error' in hifirs_api_check.stdout.lower() or 'unauthorized' in hifirs_api_check.stdout.lower()
+
+    # Final summary
+    - name: Display installation summary
+      debug:
+        msg:
+          - ============================================
+          - Qobuz CLI Apps Installation Complete!
+          - ============================================
+          - ""
+          - ✓ hifi-rs {{ hifiRsVersionFinal }} installed
+          - ✓ qobuz-player {{ qobuzPlayerVersionFinal }} installed
+          - ✓ rescrobbled {{ rescrobbledVersion }} installed and running
+          - ""
+          - "Default player: qobuz-player"
+          - ""
+          - "Usage:"
+          -   play <qobuz_url>     - Play using default player
+          -   hplay <qobuz_url>    - Play using hifi-rs
+          -   qplay <qobuz_url>    - Play using qobuz-player
+          -   qp <qobuz_url>       - Web API controller (auto-starts if needed)
+          -   qp --shuffle <url>   - Play shuffled playlist via web API
+          -   qobuz_status         - Show player status
+          -   qobuz_switch [h|q]   - Switch default player
+          -   qobuz_web            - Launch web interface
+          - ""
+          - To change default player permanently:
+          -   Edit ~/.bashrc and set QOBUZ_PLAYER="hifi-rs" or "qobuz-player"

@@ -1,0 +1,16 @@
+You are running in YOLO mode (--dangerously-skip-permissions) inside an isolated Docker container!
+
+ENVIRONMENT:
+• Docker container: (running in isolated sandbox)
+• Working directory: /workspace (your project mounted from host)
+• Isolated from host system (secure sandbox)
+
+CAPABILITIES:
+• Full development environment (git, gh, ripgrep, jq, Node.js, Python)
+• GitHub CLI authenticated (can create PRs, issues, etc.)
+• SSH keys mounted for git operations
+• Running as root user - install packages freely (apt, npm, pip, etc.)
+• Container is ephemeral - for permanent tools, extend the Dockerfile
+• YOLO mode = fast iteration, no permission prompts
+
+Your project files are at /workspace. Use git, write code, run tests, create commits and PRs!

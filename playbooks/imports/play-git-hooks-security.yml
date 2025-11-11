@@ -1,0 +1,53 @@
+---
+- hosts: desktop
+  name: Configure Git Security Hooks
+  become: false
+
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+    repo_path: "{{ lookup('env', 'HOME') }}/Projects/fedora-desktop"
+
+  tasks:
+    - name: Verify we are in a git repository
+      ansible.builtin.stat:
+        path: "{{ repo_path }}/.git"
+      register: git_dir
+      failed_when: not git_dir.stat.exists
+
+    - name: Verify git hooks directory exists
+      ansible.builtin.stat:
+        path: "{{ repo_path }}/scripts/git-hooks"
+      register: hooks_dir
+      failed_when: not hooks_dir.stat.exists
+
+    - name: Verify pre-commit hook exists and is executable
+      ansible.builtin.stat:
+        path: "{{ repo_path }}/scripts/git-hooks/pre-commit"
+      register: pre_commit_hook
+      failed_when: not pre_commit_hook.stat.exists or not pre_commit_hook.stat.executable
+
+    - name: Verify commit-msg hook exists and is executable
+      ansible.builtin.stat:
+        path: "{{ repo_path }}/scripts/git-hooks/commit-msg"
+      register: commit_msg_hook
+      failed_when: not commit_msg_hook.stat.exists or not commit_msg_hook.stat.executable
+
+    - name: Configure git to use tracked hooks directory
+      community.general.git_config:
+        name: core.hooksPath
+        value: scripts/git-hooks
+        scope: local
+        repo: "{{ repo_path }}"
+
+    - name: Verify git hooks configuration
+      ansible.builtin.command:
+        cmd: git config core.hooksPath
+      args:
+        chdir: "{{ repo_path }}"
+      register: hooks_path_check
+      changed_when: false
+      failed_when: hooks_path_check.stdout != 'scripts/git-hooks'
+
+    - name: Display git hooks status
+      ansible.builtin.debug:
+        msg: "✓ Git security hooks configured: {{ repo_path }}/scripts/git-hooks"

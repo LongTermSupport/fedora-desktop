@@ -1,0 +1,253 @@
+#!/usr/bin/env ansible-playbook
+- hosts: desktop
+  name: Claude Code YOLO Mode - Container-based Installation
+  become: false
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  tasks:
+    - name: Check if Docker is Installed
+      command: which docker
+      register: docker_check
+      failed_when: false
+      changed_when: false
+
+    - name: Verify Docker is Available
+      fail:
+        msg: |
+          Docker is not installed or not in PATH.
+          Please run the Docker installation playbook first:
+            ansible-playbook playbooks/imports/optional/common/play-docker.yml
+      when: docker_check.rc != 0
+
+    - name: Check Docker Service is Running
+      command: docker ps
+      register: docker_service_check
+      failed_when: false
+      changed_when: false
+
+    - name: Verify Docker Service
+      fail:
+        msg: |
+          Docker service is not running.
+          Please start Docker:
+            systemctl --user start docker
+      when: docker_service_check.rc != 0
+
+    - name: Create Claude YOLO Base Directory
+      become: true
+      file:
+        path: /opt/claude-yolo
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Create Custom Dockerfiles Directory
+      become: true
+      file:
+        path: /opt/claude-yolo/custom-dockerfiles
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Copy Dockerfile
+      become: true
+      copy:
+        src: "{{ root_dir }}/files/var/local/claude-yolo/Dockerfile"
+        dest: /opt/claude-yolo/Dockerfile
+        owner: root
+        group: root
+        mode: '0644'
+      tags:
+        - scripts
+        - dockerfile
+
+    - name: Copy Entrypoint Script
+      become: true
+      copy:
+        src: "{{ root_dir }}/files/var/local/claude-yolo/entrypoint.sh"
+        dest: /opt/claude-yolo/entrypoint.sh
+        owner: root
+        group: root
+        mode: '0755'
+      tags:
+        - scripts
+        - entrypoint
+
+    - name: Copy Custom Dockerfile Templates (Never Overwrite User Changes)
+      become: true
+      copy:
+        src: "{{ item }}"
+        dest: "/opt/claude-yolo/custom-dockerfiles/{{ item | basename }}"
+        owner: root
+        group: root
+        mode: '0644'
+        force: no  # NEVER overwrite - users can customize these
+      loop:
+        - "{{ root_dir }}/files/var/local/claude-yolo/Dockerfile.project-template"
+        - "{{ root_dir }}/files/var/local/claude-yolo/Dockerfile.example-ansible"
+        - "{{ root_dir }}/files/var/local/claude-yolo/Dockerfile.example-golang"
+      tags:
+        - scripts
+        - templates
+
+    # Shared library for DRY helpers (used by ccy and ccy-browser)
+    - name: Create Shared Library Directory
+      become: true
+      file:
+        path: /var/local/claude-yolo/lib
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Install Shared Helper Library
+      become: true
+      copy:
+        src: "{{ root_dir }}/files/var/local/claude-yolo/lib/common.bash"
+        dest: /var/local/claude-yolo/lib/common.bash
+        owner: root
+        group: root
+        mode: '0755'
+      tags:
+        - scripts
+        - library
+
+    # Remove old symlinks (cleanup from previous versions)
+    - name: Remove Old Symlink in /usr/local/bin
+      become: true
+      file:
+        path: /usr/local/bin/claude-yolo
+        state: absent
+      tags:
+        - scripts
+        - cleanup
+
+    - name: Copy Wrapper Script to /var/local/
+      become: true
+      copy:
+        src: "{{ root_dir }}/files/var/local/claude-yolo/claude-yolo"
+        dest: /var/local/claude-yolo/claude-yolo
+        owner: root
+        group: root
+        mode: '0755'
+      tags:
+        - scripts
+        - wrapper
+
+    - name: Deploy Bashrc Include for Root
+      become: true
+      copy:
+        src: "{{ root_dir }}/files/home/bashrc-includes/claude-yolo.bash"
+        dest: /root/.bashrc-includes/claude-yolo.bash
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Deploy Bashrc Include for User
+      copy:
+        src: "{{ root_dir }}/files/home/bashrc-includes/claude-yolo.bash"
+        dest: /home/{{ user_login }}/.bashrc-includes/claude-yolo.bash
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+
+    - name: Create Claude YOLO Root Directory
+      file:
+        path: /home/{{ user_login }}/.claude-tokens/ccy
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0700'
+
+    - name: Create Claude YOLO Tokens Directory
+      file:
+        path: /home/{{ user_login }}/.claude-tokens/ccy/tokens
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0700'
+
+    - name: Create Claude YOLO Projects Directory
+      file:
+        path: /home/{{ user_login }}/.claude-tokens/ccy/projects
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0700'
+
+    - name: Calculate Dockerfile Hash for Build
+      shell: md5sum /opt/claude-yolo/Dockerfile | cut -d' ' -f1 | cut -c1-16
+      register: dockerfile_hash
+      changed_when: false
+
+    - name: Build Claude YOLO Container Image with Hash
+      command: >
+        docker build
+        --build-arg DOCKERFILE_HASH={{ dockerfile_hash.stdout }}
+        -t claude-yolo:latest
+        /opt/claude-yolo
+      register: docker_build
+      changed_when: "'Successfully built' in docker_build.stdout or 'Successfully tagged' in docker_build.stdout"
+
+    - name: Verify Container Image
+      command: docker image inspect claude-yolo:latest
+      register: image_verify
+      changed_when: false
+
+    - name: Display Installation Summary
+      debug:
+        msg:
+          - "============================================"
+          - "Claude Code YOLO Mode Installation Complete"
+          - "============================================"
+          - ""
+          - "✓ Container image built: claude-yolo:latest"
+          - "✓ Wrapper script installed: /usr/local/bin/claude-yolo"
+          - "✓ Bash alias configured: ccy"
+          - "✓ Token directory created: ~/.claude-tokens/ccy/"
+          - "✓ Custom Dockerfiles: /opt/claude-yolo/custom-dockerfiles/"
+          - ""
+          - "IMPORTANT: Token Management"
+          - "  ccy uses SEPARATE tokens from desktop Claude Code"
+          - "  This prevents OAuth refresh token conflicts"
+          - ""
+          - "First Run:"
+          - "  1. cd /your/project"
+          - "  2. ccy"
+          - "  3. Follow prompts to create your first token"
+          - "  4. Use /login in Claude Code to authenticate"
+          - ""
+          - "Token Commands:"
+          - "  ccy --create-token     - Create new named token"
+          - "  ccy --list-tokens      - List available tokens"
+          - "  ccy --token personal   - Use specific token"
+          - "  ccy --help             - Show all options"
+          - ""
+          - "Features:"
+          - "  • Runs with --dangerously-skip-permissions (no prompts)"
+          - "  • Multiple Claude accounts (personal/work)"
+          - "  • Isolated Docker container with git/gh"
+          - "  • Auto-updates Claude Code (cached for 1 hour)"
+          - "  • Desktop Claude Code (~/.claude/) NEVER modified"
+          - ""
+          - "Security:"
+          - "  ⚠ YOLO mode bypasses all permission checks"
+          - "  ✓ Container isolation prevents unintended host access"
+          - "  ✓ Separate token storage prevents OAuth conflicts"
+          - "  ✓ Requires rootless Docker for safety"
+          - ""
+          - "Project-Specific Container Extensions:"
+          - "  ccy --custom                   # Interactive Dockerfile creation"
+          - "  ccy --connect <network>        # Connect to Docker network"
+          - "  Custom Dockerfiles: /opt/claude-yolo/custom-dockerfiles/"
+          - "    • Dockerfile.project-template    (blank template)"
+          - "    • Dockerfile.example-ansible     (Ansible + tools)"
+          - "    • Dockerfile.example-golang      (Go + tools)"
+          - "    • Add your own!                  (never overwritten)"
+          - "  Image cached as: claude-yolo:<project-name>"
+          - "  Rebuild only when Dockerfile changes (automatic)"
+          - ""
+          - "Reload your shell to enable the 'ccy' alias:"
+          - "  source ~/.bashrc"

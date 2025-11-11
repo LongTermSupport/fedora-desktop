@@ -1,3 +1,4 @@
+#!/usr/bin/env ansible-playbook
 # Customisations for Gnome Shell - only worth doing if you actually use Gnome
 - hosts: desktop
   name: Gnome Shell Extensions
@@ -8,7 +9,9 @@
     - name: Install Gnome Shell Extension Installer
       shell: |
         cd /usr/bin
-        wget -O gnome-shell-extension-installer "https://github.com/brunelli/gnome-shell-extension-installer/raw/master/gnome-shell-extension-installer"
+        # Pin to specific commit for reproducibility and security
+        # Current master as of 2025-08, update if needed
+        wget -O gnome-shell-extension-installer "https://github.com/brunelli/gnome-shell-extension-installer/raw/1200bd8566b2fbc55f8ccc96f07394996dfc2da9/gnome-shell-extension-installer"
         chmod +x gnome-shell-extension-installer
       args:
         creates: /usr/bin/gnome-shell-extension-installer
@@ -18,12 +21,29 @@
         name:
           - xprop
           - gnome-shell-extension-dash-to-dock
-          - gnome-shell-extension-just-perfection
+          # Note: just-perfection is installed via ID below as DNF package may be outdated
 
     - name: Install Gnome Shell Extensions Not Included with DNF
       become: false
       command: gnome-shell-extension-installer --yes --restart-shell {{ item.id }}
       loop:
-        - name: Unite
-          id: 1287
+        # All verified compatible with GNOME Shell 48 (Fedora 42)
+        - name: Blur my Shell
+          id: 3193
+          # https://extensions.gnome.org/extension/3193/blur-my-shell/
+        - name: Vitals
+          id: 1460
+          # https://extensions.gnome.org/extension/1460/vitals/
+        - name: AppIndicator and KStatusNotifierItem Support
+          id: 615
+          # https://extensions.gnome.org/extension/615/appindicator-support/
+        - name: Clipboard Indicator
+          id: 779
+          # https://extensions.gnome.org/extension/779/clipboard-indicator/
+        - name: Just Perfection
+          id: 3843
+          # https://extensions.gnome.org/extension/3843/just-perfection/
+        - name: Tiling Shell
+          id: 7065
+          # https://extensions.gnome.org/extension/7065/tiling-shell/
 

@@ -1,11 +1,14 @@
+#!/usr/bin/env ansible-playbook
 # This play installs things you need for Python and AI development
 - hosts: desktop
   vars:
     root_dir: "{{ inventory_dir }}/../../"
+    # Python versions to install - using latest stable releases
+    # To update: pyenv install --list | grep -E "^\s*3\.(11|12|13)\.[0-9]+$" | tail -3
     pyenv_versions:
-      - 3.11.9
-      - 3.12.4
-      - 3.9.19
+      - 3.11.13  # LTS version - security support until Oct 2027
+      - 3.12.11  # Stable version - security support until Oct 2028  
+      - 3.13.1   # Latest stable
   tasks:
     - name: Ensure pipx Installed, Pyenv dependencies, and dependencies required by various python packages
       become: true
@@ -52,11 +55,6 @@
         name: huggingface_hub
         state: latest
 
-    - name: Aider Chat https://github.com/paul-gauthier/aider
-      community.general.pipx:
-        name: aider-chat
-        state: latest
-
 
     - name: Pyenv Python Version Management
       shell: |
@@ -80,7 +78,7 @@
     - name: Install Pyenv Versions
       shell: |
         source ~/.bash_profile
-        pyenv install {{ item }}
+        pyenv install -s {{ item }}  # -s/--skip-existing skips if already installed
       args:
         executable: /bin/bash
       loop: "{{ pyenv_versions }}"
@@ -88,12 +86,3 @@
         - pyenv
         - pyenv_install_versions
 
-    # Note this one is using pyenv to set a specific python version for pipx to use
-    - name: Install l2mac AI Code Generator
-      shell: |
-        set -ex
-        source ~/.bash_profile
-        pyenv shell 3.9.19
-        pipx install l2mac -v --python $(which python)
-        
-        

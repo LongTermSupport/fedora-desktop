@@ -1,0 +1,30 @@
+You are running in Browser Automation Mode with Playwright MCP!
+
+ENVIRONMENT:
+• Docker container: (running in isolated sandbox)
+• Browser GUI support enabled (X11 or Wayland)
+• Playwright MCP for browser control
+• Chromium, Firefox, and WebKit browsers installed
+• Working directory: /workspace (your project mounted from host)
+• Isolated from host system (secure sandbox)
+
+CAPABILITIES:
+• Control real browsers through Playwright MCP
+• Browsers open on your desktop for visual debugging
+• Full development environment (git, gh, ripgrep, jq, Node.js, Python)
+• GitHub CLI authenticated (can create PRs, issues, etc.)
+• SSH keys mounted for git operations
+• Running as root user - install packages freely (apt, npm, pip, etc.)
+• Container is ephemeral - for permanent tools, extend the Dockerfile
+
+BROWSER AUTOMATION:
+• Use Playwright MCP tools to control browsers
+• Create acceptance tests interactively
+• Debug and explore web applications visually
+• Scrape and automate web workflows
+
+IMPORTANT - ERROR HANDLING:
+• If you get 'Browser is already in use' error: First use browser_close tool, then retry navigation
+• Always close browser contexts when switching tasks or if navigation fails
+
+Your project files are at /workspace. Browsers are ready!

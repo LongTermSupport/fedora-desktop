@@ -1,0 +1,10 @@
+[Unit]
+Description=Monitor Kernel Changes in /boot
+Documentation=file:///usr/local/bin/manage-kernel-versions.sh
+
+[Path]
+PathModified=/boot
+Unit=kernel-version-manager.service
+
+[Install]
+WantedBy=multi-user.target

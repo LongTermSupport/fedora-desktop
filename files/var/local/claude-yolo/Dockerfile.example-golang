@@ -1,0 +1,41 @@
+# Go Project Container Extension
+#
+# Template for Go projects with common development tools
+# Base image (claude-yolo:latest) includes: git, gh, Node.js, npm, Claude Code
+#
+# INSTRUCTIONS FOR CLAUDE CODE:
+# This template includes Go + golangci-lint + goimports + delve debugger
+# When customizing:
+# 1. Check go.mod for Go version requirements (update golang-1.21 if needed)
+# 2. Ask if user needs additional tools (protobuf, grpc, database drivers, etc.)
+# 3. Check if project uses CGO (may need build-essential)
+# 4. Keep cache mounts when adding packages
+#
+# After editing, tell user to: exit, run 'ccy --rebuild', then 'ccy'
+
+FROM claude-yolo:latest
+
+# Install Go
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        golang-1.21 \
+        build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Add Go to PATH
+ENV PATH="/usr/lib/go-1.21/bin:${PATH}"
+ENV GOPATH="/workspace/go"
+ENV PATH="${GOPATH}/bin:${PATH}"
+
+# Install common Go tools
+# Use cache mount for Go module downloads
+RUN --mount=type=cache,target=/root/go/pkg/mod \
+    go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest && \
+    go install golang.org/x/tools/cmd/goimports@latest && \
+    go install github.com/go-delve/delve/cmd/dlv@latest
+
+# Verify installation
+RUN go version && \
+    golangci-lint --version

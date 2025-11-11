@@ -1,0 +1,522 @@
+#!/bin/bash
+# Claude Code Browser Automation Mode
+# Runs Claude Code inside playwright-tests distrobox for MCP browser control
+#
+# Version: 3.2.1
+#
+CCY_BROWSER_VERSION="3.2.1"
+
+set -e
+
+# Load shared helpers
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/lib/common.bash" ]; then
+    source "$SCRIPT_DIR/lib/common.bash"
+else
+    echo "ERROR: Shared library not found at $SCRIPT_DIR/lib/common.bash" >&2
+    exit 1
+fi
+
+# Calculate script hash for config validation
+CCY_BROWSER_HASH=$(grep -v '^CCY_BROWSER_HASH=' "$0" | md5sum | cut -d' ' -f1 | cut -c1-16)
+
+# Configuration schema version
+CONFIG_VERSION=1
+
+DISTROBOX_NAME="playwright-tests"
+CCY_ROOT="$HOME/.claude-tokens/ccy"
+TOKEN_DIR="$CCY_ROOT/tokens"
+
+# Show help if requested
+if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+    cat << 'EOF'
+Claude Code Browser Automation Mode (ccy-browser / ccyb)
+
+Usage: ccy-browser [OPTIONS] [CLAUDE_ARGS...]
+
+Wrapper Options:
+  --token NAME           Use specific named token
+  --list-tokens          List available tokens
+  --ssh-key PATH         SSH private key to use (can specify multiple)
+  --no-ssh               Skip SSH key selection
+  --help, -h             Show this help message
+
+All other arguments are passed directly to Claude Code with --dangerously-skip-permissions
+
+Description:
+  Launches Claude Code inside the playwright-tests distrobox container for
+  interactive MCP browser automation, debugging, and exploration.
+
+  Runs in YOLO mode (--dangerously-skip-permissions) for rapid development.
+
+  Uses the SAME token pool and project configuration as ccy (Docker).
+  Shares SSH keys and remembers your choices per project.
+
+Features:
+  • Browser Automation Powerhouse - Claude knows its role!
+  • MCP servers pre-configured (Playwright, Puppeteer)
+  • Automatic system context for browser automation tasks
+  • Full development environment (git, gh, ripgrep, jq, yq, vim, python)
+  • Playwright + browsers (Chromium, Firefox, WebKit)
+  • Node.js LTS v20 environment
+  • GUI browsers visible on desktop (X11/Wayland)
+  • SSH keys and git config (shared from host)
+  • Access to all your project files (auto-mounted)
+  • YOLO mode for fast iteration (bypasses permission checks)
+  • Uses same ccy token pool and project config
+
+Token Management:
+  Tokens stored in: ~/.claude-tokens/ccy/tokens/
+  Format: NAME.YYYY-MM-DD.token (expiry date in filename)
+  Long-lived OAuth tokens (sk-ant-oat01-...) created via 'ccy --create-token'
+  Expiry checked on launch - forces recreation when expired or expiring today
+  
+  To create new tokens: ccy --create-token
+
+Requirements:
+  • playwright-tests distrobox must be created first
+    Run: ansible-playbook playbooks/imports/optional/common/play-distrobox-playwright.yml
+
+Common Usage:
+  ccy-browser                     # Prompts for token/SSH (or reuses last)
+                                  # Claude auto-knows it's browser automation!
+  ccy-browser "explore the site"  # Start with specific task
+  ccy-browser --token personal    # Use specific token
+  ccy-browser --list-tokens       # List available tokens
+
+Browser Automation:
+  When launched without arguments, Claude Code automatically receives context
+  about its browser automation capabilities. It will check available MCP tools
+  and use them extensively for browser tasks. Ask it to:
+  • Control browsers and inspect pages
+  • Fill forms and take screenshots
+  • Write and run Playwright tests
+  • Debug web applications interactively
+  • Scrape websites with real browser rendering
+
+Examples:
+  # Interactive browser exploration
+  cd ~/Projects/my-app
+  ccy-browser
+  # If you used this project with ccy before, offers to reuse config
+  # Ask: "Explore the checkout flow and find issues"
+  # Watch: Claude controls browser through MCP in real-time
+
+  # Debug web application
+  cd ~/Projects/scraper
+  ccy-browser "help me debug why the scraper is failing"
+
+  # Acceptance test engineering
+  cd ~/Projects/app/tests
+  ccy-browser "write playwright tests for user registration"
+
+Management:
+  playwright-distrobox status     # Check container status
+  playwright-distrobox update     # Update browsers
+  playwright-distrobox recreate   # Rebuild container
+  playwright-distrobox help       # Show all commands
+
+For more information:
+  https://github.com/LongTermSupport/fedora-desktop/blob/F42/docs/containerization.md#playwright-distrobox-automated
+
+EOF
+    exit 0
+fi
+
+# Show version if requested
+if [ "$1" = "--version" ] || [ "$1" = "-v" ]; then
+    echo "ccy-browser version $CCY_BROWSER_VERSION"
+    echo ""
+    if command_exists distrobox && distrobox list --no-color 2>/dev/null | grep -qw "$DISTROBOX_NAME"; then
+        echo "Container: $DISTROBOX_NAME"
+        echo "Claude Code: $(distrobox enter "$DISTROBOX_NAME" --no-workdir -- claude --version 2>/dev/null || echo 'not installed')"
+    fi
+    exit 0
+fi
+
+# Handle --list-tokens
+if [ "$1" = "--list-tokens" ]; then
+    list_ccy_tokens "$TOKEN_DIR"
+    exit 0
+fi
+
+# Preflight checks
+print_header "Claude Code Browser Automation Mode"
+echo ""
+
+# Check if distrobox is installed
+if ! command_exists distrobox; then
+    print_error "distrobox is not installed"
+    echo "" >&2
+    echo "Please install distrobox first:" >&2
+    echo "  ansible-playbook playbooks/imports/optional/common/play-install-distrobox.yml" >&2
+    exit 1
+fi
+
+# Check if playwright-tests container exists
+if ! distrobox list --no-color 2>/dev/null | grep -qw "$DISTROBOX_NAME"; then
+    print_error "'$DISTROBOX_NAME' distrobox container not found"
+    echo "" >&2
+    echo "The playwright distrobox must be created before using ccy-browser." >&2
+    echo "" >&2
+    echo "To create it:" >&2
+    echo "  ansible-playbook playbooks/imports/optional/common/play-distrobox-playwright.yml" >&2
+    exit 1
+fi
+
+# Check if Claude Code is installed in the container
+# Use --no-workdir to avoid trying to cd to host CWD (which doesn't exist in isolated container)
+if ! distrobox enter "$DISTROBOX_NAME" --no-workdir -- bash -c 'command -v claude &> /dev/null'; then
+    print_error "Claude Code is not installed in the $DISTROBOX_NAME container"
+    echo "" >&2
+    echo "Please run the Playwright distrobox playbook to install Claude Code:" >&2
+    echo "  ansible-playbook playbooks/imports/optional/common/play-distrobox-playwright.yml" >&2
+    exit 1
+fi
+
+# Must be run from a git repository root
+check_git_repo || exit 1
+
+# Get current directory (will be preserved in distrobox)
+CURRENT_DIR="$PWD"
+
+# Validate we're inside ~/Projects (required for container mount)
+PROJECTS_DIR="$HOME/Projects"
+if [ ! -d "$PROJECTS_DIR" ]; then
+    print_error "Projects directory does not exist: $PROJECTS_DIR"
+    echo "" >&2
+    echo "The ccyb container requires a ~/Projects directory to mount your code." >&2
+    echo "" >&2
+    echo "To fix:" >&2
+    echo "  mkdir -p ~/Projects" >&2
+    echo "  cd ~/Projects" >&2
+    echo "  git clone <your-repos>" >&2
+    exit 1
+fi
+
+if [[ "$CURRENT_DIR" != "$PROJECTS_DIR"* ]]; then
+    print_error "Must run ccyb from within ~/Projects directory"
+    echo "" >&2
+    echo "Current directory: $CURRENT_DIR" >&2
+    echo "Required location: $PROJECTS_DIR/<your-repo>" >&2
+    echo "" >&2
+    echo "The container only has access to ~/Projects and subdirectories." >&2
+    echo "Your project files must be within this directory to be accessible." >&2
+    exit 1
+fi
+
+# Get project state directory (shared with ccy)
+PROJECT_CLAUDE_DIR=$(get_project_state_dir "$CCY_ROOT") || exit 1
+
+# Parse command line arguments
+SPECIFIED_TOKEN=""
+SSH_KEYS=()
+NO_SSH=false
+REMAINING_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --token)
+            SPECIFIED_TOKEN="$2"
+            shift 2
+            ;;
+        --ssh-key)
+            SSH_KEYS+=("$2")
+            shift 2
+            ;;
+        --no-ssh)
+            NO_SSH=true
+            shift
+            ;;
+        *)
+            REMAINING_ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
+
+# Try to load previous configuration
+REUSED_CONFIG=false
+if [ -z "$SPECIFIED_TOKEN" ] && [ ${#SSH_KEYS[@]} -eq 0 ] && [ "$NO_SSH" = false ]; then
+    if load_launch_config "$PROJECT_CLAUDE_DIR" "$CONFIG_VERSION" "$CCY_BROWSER_VERSION" "$CCY_BROWSER_HASH"; then
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "Found previous launch configuration:"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "  Token: $LAST_TOKEN"
+        [ -n "$LAST_SSH_KEYS" ] && echo "  SSH Keys: $LAST_SSH_KEYS"
+        echo "  Last used: $LAST_LAUNCH_DATE"
+        echo ""
+        
+        if confirm "Reuse this configuration?" "y"; then
+            SPECIFIED_TOKEN="$LAST_TOKEN"
+            if [ -n "$LAST_SSH_KEYS" ]; then
+                IFS=' ' read -ra SSH_KEYS <<< "$LAST_SSH_KEYS"
+            fi
+            REUSED_CONFIG=true
+            echo ""
+        fi
+    fi
+fi
+
+# Token Selection
+SELECTED_TOKEN=""
+
+if [ -n "$SPECIFIED_TOKEN" ]; then
+    # User specified a token name (or from config)
+    for token_file in "$TOKEN_DIR"/*.token; do
+        if [ -f "$token_file" ]; then
+            filename=$(basename "$token_file")
+            token_name="${filename%.*.token}"
+            if [ "$token_name" = "$SPECIFIED_TOKEN" ]; then
+                SELECTED_TOKEN="$token_file"
+                break
+            fi
+        fi
+    done
+
+    if [ -z "$SELECTED_TOKEN" ]; then
+        print_error "Token not found: $SPECIFIED_TOKEN"
+        echo ""
+        echo "Available tokens:"
+        list_ccy_tokens "$TOKEN_DIR"
+        exit 1
+    fi
+else
+    # Auto-select or prompt
+    if [ ! -d "$TOKEN_DIR" ] || [ -z "$(ls -A "$TOKEN_DIR"/*.token 2>/dev/null)" ]; then
+        print_error "No tokens found in $TOKEN_DIR"
+        echo ""
+        echo "Create a token with: ccy --create-token"
+        echo ""
+        exit 1
+    fi
+
+    # Count valid tokens
+    VALID_TOKENS=()
+    for token_file in "$TOKEN_DIR"/*.token; do
+        if [ -f "$token_file" ] && is_token_valid "$token_file"; then
+            VALID_TOKENS+=("$token_file")
+        fi
+    done
+
+    if [ ${#VALID_TOKENS[@]} -eq 0 ]; then
+        print_error "No valid (non-expired) tokens found"
+        echo ""
+        list_ccy_tokens "$TOKEN_DIR"
+        echo ""
+        echo "Create a new token with: ccy --create-token"
+        exit 1
+    elif [ ${#VALID_TOKENS[@]} -eq 1 ]; then
+        # Auto-select the only valid token
+        SELECTED_TOKEN="${VALID_TOKENS[0]}"
+        token_name=$(basename "$SELECTED_TOKEN" | sed 's/\.[0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\.token$//')
+        echo "Using token: $token_name"
+        echo ""
+    else
+        # Multiple valid tokens - prompt user
+        list_ccy_tokens "$TOKEN_DIR"
+        echo "Multiple tokens available. Please select:"
+        echo ""
+        
+        idx=1
+        declare -A TOKEN_MAP
+        for token_file in "${VALID_TOKENS[@]}"; do
+            token_name=$(basename "$token_file" | sed 's/\.[0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\.token$//')
+            echo "  $idx) $token_name"
+            TOKEN_MAP[$idx]="$token_file"
+            ((idx++))
+        done
+        echo ""
+        
+        while true; do
+            read -p "Select token [1-${#VALID_TOKENS[@]}]: " selection
+            if [[ "$selection" =~ ^[0-9]+$ ]] && [ "$selection" -ge 1 ] && [ "$selection" -le "${#VALID_TOKENS[@]}" ]; then
+                SELECTED_TOKEN="${TOKEN_MAP[$selection]}"
+                break
+            else
+                echo "Invalid selection. Please enter a number between 1 and ${#VALID_TOKENS[@]}"
+            fi
+        done
+        echo ""
+    fi
+fi
+
+# Validate selected token
+if ! is_token_valid "$SELECTED_TOKEN"; then
+    print_error "Selected token is expired or invalid"
+    exit 1
+fi
+
+# Read token content
+CLAUDE_OAUTH_TOKEN=$(cat "$SELECTED_TOKEN")
+
+if [ -z "$CLAUDE_OAUTH_TOKEN" ]; then
+    print_error "Token file is empty: $SELECTED_TOKEN"
+    exit 1
+fi
+
+if ! [[ "$CLAUDE_OAUTH_TOKEN" =~ ^sk-ant-oat01- ]]; then
+    print_error "Invalid token format in file: $SELECTED_TOKEN"
+    echo "Token must start with 'sk-ant-oat01-'"
+    exit 1
+fi
+
+# SSH Key Selection
+if [ ${#SSH_KEYS[@]} -eq 0 ] && [ "$NO_SSH" = false ] && [ "$REUSED_CONFIG" = false ]; then
+    discover_github_ssh_keys
+    
+    if [ ${#GITHUB_KEYS[@]} -eq 0 ]; then
+        print_warning "No github_ SSH keys found in ~/.ssh/"
+        echo "  Git push operations will NOT work"
+        echo ""
+        if ! confirm "Continue without SSH key?" "n"; then
+            exit 0
+        fi
+    else
+        echo "Available GitHub SSH keys:"
+        echo ""
+        echo "  0) Continue without SSH key (git push will NOT work)"
+        for i in "${!GITHUB_KEYS[@]}"; do
+            key_name=$(basename "${GITHUB_KEYS[$i]}")
+            echo "  $((i+1))) ${GITHUB_KEYS[$i]}"
+        done
+        echo ""
+        
+        while true; do
+            read -p "Select SSH key [0-${#GITHUB_KEYS[@]}]: " selection
+            if [ "$selection" = "0" ]; then
+                print_warning "Continuing WITHOUT SSH key - git push operations will fail"
+                echo ""
+                break
+            elif [ "$selection" -ge 1 ] && [ "$selection" -le ${#GITHUB_KEYS[@]} ] 2>/dev/null; then
+                SSH_KEYS+=("${GITHUB_KEYS[$((selection-1))]}")
+                echo "✓ Selected: ${GITHUB_KEYS[$((selection-1))]}"
+                echo ""
+                break
+            else
+                echo "Please enter a number between 0 and ${#GITHUB_KEYS[@]}"
+            fi
+        done
+    fi
+elif [ "$NO_SSH" = true ]; then
+    echo "Skipping SSH key selection (--no-ssh flag)"
+    echo ""
+fi
+
+# Validate SSH keys exist
+for ssh_key in "${SSH_KEYS[@]}"; do
+    if [ ! -f "$ssh_key" ]; then
+        print_error "SSH key not found: $ssh_key"
+        exit 1
+    fi
+done
+
+# ccyb uses isolated home directory for security
+CCYB_HOME="/var/local/claude-yolo/ccyb/home"
+
+# Copy SSH key into isolated home (if provided)
+if [ ${#SSH_KEYS[@]} -gt 0 ]; then
+    SSH_KEY_PATH="${SSH_KEYS[0]}"  # Use first key
+    CCYB_SSH_DIR="$CCYB_HOME/.ssh"
+    CCYB_SSH_KEY="$CCYB_SSH_DIR/id_ccyb"
+
+    # Create .ssh directory in isolated home
+    mkdir -p "$CCYB_SSH_DIR"
+    chmod 700 "$CCYB_SSH_DIR"
+
+    # Copy selected SSH key to isolated home
+    cp "$SSH_KEY_PATH" "$CCYB_SSH_KEY"
+    chmod 600 "$CCYB_SSH_KEY"
+
+    # Also copy public key if it exists
+    if [ -f "${SSH_KEY_PATH}.pub" ]; then
+        cp "${SSH_KEY_PATH}.pub" "${CCYB_SSH_KEY}.pub"
+        chmod 644 "${CCYB_SSH_KEY}.pub"
+    fi
+fi
+
+# Build the Claude Code command with YOLO mode
+CLAUDE_CMD="cd '$CURRENT_DIR'"
+
+# Set up SSH if keys provided
+if [ ${#SSH_KEYS[@]} -gt 0 ]; then
+    # Use the copied key from isolated home
+    CLAUDE_CMD="$CLAUDE_CMD && export GIT_SSH_COMMAND='ssh -i ~/.ssh/id_ccyb -F /dev/null -o IdentitiesOnly=yes'"
+fi
+
+# Add Claude Code with token (expand token value into command string)
+CLAUDE_CMD="$CLAUDE_CMD && CLAUDE_CODE_OAUTH_TOKEN=\"$CLAUDE_OAUTH_TOKEN\" claude --dangerously-skip-permissions"
+
+# Add initial system context about browser automation capabilities
+# This helps Claude understand its role as a browser automation agent
+if [ ${#REMAINING_ARGS[@]} -eq 0 ]; then
+    # No user arguments - add helpful intro message
+    BROWSER_INTRO="You are a Browser Automation Powerhouse running in YOLO mode (--dangerously-skip-permissions)!
+
+ENVIRONMENT:
+• Isolated distrobox container (Ubuntu) with project directory mounted
+• Your project files are at $CURRENT_DIR (auto-mounted from host)
+• GUI browsers will appear on the host desktop (X11/Wayland shared)
+• Isolated home directory (no access to host files for security)
+• Selected SSH key copied in for git operations
+
+CAPABILITIES:
+• Playwright MCP server for complete browser automation (25+ tools)
+• Console access, JavaScript evaluation, DOM inspection, error detection
+• Navigate, click, fill, screenshot, assertions, network inspection, tracing
+• Primary purpose: browser automation, web scraping, acceptance testing, interactive debugging
+• Can write and run Playwright tests
+• Full development environment (git, gh, Node.js, Python)
+
+IMPORTANT:
+• Check your available MCP tools to see what you can do
+• Read the docs: https://github.com/microsoft/playwright-mcp
+• Use MCP tools extensively for all browser tasks!"
+    escaped_intro="${BROWSER_INTRO//\'/\'\\\'\'}"
+    CLAUDE_CMD="$CLAUDE_CMD '$escaped_intro'"
+else
+    # User provided arguments - use them
+    for arg in "${REMAINING_ARGS[@]}"; do
+        # Escape single quotes in arguments
+        escaped_arg="${arg//\'/\'\\\'\'}"
+        CLAUDE_CMD="$CLAUDE_CMD '$escaped_arg'"
+    done
+fi
+
+# Save configuration for next time
+SSH_KEYS_STR="${SSH_KEYS[*]}"
+TOKEN_NAME=$(basename "$SELECTED_TOKEN" | sed 's/\.[0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\.token$//')
+save_launch_config "$PROJECT_CLAUDE_DIR" "$CONFIG_VERSION" "$CCY_BROWSER_VERSION" "$CCY_BROWSER_HASH" "$TOKEN_NAME" "$SSH_KEYS_STR" ""
+
+# Display startup message
+print_header "Starting Browser Automation Session"
+echo ""
+print_success "Container: $DISTROBOX_NAME"
+print_success "Directory: $CURRENT_DIR"
+print_success "Token: $(basename "$SELECTED_TOKEN")"
+if [ ${#SSH_KEYS[@]} -gt 0 ]; then
+    for ssh_key in "${SSH_KEYS[@]}"; do
+        print_success "SSH Key: $ssh_key"
+    done
+else
+    print_warning "No SSH key (git push will NOT work)"
+fi
+echo ""
+echo "Environment:"
+echo "  • Node.js LTS v20"
+echo "  • Playwright browsers (Chromium, Firefox, WebKit)"
+echo "  • GUI windows will appear on your desktop"
+echo "  • Full development tooling available"
+echo "  • MCP browser control ready"
+echo ""
+
+# Show YOLO warning
+show_yolo_warning
+
+echo "Launching Claude Code..."
+echo ""
+
+# Enter distrobox and run Claude Code
+# Projects directory is mounted at container creation time
+# --no-workdir: Don't preserve CWD (we cd manually in CLAUDE_CMD)
+exec distrobox enter "$DISTROBOX_NAME" --no-workdir -- bash -c "$CLAUDE_CMD"

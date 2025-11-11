@@ -1,0 +1,141 @@
+FROM node:20-slim
+
+# Accept build arg for Dockerfile hash (calculated by wrapper at build time)
+ARG DOCKERFILE_HASH="unknown"
+
+# Metadata
+# IMPORTANT: When modifying this Dockerfile, ALWAYS increment claude-browser-version!
+LABEL claude-browser-version="1.0"
+LABEL claude-browser-dockerfile-hash="${DOCKERFILE_HASH}"
+LABEL description="Claude Code Browser Mode - Isolated container with Playwright MCP for browser automation"
+
+# Install system dependencies + Playwright system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    wget \
+    jq \
+    ripgrep \
+    fzf \
+    vim \
+    nano \
+    less \
+    bash-completion \
+    htop \
+    procps \
+    unzip \
+    ca-certificates \
+    git \
+    openssh-client \
+    python3 \
+    python3-pip \
+    python3-yaml \
+    tini \
+    tree \
+    # Playwright system dependencies
+    libnss3 \
+    libnspr4 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libdrm2 \
+    libxkbcommon0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libasound2 \
+    libpango-1.0-0 \
+    libcairo2 \
+    libatspi2.0-0 \
+    libgtk-3-0 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install GitHub CLI
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+    && apt-get update \
+    && apt-get install -y gh \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install yq (YAML processor)
+RUN wget -qO /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 \
+    && chmod +x /usr/bin/yq
+
+# Install Claude Code globally
+RUN npm install -g @anthropic-ai/claude-code
+
+# Install Playwright and browsers globally
+# Install chrome (Google Chrome) in addition to chromium, firefox, webkit
+RUN npm install -g playwright && \
+    npx playwright install chrome chromium firefox webkit && \
+    npx playwright install-deps
+
+# Install MCP servers globally
+# Playwright MCP server (provides browser automation)
+RUN npm install -g @playwright/mcp@latest
+# Note: Puppeteer MCP server package not available yet, using Playwright only for MVP
+
+# Copy and set up entrypoint script
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Copy startup info file
+COPY ccb-startup-info.txt /opt/claude-browser/ccb-startup-info.txt
+RUN chmod 444 /opt/claude-browser/ccb-startup-info.txt
+
+# Create Playwright MCP configuration file for browser launch options (JSON format)
+# MCP format uses "browser.launchOptions" not "use.launchOptions"
+# Configures Wayland support and software rendering for Docker
+RUN mkdir -p /opt/claude-browser && \
+    echo '{\n\
+  "browser": {\n\
+    "launchOptions": {\n\
+      "headless": false,\n\
+      "args": [\n\
+        "--enable-features=UseOzonePlatform",\n\
+        "--ozone-platform=wayland",\n\
+        "--no-sandbox",\n\
+        "--disable-gpu",\n\
+        "--disable-software-rasterizer",\n\
+        "--disable-dev-shm-usage"\n\
+      ]\n\
+    }\n\
+  }\n\
+}' > /opt/claude-browser/playwright.config.json
+
+# Create static MCP configuration for browser automation
+# This will be passed via --mcp-config flag when launching Claude Code
+# --no-sandbox: Required for running as root in Docker
+# --config: Pass Playwright config with Wayland browser launch args
+# NOT using --isolated: Testing if this enables headed (visible) browser mode
+# Risk: May create lock files if browser crashes
+RUN echo '{\n\
+  "mcpServers": {\n\
+    "playwright": {\n\
+      "command": "npx",\n\
+      "args": [\n\
+        "-y",\n\
+        "@playwright/mcp@latest",\n\
+        "--no-sandbox",\n\
+        "--config",\n\
+        "/opt/claude-browser/playwright.config.json"\n\
+      ]\n\
+    }\n\
+  }\n\
+}' > /opt/claude-browser/mcp_servers.json
+
+# Set workspace directory
+WORKDIR /workspace
+
+# Note: USER directive is NOT set here - we use --user flag at runtime
+# This allows dynamic UID/GID mapping to match the host user
+
+# Use tini as PID 1 to properly handle signals and reap zombie processes
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]
+
+# Default command (will be overridden by wrapper)
+CMD ["claude", "--help"]

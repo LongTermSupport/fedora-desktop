@@ -1,0 +1,6 @@
+---
+# Fedora Version Configuration
+# This file defines the target Fedora version for this branch
+# Update this file first when creating a new branch for a new Fedora version
+
+fedora_version: 42

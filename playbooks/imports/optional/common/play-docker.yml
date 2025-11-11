@@ -1,3 +1,4 @@
+#!/usr/bin/env ansible-playbook
 - hosts: desktop
   become: false
   vars:
@@ -11,11 +12,10 @@
     - name: Add Docker Repo
       become: true
       shell: |
-          dnf config-manager \
-            --add-repo \
-            https://download.docker.com/linux/fedora/docker-ce.repo 
+          dnf config-manager addrepo \
+            --from-repofile=https://download.docker.com/linux/fedora/docker-ce.repo 
       args:
-        creates: /yum/repos.d/docker-ce.repo
+        creates: /etc/yum.repos.d/docker-ce.repo
 
     - name: Install Docker
       become: true
@@ -24,8 +24,8 @@
           - docker-ce 
           - docker-ce-cli 
           - containerd.io 
+          - docker-buildx-plugin
           - docker-compose-plugin
-          - docker-compose
 
     - name: Setup ID Maps
       become: true
@@ -42,7 +42,7 @@
       args:
         creates: /home/{{user_login}}/.config/systemd/user/docker.service 
 
-    - name: Enable and Start User Rootless Docker Sytemd Service
+    - name: Enable and Start User Rootless Docker Systemd Service
       systemd:
         name: docker
         state: started

@@ -1,0 +1,103 @@
+# Project-Specific Claude YOLO Container Extension
+#
+# This template is used by 'ccy --custom' to create a custom container for your project.
+# The base image (claude-yolo:latest) already includes: git, gh, Node.js, npm, Claude Code
+#
+# INSTRUCTIONS FOR CLAUDE CODE:
+# When customizing this Dockerfile:
+# 1. Run commands to check what's already installed (e.g., which python3, npm list -g)
+# 2. Scan project files to detect tech stack (package.json, go.mod, requirements.txt, etc.)
+# 3. Ask the user what tools they need
+# 4. Add only the packages that are missing and needed
+# 5. Use cache mounts (see examples below) for fast rebuilds
+# 6. Set environment variables (PATH, etc.) as needed
+# 7. Keep it minimal - only add what's actually required
+#
+# After editing, tell the user to:
+# - Exit this ccy session (/exit or Ctrl+D)
+# - Run: ccy --rebuild
+# - Then: ccy
+
+FROM claude-yolo:latest
+
+# ============================================================================
+# System Packages (Debian/Ubuntu apt)
+# ============================================================================
+# Use cache mounts for fast rebuilds - apt packages are cached between builds
+# Add any system dependencies your project needs
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        # Example: Go language
+        # golang-1.21 \
+        # Example: Database clients
+        # postgresql-client \
+        # mysql-client \
+        # Example: Python tools
+        # python3-pip \
+        # python3-venv \
+        # Example: Configuration management
+        # ansible \
+        # terraform \
+        # Example: Additional development tools
+        # build-essential \
+        # cmake \
+        # libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# ============================================================================
+# Environment Variables
+# ============================================================================
+# Add any required PATH modifications or environment variables
+
+# Example: Add Go to PATH
+# ENV PATH="/usr/lib/go-1.21/bin:${PATH}"
+# ENV GOPATH="/workspace/go"
+
+# Example: Set Python environment
+# ENV PYTHONUNBUFFERED=1
+# ENV PIP_NO_CACHE_DIR=1
+
+# ============================================================================
+# Global npm/node packages
+# ============================================================================
+# Install any npm packages needed globally
+
+# Example: TypeScript tooling
+# RUN npm install -g typescript tsx ts-node
+
+# Example: Build tools
+# RUN npm install -g webpack webpack-cli
+
+# Example: Testing frameworks
+# RUN npm install -g jest vitest
+
+# ============================================================================
+# Language-specific tools
+# ============================================================================
+
+# Example: Python packages
+# RUN pip3 install --no-cache-dir \
+#     black \
+#     pylint \
+#     pytest \
+#     requests
+
+# Example: Go tools
+# RUN go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+
+# ============================================================================
+# Project-specific setup
+# ============================================================================
+# Any additional setup your project needs
+
+# Example: Create workspace directories
+# RUN mkdir -p /workspace/tmp /workspace/logs
+
+# Example: Set working directory permissions
+# RUN chmod 777 /workspace/tmp
+
+# Note: /workspace is mounted at runtime, so avoid copying project files here
+# This Dockerfile is for TOOLS, not for application code

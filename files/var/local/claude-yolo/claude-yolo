@@ -1,0 +1,1249 @@
+#!/bin/bash
+# Claude Code YOLO Mode Wrapper
+# Runs Claude Code with --dangerously-skip-permissions in isolated Docker container
+# IMPORTANT: Uses separate token storage from desktop Claude Code to prevent OAuth conflicts
+#
+# Version: 1.5.1
+#
+# IMPORTANT: When modifying this script, ALWAYS increment CCY_VERSION!
+# The hash validates script integrity - if hash changes but version doesn't,
+# users will get a warning that version wasn't properly updated.
+#
+CCY_VERSION="1.5.1"
+
+# Load shared helpers
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/lib/common.bash" ]; then
+    source "$SCRIPT_DIR/lib/common.bash"
+else
+    # Fallback if library not found
+    echo "ERROR: Shared library not found at $SCRIPT_DIR/lib/common.bash" >&2
+    exit 1
+fi
+
+# Load specialized libraries
+for lib in token-management ssh-handling network-management dockerfile-custom ui-helpers; do
+    if [ -f "$SCRIPT_DIR/lib/$lib.bash" ]; then
+        source "$SCRIPT_DIR/lib/$lib.bash"
+    else
+        print_error "Required library not found: $SCRIPT_DIR/lib/$lib.bash"
+        exit 1
+    fi
+done
+
+# IMPORTANT: When modifying the Dockerfile, ALWAYS increment REQUIRED_CONTAINER_VERSION!
+# This ensures users automatically rebuild when critical container changes are made.
+REQUIRED_CONTAINER_VERSION="1.2"
+
+set -e
+
+# Calculate script hash (exclude this variable line to avoid circular dependency)
+CCY_HASH=$(grep -v '^CCY_HASH=' "$0" | md5sum | cut -d' ' -f1 | cut -c1-16)
+
+# Configuration file schema version
+CONFIG_VERSION=1
+
+# Fail fast: Must be run from a git repository root
+check_git_repo || exit 1
+
+IMAGE_NAME="claude-yolo:latest"
+DOCKERFILE_DIR="/opt/claude-yolo"
+VERSION_CACHE="$HOME/.cache/claude-yolo-version"
+CACHE_DURATION=3600  # 1 hour in seconds
+CCY_ROOT="$HOME/.claude-tokens/ccy"
+TOKEN_DIR="$CCY_ROOT/tokens"
+PROJECT_DIR="$CCY_ROOT/projects"
+
+# Show help if requested
+if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+    cat << 'EOF'
+Claude Code YOLO Mode (ccy) - Container-based execution with --dangerously-skip-permissions
+
+Usage: ccy [OPTIONS] [CLAUDE_ARGS...]
+
+Wrapper Options:
+  --rebuild              Force rebuild of container image (clears cache)
+  --debug                Enable debug output (bash -x)
+  --ssh-key PATH         SSH private key to mount (can be specified multiple times)
+  --no-ssh               Skip SSH key selection (git push will not work)
+  --token NAME           Use specific named token
+  --create-token         Create a new named token
+  --list-tokens          List available tokens
+  --network NETWORK      Auto-connect to specified Docker network on launch
+  --no-network           Skip network auto-detection
+  --connect [NETWORK]    Connect running yolo container to Docker network
+  --custom               Create/edit custom project Dockerfile interactively
+  --prompt "text"        Start Claude Code with a preseeded prompt
+  --headless             Run in headless mode (requires --prompt)
+  --help, -h             Show this help message
+
+All other arguments are passed directly to Claude Code with --dangerously-skip-permissions
+
+Features:
+  • Runs in isolated Docker container with git/gh
+  • Long-lived OAuth tokens (sk-ant-oat01-...) - same as GitHub Actions
+  • Named tokens with expiry tracking for multiple Claude accounts
+  • Automatic expiry checking - forces new token when expired
+  • Auto-updates Claude Code (cached for 1 hour)
+  • Mounts current directory as /workspace
+  • Files created have correct host user ownership
+  • Project-specific container extensions via .claude/ccy/Dockerfile
+
+Security:
+  ⚠  YOLO mode bypasses all permission checks
+  ✓  Container isolation prevents unintended host access
+  ✓  Cannot run as root user (safety check)
+  ✓  Tokens isolated from desktop Claude Code
+
+Examples:
+  ccy                           # Start (prompts for token selection)
+  ccy --create-token            # Create a new named token
+  ccy --token personal          # Use "personal" token
+  ccy --list-tokens             # List available tokens
+  ccy "implement feature X"     # Start with specific task
+  ccy --prompt "fix the bug"    # Start interactive session with prompt
+  ccy --headless --prompt "run tests"  # Run in headless mode
+
+Custom Dockerfile (Claude-assisted):
+  ccy --custom                  # Interactive workflow
+  > Select template (ansible/golang/project-template)
+  > Choose: Claude customization, manual edit, or use as-is
+  > If Claude: scans project, asks what you need, edits Dockerfile
+  > Exit, run 'ccy --rebuild', then 'ccy'
+
+Network Management (run in separate terminal while ccy is running):
+  ccy --connect                 # Interactive network selection
+  ccy --connect myproject_default  # Connect to specific network
+
+Token Management:
+  Tokens stored in: ~/.claude-tokens/ccy/tokens/
+  Format: NAME.YYYY-MM-DD.token (expiry date in filename)
+  Long-lived OAuth tokens (sk-ant-oat01-...) created via 'claude setup-token'
+  Expiry checked on launch - forces recreation when expired or expiring today
+  Desktop Claude Code (~/.claude/) is NEVER modified
+
+Project-Specific Container Extensions:
+  Command: ccy --custom
+  Location: .claude/ccy/Dockerfile
+  Image cached as: claude-yolo:<project-name>
+
+  Workflow:
+    1. Run 'ccy --custom' in your project
+    2. Select a template:
+       - Dockerfile.example-ansible (Ansible + testing tools)
+       - Dockerfile.example-golang (Go + dev tools)
+       - Dockerfile.project-template (generic, use for other stacks)
+    3. Choose how to proceed:
+       - Use Claude to customize (recommended)
+       - Edit manually in $EDITOR
+       - Use template as-is
+    4. If using Claude:
+       - Claude checks what's in base container
+       - Scans your project files
+       - Asks what tools you need
+       - Edits the Dockerfile with proper cache mounts
+       - Tells you to: exit, 'ccy --rebuild', 'ccy'
+    5. Custom image is cached (fast subsequent starts)
+
+  Templates include Claude instructions:
+    Each template has comments telling Claude how to customize it
+    Templates know what's already installed (git, gh, Node.js, npm, Claude Code)
+    Templates use cache mounts for fast rebuilds
+
+  Template Library:
+    Directory: /opt/claude-yolo/custom-dockerfiles/
+    Pattern: Dockerfile.<name>
+    Never overwritten by ansible - safe to customize
+    Add your own templates for reuse across projects
+
+EOF
+
+    # Check if container image exists to show Claude Code help
+    if docker image inspect "$IMAGE_NAME" &> /dev/null 2>&1; then
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo "Claude Code Help (from container):"
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo ""
+        # Run claude --help in container to show actual Claude Code options
+        docker run --rm --entrypoint claude "$IMAGE_NAME" --help 2>/dev/null || echo "Note: Container exists but Claude Code help unavailable"
+    else
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo "Claude Code Help:"
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo ""
+        echo "Container image not built yet. Run 'ccy --rebuild' first to build the container,"
+        echo "then run 'ccy --help' again to see Claude Code options."
+    fi
+
+    exit 0
+fi
+
+# Function to load last launch configuration for current project
+# Returns 0 if valid config loaded, 1 if no config or invalid
+load_launch_config() {
+    local project_claude_dir="$1"
+    local config_file="$project_claude_dir/../.last-launch.conf"
+
+    # Check if config exists
+    if [[ ! -f "$config_file" ]]; then
+        return 1  # No config, use interactive
+    fi
+
+    # Source config
+    source "$config_file" 2>/dev/null || {
+        echo "Warning: Config file corrupted, reconfiguring..." >&2
+        rm -f "$config_file"
+        return 1
+    }
+
+    # Validate CONFIG_VERSION (schema version)
+    if [[ "${SAVED_CONFIG_VERSION:-0}" != "$CONFIG_VERSION" ]]; then
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "⚠️  Config schema outdated" >&2
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "Saved config:  v${SAVED_CONFIG_VERSION:-0}" >&2
+        echo "Expected:      v${CONFIG_VERSION}" >&2
+        echo "" >&2
+        echo "Your saved launch configuration uses an old format." >&2
+        echo "Reconfiguring with interactive prompts..." >&2
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "" >&2
+        rm -f "$config_file"
+        return 1
+    fi
+
+    # Validate CCY_VERSION and CCY_HASH together
+    local version_match=false
+    local hash_match=false
+
+    [[ "${CCY_VERSION}" == "${SAVED_CCY_VERSION:-}" ]] && version_match=true
+    [[ "${CCY_HASH}" == "${SAVED_CCY_HASH:-}" ]] && hash_match=true
+
+    if $version_match && $hash_match; then
+        # Perfect match - config is valid
+        return 0
+
+    elif $version_match && ! $hash_match; then
+        # VERSION same but HASH different = Developer forgot to update version!
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "⚠️  DEVELOPER ERROR: CCY script modified without version bump" >&2
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "Version:       ${CCY_VERSION} (unchanged)" >&2
+        echo "Saved hash:    ${SAVED_CCY_HASH:-unknown}" >&2
+        echo "Current hash:  ${CCY_HASH}" >&2
+        echo "" >&2
+        echo "The CCY script has been modified but CCY_VERSION was not updated." >&2
+        echo "This is a developer error - version numbers must be incremented" >&2
+        echo "when the script changes to ensure config compatibility." >&2
+        echo "" >&2
+        echo "Forcing reconfiguration for safety..." >&2
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "" >&2
+        rm -f "$config_file"
+        return 1
+
+    elif ! $version_match; then
+        # VERSION different = Normal upgrade/downgrade
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "ℹ️  CCY version changed" >&2
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "Saved config:  v${SAVED_CCY_VERSION:-unknown}" >&2
+        echo "Current CCY:   v${CCY_VERSION}" >&2
+        echo "" >&2
+        echo "Reconfiguring for compatibility with new version..." >&2
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "" >&2
+        rm -f "$config_file"
+        return 1
+    fi
+}
+
+# Function to save launch configuration for current project
+save_launch_config() {
+    local project_claude_dir="$1"
+    local token_name="$2"
+    local ssh_keys_str="$3"
+    local network="$4"
+
+    local config_file="$project_claude_dir/../.last-launch.conf"
+
+    cat > "$config_file" <<EOF
+# CCY Launch Configuration
+# Config Version: ${CONFIG_VERSION}
+# CCY Version: ${CCY_VERSION}
+# CCY Hash: ${CCY_HASH}
+# Generated: $(date '+%Y-%m-%d %H:%M:%S')
+SAVED_CONFIG_VERSION=${CONFIG_VERSION}
+SAVED_CCY_VERSION="${CCY_VERSION}"
+SAVED_CCY_HASH="${CCY_HASH}"
+LAST_TOKEN="${token_name}"
+LAST_SSH_KEYS="${ssh_keys_str}"
+LAST_NETWORK="${network}"
+LAST_LAUNCH_DATE="$(date '+%Y-%m-%d')"
+EOF
+
+    chmod 600 "$config_file"
+}
+
+# Check for wrapper flags
+FORCE_REBUILD=false
+DEBUG_MODE=false
+SSH_KEYS=()
+CLAUDE_ARGS=()
+NEXT_IS_SSH_KEY=false
+NEXT_IS_TOKEN=false
+NEXT_IS_CONNECT=false
+NEXT_IS_NETWORK=false
+NEXT_IS_PROMPT=false
+SPECIFIED_TOKEN=""
+CREATE_TOKEN_MODE=false
+LIST_TOKENS_MODE=false
+CONNECT_MODE=false
+CUSTOM_MODE=false
+CONNECT_NETWORK=""
+NO_SSH_MODE=false
+SPECIFIED_NETWORK=""
+NETWORK_FROM_CONFIG=false
+NO_NETWORK_MODE=false
+HEADLESS_MODE=false
+PROMPT_TEXT=""
+
+for arg in "$@"; do
+    if [ "$NEXT_IS_SSH_KEY" = true ]; then
+        if [ ! -f "$arg" ]; then
+            print_error "SSH key not found: $arg"
+            exit 1
+        fi
+        SSH_KEYS+=("$arg")
+        NEXT_IS_SSH_KEY=false
+    elif [ "$NEXT_IS_TOKEN" = true ]; then
+        SPECIFIED_TOKEN="$arg"
+        NEXT_IS_TOKEN=false
+    elif [ "$NEXT_IS_CONNECT" = true ]; then
+        CONNECT_NETWORK="$arg"
+        NEXT_IS_CONNECT=false
+    elif [ "$NEXT_IS_NETWORK" = true ]; then
+        SPECIFIED_NETWORK="$arg"
+        NEXT_IS_NETWORK=false
+    elif [ "$NEXT_IS_PROMPT" = true ]; then
+        PROMPT_TEXT="$arg"
+        NEXT_IS_PROMPT=false
+    elif [ "$arg" = "--rebuild" ]; then
+        FORCE_REBUILD=true
+    elif [ "$arg" = "--no-ssh" ]; then
+        NO_SSH_MODE=true
+    elif [ "$arg" = "--no-network" ]; then
+        NO_NETWORK_MODE=true
+    elif [ "$arg" = "--headless" ]; then
+        HEADLESS_MODE=true
+    elif [ "$arg" = "--prompt" ]; then
+        NEXT_IS_PROMPT=true
+    elif [ "$arg" = "--debug" ]; then
+        DEBUG_MODE=true
+        DEBUG_LOG="/tmp/ccy-debug-$(date +%Y%m%d-%H%M%S).log"
+        # Redirect all output to both terminal and log file
+        exec > >(tee -a "$DEBUG_LOG") 2>&1
+        set -x
+        echo "Debug logging to: $DEBUG_LOG"
+    elif [ "$arg" = "--ssh-key" ]; then
+        NEXT_IS_SSH_KEY=true
+    elif [ "$arg" = "--token" ]; then
+        NEXT_IS_TOKEN=true
+    elif [ "$arg" = "--create-token" ]; then
+        CREATE_TOKEN_MODE=true
+    elif [ "$arg" = "--list-tokens" ]; then
+        LIST_TOKENS_MODE=true
+    elif [ "$arg" = "--network" ]; then
+        NEXT_IS_NETWORK=true
+    elif [ "$arg" = "--connect" ]; then
+        CONNECT_MODE=true
+        NEXT_IS_CONNECT=true
+    elif [ "$arg" = "--custom" ]; then
+        CUSTOM_MODE=true
+    else
+        CLAUDE_ARGS+=("$arg")
+    fi
+done
+
+# Ensure directory structure exists early
+mkdir -p "$CCY_ROOT"
+chmod 700 "$CCY_ROOT"
+mkdir -p "$TOKEN_DIR"
+chmod 700 "$TOKEN_DIR"
+mkdir -p "$PROJECT_DIR"
+chmod 700 "$PROJECT_DIR"
+
+# Validate --headless requires --prompt
+if [ "$HEADLESS_MODE" = true ]; then
+    if [ -z "$PROMPT_TEXT" ]; then
+        print_error "--headless flag requires --prompt with content"
+        echo "" >&2
+        echo "Usage:" >&2
+        echo "  ccy --headless --prompt \"your prompt here\"" >&2
+        echo "" >&2
+        echo "The --headless flag runs Claude Code in non-interactive mode," >&2
+        echo "which requires a prompt to execute." >&2
+        exit 1
+    fi
+fi
+
+# Handle list tokens mode (doesn't need SSH/GH setup)
+if [ "$LIST_TOKENS_MODE" = true ]; then
+    list_tokens "$CCY_ROOT" "ccy"
+    exit 0
+fi
+
+# Handle connect mode (doesn't need SSH/GH setup)
+if [ "$CONNECT_MODE" = true ]; then
+    connect_to_network "$CONNECT_NETWORK" "_yolo" "ccy"
+    exit 0
+fi
+
+# Handle custom mode (doesn't need SSH/GH setup)
+if [ "$CUSTOM_MODE" = true ]; then
+    custom_dockerfile "$0" ".claude/ccy" "ccy"
+    exit 0
+fi
+
+# Get project state directory early for config loading
+# We need this before prompts to load previous configuration
+PROJECT_CLAUDE_DIR_EARLY=$(get_project_state_dir "$CCY_ROOT")
+
+# Try to load previous launch configuration (if no flags specified)
+CONFIG_LOADED=false
+SAVED_NETWORK=""
+
+if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
+   [[ -z "$SPECIFIED_TOKEN" ]] && [[ -z "$SPECIFIED_NETWORK" ]] && \
+   [[ "$NO_NETWORK_MODE" = false ]]; then
+    # No flags provided - try to load config
+    if load_launch_config "$PROJECT_CLAUDE_DIR_EARLY"; then
+        CONFIG_LOADED=true
+
+        echo ""
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo "Quick Launch Available"
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo ""
+        echo "Found previous launch configuration (${LAST_LAUNCH_DATE:-unknown}):"
+        echo "  Token:   ${LAST_TOKEN:-none}"
+        echo "  SSH Key: ${LAST_SSH_KEYS:-none}"
+        echo "  Network: ${LAST_NETWORK:-none}"
+        echo ""
+
+        while true; do
+            read -p "Use same configuration? [Y/n] " use_config
+            use_config=${use_config:-Y}
+            echo ""
+
+            case "$use_config" in
+                Y|y|Yes|yes)
+                    echo "Quick launching with previous configuration..."
+                    echo ""
+
+                    # Load config values
+                    if [[ -n "$LAST_TOKEN" ]]; then
+                        SPECIFIED_TOKEN="$LAST_TOKEN"
+                    fi
+                    if [[ -n "$LAST_SSH_KEYS" ]]; then
+                        IFS=' ' read -ra SSH_KEYS <<< "$LAST_SSH_KEYS"
+                    fi
+                    if [[ -n "$LAST_NETWORK" ]]; then
+                        SPECIFIED_NETWORK="$LAST_NETWORK"
+                        NETWORK_FROM_CONFIG=true
+                    fi
+                    break
+                    ;;
+                N|n|No|no)
+                    echo "Reconfiguring with interactive prompts..."
+                    echo ""
+                    CONFIG_LOADED=false
+                    break
+                    ;;
+                *)
+                    echo "Invalid choice. Please enter Y or n"
+                    echo ""
+                    ;;
+            esac
+        done
+
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo ""
+    fi
+fi
+
+# Discover and select SSH keys (sets SSH_KEYS array)
+# Only prompt for selection if no SSH keys specified and not in no-ssh mode
+if [ "$NO_SSH_MODE" = false ] && [ ${#SSH_KEYS[@]} -eq 0 ]; then
+    discover_and_select_ssh_keys "ccy"
+fi
+
+# Build SSH mounts and validate GitHub access
+# This sets: SSH_MOUNTS, SSH_KEY_PATHS, GITHUB_USERNAME, GH_TOKEN
+build_ssh_mounts_and_validate "ccy"
+
+# Handle create token mode (requires SSH/GH setup for container functionality)
+if [ "$CREATE_TOKEN_MODE" = true ]; then
+    create_token "$CCY_ROOT" "ccy" "$GH_TOKEN" "$IMAGE_NAME"
+    exit 0
+fi
+
+# Token selection logic
+SELECTED_TOKEN=""
+CLAUDE_OAUTH_TOKEN=""
+
+if [ -n "$SPECIFIED_TOKEN" ]; then
+    # Token specified via --token flag
+    if [[ "$SPECIFIED_TOKEN" =~ / ]]; then
+        # Full path provided
+        SELECTED_TOKEN="$SPECIFIED_TOKEN"
+    else
+        # Token name provided, find matching token with any expiry date
+        matching_tokens=("$TOKEN_DIR/${SPECIFIED_TOKEN}".*.token)
+        if [ -f "${matching_tokens[0]}" ]; then
+            SELECTED_TOKEN="${matching_tokens[0]}"
+        else
+            print_error "No token found with name: $SPECIFIED_TOKEN"
+            echo ""
+            echo "Available tokens:"
+            list_tokens "$CCY_ROOT" "ccy"
+            exit 1
+        fi
+    fi
+
+    if [ ! -f "$SELECTED_TOKEN" ]; then
+        print_error "Token file not found: $SELECTED_TOKEN"
+        echo ""
+        echo "Available tokens:"
+        list_tokens "$CCY_ROOT" "ccy"
+        exit 1
+    fi
+
+    # Check if token is expired or expiring today
+    if ! is_token_valid "$SELECTED_TOKEN"; then
+        local filename=$(basename "$SELECTED_TOKEN")
+        echo ""
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo "⚠  TOKEN EXPIRED OR EXPIRING TODAY"
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo ""
+        echo "Token: $filename"
+        echo ""
+        echo "This token cannot be used. You must create a new token."
+        echo ""
+        read -p "Create a new token now? (Y/n): " create_now
+        if [ "$create_now" != "n" ] && [ "$create_now" != "N" ]; then
+            create_token "$CCY_ROOT" "ccy" "$GH_TOKEN" "$IMAGE_NAME"
+        fi
+        echo "Cancelled. Create a token with: ccy --create-token"
+        exit 1
+    fi
+
+    filename=$(basename "$SELECTED_TOKEN")
+    token_name="${filename%.*.token}"
+    echo "✓ Using token: $token_name"
+else
+    # No token specified, check if tokens exist
+    if [ ! -d "$TOKEN_DIR" ] || [ -z "$(ls -A "$TOKEN_DIR"/*.token 2>/dev/null)" ]; then
+        echo ""
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo "No Claude Code Tokens Found"
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo ""
+        echo "ccy uses long-lived OAuth tokens for container authentication."
+        echo ""
+        echo "You need to create a token before using ccy."
+        echo ""
+        read -p "Create a token now? (Y/n): " create_now
+
+        if [ "$create_now" = "n" ] || [ "$create_now" = "N" ]; then
+            echo "Cancelled. Create a token later with: ccy --create-token"
+            exit 0
+        fi
+
+        # Jump directly to token creation
+        create_token "$CCY_ROOT" "ccy" "$GH_TOKEN" "$IMAGE_NAME"
+        exit 0
+    else
+        # Multiple tokens exist or single token - show selection
+        select_token "$CCY_ROOT" "ccy" || {
+            echo ""
+            echo "════════════════════════════════════════════════════════════════════════════════"
+            echo "No Valid Tokens Available"
+            echo "════════════════════════════════════════════════════════════════════════════════"
+            echo ""
+            echo "All tokens are expired or expiring today."
+            echo "You must create a new token."
+            echo ""
+            read -p "Create a token now? (Y/n): " create_now
+            if [ "$create_now" != "n" ] && [ "$create_now" != "N" ]; then
+                create_token "$CCY_ROOT" "ccy" "$GH_TOKEN" "$IMAGE_NAME"
+            fi
+            echo "Cancelled. Create a token with: ccy --create-token"
+            exit 1
+        }
+    fi
+fi
+
+# Load token content (it's just the token string)
+CLAUDE_OAUTH_TOKEN=$(cat "$SELECTED_TOKEN")
+if [ -z "$CLAUDE_OAUTH_TOKEN" ]; then
+    print_error "Token file is empty: $SELECTED_TOKEN"
+    exit 1
+fi
+
+if ! [[ "$CLAUDE_OAUTH_TOKEN" =~ ^sk-ant-oat01- ]]; then
+    print_error "Invalid token format in file: $SELECTED_TOKEN"
+    echo "Token must start with 'sk-ant-oat01-'"
+    exit 1
+fi
+
+# Get current user's UID and GID for proper file ownership
+HOST_UID=$(id -u)
+HOST_GID=$(id -g)
+
+# Safety check: Never run as root (UID 0)
+if [ "$HOST_UID" -eq 0 ]; then
+    print_error "Cannot run Claude Code YOLO mode as root user (UID 0)"
+    echo "This is a security restriction for --dangerously-skip-permissions mode"
+    echo "Please run this command as a regular user, not with sudo or as root"
+    exit 1
+fi
+
+# Safety check: Only run in rootless Docker
+DOCKER_CONTEXT=$(docker context inspect 2>/dev/null | grep -o '"Name": *"[^"]*"' | head -1 | cut -d'"' -f4)
+if [ "$DOCKER_CONTEXT" != "rootless" ]; then
+    print_error "Claude Code YOLO mode requires rootless Docker"
+    echo "Current Docker context: ${DOCKER_CONTEXT:-default}"
+    echo ""
+    echo "This is a security requirement because:"
+    echo "  • YOLO mode bypasses all permission checks"
+    echo "  • Running in rootless Docker provides isolation"
+    echo "  • Non-rootless Docker would give actual root privileges"
+    echo ""
+    echo "To set up rootless Docker:"
+    echo "  1. Install: dockerd-rootless-setuptool.sh install"
+    echo "  2. Switch context: docker context use rootless"
+    echo ""
+    echo "Or run the Docker playbook:"
+    echo "  ansible-playbook playbooks/imports/optional/common/play-docker.yml"
+    exit 1
+fi
+
+# Ensure cache directory exists
+mkdir -p "$(dirname "$VERSION_CACHE")"
+
+# Force rebuild if --rebuild flag was provided
+if [ "$FORCE_REBUILD" = true ]; then
+    echo "Forcing container rebuild..."
+    if [ ! -f "$DOCKERFILE_DIR/Dockerfile" ]; then
+        echo "Error: Dockerfile not found at $DOCKERFILE_DIR/Dockerfile"
+        echo "Please run the ansible playbook: playbooks/imports/optional/common/play-install-claude-yolo.yml"
+        exit 1
+    fi
+    build_container_with_hash "$IMAGE_NAME" "$DOCKERFILE_DIR" "--no-cache"
+    # Clear version cache to force Claude Code update check
+    rm -f "$VERSION_CACHE"
+    echo "✓ Container image rebuilt successfully"
+fi
+
+# Check if Docker image exists
+if ! docker image inspect "$IMAGE_NAME" &> /dev/null; then
+    echo "Building Claude YOLO container image (first time setup)..."
+    if [ ! -f "$DOCKERFILE_DIR/Dockerfile" ]; then
+        echo "Error: Dockerfile not found at $DOCKERFILE_DIR/Dockerfile"
+        echo "Please run the ansible playbook: playbooks/imports/optional/common/play-install-claude-yolo.yml"
+        exit 1
+    fi
+    build_container_with_hash "$IMAGE_NAME" "$DOCKERFILE_DIR"
+    echo "✓ Container image built successfully"
+fi
+
+# Validate container version and hash (auto-rebuild if needed)
+if ! validate_container_version "$IMAGE_NAME" "$DOCKERFILE_DIR/Dockerfile" "$REQUIRED_CONTAINER_VERSION"; then
+    # Version/hash mismatch - rebuild required
+    build_container_with_hash "$IMAGE_NAME" "$DOCKERFILE_DIR"
+    echo "✓ Container image rebuilt with version $REQUIRED_CONTAINER_VERSION"
+fi
+
+# Check if Claude Code needs updating (with caching to keep it fast)
+should_update_claude=false
+if [ -f "$VERSION_CACHE" ]; then
+    # Check cache age
+    cache_age=$(($(date +%s) - $(stat -c %Y "$VERSION_CACHE" 2>/dev/null || echo 0)))
+    if [ $cache_age -gt $CACHE_DURATION ]; then
+        should_update_claude=true
+    fi
+else
+    should_update_claude=true
+fi
+
+# Update Claude Code in container if needed
+if [ "$should_update_claude" = true ]; then
+    echo "Checking for Claude Code updates..."
+    docker run --rm --entrypoint sh "$IMAGE_NAME" -c "npm update -g @anthropic-ai/claude-code 2>&1" | grep -v "npm WARN" || true
+    # Update cache timestamp
+    touch "$VERSION_CACHE"
+fi
+
+# Function to find next available container name with suffix
+# Note: get_next_container_name is now in lib/common.bash
+
+# Check for project-specific Dockerfile extension
+PROJECT_NAME=$(basename "$PWD")
+PROJECT_DOCKERFILE=".claude/ccy/Dockerfile"
+PROJECT_IMAGE_NAME="claude-yolo:${PROJECT_NAME}"
+PROJECT_DOCKERFILE_HASH_FILE="$HOME/.cache/claude-yolo-${PROJECT_NAME}-dockerfile-hash"
+PROJECT_BASE_VERSION_FILE="$HOME/.cache/claude-yolo-${PROJECT_NAME}-base-version"
+
+if [ -f "$PROJECT_DOCKERFILE" ]; then
+    echo ""
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo "Project-Specific Container Detected"
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+    echo "Found: .claude/ccy/Dockerfile"
+    echo "Project image: $PROJECT_IMAGE_NAME"
+    echo ""
+
+    # Calculate hash of project Dockerfile (md5sum, 16 char - consistent with base)
+    current_project_hash=$(md5sum "$PROJECT_DOCKERFILE" | cut -d' ' -f1 | cut -c1-16)
+    previous_project_hash=""
+    if [ -f "$PROJECT_DOCKERFILE_HASH_FILE" ]; then
+        previous_project_hash=$(cat "$PROJECT_DOCKERFILE_HASH_FILE")
+    fi
+
+    # Get current base image version
+    current_base_version=$(docker image inspect "claude-yolo:latest" \
+        --format '{{index .Config.Labels "claude-yolo-version"}}' 2>/dev/null || echo "unknown")
+
+    # Get base version that project image was built with
+    previous_base_version=""
+    if [ -f "$PROJECT_BASE_VERSION_FILE" ]; then
+        previous_base_version=$(cat "$PROJECT_BASE_VERSION_FILE")
+    fi
+
+    # Build if image doesn't exist, Dockerfile changed, base image updated, or --rebuild flag
+    should_build=false
+    rebuild_reason=""
+
+    if ! docker image inspect "$PROJECT_IMAGE_NAME" &> /dev/null; then
+        echo "Building project-specific image (first time)..."
+        should_build=true
+        rebuild_reason="first time"
+    elif [ "$current_project_hash" != "$previous_project_hash" ]; then
+        echo "Project Dockerfile changed, rebuilding image..."
+        should_build=true
+        rebuild_reason="Dockerfile changed"
+    elif [ "$current_base_version" != "$previous_base_version" ]; then
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "ℹ️  Base image updated - rebuilding project image"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "Previous base: v$previous_base_version"
+        echo "Current base:  v$current_base_version"
+        echo ""
+        echo "Project images inherit from claude-yolo:latest."
+        echo "Rebuilding to include base image changes (e.g., tini, security fixes)..."
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        should_build=true
+        rebuild_reason="base image updated"
+    elif [ "$FORCE_REBUILD" = true ]; then
+        echo "Force rebuild requested..."
+        should_build=true
+        rebuild_reason="--rebuild flag"
+    else
+        echo "✓ Using cached project image (Dockerfile and base unchanged)"
+    fi
+
+    if [ "$should_build" = true ]; then
+        # Build with buildkit for better caching
+        echo ""
+        echo "Building with Docker BuildKit for optimal caching..."
+        echo "Tip: apt/npm packages are cached between builds for speed"
+        echo ""
+
+        # Calculate project Dockerfile hash for build arg
+        project_dockerfile_hash=$(md5sum "$PROJECT_DOCKERFILE" | cut -d' ' -f1 | cut -c1-16)
+
+        # Use buildkit for cache mounts and pass Dockerfile hash
+        if DOCKER_BUILDKIT=1 docker build \
+            --build-arg BUILDKIT_INLINE_CACHE=1 \
+            --build-arg DOCKERFILE_HASH="$project_dockerfile_hash" \
+            -t "$PROJECT_IMAGE_NAME" \
+            -f "$PROJECT_DOCKERFILE" \
+            .; then
+
+            # Save hashes and versions to track changes
+            echo "$current_project_hash" > "$PROJECT_DOCKERFILE_HASH_FILE"
+            echo "$current_base_version" > "$PROJECT_BASE_VERSION_FILE"
+            echo ""
+            echo "✓ Project image built successfully: $PROJECT_IMAGE_NAME"
+            [ -n "$rebuild_reason" ] && echo "  Rebuild reason: $rebuild_reason"
+        else
+            echo ""
+            print_error "Failed to build project-specific image"
+            echo ""
+            echo "Falling back to base image: claude-yolo:latest"
+            echo ""
+        fi
+    fi
+
+    # Use project-specific image if it exists
+    if docker image inspect "$PROJECT_IMAGE_NAME" &> /dev/null; then
+        IMAGE_NAME="$PROJECT_IMAGE_NAME"
+        echo "✓ Using project-specific image"
+    fi
+
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+fi
+
+# Get project-specific state directory (entire .claude directory)
+PROJECT_CLAUDE_DIR=$(get_project_state_dir "$CCY_ROOT")
+echo "✓ Project state: $PROJECT_CLAUDE_DIR"
+echo "✓ Token: Long-lived OAuth (CLAUDE_CODE_OAUTH_TOKEN)"
+
+if [ "$DEBUG_MODE" = true ]; then
+    echo ""
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo "DEBUG: Pre-mount setup"
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo "Selected token file: $SELECTED_TOKEN"
+    echo "Token exists: $([ -f "$SELECTED_TOKEN" ] && echo "YES" || echo "NO")"
+    echo "Token size: $(stat -c%s "$SELECTED_TOKEN" 2>/dev/null || echo "N/A") bytes"
+    echo ""
+    echo "Project .claude directory: $PROJECT_CLAUDE_DIR"
+    echo "Directory exists: $([ -d "$PROJECT_CLAUDE_DIR" ] && echo "YES" || echo "NO")"
+    echo ""
+    echo "Files in project .claude directory:"
+    ls -lah "$PROJECT_CLAUDE_DIR" 2>/dev/null || echo "  (empty or doesn't exist)"
+    echo ""
+fi
+
+# Create .claude.json config in project root to skip onboarding
+# Long-lived tokens via CLAUDE_CODE_OAUTH_TOKEN require this flag
+project_config="$PROJECT_CLAUDE_DIR/../.claude.json"  # In project root, not inside .claude/
+
+if [ ! -f "$project_config" ]; then
+    cat > "$project_config" <<'EOF'
+{
+  "hasCompletedOnboarding": true,
+  "installMethod": "npm"
+}
+EOF
+    chmod 600 "$project_config"
+    [ "$DEBUG_MODE" = true ] && echo "✓ Created .claude.json with hasCompletedOnboarding=true"
+else
+    # Update existing config to ensure onboarding is complete
+    if command_exists jq; then
+        jq '.hasCompletedOnboarding = true' "$project_config" > "$project_config.tmp" && mv "$project_config.tmp" "$project_config"
+        [ "$DEBUG_MODE" = true ] && echo "✓ Updated .claude.json to skip onboarding"
+    fi
+fi
+
+# CRITICAL: Remove .credentials.json from project directory if it exists
+# Credentials come via CLAUDE_CODE_OAUTH_TOKEN environment variable now
+if [ -f "$PROJECT_CLAUDE_DIR/.credentials.json" ]; then
+    if [ "$DEBUG_MODE" = true ]; then
+        echo "⚠ Found legacy .credentials.json in project directory"
+        echo "  Removing - we use CLAUDE_CODE_OAUTH_TOKEN now..."
+    fi
+    rm -f "$PROJECT_CLAUDE_DIR/.credentials.json"
+    [ "$DEBUG_MODE" = true ] && echo "✓ Removed legacy .credentials.json"
+fi
+
+if [ "$DEBUG_MODE" = true ]; then
+    echo ""
+    echo "Files in project .claude directory (after setup):"
+    ls -lah "$PROJECT_CLAUDE_DIR" 2>/dev/null || echo "  (empty)"
+    if [ -f "$project_config" ]; then
+        echo ""
+        echo "Project .claude.json config:"
+        ls -lh "$project_config"
+    fi
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+fi
+
+# Note:
+# - Token passed via CLAUDE_CODE_OAUTH_TOKEN environment variable (no file mount)
+# - Long-lived tokens (sk-ant-oat01-...) from `claude setup-token`
+# - Config (.claude.json) in project root with hasCompletedOnboarding=true to skip setup
+# - All Claude Code state (history, todos/, settings.json, etc.) persists in project directory
+#
+# This is the same approach GitHub Actions use:
+# - Long-lived OAuth tokens via CLAUDE_CODE_OAUTH_TOKEN env var
+# - No credential files, no refresh needed
+# - Clean, simple, reliable
+
+# Create temp directory ONLY for gitconfig (can't mount directly into container root)
+CONFIG_TEMP="/tmp/claude-yolo-$$"
+mkdir -p "$CONFIG_TEMP"
+chmod 755 "$CONFIG_TEMP"
+
+# Copy git config to temp location for entrypoint
+if [ -f "$HOME/.gitconfig" ]; then
+    cp "$HOME/.gitconfig" "$CONFIG_TEMP/gitconfig"
+    chmod 644 "$CONFIG_TEMP/gitconfig"
+else
+    touch "$CONFIG_TEMP/gitconfig"
+    chmod 644 "$CONFIG_TEMP/gitconfig"
+fi
+
+# Cleanup function
+cleanup() {
+    rm -rf "$CONFIG_TEMP"
+
+    # Show debug log if in debug mode
+    if [ "$DEBUG_MODE" = true ] && [ -n "$DEBUG_LOG" ]; then
+        echo ""
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo "DEBUG LOG (saved to $DEBUG_LOG)"
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        cat "$DEBUG_LOG"
+        echo "════════════════════════════════════════════════════════════════════════════════"
+    fi
+}
+trap cleanup EXIT
+
+# Convert SSH_KEY_PATHS array to colon-separated string
+SSH_KEY_PATHS_STR=$(IFS=:; echo "${SSH_KEY_PATHS[*]}")
+
+if [ "$DEBUG_MODE" = true ]; then
+    echo ""
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo "DEBUG: Docker run configuration"
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo "Workspace: $PWD"
+    echo "Project .claude dir: $PROJECT_CLAUDE_DIR"
+    echo "Token file: $SELECTED_TOKEN"
+    echo "Token type: Long-lived OAuth (CLAUDE_CODE_OAUTH_TOKEN)"
+    echo "SSH keys mounted: ${#SSH_KEYS[@]}"
+    echo ""
+    echo "Docker command (simplified):"
+    echo "  docker run -it --rm \\"
+    echo "    -e CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-... \\"
+    echo "    -v $PWD:/workspace \\"
+    if [ -f "$project_config" ]; then
+        echo "    -v $project_config:/root/.claude.json \\"
+    fi
+    echo "    -v $PROJECT_CLAUDE_DIR:/root/.claude \\"
+    echo "    ... (other mounts) ..."
+    echo "    $IMAGE_NAME \\"
+    echo "    claude --dangerously-skip-permissions ${CLAUDE_ARGS[@]}"
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+    echo "Debug log saved to: $DEBUG_LOG"
+    echo ""
+    echo "Container will start now. Once inside, you can check:"
+    echo "  ls -la ~/.claude/"
+    echo "  echo \$CLAUDE_CODE_OAUTH_TOKEN"
+    echo ""
+    echo "After exiting, review the debug log with:"
+    echo "  cat $DEBUG_LOG"
+    echo ""
+    read -p "Press Enter to continue..."
+fi
+
+# Run container with project-specific state directory
+# All Claude Code state (history, todos, conversations) persists per-project
+#
+# Authentication:
+# - Long-lived OAuth token passed via CLAUDE_CODE_OAUTH_TOKEN environment variable
+# - No credential files needed (same approach as GitHub Actions)
+# - Token stored in ~/.claude-tokens/ccy/tokens/NAME.YYYY-MM-DD.token on host
+#
+# MOUNT ORDER MATTERS:
+# 1. Config file to home directory root (RW - Claude updates numStartups, etc.)
+# 2. Project directory LAST - contains all conversation history and state
+#
+# No credentials mounted - token via environment variable
+
+# Build mount arguments
+DOCKER_MOUNTS=(
+    -v "$PWD:/workspace"
+)
+
+# Mount config file if it exists (contains onboarding state, must be WRITABLE)
+if [ -f "$project_config" ]; then
+    DOCKER_MOUNTS+=(-v "$project_config:/root/.claude.json")
+    [ "$DEBUG_MODE" = true ] && echo "✓ Mounting config file (writable): $project_config"
+else
+    [ "$DEBUG_MODE" = true ] && echo "⚠ Config file not found: $project_config (will be created)"
+fi
+
+DOCKER_MOUNTS+=(
+    -v "$PROJECT_CLAUDE_DIR:/root/.claude"
+    -v "$CONFIG_TEMP:/tmp/claude-config-import:ro"
+)
+
+# Auto-detect and offer network connection
+NETWORK_FLAG=""
+AUTO_CONNECT_NETWORK=""
+
+# Handle network flags
+if [[ -n "$SPECIFIED_NETWORK" ]]; then
+    # --network flag provided (or loaded from config)
+    # Verify network exists
+    if docker network ls --format '{{.Name}}' | grep -q "^${SPECIFIED_NETWORK}$"; then
+        NETWORK_FLAG="--network $SPECIFIED_NETWORK"
+        AUTO_CONNECT_NETWORK="$SPECIFIED_NETWORK"
+        if [[ "$NETWORK_FROM_CONFIG" = true ]]; then
+            echo "✓ Will connect to network: $SPECIFIED_NETWORK (from saved config)"
+        else
+            echo "✓ Will connect to network: $SPECIFIED_NETWORK (via --network flag)"
+        fi
+        echo ""
+    else
+        # Network not found - different handling for config vs explicit flag
+        if [[ "$NETWORK_FROM_CONFIG" = true ]]; then
+            # From config - warn but continue
+            echo ""
+            echo "════════════════════════════════════════════════════════════════════════════════"
+            echo "⚠  WARNING: Saved network no longer exists"
+            echo "════════════════════════════════════════════════════════════════════════════════"
+            echo ""
+            echo "Network from config: $SPECIFIED_NETWORK"
+            echo ""
+            echo "This network was saved from your last launch but is no longer available."
+            echo "Common causes:"
+            echo "  • Docker Compose project stopped (docker-compose down)"
+            echo "  • Docker daemon restarted"
+            echo "  • Network manually deleted"
+            echo ""
+            echo "Available networks:"
+            docker network ls --format "  {{.Name}}" | grep -v "^bridge$\|^host$\|^none$" || echo "  (no user-defined networks found)"
+            echo ""
+
+            while true; do
+                read -p "Continue without network connection? [Y/n] " continue_choice
+                continue_choice=${continue_choice:-Y}
+                echo ""
+
+                case "$continue_choice" in
+                    Y|y|Yes|yes)
+                        echo "Continuing without network connection..."
+                        echo "════════════════════════════════════════════════════════════════════════════════"
+                        echo ""
+                        # Clear the network flag so we continue without it
+                        SPECIFIED_NETWORK=""
+                        break
+                        ;;
+                    N|n|No|no)
+                        echo "Cancelled. Fix the network and try again:"
+                        echo "  • Restart your docker-compose project"
+                        echo "  • Or use: ccy --no-network"
+                        echo "  • Or use: ccy --network <different-network>"
+                        exit 0
+                        ;;
+                    *)
+                        echo "Invalid choice. Please enter Y or n"
+                        echo ""
+                        ;;
+                esac
+            done
+        else
+            # Explicit --network flag - this is an error
+            print_error "Network not found: $SPECIFIED_NETWORK"
+            echo "" >&2
+            echo "Available networks:" >&2
+            docker network ls --format "  {{.Name}}" >&2
+            exit 1
+        fi
+    fi
+elif [[ "$NO_NETWORK_MODE" = true ]]; then
+    # --no-network flag provided
+    echo "✓ Skipping network connection (--no-network flag)"
+    echo ""
+else
+    # No network flags - auto-detect and offer connection
+    # Check for networks matching project name (same logic as --connect)
+    MATCHING_NETWORKS=()
+    while IFS= read -r net; do
+        # Skip default networks
+        if [[ "$net" != "bridge" ]] && [[ "$net" != "host" ]] && [[ "$net" != "none" ]]; then
+            # Check if network name contains project name
+            if [[ "$net" == *"$PROJECT_NAME"* ]]; then
+                MATCHING_NETWORKS+=("$net")
+            fi
+        fi
+    done < <(docker network ls --format "{{.Name}}" 2>/dev/null)
+
+if [ ${#MATCHING_NETWORKS[@]} -gt 0 ]; then
+    echo ""
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo "Docker Network Auto-Detection"
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+
+    if [ ${#MATCHING_NETWORKS[@]} -eq 1 ]; then
+        # Single match - offer to connect
+        AUTO_CONNECT_NETWORK="${MATCHING_NETWORKS[0]}"
+        echo "Found network: $AUTO_CONNECT_NETWORK"
+        echo ""
+
+        while true; do
+            read -p "Connect to this network? (Y/n): " connect_choice
+            connect_choice=${connect_choice:-Y}  # Default to Yes
+            echo ""
+
+            case "$connect_choice" in
+                Y|y|Yes|yes)
+                    NETWORK_FLAG="--network $AUTO_CONNECT_NETWORK"
+                    echo "✓ Will connect to: $AUTO_CONNECT_NETWORK"
+                    break
+                    ;;
+                N|n|No|no)
+                    echo "Skipping network connection"
+                    echo "Use 'ccy --connect' later to connect manually"
+                    break
+                    ;;
+                *)
+                    echo "Invalid choice. Please enter Y or n"
+                    echo ""
+                    ;;
+            esac
+        done
+    else
+        # Multiple matches - default to first, offer choice
+        AUTO_CONNECT_NETWORK="${MATCHING_NETWORKS[0]}"
+        echo "Found ${#MATCHING_NETWORKS[@]} matching networks"
+        echo "Best match: $AUTO_CONNECT_NETWORK"
+        echo ""
+
+        while true; do
+            read -p "Connect to this network? (Y/n/list): " connect_choice
+            connect_choice=${connect_choice:-Y}
+            echo ""
+
+            case "$connect_choice" in
+                Y|y|Yes|yes)
+                    NETWORK_FLAG="--network $AUTO_CONNECT_NETWORK"
+                    echo "✓ Will connect to: $AUTO_CONNECT_NETWORK"
+                    break
+                    ;;
+                N|n|No|no)
+                    echo "Skipping network connection"
+                    echo "Use 'ccy --connect' later to connect manually"
+                    AUTO_CONNECT_NETWORK=""
+                    break
+                    ;;
+                list|l|List|L)
+                    # Show full menu
+                    echo "Available networks:"
+                    echo ""
+                    echo "  0) Don't connect"
+                    for i in "${!MATCHING_NETWORKS[@]}"; do
+                        echo "  $((i+1))) ${MATCHING_NETWORKS[$i]}"
+                    done
+                    echo ""
+
+                    while true; do
+                        read -p "Select [0-${#MATCHING_NETWORKS[@]}]: " net_choice
+                        echo ""
+
+                        if [ "$net_choice" = "0" ]; then
+                            echo "Skipping network connection"
+                            AUTO_CONNECT_NETWORK=""
+                            break 2
+                        elif [ "$net_choice" -ge 1 ] && [ "$net_choice" -le ${#MATCHING_NETWORKS[@]} ] 2>/dev/null; then
+                            AUTO_CONNECT_NETWORK="${MATCHING_NETWORKS[$((net_choice-1))]}"
+                            NETWORK_FLAG="--network $AUTO_CONNECT_NETWORK"
+                            echo "✓ Will connect to: $AUTO_CONNECT_NETWORK"
+                            break 2
+                        else
+                            echo "Invalid selection: $net_choice"
+                            echo "Please enter 0-${#MATCHING_NETWORKS[@]}"
+                            echo ""
+                        fi
+                    done
+                    ;;
+                *)
+                    echo "Invalid choice. Please enter Y, n, or 'list'"
+                    echo ""
+                    ;;
+            esac
+        done
+    fi
+
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+fi
+fi  # End of network flag handling (if/elif/else)
+
+# Display command preview box and save configuration
+# Extract token name from selected token file
+TOKEN_NAME_FOR_CONFIG=""
+if [[ -n "$SELECTED_TOKEN" ]]; then
+    filename=$(basename "$SELECTED_TOKEN")
+    TOKEN_NAME_FOR_CONFIG="${filename%.*.token}"
+fi
+
+# Build SSH keys string for config
+SSH_KEYS_STR="${SSH_KEYS[*]}"
+
+# Show quick launch command preview
+if [[ "$CONFIG_LOADED" = false ]]; then
+    # Only show if this was an interactive launch (not quick launch)
+    echo ""
+    show_quick_launch_command "ccy" "$TOKEN_NAME_FOR_CONFIG" "${SSH_KEYS[@]}" "$AUTO_CONNECT_NETWORK"
+fi
+
+# Save configuration for next launch
+save_launch_config "$PROJECT_CLAUDE_DIR" "$TOKEN_NAME_FOR_CONFIG" "$SSH_KEYS_STR" "$AUTO_CONNECT_NETWORK"
+echo "✓ Configuration saved for quick launch next time"
+echo "✓ CCY version: $CCY_VERSION"
+echo ""
+
+# Determine container name with appropriate suffix
+CONTAINER_NAME=$(get_next_container_name "$PROJECT_NAME" "yolo")
+echo "Container name: $CONTAINER_NAME"
+echo ""
+
+# Build Claude Code command arguments based on flags
+CLAUDE_CMD_ARGS=()
+
+if [ "$HEADLESS_MODE" = true ]; then
+    # Headless mode: use -p flag
+    CLAUDE_CMD_ARGS+=("-p" "$PROMPT_TEXT")
+elif [ -n "$PROMPT_TEXT" ]; then
+    # Interactive mode with prompt: pass prompt as argument
+    CLAUDE_CMD_ARGS+=("$PROMPT_TEXT")
+elif [ ${#CLAUDE_ARGS[@]} -eq 0 ]; then
+    # No user arguments - pass startup info via system prompt instead of user message
+    # This prevents informational messages from triggering Claude thinking
+    STARTUP_INFO_FILE="/opt/claude-yolo/ccy-startup-info.txt"
+    if [ ! -f "$STARTUP_INFO_FILE" ]; then
+        print_error "Startup info file not found: $STARTUP_INFO_FILE"
+        exit 1
+    fi
+    # Read startup info and pass to Claude via --append-system-prompt
+    STARTUP_INFO=$(cat "$STARTUP_INFO_FILE")
+    CLAUDE_CMD_ARGS+=("--append-system-prompt" "$STARTUP_INFO")
+fi
+
+# Add any other arguments passed through
+CLAUDE_CMD_ARGS+=("${CLAUDE_ARGS[@]}")
+
+# Use -it for interactive, -i only for headless (no TTY required)
+if [ "$HEADLESS_MODE" = true ]; then
+    DOCKER_FLAGS="-i"
+else
+    DOCKER_FLAGS="-it"
+fi
+
+docker run $DOCKER_FLAGS --rm \
+    --name "$CONTAINER_NAME" \
+    $NETWORK_FLAG \
+    "${DOCKER_MOUNTS[@]}" \
+    "${SSH_MOUNTS[@]}" \
+    -e "CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_OAUTH_TOKEN" \
+    -e "GH_TOKEN=$GH_TOKEN" \
+    -e "GITHUB_USERNAME=$GITHUB_USERNAME" \
+    -e "DEBUG_MODE=$DEBUG_MODE" \
+    -e "SSH_KEY_PATHS=$SSH_KEY_PATHS_STR" \
+    -w /workspace \
+    "$IMAGE_NAME" \
+    claude --dangerously-skip-permissions "${CLAUDE_CMD_ARGS[@]}"

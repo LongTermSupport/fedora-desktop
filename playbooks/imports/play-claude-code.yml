@@ -1,0 +1,75 @@
+- hosts: desktop
+  name: Claude Code Installation
+  become: false
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+    claude_code_version: "stable"
+  tasks:
+
+    - name: Install Claude Code Dependencies (System Level)
+      become: true
+      package:
+        name: "{{ packages }}"
+        state: present
+      vars:
+        packages:
+          - ripgrep
+          - curl
+          - wget
+          - jq
+          - git
+          - openssh-clients
+
+    - name: Check if Claude Code is Already Installed
+      stat:
+        path: "/home/{{ user_login }}/.local/bin/claude"
+      register: claude_installed
+
+    - name: Install Claude Code CLI via Official Installer
+      shell: |
+        curl -fsSL https://claude.ai/install.sh | bash -s {{ claude_code_version }}
+      environment:
+        HOME: "/home/{{ user_login }}"
+      when: not claude_installed.stat.exists
+
+    - name: Verify Claude Code Installation
+      shell: |
+        export PATH="$HOME/.local/bin:$PATH"
+        claude --version
+      environment:
+        HOME: "/home/{{ user_login }}"
+      register: claude_code_version_check
+      changed_when: false
+
+    - name: Display Claude Code Version
+      debug:
+        msg: "Claude Code installed successfully: {{ claude_code_version_check.stdout }}"
+
+    - name: Configure Claude Code Shell Integration
+      blockinfile:
+        path: "/home/{{ user_login }}/.bashrc"
+        marker: "# {mark} ANSIBLE MANAGED: Claude Code Integration"
+        block: |
+          # Claude Code CLI alias and PATH
+          export PATH="$HOME/.local/bin:$PATH"
+          alias cc='claude update && claude'
+        create: false
+
+    - name: Final Claude Code Installation Verification
+      shell: |
+        export PATH="$HOME/.local/bin:$PATH"
+        echo "=== Claude Code Installation Summary ==="
+        echo "Claude Code Version: $(claude --version)"
+        echo "Claude Code Location: $(which claude)"
+        echo "Dependencies Available:"
+        echo "  - ripgrep: $(rg --version | head -1)"
+        echo "  - jq: $(jq --version)"
+        echo "Installation completed successfully!"
+      environment:
+        HOME: "/home/{{ user_login }}"
+      register: final_verification
+      changed_when: false
+
+    - name: Display Installation Summary
+      debug:
+        msg: "{{ final_verification.stdout_lines }}"

@@ -1,0 +1,199 @@
+#!/usr/bin/env ansible-playbook
+- hosts: desktop
+  name: Claude Code Browser Mode - Docker-based Installation
+  become: false
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  tasks:
+    - name: Check if Docker is Installed
+      command: which docker
+      register: docker_check
+      failed_when: false
+      changed_when: false
+
+    - name: Verify Docker is Available
+      fail:
+        msg: |
+          Docker is not installed or not in PATH.
+          Please run the Docker installation playbook first:
+            ansible-playbook playbooks/imports/optional/common/play-docker.yml
+      when: docker_check.rc != 0
+
+    - name: Check Docker Service is Running
+      command: docker ps
+      register: docker_service_check
+      failed_when: false
+      changed_when: false
+
+    - name: Verify Docker Service
+      fail:
+        msg: |
+          Docker service is not running.
+          Please start Docker:
+            systemctl --user start docker
+      when: docker_service_check.rc != 0
+
+    - name: Create Claude Browser Base Directory
+      become: true
+      file:
+        path: /opt/claude-browser
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Copy Dockerfile for Browser Container
+      become: true
+      copy:
+        src: "{{ root_dir }}/files/var/local/claude-yolo/Dockerfile.browser"
+        dest: /opt/claude-browser/Dockerfile
+        owner: root
+        group: root
+        mode: '0644'
+      tags:
+        - scripts
+        - dockerfile
+
+    - name: Copy Browser Entrypoint Script
+      become: true
+      copy:
+        src: "{{ root_dir }}/files/var/local/claude-yolo/entrypoint-browser.sh"
+        dest: /opt/claude-browser/entrypoint.sh
+        owner: root
+        group: root
+        mode: '0755'
+      tags:
+        - scripts
+        - entrypoint
+
+    # Shared library already installed by play-install-claude-yolo.yml
+    - name: Verify Shared Library Exists
+      stat:
+        path: /var/local/claude-yolo/lib/common.bash
+      register: lib_check
+
+    - name: Fail if Shared Library Missing
+      fail:
+        msg: |
+          Shared library not found. Please install claude-yolo first:
+            ansible-playbook playbooks/imports/optional/common/play-install-claude-yolo.yml
+      when: not lib_check.stat.exists
+
+    - name: Copy Browser Wrapper Script
+      become: true
+      copy:
+        src: "{{ root_dir }}/files/var/local/claude-yolo/claude-browser"
+        dest: /var/local/claude-yolo/claude-browser
+        owner: root
+        group: root
+        mode: '0755'
+      tags:
+        - scripts
+        - wrapper
+
+    - name: Deploy Bashrc Include for ccb Alias (Root)
+      become: true
+      copy:
+        src: "{{ root_dir }}/files/home/bashrc-includes/claude-browser.bash"
+        dest: /root/.bashrc-includes/claude-browser.bash
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Deploy Bashrc Include for ccb Alias (User)
+      copy:
+        src: "{{ root_dir }}/files/home/bashrc-includes/claude-browser.bash"
+        dest: /home/{{ user_login }}/.bashrc-includes/claude-browser.bash
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+
+    # Reuse token directory from ccy (shared token management)
+    - name: Verify Token Directory Exists
+      stat:
+        path: /home/{{ user_login }}/.claude-tokens/ccy
+      register: token_dir_check
+
+    - name: Fail if Token Directory Missing
+      fail:
+        msg: |
+          Token directory not found. Please install claude-yolo first:
+            ansible-playbook playbooks/imports/optional/common/play-install-claude-yolo.yml
+      when: not token_dir_check.stat.exists
+
+    # Create separate ccb project directory (separate from ccy to avoid MCP pollution)
+    - name: Create CCB Root Directory
+      file:
+        path: /home/{{ user_login }}/.claude-tokens/ccb
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0700'
+
+    - name: Create CCB Projects Directory
+      file:
+        path: /home/{{ user_login }}/.claude-tokens/ccb/projects
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0700'
+
+    - name: Calculate Dockerfile Hash for Build
+      shell: md5sum /opt/claude-browser/Dockerfile | cut -d' ' -f1 | cut -c1-16
+      register: dockerfile_hash
+      changed_when: false
+
+    - name: Build Claude Browser Container Image with Hash
+      command: >
+        docker build
+        --build-arg DOCKERFILE_HASH={{ dockerfile_hash.stdout }}
+        -t claude-browser:latest
+        /opt/claude-browser
+      register: docker_build
+      changed_when: "'Successfully built' in docker_build.stdout or 'Successfully tagged' in docker_build.stdout"
+
+    - name: Verify Container Image
+      command: docker image inspect claude-browser:latest
+      register: image_verify
+      changed_when: false
+
+    - name: Display Installation Summary
+      debug:
+        msg:
+          - "============================================"
+          - "Claude Code Browser Mode Installation Complete"
+          - "============================================"
+          - ""
+          - "✓ Container image built: claude-browser:latest"
+          - "✓ Wrapper script installed: /var/local/claude-yolo/claude-browser"
+          - "✓ Bash alias configured: ccb"
+          - "✓ Shares tokens with ccy: ~/.claude-tokens/ccy/tokens/"
+          - "✓ Separate project state: ~/.claude-tokens/ccb/projects/"
+          - ""
+          - "Features:"
+          - "  • Docker-based isolation (same as ccy)"
+          - "  • GUI browser support (X11/Wayland)"
+          - "  • Playwright MCP for browser automation"
+          - "  • MCP configs isolated (won't pollute ccy)"
+          - "  • Node.js LTS v20 environment"
+          - "  • Chromium, Firefox, WebKit browsers"
+          - "  • Full development tooling (git, gh, ripgrep, jq, yq)"
+          - ""
+          - "First Run:"
+          - "  1. cd /your/project"
+          - "  2. ccb"
+          - "  3. Select token (shares with ccy)"
+          - "  4. Watch browsers open on your desktop!"
+          - ""
+          - "Commands:"
+          - "  ccb                       - Start in current project"
+          - "  ccb --token personal      - Use specific token"
+          - "  ccb --list-tokens         - List available tokens"
+          - "  ccb --help                - Show all options"
+          - ""
+          - "Unified Token Management:"
+          - "  ccb and ccy share the same token pool"
+          - "  Use 'ccy --create-token' to create new tokens"
+          - ""
+          - "Reload your shell to enable the 'ccb' alias:"
+          - "  source ~/.bashrc"

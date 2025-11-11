@@ -1,20 +1,230 @@
+#!/usr/bin/env ansible-playbook
+# LastPass Setup - Supports both single and multi-account configurations
 - hosts: desktop
-  name: Last Pass
+  name: LastPass Configuration
   vars:
     root_dir: "{{ inventory_dir }}/../../"
-  vars_prompt:
-    - name: "lastpass_username"
-      prompt: "Enter your lastpass username"
-      private: no
+    vault_file: "{{ root_dir }}/environment/localhost/host_vars/localhost.yml"
   tasks:
-    - name: Install Lastpass
+    - name: Install LastPass CLI
       become: true
-      dnf:
+      package:
         name: lastpass-cli
         state: present
 
-    - name: Login to Lastpass
+    - name: Check if LastPass is configured
+      set_fact:
+        lastpass_configured: "{{ lastpass_accounts is defined and lastpass_accounts | length > 0 }}"
+
+    # CONFIGURATION SETUP
+    - block:
+        - name: Ask for configuration type
+          pause:
+            prompt: |
+              
+              ========================================================================
+              LASTPASS CONFIGURATION
+              ========================================================================
+              
+              How many LastPass accounts do you want to configure?
+              
+              1 - Single account (simple, uses default 'lpass' command)
+              2 - Multiple accounts (creates aliases like lpass-work, lpass-personal)
+              
+              Enter choice (1 or 2)
+          register: config_choice
+
+        - name: Get single account details
+          pause:
+            prompt: "Enter your LastPass email address"
+          register: single_email
+          when: config_choice.user_input == "1"
+
+        - name: Get multiple account details
+          pause:
+            prompt: |
+              
+              Enter your LastPass accounts as comma-separated name:email pairs.
+              
+              Example: work:john@company.com,personal:john@gmail.com
+              
+              The names will be used for aliases (e.g., lpass-work, lpass-personal)
+              
+              Enter accounts
+          register: multi_accounts
+          when: config_choice.user_input == "2"
+
+        - name: Parse multi-account input
+          set_fact:
+            parsed_accounts: |
+              {% set accounts = {} %}
+              {% for pair in multi_accounts.user_input.split(',') %}
+              {%   set parts = pair.strip().split(':') %}
+              {%   if parts | length == 2 %}
+              {%     set _ = accounts.update({parts[0].strip(): parts[1].strip()}) %}
+              {%   endif %}
+              {% endfor %}
+              {{ accounts }}
+          when: config_choice.user_input == "2"
+
+        - name: Write single account configuration
+          blockinfile:
+            path: "{{ vault_file }}"
+            marker: "# {mark} ANSIBLE MANAGED: LastPass Configuration"
+            block: |
+              # LastPass single account
+              lastpass_accounts:
+                default: "{{ single_email.user_input }}"
+          when: config_choice.user_input == "1"
+
+        - name: Write multi-account configuration
+          blockinfile:
+            path: "{{ vault_file }}"
+            marker: "# {mark} ANSIBLE MANAGED: LastPass Configuration"
+            block: |
+              # LastPass accounts
+              lastpass_accounts:
+              {% for name, email in parsed_accounts.items() %}
+                {{ name }}: "{{ email }}"
+              {% endfor %}
+          when: config_choice.user_input == "2"
+
+        - name: Reload variables
+          include_vars: "{{ vault_file }}"
+
+        - name: Update lastpass_configured
+          set_fact:
+            lastpass_configured: true
+      when: not lastpass_configured
+
+    # ACCOUNT SETUP - works for both single and multi account
+    - name: Create LastPass home directories
+      file:
+        path: "/home/{{ user_login }}/.lpass-{{ item.key }}"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0700'
+      loop: "{{ lastpass_accounts | dict2items }}"
+
+    - name: Check authentication status
       shell: |
-        set -ex
-        lpass login "{{ lastpass_username }}"
+        LPASS_HOME=/home/{{ user_login }}/.lpass-{{ item.key }} lpass status 2>&1 | grep -q "Logged in as {{ item.value }}" && echo "authenticated" || echo "needs_auth"
+      register: auth_status
+      changed_when: false
+      failed_when: false
+      loop: "{{ lastpass_accounts | dict2items }}"
+
+    - name: Display authentication status
+      debug:
+        msg: |
+          {% if lastpass_accounts | length == 1 and 'default' in lastpass_accounts %}
+          LastPass account: {{ 'Already authenticated ✓' if item.stdout == 'authenticated' else 'Needs authentication' }}
+          {% else %}
+          Account '{{ item.item.key }}': {{ 'Already authenticated ✓' if item.stdout == 'authenticated' else 'Needs authentication' }}
+          {% endif %}
+      loop: "{{ auth_status.results }}"
+
+    - name: Login to LastPass accounts
+      shell: |
+        {% if lastpass_accounts | length == 1 and 'default' in lastpass_accounts %}
+        export LPASS_HOME=/home/{{ user_login }}/.lpass-{{ item.item.key }}
+        {% else %}
+        export LPASS_HOME=/home/{{ user_login }}/.lpass-{{ item.item.key }}
+        {% endif %}
+        lpass login {{ item.item.value }}
         lpass sync
+      when: item.stdout != "authenticated"
+      loop: "{{ auth_status.results }}"
+
+    # SINGLE ACCOUNT - just set default LPASS_HOME
+    - block:
+        - name: Set default LPASS_HOME for single account
+          blockinfile:
+            path: "/home/{{ user_login }}/.bashrc"
+            marker: "# {mark} ANSIBLE MANAGED: LastPass Default"
+            block: |
+              # LastPass default configuration
+              export LPASS_HOME=$HOME/.lpass-default
+
+        - name: Display single account completion
+          debug:
+            msg: |
+              ========================================================================
+              LastPass Setup Complete!
+              ========================================================================
+              
+              Account: {{ lastpass_accounts.default }}
+              
+              You can now use 'lpass' commands directly.
+              Restart your shell or run: source ~/.bashrc
+              ========================================================================
+      when: lastpass_accounts | length == 1 and 'default' in lastpass_accounts
+
+    # MULTI-ACCOUNT - create aliases
+    - block:
+        - name: Create LastPass aliases include file
+          blockinfile:
+            path: "/home/{{ user_login }}/.bashrc-includes/lastpass-aliases.inc.bash"
+            create: true
+            owner: "{{ user_login }}"
+            group: "{{ user_login }}"
+            mode: '0644'
+            marker: "# {mark} ANSIBLE MANAGED: LastPass Multi-Account Aliases"
+            block: |
+              # LastPass Multi-Account Aliases
+              {% for name in lastpass_accounts.keys() %}
+              alias lpass-{{ name }}='LPASS_HOME=$HOME/.lpass-{{ name }} lpass'
+              {% endfor %}
+              
+              # Status check for all accounts
+              function lpass-status() {
+                  echo "LastPass Account Status:"
+                  echo "========================"
+                  {% for name in lastpass_accounts.keys() %}
+                  printf "%-15s: " "{{ name }}"
+                  LPASS_HOME=$HOME/.lpass-{{ name }} lpass status 2>&1 | grep -oP "Logged in as \K.*" || echo "Not logged in"
+                  {% endfor %}
+              }
+              
+              # Quick login helper
+              function lpass-login() {
+                  case "$1" in
+                      {% for name, email in lastpass_accounts.items() %}
+                      {{ name }})
+                          LPASS_HOME=$HOME/.lpass-{{ name }} lpass login {{ email }}
+                          ;;
+                      {% endfor %}
+                      *)
+                          echo "Usage: lpass-login <account>"
+                          echo "Available: {% for name in lastpass_accounts.keys() %}{{ name }}{% if not loop.last %}, {% endif %}{% endfor %}"
+                          return 1
+                          ;;
+                  esac
+              }
+              
+              # Set default to first account
+              {% set first_account = lastpass_accounts.keys() | first %}
+              export LPASS_HOME=$HOME/.lpass-{{ first_account }}
+
+
+        - name: Display multi-account completion
+          debug:
+            msg: |
+              ========================================================================
+              LastPass Multi-Account Setup Complete!
+              ========================================================================
+              
+              Configured accounts:
+              {% for name in lastpass_accounts.keys() %}
+                - lpass-{{ name }}
+              {% endfor %}
+              
+              Commands available after reloading shell:
+                lpass-status       - Check all accounts
+                lpass-login <name> - Login to specific account
+                lpass-<name>       - Use specific account
+              
+              Restart shell or run: source ~/.bashrc
+              ========================================================================
+      when: lastpass_accounts | length > 1 or 'default' not in lastpass_accounts

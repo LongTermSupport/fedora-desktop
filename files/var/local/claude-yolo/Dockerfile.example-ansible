@@ -1,0 +1,39 @@
+# Ansible Project Container Extension
+#
+# Template for Ansible projects with testing and linting tools
+# Base image (claude-yolo:latest) includes: git, gh, Node.js, npm, Claude Code
+#
+# INSTRUCTIONS FOR CLAUDE CODE:
+# This template includes Ansible + molecule + yamllint + ansible-lint
+# When customizing:
+# 1. Check if user needs additional tools (terraform, packer, cloud CLIs, etc.)
+# 2. Check if specific Ansible collections need system dependencies
+# 3. Ask about Python version requirements
+# 4. Keep cache mounts when adding packages (see pattern below)
+#
+# After editing, tell user to: exit, run 'ccy --rebuild', then 'ccy'
+
+FROM claude-yolo:latest
+
+# Install Ansible and related tools
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ansible \
+        python3-pip \
+        python3-venv \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Ansible testing and linting tools
+RUN pip3 install --no-cache-dir \
+    molecule \
+    molecule-docker \
+    ansible-lint \
+    yamllint \
+    jmespath
+
+# Verify installation
+RUN ansible --version && \
+    molecule --version && \
+    ansible-lint --version
