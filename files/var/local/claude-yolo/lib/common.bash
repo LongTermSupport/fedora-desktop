@@ -612,6 +612,38 @@ export -f show_spinner
 export -f confirm
 export -f command_exists
 export -f is_in_container
+# Function to get next available container name for a project
+# Args: $1 = project_name, $2 = suffix (e.g., "yolo" or "browser")
+# Returns: Available container name (e.g., "myproject_yolo" or "myproject_yolo_2")
+get_next_container_name() {
+    local project_name="$1"
+    local suffix="$2"
+    local base_name="${project_name}_${suffix}"
+
+    # Get all running containers matching this project
+    local existing_containers=$(docker ps --format '{{.Names}}' | grep "^${base_name}" || true)
+
+    # If no container exists, use base name (no suffix)
+    if [ -z "$existing_containers" ]; then
+        echo "$base_name"
+        return
+    fi
+
+    # If base name (no suffix) is not in use, use it
+    if ! echo "$existing_containers" | grep -q "^${base_name}$"; then
+        echo "$base_name"
+        return
+    fi
+
+    # Find next available number
+    local max_num=1
+    while echo "$existing_containers" | grep -q "^${base_name}_${max_num}$"; do
+        max_num=$((max_num + 1))
+    done
+
+    echo "${base_name}_${max_num}"
+}
+
 export -f is_in_distrobox
 export -f get_claude_version
 export -f is_token_valid
@@ -622,4 +654,5 @@ export -f save_launch_config
 export -f discover_github_ssh_keys
 export -f validate_container_version
 export -f build_container_with_hash
+export -f get_next_container_name
 

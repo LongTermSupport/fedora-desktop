@@ -19,9 +19,19 @@ if [ -f "$SCRIPT_DIR/lib/common.bash" ]; then
     source "$SCRIPT_DIR/lib/common.bash"
 else
     # Fallback if library not found
-    print_error "Shared library not found at $SCRIPT_DIR/lib/common.bash"
+    echo "ERROR: Shared library not found at $SCRIPT_DIR/lib/common.bash" >&2
     exit 1
 fi
+
+# Load specialized libraries
+for lib in token-management ssh-handling network-management dockerfile-custom ui-helpers; do
+    if [ -f "$SCRIPT_DIR/lib/$lib.bash" ]; then
+        source "$SCRIPT_DIR/lib/$lib.bash"
+    else
+        print_error "Required library not found: $SCRIPT_DIR/lib/$lib.bash"
+        exit 1
+    fi
+done
 
 # BROWSER MODE: Browser container version
 # IMPORTANT: When modifying the Dockerfile, ALWAYS increment REQUIRED_CONTAINER_VERSION!
@@ -174,279 +184,6 @@ EOF
 
     exit 0
 fi
-# Function to list available tokens
-list_tokens() {
-    echo ""
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo "Available Claude Code Tokens for YOLO Mode"
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo ""
-
-    if [ ! -d "$TOKEN_DIR" ] || [ -z "$(ls -A "$TOKEN_DIR"/*.token 2>/dev/null)" ]; then
-        echo "No tokens found in: $TOKEN_DIR"
-        echo ""
-        echo "Create a token with: ccy --create-token"
-        echo ""
-        return 1
-    fi
-
-    echo "Token storage: $TOKEN_DIR"
-    echo ""
-
-    local today=$(date +%Y-%m-%d)
-
-    for token_file in "$TOKEN_DIR"/*.token; do
-        if [ -f "$token_file" ]; then
-            local filename=$(basename "$token_file")
-            local token_name="${filename%.*.token}"
-
-            # Extract expiry date from filename
-            if [[ "$filename" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2})\.token$ ]]; then
-                local expiry_date="${BASH_REMATCH[1]}"
-                local status="✓ Valid"
-
-                if [[ "$expiry_date" < "$today" ]]; then
-                    status="✗ EXPIRED"
-                elif [[ "$expiry_date" == "$today" ]]; then
-                    status="⚠ Expires TODAY"
-                fi
-
-                echo "  • $token_name"
-                echo "    File: $token_file"
-                echo "    Expires: $expiry_date ($status)"
-            else
-                echo "  • $filename"
-                echo "    File: $token_file"
-                echo "    Status: ✗ INVALID FORMAT (missing expiry date)"
-            fi
-            echo ""
-        fi
-    done
-
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo ""
-}
-
-# Function to create a new long-lived token
-create_token() {
-    # CRITICAL: GH_TOKEN must be set before calling this function
-    # It's required for the container's git/gh functionality
-    if [ -z "$GH_TOKEN" ]; then
-        echo "" >&2
-        print_error "create_token() called without GH_TOKEN"
-        echo "This is an internal script error." >&2
-        echo "" >&2
-        echo "GH_TOKEN is required for the container's git/gh functionality." >&2
-        echo "Token creation must happen AFTER SSH/GH setup." >&2
-        exit 1
-    fi
-
-    echo ""
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo "Create New Long-Lived Token for YOLO Mode"
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo ""
-    echo "This will create a long-lived OAuth token (sk-ant-oat01-...) for ccy."
-    echo "These tokens are designed for container/CI-CD usage and last much longer"
-    echo "than regular OAuth tokens."
-    echo ""
-    echo "Requirements:"
-    echo "  • Active Claude Pro or Max subscription"
-    echo "  • Authentication will happen in a clean container"
-    echo ""
-
-    # Prompt for token name
-    while true; do
-        read -p "Enter a name for this token (e.g., 'personal', 'work', 'default'): " token_name
-
-        if [ -z "$token_name" ]; then
-            print_error "Token name cannot be empty"
-            continue
-        fi
-
-        # Validate token name (alphanumeric, dash, underscore only)
-        if ! [[ "$token_name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
-            print_error "Token name must contain only letters, numbers, dashes, and underscores"
-            continue
-        fi
-
-        break
-    done
-
-    # Use conservative 90-day expiry estimate
-    # NOTE: claude setup-token doesn't tell us when the token actually expires,
-    # so we use 90 days as a conservative estimate. If you get auth errors before
-    # that, just recreate the token.
-    local expiry_date=$(date -d "+90 days" +%Y-%m-%d)
-    echo ""
-    echo "Token expiry: $expiry_date (90 days from today)"
-    echo "Note: This is an estimate - recreate the token if you get auth errors"
-    echo ""
-
-    token_file="$TOKEN_DIR/${token_name}.${expiry_date}.token"
-
-    # Check if token already exists
-    local existing_tokens=("$TOKEN_DIR/${token_name}".*.token)
-    if [ -f "${existing_tokens[0]}" ] && [ "${existing_tokens[0]}" != "$TOKEN_DIR/${token_name}.*.token" ]; then
-        echo ""
-        echo "⚠  Found existing token(s) for '$token_name':"
-        for old_token in "$TOKEN_DIR/${token_name}".*.token; do
-            if [ -f "$old_token" ]; then
-                echo "    $(basename "$old_token")"
-            fi
-        done
-        echo ""
-        read -p "Overwrite? (y/N): " overwrite
-        if [ "$overwrite" != "y" ] && [ "$overwrite" != "Y" ]; then
-            echo "Cancelled. Token not created."
-            exit 0
-        fi
-    fi
-
-    echo ""
-    echo "Creating token: $token_name"
-    echo "Expiry date: $expiry_date"
-    echo "Storage: $token_file"
-    echo ""
-
-    # Create temporary output file for token
-    tmp_output="/tmp/ccy-token-setup-$$"
-
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo ""
-    echo "Launching Claude Code container for token setup..."
-    echo ""
-    echo "INSTRUCTIONS:"
-    echo "  1. The container will run 'claude setup-token'"
-    echo "  2. Follow the authentication flow (CLI → Browser → CLI)"
-    echo "  3. Copy the token when it's displayed (starts with sk-ant-oat01-)"
-    echo "  4. The process will save it automatically"
-    echo ""
-    echo "Press Enter to continue..."
-    read
-    echo ""
-
-    # Run setup-token via claude CLI entrypoint
-    # GH_TOKEN provided for container's gh CLI (not for Claude auth)
-    # Claude auth happens via OAuth flow in browser
-    echo "Running: docker run --rm --entrypoint claude \"$IMAGE_NAME\" setup-token"
-    echo ""
-
-    if docker run -it --rm \
-        --entrypoint claude \
-        -e "GH_TOKEN=$GH_TOKEN" \
-        "$IMAGE_NAME" \
-        setup-token 2>&1 | tee "$tmp_output"; then
-
-        echo ""
-        echo "════════════════════════════════════════════════════════════════════════════"
-        echo ""
-
-        # Try to extract token from output
-        token=$(grep -o 'sk-ant-oat01-[a-zA-Z0-9_-]\+' "$tmp_output" | head -1)
-
-        if [ -n "$token" ]; then
-            # Save token to file
-            echo "$token" > "$token_file"
-            chmod 600 "$token_file"
-
-            # Remove old tokens for this name
-            for old_token in "$TOKEN_DIR/${token_name}".*.token; do
-                if [ -f "$old_token" ] && [ "$old_token" != "$token_file" ]; then
-                    echo "✓ Removed old token: $(basename "$old_token")"
-                    rm -f "$old_token"
-                fi
-            done
-
-            echo ""
-            echo "════════════════════════════════════════════════════════════════════════════"
-            echo "✓ Token created successfully!"
-            echo "════════════════════════════════════════════════════════════════════════════"
-            echo ""
-            echo "Token: $token_name"
-            echo "Expires: $expiry_date"
-            echo "File: $token_file"
-            echo ""
-            echo "You can now use this token with:"
-            echo "  ccy --token $token_name"
-            echo ""
-            echo "Or just run 'ccy' and select it from the menu."
-            echo ""
-        else
-            echo ""
-            echo "════════════════════════════════════════════════════════════════════════════"
-            echo "⚠  WARNING: Could not extract token from output"
-            echo "════════════════════════════════════════════════════════════════════════════"
-            echo ""
-            echo "The setup-token command ran, but we couldn't automatically extract the token."
-            echo ""
-            echo "Please manually paste the token (starts with sk-ant-oat01-):"
-            read -p "Token: " manual_token
-
-            if [ -n "$manual_token" ] && [[ "$manual_token" =~ ^sk-ant-oat01- ]]; then
-                echo "$manual_token" > "$token_file"
-                chmod 600 "$token_file"
-
-                # Remove old tokens
-                for old_token in "$TOKEN_DIR/${token_name}".*.token; do
-                    if [ -f "$old_token" ] && [ "$old_token" != "$token_file" ]; then
-                        rm -f "$old_token"
-                    fi
-                done
-
-                echo ""
-                echo "✓ Token saved successfully!"
-                echo ""
-            else
-                echo ""
-                print_error "Invalid token format"
-                echo "Token must start with 'sk-ant-oat01-'"
-                echo ""
-                echo "Try again with: ccy --create-token"
-                rm -f "$tmp_output"
-                exit 1
-            fi
-        fi
-    else
-        docker_exit_code=$?
-        echo ""
-        echo "════════════════════════════════════════════════════════════════════════════"
-        print_error "Token Creation Failed"
-        echo "════════════════════════════════════════════════════════════════════════════"
-        echo ""
-
-        if [ $docker_exit_code -eq 125 ]; then
-            echo "Docker container failed to start."
-            echo "The container image may be corrupted."
-            echo ""
-            echo "Try rebuilding: ccy --rebuild"
-        elif [ $docker_exit_code -eq 126 ] || [ $docker_exit_code -eq 127 ]; then
-            echo "Command not found in container."
-            echo "Container image may be corrupted or incompatible."
-            echo ""
-            echo "Try rebuilding: ccy --rebuild"
-        else
-            echo "Claude setup-token command failed (exit code: $docker_exit_code)"
-            echo ""
-            echo "This usually indicates:"
-            echo "  • Authentication flow was cancelled or failed"
-            echo "  • No active Claude Pro/Max subscription"
-            echo "  • Network connectivity issues"
-            echo "  • Browser authentication not completed"
-            echo ""
-            echo "Please try again and ensure you complete the full OAuth flow."
-        fi
-
-        echo ""
-        rm -f "$tmp_output"
-        exit 1
-    fi
-
-    # Cleanup
-    rm -f "$tmp_output"
-
-    exit 0
-}
 
 # Function to load last launch configuration for current project
 # Returns 0 if valid config loaded, 1 if no config or invalid
@@ -482,12 +219,12 @@ load_launch_config() {
         return 1
     fi
 
-    # Validate CCY_VERSION and CCY_HASH together
+    # Validate CCB_VERSION and CCB_HASH together
     local version_match=false
     local hash_match=false
 
-    [[ "${CCY_VERSION}" == "${SAVED_CCY_VERSION:-}" ]] && version_match=true
-    [[ "${CCY_HASH}" == "${SAVED_CCY_HASH:-}" ]] && hash_match=true
+    [[ "${CCB_VERSION}" == "${SAVED_CCB_VERSION:-}" ]] && version_match=true
+    [[ "${CCB_HASH}" == "${SAVED_CCB_HASH:-}" ]] && hash_match=true
 
     if $version_match && $hash_match; then
         # Perfect match - config is valid
@@ -496,13 +233,13 @@ load_launch_config() {
     elif $version_match && ! $hash_match; then
         # VERSION same but HASH different = Developer forgot to update version!
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
-        echo "⚠️  DEVELOPER ERROR: CCY script modified without version bump" >&2
+        echo "⚠️  DEVELOPER ERROR: CCB script modified without version bump" >&2
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
-        echo "Version:       ${CCY_VERSION} (unchanged)" >&2
-        echo "Saved hash:    ${SAVED_CCY_HASH:-unknown}" >&2
-        echo "Current hash:  ${CCY_HASH}" >&2
+        echo "Version:       ${CCB_VERSION} (unchanged)" >&2
+        echo "Saved hash:    ${SAVED_CCB_HASH:-unknown}" >&2
+        echo "Current hash:  ${CCB_HASH}" >&2
         echo "" >&2
-        echo "The CCY script has been modified but CCY_VERSION was not updated." >&2
+        echo "The CCB script has been modified but CCB_VERSION was not updated." >&2
         echo "This is a developer error - version numbers must be incremented" >&2
         echo "when the script changes to ensure config compatibility." >&2
         echo "" >&2
@@ -515,10 +252,10 @@ load_launch_config() {
     elif ! $version_match; then
         # VERSION different = Normal upgrade/downgrade
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
-        echo "ℹ️  CCY version changed" >&2
+        echo "ℹ️  CCB version changed" >&2
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
-        echo "Saved config:  v${SAVED_CCY_VERSION:-unknown}" >&2
-        echo "Current CCY:   v${CCY_VERSION}" >&2
+        echo "Saved config:  v${SAVED_CCB_VERSION:-unknown}" >&2
+        echo "Current CCB:   v${CCB_VERSION}" >&2
         echo "" >&2
         echo "Reconfiguring for compatibility with new version..." >&2
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
@@ -538,14 +275,14 @@ save_launch_config() {
     local config_file="$project_claude_dir/../.last-launch.conf"
 
     cat > "$config_file" <<EOF
-# CCY Launch Configuration
+# CCB Launch Configuration
 # Config Version: ${CONFIG_VERSION}
-# CCY Version: ${CCY_VERSION}
-# CCY Hash: ${CCY_HASH}
+# CCB Version: ${CCB_VERSION}
+# CCB Hash: ${CCB_HASH}
 # Generated: $(date '+%Y-%m-%d %H:%M:%S')
 SAVED_CONFIG_VERSION=${CONFIG_VERSION}
-SAVED_CCY_VERSION="${CCY_VERSION}"
-SAVED_CCY_HASH="${CCY_HASH}"
+SAVED_CCB_VERSION="${CCB_VERSION}"
+SAVED_CCB_HASH="${CCB_HASH}"
 LAST_TOKEN="${token_name}"
 LAST_SSH_KEYS="${ssh_keys_str}"
 LAST_NETWORK="${network}"
@@ -553,536 +290,6 @@ LAST_LAUNCH_DATE="$(date '+%Y-%m-%d')"
 EOF
 
     chmod 600 "$config_file"
-}
-
-# Function to display quick launch command preview
-show_quick_launch_command() {
-    local token_name="$1"
-    shift
-    local ssh_keys=("$@")
-
-    echo "╔══════════════════════════════════════════════════════════════════════════════╗"
-    echo "║ Quick Launch Command (copy to skip prompts next time):                      ║"
-    echo "╠══════════════════════════════════════════════════════════════════════════════╣"
-    echo "║                                                                              ║"
-
-    local cmd="  ccy"
-    [[ -n "$token_name" ]] && cmd+=" --token $token_name"
-
-    if [ ${#ssh_keys[@]} -gt 0 ]; then
-        for key in "${ssh_keys[@]}"; do
-            cmd+=" \\"
-            printf "║ %-76s ║\n" "$cmd"
-            cmd="      --ssh-key $key"
-        done
-    fi
-
-    if [[ -n "$SAVED_NETWORK" ]]; then
-        cmd+=" \\"
-        printf "║ %-76s ║\n" "$cmd"
-        cmd="      --network $SAVED_NETWORK"
-    fi
-
-    printf "║ %-76s ║\n" "$cmd"
-    echo "║                                                                              ║"
-    echo "╚══════════════════════════════════════════════════════════════════════════════╝"
-    echo ""
-}
-
-# Function to select a token interactively
-select_token() {
-    if [ ! -d "$TOKEN_DIR" ]; then
-        return 1
-    fi
-
-    # Get list of valid (non-expired) token files
-    local valid_tokens=()
-    local expired_tokens=()
-    local today=$(date +%Y-%m-%d)
-
-    for token_file in "$TOKEN_DIR"/*.token; do
-        if [ -f "$token_file" ]; then
-            if is_token_valid "$token_file"; then
-                valid_tokens+=("$token_file")
-            else
-                expired_tokens+=("$token_file")
-            fi
-        fi
-    done
-
-    # Show expired tokens warning
-    if [ ${#expired_tokens[@]} -gt 0 ]; then
-        echo ""
-        echo "⚠  Found ${#expired_tokens[@]} expired/expiring token(s):"
-        for token_file in "${expired_tokens[@]}"; do
-            local filename=$(basename "$token_file")
-            echo "    $filename"
-        done
-        echo ""
-        echo "These will NOT be available for selection."
-        echo "Create new tokens to replace them."
-        echo ""
-    fi
-
-    if [ ${#valid_tokens[@]} -eq 0 ]; then
-        return 1
-    fi
-
-    echo ""
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo "Claude Code Token Selection for YOLO Mode"
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo ""
-    echo "Available tokens:"
-    echo ""
-    echo "  0) Create new token"
-    echo ""
-
-    for i in "${!valid_tokens[@]}"; do
-        local token_file="${valid_tokens[$i]}"
-        local filename=$(basename "$token_file")
-        local token_name="${filename%.*.token}"
-
-        # Extract expiry
-        if [[ "$filename" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2})\.token$ ]]; then
-            local expiry_date="${BASH_REMATCH[1]}"
-            echo "  $((i+1))) $token_name (expires: $expiry_date)"
-        else
-            echo "  $((i+1))) $token_name"
-        fi
-    done
-
-    echo ""
-
-    while true; do
-        read -p "Select token [0-${#valid_tokens[@]}]: " selection
-        echo ""
-
-        if [ -z "$selection" ]; then
-            echo "No selection made. Exiting."
-            exit 1
-        fi
-
-        if [ "$selection" = "0" ]; then
-            create_token
-            exit 0
-        elif [ "$selection" -ge 1 ] && [ "$selection" -le ${#valid_tokens[@]} ] 2>/dev/null; then
-            SELECTED_TOKEN="${valid_tokens[$((selection-1))]}"
-            local filename=$(basename "$SELECTED_TOKEN")
-            local token_name="${filename%.*.token}"
-
-            echo "✓ Selected token: $token_name"
-            echo ""
-            echo "════════════════════════════════════════════════════════════════════════════"
-            echo ""
-            return 0
-        else
-            echo "Invalid selection: $selection"
-            echo "Please enter a number between 0 and ${#valid_tokens[@]}"
-            echo ""
-        fi
-    done
-}
-
-# Function to connect running browser container to a Docker network
-# BROWSER MODE: Use _browser suffix instead of _yolo
-connect_to_network() {
-    local network_name="$1"
-    local project_name=$(basename "$PWD")
-    local base_name="${project_name}_browser"
-    local container_name=""
-
-    # Find all running containers matching this project
-    local matching_containers=()
-    while IFS= read -r name; do
-        matching_containers+=("$name")
-    done < <(docker ps --format '{{.Names}}' | grep "^${base_name}" || true)
-
-    # Check if any containers are running
-    if [ ${#matching_containers[@]} -eq 0 ]; then
-        echo ""
-        echo "════════════════════════════════════════════════════════════════════════════════"
-        echo "Connect YOLO Container to Docker Network"
-        echo "════════════════════════════════════════════════════════════════════════════════"
-        echo ""
-        print_error "No running containers found for project: $project_name"
-        echo ""
-        echo "Start ccy first, then run this in another terminal:"
-        echo "  ccy --connect <network_name>"
-        echo ""
-        exit 1
-    fi
-
-    # Determine if we should connect all or select one
-    local connect_all=false
-    if [ ${#matching_containers[@]} -eq 1 ]; then
-        # Only one container, use it automatically
-        container_name="${matching_containers[0]}"
-    else
-        # Multiple containers - show selection menu with "all" option
-        if [ -z "$network_name" ]; then
-            echo ""
-            echo "════════════════════════════════════════════════════════════════════════════════"
-            echo "Select YOLO Container(s)"
-            echo "════════════════════════════════════════════════════════════════════════════════"
-            echo ""
-            echo "Multiple containers found for project: $project_name"
-            echo ""
-            echo "  0) All containers (default)"
-            echo ""
-
-            for i in "${!matching_containers[@]}"; do
-                echo "  $((i + 1))) ${matching_containers[$i]}"
-            done
-            echo ""
-
-            while true; do
-                read -p "Select container [0-${#matching_containers[@]}] (0): " selection
-                selection=${selection:-0}  # Default to 0 if empty
-                echo ""
-
-                if [ "$selection" = "0" ]; then
-                    connect_all=true
-                    break
-                elif [ "$selection" -ge 1 ] && [ "$selection" -le ${#matching_containers[@]} ] 2>/dev/null; then
-                    container_name="${matching_containers[$((selection - 1))]}"
-                    break
-                else
-                    echo "Invalid selection: $selection"
-                    echo "Please enter a number between 0 and ${#matching_containers[@]}"
-                    echo ""
-                fi
-            done
-        else
-            # Network name provided via command line - connect all by default
-            connect_all=true
-        fi
-    fi
-
-    if [ -z "$network_name" ]; then
-        echo ""
-        echo "════════════════════════════════════════════════════════════════════════════════"
-        echo "Connect YOLO Container to Docker Network"
-        echo "════════════════════════════════════════════════════════════════════════════════"
-        echo ""
-
-        # Display what we're connecting
-        if [ "$connect_all" = true ]; then
-            echo "Containers: All ${#matching_containers[@]} running containers"
-        else
-            echo "Container: $container_name"
-        fi
-        echo ""
-
-        echo "Available networks:"
-        echo ""
-
-        # Get list of networks (excluding bridge, host, none)
-        local networks=()
-        local best_match=""
-        local best_match_index=""
-
-        while IFS= read -r net; do
-            # Skip default networks
-            if [[ "$net" != "bridge" ]] && [[ "$net" != "host" ]] && [[ "$net" != "none" ]]; then
-                networks+=("$net")
-
-                # Check for best match (network name contains project name)
-                if [[ "$net" == *"$project_name"* ]] && [ -z "$best_match" ]; then
-                    best_match="$net"
-                    best_match_index=$((${#networks[@]} - 1))
-                fi
-            fi
-        done < <(docker network ls --format "{{.Name}}" | sort)
-
-        if [ ${#networks[@]} -eq 0 ]; then
-            echo "No user-defined networks found."
-            echo ""
-            echo "Create a network first:"
-            echo "  docker network create ${project_name}_network"
-            exit 1
-        fi
-
-        # Show networks with optional default
-        local start_index=1
-        if [ -n "$best_match" ]; then
-            echo "  0) $best_match (default - matches project name)"
-            echo ""
-            start_index=1
-        fi
-
-        for i in "${!networks[@]}"; do
-            if [ "$i" != "$best_match_index" ]; then
-                echo "  $((i + 1))) ${networks[$i]}"
-            fi
-        done
-
-        echo ""
-
-        while true; do
-            if [ -n "$best_match" ]; then
-                read -p "Select network [0-${#networks[@]}] (0): " selection
-                selection=${selection:-0}  # Default to 0 if empty
-            else
-                read -p "Select network [1-${#networks[@]}]: " selection
-            fi
-            echo ""
-
-            if [ -z "$selection" ]; then
-                echo "Cancelled."
-                exit 0
-            fi
-
-            # Handle selection
-            if [ -n "$best_match" ] && [ "$selection" = "0" ]; then
-                network_name="$best_match"
-                break
-            elif [ "$selection" -ge 1 ] && [ "$selection" -le ${#networks[@]} ] 2>/dev/null; then
-                network_name="${networks[$((selection - 1))]}"
-                break
-            else
-                if [ -n "$best_match" ]; then
-                    echo "Invalid selection: $selection"
-                    echo "Please enter a number between 0 and ${#networks[@]}"
-                else
-                    echo "Invalid selection: $selection"
-                    echo "Please enter a number between 1 and ${#networks[@]}"
-                fi
-                echo ""
-            fi
-        done
-
-        echo "Selected: $network_name"
-        echo ""
-    fi
-
-    # Check if network exists
-    if ! docker network ls --format '{{.Name}}' | grep -q "^${network_name}$"; then
-        print_error "Network not found: $network_name"
-        echo ""
-        echo "Available networks:"
-        docker network ls --format "  {{.Name}}"
-        exit 1
-    fi
-
-    # Connect container(s) to network
-    if [ "$connect_all" = true ]; then
-        # Connect all containers
-        echo "Connecting all containers to $network_name..."
-        echo ""
-
-        local success_count=0
-        local already_connected_count=0
-
-        for container in "${matching_containers[@]}"; do
-            echo "  → $container"
-            if docker network connect "$network_name" "$container" 2>/dev/null; then
-                echo "    ✓ Connected successfully!"
-                success_count=$((success_count + 1))
-            else
-                echo "    ⚠ Already connected or failed"
-                already_connected_count=$((already_connected_count + 1))
-            fi
-        done
-
-        echo ""
-        echo "════════════════════════════════════════════════════════════════════════════════"
-        echo "Summary:"
-        echo "  ✓ Connected: $success_count"
-        if [ $already_connected_count -gt 0 ]; then
-            echo "  ⚠ Already connected: $already_connected_count"
-        fi
-        echo ""
-        echo "You can now access project containers from inside ccy."
-        echo "Example: curl http://container-name:port"
-    else
-        # Connect single container
-        echo "Connecting $container_name to $network_name..."
-        if docker network connect "$network_name" "$container_name" 2>/dev/null; then
-            echo "✓ Connected successfully!"
-            echo ""
-            echo "You can now access project containers from inside ccy."
-            echo "Example: curl http://container-name:port"
-        else
-            echo "⚠ Container may already be connected to this network"
-            echo ""
-            echo "Container networks:"
-            docker inspect "$container_name" --format '{{range $k, $v := .NetworkSettings.Networks}}  {{$k}}{{"\n"}}{{end}}'
-        fi
-    fi
-
-    exit 0
-}
-
-# Function to create/update custom Dockerfile for project
-custom_dockerfile() {
-    local custom_dir="/opt/claude-yolo/custom-dockerfiles"
-    local project_ccy_dir=".claude/ccy"
-    local project_dockerfile="$project_ccy_dir/Dockerfile"
-
-    echo ""
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo "Custom Dockerfile Setup for $(basename "$PWD")"
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo ""
-
-    # Check if project already has a Dockerfile
-    if [ -f "$project_dockerfile" ]; then
-        echo "Found existing Dockerfile: $project_dockerfile"
-        echo ""
-        echo "Options:"
-        echo "  1) Use Claude to customize it (launches ccy)"
-        echo "  2) Edit manually (\$EDITOR)"
-        echo "  3) Replace with a template"
-        echo "  4) Cancel"
-        echo ""
-
-        while true; do
-            read -p "Select [1-4]: " choice
-            echo ""
-
-            case "$choice" in
-                1)
-                    # Launch ccy with customization prompt
-                    echo "Launching Claude Code to help customize your Dockerfile..."
-                    echo ""
-                    exec "$0" "Read .claude/ccb/Dockerfile - it has instructions for you in the comments. Follow those instructions to customize this Dockerfile for the project."
-                    ;;
-                2)
-                    ${EDITOR:-vi} "$project_dockerfile"
-                    echo "✓ Dockerfile edited"
-                    echo ""
-                    echo "Run 'ccy --rebuild' to rebuild with changes"
-                    exit 0
-                    ;;
-                3)
-                    # Continue to template selection
-                    break
-                    ;;
-                4|"")
-                    echo "Cancelled."
-                    exit 0
-                    ;;
-                *)
-                    echo "Invalid selection: $choice"
-                    echo "Please enter 1, 2, 3, or 4"
-                    echo ""
-                    ;;
-            esac
-        done
-    fi
-
-    # List available templates
-    echo "Select a Dockerfile template to start with:"
-    echo ""
-
-    local templates=()
-    local i=1
-    for template in "$custom_dir"/Dockerfile.*; do
-        if [ -f "$template" ]; then
-            local name=$(basename "$template")
-            local desc=""
-
-            # Extract description from first comment line
-            desc=$(head -n 5 "$template" | grep -m1 "^#" | sed 's/^# //')
-
-            templates+=("$template")
-            echo "  $i) $name"
-            if [ -n "$desc" ]; then
-                echo "     $desc"
-            fi
-            echo ""
-            ((i++))
-        fi
-    done
-
-    if [ ${#templates[@]} -eq 0 ]; then
-        print_error "No templates found in $custom_dir"
-        echo ""
-        echo "Run the ansible playbook to install templates:"
-        echo "  ansible-playbook playbooks/imports/optional/common/play-install-claude-yolo.yml"
-        exit 1
-    fi
-
-    echo "Tip: Use 'project-template' if none of the examples match your stack"
-    echo ""
-
-    local selection
-    local selected_template
-    local template_name
-
-    while true; do
-        read -p "Select template [1-${#templates[@]}]: " selection
-        echo ""
-
-        if [ -z "$selection" ]; then
-            echo "Cancelled."
-            exit 0
-        fi
-
-        if [ "$selection" -ge 1 ] && [ "$selection" -le ${#templates[@]} ] 2>/dev/null; then
-            selected_template="${templates[$((selection-1))]}"
-            template_name=$(basename "$selected_template")
-            break
-        else
-            echo "Invalid selection: $selection"
-            echo "Please enter a number between 1 and ${#templates[@]}"
-            echo ""
-        fi
-    done
-
-    echo "Selected: $template_name"
-    echo ""
-
-    # Create .claude/ccy directory if needed
-    mkdir -p "$project_ccy_dir"
-
-    # Copy template
-    cp "$selected_template" "$project_dockerfile"
-    echo "✓ Created: $project_dockerfile"
-    echo ""
-
-    # Offer Claude-assisted customization
-    echo "Options:"
-    echo "  1) Use Claude to customize it (launches ccy)"
-    echo "  2) Edit manually (\$EDITOR)"
-    echo "  3) Use as-is"
-    echo ""
-
-    while true; do
-        read -p "Select [1-3]: " edit_choice
-        echo ""
-
-        case "$edit_choice" in
-            1)
-                echo "Launching Claude Code to help customize..."
-                echo ""
-                exec "$0" "Read .claude/ccb/Dockerfile - it has instructions for you in the comments. Follow those instructions to customize this Dockerfile for the project."
-                ;;
-            2)
-                ${EDITOR:-vi} "$project_dockerfile"
-                echo "✓ Dockerfile edited"
-                echo ""
-                echo "Run 'ccy --rebuild' to build, then 'ccy' to start"
-                exit 0
-                ;;
-            3)
-                echo "✓ Using template as-is"
-                echo ""
-                echo "Run 'ccy' to build and start with this template"
-                exit 0
-                ;;
-            "")
-                echo "Cancelled."
-                exit 0
-                ;;
-            *)
-                echo "Invalid selection: $edit_choice"
-                echo "Please enter 1, 2, or 3"
-                echo ""
-                ;;
-        esac
-    done
 }
 
 # Check for wrapper flags
@@ -1189,19 +396,19 @@ fi
 
 # Handle list tokens mode (doesn't need SSH/GH setup)
 if [ "$LIST_TOKENS_MODE" = true ]; then
-    list_tokens
+    list_tokens "$CCY_ROOT" "ccb"
     exit 0
 fi
 
 # Handle connect mode (doesn't need SSH/GH setup)
 if [ "$CONNECT_MODE" = true ]; then
-    connect_to_network "$CONNECT_NETWORK"
+    connect_to_network "$CONNECT_NETWORK" "_browser" "ccb"
     exit 0
 fi
 
 # Handle custom mode (doesn't need SSH/GH setup)
 if [ "$CUSTOM_MODE" = true ]; then
-    custom_dockerfile
+    custom_dockerfile "$0" ".claude/ccb" "ccb"
     exit 0
 fi
 
@@ -1272,202 +479,19 @@ if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
     fi
 fi
 
-# Discover github_ SSH keys if no --ssh-key was passed and not in --no-ssh mode
-if [ "$NO_SSH_MODE" = true ]; then
-    # Skip SSH entirely
-    echo ""
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo "⚠  No SSH Mode"
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo ""
-    echo "Skipping SSH key selection (--no-ssh flag)"
-    echo "Git push operations will NOT work."
-    echo ""
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo ""
-elif [ ${#SSH_KEYS[@]} -eq 0 ]; then
-    # No SSH keys from config or flags - discover or prompt
-    # These keys are managed by play-github-cli-multi.yml which creates keys with
-    # the pattern ~/.ssh/github_<alias> for each configured GitHub account.
-    # See: playbooks/imports/optional/common/play-github-cli-multi.yml:163-183
-    GITHUB_KEYS=($(find "$HOME/.ssh" -type f -name "github_*" ! -name "*.pub" 2>/dev/null | sort))
-
-    if [ ${#GITHUB_KEYS[@]} -gt 0 ]; then
-        echo ""
-        echo "════════════════════════════════════════════════════════════════════════════════"
-        echo "SSH Key Selection for Claude YOLO"
-        echo "════════════════════════════════════════════════════════════════════════════════"
-        echo ""
-        echo "No SSH key was specified with --ssh-key flag."
-        echo ""
-        echo "Available GitHub SSH keys (managed by play-github-cli-multi.yml):"
-        echo ""
-        echo "  0) Continue without SSH key (git push will NOT work)"
-        echo ""
-
-        for i in "${!GITHUB_KEYS[@]}"; do
-            key_name=$(basename "${GITHUB_KEYS[$i]}")
-            echo "  $((i+1))) ${GITHUB_KEYS[$i]}"
-        done
-
-        echo ""
-        echo "You can also specify keys manually with: ccy --ssh-key <path>"
-        echo ""
-
-        while true; do
-            read -p "Select SSH key [0-${#GITHUB_KEYS[@]}]: " selection
-            echo ""
-
-            if [ -z "$selection" ]; then
-                echo "No selection made. Exiting."
-                exit 1
-            fi
-
-            if [ "$selection" = "0" ]; then
-                echo "⚠  Continuing WITHOUT SSH key - git push operations will fail"
-                echo ""
-                break
-            elif [ "$selection" -ge 1 ] && [ "$selection" -le ${#GITHUB_KEYS[@]} ] 2>/dev/null; then
-                SSH_KEYS+=("${GITHUB_KEYS[$((selection-1))]}")
-                echo "✓ Selected: ${GITHUB_KEYS[$((selection-1))]}"
-                echo ""
-                break
-            else
-                echo "Invalid selection: $selection"
-                echo "Please enter a number between 0 and ${#GITHUB_KEYS[@]}"
-                echo ""
-            fi
-        done
-
-        echo "════════════════════════════════════════════════════════════════════════════════"
-        echo ""
-    else
-        echo ""
-        echo "════════════════════════════════════════════════════════════════════════════════"
-        echo "⚠  WARNING: No SSH Keys Available"
-        echo "════════════════════════════════════════════════════════════════════════════════"
-        echo ""
-        echo "No github_ SSH keys found in ~/.ssh/"
-        echo "Git push operations will NOT work without SSH keys."
-        echo ""
-        echo "To set up GitHub SSH keys, run:"
-        echo "  ansible-playbook playbooks/imports/optional/common/play-github-cli-multi.yml"
-        echo ""
-        echo "Or specify a key manually:"
-        echo "  ccy --ssh-key ~/.ssh/id_ed25519"
-        echo ""
-        read -p "Press Enter to continue WITHOUT SSH key, or Ctrl+C to cancel: "
-        echo ""
-        echo "════════════════════════════════════════════════════════════════════════════════"
-        echo ""
-    fi
+# Discover and select SSH keys (sets SSH_KEYS array)
+# Only prompt for selection if no SSH keys specified and not in no-ssh mode
+if [ "$NO_SSH_MODE" = false ] && [ ${#SSH_KEYS[@]} -eq 0 ]; then
+    discover_and_select_ssh_keys "ccb"
 fi
 
-# Build SSH key mount arguments and extract GitHub account
-# This needs to happen early so GH_TOKEN is available for create_token
-SSH_MOUNTS=()
-SSH_KEY_PATHS=()
-GITHUB_USERNAME=""
-
-for i in "${!SSH_KEYS[@]}"; do
-    SSH_MOUNTS+=("-v" "${SSH_KEYS[$i]}:/root/.ssh/key_$i:ro")
-    SSH_KEY_PATHS+=("/root/.ssh/key_$i")
-
-    # Extract GitHub username by testing SSH connection with the key
-    # This works for any SSH key (github_ or otherwise)
-    # ssh -T will respond with: "Hi <username>! You've successfully authenticated..."
-    GITHUB_USERNAME=$(ssh -T -i "${SSH_KEYS[$i]}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=no git@github.com 2>&1 | grep -oP "Hi \K[^!]+")
-
-    if [ -z "$GITHUB_USERNAME" ]; then
-        print_error "SSH key authentication to GitHub failed: ${SSH_KEYS[$i]}"
-        echo ""
-        echo "The selected SSH key is not registered with any GitHub account."
-        echo ""
-        echo "To fix this:"
-        echo "  1. Go to https://github.com/settings/keys"
-        echo "  2. Click 'New SSH key'"
-        echo "  3. Add the public key from: ${SSH_KEYS[$i]}.pub"
-        echo ""
-        echo "Or set up GitHub keys with:"
-        echo "  ansible-playbook playbooks/imports/optional/common/play-github-cli-multi.yml"
-        exit 1
-    fi
-
-    echo "✓ Detected GitHub account for SSH key: $GITHUB_USERNAME"
-done
-
-# Get GitHub token from gh CLI
-if ! command_exists gh; then
-    print_error "gh (GitHub CLI) not found"
-    echo "Install it with: ansible-playbook playbooks/imports/play-git-configure-and-tools.yml"
-    exit 1
-fi
-
-# If we detected a GitHub username from SSH key, get the account-specific token
-# This requires play-github-cli-multi.yml to be configured and shell reloaded
-if [ -n "$GITHUB_USERNAME" ] && [ ${#SSH_KEYS[@]} -gt 0 ]; then
-    # Extract alias from the first SSH key
-    key_basename=$(basename "${SSH_KEYS[0]}")
-    if [[ "$key_basename" =~ ^github_(.+)$ ]]; then
-        alias="${BASH_REMATCH[1]}"
-        token_func="gh-token-${alias}"
-
-        # Load gh aliases if not already loaded (script runs in subshell)
-        if ! type "$token_func" &>/dev/null; then
-            if [ -f "$HOME/.bashrc-includes/gh-aliases.inc.bash" ]; then
-                source "$HOME/.bashrc-includes/gh-aliases.inc.bash"
-            fi
-        fi
-
-        # Check if the gh-token-<alias> function exists (from play-github-cli-multi.yml)
-        if ! type "$token_func" &>/dev/null; then
-            print_error "GitHub multi-account function not found: $token_func"
-            echo ""
-            echo "Selected SSH key: ${SSH_KEYS[0]}"
-            echo "Expected file: ~/.bashrc-includes/gh-aliases.inc.bash"
-            echo "Expected function: $token_func"
-            echo ""
-            echo "Required: gh-token-<alias> functions from play-github-cli-multi.yml"
-            echo ""
-            echo "To fix:"
-            echo "  1. Run: ansible-playbook playbooks/imports/optional/common/play-github-cli-multi.yml"
-            echo "  2. Verify: ls -la ~/.bashrc-includes/gh-aliases.inc.bash"
-            echo "  3. Verify: grep $token_func ~/.bashrc-includes/gh-aliases.inc.bash"
-            exit 1
-        fi
-
-        # Get the token for the specific account
-        GH_TOKEN=$($token_func 2>/dev/null)
-        if [ -z "$GH_TOKEN" ]; then
-            print_error "Failed to retrieve token for account: $GITHUB_USERNAME"
-            echo ""
-            echo "Function $token_func returned no token."
-            echo "Account is not authenticated with gh CLI."
-            echo ""
-            echo "Fix: ansible-playbook playbooks/imports/optional/common/play-github-cli-multi.yml"
-            exit 1
-        fi
-
-        echo "✓ Retrieved token for GitHub account: $GITHUB_USERNAME (via $token_func)"
-    fi
-else
-    # No GitHub username detected - fall back to default token
-    GH_TOKEN=$(gh auth token 2>/dev/null)
-
-    if [ -z "$GH_TOKEN" ]; then
-        print_error "Not authenticated with GitHub CLI"
-        echo ""
-        echo "Run: gh auth login"
-        echo ""
-        echo "For multi-account setup with github_ SSH keys, run:"
-        echo "  ansible-playbook playbooks/imports/optional/common/play-github-cli-multi.yml"
-        exit 1
-    fi
-fi
+# Build SSH mounts and validate GitHub access
+# This sets: SSH_MOUNTS, SSH_KEY_PATHS, GITHUB_USERNAME, GH_TOKEN
+build_ssh_mounts_and_validate "ccb"
 
 # Handle create token mode (requires SSH/GH setup for container functionality)
 if [ "$CREATE_TOKEN_MODE" = true ]; then
-    create_token
+    create_token "$CCY_ROOT" "ccb" "$GH_TOKEN" "$IMAGE_NAME"
     exit 0
 fi
 
@@ -1489,7 +513,7 @@ if [ -n "$SPECIFIED_TOKEN" ]; then
             print_error "No token found with name: $SPECIFIED_TOKEN"
             echo ""
             echo "Available tokens:"
-            list_tokens
+            list_tokens "$CCY_ROOT" "ccb"
             exit 1
         fi
     fi
@@ -1498,7 +522,7 @@ if [ -n "$SPECIFIED_TOKEN" ]; then
         print_error "Token file not found: $SELECTED_TOKEN"
         echo ""
         echo "Available tokens:"
-        list_tokens
+        list_tokens "$CCY_ROOT" "ccb"
         exit 1
     fi
 
@@ -1516,9 +540,9 @@ if [ -n "$SPECIFIED_TOKEN" ]; then
         echo ""
         read -p "Create a new token now? (Y/n): " create_now
         if [ "$create_now" != "n" ] && [ "$create_now" != "N" ]; then
-            create_token
+            create_token "$CCY_ROOT" "ccb" "$GH_TOKEN" "$IMAGE_NAME"
         fi
-        echo "Cancelled. Create a token with: ccy --create-token"
+        echo "Cancelled. Create a token with: ccb --create-token"
         exit 1
     fi
 
@@ -1533,23 +557,23 @@ else
         echo "No Claude Code Tokens Found"
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo ""
-        echo "ccy uses long-lived OAuth tokens for container authentication."
+        echo "ccb uses long-lived OAuth tokens for container authentication."
         echo ""
-        echo "You need to create a token before using ccy."
+        echo "You need to create a token before using ccb."
         echo ""
         read -p "Create a token now? (Y/n): " create_now
 
         if [ "$create_now" = "n" ] || [ "$create_now" = "N" ]; then
-            echo "Cancelled. Create a token later with: ccy --create-token"
+            echo "Cancelled. Create a token later with: ccb --create-token"
             exit 0
         fi
 
         # Jump directly to token creation
-        create_token
+        create_token "$CCY_ROOT" "ccb" "$GH_TOKEN" "$IMAGE_NAME"
         exit 0
     else
         # Multiple tokens exist or single token - show selection
-        select_token || {
+        select_token "$CCY_ROOT" "ccb" || {
             echo ""
             echo "════════════════════════════════════════════════════════════════════════════════"
             echo "No Valid Tokens Available"
@@ -1560,9 +584,9 @@ else
             echo ""
             read -p "Create a token now? (Y/n): " create_now
             if [ "$create_now" != "n" ] && [ "$create_now" != "N" ]; then
-                create_token
+                create_token "$CCY_ROOT" "ccb" "$GH_TOKEN" "$IMAGE_NAME"
             fi
-            echo "Cancelled. Create a token with: ccy --create-token"
+            echo "Cancelled. Create a token with: ccb --create-token"
             exit 1
         }
     fi
@@ -1671,33 +695,7 @@ fi
 
 # Function to find next available container name with suffix
 # BROWSER MODE: Use _browser suffix instead of _yolo
-get_next_container_name() {
-    local project_name="$1"
-    local base_name="${project_name}_browser"
-
-    # Get all running containers matching this project
-    local existing_containers=$(docker ps --format '{{.Names}}' | grep "^${base_name}" || true)
-
-    # If no container exists, use base name (no suffix)
-    if [ -z "$existing_containers" ]; then
-        echo "$base_name"
-        return
-    fi
-
-    # If base name (no suffix) is not in use, use it
-    if ! echo "$existing_containers" | grep -q "^${base_name}$"; then
-        echo "$base_name"
-        return
-    fi
-
-    # Find next available number
-    local max_num=1
-    while echo "$existing_containers" | grep -q "^${base_name}_${max_num}$"; do
-        max_num=$((max_num + 1))
-    done
-
-    echo "${base_name}_${max_num}"
-}
+# Note: get_next_container_name is now in lib/common.bash
 
 # Check for project-specific Dockerfile extension
 PROJECT_NAME=$(basename "$PWD")
@@ -2198,17 +1196,17 @@ SSH_KEYS_STR="${SSH_KEYS[*]}"
 if [[ "$CONFIG_LOADED" = false ]]; then
     # Only show if this was an interactive launch (not quick launch)
     echo ""
-    show_quick_launch_command "$TOKEN_NAME_FOR_CONFIG" "${SSH_KEYS[@]}"
+    show_quick_launch_command "ccb" "$TOKEN_NAME_FOR_CONFIG" "${SSH_KEYS[@]}" "$AUTO_CONNECT_NETWORK"
 fi
 
 # Save configuration for next launch
 save_launch_config "$PROJECT_CLAUDE_DIR" "$TOKEN_NAME_FOR_CONFIG" "$SSH_KEYS_STR" "$AUTO_CONNECT_NETWORK"
 echo "✓ Configuration saved for quick launch next time"
-echo "✓ CCY version: $CCY_VERSION"
+echo "✓ CCB version: $CCB_VERSION"
 echo ""
 
 # Determine container name with appropriate suffix
-CONTAINER_NAME=$(get_next_container_name "$PROJECT_NAME")
+CONTAINER_NAME=$(get_next_container_name "$PROJECT_NAME" "browser")
 echo "Container name: $CONTAINER_NAME"
 echo ""
 
