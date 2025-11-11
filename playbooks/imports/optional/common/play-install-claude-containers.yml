@@ -81,6 +81,15 @@
         - scripts
         - entrypoint
 
+    - name: "CCY: Copy Startup Info File"
+      become: true
+      copy:
+        src: "{{ root_dir }}/files/opt/claude-yolo/ccy-startup-info.txt"
+        dest: /opt/claude-yolo/ccy-startup-info.txt
+        owner: root
+        group: root
+        mode: '0644'
+
     - name: "CCY: Copy Custom Dockerfile Templates (Never Overwrite User Changes)"
       become: true
       copy:
