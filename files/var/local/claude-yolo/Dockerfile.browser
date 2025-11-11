@@ -5,7 +5,7 @@ ARG DOCKERFILE_HASH="unknown"
 
 # Metadata
 # IMPORTANT: When modifying this Dockerfile, ALWAYS increment claude-browser-version!
-LABEL claude-browser-version="1.0"
+LABEL claude-browser-version="1.1"
 LABEL claude-browser-dockerfile-hash="${DOCKERFILE_HASH}"
 LABEL description="Claude Code Browser Mode - Isolated container with Playwright MCP for browser automation"
 
@@ -78,6 +78,19 @@ RUN npm install -g playwright && \
 # Playwright MCP server (provides browser automation)
 RUN npm install -g @playwright/mcp@latest
 # Note: Puppeteer MCP server package not available yet, using Playwright only for MVP
+
+# Install chrome-ws (Chrome DevTools Protocol CLI tool)
+# Zero-dependency tool for direct browser control via CDP
+RUN mkdir -p /opt/chrome-ws
+COPY chrome-ws/chrome-ws /opt/chrome-ws/
+COPY chrome-ws/chrome-ws-lib.js /opt/chrome-ws/
+RUN chmod +x /opt/chrome-ws/chrome-ws && \
+    ln -s /opt/chrome-ws/chrome-ws /usr/local/bin/chrome-ws
+
+# Copy Claude Code skills for chrome-ws
+# These provide guidance for using chrome-ws with Claude Code
+RUN mkdir -p /root/.claude/skills
+COPY skills/browsing/ /root/.claude/skills/browsing/
 
 # Copy and set up entrypoint script
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh

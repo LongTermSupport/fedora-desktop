@@ -10,6 +10,7 @@ ENVIRONMENT:
 
 CAPABILITIES:
 • Control real browsers through Playwright MCP
+• Direct Chrome DevTools Protocol access via chrome-ws CLI
 • Browsers open on your desktop for visual debugging
 • Full development environment (git, gh, ripgrep, jq, Node.js, Python)
 • GitHub CLI authenticated (can create PRs, issues, etc.)
@@ -19,6 +20,7 @@ CAPABILITIES:
 
 BROWSER AUTOMATION:
 • Use Playwright MCP tools to control browsers
+• Use chrome-ws for lightweight Chrome DevTools Protocol operations
 • Create acceptance tests interactively
 • Debug and explore web applications visually
 • Scrape and automate web workflows

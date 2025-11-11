@@ -66,6 +66,73 @@
         - scripts
         - entrypoint
 
+    - name: Create chrome-ws Directory
+      become: true
+      file:
+        path: /opt/claude-browser/chrome-ws
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Copy chrome-ws CLI Tool
+      become: true
+      copy:
+        src: "{{ root_dir }}/files/opt/claude-browser/chrome-ws/chrome-ws"
+        dest: /opt/claude-browser/chrome-ws/chrome-ws
+        owner: root
+        group: root
+        mode: '0755'
+      tags:
+        - scripts
+        - chrome-ws
+
+    - name: Copy chrome-ws Library
+      become: true
+      copy:
+        src: "{{ root_dir }}/files/opt/claude-browser/chrome-ws/chrome-ws-lib.js"
+        dest: /opt/claude-browser/chrome-ws/chrome-ws-lib.js
+        owner: root
+        group: root
+        mode: '0644'
+      tags:
+        - scripts
+        - chrome-ws
+
+    - name: Create Skills Directory
+      become: true
+      file:
+        path: /opt/claude-browser/skills/browsing
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Copy chrome-ws Skills Documentation
+      become: true
+      copy:
+        src: "{{ item }}"
+        dest: /opt/claude-browser/skills/browsing/
+        owner: root
+        group: root
+        mode: '0644'
+      loop:
+        - "{{ root_dir }}/files/opt/claude-browser/skills/browsing/SKILL.md"
+        - "{{ root_dir }}/files/opt/claude-browser/skills/browsing/COMMANDLINE-USAGE.md"
+        - "{{ root_dir }}/files/opt/claude-browser/skills/browsing/EXAMPLES.md"
+      tags:
+        - skills
+        - chrome-ws
+
+    - name: Copy Browser Startup Info File
+      become: true
+      copy:
+        src: "{{ root_dir }}/files/opt/claude-browser/ccb-startup-info.txt"
+        dest: /opt/claude-browser/ccb-startup-info.txt
+        owner: root
+        group: root
+        mode: '0644'
+
     # Shared library already installed by play-install-claude-yolo.yml
     - name: Verify Shared Library Exists
       stat:
@@ -174,6 +241,7 @@
           - "  • Docker-based isolation (same as ccy)"
           - "  • GUI browser support (X11/Wayland)"
           - "  • Playwright MCP for browser automation"
+          - "  • chrome-ws CLI for Chrome DevTools Protocol"
           - "  • MCP configs isolated (won't pollute ccy)"
           - "  • Node.js LTS v20 environment"
           - "  • Chromium, Firefox, WebKit browsers"
