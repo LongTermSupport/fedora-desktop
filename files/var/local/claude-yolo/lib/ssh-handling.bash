@@ -43,8 +43,10 @@ discover_and_select_ssh_keys() {
             echo ""
 
             if [ -z "$selection" ]; then
-                echo "No selection made. Exiting."
-                exit 1
+                echo "Invalid selection: (empty)"
+                echo "Please enter a number between 0 and ${#GITHUB_KEYS[@]}"
+                echo ""
+                continue
             fi
 
             if [ "$selection" = "0" ]; then

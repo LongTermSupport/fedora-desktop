@@ -151,8 +151,14 @@ connect_to_network() {
             echo ""
 
             if [ -z "$selection" ]; then
-                echo "Cancelled."
-                exit 0
+                echo "Invalid selection: (empty)"
+                if [ -n "$best_match" ]; then
+                    echo "Please enter a number between 0 and ${#networks[@]}, or press Enter for default (0)"
+                else
+                    echo "Please enter a number between 1 and ${#networks[@]}"
+                fi
+                echo ""
+                continue
             fi
 
             # Handle selection

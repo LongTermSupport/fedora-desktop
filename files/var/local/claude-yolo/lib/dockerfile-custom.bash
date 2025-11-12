@@ -52,9 +52,14 @@ custom_dockerfile() {
                     # Continue to template selection
                     break
                     ;;
-                4|"")
+                4)
                     echo "Cancelled."
                     exit 0
+                    ;;
+                "")
+                    echo "Invalid selection: (empty)"
+                    echo "Please enter 1, 2, 3, or 4"
+                    echo ""
                     ;;
                 *)
                     echo "Invalid selection: $choice"
@@ -109,8 +114,10 @@ custom_dockerfile() {
         echo ""
 
         if [ -z "$selection" ]; then
-            echo "Cancelled."
-            exit 0
+            echo "Invalid selection: (empty)"
+            echo "Please enter a number between 1 and ${#templates[@]}"
+            echo ""
+            continue
         fi
 
         if [ "$selection" -ge 1 ] && [ "$selection" -le ${#templates[@]} ] 2>/dev/null; then
@@ -166,8 +173,9 @@ custom_dockerfile() {
                 exit 0
                 ;;
             "")
-                echo "Cancelled."
-                exit 0
+                echo "Invalid selection: (empty)"
+                echo "Please enter 1, 2, or 3"
+                echo ""
                 ;;
             *)
                 echo "Invalid selection: $edit_choice"
