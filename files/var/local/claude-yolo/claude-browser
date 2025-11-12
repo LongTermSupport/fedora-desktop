@@ -396,7 +396,7 @@ fi
 
 # Handle list tokens mode (doesn't need SSH/GH setup)
 if [ "$LIST_TOKENS_MODE" = true ]; then
-    list_tokens "$CCY_ROOT" "ccb"
+    list_tokens "$TOKEN_DIR" "ccb"
     exit 0
 fi
 
@@ -491,7 +491,7 @@ build_ssh_mounts_and_validate "ccb"
 
 # Handle create token mode (requires SSH/GH setup for container functionality)
 if [ "$CREATE_TOKEN_MODE" = true ]; then
-    create_token "$CCY_ROOT" "ccb" "$GH_TOKEN" "$IMAGE_NAME"
+    create_token "$TOKEN_DIR" "ccb" "$GH_TOKEN" "$IMAGE_NAME"
     exit 0
 fi
 
@@ -513,7 +513,7 @@ if [ -n "$SPECIFIED_TOKEN" ]; then
             print_error "No token found with name: $SPECIFIED_TOKEN"
             echo ""
             echo "Available tokens:"
-            list_tokens "$CCY_ROOT" "ccb"
+            list_tokens "$TOKEN_DIR" "ccb"
             exit 1
         fi
     fi
@@ -522,7 +522,7 @@ if [ -n "$SPECIFIED_TOKEN" ]; then
         print_error "Token file not found: $SELECTED_TOKEN"
         echo ""
         echo "Available tokens:"
-        list_tokens "$CCY_ROOT" "ccb"
+        list_tokens "$TOKEN_DIR" "ccb"
         exit 1
     fi
 
@@ -540,7 +540,7 @@ if [ -n "$SPECIFIED_TOKEN" ]; then
         echo ""
         read -p "Create a new token now? (Y/n): " create_now
         if [ "$create_now" != "n" ] && [ "$create_now" != "N" ]; then
-            create_token "$CCY_ROOT" "ccb" "$GH_TOKEN" "$IMAGE_NAME"
+            create_token "$TOKEN_DIR" "ccb" "$GH_TOKEN" "$IMAGE_NAME"
         fi
         echo "Cancelled. Create a token with: ccb --create-token"
         exit 1
@@ -569,11 +569,11 @@ else
         fi
 
         # Jump directly to token creation
-        create_token "$CCY_ROOT" "ccb" "$GH_TOKEN" "$IMAGE_NAME"
+        create_token "$TOKEN_DIR" "ccb" "$GH_TOKEN" "$IMAGE_NAME"
         exit 0
     else
         # Multiple tokens exist or single token - show selection
-        select_token "$CCY_ROOT" "ccb" || {
+        select_token "$TOKEN_DIR" "ccb" || {
             echo ""
             echo "════════════════════════════════════════════════════════════════════════════════"
             echo "No Valid Tokens Available"
@@ -584,7 +584,7 @@ else
             echo ""
             read -p "Create a token now? (Y/n): " create_now
             if [ "$create_now" != "n" ] && [ "$create_now" != "N" ]; then
-                create_token "$CCY_ROOT" "ccb" "$GH_TOKEN" "$IMAGE_NAME"
+                create_token "$TOKEN_DIR" "ccb" "$GH_TOKEN" "$IMAGE_NAME"
             fi
             echo "Cancelled. Create a token with: ccb --create-token"
             exit 1
