@@ -289,8 +289,11 @@ ls ~/   # Your actual home directory
 This project provides a comprehensive browser automation environment via Docker:
 
 ```bash
-# Install and configure
-ansible-playbook playbooks/imports/optional/common/play-install-claude-browser.yml
+# Install both ccy (YOLO mode) and ccb (Browser mode)
+ansible-playbook playbooks/imports/optional/common/play-install-claude-yolo.yml
+
+# Or install only ccy (skip browser mode)
+ansible-playbook playbooks/imports/optional/common/play-install-claude-yolo.yml -e install_browser_mode=false
 ```
 
 This creates a feature-complete Docker-based `claude-browser` container with:
@@ -347,6 +350,318 @@ ccb --token your_token_name
 - ✅ Proper Wayland support with full XDG runtime
 - ✅ No host desktop pollution
 - ✅ AI-assisted browser automation with visible feedback
+
+### Custom Dockerfiles for CCY/CCB
+
+Both `ccy` and `ccb` support project-specific container customization through custom Dockerfiles. This allows you to extend the base container with additional tools, languages, and dependencies needed for your specific project.
+
+#### When to Use Custom Dockerfiles
+
+Create a custom Dockerfile when you need:
+- **Additional languages**: Python 3.12, Go, Rust, Ruby, Java
+- **Build tools**: make, cmake, gradle, maven, specific compiler versions
+- **Database clients**: postgresql-client, mysql-client, mongodb tools
+- **Cloud CLIs**: aws-cli, gcloud, azure-cli, terraform, pulumi
+- **Development tools**: Language-specific linters, formatters, test frameworks
+- **System libraries**: Dependencies for native extensions
+
+#### Two Approaches Available
+
+**Quick Template-Based (`--custom`)**:
+```bash
+cd ~/Projects/my-project
+ccy --custom  # or ccb --custom
+
+# Interactive menu:
+# 1. Select template (ansible/golang/project-template)
+# 2. Choose: Claude customization, manual edit, or use as-is
+# 3. Quick setup for known tech stacks
+```
+
+**AI-Guided Planning (`--custom-docker`)**:
+```bash
+cd ~/Projects/my-project
+ccy --custom-docker  # or ccb --custom-docker
+
+# Comprehensive workflow:
+# 1. Claude enters planning mode
+# 2. Investigates project files (package.json, go.mod, pyproject.toml, etc.)
+# 3. Asks targeted questions about your needs
+# 4. Proposes features for approval
+# 5. Creates optimized Dockerfile with validation
+# 6. Provides clear next steps
+```
+
+#### How It Works
+
+**File Location:**
+- `ccy`: `.claude/ccy/Dockerfile` in your project root
+- `ccb`: `.claude/ccb/Dockerfile` in your project root
+
+**Base Images:**
+- `ccy`: Extends `claude-yolo:latest`
+- `ccb`: Extends `claude-browser:latest`
+
+**What's Already Included:**
+- Node.js 20, npm
+- Python 3 (system version)
+- git, gh CLI
+- Claude Code (latest)
+- Development tools: ripgrep, jq, yq, vim
+- For `ccb`: Playwright, browsers (Chrome, Firefox, WebKit)
+
+**Image Caching:**
+- Custom images cached as `claude-yolo:<project-name>`
+- Automatic rebuilds when Dockerfile changes detected
+- Fast rebuilds with cache mounts
+
+#### Example Workflow
+
+**Creating a Custom Dockerfile for a Python Project:**
+
+```bash
+cd ~/Projects/my-python-app
+ccy --custom-docker
+
+# Claude investigates:
+# - Reads pyproject.toml (finds Python 3.12, poetry, pytest, black, mypy)
+# - Checks CI configs (finds AWS deployments)
+# - Scans for database usage (finds PostgreSQL)
+
+# Claude asks:
+# - "I see Python 3.12 in pyproject.toml. Confirm this version?"
+# - "Do you need PostgreSQL client for local development?"
+# - "Should I pre-install black, mypy, pytest?"
+# - "I see AWS in your CI. Need aws-cli in container?"
+
+# Claude proposes:
+# ✓ Python 3.12 + pip
+# ✓ poetry, pytest, black, mypy
+# ✓ PostgreSQL client 15
+# ✓ AWS CLI v2
+# ✓ Cache mounts for pip and apt
+# ✓ Environment variables (PYTHONUNBUFFERED=1)
+
+# You approve, Claude creates .claude/ccy/Dockerfile with:
+# - Comprehensive comments explaining each section
+# - Optimized cache mounts for fast rebuilds
+# - Version verification commands
+# - Proper documentation
+
+# Next steps printed:
+# 1. Exit: /exit or Ctrl+D
+# 2. Rebuild: ccy --rebuild
+# 3. Launch: ccy
+```
+
+**Result:**
+```dockerfile
+# .claude/ccy/Dockerfile
+FROM claude-yolo:latest
+
+# ============================================================================
+# Python 3.12 + Development Tools
+# ============================================================================
+# Project uses Python 3.12 (specified in pyproject.toml)
+# Installing: python3.12, poetry, pytest, black, mypy
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        python3.12 \
+        python3.12-venv \
+        python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python tools with cache mount for faster rebuilds
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip3 install --upgrade pip && \
+    pip3 install poetry pytest black mypy
+
+# ============================================================================
+# PostgreSQL Client
+# ============================================================================
+# Needed for connecting to development database
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        postgresql-client-15 \
+    && rm -rf /var/lib/apt/lists/*
+
+# ============================================================================
+# AWS CLI
+# ============================================================================
+# Used in CI/CD deployments
+
+RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
+    unzip awscliv2.zip && \
+    ./aws/install && \
+    rm -rf aws awscliv2.zip
+
+# Environment variables
+ENV PYTHONUNBUFFERED=1
+ENV PIP_NO_CACHE_DIR=1
+
+# Verify installations
+RUN python3.12 --version && \
+    poetry --version && \
+    psql --version && \
+    aws --version
+```
+
+#### Updating Existing Dockerfiles
+
+If a Dockerfile already exists, `--custom-docker` offers two options:
+
+**Analyze and Improve:**
+```bash
+ccy --custom-docker
+# Option 1: Analyze and propose improvements
+
+# Claude will:
+# - Read current Dockerfile
+# - Check project for new dependencies
+# - Propose additions, updates, optimizations
+# - Update Dockerfile after approval
+```
+
+**Replace with New:**
+```bash
+ccy --custom-docker
+# Option 2: Replace with new
+
+# Starts fresh creation workflow
+# Old Dockerfile backed up automatically
+```
+
+#### Best Practices
+
+**Cache Mounts for Speed:**
+```dockerfile
+# Good - Uses cache mounts (30 second rebuilds)
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y python3
+
+# Bad - No cache (5 minute rebuilds)
+RUN apt-get update && apt-get install -y python3
+```
+
+**Keep It Minimal:**
+```dockerfile
+# Good - Only install tools
+RUN apt-get install -y golang-1.21
+
+# Bad - Don't install project dependencies (they're in mounted /workspace)
+RUN npm install  # ❌ Wrong - npm install happens at runtime, not build time
+RUN go mod download  # ❌ Wrong - happens at runtime
+```
+
+**Document Everything:**
+```dockerfile
+# Good - Explains why
+# PostgreSQL Client for development database
+# Version 15 matches production (see docker-compose.yml)
+RUN apt-get install -y postgresql-client-15
+
+# Bad - No context
+RUN apt-get install -y postgresql-client-15
+```
+
+**Verify Installations:**
+```dockerfile
+# Good - Catches build failures early
+RUN go version && golangci-lint --version
+
+# Less ideal - No verification
+RUN apt-get install -y golang-1.21 golangci-lint
+```
+
+#### Saving Dockerfiles as Templates
+
+If you create a Dockerfile you want to reuse:
+
+```bash
+# Save to template library
+sudo cp .claude/ccy/Dockerfile \
+  /opt/claude-yolo/custom-dockerfiles/Dockerfile.example-mystack
+
+# Templates in /opt/claude-yolo/custom-dockerfiles/:
+# - Never overwritten by Ansible
+# - Appear in --custom template selection menu
+# - Can be shared across projects
+```
+
+#### Troubleshooting Custom Builds
+
+**Build fails:**
+```bash
+# Check Dockerfile syntax
+docker build --check .claude/ccy/
+
+# Manual build to see errors
+cd .claude/ccy && docker build -t test .
+
+# Check logs
+ccy --rebuild
+```
+
+**Image too large:**
+```bash
+# Check image size
+docker images | grep claude-yolo
+
+# Reduce size:
+# - Use --no-install-recommends with apt
+# - Clean up in same RUN layer
+# - Combine RUN commands when possible
+# - Don't install project dependencies (npm/pip/go packages)
+```
+
+**Slow rebuilds:**
+```bash
+# Add cache mounts (see Best Practices above)
+# - apt cache: /var/cache/apt and /var/lib/apt
+# - npm cache: /root/.npm
+# - pip cache: /root/.cache/pip
+# - go cache: /root/go/pkg/mod
+```
+
+**Dockerfile doesn't update:**
+```bash
+# Force rebuild
+ccy --rebuild
+
+# Check if Dockerfile actually changed
+git status .claude/ccy/Dockerfile
+```
+
+#### Comparison: --custom vs --custom-docker
+
+| Feature | `--custom` | `--custom-docker` |
+|---------|------------|-------------------|
+| **Speed** | Fast (template selection) | Slower (investigation + planning) |
+| **Guidance** | Basic | Comprehensive AI planning |
+| **Investigation** | None | Deep project analysis |
+| **Questions** | None | Targeted, contextual |
+| **Proposals** | None | Feature list with reasoning |
+| **Validation** | None | Syntax + logic checks |
+| **Education** | Minimal | Extensive comments |
+| **Best for** | Known tech stack | Unknown needs, learning |
+
+**When to use `--custom`:**
+- You know exactly what you need
+- Using a common tech stack (Ansible, Go)
+- Want quick setup
+
+**When to use `--custom-docker`:**
+- Unsure what tools are needed
+- Complex/multi-language project
+- Want to learn best practices
+- Need optimized configuration
 
 ## Choosing the Right Technology
 

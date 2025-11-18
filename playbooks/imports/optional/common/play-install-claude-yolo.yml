@@ -1,9 +1,10 @@
 #!/usr/bin/env ansible-playbook
 - hosts: desktop
-  name: Claude Code YOLO Mode - Container-based Installation
+  name: Claude Code YOLO/Browser Mode - Container-based Installation
   become: false
   vars:
     root_dir: "{{ inventory_dir }}/../../"
+    install_browser_mode: true  # Set to false to skip browser mode installation
   tasks:
     - name: Check if Docker is Installed
       command: which docker
@@ -102,14 +103,21 @@
         group: root
         mode: '0755'
 
-    - name: Install Shared Helper Library
+    - name: Install Shared Helper Libraries
       become: true
       copy:
-        src: "{{ root_dir }}/files/var/local/claude-yolo/lib/common.bash"
-        dest: /var/local/claude-yolo/lib/common.bash
+        src: "{{ item }}"
+        dest: "/var/local/claude-yolo/lib/{{ item | basename }}"
         owner: root
         group: root
         mode: '0755'
+      loop:
+        - "{{ root_dir }}/files/var/local/claude-yolo/lib/common.bash"
+        - "{{ root_dir }}/files/var/local/claude-yolo/lib/ui-helpers.bash"
+        - "{{ root_dir }}/files/var/local/claude-yolo/lib/ssh-handling.bash"
+        - "{{ root_dir }}/files/var/local/claude-yolo/lib/token-management.bash"
+        - "{{ root_dir }}/files/var/local/claude-yolo/lib/network-management.bash"
+        - "{{ root_dir }}/files/var/local/claude-yolo/lib/dockerfile-custom.bash"
       tags:
         - scripts
         - library
@@ -251,3 +259,241 @@
           - ""
           - "Reload your shell to enable the 'ccy' alias:"
           - "  source ~/.bashrc"
+
+    # =========================================================================
+    # Browser Mode Installation (Optional - controlled by install_browser_mode)
+    # =========================================================================
+
+    - name: Create Claude Browser Base Directory
+      become: true
+      file:
+        path: /opt/claude-browser
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      when: install_browser_mode
+      tags:
+        - browser
+
+    - name: Copy Dockerfile for Browser Container
+      become: true
+      copy:
+        src: "{{ root_dir }}/files/var/local/claude-yolo/Dockerfile.browser"
+        dest: /opt/claude-browser/Dockerfile
+        owner: root
+        group: root
+        mode: '0644'
+      when: install_browser_mode
+      tags:
+        - browser
+        - dockerfile
+
+    - name: Copy Browser Entrypoint Script
+      become: true
+      copy:
+        src: "{{ root_dir }}/files/var/local/claude-yolo/entrypoint-browser.sh"
+        dest: /opt/claude-browser/entrypoint.sh
+        owner: root
+        group: root
+        mode: '0755'
+      when: install_browser_mode
+      tags:
+        - browser
+        - entrypoint
+
+    - name: Create chrome-ws Directory
+      become: true
+      file:
+        path: /opt/claude-browser/chrome-ws
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      when: install_browser_mode
+      tags:
+        - browser
+
+    - name: Copy chrome-ws CLI Tool
+      become: true
+      copy:
+        src: "{{ root_dir }}/files/opt/claude-browser/chrome-ws/chrome-ws"
+        dest: /opt/claude-browser/chrome-ws/chrome-ws
+        owner: root
+        group: root
+        mode: '0755'
+      when: install_browser_mode
+      tags:
+        - browser
+        - chrome-ws
+
+    - name: Copy chrome-ws Library
+      become: true
+      copy:
+        src: "{{ root_dir }}/files/opt/claude-browser/chrome-ws/chrome-ws-lib.js"
+        dest: /opt/claude-browser/chrome-ws/chrome-ws-lib.js
+        owner: root
+        group: root
+        mode: '0644'
+      when: install_browser_mode
+      tags:
+        - browser
+        - chrome-ws
+
+    - name: Create Skills Directory
+      become: true
+      file:
+        path: /opt/claude-browser/skills/browsing
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      when: install_browser_mode
+      tags:
+        - browser
+
+    - name: Copy chrome-ws Skills Documentation
+      become: true
+      copy:
+        src: "{{ item }}"
+        dest: /opt/claude-browser/skills/browsing/
+        owner: root
+        group: root
+        mode: '0644'
+      loop:
+        - "{{ root_dir }}/files/opt/claude-browser/skills/browsing/SKILL.md"
+        - "{{ root_dir }}/files/opt/claude-browser/skills/browsing/COMMANDLINE-USAGE.md"
+        - "{{ root_dir }}/files/opt/claude-browser/skills/browsing/EXAMPLES.md"
+      when: install_browser_mode
+      tags:
+        - browser
+        - skills
+
+    - name: Copy Browser Startup Info File
+      become: true
+      copy:
+        src: "{{ root_dir }}/files/opt/claude-browser/ccb-startup-info.txt"
+        dest: /opt/claude-browser/ccb-startup-info.txt
+        owner: root
+        group: root
+        mode: '0644'
+      when: install_browser_mode
+      tags:
+        - browser
+
+    - name: Copy Browser Wrapper Script
+      become: true
+      copy:
+        src: "{{ root_dir }}/files/var/local/claude-yolo/claude-browser"
+        dest: /var/local/claude-yolo/claude-browser
+        owner: root
+        group: root
+        mode: '0755'
+      when: install_browser_mode
+      tags:
+        - browser
+        - wrapper
+
+    - name: Deploy Bashrc Include for ccb Alias (Root)
+      become: true
+      copy:
+        src: "{{ root_dir }}/files/home/bashrc-includes/claude-browser.bash"
+        dest: /root/.bashrc-includes/claude-browser.bash
+        owner: root
+        group: root
+        mode: '0644'
+      when: install_browser_mode
+      tags:
+        - browser
+
+    - name: Deploy Bashrc Include for ccb Alias (User)
+      copy:
+        src: "{{ root_dir }}/files/home/bashrc-includes/claude-browser.bash"
+        dest: /home/{{ user_login }}/.bashrc-includes/claude-browser.bash
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+      when: install_browser_mode
+      tags:
+        - browser
+
+    - name: Create CCB Root Directory
+      file:
+        path: /home/{{ user_login }}/.claude-tokens/ccb
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0700'
+      when: install_browser_mode
+      tags:
+        - browser
+
+    - name: Create CCB Projects Directory
+      file:
+        path: /home/{{ user_login }}/.claude-tokens/ccb/projects
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0700'
+      when: install_browser_mode
+      tags:
+        - browser
+
+    - name: Calculate Browser Dockerfile Hash for Build
+      shell: md5sum /opt/claude-browser/Dockerfile | cut -d' ' -f1 | cut -c1-16
+      register: browser_dockerfile_hash
+      changed_when: false
+      when: install_browser_mode
+      tags:
+        - browser
+
+    - name: Build Claude Browser Container Image with Hash
+      command: >
+        docker build
+        --build-arg DOCKERFILE_HASH={{ browser_dockerfile_hash.stdout }}
+        -t claude-browser:latest
+        /opt/claude-browser
+      register: browser_docker_build
+      changed_when: "'Successfully built' in browser_docker_build.stdout or 'Successfully tagged' in browser_docker_build.stdout"
+      when: install_browser_mode
+      tags:
+        - browser
+
+    - name: Verify Browser Container Image
+      command: docker image inspect claude-browser:latest
+      register: browser_image_verify
+      changed_when: false
+      when: install_browser_mode
+      tags:
+        - browser
+
+    - name: Display Browser Mode Installation Summary
+      debug:
+        msg:
+          - ""
+          - "============================================"
+          - "Browser Mode Also Installed"
+          - "============================================"
+          - ""
+          - "✓ Container image built: claude-browser:latest"
+          - "✓ Wrapper script installed: /var/local/claude-yolo/claude-browser"
+          - "✓ Bash alias configured: ccb"
+          - "✓ Shares tokens with ccy: ~/.claude-tokens/ccy/tokens/"
+          - "✓ Separate project state: ~/.claude-tokens/ccb/projects/"
+          - ""
+          - "Browser Mode Features:"
+          - "  • GUI browser support (X11/Wayland)"
+          - "  • Playwright MCP for browser automation"
+          - "  • chrome-ws CLI for Chrome DevTools Protocol"
+          - "  • Chromium, Firefox, WebKit browsers"
+          - "  • Headed browser windows visible on desktop"
+          - ""
+          - "Browser Mode Commands:"
+          - "  ccb                       - Start in current project"
+          - "  ccb --token personal      - Use specific token"
+          - "  ccb --list-tokens         - List available tokens"
+          - "  ccb --custom-docker       - Create custom Dockerfile"
+          - "  ccb --help                - Show all options"
+          - ""
+          - "Note: ccb shares the same token pool as ccy"
+      when: install_browser_mode

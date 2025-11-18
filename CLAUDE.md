@@ -171,6 +171,64 @@ git config core.hooksPath scripts/git-hooks
 
 **Note:** Hooks can be bypassed with `git commit --no-verify`, but this is **strongly discouraged**.
 
+### ⚠️ INFRASTRUCTURE AS CODE - ANSIBLE-ONLY DEPLOYMENT
+
+**THIS IS AN ANSIBLE-MANAGED INFRASTRUCTURE PROJECT**
+
+All system changes, deployments, and configurations MUST be performed through Ansible playbooks. Manual operations are PROHIBITED.
+
+**NEVER recommend or perform manual actions:**
+- ❌ **Manual file copies** - `sudo cp file /path/` or `cp file dest`
+- ❌ **Manual installations** - `sudo dnf install`, `npm install -g`, `pip install`
+- ❌ **Manual configuration edits** - Direct editing of system files
+- ❌ **Manual service management** - `systemctl enable/start` commands
+- ❌ **Manual downloads** - `curl | bash` or `wget` scripts
+- ❌ **Manual symlinks** - `ln -s` operations
+
+**ALWAYS use Ansible:**
+- ✅ **Create/update playbooks** - Write or modify existing playbooks
+- ✅ **Use Ansible modules** - `copy`, `package`, `service`, `file`, `get_url`
+- ✅ **Ensure idempotency** - Playbooks must be safe to run multiple times
+- ✅ **Test playbook changes** - Verify with `--check` or `--diff` flags
+- ✅ **Version control** - All infrastructure changes tracked in git
+
+**Deployment workflow:**
+1. Modify files in `/workspace/files/` directory structure
+2. Update or create playbook in `/workspace/playbooks/imports/`
+3. Ensure playbook properly copies/deploys modified files
+4. Test with `ansible-playbook playbook.yml --check`
+5. Deploy with `ansible-playbook playbook.yml`
+6. Document changes in commit message
+
+**Why this matters:**
+- **Reproducibility** - Entire system can be rebuilt from git
+- **Auditability** - All changes tracked in version control
+- **Consistency** - Same process works on fresh install or updates
+- **Idempotency** - Safe to re-run without breaking existing setup
+- **Documentation** - Playbooks serve as executable documentation
+
+**Example - WRONG approach:**
+```bash
+# ❌ BAD - Manual deployment
+sudo cp files/var/local/claude-yolo/claude-yolo /var/local/claude-yolo/
+sudo chmod +x /var/local/claude-yolo/claude-yolo
+```
+
+**Example - CORRECT approach:**
+```bash
+# ✅ GOOD - Ansible deployment
+ansible-playbook playbooks/imports/optional/common/play-install-claude-yolo.yml
+```
+
+**If you catch yourself or the user suggesting manual steps:**
+1. STOP immediately
+2. Identify the Ansible playbook that should handle this
+3. Verify the playbook will correctly deploy the changes
+4. If playbook is missing/incomplete, UPDATE THE PLAYBOOK FIRST
+5. Then recommend running the playbook
+
+This is a hard rule with NO exceptions.
+
 ### Core Principles
 All code in this project must adhere to these fundamental principles:
 

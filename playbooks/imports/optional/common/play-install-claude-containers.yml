@@ -1,13 +1,10 @@
 #!/usr/bin/env ansible-playbook
 # Unified installation for both CCY (General YOLO) and CCB (Browser Mode)
-# This playbook imports both individual playbooks in the correct order
-# Maintains DRY principle - single source of truth for each component
+# This is now a simple alias for play-install-claude-yolo.yml which installs both by default
+# Use -e install_browser_mode=false to skip browser mode
 
-- name: Install CCY (General YOLO Mode)
+- name: Install CCY and CCB (Unified Playbook)
   import_playbook: play-install-claude-yolo.yml
-
-- name: Install CCB (Browser Mode)
-  import_playbook: play-install-claude-browser.yml
 
 - hosts: desktop
   name: Claude Code Containers - Installation Summary

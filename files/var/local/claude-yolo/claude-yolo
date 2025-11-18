@@ -3,13 +3,13 @@
 # Runs Claude Code with --dangerously-skip-permissions in isolated Docker container
 # IMPORTANT: Uses separate token storage from desktop Claude Code to prevent OAuth conflicts
 #
-# Version: 1.5.1
+# Version: 1.5.2
 #
 # IMPORTANT: When modifying this script, ALWAYS increment CCY_VERSION!
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="1.5.1"
+CCY_VERSION="1.5.2"
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -73,6 +73,7 @@ Wrapper Options:
   --no-network           Skip network auto-detection
   --connect [NETWORK]    Connect running yolo container to Docker network
   --custom               Create/edit custom project Dockerfile interactively
+  --custom-docker        AI-guided Dockerfile creation and customization
   --prompt "text"        Start Claude Code with a preseeded prompt
   --headless             Run in headless mode (requires --prompt)
   --help, -h             Show this help message
@@ -104,11 +105,19 @@ Examples:
   ccy --prompt "fix the bug"    # Start interactive session with prompt
   ccy --headless --prompt "run tests"  # Run in headless mode
 
-Custom Dockerfile (Claude-assisted):
-  ccy --custom                  # Interactive workflow
+Custom Dockerfile (Quick template-based):
+  ccy --custom                  # Template selection workflow
   > Select template (ansible/golang/project-template)
   > Choose: Claude customization, manual edit, or use as-is
-  > If Claude: scans project, asks what you need, edits Dockerfile
+  > Quick setup for known tech stacks
+
+Custom Dockerfile (AI-guided planning):
+  ccy --custom-docker           # Comprehensive workflow with planning
+  > Claude enters planning mode
+  > Investigates project structure (package.json, go.mod, etc.)
+  > Asks questions about your needs
+  > Proposes features for approval
+  > Creates/updates Dockerfile with validation
   > Exit, run 'ccy --rebuild', then 'ccy'
 
 Network Management (run in separate terminal while ccy is running):
@@ -360,6 +369,8 @@ for arg in "$@"; do
         NEXT_IS_CONNECT=true
     elif [ "$arg" = "--custom" ]; then
         CUSTOM_MODE=true
+    elif [ "$arg" = "--custom-docker" ]; then
+        CUSTOM_DOCKER_MODE=true
     else
         CLAUDE_ARGS+=("$arg")
     fi
@@ -402,6 +413,12 @@ fi
 # Handle custom mode (doesn't need SSH/GH setup)
 if [ "$CUSTOM_MODE" = true ]; then
     custom_dockerfile "$0" ".claude/ccy" "ccy"
+    exit 0
+fi
+
+# Handle custom-docker mode (AI-guided Dockerfile creation)
+if [ "$CUSTOM_DOCKER_MODE" = true ]; then
+    create_dockerfile_guided "$0" ".claude/ccy" "ccy"
     exit 0
 fi
 
@@ -1221,6 +1238,21 @@ elif [ ${#CLAUDE_ARGS[@]} -eq 0 ]; then
     fi
     # Read startup info and pass to Claude via --append-system-prompt
     STARTUP_INFO=$(cat "$STARTUP_INFO_FILE")
+
+    # Check if project has a custom Dockerfile - if not, add a friendly tip
+    if [ ! -f ".claude/ccy/Dockerfile" ]; then
+        STARTUP_INFO+="
+
+💡 TIP: This project doesn't have a custom Dockerfile yet!
+
+You can create one to add project-specific tools (Python, Go, Rust, databases, cloud CLIs, etc.):
+  • Quick setup: Exit and run 'ccy --custom' (template-based, fast)
+  • AI-guided: Exit and run 'ccy --custom-docker' (investigates project, asks questions, proposes features)
+
+Custom Dockerfiles get cached per-project and rebuild automatically when changed.
+More info: https://github.com/LongTermSupport/fedora-desktop/blob/main/docs/containerization.md#custom-dockerfiles"
+    fi
+
     CLAUDE_CMD_ARGS+=("--append-system-prompt" "$STARTUP_INFO")
 fi
 
