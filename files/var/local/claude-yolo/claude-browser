@@ -4,14 +4,14 @@
 # Runs Claude Code with --dangerously-skip-permissions in isolated Docker container
 # BROWSER MODE: Shares token storage with ccy to avoid OAuth conflicts
 #
-# Version: 1.1.2
+# Version: 1.1.3
 #
 # BROWSER MODE: Based on ccy but adds GUI support for browser automation
 # IMPORTANT: When modifying this script, ALWAYS increment CCB_VERSION!
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCB_VERSION="1.1.2"
+CCB_VERSION="1.1.3"
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1249,9 +1249,10 @@ elif [ ${#CLAUDE_ARGS[@]} -eq 0 ]; then
     STARTUP_INFO=$(cat "$STARTUP_INFO_FILE")
 
     # Show positive message about custom Dockerfile status
+    DOCKERFILE_MESSAGE=""
     if [ -f ".claude/ccb/Dockerfile" ]; then
         # Custom Dockerfile exists - show confirmation
-        STARTUP_INFO+="
+        DOCKERFILE_MESSAGE="
 
 ✅ Custom Dockerfile detected: .claude/ccb/Dockerfile
 
@@ -1261,7 +1262,7 @@ The container will automatically rebuild if the Dockerfile changes.
 To modify: 'ccb --custom-docker' (AI-guided) or 'ccb --custom' (quick edit)"
     else
         # No custom Dockerfile - show helpful tip
-        STARTUP_INFO+="
+        DOCKERFILE_MESSAGE="
 
 💡 TIP: This project doesn't have a custom Dockerfile yet!
 
@@ -1272,6 +1273,13 @@ You can create one to add project-specific tools (Python, Go, Rust, databases, c
 Custom Dockerfiles get cached per-project and rebuild automatically when changed.
 More info: https://github.com/LongTermSupport/fedora-desktop/blob/main/docs/containerization.md#custom-dockerfiles"
     fi
+
+    # Print to terminal so user sees it
+    echo "$DOCKERFILE_MESSAGE"
+    echo ""
+
+    # Also add to system prompt for Claude
+    STARTUP_INFO+="$DOCKERFILE_MESSAGE"
 
     CLAUDE_CMD_ARGS+=("--append-system-prompt" "$STARTUP_INFO")
 fi
