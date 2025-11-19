@@ -3,13 +3,13 @@
 # Runs Claude Code with --dangerously-skip-permissions in isolated Docker container
 # IMPORTANT: Uses separate token storage from desktop Claude Code to prevent OAuth conflicts
 #
-# Version: 1.5.2
+# Version: 1.5.3
 #
 # IMPORTANT: When modifying this script, ALWAYS increment CCY_VERSION!
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="1.5.2"
+CCY_VERSION="1.5.3"
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1239,8 +1239,19 @@ elif [ ${#CLAUDE_ARGS[@]} -eq 0 ]; then
     # Read startup info and pass to Claude via --append-system-prompt
     STARTUP_INFO=$(cat "$STARTUP_INFO_FILE")
 
-    # Check if project has a custom Dockerfile - if not, add a friendly tip
-    if [ ! -f ".claude/ccy/Dockerfile" ]; then
+    # Show positive message about custom Dockerfile status
+    if [ -f ".claude/ccy/Dockerfile" ]; then
+        # Custom Dockerfile exists - show confirmation
+        STARTUP_INFO+="
+
+✅ Custom Dockerfile detected: .claude/ccy/Dockerfile
+
+This project uses a custom container image with project-specific tools.
+The container will automatically rebuild if the Dockerfile changes.
+
+To modify: 'ccy --custom-docker' (AI-guided) or 'ccy --custom' (quick edit)"
+    else
+        # No custom Dockerfile - show helpful tip
         STARTUP_INFO+="
 
 💡 TIP: This project doesn't have a custom Dockerfile yet!
