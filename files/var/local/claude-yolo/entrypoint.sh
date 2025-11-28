@@ -100,14 +100,5 @@ fi
 # Set sandbox mode to bypass root detection
 export IS_SANDBOX=1
 
-# Update Claude Code to latest version on every launch
-echo "Checking for Claude Code updates..."
-if npm update -g @anthropic-ai/claude-code 2>&1 | grep -v "npm WARN"; then
-    echo "✓ Claude Code is up to date"
-else
-    echo "✓ Claude Code updated successfully"
-fi
-echo ""
-
 # Execute the command
 exec "$@"
