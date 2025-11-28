@@ -11,7 +11,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCB_VERSION="1.1.3"
+CCB_VERSION="1.1.4"
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -57,6 +57,7 @@ CCY_ROOT="$HOME/.claude-tokens/ccy"
 TOKEN_DIR="$CCY_ROOT/tokens"  # BROWSER MODE: Share tokens with ccy (same OAuth tokens)
 CCB_ROOT="$HOME/.claude-tokens/ccb"
 PROJECT_DIR="$CCB_ROOT/projects"  # BROWSER MODE: Separate project state (MCP configs, conversations)
+VERSION_CHECK_CACHE="$HOME/.cache/claude-browser-version-check"
 
 # Show help if requested
 if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
@@ -90,7 +91,7 @@ Features:
   • Long-lived OAuth tokens (sk-ant-oat01-...) - same as GitHub Actions
   • Named tokens with expiry tracking for multiple Claude accounts
   • Automatic expiry checking - forces new token when expired
-  • Auto-updates Claude Code on every launch
+  • Checks for Claude Code updates once per day (cached)
   • Mounts current directory as /workspace
   • Files created have correct host user ownership
   • Project-specific container extensions via .claude/ccb/Dockerfile
@@ -653,8 +654,64 @@ if [ "$DOCKER_CONTEXT" != "rootless" ]; then
     exit 1
 fi
 
+# Function to check for Claude Code updates (cached daily)
+check_claude_code_updates() {
+    local image_name="$1"
+    local cache_file="$VERSION_CHECK_CACHE"
+    local cache_duration=$((24 * 60 * 60))  # 24 hours in seconds
+
+    # Check if cache exists and is fresh (less than 24 hours old)
+    if [ -f "$cache_file" ]; then
+        local cache_age=$(( $(date +%s) - $(stat -c %Y "$cache_file" 2>/dev/null || echo 0) ))
+        if [ "$cache_age" -lt "$cache_duration" ]; then
+            # Cache is fresh, skip check
+            return 0
+        fi
+    fi
+
+    # Cache is stale or doesn't exist - perform check
+    echo "Checking for Claude Code updates (daily check)..."
+
+    # Get version from container
+    local container_version=$(docker run --rm --entrypoint claude "$image_name" --version 2>/dev/null | grep -oP '(?<=claude-code/)\d+\.\d+\.\d+' || echo "unknown")
+
+    # Get latest version from npm (with timeout)
+    local latest_version=$(timeout 5 npm view @anthropic-ai/claude-code version 2>/dev/null || echo "unknown")
+
+    if [ "$container_version" = "unknown" ] || [ "$latest_version" = "unknown" ]; then
+        # Can't determine versions, cache failure and skip notification
+        mkdir -p "$(dirname "$cache_file")"
+        touch "$cache_file"
+        return 0
+    fi
+
+    # Cache the check result
+    mkdir -p "$(dirname "$cache_file")"
+    echo "container=$container_version,latest=$latest_version,checked=$(date +%s)" > "$cache_file"
+
+    # Compare versions and notify if outdated
+    if [ "$container_version" != "$latest_version" ]; then
+        echo ""
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo "📦 Claude Code Update Available"
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo ""
+        echo "  Current version:  $container_version"
+        echo "  Latest version:   $latest_version"
+        echo ""
+        echo "To update, rebuild the container:"
+        echo "  ccb --rebuild"
+        echo ""
+        echo "This check runs once per day."
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo ""
+    else
+        echo "✓ Claude Code is up to date ($container_version)"
+    fi
+}
+
 # Ensure cache directory exists
-mkdir -p "$(dirname "$VERSION_CACHE")"
+mkdir -p "$(dirname "$VERSION_CHECK_CACHE")"
 
 # Force rebuild if --rebuild flag was provided
 if [ "$FORCE_REBUILD" = true ]; then
@@ -666,7 +723,7 @@ if [ "$FORCE_REBUILD" = true ]; then
     fi
     build_container_with_hash "$IMAGE_NAME" "$DOCKERFILE_DIR" "--no-cache"
     # Clear version cache to force Claude Code update check
-    rm -f "$VERSION_CACHE"
+    rm -f "$VERSION_CHECK_CACHE"
     echo "✓ Container image rebuilt successfully"
 fi
 
@@ -687,11 +744,12 @@ if ! validate_container_version "$IMAGE_NAME" "$DOCKERFILE_DIR/Dockerfile" "$REQ
     # Version/hash mismatch - rebuild required
     build_container_with_hash "$IMAGE_NAME" "$DOCKERFILE_DIR"
     echo "✓ Container image rebuilt with version $REQUIRED_CONTAINER_VERSION"
+    # Clear version cache so we check for updates after rebuild
+    rm -f "$VERSION_CHECK_CACHE"
 fi
 
-# Always check for Claude Code updates on every launch
-echo "Checking for Claude Code updates..."
-docker run --rm --entrypoint sh "$IMAGE_NAME" -c "npm update -g @anthropic-ai/claude-code 2>&1" | grep -v "npm WARN" || true
+# Check for Claude Code updates (cached daily)
+check_claude_code_updates "$IMAGE_NAME"
 
 # Function to find next available container name with suffix
 # BROWSER MODE: Use _browser suffix instead of _yolo
