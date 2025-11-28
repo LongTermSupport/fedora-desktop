@@ -48,8 +48,6 @@ check_git_repo || exit 1
 
 IMAGE_NAME="claude-yolo:latest"
 DOCKERFILE_DIR="/opt/claude-yolo"
-VERSION_CACHE="$HOME/.cache/claude-yolo-version"
-CACHE_DURATION=3600  # 1 hour in seconds
 CCY_ROOT="$HOME/.claude-tokens/ccy"
 TOKEN_DIR="$CCY_ROOT/tokens"
 PROJECT_DIR="$CCY_ROOT/projects"
@@ -85,7 +83,7 @@ Features:
   • Long-lived OAuth tokens (sk-ant-oat01-...) - same as GitHub Actions
   • Named tokens with expiry tracking for multiple Claude accounts
   • Automatic expiry checking - forces new token when expired
-  • Auto-updates Claude Code (cached for 1 hour)
+  • Auto-updates Claude Code on every launch
   • Mounts current directory as /workspace
   • Files created have correct host user ownership
   • Project-specific container extensions via .claude/ccy/Dockerfile
@@ -683,25 +681,9 @@ if ! validate_container_version "$IMAGE_NAME" "$DOCKERFILE_DIR/Dockerfile" "$REQ
     echo "✓ Container image rebuilt with version $REQUIRED_CONTAINER_VERSION"
 fi
 
-# Check if Claude Code needs updating (with caching to keep it fast)
-should_update_claude=false
-if [ -f "$VERSION_CACHE" ]; then
-    # Check cache age
-    cache_age=$(($(date +%s) - $(stat -c %Y "$VERSION_CACHE" 2>/dev/null || echo 0)))
-    if [ $cache_age -gt $CACHE_DURATION ]; then
-        should_update_claude=true
-    fi
-else
-    should_update_claude=true
-fi
-
-# Update Claude Code in container if needed
-if [ "$should_update_claude" = true ]; then
-    echo "Checking for Claude Code updates..."
-    docker run --rm --entrypoint sh "$IMAGE_NAME" -c "npm update -g @anthropic-ai/claude-code 2>&1" | grep -v "npm WARN" || true
-    # Update cache timestamp
-    touch "$VERSION_CACHE"
-fi
+# Always check for Claude Code updates on every launch
+echo "Checking for Claude Code updates..."
+docker run --rm --entrypoint sh "$IMAGE_NAME" -c "npm update -g @anthropic-ai/claude-code 2>&1" | grep -v "npm WARN" || true
 
 # Function to find next available container name with suffix
 # Note: get_next_container_name is now in lib/common.bash
@@ -716,11 +698,14 @@ PROJECT_BASE_VERSION_FILE="$HOME/.cache/claude-yolo-${PROJECT_NAME}-base-version
 if [ -f "$PROJECT_DOCKERFILE" ]; then
     echo ""
     echo "════════════════════════════════════════════════════════════════════════════════"
-    echo "Project-Specific Container Detected"
+    echo "✅ Custom Dockerfile detected: .claude/ccy/Dockerfile"
     echo "════════════════════════════════════════════════════════════════════════════════"
     echo ""
-    echo "Found: .claude/ccy/Dockerfile"
+    echo "This project uses a custom container image with project-specific tools."
+    echo "The container will automatically rebuild if the Dockerfile changes."
+    echo ""
     echo "Project image: $PROJECT_IMAGE_NAME"
+    echo "To modify: 'ccy --custom-docker' (AI-guided) or 'ccy --custom' (quick edit)"
     echo ""
 
     # Calculate hash of project Dockerfile (md5sum, 16 char - consistent with base)
@@ -1201,13 +1186,6 @@ fi
 # Build SSH keys string for config
 SSH_KEYS_STR="${SSH_KEYS[*]}"
 
-# Show quick launch command preview
-if [[ "$CONFIG_LOADED" = false ]]; then
-    # Only show if this was an interactive launch (not quick launch)
-    echo ""
-    show_quick_launch_command "ccy" "$TOKEN_NAME_FOR_CONFIG" "${SSH_KEYS[@]}" "$AUTO_CONNECT_NETWORK"
-fi
-
 # Save configuration for next launch
 save_launch_config "$PROJECT_CLAUDE_DIR" "$TOKEN_NAME_FOR_CONFIG" "$SSH_KEYS_STR" "$AUTO_CONNECT_NETWORK"
 echo "✓ Configuration saved for quick launch next time"
@@ -1239,11 +1217,24 @@ elif [ ${#CLAUDE_ARGS[@]} -eq 0 ]; then
     # Read startup info and pass to Claude via --append-system-prompt
     STARTUP_INFO=$(cat "$STARTUP_INFO_FILE")
 
-    # Show positive message about custom Dockerfile status
-    DOCKERFILE_MESSAGE=""
+    # Show tip about custom Dockerfile if not using one (custom Dockerfile info shown earlier in header)
+    if [ ! -f ".claude/ccy/Dockerfile" ]; then
+        # No custom Dockerfile - show helpful tip
+        echo "
+💡 TIP: This project doesn't have a custom Dockerfile yet!
+
+You can create one to add project-specific tools (Python, Go, Rust, databases, cloud CLIs, etc.):
+  • Quick setup: Exit and run 'ccy --custom' (template-based, fast)
+  • AI-guided: Exit and run 'ccy --custom-docker' (investigates project, asks questions, proposes features)
+
+Custom Dockerfiles get cached per-project and rebuild automatically when changed.
+More info: https://github.com/LongTermSupport/fedora-desktop/blob/main/docs/containerization.md#custom-dockerfiles"
+    fi
+    echo ""
+
+    # Also add Dockerfile info to system prompt for Claude
     if [ -f ".claude/ccy/Dockerfile" ]; then
-        # Custom Dockerfile exists - show confirmation
-        DOCKERFILE_MESSAGE="
+        STARTUP_INFO+="
 
 ✅ Custom Dockerfile detected: .claude/ccy/Dockerfile
 
@@ -1252,8 +1243,7 @@ The container will automatically rebuild if the Dockerfile changes.
 
 To modify: 'ccy --custom-docker' (AI-guided) or 'ccy --custom' (quick edit)"
     else
-        # No custom Dockerfile - show helpful tip
-        DOCKERFILE_MESSAGE="
+        STARTUP_INFO+="
 
 💡 TIP: This project doesn't have a custom Dockerfile yet!
 
@@ -1264,13 +1254,6 @@ You can create one to add project-specific tools (Python, Go, Rust, databases, c
 Custom Dockerfiles get cached per-project and rebuild automatically when changed.
 More info: https://github.com/LongTermSupport/fedora-desktop/blob/main/docs/containerization.md#custom-dockerfiles"
     fi
-
-    # Print to terminal so user sees it
-    echo "$DOCKERFILE_MESSAGE"
-    echo ""
-
-    # Also add to system prompt for Claude
-    STARTUP_INFO+="$DOCKERFILE_MESSAGE"
 
     CLAUDE_CMD_ARGS+=("--append-system-prompt" "$STARTUP_INFO")
 fi

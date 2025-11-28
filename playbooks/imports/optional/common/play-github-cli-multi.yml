@@ -372,6 +372,49 @@
           when: auth_assertions.results | selectattr('failed', 'defined') | selectattr('failed') | list | length > 0
       when: github_accounts_configured
 
+    # GIT ACCOUNT HELPER SETUP
+    - block:
+        - name: Create ~/.local/bin directory
+          file:
+            path: "/home/{{ user_login }}/.local/bin"
+            state: directory
+            owner: "{{ user_login }}"
+            group: "{{ user_login }}"
+            mode: '0755'
+
+        - name: Deploy git-account-helper from template
+          template:
+            src: "{{ root_dir }}/files/home/.local/bin/git-account-helper.j2"
+            dest: "/home/{{ user_login }}/.local/bin/git-account-helper"
+            owner: "{{ user_login }}"
+            group: "{{ user_login }}"
+            mode: '0755'
+
+        - name: Create ~/.config/git-account-helper directory
+          file:
+            path: "/home/{{ user_login }}/.config/git-account-helper"
+            state: directory
+            owner: "{{ user_login }}"
+            group: "{{ user_login }}"
+            mode: '0755'
+
+        - name: Generate accounts.json configuration
+          copy:
+            content: "{{ github_accounts | to_json }}"
+            dest: "/home/{{ user_login }}/.config/git-account-helper/accounts.json"
+            owner: "{{ user_login }}"
+            group: "{{ user_login }}"
+            mode: '0644'
+
+        - name: Create cache directory ~/.cache/git-account-helper
+          file:
+            path: "/home/{{ user_login }}/.cache/git-account-helper"
+            state: directory
+            owner: "{{ user_login }}"
+            group: "{{ user_login }}"
+            mode: '0755'
+      when: github_accounts_configured and github_accounts is defined
+
     # SINGLE ACCOUNT - simple setup
     - block:
         - name: Display single account completion
@@ -609,13 +652,13 @@
               function github-clone() {
                   local account="$1"
                   local repo="$2"
-                  
+
                   if [[ -z "$repo" ]]; then
                       echo "Usage: github-clone <account> <repo>"
                       echo "Available accounts: {% for alias in github_accounts.keys() %}{{ alias }}{% if not loop.last %}, {% endif %}{% endfor %}"
                       return 1
                   fi
-                  
+
                   case "$account" in
                       {% for alias, username in github_accounts.items() %}
                       {{ alias }})
@@ -624,6 +667,109 @@
                       {% endfor %}
                       *)
                           echo "Unknown account: $account"
+                          return 1
+                          ;;
+                  esac
+              }
+
+              # ==================== GIT ACCOUNT AUTO-DETECTION ====================
+              # Smart git wrapper that auto-detects account from repository remote
+
+              function git() {
+                  # Detect account from repository
+                  local detected_alias
+                  detected_alias=$(git-account-helper detect 2>/dev/null)
+
+                  if [[ -n "$detected_alias" ]]; then
+                      # Run git with account-specific SSH key
+                      command git -c "core.sshCommand=ssh -i ~/.ssh/github_${detected_alias} -o IdentitiesOnly=yes" "$@"
+                  else
+                      # No account detected, use standard git
+                      command git "$@"
+                  fi
+              }
+
+              # Account-specific git commands (force specific account)
+              {% for alias in github_accounts.keys() %}
+              function git-{{ alias }}() {
+                  command git -c "core.sshCommand=ssh -i ~/.ssh/github_{{ alias }} -o IdentitiesOnly=yes" "$@"
+              }
+              {% endfor %}
+
+              # Show which account would be used for current repository
+              function git-which-account() {
+                  local repo_path="${1:-.}"
+                  echo "Repository: $repo_path"
+                  echo ""
+
+                  local detected_alias
+                  detected_alias=$(git-account-helper detect "$repo_path" 2>&1)
+                  local exit_code=$?
+
+                  if [[ $exit_code -eq 0 ]]; then
+                      local username=$(git-account-helper info "$repo_path" 2>/dev/null | jq -r '.username')
+                      local email=$(git-account-helper info "$repo_path" 2>/dev/null | jq -r '.email')
+                      local ssh_key=$(git-account-helper info "$repo_path" 2>/dev/null | jq -r '.ssh_key')
+
+                      echo "Detected Account: $detected_alias"
+                      echo "GitHub Username:  $username"
+                      echo "Email:            $email"
+                      echo "SSH Key:          $ssh_key"
+                      echo ""
+                      echo "Git commands in this repository will use the $detected_alias account automatically."
+                  else
+                      echo "$detected_alias"
+                      echo ""
+                      echo "Available accounts:"
+                      {% for alias, username in github_accounts.items() %}
+                      echo "  git-{{ alias }} - Use {{ alias }} account ({{ username }})"
+                      {% endfor %}
+                  fi
+              }
+
+              # List all configured git accounts
+              function git-accounts() {
+                  echo "Configured Git Accounts:"
+                  echo "========================"
+                  {% for alias, username in github_accounts.items() %}
+                  echo "  {{ alias }}:"
+                  echo "    Username:  {{ username }}"
+                  echo "    SSH Key:   ~/.ssh/github_{{ alias }}"
+                  echo "    Remote:    git@github.com-{{ alias }}:owner/repo.git"
+                  echo ""
+                  {% endfor %}
+                  echo "Commands:"
+                  echo "  git                    - Auto-detect account from repository"
+                  {% for alias in github_accounts.keys() %}
+                  echo "  git-{{ alias }} <cmd>       - Force {{ alias }} account"
+                  {% endfor %}
+                  echo "  git-which-account      - Show detected account for current repo"
+                  echo "  git-accounts           - Show this help"
+              }
+
+              # Helper for setting up a new repository with specific account
+              function git-init-with-account() {
+                  local account="$1"
+                  local repo="$2"
+
+                  if [[ -z "$account" ]] || [[ -z "$repo" ]]; then
+                      echo "Usage: git-init-with-account <account> <owner/repo>"
+                      echo "Available accounts: {% for alias in github_accounts.keys() %}{{ alias }}{% if not loop.last %}, {% endif %}{% endfor %}"
+                      return 1
+                  fi
+
+                  case "$account" in
+                      {% for alias, username in github_accounts.items() %}
+                      {{ alias }})
+                          git init
+                          git remote add origin "git@github.com-{{ alias }}:${repo}.git"
+                          echo "Repository initialized with {{ alias }} account"
+                          echo "Remote: git@github.com-{{ alias }}:${repo}.git"
+                          ;;
+                      {% endfor %}
+                      *)
+                          echo "Unknown account: $account"
+                          echo "Available: {% for alias in github_accounts.keys() %}{{ alias }}{% if not loop.last %}, {% endif %}{% endfor %}"
                           return 1
                           ;;
                   esac
@@ -644,7 +790,9 @@
               {% endfor %}
               
               Commands available after reloading shell:
-                gh-status               - Check all GitHub accounts  
+
+              GitHub CLI Commands:
+                gh-status               - Check all GitHub accounts
                 gh-list                 - List configured accounts
                 gh-whoami               - Show current active account
                 gh-switch <alias>       - Switch to specific account
@@ -656,13 +804,30 @@
                 gh-token-{{ alias }}         - Get token for {{ alias }} account
               {% endfor %}
                 gh-update-git-config    - Update git config for current account
-              
+
+              Git Commands (Auto-Detection):
+                git <command>           - Auto-detects account from repository remote
+                git-which-account       - Show which account will be used
+                git-accounts            - List all configured accounts
+              {% for alias in github_accounts.keys() %}
+                git-{{ alias }} <command>    - Force {{ alias }} account for git command
+              {% endfor %}
+                git-init-with-account   - Initialize repo with specific account
+
               Examples:
               {% set first_alias = github_accounts.keys() | first %}
               {% set first_username = github_accounts[first_alias] %}
+
+              GitHub CLI:
                 clone-{{ first_alias }} {{ first_username }}/repo - Clone with {{ first_alias }} account
                 gh-{{ first_alias }} pr list         - List PRs using {{ first_alias }} account
                 remote-{{ first_alias }} user/repo   - Set remote for {{ first_alias }} account
+
+              Git Auto-Detection:
+                git push                - Automatically uses correct account
+                git pull                - Automatically uses correct account
+                git-which-account       - Shows detected account
+                git-{{ first_alias }} push       - Force {{ first_alias }} account
               
               Restart shell or run: source ~/.bashrc
               ========================================================================

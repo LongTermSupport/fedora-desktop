@@ -2,10 +2,14 @@
 - import_playbook: imports/play-AA-preflight-sanity.yml
 - import_playbook: imports/play-basic-configs.yml
 - import_playbook: imports/play-nvm-install.yml
-- import_playbook: imports/play-claude-code.yml
 - import_playbook: imports/play-git-configure-and-tools.yml
+- import_playbook: imports/optional/common/play-github-cli-multi.yml
 - import_playbook: imports/play-git-hooks-security.yml
 - import_playbook: imports/play-lxc-install-config.yml
 - import_playbook: imports/play-ms-fonts.yml
 - import_playbook: imports/play-rpm-fusion.yml
 - import_playbook: imports/play-toolbox-install.yml
+- import_playbook: imports/optional/common/play-docker.yml
+- import_playbook: imports/optional/common/play-python.yml
+- import_playbook: imports/play-claude-code.yml
+- import_playbook: imports/optional/common/play-install-claude-yolo.yml
