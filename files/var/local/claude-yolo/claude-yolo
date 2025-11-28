@@ -681,9 +681,8 @@ if ! validate_container_version "$IMAGE_NAME" "$DOCKERFILE_DIR/Dockerfile" "$REQ
     echo "✓ Container image rebuilt with version $REQUIRED_CONTAINER_VERSION"
 fi
 
-# Always check for Claude Code updates on every launch
-echo "Checking for Claude Code updates..."
-docker run --rm --entrypoint sh "$IMAGE_NAME" -c "npm update -g @anthropic-ai/claude-code 2>&1" | grep -v "npm WARN" || true
+# Note: Claude Code updates now happen inside the container via entrypoint.sh
+# This ensures updates are applied to the actual running container, not a throwaway instance
 
 # Function to find next available container name with suffix
 # Note: get_next_container_name is now in lib/common.bash
