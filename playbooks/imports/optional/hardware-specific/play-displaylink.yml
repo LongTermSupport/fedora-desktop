@@ -6,8 +6,8 @@
   vars:
     root_dir: "{{ inventory_dir }}/../../"
     # Version configuration
-    displaylink_version: "v6.1.1-1"
-    evdi_version: "1.14.10"
+    displaylink_version: "v6.1.1-2"
+    evdi_version: "1.14.11"
     # Set to true to bypass version check (use with caution)
     force_install: false
   tasks:
@@ -33,7 +33,7 @@
       when: "'SecureBoot enabled' in secure_boot_state.stdout"
 
     - name: Install prerequisites for DisplayLink
-      package:
+      dnf:
         name:
           - mokutil
           - dkms
