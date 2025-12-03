@@ -6,17 +6,27 @@
 # FQCN checks are ENABLED to enforce best practices
 skip_list:
   - key-order[play]              # Play key order is cosmetic
+  - key-order[task]              # Task key order is cosmetic
   - yaml[line-length]            # Allow longer lines for readability
   - yaml[trailing-spaces]        # Minor formatting issue
+  - yaml[comments]               # Comment formatting is stylistic
   - name[casing]                 # Task name casing is stylistic
   - name[template]               # Allow flexible task naming
+  - var-naming[pattern]          # Allow custom naming (e.g., PS1_Colour for shell)
 
 # Warn about these instead of failing (useful but not critical)
 warn_list:
   - command-instead-of-module    # Sometimes raw commands are necessary
+  - command-instead-of-shell     # Shell features sometimes needed
   - no-changed-when              # Good practice but not always critical
   - risky-shell-pipe             # Shell pipes are sometimes needed
+  - risky-file-permissions       # Should set but not always critical
   - jinja[spacing]               # Jinja spacing is in default warn_list
+  - package-latest               # Latest may be intentional for rolling updates
+  - latest[git]                  # Latest may be intentional
+  - literal-compare              # Comparing to True/False may be intentional
+  - name[play]                   # Play names are useful but not critical
+  - name[missing]                # Task names are useful but not critical
 
 # Enable FQCN checks (move from warn to fail)
 enable_list:

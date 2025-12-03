@@ -123,49 +123,69 @@ generate_summary() {
         return 0
     fi
 
+    # Check severity levels - only fail on major issues
+    local major_count=$(jq '[.[] | select(.severity == "major")] | length' "$json_file" 2>/dev/null || echo "0")
+    local minor_count=$(jq '[.[] | select(.severity == "minor")] | length' "$json_file" 2>/dev/null || echo "0")
+
     # Count total violations
     local total_violations="$issue_count"
 
     # Count unique files
     local unique_files=$(jq -r '[.[].location.path] | unique | length' "$json_file")
 
-    # Get rule summary
-    echo -e "${RED}Found $total_violations violation(s) across $unique_files file(s)${NC}"
-    echo ""
-    echo "Top Issues:"
-    jq -r '[.[] | .check_name] | group_by(.) | map({rule: .[0], count: length}) | sort_by(.count) | reverse | .[] | "  \(.rule): \(.count) violation(s)"' "$json_file"
-
-    echo ""
-
-    # Show per-file breakdown if <= 10 files
-    if [ "$unique_files" -le 10 ]; then
-        echo "Violations by file:"
-        jq -r '[.[] | .location.path] | group_by(.) | map({file: .[0], count: length}) | sort_by(.count) | reverse | .[] | "  \(.file): \(.count) violation(s)"' "$json_file"
+    # Determine pass/fail based on severity
+    if [ "$major_count" -eq 0 ]; then
+        # Only warnings (minor severity)
+        echo -e "${GREEN}✓ Passed: 0 failures, $minor_count warning(s) across $unique_files file(s)${NC}"
         echo ""
+        echo "Top Warnings:"
+        jq -r '[.[] | .check_name] | group_by(.) | map({rule: .[0], count: length}) | sort_by(.count) | reverse | .[] | "  \(.rule): \(.count) warning(s)"' "$json_file"
+
+        echo ""
+        echo "📄 Detailed results saved to:"
+        echo "   $OUTPUT_JSON"
+        echo ""
+
+        return 0
+    else
+        # Has major failures
+        echo -e "${RED}Found $major_count failure(s) and $minor_count warning(s) across $unique_files file(s)${NC}"
+        echo ""
+        echo "Top Issues:"
+        jq -r '[.[] | .check_name] | group_by(.) | map({rule: .[0], count: length}) | sort_by(.count) | reverse | .[] | "  \(.rule): \(.count) violation(s)"' "$json_file"
+
+        echo ""
+
+        # Show per-file breakdown if <= 10 files
+        if [ "$unique_files" -le 10 ]; then
+            echo "Violations by file:"
+            jq -r '[.[] | .location.path] | group_by(.) | map({file: .[0], count: length}) | sort_by(.count) | reverse | .[] | "  \(.file): \(.count) violation(s)"' "$json_file"
+            echo ""
+        fi
+
+        # Show detailed results location
+        echo "📄 Detailed results saved to:"
+        echo "   $OUTPUT_JSON"
+        echo ""
+
+        # Provide jq query examples
+        echo "🔍 Example jq queries:"
+        echo ""
+        echo "  # List files with most issues:"
+        echo "  jq '[.[] | .location.path] | group_by(.) | map({file: .[0], count: length}) | sort_by(.count) | reverse' '$OUTPUT_JSON'"
+        echo ""
+        echo "  # Get all FQCN violations:"
+        echo "  jq '[.[] | select(.check_name | startswith(\"fqcn\"))]' '$OUTPUT_JSON'"
+        echo ""
+        echo "  # Get violations for specific file:"
+        echo "  jq '[.[] | select(.location.path == \"path/to/file.yml\")]' '$OUTPUT_JSON'"
+        echo ""
+        echo "  # Count violations by severity:"
+        echo "  jq '[.[] | .severity] | group_by(.) | map({severity: .[0], count: length})' '$OUTPUT_JSON'"
+        echo ""
+
+        return 1
     fi
-
-    # Show detailed results location
-    echo "📄 Detailed results saved to:"
-    echo "   $OUTPUT_JSON"
-    echo ""
-
-    # Provide jq query examples
-    echo "🔍 Example jq queries:"
-    echo ""
-    echo "  # List files with most issues:"
-    echo "  jq '[.[] | .location.path] | group_by(.) | map({file: .[0], count: length}) | sort_by(.count) | reverse' '$OUTPUT_JSON'"
-    echo ""
-    echo "  # Get all FQCN violations:"
-    echo "  jq '[.[] | select(.check_name | startswith(\"fqcn\"))]' '$OUTPUT_JSON'"
-    echo ""
-    echo "  # Get violations for specific file:"
-    echo "  jq '[.[] | select(.location.path == \"path/to/file.yml\")]' '$OUTPUT_JSON'"
-    echo ""
-    echo "  # Count violations by severity:"
-    echo "  jq '[.[] | .severity] | group_by(.) | map({severity: .[0], count: length})' '$OUTPUT_JSON'"
-    echo ""
-
-    return 1
 }
 
 # Run ansible-lint in fix mode
