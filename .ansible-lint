@@ -16,9 +16,16 @@ warn_list:
   - command-instead-of-module    # Sometimes raw commands are necessary
   - no-changed-when              # Good practice but not always critical
   - risky-shell-pipe             # Shell pipes are sometimes needed
+  - jinja[spacing]               # Jinja spacing is in default warn_list
 
-# Use 'basic' profile - catches serious issues without being too strict
-profile: basic
+# Enable FQCN checks (move from warn to fail)
+enable_list:
+  - fqcn[action-core]
+  - fqcn[action]
+  - fqcn
+
+# Use 'production' profile - comprehensive checks including FQCN
+profile: production
 
 # Exclude directories that shouldn't be linted
 exclude_paths:
