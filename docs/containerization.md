@@ -772,8 +772,34 @@ sudo lxc-attach -n mycontainer -- apt update && apt upgrade -y
 sudo lxc-copy -n mycontainer -N mycontainer-backup
 
 # View all containers
-sudo lxc-ls -f
+lxc-ls  # Uses lxc-bash alias (sudo lxc-ls -f)
 ```
+
+### LXC Shell Helpers (lxc-bash)
+
+This project uses [lxc-bash](https://github.com/LongTermSupport/lxc-bash) for enhanced LXC command-line experience. It's automatically cloned and configured by `play-lxc-install-config.yml`.
+
+**What it provides:**
+
+| Command | Description |
+|---------|-------------|
+| `lxc-ls` | List all containers with status (alias for `sudo lxc-ls -f`) |
+| `lxc-start <name>` | Start a stopped container (with tab completion) |
+| `lxc-stop <name>` | Stop a running container (with tab completion) |
+| `lxc-attach <name>` | Attach to container, auto-starting if stopped |
+| `lxc-shutdown <name>` | Gracefully shutdown container via poweroff |
+| `lxc-info <name>` | Show container info |
+| `lxc-freeze <name>` | Freeze a running container |
+| `lxc-unfreeze <name>` | Unfreeze a frozen container |
+
+**Tab completion:**
+All commands have intelligent tab completion that filters by container state:
+- `lxc-start` only shows STOPPED containers
+- `lxc-stop` only shows RUNNING containers
+- `lxc-freeze` only shows RUNNING containers
+- `lxc-unfreeze` only shows FROZEN containers
+
+**Location:** Cloned to `~/Projects/lxc-bash/` and sourced from `~/.bashrc`
 
 ### Docker Maintenance
 ```bash
