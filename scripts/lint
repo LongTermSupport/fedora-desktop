@@ -1,0 +1,157 @@
+#!/usr/bin/env bash
+# Ansible Lint Wrapper Script
+# Provides consistent linting with JSON output and intelligent summaries
+
+set -e
+
+# Configuration
+LINT_OUTPUT_DIR="./untracked/lint"
+MAX_KEPT_FILES=10
+TIMESTAMP=$(date +"%Y-%m-%dT%H-%M-%S")
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Determine target path
+TARGET_PATH="${1:-playbooks/}"
+
+# Sanitize path for filename (replace / with -)
+SANITIZED_PATH=$(echo "$TARGET_PATH" | sed 's|/|-|g' | sed 's|^-||' | sed 's|-$||')
+if [ -z "$SANITIZED_PATH" ]; then
+    SANITIZED_PATH="playbooks"
+fi
+
+OUTPUT_JSON="${LINT_OUTPUT_DIR}/${TIMESTAMP}-${SANITIZED_PATH}.json"
+
+# Ensure output directory exists
+mkdir -p "$LINT_OUTPUT_DIR"
+
+# Helper function to prune old files
+prune_old_files() {
+    local file_count=$(ls -1 "$LINT_OUTPUT_DIR"/*.json 2>/dev/null | wc -l)
+    if [ "$file_count" -gt "$MAX_KEPT_FILES" ]; then
+        local files_to_delete=$((file_count - MAX_KEPT_FILES))
+        ls -1t "$LINT_OUTPUT_DIR"/*.json | tail -n "$files_to_delete" | xargs rm -f
+        echo -e "${YELLOW}Pruned $files_to_delete old lint report(s)${NC}" >&2
+    fi
+}
+
+# Helper function to print summary header
+print_header() {
+    echo ""
+    echo "========================================="
+    echo "  Ansible Lint Summary"
+    echo "========================================="
+    echo "Target: $TARGET_PATH"
+    echo "Date: $(date '+%Y-%m-%d %H:%M:%S')"
+    echo "========================================="
+    echo ""
+}
+
+# Helper function to generate terse summary
+generate_summary() {
+    local json_file="$1"
+
+    # Check if JSON file is empty or has no issues
+    local issue_count=$(jq 'length' "$json_file" 2>/dev/null || echo "0")
+
+    if [ "$issue_count" -eq 0 ]; then
+        echo -e "${GREEN}✓ No ansible-lint violations found!${NC}"
+        return 0
+    fi
+
+    # Count total violations
+    local total_violations="$issue_count"
+
+    # Count unique files
+    local unique_files=$(jq -r '[.[].location.path] | unique | length' "$json_file")
+
+    # Get rule summary
+    echo -e "${RED}Found $total_violations violation(s) across $unique_files file(s)${NC}"
+    echo ""
+    echo "Top Issues:"
+    jq -r '[.[] | .check_name] | group_by(.) | map({rule: .[0], count: length}) | sort_by(.count) | reverse | .[] | "  \(.rule): \(.count) violation(s)"' "$json_file"
+
+    echo ""
+
+    # Show per-file breakdown if <= 10 files
+    if [ "$unique_files" -le 10 ]; then
+        echo "Violations by file:"
+        jq -r '[.[] | .location.path] | group_by(.) | map({file: .[0], count: length}) | sort_by(.count) | reverse | .[] | "  \(.file): \(.count) violation(s)"' "$json_file"
+        echo ""
+    fi
+
+    # Show detailed results location
+    echo "📄 Detailed results saved to:"
+    echo "   $OUTPUT_JSON"
+    echo ""
+
+    # Provide jq query examples
+    echo "🔍 Example jq queries:"
+    echo ""
+    echo "  # List files with most issues:"
+    echo "  jq '[.[] | .location.path] | group_by(.) | map({file: .[0], count: length}) | sort_by(.count) | reverse' '$OUTPUT_JSON'"
+    echo ""
+    echo "  # Get all FQCN violations:"
+    echo "  jq '[.[] | select(.check_name | startswith(\"fqcn\"))]' '$OUTPUT_JSON'"
+    echo ""
+    echo "  # Get violations for specific file:"
+    echo "  jq '[.[] | select(.location.path == \"path/to/file.yml\")]' '$OUTPUT_JSON'"
+    echo ""
+    echo "  # Count violations by severity:"
+    echo "  jq '[.[] | .severity] | group_by(.) | map({severity: .[0], count: length})' '$OUTPUT_JSON'"
+    echo ""
+
+    return 1
+}
+
+# Main execution
+main() {
+    print_header
+
+    # Check if target exists
+    if [ ! -e "$TARGET_PATH" ]; then
+        echo -e "${RED}Error: Target path '$TARGET_PATH' does not exist${NC}" >&2
+        exit 2
+    fi
+
+    # Run ansible-lint and capture JSON output
+    echo "Running ansible-lint on: $TARGET_PATH"
+    echo ""
+
+    # Run lint, suppress stderr warnings, capture JSON
+    if ansible-lint -f json "$TARGET_PATH" 2>/dev/null > "$OUTPUT_JSON"; then
+        # No violations found
+        lint_exit_code=0
+    else
+        # Violations found or error occurred
+        lint_exit_code=$?
+    fi
+
+    # Check if JSON file is valid
+    if ! jq empty "$OUTPUT_JSON" 2>/dev/null; then
+        echo -e "${RED}Error: Failed to generate valid JSON output${NC}" >&2
+        echo "Ansible-lint may have encountered an error" >&2
+        exit 2
+    fi
+
+    # Generate and display summary
+    if generate_summary "$OUTPUT_JSON"; then
+        summary_exit_code=0
+    else
+        summary_exit_code=1
+    fi
+
+    # Prune old files
+    prune_old_files
+
+    # Exit with appropriate code
+    exit $summary_exit_code
+}
+
+# Run main function
+main "$@"
