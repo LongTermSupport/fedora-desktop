@@ -1,3 +1,4 @@
+---
 #!/usr/bin/env ansible-playbook
 - hosts: desktop
   name: Install Virtualbox
@@ -7,7 +8,7 @@
   tasks:
     - name: Install Virtualbox Dependencies
       become: true
-      dnf:
+      ansible.builtin.dnf:
         name:
           - "@development-tools"
           - kernel-headers
@@ -17,30 +18,29 @@
 
     - name: Install Repo
       become: true
-      get_url:
+      ansible.builtin.get_url:
         url: https://download.virtualbox.org/virtualbox/rpm/fedora/virtualbox.repo
         dest: /etc/yum.repos.d/virtualbox.repo
-        mode: 0644
+        mode: "0644"
 
     - name: Install Virtualbox
       become: true
-      dnf:
+      ansible.builtin.dnf:
         name: VirtualBox
         state: present
       notify: akmod
 
     - name: Add user to vboxusers group
       become: true
-      user:
+      ansible.builtin.user:
         name: "{{ user_login }}"
         groups: vboxusers
-        append: yes
+        append: true
 
   handlers:
     - name: akmod
       become: true
-      shell: akmods --kernels $(uname -r) && systemctl restart vboxdrv.service
-
+      ansible.builtin.shell: akmods --kernels $(uname -r) && systemctl restart vboxdrv.service
 - hosts: desktop
   name: Setup Windows VMs
   vars:
@@ -49,16 +49,16 @@
   tasks:
     - name: Get Embedded Windows Key
       become: true
-      dnf:
+      ansible.builtin.dnf:
         name: acpica-tools
         state: present
       tags: key
 
     - name: Run Commands to get Windows Key
       become: true
-      shell: |
+      ansible.builtin.shell: |
         echo "A few different ways to get windows key"
-        echo 
+        echo
         echo "Windows Key:"
         cat /sys/firmware/acpi/tables/MSDM | grep -aPo '\w{5}-\w{5}-\w{5}-\w{5}-\w{5}'
         echo "Windows Key, with no dashes (for copy/paste):"
@@ -75,25 +75,25 @@
     - name: |
         Show Windows Key - This is the key that is embedded on your machine, if it is present.
         The key is the bit at the end of the outputs below.
-      debug:
+      ansible.builtin.debug:
         msg: "{{ windows_key.stdout_lines }}"
       tags: key
 
     - name: Download Windows 11 VM
-      get_url:
+      ansible.builtin.get_url:
         url: https://aka.ms/windev_VM_virtualbox
         dest: /home/{{ user_login }}/Downloads/Win11VirtualBox.zip
-        mode: 0644
+        mode: "0644"
 
     - name: Unzip Windows 11 VM
-      unarchive:
+      ansible.builtin.unarchive:
         src: /home/{{ user_login }}/Downloads/Win11VirtualBox.zip
         dest: /home/{{ user_login }}/Downloads/
-        remote_src: yes
+        remote_src: true
         creates: "/home/{{ user_login }}/Downloads/WinDev2308Eval.ova"
 
     - name: Import Windows 11 VM
-      shell: |
+      ansible.builtin.shell: |
         set -ex
         echo "Check if VM exists"
         if VBoxManage list vms | grep -q WinDev2308Eval; then

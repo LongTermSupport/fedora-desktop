@@ -1,3 +1,4 @@
+---
 #!/usr/bin/env ansible-playbook
 # Install LXDE - THIS IS NOT TESTED - i just wnated to include installing dunst somewhere so that notifications owork
 - hosts: desktop
@@ -6,8 +7,7 @@
     root_dir: "{{ inventory_dir }}/../../"
   tasks:
     - name: Install LXDE
-      command: dnf group install lxde-desktop
-
+      ansible.builtin.command: dnf group install lxde-desktop
     - name: Install Dunst for notifications
-      dnf:
+      ansible.builtin.dnf:
         name: dunst

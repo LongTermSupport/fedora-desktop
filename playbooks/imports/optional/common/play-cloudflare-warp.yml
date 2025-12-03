@@ -1,3 +1,4 @@
+---
 #!/usr/bin/env ansible-playbook
 - hosts: desktop
   become: true
@@ -6,7 +7,7 @@
   tasks:
     # @see https://pkg.cloudflareclient.com/#rhel
     - name: Install Repo
-      shell: |
+      ansible.builtin.shell: |
         curl -fsSl https://pkg.cloudflareclient.com/cloudflare-warp-ascii.repo | sudo tee /etc/yum.repos.d/cloudflare-warp.repo
         dnf update
       args:
@@ -14,7 +15,7 @@
         creates: /etc/yum.repos.d/cloudflare-warp.repo
 
     - name: Install
-      dnf:
+      ansible.builtin.dnf:
         name: cloudflare-warp
         state: latest
 
@@ -22,16 +23,15 @@
     - name: Configure
       become: true
       become_user: "{{ user_login }}"
-      shell: |
+      ansible.builtin.shell: |
         # untested, hopefully works
         set -ex
         yes | warp-cli --accept-tos registration new
-        warp-cli --accept-tos connect 
+        warp-cli --accept-tos connect
         warp-cli --accept-tos mode doh
         warp-cli --accept-tos dns families malware
-
     - name: Systemd Resolved Config
-      copy:
+      ansible.builtin.copy:
         dest: /etc/systemd/resolved.conf
         content: |
           [Resolve]
@@ -45,8 +45,3 @@
 #        name: systemd-resolved
 #        state: reloaded
 #        enabled: yes
-
-      
-        
-        
-        

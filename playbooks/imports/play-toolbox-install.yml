@@ -1,106 +1,110 @@
+---
 # see https://raw.githubusercontent.com/jaredhocutt/ansible-jetbrains-toolbox/master/tasks/main.yml
 - hosts: desktop
   name: Jetbrains Toolbox Installation
   tasks:
-  - name: Check if JetBrains Toolbox is already installed
-    stat:
-      path: ~/.local/share/JetBrains/Toolbox
-    register: st_jetbrains_toolbox
+    - name: Check if JetBrains Toolbox is already installed
+      ansible.builtin.stat:
+        path: ~/.local/share/JetBrains/Toolbox
+      register: st_jetbrains_toolbox
 
-  - block:
-      - name: Get available releases
-        uri:
-          url: https://data.services.jetbrains.com/products/releases?code=TBA&type=release
-          method: GET
-        register: jetbrains_toolbox_available_releases
+    - block:
+        - name: Get available releases
+          ansible.builtin.uri:
+            url: https://data.services.jetbrains.com/products/releases?code=TBA&type=release
+            method: GET
+          register: jetbrains_toolbox_available_releases
 
-      - name: Get versions
-        set_fact:
-          jetbrains_toolbox_versions: "{{ jetbrains_toolbox_available_releases.json.TBA | map(attribute='version') | list }}"
+        - name: Get versions
+          ansible.builtin.set_fact:
+            jetbrains_toolbox_versions: "{{ jetbrains_toolbox_available_releases.json.TBA | map(attribute='version') | list }}"
 
-      - name: Update version fact if latest is overridden
-        set_fact:
-          jetbrains_toolbox_version: "{{ jetbrains_toolbox_available_releases.json.TBA | sort(attribute='date', reverse=True) | map(attribute='version') | list | first }}"
+        - name: Update version fact if latest is overridden
+          ansible.builtin.set_fact:
+            jetbrains_toolbox_version: "{{ jetbrains_toolbox_available_releases.json.TBA | sort(attribute='date', reverse=True) | map(attribute='version') | list
+              | first }}"
 
-      - name: Check if version is valid
-        assert:
-          that: (jetbrains_toolbox_version | string) in jetbrains_toolbox_versions
-          msg: "The value of jetbrains_toolbox_version ({{ jetbrains_toolbox_version }}) is invalid. Available options are {{ jetbrains_toolbox_versions | join(', ') }}"
+        - name: Check if version is valid
+          ansible.builtin.assert:
+            that: (jetbrains_toolbox_version | string) in jetbrains_toolbox_versions
+            msg: "The value of jetbrains_toolbox_version ({{ jetbrains_toolbox_version }}) is invalid. Available options are {{ jetbrains_toolbox_versions | join(',
+              ') }}"
 
-      - name: Create temporary download directory
-        tempfile:
-          state: directory
-          suffix: ".jetbrains_toolbox_download"
-        register: jetbrains_toolbox_download_dir
-        changed_when: no
+        - name: Create temporary download directory
+          ansible.builtin.tempfile:
+            state: directory
+            suffix: ".jetbrains_toolbox_download"
+          register: jetbrains_toolbox_download_dir
+          changed_when: false
 
-      - name: Download JetBrains Toolbox
-        get_url:
-          url: "{{ jetbrains_toolbox_available_releases.json | json_query(jetbrains_toolbox_download_query) | first }}"
-          dest: "{{ jetbrains_toolbox_download_dir.path }}/jetbrains_toolbox.tar.gz"
-          checksum: "sha256:{{ lookup('url', jetbrains_toolbox_available_releases.json | json_query(jetbrains_toolbox_checksum_link) | first) | regex_search('[A-Fa-f0-9]{64}') }}"
-        vars:
-          jetbrains_toolbox_download_query: "TBA[?version == '{{ jetbrains_toolbox_version }}'].downloads.linux.link"
-          jetbrains_toolbox_checksum_link: "TBA[?version == '{{ jetbrains_toolbox_version }}'].downloads.linux.checksumLink"
+        - name: Download JetBrains Toolbox
+          ansible.builtin.get_url:
+            url: "{{ jetbrains_toolbox_available_releases.json | json_query(jetbrains_toolbox_download_query) | first }}"
+            dest: "{{ jetbrains_toolbox_download_dir.path }}/jetbrains_toolbox.tar.gz"
+            checksum: "sha256:{{ lookup('url', jetbrains_toolbox_available_releases.json | json_query(jetbrains_toolbox_checksum_link) | first) | regex_search('[A-Fa-f0-9]{64}')
+              }}"
+          vars:
+            jetbrains_toolbox_download_query: "TBA[?version == '{{ jetbrains_toolbox_version }}'].downloads.linux.link"
+            jetbrains_toolbox_checksum_link: "TBA[?version == '{{ jetbrains_toolbox_version }}'].downloads.linux.checksumLink"
 
-      - name: Unpack install archive
-        unarchive:
-          src: "{{ jetbrains_toolbox_download_dir.path }}/jetbrains_toolbox.tar.gz"
-          dest: "{{ jetbrains_toolbox_download_dir.path }}"
-          remote_src: yes
+        - name: Unpack install archive
+          ansible.builtin.unarchive:
+            src: "{{ jetbrains_toolbox_download_dir.path }}/jetbrains_toolbox.tar.gz"
+            dest: "{{ jetbrains_toolbox_download_dir.path }}"
+            remote_src: true
 
-      - name: Run JetBrains Toolbox installer
-        shell: |
-          # The binary is always at jetbrains-toolbox-VERSION/bin/jetbrains-toolbox
-          cd {{ jetbrains_toolbox_download_dir.path }}
-          TOOLBOX_DIR=$(ls -d jetbrains-toolbox-* | head -1)
-          TOOLBOX_BIN="${TOOLBOX_DIR}/bin/jetbrains-toolbox"
-          
-          if [ ! -f "$TOOLBOX_BIN" ]; then
-            echo "ERROR: Could not find jetbrains-toolbox binary at $TOOLBOX_BIN"
-            exit 1
-          fi
-          
-          echo "Running installer: $TOOLBOX_BIN"
-          chmod +x "$TOOLBOX_BIN"
-          "$TOOLBOX_BIN" --install
-        args:
-          executable: /bin/bash
-    when: st_jetbrains_toolbox.stat.exists == False
-    always:
-      - name: Delete temporary download directory
-        file:
-          path: "{{ jetbrains_toolbox_download_dir.path }}"
-          state: absent
-        changed_when: no
+        - name: Run JetBrains Toolbox installer
+          ansible.builtin.shell: |
+            # The binary is always at jetbrains-toolbox-VERSION/bin/jetbrains-toolbox
+            cd {{ jetbrains_toolbox_download_dir.path }}
+            TOOLBOX_DIR=$(ls -d jetbrains-toolbox-* | head -1)
+            TOOLBOX_BIN="${TOOLBOX_DIR}/bin/jetbrains-toolbox"
 
-  - name: Check for JetBrains Toolbox system integration
-    stat:
-      path: ~/.local/bin/jetbrains-toolbox
-    register: st_jetbrains_symlink
+            if [ ! -f "$TOOLBOX_BIN" ]; then
+              echo "ERROR: Could not find jetbrains-toolbox binary at $TOOLBOX_BIN"
+              exit 1
+            fi
 
-  - name: Check for JetBrains Toolbox desktop entry
-    stat:
-      path: ~/.local/share/applications/jetbrains-toolbox.desktop
-    register: st_jetbrains_desktop
+            echo "Running installer: $TOOLBOX_BIN"
+            chmod +x "$TOOLBOX_BIN"
+            "$TOOLBOX_BIN" --install
+          args:
+            executable: /bin/bash
+      when: st_jetbrains_toolbox.stat.exists == False
+      always:
+        - name: Delete temporary download directory
+          ansible.builtin.file:
+            path: "{{ jetbrains_toolbox_download_dir.path }}"
+            state: absent
+          changed_when: false
 
-  - name: Launch JetBrains Toolbox to complete setup if integration missing
-    shell: |
-      # Find the installed toolbox binary
-      TOOLBOX_BIN=$(find ~/.local/share/JetBrains/Toolbox -name "jetbrains-toolbox" -type f 2>/dev/null | head -1)
-      
-      if [ -n "$TOOLBOX_BIN" ] && [ -x "$TOOLBOX_BIN" ]; then
-        echo "Launching JetBrains Toolbox to complete system integration at: $TOOLBOX_BIN"
-        # Launch in background and detach from terminal
-        nohup "$TOOLBOX_BIN" > /dev/null 2>&1 &
-        # Give it a moment to start and create integration files
-        sleep 5
-        echo "JetBrains Toolbox launched successfully"
-      else
-        echo "WARNING: Could not find JetBrains Toolbox binary after installation"
-      fi
-    args:
-      executable: /bin/bash
-    when: 
-      - st_jetbrains_toolbox.stat.exists == True
-      - st_jetbrains_symlink.stat.exists == False or st_jetbrains_desktop.stat.exists == False
+    - name: Check for JetBrains Toolbox system integration
+      ansible.builtin.stat:
+        path: ~/.local/bin/jetbrains-toolbox
+      register: st_jetbrains_symlink
+
+    - name: Check for JetBrains Toolbox desktop entry
+      ansible.builtin.stat:
+        path: ~/.local/share/applications/jetbrains-toolbox.desktop
+      register: st_jetbrains_desktop
+
+    - name: Launch JetBrains Toolbox to complete setup if integration missing
+      ansible.builtin.shell: |
+        # Find the installed toolbox binary
+        TOOLBOX_BIN=$(find ~/.local/share/JetBrains/Toolbox -name "jetbrains-toolbox" -type f 2>/dev/null | head -1)
+
+        if [ -n "$TOOLBOX_BIN" ] && [ -x "$TOOLBOX_BIN" ]; then
+          echo "Launching JetBrains Toolbox to complete system integration at: $TOOLBOX_BIN"
+          # Launch in background and detach from terminal
+          nohup "$TOOLBOX_BIN" > /dev/null 2>&1 &
+          # Give it a moment to start and create integration files
+          sleep 5
+          echo "JetBrains Toolbox launched successfully"
+        else
+          echo "WARNING: Could not find JetBrains Toolbox binary after installation"
+        fi
+      args:
+        executable: /bin/bash
+      when:
+        - st_jetbrains_toolbox.stat.exists == True
+        - st_jetbrains_symlink.stat.exists == False or st_jetbrains_desktop.stat.exists == False

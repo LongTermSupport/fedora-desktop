@@ -1,19 +1,20 @@
+---
 #!/usr/bin/env ansible-playbook
 - hosts: desktop
   name: Claude Code YOLO/Browser Mode - Container-based Installation
   become: false
   vars:
     root_dir: "{{ inventory_dir }}/../../"
-    install_browser_mode: true  # Set to false to skip browser mode installation
+    install_browser_mode: true # Set to false to skip browser mode installation
   tasks:
     - name: Check if Docker is Installed
-      command: which docker
+      ansible.builtin.command: which docker
       register: docker_check
       failed_when: false
       changed_when: false
 
     - name: Verify Docker is Available
-      fail:
+      ansible.builtin.fail:
         msg: |
           Docker is not installed or not in PATH.
           Please run the Docker installation playbook first:
@@ -21,13 +22,13 @@
       when: docker_check.rc != 0
 
     - name: Check Docker Service is Running
-      command: docker ps
+      ansible.builtin.command: docker ps
       register: docker_service_check
       failed_when: false
       changed_when: false
 
     - name: Verify Docker Service
-      fail:
+      ansible.builtin.fail:
         msg: |
           Docker service is not running.
           Please start Docker:
@@ -36,55 +37,55 @@
 
     - name: Create Claude YOLO Base Directory
       become: true
-      file:
+      ansible.builtin.file:
         path: /opt/claude-yolo
         state: directory
         owner: root
         group: root
-        mode: '0755'
+        mode: "0755"
 
     - name: Create Custom Dockerfiles Directory
       become: true
-      file:
+      ansible.builtin.file:
         path: /opt/claude-yolo/custom-dockerfiles
         state: directory
         owner: root
         group: root
-        mode: '0755'
+        mode: "0755"
 
     - name: Copy Dockerfile
       become: true
-      copy:
+      ansible.builtin.copy:
         src: "{{ root_dir }}/files/var/local/claude-yolo/Dockerfile"
         dest: /opt/claude-yolo/Dockerfile
         owner: root
         group: root
-        mode: '0644'
+        mode: "0644"
       tags:
         - scripts
         - dockerfile
 
     - name: Copy Entrypoint Script
       become: true
-      copy:
+      ansible.builtin.copy:
         src: "{{ root_dir }}/files/var/local/claude-yolo/entrypoint.sh"
         dest: /opt/claude-yolo/entrypoint.sh
         owner: root
         group: root
-        mode: '0755'
+        mode: "0755"
       tags:
         - scripts
         - entrypoint
 
     - name: Copy Custom Dockerfile Templates (Never Overwrite User Changes)
       become: true
-      copy:
+      ansible.builtin.copy:
         src: "{{ item }}"
         dest: "/opt/claude-yolo/custom-dockerfiles/{{ item | basename }}"
         owner: root
         group: root
-        mode: '0644'
-        force: no  # NEVER overwrite - users can customize these
+        mode: "0644"
+        force: false # NEVER overwrite - users can customize these
       loop:
         - "{{ root_dir }}/files/var/local/claude-yolo/Dockerfile.project-template"
         - "{{ root_dir }}/files/var/local/claude-yolo/Dockerfile.example-ansible"
@@ -96,21 +97,21 @@
     # Shared library for DRY helpers (used by ccy and ccy-browser)
     - name: Create Shared Library Directory
       become: true
-      file:
+      ansible.builtin.file:
         path: /var/local/claude-yolo/lib
         state: directory
         owner: root
         group: root
-        mode: '0755'
+        mode: "0755"
 
     - name: Install Shared Helper Libraries
       become: true
-      copy:
+      ansible.builtin.copy:
         src: "{{ item }}"
         dest: "/var/local/claude-yolo/lib/{{ item | basename }}"
         owner: root
         group: root
-        mode: '0755'
+        mode: "0755"
       loop:
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/common.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/ui-helpers.bash"
@@ -125,7 +126,7 @@
     # Remove old symlinks (cleanup from previous versions)
     - name: Remove Old Symlink in /usr/local/bin
       become: true
-      file:
+      ansible.builtin.file:
         path: /usr/local/bin/claude-yolo
         state: absent
       tags:
@@ -134,64 +135,64 @@
 
     - name: Copy Wrapper Script to /var/local/
       become: true
-      copy:
+      ansible.builtin.copy:
         src: "{{ root_dir }}/files/var/local/claude-yolo/claude-yolo"
         dest: /var/local/claude-yolo/claude-yolo
         owner: root
         group: root
-        mode: '0755'
+        mode: "0755"
       tags:
         - scripts
         - wrapper
 
     - name: Deploy Bashrc Include for Root
       become: true
-      copy:
+      ansible.builtin.copy:
         src: "{{ root_dir }}/files/home/bashrc-includes/claude-yolo.bash"
         dest: /root/.bashrc-includes/claude-yolo.bash
         owner: root
         group: root
-        mode: '0644'
+        mode: "0644"
 
     - name: Deploy Bashrc Include for User
-      copy:
+      ansible.builtin.copy:
         src: "{{ root_dir }}/files/home/bashrc-includes/claude-yolo.bash"
         dest: /home/{{ user_login }}/.bashrc-includes/claude-yolo.bash
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
-        mode: '0644'
+        mode: "0644"
 
     - name: Create Claude YOLO Root Directory
-      file:
+      ansible.builtin.file:
         path: /home/{{ user_login }}/.claude-tokens/ccy
         state: directory
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
-        mode: '0700'
+        mode: "0700"
 
     - name: Create Claude YOLO Tokens Directory
-      file:
+      ansible.builtin.file:
         path: /home/{{ user_login }}/.claude-tokens/ccy/tokens
         state: directory
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
-        mode: '0700'
+        mode: "0700"
 
     - name: Create Claude YOLO Projects Directory
-      file:
+      ansible.builtin.file:
         path: /home/{{ user_login }}/.claude-tokens/ccy/projects
         state: directory
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
-        mode: '0700'
+        mode: "0700"
 
     - name: Calculate Dockerfile Hash for Build
-      shell: md5sum /opt/claude-yolo/Dockerfile | cut -d' ' -f1 | cut -c1-16
+      ansible.builtin.shell: md5sum /opt/claude-yolo/Dockerfile | cut -d' ' -f1 | cut -c1-16
       register: dockerfile_hash
       changed_when: false
 
     - name: Build Claude YOLO Container Image with Hash
-      command: >
+      ansible.builtin.command: >
         docker build
         --build-arg DOCKERFILE_HASH={{ dockerfile_hash.stdout }}
         -t claude-yolo:latest
@@ -200,10 +201,9 @@
       changed_when: "'Successfully built' in docker_build.stdout or 'Successfully tagged' in docker_build.stdout"
 
     - name: Verify Container Image
-      command: docker image inspect claude-yolo:latest
+      ansible.builtin.command: docker image inspect claude-yolo:latest
       register: image_verify
       changed_when: false
-
 
     # =========================================================================
     # Browser Mode Installation (Optional - controlled by install_browser_mode)
@@ -211,24 +211,24 @@
 
     - name: Create Claude Browser Base Directory
       become: true
-      file:
+      ansible.builtin.file:
         path: /opt/claude-browser
         state: directory
         owner: root
         group: root
-        mode: '0755'
+        mode: "0755"
       when: install_browser_mode
       tags:
         - browser
 
     - name: Copy Dockerfile for Browser Container
       become: true
-      copy:
+      ansible.builtin.copy:
         src: "{{ root_dir }}/files/var/local/claude-yolo/Dockerfile.browser"
         dest: /opt/claude-browser/Dockerfile
         owner: root
         group: root
-        mode: '0644'
+        mode: "0644"
       when: install_browser_mode
       tags:
         - browser
@@ -236,12 +236,12 @@
 
     - name: Copy Browser Entrypoint Script
       become: true
-      copy:
+      ansible.builtin.copy:
         src: "{{ root_dir }}/files/var/local/claude-yolo/entrypoint-browser.sh"
         dest: /opt/claude-browser/entrypoint.sh
         owner: root
         group: root
-        mode: '0755'
+        mode: "0755"
       when: install_browser_mode
       tags:
         - browser
@@ -249,24 +249,24 @@
 
     - name: Create chrome-ws Directory
       become: true
-      file:
+      ansible.builtin.file:
         path: /opt/claude-browser/chrome-ws
         state: directory
         owner: root
         group: root
-        mode: '0755'
+        mode: "0755"
       when: install_browser_mode
       tags:
         - browser
 
     - name: Copy chrome-ws CLI Tool
       become: true
-      copy:
+      ansible.builtin.copy:
         src: "{{ root_dir }}/files/opt/claude-browser/chrome-ws/chrome-ws"
         dest: /opt/claude-browser/chrome-ws/chrome-ws
         owner: root
         group: root
-        mode: '0755'
+        mode: "0755"
       when: install_browser_mode
       tags:
         - browser
@@ -274,12 +274,12 @@
 
     - name: Copy chrome-ws Library
       become: true
-      copy:
+      ansible.builtin.copy:
         src: "{{ root_dir }}/files/opt/claude-browser/chrome-ws/chrome-ws-lib.js"
         dest: /opt/claude-browser/chrome-ws/chrome-ws-lib.js
         owner: root
         group: root
-        mode: '0644'
+        mode: "0644"
       when: install_browser_mode
       tags:
         - browser
@@ -287,24 +287,24 @@
 
     - name: Create Skills Directory
       become: true
-      file:
+      ansible.builtin.file:
         path: /opt/claude-browser/skills/browsing
         state: directory
         owner: root
         group: root
-        mode: '0755'
+        mode: "0755"
       when: install_browser_mode
       tags:
         - browser
 
     - name: Copy chrome-ws Skills Documentation
       become: true
-      copy:
+      ansible.builtin.copy:
         src: "{{ item }}"
         dest: /opt/claude-browser/skills/browsing/
         owner: root
         group: root
-        mode: '0644'
+        mode: "0644"
       loop:
         - "{{ root_dir }}/files/opt/claude-browser/skills/browsing/SKILL.md"
         - "{{ root_dir }}/files/opt/claude-browser/skills/browsing/COMMANDLINE-USAGE.md"
@@ -316,24 +316,24 @@
 
     - name: Copy Browser Startup Info File
       become: true
-      copy:
+      ansible.builtin.copy:
         src: "{{ root_dir }}/files/opt/claude-browser/ccb-startup-info.txt"
         dest: /opt/claude-browser/ccb-startup-info.txt
         owner: root
         group: root
-        mode: '0644'
+        mode: "0644"
       when: install_browser_mode
       tags:
         - browser
 
     - name: Copy Browser Wrapper Script
       become: true
-      copy:
+      ansible.builtin.copy:
         src: "{{ root_dir }}/files/var/local/claude-yolo/claude-browser"
         dest: /var/local/claude-yolo/claude-browser
         owner: root
         group: root
-        mode: '0755'
+        mode: "0755"
       when: install_browser_mode
       tags:
         - browser
@@ -341,51 +341,51 @@
 
     - name: Deploy Bashrc Include for ccb Alias (Root)
       become: true
-      copy:
+      ansible.builtin.copy:
         src: "{{ root_dir }}/files/home/bashrc-includes/claude-browser.bash"
         dest: /root/.bashrc-includes/claude-browser.bash
         owner: root
         group: root
-        mode: '0644'
+        mode: "0644"
       when: install_browser_mode
       tags:
         - browser
 
     - name: Deploy Bashrc Include for ccb Alias (User)
-      copy:
+      ansible.builtin.copy:
         src: "{{ root_dir }}/files/home/bashrc-includes/claude-browser.bash"
         dest: /home/{{ user_login }}/.bashrc-includes/claude-browser.bash
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
-        mode: '0644'
+        mode: "0644"
       when: install_browser_mode
       tags:
         - browser
 
     - name: Create CCB Root Directory
-      file:
+      ansible.builtin.file:
         path: /home/{{ user_login }}/.claude-tokens/ccb
         state: directory
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
-        mode: '0700'
+        mode: "0700"
       when: install_browser_mode
       tags:
         - browser
 
     - name: Create CCB Projects Directory
-      file:
+      ansible.builtin.file:
         path: /home/{{ user_login }}/.claude-tokens/ccb/projects
         state: directory
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
-        mode: '0700'
+        mode: "0700"
       when: install_browser_mode
       tags:
         - browser
 
     - name: Calculate Browser Dockerfile Hash for Build
-      shell: md5sum /opt/claude-browser/Dockerfile | cut -d' ' -f1 | cut -c1-16
+      ansible.builtin.shell: md5sum /opt/claude-browser/Dockerfile | cut -d' ' -f1 | cut -c1-16
       register: browser_dockerfile_hash
       changed_when: false
       when: install_browser_mode
@@ -393,7 +393,7 @@
         - browser
 
     - name: Build Claude Browser Container Image with Hash
-      command: >
+      ansible.builtin.command: >
         docker build
         --build-arg DOCKERFILE_HASH={{ browser_dockerfile_hash.stdout }}
         -t claude-browser:latest
@@ -405,20 +405,19 @@
         - browser
 
     - name: Verify Browser Container Image
-      command: docker image inspect claude-browser:latest
+      ansible.builtin.command: docker image inspect claude-browser:latest
       register: browser_image_verify
       changed_when: false
       when: install_browser_mode
       tags:
         - browser
 
-
     # =========================================================================
     # Unified Installation Summary
     # =========================================================================
 
     - name: Display Unified Installation Summary
-      debug:
+      ansible.builtin.debug:
         msg:
           - "════════════════════════════════════════════════════════════════"
           - "Claude Code Containers Installation Complete"

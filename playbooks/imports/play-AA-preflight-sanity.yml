@@ -1,3 +1,4 @@
+---
 - hosts: desktop
   name: Preflight Sanity
   become: true
@@ -7,16 +8,16 @@
     - "{{ root_dir }}/vars/fedora-version.yml"
   tasks:
     - name: Check Ansible
-      assert:
+      ansible.builtin.assert:
         that:
           - ansible_version.full is version_compare('2.9.9', '>=')
         fail_msg: |
           This project requires Ansible 2.9.9 or greater
 
-    - name: Check Fedora 
-      assert:
+    - name: Check Fedora
+      ansible.builtin.assert:
         that:
           - ansible_os_family == 'RedHat'
           - ansible_distribution == 'Fedora'
           - ansible_distribution_major_version | int == {{ fedora_version }}
-        fail_msg: 'This project expects Fedora {{ fedora_version }}'
+        fail_msg: "This project expects Fedora {{ fedora_version }}"

@@ -17,15 +17,15 @@
         state: present
         persistent: present
       loop:
-        - overlay          # Docker overlay storage driver
-        - br_netfilter     # Bridge netfilter for Docker networking
+        - overlay # Docker overlay storage driver
+        - br_netfilter # Bridge netfilter for Docker networking
 
     - name: Create Persistent Module Load Configuration
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: "/etc/modules-load.d/{{ item }}.conf"
         line: "{{ item }}"
         create: true
-        mode: '0644'
+        mode: "0644"
       loop:
         - overlay
         - br_netfilter
@@ -40,39 +40,39 @@
       loop:
         # Enable IP forwarding for Docker container networking
         - key: net.ipv4.ip_forward
-          value: '1'
+          value: "1"
 
         # Enable bridge netfilter for iptables to work with bridges
         # Required for Docker to manage container networking via iptables
         - key: net.bridge.bridge-nf-call-iptables
-          value: '1'
+          value: "1"
 
         # Enable bridge netfilter for IPv6
         - key: net.bridge.bridge-nf-call-ip6tables
-          value: '1'
+          value: "1"
 
         # Allow unprivileged users to create user namespaces
         # Required for rootless Docker inside containers
         - key: kernel.unprivileged_userns_clone
-          value: '1'
+          value: "1"
 
     - name: Install Docker-in-LXC Script
-      copy:
+      ansible.builtin.copy:
         src: "{{ root_dir }}/files/var/local/docker-in-lxc"
         dest: /var/local/docker-in-lxc
         owner: root
         group: root
-        mode: '0755'
+        mode: "0755"
 
     - name: Create Symlink for Easy Access
-      file:
+      ansible.builtin.file:
         src: /var/local/docker-in-lxc
         dest: /usr/local/bin/docker-in-lxc
         state: link
         force: true
 
     - name: Display Configuration Summary
-      debug:
+      ansible.builtin.debug:
         msg:
           - "Docker-in-LXC support has been configured on the host system."
           - ""

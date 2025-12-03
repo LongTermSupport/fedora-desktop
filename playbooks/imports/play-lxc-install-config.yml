@@ -1,3 +1,4 @@
+---
 - hosts: desktop
   name: LXC Install Config
   become: true
@@ -9,44 +10,39 @@
         name: "ganto/lxc4"
 
     - name: Install Packages
-      package:
+      ansible.builtin.package:
         name:
-        - lxc
-        - lxc-templates
+          - lxc
+          - lxc-templates
 
     - name: Put SELinux in permissive mode, logging actions that would be blocked.
-      selinux:
+      ansible.posix.selinux:
         policy: targeted
         state: permissive
 
-
     - name: Setup LXC Service
-      systemd:
+      ansible.builtin.systemd:
         name: "{{ item }}"
         state: restarted
-        enabled: yes
+        enabled: true
       with_items:
         - lxc
 
     - name: Switch lxcbr0 to trusted firewall zone
-      command: nmcli connection modify lxcbr0 connection.zone trusted
-
-    # This one doesn't seem to take effect and might need to be re run at some later point
-    # If this hasn't taken effect, containers can be started but they wont get an IP address
+      ansible.builtin.command: nmcli connection modify lxcbr0 connection.zone trusted
     - name: Firewalld trusted
-      shell: |
+      ansible.builtin.shell: |
         firewall-cmd --zone=trusted --change-interface=lxcbr0 --permanent
         firewall-cmd --reload
-
     - name: Create Insecure SSH Key for Connecting to Container
       become: true
       become_user: "{{ user_login }}"
-      shell: ssh-keygen -t rsa -f ~/.ssh/id_lxc -q -P ""
+      ansible.builtin.shell: ssh-keygen -t rsa -f ~/.ssh/id_lxc -q -P ""
       args:
         creates: "/home/{{ user_login }}/.ssh/id_lxc"
 
     - name: Set up SSH Config for LXC Containers
-      blockinfile:
+      ansible.builtin.blockinfile:
         marker: "# {mark} LXC Containers Insecure Key"
         path: "/home/{{ user_login }}/.ssh/config"
         create: true
@@ -59,16 +55,15 @@
             StrictHostKeyChecking=no
 
     - name: Ensure /etc/lxc/dhcp.conf File Exists
-      file:
+      ansible.builtin.file:
         path: /etc/lxc/dhcp.conf
         state: touch
         owner: root
         group: root
-        mode: '0644'
-
+        mode: "0644"
 
     - name: Enable DHPC on lxcbr0
-      blockinfile:
+      ansible.builtin.blockinfile:
         block: LXC_DHCP_CONFILE=/etc/lxc/dhcp.conf
         marker: "# {mark} ANSIBLE MANAGED - LXC Install"
         path: /etc/sysconfig/lxc-net
@@ -76,17 +71,17 @@
     - name: Clone LXC Bash
       become: true
       become_user: "{{ user_login }}"
-      git:
+      ansible.builtin.git:
         repo: git@github.com:LongTermSupport/lxc-bash.git
         dest: /home/{{ user_login }}/Projects/lxc-bash
 
     - name: Add Aliases to bashrc file
-      lineinfile:
+      ansible.builtin.lineinfile:
         line: source /home/{{ user_login }}/Projects/lxc-bash/lxc-bash-completion.bash
         path: /home/{{ user_login }}/.bashrc
 
     - name: Increase System Limits
-      blockinfile:
+      ansible.builtin.blockinfile:
         path: /etc/sysctl.conf
         marker: "# {mark} ANSIBLE MANAGED - LXC Install"
         block: |
@@ -99,24 +94,19 @@
     # to be loaded on the host for proper operation. These are standard Linux networking
     # modules that are safe to load and commonly used by various applications.
     - name: Ensure kernel modules loaded for Docker/OpenVPN in LXC containers
-      modprobe:
+      community.general.modprobe:
         name: "{{ item }}"
         state: present
-        persistent: present  # Ensures modules are loaded at boot via /etc/modules-load.d/
+        persistent: present # Ensures modules are loaded at boot via /etc/modules-load.d/
       loop:
         # Core iptables modules needed by Docker for NAT and packet filtering
-        - ip_tables      # Core IPv4 packet filtering framework
+        - ip_tables # Core IPv4 packet filtering framework
         - iptable_filter # Basic packet filtering (ACCEPT/DROP/REJECT)
-        - iptable_nat    # Network Address Translation for port mapping
+        - iptable_nat # Network Address Translation for port mapping
         - iptable_mangle # Packet modification (TTL, TOS, etc)
         # Note: IPv6 modules are typically auto-loaded by firewalld
       tags: [kernel_modules, lxc_docker]
 
   handlers:
     - name: sysctl
-      command: sysctl -p
-          
-      
-
-
-
+      ansible.builtin.command: sysctl -p

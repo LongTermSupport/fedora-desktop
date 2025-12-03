@@ -1,3 +1,4 @@
+---
 #!/usr/bin/env ansible-playbook
 - hosts: desktop
   name: Wireguard Install and Configure
@@ -6,23 +7,22 @@
     root_dir: "{{ inventory_dir }}/../../"
   tasks:
     - name: Install Wireguard
-      dnf:
+      ansible.builtin.dnf:
         name: wireguard-tools
 
     # Note - this is a bad approach, it will allow duplicates to be loaded each time. Needs more work
     - name: Load all Wireguard Config Files into Network Manager
-      shell: |
+      ansible.builtin.shell: |
         if [[ ! -d /etc/wireguard ]]; then
           echo "ERROR - you need to manually create the /etc/wireguard folder and then create your connection profiles in there"
           exit 1
         fi
-        for f in /etc/wireguard/*; 
+        for f in /etc/wireguard/*;
         do
           echo "loading $f"
           nmcli connection import type wireguard file $f
         done
         exit 0
-
     - name: Add OpenVPN to Firewalld
-      shell: |
-        firewall-cmd --add-service openvpn --permanent 
+      ansible.builtin.shell: |
+        firewall-cmd --add-service openvpn --permanent

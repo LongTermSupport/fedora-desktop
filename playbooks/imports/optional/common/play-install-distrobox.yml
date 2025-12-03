@@ -7,18 +7,18 @@
     root_dir: "{{ inventory_dir }}/../../"
   tasks:
     - name: Install Distrobox Package
-      package:
+      ansible.builtin.package:
         name: distrobox
         state: present
 
     - name: Verify Distrobox Installation
-      command: distrobox version
+      ansible.builtin.command: distrobox version
       register: distrobox_version
       changed_when: false
       become: false
 
     - name: Display Installation Summary
-      debug:
+      ansible.builtin.debug:
         msg:
           - "Distrobox has been installed successfully"
           - "Version: {{ distrobox_version.stdout }}"

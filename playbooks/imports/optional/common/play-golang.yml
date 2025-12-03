@@ -1,3 +1,4 @@
+---
 #!/usr/bin/env ansible-playbook
 # This play installs things you need for Golang development
 - hosts: desktop
@@ -6,5 +7,5 @@
   tasks:
     - name: Install Golang
       become: true
-      dnf:
+      ansible.builtin.dnf:
         name: golang

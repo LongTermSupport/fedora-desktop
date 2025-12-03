@@ -1,3 +1,4 @@
+---
 # Git is already installed as it was used to clone this repo,
 # so we just need to configure it
 - hosts: desktop
@@ -10,7 +11,7 @@
     # Needs investigation: gpg-agent forwarding to containers (similar to SSH agent forwarding)
     # See: gpg-agent extra-socket, GPG_AGENT_INFO env var, mounting sockets into containers
     - name: Setup Git Config - user
-      shell: |
+      ansible.builtin.shell: |
         git config --global user.email "{{ user_email }}"
         git config --global user.name "{{ user_name }}"
         git config --global color.ui auto
@@ -22,9 +23,8 @@
         git config --global pull.rebase false
         git config --global branch.autoSetupMerge simple
         git config --global core.autocrlf input
-
     - name: Set up Global Git Ignores
-      blockinfile:
+      ansible.builtin.blockinfile:
         create: true
         block: |
           /.idea
@@ -35,12 +35,12 @@
         path: "~/.config/git/ignore"
 
     - name: Enable Git Bash Prompt
-      shell: "git clone https://github.com/magicmonty/bash-git-prompt.git ~/.bash-git-prompt --depth=1"
+      ansible.builtin.shell: "git clone https://github.com/magicmonty/bash-git-prompt.git ~/.bash-git-prompt --depth=1"
       args:
         creates: /home/{{ user_login }}/.bash-git-prompt/.git/config
 
     - name: Update ~/.bashrc File for the Bash Git Prompt
-      blockinfile:
+      ansible.builtin.blockinfile:
         path: /home/{{ user_login }}/.bashrc
         marker: "# {mark} ANSIBLE MANAGED: Git Bash Prompt"
         block: |
@@ -52,7 +52,7 @@
     # https://github.com/cli/cli/blob/trunk/docs/install_linux.md#fedora-centos-red-hat-enterprise-linux-dnf
     - name: Install Github Client
       become: true
-      shell: |
+      ansible.builtin.shell: |
         dnf -y install 'dnf-command(config-manager)'
         dnf -y config-manager addrepo --from-repofile=https://cli.github.com/packages/rpm/gh-cli.repo
         dnf -y install gh
@@ -63,12 +63,12 @@
     # https://github.com/newren/git-filter-repo
     - name: Install DNF Git Filter Repo
       become: true
-      dnf:
+      ansible.builtin.dnf:
         name:
-         - git-filter-repo
+          - git-filter-repo
 
     - name: Git Aliases
-      blockinfile:
+      ansible.builtin.blockinfile:
         path: /home/{{ user_login }}/.bashrc
         marker: "# {mark} ANSIBLE MANAGED: Git Aliases"
         block: |

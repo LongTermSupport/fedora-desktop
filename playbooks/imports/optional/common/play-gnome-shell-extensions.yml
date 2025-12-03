@@ -1,3 +1,4 @@
+---
 #!/usr/bin/env ansible-playbook
 # Customisations for Gnome Shell - only worth doing if you actually use Gnome
 - hosts: desktop
@@ -7,7 +8,7 @@
     root_dir: "{{ inventory_dir }}/../../"
   tasks:
     - name: Install Gnome Shell Extension Installer
-      shell: |
+      ansible.builtin.shell: |
         cd /usr/bin
         # Pin to specific commit for reproducibility and security
         # Current master as of 2025-08, update if needed
@@ -17,7 +18,7 @@
         creates: /usr/bin/gnome-shell-extension-installer
 
     - name: Install DNF packages
-      dnf:
+      ansible.builtin.dnf:
         name:
           - xprop
           - gnome-shell-extension-dash-to-dock
@@ -25,7 +26,7 @@
 
     - name: Install Gnome Shell Extensions Not Included with DNF
       become: false
-      command: gnome-shell-extension-installer --yes --restart-shell {{ item.id }}
+      ansible.builtin.command: gnome-shell-extension-installer --yes --restart-shell {{ item.id }}
       loop:
         # All verified compatible with GNOME Shell 48 (Fedora 42)
         - name: Blur my Shell
@@ -46,4 +47,3 @@
         - name: Tiling Shell
           id: 7065
           # https://extensions.gnome.org/extension/7065/tiling-shell/
-

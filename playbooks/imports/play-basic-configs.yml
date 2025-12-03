@@ -1,3 +1,4 @@
+---
 - hosts: desktop
   name: Basic Configs
   become: true
@@ -5,23 +6,23 @@
     root_dir: "{{ inventory_dir }}/../../"
   tasks:
     - name: Check if PS1 prompt colour already configured
-      stat:
+      ansible.builtin.stat:
         path: /var/local/ps1-prompt-colour
       register: ps1_colour_file
 
     - name: Read existing PS1 colour if present
-      slurp:
+      ansible.builtin.slurp:
         src: /var/local/ps1-prompt-colour
       register: existing_ps1_colour
       when: ps1_colour_file.stat.exists
 
     - name: Set PS1_Colour from existing config
-      set_fact:
+      ansible.builtin.set_fact:
         PS1_Colour: "{{ (existing_ps1_colour.content | b64decode).split('=')[1] | trim }}"
       when: ps1_colour_file.stat.exists
 
     - name: Prompt for PS1 colour if not already configured
-      pause:
+      ansible.builtin.pause:
         prompt: |
           Enter Prompt Colour. Must be one of:
             white
@@ -38,17 +39,17 @@
             purpleBold
             lightblue
             lightblueBold
-          
+
           (default: lightblueBold)
       register: ps1_colour_prompt
       when: not ps1_colour_file.stat.exists
 
     - name: Set PS1_Colour from prompt
-      set_fact:
+      ansible.builtin.set_fact:
         PS1_Colour: "{{ ps1_colour_prompt.user_input | default('lightblueBold') }}"
       when: not ps1_colour_file.stat.exists
     - name: Basic packages
-      package:
+      ansible.builtin.package:
         name: "{{ packages }}"
         state: present
       vars:
@@ -63,7 +64,7 @@
       tags: packages
 
     - name: Passwordless Sudo
-      blockinfile:
+      ansible.builtin.blockinfile:
         dest: /etc/sudoers
         marker: "## {mark} passwordless sudo for {{ user_login}}"
         block: "{{ user_login }}    ALL=(ALL)    NOPASSWD: ALL"
@@ -72,44 +73,44 @@
     - name: Vim Colours
       block:
         - name: Get Colourscheme
-          get_url:
+          ansible.builtin.get_url:
             url: https://raw.githubusercontent.com/ajmwagar/vim-deus/master/colors/deus.vim
             dest: /usr/share/vim/vimfiles/colors/deus.vim
 
         - name: Vim Configs
-          blockinfile:
+          ansible.builtin.blockinfile:
             marker: "\" {mark} Vim Colourscheme"
             block: colors deus
             path: /etc/vimrc.local
             create: true
 
     - name: Basic Bash Tweaks Files
-      copy:
+      ansible.builtin.copy:
         src: "{{ root_dir }}/files{{ item }}"
         dest: "{{ item }}"
       loop:
-       - /etc/profile.d/zz_lts-fedora-desktop.bash
-       - /var/local/colours
-       - /var/local/ps1-prompt
+        - /etc/profile.d/zz_lts-fedora-desktop.bash
+        - /var/local/colours
+        - /var/local/ps1-prompt
 
     - name: Prompt Colour File
-      copy:
-          content: "export PS1_COLOUR={{ PS1_Colour }}"
-          dest: /var/local/ps1-prompt-colour
+      ansible.builtin.copy:
+        content: "export PS1_COLOUR={{ PS1_Colour }}"
+        dest: /var/local/ps1-prompt-colour
 
     - name: Create .bashrc-includes directories
-      file:
+      ansible.builtin.file:
         path: "{{ item }}"
         state: directory
         owner: "{{ item.split('/')[2] if '/home/' in item else 'root' }}"
         group: "{{ item.split('/')[2] if '/home/' in item else 'root' }}"
-        mode: '0755'
+        mode: "0755"
       loop:
         - /root/.bashrc-includes
         - /home/{{ user_login }}/.bashrc-includes
 
     - name: Ensure Bash Tweaks are Loaded
-      blockinfile:
+      ansible.builtin.blockinfile:
         marker: "# {mark} ANSIBLE MANAGED: Bash Tweaks"
         block: source /etc/profile.d/zz_lts-fedora-desktop.bash
         path: "{{ item }}"
@@ -121,7 +122,7 @@
         - /home/{{ user_login }}/.bash_profile
 
     - name: Add bashrc includes sourcing
-      blockinfile:
+      ansible.builtin.blockinfile:
         marker: "# {mark} ANSIBLE MANAGED: Source bashrc includes"
         block: |
           if [ -d ~/.bashrc-includes ]; then
@@ -136,62 +137,60 @@
         - /home/{{ user_login }}/.bashrc
 
     - name: Deploy shutdown-with-update script
-      copy:
+      ansible.builtin.copy:
         src: "{{ root_dir }}/files/usr/local/bin/shutdown-with-update"
         dest: /usr/local/bin/shutdown-with-update
         owner: root
         group: root
-        mode: '0755'
+        mode: "0755"
 
     - name: Deploy shutdown-with-update alias
-      copy:
+      ansible.builtin.copy:
         src: "{{ root_dir }}/files/home/bashrc-includes/shutdown-with-update.bash"
         dest: "{{ item }}/.bashrc-includes/shutdown-with-update.bash"
         owner: "{{ item.split('/')[2] if item != '/root' else 'root' }}"
         group: "{{ item.split('/')[2] if item != '/root' else 'root' }}"
-        mode: '0644'
+        mode: "0644"
       loop:
         - /root
         - /home/{{ user_login }}
 
     - name: Deploy USB audio fix script
-      copy:
+      ansible.builtin.copy:
         src: "{{ root_dir }}/files/home/bashrc-includes/usb-audio-fix.bash"
         dest: "{{ item }}/.bashrc-includes/usb-audio-fix.bash"
         owner: "{{ item.split('/')[2] if item != '/root' else 'root' }}"
         group: "{{ item.split('/')[2] if item != '/root' else 'root' }}"
-        mode: '0644'
+        mode: "0644"
       loop:
         - /root
         - /home/{{ user_login }}
 
     - name: Copy SSH ID to root
-      copy:
+      ansible.builtin.copy:
         remote_src: true
         src: /home/{{user_login}}/.ssh/{{item}}
         dest: /root/.ssh/{{item}}
         owner: root
-        mode: 0600
+        mode: "0600"
       loop:
         - id
         - id.pub
 
     - name: Install YQ
       become: true
-      shell: |
-         wget -qO /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 && chmod +x /usr/bin/yq
+      ansible.builtin.shell: |
+        wget -qO /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 && chmod +x /usr/bin/yq
       tags: yq
 
     - name: DNF Parallel
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: /etc/dnf/dnf.conf
         line: max_parallel_downloads=10
 
     - name: Hardware
-      shell: |
-        fwupdmgr get-devices 
-        fwupdmgr refresh --force 
-        fwupdmgr get-updates 
+      ansible.builtin.shell: |
+        fwupdmgr get-devices
+        fwupdmgr refresh --force
+        fwupdmgr get-updates
         fwupdmgr update
-
-

@@ -1,3 +1,4 @@
+---
 #!/usr/bin/env ansible-playbook
 # Comprehensive Audio Enhancement Configuration
 # Includes HD audio support, dynamic rate switching, and Bluetooth audio fixes
@@ -9,12 +10,12 @@
     wireplumber_config_dir: "/home/{{ user_login }}/.config/wireplumber"
   tasks:
     - name: Check for existing audio enhancement configs
-      find:
-        paths: 
+      ansible.builtin.find:
+        paths:
           - "{{ pipewire_config_dir }}/pipewire.conf.d"
           - "{{ pipewire_config_dir }}/pipewire-pulse.conf.d"
           - "{{ pipewire_config_dir }}/client.conf.d"
-        patterns: 
+        patterns:
           - "*hd-audio*.conf"
           - "*bluetooth*.conf"
           - "*alsa-properties*.conf"
@@ -22,27 +23,27 @@
       failed_when: false
 
     - name: Prompt for audio config removal if exists
-      pause:
+      ansible.builtin.pause:
         prompt: "Existing audio enhancement configuration found. Remove and recreate? (yes/no)"
       register: remove_config
       when: existing_audio_configs.files | default([]) | length > 0
 
     - name: Remove existing audio enhancement configs only
-      file:
+      ansible.builtin.file:
         path: "{{ item.path }}"
         state: absent
       loop: "{{ existing_audio_configs.files | default([]) }}"
-      when: 
+      when:
         - existing_audio_configs.files | default([]) | length > 0
         - remove_config.user_input | default('yes') | lower == 'yes'
 
     - name: Create PipeWire config directory structure
-      file:
+      ansible.builtin.file:
         path: "{{ item }}"
         state: directory
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
-        mode: '0755'
+        mode: "0755"
       loop:
         - "{{ pipewire_config_dir }}"
         - "{{ pipewire_config_dir }}/pipewire.conf.d"
@@ -50,15 +51,15 @@
         - "{{ pipewire_config_dir }}/client.conf.d"
 
     - name: Configure HD Audio - Main PipeWire config
-      copy:
+      ansible.builtin.copy:
         dest: "{{ pipewire_config_dir }}/pipewire.conf.d/99-hd-audio.conf"
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
-        mode: '0644'
+        mode: "0644"
         content: |
           # HD Audio Configuration for PipeWire
           # Enables dynamic sample rate switching and high-quality audio
-          
+
           context.properties = {
               # Allow dynamic rate switching based on active streams
               default.clock.rate          = 48000
@@ -67,7 +68,7 @@
               default.clock.min-quantum   = 32
               default.clock.max-quantum   = 8192
           }
-          
+
           context.modules = [
               {   name = libpipewire-module-rt
                   args = {
@@ -82,14 +83,14 @@
       notify: pw-restart
 
     - name: Configure HD Audio - ALSA properties
-      copy:
+      ansible.builtin.copy:
         dest: "{{ pipewire_config_dir }}/pipewire.conf.d/99-alsa-properties.conf"
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
-        mode: '0644'
+        mode: "0644"
         content: |
           # ALSA device properties for HD Audio
-          
+
           alsa.properties = {
               # Increase buffer sizes for better stability at high sample rates
               api.alsa.period-size   = 1024
@@ -98,7 +99,7 @@
               api.alsa.disable-mmap  = false
               api.alsa.disable-batch = false
           }
-          
+
           # Rules for all ALSA devices
           alsa.rules = [
               {
@@ -114,14 +115,14 @@
                           audio.rate                = 0
                           audio.allowed-rates       = [ 44100 48000 88200 96000 176400 192000 ]
                           audio.format              = "F32"
-                          
+
                           # High quality resampling
                           resample.quality          = 10
                           resample.disable          = false
-                          
+
                           # Keep devices active
                           session.suspend-timeout-seconds = 0
-                          
+
                           # Use ACP (Audio Control Profiles) for proper device handling
                           api.alsa.use-acp         = true
                           api.alsa.ignore-dB       = false
@@ -148,19 +149,19 @@
       notify: pw-restart
 
     - name: Configure HD Audio - PulseAudio compatibility
-      copy:
+      ansible.builtin.copy:
         dest: "{{ pipewire_config_dir }}/pipewire-pulse.conf.d/99-hd-audio.conf"
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
-        mode: '0644'
+        mode: "0644"
         content: |
           # PulseAudio compatibility layer configuration for HD Audio
-          
+
           pulse.properties = {
               # Match the main PipeWire sample rates
               pulse.default.rate       = 48000
               pulse.allowed-rates      = [ 44100 48000 88200 96000 176400 192000 ]
-              
+
               # Minimum latency settings
               pulse.min.req            = 256/48000
               pulse.min.quantum        = 256/48000
@@ -168,7 +169,7 @@
               pulse.default.quantum    = 1024/48000
               pulse.max.quantum        = 8192/48000
           }
-          
+
           stream.properties = {
               # High quality resampling for PulseAudio clients
               resample.quality         = 10
@@ -182,19 +183,19 @@
       notify: pw-restart
 
     - name: Configure HD Audio - Client defaults
-      copy:
+      ansible.builtin.copy:
         dest: "{{ pipewire_config_dir }}/client.conf.d/99-hd-audio.conf"
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
-        mode: '0644'
+        mode: "0644"
         content: |
           # Client configuration for HD Audio
-          
+
           stream.properties = {
               # Default properties for all clients
               resample.quality         = 10
               channelmix.normalize     = true
-              
+
               # Allow rate adaptation by default
               node.rate                = 0
               node.autoconnect         = true
@@ -203,14 +204,14 @@
       notify: pw-restart
 
     - name: Check if speech-dispatcher config exists
-      stat:
+      ansible.builtin.stat:
         path: /etc/speech-dispatcher/speechd.conf
       register: speechd_conf
       become: true
 
     - name: Disable Speech Dispatcher Autospawn
       become: true
-      blockinfile:
+      ansible.builtin.blockinfile:
         path: /etc/speech-dispatcher/speechd.conf
         marker: "# {mark} ANSIBLE MANAGED: HD Audio - Disable Autospawn"
         block: |
@@ -221,7 +222,7 @@
     # Bluetooth Audio Configuration
     - name: Set Bluetooth Controller Mode to bredr for compatibility
       become: true
-      blockinfile:
+      ansible.builtin.blockinfile:
         marker: "# {mark} ANSIBLE MANAGED: Bluetooth Audio Enhancement"
         block: |
           # Enable classic Bluetooth + LE for better headphone compatibility
@@ -231,20 +232,20 @@
       notify: restart-bt
 
     - name: Configure PipeWire Bluetooth latency settings
-      copy:
+      ansible.builtin.copy:
         dest: "{{ pipewire_config_dir }}/pipewire.conf.d/99-bluetooth-latency.conf"
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
-        mode: '0644'
+        mode: "0644"
         content: |
           # Bluetooth latency optimization for PipeWire
-          
+
           pulse.properties = {
               # Lower latency for Bluetooth devices
               pulse.min.req     = 128/48000
               pulse.min.quantum = 128/48000
           }
-          
+
           # Bluetooth-specific module settings
           context.modules = [
               {   name = libpipewire-module-rt
@@ -258,26 +259,26 @@
       notify: pw-restart
 
     - name: Create WirePlumber config directories
-      file:
+      ansible.builtin.file:
         path: "{{ item }}"
         state: directory
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
-        mode: '0755'
+        mode: "0755"
       loop:
         - "{{ wireplumber_config_dir }}"
         - "{{ wireplumber_config_dir }}/main.lua.d"
         - "{{ wireplumber_config_dir }}/bluetooth.lua.d"
 
     - name: Configure WirePlumber for HD Audio
-      copy:
+      ansible.builtin.copy:
         dest: "/home/{{ user_login }}/.config/wireplumber/main.lua.d/99-hd-audio.lua"
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
-        mode: '0644'
+        mode: "0644"
         content: |
           -- HD Audio configuration for WirePlumber
-          
+
           -- Enable rate switching policy
           alsa_monitor.rules = {
             {
@@ -298,14 +299,14 @@
       notify: wm-restart
 
     - name: Configure WirePlumber Bluetooth settings
-      copy:
+      ansible.builtin.copy:
         dest: "{{ wireplumber_config_dir }}/bluetooth.lua.d/99-bluetooth-quality.lua"
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
-        mode: '0644'
+        mode: "0644"
         content: |
           -- Bluetooth headphones quality settings for WirePlumber 0.5+
-          
+
           bluez_monitor.properties = {
             ["bluez5.enable-sbc-xq"] = true,
             ["bluez5.enable-msbc"] = true,
@@ -315,7 +316,7 @@
             ["bluez5.default.rate"] = 48000,
             ["bluez5.a2dp.ldac.quality"] = "hq"
           }
-          
+
           bluez_monitor.rules = {
             {
               matches = {
@@ -336,7 +337,7 @@
     - name: pw-restart
       become: true
       become_user: "{{ user_login }}"
-      systemd:
+      ansible.builtin.systemd:
         name: "{{ item }}"
         state: restarted
         scope: user
@@ -348,13 +349,13 @@
     - name: wm-restart
       become: true
       become_user: "{{ user_login }}"
-      systemd:
+      ansible.builtin.systemd:
         name: wireplumber
         state: restarted
         scope: user
 
     - name: restart-bt
       become: true
-      systemd:
+      ansible.builtin.systemd:
         name: bluetooth
         state: restarted

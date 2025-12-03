@@ -1,3 +1,4 @@
+---
 #!/usr/bin/env ansible-playbook
 # Flatpak is already installed by default, we just need to add to it
 - hosts: desktop
@@ -6,14 +7,8 @@
     root_dir: "{{ inventory_dir }}/../../"
   tasks:
     - name: Enable Flathub
-      command: flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-
+      ansible.builtin.command: flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
     - name: Install Slack
       become: true
       become_user: "{{ user_login }}"
-      command: flatpak install flathub com.slack.Slack -y
-
-#    - name: Install Anydesk
-#      become: true
-#      become_user: "{{ user_login }}"
-#      command: flatpak install flathub com.anydesk.Anydesk -y
+      ansible.builtin.command: flatpak install flathub com.slack.Slack -y

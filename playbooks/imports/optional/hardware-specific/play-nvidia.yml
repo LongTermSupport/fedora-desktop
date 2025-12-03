@@ -1,3 +1,4 @@
+---
 #!/usr/bin/env ansible-playbook
 # Install NVIDIA drivers using RPM Fusion (recommended method for Fedora 42)
 # For RTX 500 Ada Generation and other modern NVIDIA GPUs
@@ -9,72 +10,72 @@
     - "{{ root_dir }}/vars/fedora-version.yml"
   tasks:
     - name: Enable RPM Fusion repositories
-      dnf:
+      ansible.builtin.dnf:
         name:
           - "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-{{ fedora_version }}.noarch.rpm"
           - "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-{{ fedora_version }}.noarch.rpm"
         state: present
-        disable_gpg_check: yes
+        disable_gpg_check: true
 
     - name: Update system packages
-      dnf:
+      ansible.builtin.dnf:
         name: "*"
         state: latest
 
     - name: Install NVIDIA driver packages
-      dnf:
+      ansible.builtin.dnf:
         name:
           - akmod-nvidia
-          - xorg-x11-drv-nvidia-cuda  # For CUDA/NVDEC/NVENC support
+          - xorg-x11-drv-nvidia-cuda # For CUDA/NVDEC/NVENC support
           - xorg-x11-drv-nvidia-cuda-libs
           - xorg-x11-drv-nvidia-power
-          - nvidia-vaapi-driver  # For hardware video acceleration
+          - nvidia-vaapi-driver # For hardware video acceleration
         state: present
 
     - name: Wait for kernel module to build
-      pause:
-        prompt: |
-          
+      ansible.builtin.pause:
+        prompt: |2
+
           ============================================
           NVIDIA KERNEL MODULE BUILDING
           ============================================
-          
+
           The NVIDIA kernel module is now building.
           This can take up to 5 minutes.
-          
+
           To check if it's complete, run in another terminal:
           modinfo -F version nvidia
-          
+
           This should output the driver version (e.g., 580.76)
           If you see "Module nvidia not found", wait longer.
-          
+
           Press ENTER when the module is built...
 
     - name: Force rebuild kernel modules if needed
-      shell: |
+      ansible.builtin.shell: |
         akmods --force
         dracut --force
       register: rebuild_result
       changed_when: rebuild_result.rc == 0
 
     - name: Important post-installation instructions
-      pause:
-        prompt: |
-          
+      ansible.builtin.pause:
+        prompt: |2-
+
           ============================================
           NVIDIA DRIVER INSTALLATION COMPLETE
           ============================================
-          
+
           IMPORTANT: You must REBOOT for drivers to load!
-          
+
           After reboot, verify with:
           - nvidia-smi
           - lsmod | grep nvidia
-          
+
           Note: If Secure Boot is enabled, you may need to:
           1. Disable it in BIOS/UEFI, OR
           2. Sign the kernel modules
-          
+
           Check Secure Boot status: mokutil --sb-state
-          
+
           Press ENTER to acknowledge...

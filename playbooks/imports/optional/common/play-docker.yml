@@ -1,3 +1,4 @@
+---
 #!/usr/bin/env ansible-playbook
 - hosts: desktop
   become: false
@@ -5,31 +6,31 @@
     root_dir: "{{ inventory_dir }}/../../"
   tasks:
     - name: Install DNF Plugins
-      become: true 
-      dnf:
+      become: true
+      ansible.builtin.dnf:
         name: dnf-plugins-core
 
     - name: Add Docker Repo
       become: true
-      shell: |
-          dnf config-manager addrepo \
-            --from-repofile=https://download.docker.com/linux/fedora/docker-ce.repo 
+      ansible.builtin.shell: |
+        dnf config-manager addrepo \
+          --from-repofile=https://download.docker.com/linux/fedora/docker-ce.repo
       args:
         creates: /etc/yum.repos.d/docker-ce.repo
 
     - name: Install Docker
       become: true
-      dnf:
+      ansible.builtin.dnf:
         name:
-          - docker-ce 
-          - docker-ce-cli 
-          - containerd.io 
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
           - docker-buildx-plugin
           - docker-compose-plugin
 
     - name: Setup ID Maps
       become: true
-      blockinfile:
+      ansible.builtin.blockinfile:
         path: "{{ item }}"
         block: |
           {{user_login}}:100000:65536
@@ -38,13 +39,13 @@
         - /etc/subgid
 
     - name: Run Rootless Setup
-      command: dockerd-rootless-setuptool.sh install
+      ansible.builtin.command: dockerd-rootless-setuptool.sh install
       args:
-        creates: /home/{{user_login}}/.config/systemd/user/docker.service 
+        creates: /home/{{user_login}}/.config/systemd/user/docker.service
 
     - name: Enable and Start User Rootless Docker Systemd Service
-      systemd:
+      ansible.builtin.systemd:
         name: docker
         state: started
-        enabled: yes
+        enabled: true
         scope: user

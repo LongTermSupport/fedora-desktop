@@ -1,3 +1,4 @@
+---
 - hosts: desktop
   name: Claude Code Installation
   become: false
@@ -5,10 +6,9 @@
     root_dir: "{{ inventory_dir }}/../../"
     claude_code_version: "stable"
   tasks:
-
     - name: Install Claude Code Dependencies (System Level)
       become: true
-      package:
+      ansible.builtin.package:
         name: "{{ packages }}"
         state: present
       vars:
@@ -21,19 +21,19 @@
           - openssh-clients
 
     - name: Check if Claude Code is Already Installed
-      stat:
+      ansible.builtin.stat:
         path: "/home/{{ user_login }}/.local/bin/claude"
       register: claude_installed
 
     - name: Install Claude Code CLI via Official Installer
-      shell: |
+      ansible.builtin.shell: |
         curl -fsSL https://claude.ai/install.sh | bash -s {{ claude_code_version }}
       environment:
         HOME: "/home/{{ user_login }}"
       when: not claude_installed.stat.exists
 
     - name: Verify Claude Code Installation
-      shell: |
+      ansible.builtin.shell: |
         export PATH="$HOME/.local/bin:$PATH"
         claude --version
       environment:
@@ -42,11 +42,11 @@
       changed_when: false
 
     - name: Display Claude Code Version
-      debug:
+      ansible.builtin.debug:
         msg: "Claude Code installed successfully: {{ claude_code_version_check.stdout }}"
 
     - name: Configure Claude Code Shell Integration
-      blockinfile:
+      ansible.builtin.blockinfile:
         path: "/home/{{ user_login }}/.bashrc"
         marker: "# {mark} ANSIBLE MANAGED: Claude Code Integration"
         block: |
@@ -56,7 +56,7 @@
         create: false
 
     - name: Final Claude Code Installation Verification
-      shell: |
+      ansible.builtin.shell: |
         export PATH="$HOME/.local/bin:$PATH"
         echo "=== Claude Code Installation Summary ==="
         echo "Claude Code Version: $(claude --version)"
@@ -71,5 +71,5 @@
       changed_when: false
 
     - name: Display Installation Summary
-      debug:
+      ansible.builtin.debug:
         msg: "{{ final_verification.stdout_lines }}"

@@ -1,3 +1,4 @@
+---
 #!/usr/bin/env ansible-playbook
 # DisplayLink is used by USB Docks for Extra Monitors
 # Handles Secure Boot by enrolling MOK key for kernel module signing
@@ -12,28 +13,28 @@
     force_install: false
   tasks:
     - name: Check if Secure Boot is enabled
-      shell: mokutil --sb-state
+      ansible.builtin.shell: mokutil --sb-state
       register: secure_boot_state
       changed_when: false
       failed_when: false
 
     - name: Validate MOK password is in vault
-      assert:
+      ansible.builtin.assert:
         that:
           - mok_password is defined
         fail_msg: |
           ERROR: MOK password not found in vault!
-          
+
           Please add 'mok_password' to your vault configuration:
           ansible-vault edit environment/localhost/host_vars/localhost.yml
-          
+
           Add: mok_password: "your-password"
-          
+
           This password will be used once during boot to enroll the MOK key.
       when: "'SecureBoot enabled' in secure_boot_state.stdout"
 
     - name: Install prerequisites for DisplayLink
-      dnf:
+      ansible.builtin.dnf:
         name:
           - mokutil
           - dkms
@@ -43,29 +44,31 @@
         state: present
 
     - name: Fetch latest DisplayLink release from GitHub
-      uri:
+      ansible.builtin.uri:
         url: https://api.github.com/repos/displaylink-rpm/displaylink-rpm/releases/latest
-        return_content: yes
+        return_content: true
       register: github_release
       changed_when: false
       failed_when: false
 
     - name: Parse latest version information
-      set_fact:
+      ansible.builtin.set_fact:
         latest_version: "{{ github_release.json.tag_name | default('unknown') }}"
         version_check_failed: "{{ github_release.status != 200 }}"
       when: github_release is defined
 
     - name: Display version information
-      debug:
+      ansible.builtin.debug:
         msg:
           - "Playbook version: {{ displaylink_version }}"
           - "Latest GitHub version: {{ latest_version | default('Unable to fetch') }}"
-          - "Status: {{ 'UP TO DATE' if (latest_version | default('') == displaylink_version) else ('VERSION CHECK FAILED' if version_check_failed else 'NOT UP TO DATE') }}"
-          - "{{ 'Installation: FORCED (bypassing version check)' if (force_install and latest_version | default('') != displaylink_version and not version_check_failed) else '' }}"
+          - "Status: {{ 'UP TO DATE' if (latest_version | default('') == displaylink_version) else ('VERSION CHECK FAILED' if version_check_failed else 'NOT UP TO
+            DATE') }}"
+          - "{{ 'Installation: FORCED (bypassing version check)' if (force_install and latest_version | default('') != displaylink_version and not version_check_failed)
+            else '' }}"
 
     - name: Validate DisplayLink package version is current
-      assert:
+      ansible.builtin.assert:
         that:
           - force_install or version_check_failed or (latest_version == displaylink_version)
         fail_msg: |
@@ -96,7 +99,7 @@
       when: not version_check_failed
 
     - name: Warning about version check failure
-      debug:
+      ansible.builtin.debug:
         msg:
           - "WARNING: Unable to verify DisplayLink package version against GitHub"
           - "Proceeding with installation of version: {{ displaylink_version }}"
@@ -105,27 +108,27 @@
       when: version_check_failed
 
     - name: Install DisplayLink RPM
-      dnf:
+      ansible.builtin.dnf:
         name: "https://github.com/displaylink-rpm/displaylink-rpm/releases/download/{{ displaylink_version }}/fedora-42-displaylink-{{ evdi_version }}-1.github_evdi.x86_64.rpm"
         disable_gpg_check: true
       register: displaylink_install
 
     - name: Check if DKMS MOK key exists
-      stat:
+      ansible.builtin.stat:
         path: /var/lib/dkms/mok.pub
       register: mok_key
 
     - name: Check if MOK is already enrolled
-      shell: mokutil --test-key /var/lib/dkms/mok.pub
+      ansible.builtin.shell: mokutil --test-key /var/lib/dkms/mok.pub
       register: mok_enrolled
       changed_when: false
       failed_when: false
-      when: 
+      when:
         - "'SecureBoot enabled' in secure_boot_state.stdout"
         - mok_key.stat.exists
 
     - name: Import MOK key for enrollment
-      shell: |
+      ansible.builtin.shell: |
         expect -c "
         spawn mokutil --import /var/lib/dkms/mok.pub
         expect \"input password:\"
@@ -141,17 +144,17 @@
       register: mok_import
 
     - name: Display MOK enrollment password
-      pause:
-        prompt: |
-          
+      ansible.builtin.pause:
+        prompt: |2
+
           ========================================================================
           IMPORTANT: SECURE BOOT MOK ENROLLMENT REQUIRED
           ========================================================================
-          
+
           Your MOK enrollment password is: {{ mok_password }}
-          
+
           MEMORIZE THIS PASSWORD NOW!
-          
+
           After reboot:
           1. You will see a blue MOK Manager screen
           2. Select "Enroll MOK"
@@ -159,9 +162,9 @@
           4. Select "Yes"
           5. Enter the password shown above: {{ mok_password }}
           6. Select "Reboot"
-          
+
           The password will ONLY be needed this one time during enrollment.
-          
+
           Press ENTER only after you have memorized the password...
           ========================================================================
       when:
@@ -169,7 +172,7 @@
         - mok_import is changed
 
     - name: Run DKMS autoinstall
-      command: dkms autoinstall
+      ansible.builtin.command: dkms autoinstall
       when:
         - "'SecureBoot enabled' in secure_boot_state.stdout"
         - "'is already enrolled' in mok_enrolled.stdout | default('')"
@@ -183,41 +186,41 @@
     # 2. USB power management: disable autosuspend for DisplayLink devices
     # 3. EVDI persistence: options evdi initial_device_count=N in modprobe.d
     - name: Create DisplayLink suspend/resume check script
-      copy:
+      ansible.builtin.copy:
         content: |
           #!/bin/bash
           # Check if DisplayLink needs recovery after suspend
-          
+
           # Wait for system to stabilize
           sleep 5
-          
+
           # Check if DisplayLink USB device exists
           if ! lsusb | grep -qi displaylink; then
               echo "No DisplayLink device connected"
               exit 0
           fi
-          
+
           # Check if EVDI module is loaded
           if ! lsmod | grep -q evdi; then
               echo "EVDI module not loaded - restarting service"
               systemctl restart displaylink-driver.service
               exit 0
           fi
-          
+
           # Check if DisplayLinkManager process is running
           if ! pgrep -f DisplayLinkManager > /dev/null; then
               echo "DisplayLinkManager not running - restarting service"
               systemctl restart displaylink-driver.service
               exit 0
           fi
-          
+
           # Check for EVDI errors in kernel log (last 10 seconds)
           if journalctl -k --since "10 seconds ago" | grep -q "evdi.*error\|evdi.*fail"; then
               echo "EVDI errors detected - restarting service"
               systemctl restart displaylink-driver.service
               exit 0
           fi
-          
+
           # Check if any connected DisplayLink monitor lost its display output
           # This checks if EVDI cards exist but aren't properly connected
           for card in /sys/class/drm/card*/status; do
@@ -230,13 +233,13 @@
                   fi
               fi
           done
-          
+
           echo "DisplayLink appears healthy - no restart needed"
         dest: /usr/local/bin/displaylink-resume-check.sh
-        mode: '0755'
+        mode: "0755"
 
     - name: Create DisplayLink suspend/resume service
-      copy:
+      ansible.builtin.copy:
         content: |
           [Unit]
           Description=DisplayLink Suspend/Resume Handler
@@ -246,54 +249,54 @@
           Type=oneshot
           # Only restart DisplayLink if there are actual issues detected
           ExecStart=/usr/local/bin/displaylink-resume-check.sh
-          
+
           [Install]
           WantedBy=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
         dest: /etc/systemd/system/displaylink-suspend.service
-        mode: '0644'
+        mode: "0644"
       register: suspend_service
 
     - name: Enable DisplayLink suspend service
-      systemd:
+      ansible.builtin.systemd:
         name: displaylink-suspend.service
-        enabled: yes
+        enabled: true
         daemon_reload: "{{ suspend_service.changed }}"
 
     - name: Ensure DisplayLink service is started
-      systemd:
+      ansible.builtin.systemd:
         name: displaylink-driver
         state: started
-        enabled: yes
+        enabled: true
       when: "'is already enrolled' in mok_enrolled.stdout | default('') or 'SecureBoot disabled' in secure_boot_state.stdout"
 
     - name: Verify DisplayLink installation
-      command: "{{ root_dir }}/scripts/check-displaylink-status.sh --check"
+      ansible.builtin.command: "{{ root_dir }}/scripts/check-displaylink-status.sh --check"
       register: displaylink_check
       failed_when: displaylink_check.rc != 0
       changed_when: false
       when: "'SecureBoot disabled' in secure_boot_state.stdout or 'is already enrolled' in mok_enrolled.stdout | default('')"
 
     - name: Final instructions
-      pause:
-        prompt: |
-          
+      ansible.builtin.pause:
+        prompt: |2
+
           ========================================================================
           DisplayLink Installation Status
           ========================================================================
-          
+
           {% if 'SecureBoot enabled' in secure_boot_state.stdout and mok_import is changed %}
           ACTION REQUIRED: MOK ENROLLMENT
-          
+
           1. Reboot your system now
           2. Enroll the MOK key using the password you memorized
           3. After successful enrollment, DisplayLink will work automatically
-          
+
           To reboot now, run: sudo reboot
           {% elif 'SecureBoot enabled' in secure_boot_state.stdout and 'is already enrolled' in mok_enrolled.stdout | default('') %}
           ✅ MOK key is already enrolled. DisplayLink is configured and verified.
           {% else %}
           ✅ Secure Boot is disabled. DisplayLink is configured and verified.
           {% endif %}
-          
+
           Press ENTER to continue...
           ========================================================================

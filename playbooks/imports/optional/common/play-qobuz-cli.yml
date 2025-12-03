@@ -1,3 +1,4 @@
+---
 #!/usr/bin/env ansible-playbook
 - hosts: desktop
   name: Qobuz CLI Apps - Gapless HD Audio Streaming from Qobuz
@@ -21,7 +22,7 @@
   tasks:
     # Version detection for hifi-rs
     - name: Get latest hifi-rs version
-      shell: |
+      ansible.builtin.shell: |
         curl -s https://api.github.com/repos/iamdb/hifi.rs/releases/latest |
         jq -r '.tag_name' | sed 's/^v//'
       register: hifiRsLatestVersion
@@ -29,16 +30,16 @@
       changed_when: false
 
     - name: Set hifi-rs version
-      set_fact:
+      ansible.builtin.set_fact:
         hifiRsVersionFinal: "{{ hifiRsLatestVersion.stdout if hifiRsVersion == 'latest' else hifiRsVersion }}"
 
     - name: Set hifi-rs URL
-      set_fact:
+      ansible.builtin.set_fact:
         hifiRsUrl: "https://github.com/iamdb/hifi.rs/releases/download/v{{ hifiRsVersionFinal }}/hifi-rs-x86_64-unknown-linux-gnu.tar.gz"
 
     # Version detection for qobuz-player
     - name: Get latest qobuz-player version
-      shell: |
+      ansible.builtin.shell: |
         curl -s https://api.github.com/repos/SofusA/qobuz-player/releases/latest |
         jq -r '.tag_name' | sed 's/^v//'
       register: qobuzPlayerLatestVersion
@@ -48,19 +49,19 @@
         - qobuz-player
 
     - name: Set qobuz-player version
-      set_fact:
+      ansible.builtin.set_fact:
         qobuzPlayerVersionFinal: "{{ qobuzPlayerLatestVersion.stdout if qobuzPlayerVersion == 'latest' else qobuzPlayerVersion }}"
       tags:
         - qobuz-player
 
     - name: Set qobuz-player URL
-      set_fact:
+      ansible.builtin.set_fact:
         qobuzPlayerUrl: "https://github.com/SofusA/qobuz-player/releases/download/v{{ qobuzPlayerVersionFinal }}/qobuz-player-x86_64-unknown-linux-gnu.tar.gz"
       tags:
         - qobuz-player
 
     - name: Install hifi-rs
-      shell: |
+      ansible.builtin.shell: |
         set -ex
         if [[ -f {{ hifiRsPath }} ]]; then
           installedVersion="$(hifi-rs --version | grep -Po '[0-9.]+')"
@@ -81,7 +82,7 @@
         - hifi-rs
 
     - name: Install qobuz-player
-      shell: |
+      ansible.builtin.shell: |
         set -ex
         if [[ -f {{ qobuzPlayerPath }} ]]; then
           installedVersion="$(qobuz-player --version 2>/dev/null | grep -Po '[0-9.-]+' || echo '')"
@@ -107,15 +108,15 @@
 
     - name: Install qp controller script
       become: true
-      copy:
+      ansible.builtin.copy:
         src: "{{ root_dir }}/files/usr/local/bin/qp"
         dest: /usr/local/bin/qp
         owner: root
         group: root
-        mode: '0755'
+        mode: "0755"
 
     - name: Install Recsrobbled
-      shell: |
+      ansible.builtin.shell: |
         cd /home/{{ user_login }}/Downloads
         rm -rf rescrobbled*
         wget "{{ rescrobbledUrl }}"
@@ -126,70 +127,70 @@
         creates: "{{ rescrobbledPath }}"
 
     - name: Create Rescrobbled Config Dir
-      file:
+      ansible.builtin.file:
         state: directory
         path: /home/{{ user_login }}/.config/rescrobbled/
 
     # Needs Last FM API Account
     # Visit https://www.last.fm/api/account/create
     - name: Configure Rescrobbled
-      copy:
+      ansible.builtin.copy:
         content: |
           lastfm-key = "{{ lastfm_api_key }}"
           lastfm-secret = "{{ lastfm_api_secret }}"
         dest: /home/{{ user_login }}/.config/rescrobbled/config.toml
 
     - name: Create Systemd User Dir
-      file:
+      ansible.builtin.file:
         state: directory
         path: /home/{{ user_login }}/.config/systemd/user/
 
     - name: Rescrobbled Systemd Config
-      copy:
+      ansible.builtin.copy:
         content: |
           [Unit]
           Description=An MPRIS scrobbler
           Documentation=https://github.com/InputUsername/rescrobbled
           Wants=network-online.target
           After=network-online.target
-          
+
           [Service]
           ExecStart=%h/.local/bin/rescrobbled
-          
+
           [Install]
           WantedBy=default.target
         dest: /home/{{ user_login }}/.config/systemd/user/rescrobbled.service
 
     - name: Check for Session File For Rescrobbled
-      stat: 
+      ansible.builtin.stat:
         path: /home/{{ user_login }}/.config/rescrobbled/session
       register: rescrobbled_session_file
 
     - name: Manual Rescrobbled Setup Required
       block:
         - name: Display Setup Instructions
-          pause:
-            prompt: |
-              
+          ansible.builtin.pause:
+            prompt: |2
+
               ============================================
               RESCROBBLED SETUP REQUIRED
               ============================================
-              
+
               Please do the following in a NEW terminal:
               1. Run: rescrobbled
               2. Enter your Last.fm login details
               3. Confirm it logs in properly
               4. Press Ctrl+C to exit rescrobbled
-              
+
               Then press ENTER here to continue...
-          
+
         - name: Check if Session File Now Exists
-          stat:
+          ansible.builtin.stat:
             path: /home/{{ user_login }}/.config/rescrobbled/session
           register: rescrobbled_session_check
-          
+
         - name: Verify Session File Created
-          fail:
+          ansible.builtin.fail:
             msg: |
               Session file still not found at ~/.config/rescrobbled/session
               Please ensure you completed the rescrobbled login process.
@@ -199,27 +200,26 @@
 
     # Configure qobuz-player with vault credentials if available
     - name: Check if qobuz credentials are defined
-      set_fact:
+      ansible.builtin.set_fact:
         has_qobuz_credentials: "{{ qobuz_username is defined and qobuz_password is defined }}"
 
     - name: Configure qobuz-player with credentials
       block:
         - name: Set qobuz-player username
-          shell: |
+          ansible.builtin.shell: |
             {{ qobuzPlayerPath }} config username "{{ qobuz_username }}"
           no_log: true
 
         - name: Set qobuz-player password
-          shell: |
+          ansible.builtin.shell: |
             {{ qobuzPlayerPath }} config password "{{ qobuz_password }}"
           no_log: true
 
         - name: Set qobuz-player audio quality
-          shell: |
+          ansible.builtin.shell: |
             {{ qobuzPlayerPath }} config max-audio-quality hifi192
-
         - name: Verify qobuz-player configuration
-          shell: |
+          ansible.builtin.shell: |
             {{ qobuzPlayerPath }} api search test 2>&1
           register: qobuz_player_verify
           failed_when: false
@@ -227,14 +227,14 @@
           no_log: true
 
         - name: Display qobuz-player configuration status
-          debug:
+          ansible.builtin.debug:
             msg: |
               ✓ qobuz-player configured with provided credentials
               ✓ Audio quality set to hifi192
           when: qobuz_player_verify.rc == 0
 
         - name: Warn if qobuz-player configuration failed
-          debug:
+          ansible.builtin.debug:
             msg: |
               ⚠ qobuz-player configuration may have failed
               Please verify credentials and run: qobuz-player api search test
@@ -242,7 +242,7 @@
       when: has_qobuz_credentials
 
     - name: Manual qobuz-player setup required
-      debug:
+      ansible.builtin.debug:
         msg: |
           ℹ qobuz-player installed but not configured
           To configure manually:
@@ -252,34 +252,34 @@
       when: not has_qobuz_credentials
 
     - name: Reload systemd daemon for user
-      systemd:
-        daemon_reload: yes
+      ansible.builtin.systemd:
+        daemon_reload: true
         scope: user
-      
+
     - name: Start and Enable Rescrobbled Service
-      systemd:
+      ansible.builtin.systemd:
         name: rescrobbled
         state: started
         enabled: true
         scope: user
-    
+
     - name: Verify Rescrobbled Service is Running
-      command: systemctl --user is-active rescrobbled
+      ansible.builtin.command: systemctl --user is-active rescrobbled
       register: rescrobbled_status
       changed_when: false
       failed_when: rescrobbled_status.stdout != "active"
-      
+
     - name: Display Success Message
-      debug:
+      ansible.builtin.debug:
         msg: |
           ✓ Rescrobbled successfully installed and running!
           ✓ Your music will now be scrobbled to Last.fm
-          
+
           To check status: systemctl --user status rescrobbled
           To view logs: journalctl --user -u rescrobbled -f
 
     - name: Create qobuz-players bashrc include file
-      copy:
+      ansible.builtin.copy:
         content: |
           # Qobuz Players Configuration
           # Set QOBUZ_PLAYER to choose default: "hifi-rs" or "qobuz-player"
@@ -399,11 +399,11 @@
         dest: /home/{{ user_login }}/.bashrc-includes/qobuz-players
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
-        mode: '0644'
+        mode: "0644"
 
     # Set default player preference in .bashrc
     - name: Set default Qobuz player in bashrc
-      blockinfile:
+      ansible.builtin.blockinfile:
         path: /home/{{ user_login }}/.bashrc
         marker: "# {mark} ANSIBLE MANAGED: Default Qobuz Player"
         block: |
@@ -412,7 +412,7 @@
         create: false
 
     - name: Check if hifi-rs is configured with Qobuz credentials
-      shell: |
+      ansible.builtin.shell: |
         hifi-rs api search test -o json 2>&1
       register: hifirs_api_check
       failed_when: false
@@ -421,8 +421,8 @@
     - name: Manual hifi-rs Setup Required
       block:
         - name: Display hifi-rs Setup Instructions
-          pause:
-            prompt: |
+          ansible.builtin.pause:
+            prompt: |2
 
               ============================================
               HIFI-RS SETUP REQUIRED
@@ -450,13 +450,13 @@
               Press ENTER here once configuration is complete...
 
         - name: Verify hifi-rs API Access
-          shell: |
+          ansible.builtin.shell: |
             hifi-rs api search test -o json
           register: hifirs_api_verify
           changed_when: false
 
         - name: Display Success Message
-          debug:
+          ansible.builtin.debug:
             msg: |
               ✓ hifi-rs successfully configured and ready!
               ✓ You can now use: play <qobuz_url>
@@ -466,7 +466,7 @@
 
     # Final summary
     - name: Display installation summary
-      debug:
+      ansible.builtin.debug:
         msg:
           - ============================================
           - Qobuz CLI Apps Installation Complete!
@@ -479,14 +479,14 @@
           - "Default player: qobuz-player"
           - ""
           - "Usage:"
-          -   play <qobuz_url>     - Play using default player
-          -   hplay <qobuz_url>    - Play using hifi-rs
-          -   qplay <qobuz_url>    - Play using qobuz-player
-          -   qp <qobuz_url>       - Web API controller (auto-starts if needed)
-          -   qp --shuffle <url>   - Play shuffled playlist via web API
-          -   qobuz_status         - Show player status
-          -   qobuz_switch [h|q]   - Switch default player
-          -   qobuz_web            - Launch web interface
+          - play <qobuz_url>     - Play using default player
+          - hplay <qobuz_url>    - Play using hifi-rs
+          - qplay <qobuz_url>    - Play using qobuz-player
+          - qp <qobuz_url>       - Web API controller (auto-starts if needed)
+          - qp --shuffle <url>   - Play shuffled playlist via web API
+          - qobuz_status         - Show player status
+          - qobuz_switch [h|q]   - Switch default player
+          - qobuz_web            - Launch web interface
           - ""
           - To change default player permanently:
-          -   Edit ~/.bashrc and set QOBUZ_PLAYER="hifi-rs" or "qobuz-player"
+          - Edit ~/.bashrc and set QOBUZ_PLAYER="hifi-rs" or "qobuz-player"

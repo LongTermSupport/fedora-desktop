@@ -1,3 +1,4 @@
+---
 #!/usr/bin/env ansible-playbook
 - hosts: desktop
   become: true
@@ -6,31 +7,31 @@
   tasks:
     # Install Firefox
     - name: Install Firefox
-      package:
+      ansible.builtin.package:
         name:
           - firefox
         state: present
 
     - name: Make /etc/firefox/policies Directory
-      file:
+      ansible.builtin.file:
         path: /etc/firefox/policies
         state: directory
-        mode: '0755'
+        mode: "0755"
         owner: root
         group: root
 
     # Install Firefox Profile Switcher Connector
     - name: Install Firefox Profile Switcher Connector RPM
-      dnf:
+      ansible.builtin.dnf:
         name: https://github.com/null-dev/firefox-profile-switcher-connector/releases/latest/download/linux-x64.rpm
         state: present
-        disable_gpg_check: yes
+        disable_gpg_check: true
 
     # Set Policies
     # see:
     # - https://linuxconfig.org/how-to-customize-firefox-using-the-policies-json-file
     # - https://mozilla.github.io/policy-templates/
     - name: Set Policies
-      copy:
+      ansible.builtin.copy:
         src: "{{ root_dir }}/files/etc/firefox/policies/policies.json"
         dest: /etc/firefox/policies/policies.json
