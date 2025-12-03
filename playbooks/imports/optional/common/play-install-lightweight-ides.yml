@@ -1,15 +1,13 @@
 ---
 #!/usr/bin/env ansible-playbook
 # Install lightweight IDEs as alternatives to heavyweight IDEs
-# Provides Geany and CodeLite for users who prefer lighter editors
+# Provides Geany for users who prefer lighter editors
 
 - hosts: desktop
   name: Install Lightweight IDEs
   become: true
   vars:
     root_dir: "{{ inventory_dir }}/../../"
-  vars_files:
-    - "{{ root_dir }}/vars/fedora-version.yml"
   tasks:
     # Geany - Lightweight IDE from standard repos
     - name: Install Geany IDE
@@ -18,33 +16,15 @@
         state: present
       tags: geany
 
-    # CodeLite - C/C++ IDE with RPM from official repository
-    - name: Import CodeLite GPG Key
-      ansible.builtin.rpm_key:
-        key: https://repos.codelite.org/CodeLite.asc
-        state: present
-      tags: codelite
-
-    - name: Check if CodeLite is Already Installed
-      ansible.builtin.command: rpm -q codelite
-      register: codelite_installed
-      failed_when: false
-      changed_when: false
-      tags: codelite
-
-    - name: Install CodeLite RPM
-      ansible.builtin.command: >
-        rpm -Uvh https://repos.codelite.org/rpms-18.2.0/fedora/{{ fedora_version }}/codelite-18.2.0-1.fc{{ fedora_version }}.x86_64.rpm
-      when: codelite_installed.rc != 0
-      tags: codelite
-
     - name: Display Installation Complete Message
       ansible.builtin.debug:
         msg: |
-          Lightweight IDEs installed successfully:
-          - Geany: General purpose lightweight IDE
-          - CodeLite: C/C++ focused IDE with wxWidgets support
+          Lightweight IDE installed successfully:
+          - Geany: General purpose lightweight IDE with syntax highlighting
+            and basic IDE features for multiple languages
 
           Launch from applications menu or command line:
             geany
-            codelite
+
+          Note: CodeLite removed - no Fedora 42 package available yet.
+          For C/C++ development, consider VS Code or CLion as alternatives.
