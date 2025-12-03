@@ -3,6 +3,9 @@ environment/localhost/host_vars/localhost.yml
 .idea
 roles/vendor/*
 
+# Ansible runtime cache
+.ansible/
+
 # Python bytecode cache
 __pycache__/
 *.pyc
