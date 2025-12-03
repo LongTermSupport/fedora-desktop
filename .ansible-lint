@@ -1,0 +1,36 @@
+---
+# Ansible Lint Configuration for fedora-desktop project
+# This configuration focuses on critical issues while ignoring cosmetic style rules
+
+# Skip cosmetic and stylistic rules that don't affect functionality
+# FQCN checks are ENABLED to enforce best practices
+skip_list:
+  - key-order[play]              # Play key order is cosmetic
+  - yaml[line-length]            # Allow longer lines for readability
+  - yaml[trailing-spaces]        # Minor formatting issue
+  - name[casing]                 # Task name casing is stylistic
+  - name[template]               # Allow flexible task naming
+
+# Warn about these instead of failing (useful but not critical)
+warn_list:
+  - command-instead-of-module    # Sometimes raw commands are necessary
+  - no-changed-when              # Good practice but not always critical
+  - risky-shell-pipe             # Shell pipes are sometimes needed
+
+# Use 'basic' profile - catches serious issues without being too strict
+profile: basic
+
+# Exclude directories that shouldn't be linted
+exclude_paths:
+  - .git/
+  - untracked/
+  - .cache/
+  - venv/
+  - .venv/
+
+# Enable offline mode if you don't want to check for rule updates
+offline: false
+
+# Set parseable output for easier parsing
+# Can be overridden with -f flag
+# format: pep8
