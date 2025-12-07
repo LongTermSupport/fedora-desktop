@@ -1,0 +1,90 @@
+---
+#!/usr/bin/env ansible-playbook
+# Install modern terminal emulators optimized for Claude Code
+# Provides Alacritty, Kitty, Ghostty, and Foot - all with excellent performance,
+# true color support, and great experience for AI-assisted development
+
+- hosts: desktop
+  name: Install Modern Terminal Emulators
+  become: true
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  tasks:
+    # Alacritty - Fastest terminal with lowest input latency
+    - name: Install Alacritty Terminal Emulator
+      ansible.builtin.package:
+        name: alacritty
+        state: present
+      tags: alacritty
+
+    # Kitty - Feature-rich with native tabs and image support
+    - name: Install Kitty Terminal Emulator
+      ansible.builtin.package:
+        name: kitty
+        state: present
+      tags: kitty
+
+    # Ghostty - Brand new terminal by Mitchell Hashimoto (v1.0 released Christmas 2025)
+    - name: Install Ghostty COPR Repository
+      ansible.builtin.command:
+        cmd: dnf copr enable -y pgdev/ghostty
+        creates: /etc/yum.repos.d/_copr:copr.fedorainfracloud.org:pgdev:ghostty.repo
+      tags: ghostty
+
+    - name: Install Ghostty Terminal Emulator
+      ansible.builtin.package:
+        name: ghostty
+        state: present
+      tags: ghostty
+
+    # Foot - Lightning-fast Wayland-native terminal with minimal resource usage
+    - name: Install Foot Terminal Emulator
+      ansible.builtin.package:
+        name: foot
+        state: present
+      tags: foot
+
+    - name: Display Installation Complete Message
+      ansible.builtin.debug:
+        msg: |
+          Modern terminal emulators installed successfully:
+
+          🚀 Alacritty - Fastest with lowest input latency
+            • GPU-accelerated with OpenGL
+            • Simple, minimal configuration (YAML)
+            • Best for: Speed and simplicity
+            • Launch: alacritty
+
+          🐱 Kitty - Feature-rich with excellent graphics
+            • Native tabs and window splits
+            • Image protocol support
+            • Font ligature support
+            • Best for: Feature-rich experience with built-in multiplexing
+            • Launch: kitty
+
+          👻 Ghostty - Brand new from HashiCorp co-founder (v1.0 Dec 2025)
+            • Platform-native UI (GTK4)
+            • GPU-accelerated (OpenGL)
+            • Zero configuration needed
+            • Built-in tabs, splits, hundreds of themes
+            • Best for: Modern features with native integration
+            • Launch: ghostty
+
+          🦶 Foot - Lightning-fast Wayland-native minimalist
+            • Built specifically for Wayland
+            • Extremely lightweight (21 MB memory!)
+            • CPU-based rendering (faster than GPU for terminals)
+            • Server/client architecture for instant startup
+            • Best for: Wayland users wanting maximum efficiency
+            • Launch: foot (or foot --server + footclient)
+
+          All terminals feature:
+          ✓ True color (24-bit) support
+          ✓ Excellent performance with Claude Code
+          ✓ Low input latency
+
+          Configuration files:
+          • Alacritty: ~/.config/alacritty/alacritty.yml
+          • Kitty: ~/.config/kitty/kitty.conf
+          • Ghostty: ~/.config/ghostty/config
+          • Foot: ~/.config/foot/foot.ini
