@@ -503,6 +503,136 @@ list_all_sessions() {
     echo "════════════════════════════════════════════════════════════════════════════════"
 }
 
+# Parse number input (CSV or space-separated)
+# Example: "1,3,5" or "1 3 5" or "1-3,5"
+parse_number_input() {
+    local input="$1"
+    local max_index="$2"
+    local numbers=()
+
+    # Replace commas with spaces
+    input=$(echo "$input" | tr ',' ' ')
+
+    # Parse each token
+    for token in $input; do
+        if [[ "$token" =~ ^[0-9]+$ ]]; then
+            # Single number
+            if [[ $token -ge 1 ]] && [[ $token -le $max_index ]]; then
+                numbers+=("$token")
+            else
+                echo "ERROR:Invalid number: $token (must be 1-$max_index)" >&2
+                return 1
+            fi
+        else
+            echo "ERROR:Invalid input: $token (expected number)" >&2
+            return 1
+        fi
+    done
+
+    # Return unique sorted numbers
+    printf '%s\n' "${numbers[@]}" | sort -nu
+}
+
+# Interactive session deletion with number selection
+delete_sessions_interactive() {
+    local sessions_root="$1"
+    shift
+    local session_names=("$@")
+
+    if [[ ${#session_names[@]} -eq 0 ]]; then
+        echo "No sessions available to delete" >&2
+        return 0
+    fi
+
+    echo "" >&2
+    echo "════════════════════════════════════════════════════════════════════════════════" >&2
+    echo "Delete Sessions" >&2
+    echo "════════════════════════════════════════════════════════════════════════════════" >&2
+    echo "" >&2
+    echo "Available sessions:" >&2
+    echo "" >&2
+
+    # Show numbered list
+    for i in "${!session_names[@]}"; do
+        local name="${session_names[$i]}"
+        local session_dir="$sessions_root/sessions/$name"
+        local msg_count=$(count_session_messages "$session_dir")
+        local context=$(get_session_context "$session_dir" 40)
+
+        printf "  %d) %s (%s messages)\n" "$((i+1))" "$name" "$msg_count" >&2
+        printf "     └─ %s\n" "$context" >&2
+        echo "" >&2
+    done
+
+    echo "════════════════════════════════════════════════════════════════════════════════" >&2
+    echo "" >&2
+
+    while true; do
+        read -p "Enter numbers to delete (CSV or space-separated, e.g., '1,3,5' or '1 3 5'), or 'c' to cancel: " input
+        echo "" >&2
+
+        # Check for cancel
+        if [[ "$input" =~ ^[cC]$ ]] || [[ -z "$input" ]]; then
+            echo "Cancelled" >&2
+            return 0
+        fi
+
+        # Parse input
+        local numbers_to_delete=($(parse_number_input "$input" "${#session_names[@]}"))
+
+        if [[ $? -ne 0 ]]; then
+            echo "Please try again or 'c' to cancel" >&2
+            echo "" >&2
+            continue
+        fi
+
+        if [[ ${#numbers_to_delete[@]} -eq 0 ]]; then
+            echo "No valid numbers provided" >&2
+            echo "" >&2
+            continue
+        fi
+
+        # Show confirmation
+        echo "⚠️  You are about to delete ${#numbers_to_delete[@]} session(s):" >&2
+        echo "" >&2
+
+        local total_messages=0
+        for num in "${numbers_to_delete[@]}"; do
+            local idx=$((num - 1))
+            local name="${session_names[$idx]}"
+            local session_dir="$sessions_root/sessions/$name"
+            local msg_count=$(count_session_messages "$session_dir")
+            total_messages=$((total_messages + msg_count))
+
+            printf "  %d) %s (%s messages)\n" "$num" "$name" "$msg_count" >&2
+        done
+
+        echo "" >&2
+        echo "Total messages that will be deleted: $total_messages" >&2
+        echo "" >&2
+
+        read -p "Confirm deletion? [y/N]: " confirm
+        echo "" >&2
+
+        if [[ "$confirm" =~ ^[yY]$ ]]; then
+            # Delete sessions
+            local deleted_count=0
+            for num in "${numbers_to_delete[@]}"; do
+                local idx=$((num - 1))
+                local name="${session_names[$idx]}"
+                delete_session_silent "$name" "$sessions_root"
+                ((deleted_count++))
+            done
+
+            print_success "Deleted $deleted_count session(s)"
+            return 0
+        else
+            echo "Cancelled" >&2
+            return 0
+        fi
+    done
+}
+
 # Interactive session picker TUI
 session_picker_tui() {
     local sessions_root="${1:-.claude/ccy}"
@@ -617,14 +747,11 @@ session_picker_tui() {
                 echo "" >&2
                 ;;
             d|D)
-                # Delete a session
-                read -p "Session name to delete: " del_name
-                if [[ -n "$del_name" ]]; then
-                    delete_session "$del_name" "$sessions_root"
-                    # Refresh and show menu again
-                    session_picker_tui "$sessions_root"
-                    return $?
-                fi
+                # Delete sessions
+                delete_sessions_interactive "$sessions_root" "${session_names[@]}"
+                # Refresh and show menu again
+                session_picker_tui "$sessions_root"
+                return $?
                 ;;
             "")
                 # Blank = auto-generate
@@ -919,6 +1046,8 @@ export -f delete_session_silent
 export -f delete_session
 export -f check_and_prune_old_sessions
 export -f list_all_sessions
+export -f parse_number_input
+export -f delete_sessions_interactive
 export -f session_picker_tui
 export -f confirm_session_name
 export -f fork_session
