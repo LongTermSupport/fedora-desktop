@@ -108,28 +108,21 @@ get_session_context() {
         return
     fi
 
-    # Get last assistant message (truncate to max_length chars)
-    local last_msg=$(tail -n 50 "$history_file" 2>/dev/null | \
-        grep '"role":"assistant"' | \
-        tail -n 1 | \
-        jq -r '.content // empty' 2>/dev/null | \
-        head -c "$max_length")
+    # Get last 3 user messages from history.jsonl, filtering out slash commands
+    local messages=$(tail -n 50 "$history_file" 2>/dev/null | \
+        jq -r 'select(.display != null) | .display' 2>/dev/null | \
+        grep -v '^/exit' | \
+        grep -v '^/resume' | \
+        grep -v '^/clear' | \
+        grep -v '^\[Pasted text' | \
+        tail -n 3)
 
-    if [[ -n "$last_msg" ]]; then
-        echo "${last_msg}..."
+    if [[ -n "$messages" ]]; then
+        # Join messages with " → " and truncate to max_length
+        local joined=$(echo "$messages" | tr '\n' '→' | sed 's/→$//; s/→/ → /g' | head -c "$max_length")
+        echo "${joined}..."
     else
-        # Try to get last user message instead
-        local last_user=$(tail -n 50 "$history_file" 2>/dev/null | \
-            grep '"role":"user"' | \
-            tail -n 1 | \
-            jq -r '.content // empty' 2>/dev/null | \
-            head -c "$max_length")
-
-        if [[ -n "$last_user" ]]; then
-            echo "(started) ${last_user}..."
-        else
-            echo "(session started)"
-        fi
+        echo "(session started)"
     fi
 }
 
@@ -143,7 +136,8 @@ count_session_messages() {
         return
     fi
 
-    grep -c '"role":' "$history_file" 2>/dev/null || echo "0"
+    # Count non-empty lines in history file
+    grep -c . "$history_file" 2>/dev/null || echo "0"
 }
 
 # Helper: Convert timestamp to human-readable age

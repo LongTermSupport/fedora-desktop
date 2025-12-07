@@ -3,13 +3,13 @@
 # Runs Claude Code with --dangerously-skip-permissions in isolated Docker container
 # IMPORTANT: Uses separate token storage from desktop Claude Code to prevent OAuth conflicts
 #
-# Version: 2.0.4 - Auto-normalize session names
+# Version: 2.1.5 - Auto-resume + show last 3 messages in session picker
 #
 # IMPORTANT: When modifying this script, ALWAYS increment CCY_VERSION!
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="2.0.4"  # Feature: Auto-normalize session names (spaces→hyphens), confirm/adjust
+CCY_VERSION="2.1.5"  # Feature: Show last 3 messages in session context (filtered)
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -52,6 +52,13 @@ CCY_ROOT="$HOME/.claude-tokens/ccy"
 TOKEN_DIR="$CCY_ROOT/tokens"
 PROJECT_DIR="$CCY_ROOT/projects"
 VERSION_CHECK_CACHE="$HOME/.cache/claude-yolo-version-check"
+
+# Show version if requested
+if [ "$1" = "--version" ] || [ "$1" = "-v" ]; then
+    echo "ccy version $CCY_VERSION"
+    echo "Hash: $CCY_HASH"
+    exit 0
+fi
 
 # Show help if requested
 if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
@@ -799,10 +806,34 @@ fi
 # Convert to absolute path for Docker mounts
 SESSION_DIR=$(cd "$SESSION_DIR" && pwd)
 
+# Check if session has messages for auto-resume
+SESSION_HAS_MESSAGES=false
+MESSAGE_COUNT=$(count_session_messages "$SESSION_DIR" | tail -1 | tr -d '[:space:]')
+
+echo ""
+echo "DEBUG: Session directory: $SESSION_DIR"
+echo "DEBUG: Raw message count output: '$MESSAGE_COUNT'"
+echo "DEBUG: history.jsonl exists: $([ -f "$SESSION_DIR/history.jsonl" ] && echo "YES" || echo "NO")"
+if [ -f "$SESSION_DIR/history.jsonl" ]; then
+    echo "DEBUG: history.jsonl size: $(wc -l < "$SESSION_DIR/history.jsonl") lines"
+    echo "DEBUG: Lines with 'role': $(grep -c '"role":' "$SESSION_DIR/history.jsonl" 2>/dev/null || echo "0")"
+fi
+
+# Ensure MESSAGE_COUNT is a valid number
+if [[ "$MESSAGE_COUNT" =~ ^[0-9]+$ ]] && [[ "$MESSAGE_COUNT" -gt 0 ]]; then
+    SESSION_HAS_MESSAGES=true
+    echo "DEBUG: SESSION_HAS_MESSAGES=true (count: $MESSAGE_COUNT)"
+else
+    echo "DEBUG: SESSION_HAS_MESSAGES=false (count: '$MESSAGE_COUNT')"
+fi
+
 # Show appropriate message
 echo ""
 if [ "$SESSION_EXISTS" = true ]; then
     echo "✓ Resuming session: $SESSION_NAME"
+    if [ "$SESSION_HAS_MESSAGES" = true ]; then
+        echo "  └─ $MESSAGE_COUNT message(s) in history - will auto-resume conversation"
+    fi
 else
     echo "✓ Created new session: $SESSION_NAME"
 fi
@@ -1429,7 +1460,22 @@ echo ""
 # Build Claude Code command arguments based on flags
 CLAUDE_CMD_ARGS=()
 
-if [ "$HEADLESS_MODE" = true ]; then
+# Auto-resume if session has existing messages (unless user provided explicit command)
+if [ "$SESSION_HAS_MESSAGES" = true ] && [ "$HEADLESS_MODE" = false ] && [ -z "$PROMPT_TEXT" ] && [ ${#CLAUDE_ARGS[@]} -eq 0 ]; then
+    # Session has messages - use --resume flag to enter resume UI
+    CLAUDE_CMD_ARGS+=("--resume")
+    echo ""
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo "🔄 Auto-Resume Enabled"
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+    echo "Session: $SESSION_NAME"
+    echo "Messages: $MESSAGE_COUNT"
+    echo "Passing: --resume flag to Claude Code"
+    echo ""
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+elif [ "$HEADLESS_MODE" = true ]; then
     # Headless mode: use -p flag
     CLAUDE_CMD_ARGS+=("-p" "$PROMPT_TEXT")
 elif [ -n "$PROMPT_TEXT" ]; then
@@ -1496,6 +1542,13 @@ if [ "$HEADLESS_MODE" = true ]; then
 else
     DOCKER_FLAGS="-it"
 fi
+
+# Show the exact command that will be executed (for debugging)
+echo "════════════════════════════════════════════════════════════════════════════════"
+echo "Executing Claude Code with arguments:"
+echo "  claude --dangerously-skip-permissions ${CLAUDE_CMD_ARGS[*]}"
+echo "════════════════════════════════════════════════════════════════════════════════"
+echo ""
 
 docker run $DOCKER_FLAGS --rm \
     --name "$CONTAINER_NAME" \
