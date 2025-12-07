@@ -77,6 +77,17 @@
         - scripts
         - entrypoint
 
+    - name: Copy CCY Startup Info File
+      become: true
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/opt/claude-yolo/ccy-startup-info.txt"
+        dest: /opt/claude-yolo/ccy-startup-info.txt
+        owner: root
+        group: root
+        mode: "0644"
+      tags:
+        - scripts
+
     - name: Copy Custom Dockerfile Templates (Never Overwrite User Changes)
       become: true
       ansible.builtin.copy:
@@ -119,6 +130,7 @@
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/token-management.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/network-management.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/dockerfile-custom.bash"
+        - "{{ root_dir }}/files/var/local/claude-yolo/lib/session-management.bash"
       tags:
         - scripts
         - library

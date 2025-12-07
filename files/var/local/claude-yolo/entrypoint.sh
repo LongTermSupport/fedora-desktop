@@ -91,14 +91,24 @@ fi
 # Add GitHub host keys to avoid SSH verification prompts
 mkdir -p ~/.ssh
 chmod 700 ~/.ssh
-if ! curl -sL https://api.github.com/meta | jq -r '.ssh_keys | .[]' | sed -e 's/^/github.com /' >> ~/.ssh/known_hosts 2>&1; then
-    echo "WARNING: Failed to fetch GitHub SSH host keys. SSH operations may require manual verification."
-else
+if curl -sL --max-time 5 https://api.github.com/meta 2>/dev/null | jq -r '.ssh_keys | .[]' 2>/dev/null | sed -e 's/^/github.com /' >> ~/.ssh/known_hosts 2>/dev/null; then
     chmod 600 ~/.ssh/known_hosts
 fi
 
 # Set sandbox mode to bypass root detection
 export IS_SANDBOX=1
+
+# Display session info and set terminal title if available
+if [ -n "$CCY_SESSION_NAME" ]; then
+    # Set terminal title
+    printf '\033]0;CCY: %s\007' "$CCY_SESSION_NAME"
+
+    echo ""
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo "CCY Session: $CCY_SESSION_NAME"
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+fi
 
 # Execute the command
 exec "$@"
