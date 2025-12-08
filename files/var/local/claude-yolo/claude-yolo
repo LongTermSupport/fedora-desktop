@@ -3,13 +3,13 @@
 # Runs Claude Code with --dangerously-skip-permissions in isolated Docker container
 # IMPORTANT: Uses separate token storage from desktop Claude Code to prevent OAuth conflicts
 #
-# Version: 2.1.7 - Fix post-deletion session selection + retry on invalid session
+# Version: 2.1.8 - Fix session message count syntax error (0\n0 messages)
 #
 # IMPORTANT: When modifying this script, ALWAYS increment CCY_VERSION!
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="2.1.7"  # Fix: Stderr redirect for print_success + retry loop for invalid sessions
+CCY_VERSION="2.1.8"  # Fix: Session message count causing arithmetic syntax error in deletion
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

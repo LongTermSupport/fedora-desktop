@@ -2,7 +2,7 @@
 # Session Management Library for CCY
 # Provides named sessions with TUI picker, context tracking, and auto-pruning
 #
-# Version: 1.0.0
+# Version: 1.0.1 - Fix count_session_messages outputting duplicate "0" causing syntax errors
 
 # Get session directory for a named session
 get_session_dir() {
@@ -137,7 +137,10 @@ count_session_messages() {
     fi
 
     # Count non-empty lines in history file
-    grep -c . "$history_file" 2>/dev/null || echo "0"
+    # grep -c outputs the count (including 0), but returns exit code 1 when count is 0
+    # Capture output and ignore exit code
+    local count=$(grep -c . "$history_file" 2>/dev/null || true)
+    echo "${count:-0}"
 }
 
 # Helper: Convert timestamp to human-readable age
