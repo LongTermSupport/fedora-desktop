@@ -3,13 +3,13 @@
 # Runs Claude Code with --dangerously-skip-permissions in isolated Docker container
 # IMPORTANT: Uses separate token storage from desktop Claude Code to prevent OAuth conflicts
 #
-# Version: 2.1.5 - Auto-resume + show last 3 messages in session picker
+# Version: 2.1.7 - Fix post-deletion session selection + retry on invalid session
 #
 # IMPORTANT: When modifying this script, ALWAYS increment CCY_VERSION!
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="2.1.5"  # Feature: Show last 3 messages in session context (filtered)
+CCY_VERSION="2.1.7"  # Fix: Stderr redirect for print_success + retry loop for invalid sessions
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -778,30 +778,39 @@ if [ "$NEW_SESSION_MODE" = true ]; then
     fi
 fi
 
-# Session selection - show TUI if no session specified
-if [ -z "$SESSION_NAME" ]; then
-    # No session specified - show TUI
-    SESSION_NAME=$(session_picker_tui ".claude/ccy")
-
+# Session selection - show TUI if no session specified (with retry loop)
+while true; do
     if [ -z "$SESSION_NAME" ]; then
-        print_error "No session selected"
-        exit 1
+        # No session specified - show TUI
+        SESSION_NAME=$(session_picker_tui ".claude/ccy")
+
+        if [ -z "$SESSION_NAME" ]; then
+            print_error "No session selected"
+            exit 1
+        fi
     fi
-fi
 
-# Check if session already exists
-SESSION_EXISTS=false
-if [ -d ".claude/ccy/sessions/$SESSION_NAME" ]; then
-    SESSION_EXISTS=true
-fi
+    # Check if session already exists
+    SESSION_EXISTS=false
+    if [ -d ".claude/ccy/sessions/$SESSION_NAME" ]; then
+        SESSION_EXISTS=true
+    fi
 
-# Ensure session exists and get directory
-SESSION_DIR=$(ensure_session "$SESSION_NAME" ".claude/ccy")
+    # Ensure session exists and get directory
+    SESSION_DIR=$(ensure_session "$SESSION_NAME" ".claude/ccy")
 
-if [ -z "$SESSION_DIR" ]; then
-    print_error "Failed to create/access session"
-    exit 1
-fi
+    if [ -z "$SESSION_DIR" ]; then
+        # Validation failed - show TUI again
+        echo ""
+        print_error "Invalid session name, please try again"
+        echo ""
+        SESSION_NAME=""  # Reset to trigger TUI again
+        continue
+    fi
+
+    # Valid session - break out of loop
+    break
+done
 
 # Convert to absolute path for Docker mounts
 SESSION_DIR=$(cd "$SESSION_DIR" && pwd)

@@ -488,8 +488,11 @@ list_all_sessions() {
         local name=$(echo "$session_json" | jq -r '.key')
         local created=$(echo "$session_json" | jq -r '.value.created')
         local last_used=$(echo "$session_json" | jq -r '.value.last_used')
-        local context=$(echo "$session_json" | jq -r '.value.last_context // "No messages yet"')
-        local msg_count=$(echo "$session_json" | jq -r '.value.message_count // 0')
+
+        # Calculate context and message count on-the-fly (don't trust cached metadata)
+        local session_dir="$sessions_root/sessions/$name"
+        local context=$(get_session_context "$session_dir" 60)
+        local msg_count=$(count_session_messages "$session_dir")
 
         local age=$(get_human_time_ago "$last_used")
 
@@ -624,7 +627,7 @@ delete_sessions_interactive() {
                 ((deleted_count++))
             done
 
-            print_success "Deleted $deleted_count session(s)"
+            print_success "Deleted $deleted_count session(s)" >&2
             return 0
         else
             echo "Cancelled" >&2
@@ -707,8 +710,11 @@ session_picker_tui() {
         local name=$(echo "$session_json" | jq -r '.key')
         local created=$(echo "$session_json" | jq -r '.value.created')
         local last_used=$(echo "$session_json" | jq -r '.value.last_used')
-        local context=$(echo "$session_json" | jq -r '.value.last_context // "No messages yet"')
-        local msg_count=$(echo "$session_json" | jq -r '.value.message_count // 0')
+
+        # Calculate context and message count on-the-fly (don't trust cached metadata)
+        local session_dir="$sessions_root/sessions/$name"
+        local context=$(get_session_context "$session_dir" 60)
+        local msg_count=$(count_session_messages "$session_dir")
 
         # Calculate age
         local age=$(get_human_time_ago "$last_used")
