@@ -3,13 +3,13 @@
 # Runs Claude Code with --dangerously-skip-permissions in isolated Docker container
 # IMPORTANT: Uses separate token storage from desktop Claude Code to prevent OAuth conflicts
 #
-# Version: 2.4.0 - Container engine abstraction (docker/podman support)
+# Version: 2.4.3 - Fix container detection showing wrong project containers
 #
 # IMPORTANT: When modifying this script, ALWAYS increment CCY_VERSION!
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="2.4.2"  # Fix rootless check for podman (inherently rootless)
+CCY_VERSION="2.4.3"  # Fix: PROJECT_NAME undefined at container check, matching all projects
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -51,6 +51,9 @@ CONFIG_VERSION=1
 
 # Fail fast: Must be run from a git repository root
 check_git_repo || exit 1
+
+# Get project name from directory (used for container naming)
+PROJECT_NAME=$(basename "$PWD")
 
 IMAGE_NAME="claude-yolo:latest"
 DOCKERFILE_DIR="/opt/claude-yolo"
@@ -1006,7 +1009,7 @@ check_claude_code_updates "$IMAGE_NAME"
 # Note: get_next_container_name is now in lib/common.bash
 
 # Check for project-specific Dockerfile extension
-PROJECT_NAME=$(basename "$PWD")
+# (PROJECT_NAME already set earlier after git repo check)
 PROJECT_DOCKERFILE=".claude/ccy/Dockerfile"
 PROJECT_IMAGE_NAME="claude-yolo:${PROJECT_NAME}"
 PROJECT_DOCKERFILE_HASH_FILE="$HOME/.cache/claude-yolo-${PROJECT_NAME}-dockerfile-hash"
