@@ -2,8 +2,9 @@
 # Claude Code YOLO Mode - Container-based execution with --dangerously-skip-permissions
 
 # Container engine for CCY (docker or podman)
+# Default: {{ container_engine }} (configured in vars/container-defaults.yml)
 # Override with: export CCY_CONTAINER_ENGINE=docker
-export CCY_CONTAINER_ENGINE="${CCY_CONTAINER_ENGINE:-podman}"
+export CCY_CONTAINER_ENGINE="${CCY_CONTAINER_ENGINE:-{{ container_engine }}}"
 
 # Alias for Claude Code YOLO mode (matches cc alias pattern)
 alias ccy='/var/local/claude-yolo/claude-yolo'

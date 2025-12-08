@@ -1,0 +1,10 @@
+---
+# Container Engine Configuration
+# Default container engine for CCY/CCB and related playbooks
+#
+# Override in host_vars/localhost.yml:
+#   container_engine: docker
+#
+# Valid values: podman, docker
+
+container_engine: podman

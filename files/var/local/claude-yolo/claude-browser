@@ -4,14 +4,14 @@
 # Runs Claude Code with --dangerously-skip-permissions in isolated Docker container
 # BROWSER MODE: Shares token storage with ccy to avoid OAuth conflicts
 #
-# Version: 1.1.3
+# Version: 1.2.0 - Container engine abstraction (docker/podman support)
 #
 # BROWSER MODE: Based on ccy but adds GUI support for browser automation
 # IMPORTANT: When modifying this script, ALWAYS increment CCB_VERSION!
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCB_VERSION="1.1.4"
+CCB_VERSION="1.2.2"  # Fix rootless check for podman (inherently rootless)
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -69,6 +69,7 @@ Usage: ccb [OPTIONS] [CLAUDE_ARGS...]
 Wrapper Options:
   --rebuild              Force rebuild of container image (clears cache)
   --debug                Enable debug output (bash -x)
+  --engine ENGINE        Use specific container engine (docker/podman, default: podman)
   --ssh-key PATH         SSH private key to mount (can be specified multiple times)
   --no-ssh               Skip SSH key selection (git push will not work)
   --token NAME           Use specific named token
@@ -174,13 +175,13 @@ Project-Specific Container Extensions:
 EOF
 
     # Check if container image exists to show Claude Code help
-    if docker image inspect "$IMAGE_NAME" &> /dev/null 2>&1; then
+    if container_cmd image inspect "$IMAGE_NAME" &> /dev/null 2>&1; then
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo "Claude Code Help (from container):"
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo ""
         # Run claude --help in container to show actual Claude Code options
-        docker run --rm --entrypoint claude "$IMAGE_NAME" --help 2>/dev/null || echo "Note: Container exists but Claude Code help unavailable"
+        container_cmd run --rm --entrypoint claude "$IMAGE_NAME" --help 2>/dev/null || echo "Note: Container exists but Claude Code help unavailable"
     else
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo "Claude Code Help:"
@@ -310,6 +311,7 @@ NEXT_IS_TOKEN=false
 NEXT_IS_CONNECT=false
 NEXT_IS_NETWORK=false
 NEXT_IS_PROMPT=false
+NEXT_IS_ENGINE=false
 SPECIFIED_TOKEN=""
 CREATE_TOKEN_MODE=false
 LIST_TOKENS_MODE=false
@@ -325,7 +327,23 @@ HEADLESS_MODE=false
 PROMPT_TEXT=""
 
 for arg in "$@"; do
-    if [ "$NEXT_IS_SSH_KEY" = true ]; then
+    if [ "$NEXT_IS_ENGINE" = true ]; then
+        # Validate engine choice
+        if [[ "$arg" != "docker" ]] && [[ "$arg" != "podman" ]]; then
+            print_error "Invalid container engine: $arg"
+            echo "Valid options: docker, podman" >&2
+            exit 1
+        fi
+        # Check if engine is available
+        if ! command -v "$arg" &>/dev/null; then
+            print_error "Container engine '$arg' not found"
+            echo "Please install $arg or use a different engine" >&2
+            exit 1
+        fi
+        CONTAINER_ENGINE="$arg"
+        export CONTAINER_ENGINE
+        NEXT_IS_ENGINE=false
+    elif [ "$NEXT_IS_SSH_KEY" = true ]; then
         if [ ! -f "$arg" ]; then
             print_error "SSH key not found: $arg"
             exit 1
@@ -361,6 +379,8 @@ for arg in "$@"; do
         exec > >(tee -a "$DEBUG_LOG") 2>&1
         set -x
         echo "Debug logging to: $DEBUG_LOG"
+    elif [ "$arg" = "--engine" ]; then
+        NEXT_IS_ENGINE=true
     elif [ "$arg" = "--ssh-key" ]; then
         NEXT_IS_SSH_KEY=true
     elif [ "$arg" = "--token" ]; then
@@ -634,25 +654,30 @@ if [ "$HOST_UID" -eq 0 ]; then
     exit 1
 fi
 
-# Safety check: Only run in rootless Docker
-DOCKER_CONTEXT=$(docker context inspect 2>/dev/null | grep -o '"Name": *"[^"]*"' | head -1 | cut -d'"' -f4)
-if [ "$DOCKER_CONTEXT" != "rootless" ]; then
-    print_error "Claude Code YOLO mode requires rootless Docker"
-    echo "Current Docker context: ${DOCKER_CONTEXT:-default}"
-    echo ""
-    echo "This is a security requirement because:"
-    echo "  • YOLO mode bypasses all permission checks"
-    echo "  • Running in rootless Docker provides isolation"
-    echo "  • Non-rootless Docker would give actual root privileges"
-    echo ""
-    echo "To set up rootless Docker:"
-    echo "  1. Install: dockerd-rootless-setuptool.sh install"
-    echo "  2. Switch context: docker context use rootless"
-    echo ""
-    echo "Or run the Docker playbook:"
-    echo "  ansible-playbook playbooks/imports/optional/common/play-docker.yml"
-    exit 1
+# Safety check: Only run in rootless mode
+# Podman is rootless by default when run as non-root user
+# Docker requires explicit rootless context setup
+if [ "$CONTAINER_ENGINE" = "docker" ]; then
+    DOCKER_CONTEXT=$(container_cmd context inspect 2>/dev/null | grep -o '"Name": *"[^"]*"' | head -1 | cut -d'"' -f4)
+    if [ "$DOCKER_CONTEXT" != "rootless" ]; then
+        print_error "Claude Code YOLO mode requires rootless Docker"
+        echo "Current Docker context: ${DOCKER_CONTEXT:-default}"
+        echo ""
+        echo "This is a security requirement because:"
+        echo "  • YOLO mode bypasses all permission checks"
+        echo "  • Running in rootless Docker provides isolation"
+        echo "  • Non-rootless Docker would give actual root privileges"
+        echo ""
+        echo "To set up rootless Docker:"
+        echo "  1. Install: dockerd-rootless-setuptool.sh install"
+        echo "  2. Switch context: docker context use rootless"
+        echo ""
+        echo "Or run the Docker playbook:"
+        echo "  ansible-playbook playbooks/imports/optional/common/play-docker.yml"
+        exit 1
+    fi
 fi
+# Podman running as non-root is inherently rootless - no check needed
 
 # Function to check for Claude Code updates (cached daily)
 check_claude_code_updates() {
@@ -673,7 +698,7 @@ check_claude_code_updates() {
     echo "Checking for Claude Code updates (daily check)..."
 
     # Get version from container
-    local container_version=$(docker run --rm --entrypoint claude "$image_name" --version 2>/dev/null | grep -oP '(?<=claude-code/)\d+\.\d+\.\d+' || echo "unknown")
+    local container_version=$(container_cmd run --rm --entrypoint claude "$image_name" --version 2>/dev/null | grep -oP '(?<=claude-code/)\d+\.\d+\.\d+' || echo "unknown")
 
     # Get latest version from npm (with timeout)
     local latest_version=$(timeout 5 npm view @anthropic-ai/claude-code version 2>/dev/null || echo "unknown")
@@ -728,7 +753,7 @@ if [ "$FORCE_REBUILD" = true ]; then
 fi
 
 # Check if Docker image exists
-if ! docker image inspect "$IMAGE_NAME" &> /dev/null; then
+if ! container_cmd image inspect "$IMAGE_NAME" &> /dev/null; then
     echo "Building Claude YOLO container image (first time setup)..."
     if [ ! -f "$DOCKERFILE_DIR/Dockerfile" ]; then
         echo "Error: Dockerfile not found at $DOCKERFILE_DIR/Dockerfile"
@@ -783,7 +808,7 @@ if [ -f "$PROJECT_DOCKERFILE" ]; then
     fi
 
     # Get current base image version
-    current_base_version=$(docker image inspect "claude-yolo:latest" \
+    current_base_version=$(container_cmd image inspect "claude-yolo:latest" \
         --format '{{index .Config.Labels "claude-yolo-version"}}' 2>/dev/null || echo "unknown")
 
     # Get base version that project image was built with
@@ -796,7 +821,7 @@ if [ -f "$PROJECT_DOCKERFILE" ]; then
     should_build=false
     rebuild_reason=""
 
-    if ! docker image inspect "$PROJECT_IMAGE_NAME" &> /dev/null; then
+    if ! container_cmd image inspect "$PROJECT_IMAGE_NAME" &> /dev/null; then
         echo "Building project-specific image (first time)..."
         should_build=true
         rebuild_reason="first time"
@@ -837,7 +862,7 @@ if [ -f "$PROJECT_DOCKERFILE" ]; then
         project_dockerfile_hash=$(md5sum "$PROJECT_DOCKERFILE" | cut -d' ' -f1 | cut -c1-16)
 
         # Use buildkit for cache mounts and pass Dockerfile hash
-        if DOCKER_BUILDKIT=1 docker build \
+        if DOCKER_BUILDKIT=1 container_cmd build \
             --build-arg BUILDKIT_INLINE_CACHE=1 \
             --build-arg DOCKERFILE_HASH="$project_dockerfile_hash" \
             -t "$PROJECT_IMAGE_NAME" \
@@ -860,7 +885,7 @@ if [ -f "$PROJECT_DOCKERFILE" ]; then
     fi
 
     # Use project-specific image if it exists
-    if docker image inspect "$PROJECT_IMAGE_NAME" &> /dev/null; then
+    if container_cmd image inspect "$PROJECT_IMAGE_NAME" &> /dev/null; then
         IMAGE_NAME="$PROJECT_IMAGE_NAME"
         echo "✓ Using project-specific image"
     fi
@@ -992,7 +1017,7 @@ if [ "$DEBUG_MODE" = true ]; then
     echo "SSH keys mounted: ${#SSH_KEYS[@]}"
     echo ""
     echo "Docker command (simplified):"
-    echo "  docker run -it --rm \\"
+    echo "  $CONTAINER_ENGINE run -it --rm \\"
     echo "    -e CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-... \\"
     echo "    -v $PWD:/workspace \\"
     if [ -f "$project_config" ]; then
@@ -1056,7 +1081,7 @@ AUTO_CONNECT_NETWORK=""
 if [[ -n "$SPECIFIED_NETWORK" ]]; then
     # --network flag provided (or loaded from config)
     # Verify network exists
-    if docker network ls --format '{{.Name}}' | grep -q "^${SPECIFIED_NETWORK}$"; then
+    if container_cmd network ls --format '{{.Name}}' | grep -q "^${SPECIFIED_NETWORK}$"; then
         NETWORK_FLAG="--network $SPECIFIED_NETWORK"
         AUTO_CONNECT_NETWORK="$SPECIFIED_NETWORK"
         if [[ "$NETWORK_FROM_CONFIG" = true ]]; then
@@ -1083,7 +1108,7 @@ if [[ -n "$SPECIFIED_NETWORK" ]]; then
             echo "  • Network manually deleted"
             echo ""
             echo "Available networks:"
-            docker network ls --format "  {{.Name}}" | grep -v "^bridge$\|^host$\|^none$" || echo "  (no user-defined networks found)"
+            container_cmd network ls --format "  {{.Name}}" | grep -v "^bridge$\|^host$\|^none$" || echo "  (no user-defined networks found)"
             echo ""
 
             while true; do
@@ -1118,7 +1143,7 @@ if [[ -n "$SPECIFIED_NETWORK" ]]; then
             print_error "Network not found: $SPECIFIED_NETWORK"
             echo "" >&2
             echo "Available networks:" >&2
-            docker network ls --format "  {{.Name}}" >&2
+            container_cmd network ls --format "  {{.Name}}" >&2
             exit 1
         fi
     fi
@@ -1138,7 +1163,7 @@ else
                 MATCHING_NETWORKS+=("$net")
             fi
         fi
-    done < <(docker network ls --format "{{.Name}}" 2>/dev/null)
+    done < <(container_cmd network ls --format "{{.Name}}" 2>/dev/null)
 
 if [ ${#MATCHING_NETWORKS[@]} -gt 0 ]; then
     echo ""
@@ -1282,7 +1307,9 @@ elif [ ${#CLAUDE_ARGS[@]} -eq 0 ]; then
         exit 1
     fi
     # Read startup info and pass to Claude via --append-system-prompt
-    STARTUP_INFO=$(cat "$STARTUP_INFO_FILE")
+    # Replace placeholder with actual container engine (title case)
+    CONTAINER_ENGINE_TITLE=$(echo "$CONTAINER_ENGINE" | sed 's/./\U&/')
+    STARTUP_INFO=$(cat "$STARTUP_INFO_FILE" | sed "s/__CONTAINER_ENGINE__/${CONTAINER_ENGINE_TITLE}/")
 
     # Show tip about custom Dockerfile if not using one (custom Dockerfile info shown earlier in header)
     if [ ! -f ".claude/ccb/Dockerfile" ]; then
@@ -1358,7 +1385,7 @@ else
 fi
 echo ""
 
-docker run $DOCKER_FLAGS --rm \
+container_cmd run $DOCKER_FLAGS --rm \
     --name "$CONTAINER_NAME" \
     $NETWORK_FLAG \
     --device /dev/dri:/dev/dri \

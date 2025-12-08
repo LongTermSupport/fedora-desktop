@@ -1,7 +1,7 @@
-You are running in YOLO mode (--dangerously-skip-permissions) inside an isolated Docker container!
+You are running in YOLO mode (--dangerously-skip-permissions) inside an isolated container!
 
 ENVIRONMENT:
-• Docker container: (running in isolated sandbox)
+• Container engine: __CONTAINER_ENGINE__
 • Working directory: /workspace (your project mounted from host)
 • Isolated from host system (secure sandbox)
 

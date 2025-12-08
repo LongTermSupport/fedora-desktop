@@ -2,7 +2,7 @@
 # Claude YOLO Common Library
 # Shared helpers for claude-yolo and claude-yolo-browser
 #
-# Version: 1.1.0
+# Version: 1.2.0
 
 # Color codes for consistent output
 readonly COLOR_RESET='\033[0m'
@@ -11,6 +11,39 @@ readonly COLOR_GREEN='\033[0;32m'
 readonly COLOR_YELLOW='\033[0;33m'
 readonly COLOR_BLUE='\033[0;34m'
 readonly COLOR_BOLD='\033[1m'
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Container Engine Abstraction
+# ═══════════════════════════════════════════════════════════════════════════════
+# Supports both Docker and Podman via CCY_CONTAINER_ENGINE environment variable.
+# Default: docker (set in bashrc include or environment)
+#
+# To switch to Podman:
+#   export CCY_CONTAINER_ENGINE=podman
+#
+# All container commands should use container_cmd() instead of calling docker directly.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+CONTAINER_ENGINE="${CCY_CONTAINER_ENGINE:-podman}"
+
+# Validate container engine is available
+if ! command -v "$CONTAINER_ENGINE" &>/dev/null; then
+    echo "ERROR: Container engine '$CONTAINER_ENGINE' not found" >&2
+    echo "Install $CONTAINER_ENGINE or set CCY_CONTAINER_ENGINE to an available engine" >&2
+    exit 1
+fi
+
+# Container command wrapper - use this instead of calling docker/podman directly
+# Usage: container_cmd run --rm -it image:tag
+#        container_cmd build -t name .
+#        container_cmd ps -a
+container_cmd() {
+    "$CONTAINER_ENGINE" "$@"
+}
+
+# Export for use in subshells
+export CONTAINER_ENGINE
+export -f container_cmd
 
 # Source additional library modules
 LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -504,9 +537,9 @@ validate_container_version() {
     local required_version="$3"
 
     # Get version and hash from built image
-    local image_version=$(docker image inspect "$image_name" \
+    local image_version=$(container_cmd image inspect "$image_name" \
         --format '{{index .Config.Labels "claude-yolo-version"}}' 2>/dev/null || echo "0")
-    local image_hash=$(docker image inspect "$image_name" \
+    local image_hash=$(container_cmd image inspect "$image_name" \
         --format '{{index .Config.Labels "claude-yolo-dockerfile-hash"}}' 2>/dev/null || echo "unknown")
 
     # Calculate current Dockerfile hash (16 char md5, like CCY_HASH)
@@ -588,7 +621,7 @@ build_container_with_hash() {
     local dockerfile_hash=$(md5sum "$dockerfile_path" | cut -d' ' -f1 | cut -c1-16)
 
     # Build with hash as build arg
-    docker build \
+    container_cmd build \
         $additional_flags \
         --build-arg DOCKERFILE_HASH="$dockerfile_hash" \
         -t "$image_name" \
@@ -623,7 +656,7 @@ get_next_container_name() {
     local base_name="${project_name}_${suffix}"
 
     # Get all running containers matching this project
-    local existing_containers=$(docker ps --format '{{.Names}}' | grep "^${base_name}" || true)
+    local existing_containers=$(container_cmd ps --format '{{.Names}}' | grep "^${base_name}" || true)
 
     # If no container exists, use base name (no suffix)
     if [ -z "$existing_containers" ]; then

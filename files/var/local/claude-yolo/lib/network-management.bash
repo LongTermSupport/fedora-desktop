@@ -2,7 +2,7 @@
 # Network Management Library
 # Shared Docker network operations for claude-yolo and claude-browser
 #
-# Version: 1.0.0
+# Version: 1.1.0 - Container engine abstraction (docker/podman support)
 
 # Function to connect running container to a Docker network
 # Args: $1 = network_name (optional), $2 = container_suffix ("_yolo" or "_browser"), $3 = tool_name (for display)
@@ -18,7 +18,7 @@ connect_to_network() {
     local matching_containers=()
     while IFS= read -r name; do
         matching_containers+=("$name")
-    done < <(docker ps --format '{{.Names}}' | grep "^${base_name}" || true)
+    done < <(container_cmd ps --format '{{.Names}}' | grep "^${base_name}" || true)
 
     # Check if any containers are running
     if [ ${#matching_containers[@]} -eq 0 ]; then
@@ -115,13 +115,13 @@ connect_to_network() {
                     best_match_index=$((${#networks[@]} - 1))
                 fi
             fi
-        done < <(docker network ls --format "{{.Name}}" | sort)
+        done < <(container_cmd network ls --format "{{.Name}}" | sort)
 
         if [ ${#networks[@]} -eq 0 ]; then
             echo "No user-defined networks found."
             echo ""
             echo "Create a network first:"
-            echo "  docker network create ${project_name}_network"
+            echo "  $CONTAINER_ENGINE network create ${project_name}_network"
             exit 1
         fi
 
@@ -185,11 +185,11 @@ connect_to_network() {
     fi
 
     # Check if network exists
-    if ! docker network ls --format '{{.Name}}' | grep -q "^${network_name}$"; then
+    if ! container_cmd network ls --format '{{.Name}}' | grep -q "^${network_name}$"; then
         print_error "Network not found: $network_name"
         echo ""
         echo "Available networks:"
-        docker network ls --format "  {{.Name}}"
+        container_cmd network ls --format "  {{.Name}}"
         exit 1
     fi
 
@@ -204,7 +204,7 @@ connect_to_network() {
 
         for container in "${matching_containers[@]}"; do
             echo "  → $container"
-            if docker network connect "$network_name" "$container" 2>/dev/null; then
+            if container_cmd network connect "$network_name" "$container" 2>/dev/null; then
                 echo "    ✓ Connected successfully!"
                 success_count=$((success_count + 1))
             else
@@ -226,7 +226,7 @@ connect_to_network() {
     else
         # Connect single container
         echo "Connecting $container_name to $network_name..."
-        if docker network connect "$network_name" "$container_name" 2>/dev/null; then
+        if container_cmd network connect "$network_name" "$container_name" 2>/dev/null; then
             echo "✓ Connected successfully!"
             echo ""
             echo "You can now access project containers from inside $tool_name."
@@ -235,7 +235,7 @@ connect_to_network() {
             echo "⚠ Container may already be connected to this network"
             echo ""
             echo "Container networks:"
-            docker inspect "$container_name" --format '{{range $k, $v := .NetworkSettings.Networks}}  {{$k}}{{"\n"}}{{end}}'
+            container_cmd inspect "$container_name" --format '{{range $k, $v := .NetworkSettings.Networks}}  {{$k}}{{"\n"}}{{end}}'
         fi
     fi
 

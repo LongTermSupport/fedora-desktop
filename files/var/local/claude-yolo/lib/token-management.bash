@@ -2,7 +2,7 @@
 # Token Management Library
 # Shared token operations for claude-yolo and claude-browser
 #
-# Version: 1.0.0
+# Version: 1.1.0 - Container engine abstraction (docker/podman support)
 
 # Function to list available tokens
 # Args: $1 = token_dir, $2 = tool_name (for display)
@@ -169,10 +169,10 @@ create_token() {
     # Run setup-token via claude CLI entrypoint
     # GH_TOKEN provided for container's gh CLI (not for Claude auth)
     # Claude auth happens via OAuth flow in browser
-    echo "Running: docker run --rm --entrypoint claude \"$image_name\" setup-token"
+    echo "Running: $CONTAINER_ENGINE run --rm --entrypoint claude \"$image_name\" setup-token"
     echo ""
 
-    if docker run -it --rm \
+    if container_cmd run -it --rm \
         --entrypoint claude \
         -e "GH_TOKEN=$gh_token" \
         "$image_name" \

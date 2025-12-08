@@ -6,34 +6,43 @@
   vars:
     root_dir: "{{ inventory_dir }}/../../"
     install_browser_mode: true # Set to false to skip browser mode installation
+  vars_files:
+    - "{{ inventory_dir }}/../../vars/container-defaults.yml"
   tasks:
-    - name: Check if Docker is Installed
-      ansible.builtin.command: which docker
-      register: docker_check
+    - name: Check if Container Engine is Installed
+      ansible.builtin.command: which {{ container_engine }}
+      register: container_engine_check
       failed_when: false
       changed_when: false
 
-    - name: Verify Docker is Available
+    - name: Verify Container Engine is Available
       ansible.builtin.fail:
         msg: |
-          Docker is not installed or not in PATH.
-          Please run the Docker installation playbook first:
-            ansible-playbook playbooks/imports/optional/common/play-docker.yml
-      when: docker_check.rc != 0
+          {{ container_engine }} is not installed or not in PATH.
+          Please install {{ container_engine }} first.
+          {% if container_engine == 'docker' %}
+          Run: ansible-playbook playbooks/imports/optional/common/play-docker.yml
+          {% else %}
+          Run: sudo dnf install podman
+          {% endif %}
+      when: container_engine_check.rc != 0
 
-    - name: Check Docker Service is Running
-      ansible.builtin.command: docker ps
-      register: docker_service_check
+    - name: Check Container Engine Service is Running
+      ansible.builtin.command: "{{ container_engine }} ps"
+      register: container_service_check
       failed_when: false
       changed_when: false
 
-    - name: Verify Docker Service
+    - name: Verify Container Engine Service
       ansible.builtin.fail:
         msg: |
-          Docker service is not running.
-          Please start Docker:
-            systemctl --user start docker
-      when: docker_service_check.rc != 0
+          {{ container_engine }} service is not running or not accessible.
+          {% if container_engine == 'docker' %}
+          Please start Docker: systemctl --user start docker
+          {% else %}
+          Podman should work without a daemon. Check: podman info
+          {% endif %}
+      when: container_service_check.rc != 0
 
     - name: Create Claude YOLO Base Directory
       become: true
@@ -160,16 +169,16 @@
 
     - name: Deploy Bashrc Include for Root
       become: true
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/home/bashrc-includes/claude-yolo.bash"
+      ansible.builtin.template:
+        src: "{{ root_dir }}/files/home/bashrc-includes/claude-yolo.bash.j2"
         dest: /root/.bashrc-includes/claude-yolo.bash
         owner: root
         group: root
         mode: "0644"
 
     - name: Deploy Bashrc Include for User
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/home/bashrc-includes/claude-yolo.bash"
+      ansible.builtin.template:
+        src: "{{ root_dir }}/files/home/bashrc-includes/claude-yolo.bash.j2"
         dest: /home/{{ user_login }}/.bashrc-includes/claude-yolo.bash
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
@@ -206,15 +215,15 @@
 
     - name: Build Claude YOLO Container Image with Hash
       ansible.builtin.command: >
-        docker build
+        {{ container_engine }} build
         --build-arg DOCKERFILE_HASH={{ dockerfile_hash.stdout }}
         -t claude-yolo:latest
         /opt/claude-yolo
-      register: docker_build
-      changed_when: "'Successfully built' in docker_build.stdout or 'Successfully tagged' in docker_build.stdout"
+      register: container_build
+      changed_when: "'Successfully built' in container_build.stdout or 'Successfully tagged' in container_build.stdout or container_build.rc == 0"
 
     - name: Verify Container Image
-      ansible.builtin.command: docker image inspect claude-yolo:latest
+      ansible.builtin.command: "{{ container_engine }} image inspect claude-yolo:latest"
       register: image_verify
       changed_when: false
 
@@ -407,18 +416,18 @@
 
     - name: Build Claude Browser Container Image with Hash
       ansible.builtin.command: >
-        docker build
+        {{ container_engine }} build
         --build-arg DOCKERFILE_HASH={{ browser_dockerfile_hash.stdout }}
         -t claude-browser:latest
         /opt/claude-browser
-      register: browser_docker_build
-      changed_when: "'Successfully built' in browser_docker_build.stdout or 'Successfully tagged' in browser_docker_build.stdout"
+      register: browser_container_build
+      changed_when: "'Successfully built' in browser_container_build.stdout or 'Successfully tagged' in browser_container_build.stdout or browser_container_build.rc == 0"
       when: install_browser_mode
       tags:
         - browser
 
     - name: Verify Browser Container Image
-      ansible.builtin.command: docker image inspect claude-browser:latest
+      ansible.builtin.command: "{{ container_engine }} image inspect claude-browser:latest"
       register: browser_image_verify
       changed_when: false
       when: install_browser_mode

@@ -2,6 +2,20 @@
 #!/usr/bin/env ansible-playbook
 # Docker Storage Driver Migration: fuse-overlayfs -> native overlay2
 #
+# ⚠️  DISABLED - DO NOT USE ⚠️
+#
+# This playbook is DISABLED because Docker explicitly does not support
+# rootless + overlay2 + SELinux. The combination was intentionally blocked
+# in Docker/Moby PR #42462.
+#
+# See: https://github.com/LongTermSupport/fedora-desktop/issues/8
+#
+# Alternatives:
+#   1. Use Podman instead (supports native overlay2 + SELinux in rootless mode)
+#   2. Keep using fuse-overlayfs (works but has CPU overhead)
+#   3. Disable SELinux (not recommended)
+#
+# Original description:
 # This playbook migrates rootless Docker from fuse-overlayfs to native overlay2.
 # Native overlay2 has significantly lower CPU overhead.
 #
@@ -19,12 +33,41 @@
   vars:
     root_dir: "{{ inventory_dir }}/../../"
     min_kernel_version: "5.13.0"
-    docker_root: "{{ ansible_env.HOME }}/.local/share/docker"
-    docker_config_dir: "{{ ansible_env.HOME }}/.config/docker"
+    user_home: "/home/{{ user_login }}"
+    docker_root: "/home/{{ user_login }}/.local/share/docker"
+    docker_config_dir: "/home/{{ user_login }}/.config/docker"
   tasks:
 
     # ═══════════════════════════════════════════════════════════════════════
-    # SANITY CHECKS
+    # DISABLED - PLAYBOOK CANNOT BE RUN
+    # ═══════════════════════════════════════════════════════════════════════
+
+    - name: STOP - This Playbook is Disabled
+      ansible.builtin.fail:
+        msg: |
+          ════════════════════════════════════════════════════════════════════════════════
+          ⚠️  THIS PLAYBOOK IS DISABLED ⚠️
+          ════════════════════════════════════════════════════════════════════════════════
+
+          Docker explicitly does not support rootless + overlay2 + SELinux.
+          This combination was intentionally blocked in Docker/Moby PR #42462.
+
+          The error you would see is:
+            "overlay is not supported for Rootless with SELinux"
+
+          Alternatives:
+            1. Use Podman instead (supports native overlay2 + SELinux in rootless)
+            2. Keep using fuse-overlayfs (works but has ~2x CPU overhead on I/O)
+            3. Disable SELinux entirely (not recommended)
+
+          For more information, see:
+            - https://github.com/moby/moby/issues/42333
+            - https://github.com/moby/moby/pull/42462
+
+          ════════════════════════════════════════════════════════════════════════════════
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # SANITY CHECKS (disabled - unreachable)
     # ═══════════════════════════════════════════════════════════════════════
 
     - name: Get Kernel Version
@@ -48,7 +91,7 @@
         success_msg: "Kernel {{ kernel_version }} supports native overlay2"
 
     - name: Check overlay Module is Loaded
-      ansible.builtin.shell: lsmod | grep -q "^overlay "
+      ansible.builtin.command: grep -q "^overlay " /proc/modules
       register: overlay_module_check
       changed_when: false
       failed_when: false
@@ -61,13 +104,43 @@
       when: overlay_module_check.rc != 0
 
     - name: Verify overlay Module is Now Loaded
-      ansible.builtin.shell: lsmod | grep -q "^overlay "
+      ansible.builtin.command: grep -q "^overlay " /proc/modules
       changed_when: false
+
+    # NOTE: Using command instead of systemd module because scope: user
+    # doesn't work reliably in all Ansible execution contexts
+    - name: Check if Rootless Docker is Running  # noqa: command-instead-of-module
+      ansible.builtin.command: systemctl --user is-active docker.socket
+      register: docker_socket_status
+      failed_when: false
+      changed_when: false
+
+    - name: Try to Start Rootless Docker  # noqa: command-instead-of-module
+      ansible.builtin.command: systemctl --user start docker.socket
+      register: docker_start_result
+      changed_when: docker_start_result.rc == 0
+      failed_when: false
+      when: docker_socket_status.rc != 0
+
+    - name: Brief Pause for Docker Startup  # noqa: no-handler
+      ansible.builtin.pause:
+        seconds: 2
+      when:
+        - docker_start_result is defined
+        - docker_start_result.rc is defined
+        - docker_start_result.rc == 0
 
     - name: Check Current Docker Storage Driver
       ansible.builtin.command: docker info --format '{{ '{{' }}.Driver{{ '}}' }}'
       register: current_driver
       changed_when: false
+      failed_when: false
+
+    - name: Handle Docker Not Running (Fresh Install or Reset)
+      ansible.builtin.set_fact:
+        current_driver:
+          stdout: "not_running"
+      when: current_driver.rc is defined and current_driver.rc != 0
 
     - name: Display Current Driver
       ansible.builtin.debug:
@@ -78,32 +151,57 @@
       when: current_driver.stdout == "overlay2"
 
     # ═══════════════════════════════════════════════════════════════════════
-    # DATA ASSESSMENT
+    # DATA ASSESSMENT (only if Docker is running)
     # ═══════════════════════════════════════════════════════════════════════
 
     - name: Check for Existing Docker Images
       ansible.builtin.command: docker images -q
       register: existing_images
       changed_when: false
+      failed_when: false
+      when: current_driver.stdout != "not_running"
 
     - name: Count Docker Images
       ansible.builtin.set_fact:
-        image_count: "{{ existing_images.stdout_lines | length }}"
+        image_count: "{{ existing_images.stdout_lines | default([]) | length }}"
 
     - name: Check for Existing Docker Containers
       ansible.builtin.command: docker ps -aq
       register: existing_containers
       changed_when: false
+      failed_when: false
+      when: current_driver.stdout != "not_running"
 
     - name: Count Docker Containers
       ansible.builtin.set_fact:
-        container_count: "{{ existing_containers.stdout_lines | length }}"
+        container_count: "{{ existing_containers.stdout_lines | default([]) | length }}"
+
+    - name: Check if Docker Data Directory Exists
+      ansible.builtin.stat:
+        path: "{{ docker_root }}"
+      register: docker_root_stat
 
     - name: Get Docker Data Size
+      become: true
       ansible.builtin.command: du -sh {{ docker_root }}
       register: docker_data_size
       changed_when: false
-      failed_when: false
+      when: docker_root_stat.stat.exists
+
+    - name: Set Data Size to Zero if Directory Missing
+      ansible.builtin.set_fact:
+        docker_data_size:
+          stdout: "0 (no data directory)"
+      when: not docker_root_stat.stat.exists
+
+    - name: Skip Migration if No Data and Not Running
+      ansible.builtin.debug:
+        msg: |
+          No Docker data directory found and Docker is not running.
+          Nothing to migrate - just configure overlay2 for fresh start.
+      when:
+        - not docker_root_stat.stat.exists
+        - current_driver.stdout == "not_running"
 
     - name: Display Migration Warning
       ansible.builtin.pause:
@@ -134,7 +232,7 @@
 
           Type 'MIGRATE' to proceed, or press Ctrl+C to cancel
       register: user_confirmation
-      when: (image_count | int > 0) or (container_count | int > 0)
+      when: (image_count | int > 0) or (container_count | int > 0) or docker_root_stat.stat.exists
 
     - name: Verify User Confirmation
       ansible.builtin.fail:
@@ -153,25 +251,22 @@
       when: container_count | int > 0
       changed_when: true
 
-    - name: Stop Rootless Docker Service
-      ansible.builtin.systemd:
-        name: docker.service
-        state: stopped
-        scope: user
+    - name: Stop Rootless Docker Service  # noqa: command-instead-of-module
+      ansible.builtin.command: systemctl --user stop docker.service
       failed_when: false
+      changed_when: true
 
-    - name: Stop Rootless Docker Socket
-      ansible.builtin.systemd:
-        name: docker.socket
-        state: stopped
-        scope: user
+    - name: Stop Rootless Docker Socket  # noqa: command-instead-of-module
+      ansible.builtin.command: systemctl --user stop docker.socket
       failed_when: false
+      changed_when: true
 
     - name: Wait for Docker to Stop
       ansible.builtin.pause:
         seconds: 3
 
     - name: Remove Docker Data Directory
+      become: true
       ansible.builtin.file:
         path: "{{ docker_root }}"
         state: absent
@@ -191,19 +286,26 @@
           }
         mode: '0600'
 
-    - name: Start Rootless Docker Socket
-      ansible.builtin.systemd:
-        name: docker.socket
-        state: started
-        scope: user
+    - name: Start Rootless Docker Socket  # noqa: command-instead-of-module
+      ansible.builtin.command: systemctl --user start docker.socket
+      register: start_socket_result
+      changed_when: start_socket_result.rc == 0
+      failed_when: false
 
-    - name: Start Rootless Docker Service
-      ansible.builtin.systemd:
-        name: docker.service
-        state: started
-        scope: user
+    - name: Start Rootless Docker Service  # noqa: command-instead-of-module
+      ansible.builtin.command: systemctl --user start docker.service
+      register: start_service_result
+      changed_when: start_service_result.rc == 0
+      failed_when: false
 
-    - name: Wait for Docker to Start
+    - name: Warn if Docker Failed to Start
+      ansible.builtin.debug:
+        msg: |
+          WARNING: Docker failed to start. Unit files may be missing.
+          Run the Docker playbook to restore: ansible-playbook playbooks/imports/optional/common/play-docker.yml
+      when: start_socket_result.rc != 0 or start_service_result.rc != 0
+
+    - name: Wait for Docker Service to Initialize
       ansible.builtin.pause:
         seconds: 3
 

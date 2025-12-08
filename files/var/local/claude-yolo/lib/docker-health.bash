@@ -2,7 +2,7 @@
 # Claude YOLO Docker Health Library
 # Handles zombie container detection, overlay2 migration, and docker health checks
 #
-# Version: 1.0.0
+# Version: 1.1.0 - Container engine abstraction (docker/podman support)
 
 # Minimum kernel version for native overlay2 with rootless Docker + SELinux
 readonly MIN_KERNEL_OVERLAY2="5.13.0"
@@ -19,7 +19,7 @@ find_zombie_containers() {
     local zombies=()
 
     # Get all running containers matching the suffix pattern
-    local containers=$(docker ps --filter "name=_${suffix}" --format '{{.Names}}' 2>/dev/null)
+    local containers=$(container_cmd ps --filter "name=_${suffix}" --format '{{.Names}}' 2>/dev/null)
 
     if [ -z "$containers" ]; then
         return 0  # No containers found
@@ -29,13 +29,13 @@ find_zombie_containers() {
         [ -z "$container_name" ] && continue
 
         # Check if this container was started with -it (TTY mode)
-        local has_tty=$(docker inspect --format '{{.Config.Tty}}' "$container_name" 2>/dev/null)
+        local has_tty=$(container_cmd inspect --format '{{.Config.Tty}}' "$container_name" 2>/dev/null)
 
         if [ "$has_tty" = "true" ]; then
-            # Check if there's a docker run process still attached
-            # The docker run process would have the container name in its command line
-            if ! pgrep -f "docker run.*--name[= ]${container_name}[^_]" >/dev/null 2>&1 && \
-               ! pgrep -f "docker run.*--name[= ]${container_name}$" >/dev/null 2>&1; then
+            # Check if there's a container run process still attached
+            # The run process would have the container name in its command line
+            if ! pgrep -f "${CONTAINER_ENGINE} run.*--name[= ]${container_name}[^_]" >/dev/null 2>&1 && \
+               ! pgrep -f "${CONTAINER_ENGINE} run.*--name[= ]${container_name}$" >/dev/null 2>&1; then
                 zombies+=("$container_name")
             fi
         fi
@@ -51,7 +51,7 @@ get_container_stats() {
     local container_name="$1"
 
     # Get stats in one call
-    local stats=$(docker stats --no-stream --format '{{.CPUPerc}}|{{.MemUsage}}|{{.PIDs}}' "$container_name" 2>/dev/null)
+    local stats=$(container_cmd stats --no-stream --format '{{.CPUPerc}}|{{.MemUsage}}|{{.PIDs}}' "$container_name" 2>/dev/null)
 
     if [ -z "$stats" ]; then
         echo "unknown|unknown|unknown"
@@ -66,7 +66,7 @@ get_container_stats() {
 # Returns: human-readable uptime string
 get_container_uptime() {
     local container_name="$1"
-    docker ps --filter "name=^${container_name}$" --format '{{.RunningFor}}' 2>/dev/null
+    container_cmd ps --filter "name=^${container_name}$" --format '{{.RunningFor}}' 2>/dev/null
 }
 
 # Show zombie container management TUI
@@ -133,7 +133,7 @@ show_zombie_container_tui() {
                 echo "Stopping all orphaned containers..."
                 for container in "${zombies[@]}"; do
                     echo -n "  Stopping $container... "
-                    if docker stop "$container" >/dev/null 2>&1; then
+                    if container_cmd stop "$container" >/dev/null 2>&1; then
                         echo "✓"
                     else
                         echo "✗ (may already be stopped)"
@@ -151,7 +151,7 @@ show_zombie_container_tui() {
                     if [[ "$sel" =~ ^[0-9]+$ ]] && [ "$sel" -ge 1 ] && [ "$sel" -le ${#zombies[@]} ]; then
                         local container="${zombies[$((sel-1))]}"
                         echo -n "  Stopping $container... "
-                        if docker stop "$container" >/dev/null 2>&1; then
+                        if container_cmd stop "$container" >/dev/null 2>&1; then
                             echo "✓"
                         else
                             echo "✗ (may already be stopped)"
@@ -208,7 +208,7 @@ check_overlay_module() {
 # Check current docker storage driver
 # Returns: storage driver name (e.g., "overlay2", "fuse-overlayfs")
 get_docker_storage_driver() {
-    docker info --format '{{.Driver}}' 2>/dev/null || echo "unknown"
+    container_cmd info --format '{{.Driver}}' 2>/dev/null || echo "unknown"
 }
 
 # Check if rootless docker is using native overlay2
@@ -226,8 +226,8 @@ has_docker_data() {
     # Check for any storage directory
     if [ -d "${docker_root}/overlay2" ] || [ -d "${docker_root}/fuse-overlayfs" ]; then
         # Check if there are actually images/containers
-        local image_count=$(docker images -q 2>/dev/null | wc -l)
-        local container_count=$(docker ps -aq 2>/dev/null | wc -l)
+        local image_count=$(container_cmd images -q 2>/dev/null | wc -l)
+        local container_count=$(container_cmd ps -aq 2>/dev/null | wc -l)
 
         if [ "$image_count" -gt 0 ] || [ "$container_count" -gt 0 ]; then
             return 0  # Has data
@@ -308,8 +308,8 @@ show_overlay2_migration_tui() {
 
     if has_docker_data; then
         local data_size=$(get_docker_data_size)
-        local image_count=$(docker images -q 2>/dev/null | wc -l)
-        local container_count=$(docker ps -aq 2>/dev/null | wc -l)
+        local image_count=$(container_cmd images -q 2>/dev/null | wc -l)
+        local container_count=$(container_cmd ps -aq 2>/dev/null | wc -l)
 
         echo "⚠️  Migration Required"
         echo ""
@@ -483,7 +483,7 @@ show_container_top() {
     local containers=()
     while IFS= read -r line; do
         [[ -n "$line" ]] && containers+=("$line")
-    done < <(docker ps --filter "name=_${suffix}" --format '{{.Names}}' 2>/dev/null)
+    done < <(container_cmd ps --filter "name=_${suffix}" --format '{{.Names}}' 2>/dev/null)
 
     echo ""
     echo "════════════════════════════════════════════════════════════════════════════════"
@@ -513,11 +513,11 @@ show_container_top() {
         local mem=$(echo "$stats" | cut -d'|' -f2 | cut -d'/' -f1)  # Just usage, not limit
         local uptime=$(get_container_uptime "$container")
 
-        # Check if zombie (no docker run process attached)
+        # Check if zombie (no container run process attached)
         local status="active"
-        local has_tty=$(docker inspect --format '{{.Config.Tty}}' "$container" 2>/dev/null)
+        local has_tty=$(container_cmd inspect --format '{{.Config.Tty}}' "$container" 2>/dev/null)
         if [ "$has_tty" = "true" ]; then
-            if ! pgrep -f "docker run.*--name[= ]${container}( |$)" >/dev/null 2>&1; then
+            if ! pgrep -f "${CONTAINER_ENGINE} run.*--name[= ]${container}( |$)" >/dev/null 2>&1; then
                 status="orphan?"
             fi
         fi
@@ -553,7 +553,7 @@ show_container_top() {
                 echo "Stopping all containers..."
                 for container in "${containers[@]}"; do
                     echo -n "  Stopping $container... "
-                    if docker stop "$container" >/dev/null 2>&1; then
+                    if container_cmd stop "$container" >/dev/null 2>&1; then
                         echo "✓"
                     else
                         echo "✗"
@@ -571,7 +571,7 @@ show_container_top() {
                         valid_selection=true
                         local container="${containers[$((sel-1))]}"
                         echo -n "Stopping $container... "
-                        if docker stop "$container" >/dev/null 2>&1; then
+                        if container_cmd stop "$container" >/dev/null 2>&1; then
                             echo "✓"
                         else
                             echo "✗"
@@ -586,7 +586,7 @@ show_container_top() {
                 else
                     echo ""
                     # Show updated list
-                    local remaining=$(docker ps --filter "name=_${suffix}" --format '{{.Names}}' 2>/dev/null | wc -l)
+                    local remaining=$(container_cmd ps --filter "name=_${suffix}" --format '{{.Names}}' 2>/dev/null | wc -l)
                     if [ "$remaining" -eq 0 ]; then
                         echo "✓ All CCY containers stopped"
                         return 0
@@ -613,7 +613,7 @@ check_project_containers_startup() {
     local containers=()
     while IFS= read -r line; do
         [[ -n "$line" ]] && containers+=("$line")
-    done < <(docker ps --filter "name=${project_name}_${suffix}" --format '{{.Names}}' 2>/dev/null)
+    done < <(container_cmd ps --filter "name=${project_name}_${suffix}" --format '{{.Names}}' 2>/dev/null)
 
     if [ ${#containers[@]} -eq 0 ]; then
         return 0  # No containers, continue normally
@@ -663,7 +663,7 @@ check_project_containers_startup() {
                 echo "Stopping existing containers..."
                 for container in "${containers[@]}"; do
                     echo -n "  Stopping $container... "
-                    if docker stop "$container" >/dev/null 2>&1; then
+                    if container_cmd stop "$container" >/dev/null 2>&1; then
                         echo "✓"
                     else
                         echo "✗"
@@ -684,7 +684,7 @@ check_project_containers_startup() {
                     if [[ "$sel" =~ ^[0-9]+$ ]] && [ "$sel" -ge 1 ] && [ "$sel" -le ${#containers[@]} ]; then
                         local container="${containers[$((sel-1))]}"
                         echo -n "  Stopping $container... "
-                        if docker stop "$container" >/dev/null 2>&1; then
+                        if container_cmd stop "$container" >/dev/null 2>&1; then
                             echo "✓"
                         else
                             echo "✗"

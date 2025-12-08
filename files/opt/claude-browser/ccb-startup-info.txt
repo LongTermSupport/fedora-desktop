@@ -1,7 +1,7 @@
 You are running in Browser Automation Mode with Playwright MCP!
 
 ENVIRONMENT:
-• Docker container: (running in isolated sandbox)
+• Container engine: __CONTAINER_ENGINE__
 • Browser GUI support enabled (X11 or Wayland)
 • Playwright MCP for browser control
 • Chromium, Firefox, and WebKit browsers installed
