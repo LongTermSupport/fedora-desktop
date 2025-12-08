@@ -1,0 +1,248 @@
+---
+#!/usr/bin/env ansible-playbook
+# Docker Storage Driver Migration: fuse-overlayfs -> native overlay2
+#
+# This playbook migrates rootless Docker from fuse-overlayfs to native overlay2.
+# Native overlay2 has significantly lower CPU overhead.
+#
+# Prerequisites:
+#   - Kernel 5.13+ (for SELinux compatibility)
+#   - overlay kernel module loaded
+#   - Rootless Docker already configured
+#
+# WARNING: This will delete all existing Docker data (images, containers, volumes)
+# The user will be prompted for confirmation before any destructive action.
+#
+- hosts: desktop
+  name: Migrate Docker to Native overlay2
+  become: false
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+    min_kernel_version: "5.13.0"
+    docker_root: "{{ ansible_env.HOME }}/.local/share/docker"
+    docker_config_dir: "{{ ansible_env.HOME }}/.config/docker"
+  tasks:
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # SANITY CHECKS
+    # ═══════════════════════════════════════════════════════════════════════
+
+    - name: Get Kernel Version
+      ansible.builtin.command: uname -r
+      register: kernel_version_raw
+      changed_when: false
+
+    - name: Parse Kernel Version
+      ansible.builtin.set_fact:
+        kernel_version: "{{ kernel_version_raw.stdout.split('-')[0] }}"
+
+    - name: Check Kernel Version Meets Minimum
+      ansible.builtin.assert:
+        that:
+          - kernel_version is version(min_kernel_version, '>=')
+        fail_msg: |
+          Kernel {{ kernel_version }} does not support native overlay2 for rootless Docker with SELinux.
+          Required: {{ min_kernel_version }} or later.
+
+          You can continue using fuse-overlayfs, or upgrade your kernel.
+        success_msg: "Kernel {{ kernel_version }} supports native overlay2"
+
+    - name: Check overlay Module is Loaded
+      ansible.builtin.shell: lsmod | grep -q "^overlay "
+      register: overlay_module_check
+      changed_when: false
+      failed_when: false
+
+    - name: Load overlay Module if Not Loaded
+      become: true
+      community.general.modprobe:
+        name: overlay
+        state: present
+      when: overlay_module_check.rc != 0
+
+    - name: Verify overlay Module is Now Loaded
+      ansible.builtin.shell: lsmod | grep -q "^overlay "
+      changed_when: false
+
+    - name: Check Current Docker Storage Driver
+      ansible.builtin.command: docker info --format '{{ '{{' }}.Driver{{ '}}' }}'
+      register: current_driver
+      changed_when: false
+
+    - name: Display Current Driver
+      ansible.builtin.debug:
+        msg: "Current Docker storage driver: {{ current_driver.stdout }}"
+
+    - name: Skip If Already Using overlay2
+      ansible.builtin.meta: end_play
+      when: current_driver.stdout == "overlay2"
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # DATA ASSESSMENT
+    # ═══════════════════════════════════════════════════════════════════════
+
+    - name: Check for Existing Docker Images
+      ansible.builtin.command: docker images -q
+      register: existing_images
+      changed_when: false
+
+    - name: Count Docker Images
+      ansible.builtin.set_fact:
+        image_count: "{{ existing_images.stdout_lines | length }}"
+
+    - name: Check for Existing Docker Containers
+      ansible.builtin.command: docker ps -aq
+      register: existing_containers
+      changed_when: false
+
+    - name: Count Docker Containers
+      ansible.builtin.set_fact:
+        container_count: "{{ existing_containers.stdout_lines | length }}"
+
+    - name: Get Docker Data Size
+      ansible.builtin.command: du -sh {{ docker_root }}
+      register: docker_data_size
+      changed_when: false
+      failed_when: false
+
+    - name: Display Migration Warning
+      ansible.builtin.pause:
+        prompt: |
+
+          ════════════════════════════════════════════════════════════════════════════════
+          ⚠️  DOCKER STORAGE MIGRATION: fuse-overlayfs -> overlay2
+          ════════════════════════════════════════════════════════════════════════════════
+
+          Current driver:  {{ current_driver.stdout }}
+          Target driver:   overlay2
+
+          Existing data that will be DELETED:
+            • Images:     {{ image_count }}
+            • Containers: {{ container_count }} (including stopped)
+            • Data size:  {{ docker_data_size.stdout | default('unknown') }}
+
+          Benefits of native overlay2:
+            • Significantly lower CPU usage (no FUSE userspace overhead)
+            • Faster container startup and I/O
+            • Better performance for heavy workloads
+
+          After migration, you will need to:
+            • Rebuild CCY containers: ccy --rebuild
+            • Pull any Docker Hub images again
+
+          ════════════════════════════════════════════════════════════════════════════════
+
+          Type 'MIGRATE' to proceed, or press Ctrl+C to cancel
+      register: user_confirmation
+      when: (image_count | int > 0) or (container_count | int > 0)
+
+    - name: Verify User Confirmation
+      ansible.builtin.fail:
+        msg: "Migration cancelled by user"
+      when:
+        - user_confirmation is defined
+        - user_confirmation.user_input is defined
+        - user_confirmation.user_input != 'MIGRATE'
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # MIGRATION
+    # ═══════════════════════════════════════════════════════════════════════
+
+    - name: Stop Running Containers
+      ansible.builtin.shell: docker stop $(docker ps -q) 2>/dev/null || true
+      when: container_count | int > 0
+      changed_when: true
+
+    - name: Stop Rootless Docker Service
+      ansible.builtin.systemd:
+        name: docker.service
+        state: stopped
+        scope: user
+      failed_when: false
+
+    - name: Stop Rootless Docker Socket
+      ansible.builtin.systemd:
+        name: docker.socket
+        state: stopped
+        scope: user
+      failed_when: false
+
+    - name: Wait for Docker to Stop
+      ansible.builtin.pause:
+        seconds: 3
+
+    - name: Remove Docker Data Directory
+      ansible.builtin.file:
+        path: "{{ docker_root }}"
+        state: absent
+
+    - name: Ensure Docker Config Directory Exists
+      ansible.builtin.file:
+        path: "{{ docker_config_dir }}"
+        state: directory
+        mode: '0700'
+
+    - name: Configure overlay2 Storage Driver
+      ansible.builtin.copy:
+        dest: "{{ docker_config_dir }}/daemon.json"
+        content: |
+          {
+            "storage-driver": "overlay2"
+          }
+        mode: '0600'
+
+    - name: Start Rootless Docker Socket
+      ansible.builtin.systemd:
+        name: docker.socket
+        state: started
+        scope: user
+
+    - name: Start Rootless Docker Service
+      ansible.builtin.systemd:
+        name: docker.service
+        state: started
+        scope: user
+
+    - name: Wait for Docker to Start
+      ansible.builtin.pause:
+        seconds: 3
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # VERIFICATION
+    # ═══════════════════════════════════════════════════════════════════════
+
+    - name: Verify New Storage Driver
+      ansible.builtin.command: docker info --format '{{ '{{' }}.Driver{{ '}}' }}'
+      register: new_driver
+      changed_when: false
+
+    - name: Display Migration Result
+      ansible.builtin.debug:
+        msg: |
+          ════════════════════════════════════════════════════════════════════════════════
+          ✅ MIGRATION COMPLETE
+          ════════════════════════════════════════════════════════════════════════════════
+
+          Previous driver: {{ current_driver.stdout }}
+          Current driver:  {{ new_driver.stdout }}
+
+          Next steps:
+            1. Rebuild CCY container: ccy --rebuild
+            2. Pull any other images you need
+
+          ════════════════════════════════════════════════════════════════════════════════
+
+    - name: Fail If Migration Did Not Work
+      ansible.builtin.fail:
+        msg: |
+          Migration failed! Expected overlay2 but got {{ new_driver.stdout }}
+
+          Try manually:
+            1. systemctl --user stop docker.service docker.socket
+            2. rm -rf ~/.local/share/docker
+            3. cat > ~/.config/docker/daemon.json << 'EOF'
+               {"storage-driver": "overlay2"}
+               EOF
+            4. systemctl --user start docker.socket docker.service
+            5. docker info | grep 'Storage Driver'
+      when: new_driver.stdout != "overlay2"

@@ -3,13 +3,13 @@
 # Runs Claude Code with --dangerously-skip-permissions in isolated Docker container
 # IMPORTANT: Uses separate token storage from desktop Claude Code to prevent OAuth conflicts
 #
-# Version: 2.1.8 - Fix session message count syntax error (0\n0 messages)
+# Version: 2.3.0 - Container manager (--top) and project container check at startup
 #
 # IMPORTANT: When modifying this script, ALWAYS increment CCY_VERSION!
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="2.1.8"  # Fix: Session message count causing arithmetic syntax error in deletion
+CCY_VERSION="2.3.0"  # Container manager (--top) and project container check at startup
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,6 +36,12 @@ done
 REQUIRED_CONTAINER_VERSION="1.2"
 
 set -e
+
+# Debug output helper - only prints when DEBUG_MODE=true
+# Usage: debug "message"
+debug() {
+    [[ "$DEBUG_MODE" = true ]] && echo "DEBUG: $*" || true
+}
 
 # Calculate script hash (exclude this variable line to avoid circular dependency)
 CCY_HASH=$(grep -v '^CCY_HASH=' "$0" | md5sum | cut -d' ' -f1 | cut -c1-16)
@@ -129,6 +135,7 @@ Examples:
   ccy "implement feature X"     # Start with specific task (shows TUI first)
   ccy --prompt "fix the bug"    # Start interactive session with prompt
   ccy --headless --prompt "run tests"  # Run in headless mode
+  ccy --top                     # Container manager: list/stop all CCY containers
 
 Custom Dockerfile (Quick template-based):
   ccy --custom                  # Template selection workflow
@@ -460,6 +467,8 @@ for arg in "$@"; do
         CUSTOM_MODE=true
     elif [ "$arg" = "--custom-docker" ]; then
         CUSTOM_DOCKER_MODE=true
+    elif [ "$arg" = "--top" ]; then
+        TOP_MODE=true
     else
         CLAUDE_ARGS+=("$arg")
     fi
@@ -485,6 +494,12 @@ if [ "$HEADLESS_MODE" = true ]; then
         echo "which requires a prompt to execute." >&2
         exit 1
     fi
+fi
+
+# Handle --top mode (global container management - doesn't need git repo)
+if [ "$TOP_MODE" = true ]; then
+    show_container_top "yolo"
+    exit 0
 fi
 
 # Handle list tokens mode (doesn't need SSH/GH setup)
@@ -762,6 +777,17 @@ if [ "$DOCKER_CONTEXT" != "rootless" ]; then
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════
+# EXISTING CONTAINER CHECK
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Check for running containers for this project before starting a new session
+# This helps users avoid accumulating containers they forgot about
+if ! check_project_containers_startup "$PROJECT_NAME" "yolo"; then
+    # User chose to quit
+    exit 0
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════
 # SESSION SELECTION
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -819,21 +845,20 @@ SESSION_DIR=$(cd "$SESSION_DIR" && pwd)
 SESSION_HAS_MESSAGES=false
 MESSAGE_COUNT=$(count_session_messages "$SESSION_DIR" | tail -1 | tr -d '[:space:]')
 
-echo ""
-echo "DEBUG: Session directory: $SESSION_DIR"
-echo "DEBUG: Raw message count output: '$MESSAGE_COUNT'"
-echo "DEBUG: history.jsonl exists: $([ -f "$SESSION_DIR/history.jsonl" ] && echo "YES" || echo "NO")"
-if [ -f "$SESSION_DIR/history.jsonl" ]; then
-    echo "DEBUG: history.jsonl size: $(wc -l < "$SESSION_DIR/history.jsonl") lines"
-    echo "DEBUG: Lines with 'role': $(grep -c '"role":' "$SESSION_DIR/history.jsonl" 2>/dev/null || echo "0")"
+debug "Session directory: $SESSION_DIR"
+debug "Raw message count output: '$MESSAGE_COUNT'"
+debug "history.jsonl exists: $([ -f "$SESSION_DIR/history.jsonl" ] && echo "YES" || echo "NO")"
+if [ "$DEBUG_MODE" = true ] && [ -f "$SESSION_DIR/history.jsonl" ]; then
+    debug "history.jsonl size: $(wc -l < "$SESSION_DIR/history.jsonl") lines"
+    debug "Lines with 'role': $(grep -c '"role":' "$SESSION_DIR/history.jsonl" 2>/dev/null || echo "0")"
 fi
 
 # Ensure MESSAGE_COUNT is a valid number
 if [[ "$MESSAGE_COUNT" =~ ^[0-9]+$ ]] && [[ "$MESSAGE_COUNT" -gt 0 ]]; then
     SESSION_HAS_MESSAGES=true
-    echo "DEBUG: SESSION_HAS_MESSAGES=true (count: $MESSAGE_COUNT)"
+    debug "SESSION_HAS_MESSAGES=true (count: $MESSAGE_COUNT)"
 else
-    echo "DEBUG: SESSION_HAS_MESSAGES=false (count: '$MESSAGE_COUNT')"
+    debug "SESSION_HAS_MESSAGES=false (count: '$MESSAGE_COUNT')"
 fi
 
 # Show appropriate message
@@ -1104,24 +1129,21 @@ if [ ! -f "$project_config" ]; then
 }
 EOF
     chmod 600 "$project_config"
-    [ "$DEBUG_MODE" = true ] && echo "✓ Created .claude.json with hasCompletedOnboarding=true"
+    debug "Created .claude.json with hasCompletedOnboarding=true"
 else
     # Update existing config to ensure onboarding is complete
     if command_exists jq; then
         jq '.hasCompletedOnboarding = true' "$project_config" > "$project_config.tmp" && mv "$project_config.tmp" "$project_config"
-        [ "$DEBUG_MODE" = true ] && echo "✓ Updated .claude.json to skip onboarding"
+        debug "Updated .claude.json to skip onboarding"
     fi
 fi
 
 # CRITICAL: Remove .credentials.json from session directory if it exists
 # Credentials come via CLAUDE_CODE_OAUTH_TOKEN environment variable now
 if [ -f "$SESSION_DIR/.credentials.json" ]; then
-    if [ "$DEBUG_MODE" = true ]; then
-        echo "⚠ Found legacy .credentials.json in session directory"
-        echo "  Removing - we use CLAUDE_CODE_OAUTH_TOKEN now..."
-    fi
+    debug "Found legacy .credentials.json in session directory - removing"
     rm -f "$SESSION_DIR/.credentials.json"
-    [ "$DEBUG_MODE" = true ] && echo "✓ Removed legacy .credentials.json"
+    debug "Removed legacy .credentials.json"
 fi
 
 if [ "$DEBUG_MODE" = true ]; then
@@ -1240,9 +1262,9 @@ DOCKER_MOUNTS=(
 # Mount config file if it exists (contains onboarding state, must be WRITABLE)
 if [ -f "$project_config" ]; then
     DOCKER_MOUNTS+=(-v "$project_config:/root/.claude.json")
-    [ "$DEBUG_MODE" = true ] && echo "✓ Mounting config file (writable): $project_config"
+    debug "Mounting config file (writable): $project_config"
 else
-    [ "$DEBUG_MODE" = true ] && echo "⚠ Config file not found: $project_config (will be created)"
+    debug "Config file not found: $project_config (will be created)"
 fi
 
 DOCKER_MOUNTS+=(

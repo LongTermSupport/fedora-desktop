@@ -20,6 +20,7 @@ source "$LIB_DIR/network-management.bash"
 source "$LIB_DIR/dockerfile-custom.bash"
 source "$LIB_DIR/ui-helpers.bash"
 source "$LIB_DIR/session-management.bash"
+source "$LIB_DIR/docker-health.bash"
 
 # Output formatting helpers
 print_error() {
