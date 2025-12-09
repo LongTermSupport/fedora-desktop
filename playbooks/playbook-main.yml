@@ -2,6 +2,7 @@
 #!/usr/bin/env ansible-playbook
 - import_playbook: imports/play-AA-preflight-sanity.yml
 - import_playbook: imports/play-basic-configs.yml
+- import_playbook: imports/play-systemd-user-tweaks.yml
 - import_playbook: imports/play-nvm-install.yml
 - import_playbook: imports/play-git-configure-and-tools.yml
 - import_playbook: imports/optional/common/play-github-cli-multi.yml

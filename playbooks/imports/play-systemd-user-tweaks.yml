@@ -1,0 +1,183 @@
+---
+#!/usr/bin/env ansible-playbook
+- hosts: desktop
+  name: Systemd User Service Tweaks
+  become: false
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  tasks:
+    # =========================================================================
+    # SYSTEMD-OOMD MEMORY PRESSURE FIX
+    # =========================================================================
+    #
+    # PROBLEM: systemd-oomd aggressively kills processes/containers despite
+    # abundant available RAM due to false-positive "memory pressure" detection.
+    #
+    # ROOT CAUSE:
+    # 1. systemd-oomd uses PSI (Pressure Stall Information) to detect memory
+    #    pressure by measuring time spent reclaiming memory, faulting pages,
+    #    and swapping. Normal cache reclaim activity registers as "pressure"
+    #    even when there's tons of free RAM.
+    #
+    # 2. Memory accounting counts page cache as "used" (memory.current in
+    #    cgroups), making file I/O intensive workloads appear memory-hungry
+    #    even though cache is instantly reclaimable.
+    #
+    # 3. Default threshold is 80% pressure for 20 seconds, which is easily
+    #    triggered by normal container operations (loading files, processing,
+    #    caching) despite having 95GB+ free RAM.
+    #
+    # IMPACT:
+    # - Containers killed at ~4GB usage when system has 100GB+ available
+    # - Fedora rootless Podman containers particularly affected
+    # - Processes under user.slice terminated prematurely
+    # - Poor desktop experience with applications unexpectedly killed
+    #
+    # KNOWN BUGS & ISSUES:
+    # - Debian Bug #1118191: Killing processes with plenty of memory
+    #   http://www.mail-archive.com/pkg-systemd-maintainers@alioth-lists.debian.net/msg11313.html
+    #
+    # - systemd PR #22965: Fixed memory calculation to use MemAvailable
+    #   https://github.com/systemd/systemd/pull/22965
+    #
+    # - systemd Issue #19142: Killing Docker/Podman containers in user.slice
+    #   https://github.com/systemd/systemd/issues/19142
+    #
+    # - systemd Issue #32304: Killing more processes than expected
+    #   https://github.com/systemd/systemd/issues/32304
+    #
+    # - systemd Issue #35270: Bringing down entire desktop environments
+    #   https://github.com/systemd/systemd/issues/35270
+    #
+    # - systemd Issue #33486: Not killing when it should
+    #   https://github.com/systemd/systemd/issues/33486
+    #
+    # - Red Hat Bugzilla #1941170: Very aggressive in killing apps
+    #   https://bugzilla.redhat.com/show_bug.cgi?id=1941170
+    #
+    # - Ubuntu systemd-oomd Headaches (Phoronix)
+    #   https://www.phoronix.com/news/Ubuntu-systemd-oomd-Headaches
+    #
+    # - Fedora Change: EnableSystemdOomd
+    #   https://fedoraproject.org/wiki/Changes/EnableSystemdOomd
+    #
+    # TECHNICAL DETAILS:
+    # - systemd Memory Pressure Documentation
+    #   https://systemd.io/MEMORY_PRESSURE/
+    #   https://github.com/systemd/systemd/blob/main/docs/MEMORY_PRESSURE.md
+    #
+    # - systemd-oomd.service Man Page
+    #   https://www.freedesktop.org/software/systemd/man/latest/systemd-oomd.service.html
+    #
+    # SOLUTION:
+    # Set ManagedOOMMemoryPressure=auto to disable aggressive PSI-based
+    # killing. Falls back to kernel OOM killer which only kills when
+    # actually out of memory (not false-positive pressure detection).
+    #
+    # ALTERNATIVES CONSIDERED:
+    # - Increase ManagedOOMMemoryPressureLimit to 95% (still has false positives)
+    # - Add explicit container memory limits (doesn't fix root cause)
+    # - Disable systemd-oomd system-wide (too aggressive, affects all users)
+    #
+    # =========================================================================
+
+    - name: Create Systemd User Config Directory
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.config/systemd/user/user.slice.d"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+      tags:
+        - systemd
+        - oomd
+
+    - name: Disable systemd-oomd Aggressive Memory Pressure Killing
+      ansible.builtin.blockinfile:
+        path: "/home/{{ user_login }}/.config/systemd/user/user.slice.d/50-oom-override.conf"
+        marker: "# {mark} ANSIBLE MANAGED: Disable systemd-oomd aggressive killing"
+        block: |
+          [Slice]
+          # Disable systemd-oomd proactive memory pressure killing
+          # This prevents false-positive OOM kills when containers/processes
+          # perform normal file I/O and cache operations despite abundant RAM
+          #
+          # See playbook documentation for detailed explanation and bug references
+          ManagedOOMMemoryPressure=auto
+        create: true
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0644"
+      register: oomd_config
+      notify: reload-systemd-user-daemon
+      tags:
+        - systemd
+        - oomd
+
+    - name: Verify systemd-oomd Configuration
+      ansible.builtin.shell: |
+        set -o pipefail
+        systemctl --user show user.slice | grep ManagedOOMMemoryPressure
+      become: true
+      become_user: "{{ user_login }}"
+      register: oomd_verify
+      changed_when: false
+      failed_when: false
+      args:
+        executable: /bin/bash
+      tags:
+        - systemd
+        - oomd
+
+    - name: Display systemd-oomd Configuration Status
+      ansible.builtin.debug:
+        msg:
+          - "════════════════════════════════════════════════════════════════"
+          - "systemd-oomd Memory Pressure Configuration"
+          - "════════════════════════════════════════════════════════════════"
+          - ""
+          - "Status: {{ 'Updated' if oomd_config.changed else 'Already configured' }}"
+          - "Current setting: {{ oomd_verify.stdout | default('unknown') }}"
+          - ""
+          - "What this does:"
+          - "  • Disables aggressive PSI-based memory pressure killing"
+          - "  • Prevents false-positive OOM kills on container workloads"
+          - "  • Falls back to kernel OOM killer (only kills when truly OOM)"
+          - ""
+          - "Impact:"
+          - "  • Rootless Podman/Docker containers won't be killed prematurely"
+          - "  • Applications can use cache memory without triggering OOM"
+          - "  • No more unexpected terminations with abundant free RAM"
+          - ""
+          - "Verification:"
+          - "  systemctl --user show user.slice | grep ManagedOOM"
+          - ""
+          - "To revert (not recommended):"
+          - "  rm ~/.config/systemd/user/user.slice.d/50-oom-override.conf"
+          - "  systemctl --user daemon-reload"
+          - ""
+          - "════════════════════════════════════════════════════════════════"
+      tags:
+        - systemd
+        - oomd
+
+    # =========================================================================
+    # FUTURE SYSTEMD TWEAKS
+    # =========================================================================
+    # Add additional systemd user service configurations below following
+    # the same pattern:
+    # - Create necessary directories
+    # - Use blockinfile for config files
+    # - Use notify to trigger daemon-reload handler
+    # - Verify configuration
+    # - Tag appropriately
+    # =========================================================================
+
+  handlers:
+    - name: reload-systemd-user-daemon
+      ansible.builtin.systemd:
+        daemon_reload: true
+        scope: user
+      become: true
+      become_user: "{{ user_login }}"
+      listen: reload-systemd-user-daemon
