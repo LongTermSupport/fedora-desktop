@@ -27,6 +27,13 @@
           {% endif %}
       when: container_engine_check.rc != 0
 
+    - name: Install podman-compose (Podman only)
+      ansible.builtin.pip:
+        name: podman-compose
+        state: present
+        extra_args: --user
+      when: container_engine == 'podman'
+
     - name: Check Container Engine Service is Running
       ansible.builtin.command: "{{ container_engine }} ps"
       register: container_service_check
