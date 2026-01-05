@@ -3,13 +3,13 @@
 # Runs Claude Code with --dangerously-skip-permissions in isolated Docker container
 # IMPORTANT: Uses separate token storage from desktop Claude Code to prevent OAuth conflicts
 #
-# Version: 2.4.6 - Warn only when podman is sole network, recommend explicit naming
+# Version: 2.5.0 - Cross-engine network detection (Docker vs Podman mismatch)
 #
 # IMPORTANT: When modifying this script, ALWAYS increment CCY_VERSION!
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="2.4.6"  # Fix: Only warn about podman network when it's the only option
+CCY_VERSION="2.5.0"  # Feature: Detect Docker vs Podman network mismatch, recommend Podman migration
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1380,17 +1380,144 @@ elif [[ "$NO_NETWORK_MODE" = true ]]; then
     echo ""
 else
     # No network flags - auto-detect and offer connection
-    # Check for networks matching project name (same logic as --connect)
+    # Check BOTH docker and podman to detect cross-engine issues
     MATCHING_NETWORKS=()
+    DOCKER_NETWORKS=()
+    PODMAN_NETWORKS=()
+    CROSS_ENGINE_MISMATCH=false
+
+    # Query current engine (podman or docker)
     while IFS= read -r net; do
         # Skip default networks
-        if [[ "$net" != "bridge" ]] && [[ "$net" != "host" ]] && [[ "$net" != "none" ]]; then
+        if [[ "$net" != "bridge" ]] && [[ "$net" != "host" ]] && [[ "$net" != "none" ]] && [[ "$net" != "podman" ]]; then
             # Check if network name contains project name
             if [[ "$net" == *"$PROJECT_NAME"* ]]; then
                 MATCHING_NETWORKS+=("$net")
             fi
         fi
     done < <(container_cmd network ls --format "{{.Name}}" 2>/dev/null)
+
+    # Query the OTHER engine to detect mismatches
+    OTHER_ENGINE=""
+    if [[ "$CONTAINER_ENGINE" = "podman" ]]; then
+        OTHER_ENGINE="docker"
+    else
+        OTHER_ENGINE="podman"
+    fi
+
+    # Check if other engine is available
+    if command -v "$OTHER_ENGINE" &>/dev/null; then
+        # Get networks from other engine
+        OTHER_ENGINE_NETWORKS=()
+        while IFS= read -r net; do
+            if [[ "$net" != "bridge" ]] && [[ "$net" != "host" ]] && [[ "$net" != "none" ]] && [[ "$net" != "podman" ]]; then
+                OTHER_ENGINE_NETWORKS+=("$net")
+                # Check if this network matches project name
+                if [[ "$net" == *"$PROJECT_NAME"* ]]; then
+                    # Found matching network in OTHER engine but not current engine
+                    if [[ ${#MATCHING_NETWORKS[@]} -eq 0 ]]; then
+                        CROSS_ENGINE_MISMATCH=true
+                        if [[ "$CONTAINER_ENGINE" = "podman" ]]; then
+                            DOCKER_NETWORKS+=("$net")
+                        else
+                            PODMAN_NETWORKS+=("$net")
+                        fi
+                    fi
+                fi
+            fi
+        done < <("$OTHER_ENGINE" network ls --format "{{.Name}}" 2>/dev/null)
+    fi
+
+# Show cross-engine mismatch warning BEFORE normal network detection
+if [[ "$CROSS_ENGINE_MISMATCH" = true ]]; then
+    echo ""
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo "⚠️  CROSS-ENGINE NETWORK MISMATCH DETECTED"
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+
+    if [[ "$CONTAINER_ENGINE" = "podman" ]]; then
+        # CCY using Podman, but networks found in Docker
+        echo "CCY is configured to use Podman, but project networks exist in Docker:"
+        echo ""
+        for net in "${DOCKER_NETWORKS[@]}"; do
+            echo "  • $net (Docker only)"
+        done
+        echo ""
+        echo "Problem:"
+        echo "  • Docker and Podman have separate network namespaces"
+        echo "  • CCY (using Podman) cannot see Docker networks"
+        echo "  • Your docker-compose/docker.bash is likely using Docker"
+        echo ""
+        echo "RECOMMENDED: Migrate to Podman (modern, rootless, daemonless)"
+        echo ""
+        echo "  1) Install podman-compose:"
+        echo "     pip install --user podman-compose"
+        echo ""
+        echo "  2) Update docker.bash or docker-compose scripts to use podman-compose:"
+        echo "     # Replace: docker-compose"
+        echo "     # With:    podman-compose"
+        echo ""
+        echo "  3) Recreate networks with Podman:"
+        echo "     podman network create ${PROJECT_NAME}_network"
+        echo "     podman-compose up"
+        echo ""
+        echo "TEMPORARY WORKAROUND: Use Docker for this session"
+        echo ""
+        echo "  • Set CCY_CONTAINER_ENGINE=docker before launching:"
+        echo "    export CCY_CONTAINER_ENGINE=docker"
+        echo "    ccy"
+        echo ""
+        echo "  • Or add to docker.bash script:"
+        echo "    export CCY_CONTAINER_ENGINE=docker"
+        echo ""
+    else
+        # CCY using Docker, but networks found in Podman
+        echo "CCY is configured to use Docker, but project networks exist in Podman:"
+        echo ""
+        for net in "${PODMAN_NETWORKS[@]}"; do
+            echo "  • $net (Podman only)"
+        done
+        echo ""
+        echo "Problem:"
+        echo "  • Docker and Podman have separate network namespaces"
+        echo "  • CCY (using Docker) cannot see Podman networks"
+        echo "  • Your podman-compose setup created Podman-only networks"
+        echo ""
+        echo "RECOMMENDED: Use Podman consistently"
+        echo ""
+        echo "  • Remove CCY_CONTAINER_ENGINE override (defaults to Podman):"
+        echo "    unset CCY_CONTAINER_ENGINE"
+        echo "    ccy"
+        echo ""
+    fi
+
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+
+    while true; do
+        read -p "Continue without network connection? [Y/n] " mismatch_choice
+        mismatch_choice=${mismatch_choice:-Y}
+        echo ""
+
+        case "$mismatch_choice" in
+            Y|y|Yes|yes)
+                echo "Continuing without network connection..."
+                echo "Fix the mismatch and restart CCY to connect to project networks."
+                echo ""
+                break
+                ;;
+            N|n|No|no)
+                echo "Cancelled. Fix the container engine mismatch first."
+                exit 0
+                ;;
+            *)
+                echo "Invalid choice. Please enter Y or n"
+                echo ""
+                ;;
+        esac
+    done
+fi
 
 if [ ${#MATCHING_NETWORKS[@]} -gt 0 ]; then
     echo ""
