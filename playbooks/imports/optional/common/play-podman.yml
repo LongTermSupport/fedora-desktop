@@ -11,7 +11,6 @@
       ansible.builtin.dnf:
         name:
           - podman
-          - podman-docker  # Docker CLI compatibility wrapper
         state: present
 
     - name: Install podman-compose (Docker Compose compatibility)
