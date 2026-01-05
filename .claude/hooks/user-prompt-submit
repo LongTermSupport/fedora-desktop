@@ -1,0 +1,13 @@
+#!/usr/bin/env python3
+"""UserPromptSubmit hook entry point - routes to front controller.
+
+Runs when the user submits a prompt, before Claude processes it. Allows adding
+context based on the prompt, validating prompts, or blocking certain types of prompts.
+
+Official docs: https://code.claude.com/docs/en/hooks.md#userpromptsubmit
+"""
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'controller'))
+from user_prompt_submit import main
+sys.exit(main())

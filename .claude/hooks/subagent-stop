@@ -1,0 +1,13 @@
+#!/usr/bin/env python3
+"""SubagentStop hook entry point - routes to front controller.
+
+Runs when a Claude Code subagent (Task tool call) has finished responding. Used to
+intelligently evaluate if a subagent should continue or stop.
+
+Official docs: https://code.claude.com/docs/en/hooks.md#subagentstop
+"""
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'controller'))
+from subagent_stop import main
+sys.exit(main())

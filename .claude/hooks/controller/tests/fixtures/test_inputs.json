@@ -1,0 +1,45 @@
+{
+  "destructive_git": {
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "git reset --hard HEAD~1"
+    }
+  },
+  "safe_git": {
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "git status"
+    }
+  },
+  "git_stash": {
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "git stash push -m 'WIP'"
+    }
+  },
+  "git_stash_with_escape_hatch": {
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "git stash  # I HAVE ABSOLUTELY CONFIRMED THAT STASH IS THE ONLY OPTION"
+    }
+  },
+  "npm_build": {
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "npm run build"
+    }
+  },
+  "npm_llm_build": {
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "npm run llm:build"
+    }
+  },
+  "write_file": {
+    "tool_name": "Write",
+    "tool_input": {
+      "file_path": "/workspace/test.txt",
+      "content": "test content"
+    }
+  }
+}

@@ -1,0 +1,13 @@
+#!/usr/bin/env python3
+"""Notification hook entry point - routes to front controller.
+
+Runs when Claude Code sends notifications (permission prompts, idle prompts, auth
+success, elicitation dialogs). Use to filter or react to notification types.
+
+Official docs: https://code.claude.com/docs/en/hooks.md#notification
+"""
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'controller'))
+from notification import main
+sys.exit(main())

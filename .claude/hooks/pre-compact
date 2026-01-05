@@ -1,0 +1,13 @@
+#!/usr/bin/env python3
+"""PreCompact hook entry point - routes to front controller.
+
+Runs before Claude Code runs a compact operation (manual via /compact or automatic
+when context window is full). Use to control compaction behavior.
+
+Official docs: https://code.claude.com/docs/en/hooks.md#precompact
+"""
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'controller'))
+from pre_compact import main
+sys.exit(main())

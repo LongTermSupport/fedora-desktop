@@ -1,0 +1,13 @@
+#!/usr/bin/env python3
+"""Stop hook entry point - routes to front controller.
+
+Runs when the main Claude Code agent has finished responding (not on user interrupt).
+Use to intelligently decide if Claude should continue working.
+
+Official docs: https://code.claude.com/docs/en/hooks.md#stop
+"""
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'controller'))
+from stop import main
+sys.exit(main())

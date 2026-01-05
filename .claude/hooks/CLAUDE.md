@@ -1,248 +1,158 @@
-# Claude Code Hooks - Project Configuration
+# Claude Code Hooks - Front Controller Architecture
 
-**IMPORTANT**: Always check the latest online documentation before making changes to hooks. This file should be kept up-to-date with the official docs.
+**CANONICAL DOCUMENTATION** - Single source of truth
 
-## Official Documentation Links
+## Critical Rules
 
-**PRIMARY REFERENCE - Always check these first:**
-- **Hooks Guide**: https://code.claude.com/docs/en/hooks-guide.md
-- **Hooks Reference**: https://code.claude.com/docs/en/hooks.md
-- **Common Workflows**: https://code.claude.com/docs/en/common-workflows.md
-- **Documentation Map**: https://code.claude.com/docs/en/claude_code_docs_map.md
+⚠️ ALL new hooks MUST use front controller pattern
+⚠️ Standalone hook files are FORBIDDEN
+⚠️ TDD is MANDATORY (tests before code)
+⚠️ 95%+ coverage required
 
-## Overview
+## Architecture
 
-Claude Code provides a hook system that allows you to run custom commands at various points in the workflow. This project uses hooks to automatically lint Ansible playbooks when they are edited or created.
+Current: Front controller with Handler base class pattern (10x faster, easy to maintain)
 
-## Hook Types Available
+Performance improvement: 200ms to 21ms per PreToolUse operation
 
-Claude Code supports 10 hook event types:
+## Directory Structure
 
-1. **PreToolUse** - Runs before tool calls (can block them)
-2. **PermissionRequest** - Executes when permission dialogs appear
-3. **PostToolUse** - Runs after tool calls complete ⭐ **Used in this project**
-4. **UserPromptSubmit** - Activates when users submit prompts
-5. **Notification** - Runs when Claude Code sends notifications
-6. **Stop** - Executes when Claude Code finishes responding
-7. **SubagentStop** - Runs upon subagent task completion
-8. **PreCompact** - Activates before compact operations
-9. **SessionStart** - Runs when a new session starts or resumes
-10. **SessionEnd** - Executes when a session terminates
+All hooks live in controller/ directory:
+- front_controller.py - Core engine with Handler, HookResult, FrontController classes
+- pre_tool_use.py - PreToolUse entry point with all handlers registered
+- handlers/ - Handler implementations organised by event type
+- tests/ - Comprehensive test suite (364 tests, 100% coverage)
 
-## Project Hook Configuration
+## Handler Pattern
 
-This project uses **PostToolUse** hooks to automatically lint Ansible playbooks after they are edited or created.
+All handlers inherit Handler base class and implement:
+- matches() method - Pattern matching logic
+- handle() method - Execution logic returning HookResult
 
-### Configuration Location
+Priority-based dispatch: lower number runs first (5 to 60 range)
 
-Hooks are configured in `.claude/settings.json` (project-level, version-controlled).
+First match wins: once matches() returns True, handle() executes and dispatch stops
 
-### Current Hooks
+## Hook Guidance Pattern
 
-**Ansible Auto-Linting Hook**:
-- **Event**: PostToolUse
-- **Matcher**: `Edit|Write` (triggers on Edit or Write tool use)
-- **Script**: `.claude/hooks/ansible-lint.sh`
-- **Purpose**: Automatically run ansible-lint on playbook files after editing
-- **Behavior**: Blocks operation if linting fails (exit code 2)
+Hooks can provide guidance to agents without blocking:
 
-## Hook Input Format
+HookResult supports `guidance` parameter for "allow with feedback" mode:
+- decision="allow" - Operation proceeds
+- guidance="..." - Agent receives actionable feedback
 
-Hooks receive JSON data via stdin containing information about the operation:
+Agent Acknowledgment Protocol:
+When hook provides guidance, agent MUST explicitly acknowledge:
+1. ✅ Hook detected: [handler name]
+2. 📋 Guidance: [summary of guidance]
+3. 🎯 My action: [what agent will do based on guidance]
 
-```json
-{
-  "session_id": "string",
-  "transcript_path": "string",
-  "cwd": "string",
-  "permission_mode": "default|plan|acceptEdits|bypassPermissions",
-  "hook_event_name": "PostToolUse",
-  "tool_name": "Write|Edit",
-  "tool_input": {
-    "file_path": "/absolute/path/to/file",
-    "content": "file content"
-  },
-  "tool_use_id": "toolu_...",
-  "tool_response": {
-    "filePath": "/absolute/path/to/file",
-    "success": true
-  }
-}
-```
+Example: PlanWorkflowHandler provides guidance when creating plans
 
-### Extracting File Path
+## Agent Identification
 
-**Using jq in bash:**
-```bash
-FILE_PATH=$(cat | jq -r '.tool_input.file_path')
-```
+**LIMITATION**: Hooks cannot currently identify which agent is making tool calls.
 
-**Using Python:**
-```python
-import json
-import sys
-data = json.load(sys.stdin)
-file_path = data['tool_input']['file_path']
-```
+`hook_input` only contains:
+- `tool_name`: Name of tool (Bash, Write, Edit, etc.)
+- `tool_input`: Tool-specific parameters (command, file_path, etc.)
 
-## Hook Exit Codes
+**No agent metadata available**:
+- No agent name
+- No session ID
+- No execution context
 
-- **0** - Success, operation continues
-- **2** - Blocking error, prevents the operation, shows stderr to user/Claude
-- **Other** - Non-blocking error, shows stderr only in verbose mode
+**Workaround**: Use command/file patterns to infer context indirectly.
 
-## Hook JSON Output (Optional)
+**Implication**: Cannot create agent-specific hook behavior or log which agent triggered a hook.
 
-For exit code 0, hooks can output JSON to provide feedback:
+## Core Concepts
 
-```json
-{
-  "continue": true,
-  "stopReason": "optional reason string",
-  "suppressOutput": true,
-  "systemMessage": "Message shown to Claude and user"
-}
-```
+Handler: Base class with matches() and handle() methods
 
-## Environment Variables
+HookResult: Return object with decision (allow/deny/ask) and optional reason
 
-All hooks have access to:
-- `CLAUDE_PROJECT_DIR` - Absolute path to project root
-- `CLAUDE_CODE_REMOTE` - "true" if running in web environment
+FrontController: Dispatch engine that routes events to handlers
 
-## Creating New Hooks
+Priority ranges: 5=architecture, 10-20=safety, 25-45=workflow, 50-60=tool usage
 
-### Method 1: Manual (Recommended for this project)
+## Workflow State Handlers
 
-1. Create hook script in `.claude/hooks/`
-2. Make executable: `chmod +x .claude/hooks/your-script.sh`
-3. Add configuration to `.claude/settings.json`
-4. Test with: `echo '{"tool_input":{"file_path":"/path/to/test.yml"}}' | .claude/hooks/your-script.sh`
+Two handlers work together to preserve workflow state across compaction cycles:
 
-### Method 2: Using /hooks Command
+### WorkflowStatePreCompactHandler
 
-1. Run `/hooks` in Claude Code
-2. Select event type
-3. Add matcher pattern
-4. Enter shell command
-5. Choose storage location
+**Event**: PreCompact (before compaction)
+**Location**: `handlers/pre_compact/workflow_state_pre_compact_handler.py`
+**Tests**: 12 tests passing
 
-## Security Best Practices
+**Purpose**: Detects active workflows and saves/updates persistent state file
 
-⚠️ **Always follow these security guidelines:**
+**Behavior**:
+1. Detects if formal workflow is active (checks CLAUDE.local.md or active plans)
+2. If NO workflow: Returns allow, no file created
+3. If YES workflow:
+   - Sanitizes workflow name for safe directory/filename
+   - Looks for existing state file in `./untracked/workflow-state/{workflow-name}/`
+   - If found: UPDATES existing file (preserves `created_at` timestamp)
+   - If not found: CREATES new file with start_time timestamp
+4. Always returns allow (never blocks compaction)
 
-- ✅ Validate and sanitize all inputs
-- ✅ Always quote shell variables: `"$VAR"`
-- ✅ Check for path traversal attacks (`..`)
-- ✅ Use absolute paths
-- ✅ Skip sensitive files (.env, .git, keys)
-- ✅ Set reasonable timeouts (default 60s)
-- ✅ Handle errors gracefully
-- ✅ Don't expose sensitive data in output
+**State File**: `./untracked/workflow-state/{workflow-name}/state-{workflow-name}-{start-time}.json`
 
-## Debugging Hooks
+### WorkflowStateRestorationHandler
 
-1. **Verify registration**: Run `/hooks` to see active hooks
-2. **Enable debug mode**: `claude --debug`
-3. **Check stderr**: Hook execution status appears in stderr
-4. **Manual testing**: Pipe test JSON to hook script
-5. **Check timeout**: Default 60 seconds, configurable
+**Event**: SessionStart (when session resumes)
+**Matcher**: `source: "compact"`
+**Location**: `handlers/session_start/workflow_state_restoration_handler.py`
+**Tests**: 14 tests passing
 
-Example manual test:
-```bash
-echo '{
-  "tool_input": {
-    "file_path": "/workspace/playbooks/imports/play-basic-configs.yml"
-  }
-}' | .claude/hooks/ansible-lint.sh
-```
+**Purpose**: Restores workflow context after compaction with forced file reading
 
-## Modifying Hooks
+**Behavior**:
+1. Finds all state files in `./untracked/workflow-state/*/`
+2. If none: Returns allow, no guidance
+3. If found: Sorts by modification time (most recent first)
+4. Reads most recently modified state file
+5. Builds guidance message with:
+   - Workflow name and current phase
+   - **REQUIRED READING** with @ syntax (forces file reading)
+   - Key reminders
+   - Context variables
+   - ACTION REQUIRED section
+6. **DOES NOT DELETE** state file (persists across compaction cycles)
+7. Returns allow with guidance context
 
-**IMPORTANT**: Before modifying hooks:
+**Complete Documentation**: REQUIRED READING: @CLAUDE/Workflow.md for complete workflow state management documentation
 
-1. ✅ Check latest official documentation (links at top of this file)
-2. ✅ Review current hook configuration in `.claude/settings.json`
-3. ✅ Test changes manually before committing
-4. ✅ Update this CLAUDE.md file with any changes
-5. ✅ Document the reason for changes in git commit
+## TDD Workflow
 
-**After modifying hooks:**
-1. Test with sample files
-2. Verify exit codes are correct
-3. Check output format
-4. Update project documentation if needed
+1. Write tests FIRST
+2. Implement handler to make tests pass
+3. Register in __init__.py and entry point
+4. Verify 95%+ coverage
+5. Test live with real tool calls
 
-## Matcher Patterns
+## Learning by Example
 
-Matchers are **case-sensitive** and support regex:
+Read actual implementation files as canonical examples:
+- controller/front_controller.py - Core engine and utility functions
+- controller/handlers/pre_tool_use/*.py - 17 working handler examples
+- controller/tests/test_*.py - Complete test examples
 
-- `"Write"` - Exact match, only Write tool
-- `"Edit|Write"` - Matches Edit OR Write
-- `"Notebook.*"` - Matches tools starting with "Notebook"
-- `"*"` or `""` - Matches all tools (use cautiously)
+## Testing
 
-## Hook Performance Considerations
+Run tests: python3 controller/run_tests.py
+Check coverage: python3 controller/analyze_coverage.py
 
-- Hooks have 60-second timeout by default
-- Multiple matching hooks run in parallel
-- Identical commands are automatically deduplicated
-- Keep hooks fast - they run on every matching tool use
-- Consider filtering files early to avoid unnecessary processing
+Current status: 397 tests (364 PreToolUse + 33 Workflow State), 100% coverage
 
-## Project-Specific Guidelines
+## Enforcement
 
-For this fedora-desktop project:
+Handler exists to prevent standalone hook creation - all hooks must use controller pattern
 
-1. **Ansible playbook linting**: Use PostToolUse hook with `Edit|Write` matcher
-2. **Filter files**: Only process `*.yml` files in `/playbooks/` directory
-3. **Blocking behavior**: Exit with code 2 if linting fails
-4. **Clear feedback**: Always output helpful messages to stderr
-5. **Use project lint script**: Call `./scripts/lint` for consistent behavior
-6. **Fast execution**: Ensure hooks complete within 30 seconds
+## Reference
 
-## Troubleshooting
-
-**Hook not triggering:**
-- Check matcher pattern is correct
-- Verify hook is registered with `/hooks` command
-- Ensure script is executable
-- Check file path matches your filters
-
-**Hook failing unexpectedly:**
-- Check stderr output for error messages
-- Test hook manually with sample JSON
-- Verify all dependencies are installed (ansible-lint, jq, etc.)
-- Check timeout hasn't been exceeded
-
-**Hook blocking when it shouldn't:**
-- Verify exit codes (0 = success, 2 = block)
-- Check filter logic for file paths
-- Review error conditions in script
-
-## Maintenance Requirements
-
-⚠️ **This file MUST be kept up-to-date:**
-
-1. When Claude Code releases new hook features
-2. When hook behavior changes in documentation
-3. When project adds/modifies/removes hooks
-4. When troubleshooting discovers new issues
-5. When security best practices are updated
-
-**Check official docs quarterly** or when:
-- Hooks stop working as expected
-- New Claude Code version is released
-- Adding new hooks to the project
-
-## Additional Resources
-
-- **Claude Code Release Notes**: Check for hook system updates
-- **GitHub Issues**: Search for hook-related issues
-- **Community Examples**: Look for hook recipes in the community
-
----
-
-**Last Updated**: 2025-12-03
-**Verified Against**: Claude Code hooks documentation (code.claude.com)
-**Next Review Due**: 2026-03-03 (quarterly)
+- This file: Architecture overview
+- README.md: Legacy hook inventory
+- controller/: All implementation files (read these for complete details)
