@@ -3,13 +3,13 @@
 # Runs Claude Code with --dangerously-skip-permissions in isolated Docker container
 # IMPORTANT: Uses separate token storage from desktop Claude Code to prevent OAuth conflicts
 #
-# Version: 2.4.5 - Warn about Podman default network vs Docker Compose networks
+# Version: 2.4.6 - Warn only when podman is sole network, recommend explicit naming
 #
 # IMPORTANT: When modifying this script, ALWAYS increment CCY_VERSION!
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="2.4.5"  # Add: Detection and warning for Podman's 'podman' default network
+CCY_VERSION="2.4.6"  # Fix: Only warn about podman network when it's the only option
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1516,29 +1516,42 @@ else
         echo "But ${#ALL_NETWORKS[@]} other network(s) available"
         echo ""
 
-        # Warn about Podman default network issue
-        if [[ "$PODMAN_DEFAULT_DETECTED" = true ]] && [[ "$CONTAINER_ENGINE" = "podman" ]]; then
-            echo "⚠️  WARNING: Podman Default Network Detected"
+        # Warn about Podman default network - ONLY if it's the only option
+        # This indicates no project-specific networks exist
+        if [[ "$PODMAN_DEFAULT_DETECTED" = true ]] && [[ ${#ALL_NETWORKS[@]} -eq 1 ]]; then
+            echo "⚠️  WARNING: No Project-Specific Networks Found"
             echo ""
-            echo "The 'podman' network is Podman's system-wide default network."
-            echo "This is NOT a project-specific network like Docker Compose creates."
+            echo "Only the 'podman' system-wide default network exists."
+            echo "This network is shared by ALL containers and provides no project isolation."
             echo ""
             echo "Problem:"
-            echo "  • Podman uses 'podman' network by default (not project-specific)"
-            echo "  • Docker Compose creates '<project>_default' networks"
-            echo "  • Connecting to 'podman' network may expose ALL containers system-wide"
+            echo "  • No project-specific network detected"
+            echo "  • The 'podman' network is NOT project-specific"
+            echo "  • All containers on 'podman' network can reach each other"
             echo ""
-            echo "Recommended Solutions:"
+            echo "RECOMMENDED: Use explicit network naming in docker-compose.yml"
             echo ""
-            echo "  1) Create project-specific network:"
-            echo "     podman network create ${PROJECT_NAME}_default"
+            echo "  1) Edit your docker-compose.yml to define networks explicitly:"
             echo ""
-            echo "  2) Use podman-compose (Docker Compose compatibility):"
-            echo "     pip install podman-compose"
-            echo "     podman-compose up  # Creates ${PROJECT_NAME}_default automatically"
+            echo "     services:"
+            echo "       web:"
+            echo "         networks:"
+            echo "           - ${PROJECT_NAME}_network"
             echo ""
-            echo "  3) Use Docker instead of Podman for this project:"
-            echo "     export CCY_CONTAINER_ENGINE=docker"
+            echo "     networks:"
+            echo "       ${PROJECT_NAME}_network:"
+            echo "         name: ${PROJECT_NAME}_network  # Explicit name (no _default suffix)"
+            echo "         driver: bridge"
+            echo ""
+            echo "  2) Then create the network and start services:"
+            echo "     podman network create ${PROJECT_NAME}_network"
+            echo "     podman-compose up"
+            echo ""
+            echo "Benefits:"
+            echo "  ✓ Consistent network names across Docker and Podman"
+            echo "  ✓ No reliance on auto-generated names"
+            echo "  ✓ Easy to reference in CCY: ccy --network ${PROJECT_NAME}_network"
+            echo "  ✓ Clear project isolation"
             echo ""
             echo "════════════════════════════════════════════════════════════════════════════════"
             echo ""
