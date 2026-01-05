@@ -23,16 +23,28 @@
           {% if container_engine == 'docker' %}
           Run: ansible-playbook playbooks/imports/optional/common/play-docker.yml
           {% else %}
-          Run: sudo dnf install podman
+          Run: ansible-playbook playbooks/imports/optional/common/play-podman.yml
           {% endif %}
       when: container_engine_check.rc != 0
 
-    - name: Install podman-compose (Podman only)
-      ansible.builtin.pip:
-        name: podman-compose
-        state: present
-        extra_args: --user
+    - name: Check for podman-compose (Podman only)
+      ansible.builtin.command: which podman-compose
+      register: podman_compose_check
+      failed_when: false
+      changed_when: false
       when: container_engine == 'podman'
+
+    - name: Verify podman-compose is Available (Podman only)
+      ansible.builtin.fail:
+        msg: |
+          podman-compose is not installed.
+          This is required for Docker Compose compatibility with Podman.
+
+          Install it with:
+          ansible-playbook playbooks/imports/optional/common/play-podman.yml
+      when:
+        - container_engine == 'podman'
+        - podman_compose_check.rc != 0
 
     - name: Check Container Engine Service is Running
       ansible.builtin.command: "{{ container_engine }} ps"

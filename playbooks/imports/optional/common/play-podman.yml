@@ -1,0 +1,38 @@
+---
+#!/usr/bin/env ansible-playbook
+- hosts: desktop
+  name: Install Podman and podman-compose
+  become: false
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  tasks:
+    - name: Install Podman
+      become: true
+      ansible.builtin.dnf:
+        name:
+          - podman
+          - podman-plugins
+        state: present
+
+    - name: Install podman-compose (Docker Compose compatibility)
+      ansible.builtin.pip:
+        name: podman-compose
+        state: present
+        extra_args: --user
+
+    - name: Enable Podman Socket for Docker Compatibility (Optional)
+      ansible.builtin.systemd:
+        name: podman.socket
+        state: started
+        enabled: true
+        scope: user
+      ignore_errors: true
+
+    - name: Display Podman Info
+      ansible.builtin.command: podman info
+      register: podman_info
+      changed_when: false
+
+    - name: Show Podman Version
+      ansible.builtin.debug:
+        msg: "Podman installed successfully. Run 'podman --version' to verify."

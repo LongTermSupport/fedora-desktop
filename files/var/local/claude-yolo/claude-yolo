@@ -3,13 +3,13 @@
 # Runs Claude Code with --dangerously-skip-permissions in isolated Docker container
 # IMPORTANT: Uses separate token storage from desktop Claude Code to prevent OAuth conflicts
 #
-# Version: 2.5.0 - Cross-engine network detection (Docker vs Podman mismatch)
+# Version: 2.5.1 - Neutral cross-engine messaging, both Docker and Podman valid
 #
 # IMPORTANT: When modifying this script, ALWAYS increment CCY_VERSION!
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="2.5.0"  # Feature: Detect Docker vs Podman network mismatch, recommend Podman migration
+CCY_VERSION="2.5.1"  # Fix: Neutral messaging - Docker and Podman both valid user choices
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1447,29 +1447,28 @@ if [[ "$CROSS_ENGINE_MISMATCH" = true ]]; then
         echo "Problem:"
         echo "  • Docker and Podman have separate network namespaces"
         echo "  • CCY (using Podman) cannot see Docker networks"
-        echo "  • Your docker-compose/docker.bash is likely using Docker"
+        echo "  • Your compose setup is using Docker"
         echo ""
-        echo "RECOMMENDED: Migrate to Podman (modern, rootless, daemonless)"
+        echo "Choose one solution (both are valid):"
         echo ""
-        echo "  1) Install podman-compose:"
-        echo "     pip install --user podman-compose"
-        echo ""
-        echo "  2) Update docker.bash or docker-compose scripts to use podman-compose:"
-        echo "     # Replace: docker-compose"
-        echo "     # With:    podman-compose"
-        echo ""
-        echo "  3) Recreate networks with Podman:"
-        echo "     podman network create ${PROJECT_NAME}_network"
-        echo "     podman-compose up"
-        echo ""
-        echo "TEMPORARY WORKAROUND: Use Docker for this session"
+        echo "OPTION 1: Switch CCY to use Docker (match your compose setup)"
         echo ""
         echo "  • Set CCY_CONTAINER_ENGINE=docker before launching:"
         echo "    export CCY_CONTAINER_ENGINE=docker"
         echo "    ccy"
         echo ""
-        echo "  • Or add to docker.bash script:"
+        echo "  • Or add to your docker.bash/docker-compose wrapper:"
         echo "    export CCY_CONTAINER_ENGINE=docker"
+        echo ""
+        echo "OPTION 2: Switch compose to use Podman (match CCY default)"
+        echo ""
+        echo "  • Install podman-compose:"
+        echo "    ansible-playbook playbooks/imports/optional/common/play-podman.yml"
+        echo ""
+        echo "  • Update docker.bash or docker-compose to use podman-compose"
+        echo "  • Recreate networks:"
+        echo "    podman network create ${PROJECT_NAME}_network"
+        echo "    podman-compose up"
         echo ""
     else
         # CCY using Docker, but networks found in Podman
@@ -1482,13 +1481,23 @@ if [[ "$CROSS_ENGINE_MISMATCH" = true ]]; then
         echo "Problem:"
         echo "  • Docker and Podman have separate network namespaces"
         echo "  • CCY (using Docker) cannot see Podman networks"
-        echo "  • Your podman-compose setup created Podman-only networks"
+        echo "  • Your compose setup is using Podman"
         echo ""
-        echo "RECOMMENDED: Use Podman consistently"
+        echo "Choose one solution (both are valid):"
+        echo ""
+        echo "OPTION 1: Switch CCY to use Podman (match your compose setup)"
         echo ""
         echo "  • Remove CCY_CONTAINER_ENGINE override (defaults to Podman):"
         echo "    unset CCY_CONTAINER_ENGINE"
         echo "    ccy"
+        echo ""
+        echo "OPTION 2: Switch compose to use Docker (match CCY setting)"
+        echo ""
+        echo "  • Install Docker:"
+        echo "    ansible-playbook playbooks/imports/optional/common/play-docker.yml"
+        echo ""
+        echo "  • Update your compose setup to use docker-compose"
+        echo "  • Recreate networks with Docker"
         echo ""
     fi
 
