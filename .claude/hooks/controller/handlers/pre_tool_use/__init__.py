@@ -15,6 +15,7 @@ from .absolute_path_handler import AbsolutePathHandler
 from .validate_plan_number_handler import ValidatePlanNumberHandler
 from .plan_workflow_handler import PlanWorkflowHandler
 from .sed_blocker_handler import SedBlockerHandler
+from .system_paths_handler import SystemPathsHandler
 
 __all__ = [
     'DestructiveGitHandler',
@@ -32,4 +33,5 @@ __all__ = [
     'ValidatePlanNumberHandler',
     'PlanWorkflowHandler',
     'SedBlockerHandler',
+    'SystemPathsHandler',
 ]

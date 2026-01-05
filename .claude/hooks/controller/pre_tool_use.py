@@ -24,6 +24,7 @@ from handlers.pre_tool_use import (
     ValidatePlanNumberHandler,
     PlanWorkflowHandler,
     SedBlockerHandler,
+    SystemPathsHandler,
 )
 
 
@@ -32,8 +33,9 @@ def main():
     controller = FrontController("PreToolUse")
 
     # Register handler instances in priority order (lower = runs first)
-    # Architecture enforcement (priority 5)
+    # Architecture enforcement (priority 5-8)
     controller.register(EnforceControllerPatternHandler())  # priority=5
+    controller.register(SystemPathsHandler())               # priority=8 (IaC enforcement)
 
     # Safety checks first (priority 10-20)
     controller.register(DestructiveGitHandler())         # priority=10

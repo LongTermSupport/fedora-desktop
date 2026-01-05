@@ -162,6 +162,102 @@ If using the sitemap skill, validation runs automatically in the modify→valida
         return HookResult(decision="allow", context=reminder)
 
 
+class AnsibleLintHandler(Handler):
+    """Run ansible-lint on playbook files after editing."""
+
+    def __init__(self):
+        super().__init__(name="ansible-lint", priority=15)
+
+    def matches(self, hook_input: dict) -> bool:
+        """Check if writing YAML file in playbooks/ directory."""
+        tool_name = hook_input.get("tool_name")
+        if tool_name not in ["Write", "Edit"]:
+            return False
+
+        file_path = get_file_path(hook_input)
+        if not file_path:
+            return False
+
+        # Normalize path (remove /workspace/ prefix if present)
+        normalized_path = file_path.replace("/workspace/", "")
+
+        # Only check YAML files in playbooks/ directory
+        if not normalized_path.startswith("playbooks/"):
+            return False
+
+        if not (normalized_path.endswith(".yml") or normalized_path.endswith(".yaml")):
+            return False
+
+        return True
+
+    def handle(self, hook_input: dict) -> HookResult:
+        """Run ansible-lint on the file and block if linting fails."""
+        file_path = get_file_path(hook_input)
+
+        # Normalize path for display
+        normalized_path = file_path.replace("/workspace/", "")
+
+        # Check if lint script exists
+        lint_script = "./scripts/lint"
+        if not os.path.exists(lint_script):
+            return HookResult(
+                decision="allow",
+                reason=f"Ansible-lint skipped: {lint_script} not found (project may not be fully set up)"
+            )
+
+        print(f"\n🔍 Linting {normalized_path}...")
+
+        # Run ansible-lint using project's lint script
+        try:
+            result = subprocess.run(
+                [lint_script, normalized_path],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                cwd=os.path.dirname(os.path.dirname(os.path.dirname(
+                    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                )))
+            )
+
+            if result.returncode == 0:
+                print(f"✅ No ansible-lint issues found in {normalized_path}\n")
+                return HookResult(
+                    decision="allow",
+                    reason=f"✓ No ansible-lint issues found in {normalized_path}"
+                )
+            else:
+                error_message = (
+                    f"❌ Ansible-lint found issues in {normalized_path}:\n\n"
+                    + "=" * 80 + "\n"
+                    + result.stdout + "\n"
+                )
+
+                if result.stderr:
+                    error_message += result.stderr + "\n"
+
+                error_message += (
+                    "=" * 80 + "\n\n"
+                    "🚫 FILE WAS WRITTEN BUT HAS ANSIBLE-LINT VIOLATIONS!\n"
+                    "   You MUST fix these issues before continuing.\n\n"
+                    f"   Run: ./scripts/lint {normalized_path}\n"
+                    f"   Or:  ./scripts/lint {normalized_path} --fix\n"
+                )
+
+                return HookResult(decision="deny", reason=error_message)
+
+        except subprocess.TimeoutExpired:
+            return HookResult(
+                decision="allow",
+                reason="Ansible-lint timed out after 60 seconds - allowing operation but you should check the file manually"
+            )
+        except Exception as e:
+            # Allow on error to avoid blocking workflow
+            return HookResult(
+                decision="allow",
+                reason=f"Ansible-lint error (allowing operation): {str(e)}"
+            )
+
+
 # NOTE: ValidatePlanNumberHandler was moved to PreToolUse to fix timing bug.
 # See: .claude/hooks/controller/handlers/pre_tool_use/validate_plan_number_handler.py
 #

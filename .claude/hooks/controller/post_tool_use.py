@@ -11,6 +11,7 @@ from front_controller import FrontController
 from handlers.post_tool_use.file_handlers import (
     ValidateEslintOnWriteHandler,
     ValidateSitemapHandler,
+    AnsibleLintHandler,
 )
 
 
@@ -20,6 +21,7 @@ def main():
 
     # Register all PostToolUse handler instances in priority order
     controller.register(ValidateEslintOnWriteHandler())    # priority=10
+    controller.register(AnsibleLintHandler())              # priority=15
     controller.register(ValidateSitemapHandler())          # priority=20
     # ValidatePlanNumberHandler moved to PreToolUse to fix timing bug
 
