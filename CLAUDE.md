@@ -577,9 +577,11 @@ These style rules ensure consistency across the project, improve maintainability
 - **Branching Strategy**: Version-specific branches (F42, F43, etc.)
 
 ### Development Tools Supported
-- **Languages**: Python 3, Node.js 20, Golang, Docker
+- **Languages**: Python 3, Node.js 20, Golang
 - **Editors**: Vim (customized), VS Code, PyCharm Community
-- **Containers**: LXC, Docker, Toolbox
+- **Containers**: Podman (recommended), Docker (optional), LXC, Toolbox
+  - **Podman**: Rootless by default, better performance and security on Linux, fast filesystem
+  - **Docker**: Available as optional install for legacy project compatibility
 - **Security**: Ansible Vault, SSH key management
 - **Package Sources**: DNF repos, Flatpak, RPM Fusion
 
@@ -587,9 +589,10 @@ These style rules ensure consistency across the project, improve maintainability
 - **Ansible Collections**:
   - `community.general`
   - `ansible.posix`
-- **System Packages**: 
+- **System Packages**:
   - Base: `vim`, `wget`, `bash-completion`, `htop`, `python3-libdnf5`
   - Development: `git`, `gh`, `ripgrep`, `jq`, `openssl`
+  - Containers: `podman`, `podman-compose`
   - Optional: Hardware-specific drivers, development environments
 
 ## Development Workflow
@@ -659,7 +662,7 @@ lastfm_api_key: !vault |
 ### Custom Shell Environment
 - **Prompt System**: Dynamic PS1 with color coding and error states
 - **Git Integration**: bash-git-prompt with Solarized theme
-- **Docker Helpers**: Node.js container wrapper functions
+- **Container Helpers**: Node.js container wrapper functions (Podman/Docker)
 - **Aliases**: Comprehensive set for development workflow
 - **History**: Enhanced history management (20K file size, 10K memory)
 
@@ -748,7 +751,8 @@ gh-work-make-default       # Set work as default account
 - **Firmware**: Automatic fwupd updates
 
 ### Optional Components
-- **Development**: VS Code, Docker, Python environments, Golang
+- **Development**: VS Code, Python environments, Golang
+- **Containers**: Docker (legacy project support)
 - **Applications**: Flatpak management, Firefox policies, VPN clients
 - **Desktop**: GNOME Shell extensions and settings
 - **Experimental**: Claude Code, LXDE, VirtualBox Windows

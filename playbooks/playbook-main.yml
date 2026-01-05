@@ -12,6 +12,7 @@
 - import_playbook: imports/play-rpm-fusion.yml
 - import_playbook: imports/play-toolbox-install.yml
 - import_playbook: imports/optional/common/play-docker.yml
+- import_playbook: imports/play-podman.yml
 - import_playbook: imports/optional/common/play-python.yml
 - import_playbook: imports/play-claude-code.yml
 - import_playbook: imports/optional/common/play-install-claude-yolo.yml
