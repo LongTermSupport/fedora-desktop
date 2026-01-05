@@ -3,13 +3,13 @@
 # Runs Claude Code with --dangerously-skip-permissions in isolated Docker container
 # IMPORTANT: Uses separate token storage from desktop Claude Code to prevent OAuth conflicts
 #
-# Version: 2.4.3 - Fix container detection showing wrong project containers
+# Version: 2.4.4 - Fix network detection not showing when no project name match
 #
 # IMPORTANT: When modifying this script, ALWAYS increment CCY_VERSION!
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="2.4.3"  # Fix: PROJECT_NAME undefined at container check, matching all projects
+CCY_VERSION="2.4.4"  # Fix: Network detection silently skipped when no networks match project name
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1491,6 +1491,76 @@ if [ ${#MATCHING_NETWORKS[@]} -gt 0 ]; then
 
     echo "════════════════════════════════════════════════════════════════════════════════"
     echo ""
+else
+    # No matching networks - offer to connect to ANY available network
+    ALL_NETWORKS=()
+    while IFS= read -r net; do
+        # Skip default networks
+        if [[ "$net" != "bridge" ]] && [[ "$net" != "host" ]] && [[ "$net" != "none" ]]; then
+            ALL_NETWORKS+=("$net")
+        fi
+    done < <(container_cmd network ls --format "{{.Name}}" 2>/dev/null)
+
+    if [ ${#ALL_NETWORKS[@]} -gt 0 ]; then
+        echo ""
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo "Docker Network Detection"
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo ""
+        echo "No networks found matching project name: $PROJECT_NAME"
+        echo "But ${#ALL_NETWORKS[@]} other network(s) available"
+        echo ""
+
+        while true; do
+            read -p "Show available networks? (Y/n): " show_choice
+            show_choice=${show_choice:-Y}
+            echo ""
+
+            case "$show_choice" in
+                Y|y|Yes|yes)
+                    echo "Available networks:"
+                    echo ""
+                    echo "  0) Don't connect"
+                    for i in "${!ALL_NETWORKS[@]}"; do
+                        echo "  $((i+1))) ${ALL_NETWORKS[$i]}"
+                    done
+                    echo ""
+
+                    while true; do
+                        read -p "Select network [0-${#ALL_NETWORKS[@]}]: " net_choice
+                        echo ""
+
+                        if [ "$net_choice" = "0" ]; then
+                            echo "Skipping network connection"
+                            echo "Use 'ccy --connect' later to connect manually"
+                            break 2
+                        elif [ "$net_choice" -ge 1 ] && [ "$net_choice" -le ${#ALL_NETWORKS[@]} ] 2>/dev/null; then
+                            AUTO_CONNECT_NETWORK="${ALL_NETWORKS[$((net_choice-1))]}"
+                            NETWORK_FLAG="--network $AUTO_CONNECT_NETWORK"
+                            echo "✓ Will connect to: $AUTO_CONNECT_NETWORK"
+                            break 2
+                        else
+                            echo "Invalid selection: $net_choice"
+                            echo "Please enter 0-${#ALL_NETWORKS[@]}"
+                            echo ""
+                        fi
+                    done
+                    ;;
+                N|n|No|no)
+                    echo "Skipping network connection"
+                    echo "Use 'ccy --connect' later to connect manually"
+                    break
+                    ;;
+                *)
+                    echo "Invalid choice. Please enter Y or n"
+                    echo ""
+                    ;;
+            esac
+        done
+
+        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo ""
+    fi
 fi
 fi  # End of network flag handling (if/elif/else)
 
