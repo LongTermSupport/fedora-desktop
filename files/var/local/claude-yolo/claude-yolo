@@ -3,13 +3,13 @@
 # Runs Claude Code with --dangerously-skip-permissions in isolated Docker container
 # IMPORTANT: Uses separate token storage from desktop Claude Code to prevent OAuth conflicts
 #
-# Version: 2.4.4 - Fix network detection not showing when no project name match
+# Version: 2.4.5 - Warn about Podman default network vs Docker Compose networks
 #
 # IMPORTANT: When modifying this script, ALWAYS increment CCY_VERSION!
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="2.4.4"  # Fix: Network detection silently skipped when no networks match project name
+CCY_VERSION="2.4.5"  # Add: Detection and warning for Podman's 'podman' default network
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1494,10 +1494,15 @@ if [ ${#MATCHING_NETWORKS[@]} -gt 0 ]; then
 else
     # No matching networks - offer to connect to ANY available network
     ALL_NETWORKS=()
+    PODMAN_DEFAULT_DETECTED=false
     while IFS= read -r net; do
         # Skip default networks
         if [[ "$net" != "bridge" ]] && [[ "$net" != "host" ]] && [[ "$net" != "none" ]]; then
             ALL_NETWORKS+=("$net")
+            # Detect Podman's default network (not project-specific)
+            if [[ "$net" == "podman" ]]; then
+                PODMAN_DEFAULT_DETECTED=true
+            fi
         fi
     done < <(container_cmd network ls --format "{{.Name}}" 2>/dev/null)
 
@@ -1510,6 +1515,34 @@ else
         echo "No networks found matching project name: $PROJECT_NAME"
         echo "But ${#ALL_NETWORKS[@]} other network(s) available"
         echo ""
+
+        # Warn about Podman default network issue
+        if [[ "$PODMAN_DEFAULT_DETECTED" = true ]] && [[ "$CONTAINER_ENGINE" = "podman" ]]; then
+            echo "⚠️  WARNING: Podman Default Network Detected"
+            echo ""
+            echo "The 'podman' network is Podman's system-wide default network."
+            echo "This is NOT a project-specific network like Docker Compose creates."
+            echo ""
+            echo "Problem:"
+            echo "  • Podman uses 'podman' network by default (not project-specific)"
+            echo "  • Docker Compose creates '<project>_default' networks"
+            echo "  • Connecting to 'podman' network may expose ALL containers system-wide"
+            echo ""
+            echo "Recommended Solutions:"
+            echo ""
+            echo "  1) Create project-specific network:"
+            echo "     podman network create ${PROJECT_NAME}_default"
+            echo ""
+            echo "  2) Use podman-compose (Docker Compose compatibility):"
+            echo "     pip install podman-compose"
+            echo "     podman-compose up  # Creates ${PROJECT_NAME}_default automatically"
+            echo ""
+            echo "  3) Use Docker instead of Podman for this project:"
+            echo "     export CCY_CONTAINER_ENGINE=docker"
+            echo ""
+            echo "════════════════════════════════════════════════════════════════════════════════"
+            echo ""
+        fi
 
         while true; do
             read -p "Show available networks? (Y/n): " show_choice
