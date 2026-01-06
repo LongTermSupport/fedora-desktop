@@ -1,0 +1,204 @@
+---
+# Fast File Manager Setup
+# Optimizes file picker performance and optionally replaces Nautilus
+#
+# This playbook addresses slow GNOME file picker issues by:
+# - Installing lightweight PCManFM as alternative file manager
+# - Configuring xdg-desktop-portal to use faster GTK file chooser
+# - Applying GSK_RENDERER=ngl fix for Fedora 41/42 performance
+# - Optionally disabling GNOME Tracker indexing
+# - Optionally disabling thumbnail generation
+#
+# Background:
+# Starting with GNOME 47, xdg-desktop-portal-gnome uses Nautilus for file
+# picking, which can be slow (1-2 seconds to open). This playbook configures
+# the system to use the faster GTK portal for file picker dialogs in browsers
+# and other applications.
+
+- hosts: desktop
+  name: Configure Fast File Manager and Optimize File Picker Performance
+  become: true
+
+  vars:
+    # Performance optimization options (can be overridden in host_vars)
+    # Set these in environment/localhost/host_vars/localhost.yml:
+    #   fast_file_manager_disable_tracker: false
+    #   fast_file_manager_disable_thumbnails: true
+    #   fast_file_manager_apply_gsk_fix: false
+    disable_tracker: "{{ fast_file_manager_disable_tracker | default(true) }}"
+    disable_thumbnails: "{{ fast_file_manager_disable_thumbnails | default(false) }}"
+    apply_gsk_fix: "{{ fast_file_manager_apply_gsk_fix | default(true) }}"
+
+  tasks:
+    # ============================================================================
+    # Package Installation
+    # ============================================================================
+
+    - name: Install PCManFM Lightweight File Manager
+      package:
+        name:
+          - pcmanfm              # Lightweight GTK file manager
+          - xdg-desktop-portal-gtk  # GTK portal implementation
+        state: present
+      tags:
+        - packages
+        - file-manager
+
+    # ============================================================================
+    # Set PCManFM as Default File Manager
+    # ============================================================================
+
+    - name: Set PCManFM as Default File Manager for User
+      become: true
+      become_user: "{{ user_login }}"
+      command: xdg-mime default pcmanfm.desktop inode/directory
+      changed_when: false
+      tags:
+        - file-manager
+        - xdg-mime
+
+    # ============================================================================
+    # Configure XDG Desktop Portal for Fast File Picker
+    # ============================================================================
+
+    - name: Create XDG Desktop Portal Config Directory
+      file:
+        path: "/home/{{ user_login }}/.config/xdg-desktop-portal"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+      tags:
+        - portal
+        - config
+
+    - name: Configure Portal to Use GTK File Chooser Instead of GNOME
+      blockinfile:
+        path: "/home/{{ user_login }}/.config/xdg-desktop-portal/portals.conf"
+        marker: "# {mark} ANSIBLE MANAGED: Fast File Picker Configuration"
+        block: |
+          [preferred]
+          default=gnome
+          org.freedesktop.impl.portal.FileChooser=gtk
+        create: true
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+      notify:
+        - restart-xdg-portal-services
+      tags:
+        - portal
+        - config
+
+    # ============================================================================
+    # Apply GSK Renderer Fix for Fedora 41/42
+    # ============================================================================
+    # Many Fedora 41+ users report 3-5 second delays opening GTK4 apps
+    # including Nautilus. Setting GSK_RENDERER=ngl fixes this immediately.
+    # @see https://community.frame.work/t/fix-fedora-41-apps-slow-to-load/60612
+
+    - name: Apply GSK_RENDERER=ngl Fix for Fedora 41/42 Performance
+      blockinfile:
+        path: /etc/environment
+        marker: "# {mark} ANSIBLE MANAGED: GSK Renderer Performance Fix"
+        block: |
+          # Fix for slow GTK4 app startup on Fedora 41/42
+          # Forces use of NGL renderer instead of slower default
+          GSK_RENDERER=ngl
+        create: true
+        mode: '0644'
+      when: apply_gsk_fix
+      tags:
+        - performance
+        - gsk-fix
+
+    # ============================================================================
+    # Optional: Disable GNOME Tracker (Indexing Service)
+    # ============================================================================
+    # GNOME Tracker constantly indexes files and can significantly slow down
+    # Nautilus and file operations. Disabling it improves performance but
+    # disables GNOME Activities search for file contents.
+
+    - name: Disable GNOME Tracker Indexing Services
+      become: true
+      become_user: "{{ user_login }}"
+      systemd:
+        name: "{{ item }}"
+        state: stopped
+        enabled: false
+        masked: true
+        scope: user
+      loop:
+        - tracker-extract-3.service
+        - tracker-miner-fs-3.service
+        - tracker-miner-rss-3.service
+        - tracker-writeback-3.service
+        - tracker-xdg-portal-3.service
+        - tracker-miner-fs-control-3.service
+      when: disable_tracker
+      failed_when: false  # Some services may not exist
+      tags:
+        - performance
+        - tracker
+
+    # ============================================================================
+    # Optional: Disable Thumbnail Generation
+    # ============================================================================
+    # Generating thumbnails for images and videos can slow down folder browsing.
+    # Disabling this improves performance on slower systems.
+
+    - name: Disable Nautilus Thumbnail Generation
+      become: true
+      become_user: "{{ user_login }}"
+      command: gsettings set org.gnome.nautilus.preferences show-image-thumbnails "never"
+      when: disable_thumbnails
+      changed_when: false
+      tags:
+        - performance
+        - thumbnails
+
+    # ============================================================================
+    # Information Output
+    # ============================================================================
+
+    - name: Display Post-Installation Instructions
+      debug:
+        msg:
+          - "=========================================="
+          - "Fast File Manager Configuration Complete"
+          - "=========================================="
+          - ""
+          - "Changes applied:"
+          - "  ✓ PCManFM installed as lightweight file manager"
+          - "  ✓ XDG portal configured to use GTK file chooser"
+          - "  ✓ GSK_RENDERER=ngl applied (if enabled)"
+          - "  ✓ GNOME Tracker disabled (if enabled)"
+          - "  ✓ Thumbnails disabled (if enabled)"
+          - ""
+          - "IMPORTANT: To activate all changes:"
+          - "  1. Log out and log back in (for GSK_RENDERER)"
+          - "  2. Restart Chrome/Firefox"
+          - "  3. Test file picker - should be instant!"
+          - ""
+          - "To use PCManFM: Click folders or run 'pcmanfm'"
+          - "To revert: Edit ~/.config/xdg-desktop-portal/portals.conf"
+          - ""
+      tags:
+        - always
+
+  # ==============================================================================
+  # Handlers
+  # ==============================================================================
+
+  handlers:
+    - name: restart-xdg-portal-services
+      become: true
+      become_user: "{{ user_login }}"
+      systemd:
+        name: "{{ item }}"
+        state: restarted
+        scope: user
+      loop:
+        - xdg-desktop-portal.service
+        - xdg-desktop-portal-gnome.service
+      failed_when: false  # Don't fail if services aren't running
