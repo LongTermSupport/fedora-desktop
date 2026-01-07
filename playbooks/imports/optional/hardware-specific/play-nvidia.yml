@@ -2,6 +2,9 @@
 #!/usr/bin/env ansible-playbook
 # Install NVIDIA drivers using RPM Fusion (recommended method for Fedora 42)
 # For RTX 500 Ada Generation and other modern NVIDIA GPUs
+#
+# Vulkan support is installed by default (required for modern gaming, AI apps, GPU compute)
+# To disable, add to host_vars/localhost.yml: nvidia_install_vulkan: false
 - hosts: desktop
   become: true
   vars:
@@ -31,6 +34,18 @@
           - xorg-x11-drv-nvidia-power
           - nvidia-vaapi-driver # For hardware video acceleration
         state: present
+
+    - name: Install Vulkan Support for NVIDIA
+      ansible.builtin.dnf:
+        name:
+          # Core Vulkan runtime
+          - vulkan-loader
+          - vulkan-tools # For vulkaninfo, vulkan-smoketest
+          # NVIDIA-specific Vulkan driver (ICD - Installable Client Driver)
+          - xorg-x11-drv-nvidia-libs
+          - nvidia-gpu-firmware
+        state: present
+      when: nvidia_install_vulkan | default(true) | bool
 
     - name: Wait for kernel module to build
       ansible.builtin.pause:
@@ -69,13 +84,30 @@
           IMPORTANT: You must REBOOT for drivers to load!
 
           After reboot, verify with:
-          - nvidia-smi
-          - lsmod | grep nvidia
+          - nvidia-smi                              # Check driver/GPU status
+          - lsmod | grep nvidia                     # Check kernel module
+          {% if nvidia_install_vulkan | default(true) | bool %}
+          - vulkaninfo | grep -i 'device name'     # Check Vulkan GPU
+          - vulkaninfo --summary                    # Vulkan devices list
+          {% endif %}
+
+          Packages installed:
+          - NVIDIA proprietary drivers (akmod-nvidia)
+          - CUDA/NVENC/NVDEC support
+          - VA-API hardware video acceleration
+          {% if nvidia_install_vulkan | default(true) | bool %}
+          - Vulkan GPU compute/graphics support
+          {% else %}
+          - Vulkan support: SKIPPED (nvidia_install_vulkan: false)
+          {% endif %}
 
           Note: If Secure Boot is enabled, you may need to:
           1. Disable it in BIOS/UEFI, OR
           2. Sign the kernel modules
 
           Check Secure Boot status: mokutil --sb-state
+
+          To disable Vulkan in future runs, add to host_vars/localhost.yml:
+          nvidia_install_vulkan: false
 
           Press ENTER to acknowledge...

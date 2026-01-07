@@ -1,0 +1,144 @@
+---
+#!/usr/bin/env ansible-playbook
+# Sonori - Local AI Speech-to-Text Application
+# @see https://github.com/0xPD33/sonori
+- hosts: desktop
+  name: Install Sonori Speech-to-Text App
+  become: false
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+    sonori_version: "0.6.0"
+    sonori_install_dir: "/opt/sonori"
+    sonori_url: "https://github.com/0xPD33/sonori/releases/download/v{{ sonori_version }}/Sonori-{{ sonori_version }}-x86_64.AppImage"
+  tasks:
+    # Check for NVIDIA GPU (for informational messaging only)
+    - name: Check if NVIDIA Drivers are Installed
+      ansible.builtin.command: which nvidia-smi
+      register: nvidia_check
+      failed_when: false
+      changed_when: false
+
+    # Runtime dependencies (minimal - AppImage is self-contained)
+    - name: Install Runtime Dependencies
+      become: true
+      ansible.builtin.package:
+        name: "{{ packages }}"
+        state: present
+      vars:
+        packages:
+          # FUSE for AppImage (usually present by default on Fedora)
+          - fuse
+          # Audio system support
+          - pipewire
+          - pipewire-pulseaudio
+          # Vulkan support for GPU rendering (generic - works for all GPUs)
+          - vulkan-loader
+          - vulkan-tools # For testing with vulkaninfo
+          - mesa-vulkan-drivers # Intel/AMD GPU support (no-op on NVIDIA)
+
+    - name: Create Sonori Installation Directory
+      become: true
+      ansible.builtin.file:
+        path: "{{ sonori_install_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Download Sonori AppImage
+      become: true
+      ansible.builtin.get_url:
+        url: "{{ sonori_url }}"
+        dest: "{{ sonori_install_dir }}/sonori.appimage"
+        owner: root
+        group: root
+        mode: "0755"
+        checksum: "" # No checksums provided in releases
+
+    - name: Create Symlink in User Local Bin
+      become: true
+      ansible.builtin.file:
+        src: "{{ sonori_install_dir }}/sonori.appimage"
+        dest: /usr/local/bin/sonori
+        state: link
+        owner: root
+        group: root
+
+    - name: Create Applications Directory
+      become: true
+      ansible.builtin.file:
+        path: /usr/local/share/applications
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Create Desktop Entry
+      become: true
+      ansible.builtin.copy:
+        dest: /usr/local/share/applications/sonori.desktop
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Desktop Entry]
+          Name=Sonori
+          Comment=Local AI Speech-to-Text
+          Exec=/usr/local/bin/sonori
+          Icon=audio-input-microphone
+          Terminal=false
+          Type=Application
+          Categories=Audio;AudioVideo;Utility;
+          Keywords=transcription;speech-to-text;AI;voice;
+
+    - name: Update Desktop Database
+      become: true
+      ansible.builtin.command: update-desktop-database /usr/local/share/applications
+      changed_when: false
+
+    - name: Display Installation Summary
+      ansible.builtin.debug:
+        msg:
+          - "════════════════════════════════════════════════════════════════"
+          - "Sonori Speech-to-Text Installation Complete"
+          - "════════════════════════════════════════════════════════════════"
+          - ""
+          - "✅ Sonori v{{ sonori_version }} installed"
+          - "✅ Vulkan runtime installed (generic)"
+          - "{{ '   → NVIDIA GPU detected' if nvidia_check.rc == 0 else '   → Intel/AMD GPU support (Mesa)' }}"
+          - ""
+          - "📍 Installation Details:"
+          - "   • AppImage location: {{ sonori_install_dir }}/sonori.appimage"
+          - "   • Symlink: /usr/local/bin/sonori"
+          - "   • Desktop entry: /usr/local/share/applications/sonori.desktop"
+          - ""
+          - "🚀 Usage:"
+          - "   • Command line: sonori"
+          - "   • Applications menu: Search for 'Sonori'"
+          - "   • Fully local AI - no cloud services required"
+          - ""
+          - "⚙️  Features:"
+          - "   • Real-time continuous transcription"
+          - "   • Manual on-demand mode"
+          - "   • Transparent overlay interface"
+          - "   • GPU-accelerated with Vulkan"
+          - ""
+          - "🔍 Verify GPU Acceleration:"
+          - "   • Check Vulkan device: vulkaninfo | grep -i 'device name'"
+          - "   • List all devices: vulkaninfo --summary"
+          - "{{ '   • Check NVIDIA status: nvidia-smi' if nvidia_check.rc == 0 else '' }}"
+          - ""
+          - "⚠️  NVIDIA GPU Users:"
+          - "{{ '   Ensure NVIDIA Vulkan drivers are installed via:' if nvidia_check.rc == 0 else '' }}"
+          - "{{ '   ansible-playbook playbooks/imports/optional/hardware-specific/play-nvidia.yml' if nvidia_check.rc == 0 else '' }}"
+          - "{{ '   (This installs NVIDIA proprietary drivers + Vulkan support)' if nvidia_check.rc == 0 else '' }}"
+          - ""
+          - "📚 More Info:"
+          - "   • GitHub: https://github.com/0xPD33/sonori"
+          - "   • Version: {{ sonori_version }}"
+          - ""
+          - "💡 Updating:"
+          - "   Edit sonori_version variable and re-run:"
+          - "   ansible-playbook playbooks/imports/optional/common/play-install-sonori.yml"
+          - ""
+          - "════════════════════════════════════════════════════════════════"
