@@ -47,6 +47,108 @@
         state: present
       when: nvidia_install_vulkan | default(true) | bool
 
+    # =========================================================================
+    # Secure Boot MOK Signing Support
+    # =========================================================================
+
+    - name: Check if Secure Boot is enabled
+      ansible.builtin.shell: mokutil --sb-state
+      register: secure_boot_state
+      changed_when: false
+      failed_when: false
+
+    - name: Install MOK prerequisites
+      ansible.builtin.dnf:
+        name:
+          - mokutil
+          - expect
+          - kernel-devel
+          - kernel-headers
+        state: present
+
+    - name: Validate MOK password is in vault
+      ansible.builtin.assert:
+        that:
+          - mok_password is defined
+        fail_msg: |
+          ERROR: MOK password not found in vault!
+
+          Please add 'mok_password' to your vault configuration:
+          ansible-vault edit environment/localhost/host_vars/localhost.yml
+
+          Add: mok_password: "your-password"
+
+          This password will be used once during boot to enroll the MOK key.
+      when: "'SecureBoot enabled' in secure_boot_state.stdout"
+
+    - name: Generate akmods MOK signing key
+      ansible.builtin.command: kmodgenca -a
+      args:
+        creates: /etc/pki/akmods/certs/public_key.der
+      when: "'SecureBoot enabled' in secure_boot_state.stdout"
+
+    - name: Check if akmods MOK key exists
+      ansible.builtin.stat:
+        path: /etc/pki/akmods/certs/public_key.der
+      register: akmods_mok_key
+
+    - name: Check if MOK is already enrolled
+      ansible.builtin.shell: mokutil --test-key /etc/pki/akmods/certs/public_key.der
+      register: mok_enrolled
+      changed_when: false
+      failed_when: false
+      when:
+        - "'SecureBoot enabled' in secure_boot_state.stdout"
+        - akmods_mok_key.stat.exists
+
+    - name: Import MOK key for enrollment
+      ansible.builtin.shell: |
+        expect -c "
+        spawn mokutil --import /etc/pki/akmods/certs/public_key.der
+        expect \"input password:\"
+        send \"{{ mok_password }}\r\"
+        expect \"input password again:\"
+        send \"{{ mok_password }}\r\"
+        expect eof
+        "
+      when:
+        - "'SecureBoot enabled' in secure_boot_state.stdout"
+        - akmods_mok_key.stat.exists
+        - "'is not enrolled' in mok_enrolled.stdout | default('')"
+      register: mok_import
+
+    - name: Display MOK enrollment password
+      ansible.builtin.pause:
+        prompt: |2
+
+          ========================================================================
+          IMPORTANT: SECURE BOOT MOK ENROLLMENT REQUIRED
+          ========================================================================
+
+          Your MOK enrollment password is: {{ mok_password }}
+
+          MEMORIZE THIS PASSWORD NOW!
+
+          After reboot:
+          1. You will see a blue MOK Manager screen
+          2. Select "Enroll MOK"
+          3. Select "Continue"
+          4. Select "Yes"
+          5. Enter the password shown above: {{ mok_password }}
+          6. Select "Reboot"
+
+          The password will ONLY be needed this one time during enrollment.
+
+          Press ENTER only after you have memorized the password...
+          ========================================================================
+      when:
+        - "'SecureBoot enabled' in secure_boot_state.stdout"
+        - mok_import is changed
+
+    # =========================================================================
+    # Kernel Module Build
+    # =========================================================================
+
     - name: Wait for kernel module to build
       ansible.builtin.pause:
         prompt: |2
@@ -77,9 +179,40 @@
       ansible.builtin.pause:
         prompt: |2-
 
-          ============================================
+          ========================================================================
           NVIDIA DRIVER INSTALLATION COMPLETE
-          ============================================
+          ========================================================================
+
+          {% if 'SecureBoot enabled' in secure_boot_state.stdout and mok_import is changed %}
+          ⚠️  ACTION REQUIRED: MOK ENROLLMENT
+
+          1. Reboot your system now: sudo reboot
+          2. Enroll the MOK key using the password you memorized ({{ mok_password }})
+          3. After successful enrollment, NVIDIA drivers will work automatically
+
+          After reboot and MOK enrollment, verify with:
+          - nvidia-smi                              # Check driver/GPU status
+          - lsmod | grep nvidia                     # Check kernel module
+          {% if nvidia_install_vulkan | default(true) | bool %}
+          - vulkaninfo | grep -i 'device name'     # Check Vulkan GPU
+          - vulkaninfo --summary                    # Vulkan devices list
+          {% endif %}
+
+          {% elif 'SecureBoot enabled' in secure_boot_state.stdout and 'is already enrolled' in mok_enrolled.stdout | default('') %}
+          ✅ MOK key is already enrolled. NVIDIA drivers are configured.
+
+          REBOOT REQUIRED to load new drivers!
+
+          After reboot, verify with:
+          - nvidia-smi                              # Check driver/GPU status
+          - lsmod | grep nvidia                     # Check kernel module
+          {% if nvidia_install_vulkan | default(true) | bool %}
+          - vulkaninfo | grep -i 'device name'     # Check Vulkan GPU
+          - vulkaninfo --summary                    # Vulkan devices list
+          {% endif %}
+
+          {% else %}
+          ✅ Secure Boot is disabled. NVIDIA drivers are configured.
 
           IMPORTANT: You must REBOOT for drivers to load!
 
@@ -89,6 +222,7 @@
           {% if nvidia_install_vulkan | default(true) | bool %}
           - vulkaninfo | grep -i 'device name'     # Check Vulkan GPU
           - vulkaninfo --summary                    # Vulkan devices list
+          {% endif %}
           {% endif %}
 
           Packages installed:
@@ -100,14 +234,13 @@
           {% else %}
           - Vulkan support: SKIPPED (nvidia_install_vulkan: false)
           {% endif %}
+          {% if 'SecureBoot enabled' in secure_boot_state.stdout %}
+          - Secure Boot MOK signing configured
+          {% endif %}
 
-          Note: If Secure Boot is enabled, you may need to:
-          1. Disable it in BIOS/UEFI, OR
-          2. Sign the kernel modules
-
-          Check Secure Boot status: mokutil --sb-state
-
-          To disable Vulkan in future runs, add to host_vars/localhost.yml:
-          nvidia_install_vulkan: false
+          Configuration options:
+          - To disable Vulkan: nvidia_install_vulkan: false (in host_vars/localhost.yml)
+          - Secure Boot status: mokutil --sb-state
 
           Press ENTER to acknowledge...
+          ========================================================================
