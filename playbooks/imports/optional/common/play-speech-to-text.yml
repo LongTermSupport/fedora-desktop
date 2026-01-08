@@ -1,0 +1,284 @@
+---
+#!/usr/bin/env ansible-playbook
+# Speech-to-Text Tools for Linux - Local AI Processing
+# Installs multiple STT tools optimized for different desktop environments
+#
+# Tools installed:
+# - Blurt: GNOME Shell extension (✅ Best for GNOME users)
+# - Sonori: Wayland overlay app (⚠️  GNOME: CLI mode only)
+#
+# @see https://github.com/QuantiusBenignus/blurt
+# @see https://github.com/0xPD33/sonori
+- hosts: desktop
+  name: Install Speech-to-Text Tools
+  become: false
+  vars:
+    root_dir: "{{ inventory_dir }}/../../}"
+    sonori_version: "0.6.1"
+    sonori_install_dir: "/opt/sonori"
+    sonori_url: "https://github.com/0xPD33/sonori/releases/download/v{{ sonori_version }}/Sonori-{{ sonori_version }}-x86_64.AppImage"
+    blurt_repo: "https://github.com/QuantiusBenignus/blurt.git"
+    blurt_extension_dir: "{{ ansible_env.HOME }}/.local/share/gnome-shell/extensions/blurt@quantiusbenignus.local"
+  tasks:
+    # =========================================================================
+    # Detect Environment
+    # =========================================================================
+
+    - name: Detect Desktop Environment
+      ansible.builtin.shell: echo "$XDG_CURRENT_DESKTOP"
+      register: desktop_env
+      changed_when: false
+
+    - name: Check for NVIDIA GPU
+      ansible.builtin.command: which nvidia-smi
+      register: nvidia_check
+      failed_when: false
+      changed_when: false
+
+    - name: Set Desktop Environment Facts
+      ansible.builtin.set_fact:
+        is_gnome: "{{ 'GNOME' in desktop_env.stdout }}"
+        is_kde: "{{ 'KDE' in desktop_env.stdout }}"
+        has_nvidia: "{{ nvidia_check.rc == 0 }}"
+
+    # =========================================================================
+    # Install Common Dependencies
+    # =========================================================================
+
+    - name: Install Common STT Dependencies
+      become: true
+      ansible.builtin.package:
+        name: "{{ packages }}"
+        state: present
+      vars:
+        packages:
+          # Audio processing
+          - pipewire
+          - pipewire-pulseaudio
+          - sox
+          # Clipboard utilities
+          - xsel # X11 clipboard
+          - wl-clipboard # Wayland clipboard (wl-copy)
+          # Network tools
+          - curl
+          # AppImage support
+          - fuse
+          # Vulkan GPU acceleration (all GPUs)
+          - vulkan-loader
+          - vulkan-tools
+
+    # =========================================================================
+    # Install whisper.cpp (Backend for Blurt)
+    # =========================================================================
+
+    - name: Install whisper.cpp from Fedora Repos
+      become: true
+      ansible.builtin.package:
+        name:
+          - whisper-cpp
+          - whisper-cpp-devel
+        state: present
+
+    - name: Create User Local Bin Directory
+      ansible.builtin.file:
+        path: "{{ ansible_env.HOME }}/.local/bin"
+        state: directory
+        mode: "0755"
+
+    - name: Find whisper.cpp Binaries
+      ansible.builtin.shell: |
+        find /usr -name "whisper-cli" -o -name "whisper-server" 2>/dev/null || true
+      register: whisper_bins
+      changed_when: false
+
+    - name: Create Symlinks for whisper.cpp (Blurt compatibility)
+      ansible.builtin.file:
+        src: "{{ item.src }}"
+        dest: "{{ ansible_env.HOME }}/.local/bin/{{ item.dest }}"
+        state: link
+      loop:
+        - { src: "/usr/bin/whisper-cli", dest: "transcribe" }
+        - { src: "/usr/bin/whisper-server", dest: "whserver" }
+      when: is_gnome
+
+    - name: Download Whisper Model for Blurt
+      ansible.builtin.get_url:
+        url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin"
+        dest: "{{ ansible_env.HOME }}/.local/share/ggml-base.en.bin"
+        mode: "0644"
+      when: is_gnome
+
+    # =========================================================================
+    # Install Blurt GNOME Extension (GNOME only)
+    # =========================================================================
+
+    - name: Clone Blurt Repository
+      ansible.builtin.git:
+        repo: "{{ blurt_repo }}"
+        dest: "/tmp/blurt"
+        version: main
+        force: true
+      when: is_gnome
+
+    - name: Create GNOME Extensions Directory
+      ansible.builtin.file:
+        path: "{{ blurt_extension_dir }}"
+        state: directory
+        mode: "0755"
+      when: is_gnome
+
+    - name: Install Blurt Extension Files
+      ansible.builtin.shell: |
+        cp -r /tmp/blurt/blurt@quantiusbenignus.local/* {{ blurt_extension_dir }}/
+      when: is_gnome
+      changed_when: true
+
+    - name: Install WSI Script (Blurt Orchestrator)
+      ansible.builtin.copy:
+        src: "/tmp/blurt/wsi"
+        dest: "{{ ansible_env.HOME }}/.local/bin/wsi"
+        mode: "0755"
+      when: is_gnome
+
+    - name: Configure WSI Script with Model Path
+      ansible.builtin.lineinfile:
+        path: "{{ ansible_env.HOME }}/.local/bin/wsi"
+        regexp: '^MODEL='
+        line: 'MODEL="{{ ansible_env.HOME }}/.local/share/ggml-base.en.bin"'
+      when: is_gnome
+
+    - name: Enable Blurt Extension
+      ansible.builtin.command: gnome-extensions enable blurt@quantiusbenignus.local
+      when: is_gnome
+      changed_when: false
+      failed_when: false
+
+    # =========================================================================
+    # Install Sonori (All Desktop Environments)
+    # =========================================================================
+
+    - name: Create Sonori Installation Directory
+      become: true
+      ansible.builtin.file:
+        path: "{{ sonori_install_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Download Sonori AppImage
+      become: true
+      ansible.builtin.get_url:
+        url: "{{ sonori_url }}"
+        dest: "{{ sonori_install_dir }}/sonori.appimage"
+        owner: root
+        group: root
+        mode: "0755"
+        checksum: "" # No checksums provided in releases
+
+    - name: Create Sonori Symlink
+      become: true
+      ansible.builtin.file:
+        src: "{{ sonori_install_dir }}/sonori.appimage"
+        dest: /usr/local/bin/sonori
+        state: link
+
+    - name: Create Sonori Desktop Entry
+      become: true
+      ansible.builtin.copy:
+        dest: /usr/local/share/applications/sonori.desktop
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Desktop Entry]
+          Name=Sonori{% if is_gnome %} (CLI Mode){% endif %}
+
+          Comment=Local AI Speech-to-Text{% if is_gnome %} - Use: sonori --cli{% endif %}
+
+          Exec=/usr/local/bin/sonori{% if is_gnome %} --cli{% endif %}
+
+          Icon=audio-input-microphone
+          Terminal={% if is_gnome %}true{% else %}false{% endif %}
+
+          Type=Application
+          Categories=Audio;AudioVideo;Utility;
+          Keywords=transcription;speech-to-text;AI;voice;
+
+    - name: Update Desktop Database
+      become: true
+      ansible.builtin.command: update-desktop-database /usr/local/share/applications
+      changed_when: false
+
+    # =========================================================================
+    # Display Installation Summary
+    # =========================================================================
+
+    - name: Display Installation Summary
+      ansible.builtin.debug:
+        msg:
+          - "════════════════════════════════════════════════════════════════"
+          - "Speech-to-Text Tools Installation Complete"
+          - "════════════════════════════════════════════════════════════════"
+          - ""
+          - "Desktop Environment: {{ desktop_env.stdout }}"
+          - "GPU: {{ 'NVIDIA' if has_nvidia else 'Integrated (Mesa)' }}"
+          - ""
+          - "{% if is_gnome %}✅ BLURT - GNOME Shell Extension (RECOMMENDED){% endif %}"
+          - "{% if is_gnome %}──────────────────────────────────────────────────────────────{% endif %}"
+          - "{% if is_gnome %}   • Keyboard shortcut: CTRL+ALT+A (default){% endif %}"
+          - "{% if is_gnome %}   • Works in ANY text input field{% endif %}"
+          - "{% if is_gnome %}   • Fully offline - no cloud services{% endif %}"
+          - "{% if is_gnome %}   • Backend: whisper.cpp with base.en model{% endif %}"
+          - "{% if is_gnome %}   • Extension location: ~/.local/share/gnome-shell/extensions/{% endif %}"
+          - "{% if is_gnome %}   • Enable: gnome-extensions enable blurt@quantiusbenignus.local{% endif %}"
+          - "{% if is_gnome %}   • May require GNOME Shell restart: ALT+F2, type 'r', press ENTER{% endif %}"
+          - "{% if is_gnome %}   • Configure: Extensions app → Blurt → Settings{% endif %}"
+          - "{% if is_gnome %}{% endif %}"
+          - "✅ SONORI - Wayland Speech-to-Text App"
+          - "──────────────────────────────────────────────────────────────"
+          - "   • Version: v{{ sonori_version }}"
+          - "{% if is_gnome %}   • GNOME users: Use CLI mode only{% endif %}"
+          - "{% if is_gnome %}   • Command: sonori --cli{% endif %}"
+          - "{% if is_gnome %}   • GUI overlay requires wlr-layer-shell (not in GNOME){% endif %}"
+          - "{% if not is_gnome %}   • Command: sonori{% endif %}"
+          - "{% if not is_gnome %}   • GUI overlay: Transparent floating window{% endif %}"
+          - "   • GPU acceleration: Vulkan{% if has_nvidia %} (NVIDIA){% endif %}"
+          - "   • Location: /usr/local/bin/sonori"
+          - ""
+          - "📦 Dependencies Installed:"
+          - "   • whisper.cpp ({{ '/usr/bin/whisper-cli' if is_gnome else 'Fedora package' }})"
+          - "   • Audio: pipewire, sox"
+          - "   • Clipboard: xsel (X11), wl-copy (Wayland)"
+          - "   • GPU: Vulkan runtime{% if has_nvidia %} + NVIDIA drivers{% endif %}"
+          - ""
+          - "🎤 Quick Start:"
+          - "{% if is_gnome %}   1. Restart GNOME Shell: ALT+F2 → type 'r' → ENTER{% endif %}"
+          - "{% if is_gnome %}   2. Open Extensions app and enable Blurt{% endif %}"
+          - "{% if is_gnome %}   3. Click any text field{% endif %}"
+          - "{% if is_gnome %}   4. Press CTRL+ALT+A and speak{% endif %}"
+          - "{% if is_gnome %}   5. Text appears automatically when you stop speaking{% endif %}"
+          - "{% if not is_gnome %}   • Launch: sonori (from Applications or terminal){% endif %}"
+          - "{% if not is_gnome %}   • Floating overlay will appear{% endif %}"
+          - ""
+          - "⚙️  Model Downloads (on first use):"
+          - "{% if is_gnome %}   • Blurt: Already downloaded (base.en model){% endif %}"
+          - "   • Sonori: Downloads small.en model on first run"
+          - ""
+          - "🔍 GPU Verification:"
+          - "   • vulkaninfo | grep -i 'device name'"
+          - "{% if has_nvidia %}   • nvidia-smi{% endif %}"
+          - "{% if has_nvidia %}   • Ensure NVIDIA Vulkan drivers: play-nvidia.yml{% endif %}"
+          - ""
+          - "📚 More Information:"
+          - "   • Blurt: https://github.com/QuantiusBenignus/blurt"
+          - "   • Sonori: https://github.com/0xPD33/sonori"
+          - "   • Whisper.cpp: https://github.com/ggml-org/whisper.cpp"
+          - ""
+          - "💡 Troubleshooting:"
+          - "{% if is_gnome %}   • Blurt not working? Check Extensions app is installed{% endif %}"
+          - "{% if is_gnome %}   • Still issues? Check: journalctl -f /usr/bin/gnome-shell{% endif %}"
+          - "   • Sonori overlay crash on GNOME? Use: sonori --cli"
+          - "   • Missing models? Check ~/.cache/sonori/ and ~/.local/share/"
+          - ""
+          - "════════════════════════════════════════════════════════════════"
