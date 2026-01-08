@@ -74,16 +74,8 @@
           - vulkan-tools
 
     # =========================================================================
-    # Install whisper.cpp (Backend for Blurt)
+    # Install Whisper Backend (Backend for Blurt)
     # =========================================================================
-
-    - name: Install whisper.cpp from Fedora Repos
-      become: true
-      ansible.builtin.package:
-        name:
-          - whisper-cpp
-          - whisper-cpp-devel
-        state: present
 
     - name: Create User Local Bin Directory
       ansible.builtin.file:
@@ -97,27 +89,20 @@
         state: directory
         mode: "0755"
 
-    - name: Find whisper.cpp Binaries
-      ansible.builtin.shell: |
-        find /usr -name "whisper-cli" -o -name "whisper-server" 2>/dev/null || true
-      register: whisper_bins
-      changed_when: false
-
-    - name: Create Symlinks for whisper.cpp (Blurt compatibility)
-      ansible.builtin.file:
-        src: "{{ item.src }}"
-        dest: "{{ user_home }}/.local/bin/{{ item.dest }}"
-        state: link
-      loop:
-        - { src: "/usr/bin/whisper-cli", dest: "transcribe" }
-        - { src: "/usr/bin/whisper-server", dest: "whserver" }
+    # Fedora's whisper-cpp package only provides libraries, not binaries
+    # Use whisperfile (portable llamafile) instead - works with Blurt
+    - name: Download Whisperfile (Portable Whisper with Embedded Model)
+      ansible.builtin.get_url:
+        url: "https://huggingface.co/Mozilla/whisperfile/resolve/main/whisper-base.en.llamafile"
+        dest: "{{ user_home }}/.local/bin/whisperfile"
+        mode: "0755"
       when: is_gnome
 
-    - name: Download Whisper Model for Blurt
-      ansible.builtin.get_url:
-        url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin"
-        dest: "{{ user_home }}/.local/share/ggml-base.en.bin"
-        mode: "0644"
+    - name: Create Transcribe Symlink for Blurt Compatibility
+      ansible.builtin.file:
+        src: "{{ user_home }}/.local/bin/whisperfile"
+        dest: "{{ user_home }}/.local/bin/transcribe"
+        state: link
       when: is_gnome
 
     # =========================================================================
@@ -152,12 +137,8 @@
         mode: "0755"
       when: is_gnome
 
-    - name: Configure WSI Script with Model Path
-      ansible.builtin.lineinfile:
-        path: "{{ user_home }}/.local/bin/wsi"
-        regexp: '^MODEL='
-        line: 'MODEL="{{ user_home }}/.local/share/ggml-base.en.bin"'
-      when: is_gnome
+    # whisperfile has the model embedded, no separate MODEL path needed
+    # The 'transcribe' symlink points to whisperfile which Blurt will use
 
     - name: Enable Blurt Extension
       ansible.builtin.command: gnome-extensions enable blurt@quantiusbenignus.local
@@ -241,7 +222,7 @@
           - "{% if is_gnome %}   • Keyboard shortcut: CTRL+ALT+A (default){% endif %}"
           - "{% if is_gnome %}   • Works in ANY text input field{% endif %}"
           - "{% if is_gnome %}   • Fully offline - no cloud services{% endif %}"
-          - "{% if is_gnome %}   • Backend: whisper.cpp with base.en model{% endif %}"
+          - "{% if is_gnome %}   • Backend: whisperfile (Mozilla llamafile with embedded model){% endif %}"
           - "{% if is_gnome %}   • Extension location: ~/.local/share/gnome-shell/extensions/{% endif %}"
           - "{% if is_gnome %}   • Enable: gnome-extensions enable blurt@quantiusbenignus.local{% endif %}"
           - "{% if is_gnome %}   • May require GNOME Shell restart: ALT+F2, type 'r', press ENTER{% endif %}"
@@ -259,7 +240,7 @@
           - "   • Location: /usr/local/bin/sonori"
           - ""
           - "📦 Dependencies Installed:"
-          - "   • whisper.cpp ({{ '/usr/bin/whisper-cli' if is_gnome else 'Fedora package' }})"
+          - "{% if is_gnome %}   • whisperfile (portable llamafile in ~/.local/bin){% endif %}"
           - "   • Audio: pipewire, sox"
           - "   • Clipboard: xsel (X11), wl-copy (Wayland)"
           - "   • GPU: Vulkan runtime{% if has_nvidia %} + NVIDIA drivers{% endif %}"
@@ -273,9 +254,9 @@
           - "{% if not is_gnome %}   • Launch: sonori (from Applications or terminal){% endif %}"
           - "{% if not is_gnome %}   • Floating overlay will appear{% endif %}"
           - ""
-          - "⚙️  Model Downloads (on first use):"
-          - "{% if is_gnome %}   • Blurt: Already downloaded (base.en model){% endif %}"
-          - "   • Sonori: Downloads small.en model on first run"
+          - "⚙️  Model Downloads:"
+          - "{% if is_gnome %}   • Blurt: Embedded in whisperfile (base.en model){% endif %}"
+          - "   • Sonori: Downloads small.en model on first run (~500MB)"
           - ""
           - "🔍 GPU Verification:"
           - "   • vulkaninfo | grep -i 'device name'"
@@ -290,7 +271,8 @@
           - "💡 Troubleshooting:"
           - "{% if is_gnome %}   • Blurt not working? Check Extensions app is installed{% endif %}"
           - "{% if is_gnome %}   • Still issues? Check: journalctl -f /usr/bin/gnome-shell{% endif %}"
+          - "{% if is_gnome %}   • whisperfile errors? Run manually: ~/.local/bin/whisperfile --help{% endif %}"
           - "   • Sonori overlay crash on GNOME? Use: sonori --cli"
-          - "   • Missing models? Check ~/.cache/sonori/ and ~/.local/share/"
+          - "   • Missing Sonori models? Check ~/.cache/sonori/"
           - ""
           - "════════════════════════════════════════════════════════════════"
