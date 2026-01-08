@@ -18,11 +18,15 @@
     sonori_install_dir: "/opt/sonori"
     sonori_url: "https://github.com/0xPD33/sonori/releases/download/v{{ sonori_version }}/Sonori-{{ sonori_version }}-x86_64.AppImage"
     blurt_repo: "https://github.com/QuantiusBenignus/blurt.git"
-    blurt_extension_dir: "{{ ansible_env.HOME }}/.local/share/gnome-shell/extensions/blurt@quantiusbenignus.local"
   tasks:
     # =========================================================================
-    # Detect Environment
+    # Detect Environment and User Paths
     # =========================================================================
+
+    - name: Get Real User Home Directory
+      ansible.builtin.shell: echo "$HOME"
+      register: real_user_home
+      changed_when: false
 
     - name: Detect Desktop Environment
       ansible.builtin.shell: echo "$XDG_CURRENT_DESKTOP"
@@ -40,6 +44,8 @@
         is_gnome: "{{ 'GNOME' in desktop_env.stdout }}"
         is_kde: "{{ 'KDE' in desktop_env.stdout }}"
         has_nvidia: "{{ nvidia_check.rc == 0 }}"
+        user_home: "{{ real_user_home.stdout }}"
+        blurt_extension_dir: "{{ real_user_home.stdout }}/.local/share/gnome-shell/extensions/blurt@quantiusbenignus.local"
 
     # =========================================================================
     # Install Common Dependencies
@@ -81,7 +87,13 @@
 
     - name: Create User Local Bin Directory
       ansible.builtin.file:
-        path: "{{ ansible_env.HOME }}/.local/bin"
+        path: "{{ user_home }}/.local/bin"
+        state: directory
+        mode: "0755"
+
+    - name: Create User Local Share Directory
+      ansible.builtin.file:
+        path: "{{ user_home }}/.local/share"
         state: directory
         mode: "0755"
 
@@ -94,7 +106,7 @@
     - name: Create Symlinks for whisper.cpp (Blurt compatibility)
       ansible.builtin.file:
         src: "{{ item.src }}"
-        dest: "{{ ansible_env.HOME }}/.local/bin/{{ item.dest }}"
+        dest: "{{ user_home }}/.local/bin/{{ item.dest }}"
         state: link
       loop:
         - { src: "/usr/bin/whisper-cli", dest: "transcribe" }
@@ -104,7 +116,7 @@
     - name: Download Whisper Model for Blurt
       ansible.builtin.get_url:
         url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin"
-        dest: "{{ ansible_env.HOME }}/.local/share/ggml-base.en.bin"
+        dest: "{{ user_home }}/.local/share/ggml-base.en.bin"
         mode: "0644"
       when: is_gnome
 
@@ -136,15 +148,15 @@
     - name: Install WSI Script (Blurt Orchestrator)
       ansible.builtin.copy:
         src: "/tmp/blurt/wsi"
-        dest: "{{ ansible_env.HOME }}/.local/bin/wsi"
+        dest: "{{ user_home }}/.local/bin/wsi"
         mode: "0755"
       when: is_gnome
 
     - name: Configure WSI Script with Model Path
       ansible.builtin.lineinfile:
-        path: "{{ ansible_env.HOME }}/.local/bin/wsi"
+        path: "{{ user_home }}/.local/bin/wsi"
         regexp: '^MODEL='
-        line: 'MODEL="{{ ansible_env.HOME }}/.local/share/ggml-base.en.bin"'
+        line: 'MODEL="{{ user_home }}/.local/share/ggml-base.en.bin"'
       when: is_gnome
 
     - name: Enable Blurt Extension
