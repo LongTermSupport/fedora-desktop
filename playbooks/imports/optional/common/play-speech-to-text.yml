@@ -18,6 +18,10 @@
     sonori_install_dir: "/opt/sonori"
     sonori_url: "https://github.com/0xPD33/sonori/releases/download/v{{ sonori_version }}/Sonori-{{ sonori_version }}-x86_64.AppImage"
     blurt_repo: "https://github.com/QuantiusBenignus/blurt.git"
+    # Whisper model selection - can be overridden in host_vars/localhost.yml
+    # Options: tiny.en (87MB), small.en (497MB), medium.en (1.83GB), large-v3 (3.39GB)
+    whisper_model: "{{ whisper_model_size | default('medium.en') }}"
+    whisper_model_url: "https://huggingface.co/Mozilla/whisperfile/resolve/main/whisper-{{ whisper_model }}.llamafile"
   tasks:
     # =========================================================================
     # Detect Environment and User Paths
@@ -91,15 +95,12 @@
 
     # Fedora's whisper-cpp package only provides libraries, not binaries
     # Use whisperfile (portable llamafile) instead - works with Blurt
-    # Using medium.en model (1.83GB) - excellent accuracy, larger but worth it
-    # To use a different model, change the URL:
-    #   whisper-tiny.en.llamafile (87 MB)
-    #   whisper-small.en.llamafile (497 MB)
-    #   whisper-medium.en.llamafile (1.83 GB) ← current
-    #   whisper-large-v3.llamafile (3.39 GB)
+    # Model size configurable via whisper_model_size in host_vars/localhost.yml
+    # Default: medium.en (1.83GB) - excellent accuracy
+    # Options: tiny.en (87MB), small.en (497MB), medium.en (1.83GB), large-v3 (3.39GB)
     - name: Download Whisperfile (Portable Whisper with Embedded Model)
       ansible.builtin.get_url:
-        url: "https://huggingface.co/Mozilla/whisperfile/resolve/main/whisper-medium.en.llamafile"
+        url: "{{ whisper_model_url }}"
         dest: "{{ user_home }}/.local/bin/whisperfile"
         mode: "0755"
       when: is_gnome
@@ -228,7 +229,7 @@
           - "{% if is_gnome %}   • Keyboard shortcut: CTRL+ALT+A (default){% endif %}"
           - "{% if is_gnome %}   • Works in ANY text input field{% endif %}"
           - "{% if is_gnome %}   • Fully offline - no cloud services{% endif %}"
-          - "{% if is_gnome %}   • Backend: whisperfile (medium.en model, 1.83GB){% endif %}"
+          - "{% if is_gnome %}   • Backend: whisperfile ({{ whisper_model }} model){% endif %}"
           - "{% if is_gnome %}   • Extension location: ~/.local/share/gnome-shell/extensions/{% endif %}"
           - "{% if is_gnome %}   • Enable: gnome-extensions enable blurt@quantiusbenignus.local{% endif %}"
           - "{% if is_gnome %}   • May require GNOME Shell restart: ALT+F2, type 'r', press ENTER{% endif %}"
@@ -261,13 +262,18 @@
           - "{% if not is_gnome %}   • Floating overlay will appear{% endif %}"
           - ""
           - "⚙️  Model Downloads:"
-          - "{% if is_gnome %}   • Blurt: Embedded in whisperfile (medium.en, 1.83GB){% endif %}"
+          - "{% if is_gnome %}   • Blurt: Embedded in whisperfile ({{ whisper_model }}){% endif %}"
           - "   • Sonori: Downloads small.en model on first run (~500MB)"
           - ""
           - "🔍 GPU Verification:"
           - "   • vulkaninfo | grep -i 'device name'"
           - "{% if has_nvidia %}   • nvidia-smi{% endif %}"
           - "{% if has_nvidia %}   • Ensure NVIDIA Vulkan drivers: play-nvidia.yml{% endif %}"
+          - ""
+          - "⚙️  Configuration Options:"
+          - "{% if is_gnome %}   • Change Blurt model: Set whisper_model_size in host_vars/localhost.yml{% endif %}"
+          - "{% if is_gnome %}     Options: tiny.en (87MB), small.en (497MB), medium.en (1.83GB), large-v3 (3.39GB){% endif %}"
+          - "{% if is_gnome %}     Default: medium.en{% endif %}"
           - ""
           - "📚 More Information:"
           - "   • Blurt: https://github.com/QuantiusBenignus/blurt"
