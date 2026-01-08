@@ -47,3 +47,6 @@
         - name: Tiling Shell
           id: 7065
           # https://extensions.gnome.org/extension/7065/tiling-shell/
+        - name: Space Bar
+          id: 5090
+          # https://extensions.gnome.org/extension/5090/space-bar/
