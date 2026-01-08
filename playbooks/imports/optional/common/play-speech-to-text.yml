@@ -91,10 +91,15 @@
 
     # Fedora's whisper-cpp package only provides libraries, not binaries
     # Use whisperfile (portable llamafile) instead - works with Blurt
-    # Using small.en model (497MB) - good balance of size and accuracy
+    # Using medium.en model (1.83GB) - excellent accuracy, larger but worth it
+    # To use a different model, change the URL:
+    #   whisper-tiny.en.llamafile (87 MB)
+    #   whisper-small.en.llamafile (497 MB)
+    #   whisper-medium.en.llamafile (1.83 GB) ← current
+    #   whisper-large-v3.llamafile (3.39 GB)
     - name: Download Whisperfile (Portable Whisper with Embedded Model)
       ansible.builtin.get_url:
-        url: "https://huggingface.co/Mozilla/whisperfile/resolve/main/whisper-small.en.llamafile"
+        url: "https://huggingface.co/Mozilla/whisperfile/resolve/main/whisper-medium.en.llamafile"
         dest: "{{ user_home }}/.local/bin/whisperfile"
         mode: "0755"
       when: is_gnome
@@ -223,7 +228,7 @@
           - "{% if is_gnome %}   • Keyboard shortcut: CTRL+ALT+A (default){% endif %}"
           - "{% if is_gnome %}   • Works in ANY text input field{% endif %}"
           - "{% if is_gnome %}   • Fully offline - no cloud services{% endif %}"
-          - "{% if is_gnome %}   • Backend: whisperfile (small.en model, 497MB){% endif %}"
+          - "{% if is_gnome %}   • Backend: whisperfile (medium.en model, 1.83GB){% endif %}"
           - "{% if is_gnome %}   • Extension location: ~/.local/share/gnome-shell/extensions/{% endif %}"
           - "{% if is_gnome %}   • Enable: gnome-extensions enable blurt@quantiusbenignus.local{% endif %}"
           - "{% if is_gnome %}   • May require GNOME Shell restart: ALT+F2, type 'r', press ENTER{% endif %}"
@@ -256,7 +261,7 @@
           - "{% if not is_gnome %}   • Floating overlay will appear{% endif %}"
           - ""
           - "⚙️  Model Downloads:"
-          - "{% if is_gnome %}   • Blurt: Embedded in whisperfile (small.en, ~497MB){% endif %}"
+          - "{% if is_gnome %}   • Blurt: Embedded in whisperfile (medium.en, 1.83GB){% endif %}"
           - "   • Sonori: Downloads small.en model on first run (~500MB)"
           - ""
           - "🔍 GPU Verification:"
