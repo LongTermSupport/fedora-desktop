@@ -133,7 +133,9 @@
 
     - name: Install Blurt Extension Files
       ansible.builtin.shell: |
-        cp -r /tmp/blurt/blurt@quantiusbenignus.local/* {{ blurt_extension_dir }}/
+        # Extension files are in repo root, copy specific files/dirs
+        cd /tmp/blurt
+        cp -r extension.js metadata.json prefs.js stylesheet.css resources schemas {{ blurt_extension_dir }}/
       when: is_gnome
       changed_when: true
 
