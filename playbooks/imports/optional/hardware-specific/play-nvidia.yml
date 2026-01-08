@@ -33,6 +33,8 @@
           - xorg-x11-drv-nvidia-cuda-libs
           - xorg-x11-drv-nvidia-power
           - nvidia-vaapi-driver # For hardware video acceleration
+          - libva-utils # For vainfo testing tool
+          - mesa-demos # For glxinfo testing tool
         state: present
 
     - name: Install Vulkan Support for NVIDIA
@@ -241,6 +243,10 @@
           Configuration options:
           - To disable Vulkan: nvidia_install_vulkan: false (in host_vars/localhost.yml)
           - Secure Boot status: mokutil --sb-state
+
+          Verification script:
+          - Run: ./scripts/nvidia-status.bash
+          - Full diagnostics of driver, Vulkan, OpenGL, and hardware acceleration
 
           Press ENTER to acknowledge...
           ========================================================================
