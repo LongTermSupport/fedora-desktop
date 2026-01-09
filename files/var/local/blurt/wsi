@@ -280,19 +280,19 @@ set -e
 #============================================================================
 
 if [ "$VERBOSE" = true ]; then
-    log "Recording speech (stop after 2s silence or press CTRL+C)..."
+    log "Recording speech (stop after 3s silence or press CTRL+C)..."
 fi
 
 # Record audio with silence detection
 # - rate 16k: 16kHz sample rate (required by whisper)
-# - silence 1 0.1 1%: Start recording after 0.1s above 1% threshold
-# - 1 2.0 5%: Stop after 2 seconds below 5% threshold
+# - silence 1 0.1 3%: Start recording after 0.1s above 3% threshold
+# - 1 3.0 3%: Stop after 3 seconds below 3% threshold (lenient for pauses)
 if [ "$DEBUG" = true ]; then
     # Show full sox output in debug mode
-    rec -q -t wav "$ramf" rate 16k silence 1 0.1 1% 1 2.0 5%
+    rec -q -t wav "$ramf" rate 16k silence 1 0.1 3% 1 3.0 3%
 else
     # Suppress sox output in normal mode
-    rec -q -t wav "$ramf" rate 16k silence 1 0.1 1% 1 2.0 5% 2>/dev/null
+    rec -q -t wav "$ramf" rate 16k silence 1 0.1 3% 1 3.0 3% 2>/dev/null
 fi
 
 if [ "$VERBOSE" = true ]; then
