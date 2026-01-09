@@ -11,6 +11,7 @@ TEMPD='/dev/shm'
 ramf="$TEMPD/wfile-$USER.wav"
 WHISPERFILE="faster-whisper-transcribe"
 CLIPBOARD=false
+AUTO_PASTE=false
 WHOST="127.0.0.1"
 WPORT="58080"
 
@@ -223,8 +224,10 @@ check_dependencies() {
 
     if [[ "$wm" == "wayland" ]]; then
         check_command "wl-copy" "wl-clipboard" "Clipboard management (Wayland)" || ((failed++))
+        check_command "wtype" "wtype" "Auto-paste (Wayland)" || ((failed++))
     elif [[ "$wm" == "x11" ]]; then
         check_command "xsel" "xsel" "Clipboard management (X11)" || ((failed++))
+        check_command "xdotool" "xdotool" "Auto-paste (X11)" || ((failed++))
     else
         log_error "Unknown window manager: $wm"
         ((failed++))
@@ -255,12 +258,15 @@ check_dependencies() {
 }
 
 print_config() {
+    local paste_mode="PRIMARY"
+    [ "$CLIPBOARD" = true ] && paste_mode="CLIPBOARD"
+    [ "$AUTO_PASTE" = true ] && paste_mode="AUTO-PASTE"
     cat >&2 <<EOF
 Configuration:
   Temp directory:     $TEMPD
   Temp audio file:    $ramf
   Whisperfile:        $WHISPERFILE ($(command -v "$WHISPERFILE" 2>/dev/null || echo "NOT FOUND"))
-  Clipboard mode:     $([ "$CLIPBOARD" = true ] && echo "CLIPBOARD" || echo "PRIMARY")
+  Paste mode:         $paste_mode
   Window manager:     ${XDG_SESSION_TYPE:-unknown}
   Log file:           $LOG_FILE
 EOF
@@ -272,6 +278,7 @@ Usage: wsi [OPTIONS]
 
 Options:
   -c, --clipboard     Use CLIPBOARD instead of PRIMARY selection
+  -a, --auto-paste    Type text directly at cursor (no clipboard)
   -n, --netapi        Use whisper.cpp server (host:port from config)
   -d, --debug         Enable debug mode (verbose output + dependency checks)
   -v, --verbose       Enable verbose output only
@@ -283,6 +290,7 @@ Examples:
   wsi                 # Record speech and transcribe locally
   wsi -d              # Debug mode with full diagnostics
   wsi -c              # Use CLIPBOARD instead of PRIMARY
+  wsi -a              # Auto-paste at cursor position
   wsi server.local:8080  # Use remote whisper.cpp server
 EOF
 }
@@ -296,6 +304,11 @@ while [ $# -gt 0 ]; do
         -c|--clipboard)
             CLIPBOARD=true
             log_debug "Clipboard mode: CLIPBOARD"
+            shift
+            ;;
+        -a|--auto-paste)
+            AUTO_PASTE=true
+            log_debug "Auto-paste mode enabled"
             shift
             ;;
         -d|--debug)
@@ -529,41 +542,64 @@ if [[ -z "${DISPLAY}" ]] && [[ -z "${WAYLAND_DISPLAY}" ]] && [[ -z "${DESKTOP_SE
 fi
 
 wm="${XDG_SESSION_TYPE:-unknown}"
-log_debug "Sending to clipboard (window manager: $wm)"
 
-case "$wm" in
-    "x11")
-        if [ "$CLIPBOARD" = true ]; then
-            echo "$str" | xsel -ib
-            log_debug "Text sent to CLIPBOARD"
-        else
-            echo "$str" | xsel -ip
-            log_debug "Text sent to PRIMARY selection"
-        fi
-        ;;
-    "wayland")
-        if [ "$CLIPBOARD" = true ]; then
-            echo "$str" | wl-copy
-            log_debug "Text sent to CLIPBOARD"
-        else
-            echo "$str" | wl-copy -p
-            log_debug "Text sent to PRIMARY selection"
-        fi
-        ;;
-    *)
-        log_error "Unknown window manager: $wm"
-        echo "$str"
-        ;;
-esac
-
-# Send success notification with preview
-preview="${str:0:60}"
-[ ${#str} -gt 60 ] && preview="${preview}..."
-
-if [ "$CLIPBOARD" = true ]; then
-    notify_state "SUCCESS" "$preview\n\nCtrl+V to paste"
+# Handle auto-paste mode - type directly at cursor
+if [ "$AUTO_PASTE" = true ]; then
+    log_debug "Auto-pasting text at cursor"
+    case "$wm" in
+        "wayland")
+            wtype "$str"
+            log_debug "Text typed via wtype"
+            ;;
+        "x11")
+            xdotool type --clearmodifiers "$str"
+            log_debug "Text typed via xdotool"
+            ;;
+        *)
+            log_error "Auto-paste not supported for: $wm"
+            echo "$str"
+            ;;
+    esac
+    preview="${str:0:60}"
+    [ ${#str} -gt 60 ] && preview="${preview}..."
+    notify_state "SUCCESS" "$preview"
 else
-    notify_state "SUCCESS" "$preview\n\nMiddle-click to paste"
+    # Clipboard mode
+    log_debug "Sending to clipboard (window manager: $wm)"
+    case "$wm" in
+        "x11")
+            if [ "$CLIPBOARD" = true ]; then
+                echo "$str" | xsel -ib
+                log_debug "Text sent to CLIPBOARD"
+            else
+                echo "$str" | xsel -ip
+                log_debug "Text sent to PRIMARY selection"
+            fi
+            ;;
+        "wayland")
+            if [ "$CLIPBOARD" = true ]; then
+                echo "$str" | wl-copy
+                log_debug "Text sent to CLIPBOARD"
+            else
+                echo "$str" | wl-copy -p
+                log_debug "Text sent to PRIMARY selection"
+            fi
+            ;;
+        *)
+            log_error "Unknown window manager: $wm"
+            echo "$str"
+            ;;
+    esac
+
+    # Send success notification with preview
+    preview="${str:0:60}"
+    [ ${#str} -gt 60 ] && preview="${preview}..."
+
+    if [ "$CLIPBOARD" = true ]; then
+        notify_state "SUCCESS" "$preview\n\nCtrl+V to paste"
+    else
+        notify_state "SUCCESS" "$preview\n\nMiddle-click to paste"
+    fi
 fi
 
 # Signal idle state after brief delay

@@ -35,6 +35,7 @@ export default class SpeechToTextExtension extends Extension {
         // Debug mode state
         this._debugEnabled = false;
         this._clipboardMode = false;
+        this._autoPaste = false;
         this._currentState = 'IDLE';
         this._lastError = null;
         this._logDir = GLib.get_home_dir() + '/.local/share/speech-to-text';
@@ -169,10 +170,23 @@ export default class SpeechToTextExtension extends Extension {
         this._clipboardSwitch = new PopupMenu.PopupSwitchMenuItem('Use Ctrl+V (not middle-click)', this._clipboardMode);
         this._clipboardSwitch.connect('toggled', (item, state) => {
             this._clipboardMode = state;
+            if (state) this._autoPaste = false;  // Mutually exclusive
             this._saveClipboardSetting(state);
+            this._updatePasteToggles();
             this._log(`Clipboard mode ${state ? 'enabled' : 'disabled'}`);
         });
         menu.addMenuItem(this._clipboardSwitch);
+
+        // Auto-paste toggle
+        this._autoPasteSwitch = new PopupMenu.PopupSwitchMenuItem('Auto-paste at cursor', this._autoPaste);
+        this._autoPasteSwitch.connect('toggled', (item, state) => {
+            this._autoPaste = state;
+            if (state) this._clipboardMode = false;  // Mutually exclusive
+            this._saveAutoPasteSetting(state);
+            this._updatePasteToggles();
+            this._log(`Auto-paste ${state ? 'enabled' : 'disabled'}`);
+        });
+        menu.addMenuItem(this._autoPasteSwitch);
 
         // Separator
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
@@ -287,10 +301,11 @@ export default class SpeechToTextExtension extends Extension {
                 return;
             }
 
-            // Pass debug and clipboard flags if enabled, with 90s timeout as safety
+            // Pass debug, clipboard and auto-paste flags if enabled, with 90s timeout as safety
             const debugFlag = this._debugEnabled ? ' --debug' : '';
             const clipboardFlag = this._clipboardMode ? ' --clipboard' : '';
-            const command = 'timeout 90 ' + GLib.get_home_dir() + '/.local/bin/wsi' + debugFlag + clipboardFlag;
+            const autoPasteFlag = this._autoPaste ? ' --auto-paste' : '';
+            const command = 'timeout 90 ' + GLib.get_home_dir() + '/.local/bin/wsi' + debugFlag + clipboardFlag + autoPasteFlag;
 
             this._log(`Launching: ${command}`);
             GLib.spawn_command_line_async(command);
@@ -354,6 +369,23 @@ export default class SpeechToTextExtension extends Extension {
             } catch (e) {
                 this._clipboardMode = false;
             }
+            try {
+                this._autoPaste = this._settings.get_boolean('auto-paste');
+                if (this._autoPasteSwitch) {
+                    this._autoPasteSwitch.setToggleState(this._autoPaste);
+                }
+            } catch (e) {
+                this._autoPaste = false;
+            }
+        }
+    }
+
+    _updatePasteToggles() {
+        if (this._clipboardSwitch) {
+            this._clipboardSwitch.setToggleState(this._clipboardMode);
+        }
+        if (this._autoPasteSwitch) {
+            this._autoPasteSwitch.setToggleState(this._autoPaste);
         }
     }
 
@@ -371,6 +403,16 @@ export default class SpeechToTextExtension extends Extension {
         if (this._settings) {
             try {
                 this._settings.set_boolean('clipboard-mode', enabled);
+            } catch (e) {
+                // Setting may not exist yet
+            }
+        }
+    }
+
+    _saveAutoPasteSetting(enabled) {
+        if (this._settings) {
+            try {
+                this._settings.set_boolean('auto-paste', enabled);
             } catch (e) {
                 // Setting may not exist yet
             }

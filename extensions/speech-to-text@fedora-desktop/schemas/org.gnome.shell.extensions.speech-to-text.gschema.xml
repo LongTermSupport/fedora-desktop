@@ -16,5 +16,10 @@
       <summary>Clipboard Mode</summary>
       <description>Use CLIPBOARD (Ctrl+V) instead of PRIMARY selection (middle-click)</description>
     </key>
+    <key name="auto-paste" type="b">
+      <default>false</default>
+      <summary>Auto Paste</summary>
+      <description>Automatically type the transcribed text at cursor position</description>
+    </key>
   </schema>
 </schemalist>
