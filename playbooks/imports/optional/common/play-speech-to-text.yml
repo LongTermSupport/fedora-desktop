@@ -149,11 +149,8 @@
     # whisperfile has the model embedded, no separate MODEL path needed
     # The 'transcribe' symlink points to whisperfile which Blurt will use
 
-    - name: Enable Blurt Extension
-      ansible.builtin.command: gnome-extensions enable blurt@quantiusbenignus.local
-      when: is_gnome
-      changed_when: false
-      failed_when: false
+    # Note: Cannot enable extension until GNOME Shell is restarted
+    # User must restart GNOME Shell first, then enable manually
 
     # =========================================================================
     # Install Sonori (All Desktop Environments)
@@ -233,9 +230,7 @@
           - "{% if is_gnome %}   • Fully offline - no cloud services{% endif %}"
           - "{% if is_gnome %}   • Backend: whisperfile ({{ whisper_model }} model){% endif %}"
           - "{% if is_gnome %}   • Extension location: ~/.local/share/gnome-shell/extensions/{% endif %}"
-          - "{% if is_gnome %}   • Enable: gnome-extensions enable blurt@quantiusbenignus.local{% endif %}"
-          - "{% if is_gnome %}   • May require GNOME Shell restart: ALT+F2, type 'r', press ENTER{% endif %}"
-          - "{% if is_gnome %}   • Configure: Extensions app → Blurt → Settings{% endif %}"
+          - "{% if is_gnome %}   • NOT ENABLED YET - see Quick Start below{% endif %}"
           - "{% if is_gnome %}{% endif %}"
           - "✅ SONORI - Wayland Speech-to-Text App"
           - "──────────────────────────────────────────────────────────────"
@@ -254,9 +249,14 @@
           - "   • Clipboard: xsel (X11), wl-copy (Wayland)"
           - "   • GPU: Vulkan runtime{% if has_nvidia %} + NVIDIA drivers{% endif %}"
           - ""
-          - "🎤 Quick Start:"
-          - "{% if is_gnome %}   1. Restart GNOME Shell: ALT+F2 → type 'r' → ENTER{% endif %}"
-          - "{% if is_gnome %}   2. Open Extensions app and enable Blurt{% endif %}"
+          - "🎤 Quick Start (Blurt):"
+          - "{% if is_gnome %}   1. REQUIRED: Restart GNOME Shell first{% endif %}"
+          - "{% if is_gnome %}      → Press ALT+F2, type 'r', press ENTER{% endif %}"
+          - "{% if is_gnome %}      → Or log out and log back in{% endif %}"
+          - "{% if is_gnome %}   2. Enable Blurt extension:{% endif %}"
+          - "{% if is_gnome %}      → Open Extensions app (search in Activities){% endif %}"
+          - "{% if is_gnome %}      → Toggle Blurt ON{% endif %}"
+          - "{% if is_gnome %}      → Or run: gnome-extensions enable blurt@quantiusbenignus.local{% endif %}"
           - "{% if is_gnome %}   3. Click any text field{% endif %}"
           - "{% if is_gnome %}   4. Press CTRL+ALT+A and speak{% endif %}"
           - "{% if is_gnome %}   5. Text appears automatically when you stop speaking{% endif %}"
