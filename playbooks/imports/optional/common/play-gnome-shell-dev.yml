@@ -1,0 +1,127 @@
+---
+#!/usr/bin/env ansible-playbook
+# GNOME Shell Development Tools
+# Installs tools for developing and testing GNOME Shell extensions
+#
+# Tools installed:
+# - gshell-nested: Wrapper script for launching nested GNOME Shell
+#
+# Usage:
+#   ansible-playbook playbooks/imports/optional/common/play-gnome-shell-dev.yml
+- hosts: desktop
+  name: Install GNOME Shell Development Tools
+  become: false
+  vars:
+    root_dir: "{{ inventory_dir }}/../.."
+  tasks:
+    # =========================================================================
+    # Detect Environment
+    # =========================================================================
+
+    - name: Get Real User Home Directory
+      ansible.builtin.shell: echo "$HOME"
+      register: real_user_home
+      changed_when: false
+
+    - name: Detect Desktop Environment
+      ansible.builtin.shell: echo "$XDG_CURRENT_DESKTOP"
+      register: desktop_env
+      changed_when: false
+
+    - name: Set Desktop Environment Facts
+      ansible.builtin.set_fact:
+        is_gnome: "{{ 'GNOME' in desktop_env.stdout }}"
+        user_home: "{{ real_user_home.stdout }}"
+
+    - name: Check if GNOME Desktop
+      ansible.builtin.fail:
+        msg: "This playbook requires GNOME desktop environment"
+      when: not is_gnome
+
+    # =========================================================================
+    # Install Dependencies
+    # =========================================================================
+
+    - name: Install GNOME Shell Development Dependencies
+      become: true
+      ansible.builtin.package:
+        name: "{{ packages }}"
+        state: present
+      vars:
+        packages:
+          # Screen resolution detection
+          - bc  # For floating-point math in resolution scaling
+          # Optional tools for different detection methods
+          - wlr-randr  # Wayland screen info (wlroots compositors)
+
+    # =========================================================================
+    # Install gshell-nested Script
+    # =========================================================================
+
+    - name: Create User Local Bin Directory
+      ansible.builtin.file:
+        path: "{{ user_home }}/.local/bin"
+        state: directory
+        mode: "0755"
+
+    - name: Install gshell-nested Wrapper Script
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/gshell-nested"
+        dest: "{{ user_home }}/.local/bin/gshell-nested"
+        mode: "0755"
+
+    # =========================================================================
+    # Display Installation Summary
+    # =========================================================================
+
+    - name: Display Installation Summary
+      ansible.builtin.debug:
+        msg:
+          - "════════════════════════════════════════════════════════════════"
+          - "GNOME Shell Development Tools Installed"
+          - "════════════════════════════════════════════════════════════════"
+          - ""
+          - "✅ gshell-nested - Nested GNOME Shell Launcher"
+          - "──────────────────────────────────────────────────────────────"
+          - "   • Auto-detects screen size and scales to 85%"
+          - "   • Test extensions without logging out"
+          - "   • Isolated from main session"
+          - "   • Extensions from ~/.local/share/gnome-shell/extensions/ available"
+          - ""
+          - "🚀 Quick Start:"
+          - "   # Launch with auto-detected size (85% of screen)"
+          - "   gshell-nested"
+          - ""
+          - "   # Launch with specific resolution"
+          - "   gshell-nested --res 1280 720"
+          - ""
+          - "   # Launch at full screen size"
+          - "   gshell-nested --fullscreen"
+          - ""
+          - "   # Launch at custom scale (90% of screen)"
+          - "   gshell-nested --scale 90"
+          - ""
+          - "📝 Inside Nested GNOME Shell:"
+          - "   1. Press Super key → type 'Extensions'"
+          - "   2. Enable your extension for testing"
+          - "   3. Test functionality in nested apps"
+          - "   4. Press CTRL+Q or close window to exit"
+          - ""
+          - "💡 Tips:"
+          - "   • Changes to extensions take effect immediately in nested mode"
+          - "   • Use 'journalctl -f /usr/bin/gnome-shell' in another terminal"
+          - "     to watch logs while testing"
+          - "   • Some hardware features may behave differently"
+          - "   • Clipboard works within nested instance only"
+          - ""
+          - "🔧 Resolution Detection Methods:"
+          - "   1. GNOME DisplayConfig DBus API (primary, most reliable)"
+          - "   2. wlr-randr (Wayland fallback)"
+          - "   3. xrandr (X11 fallback)"
+          - "   4. Hardcoded 1920x1080 (last resort)"
+          - ""
+          - "📚 Documentation:"
+          - "   • See CLAUDE/GnomeShell.md for full extension dev guide"
+          - "   • Run 'gshell-nested --help' for all options"
+          - ""
+          - "════════════════════════════════════════════════════════════════"

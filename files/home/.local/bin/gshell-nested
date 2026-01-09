@@ -1,0 +1,135 @@
+#!/usr/bin/bash
+# gshell-nested - Launch nested GNOME Shell for extension testing
+# Automatically calculates window size slightly smaller than current screen
+
+set -e
+
+# Default: 85% of screen size
+SCALE=0.85
+WIDTH=""
+HEIGHT=""
+
+usage() {
+    cat <<EOF
+Usage: gshell-nested [OPTIONS]
+
+Launch nested GNOME Shell in a window for extension testing.
+
+Options:
+  --res WIDTH HEIGHT    Override window size (e.g., --res 1280 720)
+  --fullscreen         Use full screen size (100%)
+  --scale PERCENT      Percentage of screen size (default: 85)
+  -h, --help           Show this help
+
+Examples:
+  gshell-nested                    # Auto-detect at 85% of screen
+  gshell-nested --res 1280 720     # Fixed 1280x720 window
+  gshell-nested --fullscreen       # Use full screen size
+  gshell-nested --scale 90         # 90% of screen size
+
+Notes:
+  - Extensions from ~/.local/share/gnome-shell/extensions/ are available
+  - Press CTRL+Q or close window to exit nested mode
+  - Some features may behave differently than real session
+  - Clipboard and notifications work within nested instance
+EOF
+}
+
+# Parse arguments
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --res)
+            WIDTH="$2"
+            HEIGHT="$3"
+            shift 3
+            ;;
+        --fullscreen)
+            SCALE=1.0
+            shift
+            ;;
+        --scale)
+            SCALE=$(echo "scale=2; $2 / 100" | bc)
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "Error: Unknown option $1" >&2
+            usage >&2
+            exit 1
+            ;;
+    esac
+done
+
+# If width/height not specified, detect screen size
+if [ -z "$WIDTH" ] || [ -z "$HEIGHT" ]; then
+    echo "Detecting screen resolution..."
+
+    # Method 1: Try gdbus (GNOME Mutter DisplayConfig - most reliable on GNOME/Wayland)
+    if command -v gdbus &>/dev/null; then
+        # Query GNOME display configuration
+        DISPLAY_INFO=$(gdbus call --session \
+            --dest org.gnome.Mutter.DisplayConfig \
+            --object-path /org/gnome/Mutter/DisplayConfig \
+            --method org.gnome.Mutter.DisplayConfig.GetCurrentState 2>/dev/null || echo "")
+
+        if [ -n "$DISPLAY_INFO" ]; then
+            # Parse the complex DBus output - look for current mode dimensions
+            # Format: (...modes: [(...width, height, refresh...)...], current_mode_index...)
+            # Extract first occurrence of width x height pattern from modes array
+            RESOLUTION=$(echo "$DISPLAY_INFO" | grep -oP '\(\d+, \d+, [^)]+, \[\], @a\{sv\} \{\}, @a\{sv\} \{\}\)' | head -1 | grep -oP '\d+, \d+' | head -1)
+            if [ -n "$RESOLUTION" ]; then
+                WIDTH=$(echo "$RESOLUTION" | cut -d',' -f1 | xargs)
+                HEIGHT=$(echo "$RESOLUTION" | cut -d',' -f2 | xargs)
+                echo "Detected via GNOME DisplayConfig: ${WIDTH}x${HEIGHT}"
+            fi
+        fi
+    fi
+
+    # Method 2: Try wlr-randr (Wayland)
+    if [ -z "$WIDTH" ] && command -v wlr-randr &>/dev/null; then
+        RESOLUTION=$(wlr-randr 2>/dev/null | grep -E '^\s+\d+x\d+' | grep '\*' | head -1 | awk '{print $1}')
+        if [ -n "$RESOLUTION" ]; then
+            WIDTH=$(echo "$RESOLUTION" | cut -d'x' -f1)
+            HEIGHT=$(echo "$RESOLUTION" | cut -d'x' -f2)
+            echo "Detected via wlr-randr: ${WIDTH}x${HEIGHT}"
+        fi
+    fi
+
+    # Method 3: Try xrandr (X11 fallback)
+    if [ -z "$WIDTH" ] && command -v xrandr &>/dev/null; then
+        RESOLUTION=$(xrandr 2>/dev/null | grep '\*' | head -1 | awk '{print $1}')
+        if [ -n "$RESOLUTION" ]; then
+            WIDTH=$(echo "$RESOLUTION" | cut -d'x' -f1)
+            HEIGHT=$(echo "$RESOLUTION" | cut -d'x' -f2)
+            echo "Detected via xrandr: ${WIDTH}x${HEIGHT}"
+        fi
+    fi
+
+    # Fallback to common resolution if detection failed
+    if [ -z "$WIDTH" ] || [ -z "$HEIGHT" ]; then
+        WIDTH=1920
+        HEIGHT=1080
+        echo "Could not detect resolution, using default: ${WIDTH}x${HEIGHT}"
+    fi
+
+    # Calculate scaled size
+    if [ "$SCALE" != "1.0" ]; then
+        ORIG_WIDTH=$WIDTH
+        ORIG_HEIGHT=$HEIGHT
+        WIDTH=$(echo "$WIDTH * $SCALE" | bc | cut -d'.' -f1)
+        HEIGHT=$(echo "$HEIGHT * $SCALE" | bc | cut -d'.' -f1)
+        PERCENT=$(echo "$SCALE * 100" | bc | cut -d'.' -f1)
+        echo "Scaling to ${PERCENT}%: ${WIDTH}x${HEIGHT} (from ${ORIG_WIDTH}x${ORIG_HEIGHT})"
+    fi
+fi
+
+echo "Starting nested GNOME Shell at ${WIDTH}x${HEIGHT}..."
+echo "Press CTRL+Q or close window to exit"
+echo ""
+
+# Set resolution and launch nested GNOME Shell
+MUTTER_DEBUG_DUMMY_MODE_SPECS="${WIDTH}x${HEIGHT}" \
+    exec dbus-run-session -- gnome-shell --nested --wayland
