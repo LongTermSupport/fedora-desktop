@@ -316,7 +316,14 @@ fi
 if [ "$VERBOSE" = true ]; then
     log "Resampling audio from 44100Hz to 16000Hz..."
 fi
-sox "$ramf" "${ramf}.16k" rate 16k 2>/dev/null
+
+if [ "$DEBUG" = true ]; then
+    # Show sox errors in debug mode
+    sox "$ramf" "${ramf}.16k" rate 16k
+else
+    # Show errors in verbose mode too (for troubleshooting)
+    sox "$ramf" "${ramf}.16k" rate 16k 2>&1 | grep -v "^$" || true
+fi
 mv "${ramf}.16k" "$ramf"
 
 # Check audio duration and pad if needed (whisper requires min 1 second)
