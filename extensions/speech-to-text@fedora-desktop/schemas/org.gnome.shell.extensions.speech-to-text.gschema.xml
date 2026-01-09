@@ -6,5 +6,10 @@
       <summary>Toggle Recording</summary>
       <description>Keybinding to toggle speech-to-text recording</description>
     </key>
+    <key name="debug-mode" type="b">
+      <default>false</default>
+      <summary>Debug Mode</summary>
+      <description>Enable verbose logging to ~/.local/share/speech-to-text/debug.log</description>
+    </key>
   </schema>
 </schemalist>

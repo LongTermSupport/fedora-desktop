@@ -1,6 +1,18 @@
-import GLib from 'gi://GLib';
-import Gio from 'gi://Gio';
+/**
+ * Speech-to-Text GNOME Shell Extension
+ *
+ * Panel indicator with popup menu for:
+ * - Status display (IDLE/RECORDING/TRANSCRIBING/SUCCESS/ERROR)
+ * - Debug mode toggle
+ * - View debug log
+ * - Recent log preview
+ *
+ * Triggers wsi script on Insert key and listens for DBus signals.
+ */
+
 import St from 'gi://St';
+import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
 import Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
@@ -8,281 +20,389 @@ import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 
+// DBus interface for wsi communication
+const DBUS_PATH = '/org/fedoradesktop/SpeechToText';
+const DBUS_INTERFACE = 'org.fedoradesktop.SpeechToText';
+
 export default class SpeechToTextExtension extends Extension {
     constructor(metadata) {
         super(metadata);
-        this._recording = false;
-        this._recProcess = null;
-        this._audioFile = null;
         this._indicator = null;
-        this._icon = null;
-        this._statusItem = null;
         this._settings = null;
-        this._logFile = '/tmp/stt-debug.log';
+        this._dbusSubscriptionId = null;
+        this._dbusErrorSubscriptionId = null;
 
-        // Clear log file on construction
-        try {
-            const f = Gio.File.new_for_path(this._logFile);
-            f.replace_contents('=== STT Extension Log ===\n', null, false, Gio.FileCreateFlags.REPLACE_DESTINATION, null);
-        } catch(e) {}
-    }
-
-    _log(message) {
-        try {
-            const timestamp = new Date().toISOString();
-            const logLine = `[${timestamp}] ${message}\n`;
-            const file = Gio.File.new_for_path(this._logFile);
-            const stream = file.append_to(Gio.FileCreateFlags.NONE, null);
-            stream.write(logLine, null);
-            stream.close(null);
-        } catch (e) {}
+        // Debug mode state
+        this._debugEnabled = false;
+        this._currentState = 'IDLE';
+        this._lastError = null;
+        this._logDir = GLib.get_home_dir() + '/.local/share/speech-to-text';
+        this._logFile = this._logDir + '/debug.log';
     }
 
     enable() {
-        this._log('=== ENABLE CALLED ===');
-
-        // Create panel indicator
+        // Create panel indicator with menu
         this._indicator = new PanelMenu.Button(0.0, 'Speech to Text', false);
-        this._log('Created panel button');
 
-        // Add icon to panel
+        // Add icon
         this._icon = new St.Icon({
             icon_name: 'audio-input-microphone-symbolic',
             style_class: 'system-status-icon'
         });
         this._indicator.add_child(this._icon);
-        this._log('Created icon');
 
-        // Add menu items
-        const statusItem = new PopupMenu.PopupMenuItem('Status: Ready', { reactive: false });
-        this._statusItem = statusItem;
-        this._indicator.menu.addMenuItem(statusItem);
-
-        const logItem = new PopupMenu.PopupMenuItem('View Debug Log');
-        logItem.connect('activate', () => {
-            GLib.spawn_command_line_async(`gnome-text-editor ${this._logFile}`);
-        });
-        this._indicator.menu.addMenuItem(logItem);
-        this._log('Created menu items');
+        // Build the popup menu
+        this._buildMenu();
 
         // Add to panel
-        Main.panel.addToStatusArea('speech-to-text-indicator', this._indicator);
-        this._log('Added to panel status area');
+        Main.panel.addToStatusArea('speech-to-text', this._indicator);
 
-        // Set up keybinding using proper GNOME Shell API
-        this._log('Setting up keybinding via Main.wm.addKeybinding...');
+        // Subscribe to DBus signals from wsi script
+        this._subscribeToDBus();
 
+        // Ensure log directory exists
+        this._ensureLogDirectory();
+
+        // Setup keybinding
         try {
-            // Get settings from extension's schema
             const schemaDir = this.path + '/schemas';
-            this._log(`Schema directory: ${schemaDir}`);
-
             const schemaSource = Gio.SettingsSchemaSource.new_from_directory(
                 schemaDir,
                 Gio.SettingsSchemaSource.get_default(),
                 false
             );
-            this._log('Created schema source');
-
             const schema = schemaSource.lookup('org.gnome.shell.extensions.speech-to-text', true);
-            if (!schema) {
-                this._log('ERROR: Schema not found!');
-                Main.notify('STT Error', 'Schema not found - keybinding will not work');
-            } else {
-                this._log('Schema found');
+            if (schema) {
                 this._settings = new Gio.Settings({ settings_schema: schema });
-                this._log('Settings created');
 
-                // Add the keybinding
+                // Load debug setting
+                this._loadDebugSetting();
+
                 Main.wm.addKeybinding(
                     'toggle-recording',
                     this._settings,
                     Meta.KeyBindingFlags.NONE,
                     Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW,
                     () => {
-                        this._log('>>> KEYBINDING TRIGGERED! <<<');
-                        this._log(`Current recording state: ${this._recording}`);
-                        Main.notify('STT', `Keybind! recording=${this._recording}`);
-
-                        if (this._recording) {
-                            this._stopRecording();
-                        } else {
-                            this._startRecording();
-                        }
+                        this._launchWSI();
                     }
                 );
-                this._log('Keybinding added successfully');
             }
         } catch (e) {
-            this._log(`ERROR setting up keybinding: ${e.message}`);
-            this._log(`Stack: ${e.stack}`);
             Main.notify('STT Error', `Keybinding setup failed: ${e.message}`);
         }
 
-        Main.notify('Speech to Text', 'Extension loaded. Press Insert to record.');
-        this._log('=== ENABLE COMPLETE ===');
+        Main.notify('Speech to Text', 'Ready. Press Insert to record. Click icon for options.');
     }
 
     disable() {
-        this._log('=== DISABLE CALLED ===');
+        // Unsubscribe from DBus
+        if (this._dbusSubscriptionId !== null) {
+            Gio.DBus.session.signal_unsubscribe(this._dbusSubscriptionId);
+            this._dbusSubscriptionId = null;
+        }
+        if (this._dbusErrorSubscriptionId !== null) {
+            Gio.DBus.session.signal_unsubscribe(this._dbusErrorSubscriptionId);
+            this._dbusErrorSubscriptionId = null;
+        }
 
         // Remove keybinding
         try {
             Main.wm.removeKeybinding('toggle-recording');
-            this._log('Keybinding removed');
-        } catch (e) {
-            this._log(`Error removing keybinding: ${e.message}`);
-        }
+        } catch (e) {}
 
         if (this._indicator) {
             this._indicator.destroy();
             this._indicator = null;
         }
 
-        if (this._recording && this._recProcess) {
-            this._stopRecording();
-        }
-
         this._settings = null;
-        this._log('=== DISABLE COMPLETE ===');
+        this._logLines = null;
     }
 
-    _startRecording() {
-        this._log('=== _startRecording() ===');
-        this._recording = true;
-        this._audioFile = `/dev/shm/stt-${GLib.get_user_name()}-${Date.now()}.wav`;
-        this._log(`Audio file: ${this._audioFile}`);
+    _buildMenu() {
+        const menu = this._indicator.menu;
 
-        if (this._icon) {
-            this._icon.style = 'color: #ff4444;';
+        // Status section (non-interactive header)
+        this._statusLabel = new PopupMenu.PopupMenuItem('Status: IDLE', { reactive: false });
+        this._statusLabel.label.style = 'font-weight: bold;';
+        menu.addMenuItem(this._statusLabel);
+
+        // Separator
+        menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
+        // Debug toggle
+        this._debugSwitch = new PopupMenu.PopupSwitchMenuItem('Debug Logging', this._debugEnabled);
+        this._debugSwitch.connect('toggled', (item, state) => {
+            this._debugEnabled = state;
+            this._saveDebugSetting(state);
+            this._log(`Debug mode ${state ? 'enabled' : 'disabled'}`);
+        });
+        menu.addMenuItem(this._debugSwitch);
+
+        // View logs button
+        const viewLogsItem = new PopupMenu.PopupMenuItem('View Debug Log...');
+        viewLogsItem.connect('activate', () => {
+            this._openLogViewer();
+        });
+        menu.addMenuItem(viewLogsItem);
+
+        // Clear logs button
+        const clearLogsItem = new PopupMenu.PopupMenuItem('Clear Debug Log');
+        clearLogsItem.connect('activate', () => {
+            this._clearLog();
+        });
+        menu.addMenuItem(clearLogsItem);
+
+        // Separator
+        menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
+        // Recent log header
+        const logHeader = new PopupMenu.PopupMenuItem('Recent Log:', { reactive: false });
+        logHeader.label.style = 'font-style: italic; color: #888;';
+        menu.addMenuItem(logHeader);
+
+        // Placeholder for log lines (last 5)
+        this._logLines = [];
+        for (let i = 0; i < 5; i++) {
+            const line = new PopupMenu.PopupMenuItem('', { reactive: false });
+            line.label.style = 'font-size: 0.9em; font-family: monospace;';
+            this._logLines.push(line);
+            menu.addMenuItem(line);
         }
 
-        if (this._statusItem) {
-            this._statusItem.label.text = 'Status: Recording...';
-        }
+        // Refresh logs when menu opens
+        menu.connect('open-state-changed', (menu, open) => {
+            if (open) {
+                this._refreshLogDisplay();
+                this._updateStatusLabel();
+            }
+        });
+    }
 
-        Main.notify('Speech to Text', 'Recording... (Press Insert to stop)');
+    _subscribeToDBus() {
+        // Listen for StateChanged signals from wsi script
+        this._dbusSubscriptionId = Gio.DBus.session.signal_subscribe(
+            null,                    // sender (any)
+            DBUS_INTERFACE,          // interface
+            'StateChanged',          // signal name
+            DBUS_PATH,               // object path
+            null,                    // arg0 (any)
+            Gio.DBusSignalFlags.NONE,
+            (connection, sender, path, iface, signal, params) => {
+                const state = params.get_child_value(0).get_string()[0];
+                this._currentState = state;
+                this._updateIconState(state);
+                this._log(`State: ${state}`);
 
-        try {
-            const recCmd = [
-                'rec', '-q', '-r', '44100', '-c', '2', '-t', 'wav',
-                this._audioFile, 'trim', '0', '60'
-            ];
-            this._log(`Executing: ${recCmd.join(' ')}`);
-
-            this._recProcess = Gio.Subprocess.new(recCmd, Gio.SubprocessFlags.NONE);
-            this._log(`Recording started, PID: ${this._recProcess.get_identifier()}`);
-
-            this._recProcess.wait_async(null, (proc, result) => {
-                this._log('Recording process callback');
-                try {
-                    proc.wait_finish(result);
-                    if (this._recording) {
-                        this._recording = false;
-                        this._transcribeAndPaste();
-                    }
-                } catch (e) {
-                    this._log(`Recording error: ${e.message}`);
-                    this._recording = false;
+                // Clear error on success or new recording
+                if (state === 'SUCCESS' || state === 'RECORDING') {
+                    this._lastError = null;
                 }
-            });
+            }
+        );
+
+        // Listen for Error signals for detailed error messages
+        this._dbusErrorSubscriptionId = Gio.DBus.session.signal_subscribe(
+            null,
+            DBUS_INTERFACE,
+            'Error',
+            DBUS_PATH,
+            null,
+            Gio.DBusSignalFlags.NONE,
+            (connection, sender, path, iface, signal, params) => {
+                const errorMsg = params.get_child_value(0).get_string()[0];
+                this._lastError = errorMsg;
+                this._log(`Error: ${errorMsg}`);
+            }
+        );
+    }
+
+    _updateIconState(state) {
+        if (!this._icon) return;
+
+        switch (state) {
+            case 'RECORDING':
+                this._icon.style = 'color: #ff4444;';  // Red
+                break;
+            case 'TRANSCRIBING':
+                this._icon.style = 'color: #ffaa00;';  // Orange/Yellow
+                break;
+            case 'SUCCESS':
+                this._icon.style = 'color: #44ff44;';  // Green
+                // Reset to normal after 2 seconds
+                GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2000, () => {
+                    if (this._icon) this._icon.style = '';
+                    return GLib.SOURCE_REMOVE;
+                });
+                break;
+            case 'ERROR':
+                this._icon.style = 'color: #ff4444;';  // Red
+                // Reset to normal after 2 seconds
+                GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2000, () => {
+                    if (this._icon) this._icon.style = '';
+                    return GLib.SOURCE_REMOVE;
+                });
+                break;
+            case 'IDLE':
+            default:
+                this._icon.style = '';  // Default
+                break;
+        }
+    }
+
+    _launchWSI() {
+        try {
+            // Pass debug flag if enabled
+            const debugFlag = this._debugEnabled ? ' --debug' : '';
+            const command = GLib.get_home_dir() + '/.local/bin/wsi' + debugFlag;
+
+            this._log(`Launching: ${command}`);
+            GLib.spawn_command_line_async(command);
         } catch (e) {
-            this._log(`EXCEPTION: ${e.message}`);
-            this._recording = false;
+            this._lastError = e.message;
+            this._log(`Launch error: ${e.message}`);
             Main.notify('STT Error', e.message);
         }
     }
 
-    _stopRecording() {
-        this._log('=== _stopRecording() ===');
-
-        if (this._icon) {
-            this._icon.style = '';
-        }
-
-        if (!this._recProcess) {
-            this._log('No process');
-            this._recording = false;
-            return;
-        }
-
-        this._recording = false;
-
-        if (this._statusItem) {
-            this._statusItem.label.text = 'Status: Stopping...';
-        }
-
-        try {
-            this._recProcess.send_signal(2);
-            this._log('Sent SIGINT');
-
-            GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
-                this._log('Timeout - calling transcribe');
-                this._transcribeAndPaste();
-                return GLib.SOURCE_REMOVE;
-            });
-        } catch (e) {
-            this._log(`EXCEPTION: ${e.message}`);
-        }
-    }
-
-    _transcribeAndPaste() {
-        this._log('=== _transcribeAndPaste() ===');
-
-        if (!this._audioFile) {
-            this._log('No audio file');
-            return;
-        }
-
-        const audioFileObj = Gio.File.new_for_path(this._audioFile);
-        if (!audioFileObj.query_exists(null)) {
-            this._log('Audio file missing');
-            Main.notify('STT Error', 'Audio file not found');
-            return;
-        }
-
-        let fileSize = 0;
-        try {
-            const info = audioFileObj.query_info('standard::size', Gio.FileQueryInfoFlags.NONE, null);
-            fileSize = info.get_size();
-            this._log(`File size: ${fileSize} bytes`);
-        } catch(e) {}
-
-        if (this._statusItem) {
-            this._statusItem.label.text = 'Status: Ready';
-        }
-
-        // For now, just report success without transcribing to test the flow
-        Main.notify('Speech to Text', `Recording saved! ${fileSize} bytes. File: ${this._audioFile}`);
-        this._log('=== SKIPPING TRANSCRIPTION FOR TEST ===');
-
-        // Don't delete the file so we can test manually
-        // try { Gio.File.new_for_path(this._audioFile).delete(null); } catch(e) {}
-        this._audioFile = null;
-        this._recProcess = null;
-    }
-
-    _pasteText(text) {
-        this._log(`=== _pasteText("${text}") ===`);
-
-        try {
-            const wtypeProcess = Gio.Subprocess.new(['wtype', '--', text], Gio.SubprocessFlags.NONE);
-            wtypeProcess.wait(null);
-            if (wtypeProcess.get_exit_status() === 0) {
-                this._log('wtype succeeded');
-                return;
+    _ensureLogDirectory() {
+        const dir = Gio.File.new_for_path(this._logDir);
+        if (!dir.query_exists(null)) {
+            try {
+                dir.make_directory_with_parents(null);
+            } catch (e) {
+                // Silent fail - will be created by wsi script
             }
-        } catch (e) {
-            this._log(`wtype failed: ${e.message}`);
         }
+    }
+
+    _loadDebugSetting() {
+        if (this._settings) {
+            try {
+                this._debugEnabled = this._settings.get_boolean('debug-mode');
+                if (this._debugSwitch) {
+                    this._debugSwitch.setToggleState(this._debugEnabled);
+                }
+            } catch (e) {
+                this._debugEnabled = false;
+            }
+        }
+    }
+
+    _saveDebugSetting(enabled) {
+        if (this._settings) {
+            try {
+                this._settings.set_boolean('debug-mode', enabled);
+            } catch (e) {
+                // Setting may not exist yet
+            }
+        }
+    }
+
+    _log(message) {
+        if (!this._debugEnabled) return;
+
+        const timestamp = new Date().toISOString();
+        const logLine = `[${timestamp}] [EXT] ${message}\n`;
 
         try {
-            const wlcopyProcess = Gio.Subprocess.new(['wl-copy', '--', text], Gio.SubprocessFlags.NONE);
-            wlcopyProcess.wait(null);
-            this._log('wl-copy succeeded');
-            Main.notify('STT', 'Copied to clipboard (Ctrl+V)');
+            const file = Gio.File.new_for_path(this._logFile);
+            const stream = file.append_to(Gio.FileCreateFlags.NONE, null);
+            stream.write_all(logLine, null);
+            stream.close(null);
         } catch (e) {
-            this._log(`wl-copy failed: ${e.message}`);
+            // Silent fail for logging
+        }
+    }
+
+    _readRecentLogs(numLines = 10) {
+        try {
+            const file = Gio.File.new_for_path(this._logFile);
+            if (!file.query_exists(null)) {
+                return ['(no logs yet)'];
+            }
+
+            const [success, contents] = file.load_contents(null);
+            if (!success) return ['(cannot read log)'];
+
+            const text = new TextDecoder().decode(contents);
+            const lines = text.trim().split('\n');
+            return lines.slice(-numLines);
+        } catch (e) {
+            return [`(error: ${e.message})`];
+        }
+    }
+
+    _refreshLogDisplay() {
+        const recentLogs = this._readRecentLogs(5);
+        for (let i = 0; i < 5; i++) {
+            if (i < recentLogs.length) {
+                // Truncate long lines for display
+                let line = recentLogs[i];
+                if (line.length > 50) {
+                    line = line.substring(0, 47) + '...';
+                }
+                this._logLines[i].label.text = line;
+            } else {
+                this._logLines[i].label.text = '';
+            }
+        }
+    }
+
+    _updateStatusLabel() {
+        let statusText = `Status: ${this._currentState}`;
+        if (this._lastError) {
+            statusText += ` - ${this._lastError.substring(0, 30)}`;
+        }
+        this._statusLabel.label.text = statusText;
+
+        // Color-code based on state
+        switch (this._currentState) {
+            case 'RECORDING':
+                this._statusLabel.label.style = 'font-weight: bold; color: #ff4444;';
+                break;
+            case 'TRANSCRIBING':
+                this._statusLabel.label.style = 'font-weight: bold; color: #ffaa00;';
+                break;
+            case 'SUCCESS':
+                this._statusLabel.label.style = 'font-weight: bold; color: #44ff44;';
+                break;
+            case 'ERROR':
+                this._statusLabel.label.style = 'font-weight: bold; color: #ff4444;';
+                break;
+            default:
+                this._statusLabel.label.style = 'font-weight: bold;';
+        }
+    }
+
+    _openLogViewer() {
+        // Open log file with default text editor
+        try {
+            Gio.AppInfo.launch_default_for_uri(
+                'file://' + this._logFile,
+                null
+            );
+        } catch (e) {
+            // Fallback: open with gnome-text-editor
+            try {
+                GLib.spawn_command_line_async(`gnome-text-editor ${this._logFile}`);
+            } catch (e2) {
+                Main.notify('STT', `Cannot open log file: ${e2.message}`);
+            }
+        }
+    }
+
+    _clearLog() {
+        try {
+            const file = Gio.File.new_for_path(this._logFile);
+            if (file.query_exists(null)) {
+                file.delete(null);
+            }
+            this._log('Log cleared');
+            this._refreshLogDisplay();
+        } catch (e) {
+            Main.notify('STT', `Cannot clear log: ${e.message}`);
         }
     }
 }
