@@ -176,6 +176,15 @@ cleanup() {
 
 trap cleanup SIGINT SIGTERM
 
+# Kill any existing nested GNOME Shell sessions (but NOT the main session)
+echo "Checking for existing nested GNOME Shell sessions..."
+NESTED_PIDS=$(ps aux | grep 'gnome-shell --nested --wayland' | grep -v grep | awk '{print $2}')
+if [ -n "$NESTED_PIDS" ]; then
+    echo "Found existing nested sessions, killing: $NESTED_PIDS"
+    echo "$NESTED_PIDS" | xargs kill 2>/dev/null || true
+    sleep 1
+fi
+
 # Set resolution and launch nested GNOME Shell
 MUTTER_DEBUG_DUMMY_MODE_SPECS="${WIDTH}x${HEIGHT}" \
     dbus-run-session -- gnome-shell --nested --wayland &
