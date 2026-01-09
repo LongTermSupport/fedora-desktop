@@ -95,9 +95,9 @@ if [ -z "$WIDTH" ] || [ -z "$HEIGHT" ]; then
         DISPLAY_INFO=$(gdbus call --session \
             --dest org.gnome.Mutter.DisplayConfig \
             --object-path /org/gnome/Mutter/DisplayConfig \
-            --method org.gnome.Mutter.DisplayConfig.GetCurrentState 2>/dev/null || echo "")
+            --method org.gnome.Mutter.DisplayConfig.GetCurrentState 2>&1)
 
-        if [ -n "$DISPLAY_INFO" ]; then
+        if [ -n "$DISPLAY_INFO" ] && [[ ! "$DISPLAY_INFO" =~ "Error" ]]; then
             # Parse the complex DBus output - look for current mode dimensions
             # The output contains an array of monitors with modes like: (2560.0, 1600.0, 59.999...)
             # Extract the first double values representing width and height
@@ -110,7 +110,13 @@ if [ -z "$WIDTH" ] || [ -z "$HEIGHT" ]; then
                 WIDTH=$(echo "$WIDTH / $SCALING_FACTOR" | bc)
                 HEIGHT=$(echo "$HEIGHT / $SCALING_FACTOR" | bc)
                 echo "Detected via GNOME DisplayConfig: ${WIDTH}x${HEIGHT} (logical, after ${SCALING_FACTOR}x scaling)"
+            else
+                echo "DEBUG: gdbus returned data but couldn't parse resolution" >&2
+                echo "DEBUG: gdbus output: $DISPLAY_INFO" >&2
             fi
+        else
+            echo "DEBUG: gdbus failed or returned error" >&2
+            echo "DEBUG: output: $DISPLAY_INFO" >&2
         fi
     fi
 
