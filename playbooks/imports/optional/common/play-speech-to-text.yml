@@ -13,7 +13,7 @@
   name: Install Speech-to-Text Tools
   become: false
   vars:
-    root_dir: "{{ inventory_dir }}/../../}"
+    root_dir: "{{ inventory_dir }}/../.."
     sonori_version: "0.6.1"
     sonori_install_dir: "/opt/sonori"
     sonori_url: "https://github.com/0xPD33/sonori/releases/download/v{{ sonori_version }}/Sonori-{{ sonori_version }}-x86_64.AppImage"
