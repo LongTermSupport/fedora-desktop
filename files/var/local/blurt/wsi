@@ -280,7 +280,15 @@ set -e
 #============================================================================
 
 if [ "$VERBOSE" = true ]; then
-    log "Recording speech (stop after 3s silence or press CTRL+C)..."
+    log "Preparing microphone..."
+fi
+
+# Warm up sox/microphone with a short dummy recording
+# This ensures sox is initialized before actual recording starts
+rec -q -t wav /dev/null trim 0 0.1 2>/dev/null || true
+
+if [ "$VERBOSE" = true ]; then
+    log "🎤 Ready! Speak now (recording will stop after 3s silence)..."
 fi
 
 # Record audio with silence detection
