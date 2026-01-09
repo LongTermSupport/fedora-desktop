@@ -70,11 +70,22 @@ if [ -z "$WIDTH" ] || [ -z "$HEIGHT" ]; then
     # Detect display scaling factor first
     SCALING_FACTOR=1
     if command -v gsettings &>/dev/null; then
-        # Get GNOME scaling factor
-        SCALING_FACTOR=$(gsettings get org.gnome.desktop.interface scaling-factor 2>/dev/null | grep -oP '\d+' || echo "1")
+        # Get GNOME scaling factor - returns "uint32 X" format
+        SCALING_OUTPUT=$(gsettings get org.gnome.desktop.interface scaling-factor 2>/dev/null || echo "0")
+        # Extract just the number after "uint32 " or any whitespace
+        SCALING_FACTOR=$(echo "$SCALING_OUTPUT" | grep -oP '\d+$' || echo "1")
+
+        # Fallback: If scaling-factor is 0, try text-scaling-factor
         if [ -z "$SCALING_FACTOR" ] || [ "$SCALING_FACTOR" -eq 0 ]; then
             SCALING_FACTOR=1
+            # Check if fractional scaling is enabled
+            TEXT_SCALE=$(gsettings get org.gnome.desktop.interface text-scaling-factor 2>/dev/null || echo "1.0")
+            TEXT_SCALE_INT=$(echo "$TEXT_SCALE" | cut -d'.' -f1)
+            if [ "$TEXT_SCALE_INT" -ge 2 ]; then
+                SCALING_FACTOR=2
+            fi
         fi
+
         echo "Display scaling factor: ${SCALING_FACTOR}x"
     fi
 
