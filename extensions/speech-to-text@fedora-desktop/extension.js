@@ -253,6 +253,12 @@ export default class SpeechToTextExtension extends Extension {
 
     _launchWSI() {
         try {
+            // If currently recording, stop it instead of starting new
+            if (this._currentState === 'RECORDING') {
+                this._stopRecording();
+                return;
+            }
+
             // Pass debug flag if enabled
             const debugFlag = this._debugEnabled ? ' --debug' : '';
             const command = GLib.get_home_dir() + '/.local/bin/wsi' + debugFlag;
@@ -263,6 +269,30 @@ export default class SpeechToTextExtension extends Extension {
             this._lastError = e.message;
             this._log(`Launch error: ${e.message}`);
             Main.notify('STT Error', e.message);
+        }
+    }
+
+    _stopRecording() {
+        const pidFile = '/dev/shm/stt-recording-' + GLib.get_user_name() + '.pid';
+        this._log(`Stopping recording via PID file: ${pidFile}`);
+
+        try {
+            const file = Gio.File.new_for_path(pidFile);
+            if (file.query_exists(null)) {
+                const [success, contents] = file.load_contents(null);
+                if (success) {
+                    const pid = new TextDecoder().decode(contents).trim();
+                    this._log(`Killing PID: ${pid}`);
+                    GLib.spawn_command_line_async(`kill ${pid}`);
+                }
+            } else {
+                this._log('PID file not found, trying pkill fallback');
+                GLib.spawn_command_line_async('pkill -f "rec.*wfile"');
+            }
+        } catch (e) {
+            this._log(`Stop error: ${e.message}`);
+            // Fallback to pkill
+            GLib.spawn_command_line_async('pkill -f "rec.*wfile"');
         }
     }
 

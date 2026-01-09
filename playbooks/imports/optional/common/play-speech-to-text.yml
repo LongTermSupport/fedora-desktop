@@ -28,6 +28,7 @@
           - wtype
           - wl-clipboard
           - python3-pip
+          - zenity
         state: present
 
     # =========================================================================
@@ -83,17 +84,20 @@
         mode: '0644'
         content: |
           #!/usr/bin/env python3
-          """GPU-accelerated speech-to-text using faster-whisper"""
+          """GPU-accelerated speech-to-text using faster-whisper with streaming output"""
           import sys
           import os
           from faster_whisper import WhisperModel
 
           def main():
-              if len(sys.argv) < 2:
-                  print("Usage: faster-whisper-transcribe <audio-file>", file=sys.stderr)
+              stream_mode = '--stream' in sys.argv
+              args = [a for a in sys.argv[1:] if a != '--stream']
+
+              if len(args) < 1:
+                  print("Usage: faster-whisper-transcribe [--stream] <audio-file>", file=sys.stderr)
                   sys.exit(1)
 
-              audio_file = sys.argv[1]
+              audio_file = args[0]
               if not os.path.exists(audio_file):
                   print(f"Error: File not found: {audio_file}", file=sys.stderr)
                   sys.exit(1)
@@ -108,12 +112,26 @@
                   model = WhisperModel(model_size, device="cpu", compute_type="int8")
 
               segments, info = model.transcribe(audio_file, beam_size=5)
-              text = " ".join([segment.text.strip() for segment in segments])
 
-              if text:
-                  text = text[0].upper() + text[1:] if len(text) > 1 else text.upper()
-
-              print(text)
+              if stream_mode:
+                  # Stream segments as they arrive
+                  all_text = []
+                  for segment in segments:
+                      text = segment.text.strip()
+                      if text:
+                          all_text.append(text)
+                          print(text, flush=True)
+                  # Print final combined result on last line
+                  final = " ".join(all_text)
+                  if final:
+                      final = final[0].upper() + final[1:] if len(final) > 1 else final.upper()
+                      print(f"\n---FINAL---\n{final}", flush=True)
+              else:
+                  # Batch mode - collect all then output
+                  text = " ".join([segment.text.strip() for segment in segments])
+                  if text:
+                      text = text[0].upper() + text[1:] if len(text) > 1 else text.upper()
+                  print(text)
 
           if __name__ == "__main__":
               main()

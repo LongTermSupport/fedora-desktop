@@ -24,6 +24,12 @@ LOG_FILE="$LOG_DIR/debug.log"
 MAX_LOG_SIZE=1048576  # 1MB - rotate when exceeded
 
 #============================================================================
+# PID FILE FOR SIGNAL HANDLING
+#============================================================================
+PID_FILE="$TEMPD/stt-recording-$USER.pid"
+REC_PID=""
+
+#============================================================================
 # RUNTIME VARIABLES
 #============================================================================
 DEBUG=false
@@ -85,6 +91,8 @@ log_error() {
 # NOTIFICATION AND DBUS SIGNALING
 #============================================================================
 
+NOTIFICATION_ID=0
+
 notify_state() {
     local state="$1"
     local message="$2"
@@ -98,12 +106,69 @@ notify_state() {
         --signal "${DBUS_INTERFACE}.StateChanged" \
         "$state" 2>/dev/null &
 
-    # Send notification with stack tag for replacement
-    notify-send -i "$icon" \
-        -h "int:transient:1" \
-        -h "string:x-dunst-stack-tag:speech-to-text" \
-        "Speech to Text" "$message"
+    # Send notification via gdbus so we can replace it
+    # Using a fixed app name ensures replacement works
+    local result
+    result=$(gdbus call --session \
+        --dest org.freedesktop.Notifications \
+        --object-path /org/freedesktop/Notifications \
+        --method org.freedesktop.Notifications.Notify \
+        "speech-to-text" \
+        "$NOTIFICATION_ID" \
+        "$icon" \
+        "Speech to Text" \
+        "$message" \
+        '[]' \
+        '{}' \
+        3000 2>/dev/null) || true
+
+    # Extract notification ID for replacement
+    if [[ "$result" =~ \(uint32\ ([0-9]+),\) ]]; then
+        NOTIFICATION_ID="${BASH_REMATCH[1]}"
+    fi
 }
+
+#============================================================================
+# CLEANUP AND SIGNAL HANDLING
+#============================================================================
+
+STOP_REQUESTED=false
+
+cleanup() {
+    log_debug "Cleanup triggered"
+    # Remove PID file
+    rm -f "$PID_FILE"
+    # Signal idle state only if we're actually exiting (not just stopping recording)
+    if [ "$STOP_REQUESTED" = false ]; then
+        gdbus emit --session \
+            --object-path "$DBUS_PATH" \
+            --signal "${DBUS_INTERFACE}.StateChanged" \
+            "IDLE" 2>/dev/null &
+    fi
+}
+
+stop_recording() {
+    log_debug "Stop requested - sending SIGINT to rec process"
+    STOP_REQUESTED=true
+    # Send SIGINT (like Ctrl+C) so rec flushes audio buffers before exiting
+    if [ -n "$REC_PID" ] && kill -0 "$REC_PID" 2>/dev/null; then
+        log_debug "Sending SIGINT to rec process $REC_PID"
+        kill -INT "$REC_PID" 2>/dev/null
+        # Wait for rec to actually exit and flush buffers
+        for i in {1..20}; do
+            if ! kill -0 "$REC_PID" 2>/dev/null; then
+                log_debug "rec exited after ${i}0ms"
+                break
+            fi
+            sleep 0.1
+        done
+    fi
+}
+
+# Trap EXIT for final cleanup
+trap cleanup EXIT
+# Trap TERM/INT to stop recording but continue script
+trap 'stop_recording' TERM INT
 
 #============================================================================
 # UTILITY FUNCTIONS
@@ -314,27 +379,37 @@ set -e
 # SPEECH RECORDING
 #============================================================================
 
+# Write PID file so extension can stop us
+echo $$ > "$PID_FILE"
+log_debug "PID file written: $PID_FILE ($$)"
+
 log_debug "Preparing microphone..."
 
 # Warm up sox/microphone with a short dummy recording
 rec -q -t wav /dev/null trim 0 0.1 2>/dev/null || true
 
-log_debug "Ready! Speak now..."
+log_debug "Ready! Speak now... (press Insert again to stop)"
 
 # Notify user that recording has started
-notify_state "RECORDING" "Recording... (speak now)"
+notify_state "RECORDING" "Recording... (Insert to stop)"
 
 # Record audio with silence detection
 # - Record at 44100Hz (hardware native rate)
 # - silence 1 0.1 0.1%: Start recording after 0.1s above 0.1% threshold (very sensitive)
 # - 1 2.0 0.5%: Stop after 2.0 seconds below 0.5% threshold
 # - trim 0 30: Maximum 30 seconds (safety limit)
+# Run in background so we can capture PID and be killed cleanly
 
 if [ "$DEBUG" = true ]; then
-    rec -q -r 44100 -c 2 -t wav "$ramf" silence 1 0.1 0.1% 1 2.0 0.5% trim 0 30
+    rec -q -r 44100 -c 2 -t wav "$ramf" silence 1 0.1 0.1% 1 2.0 0.5% trim 0 30 &
 else
-    rec -q -r 44100 -c 2 -t wav "$ramf" silence 1 0.1 0.1% 1 2.0 0.5% trim 0 30 2>/dev/null
+    rec -q -r 44100 -c 2 -t wav "$ramf" silence 1 0.1 0.1% 1 2.0 0.5% trim 0 30 2>/dev/null &
 fi
+REC_PID=$!
+log_debug "rec started with PID $REC_PID"
+
+# Wait for recording to complete (or be killed)
+wait $REC_PID || true
 
 log_debug "Recording complete: $ramf"
 
@@ -376,6 +451,7 @@ log_debug "Starting transcription..."
 
 str=""
 whisper_exit=0
+transcribe_output="$TEMPD/stt-transcribe-$$"
 
 if [ -n "$IPnPORT" ]; then
     log_debug "Using whisper.cpp server: $IPnPORT"
@@ -391,28 +467,15 @@ if [ -n "$IPnPORT" ]; then
 
 elif command -v "$WHISPERFILE" &>/dev/null; then
     log_debug "Using faster-whisper: $(command -v "$WHISPERFILE")"
-
-    # Capture both stdout and stderr
-    whisper_stderr_file="/tmp/whisper_stderr_$$"
-
     log_debug "Running: $WHISPERFILE $ramf"
 
-    # Run with explicit error capture
+    # Run transcription (batch mode - fast enough that streaming display isn't needed)
     set +e  # Temporarily disable errexit
-    str="$("$WHISPERFILE" "$ramf" 2>"$whisper_stderr_file")"
+    str="$("$WHISPERFILE" "$ramf" 2>/dev/null)"
     whisper_exit=$?
     set -e  # Re-enable errexit
 
     log_debug "faster-whisper exit code: $whisper_exit"
-
-    # Log stderr if present
-    if [ -s "$whisper_stderr_file" ]; then
-        log_debug "faster-whisper output:"
-        while IFS= read -r line; do
-            log_debug "  $line"
-        done < "$whisper_stderr_file"
-    fi
-    rm -f "$whisper_stderr_file"
 
     if [ $whisper_exit -ne 0 ]; then
         log_error "faster-whisper failed with exit code $whisper_exit"
