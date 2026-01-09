@@ -7,7 +7,7 @@
   vars:
     root_dir: "{{ inventory_dir }}/../../"
     # Version configuration
-    displaylink_version: "v6.1.1-2"
+    displaylink_version: "v6.1.1-4"
     evdi_version: "1.14.11"
     # Set to true to bypass version check (use with caution)
     force_install: false
@@ -109,7 +109,8 @@
 
     - name: Install DisplayLink RPM
       ansible.builtin.dnf:
-        name: "https://github.com/displaylink-rpm/displaylink-rpm/releases/download/{{ displaylink_version }}/fedora-42-displaylink-{{ evdi_version }}-1.github_evdi.x86_64.rpm"
+      #  name: "https://github.com/displaylink-rpm/displaylink-rpm/releases/download/{{ displaylink_version }}/fedora-42-displaylink-{{ evdi_version }}-1.github_evdi.x86_64.rpm"
+        name: "https://github.com/displaylink-rpm/displaylink-rpm/releases/download/v6.1.1-4/fedora-42-displaylink-1.14.12-1.github_evdi.x86_64.rpm"
         disable_gpg_check: true
       register: displaylink_install
 
