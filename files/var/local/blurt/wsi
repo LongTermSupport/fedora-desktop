@@ -319,12 +319,12 @@ fi
 
 if [ "$DEBUG" = true ]; then
     # Show sox errors in debug mode
-    sox "$ramf" "${ramf}.16k" rate 16k
+    sox "$ramf" "${ramf}.resampled.wav" rate 16k
 else
-    # Show errors in verbose mode too (for troubleshooting)
-    sox "$ramf" "${ramf}.16k" rate 16k 2>&1 | grep -v "^$" || true
+    # Suppress sox output in normal mode
+    sox "$ramf" "${ramf}.resampled.wav" rate 16k 2>/dev/null
 fi
-mv "${ramf}.16k" "$ramf"
+mv "${ramf}.resampled.wav" "$ramf"
 
 # Check audio duration and pad if needed (whisper requires min 1 second)
 audio_duration=$(soxi -D "$ramf" 2>/dev/null | cut -d. -f1)
