@@ -63,88 +63,11 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-# If width/height not specified, detect screen size
+# If width/height not specified, use default
 if [ -z "$WIDTH" ] || [ -z "$HEIGHT" ]; then
-    echo "Detecting screen resolution..."
-
-    # Detect display scaling factor first
-    SCALING_FACTOR=1
-    if command -v gsettings &>/dev/null; then
-        # Get GNOME scaling factor - returns "uint32 X" format
-        SCALING_OUTPUT=$(gsettings get org.gnome.desktop.interface scaling-factor 2>/dev/null || echo "uint32 0")
-        # Extract just the number after "uint32 " using awk
-        SCALING_FACTOR=$(echo "$SCALING_OUTPUT" | awk '{print $NF}')
-
-        # Fallback: If scaling-factor is 0, try text-scaling-factor
-        if [ -z "$SCALING_FACTOR" ] || [ "$SCALING_FACTOR" -eq 0 ]; then
-            SCALING_FACTOR=1
-            # Check if fractional scaling is enabled
-            TEXT_SCALE=$(gsettings get org.gnome.desktop.interface text-scaling-factor 2>/dev/null || echo "1.0")
-            TEXT_SCALE_INT=$(echo "$TEXT_SCALE" | cut -d'.' -f1)
-            if [ "$TEXT_SCALE_INT" -ge 2 ]; then
-                SCALING_FACTOR=2
-            fi
-        fi
-
-        echo "Display scaling factor: ${SCALING_FACTOR}x"
-    fi
-
-    # Method 1: Try gdbus (GNOME Mutter DisplayConfig - most reliable on GNOME/Wayland)
-    if command -v gdbus &>/dev/null; then
-        # Query GNOME display configuration
-        DISPLAY_INFO=$(gdbus call --session \
-            --dest org.gnome.Mutter.DisplayConfig \
-            --object-path /org/gnome/Mutter/DisplayConfig \
-            --method org.gnome.Mutter.DisplayConfig.GetCurrentState 2>&1)
-
-        if [ -n "$DISPLAY_INFO" ] && [[ ! "$DISPLAY_INFO" =~ "Error" ]]; then
-            # Parse the complex DBus output - look for current mode dimensions
-            # Format: ('3072x1920@120.002', 3072, 1920, 120.001548..., ...)
-            # Extract the two integers after the mode string (width, height)
-            RESOLUTION=$(echo "$DISPLAY_INFO" | sed -n "s/.*'\([^']*\)', \([0-9]\+\), \([0-9]\+\),.*/\2,\3/p" | head -1)
-            if [ -n "$RESOLUTION" ]; then
-                WIDTH=$(echo "$RESOLUTION" | cut -d',' -f1)
-                HEIGHT=$(echo "$RESOLUTION" | cut -d',' -f2)
-                # Divide by scaling factor to get logical resolution
-                WIDTH=$(echo "$WIDTH / $SCALING_FACTOR" | bc)
-                HEIGHT=$(echo "$HEIGHT / $SCALING_FACTOR" | bc)
-                echo "Detected via GNOME DisplayConfig: ${WIDTH}x${HEIGHT} (logical, after ${SCALING_FACTOR}x scaling)"
-            fi
-        fi
-    fi
-
-    # Method 2: Try wlr-randr (Wayland)
-    if [ -z "$WIDTH" ] && command -v wlr-randr &>/dev/null; then
-        RESOLUTION=$(wlr-randr 2>/dev/null | grep -E '^[[:space:]]+[0-9]+x[0-9]+' | grep '\*' | head -1 | awk '{print $1}')
-        if [ -n "$RESOLUTION" ]; then
-            WIDTH=$(echo "$RESOLUTION" | cut -d'x' -f1)
-            HEIGHT=$(echo "$RESOLUTION" | cut -d'x' -f2)
-            # Apply scaling factor
-            WIDTH=$(echo "$WIDTH / $SCALING_FACTOR" | bc)
-            HEIGHT=$(echo "$HEIGHT / $SCALING_FACTOR" | bc)
-            echo "Detected via wlr-randr: ${WIDTH}x${HEIGHT} (logical, after ${SCALING_FACTOR}x scaling)"
-        fi
-    fi
-
-    # Method 3: Try xrandr (X11 fallback)
-    if [ -z "$WIDTH" ] && command -v xrandr &>/dev/null; then
-        RESOLUTION=$(xrandr 2>/dev/null | grep '\*' | head -1 | awk '{print $1}')
-        if [ -n "$RESOLUTION" ]; then
-            WIDTH=$(echo "$RESOLUTION" | cut -d'x' -f1)
-            HEIGHT=$(echo "$RESOLUTION" | cut -d'x' -f2)
-            # Apply scaling factor
-            WIDTH=$(echo "$WIDTH / $SCALING_FACTOR" | bc)
-            HEIGHT=$(echo "$HEIGHT / $SCALING_FACTOR" | bc)
-            echo "Detected via xrandr: ${WIDTH}x${HEIGHT} (logical, after ${SCALING_FACTOR}x scaling)"
-        fi
-    fi
-
-    # Fail fast if detection failed
-    if [ -z "$WIDTH" ] || [ -z "$HEIGHT" ]; then
-        echo "ERROR: Could not detect screen resolution" >&2
-        echo "Try running with explicit resolution: gshell-nested --res WIDTH HEIGHT" >&2
-        exit 1
-    fi
+    WIDTH=1920
+    HEIGHT=1080
+    echo "Using default resolution: ${WIDTH}x${HEIGHT}"
 
     # Calculate scaled size
     if [ "$SCALE" != "1.0" ]; then
