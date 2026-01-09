@@ -292,16 +292,16 @@ if [ "$VERBOSE" = true ]; then
 fi
 
 # Record audio with silence detection
-# - rate 16k: 16kHz sample rate (required by whisper)
+# - Record at 44100Hz (hardware native rate, matches gnome-sound-recorder)
 # - silence 1 0.1 3%: Start recording after 0.1s above 3% threshold
 # - 1 2.5 4%: Stop after 2.5 seconds below 4% threshold (balanced sensitivity)
 # - trim 0 30: Maximum 30 seconds (safety limit)
 if [ "$DEBUG" = true ]; then
     # Show full sox output in debug mode
-    rec -q -t wav "$ramf" rate 16k silence 1 0.1 3% 1 2.5 4% trim 0 30
+    rec -q -r 44100 -c 2 -t wav "$ramf" silence 1 0.1 3% 1 2.5 4% trim 0 30
 else
     # Suppress sox output in normal mode
-    rec -q -t wav "$ramf" rate 16k silence 1 0.1 3% 1 2.5 4% trim 0 30 2>/dev/null
+    rec -q -r 44100 -c 2 -t wav "$ramf" silence 1 0.1 3% 1 2.5 4% trim 0 30 2>/dev/null
 fi
 
 if [ "$VERBOSE" = true ]; then
@@ -311,6 +311,13 @@ if [ "$VERBOSE" = true ]; then
         log "Audio file size: $size"
     fi
 fi
+
+# Resample from 44100Hz to 16000Hz (whisper requirement)
+if [ "$VERBOSE" = true ]; then
+    log "Resampling audio from 44100Hz to 16000Hz..."
+fi
+sox "$ramf" "${ramf}.16k" rate 16k 2>/dev/null
+mv "${ramf}.16k" "$ramf"
 
 # Check audio duration and pad if needed (whisper requires min 1 second)
 audio_duration=$(soxi -D "$ramf" 2>/dev/null | cut -d. -f1)
