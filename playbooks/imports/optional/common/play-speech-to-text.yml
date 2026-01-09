@@ -4,10 +4,9 @@
 # Installs multiple STT tools optimized for different desktop environments
 #
 # Tools installed:
-# - Blurt: GNOME Shell extension (✅ Best for GNOME users)
+# - Speech-to-Text Extension: Custom GNOME extension with press-and-hold (✅ Best for GNOME users)
 # - Sonori: Wayland overlay app (⚠️  GNOME: CLI mode only)
 #
-# @see https://github.com/QuantiusBenignus/blurt
 # @see https://github.com/0xPD33/sonori
 - hosts: desktop
   name: Install Speech-to-Text Tools
@@ -17,7 +16,6 @@
     sonori_version: "0.6.1"
     sonori_install_dir: "/opt/sonori"
     sonori_url: "https://github.com/0xPD33/sonori/releases/download/v{{ sonori_version }}/Sonori-{{ sonori_version }}-x86_64.AppImage"
-    blurt_repo: "https://github.com/QuantiusBenignus/blurt.git"
     # Whisper model selection - can be overridden in host_vars/localhost.yml
     # Options: tiny.en (87MB), small.en (497MB), medium.en (1.83GB), large-v3 (3.39GB)
     whisper_model: "{{ whisper_model_size | default('medium.en') }}"
@@ -49,7 +47,6 @@
         is_kde: "{{ 'KDE' in desktop_env.stdout }}"
         has_nvidia: "{{ nvidia_check.rc == 0 }}"
         user_home: "{{ real_user_home.stdout }}"
-        blurt_extension_dir: "{{ real_user_home.stdout }}/.local/share/gnome-shell/extensions/blurt@quantiusbenignus.local"
 
     # =========================================================================
     # Install Common Dependencies
@@ -123,37 +120,51 @@
       when: is_gnome
 
     # =========================================================================
-    # Install Blurt GNOME Extension (GNOME only)
+    # Install Speech-to-Text GNOME Extension (GNOME only)
     # =========================================================================
 
-    - name: Clone Blurt Repository
-      ansible.builtin.git:
-        repo: "{{ blurt_repo }}"
-        dest: "/tmp/blurt"
-        version: main
-        force: true
+    - name: Install wtype for Wayland Auto-Paste
+      become: true
+      ansible.builtin.package:
+        name: wtype
+        state: present
       when: is_gnome
 
-    - name: Create GNOME Extensions Directory
-      ansible.builtin.file:
-        path: "{{ blurt_extension_dir }}"
-        state: directory
-        mode: "0755"
-      when: is_gnome
-
-    - name: Install Blurt Extension Files
-      ansible.builtin.shell: |
-        # Extension files are in repo root, copy specific files/dirs
-        cd /tmp/blurt
-        cp -r extension.js metadata.json prefs.js stylesheet.css resources schemas {{ blurt_extension_dir }}/
-      when: is_gnome
-      changed_when: true
-
-    - name: Install Enhanced WSI Script (Blurt Orchestrator with Debug Support)
+    - name: Install Enhanced WSI Script (Debug Tool)
       ansible.builtin.copy:
         src: "{{ root_dir }}/files/var/local/blurt/wsi"
         dest: "{{ user_home }}/.local/bin/wsi"
         mode: "0755"
+      when: is_gnome
+
+    - name: Install WSI Transcribe Helper (Extension Backend)
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/wsi-transcribe"
+        dest: "{{ user_home }}/.local/bin/wsi-transcribe"
+        mode: "0755"
+      when: is_gnome
+
+    - name: Create Speech-to-Text Extension Directory
+      ansible.builtin.file:
+        path: "{{ user_home }}/.local/share/gnome-shell/extensions/speech-to-text@fedora-desktop"
+        state: directory
+        mode: "0755"
+      when: is_gnome
+
+    - name: Install Speech-to-Text Extension Files
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/share/gnome-shell/extensions/speech-to-text@fedora-desktop/{{ item }}"
+        dest: "{{ user_home }}/.local/share/gnome-shell/extensions/speech-to-text@fedora-desktop/{{ item }}"
+        mode: "0644"
+      loop:
+        - metadata.json
+        - extension.js
+      when: is_gnome
+
+    - name: Remove Old Blurt Extension (if exists)
+      ansible.builtin.file:
+        path: "{{ user_home }}/.local/share/gnome-shell/extensions/blurt@quantiusbenignus.local"
+        state: absent
       when: is_gnome
 
     # Note: Cannot enable extension until GNOME Shell is restarted
@@ -230,13 +241,14 @@
           - "Desktop Environment: {{ desktop_env.stdout }}"
           - "GPU: {{ 'NVIDIA' if has_nvidia else 'Integrated (Mesa)' }}"
           - ""
-          - "{% if is_gnome %}✅ BLURT - GNOME Shell Extension (RECOMMENDED){% endif %}"
+          - "{% if is_gnome %}✅ SPEECH-TO-TEXT Extension - Press-and-Hold Recording{% endif %}"
           - "{% if is_gnome %}──────────────────────────────────────────────────────────────{% endif %}"
-          - "{% if is_gnome %}   • Keyboard shortcut: CTRL+ALT+A (default){% endif %}"
+          - "{% if is_gnome %}   • Press and HOLD Insert key to record{% endif %}"
+          - "{% if is_gnome %}   • Release Insert key to transcribe and auto-paste{% endif %}"
           - "{% if is_gnome %}   • Works in ANY text input field{% endif %}"
           - "{% if is_gnome %}   • Fully offline - no cloud services{% endif %}"
           - "{% if is_gnome %}   • Backend: whisperfile ({{ whisper_model }} model){% endif %}"
-          - "{% if is_gnome %}   • Extension location: ~/.local/share/gnome-shell/extensions/{% endif %}"
+          - "{% if is_gnome %}   • Extension: speech-to-text@fedora-desktop{% endif %}"
           - "{% if is_gnome %}   • NOT ENABLED YET - see Quick Start below{% endif %}"
           - "{% if is_gnome %}{% endif %}"
           - "✅ SONORI - Wayland Speech-to-Text App"
@@ -254,28 +266,29 @@
           - "{% if is_gnome %}   • whisperfile (portable llamafile in ~/.local/bin){% endif %}"
           - "   • Audio: pipewire, sox"
           - "   • Clipboard: xsel (X11), wl-copy (Wayland)"
+          - "{% if is_gnome %}   • Auto-paste: wtype (Wayland){% endif %}"
           - "   • GPU: Vulkan runtime{% if has_nvidia %} + NVIDIA drivers{% endif %}"
           - ""
-          - "🎤 Quick Start (Blurt):"
+          - "🎤 Quick Start (Speech-to-Text Extension):"
           - "{% if is_gnome %}   1. REQUIRED: Restart GNOME Shell first{% endif %}"
           - "{% if is_gnome %}      → Press ALT+F2, type 'r', press ENTER{% endif %}"
           - "{% if is_gnome %}      → Or log out and log back in{% endif %}"
           - "{% if is_gnome %}   2. Test manually first (optional but recommended):{% endif %}"
-          - "{% if is_gnome %}      → Run: ~/.local/bin/wsi -d{% endif %}"
+          - "{% if is_gnome %}      → Run: ~/.local/bin/wsi -v{% endif %}"
           - "{% if is_gnome %}      → Speak for 2-3 seconds, then stop and wait{% endif %}"
-          - "{% if is_gnome %}      → Should show dependencies, recording, and transcribed text{% endif %}"
-          - "{% if is_gnome %}   3. Enable Blurt extension:{% endif %}"
+          - "{% if is_gnome %}      → Should show recording, transcription, and paste to clipboard{% endif %}"
+          - "{% if is_gnome %}   3. Enable Speech-to-Text extension:{% endif %}"
           - "{% if is_gnome %}      → Open Extensions app (search in Activities){% endif %}"
-          - "{% if is_gnome %}      → Toggle Blurt ON{% endif %}"
-          - "{% if is_gnome %}      → Or run: gnome-extensions enable blurt@quantiusbenignus.local{% endif %}"
+          - "{% if is_gnome %}      → Toggle Speech-to-Text ON{% endif %}"
+          - "{% if is_gnome %}      → Or run: gnome-extensions enable speech-to-text@fedora-desktop{% endif %}"
           - "{% if is_gnome %}   4. Click any text field{% endif %}"
-          - "{% if is_gnome %}   5. Press CTRL+ALT+A and speak{% endif %}"
-          - "{% if is_gnome %}   6. Text appears automatically when you stop speaking{% endif %}"
+          - "{% if is_gnome %}   5. Press and HOLD Insert key while speaking{% endif %}"
+          - "{% if is_gnome %}   6. Release Insert key - text auto-pastes immediately{% endif %}"
           - "{% if not is_gnome %}   • Launch: sonori (from Applications or terminal){% endif %}"
           - "{% if not is_gnome %}   • Floating overlay will appear{% endif %}"
           - ""
           - "⚙️  Model Downloads:"
-          - "{% if is_gnome %}   • Blurt: Embedded in whisperfile ({{ whisper_model }}){% endif %}"
+          - "{% if is_gnome %}   • Speech-to-Text Extension: Embedded in whisperfile ({{ whisper_model }}){% endif %}"
           - "   • Sonori: Downloads small.en model on first run (~500MB)"
           - ""
           - "🔍 GPU Verification:"
@@ -284,23 +297,25 @@
           - "{% if has_nvidia %}   • Ensure NVIDIA Vulkan drivers: play-nvidia.yml{% endif %}"
           - ""
           - "⚙️  Configuration Options:"
-          - "{% if is_gnome %}   • Change Blurt model: Set whisper_model_size in host_vars/localhost.yml{% endif %}"
+          - "{% if is_gnome %}   • Change whisper model: Set whisper_model_size in host_vars/localhost.yml{% endif %}"
           - "{% if is_gnome %}     Options: tiny.en (87MB), small.en (497MB), medium.en (1.83GB), large-v3 (3.39GB){% endif %}"
           - "{% if is_gnome %}     Default: medium.en{% endif %}"
+          - "{% if is_gnome %}   • Change key binding: Modify extension code (currently Insert key){% endif %}"
           - ""
           - "📚 More Information:"
-          - "   • Blurt: https://github.com/QuantiusBenignus/blurt"
+          - "   • Extension: Custom speech-to-text@fedora-desktop"
           - "   • Sonori: https://github.com/0xPD33/sonori"
           - "   • Whisper.cpp: https://github.com/ggml-org/whisper.cpp"
           - ""
           - "💡 Troubleshooting:"
-          - "{% if is_gnome %}   • Blurt not working? Test manually: ~/.local/bin/wsi -d{% endif %}"
-          - "{% if is_gnome %}   • Debug mode shows: dependencies, versions, full error output{% endif %}"
+          - "{% if is_gnome %}   • Extension not working? Test manually: ~/.local/bin/wsi -v{% endif %}"
+          - "{% if is_gnome %}   • Verbose mode shows: recording, resampling, transcription, clipboard{% endif %}"
           - "{% if is_gnome %}   • Microphone not recording? Test with: gnome-sound-recorder{% endif %}"
           - "{% if is_gnome %}     - If Sound Recorder shows flat line, check: Settings → Sound → Input{% endif %}"
           - "{% if is_gnome %}     - Check mic not muted (hardware button), volume at 100%{% endif %}"
-          - "{% if is_gnome %}   • Check GNOME Shell logs: journalctl /usr/bin/gnome-shell --since '5 min ago' | grep -i blurt{% endif %}"
+          - "{% if is_gnome %}   • Check GNOME Shell logs: journalctl /usr/bin/gnome-shell --since '5 min ago' | grep -i speech{% endif %}"
           - "{% if is_gnome %}   • Test whisperfile: ~/.local/bin/whisperfile --help{% endif %}"
+          - "{% if is_gnome %}   • Auto-paste not working? Install wtype: sudo dnf install wtype{% endif %}"
           - "   • Sonori overlay crash on GNOME? Use: sonori --cli"
           - "   • Missing Sonori models? Check ~/.cache/sonori/"
           - ""

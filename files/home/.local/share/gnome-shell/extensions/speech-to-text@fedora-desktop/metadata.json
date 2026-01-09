@@ -1,0 +1,13 @@
+{
+  "name": "Speech to Text",
+  "description": "Toggle speech-to-text recording with Insert key. Records audio, transcribes with Whisper, and auto-pastes.",
+  "uuid": "speech-to-text@fedora-desktop",
+  "shell-version": [
+    "45",
+    "46",
+    "47",
+    "48"
+  ],
+  "version": 1,
+  "url": "https://github.com/LongTermSupport/fedora-desktop"
+}
