@@ -1,0 +1,447 @@
+#!/usr/bin/bash
+# Enhanced WSI (Whisper Speech Input) Script
+# Speech-to-text orchestrator for Blurt GNOME extension
+# Based on: https://github.com/QuantiusBenignus/blurt
+# Enhanced with comprehensive debugging and sanity checks
+
+#============================================================================
+# USER CONFIGURATION
+#============================================================================
+# Store temp files in memory for speed and to reduce SSD/HDD grinding
+TEMPD='/dev/shm'
+# Hardcoded temp wav file to store the voice memo (in RAM, gets overwritten)
+ramf="$TEMPD/wfile-$USER"
+# Use transcribe symlink (points to whisperfile with embedded model)
+WHISPERFILE="transcribe"
+# Fallback model path (not used with whisperfile, but prevents errors)
+model="$HOME/.local/share/ggml-base.en.bin"
+# Processing threads (half of CPU cores for optimal performance)
+NTHR=$(( $(getconf _NPROCESSORS_ONLN) / 2 ))
+# Clipboard selection (PRIMARY by default, CLIPBOARD if -c flag used)
+CLIPBOARD=false
+# Whisper.cpp server hostname and port (used with -n flag)
+WHOST="127.0.0.1"
+WPORT="58080"
+
+#============================================================================
+# RUNTIME VARIABLES
+#============================================================================
+DEBUG=false
+VERBOSE=false
+IPnPORT=""
+
+#============================================================================
+# UTILITY FUNCTIONS
+#============================================================================
+
+log() {
+    echo "[WSI] $*" >&2
+}
+
+log_debug() {
+    if [ "$DEBUG" = true ] || [ "$VERBOSE" = true ]; then
+        echo "[DEBUG] $*" >&2
+    fi
+}
+
+log_error() {
+    echo "[ERROR] $*" >&2
+}
+
+print_banner() {
+    cat >&2 <<'EOF'
+┌─────────────────────────────────────────────────────────────────┐
+│  WSI - Whisper Speech Input v2.0 (Enhanced)                    │
+│  Speech-to-text orchestrator for Blurt GNOME extension         │
+└─────────────────────────────────────────────────────────────────┘
+EOF
+}
+
+check_command() {
+    local cmd="$1"
+    local package="$2"
+    local purpose="$3"
+
+    if command -v "$cmd" &>/dev/null; then
+        local version=""
+        case "$cmd" in
+            sox)
+                version=$(sox --version 2>&1 | head -1)
+                ;;
+            curl)
+                version=$(curl --version 2>&1 | head -1)
+                ;;
+            *)
+                version="(installed)"
+                ;;
+        esac
+        log_debug "✓ $cmd: $version"
+        return 0
+    else
+        log_error "✗ $cmd: NOT FOUND"
+        log_error "  Purpose: $purpose"
+        log_error "  Install: sudo dnf install $package"
+        return 1
+    fi
+}
+
+check_dependencies() {
+    log "Checking dependencies..."
+    local failed=0
+
+    # Essential tools
+    check_command "sox" "sox" "Audio recording and silence detection" || ((failed++))
+    check_command "curl" "curl" "HTTP requests to whisper.cpp server" || ((failed++))
+
+    # Detect Wayland vs X11
+    local wm="${XDG_SESSION_TYPE:-unknown}"
+    log_debug "Window manager: $wm"
+
+    if [[ "$wm" == "wayland" ]]; then
+        check_command "wl-copy" "wl-clipboard" "Clipboard management (Wayland)" || ((failed++))
+    elif [[ "$wm" == "x11" ]]; then
+        check_command "xsel" "xsel" "Clipboard management (X11)" || ((failed++))
+    else
+        log_error "✗ Unknown window manager: $wm"
+        ((failed++))
+    fi
+
+    # Check for whisperfile or transcribe
+    if command -v "$WHISPERFILE" &>/dev/null; then
+        local whisperfile_path=$(command -v "$WHISPERFILE")
+        local whisperfile_size=$(du -h "$whisperfile_path" 2>/dev/null | cut -f1)
+        log_debug "✓ whisperfile: $whisperfile_path ($whisperfile_size)"
+
+        # Test whisperfile execution
+        if [ "$DEBUG" = true ]; then
+            log_debug "Testing whisperfile help output..."
+            if timeout 5 "$WHISPERFILE" --help &>/dev/null; then
+                log_debug "✓ whisperfile executable test: PASSED"
+            else
+                log_error "✗ whisperfile executable test: FAILED (timeout or error)"
+                ((failed++))
+            fi
+        fi
+    else
+        log_error "✗ whisperfile/transcribe: NOT FOUND in PATH"
+        log_error "  Expected: ~/.local/bin/transcribe -> ~/.local/bin/whisperfile"
+        log_error "  Install: ansible-playbook playbooks/imports/optional/common/play-speech-to-text.yml"
+        ((failed++))
+    fi
+
+    # Check temp directory
+    if [ -d "$TEMPD" ] && [ -w "$TEMPD" ]; then
+        log_debug "✓ Temp directory: $TEMPD (writable)"
+    else
+        log_error "✗ Temp directory: $TEMPD (not writable)"
+        ((failed++))
+    fi
+
+    # Check microphone access
+    if [ "$DEBUG" = true ]; then
+        log_debug "Testing microphone access..."
+        if timeout 2 rec -n channels 1 rate 16k trim 0 0.1 /dev/null 2>/dev/null; then
+            log_debug "✓ Microphone: accessible"
+        else
+            log_error "✗ Microphone: not accessible or no input detected"
+            log_error "  Check: pavucontrol (PulseAudio/Pipewire mixer)"
+            ((failed++))
+        fi
+    fi
+
+    if [ $failed -gt 0 ]; then
+        log_error "Dependency check failed: $failed errors found"
+        return 1
+    fi
+
+    log "✓ All dependencies satisfied"
+    return 0
+}
+
+print_config() {
+    cat >&2 <<EOF
+Configuration:
+  Temp directory:     $TEMPD
+  Temp audio file:    $ramf
+  Whisperfile:        $WHISPERFILE ($(command -v "$WHISPERFILE" 2>/dev/null || echo "NOT FOUND"))
+  Processing threads: $NTHR
+  Clipboard mode:     $([ "$CLIPBOARD" = true ] && echo "CLIPBOARD" || echo "PRIMARY")
+  Window manager:     ${XDG_SESSION_TYPE:-unknown}
+EOF
+}
+
+usage() {
+    cat >&2 <<'EOF'
+Usage: wsi [OPTIONS]
+
+Options:
+  -c, --clipboard     Use CLIPBOARD instead of PRIMARY selection
+  -n, --netapi        Use whisper.cpp server (host:port from config)
+  -d, --debug         Enable debug mode (verbose output + dependency checks)
+  -v, --verbose       Enable verbose output only
+  -h, --help          Show this help message
+
+  IP:PORT             Use whisper.cpp server at specific address
+
+Examples:
+  wsi                 # Record speech and transcribe locally
+  wsi -d              # Debug mode with full diagnostics
+  wsi -c              # Use CLIPBOARD instead of PRIMARY
+  wsi 192.168.1.5:8080  # Use remote whisper.cpp server
+
+Environment:
+  XDG_SESSION_TYPE    Detected automatically (x11/wayland)
+  TEMPD               Temp directory (default: /dev/shm)
+  WHISPERFILE         Transcribe command (default: transcribe)
+
+Files:
+  ~/.local/bin/transcribe     Symlink to whisperfile
+  ~/.local/bin/whisperfile    Mozilla llamafile with embedded model
+  /dev/shm/wfile-$USER        Temporary audio recording
+
+Notes:
+  - Recording stops after 2 seconds of silence (5% threshold)
+  - Press CTRL+C to force-stop recording
+  - Text appears in PRIMARY selection (middle-click paste)
+  - Use -c flag for CLIPBOARD (CTRL+V paste)
+EOF
+}
+
+#============================================================================
+# COMMAND LINE ARGUMENT PARSING
+#============================================================================
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -c|--clipboard)
+            CLIPBOARD=true
+            log_debug "Clipboard mode: CLIPBOARD"
+            shift
+            ;;
+        -d|--debug)
+            DEBUG=true
+            VERBOSE=true
+            log_debug "Debug mode enabled"
+            shift
+            ;;
+        -v|--verbose)
+            VERBOSE=true
+            log_debug "Verbose mode enabled"
+            shift
+            ;;
+        -n|--netapi)
+            IPnPORT="$WHOST:$WPORT"
+            if [[ "$(curl -s -f -o /dev/null -w '%{http_code}' "$IPnPORT" 2>/dev/null)" != "200" ]]; then
+                log_error "Can't connect to whisper.cpp server at $IPnPORT"
+                exit 1
+            fi
+            log_debug "Using whisper.cpp server: $IPnPORT"
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            # Assume it's IP:PORT for whisper.cpp server
+            IPnPORT="$1"
+            if [[ "$(curl -s -f -o /dev/null -w '%{http_code}' "$IPnPORT" 2>/dev/null)" != "200" ]]; then
+                log_error "Can't connect to whisper.cpp server at $IPnPORT"
+                exit 1
+            fi
+            log_debug "Using whisper.cpp server: $IPnPORT"
+            shift
+            ;;
+    esac
+done
+
+#============================================================================
+# DEBUG MODE INITIALIZATION
+#============================================================================
+
+if [ "$DEBUG" = true ]; then
+    print_banner
+    print_config
+    echo "" >&2
+    check_dependencies || exit 1
+    echo "" >&2
+    log "Starting speech recording with full debugging..."
+    # Enable bash tracing for the rest of the script
+    set -x
+fi
+
+#============================================================================
+# FAIL FAST
+#============================================================================
+set -e
+
+#============================================================================
+# SPEECH RECORDING
+#============================================================================
+
+if [ "$VERBOSE" = true ]; then
+    log "Recording speech (stop after 2s silence or press CTRL+C)..."
+fi
+
+# Record audio with silence detection
+# - rate 16k: 16kHz sample rate (required by whisper)
+# - silence 1 0.1 1%: Start recording after 0.1s above 1% threshold
+# - 1 2.0 5%: Stop after 2 seconds below 5% threshold
+if [ "$DEBUG" = true ]; then
+    # Show full sox output in debug mode
+    rec -q -t wav "$ramf" rate 16k silence 1 0.1 1% 1 2.0 5%
+else
+    # Suppress sox output in normal mode
+    rec -q -t wav "$ramf" rate 16k silence 1 0.1 1% 1 2.0 5% 2>/dev/null
+fi
+
+if [ "$VERBOSE" = true ]; then
+    log "Recording complete: $ramf"
+    if [ -f "$ramf" ]; then
+        local size=$(du -h "$ramf" 2>/dev/null | cut -f1)
+        log "Audio file size: $size"
+    fi
+fi
+
+#============================================================================
+# SPEECH TRANSCRIPTION
+#============================================================================
+
+if [ "$VERBOSE" = true ]; then
+    log "Transcribing speech..."
+fi
+
+str=""
+
+if [ -n "$IPnPORT" ]; then
+    # Use whisper.cpp server
+    if [ "$VERBOSE" = true ]; then
+        log "Using whisper.cpp server: $IPnPORT"
+    fi
+
+    str=$(curl -S -s "$IPnPORT/inference" \
+        -H "Content-Type: multipart/form-data" \
+        -F file="@$ramf" \
+        -F temperature="0.0" \
+        -F temperature_inc="0.2" \
+        -F response_format="text")
+
+elif command -v "$WHISPERFILE" &>/dev/null; then
+    # Use whisperfile (with embedded model)
+    if [ "$VERBOSE" = true ]; then
+        log "Using whisperfile: $(command -v "$WHISPERFILE")"
+    fi
+
+    if [ "$DEBUG" = true ]; then
+        # Show full whisperfile output in debug mode
+        str="$("$WHISPERFILE" -t "$NTHR" -nt -f "$ramf")"
+    else
+        # Suppress whisperfile output in normal mode
+        str="$("$WHISPERFILE" -t "$NTHR" -nt -f "$ramf" 2>/dev/null)"
+    fi
+else
+    # Fallback to standalone whisper.cpp (should not happen)
+    log_error "No transcription backend available!"
+    log_error "Expected: $WHISPERFILE command in PATH"
+    exit 1
+fi
+
+if [ "$VERBOSE" = true ]; then
+    log "Raw transcription: '$str'"
+fi
+
+#============================================================================
+# TEXT POST-PROCESSING
+#============================================================================
+
+# Remove non-speech artifacts detected by Whisper
+# (wind blowing), [background noise], etc.
+str="${str/\(*\)}"
+str="${str/\[*\]}"
+
+# Remove leading newlines
+str="${str#$'\n'}"
+str="${str#$'\n'}"
+
+# Remove leading whitespace and capitalize first letter
+if [ -n "$BASH_VERSION" ]; then
+    # Bash-specific: extended pattern matching
+    shopt -s extglob
+    str="${str##+([[:space:]])}"
+    str="${str^}"
+else
+    # POSIX fallback
+    str="${str##+([[:space:]])}"
+fi
+
+if [ -z "$str" ]; then
+    log_error "No transcription result (empty string)"
+    if [ "$VERBOSE" = true ]; then
+        log "Possible causes:"
+        log "  - No speech detected in recording"
+        log "  - Background noise too high"
+        log "  - Microphone not working"
+        log "  - Whisperfile transcription failed"
+    fi
+    exit 1
+fi
+
+if [ "$VERBOSE" = true ]; then
+    log "Cleaned transcription: '$str'"
+fi
+
+#============================================================================
+# CLIPBOARD OUTPUT
+#============================================================================
+
+# Check if running in a graphics environment
+if [[ -z "${DISPLAY}" ]] && [[ -z "${WAYLAND_DISPLAY}" ]] && [[ -z "${DESKTOP_SESSION}" ]]; then
+    # Not in graphics environment, output to stdout
+    echo "$str"
+    exit 0
+fi
+
+# Detect window manager
+wm="${XDG_SESSION_TYPE:-unknown}"
+
+# Send to clipboard
+case "$wm" in
+    "x11")
+        if [ "$CLIPBOARD" = true ]; then
+            echo "$str" | xsel -ib
+            if [ "$VERBOSE" = true ]; then
+                log "✓ Text sent to CLIPBOARD (paste with CTRL+V)"
+            fi
+        else
+            echo "$str" | xsel -ip
+            if [ "$VERBOSE" = true ]; then
+                log "✓ Text sent to PRIMARY selection (paste with middle-click)"
+            fi
+        fi
+        ;;
+    "wayland")
+        if [ "$CLIPBOARD" = true ]; then
+            echo "$str" | wl-copy
+            if [ "$VERBOSE" = true ]; then
+                log "✓ Text sent to CLIPBOARD (paste with CTRL+V)"
+            fi
+        else
+            echo "$str" | wl-copy -p
+            if [ "$VERBOSE" = true ]; then
+                log "✓ Text sent to PRIMARY selection (paste with middle-click)"
+            fi
+        fi
+        ;;
+    *)
+        # Unknown window manager, output to stdout
+        log_error "Unknown window manager: $wm"
+        echo "$str"
+        ;;
+esac
+
+if [ "$DEBUG" = true ]; then
+    log "WSI completed successfully"
+    set +x
+fi
+
+exit 0

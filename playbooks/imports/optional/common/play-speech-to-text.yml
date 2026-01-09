@@ -139,29 +139,11 @@
       when: is_gnome
       changed_when: true
 
-    - name: Install WSI Script (Blurt Orchestrator)
+    - name: Install Enhanced WSI Script (Blurt Orchestrator with Debug Support)
       ansible.builtin.copy:
-        src: "/tmp/blurt/wsi"
+        src: "{{ root_dir }}/files/var/local/blurt/wsi"
         dest: "{{ user_home }}/.local/bin/wsi"
         mode: "0755"
-      when: is_gnome
-
-    - name: Configure WSI Script for Whisperfile
-      ansible.builtin.lineinfile:
-        path: "{{ user_home }}/.local/bin/wsi"
-        regexp: "{{ item.regexp }}"
-        line: "{{ item.line }}"
-        backrefs: "{{ item.backrefs | default(false) }}"
-      loop:
-        # Change shebang from zsh to bash for compatibility
-        - regexp: '^#!/usr/bin/zsh'
-          line: '#!/usr/bin/bash'
-        # Enable whisperfile mode (uncomment and set to transcribe symlink)
-        - regexp: '^#WHISPERFILE='
-          line: 'WHISPERFILE="transcribe"  #Configured by playbook to use ~/.local/bin/transcribe'
-        # Fix the broken model path (won't be used with whisperfile, but prevents errors)
-        - regexp: '^model="\$HOME/CHANGE_PATH_TO'
-          line: 'model="$HOME/.local/share/ggml-base.en.bin"  #Fallback, not used with whisperfile'
       when: is_gnome
 
     # Note: Cannot enable extension until GNOME Shell is restarted
@@ -268,13 +250,17 @@
           - "{% if is_gnome %}   1. REQUIRED: Restart GNOME Shell first{% endif %}"
           - "{% if is_gnome %}      → Press ALT+F2, type 'r', press ENTER{% endif %}"
           - "{% if is_gnome %}      → Or log out and log back in{% endif %}"
-          - "{% if is_gnome %}   2. Enable Blurt extension:{% endif %}"
+          - "{% if is_gnome %}   2. Test manually first (optional but recommended):{% endif %}"
+          - "{% if is_gnome %}      → Run: ~/.local/bin/wsi -d{% endif %}"
+          - "{% if is_gnome %}      → Speak for 2-3 seconds, then stop and wait{% endif %}"
+          - "{% if is_gnome %}      → Should show dependencies, recording, and transcribed text{% endif %}"
+          - "{% if is_gnome %}   3. Enable Blurt extension:{% endif %}"
           - "{% if is_gnome %}      → Open Extensions app (search in Activities){% endif %}"
           - "{% if is_gnome %}      → Toggle Blurt ON{% endif %}"
           - "{% if is_gnome %}      → Or run: gnome-extensions enable blurt@quantiusbenignus.local{% endif %}"
-          - "{% if is_gnome %}   3. Click any text field{% endif %}"
-          - "{% if is_gnome %}   4. Press CTRL+ALT+A and speak{% endif %}"
-          - "{% if is_gnome %}   5. Text appears automatically when you stop speaking{% endif %}"
+          - "{% if is_gnome %}   4. Click any text field{% endif %}"
+          - "{% if is_gnome %}   5. Press CTRL+ALT+A and speak{% endif %}"
+          - "{% if is_gnome %}   6. Text appears automatically when you stop speaking{% endif %}"
           - "{% if not is_gnome %}   • Launch: sonori (from Applications or terminal){% endif %}"
           - "{% if not is_gnome %}   • Floating overlay will appear{% endif %}"
           - ""
@@ -298,9 +284,10 @@
           - "   • Whisper.cpp: https://github.com/ggml-org/whisper.cpp"
           - ""
           - "💡 Troubleshooting:"
-          - "{% if is_gnome %}   • Blurt not working? Check Extensions app is installed{% endif %}"
-          - "{% if is_gnome %}   • Still issues? Check: journalctl -f /usr/bin/gnome-shell{% endif %}"
-          - "{% if is_gnome %}   • whisperfile errors? Run manually: ~/.local/bin/whisperfile --help{% endif %}"
+          - "{% if is_gnome %}   • Blurt not working? Test manually: ~/.local/bin/wsi -d{% endif %}"
+          - "{% if is_gnome %}   • Debug mode shows: dependencies, versions, full error output{% endif %}"
+          - "{% if is_gnome %}   • Check GNOME Shell logs: journalctl /usr/bin/gnome-shell --since '5 min ago' | grep -i blurt{% endif %}"
+          - "{% if is_gnome %}   • Test whisperfile: ~/.local/bin/whisperfile --help{% endif %}"
           - "   • Sonori overlay crash on GNOME? Use: sonori --cli"
           - "   • Missing Sonori models? Check ~/.cache/sonori/"
           - ""
