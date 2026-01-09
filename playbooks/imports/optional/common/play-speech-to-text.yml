@@ -76,6 +76,8 @@
           # Vulkan GPU acceleration (all GPUs)
           - vulkan-loader
           - vulkan-tools
+          # Debugging tools
+          - gnome-sound-recorder # GUI microphone testing tool
 
     # =========================================================================
     # Install Whisper Backend (Backend for Blurt)
@@ -294,6 +296,9 @@
           - "💡 Troubleshooting:"
           - "{% if is_gnome %}   • Blurt not working? Test manually: ~/.local/bin/wsi -d{% endif %}"
           - "{% if is_gnome %}   • Debug mode shows: dependencies, versions, full error output{% endif %}"
+          - "{% if is_gnome %}   • Microphone not recording? Test with: gnome-sound-recorder{% endif %}"
+          - "{% if is_gnome %}     - If Sound Recorder shows flat line, check: Settings → Sound → Input{% endif %}"
+          - "{% if is_gnome %}     - Check mic not muted (hardware button), volume at 100%{% endif %}"
           - "{% if is_gnome %}   • Check GNOME Shell logs: journalctl /usr/bin/gnome-shell --since '5 min ago' | grep -i blurt{% endif %}"
           - "{% if is_gnome %}   • Test whisperfile: ~/.local/bin/whisperfile --help{% endif %}"
           - "   • Sonori overlay crash on GNOME? Use: sonori --cli"
