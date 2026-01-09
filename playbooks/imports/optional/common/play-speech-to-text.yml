@@ -146,8 +146,23 @@
         mode: "0755"
       when: is_gnome
 
-    # whisperfile has the model embedded, no separate MODEL path needed
-    # The 'transcribe' symlink points to whisperfile which Blurt will use
+    - name: Configure WSI Script for Whisperfile
+      ansible.builtin.lineinfile:
+        path: "{{ user_home }}/.local/bin/wsi"
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+        backrefs: "{{ item.backrefs | default(false) }}"
+      loop:
+        # Change shebang from zsh to bash for compatibility
+        - regexp: '^#!/usr/bin/zsh'
+          line: '#!/usr/bin/bash'
+        # Enable whisperfile mode (uncomment and set to transcribe symlink)
+        - regexp: '^#WHISPERFILE='
+          line: 'WHISPERFILE="transcribe"  #Configured by playbook to use ~/.local/bin/transcribe'
+        # Fix the broken model path (won't be used with whisperfile, but prevents errors)
+        - regexp: '^model="\$HOME/CHANGE_PATH_TO'
+          line: 'model="$HOME/.local/share/ggml-base.en.bin"  #Fallback, not used with whisperfile'
+      when: is_gnome
 
     # Note: Cannot enable extension until GNOME Shell is restarted
     # User must restart GNOME Shell first, then enable manually
