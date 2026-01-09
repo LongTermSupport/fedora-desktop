@@ -67,6 +67,17 @@ done
 if [ -z "$WIDTH" ] || [ -z "$HEIGHT" ]; then
     echo "Detecting screen resolution..."
 
+    # Detect display scaling factor first
+    SCALING_FACTOR=1
+    if command -v gsettings &>/dev/null; then
+        # Get GNOME scaling factor
+        SCALING_FACTOR=$(gsettings get org.gnome.desktop.interface scaling-factor 2>/dev/null | grep -oP '\d+' || echo "1")
+        if [ -z "$SCALING_FACTOR" ] || [ "$SCALING_FACTOR" -eq 0 ]; then
+            SCALING_FACTOR=1
+        fi
+        echo "Display scaling factor: ${SCALING_FACTOR}x"
+    fi
+
     # Method 1: Try gdbus (GNOME Mutter DisplayConfig - most reliable on GNOME/Wayland)
     if command -v gdbus &>/dev/null; then
         # Query GNOME display configuration
@@ -83,7 +94,10 @@ if [ -z "$WIDTH" ] || [ -z "$HEIGHT" ]; then
             if [ -n "$RESOLUTION" ]; then
                 WIDTH=$(echo "$RESOLUTION" | cut -d',' -f1 | xargs)
                 HEIGHT=$(echo "$RESOLUTION" | cut -d',' -f2 | xargs)
-                echo "Detected via GNOME DisplayConfig: ${WIDTH}x${HEIGHT}"
+                # Divide by scaling factor to get logical resolution
+                WIDTH=$(echo "$WIDTH / $SCALING_FACTOR" | bc)
+                HEIGHT=$(echo "$HEIGHT / $SCALING_FACTOR" | bc)
+                echo "Detected via GNOME DisplayConfig: ${WIDTH}x${HEIGHT} (logical, after ${SCALING_FACTOR}x scaling)"
             fi
         fi
     fi
@@ -94,7 +108,10 @@ if [ -z "$WIDTH" ] || [ -z "$HEIGHT" ]; then
         if [ -n "$RESOLUTION" ]; then
             WIDTH=$(echo "$RESOLUTION" | cut -d'x' -f1)
             HEIGHT=$(echo "$RESOLUTION" | cut -d'x' -f2)
-            echo "Detected via wlr-randr: ${WIDTH}x${HEIGHT}"
+            # Apply scaling factor
+            WIDTH=$(echo "$WIDTH / $SCALING_FACTOR" | bc)
+            HEIGHT=$(echo "$HEIGHT / $SCALING_FACTOR" | bc)
+            echo "Detected via wlr-randr: ${WIDTH}x${HEIGHT} (logical, after ${SCALING_FACTOR}x scaling)"
         fi
     fi
 
@@ -104,7 +121,10 @@ if [ -z "$WIDTH" ] || [ -z "$HEIGHT" ]; then
         if [ -n "$RESOLUTION" ]; then
             WIDTH=$(echo "$RESOLUTION" | cut -d'x' -f1)
             HEIGHT=$(echo "$RESOLUTION" | cut -d'x' -f2)
-            echo "Detected via xrandr: ${WIDTH}x${HEIGHT}"
+            # Apply scaling factor
+            WIDTH=$(echo "$WIDTH / $SCALING_FACTOR" | bc)
+            HEIGHT=$(echo "$HEIGHT / $SCALING_FACTOR" | bc)
+            echo "Detected via xrandr: ${WIDTH}x${HEIGHT} (logical, after ${SCALING_FACTOR}x scaling)"
         fi
     fi
 
@@ -127,9 +147,31 @@ if [ -z "$WIDTH" ] || [ -z "$HEIGHT" ]; then
 fi
 
 echo "Starting nested GNOME Shell at ${WIDTH}x${HEIGHT}..."
-echo "Press CTRL+Q or close window to exit"
+echo "Press CTRL+Q, CTRL+C, or close window to exit"
 echo ""
+
+# Trap signals for clean exit
+cleanup() {
+    echo ""
+    echo "Shutting down nested GNOME Shell..."
+    # Kill the nested shell if still running
+    if [ -n "$GSHELL_PID" ] && kill -0 "$GSHELL_PID" 2>/dev/null; then
+        kill "$GSHELL_PID" 2>/dev/null
+        wait "$GSHELL_PID" 2>/dev/null
+    fi
+    exit 0
+}
+
+trap cleanup SIGINT SIGTERM
 
 # Set resolution and launch nested GNOME Shell
 MUTTER_DEBUG_DUMMY_MODE_SPECS="${WIDTH}x${HEIGHT}" \
-    exec dbus-run-session -- gnome-shell --nested --wayland
+    dbus-run-session -- gnome-shell --nested --wayland &
+GSHELL_PID=$!
+
+# Wait for process to exit
+wait "$GSHELL_PID"
+EXIT_CODE=$?
+
+echo "Nested GNOME Shell exited with code $EXIT_CODE"
+exit $EXIT_CODE
