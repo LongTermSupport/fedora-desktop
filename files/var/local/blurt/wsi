@@ -303,6 +303,20 @@ if [ "$VERBOSE" = true ]; then
     fi
 fi
 
+# Check audio duration and pad if needed (whisper requires min 1 second)
+audio_duration=$(soxi -D "$ramf" 2>/dev/null | cut -d. -f1)
+if [ -n "$audio_duration" ] && [ "$audio_duration" -lt 1 ]; then
+    if [ "$VERBOSE" = true ]; then
+        log "Audio too short (${audio_duration}s), padding to 1 second..."
+    fi
+    # Pad audio to 1 second with silence
+    sox "$ramf" "${ramf}.padded" pad 0 1 2>/dev/null
+    mv "${ramf}.padded" "$ramf"
+    if [ "$VERBOSE" = true ]; then
+        log "Audio padded successfully"
+    fi
+fi
+
 #============================================================================
 # SPEECH TRANSCRIPTION
 #============================================================================
