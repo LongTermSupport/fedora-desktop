@@ -71,9 +71,9 @@ if [ -z "$WIDTH" ] || [ -z "$HEIGHT" ]; then
     SCALING_FACTOR=1
     if command -v gsettings &>/dev/null; then
         # Get GNOME scaling factor - returns "uint32 X" format
-        SCALING_OUTPUT=$(gsettings get org.gnome.desktop.interface scaling-factor 2>/dev/null || echo "0")
-        # Extract just the number after "uint32 " or any whitespace
-        SCALING_FACTOR=$(echo "$SCALING_OUTPUT" | grep -oP '\d+$' || echo "1")
+        SCALING_OUTPUT=$(gsettings get org.gnome.desktop.interface scaling-factor 2>/dev/null || echo "uint32 0")
+        # Extract just the number after "uint32 " using awk
+        SCALING_FACTOR=$(echo "$SCALING_OUTPUT" | awk '{print $NF}')
 
         # Fallback: If scaling-factor is 0, try text-scaling-factor
         if [ -z "$SCALING_FACTOR" ] || [ "$SCALING_FACTOR" -eq 0 ]; then
@@ -101,7 +101,8 @@ if [ -z "$WIDTH" ] || [ -z "$HEIGHT" ]; then
             # Parse the complex DBus output - look for current mode dimensions
             # Format: (...modes: [(...width, height, refresh...)...], current_mode_index...)
             # Extract first occurrence of width x height pattern from modes array
-            RESOLUTION=$(echo "$DISPLAY_INFO" | grep -oP '\(\d+, \d+, [^)]+, \[\], @a\{sv\} \{\}, @a\{sv\} \{\}\)' | head -1 | grep -oP '\d+, \d+' | head -1)
+            # Use sed instead of grep -P to extract two comma-separated numbers
+            RESOLUTION=$(echo "$DISPLAY_INFO" | sed -n 's/.*(\([0-9]\+\), \([0-9]\+\),.*/\1,\2/p' | head -1)
             if [ -n "$RESOLUTION" ]; then
                 WIDTH=$(echo "$RESOLUTION" | cut -d',' -f1 | xargs)
                 HEIGHT=$(echo "$RESOLUTION" | cut -d',' -f2 | xargs)
@@ -139,11 +140,11 @@ if [ -z "$WIDTH" ] || [ -z "$HEIGHT" ]; then
         fi
     fi
 
-    # Fallback to common resolution if detection failed
+    # Fail fast if detection failed
     if [ -z "$WIDTH" ] || [ -z "$HEIGHT" ]; then
-        WIDTH=1920
-        HEIGHT=1080
-        echo "Could not detect resolution, using default: ${WIDTH}x${HEIGHT}"
+        echo "ERROR: Could not detect screen resolution" >&2
+        echo "Try running with explicit resolution: gshell-nested --res WIDTH HEIGHT" >&2
+        exit 1
     fi
 
     # Calculate scaled size
