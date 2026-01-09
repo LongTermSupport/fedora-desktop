@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.speech-to-text" path="/org/gnome/shell/extensions/speech-to-text/">
+    <key name="toggle-recording" type="as">
+      <default><![CDATA[['Insert']]]></default>
+      <summary>Toggle Recording</summary>
+      <description>Keybinding to toggle speech-to-text recording</description>
+    </key>
+  </schema>
+</schemalist>

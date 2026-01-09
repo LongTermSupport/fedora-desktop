@@ -1,5 +1,5 @@
 #!/usr/bin/bash
-# wsi-transcribe - Transcribe audio file with whisper
+# wsi-transcribe - Transcribe audio file with faster-whisper (GPU accelerated)
 # Called by speech-to-text GNOME extension
 # Usage: wsi-transcribe <audio-file>
 
@@ -12,9 +12,6 @@ if [ -z "$AUDIO_FILE" ] || [ ! -f "$AUDIO_FILE" ]; then
     exit 1
 fi
 
-WHISPERFILE="transcribe"
-NTHR=$(( $(getconf _NPROCESSORS_ONLN) / 2 ))
-
 # Resample to 16kHz (whisper requirement)
 RESAMPLED="${AUDIO_FILE}.16k.wav"
 sox "$AUDIO_FILE" "$RESAMPLED" rate 16k 2>/dev/null
@@ -26,8 +23,8 @@ if [ -n "$audio_duration" ] && [ "$audio_duration" -lt 1 ]; then
     mv "${RESAMPLED}.padded" "$RESAMPLED"
 fi
 
-# Transcribe with whisperfile
-str="$("$WHISPERFILE" -t "$NTHR" -nt -f "$RESAMPLED" 2>/dev/null)"
+# Transcribe with faster-whisper (GPU accelerated)
+str="$(faster-whisper-transcribe "$RESAMPLED" 2>/dev/null)"
 
 # Clean up
 rm -f "$RESAMPLED"

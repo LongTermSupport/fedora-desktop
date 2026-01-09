@@ -229,6 +229,64 @@ ansible-playbook playbooks/imports/optional/common/play-install-claude-yolo.yml
 
 This is a hard rule with NO exceptions.
 
+### ⚠️ TESTING WORKFLOW - DEPLOY FIRST, TEST SECOND
+
+**CRITICAL: Even for "quick tests", ALWAYS deploy through Ansible first.**
+
+The correct workflow is:
+1. **Edit source files** in the repository (e.g., `extensions/`, `files/`)
+2. **Update/create playbook** to deploy those files
+3. **Run the playbook** to deploy to the system
+4. **Test the deployed result** on the system
+
+**NEVER do this:**
+- ❌ `pip install package` to "test if it works"
+- ❌ Creating files directly in `~/.local/bin/` or `/usr/local/bin/`
+- ❌ Running `dnf install` to "check if the package exists"
+- ❌ Manually copying files to "see if the config works"
+- ❌ Any command that modifies system state outside of Ansible
+
+**Why "just testing" manually is still WRONG:**
+- Creates drift between repo and system state
+- Makes debugging harder (is the bug in the playbook or the manual config?)
+- Builds bad habits that lead to undocumented changes
+- Defeats the entire purpose of Infrastructure as Code
+- The "quick test" often becomes the permanent state
+
+**Correct testing workflow:**
+```bash
+# 1. Edit files in repo
+vim extensions/my-extension/script.sh
+
+# 2. Update playbook to deploy
+vim playbooks/imports/optional/common/play-my-feature.yml
+
+# 3. Deploy via Ansible
+ansible-playbook playbooks/imports/optional/common/play-my-feature.yml
+
+# 4. Test the deployed result
+~/.local/bin/script.sh --test
+```
+
+**For package availability checks:**
+```bash
+# ✅ GOOD - Just query, don't install
+dnf info package-name
+pip index versions package-name
+
+# ❌ BAD - Actually installs
+pip install package-name
+dnf install package-name
+```
+
+**If something doesn't work after Ansible deployment:**
+1. Fix the PLAYBOOK, not the system
+2. Re-run the playbook
+3. Test again
+4. Repeat until working
+
+**The playbook IS the source of truth. The system state is just a reflection of it.**
+
 ### Core Principles
 All code in this project must adhere to these fundamental principles:
 

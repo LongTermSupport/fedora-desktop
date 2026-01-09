@@ -1,0 +1,23 @@
+{
+  "env": {
+    "es2022": true
+  },
+  "extends": ["eslint:recommended"],
+  "parserOptions": {
+    "ecmaVersion": 2022,
+    "sourceType": "module"
+  },
+  "globals": {
+    "global": "readonly",
+    "log": "readonly",
+    "logError": "readonly",
+    "_": "readonly",
+    "C_": "readonly",
+    "N_": "readonly",
+    "ngettext": "readonly"
+  },
+  "rules": {
+    "no-unused-vars": ["error", { "argsIgnorePattern": "^_" }]
+  },
+  "ignorePatterns": ["wsi", "wsi-transcribe"]
+}

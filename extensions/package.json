@@ -1,0 +1,14 @@
+{
+  "name": "gnome-shell-extensions",
+  "version": "1.0.0",
+  "description": "GNOME Shell extensions for fedora-desktop",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.1"
+  }
+}

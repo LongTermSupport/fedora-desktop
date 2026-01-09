@@ -1,322 +1,180 @@
 ---
 #!/usr/bin/env ansible-playbook
-# Speech-to-Text Tools for Linux - Local AI Processing
-# Installs multiple STT tools optimized for different desktop environments
+# Speech-to-Text GNOME Extension with GPU-accelerated Whisper (faster-whisper)
 #
-# Tools installed:
-# - Speech-to-Text Extension: Custom GNOME extension with press-and-hold (✅ Best for GNOME users)
-# - Sonori: Wayland overlay app (⚠️  GNOME: CLI mode only)
+# Prerequisites: NVIDIA drivers installed via play-nvidia.yml
 #
-# @see https://github.com/0xPD33/sonori
+# Usage: Press Insert key to toggle recording. Text auto-pastes when stopped.
+# Model: Configurable via stt_model in host_vars/localhost.yml (default: small)
+#        Options: tiny, base, small, medium, large-v3
 - hosts: desktop
-  name: Install Speech-to-Text Tools
-  become: false
+  name: Speech-to-Text Extension
+  become: true
   vars:
-    root_dir: "{{ inventory_dir }}/../.."
-    sonori_version: "0.6.1"
-    sonori_install_dir: "/opt/sonori"
-    sonori_url: "https://github.com/0xPD33/sonori/releases/download/v{{ sonori_version }}/Sonori-{{ sonori_version }}-x86_64.AppImage"
-    # Whisper model selection - can be overridden in host_vars/localhost.yml
-    # Options: tiny.en (87MB), small.en (497MB), medium.en (1.83GB), large-v3 (3.39GB)
-    whisper_model: "{{ whisper_model_size | default('medium.en') }}"
-    whisper_model_url: "https://huggingface.co/Mozilla/whisperfile/resolve/main/whisper-{{ whisper_model }}.llamafile"
+    root_dir: "{{ inventory_dir }}/../../"
+    extension_name: speech-to-text@fedora-desktop
+    extension_src: "{{ root_dir }}/extensions/{{ extension_name }}"
+    extension_dest: "/home/{{ user_login }}/.local/share/gnome-shell/extensions/{{ extension_name }}"
+    faster_whisper_model: "{{ stt_model | default('small') }}"
   tasks:
     # =========================================================================
-    # Detect Environment and User Paths
+    # System Dependencies
     # =========================================================================
 
-    - name: Get Real User Home Directory
-      ansible.builtin.shell: echo "$HOME"
-      register: real_user_home
-      changed_when: false
-
-    - name: Detect Desktop Environment
-      ansible.builtin.shell: echo "$XDG_CURRENT_DESKTOP"
-      register: desktop_env
-      changed_when: false
-
-    - name: Check for NVIDIA GPU
-      ansible.builtin.command: which nvidia-smi
-      register: nvidia_check
-      failed_when: false
-      changed_when: false
-
-    - name: Set Desktop Environment Facts
-      ansible.builtin.set_fact:
-        is_gnome: "{{ 'GNOME' in desktop_env.stdout }}"
-        is_kde: "{{ 'KDE' in desktop_env.stdout }}"
-        has_nvidia: "{{ nvidia_check.rc == 0 }}"
-        user_home: "{{ real_user_home.stdout }}"
-
-    # =========================================================================
-    # Install Common Dependencies
-    # =========================================================================
-
-    - name: Install Common STT Dependencies
-      become: true
-      ansible.builtin.package:
-        name: "{{ packages }}"
-        state: present
-      vars:
-        packages:
-          # Audio processing
-          - pipewire
-          - pipewire-pulseaudio
+    - name: Install System Dependencies
+      ansible.builtin.dnf:
+        name:
           - sox
-          # Clipboard utilities
-          - xsel # X11 clipboard
-          - wl-clipboard # Wayland clipboard (wl-copy)
-          # Network tools
-          - curl
-          # AppImage support
-          - fuse
-          # Vulkan GPU acceleration (all GPUs)
-          - vulkan-loader
-          - vulkan-tools
-          # Debugging tools
-          - gnome-sound-recorder # GUI microphone testing tool
-
-    # =========================================================================
-    # Install Whisper Backend (Backend for Blurt)
-    # =========================================================================
-
-    - name: Create User Local Bin Directory
-      ansible.builtin.file:
-        path: "{{ user_home }}/.local/bin"
-        state: directory
-        mode: "0755"
-
-    - name: Create User Local Share Directory
-      ansible.builtin.file:
-        path: "{{ user_home }}/.local/share"
-        state: directory
-        mode: "0755"
-
-    # Fedora's whisper-cpp package only provides libraries, not binaries
-    # Use whisperfile (portable llamafile) instead - works with Blurt
-    # Model size configurable via whisper_model_size in host_vars/localhost.yml
-    # Default: medium.en (1.83GB) - excellent accuracy
-    # Options: tiny.en (87MB), small.en (497MB), medium.en (1.83GB), large-v3 (3.39GB)
-    - name: Check if Whisperfile Already Exists
-      ansible.builtin.stat:
-        path: "{{ user_home }}/.local/bin/whisperfile"
-      register: whisperfile_stat
-      when: is_gnome
-
-    - name: Download Whisperfile (Portable Whisper with Embedded Model)
-      ansible.builtin.get_url:
-        url: "{{ whisper_model_url }}"
-        dest: "{{ user_home }}/.local/bin/whisperfile"
-        mode: "0755"
-      when:
-        - is_gnome
-        - not whisperfile_stat.stat.exists
-
-    - name: Create Transcribe Symlink for Blurt Compatibility
-      ansible.builtin.file:
-        src: "{{ user_home }}/.local/bin/whisperfile"
-        dest: "{{ user_home }}/.local/bin/transcribe"
-        state: link
-      when: is_gnome
-
-    # =========================================================================
-    # Install Speech-to-Text GNOME Extension (GNOME only)
-    # =========================================================================
-
-    - name: Install wtype for Wayland Auto-Paste
-      become: true
-      ansible.builtin.package:
-        name: wtype
+          - wtype
+          - wl-clipboard
+          - python3-pip
         state: present
-      when: is_gnome
-
-    - name: Install Enhanced WSI Script (Debug Tool)
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/var/local/blurt/wsi"
-        dest: "{{ user_home }}/.local/bin/wsi"
-        mode: "0755"
-      when: is_gnome
-
-    - name: Install WSI Transcribe Helper (Extension Backend)
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/home/.local/bin/wsi-transcribe"
-        dest: "{{ user_home }}/.local/bin/wsi-transcribe"
-        mode: "0755"
-      when: is_gnome
-
-    - name: Create Speech-to-Text Extension Directory
-      ansible.builtin.file:
-        path: "{{ user_home }}/.local/share/gnome-shell/extensions/speech-to-text@fedora-desktop"
-        state: directory
-        mode: "0755"
-      when: is_gnome
-
-    - name: Install Speech-to-Text Extension Files
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/home/.local/share/gnome-shell/extensions/speech-to-text@fedora-desktop/{{ item }}"
-        dest: "{{ user_home }}/.local/share/gnome-shell/extensions/speech-to-text@fedora-desktop/{{ item }}"
-        mode: "0644"
-      loop:
-        - metadata.json
-        - extension.js
-      when: is_gnome
-
-    - name: Remove Old Blurt Extension (if exists)
-      ansible.builtin.file:
-        path: "{{ user_home }}/.local/share/gnome-shell/extensions/blurt@quantiusbenignus.local"
-        state: absent
-      when: is_gnome
-
-    # Note: Cannot enable extension until GNOME Shell is restarted
-    # User must restart GNOME Shell first, then enable manually
 
     # =========================================================================
-    # Install Sonori (All Desktop Environments)
+    # faster-whisper with GPU acceleration
     # =========================================================================
 
-    - name: Create Sonori Installation Directory
+    - name: Install faster-whisper with CUDA Support
       become: true
-      ansible.builtin.file:
-        path: "{{ sonori_install_dir }}"
-        state: directory
-        owner: root
-        group: root
-        mode: "0755"
+      become_user: "{{ user_login }}"
+      ansible.builtin.pip:
+        name:
+          - faster-whisper
+          - nvidia-cublas-cu12
+          - nvidia-cudnn-cu12==9.*
+        extra_args: --user
+        state: present
 
-    - name: Download Sonori AppImage
+    - name: Find CUDA Library Paths
       become: true
-      ansible.builtin.get_url:
-        url: "{{ sonori_url }}"
-        dest: "{{ sonori_install_dir }}/sonori.appimage"
-        owner: root
-        group: root
-        mode: "0755"
-        checksum: "" # No checksums provided in releases
-
-    - name: Create Sonori Symlink
-      become: true
-      ansible.builtin.file:
-        src: "{{ sonori_install_dir }}/sonori.appimage"
-        dest: /usr/local/bin/sonori
-        state: link
-
-    - name: Create Sonori Desktop Entry
-      become: true
-      ansible.builtin.copy:
-        dest: /usr/local/share/applications/sonori.desktop
-        owner: root
-        group: root
-        mode: "0644"
-        content: |
-          [Desktop Entry]
-          Name=Sonori{% if is_gnome %} (CLI Mode){% endif %}
-
-          Comment=Local AI Speech-to-Text{% if is_gnome %} - Use: sonori --cli{% endif %}
-
-          Exec=/usr/local/bin/sonori{% if is_gnome %} --cli{% endif %}
-
-          Icon=audio-input-microphone
-          Terminal={% if is_gnome %}true{% else %}false{% endif %}
-
-          Type=Application
-          Categories=Audio;AudioVideo;Utility;
-          Keywords=transcription;speech-to-text;AI;voice;
-
-    - name: Update Desktop Database
-      become: true
-      ansible.builtin.command: update-desktop-database /usr/local/share/applications
+      become_user: "{{ user_login }}"
+      ansible.builtin.shell: |
+        python3 -c "
+        import os
+        try:
+            import nvidia.cublas
+            import nvidia.cudnn
+            cublas = os.path.join(nvidia.cublas.__path__[0], 'lib')
+            cudnn = os.path.join(nvidia.cudnn.__path__[0], 'lib')
+            print(f'{cublas}:{cudnn}')
+        except (ImportError, IndexError):
+            print('')
+        "
+      register: cuda_lib_paths
       changed_when: false
 
+    - name: Create faster-whisper Shell Wrapper
+      ansible.builtin.copy:
+        dest: "/home/{{ user_login }}/.local/bin/faster-whisper-transcribe"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+        content: |
+          #!/bin/bash
+          # Set CUDA library paths before running Python
+          export LD_LIBRARY_PATH="{{ cuda_lib_paths.stdout }}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          exec python3 ~/.local/bin/faster-whisper-transcribe.py "$@"
+
+    - name: Create faster-whisper Python Script
+      ansible.builtin.copy:
+        dest: "/home/{{ user_login }}/.local/bin/faster-whisper-transcribe.py"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+        content: |
+          #!/usr/bin/env python3
+          """GPU-accelerated speech-to-text using faster-whisper"""
+          import sys
+          import os
+          from faster_whisper import WhisperModel
+
+          def main():
+              if len(sys.argv) < 2:
+                  print("Usage: faster-whisper-transcribe <audio-file>", file=sys.stderr)
+                  sys.exit(1)
+
+              audio_file = sys.argv[1]
+              if not os.path.exists(audio_file):
+                  print(f"Error: File not found: {audio_file}", file=sys.stderr)
+                  sys.exit(1)
+
+              model_size = os.environ.get('WHISPER_MODEL', '{{ faster_whisper_model }}')
+
+              # Try GPU first, fall back to CPU
+              try:
+                  model = WhisperModel(model_size, device="cuda", compute_type="float16")
+              except Exception as e:
+                  print(f"GPU not available ({e}), using CPU", file=sys.stderr)
+                  model = WhisperModel(model_size, device="cpu", compute_type="int8")
+
+              segments, info = model.transcribe(audio_file, beam_size=5)
+              text = " ".join([segment.text.strip() for segment in segments])
+
+              if text:
+                  text = text[0].upper() + text[1:] if len(text) > 1 else text.upper()
+
+              print(text)
+
+          if __name__ == "__main__":
+              main()
+
     # =========================================================================
-    # Display Installation Summary
+    # GNOME Extension
     # =========================================================================
 
-    - name: Display Installation Summary
-      ansible.builtin.debug:
-        msg:
-          - "════════════════════════════════════════════════════════════════"
-          - "Speech-to-Text Tools Installation Complete"
-          - "════════════════════════════════════════════════════════════════"
-          - ""
-          - "Desktop Environment: {{ desktop_env.stdout }}"
-          - "GPU: {{ 'NVIDIA' if has_nvidia else 'Integrated (Mesa)' }}"
-          - ""
-          - "{% if is_gnome %}✅ SPEECH-TO-TEXT Extension - Press-and-Hold Recording{% endif %}"
-          - "{% if is_gnome %}──────────────────────────────────────────────────────────────{% endif %}"
-          - "{% if is_gnome %}   • Press and HOLD Insert key to record{% endif %}"
-          - "{% if is_gnome %}   • Release Insert key to transcribe and auto-paste{% endif %}"
-          - "{% if is_gnome %}   • Works in ANY text input field{% endif %}"
-          - "{% if is_gnome %}   • Fully offline - no cloud services{% endif %}"
-          - "{% if is_gnome %}   • Backend: whisperfile ({{ whisper_model }} model){% endif %}"
-          - "{% if is_gnome %}   • Extension: speech-to-text@fedora-desktop{% endif %}"
-          - "{% if is_gnome %}   • NOT ENABLED YET - see Quick Start below{% endif %}"
-          - "{% if is_gnome %}{% endif %}"
-          - "✅ SONORI - Wayland Speech-to-Text App"
-          - "──────────────────────────────────────────────────────────────"
-          - "   • Version: v{{ sonori_version }}"
-          - "{% if is_gnome %}   • GNOME users: Use CLI mode only{% endif %}"
-          - "{% if is_gnome %}   • Command: sonori --cli{% endif %}"
-          - "{% if is_gnome %}   • GUI overlay requires wlr-layer-shell (not in GNOME){% endif %}"
-          - "{% if not is_gnome %}   • Command: sonori{% endif %}"
-          - "{% if not is_gnome %}   • GUI overlay: Transparent floating window{% endif %}"
-          - "   • GPU acceleration: Vulkan{% if has_nvidia %} (NVIDIA){% endif %}"
-          - "   • Location: /usr/local/bin/sonori"
-          - ""
-          - "📦 Dependencies Installed:"
-          - "{% if is_gnome %}   • whisperfile (portable llamafile in ~/.local/bin){% endif %}"
-          - "   • Audio: pipewire, sox"
-          - "   • Clipboard: xsel (X11), wl-copy (Wayland)"
-          - "{% if is_gnome %}   • Auto-paste: wtype (Wayland){% endif %}"
-          - "   • GPU: Vulkan runtime{% if has_nvidia %} + NVIDIA drivers{% endif %}"
-          - ""
-          - "🎤 Quick Start (Speech-to-Text Extension):"
-          - "{% if is_gnome %}   1. REQUIRED: Restart GNOME Shell first{% endif %}"
-          - "{% if is_gnome %}      → Press ALT+F2, type 'r', press ENTER{% endif %}"
-          - "{% if is_gnome %}      → Or log out and log back in{% endif %}"
-          - "{% if is_gnome %}   2. Test manually first (optional but recommended):{% endif %}"
-          - "{% if is_gnome %}      → Run: ~/.local/bin/wsi -v{% endif %}"
-          - "{% if is_gnome %}      → Speak for 2-3 seconds, then stop and wait{% endif %}"
-          - "{% if is_gnome %}      → Should show recording, transcription, and paste to clipboard{% endif %}"
-          - "{% if is_gnome %}   3. Enable Speech-to-Text extension:{% endif %}"
-          - "{% if is_gnome %}      → Open Extensions app (search in Activities){% endif %}"
-          - "{% if is_gnome %}      → Toggle Speech-to-Text ON{% endif %}"
-          - "{% if is_gnome %}      → Or run: gnome-extensions enable speech-to-text@fedora-desktop{% endif %}"
-          - "{% if is_gnome %}   4. Click any text field{% endif %}"
-          - "{% if is_gnome %}   5. Press and HOLD Insert key while speaking{% endif %}"
-          - "{% if is_gnome %}   6. Release Insert key - text auto-pastes immediately{% endif %}"
-          - "{% if not is_gnome %}   • Launch: sonori (from Applications or terminal){% endif %}"
-          - "{% if not is_gnome %}   • Floating overlay will appear{% endif %}"
-          - ""
-          - "⚙️  Model Downloads:"
-          - "{% if is_gnome %}   • Speech-to-Text Extension: Embedded in whisperfile ({{ whisper_model }}){% endif %}"
-          - "   • Sonori: Downloads small.en model on first run (~500MB)"
-          - ""
-          - "🔍 GPU Verification:"
-          - "   • vulkaninfo | grep -i 'device name'"
-          - "{% if has_nvidia %}   • nvidia-smi{% endif %}"
-          - "{% if has_nvidia %}   • Ensure NVIDIA Vulkan drivers: play-nvidia.yml{% endif %}"
-          - ""
-          - "⚙️  Configuration Options:"
-          - "{% if is_gnome %}   • Change whisper model: Set whisper_model_size in host_vars/localhost.yml{% endif %}"
-          - "{% if is_gnome %}     Options: tiny.en (87MB), small.en (497MB), medium.en (1.83GB), large-v3 (3.39GB){% endif %}"
-          - "{% if is_gnome %}     Default: medium.en{% endif %}"
-          - "{% if is_gnome %}   • Change key binding: Modify extension code (currently Insert key){% endif %}"
-          - ""
-          - "📚 More Information:"
-          - "   • Extension: Custom speech-to-text@fedora-desktop"
-          - "   • Sonori: https://github.com/0xPD33/sonori"
-          - "   • Whisper.cpp: https://github.com/ggml-org/whisper.cpp"
-          - ""
-          - "💡 Troubleshooting:"
-          - "{% if is_gnome %}   • Extension not working? Test manually: ~/.local/bin/wsi -v{% endif %}"
-          - "{% if is_gnome %}   • Verbose mode shows: recording, resampling, transcription, clipboard{% endif %}"
-          - "{% if is_gnome %}   • Microphone not recording? Test with: gnome-sound-recorder{% endif %}"
-          - "{% if is_gnome %}     - If Sound Recorder shows flat line, check: Settings → Sound → Input{% endif %}"
-          - "{% if is_gnome %}     - Check mic not muted (hardware button), volume at 100%{% endif %}"
-          - "{% if is_gnome %}   • Check GNOME Shell logs: journalctl /usr/bin/gnome-shell --since '5 min ago' | grep -i speech{% endif %}"
-          - "{% if is_gnome %}   • Test whisperfile: ~/.local/bin/whisperfile --help{% endif %}"
-          - "{% if is_gnome %}   • Auto-paste not working? Install wtype: sudo dnf install wtype{% endif %}"
-          - "   • Sonori overlay crash on GNOME? Use: sonori --cli"
-          - "   • Missing Sonori models? Check ~/.cache/sonori/"
-          - ""
-          - "════════════════════════════════════════════════════════════════"
+    - name: Ensure Directories Exist
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+      loop:
+        - "/home/{{ user_login }}/.local/bin"
+        - "{{ extension_dest }}"
+        - "{{ extension_dest }}/schemas"
+
+    - name: Copy Extension Files
+      ansible.builtin.copy:
+        src: "{{ extension_src }}/{{ item }}"
+        dest: "{{ extension_dest }}/{{ item }}"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+      loop:
+        - extension.js
+        - metadata.json
+
+    - name: Copy GSettings Schema
+      ansible.builtin.copy:
+        src: "{{ extension_src }}/schemas/org.gnome.shell.extensions.speech-to-text.gschema.xml"
+        dest: "{{ extension_dest }}/schemas/"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+      register: schema_copy
+
+    - name: Compile GSettings Schema
+      ansible.builtin.command:
+        cmd: glib-compile-schemas "{{ extension_dest }}/schemas"
+      when: schema_copy.changed
+
+    - name: Copy WSI Scripts
+      ansible.builtin.copy:
+        src: "{{ extension_src }}/{{ item }}"
+        dest: "/home/{{ user_login }}/.local/bin/{{ item }}"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+      loop:
+        - wsi
+        - wsi-transcribe
+
+    - name: Enable Extension
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        cmd: gnome-extensions enable {{ extension_name }}
+      register: enable_result
+      changed_when: "'is now enabled' in enable_result.stderr or enable_result.rc == 0"
+      failed_when: false

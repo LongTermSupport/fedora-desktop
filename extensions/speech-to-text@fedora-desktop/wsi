@@ -187,7 +187,7 @@ Examples:
   wsi                 # Record speech and transcribe locally
   wsi -d              # Debug mode with full diagnostics
   wsi -c              # Use CLIPBOARD instead of PRIMARY
-  wsi 192.168.1.5:8080  # Use remote whisper.cpp server
+  wsi server.local:8080  # Use remote whisper.cpp server
 
 Environment:
   XDG_SESSION_TYPE    Detected automatically (x11/wayland)
