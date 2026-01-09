@@ -8,7 +8,7 @@
 # USER CONFIGURATION
 #============================================================================
 TEMPD='/dev/shm'
-ramf="$TEMPD/wfile-$USER"
+ramf="$TEMPD/wfile-$USER.wav"
 WHISPERFILE="faster-whisper-transcribe"
 model="$HOME/.local/share/ggml-base.en.bin"
 NTHR=$(( $(getconf _NPROCESSORS_ONLN) / 2 ))
@@ -383,35 +383,31 @@ set -e
 echo $$ > "$PID_FILE"
 log_debug "PID file written: $PID_FILE ($$)"
 
-log_debug "Preparing microphone..."
-
-# Warm up sox/microphone with a short dummy recording
-rec -q -t wav /dev/null trim 0 0.1 2>/dev/null || true
-
 log_debug "Ready! Speak now... (press Insert again to stop)"
 
 # Notify user that recording has started
 notify_state "RECORDING" "Recording... (Insert to stop)"
 
-# Record audio with silence detection
-# - Record at 44100Hz (hardware native rate)
-# - silence 1 0.1 0.1%: Start recording after 0.1s above 0.1% threshold (very sensitive)
-# - 1 2.0 0.5%: Stop after 2.0 seconds below 0.5% threshold
-# - trim 0 30: Maximum 30 seconds (safety limit)
-# Run in background so we can capture PID and be killed cleanly
-
+# Use pw-record (PipeWire native) for minimal buffering
+# Records directly to wav at 44100Hz, low latency ensures audio is flushed on kill
 if [ "$DEBUG" = true ]; then
-    rec -q -r 44100 -c 2 -t wav "$ramf" silence 1 0.1 0.1% 1 2.0 0.5% trim 0 30 &
+    pw-record --rate 44100 --channels 2 --latency 50ms "$ramf" &
 else
-    rec -q -r 44100 -c 2 -t wav "$ramf" silence 1 0.1 0.1% 1 2.0 0.5% trim 0 30 2>/dev/null &
+    pw-record --rate 44100 --channels 2 --latency 50ms "$ramf" 2>/dev/null &
 fi
 REC_PID=$!
-log_debug "rec started with PID $REC_PID"
+log_debug "pw-record started with PID $REC_PID"
 
 # Wait for recording to complete (or be killed)
 wait $REC_PID || true
 
 log_debug "Recording complete: $ramf"
+
+if [ ! -f "$ramf" ] || [ ! -s "$ramf" ]; then
+    log_error "Recording file empty or missing: $ramf"
+    notify_state "ERROR" "Recording failed"
+    exit 1
+fi
 
 if [ -f "$ramf" ]; then
     size=$(du -h "$ramf" 2>/dev/null | cut -f1)

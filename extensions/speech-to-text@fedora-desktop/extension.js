@@ -259,9 +259,9 @@ export default class SpeechToTextExtension extends Extension {
                 return;
             }
 
-            // Pass debug flag if enabled
+            // Pass debug flag if enabled, with 90s timeout as safety
             const debugFlag = this._debugEnabled ? ' --debug' : '';
-            const command = GLib.get_home_dir() + '/.local/bin/wsi' + debugFlag;
+            const command = 'timeout 90 ' + GLib.get_home_dir() + '/.local/bin/wsi' + debugFlag;
 
             this._log(`Launching: ${command}`);
             GLib.spawn_command_line_async(command);
