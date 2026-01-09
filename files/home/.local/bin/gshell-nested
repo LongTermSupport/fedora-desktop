@@ -99,13 +99,13 @@ if [ -z "$WIDTH" ] || [ -z "$HEIGHT" ]; then
 
         if [ -n "$DISPLAY_INFO" ]; then
             # Parse the complex DBus output - look for current mode dimensions
-            # Format: (...modes: [(...width, height, refresh...)...], current_mode_index...)
-            # Extract first occurrence of width x height pattern from modes array
-            # Use sed instead of grep -P to extract two comma-separated numbers
-            RESOLUTION=$(echo "$DISPLAY_INFO" | sed -n 's/.*(\([0-9]\+\), \([0-9]\+\),.*/\1,\2/p' | head -1)
+            # The output contains an array of monitors with modes like: (2560.0, 1600.0, 59.999...)
+            # Extract the first double values representing width and height
+            # Match pattern: decimal number, comma, space, decimal number at start of tuple
+            RESOLUTION=$(echo "$DISPLAY_INFO" | sed -n 's/.*(\([0-9]\+\)\.[0-9]*, \([0-9]\+\)\.[0-9]*.*/\1,\2/p' | head -1)
             if [ -n "$RESOLUTION" ]; then
-                WIDTH=$(echo "$RESOLUTION" | cut -d',' -f1 | xargs)
-                HEIGHT=$(echo "$RESOLUTION" | cut -d',' -f2 | xargs)
+                WIDTH=$(echo "$RESOLUTION" | cut -d',' -f1)
+                HEIGHT=$(echo "$RESOLUTION" | cut -d',' -f2)
                 # Divide by scaling factor to get logical resolution
                 WIDTH=$(echo "$WIDTH / $SCALING_FACTOR" | bc)
                 HEIGHT=$(echo "$HEIGHT / $SCALING_FACTOR" | bc)
@@ -116,7 +116,7 @@ if [ -z "$WIDTH" ] || [ -z "$HEIGHT" ]; then
 
     # Method 2: Try wlr-randr (Wayland)
     if [ -z "$WIDTH" ] && command -v wlr-randr &>/dev/null; then
-        RESOLUTION=$(wlr-randr 2>/dev/null | grep -E '^\s+\d+x\d+' | grep '\*' | head -1 | awk '{print $1}')
+        RESOLUTION=$(wlr-randr 2>/dev/null | grep -E '^[[:space:]]+[0-9]+x[0-9]+' | grep '\*' | head -1 | awk '{print $1}')
         if [ -n "$RESOLUTION" ]; then
             WIDTH=$(echo "$RESOLUTION" | cut -d'x' -f1)
             HEIGHT=$(echo "$RESOLUTION" | cut -d'x' -f2)
