@@ -98,12 +98,20 @@
     # Model size configurable via whisper_model_size in host_vars/localhost.yml
     # Default: medium.en (1.83GB) - excellent accuracy
     # Options: tiny.en (87MB), small.en (497MB), medium.en (1.83GB), large-v3 (3.39GB)
+    - name: Check if Whisperfile Already Exists
+      ansible.builtin.stat:
+        path: "{{ user_home }}/.local/bin/whisperfile"
+      register: whisperfile_stat
+      when: is_gnome
+
     - name: Download Whisperfile (Portable Whisper with Embedded Model)
       ansible.builtin.get_url:
         url: "{{ whisper_model_url }}"
         dest: "{{ user_home }}/.local/bin/whisperfile"
         mode: "0755"
-      when: is_gnome
+      when:
+        - is_gnome
+        - not whisperfile_stat.stat.exists
 
     - name: Create Transcribe Symlink for Blurt Compatibility
       ansible.builtin.file:
