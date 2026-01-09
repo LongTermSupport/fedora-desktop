@@ -99,10 +99,9 @@ if [ -z "$WIDTH" ] || [ -z "$HEIGHT" ]; then
 
         if [ -n "$DISPLAY_INFO" ] && [[ ! "$DISPLAY_INFO" =~ "Error" ]]; then
             # Parse the complex DBus output - look for current mode dimensions
-            # The output contains an array of monitors with modes like: (2560.0, 1600.0, 59.999...)
-            # Extract the first double values representing width and height
-            # Match pattern: decimal number, comma, space, decimal number at start of tuple
-            RESOLUTION=$(echo "$DISPLAY_INFO" | sed -n 's/.*(\([0-9]\+\)\.[0-9]*, \([0-9]\+\)\.[0-9]*.*/\1,\2/p' | head -1)
+            # Format: ('3072x1920@120.002', 3072, 1920, 120.001548..., ...)
+            # Extract the two integers after the mode string (width, height)
+            RESOLUTION=$(echo "$DISPLAY_INFO" | sed -n "s/.*'\([^']*\)', \([0-9]\+\), \([0-9]\+\),.*/\2,\3/p" | head -1)
             if [ -n "$RESOLUTION" ]; then
                 WIDTH=$(echo "$RESOLUTION" | cut -d',' -f1)
                 HEIGHT=$(echo "$RESOLUTION" | cut -d',' -f2)
@@ -110,13 +109,7 @@ if [ -z "$WIDTH" ] || [ -z "$HEIGHT" ]; then
                 WIDTH=$(echo "$WIDTH / $SCALING_FACTOR" | bc)
                 HEIGHT=$(echo "$HEIGHT / $SCALING_FACTOR" | bc)
                 echo "Detected via GNOME DisplayConfig: ${WIDTH}x${HEIGHT} (logical, after ${SCALING_FACTOR}x scaling)"
-            else
-                echo "DEBUG: gdbus returned data but couldn't parse resolution" >&2
-                echo "DEBUG: gdbus output: $DISPLAY_INFO" >&2
             fi
-        else
-            echo "DEBUG: gdbus failed or returned error" >&2
-            echo "DEBUG: output: $DISPLAY_INFO" >&2
         fi
     fi
 
