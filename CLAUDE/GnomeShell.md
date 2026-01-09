@@ -53,7 +53,7 @@ dbus-run-session -- gnome-shell --nested --wayland
 ```
 
 **Inside Nested Window:**
-1. Press **Super** key to open Activities
+1. Press **Alt+F1** to open Overview (Super key triggers main session)
 2. Type "Extensions" and open Extensions app
 3. Enable your extension (e.g., "Speech to Text")
 4. Test functionality in nested apps
@@ -66,6 +66,7 @@ dbus-run-session -- gnome-shell --nested --wayland
 - Extensions from `~/.local/share/gnome-shell/extensions/` are available
 
 **Limitations:**
+- Super key goes to main session, use Alt+F1 for nested overview
 - Some features may behave differently than real session
 - Performance might not match real session
 - Hardware interactions (mic, clipboard) work within nested instance only

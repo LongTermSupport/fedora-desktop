@@ -65,8 +65,8 @@ done
 
 # If width/height not specified, use default
 if [ -z "$WIDTH" ] || [ -z "$HEIGHT" ]; then
-    WIDTH=1920
-    HEIGHT=1080
+    WIDTH=2560
+    HEIGHT=1600
     echo "Using default resolution: ${WIDTH}x${HEIGHT}"
 
     # Calculate scaled size
@@ -81,6 +81,8 @@ if [ -z "$WIDTH" ] || [ -z "$HEIGHT" ]; then
 fi
 
 echo "Starting nested GNOME Shell at ${WIDTH}x${HEIGHT}..."
+echo ""
+echo "TIP: Use Alt+F1 to open Overview (Super key goes to main session)"
 echo "Press CTRL+Q, CTRL+C, or close window to exit"
 echo ""
 
