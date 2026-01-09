@@ -177,17 +177,17 @@
       ansible.builtin.command:
         cmd: glib-compile-schemas "{{ extension_dest }}/schemas"
       when: schema_copy.changed
+      register: schema_compile
+      changed_when: true
+      failed_when: schema_compile.rc != 0
 
-    - name: Copy WSI Scripts
+    - name: Copy WSI Script
       ansible.builtin.copy:
-        src: "{{ extension_src }}/{{ item }}"
-        dest: "/home/{{ user_login }}/.local/bin/{{ item }}"
+        src: "{{ extension_src }}/wsi"
+        dest: "/home/{{ user_login }}/.local/bin/wsi"
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: '0755'
-      loop:
-        - wsi
-        - wsi-transcribe
 
     - name: Enable Extension
       become: true

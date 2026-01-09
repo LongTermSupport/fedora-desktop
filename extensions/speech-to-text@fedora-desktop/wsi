@@ -10,8 +10,6 @@
 TEMPD='/dev/shm'
 ramf="$TEMPD/wfile-$USER.wav"
 WHISPERFILE="faster-whisper-transcribe"
-model="$HOME/.local/share/ggml-base.en.bin"
-NTHR=$(( $(getconf _NPROCESSORS_ONLN) / 2 ))
 CLIPBOARD=false
 WHOST="127.0.0.1"
 WPORT="58080"
@@ -215,7 +213,9 @@ check_dependencies() {
     log_debug "Checking dependencies..."
     local failed=0
 
-    check_command "sox" "sox" "Audio recording and silence detection" || ((failed++))
+    check_command "pw-record" "pipewire" "Audio recording (PipeWire)" || ((failed++))
+    check_command "sox" "sox" "Audio resampling" || ((failed++))
+    check_command "soxi" "sox" "Audio file info" || ((failed++))
     check_command "curl" "curl" "HTTP requests to whisper.cpp server" || ((failed++))
 
     local wm="${XDG_SESSION_TYPE:-unknown}"
@@ -260,7 +260,6 @@ Configuration:
   Temp directory:     $TEMPD
   Temp audio file:    $ramf
   Whisperfile:        $WHISPERFILE ($(command -v "$WHISPERFILE" 2>/dev/null || echo "NOT FOUND"))
-  Processing threads: $NTHR
   Clipboard mode:     $([ "$CLIPBOARD" = true ] && echo "CLIPBOARD" || echo "PRIMARY")
   Window manager:     ${XDG_SESSION_TYPE:-unknown}
   Log file:           $LOG_FILE
@@ -447,7 +446,6 @@ log_debug "Starting transcription..."
 
 str=""
 whisper_exit=0
-transcribe_output="$TEMPD/stt-transcribe-$$"
 
 if [ -n "$IPnPORT" ]; then
     log_debug "Using whisper.cpp server: $IPnPORT"
@@ -491,9 +489,9 @@ log_debug "Raw transcription: '$str'"
 # TEXT POST-PROCESSING
 #============================================================================
 
-# Remove non-speech artifacts detected by Whisper
-str="${str/\(*\)}"
-str="${str/\[*\]}"
+# Remove non-speech artifacts detected by Whisper (global replace)
+str="${str//\(*\)}"
+str="${str//\[*\]}"
 
 # Remove leading newlines
 str="${str#$'\n'}"
@@ -573,6 +571,9 @@ fi
     --object-path "$DBUS_PATH" \
     --signal "${DBUS_INTERFACE}.StateChanged" \
     "IDLE" 2>/dev/null) &
+
+# Cleanup temporary files
+rm -f "$ramf" "${ramf}.resampled.wav" "${ramf}.padded"
 
 log_debug "WSI completed successfully"
 

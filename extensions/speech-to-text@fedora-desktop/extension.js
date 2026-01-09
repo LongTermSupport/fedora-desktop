@@ -34,10 +34,12 @@ export default class SpeechToTextExtension extends Extension {
 
         // Debug mode state
         this._debugEnabled = false;
+        this._clipboardMode = false;
         this._currentState = 'IDLE';
         this._lastError = null;
         this._logDir = GLib.get_home_dir() + '/.local/share/speech-to-text';
         this._logFile = this._logDir + '/debug.log';
+        this._iconResetTimeoutId = null;
     }
 
     enable() {
@@ -111,6 +113,12 @@ export default class SpeechToTextExtension extends Extension {
             Main.wm.removeKeybinding('toggle-recording');
         } catch (e) {}
 
+        // Cancel pending icon reset timeout
+        if (this._iconResetTimeoutId) {
+            GLib.Source.remove(this._iconResetTimeoutId);
+            this._iconResetTimeoutId = null;
+        }
+
         if (this._indicator) {
             this._indicator.destroy();
             this._indicator = null;
@@ -153,6 +161,18 @@ export default class SpeechToTextExtension extends Extension {
             this._clearLog();
         });
         menu.addMenuItem(clearLogsItem);
+
+        // Separator
+        menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
+        // Clipboard mode toggle
+        this._clipboardSwitch = new PopupMenu.PopupSwitchMenuItem('Use Ctrl+V (not middle-click)', this._clipboardMode);
+        this._clipboardSwitch.connect('toggled', (item, state) => {
+            this._clipboardMode = state;
+            this._saveClipboardSetting(state);
+            this._log(`Clipboard mode ${state ? 'enabled' : 'disabled'}`);
+        });
+        menu.addMenuItem(this._clipboardSwitch);
 
         // Separator
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
@@ -221,6 +241,12 @@ export default class SpeechToTextExtension extends Extension {
     _updateIconState(state) {
         if (!this._icon) return;
 
+        // Cancel any pending icon reset
+        if (this._iconResetTimeoutId) {
+            GLib.Source.remove(this._iconResetTimeoutId);
+            this._iconResetTimeoutId = null;
+        }
+
         switch (state) {
             case 'RECORDING':
                 this._icon.style = 'color: #ff4444;';  // Red
@@ -231,16 +257,18 @@ export default class SpeechToTextExtension extends Extension {
             case 'SUCCESS':
                 this._icon.style = 'color: #44ff44;';  // Green
                 // Reset to normal after 2 seconds
-                GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2000, () => {
+                this._iconResetTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2000, () => {
                     if (this._icon) this._icon.style = '';
+                    this._iconResetTimeoutId = null;
                     return GLib.SOURCE_REMOVE;
                 });
                 break;
             case 'ERROR':
                 this._icon.style = 'color: #ff4444;';  // Red
                 // Reset to normal after 2 seconds
-                GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2000, () => {
+                this._iconResetTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2000, () => {
                     if (this._icon) this._icon.style = '';
+                    this._iconResetTimeoutId = null;
                     return GLib.SOURCE_REMOVE;
                 });
                 break;
@@ -259,9 +287,10 @@ export default class SpeechToTextExtension extends Extension {
                 return;
             }
 
-            // Pass debug flag if enabled, with 90s timeout as safety
+            // Pass debug and clipboard flags if enabled, with 90s timeout as safety
             const debugFlag = this._debugEnabled ? ' --debug' : '';
-            const command = 'timeout 90 ' + GLib.get_home_dir() + '/.local/bin/wsi' + debugFlag;
+            const clipboardFlag = this._clipboardMode ? ' --clipboard' : '';
+            const command = 'timeout 90 ' + GLib.get_home_dir() + '/.local/bin/wsi' + debugFlag + clipboardFlag;
 
             this._log(`Launching: ${command}`);
             GLib.spawn_command_line_async(command);
@@ -287,12 +316,12 @@ export default class SpeechToTextExtension extends Extension {
                 }
             } else {
                 this._log('PID file not found, trying pkill fallback');
-                GLib.spawn_command_line_async('pkill -f "rec.*wfile"');
+                GLib.spawn_command_line_async('pkill -f "pw-record.*wfile"');
             }
         } catch (e) {
             this._log(`Stop error: ${e.message}`);
             // Fallback to pkill
-            GLib.spawn_command_line_async('pkill -f "rec.*wfile"');
+            GLib.spawn_command_line_async('pkill -f "pw-record.*wfile"');
         }
     }
 
@@ -317,6 +346,14 @@ export default class SpeechToTextExtension extends Extension {
             } catch (e) {
                 this._debugEnabled = false;
             }
+            try {
+                this._clipboardMode = this._settings.get_boolean('clipboard-mode');
+                if (this._clipboardSwitch) {
+                    this._clipboardSwitch.setToggleState(this._clipboardMode);
+                }
+            } catch (e) {
+                this._clipboardMode = false;
+            }
         }
     }
 
@@ -324,6 +361,16 @@ export default class SpeechToTextExtension extends Extension {
         if (this._settings) {
             try {
                 this._settings.set_boolean('debug-mode', enabled);
+            } catch (e) {
+                // Setting may not exist yet
+            }
+        }
+    }
+
+    _saveClipboardSetting(enabled) {
+        if (this._settings) {
+            try {
+                this._settings.set_boolean('clipboard-mode', enabled);
             } catch (e) {
                 // Setting may not exist yet
             }
@@ -338,6 +385,16 @@ export default class SpeechToTextExtension extends Extension {
 
         try {
             const file = Gio.File.new_for_path(this._logFile);
+
+            // Log rotation: if file > 1MB, rename to .old
+            if (file.query_exists(null)) {
+                const info = file.query_info('standard::size', Gio.FileQueryInfoFlags.NONE, null);
+                if (info.get_size() > 1048576) {
+                    const oldFile = Gio.File.new_for_path(this._logFile + '.old');
+                    file.move(oldFile, Gio.FileCopyFlags.OVERWRITE, null, null);
+                }
+            }
+
             const stream = file.append_to(Gio.FileCreateFlags.NONE, null);
             stream.write_all(logLine, null);
             stream.close(null);
