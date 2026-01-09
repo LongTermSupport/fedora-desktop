@@ -298,7 +298,7 @@ fi
 if [ "$VERBOSE" = true ]; then
     log "Recording complete: $ramf"
     if [ -f "$ramf" ]; then
-        local size=$(du -h "$ramf" 2>/dev/null | cut -f1)
+        size=$(du -h "$ramf" 2>/dev/null | cut -f1)
         log "Audio file size: $size"
     fi
 fi
