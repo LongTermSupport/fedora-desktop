@@ -288,19 +288,20 @@ fi
 rec -q -t wav /dev/null trim 0 0.1 2>/dev/null || true
 
 if [ "$VERBOSE" = true ]; then
-    log "🎤 Ready! Speak now (recording will stop after 3s silence)..."
+    log "🎤 Ready! Speak now (recording will stop after 2.5s silence or max 30s)..."
 fi
 
 # Record audio with silence detection
 # - rate 16k: 16kHz sample rate (required by whisper)
 # - silence 1 0.1 3%: Start recording after 0.1s above 3% threshold
-# - 1 3.0 3%: Stop after 3 seconds below 3% threshold (lenient for pauses)
+# - 1 2.5 4%: Stop after 2.5 seconds below 4% threshold (balanced sensitivity)
+# - trim 0 30: Maximum 30 seconds (safety limit)
 if [ "$DEBUG" = true ]; then
     # Show full sox output in debug mode
-    rec -q -t wav "$ramf" rate 16k silence 1 0.1 3% 1 3.0 3%
+    rec -q -t wav "$ramf" rate 16k silence 1 0.1 3% 1 2.5 4% trim 0 30
 else
     # Suppress sox output in normal mode
-    rec -q -t wav "$ramf" rate 16k silence 1 0.1 3% 1 3.0 3% 2>/dev/null
+    rec -q -t wav "$ramf" rate 16k silence 1 0.1 3% 1 2.5 4% trim 0 30 2>/dev/null
 fi
 
 if [ "$VERBOSE" = true ]; then
