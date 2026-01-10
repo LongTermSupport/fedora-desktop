@@ -224,10 +224,10 @@ check_dependencies() {
 
     if [[ "$wm" == "wayland" ]]; then
         check_command "wl-copy" "wl-clipboard" "Clipboard management (Wayland)" || ((failed++))
-        check_command "wtype" "wtype" "Auto-paste (Wayland)" || ((failed++))
+        check_command "ydotool" "ydotool" "Auto-paste (Wayland/X11)" || ((failed++))
     elif [[ "$wm" == "x11" ]]; then
         check_command "xsel" "xsel" "Clipboard management (X11)" || ((failed++))
-        check_command "xdotool" "xdotool" "Auto-paste (X11)" || ((failed++))
+        check_command "ydotool" "ydotool" "Auto-paste (Wayland/X11)" || ((failed++))
     else
         log_error "Unknown window manager: $wm"
         ((failed++))
@@ -545,21 +545,11 @@ wm="${XDG_SESSION_TYPE:-unknown}"
 
 # Handle auto-paste mode - type directly at cursor
 if [ "$AUTO_PASTE" = true ]; then
-    log_debug "Auto-pasting text at cursor"
-    case "$wm" in
-        "wayland")
-            wtype "$str"
-            log_debug "Text typed via wtype"
-            ;;
-        "x11")
-            xdotool type --clearmodifiers "$str"
-            log_debug "Text typed via xdotool"
-            ;;
-        *)
-            log_error "Auto-paste not supported for: $wm"
-            echo "$str"
-            ;;
-    esac
+    log_debug "Auto-pasting text at cursor via ydotool"
+    # ydotool works on both Wayland and X11 via uinput
+    # Use system socket (daemon runs as root with world-accessible socket)
+    YDOTOOL_SOCKET=/run/ydotool.socket ydotool type -- "$str"
+    log_debug "Text typed via ydotool"
     preview="${str:0:60}"
     [ ${#str} -gt 60 ] && preview="${preview}..."
     notify_state "SUCCESS" "$preview"

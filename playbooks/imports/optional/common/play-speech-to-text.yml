@@ -25,11 +25,48 @@
       ansible.builtin.dnf:
         name:
           - sox
-          - wtype
+          - ydotool
           - wl-clipboard
           - python3-pip
           - zenity
         state: present
+
+    - name: Stop User ydotool Service if Running
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.systemd:
+        name: ydotool
+        scope: user
+        state: stopped
+        enabled: false
+      failed_when: false
+
+    - name: Create ydotool System Service Override Directory
+      ansible.builtin.file:
+        path: /etc/systemd/system/ydotool.service.d
+        state: directory
+        mode: '0755'
+
+    - name: Configure ydotool System Service with User-accessible Socket
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/ydotool.service.d/override.conf
+        mode: '0644'
+        content: |
+          [Service]
+          ExecStart=
+          ExecStart=/usr/bin/ydotoold --socket-path=/run/ydotool.socket --socket-perm=0666
+      register: ydotool_override
+
+    - name: Reload Systemd for ydotool Override
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: ydotool_override.changed
+
+    - name: Enable and Start System ydotool Daemon
+      ansible.builtin.systemd:
+        name: ydotool
+        enabled: true
+        state: restarted
 
     # =========================================================================
     # faster-whisper with GPU acceleration
