@@ -72,51 +72,30 @@ export default class WorkspaceNamesOverviewExtension extends Extension {
         // Get workspace names
         const names = this._wmSettings.get_strv('workspace-names');
 
-        // Access thumbnails - path may vary by GNOME version
+        // Based on GNOME Shell source: js/ui/workspacesView.js and js/ui/overviewControls.js
         try {
             const controls = Main.overview._overview._controls;
 
-            // Add labels to primary monitor thumbnails
+            // Primary monitor: ControlsManager._thumbnailsBox
             if (controls._thumbnailsBox && controls._thumbnailsBox._thumbnails) {
                 this._addLabelsToThumbnailsBox(controls._thumbnailsBox, names);
-                log(`Added labels to primary monitor (${controls._thumbnailsBox._thumbnails.length} workspaces)`);
             }
 
-            // Add labels to secondary monitors
-            // Try different paths for multi-monitor setup
-
-            // Path 1: _workspacesDisplay._workspacesViews (GNOME 40-44)
+            // Secondary monitors: WorkspacesDisplay._workspacesViews contains SecondaryMonitorDisplay instances
+            // Each SecondaryMonitorDisplay has _thumbnails property (ThumbnailsBox)
             if (controls._workspacesDisplay && controls._workspacesDisplay._workspacesViews) {
                 const views = controls._workspacesDisplay._workspacesViews;
-                log(`Found ${views.length} workspace views`);
 
-                for (let i = 0; i < views.length; i++) {
-                    const view = views[i];
+                // Index 0 is primary monitor (already handled above)
+                // Remaining indices are SecondaryMonitorDisplay instances
+                for (let i = 1; i < views.length; i++) {
+                    const secondaryDisplay = views[i];
 
-                    // Try view._thumbnails._thumbnails
-                    if (view._thumbnails && view._thumbnails._thumbnails) {
-                        this._addLabelsToThumbnailsBox(view._thumbnails, names);
-                        log(`Added labels to monitor ${i} via view._thumbnails`);
-                    }
-                    // Try view.thumbnailsBox._thumbnails (alternative path)
-                    else if (view.thumbnailsBox && view.thumbnailsBox._thumbnails) {
-                        this._addLabelsToThumbnailsBox(view.thumbnailsBox, names);
-                        log(`Added labels to monitor ${i} via view.thumbnailsBox`);
+                    // SecondaryMonitorDisplay._thumbnails is the ThumbnailsBox
+                    if (secondaryDisplay._thumbnails && secondaryDisplay._thumbnails._thumbnails) {
+                        this._addLabelsToThumbnailsBox(secondaryDisplay._thumbnails, names);
                     }
                 }
-            }
-
-            // Path 2: Secondary monitors array (GNOME 45+)
-            if (Main.overview._overview._secondaryMonitorOverviews) {
-                const secondaryOverviews = Main.overview._overview._secondaryMonitorOverviews;
-                log(`Found ${secondaryOverviews.length} secondary monitors`);
-
-                secondaryOverviews.forEach((overview, index) => {
-                    if (overview._thumbnailsBox && overview._thumbnailsBox._thumbnails) {
-                        this._addLabelsToThumbnailsBox(overview._thumbnailsBox, names);
-                        log(`Added labels to secondary monitor ${index}`);
-                    }
-                });
             }
         } catch (e) {
             logError(e, 'Failed to add workspace labels');

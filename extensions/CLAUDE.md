@@ -38,6 +38,111 @@ proc.communicate_async(input, null, (proc, res) => {
 GLib.spawn_command_line_async('echo hello | wl-copy');
 ```
 
+## GNOME Shell API Documentation
+
+### ⚠️ NEVER GUESS - ALWAYS RESEARCH
+
+**CRITICAL**: When working with GNOME Shell APIs, you MUST research the actual source code. Guessing API paths leads to broken code.
+
+### Official Sources of Truth
+
+**Primary Source - GNOME GitLab** (Most up-to-date):
+- **Main repository**: https://gitlab.gnome.org/GNOME/gnome-shell
+- **Browse source**: https://gitlab.gnome.org/GNOME/gnome-shell/-/tree/main/js/ui
+- **Search code**: Use GitLab's search feature for classes and methods
+
+**Mirror - GitHub** (Easier for quick browsing):
+- **Repository**: https://github.com/GNOME/gnome-shell
+- **Browse source**: https://github.com/GNOME/gnome-shell/tree/main/js/ui
+- **Raw files**: https://raw.githubusercontent.com/GNOME/gnome-shell/main/js/ui/[filename]
+
+### Key Files to Know
+
+**For workspace-related APIs**:
+- `js/ui/workspacesView.js` - Workspace thumbnails, multi-monitor displays
+- `js/ui/workspace.js` - Individual workspace representation
+- `js/ui/overviewControls.js` - Overview layout and controls
+- `js/ui/main.js` - Global objects and initialization
+
+**For panel and UI**:
+- `js/ui/panel.js` - Top panel and indicators
+- `js/ui/popupMenu.js` - Menu system
+- `js/ui/panelMenu.js` - Panel menu buttons
+
+**For system integration**:
+- `js/misc/util.js` - Utility functions
+- `js/ui/modalDialog.js` - Dialog system
+- `js/ui/messageList.js` - Notification system
+
+### Research Workflow
+
+1. **Identify the feature** you need to interact with (e.g., "workspace thumbnails")
+
+2. **Search the GNOME Shell source** on GitLab or GitHub:
+   - Search for class names: `class WorkspaceThumbnail`
+   - Search for property names: `_thumbnails`
+   - Search for method names: `_addThumbnails`
+
+3. **Read the actual source code** - don't guess based on similar-sounding properties:
+   ```bash
+   # Fetch and read the actual file
+   curl -s https://raw.githubusercontent.com/GNOME/gnome-shell/main/js/ui/workspacesView.js | less
+   ```
+
+4. **Understand the object hierarchy**:
+   - Look for `class ClassName extends ParentClass`
+   - Find `this._propertyName` assignments in constructor
+   - Trace through `_init()` and `enable()` methods
+
+5. **Verify the API path** exists in your target GNOME Shell version
+
+### Example: Multi-Monitor Workspace Thumbnails
+
+**Wrong approach** (guessing):
+```javascript
+// ❌ WRONG - Guessed API path
+const secondaryMonitor = controls._secondaryMonitorOverviews[i];
+```
+
+**Correct approach** (researched from source):
+```javascript
+// ✅ CORRECT - From workspacesView.js source code
+// WorkspacesDisplay._workspacesViews contains:
+// - Index 0: Primary monitor (not a SecondaryMonitorDisplay)
+// - Index 1+: SecondaryMonitorDisplay instances
+const views = controls._workspacesDisplay._workspacesViews;
+for (let i = 1; i < views.length; i++) {
+    const secondaryDisplay = views[i];  // This is a SecondaryMonitorDisplay
+    if (secondaryDisplay._thumbnails) {  // SecondaryMonitorDisplay has _thumbnails
+        // ...
+    }
+}
+```
+
+**Source**: https://github.com/GNOME/gnome-shell/blob/main/js/ui/workspacesView.js
+- Lines with `class SecondaryMonitorDisplay` show it has `this._thumbnails` property
+- Lines with `WorkspacesDisplay` show `this._workspacesViews` array structure
+
+### GJS Documentation
+
+**GJS (GNOME JavaScript bindings)**:
+- **Official docs**: https://gjs.guide/
+- **Extensions guide**: https://gjs.guide/extensions/
+- **GI bindings**: https://gjs-docs.gnome.org/
+
+**GTK and GLib APIs**:
+- **St (Shell Toolkit)**: Documented in GNOME Shell source comments
+- **Gio**: https://gjs-docs.gnome.org/gio20/
+- **GLib**: https://gjs-docs.gnome.org/glib20/
+
+### When APIs Change
+
+GNOME Shell's internal APIs (anything with `_` prefix) are **not stable** and may change between versions:
+
+- Always check the source for your target GNOME Shell version
+- Use try/catch blocks for version-dependent code
+- Test on actual GNOME Shell installation, not just in isolation
+
 ## Development Workflow
 
 1. **Make changes** to extension JavaScript
