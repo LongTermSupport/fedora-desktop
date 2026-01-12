@@ -28,6 +28,7 @@ ansible-playbook /workspace/playbooks/imports/optional/common/play-gnome-shell-e
 The playbook will:
 1. Install other useful GNOME extensions
 2. Deploy this custom extension to `~/.local/share/gnome-shell/extensions/`
+3. Automatically enable the extension
 
 ### Manual Installation
 
@@ -46,10 +47,14 @@ Then restart GNOME Shell:
 
 ### Enabling the Extension
 
-After installation, enable the extension:
+The extension is automatically enabled when deployed via the Ansible playbook. If you need to manually enable/disable:
 
 ```bash
+# Enable
 gnome-extensions enable workspace-names-overview@fedora-desktop
+
+# Disable
+gnome-extensions disable workspace-names-overview@fedora-desktop
 ```
 
 Or use GNOME Extensions app (install with `dnf install gnome-extensions-app`).
