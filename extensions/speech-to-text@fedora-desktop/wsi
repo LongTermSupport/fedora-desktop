@@ -34,6 +34,7 @@ REC_PID=""
 DEBUG=false
 VERBOSE=false
 IPnPORT=""
+LOG_BUFFER=()  # Buffer for logs in non-debug mode
 
 #============================================================================
 # DBUS CONFIGURATION
@@ -57,10 +58,31 @@ ensure_log_dir() {
 }
 
 log_to_file() {
+    local log_line="[$(date '+%Y-%m-%dT%H:%M:%S')] [WSI] $*"
+
     if [ "$DEBUG" = true ] || [ "$VERBOSE" = true ]; then
+        # Debug mode - write immediately
         ensure_log_dir
-        echo "[$(date '+%Y-%m-%dT%H:%M:%S')] [WSI] $*" >> "$LOG_FILE"
+        echo "$log_line" >> "$LOG_FILE"
+    else
+        # Normal mode - buffer logs
+        LOG_BUFFER+=("$log_line")
     fi
+}
+
+flush_log_buffer() {
+    # Write buffered logs to disk
+    local buffer_size=${#LOG_BUFFER[@]}
+    if [ $buffer_size -gt 0 ]; then
+        ensure_log_dir
+        for line in "${LOG_BUFFER[@]}"; do
+            echo "$line" >> "$LOG_FILE"
+        done
+        LOG_BUFFER=()
+        echo $buffer_size  # Return count for caller
+        return 0
+    fi
+    return 1
 }
 
 log() {
@@ -78,6 +100,24 @@ log_debug() {
 log_error() {
     echo "[ERROR] $*" >&2
     log_to_file "[ERROR] $*"
+
+    # Flush buffered logs on error
+    if [ "$DEBUG" = false ]; then
+        local flushed_count=$(flush_log_buffer 2>/dev/null || echo "0")
+        if [ "$flushed_count" != "0" ]; then
+            # Notify user that logs were saved
+            notify_state "ERROR" "$*\n\n📝 Debug logs saved ($flushed_count entries):\n$LOG_FILE"
+            # Write flush info to log (will go directly to file now)
+            DEBUG=true log_to_file "Flushed $flushed_count buffered log entries to disk on error"
+            DEBUG=false
+        else
+            # Send regular error notification
+            notify_state "ERROR" "$*"
+        fi
+    else
+        # Debug mode - logs already written, just notify
+        notify_state "ERROR" "$*"
+    fi
 
     # Send error signal for extension
     gdbus emit --session \
@@ -383,9 +423,80 @@ if [ "$DEBUG" = true ]; then
 fi
 
 #============================================================================
-# FAIL FAST
+# FAIL FAST - PREFLIGHT SANITY CHECKS
 #============================================================================
 set -e
+
+log_debug "Running preflight sanity checks..."
+
+# Check critical commands exist
+for cmd in pw-record sox soxi; do
+    if ! command -v "$cmd" &>/dev/null; then
+        log_error "Required command not found: $cmd"
+        log_to_file "Install with: sudo dnf install $([ "$cmd" = "pw-record" ] && echo "pipewire" || echo "sox")"
+        exit 1
+    fi
+done
+
+# Check Whisper availability if not using network API
+if [ -z "$IPnPORT" ]; then
+    if ! command -v "$WHISPERFILE" &>/dev/null; then
+        log_error "Whisper not found: $WHISPERFILE"
+        log_to_file "Install with: pip install --user faster-whisper"
+        exit 1
+    fi
+fi
+
+# Check ydotool if in auto-paste mode
+if [ "$AUTO_PASTE" = true ]; then
+    if ! command -v ydotool &>/dev/null; then
+        log_error "ydotool not found (required for auto-paste)"
+        log_to_file "Install with: sudo dnf install ydotool"
+        exit 1
+    fi
+
+    # Check socket exists
+    if [ ! -S "/run/ydotool.socket" ]; then
+        log_error "ydotool socket not found: /run/ydotool.socket"
+        log_to_file "ydotool service not running"
+        log_to_file "Fix: sudo systemctl restart ydotool"
+        exit 1
+    fi
+
+    # Check socket is writable
+    if [ ! -w "/run/ydotool.socket" ]; then
+        log_error "ydotool socket not writable"
+        log_to_file "Socket permissions: $(ls -l /run/ydotool.socket 2>&1)"
+        log_to_file "Fix: sudo systemctl restart ydotool"
+        exit 1
+    fi
+fi
+
+# Check clipboard tools for non-auto-paste mode
+if [ "$AUTO_PASTE" = false ]; then
+    wm="${XDG_SESSION_TYPE:-unknown}"
+    if [[ "$wm" == "wayland" ]]; then
+        if ! command -v wl-copy &>/dev/null; then
+            log_error "wl-copy not found (required for Wayland clipboard)"
+            log_to_file "Install with: sudo dnf install wl-clipboard"
+            exit 1
+        fi
+    elif [[ "$wm" == "x11" ]]; then
+        if ! command -v xsel &>/dev/null; then
+            log_error "xsel not found (required for X11 clipboard)"
+            log_to_file "Install with: sudo dnf install xsel"
+            exit 1
+        fi
+    fi
+fi
+
+# Check temp directory is writable
+if [ ! -w "$TEMPD" ]; then
+    log_error "Temp directory not writable: $TEMPD"
+    exit 1
+fi
+
+log_debug "All preflight checks passed"
 
 #============================================================================
 # SPEECH RECORDING
@@ -410,8 +521,25 @@ fi
 REC_PID=$!
 log_debug "pw-record started with PID $REC_PID"
 
+# Start 30-second timeout timer in background
+(
+    sleep 30
+    if kill -0 "$REC_PID" 2>/dev/null; then
+        log_debug "30-second limit reached, auto-stopping recording"
+        kill -INT "$REC_PID" 2>/dev/null
+    fi
+) &
+TIMER_PID=$!
+log_debug "30-second timer started with PID $TIMER_PID"
+
 # Wait for recording to complete (or be killed)
 wait $REC_PID || true
+
+# Cancel the timer if recording stopped early
+if kill -0 "$TIMER_PID" 2>/dev/null; then
+    kill "$TIMER_PID" 2>/dev/null
+    log_debug "Timer cancelled (recording stopped early)"
+fi
 
 log_debug "Recording complete: $ramf"
 
@@ -532,6 +660,16 @@ fi
 log_debug "Processed result: '$str'"
 
 #============================================================================
+# SAVE TRANSCRIPTION TO FILE
+#============================================================================
+
+# Save transcribed text to cache file for later access
+TRANSCRIPTION_FILE="$HOME/.cache/speech-to-text/last-transcription.txt"
+mkdir -p "$(dirname "$TRANSCRIPTION_FILE")"
+echo "$str" > "$TRANSCRIPTION_FILE"
+log_debug "Transcription saved to: $TRANSCRIPTION_FILE"
+
+#============================================================================
 # CLIPBOARD OUTPUT
 #============================================================================
 
@@ -546,10 +684,36 @@ wm="${XDG_SESSION_TYPE:-unknown}"
 # Handle auto-paste mode - type directly at cursor
 if [ "$AUTO_PASTE" = true ]; then
     log_debug "Auto-pasting text at cursor via ydotool"
+    log_debug "Text length: ${#str} characters"
+    log_debug "Text preview: ${str:0:100}"
+
+    # Double-check socket still exists (in case service crashed)
+    if [ ! -S "/run/ydotool.socket" ]; then
+        log_error "ydotool socket disappeared before paste"
+        log_to_file "Service may have crashed during recording"
+        exit 1
+    fi
+
+    # Check if ydotool daemon is responsive
+    if ! timeout 1 bash -c "YDOTOOL_SOCKET=/run/ydotool.socket ydotool key 29:0" 2>/dev/null; then
+        log_error "ydotool daemon not responding"
+        log_to_file "Daemon may be hung or crashed"
+        log_to_file "Check: sudo systemctl status ydotool"
+        exit 1
+    fi
+
     # ydotool works on both Wayland and X11 via uinput
     # Use system socket (daemon runs as root with world-accessible socket)
-    YDOTOOL_SOCKET=/run/ydotool.socket ydotool type -- "$str"
-    log_debug "Text typed via ydotool"
+    log_debug "Typing text via ydotool (${#str} characters)"
+    if ! bash -c "YDOTOOL_SOCKET=/run/ydotool.socket ydotool type -- \"\$1\"" _ "$str"; then
+        local exit_code=$?
+        log_error "ydotool failed (exit code: $exit_code)"
+        log_to_file "Text length was: ${#str} characters"
+        exit 1
+    fi
+    log_debug "Text typed successfully"
+    # Small delay to ensure ydotool completes before script exits
+    sleep 0.2
     preview="${str:0:60}"
     [ ${#str} -gt 60 ] && preview="${preview}..."
     notify_state "SUCCESS" "$preview"

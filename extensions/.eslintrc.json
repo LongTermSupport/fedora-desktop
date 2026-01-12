@@ -14,10 +14,31 @@
     "_": "readonly",
     "C_": "readonly",
     "N_": "readonly",
-    "ngettext": "readonly"
+    "ngettext": "readonly",
+    "TextDecoder": "readonly",
+    "TextEncoder": "readonly"
   },
   "rules": {
-    "no-unused-vars": ["error", { "argsIgnorePattern": "^_" }]
+    "no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
+    "no-restricted-syntax": [
+      "error",
+      {
+        "selector": "CallExpression[callee.property.name='communicate']",
+        "message": "⚠️  BLOCKING OPERATION: Use communicate_async() instead - this will freeze GNOME Shell!"
+      },
+      {
+        "selector": "CallExpression[callee.property.name='communicate_utf8']",
+        "message": "⚠️  BLOCKING OPERATION: Use communicate_utf8_async() instead - this will freeze GNOME Shell!"
+      },
+      {
+        "selector": "CallExpression[callee.property.name=/^wait(_check)?$/]",
+        "message": "⚠️  BLOCKING OPERATION: Use wait_async() or wait_check_async() instead - this will freeze GNOME Shell!"
+      },
+      {
+        "selector": "CallExpression[callee.object.property.name='Subprocess'][callee.property.name='new'] > MemberExpression.arguments:first-child > .property[name!=/STDIN_PIPE|STDOUT_PIPE|STDERR_PIPE/]",
+        "message": "⚠️  POTENTIAL BLOCKING: Subprocess without pipes may block - consider using async methods"
+      }
+    ]
   },
   "ignorePatterns": ["wsi", "wsi-transcribe"]
 }

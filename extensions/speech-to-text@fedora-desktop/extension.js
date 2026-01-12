@@ -41,6 +41,13 @@ export default class SpeechToTextExtension extends Extension {
         this._logDir = GLib.get_home_dir() + '/.local/share/speech-to-text';
         this._logFile = this._logDir + '/debug.log';
         this._iconResetTimeoutId = null;
+
+        // Recording timer state
+        this._recordingTimer = null;
+        this._remainingSeconds = 27;  // 3s safety buffer before 30s hard limit
+        this._countdownLabel = null;
+        this._flashTimer = null;
+        this._flashState = false;
     }
 
     enable() {
@@ -112,12 +119,26 @@ export default class SpeechToTextExtension extends Extension {
         // Remove keybinding
         try {
             Main.wm.removeKeybinding('toggle-recording');
-        } catch (e) {}
+        } catch (e) {
+            // Ignore if keybinding doesn't exist
+        }
 
         // Cancel pending icon reset timeout
         if (this._iconResetTimeoutId) {
             GLib.Source.remove(this._iconResetTimeoutId);
             this._iconResetTimeoutId = null;
+        }
+
+        // Cancel recording timer
+        if (this._recordingTimer) {
+            GLib.Source.remove(this._recordingTimer);
+            this._recordingTimer = null;
+        }
+
+        // Cancel flash timer
+        if (this._flashTimer) {
+            GLib.Source.remove(this._flashTimer);
+            this._flashTimer = null;
         }
 
         if (this._indicator) {
@@ -162,6 +183,23 @@ export default class SpeechToTextExtension extends Extension {
             this._clearLog();
         });
         menu.addMenuItem(clearLogsItem);
+
+        // Separator
+        menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
+        // Copy last transcription button
+        const copyTranscriptionItem = new PopupMenu.PopupMenuItem('Copy Last Transcription');
+        copyTranscriptionItem.connect('activate', () => {
+            this._copyLastTranscription();
+        });
+        menu.addMenuItem(copyTranscriptionItem);
+
+        // View last transcription button
+        const viewTranscriptionItem = new PopupMenu.PopupMenuItem('View Last Transcription...');
+        viewTranscriptionItem.connect('activate', () => {
+            this._openLastTranscription();
+        });
+        menu.addMenuItem(viewTranscriptionItem);
 
         // Separator
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
@@ -264,11 +302,17 @@ export default class SpeechToTextExtension extends Extension {
         switch (state) {
             case 'RECORDING':
                 this._icon.style = 'color: #ff4444;';  // Red
+                this._startCountdown();
                 break;
             case 'TRANSCRIBING':
+                this._stopCountdown();
+                // Change icon to spinner/hourglass for transcribing
+                this._icon.icon_name = 'content-loading-symbolic';
                 this._icon.style = 'color: #ffaa00;';  // Orange/Yellow
                 break;
             case 'SUCCESS':
+                this._stopCountdown();
+                this._icon.icon_name = 'audio-input-microphone-symbolic';  // Restore mic icon
                 this._icon.style = 'color: #44ff44;';  // Green
                 // Reset to normal after 2 seconds
                 this._iconResetTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2000, () => {
@@ -278,6 +322,8 @@ export default class SpeechToTextExtension extends Extension {
                 });
                 break;
             case 'ERROR':
+                this._stopCountdown();
+                this._icon.icon_name = 'audio-input-microphone-symbolic';  // Restore mic icon
                 this._icon.style = 'color: #ff4444;';  // Red
                 // Reset to normal after 2 seconds
                 this._iconResetTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2000, () => {
@@ -288,8 +334,138 @@ export default class SpeechToTextExtension extends Extension {
                 break;
             case 'IDLE':
             default:
+                this._stopCountdown();
+                this._icon.icon_name = 'audio-input-microphone-symbolic';  // Restore mic icon
                 this._icon.style = '';  // Default
                 break;
+        }
+    }
+
+    _startCountdown() {
+        // Stop any existing countdown
+        this._stopCountdown();
+
+        // Initialize countdown (27s for 3s safety buffer before 30s hard limit)
+        this._remainingSeconds = 27;
+
+        // Replace icon with countdown label
+        if (this._icon) {
+            this._indicator.remove_child(this._icon);
+        }
+
+        // Start with green background, white text
+        this._countdownLabel = new St.Label({
+            text: 'REC 27',
+            y_align: 2,  // Clutter.ActorAlign.CENTER
+            style_class: 'system-status-icon',
+            style: 'color: white; font-weight: bold; font-size: 13px; background-color: #44ff44; padding: 2px 4px; border-radius: 3px;'
+        });
+        this._indicator.add_child(this._countdownLabel);
+
+        this._log('Countdown started: 27 seconds (3s safety buffer)');
+
+        // Start 1-second timer
+        this._recordingTimer = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 1, () => {
+            this._remainingSeconds--;
+
+            if (this._countdownLabel) {
+                // Update text
+                this._countdownLabel.text = `REC ${this._remainingSeconds}`;
+
+                // Update color/style based on time remaining
+                if (this._remainingSeconds > 10) {
+                    // Green background, white text (27-11)
+                    this._stopFlashing();
+                    this._countdownLabel.style = 'color: white; font-weight: bold; font-size: 13px; background-color: #44ff44; padding: 2px 4px; border-radius: 3px;';
+                } else if (this._remainingSeconds > 5) {
+                    // Yellow background, white text (10-6)
+                    this._stopFlashing();
+                    this._countdownLabel.style = 'color: white; font-weight: bold; font-size: 13px; background-color: #ffaa00; padding: 2px 4px; border-radius: 3px;';
+                } else {
+                    // Red - start flashing (5-0)
+                    this._startFlashing();
+                }
+            }
+
+            this._log(`Countdown: ${this._remainingSeconds}s remaining`);
+
+            // Auto-stop at 0 - trigger recording stop
+            if (this._remainingSeconds <= 0) {
+                this._log('Countdown reached 0 - stopping recording');
+                this._recordingTimer = null;
+                this._stopRecording();
+                return GLib.SOURCE_REMOVE;
+            }
+
+            return GLib.SOURCE_CONTINUE;
+        });
+    }
+
+    _startFlashing() {
+        // Already flashing
+        if (this._flashTimer) {
+            return;
+        }
+
+        // Start flash timer (500ms interval)
+        this._flashState = false;
+        this._flashTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
+            if (!this._countdownLabel) {
+                this._flashTimer = null;
+                return GLib.SOURCE_REMOVE;
+            }
+
+            // Toggle flash state
+            this._flashState = !this._flashState;
+
+            if (this._flashState) {
+                // Red background, white text
+                this._countdownLabel.style = 'color: white; font-weight: bold; font-size: 13px; background-color: #ff4444; padding: 2px 4px; border-radius: 3px;';
+            } else {
+                // White background, red text
+                this._countdownLabel.style = 'color: #ff4444; font-weight: bold; font-size: 13px; background-color: white; padding: 2px 4px; border-radius: 3px;';
+            }
+
+            return GLib.SOURCE_CONTINUE;
+        });
+    }
+
+    _stopFlashing() {
+        if (this._flashTimer) {
+            GLib.Source.remove(this._flashTimer);
+            this._flashTimer = null;
+            this._flashState = false;
+        }
+    }
+
+    _stopCountdown() {
+        // Cancel timers
+        if (this._recordingTimer) {
+            GLib.Source.remove(this._recordingTimer);
+            this._recordingTimer = null;
+            this._log('Countdown stopped');
+        }
+
+        // Stop flashing
+        this._stopFlashing();
+
+        // Restore icon
+        if (this._countdownLabel) {
+            this._indicator.remove_child(this._countdownLabel);
+            this._countdownLabel = null;
+        }
+
+        if (!this._icon) {
+            this._icon = new St.Icon({
+                icon_name: 'audio-input-microphone-symbolic',
+                style_class: 'system-status-icon'
+            });
+        }
+
+        // Only add icon if it's not already a child
+        const children = this._indicator.get_children();
+        if (!children.includes(this._icon)) {
+            this._indicator.add_child(this._icon);
         }
     }
 
@@ -301,11 +477,11 @@ export default class SpeechToTextExtension extends Extension {
                 return;
             }
 
-            // Pass debug, clipboard and auto-paste flags if enabled, with 90s timeout as safety
+            // Pass debug, clipboard and auto-paste flags if enabled, with 45s timeout as safety (30s recording + 15s transcription)
             const debugFlag = this._debugEnabled ? ' --debug' : '';
             const clipboardFlag = this._clipboardMode ? ' --clipboard' : '';
             const autoPasteFlag = this._autoPaste ? ' --auto-paste' : '';
-            const command = 'timeout 90 ' + GLib.get_home_dir() + '/.local/bin/wsi' + debugFlag + clipboardFlag + autoPasteFlag;
+            const command = 'timeout 45 ' + GLib.get_home_dir() + '/.local/bin/wsi' + debugFlag + clipboardFlag + autoPasteFlag;
 
             this._log(`Launching: ${command}`);
             GLib.spawn_command_line_async(command);
@@ -518,6 +694,74 @@ export default class SpeechToTextExtension extends Extension {
                 GLib.spawn_command_line_async(`gnome-text-editor ${this._logFile}`);
             } catch (e2) {
                 Main.notify('STT', `Cannot open log file: ${e2.message}`);
+            }
+        }
+    }
+
+    _copyLastTranscription() {
+        const transcriptionFile = GLib.get_home_dir() + '/.cache/speech-to-text/last-transcription.txt';
+
+        // Check if file exists
+        const file = Gio.File.new_for_path(transcriptionFile);
+        if (!file.query_exists(null)) {
+            Main.notify('Speech to Text', 'No transcription available yet');
+            return;
+        }
+
+        // Read transcription text
+        try {
+            const [success, contents] = file.load_contents(null);
+            if (!success) {
+                Main.notify('STT', 'Cannot read transcription file');
+                return;
+            }
+
+            const text = new TextDecoder().decode(contents).trim();
+            if (!text) {
+                Main.notify('Speech to Text', 'Transcription is empty');
+                return;
+            }
+
+            // Copy to clipboard using shell command (async, won't block UI)
+            // Escape single quotes in text for safe shell execution
+            const escapedText = text.replace(/'/g, "'\\''");
+            const command = `echo '${escapedText}' | wl-copy`;
+
+            GLib.spawn_command_line_async(command);
+
+            // Show preview in notification
+            const preview = text.length > 60 ? text.substring(0, 57) + '...' : text;
+            Main.notify('Speech to Text', `Copied: ${preview}`);
+
+            this._log(`Copied transcription to clipboard: ${text}`);
+        } catch (e) {
+            Main.notify('STT', `Cannot copy transcription: ${e.message}`);
+            this._log(`Copy error: ${e.message}`);
+        }
+    }
+
+    _openLastTranscription() {
+        const transcriptionFile = GLib.get_home_dir() + '/.cache/speech-to-text/last-transcription.txt';
+
+        // Check if file exists
+        const file = Gio.File.new_for_path(transcriptionFile);
+        if (!file.query_exists(null)) {
+            Main.notify('Speech to Text', 'No transcription available yet');
+            return;
+        }
+
+        // Open transcription file with default text editor
+        try {
+            Gio.AppInfo.launch_default_for_uri(
+                'file://' + transcriptionFile,
+                null
+            );
+        } catch (e) {
+            // Fallback: open with gnome-text-editor
+            try {
+                GLib.spawn_command_line_async(`gnome-text-editor ${transcriptionFile}`);
+            } catch (e2) {
+                Main.notify('STT', `Cannot open transcription: ${e2.message}`);
             }
         }
     }
