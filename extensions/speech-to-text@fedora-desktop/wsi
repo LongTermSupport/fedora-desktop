@@ -1,8 +1,7 @@
 #!/usr/bin/bash
-# Enhanced WSI (Whisper Speech Input) Script
+# WSI (Whisper Speech Input) Script
 # Speech-to-text orchestrator for GNOME extension
-# Based on: https://github.com/QuantiusBenignus/blurt
-# Enhanced with comprehensive debugging and error handling
+# Custom implementation for fedora-desktop project
 
 #============================================================================
 # USER CONFIGURATION

@@ -23,21 +23,15 @@ Implementation of local, offline speech-to-text functionality for Fedora 42 usin
 
 **Started**: Early January 2025
 
-**Approach**: Tried existing GNOME extensions
-- **Sonori**: Investigated first, but requires wlr-layer-shell (not available on GNOME/Wayland)
-- **Blurt**: Installed as alternative
+**Approach**: Evaluated existing GNOME speech-to-text extensions
 
-**Commits**:
-- `df01711` - feat: add Sonori speech-to-text playbook and Vulkan support to NVIDIA
-- `e41f893` - feat: comprehensive speech-to-text playbook with Blurt and Sonori
-
-**Result**: Blurt had confusing UI (yellow icon, unclear state) - decided to replace
+**Result**: No suitable extensions found - decided to build custom solution
 
 ---
 
 ### Phase 2: Whisper Backend Setup (Commits: 43bf104 → 2a55988)
 
-**Problem**: Blurt's wsi script had hardcoded dependencies (zsh, whisper.cpp from Fedora repos)
+**Problem**: Initial wsi script had hardcoded dependencies (zsh, whisper.cpp from Fedora repos)
 
 **Solutions**:
 1. Switched from Fedora `whisper-cpp` package to Mozilla `whisperfile` (llamafile - single portable executable)
@@ -83,7 +77,7 @@ sox "$ramf" "${ramf}.resampled.wav" rate 16k
 - Added microphone warm-up period (later found unnecessary but kept for compatibility)
 
 **Commits**:
-- `aed0ca0` - fix: remove auto-enable of Blurt extension, document restart requirement
+- `aed0ca0` - fix: configure wsi script, document restart requirement
 - `e33ecad` - fix: configure wsi script for bash shebang and whisperfile mode
 - `dd493d4` - feat: create enhanced wsi script with comprehensive debug mode
 - `619eb7b` - perf: skip whisperfile download if already exists
@@ -100,7 +94,7 @@ sox "$ramf" "${ramf}.resampled.wav" rate 16k
 
 ### Phase 4: Custom GNOME Extension Development (Commits: 4e1ed1c → 3008ef6)
 
-**Decision**: Replace Blurt entirely with custom extension
+**Decision**: Build custom GNOME Shell extension from scratch
 
 **User Requirements**:
 - "i would prefer press + hold to record, transcribe and paste immediately on release"

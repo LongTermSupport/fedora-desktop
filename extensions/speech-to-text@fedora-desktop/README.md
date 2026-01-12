@@ -368,9 +368,9 @@ This catches dangerous synchronous calls like `communicate()`, `wait()`, etc. th
 
 ## Credits
 
-- **Based on:** [Blurt](https://github.com/QuantiusBenignus/blurt) by QuantiusBenignus
 - **Whisper:** OpenAI's speech recognition model
 - **faster-whisper:** SYSTRAN's optimized implementation
+- **ydotool:** Virtual input tool for auto-paste functionality
 
 ## License
 
