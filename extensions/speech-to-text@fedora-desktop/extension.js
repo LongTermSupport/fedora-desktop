@@ -36,6 +36,7 @@ export default class SpeechToTextExtension extends Extension {
         this._debugEnabled = false;
         this._clipboardMode = false;
         this._autoPaste = false;
+        this._autoEnter = true;  // Default: send Enter after auto-paste
         this._wrapWithMarker = false;
         this._currentState = 'IDLE';
         this._lastError = null;
@@ -227,7 +228,16 @@ export default class SpeechToTextExtension extends Extension {
         });
         menu.addMenuItem(this._autoPasteSwitch);
 
-        // Wrap with marker toggle
+        // Auto-enter toggle (send Return after auto-paste) - child of auto-paste
+        this._autoEnterSwitch = new PopupMenu.PopupSwitchMenuItem('  ↳ Send Enter after paste', this._autoEnter);
+        this._autoEnterSwitch.connect('toggled', (item, state) => {
+            this._autoEnter = state;
+            this._saveAutoEnterSetting(state);
+            this._log(`Auto-enter ${state ? 'enabled' : 'disabled'}`);
+        });
+        menu.addMenuItem(this._autoEnterSwitch);
+
+        // Wrap with marker toggle (works with all paste modes)
         this._wrapMarkerSwitch = new PopupMenu.PopupSwitchMenuItem('Wrap with speech-to-text marker', this._wrapWithMarker);
         this._wrapMarkerSwitch.connect('toggled', (item, state) => {
             this._wrapWithMarker = state;
@@ -235,6 +245,9 @@ export default class SpeechToTextExtension extends Extension {
             this._log(`Wrap marker ${state ? 'enabled' : 'disabled'}`);
         });
         menu.addMenuItem(this._wrapMarkerSwitch);
+
+        // Set initial sensitivity for child options
+        this._updatePasteToggles();
 
         // Separator
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
@@ -493,11 +506,13 @@ export default class SpeechToTextExtension extends Extension {
             }
 
             // Pass debug, clipboard, auto-paste, and wrap-marker flags if enabled
+            // Note: auto-enter is ON by default in auto-paste mode, so we pass --no-auto-enter to disable
             const debugFlag = this._debugEnabled ? ' --debug' : '';
             const clipboardFlag = this._clipboardMode ? ' --clipboard' : '';
             const autoPasteFlag = this._autoPaste ? ' --auto-paste' : '';
+            const noAutoEnterFlag = (this._autoPaste && !this._autoEnter) ? ' --no-auto-enter' : '';
             const wrapMarkerFlag = this._wrapWithMarker ? ' --wrap-marker' : '';
-            const command = GLib.get_home_dir() + '/.local/bin/wsi' + debugFlag + clipboardFlag + autoPasteFlag + wrapMarkerFlag;
+            const command = GLib.get_home_dir() + '/.local/bin/wsi' + debugFlag + clipboardFlag + autoPasteFlag + noAutoEnterFlag + wrapMarkerFlag;
 
             this._log(`Launching: ${command}`);
             GLib.spawn_command_line_async(command);
@@ -577,6 +592,14 @@ export default class SpeechToTextExtension extends Extension {
             } catch (e) {
                 this._wrapWithMarker = false;
             }
+            try {
+                this._autoEnter = this._settings.get_boolean('auto-enter');
+                if (this._autoEnterSwitch) {
+                    this._autoEnterSwitch.setToggleState(this._autoEnter);
+                }
+            } catch (e) {
+                this._autoEnter = true;  // Default: send Enter after auto-paste
+            }
         }
     }
 
@@ -586,6 +609,10 @@ export default class SpeechToTextExtension extends Extension {
         }
         if (this._autoPasteSwitch) {
             this._autoPasteSwitch.setToggleState(this._autoPaste);
+        }
+        // Auto-enter is only enabled when auto-paste is active
+        if (this._autoEnterSwitch) {
+            this._autoEnterSwitch.setSensitive(this._autoPaste);
         }
     }
 
@@ -623,6 +650,16 @@ export default class SpeechToTextExtension extends Extension {
         if (this._settings) {
             try {
                 this._settings.set_boolean('wrap-marker', enabled);
+            } catch (e) {
+                // Setting may not exist yet
+            }
+        }
+    }
+
+    _saveAutoEnterSetting(enabled) {
+        if (this._settings) {
+            try {
+                this._settings.set_boolean('auto-enter', enabled);
             } catch (e) {
                 // Setting may not exist yet
             }

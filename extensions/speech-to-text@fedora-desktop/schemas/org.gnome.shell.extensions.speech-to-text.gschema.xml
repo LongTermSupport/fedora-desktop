@@ -26,5 +26,10 @@
       <summary>Wrap with Speech-to-Text Marker</summary>
       <description>Wrap transcribed text with speech-to-text:"..." to provide context to LLMs</description>
     </key>
+    <key name="auto-enter" type="b">
+      <default>true</default>
+      <summary>Auto Enter After Paste</summary>
+      <description>Send Return/Enter key after auto-pasting (requires auto-paste to be enabled)</description>
+    </key>
   </schema>
 </schemalist>

@@ -31,6 +31,7 @@ ramf="$TEMPD/wfile-$USER.wav"
 WHISPERFILE="faster-whisper-transcribe"
 CLIPBOARD=false
 AUTO_PASTE=false
+SKIP_AUTO_ENTER=false  # Auto-enter is ON by default in auto-paste mode
 WRAP_MARKER=false
 WHOST="127.0.0.1"
 WPORT="58080"
@@ -345,7 +346,8 @@ Usage: wsi [OPTIONS]
 
 Options:
   -c, --clipboard     Use CLIPBOARD instead of PRIMARY selection
-  -a, --auto-paste    Type text directly at cursor (no clipboard)
+  -a, --auto-paste    Type text directly at cursor (sends Enter by default)
+  --no-auto-enter     Skip sending Enter/Return key after auto-paste
   -w, --wrap-marker   Wrap text with speech-to-text:"..." for LLM context
   -n, --netapi        Use whisper.cpp server (host:port from config)
   -d, --debug         Enable debug mode (verbose output + dependency checks)
@@ -358,7 +360,8 @@ Examples:
   wsi                 # Record speech and transcribe locally
   wsi -d              # Debug mode with full diagnostics
   wsi -c              # Use CLIPBOARD instead of PRIMARY
-  wsi -a              # Auto-paste at cursor position
+  wsi -a              # Auto-paste at cursor (includes Enter)
+  wsi -a --no-auto-enter  # Auto-paste without Enter
   wsi server.local:8080  # Use remote whisper.cpp server
 EOF
 }
@@ -377,6 +380,11 @@ while [ $# -gt 0 ]; do
         -a|--auto-paste)
             AUTO_PASTE=true
             log_debug "Auto-paste mode enabled"
+            shift
+            ;;
+        --no-auto-enter)
+            SKIP_AUTO_ENTER=true
+            log_debug "Auto-enter disabled (will not send Enter after paste)"
             shift
             ;;
         -w|--wrap-marker)
@@ -774,6 +782,22 @@ if [ "$AUTO_PASTE" = true ]; then
     log_debug "Paste simulated successfully"
     # Small delay to ensure paste completes
     sleep 0.1
+
+    # Send Enter key by default in auto-paste mode (unless disabled)
+    if [ "$SKIP_AUTO_ENTER" = false ]; then
+        log_debug "Simulating Enter key (default behavior)"
+        # Key code: 28 = Enter/Return
+        if ! YDOTOOL_SOCKET=/run/ydotool.socket ydotool key 28:1 28:0; then
+            exit_code=$?
+            log_error "ydotool Enter key simulation failed (exit code: $exit_code)"
+            # Don't exit - paste already succeeded
+        else
+            log_debug "Enter key simulated successfully"
+        fi
+    else
+        log_debug "Enter key skipped (--no-auto-enter)"
+    fi
+
     preview="${str:0:60}"
     [ ${#str} -gt 60 ] && preview="${preview}..."
     notify_state "SUCCESS" "$preview"
