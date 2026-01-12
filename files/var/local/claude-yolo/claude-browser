@@ -11,7 +11,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCB_VERSION="1.2.2"  # Fix rootless check for podman (inherently rootless)
+CCB_VERSION="1.3.0"  # Fix: Skip project networks entirely - multi-network breaks Podman internet routing
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1266,6 +1266,46 @@ if [ ${#MATCHING_NETWORKS[@]} -gt 0 ]; then
     echo ""
 fi
 fi  # End of network flag handling (if/elif/else)
+
+# Network Strategy: Internet access is REQUIRED for Claude Code to work
+# =====================================================================
+# Problem: Connecting to a project network (e.g., docker-compose network) can break
+#          internet access because Podman's routing gets confused with multiple networks.
+#
+# Solution: NEVER auto-connect to project networks. Always use the default podman network
+#           which has working internet access. Users can manually connect to project
+#           networks later using 'ccb --connect' if they need container-to-container
+#           communication (but this may break internet - it's a known Podman limitation).
+#
+# If a project network was requested, warn the user and skip it
+if [[ -n "$NETWORK_FLAG" ]]; then
+    REQUESTED_NETWORK="${NETWORK_FLAG#--network }"
+    echo ""
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo "⚠  SKIPPING PROJECT NETWORK: $REQUESTED_NETWORK"
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+    echo "Connecting to project networks breaks internet access in Podman."
+    echo "Claude Code requires internet to communicate with Anthropic's API."
+    echo ""
+    echo "If you need to reach other containers, use 'ccb --connect' AFTER startup,"
+    echo "but be aware this may break Claude Code's API connectivity."
+    echo ""
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+    # Clear the network flag - don't connect to project network
+    NETWORK_FLAG=""
+fi
+
+# Podman-specific: Ensure network mode supports later connections via 'ccy --connect'
+# When no network is specified, Podman defaults to "pasta" mode which cannot be extended.
+# Solution: Always use the default "podman" network when no specific network is requested.
+# This allows 'podman network connect' to work later.
+if [[ "$CONTAINER_ENGINE" = "podman" ]] && [[ -z "$NETWORK_FLAG" ]] && [[ "$NO_NETWORK_MODE" != true ]]; then
+    NETWORK_FLAG="--network podman"
+    echo "✓ Using default Podman network (internet access)"
+    echo ""
+fi
 
 # Display command preview box and save configuration
 # Extract token name from selected token file
