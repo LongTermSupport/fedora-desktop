@@ -477,11 +477,11 @@ export default class SpeechToTextExtension extends Extension {
                 return;
             }
 
-            // Pass debug, clipboard and auto-paste flags if enabled, with 45s timeout as safety (30s recording + 15s transcription)
+            // Pass debug, clipboard and auto-paste flags if enabled
             const debugFlag = this._debugEnabled ? ' --debug' : '';
             const clipboardFlag = this._clipboardMode ? ' --clipboard' : '';
             const autoPasteFlag = this._autoPaste ? ' --auto-paste' : '';
-            const command = 'timeout 45 ' + GLib.get_home_dir() + '/.local/bin/wsi' + debugFlag + clipboardFlag + autoPasteFlag;
+            const command = GLib.get_home_dir() + '/.local/bin/wsi' + debugFlag + clipboardFlag + autoPasteFlag;
 
             this._log(`Launching: ${command}`);
             GLib.spawn_command_line_async(command);
