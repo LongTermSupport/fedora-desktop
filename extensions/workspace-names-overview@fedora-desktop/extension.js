@@ -79,23 +79,46 @@ export default class WorkspaceNamesOverviewExtension extends Extension {
             // Add labels to primary monitor thumbnails
             if (controls._thumbnailsBox && controls._thumbnailsBox._thumbnails) {
                 this._addLabelsToThumbnailsBox(controls._thumbnailsBox, names);
+                log(`Added labels to primary monitor (${controls._thumbnailsBox._thumbnails.length} workspaces)`);
             }
 
-            // Add labels to secondary monitor thumbnails
-            // Secondary monitors are in _workspacesViews array starting from index 1
-            if (controls._workspacesDisplay && controls._workspacesDisplay._workspacesViews) {
-                const workspacesViews = controls._workspacesDisplay._workspacesViews;
+            // Add labels to secondary monitors
+            // Try different paths for multi-monitor setup
 
-                // Skip index 0 (primary monitor, already handled)
-                for (let i = 1; i < workspacesViews.length; i++) {
-                    const view = workspacesViews[i];
+            // Path 1: _workspacesDisplay._workspacesViews (GNOME 40-44)
+            if (controls._workspacesDisplay && controls._workspacesDisplay._workspacesViews) {
+                const views = controls._workspacesDisplay._workspacesViews;
+                log(`Found ${views.length} workspace views`);
+
+                for (let i = 0; i < views.length; i++) {
+                    const view = views[i];
+
+                    // Try view._thumbnails._thumbnails
                     if (view._thumbnails && view._thumbnails._thumbnails) {
                         this._addLabelsToThumbnailsBox(view._thumbnails, names);
+                        log(`Added labels to monitor ${i} via view._thumbnails`);
+                    }
+                    // Try view.thumbnailsBox._thumbnails (alternative path)
+                    else if (view.thumbnailsBox && view.thumbnailsBox._thumbnails) {
+                        this._addLabelsToThumbnailsBox(view.thumbnailsBox, names);
+                        log(`Added labels to monitor ${i} via view.thumbnailsBox`);
                     }
                 }
             }
+
+            // Path 2: Secondary monitors array (GNOME 45+)
+            if (Main.overview._overview._secondaryMonitorOverviews) {
+                const secondaryOverviews = Main.overview._overview._secondaryMonitorOverviews;
+                log(`Found ${secondaryOverviews.length} secondary monitors`);
+
+                secondaryOverviews.forEach((overview, index) => {
+                    if (overview._thumbnailsBox && overview._thumbnailsBox._thumbnails) {
+                        this._addLabelsToThumbnailsBox(overview._thumbnailsBox, names);
+                        log(`Added labels to secondary monitor ${index}`);
+                    }
+                });
+            }
         } catch (e) {
-            // Silently fail if thumbnail path is invalid (GNOME version change)
             logError(e, 'Failed to add workspace labels');
         }
     }
