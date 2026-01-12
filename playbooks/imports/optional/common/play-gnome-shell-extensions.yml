@@ -51,15 +51,7 @@
           id: 5090
           # https://extensions.gnome.org/extension/5090/space-bar/
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # ⚠️  DISABLED: workspace-names-overview extension
-    # ══════════════════════════════════════════════════════════════════════════
-    # This extension BREAKS THE SUPER KEY and prevents Overview from opening.
-    # DO NOT ENABLE until the extension code is properly fixed and tested.
-    # The extension crashes GNOME Shell's Overview functionality.
-    # ══════════════════════════════════════════════════════════════════════════
-
-    - name: Deploy Custom Extension - Workspace Names in Overview (DISABLED)
+    - name: Deploy Custom Extension - Workspace Names in Overview
       become: true
       become_user: "{{ user_login }}"
       ansible.builtin.copy:
@@ -67,12 +59,12 @@
         dest: "/home/{{ user_login }}/.local/share/gnome-shell/extensions/workspace-names-overview@fedora-desktop/"
         mode: '0755'
 
-    - name: DISABLE Workspace Names in Overview Extension (BROKEN - crashes Overview)
+    - name: Enable Workspace Names in Overview Extension
       become: true
       become_user: "{{ user_login }}"
       ansible.builtin.shell:
         cmd: |
           export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
-          gnome-extensions disable workspace-names-overview@fedora-desktop || true
+          gnome-extensions enable workspace-names-overview@fedora-desktop || true
       changed_when: false
       failed_when: false

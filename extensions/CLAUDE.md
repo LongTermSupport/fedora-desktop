@@ -44,17 +44,41 @@ GLib.spawn_command_line_async('echo hello | wl-copy');
 
 **CRITICAL**: When working with GNOME Shell APIs, you MUST research the actual source code. Guessing API paths leads to broken code.
 
-### Official Sources of Truth
+### Local GNOME Shell Source (PREFERRED)
 
-**Primary Source - GNOME GitLab** (Most up-to-date):
-- **Main repository**: https://gitlab.gnome.org/GNOME/gnome-shell
+**Always use local source** - it matches the exact installed version.
+
+**Extract JS source from installed GNOME Shell:**
+```bash
+./extensions/scripts/gnome-shell-extract-js.bash
+```
+
+This extracts to: `./untracked/gnome-shell/<version>/js-extracted/`
+
+**Before working on extensions, verify source is current:**
+```bash
+# Check GNOME Shell version
+gnome-shell --version
+
+# Check if extracted source exists for this version
+ls ./untracked/gnome-shell/
+```
+
+**If GNOME Shell was updated**, re-run the script - it automatically removes old versions.
+
+**Read local source files:**
+```bash
+# Example: Read workspacesView.js
+cat ./untracked/gnome-shell/48.7/js-extracted/org/gnome/shell/ui/workspacesView.js
+```
+
+### Online Sources (Fallback)
+
+**GNOME GitLab** (Most up-to-date for development branch):
 - **Browse source**: https://gitlab.gnome.org/GNOME/gnome-shell/-/tree/main/js/ui
-- **Search code**: Use GitLab's search feature for classes and methods
 
-**Mirror - GitHub** (Easier for quick browsing):
-- **Repository**: https://github.com/GNOME/gnome-shell
+**GitHub Mirror** (Easier for quick browsing):
 - **Browse source**: https://github.com/GNOME/gnome-shell/tree/main/js/ui
-- **Raw files**: https://raw.githubusercontent.com/GNOME/gnome-shell/main/js/ui/[filename]
 
 ### Key Files to Know
 
