@@ -9,6 +9,7 @@
  */
 
 import St from 'gi://St';
+import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
@@ -19,9 +20,11 @@ export default class WorkspaceNamesOverviewExtension extends Extension {
     constructor(metadata) {
         super(metadata);
         this._wmSettings = null;
-        this._overviewShowingId = null;
+        this._overviewShownId = null;
+        this._overviewHidingId = null;
         this._namesChangedId = null;
         this._labels = [];
+        this._pendingLabelSourceId = null;
     }
 
     enable() {
@@ -31,27 +34,44 @@ export default class WorkspaceNamesOverviewExtension extends Extension {
         // Track added labels for cleanup
         this._labels = [];
 
-        // Connect to overview showing signal
-        this._overviewShowingId = Main.overview.connect('showing', () => {
+        // Use 'shown' signal - thumbnails are created during 'showing' asynchronously
+        // By 'shown' time, all thumbnails on all monitors should exist
+        this._overviewShownId = Main.overview.connect('shown', () => {
             this._addLabelsToThumbnails();
+        });
+
+        // Clean up labels when overview hides
+        this._overviewHidingId = Main.overview.connect('hiding', () => {
+            this._cancelPendingLabels();
+            this._removeAllLabels();
         });
 
         // Connect to workspace names changed
         this._namesChangedId = this._wmSettings.connect('changed::workspace-names', () => {
-            this._updateLabels();
+            if (Main.overview.visible) {
+                this._updateLabels();
+            }
         });
 
-        // If overview is already showing, add labels now
+        // If overview is already visible, add labels now (with delay to ensure thumbnails exist)
         if (Main.overview.visible) {
-            this._addLabelsToThumbnails();
+            this._scheduleAddLabels();
         }
     }
 
     disable() {
+        // Cancel any pending operations
+        this._cancelPendingLabels();
+
         // Disconnect signals
-        if (this._overviewShowingId) {
-            Main.overview.disconnect(this._overviewShowingId);
-            this._overviewShowingId = null;
+        if (this._overviewShownId) {
+            Main.overview.disconnect(this._overviewShownId);
+            this._overviewShownId = null;
+        }
+
+        if (this._overviewHidingId) {
+            Main.overview.disconnect(this._overviewHidingId);
+            this._overviewHidingId = null;
         }
 
         if (this._namesChangedId) {
@@ -63,6 +83,24 @@ export default class WorkspaceNamesOverviewExtension extends Extension {
         this._removeAllLabels();
 
         this._wmSettings = null;
+    }
+
+    _cancelPendingLabels() {
+        if (this._pendingLabelSourceId) {
+            GLib.Source.remove(this._pendingLabelSourceId);
+            this._pendingLabelSourceId = null;
+        }
+    }
+
+    _scheduleAddLabels() {
+        // Use idle_add to run after current event processing completes
+        // This ensures thumbnails have been created
+        this._cancelPendingLabels();
+        this._pendingLabelSourceId = GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+            this._pendingLabelSourceId = null;
+            this._addLabelsToThumbnails();
+            return GLib.SOURCE_REMOVE;
+        });
     }
 
     _addLabelsToThumbnails() {
@@ -77,23 +115,33 @@ export default class WorkspaceNamesOverviewExtension extends Extension {
             const controls = Main.overview._overview._controls;
 
             // Primary monitor: ControlsManager._thumbnailsBox
-            if (controls._thumbnailsBox && controls._thumbnailsBox._thumbnails) {
-                this._addLabelsToThumbnailsBox(controls._thumbnailsBox, names);
+            if (controls._thumbnailsBox) {
+                const thumbnails = controls._thumbnailsBox._thumbnails;
+                if (thumbnails && thumbnails.length > 0) {
+                    this._addLabelsToThumbnailsBox(controls._thumbnailsBox, names);
+                }
             }
 
-            // Secondary monitors: WorkspacesDisplay._workspacesViews contains SecondaryMonitorDisplay instances
-            // Each SecondaryMonitorDisplay has _thumbnails property (ThumbnailsBox)
-            if (controls._workspacesDisplay && controls._workspacesDisplay._workspacesViews) {
-                const views = controls._workspacesDisplay._workspacesViews;
+            // Secondary monitors: WorkspacesDisplay._workspacesViews
+            // From GNOME Shell workspacesView.js:
+            // - _workspacesViews is array of views per monitor
+            // - Index 0 = primary monitor WorkspacesView (no thumbnails box)
+            // - Index 1+ = SecondaryMonitorDisplay instances (have _thumbnails)
+            const workspacesDisplay = controls._workspacesDisplay;
+            if (workspacesDisplay && workspacesDisplay._workspacesViews) {
+                const views = workspacesDisplay._workspacesViews;
 
-                // Index 0 is primary monitor (already handled above)
-                // Remaining indices are SecondaryMonitorDisplay instances
-                for (let i = 1; i < views.length; i++) {
-                    const secondaryDisplay = views[i];
+                // Process all views - secondary monitors have _thumbnails
+                for (let i = 0; i < views.length; i++) {
+                    const view = views[i];
 
-                    // SecondaryMonitorDisplay._thumbnails is the ThumbnailsBox
-                    if (secondaryDisplay._thumbnails && secondaryDisplay._thumbnails._thumbnails) {
-                        this._addLabelsToThumbnailsBox(secondaryDisplay._thumbnails, names);
+                    // SecondaryMonitorDisplay has _thumbnails (ThumbnailsBox)
+                    // ThumbnailsBox has _thumbnails (array of WorkspaceThumbnail)
+                    if (view._thumbnails) {
+                        const thumbnailsBox = view._thumbnails;
+                        if (thumbnailsBox._thumbnails && thumbnailsBox._thumbnails.length > 0) {
+                            this._addLabelsToThumbnailsBox(thumbnailsBox, names);
+                        }
                     }
                 }
             }
