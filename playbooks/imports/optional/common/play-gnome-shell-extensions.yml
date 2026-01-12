@@ -67,3 +67,10 @@
       register: enable_result
       changed_when: "'is now enabled' in enable_result.stderr or enable_result.rc == 0"
       failed_when: false
+
+    - name: Show Extension Enable Result
+      ansible.builtin.debug:
+        msg: |
+          Extension enable result: {{ enable_result.stderr | default('No stderr output') }}
+          Return code: {{ enable_result.rc }}
+          NOTE: Extension may require logging out/in or restarting GNOME Shell to load

@@ -1661,106 +1661,16 @@ else
         fi
     done < <(container_cmd network ls --format "{{.Name}}" 2>/dev/null)
 
-    # Only show network selection if we don't already have a persisted preference
+    # Info message if no matching network found (no interactive prompt)
     if [ ${#ALL_NETWORKS[@]} -gt 0 ] && [ -z "$SPECIFIED_NETWORK" ]; then
         echo ""
-        echo "════════════════════════════════════════════════════════════════════════════════"
-        echo "Docker Network Detection"
-        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo "No network found matching project name: $PROJECT_NAME"
+        echo "Auto-detected network name would be: ${PROJECT_NAME}-network"
         echo ""
-        echo "No networks found matching project name: $PROJECT_NAME"
-        echo "But ${#ALL_NETWORKS[@]} other network(s) available"
-        echo ""
-
-        # Warn about Podman default network - ONLY if it's the only option
-        # This indicates no project-specific networks exist
-        if [[ "$PODMAN_DEFAULT_DETECTED" = true ]] && [[ ${#ALL_NETWORKS[@]} -eq 1 ]]; then
-            echo "⚠️  WARNING: No Project-Specific Networks Found"
-            echo ""
-            echo "Only the 'podman' system-wide default network exists."
-            echo "This network is shared by ALL containers and provides no project isolation."
-            echo ""
-            echo "Problem:"
-            echo "  • No project-specific network detected"
-            echo "  • The 'podman' network is NOT project-specific"
-            echo "  • All containers on 'podman' network can reach each other"
-            echo ""
-            echo "RECOMMENDED: Use explicit network naming in docker-compose.yml"
-            echo ""
-            echo "  1) Edit your docker-compose.yml to define networks explicitly:"
-            echo ""
-            echo "     services:"
-            echo "       web:"
-            echo "         networks:"
-            echo "           - ${PROJECT_NAME}_network"
-            echo ""
-            echo "     networks:"
-            echo "       ${PROJECT_NAME}_network:"
-            echo "         name: ${PROJECT_NAME}_network  # Explicit name (no _default suffix)"
-            echo "         driver: bridge"
-            echo ""
-            echo "  2) Then create the network and start services:"
-            echo "     podman network create ${PROJECT_NAME}_network"
-            echo "     podman-compose up"
-            echo ""
-            echo "Benefits:"
-            echo "  ✓ Consistent network names across Docker and Podman"
-            echo "  ✓ No reliance on auto-generated names"
-            echo "  ✓ Easy to reference in CCY: ccy --network ${PROJECT_NAME}_network"
-            echo "  ✓ Clear project isolation"
-            echo ""
-            echo "════════════════════════════════════════════════════════════════════════════════"
-            echo ""
-        fi
-
-        while true; do
-            read -p "Show available networks? (Y/n): " show_choice
-            show_choice=${show_choice:-Y}
-            echo ""
-
-            case "$show_choice" in
-                Y|y|Yes|yes)
-                    echo "Available networks:"
-                    echo ""
-                    echo "  0) Don't connect"
-                    for i in "${!ALL_NETWORKS[@]}"; do
-                        echo "  $((i+1))) ${ALL_NETWORKS[$i]}"
-                    done
-                    echo ""
-
-                    while true; do
-                        read -p "Select network [0-${#ALL_NETWORKS[@]}]: " net_choice
-                        echo ""
-
-                        if [ "$net_choice" = "0" ]; then
-                            echo "Skipping network connection"
-                            echo "Use 'ccy --connect' later to connect manually"
-                            break 2
-                        elif [ "$net_choice" -ge 1 ] && [ "$net_choice" -le ${#ALL_NETWORKS[@]} ] 2>/dev/null; then
-                            AUTO_CONNECT_NETWORK="${ALL_NETWORKS[$((net_choice-1))]}"
-                            NETWORK_FLAG="--network $AUTO_CONNECT_NETWORK"
-                            echo "✓ Will connect to: $AUTO_CONNECT_NETWORK"
-                            break 2
-                        else
-                            echo "Invalid selection: $net_choice"
-                            echo "Please enter 0-${#ALL_NETWORKS[@]}"
-                            echo ""
-                        fi
-                    done
-                    ;;
-                N|n|No|no)
-                    echo "Skipping network connection"
-                    echo "Use 'ccy --connect' later to connect manually"
-                    break
-                    ;;
-                *)
-                    echo "Invalid choice. Please enter Y or n"
-                    echo ""
-                    ;;
-            esac
-        done
-
-        echo "════════════════════════════════════════════════════════════════════════════════"
+        echo "To connect to a network:"
+        echo "  • Create: $CONTAINER_ENGINE network create ${PROJECT_NAME}-network"
+        echo "  • Connect: ccy --network ${PROJECT_NAME}-network"
+        echo "  • Or use: ccy --connect (interactive selection)"
         echo ""
     fi
     fi  # End of if [[ -z "$SPECIFIED_NETWORK" ]] (persisted network check)
