@@ -1546,7 +1546,8 @@ if [[ "$CROSS_ENGINE_MISMATCH" = true ]]; then
     done
 fi
 
-if [ ${#MATCHING_NETWORKS[@]} -gt 0 ]; then
+# Only prompt for network if we don't already have a persisted preference
+if [ ${#MATCHING_NETWORKS[@]} -gt 0 ] && [ -z "$SPECIFIED_NETWORK" ]; then
     echo ""
     echo "════════════════════════════════════════════════════════════════════════════════"
     echo "Docker Network Auto-Detection"
@@ -1660,7 +1661,8 @@ else
         fi
     done < <(container_cmd network ls --format "{{.Name}}" 2>/dev/null)
 
-    if [ ${#ALL_NETWORKS[@]} -gt 0 ]; then
+    # Only show network selection if we don't already have a persisted preference
+    if [ ${#ALL_NETWORKS[@]} -gt 0 ] && [ -z "$SPECIFIED_NETWORK" ]; then
         echo ""
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo "Docker Network Detection"
