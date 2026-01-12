@@ -1379,23 +1379,41 @@ elif [[ "$NO_NETWORK_MODE" = true ]]; then
     echo "✓ Skipping network connection (--no-network flag)"
     echo ""
 else
-    # No network flags - auto-detect and offer connection
-    # Check BOTH docker and podman to detect cross-engine issues
-    MATCHING_NETWORKS=()
-    DOCKER_NETWORKS=()
-    PODMAN_NETWORKS=()
-    CROSS_ENGINE_MISMATCH=false
+    # No network flags - check for persisted network preference first
+    PERSISTED_NETWORK=$(load_network_preference 2>/dev/null || echo "")
 
-    # Query current engine (podman or docker)
-    while IFS= read -r net; do
-        # Skip default networks
-        if [[ "$net" != "bridge" ]] && [[ "$net" != "host" ]] && [[ "$net" != "none" ]] && [[ "$net" != "podman" ]]; then
-            # Check if network name contains project name
-            if [[ "$net" == *"$PROJECT_NAME"* ]]; then
-                MATCHING_NETWORKS+=("$net")
-            fi
+    if [[ -n "$PERSISTED_NETWORK" ]]; then
+        # Found persisted network - verify it exists
+        if container_cmd network ls --format '{{.Name}}' | grep -q "^${PERSISTED_NETWORK}$"; then
+            SPECIFIED_NETWORK="$PERSISTED_NETWORK"
+            NETWORK_FLAG="--network $PERSISTED_NETWORK"
+            AUTO_CONNECT_NETWORK="$PERSISTED_NETWORK"
+            echo "✓ Will connect to network: $PERSISTED_NETWORK (from saved preference)"
+            echo ""
+        else
+            echo "⚠  Saved network '$PERSISTED_NETWORK' no longer exists"
+            echo ""
         fi
-    done < <(container_cmd network ls --format "{{.Name}}" 2>/dev/null)
+    fi
+
+    # If no persisted network found, auto-detect and offer connection
+    if [[ -z "$SPECIFIED_NETWORK" ]]; then
+        # Check BOTH docker and podman to detect cross-engine issues
+        MATCHING_NETWORKS=()
+        DOCKER_NETWORKS=()
+        PODMAN_NETWORKS=()
+        CROSS_ENGINE_MISMATCH=false
+
+        # Query current engine (podman or docker)
+        while IFS= read -r net; do
+            # Skip default networks
+            if [[ "$net" != "bridge" ]] && [[ "$net" != "host" ]] && [[ "$net" != "none" ]] && [[ "$net" != "podman" ]]; then
+                # Check if network name contains project name
+                if [[ "$net" == *"$PROJECT_NAME"* ]]; then
+                    MATCHING_NETWORKS+=("$net")
+                fi
+            fi
+        done < <(container_cmd network ls --format "{{.Name}}" 2>/dev/null)
 
     # Query the OTHER engine to detect mismatches
     OTHER_ENGINE=""
@@ -1743,6 +1761,7 @@ else
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo ""
     fi
+    fi  # End of if [[ -z "$SPECIFIED_NETWORK" ]] (persisted network check)
 fi
 fi  # End of network flag handling (if/elif/else)
 

@@ -2,7 +2,67 @@
 # Network Management Library
 # Shared Docker network operations for claude-yolo and claude-browser
 #
-# Version: 1.1.0 - Container engine abstraction (docker/podman support)
+# Version: 1.2.0 - Enforced network naming and persistence
+
+# Get the expected network name for the current project
+# Returns: network-name based on folder name, or repo name as fallback
+get_expected_network_name() {
+    local project_name=$(basename "$PWD")
+    local expected_network="${project_name}-network"
+
+    # Check if this network exists
+    if container_cmd network ls --format '{{.Name}}' | grep -q "^${expected_network}$"; then
+        echo "$expected_network"
+        return 0
+    fi
+
+    # Fallback: Try to get repo name from git remote
+    if git rev-parse --git-dir > /dev/null 2>&1; then
+        local repo_url=$(git config --get remote.origin.url 2>/dev/null || echo "")
+        if [ -n "$repo_url" ]; then
+            # Extract repo name from URL (handles both HTTP and SSH formats)
+            local repo_name=$(basename "$repo_url" .git)
+            local repo_network="${repo_name}-network"
+
+            if container_cmd network ls --format '{{.Name}}' | grep -q "^${repo_network}$"; then
+                echo "$repo_network"
+                return 0
+            fi
+        fi
+    fi
+
+    # No matching network found - return the expected name anyway
+    echo "$expected_network"
+    return 1
+}
+
+# Get the persisted network file path for current project
+get_network_persistence_file() {
+    local project_path=$(pwd)
+    local project_hash=$(echo -n "$project_path" | sha256sum | cut -d' ' -f1 | cut -c1-16)
+    echo "$HOME/.claude-tokens/ccy/projects/$project_hash/network"
+}
+
+# Save network name to persistence file
+save_network_preference() {
+    local network_name="$1"
+    local network_file=$(get_network_persistence_file)
+
+    mkdir -p "$(dirname "$network_file")"
+    echo "$network_name" > "$network_file"
+}
+
+# Load network name from persistence file
+load_network_preference() {
+    local network_file=$(get_network_persistence_file)
+
+    if [ -f "$network_file" ]; then
+        cat "$network_file"
+        return 0
+    fi
+
+    return 1
+}
 
 # Function to connect running container to a Docker network
 # Args: $1 = network_name (optional), $2 = container_suffix ("_yolo" or "_browser"), $3 = tool_name (for display)
@@ -82,6 +142,30 @@ connect_to_network() {
     fi
 
     if [ -z "$network_name" ]; then
+        # Check for persisted network preference first
+        local persisted_network=$(load_network_preference 2>/dev/null || echo "")
+
+        if [ -n "$persisted_network" ]; then
+            # Verify the persisted network still exists
+            if container_cmd network ls --format '{{.Name}}' | grep -q "^${persisted_network}$"; then
+                network_name="$persisted_network"
+                echo ""
+                echo "════════════════════════════════════════════════════════════════════════════════"
+                echo "Using Saved Network Preference"
+                echo "════════════════════════════════════════════════════════════════════════════════"
+                echo ""
+                echo "Network: $network_name (from saved preference)"
+                echo ""
+                echo "To change network, use: $tool_name --connect <network-name>"
+                echo ""
+            else
+                echo "⚠ Saved network '$persisted_network' no longer exists. Prompting for new network..."
+                echo ""
+            fi
+        fi
+    fi
+
+    if [ -z "$network_name" ]; then
         echo ""
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo "Connect YOLO Container to Docker Network"
@@ -104,13 +188,16 @@ connect_to_network() {
         local best_match=""
         local best_match_index=""
 
+        # Get expected network name (folder-name-network or repo-name-network)
+        local expected_network=$(get_expected_network_name)
+
         while IFS= read -r net; do
             # Skip default networks
             if [[ "$net" != "bridge" ]] && [[ "$net" != "host" ]] && [[ "$net" != "none" ]]; then
                 networks+=("$net")
 
-                # Check for best match (network name contains project name)
-                if [[ "$net" == *"$project_name"* ]] && [ -z "$best_match" ]; then
+                # Check for best match (exact match with expected network name)
+                if [[ "$net" == "$expected_network" ]] && [ -z "$best_match" ]; then
                     best_match="$net"
                     best_match_index=$((${#networks[@]} - 1))
                 fi
@@ -128,7 +215,7 @@ connect_to_network() {
         # Show networks with optional default
         local start_index=1
         if [ -n "$best_match" ]; then
-            echo "  0) $best_match (default - matches project name)"
+            echo "  0) $best_match (default - expected network for this project)"
             echo ""
             start_index=1
         fi
@@ -221,6 +308,14 @@ connect_to_network() {
             echo "  ⚠ Already connected: $already_connected_count"
         fi
         echo ""
+
+        # Save network preference for future sessions
+        if [ $success_count -gt 0 ]; then
+            save_network_preference "$network_name"
+            echo "  📌 Saved network preference: $network_name"
+            echo ""
+        fi
+
         echo "You can now access project containers from inside $tool_name."
         echo "Example: curl http://container-name:port"
     else
@@ -229,6 +324,12 @@ connect_to_network() {
         if container_cmd network connect "$network_name" "$container_name" 2>/dev/null; then
             echo "✓ Connected successfully!"
             echo ""
+
+            # Save network preference for future sessions
+            save_network_preference "$network_name"
+            echo "📌 Saved network preference: $network_name"
+            echo ""
+
             echo "You can now access project containers from inside $tool_name."
             echo "Example: curl http://container-name:port"
         else
@@ -243,4 +344,8 @@ connect_to_network() {
 }
 
 # Export functions
+export -f get_expected_network_name
+export -f get_network_persistence_file
+export -f save_network_preference
+export -f load_network_preference
 export -f connect_to_network
