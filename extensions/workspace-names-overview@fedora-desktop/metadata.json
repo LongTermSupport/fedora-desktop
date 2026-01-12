@@ -1,0 +1,8 @@
+{
+  "name": "Workspace Names in Overview",
+  "description": "Shows workspace names on thumbnails in the Overview",
+  "uuid": "workspace-names-overview@fedora-desktop",
+  "shell-version": ["45", "46", "47", "48"],
+  "version": 1,
+  "url": "https://github.com/LongTermSupport/fedora-desktop"
+}

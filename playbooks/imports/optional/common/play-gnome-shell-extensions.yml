@@ -50,3 +50,10 @@
         - name: Space Bar
           id: 5090
           # https://extensions.gnome.org/extension/5090/space-bar/
+
+    - name: Deploy Custom Extension - Workspace Names in Overview
+      become: false
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/extensions/workspace-names-overview@fedora-desktop/"
+        dest: "{{ ansible_env.HOME }}/.local/share/gnome-shell/extensions/workspace-names-overview@fedora-desktop/"
+        mode: '0755'
