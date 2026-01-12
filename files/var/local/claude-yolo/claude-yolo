@@ -3,13 +3,13 @@
 # Runs Claude Code with --dangerously-skip-permissions in isolated Docker container
 # IMPORTANT: Uses separate token storage from desktop Claude Code to prevent OAuth conflicts
 #
-# Version: 2.5.2 - Removed interactive network prompt, info message only
+# Version: 2.6.0 - Enhanced network naming and connect error handling
 #
 # IMPORTANT: When modifying this script, ALWAYS increment CCY_VERSION!
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="2.5.2"  # Fix: Remove interactive network selection prompt
+CCY_VERSION="2.6.0"  # Added parent-folder-repo naming, improved --connect diagnostics
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1665,7 +1665,17 @@ else
     if [ ${#ALL_NETWORKS[@]} -gt 0 ] && [ -z "$SPECIFIED_NETWORK" ]; then
         echo ""
         echo "No network found matching project name: $PROJECT_NAME"
-        echo "Auto-detected network name would be: ${PROJECT_NAME}-network"
+        echo ""
+        echo "Suggested network names:"
+        echo "  • ${PROJECT_NAME}-network (folder name)"
+
+        # Show parent-folder-repo-folder option if parent is not generic
+        PARENT_FOLDER=$(basename "$(dirname "$PWD")")
+        GENERIC_FOLDERS="projects|repos|work|src|code|dev|home"
+        if ! echo "$PARENT_FOLDER" | grep -qiE "^($GENERIC_FOLDERS)$"; then
+            echo "  • ${PARENT_FOLDER}-${PROJECT_NAME}-network (parent-folder-repo)"
+        fi
+
         echo ""
         echo "To connect to a network:"
         echo "  • Create: $CONTAINER_ENGINE network create ${PROJECT_NAME}-network"
@@ -1676,6 +1686,16 @@ else
     fi  # End of if [[ -z "$SPECIFIED_NETWORK" ]] (persisted network check)
 fi
 fi  # End of network flag handling (if/elif/else)
+
+# Podman-specific: Ensure network mode supports later connections via 'ccy --connect'
+# When no network is specified, Podman defaults to "pasta" mode which cannot be extended.
+# Solution: Always use the default "podman" network when no specific network is requested.
+# This allows 'podman network connect' to work later.
+if [[ "$CONTAINER_ENGINE" = "podman" ]] && [[ -z "$NETWORK_FLAG" ]] && [[ "$NO_NETWORK_MODE" != true ]]; then
+    NETWORK_FLAG="--network podman"
+    echo "✓ Using default Podman network (enables 'ccy --connect' later)"
+    echo ""
+fi
 
 # Display command preview box and save configuration
 # Extract token name from selected token file
