@@ -3,13 +3,13 @@
 # Runs Claude Code with --dangerously-skip-permissions in isolated Docker container
 # IMPORTANT: Uses separate token storage from desktop Claude Code to prevent OAuth conflicts
 #
-# Version: 2.5.1 - Neutral cross-engine messaging, both Docker and Podman valid
+# Version: 2.5.2 - Removed interactive network prompt, info message only
 #
 # IMPORTANT: When modifying this script, ALWAYS increment CCY_VERSION!
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="2.5.1"  # Fix: Neutral messaging - Docker and Podman both valid user choices
+CCY_VERSION="2.5.2"  # Fix: Remove interactive network selection prompt
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

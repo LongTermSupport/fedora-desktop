@@ -62,8 +62,10 @@
     - name: Enable Workspace Names in Overview Extension
       become: true
       become_user: "{{ user_login }}"
-      ansible.builtin.command:
-        cmd: gnome-extensions enable workspace-names-overview@fedora-desktop
+      ansible.builtin.shell:
+        cmd: |
+          export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
+          gnome-extensions enable workspace-names-overview@fedora-desktop
       register: enable_result
       changed_when: "'is now enabled' in enable_result.stderr or enable_result.rc == 0"
       failed_when: false
