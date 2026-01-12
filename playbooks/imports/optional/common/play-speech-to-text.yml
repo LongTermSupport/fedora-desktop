@@ -226,7 +226,7 @@
 
     - name: Copy WSI Script
       ansible.builtin.copy:
-        src: "{{ extension_src }}/wsi"
+        src: "{{ root_dir }}/files/home/.local/bin/wsi"
         dest: "/home/{{ user_login }}/.local/bin/wsi"
         owner: "{{ user_login }}"
         group: "{{ user_login }}"

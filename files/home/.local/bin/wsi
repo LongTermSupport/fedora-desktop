@@ -1,7 +1,27 @@
 #!/usr/bin/bash
+#============================================================================
 # WSI (Whisper Speech Input) Script
-# Speech-to-text orchestrator for GNOME extension
-# Custom implementation for fedora-desktop project
+#============================================================================
+# Speech-to-text backend script for the GNOME Shell extension.
+#
+# ARCHITECTURE:
+#   GNOME Extension (extension.js)  -->  This Script (wsi)  -->  faster-whisper
+#         |                                    |
+#   Handles UI, hotkeys,              Records audio, calls
+#   DBus signals, settings            transcriber, outputs text
+#
+# DEPLOYMENT:
+#   Source:  files/home/.local/bin/wsi (this file)
+#   Deploy:  ~/.local/bin/wsi
+#   Via:     playbooks/imports/optional/common/play-speech-to-text.yml
+#
+# EXTENSION LOCATION:
+#   Source:  extensions/speech-to-text@fedora-desktop/
+#   Deploy:  ~/.local/share/gnome-shell/extensions/speech-to-text@fedora-desktop/
+#
+# The extension calls this script via GLib.spawn_command_line_async().
+# Communication back to extension is via DBus signals (StateChanged, Error).
+#============================================================================
 
 #============================================================================
 # USER CONFIGURATION
@@ -710,9 +730,9 @@ fi
 
 wm="${XDG_SESSION_TYPE:-unknown}"
 
-# Handle auto-paste mode - type directly at cursor
+# Handle auto-paste mode - copy to PRIMARY selection then simulate Shift+Insert
 if [ "$AUTO_PASTE" = true ]; then
-    log_debug "Auto-pasting text at cursor via ydotool"
+    log_debug "Auto-pasting text via PRIMARY selection + Shift+Insert"
     log_debug "Text length: ${#str} characters"
     log_debug "Text preview: ${str:0:100}"
 
@@ -723,26 +743,37 @@ if [ "$AUTO_PASTE" = true ]; then
         exit 1
     fi
 
-    # Check if ydotool daemon is responsive
-    if ! timeout 1 bash -c "YDOTOOL_SOCKET=/run/ydotool.socket ydotool key 29:0" 2>/dev/null; then
-        log_error "ydotool daemon not responding"
-        log_to_file "Daemon may be hung or crashed"
-        log_to_file "Check: sudo systemctl status ydotool"
-        exit 1
-    fi
+    # Copy text to PRIMARY selection (Shift+Insert pastes from PRIMARY, not CLIPBOARD)
+    case "$wm" in
+        "wayland")
+            echo -n "$str" | wl-copy -p
+            log_debug "Text copied to PRIMARY selection (Wayland)"
+            ;;
+        "x11")
+            echo -n "$str" | xsel -ip
+            log_debug "Text copied to PRIMARY selection (X11)"
+            ;;
+        *)
+            log_error "Unknown window manager for clipboard: $wm"
+            exit 1
+            ;;
+    esac
 
-    # ydotool works on both Wayland and X11 via uinput
-    # Use system socket (daemon runs as root with world-accessible socket)
-    log_debug "Typing text via ydotool (${#str} characters)"
-    if ! bash -c "YDOTOOL_SOCKET=/run/ydotool.socket ydotool type -- \"\$1\"" _ "$str"; then
+    # Brief delay to ensure selection is ready
+    sleep 0.05
+
+    # Simulate Shift+Insert paste using ydotool
+    # Key codes: 42 = Left Shift, 110 = Insert
+    # Format: keycode:1 = press, keycode:0 = release
+    log_debug "Simulating Shift+Insert paste"
+    if ! YDOTOOL_SOCKET=/run/ydotool.socket ydotool key 42:1 110:1 110:0 42:0; then
         exit_code=$?
-        log_error "ydotool failed (exit code: $exit_code)"
-        log_to_file "Text length was: ${#str} characters"
+        log_error "ydotool key simulation failed (exit code: $exit_code)"
         exit 1
     fi
-    log_debug "Text typed successfully"
-    # Small delay to ensure ydotool completes before script exits
-    sleep 0.2
+    log_debug "Paste simulated successfully"
+    # Small delay to ensure paste completes
+    sleep 0.1
     preview="${str:0:60}"
     [ ${#str} -gt 60 ] && preview="${preview}..."
     notify_state "SUCCESS" "$preview"
