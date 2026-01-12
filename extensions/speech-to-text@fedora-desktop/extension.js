@@ -36,6 +36,7 @@ export default class SpeechToTextExtension extends Extension {
         this._debugEnabled = false;
         this._clipboardMode = false;
         this._autoPaste = false;
+        this._wrapWithMarker = false;
         this._currentState = 'IDLE';
         this._lastError = null;
         this._logDir = GLib.get_home_dir() + '/.local/share/speech-to-text';
@@ -225,6 +226,15 @@ export default class SpeechToTextExtension extends Extension {
             this._log(`Auto-paste ${state ? 'enabled' : 'disabled'}`);
         });
         menu.addMenuItem(this._autoPasteSwitch);
+
+        // Wrap with marker toggle
+        this._wrapMarkerSwitch = new PopupMenu.PopupSwitchMenuItem('Wrap with speech-to-text marker', this._wrapWithMarker);
+        this._wrapMarkerSwitch.connect('toggled', (item, state) => {
+            this._wrapWithMarker = state;
+            this._saveWrapMarkerSetting(state);
+            this._log(`Wrap marker ${state ? 'enabled' : 'disabled'}`);
+        });
+        menu.addMenuItem(this._wrapMarkerSwitch);
 
         // Separator
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
@@ -482,11 +492,12 @@ export default class SpeechToTextExtension extends Extension {
                 return;
             }
 
-            // Pass debug, clipboard and auto-paste flags if enabled
+            // Pass debug, clipboard, auto-paste, and wrap-marker flags if enabled
             const debugFlag = this._debugEnabled ? ' --debug' : '';
             const clipboardFlag = this._clipboardMode ? ' --clipboard' : '';
             const autoPasteFlag = this._autoPaste ? ' --auto-paste' : '';
-            const command = GLib.get_home_dir() + '/.local/bin/wsi' + debugFlag + clipboardFlag + autoPasteFlag;
+            const wrapMarkerFlag = this._wrapWithMarker ? ' --wrap-marker' : '';
+            const command = GLib.get_home_dir() + '/.local/bin/wsi' + debugFlag + clipboardFlag + autoPasteFlag + wrapMarkerFlag;
 
             this._log(`Launching: ${command}`);
             GLib.spawn_command_line_async(command);
@@ -558,6 +569,14 @@ export default class SpeechToTextExtension extends Extension {
             } catch (e) {
                 this._autoPaste = false;
             }
+            try {
+                this._wrapWithMarker = this._settings.get_boolean('wrap-marker');
+                if (this._wrapMarkerSwitch) {
+                    this._wrapMarkerSwitch.setToggleState(this._wrapWithMarker);
+                }
+            } catch (e) {
+                this._wrapWithMarker = false;
+            }
         }
     }
 
@@ -594,6 +613,16 @@ export default class SpeechToTextExtension extends Extension {
         if (this._settings) {
             try {
                 this._settings.set_boolean('auto-paste', enabled);
+            } catch (e) {
+                // Setting may not exist yet
+            }
+        }
+    }
+
+    _saveWrapMarkerSetting(enabled) {
+        if (this._settings) {
+            try {
+                this._settings.set_boolean('wrap-marker', enabled);
             } catch (e) {
                 // Setting may not exist yet
             }

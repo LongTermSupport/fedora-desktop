@@ -11,6 +11,7 @@ ramf="$TEMPD/wfile-$USER.wav"
 WHISPERFILE="faster-whisper-transcribe"
 CLIPBOARD=false
 AUTO_PASTE=false
+WRAP_MARKER=false
 WHOST="127.0.0.1"
 WPORT="58080"
 
@@ -325,6 +326,7 @@ Usage: wsi [OPTIONS]
 Options:
   -c, --clipboard     Use CLIPBOARD instead of PRIMARY selection
   -a, --auto-paste    Type text directly at cursor (no clipboard)
+  -w, --wrap-marker   Wrap text with speech-to-text:"..." for LLM context
   -n, --netapi        Use whisper.cpp server (host:port from config)
   -d, --debug         Enable debug mode (verbose output + dependency checks)
   -v, --verbose       Enable verbose output only
@@ -355,6 +357,11 @@ while [ $# -gt 0 ]; do
         -a|--auto-paste)
             AUTO_PASTE=true
             log_debug "Auto-paste mode enabled"
+            shift
+            ;;
+        -w|--wrap-marker)
+            WRAP_MARKER=true
+            log_debug "Wrap marker enabled"
             shift
             ;;
         -d|--debug)
@@ -674,6 +681,12 @@ if [ -z "$str" ]; then
 fi
 
 log_debug "Processed result: '$str'"
+
+# Wrap with speech-to-text marker if requested
+if [ "$WRAP_MARKER" = true ]; then
+    str="speech-to-text:\"$str\""
+    log_debug "Wrapped with marker: '$str'"
+fi
 
 #============================================================================
 # SAVE TRANSCRIPTION TO FILE

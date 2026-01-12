@@ -74,29 +74,47 @@ export default class WorkspaceNamesOverviewExtension extends Extension {
 
         // Access thumbnails - path may vary by GNOME version
         try {
-            const thumbnailsBox = Main.overview._overview._controls._thumbnailsBox;
-            if (!thumbnailsBox || !thumbnailsBox._thumbnails) {
-                return;
+            const controls = Main.overview._overview._controls;
+
+            // Add labels to primary monitor thumbnails
+            if (controls._thumbnailsBox && controls._thumbnailsBox._thumbnails) {
+                this._addLabelsToThumbnailsBox(controls._thumbnailsBox, names);
             }
 
-            const thumbnails = thumbnailsBox._thumbnails;
+            // Add labels to secondary monitor thumbnails
+            // Secondary monitors are in _workspacesViews array starting from index 1
+            if (controls._workspacesDisplay && controls._workspacesDisplay._workspacesViews) {
+                const workspacesViews = controls._workspacesDisplay._workspacesViews;
 
-            thumbnails.forEach((thumbnail, index) => {
-                const name = names[index] || `Workspace ${index + 1}`;
-
-                const label = new St.Label({
-                    text: name,
-                    style_class: 'workspace-thumbnail-label'
-                });
-
-                // Add label to thumbnail
-                thumbnail.add_child(label);
-                this._labels.push({ thumbnail, label });
-            });
+                // Skip index 0 (primary monitor, already handled)
+                for (let i = 1; i < workspacesViews.length; i++) {
+                    const view = workspacesViews[i];
+                    if (view._thumbnails && view._thumbnails._thumbnails) {
+                        this._addLabelsToThumbnailsBox(view._thumbnails, names);
+                    }
+                }
+            }
         } catch (e) {
             // Silently fail if thumbnail path is invalid (GNOME version change)
             logError(e, 'Failed to add workspace labels');
         }
+    }
+
+    _addLabelsToThumbnailsBox(thumbnailsBox, names) {
+        const thumbnails = thumbnailsBox._thumbnails;
+
+        thumbnails.forEach((thumbnail, index) => {
+            const name = names[index] || `Workspace ${index + 1}`;
+
+            const label = new St.Label({
+                text: name,
+                style_class: 'workspace-thumbnail-label'
+            });
+
+            // Add label to thumbnail
+            thumbnail.add_child(label);
+            this._labels.push({ thumbnail, label });
+        });
     }
 
     _updateLabels() {

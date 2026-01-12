@@ -21,5 +21,10 @@
       <summary>Auto Paste</summary>
       <description>Automatically type the transcribed text at cursor position</description>
     </key>
+    <key name="wrap-marker" type="b">
+      <default>false</default>
+      <summary>Wrap with Speech-to-Text Marker</summary>
+      <description>Wrap transcribed text with speech-to-text:"..." to provide context to LLMs</description>
+    </key>
   </schema>
 </schemalist>
