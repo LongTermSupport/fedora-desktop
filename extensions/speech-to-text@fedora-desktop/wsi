@@ -177,6 +177,13 @@ cleanup() {
     log_debug "Cleanup triggered"
     # Remove PID file
     rm -f "$PID_FILE"
+
+    # Kill timer if still running (prevents orphaned background process)
+    if [ -n "$TIMER_PID" ] && kill -0 "$TIMER_PID" 2>/dev/null; then
+        kill "$TIMER_PID" 2>/dev/null
+        log_debug "Killed timer process: $TIMER_PID"
+    fi
+
     # Signal idle state only if we're actually exiting (not just stopping recording)
     if [ "$STOP_REQUESTED" = false ]; then
         gdbus emit --session \
@@ -364,11 +371,12 @@ while [ $# -gt 0 ]; do
             ;;
         -n|--netapi)
             IPnPORT="$WHOST:$WPORT"
-            if [[ "$(curl -s -f -o /dev/null -w '%{http_code}' "$IPnPORT" 2>/dev/null)" != "200" ]]; then
-                log_error "Can't connect to whisper.cpp server at $IPnPORT"
+            http_code=$(curl -s -o /dev/null -w '%{http_code}' "$IPnPORT" 2>/dev/null)
+            if [[ -z "$http_code" ]] || [[ ! "$http_code" =~ ^2 ]]; then
+                log_error "Can't connect to whisper.cpp server at $IPnPORT (HTTP: ${http_code:-connection failed})"
                 exit 1
             fi
-            log_debug "Using whisper.cpp server: $IPnPORT"
+            log_debug "Using whisper.cpp server: $IPnPORT (HTTP $http_code)"
             shift
             ;;
         -h|--help)
@@ -496,15 +504,20 @@ if [ ! -w "$TEMPD" ]; then
     exit 1
 fi
 
+# Check available disk space (need ~10MB for 30s recording)
+available_space=$(df -k "$TEMPD" | tail -1 | awk '{print $4}')
+if [ "$available_space" -lt 10240 ]; then
+    log_error "Insufficient space in $TEMPD (${available_space}KB available, need 10MB)"
+    notify_state "ERROR" "Disk space low - cannot record"
+    exit 1
+fi
+log_debug "Available space: ${available_space}KB"
+
 log_debug "All preflight checks passed"
 
 #============================================================================
 # SPEECH RECORDING
 #============================================================================
-
-# Write PID file so extension can stop us
-echo $$ > "$PID_FILE"
-log_debug "PID file written: $PID_FILE ($$)"
 
 log_debug "Ready! Speak now... (press Insert again to stop)"
 
@@ -520,6 +533,10 @@ else
 fi
 REC_PID=$!
 log_debug "pw-record started with PID $REC_PID"
+
+# Write PID file AFTER recording starts (use recorder PID, not shell PID)
+echo $REC_PID > "$PID_FILE"
+log_debug "PID file written: $PID_FILE ($REC_PID)"
 
 # Start 30-second timeout timer in background
 (
@@ -706,7 +723,7 @@ if [ "$AUTO_PASTE" = true ]; then
     # Use system socket (daemon runs as root with world-accessible socket)
     log_debug "Typing text via ydotool (${#str} characters)"
     if ! bash -c "YDOTOOL_SOCKET=/run/ydotool.socket ydotool type -- \"\$1\"" _ "$str"; then
-        local exit_code=$?
+        exit_code=$?
         log_error "ydotool failed (exit code: $exit_code)"
         log_to_file "Text length was: ${#str} characters"
         exit 1

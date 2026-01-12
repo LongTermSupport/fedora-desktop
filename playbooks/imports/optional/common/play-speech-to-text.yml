@@ -68,6 +68,12 @@
         enabled: true
         state: restarted
 
+    - name: Wait for ydotool Socket
+      ansible.builtin.wait_for:
+        path: /run/ydotool.socket
+        state: present
+        timeout: 10
+
     # =========================================================================
     # faster-whisper with GPU acceleration
     # =========================================================================

@@ -449,6 +449,11 @@ export default class SpeechToTextExtension extends Extension {
         // Stop flashing
         this._stopFlashing();
 
+        // Early exit if indicator already destroyed (extension disabled)
+        if (!this._indicator) {
+            return;
+        }
+
         // Restore icon
         if (this._countdownLabel) {
             this._indicator.remove_child(this._countdownLabel);
@@ -722,12 +727,17 @@ export default class SpeechToTextExtension extends Extension {
                 return;
             }
 
-            // Copy to clipboard using shell command (async, won't block UI)
-            // Escape single quotes in text for safe shell execution
-            const escapedText = text.replace(/'/g, "'\\''");
-            const command = `echo '${escapedText}' | wl-copy`;
-
-            GLib.spawn_command_line_async(command);
+            // Copy to clipboard using subprocess (no shell injection risk)
+            try {
+                const proc = Gio.Subprocess.new(
+                    ['wl-copy'],
+                    Gio.SubprocessFlags.STDIN_PIPE
+                );
+                proc.communicate_utf8_async(text, null, null);
+            } catch (procError) {
+                this._log(`wl-copy spawn error: ${procError.message}`);
+                throw procError;
+            }
 
             // Show preview in notification
             const preview = text.length > 60 ? text.substring(0, 57) + '...' : text;
