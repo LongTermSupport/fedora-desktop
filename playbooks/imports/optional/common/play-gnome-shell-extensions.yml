@@ -59,6 +59,14 @@
     # The extension crashes GNOME Shell's Overview functionality.
     # ══════════════════════════════════════════════════════════════════════════
 
+    - name: Deploy Custom Extension - Workspace Names in Overview (DISABLED)
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/extensions/workspace-names-overview@fedora-desktop/"
+        dest: "/home/{{ user_login }}/.local/share/gnome-shell/extensions/workspace-names-overview@fedora-desktop/"
+        mode: '0755'
+
     - name: DISABLE Workspace Names in Overview Extension (BROKEN - crashes Overview)
       become: true
       become_user: "{{ user_login }}"
@@ -68,30 +76,3 @@
           gnome-extensions disable workspace-names-overview@fedora-desktop || true
       changed_when: false
       failed_when: false
-
-    # COMMENTED OUT - DO NOT UNCOMMENT UNTIL EXTENSION IS FIXED
-    # - name: Deploy Custom Extension - Workspace Names in Overview
-    #   become: true
-    #   become_user: "{{ user_login }}"
-    #   ansible.builtin.copy:
-    #     src: "{{ root_dir }}/extensions/workspace-names-overview@fedora-desktop/"
-    #     dest: "/home/{{ user_login }}/.local/share/gnome-shell/extensions/workspace-names-overview@fedora-desktop/"
-    #     mode: '0755'
-    #
-    # - name: Enable Workspace Names in Overview Extension
-    #   become: true
-    #   become_user: "{{ user_login }}"
-    #   ansible.builtin.shell:
-    #     cmd: |
-    #       export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
-    #       gnome-extensions enable workspace-names-overview@fedora-desktop
-    #   register: enable_result
-    #   changed_when: "'is now enabled' in enable_result.stderr or enable_result.rc == 0"
-    #   failed_when: false
-    #
-    # - name: Show Extension Enable Result
-    #   ansible.builtin.debug:
-    #     msg: |
-    #       Extension enable result: {{ enable_result.stderr | default('No stderr output') }}
-    #       Return code: {{ enable_result.rc }}
-    #       NOTE: Extension may require logging out/in or restarting GNOME Shell to load
