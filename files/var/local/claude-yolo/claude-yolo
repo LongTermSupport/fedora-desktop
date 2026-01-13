@@ -2165,6 +2165,9 @@ container_cmd run $DOCKER_FLAGS --rm \
     -e "DEBUG_MODE=$DEBUG_MODE" \
     -e "SSH_KEY_PATHS=$SSH_KEY_PATHS_STR" \
     -e "CCY_SESSION_NAME=$SESSION_NAME" \
+    -e "TERM=${TERM:-xterm}" \
+    -e "COLORTERM=${COLORTERM:-truecolor}" \
+    -e "FORCE_COLOR=1" \
     -w /workspace \
     "$IMAGE_NAME" \
     claude --dangerously-skip-permissions "${CLAUDE_CMD_ARGS[@]}"

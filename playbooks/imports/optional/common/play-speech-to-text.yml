@@ -15,7 +15,12 @@
     extension_name: speech-to-text@fedora-desktop
     extension_src: "{{ root_dir }}/extensions/{{ extension_name }}"
     extension_dest: "/home/{{ user_login }}/.local/share/gnome-shell/extensions/{{ extension_name }}"
+    # Whisper model size: tiny, base, small, medium, large-v3
+    # Both batch and streaming modes share the same model cache (~/.cache/huggingface/hub/)
     faster_whisper_model: "{{ stt_model | default('small') }}"
+    # Language code for transcription (e.g., "en" for English)
+    # Set to empty string "" for auto-detect (not recommended)
+    stt_language_code: "{{ stt_language | default('en') }}"
   tasks:
     # =========================================================================
     # System Dependencies
@@ -146,6 +151,7 @@
                   sys.exit(1)
 
               model_size = os.environ.get('WHISPER_MODEL', '{{ faster_whisper_model }}')
+              language = os.environ.get('WHISPER_LANGUAGE', '{{ stt_language_code }}') or None
 
               # Try GPU first, fall back to CPU
               try:
@@ -154,7 +160,8 @@
                   print(f"GPU not available ({e}), using CPU", file=sys.stderr)
                   model = WhisperModel(model_size, device="cpu", compute_type="int8")
 
-              segments, info = model.transcribe(audio_file, beam_size=5)
+              # Force language if configured (avoids auto-detect errors)
+              segments, info = model.transcribe(audio_file, beam_size=5, language=language)
 
               if stream_mode:
                   # Stream segments as they arrive
@@ -178,6 +185,39 @@
 
           if __name__ == "__main__":
               main()
+
+    # =========================================================================
+    # RealtimeSTT Streaming Mode
+    # =========================================================================
+    # Provides real-time transcription - transcribes while you speak.
+    # Enable via extension menu: "Streaming mode (instant)"
+    #
+    # WARNING: First install can take MANY MINUTES (5-15+) due to large downloads
+    # (PyTorch ~2GB, plus many dependencies). Subsequent runs are instant.
+
+    - name: Install RealtimeSTT for Streaming Mode (WARNING - CAN TAKE MANY MINUTES ON FIRST RUN)
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.pip:
+        name:
+          - RealtimeSTT
+        extra_args: --user
+        state: present
+
+    - name: Install PortAudio for RealtimeSTT (System Dependency)
+      ansible.builtin.dnf:
+        name:
+          - portaudio-devel
+          - python3-devel
+        state: present
+
+    - name: Deploy Streaming Script (wsi-stream)
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/wsi-stream"
+        dest: "/home/{{ user_login }}/.local/bin/wsi-stream"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
 
     # =========================================================================
     # GNOME Extension

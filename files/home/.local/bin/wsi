@@ -33,6 +33,7 @@ CLIPBOARD=false
 AUTO_PASTE=false
 SKIP_AUTO_ENTER=false  # Auto-enter is ON by default in auto-paste mode
 WRAP_MARKER=false
+LANGUAGE=""  # Language code for Whisper (empty = use env var or default)
 WHOST="127.0.0.1"
 WPORT="58080"
 
@@ -349,6 +350,7 @@ Options:
   -a, --auto-paste    Type text directly at cursor (sends Enter by default)
   --no-auto-enter     Skip sending Enter/Return key after auto-paste
   -w, --wrap-marker   Wrap text with speech-to-text:"..." for LLM context
+  -l, --language      Language code for transcription (e.g., 'en')
   -n, --netapi        Use whisper.cpp server (host:port from config)
   -d, --debug         Enable debug mode (verbose output + dependency checks)
   -v, --verbose       Enable verbose output only
@@ -362,6 +364,7 @@ Examples:
   wsi -c              # Use CLIPBOARD instead of PRIMARY
   wsi -a              # Auto-paste at cursor (includes Enter)
   wsi -a --no-auto-enter  # Auto-paste without Enter
+  wsi -l en           # Force English language
   wsi server.local:8080  # Use remote whisper.cpp server
 EOF
 }
@@ -391,6 +394,11 @@ while [ $# -gt 0 ]; do
             WRAP_MARKER=true
             log_debug "Wrap marker enabled"
             shift
+            ;;
+        -l|--language)
+            LANGUAGE="$2"
+            log_debug "Language set to: $LANGUAGE"
+            shift 2
             ;;
         -d|--debug)
             DEBUG=true
@@ -653,7 +661,12 @@ if [ -n "$IPnPORT" ]; then
 
 elif command -v "$WHISPERFILE" &>/dev/null; then
     log_debug "Using faster-whisper: $(command -v "$WHISPERFILE")"
-    log_debug "Running: $WHISPERFILE $ramf"
+    log_debug "Running: $WHISPERFILE $ramf (language: ${LANGUAGE:-default})"
+
+    # Set language env var if specified
+    if [ -n "$LANGUAGE" ]; then
+        export WHISPER_LANGUAGE="$LANGUAGE"
+    fi
 
     # Run transcription (batch mode - fast enough that streaming display isn't needed)
     set +e  # Temporarily disable errexit

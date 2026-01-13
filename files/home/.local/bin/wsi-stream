@@ -1,0 +1,424 @@
+#!/usr/bin/env python3
+"""
+WSI-Stream - Streaming Speech-to-Text with Real-time Transcription
+===================================================================
+Transcribes in real-time to a buffer file, then pastes instantly on stop.
+
+WORKFLOW:
+  1. Press Insert -> starts recording, transcription runs in parallel
+  2. Partial results stream to buffer file (user can watch if desired)
+  3. Press Insert again -> instantly pastes final text (no transcription wait)
+
+The key benefit: transcription happens DURING recording, so paste is instant.
+"""
+
+import os
+import sys
+import subprocess
+import signal
+import time
+import argparse
+from pathlib import Path
+from datetime import datetime
+
+# Constants
+LOG_DIR = Path.home() / ".local/share/speech-to-text"
+LOG_FILE = LOG_DIR / "debug.log"
+CACHE_DIR = Path.home() / ".cache/speech-to-text"
+TRANSCRIPTION_FILE = CACHE_DIR / "last-transcription.txt"
+BUFFER_FILE = CACHE_DIR / "streaming-buffer.txt"
+# Use same PID file as wsi so extension can stop us
+PID_FILE = Path("/dev/shm") / f"stt-recording-{os.getenv('USER')}.pid"
+
+DBUS_PATH = "/org/fedoradesktop/SpeechToText"
+DBUS_INTERFACE = "org.fedoradesktop.SpeechToText"
+
+# Global state
+debug_mode = False
+stop_requested = False
+recorder = None
+current_text = ""
+
+
+def log(message, level="INFO"):
+    """Log message to file and stderr if debug mode."""
+    timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    log_line = f"[{timestamp}] [STREAM] [{level}] {message}"
+
+    if debug_mode:
+        print(log_line, file=sys.stderr)
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        with open(LOG_FILE, "a") as f:
+            f.write(log_line + "\n")
+
+
+def emit_dbus_signal(signal_name, value):
+    """Emit DBus signal for extension communication."""
+    try:
+        subprocess.run([
+            "gdbus", "emit", "--session",
+            "--object-path", DBUS_PATH,
+            "--signal", f"{DBUS_INTERFACE}.{signal_name}",
+            value
+        ], capture_output=True, timeout=1)
+    except Exception as e:
+        log(f"DBus signal failed: {e}", "WARN")
+
+
+def notify(state, message):
+    """Send notification and DBus state signal."""
+    log(f"State: {state} - {message}")
+    emit_dbus_signal("StateChanged", state)
+
+    try:
+        subprocess.run([
+            "gdbus", "call", "--session",
+            "--dest", "org.freedesktop.Notifications",
+            "--object-path", "/org/freedesktop/Notifications",
+            "--method", "org.freedesktop.Notifications.Notify",
+            "speech-to-text-stream",
+            "0",
+            "audio-input-microphone",
+            "Speech to Text (Streaming)",
+            message,
+            "[]", "{}", "2000"
+        ], capture_output=True, timeout=1)
+    except Exception:
+        pass
+
+
+def copy_to_clipboard(text, use_clipboard=False):
+    """Copy text to clipboard selection."""
+    wm = os.environ.get("XDG_SESSION_TYPE", "unknown")
+
+    if wm == "wayland":
+        cmd = ["wl-copy"] if use_clipboard else ["wl-copy", "-p"]
+    elif wm == "x11":
+        cmd = ["xsel", "-ib"] if use_clipboard else ["xsel", "-ip"]
+    else:
+        log(f"Unknown window manager: {wm}", "ERROR")
+        return False
+
+    try:
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+        proc.communicate(input=text.encode())
+        return proc.returncode == 0
+    except Exception as e:
+        log(f"Clipboard copy failed: {e}", "ERROR")
+        return False
+
+
+def auto_paste(text, skip_enter=False):
+    """Paste text at cursor using ydotool."""
+    if not copy_to_clipboard(text, use_clipboard=False):
+        return False
+
+    time.sleep(0.05)
+
+    env = os.environ.copy()
+    env["YDOTOOL_SOCKET"] = "/run/ydotool.socket"
+
+    try:
+        # Simulate Shift+Insert (42=Shift, 110=Insert)
+        subprocess.run(
+            ["ydotool", "key", "42:1", "110:1", "110:0", "42:0"],
+            env=env, check=True, timeout=5
+        )
+        log("Paste simulated via Shift+Insert")
+
+        # Longer delay for longer text
+        delay = min(0.3 + len(text) * 0.002, 1.0)
+        time.sleep(delay)
+
+        if not skip_enter:
+            subprocess.run(
+                ["ydotool", "key", "28:1", "28:0"],
+                env=env, check=True, timeout=5
+            )
+            log("Enter key sent")
+
+        return True
+    except Exception as e:
+        log(f"Auto-paste failed: {e}", "ERROR")
+        return False
+
+
+def on_realtime_update(new_text):
+    """
+    Callback for real-time transcription - writes to buffer file.
+    File is completely replaced each time (no append/diff needed).
+    """
+    global current_text
+
+    if not new_text:
+        return
+
+    new_text = new_text.strip()
+    if not new_text:
+        return
+
+    # Capitalize first letter
+    new_text = new_text[0].upper() + new_text[1:] if len(new_text) > 1 else new_text.upper()
+
+    current_text = new_text
+    log(f"Partial: '{new_text}'")
+
+    # Write complete current transcription to buffer file
+    # This overwrites previous content - clean and simple
+    try:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        BUFFER_FILE.write_text(new_text)
+    except Exception as e:
+        log(f"Buffer write failed: {e}", "WARN")
+
+
+def check_dependencies():
+    """Verify RealtimeSTT and ydotool are available."""
+    # Check ydotool for auto-paste mode
+    if not Path("/run/ydotool.socket").exists():
+        log("ydotool socket not found (needed for auto-paste)", "WARN")
+
+    try:
+        import RealtimeSTT
+        log("RealtimeSTT imported successfully")
+        return True
+    except ImportError as e:
+        log(f"RealtimeSTT not installed: {e}", "ERROR")
+        notify("ERROR", "RealtimeSTT not installed\n\npip install --user RealtimeSTT")
+        return False
+
+
+def run_streaming(args):
+    """Main streaming transcription."""
+    global debug_mode, stop_requested, recorder, current_text
+    debug_mode = args.debug
+    stop_requested = False
+    current_text = ""
+
+    log("Starting streaming transcription...")
+
+    if not check_dependencies():
+        return 1
+
+    from RealtimeSTT import AudioToTextRecorder
+    import threading
+
+    # Write PID file
+    PID_FILE.write_text(str(os.getpid()))
+    log(f"PID file written: {PID_FILE}")
+
+    # Clear buffer file
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    BUFFER_FILE.write_text("")
+
+    model_size = os.environ.get("WHISPER_MODEL", "small")
+    # Language from arg, then env, then default to English
+    language = args.language or os.environ.get("WHISPER_LANGUAGE", "en") or None
+    log(f"Using model: {model_size}, language: {language or 'auto-detect'}")
+
+    final_text = ""
+    recorder_error = None
+    recording_done = threading.Event()
+
+    def recording_thread():
+        """Run recorder in thread so main thread can handle signals."""
+        nonlocal final_text, recorder_error
+        try:
+            # Blocks until stop() or shutdown() is called
+            final_text = recorder.text()
+            log(f"Final from recorder: {final_text}")
+        except Exception as e:
+            recorder_error = e
+            log(f"Recorder thread error: {e}", "ERROR")
+        finally:
+            recording_done.set()
+
+    # Signal handler - stop recording on SIGINT/SIGTERM
+    def handle_signal(signum, frame):
+        global stop_requested, recorder
+        log(f"Signal {signum} received, stopping...")
+        stop_requested = True
+        if recorder:
+            try:
+                recorder.abort()
+                log("Called recorder.abort()")
+            except Exception as e:
+                log(f"abort() failed: {e}", "WARN")
+            try:
+                recorder.stop()
+                log("Called recorder.stop()")
+            except Exception as e:
+                log(f"stop() failed: {e}", "WARN")
+            try:
+                recorder.shutdown()
+                log("Called recorder.shutdown()")
+            except Exception as e:
+                log(f"shutdown() failed: {e}", "WARN")
+
+    signal.signal(signal.SIGINT, handle_signal)
+    signal.signal(signal.SIGTERM, handle_signal)
+
+    try:
+        notify("RECORDING", "Recording... (transcribing live)")
+
+        recorder_config = {
+            "model": model_size,
+            "language": language,
+            "silero_sensitivity": 0.4,
+            # Very long silence duration - manual stop via signal
+            "post_speech_silence_duration": 300.0,
+            "min_length_of_recording": 0.3,
+            "min_gap_between_recordings": 0.1,
+            # Real-time transcription streams to buffer file
+            "enable_realtime_transcription": True,
+            "realtime_processing_pause": 0.2,
+            "on_realtime_transcription_update": on_realtime_update,
+            "spinner": False,
+        }
+
+        # Try GPU
+        try:
+            recorder_config["device"] = "cuda"
+            recorder_config["compute_type"] = "float16"
+            log("Using GPU (CUDA)")
+        except Exception:
+            recorder_config["device"] = "cpu"
+            recorder_config["compute_type"] = "int8"
+            log("Using CPU")
+
+        recorder = AudioToTextRecorder(**recorder_config)
+        log("Recorder initialized, transcription streaming to buffer...")
+
+        # Start recording in thread
+        rec_thread = threading.Thread(target=recording_thread, daemon=True)
+        rec_thread.start()
+
+        # Wait for either completion or timeout (main thread handles signals)
+        timeout = args.timeout or 30
+        recording_done.wait(timeout=timeout)
+
+        if not recording_done.is_set():
+            log(f"Timeout after {timeout}s, stopping...")
+            stop_requested = True
+            if recorder:
+                try:
+                    recorder.abort()
+                except Exception:
+                    pass
+                try:
+                    recorder.shutdown()
+                except Exception:
+                    pass
+            # Give thread a moment to finish
+            recording_done.wait(timeout=2)
+
+        if recorder_error:
+            raise recorder_error
+
+    except Exception as e:
+        log(f"Recording error: {e}", "ERROR")
+        notify("ERROR", f"Recording failed: {e}")
+        return 1
+    finally:
+        if PID_FILE.exists():
+            PID_FILE.unlink()
+        # Ensure recorder is cleaned up
+        if recorder:
+            try:
+                recorder.shutdown()
+            except Exception:
+                pass
+
+    # Use final text from recorder, fall back to buffer if empty
+    if final_text and final_text.strip():
+        text = final_text.strip()
+    elif current_text:
+        text = current_text
+        log("Using buffered text (recorder returned empty)")
+    else:
+        # Try reading from buffer file as last resort
+        try:
+            text = BUFFER_FILE.read_text().strip()
+            log("Using text from buffer file")
+        except Exception:
+            text = ""
+
+    if not text:
+        log("No speech detected", "WARN")
+        notify("ERROR", "No speech detected")
+        # Cleanup buffer
+        if BUFFER_FILE.exists():
+            BUFFER_FILE.unlink()
+        return 1
+
+    # Capitalize first letter
+    text = text[0].upper() + text[1:] if len(text) > 1 else text.upper()
+
+    # Wrap with marker if requested
+    if args.wrap_marker:
+        text = f'speech-to-text:"{text}"'
+        log(f"Wrapped: {text}")
+
+    log(f"Final text ({len(text)} chars): {text}")
+
+    # Save to last-transcription file
+    TRANSCRIPTION_FILE.write_text(text)
+
+    # Cleanup buffer file
+    if BUFFER_FILE.exists():
+        BUFFER_FILE.unlink()
+
+    # Output - instant because transcription already done!
+    if args.auto_paste:
+        log("Auto-pasting (instant - transcription was real-time)")
+        # Small delay to ensure any focus changes from recorder shutdown settle
+        time.sleep(0.2)
+        success = auto_paste(text, skip_enter=args.no_auto_enter)
+        if success:
+            preview = text[:60] + "..." if len(text) > 60 else text
+            notify("SUCCESS", preview)
+        else:
+            notify("ERROR", "Auto-paste failed")
+            return 1
+    else:
+        log("Copying to clipboard (instant - transcription was real-time)")
+        if copy_to_clipboard(text, use_clipboard=args.clipboard):
+            preview = text[:60] + "..." if len(text) > 60 else text
+            paste_hint = "Ctrl+V" if args.clipboard else "Middle-click"
+            notify("SUCCESS", f"{preview}\n\n{paste_hint} to paste")
+        else:
+            notify("ERROR", "Clipboard copy failed")
+            return 1
+
+    time.sleep(1)
+    emit_dbus_signal("StateChanged", "IDLE")
+
+    log("Streaming complete - paste was instant!")
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Streaming speech-to-text with real-time transcription"
+    )
+    parser.add_argument("-d", "--debug", action="store_true",
+                        help="Enable debug logging")
+    parser.add_argument("-c", "--clipboard", action="store_true",
+                        help="Use CLIPBOARD instead of PRIMARY selection")
+    parser.add_argument("-a", "--auto-paste", action="store_true",
+                        help="Auto-paste at cursor position")
+    parser.add_argument("--no-auto-enter", action="store_true",
+                        help="Skip Enter key after auto-paste")
+    parser.add_argument("-w", "--wrap-marker", action="store_true",
+                        help="Wrap text with speech-to-text:\"...\"")
+    parser.add_argument("-l", "--language", type=str, default=None,
+                        help="Language code for transcription (e.g., 'en')")
+    parser.add_argument("--timeout", type=int, default=30,
+                        help="Maximum recording time in seconds")
+
+    args = parser.parse_args()
+    return run_streaming(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

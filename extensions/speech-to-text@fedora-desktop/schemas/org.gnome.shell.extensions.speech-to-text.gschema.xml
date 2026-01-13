@@ -31,5 +31,15 @@
       <summary>Auto Enter After Paste</summary>
       <description>Send Return/Enter key after auto-pasting (requires auto-paste to be enabled)</description>
     </key>
+    <key name="streaming-mode" type="b">
+      <default>false</default>
+      <summary>Streaming Mode</summary>
+      <description>Use real-time streaming transcription with VAD (auto-stops on silence). Requires RealtimeSTT to be installed.</description>
+    </key>
+    <key name="language" type="s">
+      <default>'system'</default>
+      <summary>Transcription Language</summary>
+      <description>Language for speech recognition: "system" uses desktop locale, or specify a language code like "en"</description>
+    </key>
   </schema>
 </schemalist>

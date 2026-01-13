@@ -38,6 +38,8 @@ export default class SpeechToTextExtension extends Extension {
         this._autoPaste = false;
         this._autoEnter = true;  // Default: send Enter after auto-paste
         this._wrapWithMarker = false;
+        this._streamingMode = false;  // Use RealtimeSTT streaming instead of batch
+        this._language = 'system';    // 'system' = detect from locale, or 'en', etc.
         this._currentState = 'IDLE';
         this._lastError = null;
         this._logDir = GLib.get_home_dir() + '/.local/share/speech-to-text';
@@ -222,6 +224,11 @@ export default class SpeechToTextExtension extends Extension {
         this._autoPasteSwitch.connect('toggled', (item, state) => {
             this._autoPaste = state;
             if (state) this._clipboardMode = false;  // Mutually exclusive
+            if (!state) {
+                // Disable streaming when auto-paste is turned off
+                this._streamingMode = false;
+                this._saveStreamingSetting(false);
+            }
             this._saveAutoPasteSetting(state);
             this._updatePasteToggles();
             this._log(`Auto-paste ${state ? 'enabled' : 'disabled'}`);
@@ -237,6 +244,15 @@ export default class SpeechToTextExtension extends Extension {
         });
         menu.addMenuItem(this._autoEnterSwitch);
 
+        // Streaming mode toggle - child of auto-paste (uses RealtimeSTT for real-time transcription)
+        this._streamingSwitch = new PopupMenu.PopupSwitchMenuItem('  ↳ Streaming mode (instant)', this._streamingMode);
+        this._streamingSwitch.connect('toggled', (item, state) => {
+            this._streamingMode = state;
+            this._saveStreamingSetting(state);
+            this._log(`Streaming mode ${state ? 'enabled' : 'disabled'}`);
+        });
+        menu.addMenuItem(this._streamingSwitch);
+
         // Wrap with marker toggle (works with all paste modes)
         this._wrapMarkerSwitch = new PopupMenu.PopupSwitchMenuItem('Wrap with speech-to-text marker', this._wrapWithMarker);
         this._wrapMarkerSwitch.connect('toggled', (item, state) => {
@@ -246,8 +262,33 @@ export default class SpeechToTextExtension extends Extension {
         });
         menu.addMenuItem(this._wrapMarkerSwitch);
 
-        // Set initial sensitivity for child options
+        // Separator before language
+        menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
+        // Language submenu
+        this._languageSubMenu = new PopupMenu.PopupSubMenuMenuItem('Language: System default');
+        menu.addMenuItem(this._languageSubMenu);
+
+        // Language options
+        const languages = [
+            ['system', 'System default'],
+            ['en', 'English'],
+        ];
+
+        for (const [code, label] of languages) {
+            const item = new PopupMenu.PopupMenuItem(label);
+            item.connect('activate', () => {
+                this._language = code;
+                this._saveLanguageSetting(code);
+                this._updateLanguageLabel();
+                this._log(`Language set to: ${code}`);
+            });
+            this._languageSubMenu.menu.addMenuItem(item);
+        }
+
+        // Set initial visibility for child options
         this._updatePasteToggles();
+        this._updateLanguageLabel();
 
         // Separator
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
@@ -512,7 +553,11 @@ export default class SpeechToTextExtension extends Extension {
             const autoPasteFlag = this._autoPaste ? ' --auto-paste' : '';
             const noAutoEnterFlag = (this._autoPaste && !this._autoEnter) ? ' --no-auto-enter' : '';
             const wrapMarkerFlag = this._wrapWithMarker ? ' --wrap-marker' : '';
-            const command = GLib.get_home_dir() + '/.local/bin/wsi' + debugFlag + clipboardFlag + autoPasteFlag + noAutoEnterFlag + wrapMarkerFlag;
+
+            // Use wsi-stream for streaming mode, otherwise use batch wsi
+            const script = this._streamingMode ? 'wsi-stream' : 'wsi';
+            const langFlag = ` --language ${this._getWhisperLanguage()}`;
+            const command = GLib.get_home_dir() + '/.local/bin/' + script + debugFlag + clipboardFlag + autoPasteFlag + noAutoEnterFlag + wrapMarkerFlag + langFlag;
 
             this._log(`Launching: ${command}`);
             GLib.spawn_command_line_async(command);
@@ -600,6 +645,35 @@ export default class SpeechToTextExtension extends Extension {
             } catch (e) {
                 this._autoEnter = true;  // Default: send Enter after auto-paste
             }
+            try {
+                this._streamingMode = this._settings.get_boolean('streaming-mode');
+                if (this._streamingSwitch) {
+                    this._streamingSwitch.setToggleState(this._streamingMode);
+                }
+            } catch (e) {
+                this._streamingMode = false;
+            }
+            try {
+                this._language = this._settings.get_string('language');
+            } catch (e) {
+                this._language = 'system';
+            }
+        }
+    }
+
+    _updateLanguageLabel() {
+        if (this._languageSubMenu) {
+            let label;
+            if (this._language === 'system') {
+                // Get system locale and show it
+                const locale = GLib.getenv('LANG') || 'en_GB.UTF-8';
+                const langCode = locale.split('_')[0];  // en_GB.UTF-8 -> en
+                label = `System (${locale.split('.')[0]} → ${langCode})`;
+            } else {
+                const labels = { 'en': 'English' };
+                label = labels[this._language] || this._language;
+            }
+            this._languageSubMenu.label.text = `Language: ${label}`;
         }
     }
 
@@ -610,9 +684,13 @@ export default class SpeechToTextExtension extends Extension {
         if (this._autoPasteSwitch) {
             this._autoPasteSwitch.setToggleState(this._autoPaste);
         }
-        // Auto-enter is only enabled when auto-paste is active
+        // Auto-enter and streaming only visible when auto-paste is active
         if (this._autoEnterSwitch) {
-            this._autoEnterSwitch.setSensitive(this._autoPaste);
+            this._autoEnterSwitch.visible = this._autoPaste;
+        }
+        if (this._streamingSwitch) {
+            this._streamingSwitch.visible = this._autoPaste;
+            this._streamingSwitch.setToggleState(this._streamingMode);
         }
     }
 
@@ -664,6 +742,35 @@ export default class SpeechToTextExtension extends Extension {
                 // Setting may not exist yet
             }
         }
+    }
+
+    _saveStreamingSetting(enabled) {
+        if (this._settings) {
+            try {
+                this._settings.set_boolean('streaming-mode', enabled);
+            } catch (e) {
+                // Setting may not exist yet
+            }
+        }
+    }
+
+    _saveLanguageSetting(lang) {
+        if (this._settings) {
+            try {
+                this._settings.set_string('language', lang);
+            } catch (e) {
+                // Setting may not exist yet
+            }
+        }
+    }
+
+    _getWhisperLanguage() {
+        // Convert extension language setting to Whisper language code
+        if (this._language === 'system') {
+            const locale = GLib.getenv('LANG') || 'en_GB.UTF-8';
+            return locale.split('_')[0];  // en_GB.UTF-8 -> en
+        }
+        return this._language;
     }
 
     _log(message) {
