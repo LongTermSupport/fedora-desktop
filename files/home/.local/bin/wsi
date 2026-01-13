@@ -780,8 +780,9 @@ if [ "$AUTO_PASTE" = true ]; then
         exit 1
     fi
     log_debug "Paste simulated successfully"
-    # Small delay to ensure paste completes
-    sleep 0.1
+    # Delay to ensure paste completes before sending Enter
+    # Longer text requires more time for the target app to process
+    sleep 0.3
 
     # Send Enter key by default in auto-paste mode (unless disabled)
     if [ "$SKIP_AUTO_ENTER" = false ]; then
