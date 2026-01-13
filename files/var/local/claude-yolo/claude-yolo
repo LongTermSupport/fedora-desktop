@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="2.7.0"  # Fix: Network validation with compose file scanning for common issues
+CCY_VERSION="2.8.0"  # Feature: Interactive Docker cleanup and podman-compose auto-start
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1467,27 +1467,191 @@ if [[ "$CROSS_ENGINE_MISMATCH" = true ]]; then
         echo "  • CCY (using Podman) cannot see Docker networks"
         echo "  • Your compose setup is using Docker"
         echo ""
-        echo "Choose one solution (both are valid):"
+        echo "────────────────────────────────────────────────────────────────────────────────"
+        echo "Options:"
+        echo "────────────────────────────────────────────────────────────────────────────────"
         echo ""
-        echo "OPTION 1: Switch CCY to use Docker (match your compose setup)"
+        echo "  1) Clean up Docker networks and start with Podman (recommended)"
+        echo "  2) Switch CCY to use Docker instead (export CCY_CONTAINER_ENGINE=docker)"
+        echo "  3) Continue without network connection"
+        echo "  4) Quit"
         echo ""
-        echo "  • Set CCY_CONTAINER_ENGINE=docker before launching:"
-        echo "    export CCY_CONTAINER_ENGINE=docker"
-        echo "    ccy"
-        echo ""
-        echo "  • Or add to your docker.bash/docker-compose wrapper:"
-        echo "    export CCY_CONTAINER_ENGINE=docker"
-        echo ""
-        echo "OPTION 2: Switch compose to use Podman (match CCY default)"
-        echo ""
-        echo "  • Install podman-compose:"
-        echo "    ansible-playbook playbooks/imports/optional/common/play-podman.yml"
-        echo ""
-        echo "  • Update docker.bash or docker-compose to use podman-compose"
-        echo "  • Recreate networks:"
-        echo "    podman network create ${PROJECT_NAME}_network"
-        echo "    podman-compose up"
-        echo ""
+
+        while true; do
+            read -p "Select option [1-4]: " cleanup_choice
+            echo ""
+
+            case "$cleanup_choice" in
+                1)
+                    # Clean up Docker networks and switch to Podman
+                    echo "────────────────────────────────────────────────────────────────────────────────"
+                    echo "Docker Network Cleanup"
+                    echo "────────────────────────────────────────────────────────────────────────────────"
+                    echo ""
+                    echo "  a) Remove project networks only:"
+                    for net in "${DOCKER_NETWORKS[@]}"; do
+                        echo "     docker network rm $net"
+                    done
+                    echo ""
+                    echo "  b) Remove ALL unused Docker networks (docker network prune)"
+                    echo ""
+
+                    while true; do
+                        read -p "Choose cleanup method [a/b]: " prune_choice
+                        echo ""
+
+                        case "$prune_choice" in
+                            a|A)
+                                echo "Stopping containers and removing project networks..."
+                                # Stop containers on these networks first
+                                for net in "${DOCKER_NETWORKS[@]}"; do
+                                    # Get containers attached to this network
+                                    containers=$(docker network inspect "$net" --format '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null || echo "")
+                                    if [[ -n "$containers" ]]; then
+                                        echo "  Stopping containers on $net: $containers"
+                                        docker stop $containers 2>/dev/null || true
+                                    fi
+                                    echo "  Removing network: $net"
+                                    docker network rm "$net" 2>/dev/null && echo "    ✓ Removed" || echo "    ⚠ Could not remove (may still have containers)"
+                                done
+                                break
+                                ;;
+                            b|B)
+                                echo "Stopping all Docker containers..."
+                                docker ps -q | xargs -r docker stop 2>/dev/null || true
+                                echo "Pruning all unused Docker networks..."
+                                docker network prune -f
+                                echo "✓ Docker networks pruned"
+                                break
+                                ;;
+                            *)
+                                echo "Invalid choice. Please enter a or b"
+                                echo ""
+                                ;;
+                        esac
+                    done
+                    echo ""
+
+                    # Now offer to start podman-compose
+                    COMPOSE_FILES_FOUND=()
+                    for pattern in "docker-compose.yml" "docker-compose.yaml" "compose.yml" "compose.yaml"; do
+                        if [ -f "$pattern" ]; then
+                            COMPOSE_FILES_FOUND+=("$pattern")
+                        fi
+                    done
+
+                    if [ ${#COMPOSE_FILES_FOUND[@]} -gt 0 ]; then
+                        echo "────────────────────────────────────────────────────────────────────────────────"
+                        echo "Start Podman Compose Services"
+                        echo "────────────────────────────────────────────────────────────────────────────────"
+                        echo ""
+                        echo "Found compose files:"
+                        for cf in "${COMPOSE_FILES_FOUND[@]}"; do
+                            echo "  • $cf"
+                        done
+                        echo ""
+
+                        if command -v podman-compose &>/dev/null; then
+                            while true; do
+                                read -p "Start services with podman-compose up -d? [Y/n]: " start_compose
+                                start_compose=${start_compose:-Y}
+                                echo ""
+
+                                case "$start_compose" in
+                                    Y|y|Yes|yes)
+                                        echo "Starting podman-compose..."
+                                        if podman-compose up -d; then
+                                            echo ""
+                                            echo "✓ Compose services started"
+                                            echo ""
+                                            echo "Waiting for networks..."
+                                            sleep 2
+
+                                            # Re-scan for Podman networks
+                                            MATCHING_NETWORKS=()
+                                            while IFS= read -r net; do
+                                                if [[ "$net" != "bridge" ]] && [[ "$net" != "host" ]] && [[ "$net" != "none" ]] && [[ "$net" != "podman" ]]; then
+                                                    if [[ "$net" == *"$PROJECT_NAME"* ]]; then
+                                                        MATCHING_NETWORKS+=("$net")
+                                                    fi
+                                                fi
+                                            done < <(podman network ls --format "{{.Name}}" 2>/dev/null)
+
+                                            if [ ${#MATCHING_NETWORKS[@]} -gt 0 ]; then
+                                                AUTO_CONNECT_NETWORK="${MATCHING_NETWORKS[0]}"
+                                                NETWORK_FLAG="--network $AUTO_CONNECT_NETWORK"
+                                                echo "✓ Found network: $AUTO_CONNECT_NETWORK"
+                                                echo "✓ CCY will connect to this network"
+                                                CROSS_ENGINE_MISMATCH=false  # Resolved!
+                                            fi
+                                            COMPOSE_ALREADY_HANDLED=true
+                                        else
+                                            echo "⚠ podman-compose failed. Check errors above."
+                                            COMPOSE_ALREADY_HANDLED=true
+                                        fi
+                                        break
+                                        ;;
+                                    N|n|No|no)
+                                        echo "Skipping compose startup"
+                                        echo "Run 'podman-compose up -d' manually when ready"
+                                        COMPOSE_ALREADY_HANDLED=true
+                                        break
+                                        ;;
+                                    *)
+                                        echo "Invalid choice. Please enter y or n"
+                                        echo ""
+                                        ;;
+                                esac
+                            done
+                        else
+                            echo "⚠ podman-compose not installed"
+                            echo ""
+                            echo "Install with:"
+                            echo "  pip install podman-compose"
+                            echo "  # Or: ansible-playbook playbooks/imports/optional/common/play-podman.yml"
+                            echo ""
+                            echo "Then run: podman-compose up -d"
+                            COMPOSE_ALREADY_HANDLED=true
+                        fi
+                    else
+                        COMPOSE_ALREADY_HANDLED=true  # No compose files found, mark as handled
+                    fi
+                    echo "────────────────────────────────────────────────────────────────────────────────"
+                    break
+                    ;;
+                2)
+                    echo "To use Docker instead, run:"
+                    echo "  export CCY_CONTAINER_ENGINE=docker"
+                    echo "  ccy"
+                    echo ""
+                    echo "Or add to ~/.bashrc:"
+                    echo "  export CCY_CONTAINER_ENGINE=docker"
+                    exit 0
+                    ;;
+                3)
+                    echo "Continuing without network connection..."
+                    COMPOSE_ALREADY_HANDLED=true
+                    break
+                    ;;
+                4)
+                    echo "Cancelled."
+                    exit 0
+                    ;;
+                *)
+                    echo "Invalid choice. Please enter 1-4"
+                    echo ""
+                    ;;
+            esac
+        done
+
+        # Show tip about stopping Docker daemon (informational only)
+        if [[ "$cleanup_choice" == "1" ]]; then
+            echo ""
+            echo "TIP: If you've fully switched to Podman, you can free resources by stopping Docker:"
+            echo "  systemctl --user stop docker.socket docker.service"
+            echo "  # Or disable permanently: systemctl --user disable --now docker.socket docker.service"
+            echo ""
+        fi
     else
         # CCY using Docker, but networks found in Podman
         echo "CCY is configured to use Docker, but project networks exist in Podman:"
@@ -1517,33 +1681,33 @@ if [[ "$CROSS_ENGINE_MISMATCH" = true ]]; then
         echo "  • Update your compose setup to use docker-compose"
         echo "  • Recreate networks with Docker"
         echo ""
-    fi
 
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo ""
-
-    while true; do
-        read -p "Continue without network connection? [Y/n] " mismatch_choice
-        mismatch_choice=${mismatch_choice:-Y}
+        echo "════════════════════════════════════════════════════════════════════════════════"
         echo ""
 
-        case "$mismatch_choice" in
-            Y|y|Yes|yes)
-                echo "Continuing without network connection..."
-                echo "Fix the mismatch and restart CCY to connect to project networks."
-                echo ""
-                break
-                ;;
-            N|n|No|no)
-                echo "Cancelled. Fix the container engine mismatch first."
-                exit 0
-                ;;
-            *)
-                echo "Invalid choice. Please enter Y or n"
-                echo ""
-                ;;
-        esac
-    done
+        while true; do
+            read -p "Continue without network connection? [Y/n] " mismatch_choice
+            mismatch_choice=${mismatch_choice:-Y}
+            echo ""
+
+            case "$mismatch_choice" in
+                Y|y|Yes|yes)
+                    echo "Continuing without network connection..."
+                    echo "Fix the mismatch and restart CCY to connect to project networks."
+                    echo ""
+                    break
+                    ;;
+                N|n|No|no)
+                    echo "Cancelled. Fix the container engine mismatch first."
+                    exit 0
+                    ;;
+                *)
+                    echo "Invalid choice. Please enter Y or n"
+                    echo ""
+                    ;;
+            esac
+        done
+    fi
 fi
 
 # Only prompt for network if we don't already have a persisted preference
@@ -1661,27 +1825,123 @@ else
         fi
     done < <(container_cmd network ls --format "{{.Name}}" 2>/dev/null)
 
-    # Info message if no matching network found (no interactive prompt)
-    if [ ${#ALL_NETWORKS[@]} -gt 0 ] && [ -z "$SPECIFIED_NETWORK" ]; then
-        echo ""
-        echo "No network found matching project name: $PROJECT_NAME"
-        echo ""
-        echo "Suggested network names:"
-        echo "  • ${PROJECT_NAME}-network (folder name)"
+    # Check for compose files if no matching network found (and not already handled)
+    if [ ${#MATCHING_NETWORKS[@]} -eq 0 ] && [ -z "$SPECIFIED_NETWORK" ] && [ "$COMPOSE_ALREADY_HANDLED" != "true" ]; then
+        # Scan for compose files in project root
+        COMPOSE_FILES_FOUND=()
+        for pattern in "docker-compose.yml" "docker-compose.yaml" "compose.yml" "compose.yaml"; do
+            if [ -f "$pattern" ]; then
+                COMPOSE_FILES_FOUND+=("$pattern")
+            fi
+        done
 
-        # Show parent-folder-repo-folder option if parent is not generic
-        PARENT_FOLDER=$(basename "$(dirname "$PWD")")
-        GENERIC_FOLDERS="projects|repos|work|src|code|dev|home"
-        if ! echo "$PARENT_FOLDER" | grep -qiE "^($GENERIC_FOLDERS)$"; then
-            echo "  • ${PARENT_FOLDER}-${PROJECT_NAME}-network (parent-folder-repo)"
+        if [ ${#COMPOSE_FILES_FOUND[@]} -gt 0 ]; then
+            echo ""
+            echo "════════════════════════════════════════════════════════════════════════════════"
+            echo "Compose Files Detected"
+            echo "════════════════════════════════════════════════════════════════════════════════"
+            echo ""
+            echo "Found compose files but no matching project networks are running:"
+            for cf in "${COMPOSE_FILES_FOUND[@]}"; do
+                echo "  • $cf"
+            done
+            echo ""
+            echo "Would you like to start the compose services?"
+            echo ""
+
+            # Determine compose command based on engine
+            COMPOSE_CMD=""
+            if [[ "$CONTAINER_ENGINE" = "podman" ]]; then
+                if command -v podman-compose &>/dev/null; then
+                    COMPOSE_CMD="podman-compose"
+                else
+                    echo "Note: podman-compose not installed. Install with:"
+                    echo "  pip install podman-compose"
+                    echo ""
+                fi
+            else
+                if command -v docker-compose &>/dev/null; then
+                    COMPOSE_CMD="docker-compose"
+                elif command -v docker &>/dev/null && docker compose version &>/dev/null 2>&1; then
+                    COMPOSE_CMD="docker compose"
+                fi
+            fi
+
+            if [ -n "$COMPOSE_CMD" ]; then
+                while true; do
+                    read -p "Start compose services? ($COMPOSE_CMD up -d) [y/N] " start_compose
+                    start_compose=${start_compose:-N}
+                    echo ""
+
+                    case "$start_compose" in
+                        Y|y|Yes|yes)
+                            echo "Starting compose services..."
+                            if $COMPOSE_CMD up -d; then
+                                echo ""
+                                echo "✓ Compose services started"
+                                echo ""
+                                echo "Waiting for networks to be created..."
+                                sleep 2
+
+                                # Re-scan for networks
+                                MATCHING_NETWORKS=()
+                                while IFS= read -r net; do
+                                    if [[ "$net" != "bridge" ]] && [[ "$net" != "host" ]] && [[ "$net" != "none" ]] && [[ "$net" != "podman" ]]; then
+                                        if [[ "$net" == *"$PROJECT_NAME"* ]]; then
+                                            MATCHING_NETWORKS+=("$net")
+                                        fi
+                                    fi
+                                done < <(container_cmd network ls --format "{{.Name}}" 2>/dev/null)
+
+                                if [ ${#MATCHING_NETWORKS[@]} -gt 0 ]; then
+                                    AUTO_CONNECT_NETWORK="${MATCHING_NETWORKS[0]}"
+                                    NETWORK_FLAG="--network $AUTO_CONNECT_NETWORK"
+                                    echo "✓ Found network: $AUTO_CONNECT_NETWORK"
+                                    echo "✓ Will connect CCY to this network"
+                                fi
+                            else
+                                echo ""
+                                echo "⚠ Compose failed to start. Check errors above."
+                            fi
+                            break
+                            ;;
+                        N|n|No|no|"")
+                            echo "Skipping compose startup"
+                            break
+                            ;;
+                        *)
+                            echo "Invalid choice. Please enter y or n"
+                            echo ""
+                            ;;
+                    esac
+                done
+            fi
+            echo "════════════════════════════════════════════════════════════════════════════════"
+            echo ""
+        else
+            # No compose files - show info message
+            if [ ${#ALL_NETWORKS[@]} -gt 0 ]; then
+                echo ""
+                echo "No network found matching project name: $PROJECT_NAME"
+                echo ""
+                echo "Suggested network names:"
+                echo "  • ${PROJECT_NAME}-network (folder name)"
+
+                # Show parent-folder-repo-folder option if parent is not generic
+                PARENT_FOLDER=$(basename "$(dirname "$PWD")")
+                GENERIC_FOLDERS="projects|repos|work|src|code|dev|home"
+                if ! echo "$PARENT_FOLDER" | grep -qiE "^($GENERIC_FOLDERS)$"; then
+                    echo "  • ${PARENT_FOLDER}-${PROJECT_NAME}-network (parent-folder-repo)"
+                fi
+
+                echo ""
+                echo "To connect to a network:"
+                echo "  • Create: $CONTAINER_ENGINE network create ${PROJECT_NAME}-network"
+                echo "  • Connect: ccy --network ${PROJECT_NAME}-network"
+                echo "  • Or use: ccy --connect (interactive selection)"
+                echo ""
+            fi
         fi
-
-        echo ""
-        echo "To connect to a network:"
-        echo "  • Create: $CONTAINER_ENGINE network create ${PROJECT_NAME}-network"
-        echo "  • Connect: ccy --network ${PROJECT_NAME}-network"
-        echo "  • Or use: ccy --connect (interactive selection)"
-        echo ""
     fi
     fi  # End of if [[ -z "$SPECIFIED_NETWORK" ]] (persisted network check)
 fi
