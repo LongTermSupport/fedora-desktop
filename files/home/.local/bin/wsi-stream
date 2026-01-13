@@ -18,6 +18,7 @@ import subprocess
 import signal
 import time
 import argparse
+import atexit
 from pathlib import Path
 from datetime import datetime
 
@@ -38,6 +39,29 @@ debug_mode = False
 stop_requested = False
 recorder = None
 current_text = ""
+
+
+def cleanup_on_exit():
+    """Ensure IDLE signal is sent and mic is released on any exit."""
+    global recorder
+    try:
+        emit_dbus_signal("StateChanged", "IDLE")
+    except Exception:
+        pass
+    if recorder:
+        try:
+            recorder.shutdown()
+        except Exception:
+            pass
+    # Clean up PID file
+    if PID_FILE.exists():
+        try:
+            PID_FILE.unlink()
+        except Exception:
+            pass
+
+
+atexit.register(cleanup_on_exit)
 
 
 def log(message, level="INFO"):
@@ -240,20 +264,12 @@ def run_streaming(args):
         stop_requested = True
         if recorder:
             try:
-                recorder.abort()
-                log("Called recorder.abort()")
-            except Exception as e:
-                log(f"abort() failed: {e}", "WARN")
-            try:
                 recorder.stop()
                 log("Called recorder.stop()")
             except Exception as e:
                 log(f"stop() failed: {e}", "WARN")
-            try:
-                recorder.shutdown()
-                log("Called recorder.shutdown()")
-            except Exception as e:
-                log(f"shutdown() failed: {e}", "WARN")
+        # Set the event so main thread can continue
+        recording_done.set()
 
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
@@ -312,8 +328,11 @@ def run_streaming(args):
             # Give thread a moment to finish
             recording_done.wait(timeout=2)
 
-        if recorder_error:
+        # Only raise error if it wasn't a user-requested stop
+        if recorder_error and not stop_requested:
             raise recorder_error
+        elif recorder_error:
+            log(f"Recorder error during stop (expected): {recorder_error}")
 
     except Exception as e:
         log(f"Recording error: {e}", "ERROR")
@@ -322,12 +341,29 @@ def run_streaming(args):
     finally:
         if PID_FILE.exists():
             PID_FILE.unlink()
-        # Ensure recorder is cleaned up
+        # Ensure recorder is fully cleaned up - RealtimeSTT can leak audio resources
         if recorder:
+            try:
+                recorder.abort()
+            except Exception:
+                pass
+            try:
+                recorder.stop()
+            except Exception:
+                pass
             try:
                 recorder.shutdown()
             except Exception:
                 pass
+            # Force garbage collection to release audio resources
+            del recorder
+            recorder = None
+            import gc
+            gc.collect()
+            log("Recorder cleanup complete")
+        # Always send IDLE signal on cleanup so extension resets
+        emit_dbus_signal("StateChanged", "IDLE")
+        log("Sent IDLE signal")
 
     # Use final text from recorder, fall back to buffer if empty
     if final_text and final_text.strip():
