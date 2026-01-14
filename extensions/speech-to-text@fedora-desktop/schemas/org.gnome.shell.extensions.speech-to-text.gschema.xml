@@ -6,6 +6,11 @@
       <summary>Toggle Recording</summary>
       <description>Keybinding to toggle speech-to-text recording</description>
     </key>
+    <key name="abort-recording" type="as">
+      <default><![CDATA[['Escape']]]></default>
+      <summary>Abort Recording</summary>
+      <description>Keybinding to abort recording without transcribing</description>
+    </key>
     <key name="debug-mode" type="b">
       <default>false</default>
       <summary>Debug Mode</summary>

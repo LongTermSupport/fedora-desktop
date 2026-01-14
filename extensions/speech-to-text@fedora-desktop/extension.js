@@ -103,6 +103,16 @@ export default class SpeechToTextExtension extends Extension {
                         this._launchWSI();
                     }
                 );
+
+                Main.wm.addKeybinding(
+                    'abort-recording',
+                    this._settings,
+                    Meta.KeyBindingFlags.NONE,
+                    Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW,
+                    () => {
+                        this._abortRecording();
+                    }
+                );
             }
         } catch (e) {
             Main.notify('STT Error', `Keybinding setup failed: ${e.message}`);
@@ -122,9 +132,10 @@ export default class SpeechToTextExtension extends Extension {
             this._dbusErrorSubscriptionId = null;
         }
 
-        // Remove keybinding
+        // Remove keybindings
         try {
             Main.wm.removeKeybinding('toggle-recording');
+            Main.wm.removeKeybinding('abort-recording');
         } catch (e) {
             // Ignore if keybinding doesn't exist
         }
@@ -627,6 +638,39 @@ export default class SpeechToTextExtension extends Extension {
             // Fallback to pkill
             GLib.spawn_command_line_async('pkill -f "pw-record.*wfile"');
         }
+    }
+
+    _abortRecording() {
+        // Only abort if currently recording
+        if (this._currentState !== 'RECORDING') {
+            this._log('Abort ignored - not recording');
+            return;
+        }
+
+        this._log('Aborting recording (Escape pressed)');
+
+        // Kill the process tree forcefully with SIGKILL to prevent transcription
+        try {
+            // Kill wsi/wsi-stream and any child processes
+            GLib.spawn_command_line_async('pkill -9 -f "wsi-stream"');
+            GLib.spawn_command_line_async('pkill -9 -f "wsi$"');
+            GLib.spawn_command_line_async('pkill -9 -f "pw-record.*wfile"');
+
+            // Clean up PID file
+            const pidFile = '/dev/shm/stt-recording-' + GLib.get_user_name() + '.pid';
+            const file = Gio.File.new_for_path(pidFile);
+            if (file.query_exists(null)) {
+                file.delete(null);
+            }
+        } catch (e) {
+            this._log(`Abort cleanup error: ${e.message}`);
+        }
+
+        // Reset UI immediately
+        this._currentState = 'IDLE';
+        this._stopCountdown();
+        this._updateIconState('IDLE');
+        this._log('Recording aborted');
     }
 
     _ensureLogDirectory() {
