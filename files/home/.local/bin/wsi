@@ -34,6 +34,7 @@ AUTO_PASTE=false
 SKIP_AUTO_ENTER=false  # Auto-enter is ON by default in auto-paste mode
 WRAP_MARKER=false
 LANGUAGE=""  # Language code for Whisper (empty = use env var or default)
+NO_NOTIFY=false  # Suppress desktop notifications
 WHOST="127.0.0.1"
 WPORT="58080"
 
@@ -166,6 +167,11 @@ notify_state() {
         --object-path "$DBUS_PATH" \
         --signal "${DBUS_INTERFACE}.StateChanged" \
         "$state" 2>/dev/null &
+
+    # Skip desktop notification if --no-notify was passed
+    if [ "$NO_NOTIFY" = true ]; then
+        return
+    fi
 
     # Send notification via gdbus so we can replace it
     # Using a fixed app name ensures replacement works
@@ -352,6 +358,7 @@ Options:
   -w, --wrap-marker   Wrap text with speech-to-text:"..." for LLM context
   -l, --language      Language code for transcription (e.g., 'en')
   -n, --netapi        Use whisper.cpp server (host:port from config)
+  --no-notify         Suppress desktop notifications
   -d, --debug         Enable debug mode (verbose output + dependency checks)
   -v, --verbose       Enable verbose output only
   -h, --help          Show this help message
@@ -399,6 +406,11 @@ while [ $# -gt 0 ]; do
             LANGUAGE="$2"
             log_debug "Language set to: $LANGUAGE"
             shift 2
+            ;;
+        --no-notify)
+            NO_NOTIFY=true
+            log_debug "Desktop notifications disabled"
+            shift
             ;;
         -d|--debug)
             DEBUG=true

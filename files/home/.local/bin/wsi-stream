@@ -36,6 +36,7 @@ DBUS_INTERFACE = "org.fedoradesktop.SpeechToText"
 
 # Global state
 debug_mode = False
+no_notify = False
 stop_requested = False
 recorder = None
 current_text = ""
@@ -93,6 +94,10 @@ def notify(state, message):
     """Send notification and DBus state signal."""
     log(f"State: {state} - {message}")
     emit_dbus_signal("StateChanged", state)
+
+    # Skip desktop notification if --no-notify was passed
+    if no_notify:
+        return
 
     try:
         subprocess.run([
@@ -214,8 +219,9 @@ def check_dependencies():
 
 def run_streaming(args):
     """Main streaming transcription."""
-    global debug_mode, stop_requested, recorder, current_text
+    global debug_mode, no_notify, stop_requested, recorder, current_text
     debug_mode = args.debug
+    no_notify = args.no_notify
     stop_requested = False
     current_text = ""
 
@@ -268,8 +274,10 @@ def run_streaming(args):
                 log("Called recorder.stop()")
             except Exception as e:
                 log(f"stop() failed: {e}", "WARN")
-        # Set the event so main thread can continue
-        recording_done.set()
+        # DON'T set recording_done here - let the recording thread set it
+        # after recorder.text() returns with the final transcription.
+        # Setting it here causes a race where we proceed before the last
+        # audio chunk is transcribed, losing the final word(s).
 
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
@@ -312,6 +320,12 @@ def run_streaming(args):
         # Wait for either completion or timeout (main thread handles signals)
         timeout = args.timeout or 30
         recording_done.wait(timeout=timeout)
+
+        # If stop was requested but recording thread hasn't finished yet,
+        # give it a few more seconds for the final transcription
+        if stop_requested and not recording_done.is_set():
+            log("Waiting for final transcription after stop...")
+            recording_done.wait(timeout=5)
 
         if not recording_done.is_set():
             log(f"Timeout after {timeout}s, stopping...")
@@ -449,8 +463,10 @@ def main():
                         help="Wrap text with speech-to-text:\"...\"")
     parser.add_argument("-l", "--language", type=str, default=None,
                         help="Language code for transcription (e.g., 'en')")
-    parser.add_argument("--timeout", type=int, default=30,
-                        help="Maximum recording time in seconds")
+    parser.add_argument("--timeout", type=int, default=120,
+                        help="Maximum recording time in seconds (default: 120 for streaming)")
+    parser.add_argument("--no-notify", action="store_true",
+                        help="Suppress desktop notifications")
 
     args = parser.parse_args()
     return run_streaming(args)

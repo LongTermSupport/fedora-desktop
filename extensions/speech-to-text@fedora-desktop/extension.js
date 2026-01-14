@@ -40,6 +40,7 @@ export default class SpeechToTextExtension extends Extension {
         this._wrapWithMarker = false;
         this._streamingMode = false;  // Use RealtimeSTT streaming instead of batch
         this._language = 'system';    // 'system' = detect from locale, or 'en', etc.
+        this._showNotifications = false;  // Show desktop notifications (off by default)
         this._currentState = 'IDLE';
         this._updatingToggles = false;  // Guard flag to prevent toggle cascade
         this._lastError = null;
@@ -49,7 +50,7 @@ export default class SpeechToTextExtension extends Extension {
 
         // Recording timer state
         this._recordingTimer = null;
-        this._remainingSeconds = 27;  // 3s safety buffer before 30s hard limit
+        this._remainingSeconds = 27;  // Will be set based on mode in _startCountdown
         this._countdownLabel = null;
         this._flashTimer = null;
         this._flashState = false;
@@ -173,6 +174,17 @@ export default class SpeechToTextExtension extends Extension {
 
         // Separator
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
+        // Notifications toggle
+        this._notifySwitch = new PopupMenu.PopupSwitchMenuItem('Show Notifications', this._showNotifications);
+        this._preventMenuClose(this._notifySwitch);
+        this._notifySwitch.connect('toggled', (item, state) => {
+            if (this._updatingToggles) return;  // Prevent cascade
+            this._showNotifications = state;
+            this._saveNotificationsSetting(state);
+            this._log(`Notifications ${state ? 'enabled' : 'disabled'}`);
+        });
+        menu.addMenuItem(this._notifySwitch);
 
         // Debug toggle
         this._debugSwitch = new PopupMenu.PopupSwitchMenuItem('Debug Logging', this._debugEnabled);
@@ -430,8 +442,10 @@ export default class SpeechToTextExtension extends Extension {
         // Stop any existing countdown
         this._stopCountdown();
 
-        // Initialize countdown (27s for 3s safety buffer before 30s hard limit)
-        this._remainingSeconds = 27;
+        // Initialize countdown based on mode:
+        // - Streaming: 117s (3s safety buffer before 120s limit)
+        // - Batch: 27s (3s safety buffer before 30s limit)
+        this._remainingSeconds = this._streamingMode ? 117 : 27;
 
         // Replace icon with countdown label
         if (this._icon) {
@@ -440,14 +454,15 @@ export default class SpeechToTextExtension extends Extension {
 
         // Start with green background, white text
         this._countdownLabel = new St.Label({
-            text: 'REC 27',
+            text: `REC ${this._remainingSeconds}`,
             y_align: 2,  // Clutter.ActorAlign.CENTER
             style_class: 'system-status-icon',
             style: 'color: white; font-weight: bold; font-size: 13px; background-color: #44ff44; padding: 2px 4px; border-radius: 3px;'
         });
         this._indicator.add_child(this._countdownLabel);
 
-        this._log('Countdown started: 27 seconds (3s safety buffer)');
+        const limit = this._streamingMode ? 120 : 30;
+        this._log(`Countdown started: ${this._remainingSeconds}s (${limit}s limit, streaming: ${this._streamingMode})`);
 
         // Start 1-second timer
         this._recordingTimer = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 1, () => {
@@ -574,11 +589,12 @@ export default class SpeechToTextExtension extends Extension {
             const autoPasteFlag = this._autoPaste ? ' --auto-paste' : '';
             const noAutoEnterFlag = (this._autoPaste && !this._autoEnter) ? ' --no-auto-enter' : '';
             const wrapMarkerFlag = this._wrapWithMarker ? ' --wrap-marker' : '';
+            const noNotifyFlag = !this._showNotifications ? ' --no-notify' : '';
 
             // Use wsi-stream for streaming mode, otherwise use batch wsi
             const script = this._streamingMode ? 'wsi-stream' : 'wsi';
             const langFlag = ` --language ${this._getWhisperLanguage()}`;
-            const command = GLib.get_home_dir() + '/.local/bin/' + script + debugFlag + clipboardFlag + autoPasteFlag + noAutoEnterFlag + wrapMarkerFlag + langFlag;
+            const command = GLib.get_home_dir() + '/.local/bin/' + script + debugFlag + clipboardFlag + autoPasteFlag + noAutoEnterFlag + wrapMarkerFlag + noNotifyFlag + langFlag;
 
             this._log(`Launching: ${command}`);
             GLib.spawn_command_line_async(command);
@@ -678,6 +694,14 @@ export default class SpeechToTextExtension extends Extension {
                 this._language = this._settings.get_string('language');
             } catch (e) {
                 this._language = 'system';
+            }
+            try {
+                this._showNotifications = this._settings.get_boolean('show-notifications');
+                if (this._notifySwitch) {
+                    this._notifySwitch.setToggleState(this._showNotifications);
+                }
+            } catch (e) {
+                this._showNotifications = false;
             }
         }
     }
@@ -785,6 +809,16 @@ export default class SpeechToTextExtension extends Extension {
         if (this._settings) {
             try {
                 this._settings.set_string('language', lang);
+            } catch (e) {
+                // Setting may not exist yet
+            }
+        }
+    }
+
+    _saveNotificationsSetting(enabled) {
+        if (this._settings) {
+            try {
+                this._settings.set_boolean('show-notifications', enabled);
             } catch (e) {
                 // Setting may not exist yet
             }

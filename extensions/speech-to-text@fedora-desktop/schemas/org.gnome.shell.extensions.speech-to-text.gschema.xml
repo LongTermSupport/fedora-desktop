@@ -41,5 +41,10 @@
       <summary>Transcription Language</summary>
       <description>Language for speech recognition: "system" uses desktop locale, or specify a language code like "en"</description>
     </key>
+    <key name="show-notifications" type="b">
+      <default>false</default>
+      <summary>Show Notifications</summary>
+      <description>Show desktop notifications for recording status and transcription results</description>
+    </key>
   </schema>
 </schemalist>
