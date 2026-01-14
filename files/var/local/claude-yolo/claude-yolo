@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="2.8.0"  # Feature: Interactive Docker cleanup and podman-compose auto-start
+CCY_VERSION="2.10.1"  # Fix: Default session UI feedback, compose check on network auto-detect
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -76,8 +76,9 @@ Claude Code YOLO Mode (ccy) - Container-based execution with --dangerously-skip-
 
 Usage: ccy [OPTIONS] [CLAUDE_ARGS...]
 
-Session Management:
-  --session [NAME]       Start/resume named session (shows TUI if no name)
+Session Management (disabled by default, enable with --sessions or CCY_SESSIONS=1):
+  --sessions             Enable named sessions (shows TUI picker)
+  --session [NAME]       Start/resume named session (implicitly enables sessions)
   --new [NAME]           Force new session (auto-named if no name provided)
   --list-sessions        List all sessions with details
   --delete-session NAME  Delete a specific session
@@ -105,11 +106,9 @@ Wrapper Options:
 All other arguments are passed directly to Claude Code with --dangerously-skip-permissions
 
 Features:
-  • Named sessions with context tracking and TUI picker
-  • Auto-naming (YYYY-MM-DD_HH-MM) when session name not provided
-  • Session history preview to easily resume previous work
-  • Auto-prune old sessions (configurable age threshold)
-  • Rename sessions on exit (auto-generated names → meaningful names)
+  • Fresh start each launch (history preserved, no forced resume)
+  • Pass --resume explicitly to continue previous conversation
+  • Optional named sessions with --sessions flag or CCY_SESSIONS=1 env var
   • Runs in isolated Docker container with git/gh
   • Long-lived OAuth tokens (sk-ant-oat01-...) - same as GitHub Actions
   • Named tokens with expiry tracking for multiple Claude accounts
@@ -126,20 +125,23 @@ Security:
   ✓  Tokens isolated from desktop Claude Code
 
 Examples:
-  ccy                           # Show session picker TUI (interactive)
-  ccy --session feature-auth    # Resume or create "feature-auth" session
-  ccy --new bugfix-api          # Force new session named "bugfix-api"
-  ccy --new                     # Force new auto-named session (2025-12-07_14-30)
-  ccy --list-sessions           # Show all sessions with context
-  ccy --delete-session old-test # Delete a specific session
-  ccy --verify-sessions         # Verify .gitignore protection is working
-  ccy --create-token            # Create a new named token
-  ccy --token personal          # Use "personal" token
-  ccy --list-tokens             # List available tokens
-  ccy "implement feature X"     # Start with specific task (shows TUI first)
+  ccy                           # Start fresh (history preserved, no auto-resume)
+  ccy "implement feature X"     # Start with specific task
+  ccy --resume                  # Resume previous conversation explicitly
   ccy --prompt "fix the bug"    # Start interactive session with prompt
   ccy --headless --prompt "run tests"  # Run in headless mode
   ccy --top                     # Container manager: list/stop all CCY containers
+
+  # Named sessions (opt-in):
+  ccy --sessions                # Enable sessions, show TUI picker
+  ccy --session feature-auth    # Resume or create "feature-auth" session
+  ccy --new bugfix-api          # Force new session named "bugfix-api"
+  CCY_SESSIONS=1 ccy            # Enable sessions via env var
+
+  # Token management:
+  ccy --create-token            # Create a new named token
+  ccy --token personal          # Use "personal" token
+  ccy --list-tokens             # List available tokens
 
 Custom Dockerfile (Quick template-based):
   ccy --custom                  # Template selection workflow
@@ -167,18 +169,15 @@ Token Management:
   Expiry checked on launch - forces recreation when expired or expiring today
   Desktop Claude Code (~/.claude/) is NEVER modified
 
-Session Management:
-  Sessions stored in: .claude/ccy/sessions/ (gitignored, project-specific)
-  Each session maintains its own conversation history and state
-  Auto-generated names: YYYY-MM-DD_HH-MM (e.g., 2025-12-07_14-30)
-  Rename on exit: Convert auto-names to meaningful names (e.g., "feature-auth")
+Session Management (opt-in with --sessions or CCY_SESSIONS=1):
+  By default, ccy uses a "default" session - history is preserved but not auto-resumed.
+  Pass --resume explicitly to continue previous conversation.
+  Enable named sessions for TUI picker and multiple session management.
 
-  Session Lifecycle:
-    1. Start: ccy (shows TUI) or ccy --session <name>
-    2. Work: Full Claude Code session with history
-    3. Exit: Confirm/rename session (auto-generated names only)
-    4. Resume: ccy shows TUI with last context for easy selection
-    5. Auto-prune: Old sessions (>4 days) offered for deletion
+  When enabled:
+    Sessions stored in: .claude/ccy/sessions/ (gitignored, project-specific)
+    Auto-generated names: YYYY-MM-DD_HH-MM (e.g., 2025-12-07_14-30)
+    Session TUI picker for easy selection and auto-resume
 
   Configuration: .claude/ccy/config.json (COMMITTED - team preferences)
     - auto_prune_days: Age threshold for pruning (default: 4)
@@ -390,6 +389,9 @@ FORK_SESSION_MODE=false
 FORK_FROM=""
 FORK_TO=""
 VERIFY_SESSIONS_MODE=false
+# Sessions disabled by default - enable with CCY_SESSIONS=1 or --sessions flag
+SESSIONS_ENABLED="${CCY_SESSIONS:-false}"
+[[ "$SESSIONS_ENABLED" == "1" || "$SESSIONS_ENABLED" == "true" ]] && SESSIONS_ENABLED=true || SESSIONS_ENABLED=false
 
 for arg in "$@"; do
     if [ "$NEXT_IS_ENGINE" = true ]; then
@@ -454,6 +456,8 @@ for arg in "$@"; do
         NEXT_IS_FORK_FROM=true
     elif [ "$arg" = "--verify-sessions" ]; then
         VERIFY_SESSIONS_MODE=true
+    elif [ "$arg" = "--sessions" ]; then
+        SESSIONS_ENABLED=true
     elif [ "$arg" = "--rebuild" ]; then
         FORCE_REBUILD=true
     elif [ "$arg" = "--no-ssh" ]; then
@@ -832,79 +836,115 @@ if [ "$NEW_SESSION_MODE" = true ]; then
     fi
 fi
 
-# Session selection - show TUI if no session specified (with retry loop)
-while true; do
-    if [ -z "$SESSION_NAME" ]; then
-        # No session specified - show TUI
-        SESSION_NAME=$(session_picker_tui ".claude/ccy")
+# Session selection - depends on whether sessions are enabled
+# Session flags (--session, --new, etc.) implicitly enable sessions
+if [[ -n "$SESSION_NAME" ]] || [[ "$NEW_SESSION_MODE" = true ]]; then
+    SESSIONS_ENABLED=true
+fi
 
+if [[ "$SESSIONS_ENABLED" = true ]]; then
+    # Sessions enabled - show TUI if no session specified (with retry loop)
+    while true; do
         if [ -z "$SESSION_NAME" ]; then
-            print_error "No session selected"
-            exit 1
+            # No session specified - show TUI
+            SESSION_NAME=$(session_picker_tui ".claude/ccy")
+
+            if [ -z "$SESSION_NAME" ]; then
+                print_error "No session selected"
+                exit 1
+            fi
         fi
+
+        # Check if session already exists
+        SESSION_EXISTS=false
+        if [ -d ".claude/ccy/sessions/$SESSION_NAME" ]; then
+            SESSION_EXISTS=true
+        fi
+
+        # Ensure session exists and get directory
+        SESSION_DIR=$(ensure_session "$SESSION_NAME" ".claude/ccy")
+
+        if [ -z "$SESSION_DIR" ]; then
+            # Validation failed - show TUI again
+            echo ""
+            print_error "Invalid session name, please try again"
+            echo ""
+            SESSION_NAME=""  # Reset to trigger TUI again
+            continue
+        fi
+
+        # Valid session - break out of loop
+        break
+    done
+
+    # Convert to absolute path for Docker mounts
+    SESSION_DIR=$(cd "$SESSION_DIR" && pwd)
+
+    # Check if session has messages for auto-resume
+    SESSION_HAS_MESSAGES=false
+    MESSAGE_COUNT=$(count_session_messages "$SESSION_DIR" | tail -1 | tr -d '[:space:]')
+
+    debug "Session directory: $SESSION_DIR"
+    debug "Raw message count output: '$MESSAGE_COUNT'"
+    debug "history.jsonl exists: $([ -f "$SESSION_DIR/history.jsonl" ] && echo "YES" || echo "NO")"
+    if [ "$DEBUG_MODE" = true ] && [ -f "$SESSION_DIR/history.jsonl" ]; then
+        debug "history.jsonl size: $(wc -l < "$SESSION_DIR/history.jsonl") lines"
+        debug "Lines with 'role': $(grep -c '"role":' "$SESSION_DIR/history.jsonl" 2>/dev/null || echo "0")"
     fi
 
-    # Check if session already exists
-    SESSION_EXISTS=false
-    if [ -d ".claude/ccy/sessions/$SESSION_NAME" ]; then
-        SESSION_EXISTS=true
+    # Ensure MESSAGE_COUNT is a valid number
+    if [[ "$MESSAGE_COUNT" =~ ^[0-9]+$ ]] && [[ "$MESSAGE_COUNT" -gt 0 ]]; then
+        SESSION_HAS_MESSAGES=true
+        debug "SESSION_HAS_MESSAGES=true (count: $MESSAGE_COUNT)"
+    else
+        debug "SESSION_HAS_MESSAGES=false (count: '$MESSAGE_COUNT')"
     fi
 
-    # Ensure session exists and get directory
+    # Show appropriate message
+    echo ""
+    if [ "$SESSION_EXISTS" = true ]; then
+        echo "✓ Resuming session: $SESSION_NAME"
+        if [ "$SESSION_HAS_MESSAGES" = true ]; then
+            echo "  └─ $MESSAGE_COUNT message(s) in history - will auto-resume conversation"
+        fi
+    else
+        echo "✓ Created new session: $SESSION_NAME"
+    fi
+
+    # Set terminal title
+    printf '\033]0;CCY: %s\007' "$SESSION_NAME"
+
+    echo "✓ Session directory: $SESSION_DIR"
+    echo ""
+else
+    # Sessions disabled - use persistent "default" session but don't auto-resume
+    SESSION_NAME="default"
+
+    # Ensure default session directory exists
     SESSION_DIR=$(ensure_session "$SESSION_NAME" ".claude/ccy")
-
     if [ -z "$SESSION_DIR" ]; then
-        # Validation failed - show TUI again
-        echo ""
-        print_error "Invalid session name, please try again"
-        echo ""
-        SESSION_NAME=""  # Reset to trigger TUI again
-        continue
+        print_error "Failed to create default session directory"
+        exit 1
     fi
+    SESSION_DIR=$(cd "$SESSION_DIR" && pwd)
 
-    # Valid session - break out of loop
-    break
-done
+    # Don't auto-resume - user must explicitly pass --resume
+    SESSION_HAS_MESSAGES=false
+    SESSION_EXISTS=true
 
-# Convert to absolute path for Docker mounts
-SESSION_DIR=$(cd "$SESSION_DIR" && pwd)
+    # Set terminal title
+    printf '\033]0;CCY: %s\007' "$PROJECT_NAME"
 
-# Check if session has messages for auto-resume
-SESSION_HAS_MESSAGES=false
-MESSAGE_COUNT=$(count_session_messages "$SESSION_DIR" | tail -1 | tr -d '[:space:]')
+    # Show session info
+    echo ""
+    echo "✓ Using default session (history preserved, no auto-resume)"
+    echo "  └─ $SESSION_DIR"
+    echo "  └─ Pass --resume to continue previous conversation"
+    echo "  └─ Use --sessions for named session management"
+    echo ""
 
-debug "Session directory: $SESSION_DIR"
-debug "Raw message count output: '$MESSAGE_COUNT'"
-debug "history.jsonl exists: $([ -f "$SESSION_DIR/history.jsonl" ] && echo "YES" || echo "NO")"
-if [ "$DEBUG_MODE" = true ] && [ -f "$SESSION_DIR/history.jsonl" ]; then
-    debug "history.jsonl size: $(wc -l < "$SESSION_DIR/history.jsonl") lines"
-    debug "Lines with 'role': $(grep -c '"role":' "$SESSION_DIR/history.jsonl" 2>/dev/null || echo "0")"
+    debug "Sessions disabled - using default session (no auto-resume): $SESSION_DIR"
 fi
-
-# Ensure MESSAGE_COUNT is a valid number
-if [[ "$MESSAGE_COUNT" =~ ^[0-9]+$ ]] && [[ "$MESSAGE_COUNT" -gt 0 ]]; then
-    SESSION_HAS_MESSAGES=true
-    debug "SESSION_HAS_MESSAGES=true (count: $MESSAGE_COUNT)"
-else
-    debug "SESSION_HAS_MESSAGES=false (count: '$MESSAGE_COUNT')"
-fi
-
-# Show appropriate message
-echo ""
-if [ "$SESSION_EXISTS" = true ]; then
-    echo "✓ Resuming session: $SESSION_NAME"
-    if [ "$SESSION_HAS_MESSAGES" = true ]; then
-        echo "  └─ $MESSAGE_COUNT message(s) in history - will auto-resume conversation"
-    fi
-else
-    echo "✓ Created new session: $SESSION_NAME"
-fi
-
-# Set terminal title
-printf '\033]0;CCY: %s\007' "$SESSION_NAME"
-
-echo "✓ Session directory: $SESSION_DIR"
-echo ""
 
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -1309,18 +1349,27 @@ if [[ -n "$SPECIFIED_NETWORK" ]]; then
     # --network flag provided (or loaded from config)
     # Verify network exists
     if container_cmd network ls --format '{{.Name}}' | grep -q "^${SPECIFIED_NETWORK}$"; then
-        NETWORK_FLAG="--network $SPECIFIED_NETWORK"
-        AUTO_CONNECT_NETWORK="$SPECIFIED_NETWORK"
-        if [[ "$NETWORK_FROM_CONFIG" = true ]]; then
-            echo "✓ Will connect to network: $SPECIFIED_NETWORK (from saved config)"
+        # Network exists - check if services are running
+        if check_and_start_compose_services "$SPECIFIED_NETWORK" "$PROJECT_NAME"; then
+            # Services running (or were started)
+            NETWORK_FLAG="--network $SPECIFIED_NETWORK"
+            AUTO_CONNECT_NETWORK="$SPECIFIED_NETWORK"
+            if [[ "$NETWORK_FROM_CONFIG" = true ]]; then
+                echo "✓ Will connect to network: $SPECIFIED_NETWORK (from saved config)"
+            else
+                echo "✓ Will connect to network: $SPECIFIED_NETWORK (via --network flag)"
+            fi
+            echo ""
         else
-            echo "✓ Will connect to network: $SPECIFIED_NETWORK (via --network flag)"
+            # No services running and user declined to start - continue without network
+            echo "⚠  Continuing without network connection (no services running)"
+            echo ""
+            SPECIFIED_NETWORK=""
         fi
-        echo ""
     else
         # Network not found - different handling for config vs explicit flag
         if [[ "$NETWORK_FROM_CONFIG" = true ]]; then
-            # From config - warn but continue
+            # From config - warn and offer to start compose
             echo ""
             echo "════════════════════════════════════════════════════════════════════════════════"
             echo "⚠  WARNING: Saved network no longer exists"
@@ -1334,37 +1383,49 @@ if [[ -n "$SPECIFIED_NETWORK" ]]; then
             echo "  • Docker daemon restarted"
             echo "  • Network manually deleted"
             echo ""
-            echo "Available networks:"
-            container_cmd network ls --format "  {{.Name}}" | grep -v "^bridge$\|^host$\|^none$" || echo "  (no user-defined networks found)"
-            echo ""
 
-            while true; do
-                read -p "Continue without network connection? [Y/n] " continue_choice
-                continue_choice=${continue_choice:-Y}
+            # Try to restore network by starting compose
+            if offer_compose_start "$SPECIFIED_NETWORK" "$PROJECT_NAME"; then
+                # Compose started successfully and network found
+                SPECIFIED_NETWORK="$COMPOSE_NETWORK"
+                NETWORK_FLAG="--network $COMPOSE_NETWORK"
+                AUTO_CONNECT_NETWORK="$COMPOSE_NETWORK"
+                echo ""
+            else
+                # Compose not available or user declined
+                echo ""
+                echo "Available networks:"
+                container_cmd network ls --format "  {{.Name}}" | grep -v "^bridge$\|^host$\|^none$" || echo "  (no user-defined networks found)"
                 echo ""
 
-                case "$continue_choice" in
-                    Y|y|Yes|yes)
-                        echo "Continuing without network connection..."
-                        echo "════════════════════════════════════════════════════════════════════════════════"
-                        echo ""
-                        # Clear the network flag so we continue without it
-                        SPECIFIED_NETWORK=""
-                        break
-                        ;;
-                    N|n|No|no)
-                        echo "Cancelled. Fix the network and try again:"
-                        echo "  • Restart your docker-compose project"
-                        echo "  • Or use: ccy --no-network"
-                        echo "  • Or use: ccy --network <different-network>"
-                        exit 0
-                        ;;
-                    *)
-                        echo "Invalid choice. Please enter Y or n"
-                        echo ""
-                        ;;
-                esac
-            done
+                while true; do
+                    read -p "Continue without network connection? [Y/n] " continue_choice
+                    continue_choice=${continue_choice:-Y}
+                    echo ""
+
+                    case "$continue_choice" in
+                        Y|y|Yes|yes)
+                            echo "Continuing without network connection..."
+                            echo "════════════════════════════════════════════════════════════════════════════════"
+                            echo ""
+                            # Clear the network flag so we continue without it
+                            SPECIFIED_NETWORK=""
+                            break
+                            ;;
+                        N|n|No|no)
+                            echo "Cancelled. Fix the network and try again:"
+                            echo "  • Restart your docker-compose project"
+                            echo "  • Or use: ccy --no-network"
+                            echo "  • Or use: ccy --network <different-network>"
+                            exit 0
+                            ;;
+                        *)
+                            echo "Invalid choice. Please enter Y or n"
+                            echo ""
+                            ;;
+                    esac
+                done
+            fi
         else
             # Explicit --network flag - this is an error
             print_error "Network not found: $SPECIFIED_NETWORK"
@@ -1385,14 +1446,31 @@ else
     if [[ -n "$PERSISTED_NETWORK" ]]; then
         # Found persisted network - verify it exists
         if container_cmd network ls --format '{{.Name}}' | grep -q "^${PERSISTED_NETWORK}$"; then
-            SPECIFIED_NETWORK="$PERSISTED_NETWORK"
-            NETWORK_FLAG="--network $PERSISTED_NETWORK"
-            AUTO_CONNECT_NETWORK="$PERSISTED_NETWORK"
-            echo "✓ Will connect to network: $PERSISTED_NETWORK (from saved preference)"
-            echo ""
+            # Network exists - check if services are running
+            if check_and_start_compose_services "$PERSISTED_NETWORK" "$PROJECT_NAME"; then
+                # Services running (or were started)
+                SPECIFIED_NETWORK="$PERSISTED_NETWORK"
+                NETWORK_FLAG="--network $PERSISTED_NETWORK"
+                AUTO_CONNECT_NETWORK="$PERSISTED_NETWORK"
+                echo "✓ Will connect to network: $PERSISTED_NETWORK (from saved preference)"
+                echo ""
+            else
+                # No services running and user declined to start
+                echo "⚠  Network exists but no services running"
+                echo ""
+            fi
         else
             echo "⚠  Saved network '$PERSISTED_NETWORK' no longer exists"
             echo ""
+
+            # Try to restore network by starting compose
+            if offer_compose_start "$PERSISTED_NETWORK" "$PROJECT_NAME"; then
+                # Compose started successfully and network found
+                SPECIFIED_NETWORK="$COMPOSE_NETWORK"
+                NETWORK_FLAG="--network $COMPOSE_NETWORK"
+                AUTO_CONNECT_NETWORK="$COMPOSE_NETWORK"
+                echo ""
+            fi
         fi
     fi
 
@@ -1534,7 +1612,7 @@ if [[ "$CROSS_ENGINE_MISMATCH" = true ]]; then
 
                     # Now offer to start podman-compose
                     COMPOSE_FILES_FOUND=()
-                    for pattern in "docker-compose.yml" "docker-compose.yaml" "compose.yml" "compose.yaml"; do
+                    for pattern in "docker-compose.yml" "docker-compose.yaml" "podman-compose.yml" "podman-compose.yaml" "compose.yml" "compose.yaml"; do
                         if [ -f "$pattern" ]; then
                             COMPOSE_FILES_FOUND+=("$pattern")
                         fi
@@ -1731,8 +1809,14 @@ if [ ${#MATCHING_NETWORKS[@]} -gt 0 ] && [ -z "$SPECIFIED_NETWORK" ]; then
 
             case "$connect_choice" in
                 Y|y|Yes|yes)
-                    NETWORK_FLAG="--network $AUTO_CONNECT_NETWORK"
-                    echo "✓ Will connect to: $AUTO_CONNECT_NETWORK"
+                    # Check if services are running before connecting
+                    if check_and_start_compose_services "$AUTO_CONNECT_NETWORK" "$PROJECT_NAME"; then
+                        NETWORK_FLAG="--network $AUTO_CONNECT_NETWORK"
+                        echo "✓ Will connect to: $AUTO_CONNECT_NETWORK"
+                    else
+                        echo "⚠  Continuing without network (no services running)"
+                        AUTO_CONNECT_NETWORK=""
+                    fi
                     break
                     ;;
                 N|n|No|no)
@@ -1760,8 +1844,14 @@ if [ ${#MATCHING_NETWORKS[@]} -gt 0 ] && [ -z "$SPECIFIED_NETWORK" ]; then
 
             case "$connect_choice" in
                 Y|y|Yes|yes)
-                    NETWORK_FLAG="--network $AUTO_CONNECT_NETWORK"
-                    echo "✓ Will connect to: $AUTO_CONNECT_NETWORK"
+                    # Check if services are running before connecting
+                    if check_and_start_compose_services "$AUTO_CONNECT_NETWORK" "$PROJECT_NAME"; then
+                        NETWORK_FLAG="--network $AUTO_CONNECT_NETWORK"
+                        echo "✓ Will connect to: $AUTO_CONNECT_NETWORK"
+                    else
+                        echo "⚠  Continuing without network (no services running)"
+                        AUTO_CONNECT_NETWORK=""
+                    fi
                     break
                     ;;
                 N|n|No|no)
@@ -1790,8 +1880,14 @@ if [ ${#MATCHING_NETWORKS[@]} -gt 0 ] && [ -z "$SPECIFIED_NETWORK" ]; then
                             break 2
                         elif [ "$net_choice" -ge 1 ] && [ "$net_choice" -le ${#MATCHING_NETWORKS[@]} ] 2>/dev/null; then
                             AUTO_CONNECT_NETWORK="${MATCHING_NETWORKS[$((net_choice-1))]}"
-                            NETWORK_FLAG="--network $AUTO_CONNECT_NETWORK"
-                            echo "✓ Will connect to: $AUTO_CONNECT_NETWORK"
+                            # Check if services are running before connecting
+                            if check_and_start_compose_services "$AUTO_CONNECT_NETWORK" "$PROJECT_NAME"; then
+                                NETWORK_FLAG="--network $AUTO_CONNECT_NETWORK"
+                                echo "✓ Will connect to: $AUTO_CONNECT_NETWORK"
+                            else
+                                echo "⚠  Continuing without network (no services running)"
+                                AUTO_CONNECT_NETWORK=""
+                            fi
                             break 2
                         else
                             echo "Invalid selection: $net_choice"
@@ -1829,7 +1925,7 @@ else
     if [ ${#MATCHING_NETWORKS[@]} -eq 0 ] && [ -z "$SPECIFIED_NETWORK" ] && [ "$COMPOSE_ALREADY_HANDLED" != "true" ]; then
         # Scan for compose files in project root
         COMPOSE_FILES_FOUND=()
-        for pattern in "docker-compose.yml" "docker-compose.yaml" "compose.yml" "compose.yaml"; do
+        for pattern in "docker-compose.yml" "docker-compose.yaml" "podman-compose.yml" "podman-compose.yaml" "compose.yml" "compose.yaml"; do
             if [ -f "$pattern" ]; then
                 COMPOSE_FILES_FOUND+=("$pattern")
             fi
@@ -2175,9 +2271,12 @@ container_cmd run $DOCKER_FLAGS --rm \
 # Capture exit code
 CONTAINER_EXIT_CODE=$?
 
-# After container exits, confirm session name (allows renaming auto-generated names)
-# This runs before cleanup trap
-confirm_session_name "$SESSION_NAME" "$SESSION_DIR" ".claude/ccy"
+# After container exits, handle session cleanup (only for named sessions)
+if [[ "$SESSIONS_ENABLED" = true ]]; then
+    # Confirm session name (allows renaming auto-generated names)
+    confirm_session_name "$SESSION_NAME" "$SESSION_DIR" ".claude/ccy"
+fi
+# Default session is persistent - no cleanup needed
 
 # Exit with same code as container
 exit $CONTAINER_EXIT_CODE

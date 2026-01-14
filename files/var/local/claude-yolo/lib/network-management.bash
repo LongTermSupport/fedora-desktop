@@ -2,7 +2,7 @@
 # Network Management Library
 # Shared Docker network operations for claude-yolo and claude-browser
 #
-# Version: 1.3.0 - Added parent-folder-repo-folder naming, improved error handling
+# Version: 1.4.0 - Check compose services running, offer to start if not
 
 # Get the expected network name for the current project
 # Returns: network-name based on folder name, or repo name as fallback
@@ -393,9 +393,228 @@ connect_to_network() {
     exit 0
 }
 
+# Check if a network has running containers
+# Args: $1 = network_name
+# Returns: 0 if containers are running on the network, 1 otherwise
+network_has_running_containers() {
+    local network_name="$1"
+
+    if [[ -z "$network_name" ]]; then
+        return 1
+    fi
+
+    # Get containers attached to this network
+    local container_count
+    container_count=$(container_cmd network inspect "$network_name" --format '{{len .Containers}}' 2>/dev/null || echo "0")
+
+    if [[ "$container_count" -gt 0 ]]; then
+        return 0
+    fi
+
+    return 1
+}
+
+# Check for compose files in current directory
+# Returns: 0 if compose files found, 1 otherwise
+# Sets: COMPOSE_FILES array with found files
+has_compose_files() {
+    COMPOSE_FILES=()
+    for pattern in "docker-compose.yml" "docker-compose.yaml" "podman-compose.yml" "podman-compose.yaml" "compose.yml" "compose.yaml"; do
+        if [ -f "$pattern" ]; then
+            COMPOSE_FILES+=("$pattern")
+        fi
+    done
+
+    if [ ${#COMPOSE_FILES[@]} -gt 0 ]; then
+        return 0
+    fi
+    return 1
+}
+
+# Check if compose services are running and offer to start if not
+# Args: $1 = network_name (the network we want to connect to)
+#       $2 = project_name (optional, defaults to basename of PWD)
+# Returns: 0 if services are running (or were started), 1 if user declined or no compose
+check_and_start_compose_services() {
+    local network_name="$1"
+    local project_name="${2:-$(basename "$PWD")}"
+
+    # Check if network has running containers
+    if network_has_running_containers "$network_name"; then
+        # Services are running, nothing to do
+        return 0
+    fi
+
+    # Network exists but no containers - check for compose files
+    if ! has_compose_files; then
+        # No compose files, can't auto-start
+        return 1
+    fi
+
+    echo ""
+    echo "────────────────────────────────────────────────────────────────────────────────"
+    echo "⚠  Network exists but no containers are running"
+    echo "────────────────────────────────────────────────────────────────────────────────"
+    echo ""
+    echo "Network: $network_name"
+    echo ""
+    echo "The network exists but appears to have no running containers."
+    echo "This usually means compose services were stopped but not removed."
+    echo ""
+    echo "Found compose files:"
+    for cf in "${COMPOSE_FILES[@]}"; do
+        echo "  • $cf"
+    done
+    echo ""
+
+    # Use the existing offer_compose_start logic
+    _do_compose_start "$network_name" "$project_name"
+    return $?
+}
+
+# Internal helper to start compose (shared between offer_compose_start and check_and_start_compose_services)
+# Args: $1 = expected_network, $2 = project_name
+_do_compose_start() {
+    local expected_network="$1"
+    local project_name="$2"
+
+    # Determine compose command based on container engine
+    local compose_cmd=""
+    local compose_name=""
+
+    if [[ "$CONTAINER_ENGINE" = "podman" ]]; then
+        if command -v podman-compose &>/dev/null; then
+            compose_cmd="podman-compose"
+            compose_name="podman-compose"
+        else
+            echo "⚠ podman-compose not installed"
+            echo ""
+            echo "Install with:"
+            echo "  pip install podman-compose"
+            echo "  # Or: ansible-playbook playbooks/imports/optional/common/play-podman.yml"
+            echo ""
+            echo "Then run: podman-compose up -d"
+            echo "────────────────────────────────────────────────────────────────────────────────"
+            return 1
+        fi
+    else
+        if command -v docker-compose &>/dev/null; then
+            compose_cmd="docker-compose"
+            compose_name="docker-compose"
+        elif command -v docker &>/dev/null && docker compose version &>/dev/null 2>&1; then
+            compose_cmd="docker compose"
+            compose_name="docker compose"
+        else
+            echo "⚠ docker-compose not installed"
+            echo ""
+            echo "Install Docker Compose or use Podman instead."
+            echo "────────────────────────────────────────────────────────────────────────────────"
+            return 1
+        fi
+    fi
+
+    # Offer to start compose
+    while true; do
+        read -p "Start services with $compose_name up -d? [Y/n]: " start_choice
+        start_choice=${start_choice:-Y}
+        echo ""
+
+        case "$start_choice" in
+            Y|y|Yes|yes)
+                echo "Starting $compose_name..."
+                if $compose_cmd up -d; then
+                    echo ""
+                    echo "✓ Compose services started"
+                    echo ""
+                    echo "Waiting for containers..."
+                    sleep 2
+
+                    # Verify containers are now running
+                    if network_has_running_containers "$expected_network"; then
+                        echo "✓ Services running on network: $expected_network"
+                        echo "────────────────────────────────────────────────────────────────────────────────"
+                        return 0
+                    else
+                        # Check if any project networks now have containers
+                        local found_networks=()
+                        while IFS= read -r net; do
+                            if [[ "$net" != "bridge" ]] && [[ "$net" != "host" ]] && [[ "$net" != "none" ]] && [[ "$net" != "podman" ]]; then
+                                if [[ "$net" == *"$project_name"* ]] && network_has_running_containers "$net"; then
+                                    found_networks+=("$net")
+                                fi
+                            fi
+                        done < <(container_cmd network ls --format "{{.Name}}" 2>/dev/null)
+
+                        if [ ${#found_networks[@]} -gt 0 ]; then
+                            COMPOSE_NETWORK="${found_networks[0]}"
+                            echo "✓ Services running on network: $COMPOSE_NETWORK"
+                            echo "────────────────────────────────────────────────────────────────────────────────"
+                            return 0
+                        fi
+
+                        echo "⚠ Services started but no containers found on expected network"
+                        echo "────────────────────────────────────────────────────────────────────────────────"
+                        return 1
+                    fi
+                else
+                    echo "⚠ $compose_name failed. Check errors above."
+                    echo "────────────────────────────────────────────────────────────────────────────────"
+                    return 1
+                fi
+                ;;
+            N|n|No|no)
+                echo "Skipping compose startup"
+                echo "Run '$compose_name up -d' manually when ready"
+                echo "────────────────────────────────────────────────────────────────────────────────"
+                return 1
+                ;;
+            *)
+                echo "Invalid choice. Please enter y or n"
+                echo ""
+                ;;
+        esac
+    done
+}
+
+# Check for compose files and offer to start services (used when network doesn't exist)
+# Args: $1 = expected_network (optional), $2 = project_name
+# Sets: COMPOSE_NETWORK (the network created/found after starting compose)
+# Returns: 0 if compose started and network found, 1 otherwise
+offer_compose_start() {
+    local expected_network="${1:-}"
+    local project_name="${2:-$(basename "$PWD")}"
+
+    # Reset output variable
+    COMPOSE_NETWORK=""
+
+    # Check for compose files using shared helper
+    if ! has_compose_files; then
+        return 1
+    fi
+
+    echo "────────────────────────────────────────────────────────────────────────────────"
+    echo "Compose Files Detected"
+    echo "────────────────────────────────────────────────────────────────────────────────"
+    echo ""
+    echo "Found compose files:"
+    for cf in "${COMPOSE_FILES[@]}"; do
+        echo "  • $cf"
+    done
+    echo ""
+
+    # Use shared helper to start compose
+    _do_compose_start "$expected_network" "$project_name"
+    return $?
+}
+
 # Export functions
 export -f get_expected_network_name
 export -f get_network_persistence_file
 export -f save_network_preference
 export -f load_network_preference
 export -f connect_to_network
+export -f network_has_running_containers
+export -f has_compose_files
+export -f check_and_start_compose_services
+export -f _do_compose_start
+export -f offer_compose_start
