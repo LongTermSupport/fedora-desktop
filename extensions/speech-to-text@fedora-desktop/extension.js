@@ -41,6 +41,7 @@ export default class SpeechToTextExtension extends Extension {
         this._streamingMode = false;  // Use RealtimeSTT streaming instead of batch
         this._language = 'system';    // 'system' = detect from locale, or 'en', etc.
         this._currentState = 'IDLE';
+        this._updatingToggles = false;  // Guard flag to prevent toggle cascade
         this._lastError = null;
         this._logDir = GLib.get_home_dir() + '/.local/share/speech-to-text';
         this._logFile = this._logDir + '/debug.log';
@@ -154,6 +155,14 @@ export default class SpeechToTextExtension extends Extension {
         this._logLines = null;
     }
 
+    // Prevent switch menu items from closing the menu on click
+    // (GNOME Shell only fixed this for Space key, not mouse clicks)
+    _preventMenuClose(switchItem) {
+        switchItem.activate = () => {
+            if (switchItem._switch.mapped) switchItem.toggle();
+        };
+    }
+
     _buildMenu() {
         const menu = this._indicator.menu;
 
@@ -167,7 +176,9 @@ export default class SpeechToTextExtension extends Extension {
 
         // Debug toggle
         this._debugSwitch = new PopupMenu.PopupSwitchMenuItem('Debug Logging', this._debugEnabled);
+        this._preventMenuClose(this._debugSwitch);
         this._debugSwitch.connect('toggled', (item, state) => {
+            if (this._updatingToggles) return;  // Prevent cascade
             this._debugEnabled = state;
             this._saveDebugSetting(state);
             this._log(`Debug mode ${state ? 'enabled' : 'disabled'}`);
@@ -210,7 +221,9 @@ export default class SpeechToTextExtension extends Extension {
 
         // Clipboard mode toggle
         this._clipboardSwitch = new PopupMenu.PopupSwitchMenuItem('Use Ctrl+V (not middle-click)', this._clipboardMode);
+        this._preventMenuClose(this._clipboardSwitch);
         this._clipboardSwitch.connect('toggled', (item, state) => {
+            if (this._updatingToggles) return;  // Prevent cascade
             this._clipboardMode = state;
             if (state) this._autoPaste = false;  // Mutually exclusive
             this._saveClipboardSetting(state);
@@ -221,7 +234,9 @@ export default class SpeechToTextExtension extends Extension {
 
         // Auto-paste toggle
         this._autoPasteSwitch = new PopupMenu.PopupSwitchMenuItem('Auto-paste at cursor', this._autoPaste);
+        this._preventMenuClose(this._autoPasteSwitch);
         this._autoPasteSwitch.connect('toggled', (item, state) => {
+            if (this._updatingToggles) return;  // Prevent cascade
             this._autoPaste = state;
             if (state) this._clipboardMode = false;  // Mutually exclusive
             if (!state) {
@@ -237,7 +252,9 @@ export default class SpeechToTextExtension extends Extension {
 
         // Auto-enter toggle (send Return after auto-paste) - child of auto-paste
         this._autoEnterSwitch = new PopupMenu.PopupSwitchMenuItem('  ↳ Send Enter after paste', this._autoEnter);
+        this._preventMenuClose(this._autoEnterSwitch);
         this._autoEnterSwitch.connect('toggled', (item, state) => {
+            if (this._updatingToggles) return;  // Prevent cascade
             this._autoEnter = state;
             this._saveAutoEnterSetting(state);
             this._log(`Auto-enter ${state ? 'enabled' : 'disabled'}`);
@@ -246,7 +263,9 @@ export default class SpeechToTextExtension extends Extension {
 
         // Streaming mode toggle - child of auto-paste (uses RealtimeSTT for real-time transcription)
         this._streamingSwitch = new PopupMenu.PopupSwitchMenuItem('  ↳ Streaming mode (instant)', this._streamingMode);
+        this._preventMenuClose(this._streamingSwitch);
         this._streamingSwitch.connect('toggled', (item, state) => {
+            if (this._updatingToggles) return;  // Prevent cascade
             this._streamingMode = state;
             this._saveStreamingSetting(state);
             this._log(`Streaming mode ${state ? 'enabled' : 'disabled'}`);
@@ -255,7 +274,9 @@ export default class SpeechToTextExtension extends Extension {
 
         // Wrap with marker toggle (works with all paste modes)
         this._wrapMarkerSwitch = new PopupMenu.PopupSwitchMenuItem('Wrap with speech-to-text marker', this._wrapWithMarker);
+        this._preventMenuClose(this._wrapMarkerSwitch);
         this._wrapMarkerSwitch.connect('toggled', (item, state) => {
+            if (this._updatingToggles) return;  // Prevent cascade
             this._wrapWithMarker = state;
             this._saveWrapMarkerSetting(state);
             this._log(`Wrap marker ${state ? 'enabled' : 'disabled'}`);
@@ -678,19 +699,25 @@ export default class SpeechToTextExtension extends Extension {
     }
 
     _updatePasteToggles() {
-        if (this._clipboardSwitch) {
-            this._clipboardSwitch.setToggleState(this._clipboardMode);
-        }
-        if (this._autoPasteSwitch) {
-            this._autoPasteSwitch.setToggleState(this._autoPaste);
-        }
-        // Auto-enter and streaming only visible when auto-paste is active
-        if (this._autoEnterSwitch) {
-            this._autoEnterSwitch.visible = this._autoPaste;
-        }
-        if (this._streamingSwitch) {
-            this._streamingSwitch.visible = this._autoPaste;
-            this._streamingSwitch.setToggleState(this._streamingMode);
+        // Prevent cascading toggle events from causing menu issues
+        this._updatingToggles = true;
+        try {
+            if (this._clipboardSwitch) {
+                this._clipboardSwitch.setToggleState(this._clipboardMode);
+            }
+            if (this._autoPasteSwitch) {
+                this._autoPasteSwitch.setToggleState(this._autoPaste);
+            }
+            // Auto-enter and streaming only visible when auto-paste is active
+            if (this._autoEnterSwitch) {
+                this._autoEnterSwitch.visible = this._autoPaste;
+            }
+            if (this._streamingSwitch) {
+                this._streamingSwitch.visible = this._autoPaste;
+                this._streamingSwitch.setToggleState(this._streamingMode);
+            }
+        } finally {
+            this._updatingToggles = false;
         }
     }
 
