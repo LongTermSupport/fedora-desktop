@@ -41,6 +41,7 @@ export default class SpeechToTextExtension extends Extension {
         this._streamingMode = false;  // Use RealtimeSTT streaming instead of batch
         this._language = 'system';    // 'system' = detect from locale, or 'en', etc.
         this._showNotifications = false;  // Show desktop notifications (off by default)
+        this._whisperModel = 'auto';  // Whisper model: 'auto', 'tiny', 'base', 'small', 'medium', 'large-v3'
         this._currentState = 'IDLE';
         this._updatingToggles = false;  // Guard flag to prevent toggle cascade
         this._lastError = null;
@@ -54,6 +55,16 @@ export default class SpeechToTextExtension extends Extension {
         this._countdownLabel = null;
         this._flashTimer = null;
         this._flashState = false;
+
+        // Whisper model definitions (name, label, size, description)
+        this._whisperModels = [
+            ['auto', 'Auto (optimized per mode)', 'varies', 'Base for streaming, small for batch'],
+            ['tiny', 'Tiny', '~75MB', 'Fastest, basic accuracy'],
+            ['base', 'Base', '~142MB', 'Fast, good accuracy'],
+            ['small', 'Small', '~466MB', 'Balanced speed/accuracy'],
+            ['medium', 'Medium', '~1.5GB', 'Slow, great accuracy'],
+            ['large-v3', 'Large v3', '~3GB', 'Slowest, best accuracy'],
+        ];
     }
 
     enable() {
@@ -352,9 +363,46 @@ export default class SpeechToTextExtension extends Extension {
             this._languageSubMenu.menu.addMenuItem(item);
         }
 
+        // Whisper model submenu
+        this._modelSubMenu = new PopupMenu.PopupSubMenuMenuItem('Model: Auto');
+        menu.addMenuItem(this._modelSubMenu);
+
+        // Model options
+        for (const [modelName, label, size] of this._whisperModels) {
+            const installed = this._checkModelInstalled(modelName);
+            const status = installed ? '✓' : '⚠';
+            const item = new PopupMenu.PopupMenuItem(`${status} ${label} (${size})`);
+
+            // Gray out unavailable models
+            if (!installed && modelName !== 'auto') {
+                item.setSensitive(false);
+                item.label.style = 'color: #888;';
+            }
+
+            item.connect('activate', () => {
+                if (installed || modelName === 'auto') {
+                    this._whisperModel = modelName;
+                    this._saveModelSetting(modelName);
+                    this._updateModelLabel();
+                    this._log(`Whisper model set to: ${modelName}`);
+                }
+            });
+            this._modelSubMenu.menu.addMenuItem(item);
+        }
+
+        // Add separator and download instructions
+        this._modelSubMenu.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
+        const downloadItem = new PopupMenu.PopupMenuItem('How to download models...');
+        downloadItem.connect('activate', () => {
+            this._showModelDownloadInstructions();
+        });
+        this._modelSubMenu.menu.addMenuItem(downloadItem);
+
         // Set initial visibility for child options
         this._updatePasteToggles();
         this._updateLanguageLabel();
+        this._updateModelLabel();
 
         // Separator
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
@@ -636,7 +684,15 @@ export default class SpeechToTextExtension extends Extension {
             // Use wsi-stream for streaming mode, otherwise use batch wsi
             const script = this._streamingMode ? 'wsi-stream' : 'wsi';
             const langFlag = ` --language ${this._getWhisperLanguage()}`;
-            const command = GLib.get_home_dir() + '/.local/bin/' + script + debugFlag + clipboardFlag + autoPasteFlag + noAutoEnterFlag + wrapMarkerFlag + noNotifyFlag + langFlag;
+
+            // Build model environment variable if not auto
+            // Auto mode uses script defaults (base for streaming, small for batch)
+            let modelEnv = '';
+            if (this._whisperModel !== 'auto') {
+                modelEnv = `WHISPER_MODEL=${this._whisperModel} `;
+            }
+
+            const command = modelEnv + GLib.get_home_dir() + '/.local/bin/' + script + debugFlag + clipboardFlag + autoPasteFlag + noAutoEnterFlag + wrapMarkerFlag + noNotifyFlag + langFlag;
 
             this._log(`Launching: ${command}`);
             GLib.spawn_command_line_async(command);
@@ -778,6 +834,49 @@ export default class SpeechToTextExtension extends Extension {
             } catch (e) {
                 this._showNotifications = false;
             }
+            try {
+                this._whisperModel = this._settings.get_string('whisper-model');
+            } catch (e) {
+                this._whisperModel = 'auto';
+            }
+        }
+    }
+
+    _showModelDownloadInstructions() {
+        // Show instructions for downloading Whisper models
+        const instructions = `To download a Whisper model:
+
+1. Open a terminal
+2. Run one of these commands:
+
+   # Tiny model (~75MB, fastest)
+   WHISPER_MODEL=tiny ~/.local/bin/wsi --debug
+
+   # Base model (~142MB, fast)
+   WHISPER_MODEL=base ~/.local/bin/wsi --debug
+
+   # Small model (~466MB, balanced)
+   WHISPER_MODEL=small ~/.local/bin/wsi --debug
+
+   # Medium model (~1.5GB, slow but accurate)
+   WHISPER_MODEL=medium ~/.local/bin/wsi --debug
+
+   # Large-v3 model (~3GB, best accuracy)
+   WHISPER_MODEL=large-v3 ~/.local/bin/wsi --debug
+
+3. Say "test" when recording starts
+4. The model will download automatically
+5. After download completes, it will be available in this menu
+
+Note: First download can take several minutes depending on model size.`;
+
+        // Use zenity to show instructions dialog
+        try {
+            GLib.spawn_command_line_async(`zenity --info --width=600 --title="Download Whisper Models" --text="${instructions.replace(/"/g, '\\"')}"`);
+        } catch (e) {
+            this._log(`Failed to show download instructions: ${e.message}`);
+            // Fallback: use GNOME notification
+            Main.notify('Download Whisper Models', 'Run: WHISPER_MODEL=tiny ~/.local/bin/wsi --debug\n\nSee debug log for full instructions.');
         }
     }
 
@@ -794,6 +893,18 @@ export default class SpeechToTextExtension extends Extension {
                 label = labels[this._language] || this._language;
             }
             this._languageSubMenu.label.text = `Language: ${label}`;
+        }
+    }
+
+    _updateModelLabel() {
+        if (this._modelSubMenu) {
+            const modelInfo = this._whisperModels.find(m => m[0] === this._whisperModel);
+            if (modelInfo) {
+                const label = modelInfo[1];  // Get label from array
+                this._modelSubMenu.label.text = `Model: ${label}`;
+            } else {
+                this._modelSubMenu.label.text = `Model: ${this._whisperModel}`;
+            }
         }
     }
 
@@ -900,6 +1011,16 @@ export default class SpeechToTextExtension extends Extension {
         }
     }
 
+    _saveModelSetting(model) {
+        if (this._settings) {
+            try {
+                this._settings.set_string('whisper-model', model);
+            } catch (e) {
+                // Setting may not exist yet
+            }
+        }
+    }
+
     _getWhisperLanguage() {
         // Convert extension language setting to Whisper language code
         if (this._language === 'system') {
@@ -907,6 +1028,37 @@ export default class SpeechToTextExtension extends Extension {
             return locale.split('_')[0];  // en_GB.UTF-8 -> en
         }
         return this._language;
+    }
+
+    _checkModelInstalled(modelName) {
+        // Check if a Whisper model is downloaded in huggingface cache
+        // Models are stored in: ~/.cache/huggingface/hub/models--Systran--faster-whisper-{model}/
+        if (modelName === 'auto') {
+            return true;  // Auto is always "available" (uses whichever models are installed)
+        }
+
+        const cacheDir = GLib.get_home_dir() + '/.cache/huggingface/hub';
+        const modelDir = `models--Systran--faster-whisper-${modelName}`;
+        const fullPath = `${cacheDir}/${modelDir}`;
+
+        try {
+            const file = Gio.File.new_for_path(fullPath);
+            return file.query_exists(null);
+        } catch (e) {
+            return false;
+        }
+    }
+
+    _getModelDisplayName(modelName) {
+        // Get display name with installation status
+        const installed = this._checkModelInstalled(modelName);
+        const modelInfo = this._whisperModels.find(m => m[0] === modelName);
+        if (!modelInfo) return modelName;
+
+        const label = modelInfo[1];
+        const size = modelInfo[2];
+        const status = installed ? '✓' : '⚠';
+        return `${status} ${label} (${size})`;
     }
 
     _log(message) {

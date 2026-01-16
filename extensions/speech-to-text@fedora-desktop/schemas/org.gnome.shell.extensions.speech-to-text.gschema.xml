@@ -51,5 +51,10 @@
       <summary>Show Notifications</summary>
       <description>Show desktop notifications for recording status and transcription results</description>
     </key>
+    <key name="whisper-model" type="s">
+      <default>'auto'</default>
+      <summary>Whisper Model</summary>
+      <description>Whisper model to use for transcription: "auto" (base for streaming, small for batch), "tiny", "base", "small", "medium", "large-v3"</description>
+    </key>
   </schema>
 </schemalist>
