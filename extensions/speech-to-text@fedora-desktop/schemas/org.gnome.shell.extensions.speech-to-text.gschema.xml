@@ -41,6 +41,11 @@
       <summary>Streaming Mode</summary>
       <description>Use real-time streaming transcription with VAD (auto-stops on silence). Requires RealtimeSTT to be installed.</description>
     </key>
+    <key name="pre-buffer-audio" type="b">
+      <default>false</default>
+      <summary>Pre-buffer Audio</summary>
+      <description>Start audio recording immediately while model loads in background (streaming mode only). Provides instant startup at cost of slightly higher complexity.</description>
+    </key>
     <key name="language" type="s">
       <default>'system'</default>
       <summary>Transcription Language</summary>

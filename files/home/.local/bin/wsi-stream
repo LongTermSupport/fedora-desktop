@@ -225,7 +225,18 @@ def run_streaming(args):
     stop_requested = False
     current_text = ""
 
-    log("Starting streaming transcription...")
+    log(f"Starting streaming transcription (pre-buffer: {args.pre_buffer})...")
+
+    # Route to appropriate implementation
+    if args.pre_buffer:
+        return run_prebuffered_streaming(args)
+    else:
+        return run_standard_streaming(args)
+
+
+def run_standard_streaming(args):
+    """Standard streaming mode - RealtimeSTT manages audio."""
+    global debug_mode, no_notify, stop_requested, recorder, current_text
 
     if not check_dependencies():
         return 1
@@ -462,6 +473,265 @@ def run_streaming(args):
     return 0
 
 
+def run_prebuffered_streaming(args):
+    """
+    Pre-buffered streaming mode - starts audio capture immediately while model loads.
+    Provides instant startup by recording audio to buffer during model initialization.
+    """
+    global debug_mode, no_notify, stop_requested, recorder, current_text
+
+    if not check_dependencies():
+        return 1
+
+    from RealtimeSTT import AudioToTextRecorder
+    import threading
+    import struct
+    import array
+
+    # Write PID file (use main process PID)
+    PID_FILE.write_text(str(os.getpid()))
+    log(f"PID file written: {PID_FILE}")
+
+    # Clear buffer file
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    BUFFER_FILE.write_text("")
+
+    model_size = os.environ.get("WHISPER_MODEL", "base")
+    language = args.language or os.environ.get("WHISPER_LANGUAGE", "en") or None
+    log(f"Using model: {model_size}, language: {language or 'auto-detect'}")
+
+    # Start audio recording IMMEDIATELY (before model loads!)
+    notify("PREPARING", "Starting recorder...")
+    log("Starting pw-record immediately (pre-buffering enabled)")
+
+    try:
+        # Start pw-record to stdout pipe: 16000 Hz, mono, S16_LE format
+        # This is the format RealtimeSTT expects for feed_audio()
+        pw_record_cmd = [
+            "pw-record",
+            "--rate", "16000",
+            "--channels", "1",
+            "--format", "s16",
+            "-"  # Output to stdout
+        ]
+
+        audio_process = subprocess.Popen(
+            pw_record_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL if not debug_mode else None
+        )
+        log(f"pw-record started with PID {audio_process.pid}")
+
+        # Update PID file to pw-record's PID so extension can stop us
+        PID_FILE.write_text(str(audio_process.pid))
+
+        # Audio buffer for chunks captured while model loads
+        audio_buffer = []
+        chunk_size = 1024 * 2  # 1024 samples * 2 bytes per sample (S16_LE)
+        model_ready = threading.Event()
+        model_error = None
+
+        def load_model_thread():
+            """Load Whisper model in background thread."""
+            nonlocal recorder, model_error
+            try:
+                notify("PREPARING", "Loading model...")
+                log("Loading model in background thread...")
+
+                recorder_config = {
+                    "model": model_size,
+                    "language": language,
+                    "use_microphone": False,  # We'll feed audio manually
+                    "silero_sensitivity": 0.4,
+                    "enable_realtime_transcription": True,
+                    "realtime_processing_pause": 0.2,
+                    "on_realtime_transcription_update": on_realtime_update,
+                    "spinner": False,
+                }
+
+                # Try GPU
+                try:
+                    recorder_config["device"] = "cuda"
+                    recorder_config["compute_type"] = "float16"
+                    log("Using GPU (CUDA)")
+                except Exception:
+                    recorder_config["device"] = "cpu"
+                    recorder_config["compute_type"] = "int8"
+                    log("Using CPU")
+
+                recorder = AudioToTextRecorder(**recorder_config)
+                log("Model loaded successfully!")
+                model_ready.set()
+            except Exception as e:
+                model_error = e
+                log(f"Model loading error: {e}", "ERROR")
+                model_ready.set()
+
+        # Start model loading in background
+        model_thread = threading.Thread(target=load_model_thread, daemon=True)
+        model_thread.start()
+
+        # Buffer audio chunks while model loads
+        log("Buffering audio while model loads...")
+        while not model_ready.is_set():
+            try:
+                chunk = audio_process.stdout.read(chunk_size)
+                if not chunk:
+                    break
+                audio_buffer.append(chunk)
+                if len(audio_buffer) % 10 == 0:
+                    log(f"Buffered {len(audio_buffer)} chunks ({len(audio_buffer) * chunk_size / 16000:.1f}s)")
+            except Exception as e:
+                log(f"Buffering error: {e}", "WARN")
+                break
+
+        # Check if model loaded successfully
+        if model_error:
+            raise model_error
+
+        if not recorder:
+            raise RuntimeError("Model failed to load")
+
+        log(f"Model ready! Buffered {len(audio_buffer)} chunks ({len(audio_buffer) * chunk_size / 16000:.2f}s)")
+        notify("RECORDING", "Recording... (transcribing live)")
+
+        # Feed buffered chunks to model
+        log("Feeding buffered audio to model...")
+        for i, chunk in enumerate(audio_buffer):
+            if stop_requested:
+                break
+            # Convert bytes to numpy-like array that RealtimeSTT expects
+            audio_array = array.array('h', chunk)  # 'h' = signed short (int16)
+            recorder.feed_audio(audio_array)
+            if (i + 1) % 20 == 0:
+                log(f"Fed {i + 1}/{len(audio_buffer)} buffered chunks")
+
+        audio_buffer.clear()  # Free memory
+        log("All buffered audio fed to model")
+
+        # Continue feeding real-time audio until stop
+        log("Feeding real-time audio...")
+        timeout_time = time.time() + args.timeout
+        while not stop_requested and time.time() < timeout_time:
+            try:
+                chunk = audio_process.stdout.read(chunk_size)
+                if not chunk:
+                    log("Audio stream ended")
+                    break
+                audio_array = array.array('h', chunk)
+                recorder.feed_audio(audio_array)
+            except Exception as e:
+                log(f"Real-time feed error: {e}", "WARN")
+                break
+
+        # Stop recording
+        log("Stopping audio capture...")
+        stop_requested = True
+
+        # Stop pw-record gracefully
+        try:
+            audio_process.terminate()
+            audio_process.wait(timeout=2)
+        except Exception:
+            audio_process.kill()
+
+        # Get final transcription
+        log("Getting final transcription...")
+        notify("TRANSCRIBING", "Finalizing transcription...")
+
+        try:
+            recorder.stop()
+            final_text = recorder.text(on_recorded_chunk=lambda: None)
+        except Exception as e:
+            log(f"Transcription error: {e}", "ERROR")
+            final_text = current_text  # Fall back to buffered partial text
+
+        # Cleanup
+        if PID_FILE.exists():
+            PID_FILE.unlink()
+
+        recorder.shutdown()
+        recorder = None
+
+        # Process final text (same as standard mode)
+        if not final_text and current_text:
+            final_text = current_text
+            log("Using buffered text (recorder returned empty)")
+
+        text = final_text.strip() if final_text else ""
+
+        if not text:
+            log("No speech detected", "WARN")
+            notify("ERROR", "No speech detected")
+            if BUFFER_FILE.exists():
+                BUFFER_FILE.unlink()
+            return 1
+
+        # Capitalize first letter
+        text = text[0].upper() + text[1:] if len(text) > 1 else text.upper()
+
+        # Wrap with marker if requested
+        if args.wrap_marker:
+            text = f'speech-to-text:"{text}"'
+            log(f"Wrapped: {text}")
+
+        log(f"Final text ({len(text)} chars): {text}")
+
+        # Save to last-transcription file
+        TRANSCRIPTION_FILE.write_text(text)
+
+        # Cleanup buffer file
+        if BUFFER_FILE.exists():
+            BUFFER_FILE.unlink()
+
+        # Output
+        if args.auto_paste:
+            log("Auto-pasting (instant - transcription was real-time)")
+            time.sleep(0.2)
+            success = auto_paste(text, skip_enter=args.no_auto_enter)
+            if success:
+                preview = text[:60] + "..." if len(text) > 60 else text
+                notify("SUCCESS", preview)
+            else:
+                notify("ERROR", "Auto-paste failed")
+                return 1
+        else:
+            log("Copying to clipboard (instant - transcription was real-time)")
+            if copy_to_clipboard(text, use_clipboard=args.clipboard):
+                preview = text[:60] + "..." if len(text) > 60 else text
+                paste_hint = "Ctrl+V" if args.clipboard else "Middle-click"
+                notify("SUCCESS", f"{preview}\n\n{paste_hint} to paste")
+            else:
+                notify("ERROR", "Clipboard copy failed")
+                return 1
+
+        time.sleep(1)
+        emit_dbus_signal("StateChanged", "IDLE")
+
+        log("Pre-buffered streaming complete!")
+        return 0
+
+    except Exception as e:
+        log(f"Pre-buffer streaming error: {e}", "ERROR")
+        notify("ERROR", f"Recording failed: {e}")
+
+        # Cleanup
+        if 'audio_process' in locals() and audio_process:
+            try:
+                audio_process.kill()
+            except Exception:
+                pass
+        if PID_FILE.exists():
+            PID_FILE.unlink()
+        if recorder:
+            try:
+                recorder.shutdown()
+            except Exception:
+                pass
+
+        return 1
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Streaming speech-to-text with real-time transcription"
@@ -482,6 +752,8 @@ def main():
                         help="Maximum recording time in seconds (default: 120 for streaming)")
     parser.add_argument("--no-notify", action="store_true",
                         help="Suppress desktop notifications")
+    parser.add_argument("--pre-buffer", action="store_true",
+                        help="Start recording immediately while model loads (faster startup)")
 
     args = parser.parse_args()
     return run_streaming(args)

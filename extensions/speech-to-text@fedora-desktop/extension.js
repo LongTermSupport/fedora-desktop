@@ -39,6 +39,7 @@ export default class SpeechToTextExtension extends Extension {
         this._autoEnter = true;  // Default: send Enter after auto-paste
         this._wrapWithMarker = false;
         this._streamingMode = false;  // Use RealtimeSTT streaming instead of batch
+        this._preBufferAudio = false;  // Pre-buffer audio for instant startup (streaming only)
         this._language = 'system';    // 'system' = detect from locale, or 'en', etc.
         this._showNotifications = false;  // Show desktop notifications (off by default)
         this._whisperModel = 'auto';  // Whisper model: 'auto', 'tiny', 'base', 'small', 'medium', 'large-v3'
@@ -323,10 +324,27 @@ export default class SpeechToTextExtension extends Extension {
         this._streamingSwitch.connect('toggled', (item, state) => {
             if (this._updatingToggles) return;  // Prevent cascade
             this._streamingMode = state;
+            if (!state) {
+                // Disable pre-buffer when streaming is turned off
+                this._preBufferAudio = false;
+                this._savePreBufferSetting(false);
+            }
             this._saveStreamingSetting(state);
+            this._updatePasteToggles();
             this._log(`Streaming mode ${state ? 'enabled' : 'disabled'}`);
         });
         menu.addMenuItem(this._streamingSwitch);
+
+        // Pre-buffer toggle - child of streaming mode (starts recording while model loads)
+        this._preBufferSwitch = new PopupMenu.PopupSwitchMenuItem('    ↳ Pre-buffer audio (faster startup)', this._preBufferAudio);
+        this._preventMenuClose(this._preBufferSwitch);
+        this._preBufferSwitch.connect('toggled', (item, state) => {
+            if (this._updatingToggles) return;  // Prevent cascade
+            this._preBufferAudio = state;
+            this._savePreBufferSetting(state);
+            this._log(`Pre-buffer audio ${state ? 'enabled' : 'disabled'}`);
+        });
+        menu.addMenuItem(this._preBufferSwitch);
 
         // Wrap with marker toggle (works with all paste modes)
         this._wrapMarkerSwitch = new PopupMenu.PopupSwitchMenuItem('Wrap with speech-to-text marker', this._wrapWithMarker);
@@ -685,6 +703,9 @@ export default class SpeechToTextExtension extends Extension {
             const script = this._streamingMode ? 'wsi-stream' : 'wsi';
             const langFlag = ` --language ${this._getWhisperLanguage()}`;
 
+            // Add pre-buffer flag for streaming mode
+            const preBufferFlag = (this._streamingMode && this._preBufferAudio) ? ' --pre-buffer' : '';
+
             // Build model environment variable if not auto
             // Auto mode uses script defaults (base for streaming, small for batch)
             let modelEnv = '';
@@ -692,7 +713,7 @@ export default class SpeechToTextExtension extends Extension {
                 modelEnv = `WHISPER_MODEL=${this._whisperModel} `;
             }
 
-            const command = modelEnv + GLib.get_home_dir() + '/.local/bin/' + script + debugFlag + clipboardFlag + autoPasteFlag + noAutoEnterFlag + wrapMarkerFlag + noNotifyFlag + langFlag;
+            const command = modelEnv + GLib.get_home_dir() + '/.local/bin/' + script + debugFlag + clipboardFlag + autoPasteFlag + noAutoEnterFlag + wrapMarkerFlag + noNotifyFlag + langFlag + preBufferFlag;
 
             this._log(`Launching: ${command}`);
             GLib.spawn_command_line_async(command);
@@ -839,6 +860,11 @@ export default class SpeechToTextExtension extends Extension {
             } catch (e) {
                 this._whisperModel = 'auto';
             }
+            try {
+                this._preBufferAudio = this._settings.get_boolean('pre-buffer-audio');
+            } catch (e) {
+                this._preBufferAudio = false;
+            }
         }
     }
 
@@ -926,6 +952,11 @@ Note: First download can take several minutes depending on model size.`;
                 this._streamingSwitch.visible = this._autoPaste;
                 this._streamingSwitch.setToggleState(this._streamingMode);
             }
+            // Pre-buffer only visible when streaming is active
+            if (this._preBufferSwitch) {
+                this._preBufferSwitch.visible = this._autoPaste && this._streamingMode;
+                this._preBufferSwitch.setToggleState(this._preBufferAudio);
+            }
         } finally {
             this._updatingToggles = false;
         }
@@ -985,6 +1016,16 @@ Note: First download can take several minutes depending on model size.`;
         if (this._settings) {
             try {
                 this._settings.set_boolean('streaming-mode', enabled);
+            } catch (e) {
+                // Setting may not exist yet
+            }
+        }
+    }
+
+    _savePreBufferSetting(enabled) {
+        if (this._settings) {
+            try {
+                this._settings.set_boolean('pre-buffer-audio', enabled);
             } catch (e) {
                 // Setting may not exist yet
             }
