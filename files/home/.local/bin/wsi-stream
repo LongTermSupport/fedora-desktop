@@ -283,7 +283,8 @@ def run_streaming(args):
     signal.signal(signal.SIGTERM, handle_signal)
 
     try:
-        notify("RECORDING", "Recording... (transcribing live)")
+        # Signal PREPARING state (orange icon) while initializing
+        notify("PREPARING", "Preparing to record...")
 
         recorder_config = {
             "model": model_size,
@@ -311,7 +312,15 @@ def run_streaming(args):
             log("Using CPU")
 
         recorder = AudioToTextRecorder(**recorder_config)
-        log("Recorder initialized, transcription streaming to buffer...")
+        log("Recorder initialized, waiting for audio pipeline...")
+
+        # Brief delay to let microphone and audio pipeline fully initialize
+        # RealtimeSTT needs time to open audio device and start processing
+        time.sleep(0.5)
+        log("Audio pipeline ready, starting recording")
+
+        # Now signal RECORDING state (red icon + countdown)
+        notify("RECORDING", "Recording... (transcribing live)")
 
         # Start recording in thread
         rec_thread = threading.Thread(target=recording_thread, daemon=True)

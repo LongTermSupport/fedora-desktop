@@ -573,10 +573,10 @@ log_debug "All preflight checks passed"
 # SPEECH RECORDING
 #============================================================================
 
-log_debug "Ready! Speak now... (press Insert again to stop)"
+log_debug "Ready! Initializing audio pipeline..."
 
-# Notify user that recording has started
-notify_state "RECORDING" "Recording... (Insert to stop)"
+# Notify that we're preparing (orange icon)
+notify_state "PREPARING" "Preparing to record..."
 
 # Use pw-record (PipeWire native) for minimal buffering
 # Records directly to wav at 44100Hz, low latency ensures audio is flushed on kill
@@ -591,6 +591,14 @@ log_debug "pw-record started with PID $REC_PID"
 # Write PID file AFTER recording starts (use recorder PID, not shell PID)
 echo $REC_PID > "$PID_FILE"
 log_debug "PID file written: $PID_FILE ($REC_PID)"
+
+# Brief delay to let audio pipeline initialize before signaling ready
+# Prevents clipping the start of speech
+sleep 0.3
+log_debug "Audio pipeline ready, starting recording indicator"
+
+# Now signal that we're actually recording (red icon + countdown)
+notify_state "RECORDING" "Recording... (Insert to stop)"
 
 # Start 30-second timeout timer in background
 (

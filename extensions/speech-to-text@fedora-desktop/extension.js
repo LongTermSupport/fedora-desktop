@@ -104,15 +104,7 @@ export default class SpeechToTextExtension extends Extension {
                     }
                 );
 
-                Main.wm.addKeybinding(
-                    'abort-recording',
-                    this._settings,
-                    Meta.KeyBindingFlags.NONE,
-                    Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW,
-                    () => {
-                        this._abortRecording();
-                    }
-                );
+                // Note: abort-recording keybinding is added dynamically when recording starts
             }
         } catch (e) {
             Main.notify('STT Error', `Keybinding setup failed: ${e.message}`);
@@ -135,7 +127,7 @@ export default class SpeechToTextExtension extends Extension {
         // Remove keybindings
         try {
             Main.wm.removeKeybinding('toggle-recording');
-            Main.wm.removeKeybinding('abort-recording');
+            this._removeAbortKeybinding();
         } catch (e) {
             // Ignore if keybinding doesn't exist
         }
@@ -165,6 +157,36 @@ export default class SpeechToTextExtension extends Extension {
 
         this._settings = null;
         this._logLines = null;
+    }
+
+    _addAbortKeybinding() {
+        // Add Escape key binding to abort recording
+        if (!this._settings) return;
+
+        try {
+            Main.wm.addKeybinding(
+                'abort-recording',
+                this._settings,
+                Meta.KeyBindingFlags.NONE,
+                Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW,
+                () => {
+                    this._abortRecording();
+                }
+            );
+            this._log('Abort keybinding added (Escape active)');
+        } catch (e) {
+            this._log(`Failed to add abort keybinding: ${e.message}`);
+        }
+    }
+
+    _removeAbortKeybinding() {
+        // Remove Escape key binding when not recording
+        try {
+            Main.wm.removeKeybinding('abort-recording');
+            this._log('Abort keybinding removed (Escape restored)');
+        } catch (e) {
+            // Keybinding doesn't exist, ignore
+        }
     }
 
     // Prevent switch menu items from closing the menu on click
@@ -408,18 +430,25 @@ export default class SpeechToTextExtension extends Extension {
         }
 
         switch (state) {
+            case 'PREPARING':
+                // Orange icon while audio pipeline initializes
+                this._icon.style = 'color: #ffaa00;';  // Orange/Yellow
+                break;
             case 'RECORDING':
                 this._icon.style = 'color: #ff4444;';  // Red
                 this._startCountdown();
+                this._addAbortKeybinding();  // Enable Escape key during recording
                 break;
             case 'TRANSCRIBING':
                 this._stopCountdown();
+                this._removeAbortKeybinding();  // Disable Escape key when transcribing
                 // Change icon to spinner/hourglass for transcribing
                 this._icon.icon_name = 'content-loading-symbolic';
                 this._icon.style = 'color: #ffaa00;';  // Orange/Yellow
                 break;
             case 'SUCCESS':
                 this._stopCountdown();
+                this._removeAbortKeybinding();  // Disable Escape key when done
                 this._icon.icon_name = 'audio-input-microphone-symbolic';  // Restore mic icon
                 this._icon.style = 'color: #44ff44;';  // Green
                 // Reset to normal after 2 seconds
@@ -431,6 +460,7 @@ export default class SpeechToTextExtension extends Extension {
                 break;
             case 'ERROR':
                 this._stopCountdown();
+                this._removeAbortKeybinding();  // Disable Escape key on error
                 this._icon.icon_name = 'audio-input-microphone-symbolic';  // Restore mic icon
                 this._icon.style = 'color: #ff4444;';  // Red
                 // Reset to normal after 2 seconds
@@ -443,6 +473,7 @@ export default class SpeechToTextExtension extends Extension {
             case 'IDLE':
             default:
                 this._stopCountdown();
+                this._removeAbortKeybinding();  // Disable Escape key when idle
                 this._icon.icon_name = 'audio-input-microphone-symbolic';  // Restore mic icon
                 this._icon.style = '';  // Default
                 break;
