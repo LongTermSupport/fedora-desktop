@@ -241,7 +241,10 @@ def run_streaming(args):
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     BUFFER_FILE.write_text("")
 
-    model_size = os.environ.get("WHISPER_MODEL", "small")
+    # Use "base" model for streaming by default (faster loading)
+    # "base" (74M params, ~142MB) loads ~3x faster than "small" (244M params, ~466MB)
+    # with minimal accuracy trade-off. Override with WHISPER_MODEL env var if needed.
+    model_size = os.environ.get("WHISPER_MODEL", "base")
     # Language from arg, then env, then default to English
     language = args.language or os.environ.get("WHISPER_LANGUAGE", "en") or None
     log(f"Using model: {model_size}, language: {language or 'auto-detect'}")
@@ -284,7 +287,7 @@ def run_streaming(args):
 
     try:
         # Signal PREPARING state (orange icon) while initializing
-        notify("PREPARING", "Preparing to record...")
+        notify("PREPARING", "Loading model...")
 
         recorder_config = {
             "model": model_size,
@@ -313,6 +316,9 @@ def run_streaming(args):
 
         recorder = AudioToTextRecorder(**recorder_config)
         log("Recorder initialized, waiting for audio pipeline...")
+
+        # Notify user that model is loaded, now initializing audio
+        notify("PREPARING", "Initializing audio...")
 
         # Brief delay to let microphone and audio pipeline fully initialize
         # RealtimeSTT needs time to open audio device and start processing
