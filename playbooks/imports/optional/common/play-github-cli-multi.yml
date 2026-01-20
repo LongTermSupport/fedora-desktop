@@ -669,42 +669,39 @@
                   # Switch to the account
                   gh auth switch --hostname github.com --user "{{ username }}" 2>/dev/null
 
-                  # Get current token scopes
-                  local current_scopes=$(gh auth status 2>&1 | grep "Token scopes:" | sed "s/.*Token scopes: '//" | sed "s/'$//" | tr ',' '\n' | sort | tr '\n' ',' | sed 's/,$//')
+                  # Get current token scopes using JSON output for reliable parsing
+                  # Use jq to extract the scopes array and convert to comma-separated string
+                  local current_scopes=$(gh auth status --json hosts --jq '.["github.com"].scopes | join(",")')
 
                   # Required scopes for PhpStorm
-                  local required_scopes="gist,read:org,repo,user:email"
+                  local required_scopes=("gist" "read:org" "repo" "user:email")
 
                   # Check if all required scopes are present
-                  local missing_scopes=""
-                  local needs_refresh=false
+                  local missing_scopes=()
 
-                  for scope in $(echo "$required_scopes" | tr ',' ' '); do
+                  for scope in "${required_scopes[@]}"; do
                       if ! echo ",$current_scopes," | grep -q ",$scope,"; then
-                          missing_scopes="$missing_scopes $scope"
-                          needs_refresh=true
+                          missing_scopes+=("$scope")
                       fi
                   done
 
-                  if [ "$needs_refresh" = true ]; then
-                      echo "Current token scopes: $current_scopes"
+                  if [ ${#missing_scopes[@]} -gt 0 ]; then
+                      echo "Current token scopes: $(echo "$current_scopes" | tr ',' ', ')"
                       echo ""
-                      echo "Missing PhpStorm-required scopes:$missing_scopes"
-                      echo ""
-                      echo "Refreshing token to add missing scopes..."
-                      echo "This will preserve all existing scopes and add:"
-                      for scope in $missing_scopes; do
+                      echo "Missing PhpStorm-required scopes:"
+                      for scope in "${missing_scopes[@]}"; do
                           echo "  - $scope"
                       done
                       echo ""
+                      echo "Adding missing scopes (existing scopes will be preserved)..."
                       echo "You may need to re-authenticate in your browser..."
                       echo ""
 
-                      # Combine current scopes with required scopes (deduplicated)
-                      local all_scopes=$(echo "$current_scopes,$required_scopes" | tr ',' '\n' | sort -u | tr '\n' ',' | sed 's/,$//')
+                      # Join missing scopes with commas (no spaces)
+                      local missing_scopes_str=$(IFS=,; echo "${missing_scopes[*]}")
 
-                      # Refresh with all scopes
-                      gh auth refresh --hostname github.com --scopes "$all_scopes"
+                      # Use --scopes flag which is ADDITIVE (adds to existing scopes)
+                      gh auth refresh --hostname github.com --scopes "$missing_scopes_str"
 
                       if [ $? -ne 0 ]; then
                           echo ""
@@ -716,7 +713,7 @@
                       echo "✓ Token refreshed successfully!"
                   else
                       echo "✓ Token already has all required PhpStorm scopes"
-                      echo "  Current scopes: $current_scopes"
+                      echo "  Current scopes: $(echo "$current_scopes" | tr ',' ', ')"
                   fi
 
                   echo ""
