@@ -669,13 +669,6 @@
                   echo "=================================================="
                   echo ""
 
-                  # Preflight checks
-                  if ! command -v jq &> /dev/null; then
-                      echo "ERROR: jq is not installed"
-                      echo "Install with: sudo dnf install jq"
-                      return 1
-                  fi
-
                   # Switch to the account
                   gh auth switch --hostname github.com --user "{{ username }}" 2>/dev/null || {
                       echo "ERROR: Failed to switch to account {{ username }}"
