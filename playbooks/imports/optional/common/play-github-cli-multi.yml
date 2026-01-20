@@ -684,12 +684,30 @@
                   }
 
                   # Get current token scopes using JSON output for reliable parsing
-                  local current_scopes
-                  current_scopes=$(gh auth status --json hosts 2>/dev/null | jq -r '.["github.com"].scopes | join(",")')
+                  # First check if we can get auth status at all
+                  local auth_json
+                  auth_json=$(gh auth status 2>&1)
 
-                  if [ -z "$current_scopes" ] || [ "$current_scopes" = "null" ]; then
-                      echo "ERROR: Could not retrieve current token scopes"
-                      echo "Make sure you are authenticated with: gh auth status"
+                  if ! echo "$auth_json" | grep -q "Logged in to github.com"; then
+                      echo "ERROR: Not authenticated to github.com as {{ username }}"
+                      echo ""
+                      echo "Current status:"
+                      echo "$auth_json"
+                      echo ""
+                      echo "To authenticate, run:"
+                      echo "  gh auth login --hostname github.com --git-protocol ssh"
+                      return 1
+                  fi
+
+                  # Get scopes from the active account
+                  local current_scopes
+                  current_scopes=$(gh auth status 2>&1 | grep "Token scopes:" | sed "s/.*Token scopes: //" | sed "s/'//g" | tr -d ' ')
+
+                  if [ -z "$current_scopes" ]; then
+                      echo "ERROR: Could not parse token scopes from gh auth status"
+                      echo ""
+                      echo "Current status:"
+                      gh auth status
                       return 1
                   fi
 
