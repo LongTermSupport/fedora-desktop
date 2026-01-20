@@ -692,7 +692,7 @@
                       fi
                   done
 
-                  if [ ${#missing_scopes[@]} -gt 0 ]; then
+                  if [ {{ '${#' }}missing_scopes[@]} -gt 0 ]; then
                       echo "Current token scopes: $(echo "$current_scopes" | tr ',' ', ')"
                       echo ""
                       echo "Missing PhpStorm-required scopes:"
