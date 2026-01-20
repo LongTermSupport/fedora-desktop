@@ -61,6 +61,7 @@
           - python3-libdnf5
           - multitail
           - figlet
+          - jq  # Required for gh CLI multi-account token parsing
       tags: packages
 
     - name: Passwordless Sudo
