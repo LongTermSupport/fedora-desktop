@@ -1,5 +1,58 @@
 # Claude Code Configuration
 
+## ⚠️ CRITICAL: CCY CONTAINER ENVIRONMENT DETECTION
+
+**IF THE PROJECT PATH IS `/workspace/` - YOU ARE IN A CCY CONTAINER**
+
+When working in the CCY container environment:
+
+### What CCY Container IS:
+- ✅ **Development environment** for editing files
+- ✅ **Git operations** (commit, push, pull)
+- ✅ **File manipulation** (read, write, edit)
+- ✅ **Code review and analysis**
+- ✅ **Testing bash syntax** with `bash -n`
+
+### What CCY Container IS NOT:
+- ❌ **Target system** for Ansible playbooks
+- ❌ **Fedora host** with user `joseph`
+- ❌ **System with systemd services**
+- ❌ **Environment with real users/groups**
+
+### ABSOLUTE RULES FOR CCY CONTAINER:
+
+1. **NEVER run Ansible playbooks**
+   - ❌ `ansible-playbook playbooks/...`
+   - The container does NOT have the target users, groups, or system state
+   - Playbooks are configured for the HOST system, not the container
+
+2. **Only edit and commit**
+   - ✅ Edit playbook files
+   - ✅ Commit changes to git
+   - ✅ Push to remote
+   - Then tell the USER to run the playbook on their HOST system
+
+3. **Correct workflow from CCY container**:
+   ```bash
+   # In CCY container (/workspace/):
+   vim playbooks/imports/play-something.yml    # Edit
+   git add playbooks/imports/play-something.yml
+   git commit -m "Update playbook"
+   git push
+
+   # Then instruct USER to run on HOST:
+   # "On your host system, run:"
+   # ansible-playbook ~/Projects/fedora-desktop/playbooks/imports/play-something.yml
+   ```
+
+4. **How to detect you're in CCY container**:
+   - Project path is `/workspace/`
+   - Running as `root` user in container
+   - User `joseph` does not exist as a real user (only as mount point)
+   - No systemd, no real Fedora environment
+
+**REMEMBER: In CCY container = EDIT ONLY, DEPLOY ON HOST**
+
 ## Project Overview
 
 This is a **Fedora Desktop Configuration Management Project** that automates the setup of a freshly installed Fedora system for development work using Ansible. The project uses a branching strategy where each Fedora version has its own branch, with the target version defined in `vars/fedora-version.yml`, and provides a comprehensive desktop environment setup with development tools, customizations, and optional components.
