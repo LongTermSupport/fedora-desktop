@@ -693,8 +693,18 @@
                   fi
 
                   # Get scopes from the active account
+                  # Format: Token scopes: 'scope1', 'scope2', 'scope3'
+                  # Parse: extract line, remove quotes, split by comma+space, trim, dedupe, join
                   local current_scopes
-                  current_scopes=$(gh auth status 2>&1 | grep "Token scopes:" | sed "s/.*Token scopes: //" | sed "s/'//g" | tr -d ' ')
+                  current_scopes=$(gh auth status 2>&1 | \
+                      grep "Token scopes:" | \
+                      sed "s/.*Token scopes: //" | \
+                      sed "s/'//g" | \
+                      tr ',' '\n' | \
+                      sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | \
+                      sort -u | \
+                      tr '\n' ',' | \
+                      sed 's/,$//')
 
                   if [ -z "$current_scopes" ]; then
                       echo "ERROR: Could not parse token scopes from gh auth status"
