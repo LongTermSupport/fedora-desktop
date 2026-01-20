@@ -157,6 +157,14 @@
     # SSH KEY GENERATION AND SETUP
     - name: Generate SSH keys for accounts
       block:
+        - name: Ensure .ssh directory exists
+          ansible.builtin.file:
+            path: "/home/{{ user_login }}/.ssh"
+            state: directory
+            owner: "{{ user_login }}"
+            group: "{{ user_login }}"
+            mode: "0700"
+
         - name: Check for existing SSH keys
           ansible.builtin.stat:
             path: "/home/{{ user_login }}/.ssh/github_{{ item.key }}"
@@ -167,7 +175,9 @@
           ansible.builtin.shell: |
             ssh-keygen -t ed25519 -C "{{ item.item.value }}@github" \
               -f "/home/{{ user_login }}/.ssh/github_{{ item.item.key }}" \
-              -N "" <<<y >/dev/null 2>&1
+              -N "" 2>&1
+          args:
+            executable: /bin/bash
           when: not item.stat.exists
           loop: "{{ ssh_key_status.results }}"
           loop_control:
@@ -648,6 +658,51 @@
               }
               {% endfor %}
 
+              # PhpStorm-specific token generation with required scopes
+              {% for alias, username in github_accounts.items() %}
+              function gh-{{ alias }}-token-phpstorm() {
+                  echo "=================================================="
+                  echo "Generating PhpStorm token for {{ alias }} ({{ username }})"
+                  echo "=================================================="
+                  echo ""
+                  echo "This will refresh your authentication with PhpStorm-required scopes:"
+                  echo "  - repo         (full repository access)"
+                  echo "  - read:org     (read organization membership)"
+                  echo "  - user:email   (read email addresses)"
+                  echo "  - gist         (create gists)"
+                  echo ""
+                  echo "You may need to re-authenticate in your browser..."
+                  echo ""
+
+                  # Switch to the account
+                  gh auth switch --hostname github.com --user "{{ username }}" 2>/dev/null
+
+                  # Refresh authentication with PhpStorm scopes
+                  gh auth refresh --hostname github.com --scopes repo,read:org,user:email,gist
+
+                  if [ $? -eq 0 ]; then
+                      echo ""
+                      echo "=================================================="
+                      echo "PhpStorm Token Generated Successfully!"
+                      echo "=================================================="
+                      echo ""
+                      echo "Your token:"
+                      gh auth token
+                      echo ""
+                      echo "To use in PhpStorm:"
+                      echo "  1. Settings > Version Control > GitHub"
+                      echo "  2. Click '+' to add account"
+                      echo "  3. Select 'Log In with Token'"
+                      echo "  4. Paste the token above"
+                      echo "=================================================="
+                  else
+                      echo ""
+                      echo "ERROR: Failed to generate token"
+                      return 1
+                  fi
+              }
+              {% endfor %}
+
               # Clone helper that properly configures remotes
               function github-clone() {
                   local account="$1"
@@ -798,12 +853,13 @@
                 gh-switch <alias>       - Switch to specific account
                 github-test-ssh         - Test SSH connections
               {% for alias in github_accounts.keys() %}
-                gh-{{ alias }} <command>     - Run gh command as {{ alias }}
-                clone-{{ alias }} <repo>     - Clone repo using {{ alias }} account
-                remote-{{ alias }} <repo>    - Set remote for {{ alias }} account
-                gh-token-{{ alias }}         - Get token for {{ alias }} account
+                gh-{{ alias }} <command>           - Run gh command as {{ alias }}
+                clone-{{ alias }} <repo>           - Clone repo using {{ alias }} account
+                remote-{{ alias }} <repo>          - Set remote for {{ alias }} account
+                gh-token-{{ alias }}               - Get token for {{ alias }} account
+                gh-{{ alias }}-token-phpstorm      - Generate PhpStorm token for {{ alias }}
               {% endfor %}
-                gh-update-git-config    - Update git config for current account
+                gh-update-git-config          - Update git config for current account
 
               Git Commands (Auto-Detection):
                 git <command>           - Auto-detects account from repository remote
@@ -822,6 +878,7 @@
                 clone-{{ first_alias }} {{ first_username }}/repo - Clone with {{ first_alias }} account
                 gh-{{ first_alias }} pr list         - List PRs using {{ first_alias }} account
                 remote-{{ first_alias }} user/repo   - Set remote for {{ first_alias }} account
+                gh-{{ first_alias }}-token-phpstorm  - Generate PhpStorm token for {{ first_alias }}
 
               Git Auto-Detection:
                 git push                - Automatically uses correct account
