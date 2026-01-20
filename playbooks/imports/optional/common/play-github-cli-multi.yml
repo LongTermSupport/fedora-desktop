@@ -22,6 +22,9 @@
         fail_msg: "GitHub CLI v2.40.0+ required for multi-account support. Current: {{ gh_version_output.stdout | default('not installed') }}"
         success_msg: "GitHub CLI {{ gh_version_output.stdout }} supports multi-account"
 
+    - name: Ensure jq is available
+      ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ensure-jq.yml"
+
     - name: Check current gh authentication status
       ansible.builtin.shell: gh auth status 2>&1 || true
       register: auth_status

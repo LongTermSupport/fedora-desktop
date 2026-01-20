@@ -1,0 +1,13 @@
+---
+# Reusable task file to ensure jq is installed
+# Include this in playbooks that need jq for JSON parsing
+#
+# Usage:
+#   - name: Ensure jq is available
+#     ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ensure-jq.yml"
+
+- name: Ensure jq is installed
+  ansible.builtin.package:
+    name: jq
+    state: present
+  become: true

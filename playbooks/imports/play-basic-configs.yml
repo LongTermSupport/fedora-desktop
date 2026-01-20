@@ -48,6 +48,10 @@
       ansible.builtin.set_fact:
         PS1_Colour: "{{ ps1_colour_prompt.user_input | default('lightblueBold') }}"
       when: not ps1_colour_file.stat.exists
+
+    - name: Ensure jq is available
+      ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ensure-jq.yml"
+
     - name: Basic packages
       ansible.builtin.package:
         name: "{{ packages }}"
@@ -61,7 +65,6 @@
           - python3-libdnf5
           - multitail
           - figlet
-          - jq  # Required for gh CLI multi-account token parsing
       tags: packages
 
     - name: Passwordless Sudo

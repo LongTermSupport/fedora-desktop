@@ -6,6 +6,9 @@
     root_dir: "{{ inventory_dir }}/../../"
     claude_code_version: "stable"
   tasks:
+    - name: Ensure jq is available
+      ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ensure-jq.yml"
+
     - name: Install Claude Code Dependencies (System Level)
       become: true
       ansible.builtin.package:
@@ -16,7 +19,6 @@
           - ripgrep
           - curl
           - wget
-          - jq
           - git
           - openssh-clients
 
