@@ -7,7 +7,7 @@
 #     ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ensure-jq.yml"
 
 - name: Ensure jq is installed
-  ansible.builtin.package:
+  ansible.builtin.dnf:
     name: jq
     state: present
   become: true
