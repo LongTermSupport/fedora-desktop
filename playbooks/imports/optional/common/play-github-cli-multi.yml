@@ -662,44 +662,75 @@
               {% for alias, username in github_accounts.items() %}
               function gh-{{ alias }}-token-phpstorm() {
                   echo "=================================================="
-                  echo "Generating PhpStorm token for {{ alias }} ({{ username }})"
+                  echo "PhpStorm Token for {{ alias }} ({{ username }})"
                   echo "=================================================="
-                  echo ""
-                  echo "This will refresh your authentication with PhpStorm-required scopes:"
-                  echo "  - repo         (full repository access)"
-                  echo "  - read:org     (read organization membership)"
-                  echo "  - user:email   (read email addresses)"
-                  echo "  - gist         (create gists)"
-                  echo ""
-                  echo "You may need to re-authenticate in your browser..."
                   echo ""
 
                   # Switch to the account
                   gh auth switch --hostname github.com --user "{{ username }}" 2>/dev/null
 
-                  # Refresh authentication with PhpStorm scopes
-                  gh auth refresh --hostname github.com --scopes repo,read:org,user:email,gist
+                  # Get current token scopes
+                  local current_scopes=$(gh auth status 2>&1 | grep "Token scopes:" | sed "s/.*Token scopes: '//" | sed "s/'$//" | tr ',' '\n' | sort | tr '\n' ',' | sed 's/,$//')
 
-                  if [ $? -eq 0 ]; then
+                  # Required scopes for PhpStorm
+                  local required_scopes="gist,read:org,repo,user:email"
+
+                  # Check if all required scopes are present
+                  local missing_scopes=""
+                  local needs_refresh=false
+
+                  for scope in $(echo "$required_scopes" | tr ',' ' '); do
+                      if ! echo ",$current_scopes," | grep -q ",$scope,"; then
+                          missing_scopes="$missing_scopes $scope"
+                          needs_refresh=true
+                      fi
+                  done
+
+                  if [ "$needs_refresh" = true ]; then
+                      echo "Current token scopes: $current_scopes"
                       echo ""
-                      echo "=================================================="
-                      echo "PhpStorm Token Generated Successfully!"
-                      echo "=================================================="
+                      echo "Missing PhpStorm-required scopes:$missing_scopes"
                       echo ""
-                      echo "Your token:"
-                      gh auth token
+                      echo "Refreshing token to add missing scopes..."
+                      echo "This will preserve all existing scopes and add:"
+                      for scope in $missing_scopes; do
+                          echo "  - $scope"
+                      done
                       echo ""
-                      echo "To use in PhpStorm:"
-                      echo "  1. Settings > Version Control > GitHub"
-                      echo "  2. Click '+' to add account"
-                      echo "  3. Select 'Log In with Token'"
-                      echo "  4. Paste the token above"
-                      echo "=================================================="
+                      echo "You may need to re-authenticate in your browser..."
+                      echo ""
+
+                      # Combine current scopes with required scopes (deduplicated)
+                      local all_scopes=$(echo "$current_scopes,$required_scopes" | tr ',' '\n' | sort -u | tr '\n' ',' | sed 's/,$//')
+
+                      # Refresh with all scopes
+                      gh auth refresh --hostname github.com --scopes "$all_scopes"
+
+                      if [ $? -ne 0 ]; then
+                          echo ""
+                          echo "ERROR: Failed to refresh token"
+                          return 1
+                      fi
+
+                      echo ""
+                      echo "✓ Token refreshed successfully!"
                   else
-                      echo ""
-                      echo "ERROR: Failed to generate token"
-                      return 1
+                      echo "✓ Token already has all required PhpStorm scopes"
+                      echo "  Current scopes: $current_scopes"
                   fi
+
+                  echo ""
+                  echo "=================================================="
+                  echo "Your PhpStorm Token:"
+                  echo "=================================================="
+                  gh auth token
+                  echo ""
+                  echo "To use in PhpStorm:"
+                  echo "  1. Settings > Version Control > GitHub"
+                  echo "  2. Click '+' to add account"
+                  echo "  3. Select 'Log In with Token'"
+                  echo "  4. Paste the token above"
+                  echo "=================================================="
               }
               {% endfor %}
 
