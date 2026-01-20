@@ -666,17 +666,27 @@
                   echo "=================================================="
                   echo ""
 
+                  # Preflight checks
+                  if ! command -v jq &> /dev/null; then
+                      echo "ERROR: jq is not installed"
+                      echo "Install with: sudo dnf install jq"
+                      return 1
+                  fi
+
                   # Switch to the account
-                  gh auth switch --hostname github.com --user "{{ username }}" 2>/dev/null
+                  gh auth switch --hostname github.com --user "{{ username }}" 2>/dev/null || {
+                      echo "ERROR: Failed to switch to account {{ username }}"
+                      echo "Run: gh auth login --hostname github.com --git-protocol ssh"
+                      return 1
+                  }
 
                   # Get current token scopes using JSON output for reliable parsing
-                  # Use jq to extract the scopes array and convert to comma-separated string
                   local current_scopes
-                  current_scopes=$(gh auth status --json hosts --jq '.["github.com"].scopes | join(",")' 2>/dev/null)
+                  current_scopes=$(gh auth status --json hosts 2>/dev/null | jq -r '.["github.com"].scopes | join(",")')
 
-                  if [ -z "$current_scopes" ]; then
+                  if [ -z "$current_scopes" ] || [ "$current_scopes" = "null" ]; then
                       echo "ERROR: Could not retrieve current token scopes"
-                      echo "Make sure jq is installed and you are authenticated"
+                      echo "Make sure you are authenticated with: gh auth status"
                       return 1
                   fi
 
