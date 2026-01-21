@@ -6,30 +6,33 @@
 
 # Get the expected network name for the current project
 # Returns: network-name based on folder name, or repo name as fallback
+# Priority: parent-project format > project-only (with warning) > git remote
 get_expected_network_name() {
     local project_name=$(basename "$PWD")
-    local expected_network="${project_name}-network"
-
-    # Check if this network exists
-    if container_cmd network ls --format '{{.Name}}' | grep -q "^${expected_network}$"; then
-        echo "$expected_network"
-        return 0
-    fi
-
-    # Try parent-folder-repo-folder naming (unless parent is generic)
     local parent_folder=$(basename "$(dirname "$PWD")")
     local generic_folders="projects|repos|work|src|code|dev|home"
 
-    # Check if parent folder is NOT a generic name (case insensitive)
+    # PRIORITY 1: Try parent-folder-project-folder naming (unless parent is generic)
+    # This is the preferred format to avoid collisions (e.g., "ec-site" vs "other-site")
     if ! echo "$parent_folder" | grep -qiE "^($generic_folders)$"; then
-        local parent_repo_network="${parent_folder}-${project_name}-network"
-        if container_cmd network ls --format '{{.Name}}' | grep -q "^${parent_repo_network}$"; then
-            echo "$parent_repo_network"
+        local parent_project_network="${parent_folder}-${project_name}-network"
+        if container_cmd network ls --format '{{.Name}}' | grep -q "^${parent_project_network}$"; then
+            echo "$parent_project_network"
             return 0
         fi
     fi
 
-    # Fallback: Try to get repo name from git remote
+    # PRIORITY 2: Fallback to project-only naming with collision warning
+    local project_only_network="${project_name}-network"
+    if container_cmd network ls --format '{{.Name}}' | grep -q "^${project_only_network}$"; then
+        echo "⚠️  Warning: Using project-only network name '${project_only_network}'" >&2
+        echo "   Risk of collision if multiple projects share the same directory name." >&2
+        echo "   Consider renaming network to include parent directory: ${parent_folder}-${project_name}-network" >&2
+        echo "$project_only_network"
+        return 0
+    fi
+
+    # PRIORITY 3: Try to get repo name from git remote
     if git rev-parse --git-dir > /dev/null 2>&1; then
         local repo_url=$(git config --get remote.origin.url 2>/dev/null || echo "")
         if [ -n "$repo_url" ]; then
@@ -44,8 +47,13 @@ get_expected_network_name() {
         fi
     fi
 
-    # No matching network found - return the expected name anyway
-    echo "$expected_network"
+    # No matching network found - return the preferred parent-project format
+    # (or project-only if parent is generic)
+    if ! echo "$parent_folder" | grep -qiE "^($generic_folders)$"; then
+        echo "${parent_folder}-${project_name}-network"
+    else
+        echo "$project_only_network"
+    fi
     return 1
 }
 

@@ -98,8 +98,19 @@ check_git_repo() {
 }
 
 # Project name extraction
+# Uses parent-project format to avoid collisions (e.g., "ec-site" instead of just "site")
+# Excludes generic parent folder names
 get_project_name() {
-    basename "$(pwd)" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/_/g'
+    local project_dir=$(basename "$(pwd)" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/_/g')
+    local parent_dir=$(basename "$(dirname "$(pwd)")" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/_/g')
+    local generic_folders="projects|repos|work|src|code|dev|home"
+
+    # Check if parent folder is NOT a generic name (case insensitive)
+    if ! echo "$parent_dir" | grep -qiE "^($generic_folders)$"; then
+        echo "${parent_dir}-${project_dir}"
+    else
+        echo "$project_dir"
+    fi
 }
 
 # YOLO mode warning

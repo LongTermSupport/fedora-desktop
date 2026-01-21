@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="2.10.1"  # Fix: Default session UI feedback, compose check on network auto-detect
+CCY_VERSION="2.11.0"  # Fix: Use parent-project naming to avoid container/network collisions
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -53,7 +53,8 @@ CONFIG_VERSION=1
 check_git_repo || exit 1
 
 # Get project name from directory (used for container naming)
-PROJECT_NAME=$(basename "$PWD")
+# Uses parent-project format to avoid collisions (defined in lib/common.bash)
+PROJECT_NAME=$(get_project_name)
 
 IMAGE_NAME="claude-yolo:latest"
 DOCKERFILE_DIR="/opt/claude-yolo"
