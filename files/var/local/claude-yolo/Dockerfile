@@ -7,7 +7,7 @@ ARG DOCKERFILE_HASH="unknown"
 # IMPORTANT: When modifying this Dockerfile, ALWAYS increment claude-yolo-version!
 # The hash validates Dockerfile integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
-LABEL claude-yolo-version="1.2"
+LABEL claude-yolo-version="1.3"
 LABEL claude-yolo-dockerfile-hash="${DOCKERFILE_HASH}"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 
@@ -63,6 +63,9 @@ RUN chmod 444 /opt/claude-yolo/ccy-startup-info.txt
 
 # Set workspace directory
 WORKDIR /workspace
+
+# Help tools detect container environment
+ENV DEVCONTAINER=true
 
 # Note: USER directive is NOT set here - we use --user flag at runtime
 # This allows dynamic UID/GID mapping to match the host user

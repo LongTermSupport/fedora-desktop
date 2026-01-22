@@ -158,7 +158,6 @@
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/token-management.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/network-management.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/dockerfile-custom.bash"
-        - "{{ root_dir }}/files/var/local/claude-yolo/lib/session-management.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/docker-health.bash"
       tags:
         - scripts

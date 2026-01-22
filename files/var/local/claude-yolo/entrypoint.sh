@@ -16,8 +16,8 @@ if [ -z "$GH_TOKEN" ]; then
     exit 1
 fi
 
-# Note: ~/.claude is already mounted with project-specific state
-# It contains credentials, settings, and all conversation history
+# Note: Claude Code uses /workspace/.claude/ for project-level state
+# (settings, history, todos, etc.) - this is part of the workspace mount
 # We only need to set up git, gh CLI, and SSH
 
 # Configure git
@@ -98,17 +98,16 @@ fi
 # Set sandbox mode to bypass root detection
 export IS_SANDBOX=1
 
-# Display session info and set terminal title if available
-if [ -n "$CCY_SESSION_NAME" ]; then
-    # Set terminal title
-    printf '\033]0;CCY: %s\007' "$CCY_SESSION_NAME"
-
-    echo ""
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo "CCY Session: $CCY_SESSION_NAME"
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo ""
-fi
+# Create .claude.json in container to skip onboarding
+# This file is created inside the container (not bind-mounted) to avoid
+# single-file bind mount issues on btrfs where atomic rename() fails with EBUSY
+cat > /root/.claude.json <<'EOF'
+{
+  "hasCompletedOnboarding": true,
+  "installMethod": "npm"
+}
+EOF
+chmod 600 /root/.claude.json
 
 # Execute the command
 exec "$@"
