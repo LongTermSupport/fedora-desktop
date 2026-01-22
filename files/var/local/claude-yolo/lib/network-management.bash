@@ -2,7 +2,7 @@
 # Network Management Library
 # Shared Docker network operations for claude-yolo and claude-browser
 #
-# Version: 1.4.0 - Check compose services running, offer to start if not
+# Version: 1.5.0 - Auto-add DNS servers for WARP/localhost DNS compatibility
 
 # Get the expected network name for the current project
 # Returns: network-name based on folder name, or repo name as fallback
@@ -615,7 +615,56 @@ offer_compose_start() {
     return $?
 }
 
+# Ensure network has DNS servers configured for external resolution
+# This fixes issues where aardvark-dns can't reach localhost-based DNS (e.g., Cloudflare WARP)
+# Args: $1 = network_name
+# Returns: 0 if DNS configured (or added), 1 if failed
+ensure_network_dns() {
+    local network_name="$1"
+    local default_dns_servers=("1.1.1.1" "8.8.8.8")
+
+    if [[ -z "$network_name" ]]; then
+        return 1
+    fi
+
+    # Skip for default podman network (uses pasta's DNS proxy, not aardvark-dns)
+    if [[ "$network_name" == "podman" ]]; then
+        return 0
+    fi
+
+    # Check if network has dns_enabled (only those use aardvark-dns)
+    local dns_enabled
+    dns_enabled=$(container_cmd network inspect "$network_name" --format '{{.DNSEnabled}}' 2>/dev/null)
+
+    if [[ "$dns_enabled" != "true" ]]; then
+        # Network doesn't use aardvark-dns, no fix needed
+        return 0
+    fi
+
+    # Check current DNS servers on the network
+    local current_dns
+    current_dns=$(container_cmd network inspect "$network_name" --format '{{json .NetworkDNSServers}}' 2>/dev/null)
+
+    # If DNS servers already configured, nothing to do
+    if [[ -n "$current_dns" ]] && [[ "$current_dns" != "null" ]] && [[ "$current_dns" != "[]" ]]; then
+        return 0
+    fi
+
+    # No DNS servers configured - add them
+    echo "Adding DNS servers to network '$network_name' for external resolution..."
+
+    for dns in "${default_dns_servers[@]}"; do
+        if ! container_cmd network update "$network_name" --dns-add "$dns" >/dev/null 2>&1; then
+            echo "  ⚠ Failed to add DNS server $dns" >&2
+        fi
+    done
+
+    echo "  ✓ Added DNS servers: ${default_dns_servers[*]}"
+    return 0
+}
+
 # Export functions
+export -f ensure_network_dns
 export -f get_expected_network_name
 export -f get_network_persistence_file
 export -f save_network_preference

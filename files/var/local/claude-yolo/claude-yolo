@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="2.11.0"  # Fix: Use parent-project naming to avoid container/network collisions
+CCY_VERSION="2.12.0"  # Fix: Auto-add DNS servers to networks for WARP/localhost DNS compatibility
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -2055,6 +2055,11 @@ if [[ -n "$NETWORK_FLAG" ]]; then
 elif [[ "$CONTAINER_ENGINE" = "podman" ]] && [[ "$NO_NETWORK_MODE" != true ]]; then
     SELECTED_NETWORK="podman"
     NETWORK_FLAG="--network podman"
+fi
+
+# Ensure network has DNS servers configured (fixes WARP/localhost DNS issues)
+if [[ -n "$SELECTED_NETWORK" ]] && [[ "$NO_NETWORK_MODE" != true ]]; then
+    ensure_network_dns "$SELECTED_NETWORK"
 fi
 
 # Verify network has internet access (fail fast)
