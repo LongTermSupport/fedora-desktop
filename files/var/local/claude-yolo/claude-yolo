@@ -984,8 +984,10 @@ debug "Config .claude.json will be created inside container by entrypoint"
 # Note:
 # - Token passed via CLAUDE_CODE_OAUTH_TOKEN environment variable (no file mount)
 # - Long-lived tokens (sk-ant-oat01-...) from `claude setup-token`
-# - Config (.claude.json) created inside container by entrypoint.sh (avoids btrfs bind mount issues)
-# - All Claude Code state (history, todos/, settings.json, etc.) persists in /workspace/.claude/
+# - ALL Claude Code state persists in /workspace/.claude/ (project-local, gitignored)
+#   - User state (sessions, history, databases, todos): /workspace/.claude/ccy/
+#   - Project state (settings, agents, hooks, plans): /workspace/.claude/
+# - Container symlinks /root/.claude -> /workspace/.claude/ccy/
 #
 # This is the same approach GitHub Actions use:
 # - Long-lived OAuth tokens via CLAUDE_CODE_OAUTH_TOKEN env var
@@ -1031,7 +1033,9 @@ if [ "$DEBUG_MODE" = true ]; then
     echo "DEBUG: Docker run configuration"
     echo "════════════════════════════════════════════════════════════════════════════════"
     echo "Workspace: $PWD"
-    echo "State dir: /workspace/.claude/ (project-level)"
+    echo "Claude state: /workspace/.claude/ (ALL state - project-local, gitignored)"
+    echo "  - Project: settings, agents, hooks, plans"
+    echo "  - Sessions: ccy/ (symlinked from /root/.claude in container)"
     echo "Token file: $SELECTED_TOKEN"
     echo "Token type: Long-lived OAuth (CLAUDE_CODE_OAUTH_TOKEN)"
     echo "SSH keys mounted: ${#SSH_KEYS[@]}"
@@ -1058,27 +1062,33 @@ if [ "$DEBUG_MODE" = true ]; then
 fi
 
 # Run container with project workspace
-# All Claude Code state (history, todos, conversations) persists in /workspace/.claude/
+# State Management:
+# - ALL Claude Code state stored in /workspace/.claude/ (project-local, gitignored)
+#   - Project state: settings, agents, hooks, plans (in .claude/ root)
+#   - Session state: history, databases, todos (in .claude/ccy/, symlinked from /root/.claude)
+# - Container remains ephemeral (--rm) while state persists in project
 #
 # Authentication:
 # - Long-lived OAuth token passed via CLAUDE_CODE_OAUTH_TOKEN environment variable
 # - No credential files needed (same approach as GitHub Actions)
 # - Token stored in ~/.claude-tokens/ccy/tokens/NAME.YYYY-MM-DD.token on host
 #
-# Claude Code uses /workspace/.claude/ for project-level state (settings, history, etc.)
-# No separate mount needed - it's part of the workspace mount
+# Mounts:
+# - /workspace: Project directory (includes .claude/ for ALL state)
+# - /tmp/claude-config-import: Git configuration
 #
 # No credentials mounted - token via environment variable
 
 # Build mount arguments
-# Note: /workspace includes .claude/ directory - Claude Code uses this for project-level state
+# Note: /workspace includes .claude/ directory - Claude Code uses this for ALL state
+# The entrypoint will symlink /root/.claude -> /workspace/.claude/ccy/ for session persistence
 DOCKER_MOUNTS=(
     -v "$PWD:/workspace"
     -v "$CONFIG_TEMP:/tmp/claude-config-import:ro"
 )
 
-# Note: .claude.json is created inside container by entrypoint.sh
-# No bind mount needed - avoids btrfs atomic rename issues
+# Note: Session state (history, databases, todos) will be stored in /workspace/.claude/ccy/
+# This keeps everything project-local and gitignored, while maintaining ephe meral containers
 
 # Auto-detect and offer network connection
 NETWORK_FLAG=""

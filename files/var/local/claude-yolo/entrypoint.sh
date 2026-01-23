@@ -98,16 +98,25 @@ fi
 # Set sandbox mode to bypass root detection
 export IS_SANDBOX=1
 
-# Create .claude.json in container to skip onboarding
-# This file is created inside the container (not bind-mounted) to avoid
-# single-file bind mount issues on btrfs where atomic rename() fails with EBUSY
-cat > /root/.claude.json <<'EOF'
+# Symlink /root/.claude to /workspace/.claude/ccy for project-local session storage
+# This keeps containers ephemeral while persisting sessions in the project directory
+mkdir -p /workspace/.claude/ccy
+ln -sf /workspace/.claude/ccy /root/.claude
+
+# Create .claude.json if it doesn't exist (preserves existing state in project)
+if [ ! -f /root/.claude.json ]; then
+    cat > /root/.claude.json <<'EOF'
 {
   "hasCompletedOnboarding": true,
-  "installMethod": "npm"
+  "installMethod": "npm",
+  "bypassPermissionsModeAccepted": true
 }
 EOF
-chmod 600 /root/.claude.json
+    chmod 600 /root/.claude.json
+    echo "✓ Created .claude.json with bypass permissions acceptance"
+else
+    echo "✓ Using existing .claude.json from project storage"
+fi
 
 # Execute the command
 exec "$@"

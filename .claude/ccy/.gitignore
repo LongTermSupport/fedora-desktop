@@ -1,0 +1,23 @@
+# CCY Container Session State Directory
+#
+# This directory stores Claude Code user-level state for CCY containers:
+# - Session history (history.jsonl)
+# - Project databases (projects/)
+# - Todo lists (todos/)
+# - Cache files (cache/)
+# - File history (file-history/)
+#
+# The container symlinks /root/.claude -> /workspace/.claude/ccy/
+# This keeps containers ephemeral while persisting sessions in the project.
+#
+# IMPORTANT: This directory should NEVER be committed to git
+# (except this .gitignore and custom Dockerfile if present)
+
+# Ignore everything in this directory
+*
+
+# Except this .gitignore (provides documentation and safety)
+!.gitignore
+
+# And custom Dockerfile (project-specific container extensions)
+!Dockerfile

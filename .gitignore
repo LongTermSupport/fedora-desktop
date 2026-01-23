@@ -15,11 +15,9 @@ __pycache__/
 .claude/settings.local.json
 .claude.json
 
-# CCY session data (sessions/ has self-excluding .gitignore)
-# Keep: .claude/ccy/config.json (user preferences)
-# Keep: .claude/ccy/Dockerfile (custom container)
-.claude/ccy/sessions/
-.claude/ccy/.last-launch.conf
+# CCY session data - has self-excluding .gitignore for documentation and safety
+.claude/ccy/*
+!.claude/ccy/.gitignore
 
 # MCP cache and runtime data
 .playwright-mcp/
