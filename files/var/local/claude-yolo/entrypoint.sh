@@ -101,6 +101,15 @@ export IS_SANDBOX=1
 # Symlink /root/.claude to /workspace/.claude/ccy for project-local session storage
 # This keeps containers ephemeral while persisting sessions in the project directory
 mkdir -p /workspace/.claude/ccy
+
+# Remove /root/.claude if it exists (Claude Code might create it before entrypoint runs)
+# Then create symlink to project directory
+if [ -e /root/.claude ]; then
+    if [ ! -L /root/.claude ]; then
+        # It's not a symlink, remove it (directory or file)
+        rm -rf /root/.claude
+    fi
+fi
 ln -sf /workspace/.claude/ccy /root/.claude
 
 # Create .claude.json if it doesn't exist (preserves existing state in project)
