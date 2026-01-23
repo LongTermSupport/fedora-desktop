@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.0.0"  # Removed sessions, simplified state management via /workspace/.claude/
+CCY_VERSION="3.0.1"  # Fix: persist sessions in .claude/ccy/ (project-local, not external host path)
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

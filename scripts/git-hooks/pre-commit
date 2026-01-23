@@ -49,6 +49,60 @@ if [ -z "$STAGED_FILES" ]; then
     exit 0
 fi
 
+# ============================================================================
+# CCY Version Bump Validation
+# ============================================================================
+# The CCY script has hash validation to detect modifications without version bumps
+# This prevents deployment issues where modified scripts don't get proper version tracking
+
+CCY_SCRIPT="files/var/local/claude-yolo/claude-yolo"
+
+if echo "$STAGED_FILES" | grep -q "^${CCY_SCRIPT}$"; then
+    echo "🔍 Checking CCY version bump requirement..."
+
+    # Extract current staged version
+    STAGED_VERSION=$(git show ":$CCY_SCRIPT" | grep -m1 '^CCY_VERSION=' | cut -d'"' -f2)
+
+    # Extract HEAD version (if file exists in HEAD)
+    HEAD_VERSION=$(git show "HEAD:$CCY_SCRIPT" 2>/dev/null | grep -m1 '^CCY_VERSION=' | cut -d'"' -f2 || echo "")
+
+    # If file exists in HEAD and version hasn't changed
+    if [ -n "$HEAD_VERSION" ] && [ "$STAGED_VERSION" = "$HEAD_VERSION" ]; then
+        # Check if actual content changed (not just comments/whitespace)
+        if ! git diff --cached HEAD -- "$CCY_SCRIPT" | grep -q "^[+-]" | grep -v "^[+-]#" | grep -v "^[+-]$"; then
+            # Only comments or whitespace changed - allow it
+            echo "✓ CCY script: only comments/whitespace changed (version OK)"
+        else
+            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo -e "${RED}COMMIT REJECTED: CCY version bump required${NC}"
+            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo ""
+            echo "The CCY script was modified but CCY_VERSION was not bumped."
+            echo "Current version: $STAGED_VERSION"
+            echo ""
+            echo "Actions to take:"
+            echo "  1. Bump CCY_VERSION in $CCY_SCRIPT"
+            echo "     - Patch (x.y.Z): Bug fixes, minor changes"
+            echo "     - Minor (x.Y.0): New features, backward compatible"
+            echo "     - Major (X.0.0): Breaking changes"
+            echo ""
+            echo "  2. Update the version comment to describe the change"
+            echo ""
+            echo "Example:"
+            echo "  CCY_VERSION=\"3.0.1\"  # Fix: persist sessions in .claude/ccy/"
+            echo ""
+            echo "To bypass this check (NOT RECOMMENDED):"
+            echo "  git commit --no-verify"
+            echo ""
+            exit 1
+        fi
+    elif [ -n "$HEAD_VERSION" ]; then
+        echo "✓ CCY version bumped: $HEAD_VERSION → $STAGED_VERSION"
+    else
+        echo "✓ New CCY script (version: $STAGED_VERSION)"
+    fi
+fi
+
 FOUND_ISSUES=0
 
 # Check each staged file

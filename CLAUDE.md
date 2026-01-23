@@ -53,6 +53,40 @@ When working in the CCY container environment:
 
 **REMEMBER: In CCY container = EDIT ONLY, DEPLOY ON HOST**
 
+### ⚠️ CRITICAL: CCY VERSION BUMP REQUIREMENT
+
+**ALWAYS bump CCY_VERSION when modifying `files/var/local/claude-yolo/claude-yolo`**
+
+The CCY script has hash validation to detect modifications without version bumps. A pre-commit hook enforces this requirement.
+
+**Rules:**
+1. **ANY code change requires a version bump** (patches are fine for small fixes)
+2. **Update the version comment** to describe what changed
+3. **Never commit CCY changes without bumping the version**
+
+**Version numbering (Semantic Versioning):**
+- **Patch (x.y.Z)**: Bug fixes, minor improvements, documentation
+- **Minor (x.Y.0)**: New features, backward compatible changes
+- **Major (X.0.0)**: Breaking changes, major refactoring
+
+**Example:**
+```bash
+# Before (version 3.0.0)
+CCY_VERSION="3.0.0"  # Removed sessions, simplified state management
+
+# After making a fix (bump to 3.0.1)
+CCY_VERSION="3.0.1"  # Fix: persist sessions in .claude/ccy/
+```
+
+**What happens if you forget:**
+- Pre-commit hook will **REJECT** the commit
+- Users will see "DEVELOPER ERROR: CCY script modified without version bump"
+- Deployment issues and confusion about what version is running
+
+**This applies to:**
+- `files/var/local/claude-yolo/claude-yolo` (main CCY wrapper)
+- Any file with version tracking
+
 ## Project Overview
 
 This is a **Fedora Desktop Configuration Management Project** that automates the setup of a freshly installed Fedora system for development work using Ansible. The project uses a branching strategy where each Fedora version has its own branch, with the target version defined in `vars/fedora-version.yml`, and provides a comprehensive desktop environment setup with development tools, customizations, and optional components.
