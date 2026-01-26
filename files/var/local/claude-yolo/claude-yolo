@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.1.1"  # Improve fix instructions to purge from git history
+CCY_VERSION="3.1.2"  # Only purge specific dangerous files, preserve Dockerfile
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

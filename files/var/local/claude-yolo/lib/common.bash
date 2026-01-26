@@ -205,13 +205,17 @@ check_ccy_gitignore_safety() {
     echo "" >&2
     echo -e "${COLOR_GREEN}To fix (purge from entire git history):${COLOR_RESET}" >&2
     echo "" >&2
-    echo "  # Remove all .claude/ccy/* from history (safe files will be recreated)" >&2
-    echo "  git filter-repo --invert-paths --path-glob '.claude/ccy/*'" >&2
+
+    # Build filter-repo command with specific dangerous files
+    local filter_cmd="git filter-repo --invert-paths"
+    while IFS= read -r file; do
+        filter_cmd="$filter_cmd --path '$file'"
+    done <<< "$dangerous_files"
+
+    echo "  $filter_cmd" >&2
     echo "" >&2
-    echo "  # Force push to remote (required after history rewrite)" >&2
+    echo "  # Then force push (required after history rewrite)" >&2
     echo "  git push --force-with-lease" >&2
-    echo "" >&2
-    echo "  # Re-run ccy to recreate .gitignore, re-add Dockerfile if you had one" >&2
     echo "" >&2
     echo -e "${COLOR_RED}════════════════════════════════════════════════════════════════════════════════${COLOR_RESET}" >&2
     echo -e "${COLOR_BOLD}CCY will NOT start until this is fixed.${COLOR_RESET}" >&2
