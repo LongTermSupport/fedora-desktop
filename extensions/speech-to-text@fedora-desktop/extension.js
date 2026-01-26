@@ -336,6 +336,7 @@ export default class SpeechToTextExtension extends Extension {
             }
             this._saveStreamingSetting(state);
             this._updatePasteToggles();
+            this._updateModelLabel();  // Update model label to show new auto mode model
             this._log(`Streaming mode ${state ? 'enabled' : 'disabled'}`);
         });
         menu.addMenuItem(this._streamingSwitch);
@@ -883,10 +884,10 @@ export default class SpeechToTextExtension extends Extension {
    # Tiny model (~75MB, fastest)
    WHISPER_MODEL=tiny ~/.local/bin/wsi --debug
 
-   # Base model (~142MB, fast)
+   # Base model (~142MB, fast) ← RECOMMENDED for streaming
    WHISPER_MODEL=base ~/.local/bin/wsi --debug
 
-   # Small model (~466MB, balanced)
+   # Small model (~466MB, balanced) ← RECOMMENDED for batch
    WHISPER_MODEL=small ~/.local/bin/wsi --debug
 
    # Medium model (~1.5GB, slow but accurate)
@@ -899,7 +900,11 @@ export default class SpeechToTextExtension extends Extension {
 4. The model will download automatically
 5. After download completes, it will be available in this menu
 
-Note: First download can take several minutes depending on model size.`;
+Note: First download can take several minutes depending on model size.
+
+Auto mode uses:
+- "base" model for streaming mode (real-time transcription)
+- "small" model for batch mode (transcribe after recording)`;
 
         // Use zenity to show instructions dialog
         try {
@@ -931,7 +936,16 @@ Note: First download can take several minutes depending on model size.`;
         if (this._modelSubMenu) {
             const modelInfo = this._whisperModels.find(m => m[0] === this._whisperModel);
             if (modelInfo) {
-                const label = modelInfo[1];  // Get label from array
+                let label = modelInfo[1];  // Get label from array
+
+                // For auto mode, show what it will actually use
+                if (this._whisperModel === 'auto') {
+                    const actualModel = this._streamingMode ? 'base' : 'small';
+                    const actualInstalled = this._checkModelInstalled(actualModel);
+                    const status = actualInstalled ? '✓' : '⚠';
+                    label = `Auto (${status} ${actualModel} for ${this._streamingMode ? 'streaming' : 'batch'})`;
+                }
+
                 this._modelSubMenu.label.text = `Model: ${label}`;
             } else {
                 this._modelSubMenu.label.text = `Model: ${this._whisperModel}`;
