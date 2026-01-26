@@ -736,14 +736,18 @@ export default class SpeechToTextExtension extends Extension {
             // Add pre-buffer flag for streaming mode
             const preBufferFlag = (this._streamingMode && this._preBufferAudio) ? ' --pre-buffer' : '';
 
-            // Build model environment variable if not auto
-            // Auto mode uses script defaults (base for streaming, small for batch)
-            let modelEnv = '';
-            if (this._whisperModel !== 'auto') {
-                modelEnv = `WHISPER_MODEL=${this._whisperModel} `;
-            }
+            const scriptPath = GLib.get_home_dir() + '/.local/bin/' + script;
+            const scriptArgs = debugFlag + clipboardFlag + autoPasteFlag + noAutoEnterFlag + wrapMarkerFlag + noNotifyFlag + langFlag + preBufferFlag;
 
-            const command = modelEnv + GLib.get_home_dir() + '/.local/bin/' + script + debugFlag + clipboardFlag + autoPasteFlag + noAutoEnterFlag + wrapMarkerFlag + noNotifyFlag + langFlag + preBufferFlag;
+            // Build command - wrap in bash if we need to set environment variables
+            let command;
+            if (this._whisperModel !== 'auto') {
+                // Need to set WHISPER_MODEL env var - use bash -c
+                command = `/bin/bash -c "WHISPER_MODEL=${this._whisperModel} ${scriptPath}${scriptArgs}"`;
+            } else {
+                // Auto mode uses script defaults - no env var needed
+                command = scriptPath + scriptArgs;
+            }
 
             this._log(`Launching: ${command}`);
             GLib.spawn_command_line_async(command);
