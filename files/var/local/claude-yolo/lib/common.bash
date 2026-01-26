@@ -203,17 +203,15 @@ check_ccy_gitignore_safety() {
     echo "  • Session files contain your conversation history" >&2
     echo "  • These files should NEVER be pushed to a repository" >&2
     echo "" >&2
-    echo -e "${COLOR_GREEN}To fix, run:${COLOR_RESET}" >&2
+    echo -e "${COLOR_GREEN}To fix (purge from entire git history):${COLOR_RESET}" >&2
     echo "" >&2
-
-    # Build the git rm command
-    local rm_cmd="git rm --cached"
-    while IFS= read -r file; do
-        rm_cmd="$rm_cmd \"$file\""
-    done <<< "$dangerous_files"
-    echo "  $rm_cmd" >&2
-
-    echo "  git commit -m 'fix: remove sensitive CCY files from tracking'" >&2
+    echo "  # Remove all .claude/ccy/* from history (safe files will be recreated)" >&2
+    echo "  git filter-repo --invert-paths --path-glob '.claude/ccy/*'" >&2
+    echo "" >&2
+    echo "  # Force push to remote (required after history rewrite)" >&2
+    echo "  git push --force-with-lease" >&2
+    echo "" >&2
+    echo "  # Re-run ccy to recreate .gitignore, re-add Dockerfile if you had one" >&2
     echo "" >&2
     echo -e "${COLOR_RED}════════════════════════════════════════════════════════════════════════════════${COLOR_RESET}" >&2
     echo -e "${COLOR_BOLD}CCY will NOT start until this is fixed.${COLOR_RESET}" >&2
