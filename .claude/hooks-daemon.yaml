@@ -126,3 +126,6 @@ plugins:
     - path: ".claude/hooks/handlers/pre_tool_use/system_paths.py"
       handlers: ["SystemPathsHandler"]
       enabled: true
+    - path: ".claude/hooks/handlers/pre_tool_use/ansible_enforcement.py"
+      handlers: ["AnsibleEnforcementHandler"]
+      enabled: true
