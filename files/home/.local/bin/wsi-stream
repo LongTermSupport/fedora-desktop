@@ -596,6 +596,10 @@ def run_prebuffered_streaming(args):
         log(f"Model ready! Buffered {len(audio_buffer)} chunks ({len(audio_buffer) * chunk_size / 16000:.2f}s)")
         notify("RECORDING", "Recording... (transcribing live)")
 
+        # Start the recorder so realtime worker processes audio (sets is_recording=True)
+        recorder.start()
+        log("Recorder started (realtime transcription active)")
+
         # Feed buffered chunks to model
         log("Feeding buffered audio to model...")
         for i, chunk in enumerate(audio_buffer):
@@ -637,15 +641,21 @@ def run_prebuffered_streaming(args):
             audio_process.kill()
 
         # Get final transcription
+        # In prebuffered mode with use_microphone=False, recorder.text() would block
+        # forever waiting for audio. The realtime callbacks have already captured
+        # the transcription in current_text, so we use that directly.
         log("Getting final transcription...")
         notify("TRANSCRIBING", "Finalizing transcription...")
 
         try:
             recorder.stop()
-            final_text = recorder.text()
+            # Use current_text from realtime callbacks - don't call recorder.text()
+            # as it blocks indefinitely with use_microphone=False
+            final_text = current_text
+            log(f"Final text from realtime callbacks: {final_text}")
         except Exception as e:
             log(f"Transcription error: {e}", "ERROR")
-            final_text = current_text  # Fall back to buffered partial text
+            final_text = current_text
 
         # Cleanup
         if PID_FILE.exists():
