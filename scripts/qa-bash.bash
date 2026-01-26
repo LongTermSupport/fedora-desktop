@@ -23,9 +23,10 @@ done < <(find "$REPO_ROOT" -type f \( -name "*.sh" -o -name "*.bash" \) \
     ! -path "*/untracked/*" \
     -print0)
 
-# Find executable shell scripts (shebang)
+# Find executable bash scripts (bash shebang)
 while IFS= read -r file; do
-    if head -n1 "$file" 2>/dev/null | grep -q "^#!/.*sh"; then
+    first_line=$(head -n1 "$file" 2>/dev/null)
+    if [[ "$first_line" =~ ^#!/.*bash ]] || [[ "$first_line" == "#!/bin/sh" ]] || [[ "$first_line" == "#!/usr/bin/sh" ]]; then
         BASH_FILES+=("$file")
     fi
 done < <(find "$REPO_ROOT" -type f -executable \
