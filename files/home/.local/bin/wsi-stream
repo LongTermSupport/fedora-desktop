@@ -533,7 +533,8 @@ def run_prebuffered_streaming(args):
 
         def load_model_thread():
             """Load Whisper model in background thread."""
-            nonlocal recorder, model_error
+            global recorder
+            nonlocal model_error
             try:
                 notify("PREPARING", "Loading model...")
                 log("Loading model in background thread...")
@@ -756,7 +757,18 @@ def main():
                         help="Start recording immediately while model loads (faster startup)")
 
     args = parser.parse_args()
-    return run_streaming(args)
+
+    try:
+        return run_streaming(args)
+    except Exception as e:
+        # Ensure critical errors are ALWAYS logged, even without debug mode
+        global debug_mode
+        debug_mode = True  # Force logging for crash reports
+        log(f"FATAL ERROR: {e}", "CRITICAL")
+        import traceback
+        log(traceback.format_exc(), "CRITICAL")
+        notify("ERROR", f"Script crashed: {e}")
+        return 1
 
 
 if __name__ == "__main__":

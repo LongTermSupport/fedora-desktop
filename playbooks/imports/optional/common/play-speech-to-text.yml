@@ -34,6 +34,7 @@
           - wl-clipboard
           - python3-pip
           - zenity
+          - wev  # Wayland event viewer for debugging keybindings
         state: present
 
     - name: Stop User ydotool Service if Running

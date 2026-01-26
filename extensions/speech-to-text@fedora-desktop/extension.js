@@ -106,17 +106,22 @@ export default class SpeechToTextExtension extends Extension {
                 // Load debug setting
                 this._loadDebugSetting();
 
-                Main.wm.addKeybinding(
+                this._log('Attempting to add keybinding...');
+                const bindingAdded = Main.wm.addKeybinding(
                     'toggle-recording',
                     this._settings,
                     Meta.KeyBindingFlags.NONE,
                     Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW,
                     () => {
+                        this._log('INSERT KEY PRESSED - callback fired!');
                         this._launchWSI();
                     }
                 );
+                this._log(`Keybinding registration result: ${bindingAdded}`);
 
                 // Note: abort-recording keybinding is added dynamically when recording starts
+            } else {
+                Main.notify('STT Error', 'Schema lookup failed');
             }
         } catch (e) {
             Main.notify('STT Error', `Keybinding setup failed: ${e.message}`);
