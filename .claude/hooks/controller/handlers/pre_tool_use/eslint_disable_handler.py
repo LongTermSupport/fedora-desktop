@@ -1,26 +1,26 @@
 """EslintDisableHandler - individual handler file."""
 
+import os
 import re
 import sys
-import os
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from front_controller import Handler, HookResult, get_bash_command, get_file_path, get_file_content
+from front_controller import Handler, HookResult, get_file_content, get_file_path
 
 
 class EslintDisableHandler(Handler):
     """Block ESLint disable comments in code."""
 
     FORBIDDEN_PATTERNS = [
-        r'eslint-disable',
-        r'@ts-ignore',
-        r'@ts-nocheck',
-        r'@ts-expect-error',
+        r"eslint-disable",
+        r"@ts-ignore",
+        r"@ts-nocheck",
+        r"@ts-expect-error",
     ]
 
-    CHECK_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx']
+    CHECK_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx"]
 
     def __init__(self):
         super().__init__(name="enforce-no-eslint-disable", priority=30)
@@ -41,7 +41,7 @@ class EslintDisableHandler(Handler):
             return False
 
         # Skip node_modules, dist, build artifacts
-        if any(skip in file_path for skip in ['node_modules', 'dist', '.build', 'coverage']):
+        if any(skip in file_path for skip in ["node_modules", "dist", ".build", "coverage"]):
             return False
 
         content = get_file_content(hook_input)
@@ -84,7 +84,7 @@ class EslintDisableHandler(Handler):
                 "  2. Refactor code to meet ESLint rules\n"
                 "  3. If rule is genuinely wrong, update .eslintrc.json project-wide\n\n"
                 "ESLint rules exist for good reason. Fix the code, don't silence the tool."
-            )
+            ),
         )
 
 

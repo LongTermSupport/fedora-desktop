@@ -6,8 +6,10 @@ context based on the prompt, validating prompts, or blocking certain types of pr
 
 Official docs: https://code.claude.com/docs/en/hooks.md#userpromptsubmit
 """
-import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'controller'))
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "controller"))
 from user_prompt_submit import main
+
 sys.exit(main())

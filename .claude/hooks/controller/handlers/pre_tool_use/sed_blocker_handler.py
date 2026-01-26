@@ -1,13 +1,19 @@
 """SedBlockerHandler - blocks ALL sed command usage."""
 
-import sys
 import os
 import re
+import sys
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from front_controller import Handler, HookResult, get_bash_command, get_file_path, get_file_content
+from front_controller import (
+    Handler,
+    HookResult,
+    get_bash_command,
+    get_file_content,
+    get_file_path,
+)
 
 
 class SedBlockerHandler(Handler):
@@ -31,7 +37,7 @@ class SedBlockerHandler(Handler):
     def __init__(self):
         super().__init__(name="block-sed-command", priority=10)
         # Word boundary pattern: \bsed\b matches "sed" as whole word
-        self._sed_pattern = re.compile(r'\bsed\b', re.IGNORECASE)
+        self._sed_pattern = re.compile(r"\bsed\b", re.IGNORECASE)
 
     def matches(self, hook_input: dict) -> bool:
         """Check if sed appears anywhere in bash commands or shell scripts."""
@@ -50,11 +56,11 @@ class SedBlockerHandler(Handler):
                 return False
 
             # ALLOW: Markdown files (documentation for humans)
-            if file_path.endswith('.md'):
+            if file_path.endswith(".md"):
                 return False
 
             # BLOCK: Shell scripts with sed
-            if file_path.endswith('.sh') or file_path.endswith('.bash'):
+            if file_path.endswith(".sh") or file_path.endswith(".bash"):
                 content = get_file_content(hook_input)
                 if content and self._sed_pattern.search(content):
                     return True
@@ -90,5 +96,5 @@ class SedBlockerHandler(Handler):
                 f"EXAMPLE:\n"
                 f"  Bad:  find . -name \"*.ts\" -exec sed -i 's/foo/bar/g' {{}} \\;\n"
                 f"  Good: Dispatch 10 haiku agents with Edit tool"
-            )
+            ),
         )

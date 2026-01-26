@@ -1,10 +1,12 @@
 """Tests for PlanWorkflowHandler - provides guidance for plan creation."""
 
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import unittest
+
 from handlers.pre_tool_use.plan_workflow_handler import PlanWorkflowHandler
 
 
@@ -23,8 +25,8 @@ class TestPlanWorkflowHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "CLAUDE/Plan/061-new-feature/PLAN.md",
-                "content": "# Plan 061: New Feature\n\n## Overview\nImplementing new feature"
-            }
+                "content": "# Plan 061: New Feature\n\n## Overview\nImplementing new feature",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -34,8 +36,8 @@ class TestPlanWorkflowHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "CLAUDE/Plan/062-complex-feature/phase-1/PLAN.md",
-                "content": "# Phase 1"
-            }
+                "content": "# Phase 1",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -45,8 +47,8 @@ class TestPlanWorkflowHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "CLAUDE/Plan/061-new-feature/PLAN.md",
-                "content": "# Plan 061"
-            }
+                "content": "# Plan 061",
+            },
         }
         result = self.handler.handle(hook_input)
 
@@ -61,8 +63,8 @@ class TestPlanWorkflowHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "CLAUDE/Plan/061-test/PLAN.md",
-                "content": "# Plan"
-            }
+                "content": "# Plan",
+            },
         }
         result = self.handler.handle(hook_input)
 
@@ -80,8 +82,8 @@ class TestPlanWorkflowHandler(unittest.TestCase):
             "tool_input": {
                 "file_path": "CLAUDE/Plan/061-test/PLAN.md",
                 "old_string": "old",
-                "new_string": "new"
-            }
+                "new_string": "new",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -89,7 +91,7 @@ class TestPlanWorkflowHandler(unittest.TestCase):
         """Should not match non-Write tools."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "ls"}
+            "tool_input": {"command": "ls"},
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -99,8 +101,8 @@ class TestPlanWorkflowHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "src/components/Button.tsx",
-                "content": "export const Button = () => <button />"
-            }
+                "content": "export const Button = () => <button />",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -110,8 +112,8 @@ class TestPlanWorkflowHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "CLAUDE/Plan/061-test/analysis.md",
-                "content": "# Analysis"
-            }
+                "content": "# Analysis",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -127,8 +129,8 @@ class TestPlanWorkflowHandler(unittest.TestCase):
                 "tool_name": "Write",
                 "tool_input": {
                     "file_path": path,
-                    "content": "# Plan"
-                }
+                    "content": "# Plan",
+                },
             }
             self.assertTrue(self.handler.matches(hook_input), f"Should match {path}")
 
@@ -151,8 +153,8 @@ class TestPlanWorkflowHandler(unittest.TestCase):
         hook_input = {
             "tool_name": "Write",
             "tool_input": {
-                "content": "test"
-            }
+                "content": "test",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -162,11 +164,11 @@ class TestPlanWorkflowHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "",
-                "content": "test"
-            }
+                "content": "test",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

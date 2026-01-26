@@ -1,13 +1,12 @@
 """EnforceControllerPatternHandler - individual handler file."""
 
-import re
-import sys
 import os
+import sys
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from front_controller import Handler, HookResult, get_bash_command, get_file_path, get_file_content
+from front_controller import Handler, HookResult, get_file_path
 
 
 class EnforceControllerPatternHandler(Handler):
@@ -17,19 +16,19 @@ class EnforceControllerPatternHandler(Handler):
     # Official docs: https://code.claude.com/docs/en/hooks.md
     ALLOWED_ENTRY_POINTS = [
         # Currently implemented (4)
-        '/.claude/hooks/pre-tool-use',
-        '/.claude/hooks/post-tool-use',
-        '/.claude/hooks/user-prompt-submit',
-        '/.claude/hooks/subagent-stop',
+        "/.claude/hooks/pre-tool-use",
+        "/.claude/hooks/post-tool-use",
+        "/.claude/hooks/user-prompt-submit",
+        "/.claude/hooks/subagent-stop",
         # Infrastructure ready (6) - implement handlers as needed
-        '/.claude/hooks/permission-request',
-        '/.claude/hooks/stop',
-        '/.claude/hooks/notification',
-        '/.claude/hooks/pre-compact',
-        '/.claude/hooks/session-start',
-        '/.claude/hooks/session-end',
+        "/.claude/hooks/permission-request",
+        "/.claude/hooks/stop",
+        "/.claude/hooks/notification",
+        "/.claude/hooks/pre-compact",
+        "/.claude/hooks/session-start",
+        "/.claude/hooks/session-end",
         # Python package file
-        '/.claude/hooks/__init__.py',
+        "/.claude/hooks/__init__.py",
     ]
 
     def __init__(self):
@@ -46,15 +45,15 @@ class EnforceControllerPatternHandler(Handler):
             return False
 
         # Writing to .claude/hooks/ directory?
-        if '/.claude/hooks/' not in file_path:
+        if "/.claude/hooks/" not in file_path:
             return False
 
         # Allow controller/ subdirectory (handlers, tests, etc.)
-        if '/controller/' in file_path:
+        if "/controller/" in file_path:
             return False
 
         # Allow legacy backup files
-        if '.bak.' in file_path:
+        if ".bak." in file_path:
             return False
 
         # Allow ONLY whitelisted entry point scripts
@@ -67,7 +66,7 @@ class EnforceControllerPatternHandler(Handler):
     def handle(self, hook_input: dict) -> HookResult:
         """Block standalone hook creation."""
         file_path = get_file_path(hook_input)
-        file_ext = file_path.split('.')[-1] if '.' in file_path else 'unknown'
+        file_ext = file_path.split(".")[-1] if "." in file_path else "unknown"
 
         return HookResult(
             decision="deny",
@@ -85,9 +84,9 @@ class EnforceControllerPatternHandler(Handler):
                 "  File: .claude/hooks/CLAUDE.md (architecture overview)\n"
                 "  Examples: controller/handlers/*.py\n\n"
                 "⚠️  ONLY these 10 entry point scripts are allowed (covering ALL official Claude hook events):\n"
-                + "\n".join(f"  - {entry}" for entry in self.ALLOWED_ENTRY_POINTS if '__init__' not in entry) + "\n\n"
+                + "\n".join(f"  - {entry}" for entry in self.ALLOWED_ENTRY_POINTS if "__init__" not in entry) + "\n\n"
                 "NO other hook files will ever be needed. All hooks use the front controller pattern."
-            )
+            ),
         )
 
 

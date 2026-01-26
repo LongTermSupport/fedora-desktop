@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """Tests for AbsolutePathHandler - prevents /workspace/ absolute paths."""
 
-import unittest
-import sys
 import os
+import sys
+import unittest
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from front_controller import HookResult
 from handlers.pre_tool_use import AbsolutePathHandler
 
 
@@ -30,8 +29,8 @@ class TestAbsolutePathHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/src/foo.ts",
-                "content": "import x from './bar.ts';\nconsole.log('test');"
-            }
+                "content": "import x from './bar.ts';\nconsole.log('test');",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -42,8 +41,8 @@ class TestAbsolutePathHandler(unittest.TestCase):
             "tool_input": {
                 "file_path": "/workspace/src/foo.ts",
                 "old_string": "old",
-                "new_string": "new"
-            }
+                "new_string": "new",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -53,8 +52,8 @@ class TestAbsolutePathHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "src/foo.ts",
-                "content": "import x from '/workspace/bar.ts';\nconsole.log('hello');"
-            }
+                "content": "import x from '/workspace/bar.ts';\nconsole.log('hello');",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -67,8 +66,8 @@ class TestAbsolutePathHandler(unittest.TestCase):
                 "content": """
                     const dataPath = '/workspace/data';
                     const configPath = '/workspace/config.json';
-                """
-            }
+                """,
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -79,8 +78,8 @@ class TestAbsolutePathHandler(unittest.TestCase):
             "tool_input": {
                 "file_path": "src/foo.ts",
                 "old_string": "old",
-                "new_string": "const path = '/workspace/data/file.json';"
-            }
+                "new_string": "const path = '/workspace/data/file.json';",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -91,8 +90,8 @@ class TestAbsolutePathHandler(unittest.TestCase):
             "tool_input": {
                 "file_path": "src/foo.ts",
                 "old_string": "const bad = '/workspace/data';",
-                "new_string": "const good = './data';"
-            }
+                "new_string": "const good = './data';",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -102,8 +101,8 @@ class TestAbsolutePathHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "src/config.ts",
-                "content": "const dataDir = '/workspace/data';\nconst configFile = '/workspace/config.json';"
-            }
+                "content": "const dataDir = '/workspace/data';\nconst configFile = '/workspace/config.json';",
+            },
         }
         result = self.handler.handle(hook_input)
 
@@ -121,8 +120,8 @@ class TestAbsolutePathHandler(unittest.TestCase):
             "tool_input": {
                 "file_path": "src/foo.ts",
                 "old_string": "old",
-                "new_string": "import data from '/workspace/data.json';"
-            }
+                "new_string": "import data from '/workspace/data.json';",
+            },
         }
         result = self.handler.handle(hook_input)
 
@@ -141,8 +140,8 @@ class TestAbsolutePathHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/src/test.ts",
-                "content": "console.log('test');"
-            }
+                "content": "console.log('test');",
+            },
         }
         # Should NOT match (allow operation) - no /workspace/ in content
         self.assertFalse(self.handler.matches(hook_input))
@@ -154,8 +153,8 @@ class TestAbsolutePathHandler(unittest.TestCase):
             "tool_input": {
                 "file_path": "/workspace/CLAUDE/Plan/001-test/PLAN.md",
                 "old_string": "old",
-                "new_string": "new"
-            }
+                "new_string": "new",
+            },
         }
         # Should NOT match - no /workspace/ in old_string or new_string
         self.assertFalse(self.handler.matches(hook_input))
@@ -166,8 +165,8 @@ class TestAbsolutePathHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/deeply/nested/directory/file.js",
-                "content": "test"
-            }
+                "content": "test",
+            },
         }
         # Should NOT match - no /workspace/ in content
         self.assertFalse(self.handler.matches(hook_input))
@@ -178,8 +177,8 @@ class TestAbsolutePathHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "src/components/Button.tsx",
-                "content": "import styles from '/workspace/src/components/Button.module.css';\nexport const Button = () => {};"
-            }
+                "content": "import styles from '/workspace/src/components/Button.module.css';\nexport const Button = () => {};",
+            },
         }
         result = self.handler.handle(hook_input)
 
@@ -196,8 +195,8 @@ class TestAbsolutePathHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "src/test.ts",
-                "content": "console.log('test');"
-            }
+                "content": "console.log('test');",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -207,8 +206,8 @@ class TestAbsolutePathHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "./src/test.ts",
-                "content": "console.log('test');"
-            }
+                "content": "console.log('test');",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -219,8 +218,8 @@ class TestAbsolutePathHandler(unittest.TestCase):
             "tool_input": {
                 "file_path": "../other-project/file.ts",
                 "old_string": "old",
-                "new_string": "new"
-            }
+                "new_string": "new",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -230,8 +229,8 @@ class TestAbsolutePathHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/tmp/project/src/test.ts",
-                "content": "console.log('test');"
-            }
+                "content": "console.log('test');",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -240,8 +239,8 @@ class TestAbsolutePathHandler(unittest.TestCase):
         hook_input = {
             "tool_name": "Bash",
             "tool_input": {
-                "command": "ls /workspace/"
-            }
+                "command": "ls /workspace/",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -250,8 +249,8 @@ class TestAbsolutePathHandler(unittest.TestCase):
         hook_input = {
             "tool_name": "Read",
             "tool_input": {
-                "file_path": "/workspace/src/test.ts"
-            }
+                "file_path": "/workspace/src/test.ts",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -263,8 +262,8 @@ class TestAbsolutePathHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "",
-                "content": "test"
-            }
+                "content": "test",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -273,8 +272,8 @@ class TestAbsolutePathHandler(unittest.TestCase):
         hook_input = {
             "tool_name": "Write",
             "tool_input": {
-                "content": "test"
-            }
+                "content": "test",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -284,8 +283,8 @@ class TestAbsolutePathHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "src/test.ts",
-                "content": ""
-            }
+                "content": "",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -294,8 +293,8 @@ class TestAbsolutePathHandler(unittest.TestCase):
         hook_input = {
             "tool_name": "Write",
             "tool_input": {
-                "file_path": "src/test.ts"
-            }
+                "file_path": "src/test.ts",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -305,8 +304,8 @@ class TestAbsolutePathHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "src/test.ts",
-                "content": "const path = '/WORKSPACE/data';"
-            }
+                "content": "const path = '/WORKSPACE/data';",
+            },
         }
         # /WORKSPACE/ is different from /workspace/ - should NOT match
         self.assertFalse(self.handler.matches(hook_input))
@@ -317,8 +316,8 @@ class TestAbsolutePathHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "src/test.ts",
-                "content": "// This path /workspace/data is hardcoded\nconst x = 1;"
-            }
+                "content": "// This path /workspace/data is hardcoded\nconst x = 1;",
+            },
         }
         # Should match - /workspace/ appears in content (even in comment)
         self.assertTrue(self.handler.matches(hook_input))
@@ -327,8 +326,7 @@ class TestAbsolutePathHandler(unittest.TestCase):
         """OLD TEST: No longer applies - we don't suggest path replacements for content."""
         # This test is obsolete since we're no longer checking file_path
         # We're checking content, and there's no simple "fix" to suggest
-        pass
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

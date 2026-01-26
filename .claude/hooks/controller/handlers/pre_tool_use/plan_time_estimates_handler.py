@@ -1,30 +1,30 @@
 """PlanTimeEstimatesHandler - individual handler file."""
 
+import os
 import re
 import sys
-import os
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from front_controller import Handler, HookResult, get_bash_command, get_file_path, get_file_content
+from front_controller import Handler, HookResult, get_file_content, get_file_path
 
 
 class PlanTimeEstimatesHandler(Handler):
     """Block time estimates in plan documents."""
 
     ESTIMATE_PATTERNS = [
-        r'\*\*Estimated\s+Effort\*\*:\s*[^\n]*(?:hours?|minutes?|days?|weeks?)',
-        r'Estimated\s+Effort:\s*[^\n]*(?:hours?|minutes?|days?|weeks?)',
-        r'(?:Time\s+)?[Ee]stimated\s+(?:time)?:\s*[^\n]*(?:hours?|minutes?|days?|weeks?)',
-        r'\*\*Total\s+Estimated\s+Time\*\*:\s*[^\n]*(?:hours?|minutes?|days?|weeks?)',
-        r'Total\s+Estimated\s+Time:\s*[^\n]*(?:hours?|minutes?|days?|weeks?)',
-        r'\*\*Target\s+Completion\*\*:\s*\d{4}-\d{2}-\d{2}',
-        r'Target\s+Completion:\s*\d{4}-\d{2}-\d{2}',
-        r'\*\*Completion\*\*:\s*\d{4}-\d{2}-\d{2}',
-        r'Completion:\s*\d{4}-\d{2}-\d{2}',
-        r'\b\d+\s*(hour|hr|minute|min|day|week|month)s?\b',
-        r'\b(ETA|timeline|deadline|due date):\s*\d',
+        r"\*\*Estimated\s+Effort\*\*:\s*[^\n]*(?:hours?|minutes?|days?|weeks?)",
+        r"Estimated\s+Effort:\s*[^\n]*(?:hours?|minutes?|days?|weeks?)",
+        r"(?:Time\s+)?[Ee]stimated\s+(?:time)?:\s*[^\n]*(?:hours?|minutes?|days?|weeks?)",
+        r"\*\*Total\s+Estimated\s+Time\*\*:\s*[^\n]*(?:hours?|minutes?|days?|weeks?)",
+        r"Total\s+Estimated\s+Time:\s*[^\n]*(?:hours?|minutes?|days?|weeks?)",
+        r"\*\*Target\s+Completion\*\*:\s*\d{4}-\d{2}-\d{2}",
+        r"Target\s+Completion:\s*\d{4}-\d{2}-\d{2}",
+        r"\*\*Completion\*\*:\s*\d{4}-\d{2}-\d{2}",
+        r"Completion:\s*\d{4}-\d{2}-\d{2}",
+        r"\b\d+\s*(hour|hr|minute|min|day|week|month)s?\b",
+        r"\b(ETA|timeline|deadline|due date):\s*\d",
     ]
 
     def __init__(self):
@@ -37,7 +37,7 @@ class PlanTimeEstimatesHandler(Handler):
             return False
 
         file_path = get_file_path(hook_input)
-        if not file_path or '/Plan/' not in file_path or not file_path.endswith('.md'):
+        if not file_path or "/Plan/" not in file_path or not file_path.endswith(".md"):
             return False
 
         content = get_file_content(hook_input)
@@ -70,7 +70,7 @@ class PlanTimeEstimatesHandler(Handler):
                 "  - Describe implementation steps\n"
                 "  - Let user decide scheduling\n"
                 "  - Focus on actionable work, not timelines"
-            )
+            ),
         )
 
 

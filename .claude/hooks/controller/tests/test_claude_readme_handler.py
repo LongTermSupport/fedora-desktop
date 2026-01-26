@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """Tests for ClaudeReadmeHandler - validate CLAUDE.md content quality."""
 
-import unittest
-import sys
 import os
+import sys
+import unittest
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from front_controller import HookResult
 from handlers.pre_tool_use import ClaudeReadmeHandler
 
 
@@ -37,8 +36,8 @@ find CLAUDE/Plan -maxdepth 2 -type d -name '[0-9]*' | sed 's|.*/\\([0-9]\\{3\\}\
 ```
 
 Next plan number = highest + 1
-"""
-            }
+""",
+            },
         }
         # Should NOT match - code blocks are legitimate in instructional docs
         self.assertFalse(self.handler.matches(hook_input))
@@ -61,8 +60,8 @@ All scripts must have shebangs:
 ```
 
 This ensures executability.
-"""
-            }
+""",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -95,8 +94,8 @@ create(context) {
   };
 }
 ```
-"""
-            }
+""",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -119,8 +118,8 @@ CSS example:
 ```
 
 Both are valid examples.
-"""
-            }
+""",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -136,8 +135,8 @@ Both are valid examples.
 ```bash
 npm run build
 ```
-"""
-            }
+""",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -152,8 +151,8 @@ npm run build
 Use `npm run build` to build the project.
 
 The `src/` directory contains source code.
-"""
-            }
+""",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -163,8 +162,8 @@ The `src/` directory contains source code.
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "README.md",
-                "content": "```bash\nSome code here\n```"
-            }
+                "content": "```bash\nSome code here\n```",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -184,8 +183,8 @@ Example usage:
 ```typescript
 import { Hero } from '@/components/hero/Hero';
 ```
-"""
-            }
+""",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -198,8 +197,8 @@ import { Hero } from '@/components/hero/Hero';
         hook_input = {
             "tool_name": "Read",
             "tool_input": {
-                "file_path": "CLAUDE.md"
-            }
+                "file_path": "CLAUDE.md",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -208,8 +207,8 @@ import { Hero } from '@/components/hero/Hero';
         hook_input = {
             "tool_name": "Bash",
             "tool_input": {
-                "command": "cat CLAUDE.md"
-            }
+                "command": "cat CLAUDE.md",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -219,8 +218,8 @@ import { Hero } from '@/components/hero/Hero';
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "CLAUDE.md",
-                "content": ""
-            }
+                "content": "",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -229,8 +228,8 @@ import { Hero } from '@/components/hero/Hero';
         hook_input = {
             "tool_name": "Write",
             "tool_input": {
-                "file_path": "CLAUDE.md"
-            }
+                "file_path": "CLAUDE.md",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -240,8 +239,8 @@ import { Hero } from '@/components/hero/Hero';
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "claude.md",
-                "content": "```bash\ntest\n```"
-            }
+                "content": "```bash\ntest\n```",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -251,8 +250,8 @@ import { Hero } from '@/components/hero/Hero';
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "deeply/nested/path/CLAUDE.md",
-                "content": "Valid content"
-            }
+                "content": "Valid content",
+            },
         }
         # Should NOT match if content is valid (no forbidden patterns)
         self.assertFalse(self.handler.matches(hook_input))
@@ -271,8 +270,8 @@ import { Hero } from '@/components/hero/Hero';
                 "content": """# Project Structure
 
 For implementation details, see the specific component docs.
-"""
-            }
+""",
+            },
         }
         # Phrase "implementation details" is legitimate in context
         self.assertFalse(self.handler.matches(hook_input))
@@ -288,12 +287,12 @@ For implementation details, see the specific component docs.
 Avoid specific code examples in CLAUDE.md files.
 
 Instead, reference detailed documentation.
-"""
-            }
+""",
+            },
         }
         # The phrase itself is fine when used instructionally
         self.assertFalse(self.handler.matches(hook_input))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

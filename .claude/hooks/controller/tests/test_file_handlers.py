@@ -4,21 +4,20 @@
 Tests ALL file-related handlers against legacy hook behavior to ensure 100% parity.
 """
 
-import unittest
-import sys
 import os
+import sys
+import unittest
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from front_controller import Handler, HookResult
 from handlers.pre_tool_use import (
-    EslintDisableHandler,
-    PlanTimeEstimatesHandler,
-    MarkdownOrganizationHandler,
     ClaudeReadmeHandler,
-    WebSearchYearHandler,
+    EslintDisableHandler,
+    MarkdownOrganizationHandler,
     OfficialPlanCommandHandler,
+    PlanTimeEstimatesHandler,
+    WebSearchYearHandler,
 )
 
 
@@ -34,8 +33,8 @@ class TestEslintDisableHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/src/test.ts",
-                "content": "// eslint-disable-next-line no-console\nconsole.log('test');"
-            }
+                "content": "// eslint-disable-next-line no-console\nconsole.log('test');",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -45,8 +44,8 @@ class TestEslintDisableHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/src/test.ts",
-                "content": "// @ts-ignore\nconst x: any = 'test';"
-            }
+                "content": "// @ts-ignore\nconst x: any = 'test';",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -56,8 +55,8 @@ class TestEslintDisableHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/src/test.ts",
-                "content": "// @ts-nocheck\nconst x = 'test';"
-            }
+                "content": "// @ts-nocheck\nconst x = 'test';",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -67,8 +66,8 @@ class TestEslintDisableHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/src/test.ts",
-                "content": "/* eslint-disable no-console */\nconsole.log('test');"
-            }
+                "content": "/* eslint-disable no-console */\nconsole.log('test');",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -78,8 +77,8 @@ class TestEslintDisableHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/src/test.ts",
-                "content": "const x = 'test';\nconsole.log(x);"
-            }
+                "content": "const x = 'test';\nconsole.log(x);",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -96,12 +95,12 @@ class TestEslintDisableHandler(unittest.TestCase):
                 "tool_name": "Write",
                 "tool_input": {
                     "file_path": file_path,
-                    "content": "// eslint-disable"
-                }
+                    "content": "// eslint-disable",
+                },
             }
             self.assertFalse(
                 self.handler.matches(hook_input),
-                f"Should not check {file_path}"
+                f"Should not check {file_path}",
             )
 
     def test_no_match_node_modules(self):
@@ -110,8 +109,8 @@ class TestEslintDisableHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/node_modules/package/index.ts",
-                "content": "// eslint-disable"
-            }
+                "content": "// eslint-disable",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -127,12 +126,12 @@ class TestEslintDisableHandler(unittest.TestCase):
                 "tool_name": "Write",
                 "tool_input": {
                     "file_path": file_path,
-                    "content": "// eslint-disable"
-                }
+                    "content": "// eslint-disable",
+                },
             }
             self.assertFalse(
                 self.handler.matches(hook_input),
-                f"Should skip {file_path}"
+                f"Should skip {file_path}",
             )
 
     def test_matches_edit_tool(self):
@@ -142,8 +141,8 @@ class TestEslintDisableHandler(unittest.TestCase):
             "tool_input": {
                 "file_path": "/workspace/src/test.ts",
                 "old_string": "const x = 1;",
-                "new_string": "// eslint-disable-next-line\nconst x = 1;"
-            }
+                "new_string": "// eslint-disable-next-line\nconst x = 1;",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -153,8 +152,8 @@ class TestEslintDisableHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/src/test.ts",
-                "content": "// eslint-disable no-console\nconsole.log('test');"
-            }
+                "content": "// eslint-disable no-console\nconsole.log('test');",
+            },
         }
         result = self.handler.handle(hook_input)
 
@@ -184,8 +183,8 @@ class TestPlanTimeEstimatesHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/CLAUDE/Plan/001-test/PLAN.md",
-                "content": "**Estimated Effort**: 5 hours"
-            }
+                "content": "**Estimated Effort**: 5 hours",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -195,8 +194,8 @@ class TestPlanTimeEstimatesHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/CLAUDE/Plan/002-feature/PLAN.md",
-                "content": "This will take 3 days to complete."
-            }
+                "content": "This will take 3 days to complete.",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -206,8 +205,8 @@ class TestPlanTimeEstimatesHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/CLAUDE/Plan/003-bug/PLAN.md",
-                "content": "Timeline: 2 weeks"
-            }
+                "content": "Timeline: 2 weeks",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -217,8 +216,8 @@ class TestPlanTimeEstimatesHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/CLAUDE/Plan/004-refactor/PLAN.md",
-                "content": "Estimated time: 10 hours"
-            }
+                "content": "Estimated time: 10 hours",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -228,8 +227,8 @@ class TestPlanTimeEstimatesHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/CLAUDE/README.md",
-                "content": "This will take 5 hours."
-            }
+                "content": "This will take 5 hours.",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -239,8 +238,8 @@ class TestPlanTimeEstimatesHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/CLAUDE/Plan/005-clean/PLAN.md",
-                "content": "## Tasks\n\n- [ ] Implement feature\n- [ ] Write tests"
-            }
+                "content": "## Tasks\n\n- [ ] Implement feature\n- [ ] Write tests",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -250,8 +249,8 @@ class TestPlanTimeEstimatesHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/docs/guide.md",
-                "content": "This guide takes 2 hours to read."
-            }
+                "content": "This guide takes 2 hours to read.",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -261,8 +260,8 @@ class TestPlanTimeEstimatesHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/CLAUDE/Plan/006-test/PLAN.md",
-                "content": "Estimated: 8 hours"
-            }
+                "content": "Estimated: 8 hours",
+            },
         }
         result = self.handler.handle(hook_input)
 
@@ -294,8 +293,8 @@ class TestMarkdownOrganizationHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/CLAUDE/Plan/001-test/notes.md",
-                "content": "Plan notes"
-            }
+                "content": "Plan notes",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -305,8 +304,8 @@ class TestMarkdownOrganizationHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/CLAUDE/Guide.md",
-                "content": "Guide content"
-            }
+                "content": "Guide content",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -316,8 +315,8 @@ class TestMarkdownOrganizationHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/docs/api.md",
-                "content": "API documentation"
-            }
+                "content": "API documentation",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -327,8 +326,8 @@ class TestMarkdownOrganizationHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/untracked/scratch.md",
-                "content": "Temporary notes"
-            }
+                "content": "Temporary notes",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -345,12 +344,12 @@ class TestMarkdownOrganizationHandler(unittest.TestCase):
                 "tool_name": "Write",
                 "tool_input": {
                     "file_path": file_path,
-                    "content": "Context for this directory"
-                }
+                    "content": "Context for this directory",
+                },
             }
             self.assertFalse(
                 self.handler.matches(hook_input),
-                f"CLAUDE.md should be allowed at {file_path}"
+                f"CLAUDE.md should be allowed at {file_path}",
             )
 
     def test_allows_readme_md_anywhere(self):
@@ -366,12 +365,12 @@ class TestMarkdownOrganizationHandler(unittest.TestCase):
                 "tool_name": "Write",
                 "tool_input": {
                     "file_path": file_path,
-                    "content": "Documentation for this directory"
-                }
+                    "content": "Documentation for this directory",
+                },
             }
             self.assertFalse(
                 self.handler.matches(hook_input),
-                f"README.md should be allowed at {file_path}"
+                f"README.md should be allowed at {file_path}",
             )
 
     def test_allows_page_research_files(self):
@@ -387,12 +386,12 @@ class TestMarkdownOrganizationHandler(unittest.TestCase):
                 "tool_name": "Write",
                 "tool_input": {
                     "file_path": file_path,
-                    "content": "Research data for page"
-                }
+                    "content": "Research data for page",
+                },
             }
             self.assertFalse(
                 self.handler.matches(hook_input),
-                f"Page research file should be allowed at {file_path}"
+                f"Page research file should be allowed at {file_path}",
             )
 
     def test_allows_page_rules_files(self):
@@ -407,12 +406,12 @@ class TestMarkdownOrganizationHandler(unittest.TestCase):
                 "tool_name": "Write",
                 "tool_input": {
                     "file_path": file_path,
-                    "content": "Content rules for page"
-                }
+                    "content": "Content rules for page",
+                },
             }
             self.assertFalse(
                 self.handler.matches(hook_input),
-                f"Page rules file should be allowed at {file_path}"
+                f"Page rules file should be allowed at {file_path}",
             )
 
     def test_blocks_plan_root_files(self):
@@ -423,12 +422,12 @@ class TestMarkdownOrganizationHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/CLAUDE/Plan/notes.md",
-                "content": "Random notes"
-            }
+                "content": "Random notes",
+            },
         }
         self.assertTrue(
             self.handler.matches(hook_input),
-            "Files in CLAUDE/Plan/ root should be blocked (must use numbered subdirectories)"
+            "Files in CLAUDE/Plan/ root should be blocked (must use numbered subdirectories)",
         )
 
     def test_allows_plan_numbered_subdirectory(self):
@@ -437,12 +436,12 @@ class TestMarkdownOrganizationHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/CLAUDE/Plan/001-test-plan/notes.md",
-                "content": "Plan notes"
-            }
+                "content": "Plan notes",
+            },
         }
         self.assertFalse(
             self.handler.matches(hook_input),
-            "Files in numbered plan subdirectories should be allowed"
+            "Files in numbered plan subdirectories should be allowed",
         )
 
     def test_blocks_claude_arbitrary_subdirectories(self):
@@ -459,12 +458,12 @@ class TestMarkdownOrganizationHandler(unittest.TestCase):
                 "tool_name": "Write",
                 "tool_input": {
                     "file_path": file_path,
-                    "content": "Notes"
-                }
+                    "content": "Notes",
+                },
             }
             self.assertTrue(
                 self.handler.matches(hook_input),
-                f"Arbitrary CLAUDE subdirectories should be blocked: {file_path}"
+                f"Arbitrary CLAUDE subdirectories should be blocked: {file_path}",
             )
 
     def test_allows_claude_root_files(self):
@@ -479,12 +478,12 @@ class TestMarkdownOrganizationHandler(unittest.TestCase):
                 "tool_name": "Write",
                 "tool_input": {
                     "file_path": file_path,
-                    "content": "Documentation"
-                }
+                    "content": "Documentation",
+                },
             }
             self.assertFalse(
                 self.handler.matches(hook_input),
-                f"CLAUDE root files should be allowed: {file_path}"
+                f"CLAUDE root files should be allowed: {file_path}",
             )
 
     def test_blocks_wrong_location(self):
@@ -493,8 +492,8 @@ class TestMarkdownOrganizationHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/src/notes.md",
-                "content": "Random notes"
-            }
+                "content": "Random notes",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -504,8 +503,8 @@ class TestMarkdownOrganizationHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/NOTES.md",
-                "content": "Notes"
-            }
+                "content": "Notes",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -515,8 +514,8 @@ class TestMarkdownOrganizationHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/src/notes.md",
-                "content": "Notes"
-            }
+                "content": "Notes",
+            },
         }
         result = self.handler.handle(hook_input)
 
@@ -546,8 +545,8 @@ class TestClaudeReadmeHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/src/CLAUDE.md",
-                "content": "# Instructions\n\nUse this pattern when implementing features."
-            }
+                "content": "# Instructions\n\nUse this pattern when implementing features.",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -557,8 +556,8 @@ class TestClaudeReadmeHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/CLAUDE/CLAUDE.md",
-                "content": "# Guide\n\n```python\nprint('hello')\n```"
-            }
+                "content": "# Guide\n\n```python\nprint('hello')\n```",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -568,8 +567,8 @@ class TestClaudeReadmeHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/docs/guide.md",
-                "content": "```python\ncode here\n```"
-            }
+                "content": "```python\ncode here\n```",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -579,8 +578,8 @@ class TestClaudeReadmeHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/CLAUDE/CLAUDE.md",
-                "content": "```bash\nls -la\n```"
-            }
+                "content": "```bash\nls -la\n```",
+            },
         }
         result = self.handler.handle(hook_input)
 
@@ -608,8 +607,8 @@ class TestWebSearchYearHandler(unittest.TestCase):
         hook_input = {
             "tool_name": "WebSearch",
             "tool_input": {
-                "query": "best React practices 2024"
-            }
+                "query": "best React practices 2024",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -618,8 +617,8 @@ class TestWebSearchYearHandler(unittest.TestCase):
         hook_input = {
             "tool_name": "WebSearch",
             "tool_input": {
-                "query": "TypeScript 5.0 release 2023"
-            }
+                "query": "TypeScript 5.0 release 2023",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -628,8 +627,8 @@ class TestWebSearchYearHandler(unittest.TestCase):
         hook_input = {
             "tool_name": "WebSearch",
             "tool_input": {
-                "query": "best practices 2025"
-            }
+                "query": "best practices 2025",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -638,8 +637,8 @@ class TestWebSearchYearHandler(unittest.TestCase):
         hook_input = {
             "tool_name": "WebSearch",
             "tool_input": {
-                "query": "best React practices"
-            }
+                "query": "best React practices",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -648,8 +647,8 @@ class TestWebSearchYearHandler(unittest.TestCase):
         hook_input = {
             "tool_name": "Bash",
             "tool_input": {
-                "command": "echo 2024"
-            }
+                "command": "echo 2024",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -658,8 +657,8 @@ class TestWebSearchYearHandler(unittest.TestCase):
         hook_input = {
             "tool_name": "WebSearch",
             "tool_input": {
-                "query": "best practices 2024"
-            }
+                "query": "best practices 2024",
+            },
         }
         result = self.handler.handle(hook_input)
 
@@ -696,11 +695,11 @@ class TestOfficialPlanCommandHandler(unittest.TestCase):
             with self.subTest(command=command):
                 hook_input = {
                     "tool_name": "Bash",
-                    "tool_input": {"command": command}
+                    "tool_input": {"command": command},
                 }
                 self.assertTrue(
                     self.handler.matches(hook_input),
-                    f"Should match ad-hoc command: {command}"
+                    f"Should match ad-hoc command: {command}",
                 )
 
     def test_no_match_official_command(self):
@@ -708,7 +707,7 @@ class TestOfficialPlanCommandHandler(unittest.TestCase):
         official_command = "find CLAUDE/Plan -maxdepth 2 -type d -name '[0-9]*' | sed 's|.*/\\([0-9]\\{3\\}\\).*|\\1|' | sort -n | tail -1"
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": official_command}
+            "tool_input": {"command": official_command},
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -724,7 +723,7 @@ class TestOfficialPlanCommandHandler(unittest.TestCase):
             with self.subTest(command=command):
                 hook_input = {
                     "tool_name": "Bash",
-                    "tool_input": {"command": command}
+                    "tool_input": {"command": command},
                 }
                 self.assertFalse(self.handler.matches(hook_input))
 
@@ -732,7 +731,7 @@ class TestOfficialPlanCommandHandler(unittest.TestCase):
         """Should suggest using the official plan numbering command."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "ls CLAUDE/Plan/0*"}
+            "tool_input": {"command": "ls CLAUDE/Plan/0*"},
         }
         result = self.handler.handle(hook_input)
 
@@ -766,12 +765,12 @@ class TestMarkdownOrganizationAgentFiles(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/.claude/agents/test-agent.md",
-                "content": "Agent definition content"
-            }
+                "content": "Agent definition content",
+            },
         }
         self.assertFalse(
             self.handler.matches(hook_input),
-            "Agent files in .claude/agents/ should be allowed (absolute path)"
+            "Agent files in .claude/agents/ should be allowed (absolute path)",
         )
 
     def test_allows_agent_files_relative_path(self):
@@ -780,12 +779,12 @@ class TestMarkdownOrganizationAgentFiles(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": ".claude/agents/test-agent.md",
-                "content": "Agent definition content"
-            }
+                "content": "Agent definition content",
+            },
         }
         self.assertFalse(
             self.handler.matches(hook_input),
-            "Agent files in .claude/agents/ should be allowed (relative path)"
+            "Agent files in .claude/agents/ should be allowed (relative path)",
         )
 
     def test_allows_agent_files_workspace_normalized(self):
@@ -794,12 +793,12 @@ class TestMarkdownOrganizationAgentFiles(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "workspace/.claude/agents/hooks-specialist.md",
-                "content": "Agent definition content"
-            }
+                "content": "Agent definition content",
+            },
         }
         self.assertFalse(
             self.handler.matches(hook_input),
-            "Agent files should be allowed when workspace prefix is present"
+            "Agent files should be allowed when workspace prefix is present",
         )
 
     def test_allows_various_agent_filenames(self):
@@ -816,12 +815,12 @@ class TestMarkdownOrganizationAgentFiles(unittest.TestCase):
                 "tool_name": "Write",
                 "tool_input": {
                     "file_path": file_path,
-                    "content": "Agent definition"
-                }
+                    "content": "Agent definition",
+                },
             }
             self.assertFalse(
                 self.handler.matches(hook_input),
-                f"Agent file should be allowed: {file_path}"
+                f"Agent file should be allowed: {file_path}",
             )
 
 
@@ -842,8 +841,8 @@ class TestHandlerEdgeCases(unittest.TestCase):
                 "tool_name": "Write",
                 "tool_input": {
                     "file_path": "",
-                    "content": "test"
-                }
+                    "content": "test",
+                },
             }
             # Should not crash - either match or not match
             try:
@@ -865,8 +864,8 @@ class TestHandlerEdgeCases(unittest.TestCase):
                 "tool_name": "Write",
                 "tool_input": {
                     "file_path": file_path,
-                    "content": ""
-                }
+                    "content": "",
+                },
             }
             # Should not crash
             try:
@@ -906,12 +905,12 @@ class TestHandlerEdgeCases(unittest.TestCase):
                 "tool_name": "Write",
                 "tool_input": {
                     "file_path": f"/workspace/src/test{ext}",
-                    "content": "// eslint-disable"
-                }
+                    "content": "// eslint-disable",
+                },
             }
             self.assertTrue(
                 handler.matches(hook_input),
-                f"Should match {ext} extension"
+                f"Should match {ext} extension",
             )
 
 
@@ -937,12 +936,12 @@ class TestLegacyParityChecks(unittest.TestCase):
                 "tool_name": "Write",
                 "tool_input": {
                     "file_path": path,
-                    "content": "Instructions"
-                }
+                    "content": "Instructions",
+                },
             }
             self.assertFalse(
                 handler.matches(hook_input),
-                f"LEGACY PARITY BROKEN: CLAUDE.md should be allowed at {path}"
+                f"LEGACY PARITY BROKEN: CLAUDE.md should be allowed at {path}",
             )
 
     def test_markdown_organization_readme_md_parity(self):
@@ -961,12 +960,12 @@ class TestLegacyParityChecks(unittest.TestCase):
                 "tool_name": "Write",
                 "tool_input": {
                     "file_path": path,
-                    "content": "Documentation"
-                }
+                    "content": "Documentation",
+                },
             }
             self.assertFalse(
                 handler.matches(hook_input),
-                f"LEGACY PARITY BROKEN: README.md should be allowed at {path}"
+                f"LEGACY PARITY BROKEN: README.md should be allowed at {path}",
             )
 
     def test_eslint_disable_all_patterns_from_legacy(self):
@@ -988,12 +987,12 @@ class TestLegacyParityChecks(unittest.TestCase):
                 "tool_name": "Write",
                 "tool_input": {
                     "file_path": "/workspace/src/test.ts",
-                    "content": f"{pattern}\nconst x = 1;"
-                }
+                    "content": f"{pattern}\nconst x = 1;",
+                },
             }
             self.assertTrue(
                 handler.matches(hook_input),
-                f"LEGACY PARITY BROKEN: Should block pattern '{pattern}'"
+                f"LEGACY PARITY BROKEN: Should block pattern '{pattern}'",
             )
 
     def test_plan_estimates_legacy_patterns(self):
@@ -1015,12 +1014,12 @@ class TestLegacyParityChecks(unittest.TestCase):
                 "tool_name": "Write",
                 "tool_input": {
                     "file_path": "/workspace/CLAUDE/Plan/001-test/PLAN.md",
-                    "content": content
-                }
+                    "content": content,
+                },
             }
             self.assertTrue(
                 handler.matches(hook_input),
-                f"LEGACY PARITY BROKEN: Should block '{content}'"
+                f"LEGACY PARITY BROKEN: Should block '{content}'",
             )
 
     def test_websearch_year_legacy_range(self):
@@ -1034,15 +1033,15 @@ class TestLegacyParityChecks(unittest.TestCase):
             hook_input = {
                 "tool_name": "WebSearch",
                 "tool_input": {
-                    "query": f"best practices {year}"
-                }
+                    "query": f"best practices {year}",
+                },
             }
             self.assertTrue(
                 handler.matches(hook_input),
-                f"LEGACY PARITY BROKEN: Should block year {year}"
+                f"LEGACY PARITY BROKEN: Should block year {year}",
             )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Run tests with verbose output
     unittest.main(verbosity=2)

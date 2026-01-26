@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """PostToolUse front controller - dispatches to appropriate handler."""
 
-import sys
 import os
+import sys
 
 # Add current directory to Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from front_controller import FrontController
 from handlers.post_tool_use.file_handlers import (
+    AnsibleLintHandler,
     ValidateEslintOnWriteHandler,
     ValidateSitemapHandler,
-    AnsibleLintHandler,
 )
 
 
@@ -29,5 +29,5 @@ def main():
     controller.run()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

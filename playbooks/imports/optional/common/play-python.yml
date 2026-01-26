@@ -16,6 +16,7 @@
       ansible.builtin.dnf:
         name:
           - pipx
+          - ruff
           - make
           - cmake
           - gcc-c++

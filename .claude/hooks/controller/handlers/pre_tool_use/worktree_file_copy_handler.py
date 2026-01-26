@@ -1,13 +1,13 @@
 """WorktreeFileCopyHandler - individual handler file."""
 
+import os
 import re
 import sys
-import os
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from front_controller import Handler, HookResult, get_bash_command, get_file_path, get_file_content
+from front_controller import Handler, HookResult, get_bash_command
 
 
 class WorktreeFileCopyHandler(Handler):
@@ -19,25 +19,25 @@ class WorktreeFileCopyHandler(Handler):
     def matches(self, hook_input: dict) -> bool:
         """Check if copying between worktree and main repo."""
         command = get_bash_command(hook_input)
-        if not command or 'untracked/worktrees' not in command:
+        if not command or "untracked/worktrees" not in command:
             return False
 
         # Check for forbidden operations
-        if not re.search(r'\b(cp|mv|rsync)\b', command, re.IGNORECASE):
+        if not re.search(r"\b(cp|mv|rsync)\b", command, re.IGNORECASE):
             return False
 
         # Check patterns
         patterns = [
-            r'untracked/worktrees/[^/\s]+/\S+\s+.*\b(src/|tests/|config/)',
-            r'rsync.*untracked/worktrees.*\b(src|tests|config)\b',
+            r"untracked/worktrees/[^/\s]+/\S+\s+.*\b(src/|tests/|config/)",
+            r"rsync.*untracked/worktrees.*\b(src|tests|config)\b",
         ]
 
         for pattern in patterns:
             if re.search(pattern, command, re.IGNORECASE):
                 # Check if within same worktree
-                worktree_count = command.count('untracked/worktrees')
+                worktree_count = command.count("untracked/worktrees")
                 if worktree_count >= 2:
-                    worktree_paths = re.findall(r'untracked/worktrees/([^/\s]+)', command)
+                    worktree_paths = re.findall(r"untracked/worktrees/([^/\s]+)", command)
                     if len(worktree_paths) >= 2 and worktree_paths[0] == worktree_paths[1]:
                         continue
                 return True
@@ -65,6 +65,6 @@ class WorktreeFileCopyHandler(Handler):
                 "  3. cd /workspace (main repo)\n"
                 "  4. git merge your-branch\n\n"
                 "📖 See CLAUDE/Worktree.md for complete guide."
-            )
+            ),
         )
 

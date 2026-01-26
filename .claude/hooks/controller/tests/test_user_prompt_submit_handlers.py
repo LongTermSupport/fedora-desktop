@@ -1,18 +1,15 @@
 #!/usr/bin/env python3
 """Comprehensive unit tests for UserPromptSubmit handlers."""
 
-import unittest
-import sys
-import os
 import json
+import os
+import sys
 import tempfile
-from pathlib import Path
-from unittest.mock import patch, mock_open
+import unittest
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from front_controller import Handler, HookResult
 from handlers.user_prompt_submit.prompt_handlers import AutoContinueHandler
 
 
@@ -30,7 +27,7 @@ class TestAutoContinueHandler(unittest.TestCase):
 
     def create_test_transcript(self, assistant_message):
         """Helper to create a test transcript file."""
-        transcript_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.jsonl')
+        transcript_file = tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".jsonl")
 
         # Write a message entry
         message_entry = {
@@ -40,13 +37,13 @@ class TestAutoContinueHandler(unittest.TestCase):
                 "content": [
                     {
                         "type": "text",
-                        "text": assistant_message
-                    }
-                ]
-            }
+                        "text": assistant_message,
+                    },
+                ],
+            },
         }
 
-        transcript_file.write(json.dumps(message_entry) + '\n')
+        transcript_file.write(json.dumps(message_entry) + "\n")
         transcript_file.close()
 
         return transcript_file.name
@@ -58,7 +55,7 @@ class TestAutoContinueHandler(unittest.TestCase):
         try:
             hook_input = {
                 "prompt": "yes",
-                "transcript_path": transcript_path
+                "transcript_path": transcript_path,
             }
 
             self.assertTrue(self.handler.matches(hook_input))
@@ -72,7 +69,7 @@ class TestAutoContinueHandler(unittest.TestCase):
         try:
             hook_input = {
                 "prompt": "y",
-                "transcript_path": transcript_path
+                "transcript_path": transcript_path,
             }
 
             self.assertTrue(self.handler.matches(hook_input))
@@ -86,7 +83,7 @@ class TestAutoContinueHandler(unittest.TestCase):
         try:
             hook_input = {
                 "prompt": "continue",
-                "transcript_path": transcript_path
+                "transcript_path": transcript_path,
             }
 
             self.assertTrue(self.handler.matches(hook_input))
@@ -100,7 +97,7 @@ class TestAutoContinueHandler(unittest.TestCase):
         try:
             hook_input = {
                 "prompt": "yes, but please also check the styling",
-                "transcript_path": transcript_path
+                "transcript_path": transcript_path,
             }
 
             self.assertFalse(self.handler.matches(hook_input))
@@ -114,7 +111,7 @@ class TestAutoContinueHandler(unittest.TestCase):
         try:
             hook_input = {
                 "prompt": "yes",
-                "transcript_path": transcript_path
+                "transcript_path": transcript_path,
             }
 
             self.assertFalse(self.handler.matches(hook_input))
@@ -125,7 +122,7 @@ class TestAutoContinueHandler(unittest.TestCase):
         """Should NOT match if transcript doesn't exist."""
         hook_input = {
             "prompt": "yes",
-            "transcript_path": "/nonexistent/transcript.jsonl"
+            "transcript_path": "/nonexistent/transcript.jsonl",
         }
 
         self.assertFalse(self.handler.matches(hook_input))
@@ -137,7 +134,7 @@ class TestAutoContinueHandler(unittest.TestCase):
         try:
             hook_input = {
                 "prompt": "",
-                "transcript_path": transcript_path
+                "transcript_path": transcript_path,
             }
 
             self.assertFalse(self.handler.matches(hook_input))
@@ -151,7 +148,7 @@ class TestAutoContinueHandler(unittest.TestCase):
         try:
             hook_input = {
                 "prompt": "yes",
-                "transcript_path": transcript_path
+                "transcript_path": transcript_path,
             }
 
             result = self.handler.handle(hook_input)
@@ -172,7 +169,7 @@ class TestAutoContinueHandler(unittest.TestCase):
             # We test handle() directly here
             hook_input = {
                 "prompt": "yes, and also update the docs",
-                "transcript_path": transcript_path
+                "transcript_path": transcript_path,
             }
 
             result = self.handler.handle(hook_input)
@@ -231,7 +228,7 @@ class TestAutoContinueHandler(unittest.TestCase):
 
     def test_get_last_assistant_message_multiple_messages(self):
         """Should get the last assistant message from transcript with multiple messages."""
-        transcript_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.jsonl')
+        transcript_file = tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".jsonl")
 
         # Write multiple messages
         messages = [
@@ -239,27 +236,27 @@ class TestAutoContinueHandler(unittest.TestCase):
                 "type": "message",
                 "message": {
                     "role": "user",
-                    "content": [{"type": "text", "text": "Do task 1"}]
-                }
+                    "content": [{"type": "text", "text": "Do task 1"}],
+                },
             },
             {
                 "type": "message",
                 "message": {
                     "role": "assistant",
-                    "content": [{"type": "text", "text": "Task 1 complete."}]
-                }
+                    "content": [{"type": "text", "text": "Task 1 complete."}],
+                },
             },
             {
                 "type": "message",
                 "message": {
                     "role": "assistant",
-                    "content": [{"type": "text", "text": "Would you like me to continue?"}]
-                }
-            }
+                    "content": [{"type": "text", "text": "Would you like me to continue?"}],
+                },
+            },
         ]
 
         for msg in messages:
-            transcript_file.write(json.dumps(msg) + '\n')
+            transcript_file.write(json.dumps(msg) + "\n")
 
         transcript_file.close()
 
@@ -271,7 +268,7 @@ class TestAutoContinueHandler(unittest.TestCase):
 
     def test_get_last_assistant_message_malformed_transcript(self):
         """Should handle malformed transcript gracefully."""
-        transcript_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.jsonl')
+        transcript_file = tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".jsonl")
 
         # Write some invalid JSON
         transcript_file.write("not json\n")
@@ -285,5 +282,5 @@ class TestAutoContinueHandler(unittest.TestCase):
             os.unlink(transcript_file.name)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

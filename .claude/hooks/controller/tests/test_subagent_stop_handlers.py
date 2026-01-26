@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 """Comprehensive unit tests for SubagentStop handlers."""
 
-import unittest
-import sys
-import os
 import json
+import os
+import sys
 import tempfile
-from pathlib import Path
+import unittest
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from front_controller import Handler, HookResult
-from handlers.subagent_stop.agent_handlers import RemindPromptLibraryHandler, RemindValidatorHandler
+from handlers.subagent_stop.agent_handlers import (
+    RemindPromptLibraryHandler,
+    RemindValidatorHandler,
+)
 
 
 class TestRemindValidatorHandler(unittest.TestCase):
@@ -29,7 +30,7 @@ class TestRemindValidatorHandler(unittest.TestCase):
 
     def create_test_transcript_with_agent(self, subagent_type):
         """Helper to create a test transcript with a Task tool call."""
-        transcript_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.jsonl')
+        transcript_file = tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".jsonl")
 
         # Write a message with Task tool use
         message_entry = {
@@ -43,14 +44,14 @@ class TestRemindValidatorHandler(unittest.TestCase):
                         "input": {
                             "subagent_type": subagent_type,
                             "prompt": "Test prompt",
-                            "model": "haiku"
-                        }
-                    }
-                ]
-            }
+                            "model": "haiku",
+                        },
+                    },
+                ],
+            },
         }
 
-        transcript_file.write(json.dumps(message_entry) + '\n')
+        transcript_file.write(json.dumps(message_entry) + "\n")
         transcript_file.close()
 
         return transcript_file.name
@@ -62,7 +63,7 @@ class TestRemindValidatorHandler(unittest.TestCase):
         try:
             hook_input = {
                 "hook_event_name": "SubagentStop",
-                "transcript_path": transcript_path
+                "transcript_path": transcript_path,
             }
 
             self.assertTrue(self.handler.matches(hook_input))
@@ -76,7 +77,7 @@ class TestRemindValidatorHandler(unittest.TestCase):
         try:
             hook_input = {
                 "hook_event_name": "SubagentStop",
-                "transcript_path": transcript_path
+                "transcript_path": transcript_path,
             }
 
             self.assertTrue(self.handler.matches(hook_input))
@@ -90,7 +91,7 @@ class TestRemindValidatorHandler(unittest.TestCase):
         try:
             hook_input = {
                 "hook_event_name": "SubagentStop",
-                "transcript_path": transcript_path
+                "transcript_path": transcript_path,
             }
 
             self.assertTrue(self.handler.matches(hook_input))
@@ -104,7 +105,7 @@ class TestRemindValidatorHandler(unittest.TestCase):
         try:
             hook_input = {
                 "hook_event_name": "SubagentStop",
-                "transcript_path": transcript_path
+                "transcript_path": transcript_path,
             }
 
             self.assertFalse(self.handler.matches(hook_input))
@@ -118,7 +119,7 @@ class TestRemindValidatorHandler(unittest.TestCase):
         try:
             hook_input = {
                 "hook_event_name": "PreToolUse",
-                "transcript_path": transcript_path
+                "transcript_path": transcript_path,
             }
 
             self.assertFalse(self.handler.matches(hook_input))
@@ -129,7 +130,7 @@ class TestRemindValidatorHandler(unittest.TestCase):
         """Should NOT match if transcript doesn't exist."""
         hook_input = {
             "hook_event_name": "SubagentStop",
-            "transcript_path": "/nonexistent/transcript.jsonl"
+            "transcript_path": "/nonexistent/transcript.jsonl",
         }
 
         self.assertFalse(self.handler.matches(hook_input))
@@ -141,7 +142,7 @@ class TestRemindValidatorHandler(unittest.TestCase):
         try:
             hook_input = {
                 "hook_event_name": "SubagentStop",
-                "transcript_path": transcript_path
+                "transcript_path": transcript_path,
             }
 
             result = self.handler.handle(hook_input)
@@ -161,7 +162,7 @@ class TestRemindValidatorHandler(unittest.TestCase):
         try:
             hook_input = {
                 "hook_event_name": "SubagentStop",
-                "transcript_path": transcript_path
+                "transcript_path": transcript_path,
             }
 
             result = self.handler.handle(hook_input)
@@ -179,7 +180,7 @@ class TestRemindValidatorHandler(unittest.TestCase):
         try:
             hook_input = {
                 "hook_event_name": "SubagentStop",
-                "transcript_path": transcript_path
+                "transcript_path": transcript_path,
             }
 
             result = self.handler.handle(hook_input)
@@ -197,7 +198,7 @@ class TestRemindValidatorHandler(unittest.TestCase):
         try:
             hook_input = {
                 "hook_event_name": "SubagentStop",
-                "transcript_path": transcript_path
+                "transcript_path": transcript_path,
             }
 
             result = self.handler.handle(hook_input)
@@ -215,7 +216,7 @@ class TestRemindValidatorHandler(unittest.TestCase):
         try:
             hook_input = {
                 "hook_event_name": "SubagentStop",
-                "transcript_path": transcript_path
+                "transcript_path": transcript_path,
             }
 
             result = self.handler.handle(hook_input)
@@ -233,7 +234,7 @@ class TestRemindValidatorHandler(unittest.TestCase):
         try:
             hook_input = {
                 "hook_event_name": "SubagentStop",
-                "transcript_path": transcript_path
+                "transcript_path": transcript_path,
             }
 
             result = self.handler.handle(hook_input)
@@ -251,7 +252,7 @@ class TestRemindValidatorHandler(unittest.TestCase):
         try:
             hook_input = {
                 "hook_event_name": "SubagentStop",
-                "transcript_path": transcript_path
+                "transcript_path": transcript_path,
             }
 
             result = self.handler.handle(hook_input)
@@ -274,7 +275,7 @@ class TestRemindValidatorHandler(unittest.TestCase):
 
     def test_get_last_completed_agent_no_task_tool(self):
         """Should return empty string if no Task tool found."""
-        transcript_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.jsonl')
+        transcript_file = tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".jsonl")
 
         # Write message without Task tool
         message_entry = {
@@ -284,13 +285,13 @@ class TestRemindValidatorHandler(unittest.TestCase):
                 "content": [
                     {
                         "type": "text",
-                        "text": "Just a regular message"
-                    }
-                ]
-            }
+                        "text": "Just a regular message",
+                    },
+                ],
+            },
         }
 
-        transcript_file.write(json.dumps(message_entry) + '\n')
+        transcript_file.write(json.dumps(message_entry) + "\n")
         transcript_file.close()
 
         try:
@@ -301,7 +302,7 @@ class TestRemindValidatorHandler(unittest.TestCase):
 
     def test_get_last_completed_agent_multiple_tasks(self):
         """Should get the LAST Task tool call from transcript."""
-        transcript_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.jsonl')
+        transcript_file = tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".jsonl")
 
         # Write multiple Task tool calls
         for agent in ["first-agent", "second-agent", "sitemap-modifier"]:
@@ -315,13 +316,13 @@ class TestRemindValidatorHandler(unittest.TestCase):
                             "name": "Task",
                             "input": {
                                 "subagent_type": agent,
-                                "prompt": "Test"
-                            }
-                        }
-                    ]
-                }
+                                "prompt": "Test",
+                            },
+                        },
+                    ],
+                },
             }
-            transcript_file.write(json.dumps(message_entry) + '\n')
+            transcript_file.write(json.dumps(message_entry) + "\n")
 
         transcript_file.close()
 
@@ -348,7 +349,7 @@ class TestRemindValidatorHandler(unittest.TestCase):
             self.assertEqual(
                 self.handler.BUILDER_TO_VALIDATOR[builder]["validator"],
                 validator,
-                f"Mapping incorrect for {builder}"
+                f"Mapping incorrect for {builder}",
             )
 
 
@@ -440,5 +441,5 @@ class TestRemindPromptLibraryHandler(unittest.TestCase):
                 self.assertIn(agent_type, result.reason)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

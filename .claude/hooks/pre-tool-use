@@ -6,8 +6,10 @@ Use to allow, deny, or ask for permission to use tools.
 
 Official docs: https://code.claude.com/docs/en/hooks.md#pretooluse
 """
-import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'controller'))
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "controller"))
 from pre_tool_use import main
+
 sys.exit(main())

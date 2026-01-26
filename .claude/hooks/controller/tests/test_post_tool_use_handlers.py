@@ -1,16 +1,14 @@
 #!/usr/bin/env python3
 """Comprehensive unit tests for PostToolUse handlers."""
 
-import unittest
-import sys
 import os
-from pathlib import Path
-from unittest.mock import patch, MagicMock, mock_open
+import sys
+import unittest
+from unittest.mock import MagicMock, patch
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from front_controller import Handler, HookResult
 from handlers.post_tool_use.file_handlers import (
     ValidateEslintOnWriteHandler,
     ValidateSitemapHandler,
@@ -38,11 +36,11 @@ class TestValidateEslintOnWriteHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/src/components/Button.tsx",
-                "content": "export const Button = () => <button>Click</button>;"
-            }
+                "content": "export const Button = () => <button>Click</button>;",
+            },
         }
 
-        with patch('os.path.exists', return_value=True):
+        with patch("os.path.exists", return_value=True):
             self.assertTrue(self.handler.matches(hook_input))
 
     def test_matches_edit_ts_file(self):
@@ -52,11 +50,11 @@ class TestValidateEslintOnWriteHandler(unittest.TestCase):
             "tool_input": {
                 "file_path": "/workspace/src/utils/helpers.ts",
                 "old_string": "const x = 1",
-                "new_string": "const x = 2"
-            }
+                "new_string": "const x = 2",
+            },
         }
 
-        with patch('os.path.exists', return_value=True):
+        with patch("os.path.exists", return_value=True):
             self.assertTrue(self.handler.matches(hook_input))
 
     def test_does_not_match_non_ts_file(self):
@@ -65,11 +63,11 @@ class TestValidateEslintOnWriteHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/README.md",
-                "content": "# Test"
-            }
+                "content": "# Test",
+            },
         }
 
-        with patch('os.path.exists', return_value=True):
+        with patch("os.path.exists", return_value=True):
             self.assertFalse(self.handler.matches(hook_input))
 
     def test_does_not_match_node_modules(self):
@@ -78,11 +76,11 @@ class TestValidateEslintOnWriteHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/node_modules/some-lib/index.ts",
-                "content": "export const x = 1"
-            }
+                "content": "export const x = 1",
+            },
         }
 
-        with patch('os.path.exists', return_value=True):
+        with patch("os.path.exists", return_value=True):
             self.assertFalse(self.handler.matches(hook_input))
 
     def test_does_not_match_dist_files(self):
@@ -91,11 +89,11 @@ class TestValidateEslintOnWriteHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/dist/bundle.ts",
-                "content": "export const x = 1"
-            }
+                "content": "export const x = 1",
+            },
         }
 
-        with patch('os.path.exists', return_value=True):
+        with patch("os.path.exists", return_value=True):
             self.assertFalse(self.handler.matches(hook_input))
 
     def test_does_not_match_nonexistent_file(self):
@@ -104,28 +102,28 @@ class TestValidateEslintOnWriteHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/src/missing.ts",
-                "content": "export const x = 1"
-            }
+                "content": "export const x = 1",
+            },
         }
 
-        with patch('os.path.exists', return_value=False):
+        with patch("os.path.exists", return_value=False):
             self.assertFalse(self.handler.matches(hook_input))
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_handle_eslint_pass(self, mock_run):
         """Should allow if ESLint passes."""
         mock_run.return_value = MagicMock(
             returncode=0,
             stdout="",
-            stderr=""
+            stderr="",
         )
 
         hook_input = {
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/src/test.tsx",
-                "content": "export const x = 1"
-            }
+                "content": "export const x = 1",
+            },
         }
 
         result = self.handler.handle(hook_input)
@@ -133,21 +131,21 @@ class TestValidateEslintOnWriteHandler(unittest.TestCase):
         self.assertEqual(result.decision, "allow")
         self.assertIsNone(result.reason)
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_handle_eslint_fail(self, mock_run):
         """Should deny if ESLint fails."""
         mock_run.return_value = MagicMock(
             returncode=1,
             stdout="Error: Missing semicolon",
-            stderr=""
+            stderr="",
         )
 
         hook_input = {
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/src/test.tsx",
-                "content": "export const x = 1"
-            }
+                "content": "export const x = 1",
+            },
         }
 
         result = self.handler.handle(hook_input)
@@ -156,18 +154,18 @@ class TestValidateEslintOnWriteHandler(unittest.TestCase):
         self.assertIn("ESLint validation FAILED", result.reason)
         self.assertIn("Missing semicolon", result.reason)
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_handle_eslint_timeout(self, mock_run):
         """Should deny if ESLint times out."""
         from subprocess import TimeoutExpired
-        mock_run.side_effect = TimeoutExpired(cmd=['eslint'], timeout=30)
+        mock_run.side_effect = TimeoutExpired(cmd=["eslint"], timeout=30)
 
         hook_input = {
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/src/test.tsx",
-                "content": "export const x = 1"
-            }
+                "content": "export const x = 1",
+            },
         }
 
         result = self.handler.handle(hook_input)
@@ -175,7 +173,7 @@ class TestValidateEslintOnWriteHandler(unittest.TestCase):
         self.assertEqual(result.decision, "deny")
         self.assertIn("timed out", result.reason)
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_handle_worktree_file(self, mock_run):
         """Should handle worktree files with wrapper script."""
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
@@ -184,8 +182,8 @@ class TestValidateEslintOnWriteHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/untracked/worktrees/feature/src/test.tsx",
-                "content": "export const x = 1"
-            }
+                "content": "export const x = 1",
+            },
         }
 
         result = self.handler.handle(hook_input)
@@ -194,8 +192,8 @@ class TestValidateEslintOnWriteHandler(unittest.TestCase):
         # Verify wrapper script was called
         mock_run.assert_called_once()
         call_args = mock_run.call_args
-        self.assertIn('tsx', call_args[0][0][0])
-        self.assertIn('eslint-wrapper.ts', call_args[0][0][1])
+        self.assertIn("tsx", call_args[0][0][0])
+        self.assertIn("eslint-wrapper.ts", call_args[0][0][1])
 
 
 class TestValidateSitemapHandler(unittest.TestCase):
@@ -216,8 +214,8 @@ class TestValidateSitemapHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/CLAUDE/Sitemap/services.md",
-                "content": "# Services"
-            }
+                "content": "# Services",
+            },
         }
 
         self.assertTrue(self.handler.matches(hook_input))
@@ -229,8 +227,8 @@ class TestValidateSitemapHandler(unittest.TestCase):
             "tool_input": {
                 "file_path": "/workspace/CLAUDE/Sitemap/about.md",
                 "old_string": "old",
-                "new_string": "new"
-            }
+                "new_string": "new",
+            },
         }
 
         self.assertTrue(self.handler.matches(hook_input))
@@ -241,8 +239,8 @@ class TestValidateSitemapHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/CLAUDE/Sitemap/CLAUDE.md",
-                "content": "# Docs"
-            }
+                "content": "# Docs",
+            },
         }
 
         self.assertFalse(self.handler.matches(hook_input))
@@ -253,8 +251,8 @@ class TestValidateSitemapHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/CLAUDE/Plan/055.md",
-                "content": "# Plan"
-            }
+                "content": "# Plan",
+            },
         }
 
         self.assertFalse(self.handler.matches(hook_input))
@@ -265,8 +263,8 @@ class TestValidateSitemapHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/CLAUDE/Sitemap/data.json",
-                "content": "{}"
-            }
+                "content": "{}",
+            },
         }
 
         self.assertFalse(self.handler.matches(hook_input))
@@ -278,8 +276,8 @@ class TestValidateSitemapHandler(unittest.TestCase):
             "tool_input": {
                 "file_path": "/workspace/CLAUDE/Sitemap/services.md",
                 "old_string": "old",
-                "new_string": "new"
-            }
+                "new_string": "new",
+            },
         }
 
         result = self.handler.handle(hook_input)
@@ -296,5 +294,5 @@ class TestValidateSitemapHandler(unittest.TestCase):
 # PostToolUse saw just-created directories as "existing".
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

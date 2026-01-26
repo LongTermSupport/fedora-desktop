@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
-"""
-Unit tests for OfficialPlanCommandHandler.
+"""Unit tests for OfficialPlanCommandHandler.
 
 This handler enforces use of the official plan number discovery command
 and blocks fragile ad-hoc alternatives.
 """
 
-import unittest
-import sys
 import os
+import sys
+import unittest
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from handlers.pre_tool_use.official_plan_command_handler import OfficialPlanCommandHandler
+from handlers.pre_tool_use.official_plan_command_handler import (
+    OfficialPlanCommandHandler,
+)
 
 
 class TestOfficialPlanCommandHandler(unittest.TestCase):
@@ -150,8 +151,8 @@ class TestOfficialPlanCommandHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/CLAUDE/Plan/061-test/PLAN.md",
-                "content": "# Plan 061"
-            }
+                "content": "# Plan 061",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -175,7 +176,7 @@ class TestOfficialPlanCommandHandler(unittest.TestCase):
         """Should block ad-hoc command with helpful guidance."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "ls CLAUDE/Plan/0*"}
+            "tool_input": {"command": "ls CLAUDE/Plan/0*"},
         }
 
         result = self.handler.handle(hook_input)
@@ -188,5 +189,5 @@ class TestOfficialPlanCommandHandler(unittest.TestCase):
         self.assertIn("CLAUDE/Plan/CLAUDE.md", result.reason)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

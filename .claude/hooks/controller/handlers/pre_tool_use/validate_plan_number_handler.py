@@ -1,19 +1,18 @@
 """PreToolUse handler to validate plan folder numbering BEFORE directory creation."""
 
+import os
 import re
 import sys
-import os
 from pathlib import Path
 
 # Add parent directories to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from front_controller import Handler, HookResult, get_file_path, get_bash_command
+from front_controller import Handler, HookResult, get_bash_command, get_file_path
 
 
 class ValidatePlanNumberHandler(Handler):
-    """
-    Validate plan folder numbering to ensure sequential plans.
+    """Validate plan folder numbering to ensure sequential plans.
 
     IMPORTANT: This runs as PreToolUse (BEFORE directory creation) to avoid
     the timing bug where PostToolUse sees the just-created directory as existing.
@@ -41,13 +40,13 @@ class ValidatePlanNumberHandler(Handler):
         # Check Write operations
         if tool_name == "Write":
             file_path = get_file_path(hook_input)
-            if file_path and re.search(r'CLAUDE/Plan/(\d{3})-([^/]+)/', file_path):
+            if file_path and re.search(r"CLAUDE/Plan/(\d{3})-([^/]+)/", file_path):
                 return True
 
         # Check Bash mkdir commands
         if tool_name == "Bash":
             command = get_bash_command(hook_input)
-            if command and re.search(r'mkdir.*?CLAUDE/Plan/(\d{3})-([^\s/]+)', command):
+            if command and re.search(r"mkdir.*?CLAUDE/Plan/(\d{3})-([^\s/]+)", command):
                 return True
 
         return False
@@ -61,14 +60,14 @@ class ValidatePlanNumberHandler(Handler):
         # Extract plan number and name
         if tool_name == "Write":
             file_path = get_file_path(hook_input)
-            match = re.search(r'CLAUDE/Plan/(\d{3})-([^/]+)/', file_path)
+            match = re.search(r"CLAUDE/Plan/(\d{3})-([^/]+)/", file_path)
             if match:
                 plan_number = int(match.group(1))
                 plan_name = match.group(2)
 
         elif tool_name == "Bash":
             command = get_bash_command(hook_input)
-            match = re.search(r'mkdir.*?CLAUDE/Plan/(\d{3})-([^\s/]+)', command)
+            match = re.search(r"mkdir.*?CLAUDE/Plan/(\d{3})-([^\s/]+)", command)
             if match:
                 plan_number = int(match.group(1))
                 plan_name = match.group(2)
@@ -129,14 +128,14 @@ See: CLAUDE/Plan/CLAUDE.md for full instructions
 
         # Active plans
         for item in plan_root.iterdir():
-            if item.is_dir() and re.match(r'^\d{3}-', item.name):
+            if item.is_dir() and re.match(r"^\d{3}-", item.name):
                 plan_dirs.append(item.name)
 
         # Completed plans
         completed_dir = plan_root / "Completed"
         if completed_dir.exists():
             for item in completed_dir.iterdir():
-                if item.is_dir() and re.match(r'^\d{3}-', item.name):
+                if item.is_dir() and re.match(r"^\d{3}-", item.name):
                     plan_dirs.append(item.name)
 
         if not plan_dirs:
@@ -145,7 +144,7 @@ See: CLAUDE/Plan/CLAUDE.md for full instructions
         # Extract numbers and find highest
         numbers = []
         for dirname in plan_dirs:
-            match = re.match(r'^(\d{3})-', dirname)
+            match = re.match(r"^(\d{3})-", dirname)
             if match:
                 numbers.append(int(match.group(1)))
 

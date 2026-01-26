@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """Unit tests for AdHocScriptHandler."""
 
-import unittest
-import sys
 import os
+import sys
+import unittest
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from front_controller import Handler
 from handlers.pre_tool_use import AdHocScriptHandler
 
 
@@ -35,11 +34,11 @@ class TestAdHocScriptHandler(unittest.TestCase):
         for command in protected_scripts:
             hook_input = {
                 "tool_name": "Bash",
-                "tool_input": {"command": command}
+                "tool_input": {"command": command},
             }
             self.assertTrue(
                 self.handler.matches(hook_input),
-                f"Should match protected script: {command}"
+                f"Should match protected script: {command}",
             )
 
     def test_matches_node_scripts_protected_script(self):
@@ -47,7 +46,7 @@ class TestAdHocScriptHandler(unittest.TestCase):
         command = "node scripts/llm-lint.ts"
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": command}
+            "tool_input": {"command": command},
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -56,7 +55,7 @@ class TestAdHocScriptHandler(unittest.TestCase):
         command = "tsx scripts/llm-lint.ts"  # Changed from verify-build.ts (which is in ALLOWED_ADHOC)
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": command}
+            "tool_input": {"command": command},
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -71,11 +70,11 @@ class TestAdHocScriptHandler(unittest.TestCase):
         for command in test_cases:
             hook_input = {
                 "tool_name": "Bash",
-                "tool_input": {"command": command}
+                "tool_input": {"command": command},
             }
             self.assertTrue(
                 self.handler.matches(hook_input),
-                f"Should match with path prefix: {command}"
+                f"Should match with path prefix: {command}",
             )
 
     def test_matches_with_arguments(self):
@@ -89,11 +88,11 @@ class TestAdHocScriptHandler(unittest.TestCase):
         for command in test_cases:
             hook_input = {
                 "tool_name": "Bash",
-                "tool_input": {"command": command}
+                "tool_input": {"command": command},
             }
             self.assertTrue(
                 self.handler.matches(hook_input),
-                f"Should match with arguments: {command}"
+                f"Should match with arguments: {command}",
             )
 
     # Test ALLOWED patterns (scripts without npm commands)
@@ -110,11 +109,11 @@ class TestAdHocScriptHandler(unittest.TestCase):
         for command in allowed_scripts:
             hook_input = {
                 "tool_name": "Bash",
-                "tool_input": {"command": command}
+                "tool_input": {"command": command},
             }
             self.assertFalse(
                 self.handler.matches(hook_input),
-                f"Should NOT match allowed ad-hoc script: {command}"
+                f"Should NOT match allowed ad-hoc script: {command}",
             )
 
     def test_no_match_library_files(self):
@@ -128,11 +127,11 @@ class TestAdHocScriptHandler(unittest.TestCase):
         for command in library_files:
             hook_input = {
                 "tool_name": "Bash",
-                "tool_input": {"command": command}
+                "tool_input": {"command": command},
             }
             self.assertFalse(
                 self.handler.matches(hook_input),
-                f"Should NOT match library file: {command}"
+                f"Should NOT match library file: {command}",
             )
 
     # Test npm run commands (should NOT match - handled by NpmCommandHandler)
@@ -149,11 +148,11 @@ class TestAdHocScriptHandler(unittest.TestCase):
         for command in npm_commands:
             hook_input = {
                 "tool_name": "Bash",
-                "tool_input": {"command": command}
+                "tool_input": {"command": command},
             }
             self.assertFalse(
                 self.handler.matches(hook_input),
-                f"Should NOT match npm command: {command}"
+                f"Should NOT match npm command: {command}",
             )
 
     # Test non-Bash tools
@@ -164,8 +163,8 @@ class TestAdHocScriptHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/test.txt",
-                "content": "npx tsx scripts/llm-lint.ts"
-            }
+                "content": "npx tsx scripts/llm-lint.ts",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -184,11 +183,11 @@ class TestAdHocScriptHandler(unittest.TestCase):
         for command in other_commands:
             hook_input = {
                 "tool_name": "Bash",
-                "tool_input": {"command": command}
+                "tool_input": {"command": command},
             }
             self.assertFalse(
                 self.handler.matches(hook_input),
-                f"Should NOT match non-script command: {command}"
+                f"Should NOT match non-script command: {command}",
             )
 
     # Test edge cases
@@ -197,7 +196,7 @@ class TestAdHocScriptHandler(unittest.TestCase):
         """Should NOT match empty commands."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": ""}
+            "tool_input": {"command": ""},
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -205,7 +204,7 @@ class TestAdHocScriptHandler(unittest.TestCase):
         """Should NOT match when command key is missing."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {}
+            "tool_input": {},
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -220,11 +219,11 @@ class TestAdHocScriptHandler(unittest.TestCase):
         for command in test_cases:
             hook_input = {
                 "tool_name": "Bash",
-                "tool_input": {"command": command}
+                "tool_input": {"command": command},
             }
             self.assertTrue(
                 self.handler.matches(hook_input),
-                f"Should match case-insensitive: {command}"
+                f"Should match case-insensitive: {command}",
             )
 
     # Test handle() method
@@ -233,7 +232,7 @@ class TestAdHocScriptHandler(unittest.TestCase):
         """Should block and suggest npm command."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "npx tsx scripts/llm-lint.ts"}
+            "tool_input": {"command": "npx tsx scripts/llm-lint.ts"},
         }
         result = self.handler.handle(hook_input)
 
@@ -255,7 +254,7 @@ class TestAdHocScriptHandler(unittest.TestCase):
         for command, expected_suggestion in test_cases:
             hook_input = {
                 "tool_name": "Bash",
-                "tool_input": {"command": command}
+                "tool_input": {"command": command},
             }
             result = self.handler.handle(hook_input)
 
@@ -268,7 +267,7 @@ class TestAdHocScriptHandler(unittest.TestCase):
         command = "npx tsx scripts/llm-lint.ts"  # Changed from verify-build.ts (which is in ALLOWED_ADHOC)
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": command}
+            "tool_input": {"command": command},
         }
         result = self.handler.handle(hook_input)
 
@@ -278,7 +277,7 @@ class TestAdHocScriptHandler(unittest.TestCase):
         """Should explain why ad-hoc script execution is blocked."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "npx tsx scripts/llm-lint.ts"}
+            "tool_input": {"command": "npx tsx scripts/llm-lint.ts"},
         }
         result = self.handler.handle(hook_input)
 
@@ -297,5 +296,5 @@ class TestAdHocScriptHandler(unittest.TestCase):
         self.assertEqual(self.handler.name, "prevent-adhoc-scripts")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

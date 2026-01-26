@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """Tests for SystemPathsHandler - prevents direct editing of deployed system files."""
 
-import unittest
-import sys
 import os
+import sys
+import unittest
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from front_controller import HookResult
 from handlers.pre_tool_use import SystemPathsHandler
 
 
@@ -28,8 +27,8 @@ class TestSystemPathsHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/etc/systemd/system/myservice.service",
-                "content": "[Unit]\nDescription=Test"
-            }
+                "content": "[Unit]\nDescription=Test",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -40,8 +39,8 @@ class TestSystemPathsHandler(unittest.TestCase):
             "tool_input": {
                 "file_path": "/var/local/claude-yolo/claude-yolo",
                 "old_string": "old",
-                "new_string": "new"
-            }
+                "new_string": "new",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -51,8 +50,8 @@ class TestSystemPathsHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/usr/local/bin/script.sh",
-                "content": "#!/bin/bash\necho test"
-            }
+                "content": "#!/bin/bash\necho test",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -62,8 +61,8 @@ class TestSystemPathsHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/opt/myapp/config.conf",
-                "content": "setting=value"
-            }
+                "content": "setting=value",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -73,8 +72,8 @@ class TestSystemPathsHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/root/.bashrc",
-                "content": "export PATH=/usr/local/bin:$PATH"
-            }
+                "content": "export PATH=/usr/local/bin:$PATH",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -84,8 +83,8 @@ class TestSystemPathsHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/home/{{ user_login }}/.bashrc",  # Placeholder - not actual username
-                "content": "alias ll='ls -la'"
-            }
+                "content": "alias ll='ls -la'",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -99,8 +98,8 @@ class TestSystemPathsHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "files/etc/systemd/system/myservice.service",
-                "content": "[Unit]\nDescription=Test"
-            }
+                "content": "[Unit]\nDescription=Test",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -110,8 +109,8 @@ class TestSystemPathsHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "files/var/local/claude-yolo/claude-yolo",
-                "content": "#!/bin/bash\necho test"
-            }
+                "content": "#!/bin/bash\necho test",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -121,8 +120,8 @@ class TestSystemPathsHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/files/etc/config.conf",
-                "content": "setting=value"
-            }
+                "content": "setting=value",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -133,8 +132,8 @@ class TestSystemPathsHandler(unittest.TestCase):
             "tool_input": {
                 "file_path": "./playbooks/imports/play-git.yml",
                 "old_string": "old",
-                "new_string": "new"
-            }
+                "new_string": "new",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -143,8 +142,8 @@ class TestSystemPathsHandler(unittest.TestCase):
         hook_input = {
             "tool_name": "Read",
             "tool_input": {
-                "file_path": "/etc/systemd/system/myservice.service"
-            }
+                "file_path": "/etc/systemd/system/myservice.service",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -153,8 +152,8 @@ class TestSystemPathsHandler(unittest.TestCase):
         hook_input = {
             "tool_name": "Bash",
             "tool_input": {
-                "command": "ls /etc/"
-            }
+                "command": "ls /etc/",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -168,8 +167,8 @@ class TestSystemPathsHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/etc/systemd/system/myservice.service",
-                "content": "[Unit]\nDescription=Test"
-            }
+                "content": "[Unit]\nDescription=Test",
+            },
         }
         result = self.handler.handle(hook_input)
         self.assertEqual(result.decision, "deny")
@@ -185,8 +184,8 @@ class TestSystemPathsHandler(unittest.TestCase):
             "tool_input": {
                 "file_path": "/var/local/claude-yolo/claude-yolo",
                 "old_string": "old",
-                "new_string": "new"
-            }
+                "new_string": "new",
+            },
         }
         result = self.handler.handle(hook_input)
         self.assertEqual(result.decision, "deny")
@@ -200,8 +199,8 @@ class TestSystemPathsHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/usr/local/bin/myscript",
-                "content": "#!/bin/bash\necho test"
-            }
+                "content": "#!/bin/bash\necho test",
+            },
         }
         result = self.handler.handle(hook_input)
         self.assertEqual(result.decision, "deny")
@@ -215,8 +214,8 @@ class TestSystemPathsHandler(unittest.TestCase):
             "tool_input": {
                 "file_path": "/home/{{ user_login }}/.bashrc",  # Placeholder - not actual username
                 "old_string": "export OLD",
-                "new_string": "export NEW"
-            }
+                "new_string": "export NEW",
+            },
         }
         result = self.handler.handle(hook_input)
         self.assertEqual(result.decision, "deny")
@@ -224,7 +223,7 @@ class TestSystemPathsHandler(unittest.TestCase):
         # Check for infrastructure-as-code concept (with or without hyphens)
         self.assertTrue(
             "infrastructure as code" in result.reason.lower() or
-            "infrastructure-as-code" in result.reason.lower()
+            "infrastructure-as-code" in result.reason.lower(),
         )
 
     def test_error_message_includes_principles(self):
@@ -233,8 +232,8 @@ class TestSystemPathsHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/etc/config.conf",
-                "content": "test=value"
-            }
+                "content": "test=value",
+            },
         }
         result = self.handler.handle(hook_input)
         self.assertIn("version control", result.reason.lower())
@@ -242,9 +241,9 @@ class TestSystemPathsHandler(unittest.TestCase):
         # Check for infrastructure-as-code concept (with or without hyphens)
         self.assertTrue(
             "infrastructure as code" in result.reason.lower() or
-            "infrastructure-as-code" in result.reason.lower()
+            "infrastructure-as-code" in result.reason.lower(),
         )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

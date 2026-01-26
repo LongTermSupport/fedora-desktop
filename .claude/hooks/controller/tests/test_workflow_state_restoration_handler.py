@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 """Tests for WorkflowStateRestorationHandler."""
 
-import unittest
+import glob
 import json
 import os
-import glob
-from datetime import datetime
-from unittest.mock import patch
-
 import sys
+import unittest
+
 # Get the controller directory (parent of tests directory)
 controller_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, controller_dir)
 
-from front_controller import Handler, HookResult
-from handlers.session_start.workflow_state_restoration_handler import WorkflowStateRestorationHandler
+from front_controller import Handler
+from handlers.session_start.workflow_state_restoration_handler import (
+    WorkflowStateRestorationHandler,
+)
 
 
 class TestWorkflowStateRestorationHandler(unittest.TestCase):
@@ -47,7 +47,7 @@ class TestWorkflowStateRestorationHandler(unittest.TestCase):
         """Should match when SessionStart source is 'compact'."""
         hook_input = {
             "hook_event_name": "SessionStart",
-            "source": "compact"
+            "source": "compact",
         }
 
         # Even if no state file exists, should match on source="compact"
@@ -57,7 +57,7 @@ class TestWorkflowStateRestorationHandler(unittest.TestCase):
         """Should not match when SessionStart source is 'startup'."""
         hook_input = {
             "hook_event_name": "SessionStart",
-            "source": "startup"
+            "source": "startup",
         }
 
         self.assertFalse(self.handler.matches(hook_input))
@@ -66,7 +66,7 @@ class TestWorkflowStateRestorationHandler(unittest.TestCase):
         """Should not match when SessionStart source is 'resume'."""
         hook_input = {
             "hook_event_name": "SessionStart",
-            "source": "resume"
+            "source": "resume",
         }
 
         self.assertFalse(self.handler.matches(hook_input))
@@ -81,7 +81,7 @@ class TestWorkflowStateRestorationHandler(unittest.TestCase):
             "workflow_type": "custom",
             "phase": {"current": 1, "total": 1, "name": "Test", "status": "in_progress"},
             "required_reading": ["@test1.md"],
-            "created_at": "2025-12-09T10:00:00Z"
+            "created_at": "2025-12-09T10:00:00Z",
         }
 
         state2 = {
@@ -89,14 +89,14 @@ class TestWorkflowStateRestorationHandler(unittest.TestCase):
             "workflow_type": "custom",
             "phase": {"current": 2, "total": 2, "name": "Test 2", "status": "in_progress"},
             "required_reading": ["@test2.md"],
-            "created_at": "2025-12-09T11:00:00Z"
+            "created_at": "2025-12-09T11:00:00Z",
         }
 
         # Write older file first (in new directory structure)
         workflow_dir1 = "./untracked/workflow-state/first-workflow"
         os.makedirs(workflow_dir1, exist_ok=True)
         state_file1 = f"{workflow_dir1}/state-first-workflow-20251209_100000.json"
-        with open(state_file1, 'w') as f:
+        with open(state_file1, "w") as f:
             json.dump(state1, f)
 
         # Wait a moment to ensure different mtime
@@ -107,12 +107,12 @@ class TestWorkflowStateRestorationHandler(unittest.TestCase):
         workflow_dir2 = "./untracked/workflow-state/second-workflow"
         os.makedirs(workflow_dir2, exist_ok=True)
         state_file2 = f"{workflow_dir2}/state-second-workflow-20251209_110000.json"
-        with open(state_file2, 'w') as f:
+        with open(state_file2, "w") as f:
             json.dump(state2, f)
 
         hook_input = {
             "hook_event_name": "SessionStart",
-            "source": "compact"
+            "source": "compact",
         }
 
         result = self.handler.handle(hook_input)
@@ -130,24 +130,24 @@ class TestWorkflowStateRestorationHandler(unittest.TestCase):
             "workflow_type": "custom",
             "phase": {"current": 1, "total": 1, "name": "Test", "status": "in_progress"},
             "required_reading": ["@test.md"],
-            "created_at": "2025-12-09T10:00:00Z"
+            "created_at": "2025-12-09T10:00:00Z",
         }
 
         # Write to new directory structure
         workflow_dir = "./untracked/workflow-state/test-workflow"
         os.makedirs(workflow_dir, exist_ok=True)
         state_file = f"{workflow_dir}/state-test-workflow-20251209_100000.json"
-        with open(state_file, 'w') as f:
+        with open(state_file, "w") as f:
             json.dump(state, f)
 
         self.assertTrue(os.path.exists(state_file))
 
         hook_input = {
             "hook_event_name": "SessionStart",
-            "source": "compact"
+            "source": "compact",
         }
 
-        result = self.handler.handle(hook_input)
+        _result = self.handler.handle(hook_input)
 
         # File should NOT be deleted - persists across compaction cycles
         self.assertTrue(os.path.exists(state_file))
@@ -163,22 +163,22 @@ class TestWorkflowStateRestorationHandler(unittest.TestCase):
             "required_reading": [
                 "@CLAUDE/PageOrchestration.md",
                 "@CLAUDE/Sitemap/case-studies.md",
-                "@.claude/skills/page-orchestration/SKILL.md"
+                "@.claude/skills/page-orchestration/SKILL.md",
             ],
             "context": {"plan_number": 39},
             "key_reminders": ["Case studies SKIP Phase 3"],
-            "created_at": "2025-12-09T10:00:00Z"
+            "created_at": "2025-12-09T10:00:00Z",
         }
 
         # Write to new directory structure
         workflow_dir = "./untracked/workflow-state/test-workflow"
         os.makedirs(workflow_dir, exist_ok=True)
-        with open(f"{workflow_dir}/state-test-workflow-test.json", 'w') as f:
+        with open(f"{workflow_dir}/state-test-workflow-test.json", "w") as f:
             json.dump(state, f)
 
         hook_input = {
             "hook_event_name": "SessionStart",
-            "source": "compact"
+            "source": "compact",
         }
 
         result = self.handler.handle(hook_input)
@@ -199,18 +199,18 @@ class TestWorkflowStateRestorationHandler(unittest.TestCase):
             "required_reading": ["@.claude/skills/qa/SKILL.md"],
             "context": {"iteration": 3},
             "key_reminders": ["Run llm:qa between iterations"],
-            "created_at": "2025-12-09T10:00:00Z"
+            "created_at": "2025-12-09T10:00:00Z",
         }
 
         # Write to new directory structure
         workflow_dir = "./untracked/workflow-state/test-workflow"
         os.makedirs(workflow_dir, exist_ok=True)
-        with open(f"{workflow_dir}/state-test-workflow-test.json", 'w') as f:
+        with open(f"{workflow_dir}/state-test-workflow-test.json", "w") as f:
             json.dump(state, f)
 
         hook_input = {
             "hook_event_name": "SessionStart",
-            "source": "compact"
+            "source": "compact",
         }
 
         result = self.handler.handle(hook_input)
@@ -234,20 +234,20 @@ class TestWorkflowStateRestorationHandler(unittest.TestCase):
             "key_reminders": [
                 "Critical rule number one",
                 "Important reminder number two",
-                "Do not forget this"
+                "Do not forget this",
             ],
-            "created_at": "2025-12-09T10:00:00Z"
+            "created_at": "2025-12-09T10:00:00Z",
         }
 
         # Write to new directory structure
         workflow_dir = "./untracked/workflow-state/test-workflow"
         os.makedirs(workflow_dir, exist_ok=True)
-        with open(f"{workflow_dir}/state-test-workflow-test.json", 'w') as f:
+        with open(f"{workflow_dir}/state-test-workflow-test.json", "w") as f:
             json.dump(state, f)
 
         hook_input = {
             "hook_event_name": "SessionStart",
-            "source": "compact"
+            "source": "compact",
         }
 
         result = self.handler.handle(hook_input)
@@ -265,7 +265,7 @@ class TestWorkflowStateRestorationHandler(unittest.TestCase):
 
         hook_input = {
             "hook_event_name": "SessionStart",
-            "source": "compact"
+            "source": "compact",
         }
 
         result = self.handler.handle(hook_input)
@@ -280,12 +280,12 @@ class TestWorkflowStateRestorationHandler(unittest.TestCase):
         os.makedirs("./untracked", exist_ok=True)
 
         # Write corrupt JSON
-        with open("./untracked/workflow-state-corrupt.json", 'w') as f:
+        with open("./untracked/workflow-state-corrupt.json", "w") as f:
             f.write("{invalid json content here")
 
         hook_input = {
             "hook_event_name": "SessionStart",
-            "source": "compact"
+            "source": "compact",
         }
 
         result = self.handler.handle(hook_input)
@@ -302,18 +302,18 @@ class TestWorkflowStateRestorationHandler(unittest.TestCase):
             "workflow_type": "custom",
             "phase": {"current": 1, "total": 1, "name": "Test", "status": "in_progress"},
             "required_reading": ["@test.md"],
-            "created_at": "2025-12-09T10:00:00Z"
+            "created_at": "2025-12-09T10:00:00Z",
         }
 
         # Write to new directory structure
         workflow_dir = "./untracked/workflow-state/test-workflow"
         os.makedirs(workflow_dir, exist_ok=True)
-        with open(f"{workflow_dir}/state-test-workflow-test.json", 'w') as f:
+        with open(f"{workflow_dir}/state-test-workflow-test.json", "w") as f:
             json.dump(state, f)
 
         hook_input = {
             "hook_event_name": "SessionStart",
-            "source": "compact"
+            "source": "compact",
         }
 
         result = self.handler.handle(hook_input)
@@ -329,18 +329,18 @@ class TestWorkflowStateRestorationHandler(unittest.TestCase):
             "workflow_type": "custom",
             "phase": {"current": 1, "total": 1, "name": "Test", "status": "in_progress"},
             "required_reading": ["@test.md"],
-            "created_at": "2025-12-09T10:00:00Z"
+            "created_at": "2025-12-09T10:00:00Z",
         }
 
         # Write to new directory structure
         workflow_dir = "./untracked/workflow-state/test-workflow"
         os.makedirs(workflow_dir, exist_ok=True)
-        with open(f"{workflow_dir}/state-test-workflow-test.json", 'w') as f:
+        with open(f"{workflow_dir}/state-test-workflow-test.json", "w") as f:
             json.dump(state, f)
 
         hook_input = {
             "hook_event_name": "SessionStart",
-            "source": "compact"
+            "source": "compact",
         }
 
         result = self.handler.handle(hook_input)
@@ -351,5 +351,5 @@ class TestWorkflowStateRestorationHandler(unittest.TestCase):
         self.assertIn("DO NOT proceed with assumptions", result.context)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

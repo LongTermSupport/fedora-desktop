@@ -1,13 +1,12 @@
 """WebSearchYearHandler - individual handler file."""
 
-import re
-import sys
 import os
+import sys
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from front_controller import Handler, HookResult, get_bash_command, get_file_path, get_file_content
+from front_controller import Handler, HookResult
 
 
 class WebSearchYearHandler(Handler):
@@ -49,7 +48,7 @@ class WebSearchYearHandler(Handler):
                 f"  - Use {self.CURRENT_YEAR} for current information\n"
                 "  - Remove year if searching general topics\n"
                 "  - Only use old years if specifically researching history"
-            )
+            ),
         )
 
 

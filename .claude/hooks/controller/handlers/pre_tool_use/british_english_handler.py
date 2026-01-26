@@ -1,13 +1,13 @@
 """BritishEnglishHandler - individual handler file."""
 
+import os
 import re
 import sys
-import os
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from front_controller import Handler, HookResult, get_bash_command, get_file_path, get_file_content
+from front_controller import Handler, HookResult, get_file_content, get_file_path
 
 
 class BritishEnglishHandler(Handler):
@@ -15,19 +15,19 @@ class BritishEnglishHandler(Handler):
 
     # Common American -> British spelling patterns
     SPELLING_CHECKS = {
-        r'\bcolor\b': 'colour',
-        r'\bfavor\b': 'favour',
-        r'\bbehavior\b': 'behaviour',
-        r'\borganize\b': 'organise',
-        r'\brecognize\b': 'recognise',
-        r'\banalyze\b': 'analyse',
-        r'\bcenter\b': 'centre',
-        r'\bmeter\b': 'metre',
-        r'\bliter\b': 'litre',
+        r"\bcolor\b": "colour",
+        r"\bfavor\b": "favour",
+        r"\bbehavior\b": "behaviour",
+        r"\borganize\b": "organise",
+        r"\brecognize\b": "recognise",
+        r"\banalyze\b": "analyse",
+        r"\bcenter\b": "centre",
+        r"\bmeter\b": "metre",
+        r"\bliter\b": "litre",
     }
 
-    CHECK_EXTENSIONS = ['.md', '.ejs', '.html', '.txt']
-    CHECK_DIRECTORIES = ['private_html', 'docs', 'CLAUDE']
+    CHECK_EXTENSIONS = [".md", ".ejs", ".html", ".txt"]
+    CHECK_DIRECTORIES = ["private_html", "docs", "CLAUDE"]
 
     def __init__(self):
         super().__init__(name="enforce-british-english", priority=60)
@@ -74,13 +74,13 @@ class BritishEnglishHandler(Handler):
 
         # WARNING: We allow the operation but print a warning
         warning_parts = [
-            f"⚠️  American English detected in {file_path}:\n"
+            f"⚠️  American English detected in {file_path}:\n",
         ]
 
         for issue in issues[:5]:  # Show max 5 issues
             warning_parts.append(
                 f"  Line {issue['line']}: '{issue['american']}' → use '{issue['british']}'\n"
-                f"    {issue['text']}\n"
+                f"    {issue['text']}\n",
             )
 
         if len(issues) > 5:
@@ -88,24 +88,24 @@ class BritishEnglishHandler(Handler):
 
         warning_parts.append(
             "\n✅ CORRECT SPELLING: Please use British English.\n"
-            "If this is intentional (e.g., in a quote), you can ignore this warning.\n"
+            "If this is intentional (e.g., in a quote), you can ignore this warning.\n",
         )
 
         # Return allow with warning message
         return HookResult(
             decision="allow",
-            reason="".join(warning_parts)
+            reason="".join(warning_parts),
         )
 
     def _check_british_english(self, content: str) -> list:
         """Check content for American spellings, skipping code blocks."""
         issues = []
-        lines = content.split('\n')
+        lines = content.split("\n")
         in_code_block = False
 
         for line_num, line in enumerate(lines, 1):
             # Toggle code block state
-            if line.strip().startswith('```'):
+            if line.strip().startswith("```"):
                 in_code_block = not in_code_block
                 continue
 
@@ -118,10 +118,10 @@ class BritishEnglishHandler(Handler):
                 match = re.search(american_pattern, line, re.IGNORECASE)
                 if match:
                     issues.append({
-                        'line': line_num,
-                        'american': match.group(),
-                        'british': british,
-                        'text': line.strip()[:80]  # Truncate long lines
+                        "line": line_num,
+                        "american": match.group(),
+                        "british": british,
+                        "text": line.strip()[:80],  # Truncate long lines
                     })
 
         return issues

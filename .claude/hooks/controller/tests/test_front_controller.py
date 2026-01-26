@@ -1,14 +1,21 @@
 #!/usr/bin/env python3
 """Unit tests for front_controller module."""
 
-import unittest
-import sys
 import os
+import sys
+import unittest
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from front_controller import HookResult, Handler, FrontController, get_bash_command, get_file_path, get_file_content
+from front_controller import (
+    FrontController,
+    Handler,
+    HookResult,
+    get_bash_command,
+    get_file_content,
+    get_file_path,
+)
 
 
 class TestHookResult(unittest.TestCase):
@@ -149,7 +156,7 @@ class TestUtilityFunctions(unittest.TestCase):
         """Should extract bash command."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "git status"}
+            "tool_input": {"command": "git status"},
         }
         result = get_bash_command(hook_input)
         self.assertEqual(result, "git status")
@@ -158,7 +165,7 @@ class TestUtilityFunctions(unittest.TestCase):
         """Should return None for non-Bash tools."""
         hook_input = {
             "tool_name": "Write",
-            "tool_input": {"file_path": "/test.txt"}
+            "tool_input": {"file_path": "/test.txt"},
         }
         result = get_bash_command(hook_input)
         self.assertIsNone(result)
@@ -167,7 +174,7 @@ class TestUtilityFunctions(unittest.TestCase):
         """Should extract file path from Write/Edit."""
         hook_input = {
             "tool_name": "Write",
-            "tool_input": {"file_path": "/workspace/test.txt", "content": "test"}
+            "tool_input": {"file_path": "/workspace/test.txt", "content": "test"},
         }
         result = get_file_path(hook_input)
         self.assertEqual(result, "/workspace/test.txt")
@@ -176,7 +183,7 @@ class TestUtilityFunctions(unittest.TestCase):
         """Should return None for non-Write/Edit tools."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "ls"}
+            "tool_input": {"command": "ls"},
         }
         result = get_file_path(hook_input)
         self.assertIsNone(result)
@@ -185,7 +192,7 @@ class TestUtilityFunctions(unittest.TestCase):
         """Should extract file content from Write/Edit."""
         hook_input = {
             "tool_name": "Edit",
-            "tool_input": {"file_path": "/test.txt", "content": "file contents"}
+            "tool_input": {"file_path": "/test.txt", "content": "file contents"},
         }
         result = get_file_content(hook_input)
         self.assertEqual(result, "file contents")
@@ -304,7 +311,7 @@ class TestUtilityFunctionsEdgeCases(unittest.TestCase):
         """Should return empty string for empty command."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": ""}
+            "tool_input": {"command": ""},
         }
         result = get_bash_command(hook_input)
         self.assertEqual(result, "")
@@ -319,7 +326,7 @@ class TestUtilityFunctionsEdgeCases(unittest.TestCase):
         """Should return empty string if command key missing."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {}
+            "tool_input": {},
         }
         result = get_bash_command(hook_input)
         self.assertEqual(result, "")
@@ -328,7 +335,7 @@ class TestUtilityFunctionsEdgeCases(unittest.TestCase):
         """Should work for Edit tool as well as Write."""
         hook_input = {
             "tool_name": "Edit",
-            "tool_input": {"file_path": "/test.txt"}
+            "tool_input": {"file_path": "/test.txt"},
         }
         result = get_file_path(hook_input)
         self.assertEqual(result, "/test.txt")
@@ -337,7 +344,7 @@ class TestUtilityFunctionsEdgeCases(unittest.TestCase):
         """Should return empty string for empty path."""
         hook_input = {
             "tool_name": "Write",
-            "tool_input": {"file_path": ""}
+            "tool_input": {"file_path": ""},
         }
         result = get_file_path(hook_input)
         self.assertEqual(result, "")
@@ -346,7 +353,7 @@ class TestUtilityFunctionsEdgeCases(unittest.TestCase):
         """Should return empty string for empty content."""
         hook_input = {
             "tool_name": "Write",
-            "tool_input": {"content": ""}
+            "tool_input": {"content": ""},
         }
         result = get_file_content(hook_input)
         self.assertEqual(result, "")
@@ -355,11 +362,11 @@ class TestUtilityFunctionsEdgeCases(unittest.TestCase):
         """Should return empty string if content key missing."""
         hook_input = {
             "tool_name": "Write",
-            "tool_input": {}
+            "tool_input": {},
         }
         result = get_file_content(hook_input)
         self.assertEqual(result, "")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

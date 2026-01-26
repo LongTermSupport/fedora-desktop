@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
 """Integration tests for workflow detection with real scenarios."""
 
-import unittest
+import glob
 import json
 import os
-import glob
 import shutil
-from datetime import datetime
-
 import sys
+import unittest
+
 # Get the controller directory (parent of tests directory)
 controller_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, controller_dir)
 
-from handlers.pre_compact.workflow_state_pre_compact_handler import WorkflowStatePreCompactHandler
-from handlers.session_start.workflow_state_restoration_handler import WorkflowStateRestorationHandler
+from handlers.pre_compact.workflow_state_pre_compact_handler import (
+    WorkflowStatePreCompactHandler,
+)
+from handlers.session_start.workflow_state_restoration_handler import (
+    WorkflowStateRestorationHandler,
+)
 
 
 class TestWorkflowIntegration(unittest.TestCase):
@@ -32,7 +35,7 @@ class TestWorkflowIntegration(unittest.TestCase):
         for f in glob.glob("CLAUDE.local.md"):
             try:
                 os.remove(f)
-            except:
+            except Exception:
                 pass
 
         # Clean up test plan directories
@@ -47,7 +50,7 @@ class TestWorkflowIntegration(unittest.TestCase):
         for f in glob.glob("CLAUDE.local.md"):
             try:
                 os.remove(f)
-            except:
+            except Exception:
                 pass
 
         if os.path.exists("CLAUDE/Plan/test-plan"):
@@ -71,7 +74,7 @@ Key Reminders:
 - Sitemap spec exists at CLAUDE/Sitemap/case-studies.md
 """
 
-        with open("CLAUDE.local.md", 'w') as f:
+        with open("CLAUDE.local.md", "w") as f:
             f.write(workflow_memory)
 
         # PreCompact should detect workflow
@@ -87,7 +90,7 @@ Key Reminders:
         self.assertEqual(len(state_files), 1)
 
         # Read and verify state content
-        with open(state_files[0], 'r') as f:
+        with open(state_files[0]) as f:
             state = json.load(f)
 
         self.assertIn("Page Orchestration", state["workflow"])
@@ -100,7 +103,7 @@ Key Reminders:
         # SessionStart should restore workflow
         session_input = {
             "hook_event_name": "SessionStart",
-            "source": "compact"
+            "source": "compact",
         }
 
         self.assertTrue(self.session_start_handler.matches(session_input))
@@ -136,7 +139,7 @@ Key Reminders:
 See CLAUDE/Plan/066-workflow-compaction-persistence/workflow-state-format.md for details.
 """
 
-        with open("CLAUDE/Plan/test-plan/PLAN.md", 'w') as f:
+        with open("CLAUDE/Plan/test-plan/PLAN.md", "w") as f:
             f.write(plan_content)
 
         # PreCompact should detect workflow from plan
@@ -151,7 +154,7 @@ See CLAUDE/Plan/066-workflow-compaction-persistence/workflow-state-format.md for
         state_files = glob.glob("./untracked/workflow-state/*/state-*.json")
         self.assertEqual(len(state_files), 1)
 
-        with open(state_files[0], 'r') as f:
+        with open(state_files[0]) as f:
             state = json.load(f)
 
         self.assertEqual(state["workflow"], "Workflow Compaction Persistence")
@@ -173,7 +176,7 @@ Key Reminders:
 - Fix all type errors before ESLint
 """
 
-        with open("CLAUDE.local.md", 'w') as f:
+        with open("CLAUDE.local.md", "w") as f:
             f.write(workflow_memory)
 
         # PreCompact detection
@@ -186,7 +189,7 @@ Key Reminders:
 
         # Verify state
         state_files = glob.glob("./untracked/workflow-state/*/state-*.json")
-        with open(state_files[0], 'r') as f:
+        with open(state_files[0]) as f:
             state = json.load(f)
 
         self.assertIn("QA Skill", state["workflow"])
@@ -220,7 +223,7 @@ Phase: 1/2 - Analysis
 @.claude/skills/eslint/SKILL.md
 """
 
-        with open("CLAUDE.local.md", 'w') as f:
+        with open("CLAUDE.local.md", "w") as f:
             f.write(workflow_memory_v1)
 
         # First compaction
@@ -241,7 +244,7 @@ Phase: 2/2 - Fixing
 @.claude/skills/eslint/SKILL.md
 """
 
-        with open("CLAUDE.local.md", 'w') as f:
+        with open("CLAUDE.local.md", "w") as f:
             f.write(workflow_memory_v2)
 
         # Second compaction
@@ -263,7 +266,7 @@ Phase: 1/1 - Validation
 @.claude/skills/sitemap/SKILL.md
 """
 
-        with open("CLAUDE.local.md", 'w') as f:
+        with open("CLAUDE.local.md", "w") as f:
             f.write(workflow_memory)
 
         # PreCompact
@@ -294,7 +297,7 @@ Key Reminders:
 - Validate data integrity after transformation
 """
 
-        with open("CLAUDE.local.md", 'w') as f:
+        with open("CLAUDE.local.md", "w") as f:
             f.write(workflow_memory)
 
         # PreCompact detection
@@ -306,7 +309,7 @@ Key Reminders:
 
         # Verify state file
         state_files = glob.glob("./untracked/workflow-state/*/state-*.json")
-        with open(state_files[0], 'r') as f:
+        with open(state_files[0]) as f:
             state = json.load(f)
 
         self.assertEqual(state["workflow"], "Custom Migration Workflow")
@@ -316,5 +319,5 @@ Key Reminders:
         self.assertIn("@docs/migration-guide.md", state["required_reading"])
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

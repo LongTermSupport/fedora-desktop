@@ -1,8 +1,8 @@
 """SubagentStop handlers - reminders after agent completion."""
 
 import json
-import sys
 import os
+import sys
 from pathlib import Path
 
 # Add parent directories to path for imports
@@ -36,7 +36,7 @@ class RemindPromptLibraryHandler(Handler):
                 "  • Track what works (metrics)\n"
                 "  • Build institutional knowledge\n\n"
                 "📖 See: CLAUDE/PromptLibrary/README.md"
-            )
+            ),
         )
 
 
@@ -52,7 +52,7 @@ class RemindValidatorHandler(Handler):
             "validation_command": """Task tool:
     subagent_type: sitemap-validator
     prompt: Validate all sitemap files in CLAUDE/Sitemap/
-    model: haiku"""
+    model: haiku""",
         },
         "page-implementer": {
             "validator": "page-technical-reviewer",
@@ -61,7 +61,7 @@ class RemindValidatorHandler(Handler):
             "validation_command": """Task tool:
     subagent_type: page-technical-reviewer
     prompt: Review the page implementation at [page-path]
-    model: sonnet"""
+    model: sonnet""",
         },
         "page-content-updater": {
             "validator": "page-humanizer",
@@ -70,7 +70,7 @@ class RemindValidatorHandler(Handler):
             "validation_command": """Task tool:
     subagent_type: page-humanizer
     prompt: Humanize content on the page at [page-path]
-    model: sonnet"""
+    model: sonnet""",
         },
         "eslint-fixer": {
             "validator": "eslint-assessor",
@@ -79,7 +79,7 @@ class RemindValidatorHandler(Handler):
             "validation_command": """Task tool:
     subagent_type: eslint-assessor
     prompt: Verify ESLint fixes and assess quality
-    model: haiku"""
+    model: haiku""",
         },
         "typescript-refactor": {
             "validator": "qa-runner",
@@ -88,7 +88,7 @@ class RemindValidatorHandler(Handler):
             "validation_command": """Task tool:
     subagent_type: qa-runner
     prompt: Run QA checks on refactored code (ESLint + TypeScript)
-    model: haiku"""
+    model: haiku""",
         },
         "typescript-react-component-builder": {
             "validator": "qa-runner",
@@ -97,7 +97,7 @@ class RemindValidatorHandler(Handler):
             "validation_command": """Task tool:
     subagent_type: qa-runner
     prompt: Run QA checks on new component (ESLint + TypeScript)
-    model: haiku"""
+    model: haiku""",
         },
         "typescript-specialist": {
             "validator": "qa-runner",
@@ -106,7 +106,7 @@ class RemindValidatorHandler(Handler):
             "validation_command": """Task tool:
     subagent_type: qa-runner
     prompt: Run QA checks on new TypeScript code (ESLint + TypeScript + tests)
-    model: haiku"""
+    model: haiku""",
         },
     }
 
@@ -172,7 +172,7 @@ If called {completed_agent} directly, you should validate manually.
                 return ""
 
             # Read transcript lines (JSONL format)
-            with open(transcript_file, 'r') as f:
+            with open(transcript_file) as f:
                 lines = f.readlines()
 
             # Parse lines in reverse to find most recent Task tool call

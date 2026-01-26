@@ -6,8 +6,10 @@ after tool execution.
 
 Official docs: https://code.claude.com/docs/en/hooks.md#posttooluse
 """
-import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'controller'))
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "controller"))
 from post_tool_use import main
+
 sys.exit(main())

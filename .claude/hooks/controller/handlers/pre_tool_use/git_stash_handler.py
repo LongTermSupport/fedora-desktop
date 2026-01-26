@@ -1,13 +1,13 @@
 """GitStashHandler - individual handler file."""
 
+import os
 import re
 import sys
-import os
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from front_controller import Handler, HookResult, get_bash_command, get_file_path, get_file_content
+from front_controller import Handler, HookResult, get_bash_command
 
 
 class GitStashHandler(Handler):
@@ -25,7 +25,7 @@ class GitStashHandler(Handler):
             return False
 
         # Only match stash creation (not list/show/apply which are safe)
-        return bool(re.search(r'git\s+stash\s+(?:push|save)', command, re.IGNORECASE))
+        return bool(re.search(r"git\s+stash\s+(?:push|save)", command, re.IGNORECASE))
 
     def handle(self, hook_input: dict) -> HookResult:
         """Block unless escape hatch phrase is present."""
@@ -48,7 +48,7 @@ class GitStashHandler(Handler):
                 "  - git add -p                        (stage specific changes)\n\n"
                 f"ESCAPE HATCH (if truly necessary):\n"
                 f"  git stash  # {self.ESCAPE_HATCH}"
-            )
+            ),
         )
 
 

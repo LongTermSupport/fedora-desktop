@@ -3,5 +3,5 @@
 from .workflow_state_restoration_handler import WorkflowStateRestorationHandler
 
 __all__ = [
-    'WorkflowStateRestorationHandler',
+    "WorkflowStateRestorationHandler",
 ]

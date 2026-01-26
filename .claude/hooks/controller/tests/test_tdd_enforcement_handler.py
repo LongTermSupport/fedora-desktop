@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
 """Unit tests for TDD enforcement handler."""
 
-import unittest
-import sys
 import os
-import tempfile
+import sys
+import unittest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from front_controller import Handler, HookResult
 from handlers.pre_tool_use.tdd_enforcement_handler import TddEnforcementHandler
 
 
@@ -35,8 +33,8 @@ class TestTddEnforcementHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/.claude/hooks/controller/handlers/pre_tool_use/new_handler.py",
-                "content": "class NewHandler(Handler):\n    pass"
-            }
+                "content": "class NewHandler(Handler):\n    pass",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -46,8 +44,8 @@ class TestTddEnforcementHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/.claude/hooks/controller/handlers/post_tool_use/validation_handler.py",
-                "content": "class ValidationHandler(Handler):\n    pass"
-            }
+                "content": "class ValidationHandler(Handler):\n    pass",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -57,8 +55,8 @@ class TestTddEnforcementHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/.claude/hooks/controller/handlers/user_prompt_submit/prompt_handler.py",
-                "content": "class PromptHandler(Handler):\n    pass"
-            }
+                "content": "class PromptHandler(Handler):\n    pass",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -68,8 +66,8 @@ class TestTddEnforcementHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/.claude/hooks/controller/handlers/subagent_stop/agent_handler.py",
-                "content": "class AgentHandler(Handler):\n    pass"
-            }
+                "content": "class AgentHandler(Handler):\n    pass",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -81,8 +79,8 @@ class TestTddEnforcementHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/.claude/hooks/controller/front_controller.py",
-                "content": "# Front controller code"
-            }
+                "content": "# Front controller code",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -92,8 +90,8 @@ class TestTddEnforcementHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/.claude/hooks/controller/tests/test_new_handler.py",
-                "content": "# Test code"
-            }
+                "content": "# Test code",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -103,8 +101,8 @@ class TestTddEnforcementHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/.claude/hooks/controller/handlers/pre_tool_use/__init__.py",
-                "content": "# Init file"
-            }
+                "content": "# Init file",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -115,8 +113,8 @@ class TestTddEnforcementHandler(unittest.TestCase):
             "tool_input": {
                 "file_path": "/workspace/.claude/hooks/controller/handlers/pre_tool_use/existing_handler.py",
                 "old_string": "old",
-                "new_string": "new"
-            }
+                "new_string": "new",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -126,14 +124,14 @@ class TestTddEnforcementHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/.claude/hooks/controller/handlers/pre_tool_use/README.md",
-                "content": "# Documentation"
-            }
+                "content": "# Documentation",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
     # Test HANDLE - when test file exists
 
-    @patch('pathlib.Path.exists')
+    @patch("pathlib.Path.exists")
     def test_handle_allows_when_test_file_exists(self, mock_exists):
         """Should allow Write when corresponding test file exists."""
         mock_exists.return_value = True
@@ -142,8 +140,8 @@ class TestTddEnforcementHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/.claude/hooks/controller/handlers/pre_tool_use/new_handler.py",
-                "content": "class NewHandler(Handler):\n    pass"
-            }
+                "content": "class NewHandler(Handler):\n    pass",
+            },
         }
 
         result = self.handler.handle(hook_input)
@@ -153,7 +151,7 @@ class TestTddEnforcementHandler(unittest.TestCase):
 
     # Test HANDLE - when test file does NOT exist
 
-    @patch('pathlib.Path.exists')
+    @patch("pathlib.Path.exists")
     def test_handle_denies_when_test_file_missing(self, mock_exists):
         """Should deny Write when test file doesn't exist."""
         mock_exists.return_value = False
@@ -162,8 +160,8 @@ class TestTddEnforcementHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/.claude/hooks/controller/handlers/pre_tool_use/new_handler.py",
-                "content": "class NewHandler(Handler):\n    pass"
-            }
+                "content": "class NewHandler(Handler):\n    pass",
+            },
         }
 
         result = self.handler.handle(hook_input)
@@ -173,7 +171,7 @@ class TestTddEnforcementHandler(unittest.TestCase):
         self.assertIn("new_handler.py", result.reason)
         self.assertIn("test_new_handler.py", result.reason)
 
-    @patch('pathlib.Path.exists')
+    @patch("pathlib.Path.exists")
     def test_handle_includes_helpful_guidance(self, mock_exists):
         """Should include helpful guidance on creating test file first."""
         mock_exists.return_value = False
@@ -182,8 +180,8 @@ class TestTddEnforcementHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/.claude/hooks/controller/handlers/post_tool_use/validator.py",
-                "content": "class Validator(Handler):\n    pass"
-            }
+                "content": "class Validator(Handler):\n    pass",
+            },
         }
 
         result = self.handler.handle(hook_input)
@@ -193,7 +191,7 @@ class TestTddEnforcementHandler(unittest.TestCase):
         self.assertIn("tests/test_validator.py", result.reason)
         self.assertIn("TDD", result.reason)
 
-    @patch('pathlib.Path.exists')
+    @patch("pathlib.Path.exists")
     def test_handle_explains_philosophy(self, mock_exists):
         """Should explain TDD philosophy in denial message."""
         mock_exists.return_value = False
@@ -202,8 +200,8 @@ class TestTddEnforcementHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/.claude/hooks/controller/handlers/pre_tool_use/security_handler.py",
-                "content": "class SecurityHandler(Handler):\n    pass"
-            }
+                "content": "class SecurityHandler(Handler):\n    pass",
+            },
         }
 
         result = self.handler.handle(hook_input)
@@ -242,7 +240,7 @@ class TestTddEnforcementHandler(unittest.TestCase):
 
     # Test edge cases
 
-    @patch('pathlib.Path.exists')
+    @patch("pathlib.Path.exists")
     def test_handle_multiple_handlers_same_test_file(self, mock_exists):
         """Should handle case where multiple handlers might share a test file."""
         # Simulate test file exists for aggregated handlers
@@ -252,8 +250,8 @@ class TestTddEnforcementHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/.claude/hooks/controller/handlers/pre_tool_use/bash_handler.py",
-                "content": "class BashHandler(Handler):\n    pass"
-            }
+                "content": "class BashHandler(Handler):\n    pass",
+            },
         }
 
         result = self.handler.handle(hook_input)
@@ -267,5 +265,5 @@ class TestTddEnforcementHandler(unittest.TestCase):
         self.assertGreaterEqual(self.handler.priority, 10)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

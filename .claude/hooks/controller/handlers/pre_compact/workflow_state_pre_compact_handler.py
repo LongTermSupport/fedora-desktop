@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
-"""
-WorkflowStatePreCompactHandler - Preserves workflow state before compaction.
+"""WorkflowStatePreCompactHandler - Preserves workflow state before compaction.
 
 Detects formal workflows and saves state to timestamped file in ./untracked/
 for restoration after compaction.
 """
 
-import os
-import json
 import glob
+import json
+import os
+import sys
 from datetime import datetime
 
-import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from front_controller import Handler, HookResult
@@ -25,8 +24,7 @@ class WorkflowStatePreCompactHandler(Handler):
         super().__init__(name="workflow-state-precompact")
 
     def matches(self, hook_input: dict) -> bool:
-        """
-        Match if formal workflow is active.
+        """Match if formal workflow is active.
 
         Detection question: "Are you in a formally documented workflow?"
 
@@ -35,6 +33,7 @@ class WorkflowStatePreCompactHandler(Handler):
 
         Returns:
             True if formal workflow detected, False otherwise
+
         """
         # Check if this is actually a PreCompact event
         if hook_input.get("hook_event_name") != "PreCompact":
@@ -44,8 +43,7 @@ class WorkflowStatePreCompactHandler(Handler):
         return self._detect_workflow(hook_input)
 
     def handle(self, hook_input: dict) -> HookResult:
-        """
-        Update or create workflow state file.
+        """Update or create workflow state file.
 
         Lifecycle:
         - If workflow state file exists: UPDATE it with current state
@@ -61,6 +59,7 @@ class WorkflowStatePreCompactHandler(Handler):
 
         Returns:
             HookResult with decision="allow" (always allows compaction)
+
         """
         try:
             # Only process if workflow is detected
@@ -89,10 +88,10 @@ class WorkflowStatePreCompactHandler(Handler):
                 state_file = existing_files[0]
                 # Preserve the original created_at timestamp
                 try:
-                    with open(state_file, 'r') as f:
+                    with open(state_file) as f:
                         old_state = json.load(f)
                         workflow_state["created_at"] = old_state.get("created_at", workflow_state["created_at"])
-                except:
+                except Exception:
                     pass
             else:
                 # Create new file with start_time timestamp
@@ -100,10 +99,10 @@ class WorkflowStatePreCompactHandler(Handler):
                 state_file = f"{workflow_dir}/state-{workflow_name}-{start_time}.json"
 
             # Write/update state file
-            with open(state_file, 'w') as f:
+            with open(state_file, "w") as f:
                 json.dump(workflow_state, f, indent=2)
 
-        except Exception as e:
+        except Exception:
             # Fail open - if anything goes wrong, just allow compaction
             pass
 
@@ -111,8 +110,7 @@ class WorkflowStatePreCompactHandler(Handler):
         return HookResult(decision="allow")
 
     def _detect_workflow(self, hook_input: dict) -> bool:
-        """
-        Detect if agent is in a formal workflow.
+        """Detect if agent is in a formal workflow.
 
         Detection methods (in order):
         1. Check for workflow state in CLAUDE.local.md
@@ -124,28 +122,29 @@ class WorkflowStatePreCompactHandler(Handler):
 
         Returns:
             True if formal workflow detected, False otherwise
+
         """
         # Method 1: Check CLAUDE.local.md for workflow state
         if os.path.exists("CLAUDE.local.md"):
             try:
-                with open("CLAUDE.local.md", 'r') as f:
+                with open("CLAUDE.local.md") as f:
                     content = f.read()
                     if "WORKFLOW STATE" in content or "workflow:" in content.lower():
                         return True
-            except:
+            except Exception:
                 pass
 
         # Method 2: Check for active plans
         plan_files = glob.glob("CLAUDE/Plan/*/PLAN.md")
         for plan_file in plan_files:
             try:
-                with open(plan_file, 'r') as f:
+                with open(plan_file) as f:
                     content = f.read()
                     # Check for "In Progress" status and phase markers
                     if "🔄 In Progress" in content or "🔄 in_progress" in content.lower():
                         if "phase" in content.lower() or "workflow" in content.lower():
                             return True
-            except:
+            except Exception:
                 pass
 
         # Method 3: Check transcript for workflow skill markers
@@ -155,8 +154,7 @@ class WorkflowStatePreCompactHandler(Handler):
         return False
 
     def _extract_workflow_state(self, hook_input: dict) -> dict:
-        """
-        Extract workflow state from current context.
+        """Extract workflow state from current context.
 
         Builds generic workflow state structure by:
         1. Parsing CLAUDE.local.md for workflow info
@@ -168,6 +166,7 @@ class WorkflowStatePreCompactHandler(Handler):
 
         Returns:
             dict: Workflow state in standard format
+
         """
         # Initialize default state
         state = {
@@ -177,40 +176,39 @@ class WorkflowStatePreCompactHandler(Handler):
                 "current": 1,
                 "total": 1,
                 "name": "In Progress",
-                "status": "in_progress"
+                "status": "in_progress",
             },
             "required_reading": [],
             "context": {},
             "key_reminders": [],
-            "created_at": datetime.now().isoformat() + "Z"
+            "created_at": datetime.now().isoformat() + "Z",
         }
 
         # Try to extract from CLAUDE.local.md
         if os.path.exists("CLAUDE.local.md"):
             try:
-                with open("CLAUDE.local.md", 'r') as f:
+                with open("CLAUDE.local.md") as f:
                     content = f.read()
                     state = self._parse_workflow_from_memory(content, state)
-            except:
+            except Exception:
                 pass
 
         # Try to extract from active plan
         plan_files = glob.glob("CLAUDE/Plan/*/PLAN.md")
         for plan_file in plan_files:
             try:
-                with open(plan_file, 'r') as f:
+                with open(plan_file) as f:
                     content = f.read()
                     if "🔄 In Progress" in content or "🔄 in_progress" in content.lower():
                         state = self._parse_workflow_from_plan(plan_file, content, state)
                         break
-            except:
+            except Exception:
                 pass
 
         return state
 
     def _parse_workflow_from_memory(self, content: str, state: dict) -> dict:
-        """
-        Parse workflow state from CLAUDE.local.md content.
+        """Parse workflow state from CLAUDE.local.md content.
 
         Args:
             content: File content from CLAUDE.local.md
@@ -218,9 +216,10 @@ class WorkflowStatePreCompactHandler(Handler):
 
         Returns:
             dict: Updated state
+
         """
         # Look for workflow markers
-        lines = content.split('\n')
+        lines = content.split("\n")
 
         for line in lines:
             # Extract workflow name
@@ -249,8 +248,7 @@ class WorkflowStatePreCompactHandler(Handler):
         return state
 
     def _parse_workflow_from_plan(self, plan_file: str, content: str, state: dict) -> dict:
-        """
-        Parse workflow state from active plan file.
+        """Parse workflow state from active plan file.
 
         Args:
             plan_file: Path to PLAN.md file
@@ -259,6 +257,7 @@ class WorkflowStatePreCompactHandler(Handler):
 
         Returns:
             dict: Updated state
+
         """
         # Extract plan number from path
         plan_dir = os.path.dirname(plan_file)
@@ -271,7 +270,7 @@ class WorkflowStatePreCompactHandler(Handler):
             state["context"]["plan_name"] = plan_name
 
         # Extract workflow name from plan title (first # heading)
-        lines = content.split('\n')
+        lines = content.split("\n")
         for line in lines:
             if line.startswith("# Plan"):
                 # Format: "# Plan 066: Workflow Name"
@@ -285,8 +284,8 @@ class WorkflowStatePreCompactHandler(Handler):
             if "CLAUDE/" in line or ".claude/" in line:
                 # Extract file paths
                 import re
-                paths = re.findall(r'(CLAUDE/[^\s\)]+\.md)', line)
-                paths += re.findall(r'(\.claude/[^\s\)]+\.md)', line)
+                paths = re.findall(r"(CLAUDE/[^\s\)]+\.md)", line)
+                paths += re.findall(r"(\.claude/[^\s\)]+\.md)", line)
                 for path in paths:
                     formatted_path = f"@{path}"
                     if formatted_path not in state["required_reading"]:
@@ -295,8 +294,7 @@ class WorkflowStatePreCompactHandler(Handler):
         return state
 
     def _sanitize_workflow_name(self, workflow_name: str) -> str:
-        """
-        Sanitize workflow name for use in directory/filename.
+        """Sanitize workflow name for use in directory/filename.
 
         Converts to lowercase, replaces spaces/special chars with hyphens.
 
@@ -305,19 +303,20 @@ class WorkflowStatePreCompactHandler(Handler):
 
         Returns:
             str: Sanitized name safe for filesystem
+
         """
         import re
         # Convert to lowercase
         sanitized = workflow_name.lower()
         # Replace spaces and special characters with hyphens
-        sanitized = re.sub(r'[^a-z0-9]+', '-', sanitized)
+        sanitized = re.sub(r"[^a-z0-9]+", "-", sanitized)
         # Remove leading/trailing hyphens
-        sanitized = sanitized.strip('-')
+        sanitized = sanitized.strip("-")
         # Limit length to 50 characters
         sanitized = sanitized[:50]
         return sanitized
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Allow module to be imported
     pass

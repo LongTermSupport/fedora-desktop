@@ -1,8 +1,8 @@
 """PostToolUse file validation handlers - runs AFTER file operations."""
 
-import sys
 import os
 import subprocess
+import sys
 
 # Add parent directories to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -13,8 +13,8 @@ from front_controller import Handler, HookResult, get_file_path
 class ValidateEslintOnWriteHandler(Handler):
     """Run ESLint validation on TypeScript/TSX files after write."""
 
-    VALIDATE_EXTENSIONS = ['.ts', '.tsx']
-    SKIP_PATHS = ['node_modules', 'dist', '.build', 'coverage', 'test-results']
+    VALIDATE_EXTENSIONS = [".ts", ".tsx"]
+    SKIP_PATHS = ["node_modules", "dist", ".build", "coverage", "test-results"]
 
     def __init__(self):
         super().__init__(name="validate-eslint-on-write", priority=10)
@@ -50,12 +50,12 @@ class ValidateEslintOnWriteHandler(Handler):
         print(f"\n🔍 Running ESLint validation on {os.path.basename(file_path)}...")
 
         # Check if this is a worktree file
-        is_worktree = 'untracked/worktrees/' in file_path
+        is_worktree = "untracked/worktrees/" in file_path
 
         # Run ESLint using wrapper script
         try:
-            command = ['tsx', 'scripts/eslint-wrapper.ts', file_path, '--max-warnings', '0', '--human']
-            cwd = '/workspace'
+            command = ["tsx", "scripts/eslint-wrapper.ts", file_path, "--max-warnings", "0", "--human"]
+            cwd = "/workspace"
 
             if is_worktree:
                 print("  [Detected worktree file - using ESLint wrapper for consistent config]")
@@ -65,7 +65,7 @@ class ValidateEslintOnWriteHandler(Handler):
                 cwd=cwd,
                 capture_output=True,
                 text=True,
-                timeout=30
+                timeout=30,
             )
 
             if result.returncode != 0:
@@ -94,12 +94,12 @@ class ValidateEslintOnWriteHandler(Handler):
         except subprocess.TimeoutExpired:
             return HookResult(
                 decision="deny",
-                reason="ESLint timed out after 30 seconds"
+                reason="ESLint timed out after 30 seconds",
             )
         except Exception as e:
             return HookResult(
                 decision="deny",
-                reason=f"Failed to run ESLint: {str(e)}"
+                reason=f"Failed to run ESLint: {e!s}",
             )
 
 
@@ -202,7 +202,7 @@ class AnsibleLintHandler(Handler):
         if not os.path.exists(lint_script):
             return HookResult(
                 decision="allow",
-                reason=f"Ansible-lint skipped: {lint_script} not found (project may not be fully set up)"
+                reason=f"Ansible-lint skipped: {lint_script} not found (project may not be fully set up)",
             )
 
         print(f"\n🔍 Linting {normalized_path}...")
@@ -215,46 +215,45 @@ class AnsibleLintHandler(Handler):
                 text=True,
                 timeout=60,
                 cwd=os.path.dirname(os.path.dirname(os.path.dirname(
-                    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                )))
+                    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                ))),
             )
 
             if result.returncode == 0:
                 print(f"✅ No ansible-lint issues found in {normalized_path}\n")
                 return HookResult(
                     decision="allow",
-                    reason=f"✓ No ansible-lint issues found in {normalized_path}"
+                    reason=f"✓ No ansible-lint issues found in {normalized_path}",
                 )
-            else:
-                error_message = (
-                    f"❌ Ansible-lint found issues in {normalized_path}:\n\n"
-                    + "=" * 80 + "\n"
-                    + result.stdout + "\n"
-                )
+            error_message = (
+                f"❌ Ansible-lint found issues in {normalized_path}:\n\n"
+                + "=" * 80 + "\n"
+                + result.stdout + "\n"
+            )
 
-                if result.stderr:
-                    error_message += result.stderr + "\n"
+            if result.stderr:
+                error_message += result.stderr + "\n"
 
-                error_message += (
-                    "=" * 80 + "\n\n"
-                    "🚫 FILE WAS WRITTEN BUT HAS ANSIBLE-LINT VIOLATIONS!\n"
-                    "   You MUST fix these issues before continuing.\n\n"
-                    f"   Run: ./scripts/lint {normalized_path}\n"
-                    f"   Or:  ./scripts/lint {normalized_path} --fix\n"
-                )
+            error_message += (
+                "=" * 80 + "\n\n"
+                "🚫 FILE WAS WRITTEN BUT HAS ANSIBLE-LINT VIOLATIONS!\n"
+                "   You MUST fix these issues before continuing.\n\n"
+                f"   Run: ./scripts/lint {normalized_path}\n"
+                f"   Or:  ./scripts/lint {normalized_path} --fix\n"
+            )
 
-                return HookResult(decision="deny", reason=error_message)
+            return HookResult(decision="deny", reason=error_message)
 
         except subprocess.TimeoutExpired:
             return HookResult(
                 decision="allow",
-                reason="Ansible-lint timed out after 60 seconds - allowing operation but you should check the file manually"
+                reason="Ansible-lint timed out after 60 seconds - allowing operation but you should check the file manually",
             )
         except Exception as e:
             # Allow on error to avoid blocking workflow
             return HookResult(
                 decision="allow",
-                reason=f"Ansible-lint error (allowing operation): {str(e)}"
+                reason=f"Ansible-lint error (allowing operation): {e!s}",
             )
 
 

@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 """Tests for WorkflowStatePreCompactHandler."""
 
-import unittest
+import glob
 import json
 import os
-import glob
-from datetime import datetime
-from unittest.mock import patch, mock_open
-
 import sys
+import unittest
+from unittest.mock import patch
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from front_controller import Handler, HookResult
-from handlers.pre_compact.workflow_state_pre_compact_handler import WorkflowStatePreCompactHandler
+from front_controller import Handler
+from handlers.pre_compact.workflow_state_pre_compact_handler import (
+    WorkflowStatePreCompactHandler,
+)
 
 
 class TestWorkflowStatePreCompactHandler(unittest.TestCase):
@@ -45,29 +46,29 @@ class TestWorkflowStatePreCompactHandler(unittest.TestCase):
         """Should match when formal workflow is detected."""
         hook_input = {
             "hook_event_name": "PreCompact",
-            "trigger": "auto"
+            "trigger": "auto",
         }
 
         # Mock workflow detection to return True
-        with patch.object(self.handler, '_detect_workflow', return_value=True):
+        with patch.object(self.handler, "_detect_workflow", return_value=True):
             self.assertTrue(self.handler.matches(hook_input))
 
     def test_does_not_match_when_no_workflow(self):
         """Should not match when no formal workflow detected."""
         hook_input = {
             "hook_event_name": "PreCompact",
-            "trigger": "auto"
+            "trigger": "auto",
         }
 
         # Mock workflow detection to return False
-        with patch.object(self.handler, '_detect_workflow', return_value=False):
+        with patch.object(self.handler, "_detect_workflow", return_value=False):
             self.assertFalse(self.handler.matches(hook_input))
 
     def test_handle_creates_timestamped_state_file(self):
         """Should create timestamped JSON file in ./untracked/."""
         hook_input = {
             "hook_event_name": "PreCompact",
-            "trigger": "auto"
+            "trigger": "auto",
         }
 
         workflow_state = {
@@ -77,11 +78,11 @@ class TestWorkflowStatePreCompactHandler(unittest.TestCase):
             "required_reading": ["@CLAUDE/TestDoc.md"],
             "context": {},
             "key_reminders": [],
-            "created_at": "2025-12-09T10:00:00Z"
+            "created_at": "2025-12-09T10:00:00Z",
         }
 
-        with patch.object(self.handler, '_detect_workflow', return_value=True):
-            with patch.object(self.handler, '_extract_workflow_state', return_value=workflow_state):
+        with patch.object(self.handler, "_detect_workflow", return_value=True):
+            with patch.object(self.handler, "_extract_workflow_state", return_value=workflow_state):
                 result = self.handler.handle(hook_input)
 
         # Check that result allows compaction
@@ -92,7 +93,7 @@ class TestWorkflowStatePreCompactHandler(unittest.TestCase):
         self.assertEqual(len(state_files), 1)
 
         # Verify file content
-        with open(state_files[0], 'r') as f:
+        with open(state_files[0]) as f:
             saved_state = json.load(f)
 
         self.assertEqual(saved_state["workflow"], "Test Workflow")
@@ -102,7 +103,7 @@ class TestWorkflowStatePreCompactHandler(unittest.TestCase):
         """State file must include REQUIRED READING with @ syntax."""
         hook_input = {
             "hook_event_name": "PreCompact",
-            "trigger": "manual"
+            "trigger": "manual",
         }
 
         workflow_state = {
@@ -112,20 +113,20 @@ class TestWorkflowStatePreCompactHandler(unittest.TestCase):
             "required_reading": [
                 "@CLAUDE/PageOrchestration.md",
                 "@CLAUDE/Sitemap/case-studies.md",
-                "@.claude/skills/page-orchestration/SKILL.md"
+                "@.claude/skills/page-orchestration/SKILL.md",
             ],
             "context": {"plan_number": 39},
             "key_reminders": ["Case studies SKIP Phase 3"],
-            "created_at": "2025-12-09T10:00:00Z"
+            "created_at": "2025-12-09T10:00:00Z",
         }
 
-        with patch.object(self.handler, '_detect_workflow', return_value=True):
-            with patch.object(self.handler, '_extract_workflow_state', return_value=workflow_state):
-                result = self.handler.handle(hook_input)
+        with patch.object(self.handler, "_detect_workflow", return_value=True):
+            with patch.object(self.handler, "_extract_workflow_state", return_value=workflow_state):
+                _result = self.handler.handle(hook_input)
 
         # Verify REQUIRED READING has @ prefix
         state_files = glob.glob("./untracked/workflow-state/*/state-*.json")
-        with open(state_files[0], 'r') as f:
+        with open(state_files[0]) as f:
             saved_state = json.load(f)
 
         for file_path in saved_state["required_reading"]:
@@ -136,7 +137,7 @@ class TestWorkflowStatePreCompactHandler(unittest.TestCase):
         """Handler must always exit with allow (exit code 0)."""
         hook_input = {
             "hook_event_name": "PreCompact",
-            "trigger": "auto"
+            "trigger": "auto",
         }
 
         workflow_state = {
@@ -144,10 +145,10 @@ class TestWorkflowStatePreCompactHandler(unittest.TestCase):
             "workflow_type": "custom",
             "phase": {"current": 1, "total": 1, "name": "Test", "status": "in_progress"},
             "required_reading": ["@test.md"],
-            "created_at": "2025-12-09T10:00:00Z"
+            "created_at": "2025-12-09T10:00:00Z",
         }
 
-        with patch.object(self.handler, '_extract_workflow_state', return_value=workflow_state):
+        with patch.object(self.handler, "_extract_workflow_state", return_value=workflow_state):
             result = self.handler.handle(hook_input)
 
         self.assertEqual(result.decision, "allow")
@@ -157,19 +158,19 @@ class TestWorkflowStatePreCompactHandler(unittest.TestCase):
         """Workflow detection should check for workflow state markers."""
         # This tests the _detect_workflow method implementation
         # For now, stub - will implement detection logic in handler
-        self.assertIn('_detect_workflow', dir(self.handler))
+        self.assertIn("_detect_workflow", dir(self.handler))
 
     def test_extract_workflow_state_builds_generic_structure(self):
         """State extraction should build generic workflow state."""
         # This tests the _extract_workflow_state method implementation
         # For now, stub - will implement extraction logic in handler
-        self.assertIn('_extract_workflow_state', dir(self.handler))
+        self.assertIn("_extract_workflow_state", dir(self.handler))
 
     def test_filename_includes_timestamp(self):
         """Filename must include timestamp for uniqueness."""
         hook_input = {
             "hook_event_name": "PreCompact",
-            "trigger": "auto"
+            "trigger": "auto",
         }
 
         workflow_state = {
@@ -177,12 +178,12 @@ class TestWorkflowStatePreCompactHandler(unittest.TestCase):
             "workflow_type": "custom",
             "phase": {"current": 1, "total": 1, "name": "Test", "status": "in_progress"},
             "required_reading": ["@test.md"],
-            "created_at": "2025-12-09T10:00:00Z"
+            "created_at": "2025-12-09T10:00:00Z",
         }
 
-        with patch.object(self.handler, '_detect_workflow', return_value=True):
-            with patch.object(self.handler, '_extract_workflow_state', return_value=workflow_state):
-                result = self.handler.handle(hook_input)
+        with patch.object(self.handler, "_detect_workflow", return_value=True):
+            with patch.object(self.handler, "_extract_workflow_state", return_value=workflow_state):
+                _result = self.handler.handle(hook_input)
 
         # Check filename pattern: state-{workflow-name}-{timestamp}.json
         state_files = glob.glob("./untracked/workflow-state/*/state-*.json")
@@ -208,7 +209,7 @@ class TestWorkflowStatePreCompactHandler(unittest.TestCase):
 
         hook_input = {
             "hook_event_name": "PreCompact",
-            "trigger": "auto"
+            "trigger": "auto",
         }
 
         workflow_state = {
@@ -216,12 +217,12 @@ class TestWorkflowStatePreCompactHandler(unittest.TestCase):
             "workflow_type": "custom",
             "phase": {"current": 1, "total": 1, "name": "Test", "status": "in_progress"},
             "required_reading": ["@test.md"],
-            "created_at": "2025-12-09T10:00:00Z"
+            "created_at": "2025-12-09T10:00:00Z",
         }
 
-        with patch.object(self.handler, '_detect_workflow', return_value=True):
-            with patch.object(self.handler, '_extract_workflow_state', return_value=workflow_state):
-                result = self.handler.handle(hook_input)
+        with patch.object(self.handler, "_detect_workflow", return_value=True):
+            with patch.object(self.handler, "_extract_workflow_state", return_value=workflow_state):
+                _result = self.handler.handle(hook_input)
 
         self.assertTrue(os.path.exists("./untracked"))
         self.assertTrue(os.path.isdir("./untracked"))
@@ -234,13 +235,13 @@ class TestWorkflowStatePreCompactHandler(unittest.TestCase):
             "sitemap-skill",
             "eslint-skill",
             "planning",
-            "custom"
+            "custom",
         ]
 
         for wf_type in valid_types:
             hook_input = {
                 "hook_event_name": "PreCompact",
-                "trigger": "auto"
+                "trigger": "auto",
             }
 
             workflow_state = {
@@ -248,16 +249,16 @@ class TestWorkflowStatePreCompactHandler(unittest.TestCase):
                 "workflow_type": wf_type,
                 "phase": {"current": 1, "total": 1, "name": "Test", "status": "in_progress"},
                 "required_reading": ["@test.md"],
-                "created_at": "2025-12-09T10:00:00Z"
+                "created_at": "2025-12-09T10:00:00Z",
             }
 
-            with patch.object(self.handler, '_extract_workflow_state', return_value=workflow_state):
-                result = self.handler.handle(hook_input)
+            with patch.object(self.handler, "_extract_workflow_state", return_value=workflow_state):
+                _result = self.handler.handle(hook_input)
 
             # Cleanup for next iteration
             for f in glob.glob("./untracked/workflow-state-*.json"):
                 os.remove(f)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

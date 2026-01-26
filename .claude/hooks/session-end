@@ -6,8 +6,10 @@ statistics, or saving session state.
 
 Official docs: https://code.claude.com/docs/en/hooks.md#sessionend
 """
-import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'controller'))
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "controller"))
 from session_end import main
+
 sys.exit(main())

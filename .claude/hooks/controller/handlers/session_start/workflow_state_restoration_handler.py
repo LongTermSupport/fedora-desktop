@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
-"""
-WorkflowStateRestorationHandler - Restores workflow state after compaction.
+"""WorkflowStateRestorationHandler - Restores workflow state after compaction.
 
 Reads workflow state from timestamped file in ./untracked/ and provides
 guidance to force re-reading of workflow documentation.
 """
 
-import os
-import json
 import glob
-
+import json
+import os
 import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from front_controller import Handler, HookResult
@@ -24,14 +23,14 @@ class WorkflowStateRestorationHandler(Handler):
         super().__init__(name="workflow-state-restoration")
 
     def matches(self, hook_input: dict) -> bool:
-        """
-        Match when SessionStart source is 'compact'.
+        """Match when SessionStart source is 'compact'.
 
         Args:
             hook_input: SessionStart hook input with source field
 
         Returns:
             True if source="compact", False otherwise
+
         """
         # Check if this is actually a SessionStart event
         if hook_input.get("hook_event_name") != "SessionStart":
@@ -41,8 +40,7 @@ class WorkflowStateRestorationHandler(Handler):
         return hook_input.get("source") == "compact"
 
     def handle(self, hook_input: dict) -> HookResult:
-        """
-        Read workflow state files and provide guidance with REQUIRED READING.
+        """Read workflow state files and provide guidance with REQUIRED READING.
 
         Finds all active workflow state files in directory structure, reads
         the most recently updated one, and builds guidance with @ syntax for
@@ -59,6 +57,7 @@ class WorkflowStateRestorationHandler(Handler):
 
         Returns:
             HookResult with decision="allow" and context containing guidance
+
         """
         try:
             # Find all workflow state files in directory structure
@@ -76,9 +75,9 @@ class WorkflowStateRestorationHandler(Handler):
 
             # Read state file
             try:
-                with open(latest_state_file, 'r') as f:
+                with open(latest_state_file) as f:
                     state = json.load(f)
-            except (json.JSONDecodeError, IOError):
+            except (OSError, json.JSONDecodeError):
                 # Corrupt or unreadable file - fail open
                 return HookResult(decision="allow")
 
@@ -91,19 +90,19 @@ class WorkflowStateRestorationHandler(Handler):
             # Return guidance with workflow context
             return HookResult(decision="allow", context=guidance)
 
-        except Exception as e:
+        except Exception:
             # Fail open on any error
             return HookResult(decision="allow")
 
     def _build_guidance_message(self, state: dict) -> str:
-        """
-        Build comprehensive guidance message with workflow state.
+        """Build comprehensive guidance message with workflow state.
 
         Args:
             state: Workflow state dict
 
         Returns:
             str: Formatted guidance message
+
         """
         workflow = state.get("workflow", "Unknown Workflow")
         workflow_type = state.get("workflow_type", "custom")
@@ -125,7 +124,7 @@ class WorkflowStateRestorationHandler(Handler):
             f"Workflow: {workflow}",
             f"Type: {workflow_type}",
             f"Phase: {phase_current}/{phase_total} - {phase_name} ({phase_status})",
-            ""
+            "",
         ]
 
         # Add REQUIRED READING section with @ syntax
@@ -153,12 +152,12 @@ class WorkflowStateRestorationHandler(Handler):
             "ACTION REQUIRED:",
             "1. Read ALL files listed above using @ syntax",
             "2. Confirm understanding of workflow phase",
-            "3. DO NOT proceed with assumptions or hallucinated logic"
+            "3. DO NOT proceed with assumptions or hallucinated logic",
         ])
 
         return "\n".join(guidance_parts)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Allow module to be imported
     pass

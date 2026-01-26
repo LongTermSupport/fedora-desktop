@@ -642,7 +642,7 @@ def run_prebuffered_streaming(args):
 
         try:
             recorder.stop()
-            final_text = recorder.text(on_recorded_chunk=lambda: None)
+            final_text = recorder.text()
         except Exception as e:
             log(f"Transcription error: {e}", "ERROR")
             final_text = current_text  # Fall back to buffered partial text

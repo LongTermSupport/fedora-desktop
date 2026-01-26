@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """Tests for SedBlockerHandler - blocks sed command usage."""
 
-import unittest
-import sys
 import os
+import sys
+import unittest
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from front_controller import HookResult
 from handlers.pre_tool_use import SedBlockerHandler
 
 
@@ -25,8 +24,8 @@ class TestSedBlockerHandler(unittest.TestCase):
         hook_input = {
             "tool_name": "Bash",
             "tool_input": {
-                "command": "sed -i 's/foo/bar/g' file.txt"
-            }
+                "command": "sed -i 's/foo/bar/g' file.txt",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -35,8 +34,8 @@ class TestSedBlockerHandler(unittest.TestCase):
         hook_input = {
             "tool_name": "Bash",
             "tool_input": {
-                "command": "sed -i.bak 's/old/new/g' src/test.ts"
-            }
+                "command": "sed -i.bak 's/old/new/g' src/test.ts",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -45,8 +44,8 @@ class TestSedBlockerHandler(unittest.TestCase):
         hook_input = {
             "tool_name": "Bash",
             "tool_input": {
-                "command": "find . -name '*.ts' -exec sed -i 's/foo/bar/g' {} \\;"
-            }
+                "command": "find . -name '*.ts' -exec sed -i 's/foo/bar/g' {} \\;",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -55,8 +54,8 @@ class TestSedBlockerHandler(unittest.TestCase):
         hook_input = {
             "tool_name": "Bash",
             "tool_input": {
-                "command": "cat file.txt | sed 's/old/new/g' > output.txt"
-            }
+                "command": "cat file.txt | sed 's/old/new/g' > output.txt",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -65,8 +64,8 @@ class TestSedBlockerHandler(unittest.TestCase):
         hook_input = {
             "tool_name": "Bash",
             "tool_input": {
-                "command": "git diff && sed -i 's/foo/bar/g' file.txt && git commit"
-            }
+                "command": "git diff && sed -i 's/foo/bar/g' file.txt && git commit",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -83,7 +82,7 @@ class TestSedBlockerHandler(unittest.TestCase):
             with self.subTest(command=cmd):
                 hook_input = {
                     "tool_name": "Bash",
-                    "tool_input": {"command": cmd}
+                    "tool_input": {"command": cmd},
                 }
                 self.assertTrue(self.handler.matches(hook_input))
 
@@ -93,8 +92,8 @@ class TestSedBlockerHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "scripts/update.sh",
-                "content": "#!/bin/bash\nfind . -name '*.ts' -exec sed -i 's/old/new/g' {} \\;\n"
-            }
+                "content": "#!/bin/bash\nfind . -name '*.ts' -exec sed -i 's/old/new/g' {} \\;\n",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -104,8 +103,8 @@ class TestSedBlockerHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "update.bash",
-                "content": "sed -i 's/foo/bar/g' *.txt"
-            }
+                "content": "sed -i 's/foo/bar/g' *.txt",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -114,8 +113,8 @@ class TestSedBlockerHandler(unittest.TestCase):
         hook_input = {
             "tool_name": "Bash",
             "tool_input": {
-                "command": "sed -i 's/foo/bar/g' file.txt"
-            }
+                "command": "sed -i 's/foo/bar/g' file.txt",
+            },
         }
         result = self.handler.handle(hook_input)
 
@@ -137,8 +136,8 @@ class TestSedBlockerHandler(unittest.TestCase):
         hook_input = {
             "tool_name": "Bash",
             "tool_input": {
-                "command": "grep -r 'sed' ."
-            }
+                "command": "grep -r 'sed' .",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -147,8 +146,8 @@ class TestSedBlockerHandler(unittest.TestCase):
         hook_input = {
             "tool_name": "Bash",
             "tool_input": {
-                "command": "echo 'Do not use sed command'"
-            }
+                "command": "echo 'Do not use sed command'",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -157,8 +156,8 @@ class TestSedBlockerHandler(unittest.TestCase):
         hook_input = {
             "tool_name": "Bash",
             "tool_input": {
-                "command": "cat src/based/test.ts"
-            }
+                "command": "cat src/based/test.ts",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -167,8 +166,8 @@ class TestSedBlockerHandler(unittest.TestCase):
         hook_input = {
             "tool_name": "Read",
             "tool_input": {
-                "file_path": "scripts/old-sed-script.sh"
-            }
+                "file_path": "scripts/old-sed-script.sh",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -178,8 +177,8 @@ class TestSedBlockerHandler(unittest.TestCase):
             "tool_name": "Grep",
             "tool_input": {
                 "pattern": "sed",
-                "path": "."
-            }
+                "path": ".",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -189,8 +188,8 @@ class TestSedBlockerHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "README.md",
-                "content": "The sed command is dangerous, never use: sed -i 's/old/new/g'"
-            }
+                "content": "The sed command is dangerous, never use: sed -i 's/old/new/g'",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -200,8 +199,8 @@ class TestSedBlockerHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "src/test.ts",
-                "content": "const cmd = \"sed -i 's/old/new/g' file.txt\";"
-            }
+                "content": "const cmd = \"sed -i 's/old/new/g' file.txt\";",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -210,8 +209,8 @@ class TestSedBlockerHandler(unittest.TestCase):
         hook_input = {
             "tool_name": "Bash",
             "tool_input": {
-                "command": "echo 'The sed command is blocked' > output.txt"
-            }
+                "command": "echo 'The sed command is blocked' > output.txt",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -220,8 +219,8 @@ class TestSedBlockerHandler(unittest.TestCase):
         hook_input = {
             "tool_name": "Bash",
             "tool_input": {
-                "command": "ls -la /tmp/based/files"
-            }
+                "command": "ls -la /tmp/based/files",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -232,8 +231,8 @@ class TestSedBlockerHandler(unittest.TestCase):
         hook_input = {
             "tool_name": "Bash",
             "tool_input": {
-                "command": ""
-            }
+                "command": "",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -241,7 +240,7 @@ class TestSedBlockerHandler(unittest.TestCase):
         """Should handle missing command gracefully."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {}
+            "tool_input": {},
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -251,8 +250,8 @@ class TestSedBlockerHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "script.sh",
-                "content": ""
-            }
+                "content": "",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -270,7 +269,7 @@ class TestSedBlockerHandler(unittest.TestCase):
             with self.subTest(command=cmd, should_match=True):
                 hook_input = {
                     "tool_name": "Bash",
-                    "tool_input": {"command": cmd}
+                    "tool_input": {"command": cmd},
                 }
                 self.assertTrue(self.handler.matches(hook_input),
                                f"Should match: {cmd}")
@@ -286,7 +285,7 @@ class TestSedBlockerHandler(unittest.TestCase):
             with self.subTest(command=cmd, should_match=False):
                 hook_input = {
                     "tool_name": "Bash",
-                    "tool_input": {"command": cmd}
+                    "tool_input": {"command": cmd},
                 }
                 self.assertFalse(self.handler.matches(hook_input),
                                 f"Should NOT match: {cmd}")
@@ -302,8 +301,8 @@ class TestSedBlockerHandler(unittest.TestCase):
 find . -name "*.ts" \\
   -exec sed -i 's/old/new/g' {} \\;
 echo "Done"
-"""
-            }
+""",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -319,8 +318,8 @@ echo "Done"
                     "tool_name": "Write",
                     "tool_input": {
                         "file_path": f"script{ext}",
-                        "content": "sed -i 's/old/new/g' file.txt"
-                    }
+                        "content": "sed -i 's/old/new/g' file.txt",
+                    },
                 }
                 self.assertTrue(self.handler.matches(hook_input))
 
@@ -331,8 +330,8 @@ echo "Done"
                     "tool_name": "Write",
                     "tool_input": {
                         "file_path": f"document{ext}",
-                        "content": "sed -i 's/old/new/g' file.txt"
-                    }
+                        "content": "sed -i 's/old/new/g' file.txt",
+                    },
                 }
                 self.assertFalse(self.handler.matches(hook_input))
 
@@ -344,8 +343,8 @@ echo "Done"
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "docs/commands.md",
-                "content": "# Commands\n\nDon't use sed for bulk updates.\nUse `sed -i` carefully."
-            }
+                "content": "# Commands\n\nDon't use sed for bulk updates.\nUse `sed -i` carefully.",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -364,8 +363,8 @@ sed -i 's/foo/bar/g' file.txt
 ```
 
 This is dangerous!
-"""
-            }
+""",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -389,8 +388,8 @@ This is dangerous!
         hook_input = {
             "tool_name": "Bash",
             "tool_input": {
-                "command": cmd
-            }
+                "command": cmd,
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -399,8 +398,8 @@ This is dangerous!
         hook_input = {
             "tool_name": "Bash",
             "tool_input": {
-                "command": 'git add . && git commit -m "Fix sed blocker false positives"'
-            }
+                "command": 'git add . && git commit -m "Fix sed blocker false positives"',
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -416,8 +415,8 @@ This is dangerous!
 
 - NEVER use `sed -i` for bulk updates
 - sed causes data loss
-"""
-            }
+""",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -428,8 +427,8 @@ This is dangerous!
         hook_input = {
             "tool_name": "Bash",
             "tool_input": {
-                "command": 'git add file.sh && sed -i \'s/a/b/\' file.txt'
-            }
+                "command": "git add file.sh && sed -i 's/a/b/' file.txt",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -438,11 +437,11 @@ This is dangerous!
         hook_input = {
             "tool_name": "Bash",
             "tool_input": {
-                "command": "sed -i 's/old/new/' file.txt && git add file.txt"
-            }
+                "command": "sed -i 's/old/new/' file.txt && git add file.txt",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,10 @@
+# Ruff configuration for fedora-desktop project
+# https://docs.astral.sh/ruff/configuration/
+
+[lint]
+# Use default rule set (E, F, W)
+
+[lint.per-file-ignores]
+# Test files commonly modify sys.path before imports
+"**/tests/*.py" = ["E402"]
+"**/tests/**/*.py" = ["E402"]

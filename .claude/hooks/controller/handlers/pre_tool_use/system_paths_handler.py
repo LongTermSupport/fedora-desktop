@@ -1,7 +1,7 @@
 """SystemPathsHandler - prevents direct editing of deployed system files."""
 
-import sys
 import os
+import sys
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -78,24 +78,23 @@ class SystemPathsHandler(Handler):
                 f"  - Changes are reproducible across environments\n"
                 f"  - Configuration remains consistent\n\n"
                 f"See CLAUDE.md 'INFRASTRUCTURE AS CODE - ANSIBLE-ONLY DEPLOYMENT' for details."
-            )
+            ),
         )
 
     def _get_project_path(self, file_path: str) -> str:
         """Determine the correct project path for a system file."""
         if file_path.startswith("/var/local/"):
-            return f"files/var/local/..."
-        elif file_path.startswith("/etc/"):
-            return f"files/etc/..."
-        elif file_path.startswith("/usr/local/"):
-            return f"files/usr/local/..."
-        elif file_path.startswith("/usr/"):
-            return f"files/usr/..."
-        elif file_path.startswith("/opt/"):
-            return f"files/opt/..."
-        elif file_path.startswith("/root/"):
+            return "files/var/local/..."
+        if file_path.startswith("/etc/"):
+            return "files/etc/..."
+        if file_path.startswith("/usr/local/"):
+            return "files/usr/local/..."
+        if file_path.startswith("/usr/"):
+            return "files/usr/..."
+        if file_path.startswith("/opt/"):
+            return "files/opt/..."
+        if file_path.startswith("/root/"):
             return "Use Ansible to configure root user files"
-        elif file_path.startswith("/home/"):
+        if file_path.startswith("/home/"):
             return "Use Ansible to configure user home directory files"
-        else:
-            return "files/[appropriate-subdirectory]/"
+        return "files/[appropriate-subdirectory]/"

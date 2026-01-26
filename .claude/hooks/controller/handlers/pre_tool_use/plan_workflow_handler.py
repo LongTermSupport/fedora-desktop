@@ -1,7 +1,7 @@
 """PlanWorkflowHandler - provides guidance for plan creation."""
 
-import sys
 import os
+import sys
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -48,5 +48,5 @@ class PlanWorkflowHandler(Handler):
 
         return HookResult(
             decision="allow",
-            guidance=guidance
+            guidance=guidance,
         )

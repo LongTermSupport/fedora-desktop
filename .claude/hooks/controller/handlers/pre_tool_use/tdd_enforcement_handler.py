@@ -1,14 +1,13 @@
 """TddEnforcementHandler - enforce test-first development for handler files."""
 
-import re
-import sys
 import os
+import sys
 from pathlib import Path
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from front_controller import Handler, HookResult, get_file_path, get_file_content
+from front_controller import Handler, HookResult, get_file_path
 
 
 class TddEnforcementHandler(Handler):
@@ -28,23 +27,23 @@ class TddEnforcementHandler(Handler):
             return False
 
         # Must be a .py file
-        if not file_path.endswith('.py'):
+        if not file_path.endswith(".py"):
             return False
 
         # Must be in a handlers subdirectory
-        if '/handlers/' not in file_path:
+        if "/handlers/" not in file_path:
             return False
 
         # Exclude __init__.py files
-        if file_path.endswith('__init__.py'):
+        if file_path.endswith("__init__.py"):
             return False
 
         # Must be in one of the handler event directories
         handler_dirs = [
-            '/handlers/pre_tool_use/',
-            '/handlers/post_tool_use/',
-            '/handlers/user_prompt_submit/',
-            '/handlers/subagent_stop/',
+            "/handlers/pre_tool_use/",
+            "/handlers/post_tool_use/",
+            "/handlers/user_prompt_submit/",
+            "/handlers/subagent_stop/",
         ]
 
         return any(handler_dir in file_path for handler_dir in handler_dirs)
@@ -90,7 +89,7 @@ class TddEnforcementHandler(Handler):
                 f"  See existing test files in tests/ for examples\n"
                 f"  File: .claude/hooks/controller/GUIDE-TESTING.md\n"
                 f"  File: .claude/hooks/CLAUDE.md (TDD mandatory)"
-            )
+            ),
         )
 
     def _get_test_file_path(self, handler_path: str) -> Path:
@@ -105,7 +104,7 @@ class TddEnforcementHandler(Handler):
         # Get controller directory by finding 'controller' in path
         path_parts = Path(handler_path).parts
         try:
-            controller_idx = path_parts.index('controller')
+            controller_idx = path_parts.index("controller")
             # Reconstruct path from parts (properly handles leading /)
             controller_dir = Path(*path_parts[:controller_idx + 1])
         except ValueError:

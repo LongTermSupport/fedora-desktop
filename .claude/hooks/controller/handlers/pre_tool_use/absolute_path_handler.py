@@ -1,12 +1,12 @@
 """AbsolutePathHandler - prevents /workspace/ absolute paths in code content."""
 
-import sys
 import os
+import sys
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from front_controller import Handler, HookResult, get_file_content
+from front_controller import Handler, HookResult
 
 
 class AbsolutePathHandler(Handler):
@@ -73,5 +73,5 @@ class AbsolutePathHandler(Handler):
                 "  - Relative paths work everywhere (local, CI, production)\n\n"
                 "Note: Tool parameters like file_path CAN be absolute - that's fine.\n"
                 "This hook only blocks /workspace/ paths INSIDE your code content."
-            )
+            ),
         )

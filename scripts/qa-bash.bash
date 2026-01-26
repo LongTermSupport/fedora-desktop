@@ -15,10 +15,12 @@ echo "→ Discovering bash/shell files..."
 BASH_FILES=()
 
 # Find .sh and .bash files
+# Excludes .ansible/roles/ (galaxy-installed cache) but keeps roles/vendor/ (first-party tracked)
 while IFS= read -r -d '' file; do
     BASH_FILES+=("$file")
 done < <(find "$REPO_ROOT" -type f \( -name "*.sh" -o -name "*.bash" \) \
     ! -path "*/.git/*" \
+    ! -path "*/.ansible/roles/*" \
     ! -path "*/node_modules/*" \
     ! -path "*/untracked/*" \
     -print0)
@@ -31,6 +33,7 @@ while IFS= read -r file; do
     fi
 done < <(find "$REPO_ROOT" -type f -executable \
     ! -path "*/.git/*" \
+    ! -path "*/.ansible/roles/*" \
     ! -path "*/node_modules/*" \
     ! -path "*/untracked/*" \
     ! -name "*.sh" \

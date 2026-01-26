@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
-"""
-Unit tests for ValidatePlanNumberHandler (PreToolUse version).
+"""Unit tests for ValidatePlanNumberHandler (PreToolUse version).
 
 This handler validates plan folder numbering BEFORE directory creation,
 fixing the timing bug where PostToolUse saw just-created directories.
 """
 
-import unittest
-import sys
 import os
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+import sys
+import unittest
+from unittest.mock import MagicMock, patch
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Import will fail until handler is created - this is expected in TDD
 try:
-    from handlers.pre_tool_use.validate_plan_number_handler import ValidatePlanNumberHandler
+    from handlers.pre_tool_use.validate_plan_number_handler import (
+        ValidatePlanNumberHandler,
+    )
     HANDLER_EXISTS = True
 except ImportError:
     HANDLER_EXISTS = False
@@ -47,8 +47,8 @@ class TestValidatePlanNumberHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/CLAUDE/Plan/056-new-feature/PLAN.md",
-                "content": "# Plan 056"
-            }
+                "content": "# Plan 056",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -57,8 +57,8 @@ class TestValidatePlanNumberHandler(unittest.TestCase):
         hook_input = {
             "tool_name": "Bash",
             "tool_input": {
-                "command": "mkdir -p CLAUDE/Plan/057-another-feature"
-            }
+                "command": "mkdir -p CLAUDE/Plan/057-another-feature",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -67,8 +67,8 @@ class TestValidatePlanNumberHandler(unittest.TestCase):
         hook_input = {
             "tool_name": "Bash",
             "tool_input": {
-                "command": "mkdir -p /workspace/CLAUDE/Plan/058-test-feature"
-            }
+                "command": "mkdir -p /workspace/CLAUDE/Plan/058-test-feature",
+            },
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -78,8 +78,8 @@ class TestValidatePlanNumberHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/CLAUDE/Sitemap/services.md",
-                "content": "# Services"
-            }
+                "content": "# Services",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -88,8 +88,8 @@ class TestValidatePlanNumberHandler(unittest.TestCase):
         hook_input = {
             "tool_name": "Bash",
             "tool_input": {
-                "command": "mkdir CLAUDE/Plan/Completed"
-            }
+                "command": "mkdir CLAUDE/Plan/Completed",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -99,8 +99,8 @@ class TestValidatePlanNumberHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/CLAUDE/Plan/README.md",
-                "content": "# Plans"
-            }
+                "content": "# Plans",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -109,8 +109,8 @@ class TestValidatePlanNumberHandler(unittest.TestCase):
         hook_input = {
             "tool_name": "Read",
             "tool_input": {
-                "file_path": "/workspace/CLAUDE/Plan/056-feature/PLAN.md"
-            }
+                "file_path": "/workspace/CLAUDE/Plan/056-feature/PLAN.md",
+            },
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -118,15 +118,15 @@ class TestValidatePlanNumberHandler(unittest.TestCase):
     # handle() tests - correct plan numbers
     # =========================================================================
 
-    @patch.object(ValidatePlanNumberHandler, '_get_highest_plan_number', return_value=55)
+    @patch.object(ValidatePlanNumberHandler, "_get_highest_plan_number", return_value=55)
     def test_handle_correct_plan_number(self, mock_highest):
         """Should allow without context if plan number is correct (highest + 1)."""
         hook_input = {
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/CLAUDE/Plan/056-new-feature/PLAN.md",
-                "content": "# Plan 056"
-            }
+                "content": "# Plan 056",
+            },
         }
 
         result = self.handler.handle(hook_input)
@@ -134,10 +134,9 @@ class TestValidatePlanNumberHandler(unittest.TestCase):
         self.assertEqual(result.decision, "allow")
         self.assertIsNone(result.context)
 
-    @patch.object(ValidatePlanNumberHandler, '_get_highest_plan_number', return_value=60)
+    @patch.object(ValidatePlanNumberHandler, "_get_highest_plan_number", return_value=60)
     def test_handle_correct_plan_number_061(self, mock_highest):
-        """
-        KEY BUG FIX TEST: Creating 061 when highest is 060 should NOT warn.
+        """KEY BUG FIX TEST: Creating 061 when highest is 060 should NOT warn.
 
         This is the exact scenario that triggered the bug report:
         - User ran official command, got 060
@@ -150,8 +149,8 @@ class TestValidatePlanNumberHandler(unittest.TestCase):
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/CLAUDE/Plan/061-new-feature/PLAN.md",
-                "content": "# Plan 061"
-            }
+                "content": "# Plan 061",
+            },
         }
 
         result = self.handler.handle(hook_input)
@@ -160,14 +159,14 @@ class TestValidatePlanNumberHandler(unittest.TestCase):
         self.assertIsNone(result.context,
             "BUG: Handler incorrectly warned about plan 061 when highest is 060")
 
-    @patch.object(ValidatePlanNumberHandler, '_get_highest_plan_number', return_value=0)
+    @patch.object(ValidatePlanNumberHandler, "_get_highest_plan_number", return_value=0)
     def test_handle_first_plan_001(self, mock_highest):
         """Should allow plan 001 when no plans exist."""
         hook_input = {
             "tool_name": "Bash",
             "tool_input": {
-                "command": "mkdir -p CLAUDE/Plan/001-first-plan"
-            }
+                "command": "mkdir -p CLAUDE/Plan/001-first-plan",
+            },
         }
 
         result = self.handler.handle(hook_input)
@@ -179,15 +178,15 @@ class TestValidatePlanNumberHandler(unittest.TestCase):
     # handle() tests - incorrect plan numbers
     # =========================================================================
 
-    @patch.object(ValidatePlanNumberHandler, '_get_highest_plan_number', return_value=55)
+    @patch.object(ValidatePlanNumberHandler, "_get_highest_plan_number", return_value=55)
     def test_handle_incorrect_plan_number_too_high(self, mock_highest):
         """Should warn if plan number is too high (skipping numbers)."""
         hook_input = {
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/CLAUDE/Plan/057-new-feature/PLAN.md",
-                "content": "# Plan 057"
-            }
+                "content": "# Plan 057",
+            },
         }
 
         result = self.handler.handle(hook_input)
@@ -198,15 +197,15 @@ class TestValidatePlanNumberHandler(unittest.TestCase):
         self.assertIn("057", result.context)
         self.assertIn("056", result.context)  # Expected number
 
-    @patch.object(ValidatePlanNumberHandler, '_get_highest_plan_number', return_value=55)
+    @patch.object(ValidatePlanNumberHandler, "_get_highest_plan_number", return_value=55)
     def test_handle_incorrect_plan_number_duplicate(self, mock_highest):
         """Should warn if plan number duplicates existing."""
         hook_input = {
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/CLAUDE/Plan/055-duplicate/PLAN.md",
-                "content": "# Plan 055"
-            }
+                "content": "# Plan 055",
+            },
         }
 
         result = self.handler.handle(hook_input)
@@ -215,14 +214,14 @@ class TestValidatePlanNumberHandler(unittest.TestCase):
         self.assertIsNotNone(result.context)
         self.assertIn("PLAN NUMBER INCORRECT", result.context)
 
-    @patch.object(ValidatePlanNumberHandler, '_get_highest_plan_number', return_value=55)
+    @patch.object(ValidatePlanNumberHandler, "_get_highest_plan_number", return_value=55)
     def test_handle_incorrect_plan_number_too_low(self, mock_highest):
         """Should warn if plan number is too low."""
         hook_input = {
             "tool_name": "Bash",
             "tool_input": {
-                "command": "mkdir -p CLAUDE/Plan/050-old-number"
-            }
+                "command": "mkdir -p CLAUDE/Plan/050-old-number",
+            },
         }
 
         result = self.handler.handle(hook_input)
@@ -231,15 +230,15 @@ class TestValidatePlanNumberHandler(unittest.TestCase):
         self.assertIsNotNone(result.context)
         self.assertIn("PLAN NUMBER INCORRECT", result.context)
 
-    @patch.object(ValidatePlanNumberHandler, '_get_highest_plan_number', return_value=0)
+    @patch.object(ValidatePlanNumberHandler, "_get_highest_plan_number", return_value=0)
     def test_handle_incorrect_first_plan_not_001(self, mock_highest):
         """Should warn if first plan is not 001."""
         hook_input = {
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/CLAUDE/Plan/005-wrong-start/PLAN.md",
-                "content": "# Plan 005"
-            }
+                "content": "# Plan 005",
+            },
         }
 
         result = self.handler.handle(hook_input)
@@ -253,76 +252,76 @@ class TestValidatePlanNumberHandler(unittest.TestCase):
     # _get_highest_plan_number() tests
     # =========================================================================
 
-    @patch('pathlib.Path.exists', return_value=True)
-    @patch('pathlib.Path.iterdir')
+    @patch("pathlib.Path.exists", return_value=True)
+    @patch("pathlib.Path.iterdir")
     def test_get_highest_plan_number_with_plans(self, mock_iterdir, mock_exists):
         """Should find highest plan number from both active and completed."""
         # Mock active plans
         plan_051 = MagicMock()
-        plan_051.name = '051-feature'
+        plan_051.name = "051-feature"
         plan_051.is_dir.return_value = True
 
         plan_055 = MagicMock()
-        plan_055.name = '055-another'
+        plan_055.name = "055-another"
         plan_055.is_dir.return_value = True
 
         completed_dir = MagicMock()
-        completed_dir.name = 'Completed'
+        completed_dir.name = "Completed"
         completed_dir.is_dir.return_value = True
 
         # Mock completed plans
         plan_048 = MagicMock()
-        plan_048.name = '048-old'
+        plan_048.name = "048-old"
         plan_048.is_dir.return_value = True
 
         plan_052 = MagicMock()
-        plan_052.name = '052-archived'
+        plan_052.name = "052-archived"
         plan_052.is_dir.return_value = True
 
         mock_iterdir.side_effect = [
             iter([plan_051, plan_055, completed_dir]),
-            iter([plan_048, plan_052])
+            iter([plan_048, plan_052]),
         ]
 
         highest = self.handler._get_highest_plan_number()
 
         self.assertEqual(highest, 55)
 
-    @patch('pathlib.Path.exists', return_value=True)
-    @patch('pathlib.Path.iterdir')
+    @patch("pathlib.Path.exists", return_value=True)
+    @patch("pathlib.Path.iterdir")
     def test_get_highest_plan_number_completed_higher(self, mock_iterdir, mock_exists):
         """Should return completed plan number if it's higher than active."""
         # Mock active plans
         plan_051 = MagicMock()
-        plan_051.name = '051-active'
+        plan_051.name = "051-active"
         plan_051.is_dir.return_value = True
 
         completed_dir = MagicMock()
-        completed_dir.name = 'Completed'
+        completed_dir.name = "Completed"
         completed_dir.is_dir.return_value = True
 
         # Mock completed plans - higher number
         plan_060 = MagicMock()
-        plan_060.name = '060-archived'
+        plan_060.name = "060-archived"
         plan_060.is_dir.return_value = True
 
         mock_iterdir.side_effect = [
             iter([plan_051, completed_dir]),
-            iter([plan_060])
+            iter([plan_060]),
         ]
 
         highest = self.handler._get_highest_plan_number()
 
         self.assertEqual(highest, 60)
 
-    @patch('pathlib.Path.exists', return_value=False)
+    @patch("pathlib.Path.exists", return_value=False)
     def test_get_highest_plan_number_no_plans(self, mock_exists):
         """Should return 0 if no plans exist."""
         highest = self.handler._get_highest_plan_number()
         self.assertEqual(highest, 0)
 
-    @patch('pathlib.Path.exists', return_value=True)
-    @patch('pathlib.Path.iterdir')
+    @patch("pathlib.Path.exists", return_value=True)
+    @patch("pathlib.Path.iterdir")
     def test_get_highest_plan_number_empty_directory(self, mock_iterdir, mock_exists):
         """Should return 0 if Plan directory is empty."""
         mock_iterdir.return_value = iter([])
@@ -334,11 +333,10 @@ class TestValidatePlanNumberHandler(unittest.TestCase):
     # PreToolUse timing verification tests
     # =========================================================================
 
-    @patch('pathlib.Path.exists', return_value=True)
-    @patch('pathlib.Path.iterdir')
+    @patch("pathlib.Path.exists", return_value=True)
+    @patch("pathlib.Path.iterdir")
     def test_pretooluse_timing_no_false_warning(self, mock_iterdir, mock_exists):
-        """
-        Verify PreToolUse timing: creating 061 when 060 exists should NOT warn.
+        """Verify PreToolUse timing: creating 061 when 060 exists should NOT warn.
 
         This test uses real mocked filesystem to verify the timing fix works.
         In PostToolUse, this would fail because 061 would already exist.
@@ -346,24 +344,24 @@ class TestValidatePlanNumberHandler(unittest.TestCase):
         """
         # Simulate: only 060 exists (we haven't created 061 yet)
         plan_060 = MagicMock()
-        plan_060.name = '060-existing'
+        plan_060.name = "060-existing"
         plan_060.is_dir.return_value = True
 
         completed_dir = MagicMock()
-        completed_dir.name = 'Completed'
+        completed_dir.name = "Completed"
         completed_dir.is_dir.return_value = True
 
         mock_iterdir.side_effect = [
             iter([plan_060, completed_dir]),
-            iter([])
+            iter([]),
         ]
 
         hook_input = {
             "tool_name": "Write",
             "tool_input": {
                 "file_path": "/workspace/CLAUDE/Plan/061-new/PLAN.md",
-                "content": "# Plan 061"
-            }
+                "content": "# Plan 061",
+            },
         }
 
         result = self.handler.handle(hook_input)
@@ -373,5 +371,5 @@ class TestValidatePlanNumberHandler(unittest.TestCase):
             "PreToolUse timing bug: Handler saw 061 as existing before it was created")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

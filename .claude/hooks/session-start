@@ -6,8 +6,10 @@ loading development context, installing dependencies, or setting up environment 
 
 Official docs: https://code.claude.com/docs/en/hooks.md#sessionstart
 """
-import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'controller'))
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "controller"))
 from session_start import main
+
 sys.exit(main())

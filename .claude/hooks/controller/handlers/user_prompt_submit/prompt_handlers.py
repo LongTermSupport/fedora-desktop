@@ -1,9 +1,9 @@
 """UserPromptSubmit handlers - prompt enhancement before submission."""
 
+import json
+import os
 import re
 import sys
-import os
-import json
 
 # Add parent directories to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -17,44 +17,44 @@ class AutoContinueHandler(Handler):
     # Common confirmation patterns that Claude uses
     CONFIRMATION_PATTERNS = [
         # Generic continuation prompts
-        r'would you like me to (?:continue|proceed|start|begin)',
-        r'should I (?:continue|proceed|start|begin)',
-        r'shall I (?:continue|proceed|start|begin)',
-        r'do you want me to (?:continue|proceed|start|begin)',
-        r'may I (?:continue|proceed|start|begin)',
-        r'can I (?:continue|proceed|start|begin)',
-        r'ready (?:for me )?to (?:continue|proceed|start)',
+        r"would you like me to (?:continue|proceed|start|begin)",
+        r"should I (?:continue|proceed|start|begin)",
+        r"shall I (?:continue|proceed|start|begin)",
+        r"do you want me to (?:continue|proceed|start|begin)",
+        r"may I (?:continue|proceed|start|begin)",
+        r"can I (?:continue|proceed|start|begin)",
+        r"ready (?:for me )?to (?:continue|proceed|start)",
 
         # Review/approval prompts
-        r'would you (?:like|prefer) to review',
-        r'do you want to review',
-        r'ready to (?:implement|execute|run)',
+        r"would you (?:like|prefer) to review",
+        r"do you want to review",
+        r"ready to (?:implement|execute|run)",
 
         # Launch/execution prompts
-        r'would you like me to (?:launch|execute|run)',
-        r'should I (?:launch|execute|run)',
+        r"would you like me to (?:launch|execute|run)",
+        r"should I (?:launch|execute|run)",
 
         # Next steps
-        r'would you like me to move (?:on|forward)',
-        r'shall we (?:continue|proceed|move on)',
+        r"would you like me to move (?:on|forward)",
+        r"shall we (?:continue|proceed|move on)",
 
         # Or/choice questions
-        r'or would you (?:like|prefer)',
-        r'or should I',
+        r"or would you (?:like|prefer)",
+        r"or should I",
 
         # Explicit permission requests
-        r'(?:would you like|do you want) (?:me )?to',
+        r"(?:would you like|do you want) (?:me )?to",
 
         # Batch/phase continuation (common in agent workflows)
-        r'continue with (?:batch|phase|step)',
-        r'would you like.+(?:batch|phase|step)',
-        r'shall I proceed.+(?:batch|phase|step)',
+        r"continue with (?:batch|phase|step)",
+        r"would you like.+(?:batch|phase|step)",
+        r"shall I proceed.+(?:batch|phase|step)",
     ]
 
     MINIMAL_RESPONSES = [
-        'yes', 'y', 'yep', 'yeah', 'ok', 'okay',
-        'continue', 'proceed', 'go ahead', 'sure',
-        'go', 'do it', 'yes please'
+        "yes", "y", "yep", "yeah", "ok", "okay",
+        "continue", "proceed", "go ahead", "sure",
+        "go", "do it", "yes please",
     ]
 
     def __init__(self):
@@ -62,8 +62,8 @@ class AutoContinueHandler(Handler):
 
     def matches(self, hook_input: dict) -> bool:
         """Check if this is a minimal response to a confirmation prompt."""
-        prompt = hook_input.get('prompt', '').strip()
-        transcript_path = hook_input.get('transcript_path', '')
+        prompt = hook_input.get("prompt", "").strip()
+        transcript_path = hook_input.get("transcript_path", "")
 
         if not prompt or not transcript_path:
             return False
@@ -80,11 +80,7 @@ class AutoContinueHandler(Handler):
 
     def handle(self, hook_input: dict) -> HookResult:
         """Enhance prompt with auto-continue context."""
-        prompt = hook_input.get('prompt', '').strip()
-        transcript_path = hook_input.get('transcript_path', '')
-
-        # Get the last assistant message
-        last_assistant_msg = self._get_last_assistant_message(transcript_path)
+        prompt = hook_input.get("prompt", "").strip()
 
         # Check if user gave minimal response
         if self._is_minimal_response(prompt):
@@ -112,7 +108,7 @@ class AutoContinueHandler(Handler):
     def _get_last_assistant_message(self, transcript_path: str) -> str:
         """Read the transcript and get the last assistant message."""
         try:
-            with open(transcript_path, 'r') as f:
+            with open(transcript_path) as f:
                 lines = f.readlines()
 
             # Parse JSONL format (each line is a JSON object)
@@ -120,23 +116,23 @@ class AutoContinueHandler(Handler):
             for line in lines:
                 try:
                     msg = json.loads(line.strip())
-                    if msg.get('type') == 'message':
+                    if msg.get("type") == "message":
                         messages.append(msg)
                 except (json.JSONDecodeError, ValueError):
                     continue
 
             # Find the last assistant message
             for msg in reversed(messages):
-                if msg.get('message', {}).get('role') == 'assistant':
+                if msg.get("message", {}).get("role") == "assistant":
                     # Extract text content
-                    content = msg.get('message', {}).get('content', [])
+                    content = msg.get("message", {}).get("content", [])
                     text_parts = []
                     for part in content:
-                        if isinstance(part, dict) and part.get('type') == 'text':
-                            text_parts.append(part.get('text', ''))
+                        if isinstance(part, dict) and part.get("type") == "text":
+                            text_parts.append(part.get("text", ""))
                         elif isinstance(part, str):
                             text_parts.append(part)
-                    return ' '.join(text_parts)
+                    return " ".join(text_parts)
 
             return ""
         except Exception:
@@ -156,11 +152,11 @@ class AutoContinueHandler(Handler):
 
         # Check for question marks with confirmation words
         last_section = text[-300:] if len(text) > 300 else text
-        if '?' in last_section:
+        if "?" in last_section:
             confirmation_words = [
-                'would you', 'should i', 'shall i', 'do you want',
-                'may i', 'can i', 'ready', 'prefer', 'like me to',
-                'want me to', 'continue', 'proceed', 'start', 'begin'
+                "would you", "should i", "shall i", "do you want",
+                "may i", "can i", "ready", "prefer", "like me to",
+                "want me to", "continue", "proceed", "start", "begin",
             ]
             last_lower = last_section.lower()
             for word in confirmation_words:

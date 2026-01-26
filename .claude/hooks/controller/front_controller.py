@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Front Controller for Claude Code Hooks
+"""Front Controller for Claude Code Hooks
 
 Implements efficient pattern-based dispatch to avoid spawning multiple processes.
 Each event type (PreToolUse, PostToolUse, etc.) uses this shared engine.
@@ -8,7 +7,6 @@ Each event type (PreToolUse, PostToolUse, etc.) uses this shared engine.
 
 import json
 import sys
-from typing import List, Optional
 
 
 class HookResult:
@@ -17,9 +15,9 @@ class HookResult:
     def __init__(
         self,
         decision: str = "allow",  # "allow", "deny", "ask"
-        reason: Optional[str] = None,
-        context: Optional[str] = None,
-        guidance: Optional[str] = None  # Guidance for agent (allow with feedback)
+        reason: str | None = None,
+        context: str | None = None,
+        guidance: str | None = None,  # Guidance for agent (allow with feedback)
     ):
         self.decision = decision
         self.reason = reason
@@ -55,8 +53,7 @@ class Handler:
         self.priority = priority
 
     def matches(self, hook_input: dict) -> bool:
-        """
-        Check if this handler applies to the given input.
+        """Check if this handler applies to the given input.
 
         Override this method to implement custom matching logic.
         Can use complex conditions, multiple checks, etc.
@@ -66,8 +63,7 @@ class Handler:
         raise NotImplementedError(f"{self.__class__.__name__} must implement matches()")
 
     def handle(self, hook_input: dict) -> HookResult:
-        """
-        Execute the handler logic.
+        """Execute the handler logic.
 
         Override this method to implement the actual hook behaviour.
 
@@ -81,7 +77,7 @@ class FrontController:
 
     def __init__(self, event_name: str):
         self.event_name = event_name
-        self.handlers: List[Handler] = []
+        self.handlers: list[Handler] = []
 
     def register(self, handler: Handler):
         """Register a handler instance."""
@@ -108,7 +104,7 @@ class FrontController:
             hook_input = json.load(sys.stdin)
         except json.JSONDecodeError:
             # Fail open if input invalid
-            print('{}')
+            print("{}")
             sys.exit(0)
 
         # Dispatch to matching handler
@@ -122,21 +118,21 @@ class FrontController:
 
 # Common utility methods for handlers
 
-def get_bash_command(hook_input: dict) -> Optional[str]:
+def get_bash_command(hook_input: dict) -> str | None:
     """Extract bash command from hook input, or None if not Bash tool."""
     if hook_input.get("tool_name") != "Bash":
         return None
     return hook_input.get("tool_input", {}).get("command", "")
 
 
-def get_file_path(hook_input: dict) -> Optional[str]:
+def get_file_path(hook_input: dict) -> str | None:
     """Extract file path from hook input, or None if not Write/Edit."""
     if hook_input.get("tool_name") not in ["Write", "Edit"]:
         return None
     return hook_input.get("tool_input", {}).get("file_path", "")
 
 
-def get_file_content(hook_input: dict) -> Optional[str]:
+def get_file_content(hook_input: dict) -> str | None:
     """Extract file content from hook input, or None if not Write/Edit."""
     if hook_input.get("tool_name") not in ["Write", "Edit"]:
         return None

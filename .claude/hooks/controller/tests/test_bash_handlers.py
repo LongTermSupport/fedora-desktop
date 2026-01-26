@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 """Unit tests for bash_handlers module."""
 
-import unittest
-import sys
 import os
+import sys
+import unittest
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from front_controller import Handler
-from handlers.pre_tool_use import DestructiveGitHandler, GitStashHandler, NpmCommandHandler
+from handlers.pre_tool_use import (
+    DestructiveGitHandler,
+    GitStashHandler,
+    NpmCommandHandler,
+)
 
 
 class TestDestructiveGitHandler(unittest.TestCase):
@@ -23,7 +27,7 @@ class TestDestructiveGitHandler(unittest.TestCase):
         """Should match 'git reset --hard' commands."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "git reset --hard HEAD~1"}
+            "tool_input": {"command": "git reset --hard HEAD~1"},
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -31,7 +35,7 @@ class TestDestructiveGitHandler(unittest.TestCase):
         """Should match 'git clean -f' commands."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "git clean -fd"}
+            "tool_input": {"command": "git clean -fd"},
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -39,7 +43,7 @@ class TestDestructiveGitHandler(unittest.TestCase):
         """Should match 'git stash drop' commands."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "git stash drop stash@{0}"}
+            "tool_input": {"command": "git stash drop stash@{0}"},
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -47,7 +51,7 @@ class TestDestructiveGitHandler(unittest.TestCase):
         """Should match 'git stash clear' commands."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "git stash clear"}
+            "tool_input": {"command": "git stash clear"},
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -65,18 +69,18 @@ class TestDestructiveGitHandler(unittest.TestCase):
         for command in safe_commands:
             hook_input = {
                 "tool_name": "Bash",
-                "tool_input": {"command": command}
+                "tool_input": {"command": command},
             }
             self.assertFalse(
                 self.handler.matches(hook_input),
-                f"Should not match safe command: {command}"
+                f"Should not match safe command: {command}",
             )
 
     def test_no_match_non_bash(self):
         """Should not match non-Bash tools."""
         hook_input = {
             "tool_name": "Write",
-            "tool_input": {"file_path": "/test.txt", "content": "git reset --hard"}
+            "tool_input": {"file_path": "/test.txt", "content": "git reset --hard"},
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -84,7 +88,7 @@ class TestDestructiveGitHandler(unittest.TestCase):
         """Should not match commands without git."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "rm -rf /"}
+            "tool_input": {"command": "rm -rf /"},
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -92,7 +96,7 @@ class TestDestructiveGitHandler(unittest.TestCase):
         """Should return deny decision for destructive commands."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "git reset --hard"}
+            "tool_input": {"command": "git reset --hard"},
         }
         result = self.handler.handle(hook_input)
 
@@ -113,7 +117,7 @@ class TestDestructiveGitHandler(unittest.TestCase):
         for command, expected_reason in test_cases:
             hook_input = {
                 "tool_name": "Bash",
-                "tool_input": {"command": command}
+                "tool_input": {"command": command},
             }
             result = self.handler.handle(hook_input)
             self.assertIn(expected_reason, result.reason, f"Failed for command: {command}")
@@ -138,7 +142,7 @@ class TestGitStashHandler(unittest.TestCase):
         """Should match 'git stash push' commands."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "git stash push -m 'WIP'"}
+            "tool_input": {"command": "git stash push -m 'WIP'"},
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -146,7 +150,7 @@ class TestGitStashHandler(unittest.TestCase):
         """Should match 'git stash save' commands."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "git stash save 'work in progress'"}
+            "tool_input": {"command": "git stash save 'work in progress'"},
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -162,18 +166,18 @@ class TestGitStashHandler(unittest.TestCase):
         for command in safe_stash_commands:
             hook_input = {
                 "tool_name": "Bash",
-                "tool_input": {"command": command}
+                "tool_input": {"command": command},
             }
             self.assertFalse(
                 self.handler.matches(hook_input),
-                f"Should not match safe command: {command}"
+                f"Should not match safe command: {command}",
             )
 
     def test_no_match_non_bash(self):
         """Should not match non-Bash tools."""
         hook_input = {
             "tool_name": "Write",
-            "tool_input": {"file_path": "/test.txt", "content": "git stash"}
+            "tool_input": {"file_path": "/test.txt", "content": "git stash"},
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -182,8 +186,8 @@ class TestGitStashHandler(unittest.TestCase):
         hook_input = {
             "tool_name": "Bash",
             "tool_input": {
-                "command": "git stash  # I HAVE ABSOLUTELY CONFIRMED THAT STASH IS THE ONLY OPTION"
-            }
+                "command": "git stash  # I HAVE ABSOLUTELY CONFIRMED THAT STASH IS THE ONLY OPTION",
+            },
         }
         result = self.handler.handle(hook_input)
         self.assertEqual(result.decision, "allow")
@@ -192,7 +196,7 @@ class TestGitStashHandler(unittest.TestCase):
         """Should block when escape hatch phrase absent."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "git stash"}
+            "tool_input": {"command": "git stash"},
         }
         result = self.handler.handle(hook_input)
 
@@ -221,7 +225,7 @@ class TestNpmCommandHandler(unittest.TestCase):
         """Should match 'npm run build' - must use llm:build instead."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "npm run build"}
+            "tool_input": {"command": "npm run build"},
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -229,7 +233,7 @@ class TestNpmCommandHandler(unittest.TestCase):
         """Should match 'npm run test' command."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "npm run test"}
+            "tool_input": {"command": "npm run test"},
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -245,11 +249,11 @@ class TestNpmCommandHandler(unittest.TestCase):
         for command in llm_commands:
             hook_input = {
                 "tool_name": "Bash",
-                "tool_input": {"command": command}
+                "tool_input": {"command": command},
             }
             self.assertFalse(
                 self.handler.matches(hook_input),
-                f"Should not match llm command: {command}"
+                f"Should not match llm command: {command}",
             )
 
     def test_no_match_allowed_commands(self):
@@ -262,11 +266,11 @@ class TestNpmCommandHandler(unittest.TestCase):
         for command in allowed_commands:
             hook_input = {
                 "tool_name": "Bash",
-                "tool_input": {"command": command}
+                "tool_input": {"command": command},
             }
             self.assertFalse(
                 self.handler.matches(hook_input),
-                f"Should not match allowed command: {command}"
+                f"Should not match allowed command: {command}",
             )
 
     def test_no_match_non_npm_run(self):
@@ -281,18 +285,18 @@ class TestNpmCommandHandler(unittest.TestCase):
         for command in non_npm_commands:
             hook_input = {
                 "tool_name": "Bash",
-                "tool_input": {"command": command}
+                "tool_input": {"command": command},
             }
             self.assertFalse(
                 self.handler.matches(hook_input),
-                f"Should not match non-npm-run command: {command}"
+                f"Should not match non-npm-run command: {command}",
             )
 
     def test_matches_npx_tsc(self):
         """Should match 'npx tsc' commands."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "npx tsc --noEmit"}
+            "tool_input": {"command": "npx tsc --noEmit"},
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -300,7 +304,7 @@ class TestNpmCommandHandler(unittest.TestCase):
         """Should match 'npx eslint' commands."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "npx eslint src/"}
+            "tool_input": {"command": "npx eslint src/"},
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -308,7 +312,7 @@ class TestNpmCommandHandler(unittest.TestCase):
         """Should match 'npx prettier' commands."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "npx prettier --check ."}
+            "tool_input": {"command": "npx prettier --check ."},
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -316,7 +320,7 @@ class TestNpmCommandHandler(unittest.TestCase):
         """Should match 'npx tsx' script execution."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "npx tsx scripts/llm-lint.ts"}
+            "tool_input": {"command": "npx tsx scripts/llm-lint.ts"},
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -324,7 +328,7 @@ class TestNpmCommandHandler(unittest.TestCase):
         """Should match llm: command piped to grep (pointless - uses cache files)."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "npm run llm:lint | grep error"}
+            "tool_input": {"command": "npm run llm:lint | grep error"},
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -332,7 +336,7 @@ class TestNpmCommandHandler(unittest.TestCase):
         """Should match llm: command piped to tee (pointless - already logs)."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "npm run llm:build | tee output.log"}
+            "tool_input": {"command": "npm run llm:build | tee output.log"},
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -346,7 +350,7 @@ class TestNpmCommandHandler(unittest.TestCase):
         for command in test_cases:
             hook_input = {
                 "tool_name": "Bash",
-                "tool_input": {"command": command}
+                "tool_input": {"command": command},
             }
             self.assertTrue(self.handler.matches(hook_input), f"Should block: {command}")
 
@@ -365,7 +369,7 @@ class TestNpmCommandHandler(unittest.TestCase):
         for command, expected_suggestion in test_cases:
             hook_input = {
                 "tool_name": "Bash",
-                "tool_input": {"command": command}
+                "tool_input": {"command": command},
             }
             result = self.handler.handle(hook_input)
             self.assertEqual(result.decision, "deny")
@@ -375,7 +379,7 @@ class TestNpmCommandHandler(unittest.TestCase):
         """Should return deny decision for non-llm, non-allowed commands."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "npm run lint"}
+            "tool_input": {"command": "npm run lint"},
         }
         result = self.handler.handle(hook_input)
 
@@ -413,7 +417,7 @@ class TestDestructiveGitHandlerEdgeCases(unittest.TestCase):
         """Should not match when 'git' is just in a path."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "cd /tmp/project && ls"}
+            "tool_input": {"command": "cd /tmp/project && ls"},
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -454,7 +458,7 @@ class TestDestructiveGitHandlerEdgeCases(unittest.TestCase):
         """Should not match safe git reset --soft."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "git reset --soft HEAD~1"}
+            "tool_input": {"command": "git reset --soft HEAD~1"},
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -462,7 +466,7 @@ class TestDestructiveGitHandlerEdgeCases(unittest.TestCase):
         """Should not match git reset --mixed (default)."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "git reset --mixed HEAD~1"}
+            "tool_input": {"command": "git reset --mixed HEAD~1"},
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -493,14 +497,14 @@ class TestDestructiveGitHandlerEdgeCases(unittest.TestCase):
             hook_input = {"tool_name": "Bash", "tool_input": {"command": cmd}}
             self.assertTrue(
                 self.handler.matches(hook_input),
-                f"SECURITY: MUST block destructive checkout: {cmd}"
+                f"SECURITY: MUST block destructive checkout: {cmd}",
             )
 
     def test_reason_includes_command(self):
         """Blocked reason should include the actual command."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "git clean -fd /tmp/test"}
+            "tool_input": {"command": "git clean -fd /tmp/test"},
         }
         result = self.handler.handle(hook_input)
         self.assertIn("git clean -fd /tmp/test", result.reason)
@@ -509,7 +513,7 @@ class TestDestructiveGitHandlerEdgeCases(unittest.TestCase):
         """Blocked reason should suggest safe alternatives."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "git reset --hard"}
+            "tool_input": {"command": "git reset --hard"},
         }
         result = self.handler.handle(hook_input)
         self.assertIn("SAFE alternatives", result.reason)
@@ -539,8 +543,8 @@ class TestGitStashHandlerEdgeCases(unittest.TestCase):
         hook_input = {
             "tool_name": "Bash",
             "tool_input": {
-                "command": "git stash  # i have absolutely confirmed that stash is the only option"
-            }
+                "command": "git stash  # i have absolutely confirmed that stash is the only option",
+            },
         }
         result = self.handler.handle(hook_input)
         # Should still block because case doesn't match
@@ -551,17 +555,17 @@ class TestGitStashHandlerEdgeCases(unittest.TestCase):
         hook_input = {
             "tool_name": "Bash",
             "tool_input": {
-                "command": "# I HAVE ABSOLUTELY CONFIRMED THAT STASH IS THE ONLY OPTION\ngit stash push"
-            }
+                "command": "# I HAVE ABSOLUTELY CONFIRMED THAT STASH IS THE ONLY OPTION\ngit stash push",
+            },
         }
         result = self.handler.handle(hook_input)
         self.assertEqual(result.decision, "allow")
 
     def test_git_stash_pop_allowed(self):
-        """git stash pop should be allowed (recovery operation)."""
+        """Git stash pop should be allowed (recovery operation)."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "git stash pop"}
+            "tool_input": {"command": "git stash pop"},
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -569,7 +573,7 @@ class TestGitStashHandlerEdgeCases(unittest.TestCase):
         """Should match stash even in command chains."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "git add . && git stash push && git pull"}
+            "tool_input": {"command": "git add . && git stash push && git pull"},
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -589,7 +593,7 @@ class TestNpmCommandHandlerEdgeCases(unittest.TestCase):
         """Should not match npm install (not npm run)."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "npm install package-name"}
+            "tool_input": {"command": "npm install package-name"},
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -597,7 +601,7 @@ class TestNpmCommandHandlerEdgeCases(unittest.TestCase):
         """Should not match direct 'npm test' (not npm run test)."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "npm test"}
+            "tool_input": {"command": "npm test"},
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -605,7 +609,7 @@ class TestNpmCommandHandlerEdgeCases(unittest.TestCase):
         """Should match npm run build even with arguments."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "npm run build -- --watch"}
+            "tool_input": {"command": "npm run build -- --watch"},
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -613,7 +617,7 @@ class TestNpmCommandHandlerEdgeCases(unittest.TestCase):
         """Should not match npm in path/variable name."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "cd npm-project && ls"}
+            "tool_input": {"command": "cd npm-project && ls"},
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -621,7 +625,7 @@ class TestNpmCommandHandlerEdgeCases(unittest.TestCase):
         """Should match npm run build even with env vars."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "NODE_ENV=production npm run build"}
+            "tool_input": {"command": "NODE_ENV=production npm run build"},
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -640,7 +644,7 @@ class TestNpmCommandHandlerEdgeCases(unittest.TestCase):
         """Unknown npm run commands should get generic llm:qa suggestion."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "npm run unknown-command"}
+            "tool_input": {"command": "npm run unknown-command"},
         }
         result = self.handler.handle(hook_input)
         self.assertIn("llm:qa", result.reason)
@@ -649,7 +653,7 @@ class TestNpmCommandHandlerEdgeCases(unittest.TestCase):
         """Whitelisted commands should not match."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "npm run clean"}
+            "tool_input": {"command": "npm run clean"},
         }
         self.assertFalse(self.handler.matches(hook_input))
 
@@ -657,7 +661,7 @@ class TestNpmCommandHandlerEdgeCases(unittest.TestCase):
         """Should match npm run build in subshells."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "$(npm run build)"}
+            "tool_input": {"command": "$(npm run build)"},
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -665,7 +669,7 @@ class TestNpmCommandHandlerEdgeCases(unittest.TestCase):
         """Should match npm run build when piped."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {"command": "npm run build | tee output.log"}
+            "tool_input": {"command": "npm run build | tee output.log"},
         }
         self.assertTrue(self.handler.matches(hook_input))
 
@@ -692,5 +696,5 @@ class TestHandlerBaseClassBehavior(unittest.TestCase):
         self.assertEqual(handler.priority, 50)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Migration script for hooks front controller.
+"""Migration script for hooks front controller.
 
 This script:
 1. Backs up current hooks and settings to .bak files
@@ -81,7 +80,7 @@ def create_new_settings():
     # Read existing settings
     existing = {}
     if SETTINGS_FILE.exists():
-        with open(SETTINGS_FILE, 'r') as f:
+        with open(SETTINGS_FILE) as f:
             existing = json.load(f)
 
     # Start with existing settings
@@ -99,10 +98,10 @@ def create_new_settings():
                 {
                     "type": "command",
                     "command": str(CONTROLLER_DIR / "pre_tool_use.py"),
-                    "timeout": 60
-                }
-            ]
-        }
+                    "timeout": 60,
+                },
+            ],
+        },
     ]
 
     return new_settings
@@ -136,7 +135,7 @@ def deploy(dry_run=True):
     # Read current settings
     old_settings = {}
     if SETTINGS_FILE.exists():
-        with open(SETTINGS_FILE, 'r') as f:
+        with open(SETTINGS_FILE) as f:
             old_settings = json.load(f)
 
     # Create new settings
@@ -159,9 +158,9 @@ def deploy(dry_run=True):
 
     # Write new settings
     log(f"Writing new settings to {SETTINGS_FILE}")
-    with open(SETTINGS_FILE, 'w') as f:
+    with open(SETTINGS_FILE, "w") as f:
         json.dump(new_settings, f, indent=2)
-        f.write('\n')  # Add trailing newline
+        f.write("\n")  # Add trailing newline
 
     log("✓ New settings deployed")
 
@@ -208,10 +207,10 @@ def rollback(force=False):
         print("\nThis will:")
         print(f"  - Restore settings from {latest_settings_backup.name}")
         print(f"  - Restore {len(hook_backups)} hook files")
-        print(f"  - Overwrite current settings.local.json")
+        print("  - Overwrite current settings.local.json")
 
         confirm = input("\nProceed with rollback? [y/N]: ")
-        if confirm.lower() != 'y':
+        if confirm.lower() != "y":
             log("Rollback cancelled")
             return False
 
@@ -222,7 +221,7 @@ def rollback(force=False):
 
     # Restore hook files
     for backup in hook_backups:
-        original = HOOKS_DIR / backup.name.split('.bak.')[0]
+        original = HOOKS_DIR / backup.name.split(".bak.")[0]
         log(f"Restoring {original.name}...")
         shutil.copy2(backup, original)
 
@@ -245,5 +244,5 @@ def main():
         deploy(dry_run=True)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

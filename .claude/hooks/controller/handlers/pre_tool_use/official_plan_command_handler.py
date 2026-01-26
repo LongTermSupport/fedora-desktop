@@ -1,13 +1,13 @@
 """OfficialPlanCommandHandler - individual handler file."""
 
+import os
 import re
 import sys
-import os
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from front_controller import Handler, HookResult, get_bash_command, get_file_path, get_file_content
+from front_controller import Handler, HookResult, get_bash_command
 
 
 class OfficialPlanCommandHandler(Handler):
@@ -18,17 +18,17 @@ class OfficialPlanCommandHandler(Handler):
 
     # Ad-hoc patterns that should be blocked
     AD_HOC_PATTERNS = [
-        r'ls\s+(?:-\w+\s+)*\*/Plan/\[0-9\]',  # ls -d */Plan/[0-9]*
-        r'ls\s+(?:-\w+\s+)*CLAUDE/Plan/0',     # ls CLAUDE/Plan/0*
-        r'ls\s+(?:-\w+\s+)*CLAUDE/Plan[^|]*\|\s*grep',  # ls CLAUDE/Plan | grep
-        r'find\s+CLAUDE/Plan(?:\s+(?!-maxdepth\s+2)|\s*$)',  # find CLAUDE/Plan without -maxdepth 2, or no args
-        r'find\s+CLAUDE/Plan\s+-maxdepth\s+1\b',      # Wrong maxdepth (1 instead of 2)
-        r'cd\s+CLAUDE/Plan\s+&&\s+ls',  # cd into Plan then list
-        r'ls\s+(?:-\w+\s+)?CLAUDE/Plan(?:/|$)',      # ls [options] CLAUDE/Plan/ or CLAUDE/Plan
+        r"ls\s+(?:-\w+\s+)*\*/Plan/\[0-9\]",  # ls -d */Plan/[0-9]*
+        r"ls\s+(?:-\w+\s+)*CLAUDE/Plan/0",     # ls CLAUDE/Plan/0*
+        r"ls\s+(?:-\w+\s+)*CLAUDE/Plan[^|]*\|\s*grep",  # ls CLAUDE/Plan | grep
+        r"find\s+CLAUDE/Plan(?:\s+(?!-maxdepth\s+2)|\s*$)",  # find CLAUDE/Plan without -maxdepth 2, or no args
+        r"find\s+CLAUDE/Plan\s+-maxdepth\s+1\b",      # Wrong maxdepth (1 instead of 2)
+        r"cd\s+CLAUDE/Plan\s+&&\s+ls",  # cd into Plan then list
+        r"ls\s+(?:-\w+\s+)?CLAUDE/Plan(?:/|$)",      # ls [options] CLAUDE/Plan/ or CLAUDE/Plan
     ]
 
     # Archival/organization subdirectories that are legitimate
-    ARCHIVAL_SUBDIRS = ['Completed', 'Archive', 'Backup', 'Cancelled']
+    ARCHIVAL_SUBDIRS = ["Completed", "Archive", "Backup", "Cancelled"]
 
     def __init__(self):
         super().__init__(name="enforce-official-plan-command", priority=25)
@@ -44,12 +44,12 @@ class OfficialPlanCommandHandler(Handler):
         """
         # Check for operations involving archival subdirectories
         for subdir in self.ARCHIVAL_SUBDIRS:
-            if f'CLAUDE/Plan/{subdir}' in command:
+            if f"CLAUDE/Plan/{subdir}" in command:
                 # Check if it's a mkdir, mv, or cp operation
-                if any(op in command for op in ['mkdir', 'mv', 'cp']):
+                if any(op in command for op in ["mkdir", "mv", "cp"]):
                     return True
                 # Check if it's listing an archival directory (not plan discovery)
-                if f'ls' in command and f'CLAUDE/Plan/{subdir}' in command:
+                if "ls" in command and f"CLAUDE/Plan/{subdir}" in command:
                     # Allow ls of archival directories (e.g., ls -la CLAUDE/Plan/Completed/)
                     return True
 
@@ -60,8 +60,8 @@ class OfficialPlanCommandHandler(Handler):
 
         Normalizes whitespace before comparison to allow flexible formatting.
         """
-        normalized_cmd = re.sub(r'\s+', ' ', command).strip()
-        normalized_official = re.sub(r'\s+', ' ', self.OFFICIAL_COMMAND_NORMALIZED).strip()
+        normalized_cmd = re.sub(r"\s+", " ", command).strip()
+        normalized_official = re.sub(r"\s+", " ", self.OFFICIAL_COMMAND_NORMALIZED).strip()
         return normalized_cmd == normalized_official
 
     def matches(self, hook_input: dict) -> bool:
@@ -121,7 +121,7 @@ class OfficialPlanCommandHandler(Handler):
                 "REFERENCE:\n"
                 "  File: CLAUDE/Plan/CLAUDE.md\n"
                 "  Section: Plan Numbering"
-            )
+            ),
         )
 
 

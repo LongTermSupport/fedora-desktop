@@ -87,6 +87,58 @@ CCY_VERSION="3.0.1"  # Fix: persist sessions in .claude/ccy/
 - `files/var/local/claude-yolo/claude-yolo` (main CCY wrapper)
 - Any file with version tracking
 
+### ⚠️ MANDATORY: Run QA Scripts Before Committing
+
+**ALWAYS run QA scripts before committing changes to Bash or Python files.**
+
+The project includes QA scripts that validate syntax and catch common errors:
+
+```bash
+# Run ALL QA checks (recommended)
+./scripts/qa-all.bash
+
+# Or run individual checks
+./scripts/qa-bash.bash    # Bash syntax validation
+./scripts/qa-python.bash  # Python syntax + linting
+```
+
+**Rules:**
+1. **Run `./scripts/qa-all.bash` before EVERY commit** that touches Bash or Python files
+2. **Fix all errors** before committing - QA failures indicate broken code
+3. **Do not skip QA** - even for "small" changes
+
+**What QA catches:**
+- ✅ Bash syntax errors (`bash -n` validation)
+- ✅ Python syntax errors (`python3 -m py_compile`)
+- ✅ Common Python issues (via `ruff` if installed)
+
+**What QA does NOT catch (known limitations):**
+- ❌ **Runtime API incompatibilities** - e.g., calling a library method with parameters it no longer accepts
+- ❌ **Import errors** - missing dependencies only fail at runtime
+- ❌ **Logic errors** - code that runs but produces wrong results
+
+**For Python files that use external libraries** (like `wsi-stream` using RealtimeSTT):
+- After editing, **manually test the script** to verify it works
+- Library APIs can change between versions
+- Syntax checking alone is not sufficient for integration code
+
+**Example workflow:**
+```bash
+# 1. Make changes
+vim files/home/.local/bin/wsi-stream
+
+# 2. Run QA
+./scripts/qa-all.bash
+
+# 3. If QA passes, deploy and TEST the actual script
+ansible-playbook playbooks/imports/optional/common/play-speech-to-text.yml
+~/.local/bin/wsi-stream --help  # Verify it imports/runs
+
+# 4. Only then commit
+git add files/home/.local/bin/wsi-stream
+git commit -m "fix: update wsi-stream"
+```
+
 ## Project Overview
 
 This is a **Fedora Desktop Configuration Management Project** that automates the setup of a freshly installed Fedora system for development work using Ansible. The project uses a branching strategy where each Fedora version has its own branch, with the target version defined in `vars/fedora-version.yml`, and provides a comprehensive desktop environment setup with development tools, customizations, and optional components.

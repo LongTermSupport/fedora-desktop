@@ -6,8 +6,10 @@ permission requests on behalf of the user.
 
 Official docs: https://code.claude.com/docs/en/hooks.md#permissionrequest
 """
-import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'controller'))
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "controller"))
 from permission_request import main
+
 sys.exit(main())

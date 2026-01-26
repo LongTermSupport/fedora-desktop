@@ -10,7 +10,7 @@ def test_hook(tool_name, tool_input, should_block=True):
     """Test hook with given input."""
     hook_input = {
         "tool_name": tool_name,
-        "tool_input": tool_input
+        "tool_input": tool_input,
     }
 
     result = subprocess.run(
@@ -18,7 +18,7 @@ def test_hook(tool_name, tool_input, should_block=True):
         input=json.dumps(hook_input),
         capture_output=True,
         text=True,
-        cwd="/workspace/.claude/hooks/controller"
+        cwd="/workspace/.claude/hooks/controller",
     )
 
     output = json.loads(result.stdout) if result.stdout.strip() else {}
