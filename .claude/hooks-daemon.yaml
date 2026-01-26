@@ -37,7 +37,7 @@ handlers:
 
     # CODE QUALITY HANDLERS (Priority 25-45)
     eslint_disable:        # Prevents ESLint suppression comments
-      enabled: true
+      enabled: false       # Disabled - project doesn't use JavaScript/TypeScript
       priority: 30
 
     tdd_enforcement:       # Enforces test-first development
@@ -121,10 +121,8 @@ handlers:
   stop: {}
 
 # Project-level handlers (custom handlers in .claude/hooks/handlers/)
-# Example:
-# plugins:
-#   - type: "file"
-#     path: ".claude/hooks/handlers/pre_tool_use/my_handler.py"
-#     class: "MyHandler"
-#     events: ["PreToolUse"]
-plugins: {}
+plugins:
+  plugins:
+    - path: ".claude/hooks/handlers/pre_tool_use/system_paths.py"
+      handlers: ["SystemPathsHandler"]
+      enabled: true
