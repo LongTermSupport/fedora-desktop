@@ -2,7 +2,7 @@
 # Claude YOLO Common Library
 # Shared helpers for claude-yolo and claude-yolo-browser
 #
-# Version: 1.2.0
+# Version: 1.3.0
 
 # Color codes for consistent output
 readonly COLOR_RESET='\033[0m'
@@ -95,6 +95,132 @@ check_git_repo() {
         return 1
     fi
     return 0
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECURITY: Ensure .claude/ccy/ is protected and check for tracked sensitive files
+# ═══════════════════════════════════════════════════════════════════════════════
+# The .claude/ccy/ directory contains sensitive session data that should NEVER
+# be committed to git. Only .gitignore and Dockerfile are safe to track.
+#
+# This function:
+# 1. Forces .claude/ccy/.gitignore to exist with correct content (warns if updating)
+# 2. FAILS LOUDLY if any dangerous files are already tracked in git
+# ═══════════════════════════════════════════════════════════════════════════════
+
+check_ccy_gitignore_safety() {
+    local ccy_dir=".claude/ccy"
+    local ccy_gitignore="$ccy_dir/.gitignore"
+
+    # Expected .gitignore content
+    local expected_gitignore="# CCY session data - NEVER commit sensitive files
+# Only .gitignore and Dockerfile are safe to track
+*
+!.gitignore
+!Dockerfile"
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # STEP 1: Force .claude/ccy/.gitignore to exist with correct content
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    # Create directory if needed
+    if [ ! -d "$ccy_dir" ]; then
+        mkdir -p "$ccy_dir"
+    fi
+
+    # Check if .gitignore needs to be created or updated
+    local current_content=""
+    if [ -f "$ccy_gitignore" ]; then
+        current_content=$(cat "$ccy_gitignore")
+    fi
+
+    # Check if file is missing the critical "ignore all" rule
+    if ! echo "$current_content" | grep -q "^\*$"; then
+        if [ -f "$ccy_gitignore" ]; then
+            echo -e "${COLOR_YELLOW}⚠  Updating .claude/ccy/.gitignore (was missing protection rules)${COLOR_RESET}"
+        else
+            echo "✓ Creating .claude/ccy/.gitignore for security"
+        fi
+        echo "$expected_gitignore" > "$ccy_gitignore"
+    fi
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # STEP 2: CRITICAL - Check for dangerous tracked files
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    # Get list of tracked files in .claude/ccy/
+    local tracked_files
+    tracked_files=$(git ls-files "$ccy_dir" 2>/dev/null || echo "")
+
+    if [ -z "$tracked_files" ]; then
+        return 0  # Nothing tracked, all good
+    fi
+
+    # Filter out safe files: .gitignore and Dockerfile
+    local dangerous_files=""
+    while IFS= read -r file; do
+        local basename=$(basename "$file")
+        case "$basename" in
+            .gitignore|Dockerfile)
+                # Safe to track
+                ;;
+            *)
+                # Dangerous!
+                dangerous_files="$dangerous_files$file"$'\n'
+                ;;
+        esac
+    done <<< "$tracked_files"
+
+    # Remove trailing newline
+    dangerous_files=$(echo "$dangerous_files" | sed '/^$/d')
+
+    if [ -z "$dangerous_files" ]; then
+        return 0  # Only safe files tracked
+    fi
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # SCREAM AT THE USER - DANGEROUS FILES ARE TRACKED
+    # ═══════════════════════════════════════════════════════════════════════════
+    echo "" >&2
+    echo -e "${COLOR_RED}════════════════════════════════════════════════════════════════════════════════${COLOR_RESET}" >&2
+    echo -e "${COLOR_RED}██████████████████████████████████████████████████████████████████████████████████${COLOR_RESET}" >&2
+    echo -e "${COLOR_RED}██                                                                              ██${COLOR_RESET}" >&2
+    echo -e "${COLOR_RED}██  ⚠️  SECURITY ALERT: SENSITIVE FILES TRACKED IN GIT  ⚠️                       ██${COLOR_RESET}" >&2
+    echo -e "${COLOR_RED}██                                                                              ██${COLOR_RESET}" >&2
+    echo -e "${COLOR_RED}██████████████████████████████████████████████████████████████████████████████████${COLOR_RESET}" >&2
+    echo -e "${COLOR_RED}════════════════════════════════════════════════════════════════════════════════${COLOR_RESET}" >&2
+    echo "" >&2
+    echo -e "${COLOR_BOLD}These files in .claude/ccy/ are being TRACKED by git:${COLOR_RESET}" >&2
+    echo "" >&2
+
+    while IFS= read -r file; do
+        echo -e "  ${COLOR_RED}✗${COLOR_RESET} $file" >&2
+    done <<< "$dangerous_files"
+
+    echo "" >&2
+    echo -e "${COLOR_YELLOW}Why this is dangerous:${COLOR_RESET}" >&2
+    echo "  • .last-launch.conf contains token names and SSH key paths" >&2
+    echo "  • Session files contain your conversation history" >&2
+    echo "  • These files should NEVER be pushed to a repository" >&2
+    echo "" >&2
+    echo -e "${COLOR_GREEN}To fix, run:${COLOR_RESET}" >&2
+    echo "" >&2
+
+    # Build the git rm command
+    local rm_cmd="git rm --cached"
+    while IFS= read -r file; do
+        rm_cmd="$rm_cmd \"$file\""
+    done <<< "$dangerous_files"
+    echo "  $rm_cmd" >&2
+
+    echo "  git commit -m 'fix: remove sensitive CCY files from tracking'" >&2
+    echo "" >&2
+    echo -e "${COLOR_RED}════════════════════════════════════════════════════════════════════════════════${COLOR_RESET}" >&2
+    echo -e "${COLOR_BOLD}CCY will NOT start until this is fixed.${COLOR_RESET}" >&2
+    echo -e "${COLOR_RED}════════════════════════════════════════════════════════════════════════════════${COLOR_RESET}" >&2
+    echo "" >&2
+
+    return 1
 }
 
 # Project name extraction
@@ -693,6 +819,7 @@ get_next_container_name() {
 export -f is_in_distrobox
 export -f get_claude_version
 export -f is_token_valid
+export -f check_ccy_gitignore_safety
 export -f list_ccy_tokens
 export -f get_project_state_dir
 export -f load_launch_config

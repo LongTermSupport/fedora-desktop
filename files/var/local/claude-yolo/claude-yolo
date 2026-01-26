@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.0.3"  # Add comments linking REQUIRED_CONTAINER_VERSION to Dockerfile label
+CCY_VERSION="3.1.0"  # Add security check for tracked files in .claude/ccy/
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -54,6 +54,9 @@ CONFIG_VERSION=1
 
 # Fail fast: Must be run from a git repository root
 check_git_repo || exit 1
+
+# Security check: Ensure no dangerous files are tracked in .claude/ccy/
+check_ccy_gitignore_safety || exit 1
 
 # Migration: detect and offer to remove old session directories (v2.x -> v3.x)
 if [ -d ".claude/ccy/sessions" ]; then
