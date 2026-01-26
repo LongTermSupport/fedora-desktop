@@ -1,5 +1,47 @@
 # GNOME Shell Extensions Development
 
+## ⚠️ WAYLAND: Extension Reload Requires Logout
+
+**This system runs Wayland, NOT X11.**
+
+On Wayland, GNOME Shell cannot be restarted without ending the session. This means:
+
+- ❌ **`Alt+F2` → `r` does NOT work** (X11 only)
+- ❌ **Disable/enable extension does NOT reload code** (only toggles existing loaded code)
+- ✅ **Log out and log back in** is the ONLY way to reload extension JavaScript
+
+**When extension code is updated:**
+1. Deploy via Ansible playbook
+2. **Inform the user clearly**: "You must log out and log back in for the extension changes to take effect."
+3. Do not suggest any other reload method - they do not work on Wayland
+
+## ⚠️ ARCHITECTURE: Keep Extension Code Thin
+
+**Because reloading extensions requires logout, minimize code in extension.js.**
+
+Extensions should be **thin wrappers** that:
+- Handle GNOME Shell integration (panel indicators, keybindings, DBus signals)
+- Launch external scripts for actual functionality
+- Read state from files/DBus rather than computing it
+
+**All business logic should live in external scripts** (Python, Bash) in `~/.local/bin/`:
+- Scripts can be updated and take effect immediately
+- No logout required for script changes
+- Easier to test and debug outside GNOME Shell
+
+**Example - GOOD architecture:**
+```
+extension.js:     Keybinding → spawns wsi-stream → listens for DBus signals → updates icon
+wsi-stream:       All transcription logic, clipboard handling, notifications
+```
+
+**Example - BAD architecture:**
+```
+extension.js:     Keybinding → does transcription inline → handles clipboard → etc.
+```
+
+**Rule of thumb:** If you can move it to a script, move it to a script.
+
 ## Critical Safety Rules
 
 ### ⚠️ ALWAYS RUN ESLINT AFTER CHANGES
@@ -176,7 +218,8 @@ GNOME Shell's internal APIs (anything with `_` prefix) are **not stable** and ma
    ```
 3. **Fix any errors** before proceeding
 4. **Deploy** via Ansible playbook
-5. **Test** in GNOME Shell
+5. **Inform user to log out and log back in** (extension.js changes only - script changes are immediate)
+6. **Test** in GNOME Shell
 
 ## ESLint Auto-fix
 
@@ -189,10 +232,12 @@ cd /workspace/extensions && npm run lint:fix
 
 ## Testing Extensions
 
-After deployment, test thoroughly:
-- Enable/disable extension to reload
-- Check for errors: `journalctl -f /usr/bin/gnome-shell`
-- Monitor logs: `tail -f ~/.local/share/speech-to-text/debug.log`
+After deployment:
+1. **Log out and log back in** to reload extension code (required on Wayland)
+2. Check for errors: `journalctl -f /usr/bin/gnome-shell`
+3. Monitor logs: `tail -f ~/.local/share/speech-to-text/debug.log`
+
+**Remember:** Script changes (wsi, wsi-stream) take effect immediately. Extension.js changes require logout.
 
 ## Extension Structure
 

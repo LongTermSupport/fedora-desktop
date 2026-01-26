@@ -591,10 +591,11 @@ export default class SpeechToTextExtension extends Extension {
         }
 
         // Start with green background, white text
+        // Note: Don't use 'system-status-icon' style_class - it has max-width that
+        // truncates "REC 117" to "REC 1..." in streaming mode
         this._countdownLabel = new St.Label({
             text: `REC ${this._remainingSeconds}`,
             y_align: 2,  // Clutter.ActorAlign.CENTER
-            style_class: 'system-status-icon',
             style: 'color: white; font-weight: bold; font-size: 13px; background-color: #44ff44; padding: 2px 4px; border-radius: 3px;'
         });
         this._indicator.add_child(this._countdownLabel);
