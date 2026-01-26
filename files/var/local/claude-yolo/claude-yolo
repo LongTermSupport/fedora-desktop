@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.0.2"  # Fix: force-remove /root/.claude before symlinking (Claude Code creates it early)
+CCY_VERSION="3.0.3"  # Add comments linking REQUIRED_CONTAINER_VERSION to Dockerfile label
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -33,6 +33,9 @@ done
 
 # IMPORTANT: When modifying the Dockerfile, ALWAYS increment REQUIRED_CONTAINER_VERSION!
 # This ensures users automatically rebuild when critical container changes are made.
+# ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
+#     If they don't match, users get infinite rebuild loops.
+#     Update BOTH files together: Dockerfile label AND this variable.
 REQUIRED_CONTAINER_VERSION="1.4"
 
 set -e

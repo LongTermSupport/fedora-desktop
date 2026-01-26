@@ -7,7 +7,10 @@ ARG DOCKERFILE_HASH="unknown"
 # IMPORTANT: When modifying this Dockerfile, ALWAYS increment claude-yolo-version!
 # The hash validates Dockerfile integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
-LABEL claude-yolo-version="1.3"
+# ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
+#     If they don't match, users get infinite rebuild loops.
+#     Update BOTH files together: this label AND the script variable.
+LABEL claude-yolo-version="1.4"
 LABEL claude-yolo-dockerfile-hash="${DOCKERFILE_HASH}"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 
