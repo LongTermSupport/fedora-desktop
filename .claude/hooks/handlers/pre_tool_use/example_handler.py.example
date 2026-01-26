@@ -1,0 +1,67 @@
+"""ExampleHandler - template for project-level handlers."""
+
+import sys
+from pathlib import Path
+
+# Add daemon to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "hooks-daemon/src"))
+
+from claude_code_hooks_daemon.core import Handler, HookResult
+from claude_code_hooks_daemon.core.utils import get_bash_command, get_file_path
+
+
+class ExampleHandler(Handler):
+    """Example handler showing the basic pattern.
+
+    Replace this docstring with your handler's purpose.
+    """
+
+    def __init__(self) -> None:
+        """Initialise handler with name and priority."""
+        super().__init__(
+            name="example-handler",
+            priority=50,  # Adjust priority (5-60 range)
+            terminal=True  # Set False for non-blocking guidance
+        )
+
+    def matches(self, hook_input: dict) -> bool:
+        """Check if this handler should execute.
+
+        Args:
+            hook_input: Hook input dictionary from Claude Code
+
+        Returns:
+            True if handler should execute, False otherwise
+        """
+        # Example: Match all Bash tool calls
+        command = get_bash_command(hook_input)
+        if command and "example" in command:
+            return True
+
+        # Example: Match file operations
+        file_path = get_file_path(hook_input)
+        if file_path and file_path.startswith("/forbidden/"):
+            return True
+
+        return False
+
+    def handle(self, hook_input: dict) -> HookResult:
+        """Execute handler logic.
+
+        Args:
+            hook_input: Hook input dictionary from Claude Code
+
+        Returns:
+            HookResult with decision and optional reason/context
+        """
+        # Example: Block with reason
+        return HookResult(
+            decision="deny",
+            reason="This is an example denial message",
+        )
+
+        # Example: Allow with guidance (non-terminal handler)
+        # return HookResult(
+        #     decision="allow",
+        #     context="Example guidance message",
+        # )

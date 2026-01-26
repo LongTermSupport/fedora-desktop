@@ -1,0 +1,130 @@
+version: "1.0"
+
+# Daemon configuration
+daemon:
+  idle_timeout_seconds: 600  # Auto-shutdown after 10 minutes of inactivity
+  log_level: INFO
+
+  # enable_hello_world_handlers: true  # Uncomment to test hooks are working
+                                       # Shows "✅ {Event} hook system active" messages
+
+# Built-in handler configuration
+# Handlers run in priority order (lower number = earlier execution)
+# Priority ranges: 5=test, 10-20=safety, 25-45=workflow, 50-60=tool usage
+handlers:
+  # PreToolUse handlers (run before every tool call)
+  pre_tool_use:
+    # SAFETY HANDLERS (Priority 10-20)
+    destructive_git:       # Blocks git reset --hard, git clean -f, etc
+      enabled: true
+      priority: 10
+
+    sed_blocker:           # Blocks sed command usage (use Edit tool instead)
+      enabled: true
+      priority: 10
+
+    absolute_path:         # Enforces absolute paths in file operations
+      enabled: true
+      priority: 12
+
+    worktree_file_copy:    # Prevents copying files between git worktrees
+      enabled: true
+      priority: 15
+
+    git_stash:             # Warns about git stash (stashes can be lost)
+      enabled: true
+      priority: 20
+
+    # CODE QUALITY HANDLERS (Priority 25-45)
+    eslint_disable:        # Prevents ESLint suppression comments
+      enabled: true
+      priority: 30
+
+    tdd_enforcement:       # Enforces test-first development
+      enabled: true
+      priority: 35
+
+    # WORKFLOW HANDLERS (Priority 40-50)
+    validate_plan_number:  # Validates plan number format (001-, 002-, etc)
+      enabled: false       # Optional - enable for projects using CLAUDE/Plan/
+      priority: 40
+
+    plan_time_estimates:   # Blocks time estimates in plan files
+      enabled: false       # Optional - enable for projects using CLAUDE/Plan/
+      priority: 45
+
+    plan_workflow:         # Provides guidance when creating plans
+      enabled: false       # Optional - enable for projects using CLAUDE/Plan/
+      priority: 45
+
+    npm_command:           # Restricts npm commands to approved list
+      enabled: false       # Optional - enable for strict npm usage control
+      priority: 50
+
+    markdown_organization: # Enforces markdown file organization rules
+      enabled: false       # Optional - enable for strict md organization
+      priority: 50
+
+    # TOOL USAGE HANDLERS (Priority 50-60)
+    web_search_year:       # Fixes year in web search queries (uses current year)
+      enabled: true
+      priority: 55
+
+    british_english:       # Warns about American English spelling
+      enabled: true
+      priority: 60
+
+  # PostToolUse handlers (run after tool execution)
+  post_tool_use:
+    # validate_eslint_on_write:  # Runs ESLint after file writes
+    #   enabled: false            # Optional - enable for automatic ESLint validation
+    #   priority: 10
+
+    # validate_sitemap:          # Validates sitemap structure after writes
+    #   enabled: false            # Optional - enable for sitemap validation
+    #   priority: 20
+
+  # SessionStart handlers (run when session starts)
+  session_start:
+    # workflow_state_restoration:  # Restores workflow state after compaction
+    #   enabled: false              # Optional - enable for workflow state management
+    #   priority: 10
+
+  # PreCompact handlers (run before conversation compaction)
+  pre_compact:
+    # workflow_state_pre_compact:  # Saves workflow state before compaction
+    #   enabled: false              # Optional - enable for workflow state management
+    #   priority: 10
+
+  # SessionEnd handlers (run when session ends)
+  session_end: {}
+
+  # SubagentStop handlers (run when subagent completes)
+  subagent_stop:
+    # remind_prompt_library:  # Reminds about prompt library after agent work
+    #   enabled: false         # Optional - enable for prompt library reminders
+    #   priority: 10
+
+    # remind_validator:       # Reminds about HTML validation
+    #   enabled: false         # Optional - enable for validation reminders
+    #   priority: 20
+
+  # UserPromptSubmit handlers (run when user submits prompt)
+  user_prompt_submit:
+    # auto_continue:  # Auto-continues on 'continue' keyword
+    #   enabled: false # Optional - enable for auto-continue behavior
+    #   priority: 10
+
+  # Other hook events
+  permission_request: {}
+  notification: {}
+  stop: {}
+
+# Project-level handlers (custom handlers in .claude/hooks/handlers/)
+# Example:
+# plugins:
+#   - type: "file"
+#     path: ".claude/hooks/handlers/pre_tool_use/my_handler.py"
+#     class: "MyHandler"
+#     events: ["PreToolUse"]
+plugins: {}

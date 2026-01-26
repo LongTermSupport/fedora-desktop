@@ -1,0 +1,24 @@
+# Claude Code Hooks Daemon
+# Exclude the cloned daemon repository (users install it themselves)
+hooks-daemon/
+
+# Backup directories created during installation
+hooks.bak/
+hooks.bak.*/
+
+# Environment files (may contain local paths)
+hooks-daemon.env
+
+# Daemon runtime files
+*.sock
+*.pid
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments (if created locally)
+venv/
+.venv/

@@ -1,0 +1,53 @@
+"""Tests for ExampleHandler."""
+
+import pytest
+import sys
+from pathlib import Path
+
+# Add project handlers to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from example_handler import ExampleHandler
+
+
+class TestExampleHandler:
+    """Test suite for ExampleHandler."""
+
+    def test_handler_initialization(self):
+        """Test handler is properly initialized."""
+        handler = ExampleHandler()
+        assert handler.name == "example-handler"
+        assert handler.priority == 50
+        assert handler.terminal is True
+
+    def test_matches_bash_with_example_keyword(self):
+        """Test handler matches Bash commands containing 'example'."""
+        handler = ExampleHandler()
+        hook_input = {
+            "tool_name": "Bash",
+            "tool_input": {"command": "echo example test"}
+        }
+        assert handler.matches(hook_input) is True
+
+    def test_does_not_match_other_bash(self):
+        """Test handler ignores Bash commands without keyword."""
+        handler = ExampleHandler()
+        hook_input = {
+            "tool_name": "Bash",
+            "tool_input": {"command": "ls -la"}
+        }
+        assert handler.matches(hook_input) is False
+
+    def test_handle_returns_deny(self):
+        """Test handler returns deny decision."""
+        handler = ExampleHandler()
+        hook_input = {
+            "tool_name": "Bash",
+            "tool_input": {"command": "echo example"}
+        }
+        result = handler.handle(hook_input)
+        assert result.decision == "deny"
+        assert "example denial" in result.reason.lower()
+
+
+# Run tests with: python3 -m pytest tests/test_example_handler.py -v

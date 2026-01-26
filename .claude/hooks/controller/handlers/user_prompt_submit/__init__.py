@@ -1,1 +1,0 @@
-"""UserPromptSubmit handlers - prompt enhancement."""

@@ -1,15 +1,24 @@
-#!/usr/bin/env python3
-"""SessionEnd hook entry point - routes to front controller.
+#!/bin/bash
+#
+# Claude Code Hooks - SessionEnd Forwarder
+#
+# Forwards SessionEnd hook calls to daemon via Unix socket.
+# CRITICAL: Pipes JSON directly - NEVER store in shell variables.
+# CRITICAL: All errors output valid JSON to stdout for agent visibility.
+#
 
-Runs when a Claude Code session ends. Useful for cleanup tasks, logging session
-statistics, or saving session state.
+set -euo pipefail
 
-Official docs: https://code.claude.com/docs/en/hooks.md#sessionend
-"""
-import os
-import sys
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../init.sh"
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "controller"))
-from session_end import main
+# Try to start daemon - if it fails, output proper JSON error to stdout
+if ! ensure_daemon; then
+    emit_hook_error "SessionEnd" "daemon_startup_failed" \
+        "Failed to start hooks daemon. Check logs with: python -m claude_code_hooks_daemon.daemon.cli logs"
+    exit 0  # Exit 0 so Claude processes the JSON response
+fi
 
-sys.exit(main())
+# Pipe directly from stdin through jq to daemon - no shell variable storage
+# send_request_stdin handles socket errors internally and outputs JSON on failure
+jq -c '{event: "SessionEnd", hook_input: .}' | send_request_stdin
