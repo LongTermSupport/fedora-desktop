@@ -391,8 +391,19 @@ export default class SpeechToTextExtension extends Extension {
         this._modelSubMenu = new PopupMenu.PopupSubMenuMenuItem('Model: Auto');
         menu.addMenuItem(this._modelSubMenu);
 
-        // Model options
-        for (const [modelName, label, size] of this._whisperModels) {
+        // Model options - sort to show installed models first
+        const sortedModels = [...this._whisperModels].sort((a, b) => {
+            const aInstalled = this._checkModelInstalled(a[0]);
+            const bInstalled = this._checkModelInstalled(b[0]);
+            // Auto always first, then installed models, then uninstalled
+            if (a[0] === 'auto') return -1;
+            if (b[0] === 'auto') return 1;
+            if (aInstalled && !bInstalled) return -1;
+            if (!aInstalled && bInstalled) return 1;
+            return 0;
+        });
+
+        for (const [modelName, label, size] of sortedModels) {
             const installed = this._checkModelInstalled(modelName);
             const status = installed ? '✓' : '⚠';
             const item = new PopupMenu.PopupMenuItem(`${status} ${label} (${size})`);
@@ -412,6 +423,19 @@ export default class SpeechToTextExtension extends Extension {
                 }
             });
             this._modelSubMenu.menu.addMenuItem(item);
+        }
+
+        // Add separator before uninstalled models for clarity
+        const hasUninstalled = this._whisperModels.some(m => !this._checkModelInstalled(m[0]) && m[0] !== 'auto');
+        const hasInstalled = this._whisperModels.some(m => this._checkModelInstalled(m[0]) && m[0] !== 'auto');
+        if (hasUninstalled && hasInstalled) {
+            // Find position of first uninstalled model
+            for (let i = 0; i < sortedModels.length; i++) {
+                if (!this._checkModelInstalled(sortedModels[i][0]) && sortedModels[i][0] !== 'auto') {
+                    this._modelSubMenu.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem(), i + 1);
+                    break;
+                }
+            }
         }
 
         // Add separator and download instructions
