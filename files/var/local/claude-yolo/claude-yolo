@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.1.2"  # Only purge specific dangerous files, preserve Dockerfile
+CCY_VERSION="3.1.3"  # Fix: remove 'local' outside function (line 628)
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -625,7 +625,7 @@ if [ -n "$SPECIFIED_TOKEN" ]; then
 
     # Check if token is expired or expiring today
     if ! is_token_valid "$SELECTED_TOKEN"; then
-        local filename=$(basename "$SELECTED_TOKEN")
+        filename=$(basename "$SELECTED_TOKEN")
         echo ""
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo "⚠  TOKEN EXPIRED OR EXPIRING TODAY"
