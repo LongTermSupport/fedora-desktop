@@ -37,7 +37,7 @@ handlers:
 
     # CODE QUALITY HANDLERS (Priority 25-45)
     eslint_disable:        # Prevents ESLint suppression comments
-      enabled: false       # Disabled - project doesn't use JavaScript/TypeScript
+      enabled: true
       priority: 30
 
     tdd_enforcement:       # Enforces test-first development
@@ -46,23 +46,23 @@ handlers:
 
     # WORKFLOW HANDLERS (Priority 40-50)
     validate_plan_number:  # Validates plan number format (001-, 002-, etc)
-      enabled: false       # Optional - enable for projects using CLAUDE/Plan/
+      enabled: true        # Enabled for CLAUDE/Plan/ workflow
       priority: 40
 
     plan_time_estimates:   # Blocks time estimates in plan files
-      enabled: false       # Optional - enable for projects using CLAUDE/Plan/
+      enabled: true        # Enabled for CLAUDE/Plan/ workflow
       priority: 45
 
     plan_workflow:         # Provides guidance when creating plans
-      enabled: false       # Optional - enable for projects using CLAUDE/Plan/
+      enabled: true        # Enabled for CLAUDE/Plan/ workflow
       priority: 45
 
     npm_command:           # Restricts npm commands to approved list
-      enabled: false       # Optional - enable for strict npm usage control
+      enabled: true        # Enabled for strict npm usage control
       priority: 50
 
     markdown_organization: # Enforces markdown file organization rules
-      enabled: false       # Optional - enable for strict md organization
+      enabled: true        # Enabled for strict md organization
       priority: 50
 
     # TOOL USAGE HANDLERS (Priority 50-60)
@@ -76,44 +76,48 @@ handlers:
 
   # PostToolUse handlers (run after tool execution)
   post_tool_use:
-    # validate_eslint_on_write:  # Runs ESLint after file writes
-    #   enabled: false            # Optional - enable for automatic ESLint validation
-    #   priority: 10
+    validate_eslint_on_write:  # Runs ESLint after file writes
+      enabled: true            # Enabled for automatic ESLint validation
+      priority: 10
 
-    # validate_sitemap:          # Validates sitemap structure after writes
-    #   enabled: false            # Optional - enable for sitemap validation
-    #   priority: 20
+    validate_sitemap:          # Validates sitemap structure after writes
+      enabled: true            # Enabled for sitemap validation
+      priority: 20
 
   # SessionStart handlers (run when session starts)
   session_start:
-    # workflow_state_restoration:  # Restores workflow state after compaction
-    #   enabled: false              # Optional - enable for workflow state management
-    #   priority: 10
+    yolo_container_detection:     # Detects YOLO container environments (enabled by default)
+      enabled: true                # Set to false to disable YOLO detection
+      priority: 40                 # Workflow range priority
+
+    workflow_state_restoration:  # Restores workflow state after compaction
+      enabled: true              # Enabled for workflow state management
+      priority: 10
 
   # PreCompact handlers (run before conversation compaction)
   pre_compact:
-    # workflow_state_pre_compact:  # Saves workflow state before compaction
-    #   enabled: false              # Optional - enable for workflow state management
-    #   priority: 10
+    workflow_state_pre_compact:  # Saves workflow state before compaction
+      enabled: true              # Enabled for workflow state management
+      priority: 10
 
   # SessionEnd handlers (run when session ends)
   session_end: {}
 
   # SubagentStop handlers (run when subagent completes)
   subagent_stop:
-    # remind_prompt_library:  # Reminds about prompt library after agent work
-    #   enabled: false         # Optional - enable for prompt library reminders
-    #   priority: 10
+    remind_prompt_library:  # Reminds about prompt library after agent work
+      enabled: true         # Enabled for prompt library reminders
+      priority: 10
 
-    # remind_validator:       # Reminds about HTML validation
-    #   enabled: false         # Optional - enable for validation reminders
-    #   priority: 20
+    remind_validator:       # Reminds about HTML validation
+      enabled: true         # Enabled for validation reminders
+      priority: 20
 
   # UserPromptSubmit handlers (run when user submits prompt)
   user_prompt_submit:
-    # auto_continue:  # Auto-continues on 'continue' keyword
-    #   enabled: false # Optional - enable for auto-continue behavior
-    #   priority: 10
+    auto_continue:  # Auto-continues on 'continue' keyword
+      enabled: true # Enabled for auto-continue behavior
+      priority: 10
 
   # Other hook events
   permission_request: {}
@@ -122,10 +126,13 @@ handlers:
 
 # Project-level handlers (custom handlers in .claude/hooks/handlers/)
 plugins:
+  paths: []
   plugins:
+    # Custom Infrastructure-as-Code enforcement handlers
     - path: ".claude/hooks/handlers/pre_tool_use/system_paths.py"
       handlers: ["SystemPathsHandler"]
       enabled: true
+
     - path: ".claude/hooks/handlers/pre_tool_use/ansible_enforcement.py"
       handlers: ["AnsibleEnforcementHandler"]
       enabled: true
