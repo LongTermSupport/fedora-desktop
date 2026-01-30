@@ -2,7 +2,7 @@
 # Token Management Library
 # Shared token operations for claude-yolo and claude-browser
 #
-# Version: 1.1.0 - Container engine abstraction (docker/podman support)
+# Version: 1.2.0 - Expired token renew options in selection menu
 
 # Function to list available tokens
 # Args: $1 = token_dir, $2 = tool_name (for display)
@@ -63,11 +63,13 @@ list_tokens() {
 
 # Function to create a new long-lived token
 # Args: $1 = token_dir, $2 = gh_token, $3 = image_name, $4 = tool_name (for display)
+#       $5 = preset_name (optional, skip name prompt if provided)
 create_token() {
     local token_dir="$1"
     local gh_token="$2"
     local image_name="$3"
     local tool_name="${4:-ccy}"
+    local preset_name="$5"
 
     # CRITICAL: GH_TOKEN must be set before calling this function
     # It's required for the container's git/gh functionality
@@ -95,23 +97,28 @@ create_token() {
     echo "  • Authentication will happen in a clean container"
     echo ""
 
-    # Prompt for token name
-    while true; do
-        read -p "Enter a name for this token (e.g., 'personal', 'work', 'default'): " token_name
+    # Prompt for token name (or use preset)
+    if [ -n "$preset_name" ]; then
+        token_name="$preset_name"
+        echo "Renewing token: $token_name"
+    else
+        while true; do
+            read -p "Enter a name for this token (e.g., 'personal', 'work', 'default'): " token_name
 
-        if [ -z "$token_name" ]; then
-            print_error "Token name cannot be empty"
-            continue
-        fi
+            if [ -z "$token_name" ]; then
+                print_error "Token name cannot be empty"
+                continue
+            fi
 
-        # Validate token name (alphanumeric, dash, underscore only)
-        if ! [[ "$token_name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
-            print_error "Token name must contain only letters, numbers, dashes, and underscores"
-            continue
-        fi
+            # Validate token name (alphanumeric, dash, underscore only)
+            if ! [[ "$token_name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+                print_error "Token name must contain only letters, numbers, dashes, and underscores"
+                continue
+            fi
 
-        break
-    done
+            break
+        done
+    fi
 
     # Use conservative 90-day expiry estimate
     # NOTE: claude setup-token doesn't tell us when the token actually expires,
@@ -314,17 +321,23 @@ select_token() {
         fi
     done
 
-    # Show expired tokens warning
+    # Build expired token info for display and renew options
+    local expired_names=()
+    local expired_dates=()
     if [ ${#expired_tokens[@]} -gt 0 ]; then
         echo ""
-        echo "⚠  Found ${#expired_tokens[@]} expired/expiring token(s):"
+        echo "⚠  Found ${#expired_tokens[@]} expired token(s):"
         for token_file in "${expired_tokens[@]}"; do
             local filename=$(basename "$token_file")
-            echo "    $filename"
+            local token_name="${filename%.*.token}"
+            local expiry_date=""
+            if [[ "$filename" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2})\.token$ ]]; then
+                expiry_date="${BASH_REMATCH[1]}"
+            fi
+            expired_names+=("$token_name")
+            expired_dates+=("$expiry_date")
+            echo "    $token_name (expired: ${expiry_date:-unknown})"
         done
-        echo ""
-        echo "These will NOT be available for selection."
-        echo "Create new tokens to replace them."
         echo ""
     fi
 
@@ -338,8 +351,6 @@ select_token() {
     echo "════════════════════════════════════════════════════════════════════════════════"
     echo ""
     echo "Available tokens:"
-    echo ""
-    echo "  0) Create new token"
     echo ""
 
     for i in "${!valid_tokens[@]}"; do
@@ -356,10 +367,30 @@ select_token() {
         fi
     done
 
+    # Show renew options for expired tokens
+    if [ ${#expired_names[@]} -gt 0 ]; then
+        echo ""
+        for i in "${!expired_names[@]}"; do
+            echo "  r$((i+1))) Renew: ${expired_names[$i]} (expired: ${expired_dates[$i]:-unknown})"
+        done
+    fi
+
+    echo ""
+    echo "  0) Create new token"
     echo ""
 
+    # Build prompt hint
+    local renew_hint=""
+    if [ ${#expired_names[@]} -gt 0 ]; then
+        if [ ${#expired_names[@]} -eq 1 ]; then
+            renew_hint=", r1"
+        else
+            renew_hint=", r1-r${#expired_names[@]}"
+        fi
+    fi
+
     while true; do
-        read -p "Select token [0-${#valid_tokens[@]}]: " selection
+        read -p "Select token [0-${#valid_tokens[@]}${renew_hint}]: " selection
         echo ""
 
         if [ -z "$selection" ]; then
@@ -369,8 +400,24 @@ select_token() {
             continue
         fi
 
+        # Handle renew selections (r1, r2, etc.)
+        if [[ "$selection" =~ ^r([0-9]+)$ ]]; then
+            local renew_idx="${BASH_REMATCH[1]}"
+            if [ "$renew_idx" -ge 1 ] && [ "$renew_idx" -le ${#expired_names[@]} ] 2>/dev/null; then
+                local renew_name="${expired_names[$((renew_idx-1))]}"
+                echo "Renewing expired token: $renew_name"
+                echo ""
+                create_token "$token_dir" "$GH_TOKEN" "$IMAGE_NAME" "ccy" "$renew_name"
+                exit 0
+            else
+                echo "Invalid renew selection: $selection"
+                echo ""
+                continue
+            fi
+        fi
+
         if [ "$selection" = "0" ]; then
-            create_token
+            create_token "$token_dir" "$GH_TOKEN" "$IMAGE_NAME" "ccy"
             exit 0
         elif [ "$selection" -ge 1 ] && [ "$selection" -le ${#valid_tokens[@]} ] 2>/dev/null; then
             SELECTED_TOKEN="${valid_tokens[$((selection-1))]}"
@@ -379,7 +426,7 @@ select_token() {
 
             echo "✓ Selected token: $token_name"
             echo ""
-            echo "════════════════════════════════════════════════════════════════════════════"
+            echo "════════════════════════════════════════════════════════════════════════════════"
             echo ""
             return 0
         else
