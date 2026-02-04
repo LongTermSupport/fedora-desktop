@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.1.4"  # Feat: expired token renew options in selection menu
+CCY_VERSION="3.1.5"  # Fix: token renewal now reuses same token name
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -588,7 +588,7 @@ build_ssh_mounts_and_validate "ccy"
 
 # Handle create token mode (requires SSH/GH setup for container functionality)
 if [ "$CREATE_TOKEN_MODE" = true ]; then
-    create_token "$TOKEN_DIR" "ccy" "$GH_TOKEN" "$IMAGE_NAME"
+    create_token "$TOKEN_DIR" "$GH_TOKEN" "$IMAGE_NAME" "ccy"
     exit 0
 fi
 
@@ -626,6 +626,7 @@ if [ -n "$SPECIFIED_TOKEN" ]; then
     # Check if token is expired or expiring today
     if ! is_token_valid "$SELECTED_TOKEN"; then
         filename=$(basename "$SELECTED_TOKEN")
+        token_name="${filename%.*.token}"
         echo ""
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo "⚠  TOKEN EXPIRED OR EXPIRING TODAY"
@@ -637,7 +638,7 @@ if [ -n "$SPECIFIED_TOKEN" ]; then
         echo ""
         read -p "Create a new token now? (Y/n): " create_now
         if [ "$create_now" != "n" ] && [ "$create_now" != "N" ]; then
-            create_token "$TOKEN_DIR" "ccy" "$GH_TOKEN" "$IMAGE_NAME"
+            create_token "$TOKEN_DIR" "$GH_TOKEN" "$IMAGE_NAME" "ccy" "$token_name"
         fi
         echo "Cancelled. Create a token with: ccy --create-token"
         exit 1
@@ -666,7 +667,7 @@ else
         fi
 
         # Jump directly to token creation
-        create_token "$TOKEN_DIR" "ccy" "$GH_TOKEN" "$IMAGE_NAME"
+        create_token "$TOKEN_DIR" "$GH_TOKEN" "$IMAGE_NAME" "ccy"
         exit 0
     else
         # Multiple tokens exist or single token - show selection
@@ -681,7 +682,7 @@ else
             echo ""
             read -p "Create a token now? (Y/n): " create_now
             if [ "$create_now" != "n" ] && [ "$create_now" != "N" ]; then
-                create_token "$TOKEN_DIR" "ccy" "$GH_TOKEN" "$IMAGE_NAME"
+                create_token "$TOKEN_DIR" "$GH_TOKEN" "$IMAGE_NAME" "ccy"
             fi
             echo "Cancelled. Create a token with: ccy --create-token"
             exit 1
