@@ -5,8 +5,8 @@ daemon:
   idle_timeout_seconds: 600  # Auto-shutdown after 10 minutes of inactivity
   log_level: INFO
 
-  # enable_hello_world_handlers: true  # Uncomment to test hooks are working
-                                       # Shows "✅ {Event} hook system active" messages
+  enable_hello_world_handlers: false  # Disable hello_world test handlers
+                                      # Set to true to see "✅ {Event} hook system active" messages
 
 # Built-in handler configuration
 # Handlers run in priority order (lower number = earlier execution)
@@ -118,6 +118,28 @@ handlers:
     auto_continue:  # Auto-continues on 'continue' keyword
       enabled: true # Enabled for auto-continue behavior
       priority: 10
+
+  # StatusLine handlers (run to populate status line display)
+  status_line:
+    git_repo_name:      # Shows repository name (cached for performance)
+      enabled: true
+      priority: 3
+
+    account_display:    # Shows Claude account username
+      enabled: true
+      priority: 5
+
+    model_context:      # Shows color-coded model name and context percentage
+      enabled: true
+      priority: 10
+
+    git_branch:         # Shows current git branch
+      enabled: true
+      priority: 20
+
+    daemon_stats:       # Shows daemon uptime, memory, log level, errors
+      enabled: true
+      priority: 30
 
   # Other hook events
   permission_request: {}

@@ -1,0 +1,106 @@
+#!/bin/bash
+#
+# wsi-claude-process - Post-process speech-to-text transcriptions with Claude Code
+#
+# Usage:
+#   wsi-claude-process [OPTIONS] <transcription-text>
+#
+# Options:
+#   -m, --model MODEL    Claude model (sonnet/opus/haiku, default: sonnet)
+#   -d, --debug          Enable debug logging
+#
+# Description:
+#   Reads prompt template from ~/.config/speech-to-text/claude-prompt.txt
+#   Replaces {TRANSCRIPTION} placeholder with actual transcribed text
+#   Calls Claude Code CLI (ccy) in headless mode
+#   Returns reformatted text or original text if processing fails
+#
+
+set -euo pipefail
+
+# Configuration
+PROMPT_FILE="${HOME}/.config/speech-to-text/claude-prompt.txt"
+LOG_DIR="${HOME}/.local/share/speech-to-text"
+LOG_FILE="${LOG_DIR}/debug.log"
+DEBUG_MODE=false
+CLAUDE_MODEL="sonnet"
+
+# Parse arguments
+TRANSCRIPTION=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -m|--model)
+            CLAUDE_MODEL="$2"
+            shift 2
+            ;;
+        -d|--debug)
+            DEBUG_MODE=true
+            shift
+            ;;
+        *)
+            TRANSCRIPTION="$1"
+            shift
+            ;;
+    esac
+done
+
+# Logging function
+log() {
+    if [[ "$DEBUG_MODE" == "true" ]]; then
+        echo "[$(date +'%Y-%m-%d %H:%M:%S')] wsi-claude-process: $*" >> "$LOG_FILE"
+    fi
+}
+
+# Error handling
+error_exit() {
+    log "ERROR: $1"
+    # Return original transcription on error
+    echo "$TRANSCRIPTION"
+    exit 0
+}
+
+# Preflight checks
+log "Starting Claude Code post-processing"
+log "Model: $CLAUDE_MODEL"
+log "Transcription length: ${#TRANSCRIPTION} chars"
+
+# Check if transcription is provided
+if [[ -z "$TRANSCRIPTION" ]]; then
+    error_exit "No transcription text provided"
+fi
+
+# Check if claude is available
+if ! command -v claude &>/dev/null; then
+    error_exit "claude CLI not found in PATH"
+fi
+
+# Check if prompt template exists
+if [[ ! -f "$PROMPT_FILE" ]]; then
+    error_exit "Prompt template not found at $PROMPT_FILE"
+fi
+
+# Read prompt template
+PROMPT_TEMPLATE=$(cat "$PROMPT_FILE")
+log "Loaded prompt template (${#PROMPT_TEMPLATE} chars)"
+
+# Replace {TRANSCRIPTION} placeholder
+FULL_PROMPT="${PROMPT_TEMPLATE//\{TRANSCRIPTION\}/$TRANSCRIPTION}"
+log "Constructed full prompt (${#FULL_PROMPT} chars)"
+
+# Call Claude CLI in headless mode
+log "Calling claude with model=$CLAUDE_MODEL"
+if ! RESULT=$(echo "$FULL_PROMPT" | claude --model "$CLAUDE_MODEL" 2>&1); then
+    log "claude failed: $RESULT"
+    error_exit "Claude processing failed"
+fi
+
+# Clean up result (remove any leading/trailing whitespace)
+RESULT=$(echo "$RESULT" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+
+# Verify result is not empty
+if [[ -z "$RESULT" ]]; then
+    error_exit "Claude Code returned empty result"
+fi
+
+log "Processing successful (result length: ${#RESULT} chars)"
+echo "$RESULT"

@@ -20,10 +20,12 @@ fi
 
 # Pipe JSON directly through socket
 # Add hook_event_name to input, then wrap in standard request format
-# Note: Status event returns context array that needs to be joined
+# Note: Status event returns text field with formatted status line
 jq -c '. + {hook_event_name: "Status"} | {event: "Status", hook_input: .}' | send_request_stdin | jq -r '
   if .error then
     "⚠️ ERROR: " + .error
+  elif .text then
+    .text
   elif .result.context and (.result.context | length > 0) then
     .result.context | join(" ")
   else

@@ -35,6 +35,8 @@ SKIP_AUTO_ENTER=false  # Auto-enter is ON by default in auto-paste mode
 WRAP_MARKER=false
 LANGUAGE=""  # Language code for Whisper (empty = use env var or default)
 NO_NOTIFY=false  # Suppress desktop notifications
+CLAUDE_PROCESS=false  # Post-process through Claude Code
+CLAUDE_MODEL="sonnet"  # Claude model: sonnet, opus, haiku
 WHOST="127.0.0.1"
 WPORT="58080"
 
@@ -359,6 +361,8 @@ Options:
   -l, --language      Language code for transcription (e.g., 'en')
   -n, --netapi        Use whisper.cpp server (host:port from config)
   --no-notify         Suppress desktop notifications
+  --claude-process    Post-process transcription through Claude Code
+  --claude-model M    Claude model for processing (sonnet/opus/haiku)
   -d, --debug         Enable debug mode (verbose output + dependency checks)
   -v, --verbose       Enable verbose output only
   -h, --help          Show this help message
@@ -411,6 +415,16 @@ while [ $# -gt 0 ]; do
             NO_NOTIFY=true
             log_debug "Desktop notifications disabled"
             shift
+            ;;
+        --claude-process)
+            CLAUDE_PROCESS=true
+            log_debug "Claude Code post-processing enabled"
+            shift
+            ;;
+        --claude-model)
+            CLAUDE_MODEL="$2"
+            log_debug "Claude model set to: $CLAUDE_MODEL"
+            shift 2
             ;;
         -d|--debug)
             DEBUG=true
@@ -742,6 +756,33 @@ if [ -z "$str" ]; then
 fi
 
 log_debug "Processed result: '$str'"
+
+# Post-process through Claude Code if requested
+if [ "$CLAUDE_PROCESS" = true ]; then
+    log_debug "Post-processing through Claude Code (model: $CLAUDE_MODEL)"
+
+    if command -v wsi-claude-process &>/dev/null; then
+        # Call the Claude processing script
+        claude_args="--model $CLAUDE_MODEL"
+        [ "$DEBUG" = true ] && claude_args="$claude_args --debug"
+
+        processed_str=$(wsi-claude-process $claude_args "$str" 2>&1)
+        claude_exit=$?
+
+        if [ $claude_exit -eq 0 ] && [ -n "$processed_str" ]; then
+            log_debug "Claude processing successful"
+            log_debug "Original: '$str'"
+            log_debug "Processed: '$processed_str'"
+            str="$processed_str"
+        else
+            log_debug "Claude processing failed (exit: $claude_exit), using original text"
+            log_debug "Error output: $processed_str"
+            # Continue with original text on failure
+        fi
+    else
+        log_debug "wsi-claude-process not found, skipping Claude processing"
+    fi
+fi
 
 # Wrap with speech-to-text marker if requested
 if [ "$WRAP_MARKER" = true ]; then

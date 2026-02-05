@@ -1,0 +1,15 @@
+Reformat this speech-to-text transcription into a professional corporate message style.
+
+Guidelines:
+- Fix grammar, spelling, and punctuation errors
+- Maintain a professional but not overly formal tone
+- Organize into clear paragraphs if the content is complex
+- Keep the core meaning and intent intact
+- Don't add information that wasn't in the original transcription
+- Remove filler words and verbal tics (um, uh, like, you know)
+- Improve clarity and readability while preserving the speaker's voice
+
+Transcription:
+{TRANSCRIPTION}
+
+Please provide only the reformatted text without any preamble or explanation.
