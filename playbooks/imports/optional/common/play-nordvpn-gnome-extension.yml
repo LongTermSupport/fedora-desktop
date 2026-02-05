@@ -1,0 +1,117 @@
+---
+#!/usr/bin/env ansible-playbook
+- hosts: desktop
+  name: NordVPN GNOME Shell Extension Install
+  become: true
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+    extension_dir: "/home/{{ user_login }}/.local/share/gnome-shell/extensions/NordVPN_Connect@poilrouge.fr"
+  tasks:
+    - name: Check NordVPN CLI is Installed
+      ansible.builtin.command: which nordvpn
+      register: nordvpn_check
+      failed_when: nordvpn_check.rc != 0
+      changed_when: false
+
+    - name: Check User is in nordvpn Group
+      ansible.builtin.command: groups {{ user_login }}
+      register: user_groups
+      changed_when: false
+
+    - name: Fail if User Not in nordvpn Group
+      ansible.builtin.fail:
+        msg: |
+          User {{ user_login }} is not in the nordvpn group.
+          Run: ansible-playbook playbooks/imports/optional/common/play-nordvpn-cli.yml
+          Then reboot your system before installing this extension.
+      when: "'nordvpn' not in user_groups.stdout"
+
+    # @see https://github.com/AlexPoilrouge/NordVPN-connect
+    - name: Clone NordVPN Connect Extension
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.git:
+        repo: https://github.com/AlexPoilrouge/NordVPN-connect.git
+        dest: /tmp/nordvpn-connect-extension
+        version: master
+        force: true
+
+    - name: Create Extension Directory
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.file:
+        path: "{{ extension_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Copy Extension Files
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.copy:
+        src: "{{ item }}"
+        dest: "{{ extension_dir }}/"
+        remote_src: true
+        mode: preserve
+      loop:
+        - /tmp/nordvpn-connect-extension/extension.js
+        - /tmp/nordvpn-connect-extension/metadata.json
+        - /tmp/nordvpn-connect-extension/prefs.js
+        - /tmp/nordvpn-connect-extension/stylesheet.css
+
+    - name: Copy Extension Subdirectories
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.copy:
+        src: "{{ item }}"
+        dest: "{{ extension_dir }}/"
+        remote_src: true
+        mode: preserve
+      loop:
+        - /tmp/nordvpn-connect-extension/icons/
+        - /tmp/nordvpn-connect-extension/schemas/
+
+    - name: Compile GSettings Schema
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.shell: |
+        glib-compile-schemas {{ extension_dir }}/schemas/
+      args:
+        executable: /bin/bash
+        creates: "{{ extension_dir }}/schemas/gschemas.compiled"
+
+    - name: Enable Extension
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command: gnome-extensions enable NordVPN_Connect@poilrouge.fr
+      environment:
+        DISPLAY: ":0"
+        DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ ansible_user_uid }}/bus"
+      register: enable_result
+      changed_when: "'is now enabled' in enable_result.stdout or enable_result.rc == 0"
+      failed_when: false
+
+    - name: Clean Up Temporary Files
+      ansible.builtin.file:
+        path: /tmp/nordvpn-connect-extension
+        state: absent
+
+    - name: Display Post-Installation Instructions
+      ansible.builtin.debug:
+        msg:
+          - "NordVPN GNOME Shell Extension installed successfully!"
+          - ""
+          - "IMPORTANT: Restart GNOME Shell to activate the extension:"
+          - "  - Press Alt+F2"
+          - "  - Type 'r' and press Enter"
+          - "  OR log out and log back in"
+          - ""
+          - "The NordVPN icon will appear in your top bar."
+          - ""
+          - "Features:"
+          - "  - Quick connect/disconnect toggle"
+          - "  - Server selection by country"
+          - "  - Connection status display"
+          - "  - Settings access (protocol, CyberSec, DNS)"
+          - ""
+          - "Before using, ensure you're logged in:"
+          - "  nordvpn login"

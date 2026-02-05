@@ -1,0 +1,47 @@
+---
+#!/usr/bin/env ansible-playbook
+- hosts: desktop
+  name: NordVPN CLI Install and Configure
+  become: true
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  tasks:
+    # @see https://support.nordvpn.com/hc/en-us/articles/20196094470929-Installing-NordVPN-on-Linux-distributions
+    - name: Install NordVPN CLI
+      ansible.builtin.shell: |
+        set -e
+        sh <(curl -sSf https://downloads.nordcdn.com/apps/linux/install.sh)
+      args:
+        executable: /bin/bash
+        creates: /usr/bin/nordvpn
+
+    - name: Add User to nordvpn Group
+      ansible.builtin.user:
+        name: "{{ user_login }}"
+        groups: nordvpn
+        append: true
+
+    - name: Enable and Start nordvpnd Service
+      ansible.builtin.systemd:
+        name: nordvpnd
+        state: started
+        enabled: true
+
+    - name: Display Login Instructions
+      ansible.builtin.debug:
+        msg:
+          - "NordVPN CLI installed successfully!"
+          - ""
+          - "IMPORTANT: You need to reboot for group membership to take effect."
+          - ""
+          - "After reboot, authenticate with:"
+          - "  nordvpn login"
+          - ""
+          - "Basic commands:"
+          - "  nordvpn connect              # Connect to best server"
+          - "  nordvpn connect <country>    # Connect to specific country"
+          - "  nordvpn disconnect           # Disconnect"
+          - "  nordvpn status               # Check connection status"
+          - "  nordvpn settings             # View settings"
+          - ""
+          - "For GUI control, run: ansible-playbook playbooks/imports/optional/common/play-nordvpn-gnome-extension.yml"
