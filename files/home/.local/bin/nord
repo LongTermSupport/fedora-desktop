@@ -1,0 +1,544 @@
+#!/usr/bin/bash
+#============================================================================
+# nord - NordVPN OpenVPN Connection Manager
+#============================================================================
+# Manages NordVPN OpenVPN connections via NetworkManager CLI
+#
+# ARCHITECTURE:
+#   User downloads .ovpn files from NordVPN → places in ~/.config/nordvpn/configs/
+#   This script imports configs to NetworkManager and manages connections
+#
+# DEPLOYMENT:
+#   Source:  files/home/.local/bin/nord (this file)
+#   Deploy:  ~/.local/bin/nord
+#   Via:     playbooks/imports/optional/common/play-nordvpn-openvpn.yml
+#
+# USAGE:
+#   nord list              # List available .ovpn configs
+#   nord connect <name>    # Connect to VPN (imports if needed)
+#   nord disconnect        # Disconnect current VPN
+#   nord switch <name>     # Switch to different VPN
+#   nord status            # Show connection status
+#   nord cleanup           # Remove all nordvpn-* connections
+#============================================================================
+
+set -e  # Fail fast
+
+#============================================================================
+# VERSION
+#============================================================================
+NORD_VERSION="1.0.0"  # Initial release
+
+#============================================================================
+# CONFIGURATION
+#============================================================================
+CONFIG_DIR="$HOME/.config/nordvpn"
+OVPN_DIR="$CONFIG_DIR/configs"
+CREDENTIALS_FILE="$CONFIG_DIR/.credentials"
+STATE_FILE="$CONFIG_DIR/.current-connection"
+LOG_DIR="$HOME/.local/share/nordvpn"
+LOG_FILE="$LOG_DIR/nord.log"
+MAX_LOG_SIZE=1048576  # 1MB - rotate when exceeded
+
+# NetworkManager connection prefix
+NM_PREFIX="nordvpn-"
+
+#============================================================================
+# RUNTIME VARIABLES
+#============================================================================
+DEBUG=false
+CLEANUP_TRIGGERED=false
+
+#============================================================================
+# LOGGING FUNCTIONS
+#============================================================================
+
+ensure_log_dir() {
+    if [ ! -d "$LOG_DIR" ]; then
+        mkdir -p "$LOG_DIR"
+    fi
+
+    # Rotate log if too large
+    if [ -f "$LOG_FILE" ] && [ "$(stat -c%s "$LOG_FILE" 2>/dev/null || echo 0)" -gt "$MAX_LOG_SIZE" ]; then
+        mv "$LOG_FILE" "${LOG_FILE}.old"
+    fi
+}
+
+log_to_file() {
+    local log_line="[$(date '+%Y-%m-%dT%H:%M:%S')] [NORD] $*"
+    ensure_log_dir
+    echo "$log_line" >> "$LOG_FILE"
+}
+
+log() {
+    echo "[NORD] $*" >&2
+    log_to_file "$*"
+}
+
+log_debug() {
+    if [ "$DEBUG" = true ]; then
+        echo "[DEBUG] $*" >&2
+        log_to_file "[DEBUG] $*"
+    fi
+}
+
+log_error() {
+    echo "[ERROR] $*" >&2
+    log_to_file "[ERROR] $*"
+}
+
+#============================================================================
+# CLEANUP AND SIGNAL HANDLING
+#============================================================================
+
+cleanup() {
+    if [ "$CLEANUP_TRIGGERED" = true ]; then
+        return
+    fi
+    CLEANUP_TRIGGERED=true
+
+    log_debug "Cleanup triggered"
+
+    # No temporary files to clean up currently
+    # This function exists for future expansion and consistency
+}
+
+trap cleanup EXIT
+trap 'cleanup; exit 130' TERM INT
+
+#============================================================================
+# DEPENDENCY CHECKING
+#============================================================================
+
+check_dependencies() {
+    local failed=0
+
+    log_debug "Checking dependencies..."
+
+    # Check for required commands
+    if ! command -v nmcli &>/dev/null; then
+        log_error "nmcli not found"
+        log_error "  Install: sudo dnf install NetworkManager"
+        ((failed++))
+    fi
+
+    if ! command -v openvpn &>/dev/null; then
+        log_error "openvpn not found"
+        log_error "  Install: sudo dnf install openvpn"
+        ((failed++))
+    fi
+
+    # Check NetworkManager is running
+    if ! systemctl is-active NetworkManager &>/dev/null; then
+        log_error "NetworkManager is not running"
+        log_error "  Start: sudo systemctl start NetworkManager"
+        ((failed++))
+    fi
+
+    # Check config directory exists
+    if [ ! -d "$CONFIG_DIR" ]; then
+        log_error "Config directory not found: $CONFIG_DIR"
+        echo "" >&2
+        echo "Run setup playbook:" >&2
+        echo "  ansible-playbook playbooks/imports/optional/common/play-nordvpn-openvpn.yml" >&2
+        ((failed++))
+    fi
+
+    if [ $failed -gt 0 ]; then
+        log_error "Dependency check failed: $failed errors"
+        return 1
+    fi
+
+    log_debug "All dependencies satisfied"
+    return 0
+}
+
+#============================================================================
+# CORE OPERATIONS
+#============================================================================
+
+list_configs() {
+    if [ ! -d "$OVPN_DIR" ]; then
+        log_error "Config directory not found: $OVPN_DIR"
+        return 1
+    fi
+
+    echo "Available VPN configs:"
+    echo ""
+
+    local count=0
+    for file in "$OVPN_DIR"/*.ovpn; do
+        if [ -f "$file" ]; then
+            local basename=$(basename "$file" .ovpn)
+            # Strip common NordVPN suffixes for display
+            local display_name=$(echo "$basename" | sed 's/\.nordvpn\.com\.\(udp\|tcp\)$//')
+            echo "  $display_name"
+            ((count++))
+        fi
+    done
+
+    echo ""
+    echo "Total: $count configs"
+
+    if [ $count -eq 0 ]; then
+        echo ""
+        echo "Download .ovpn files from NordVPN and place them in:"
+        echo "  $OVPN_DIR/"
+        echo ""
+        echo "Visit: nordvpn.com → Dashboard → Downloads → OpenVPN configs"
+    fi
+}
+
+list_connections() {
+    echo "Imported NetworkManager connections:"
+    echo ""
+
+    local connections=$(nmcli -t -f NAME connection show | grep "^$NM_PREFIX" || true)
+
+    if [ -z "$connections" ]; then
+        echo "  (none)"
+        echo ""
+        echo "Use 'nord connect <name>' to import and connect"
+    else
+        echo "$connections" | while read conn; do
+            local display_name="${conn#$NM_PREFIX}"
+            echo "  $display_name"
+        done
+    fi
+}
+
+import_config() {
+    local config_name="$1"
+    local ovpn_file="$OVPN_DIR/${config_name}.ovpn"
+
+    # Also try with .nordvpn.com.udp suffix
+    if [ ! -f "$ovpn_file" ]; then
+        ovpn_file="$OVPN_DIR/${config_name}.nordvpn.com.udp.ovpn"
+    fi
+
+    # Also try with .nordvpn.com.tcp suffix
+    if [ ! -f "$ovpn_file" ]; then
+        ovpn_file="$OVPN_DIR/${config_name}.nordvpn.com.tcp.ovpn"
+    fi
+
+    if [ ! -f "$ovpn_file" ]; then
+        log_error "Config not found: $config_name.ovpn"
+        echo "" >&2
+        echo "Available configs:" >&2
+        list_configs >&2
+        return 1
+    fi
+
+    # Check if already imported
+    if nmcli connection show "$NM_PREFIX$config_name" &>/dev/null; then
+        log_debug "Connection already imported: $NM_PREFIX$config_name"
+        return 0
+    fi
+
+    # Check credentials file exists
+    if [ ! -f "$CREDENTIALS_FILE" ]; then
+        log_error "Credentials file not found: $CREDENTIALS_FILE"
+        echo "" >&2
+        echo "Run setup playbook to configure credentials:" >&2
+        echo "  ansible-playbook playbooks/imports/optional/common/play-nordvpn-openvpn.yml" >&2
+        return 1
+    fi
+
+    log "Importing $config_name to NetworkManager..."
+    log_debug "  File: $ovpn_file"
+
+    # Import with nmcli
+    if ! nmcli connection import type openvpn file "$ovpn_file" 2>/dev/null; then
+        log_error "Failed to import config: $ovpn_file"
+        return 1
+    fi
+
+    # Find the imported connection name (NetworkManager may name it differently)
+    local nm_name=$(nmcli -t -f NAME connection show | grep -F "$(basename "$ovpn_file" .ovpn)" | head -1)
+
+    if [ -z "$nm_name" ]; then
+        log_error "Could not find imported connection"
+        return 1
+    fi
+
+    # Rename connection for consistency
+    if [ "$nm_name" != "$NM_PREFIX$config_name" ]; then
+        log_debug "  Renaming: $nm_name -> $NM_PREFIX$config_name"
+        nmcli connection modify "$nm_name" connection.id "$NM_PREFIX$config_name"
+    fi
+
+    # Configure connection to use credentials file
+    local username=$(head -1 "$CREDENTIALS_FILE")
+    local password=$(tail -1 "$CREDENTIALS_FILE")
+
+    nmcli connection modify "$NM_PREFIX$config_name" \
+        +vpn.data "username=$username" \
+        +vpn.secrets "password=$password" 2>/dev/null || true
+
+    log "Imported: $NM_PREFIX$config_name"
+    return 0
+}
+
+connect_vpn() {
+    local config_name="$1"
+
+    if [ -z "$config_name" ]; then
+        log_error "No config name provided"
+        echo "" >&2
+        echo "Usage: nord connect <name>" >&2
+        echo "" >&2
+        list_configs >&2
+        return 1
+    fi
+
+    local nm_conn="$NM_PREFIX$config_name"
+
+    # Import if not already imported
+    if ! nmcli connection show "$nm_conn" &>/dev/null; then
+        log_debug "Connection not imported, importing now..."
+        import_config "$config_name" || return 1
+    fi
+
+    # Disconnect current if any
+    if [ -f "$STATE_FILE" ]; then
+        local current=$(cat "$STATE_FILE")
+        if [ -n "$current" ] && [ "$current" != "$config_name" ]; then
+            log "Disconnecting current connection: $current"
+            nmcli connection down "$NM_PREFIX$current" 2>/dev/null || true
+        fi
+    fi
+
+    # Connect
+    log "Connecting to $config_name..."
+    if nmcli connection up "$nm_conn" 2>/dev/null; then
+        echo "$config_name" > "$STATE_FILE"
+        log "Connected to $config_name"
+        return 0
+    else
+        log_error "Failed to connect to $config_name"
+        echo "" >&2
+        echo "Troubleshooting:" >&2
+        echo "  1. Check credentials: cat $CREDENTIALS_FILE" >&2
+        echo "  2. Check logs: journalctl -u NetworkManager -f" >&2
+        echo "  3. Re-import: nord cleanup && nord connect $config_name" >&2
+        return 1
+    fi
+}
+
+disconnect_vpn() {
+    # Check for active nordvpn connections
+    local active=$(nmcli -t -f NAME,TYPE,STATE connection show --active | \
+                   grep ":vpn:activated" | \
+                   grep "^$NM_PREFIX" | \
+                   cut -d: -f1 || true)
+
+    if [ -z "$active" ]; then
+        log "No active VPN connection"
+        rm -f "$STATE_FILE"
+        return 0
+    fi
+
+    local config_name="${active#$NM_PREFIX}"
+    log "Disconnecting $config_name..."
+
+    if nmcli connection down "$active" 2>/dev/null; then
+        rm -f "$STATE_FILE"
+        log "Disconnected"
+        return 0
+    else
+        log_error "Failed to disconnect"
+        return 1
+    fi
+}
+
+switch_vpn() {
+    local config_name="$1"
+
+    if [ -z "$config_name" ]; then
+        log_error "No config name provided"
+        echo "" >&2
+        echo "Usage: nord switch <name>" >&2
+        echo "" >&2
+        list_configs >&2
+        return 1
+    fi
+
+    # Disconnect current (if any)
+    disconnect_vpn || true
+
+    # Connect to new
+    connect_vpn "$config_name"
+}
+
+status_vpn() {
+    # Check for active nordvpn connections
+    local active=$(nmcli -t -f NAME,TYPE,STATE connection show --active | \
+                   grep ":vpn:activated" | \
+                   grep "^$NM_PREFIX" | \
+                   cut -d: -f1 || true)
+
+    if [ -n "$active" ]; then
+        local config_name="${active#$NM_PREFIX}"
+        echo "Connected: $config_name"
+
+        # Show public IP
+        local ip=$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null || echo "unknown")
+        echo "Public IP: $ip"
+
+        # Show connection device
+        local device=$(nmcli -t -f NAME,DEVICE connection show --active | grep "^$active:" | cut -d: -f2)
+        if [ -n "$device" ]; then
+            echo "Device: $device"
+        fi
+
+        return 0
+    else
+        echo "Not connected"
+        rm -f "$STATE_FILE"
+        return 1
+    fi
+}
+
+cleanup_old() {
+    echo "Removing all nordvpn-* connections from NetworkManager..."
+
+    local connections=$(nmcli -t -f NAME connection show | grep "^$NM_PREFIX" || true)
+
+    if [ -z "$connections" ]; then
+        echo "No nordvpn connections found"
+        return 0
+    fi
+
+    local count=0
+    echo "$connections" | while read conn; do
+        echo "  Removing: $conn"
+        nmcli connection delete "$conn" 2>/dev/null || true
+        ((count++))
+    done
+
+    rm -f "$STATE_FILE"
+    echo "Removed all nordvpn connections"
+}
+
+#============================================================================
+# COMMAND INTERFACE
+#============================================================================
+
+show_usage() {
+    cat <<EOF
+nord - NordVPN OpenVPN Connection Manager v${NORD_VERSION}
+
+USAGE:
+    nord <command> [options]
+
+COMMANDS:
+    list                List available .ovpn configs
+    list-active         List imported NetworkManager connections
+    connect <name>      Connect to VPN (imports if needed)
+    disconnect          Disconnect current VPN
+    switch <name>       Switch to different VPN
+    status              Show connection status
+    cleanup             Remove all nordvpn-* connections
+
+OPTIONS:
+    -h, --help          Show this help message
+    -v, --version       Show version
+    --debug             Enable debug logging
+
+EXAMPLES:
+    nord list
+    nord connect uk-london
+    nord status
+    nord switch us-newyork
+    nord disconnect
+
+CONFIGURATION:
+    Configs:      $OVPN_DIR/
+    Credentials:  $CREDENTIALS_FILE
+    Logs:         $LOG_FILE
+
+For setup, run:
+    ansible-playbook playbooks/imports/optional/common/play-nordvpn-openvpn.yml
+
+EOF
+}
+
+#============================================================================
+# MAIN
+#============================================================================
+
+main() {
+    # Parse global options first
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --debug)
+                DEBUG=true
+                log_debug "Debug mode enabled"
+                shift
+                ;;
+            -h|--help)
+                show_usage
+                exit 0
+                ;;
+            -v|--version)
+                echo "nord v${NORD_VERSION}"
+                exit 0
+                ;;
+            *)
+                break
+                ;;
+        esac
+    done
+
+    # Get command
+    local command="${1:-}"
+    shift || true
+
+    if [ -z "$command" ]; then
+        show_usage
+        exit 1
+    fi
+
+    # Check dependencies for all commands except help/version
+    case "$command" in
+        -h|--help|-v|--version)
+            ;;
+        *)
+            check_dependencies || exit 1
+            ;;
+    esac
+
+    # Execute command
+    case "$command" in
+        list)
+            list_configs
+            ;;
+        list-active)
+            list_connections
+            ;;
+        connect)
+            connect_vpn "$@"
+            ;;
+        disconnect)
+            disconnect_vpn
+            ;;
+        switch)
+            switch_vpn "$@"
+            ;;
+        status)
+            status_vpn
+            ;;
+        cleanup)
+            cleanup_old
+            ;;
+        *)
+            log_error "Unknown command: $command"
+            echo "" >&2
+            show_usage >&2
+            exit 1
+            ;;
+    esac
+}
+
+# Run main with all arguments
+main "$@"

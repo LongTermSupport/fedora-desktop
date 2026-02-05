@@ -1,0 +1,221 @@
+---
+#!/usr/bin/env ansible-playbook
+# NordVPN OpenVPN Manager
+#
+# Deploys a bash script (nord) to manage NordVPN OpenVPN connections via NetworkManager CLI.
+# User downloads .ovpn files from NordVPN, script handles import/connect/disconnect operations.
+#
+# Usage: ansible-playbook playbooks/imports/optional/common/play-nordvpn-openvpn.yml
+- hosts: desktop
+  name: NordVPN OpenVPN Manager
+  become: false
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  vars_files:
+    - "{{ root_dir }}/environment/localhost/host_vars/localhost.yml"
+  tasks:
+    # =========================================================================
+    # System Dependencies
+    # =========================================================================
+
+    - name: Install OpenVPN and NetworkManager Support
+      become: true
+      ansible.builtin.dnf:
+        name:
+          - openvpn
+          - NetworkManager-openvpn
+          - NetworkManager-openvpn-gnome  # GUI integration
+        state: present
+
+    # =========================================================================
+    # Configuration Directories
+    # =========================================================================
+
+    - name: Create NordVPN Configuration Directory
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.config/nordvpn"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0700'
+
+    - name: Create OpenVPN Configs Directory
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.config/nordvpn/configs"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+
+    - name: Create Log Directory
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.local/share/nordvpn"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+
+    # =========================================================================
+    # Credentials Collection (Encrypted with Vault)
+    # =========================================================================
+
+    - name: Check if NordVPN Credentials Already Configured
+      ansible.builtin.set_fact:
+        nordvpn_credentials_exist: "{{ nordvpn_username is defined and nordvpn_password is defined }}"
+
+    - block:
+        - name: Prompt for NordVPN Service Username
+          ansible.builtin.pause:
+            prompt: |
+
+              ========================================================================
+              NORDVPN OPENVPN CREDENTIALS
+              ========================================================================
+
+              You need your NordVPN SERVICE credentials (not your account login).
+
+              To get them:
+              1. Log into nordvpn.com
+              2. Go to Dashboard → Services → NordVPN
+              3. Click "Set up NordVPN manually"
+              4. Copy "Service credentials" (username/password)
+
+              These credentials will be stored in localhost.yml.
+              You should encrypt them with ansible-vault after initial setup.
+
+              Enter NordVPN service username (format: aBcD1eF2gH3iJ4kL)
+          register: vpn_username_prompt
+
+        - name: Prompt for NordVPN Service Password
+          ansible.builtin.pause:
+            prompt: "Enter NordVPN service password"
+            echo: false
+          register: vpn_password_prompt
+
+        - name: Set Credentials Facts
+          ansible.builtin.set_fact:
+            nordvpn_username: "{{ vpn_username_prompt.user_input }}"
+            nordvpn_password: "{{ vpn_password_prompt.user_input }}"
+
+        - name: Append Credentials to localhost.yml
+          become: false
+          ansible.builtin.blockinfile:
+            path: "{{ root_dir }}/environment/localhost/host_vars/localhost.yml"
+            marker: "# {mark} ANSIBLE MANAGED: NordVPN Credentials"
+            block: |
+              # NordVPN OpenVPN service credentials (not account login)
+              # TODO: Encrypt these with ansible-vault encrypt_string
+              nordvpn_username: {{ nordvpn_username }}
+              nordvpn_password: {{ nordvpn_password }}
+            create: false
+          delegate_to: localhost
+
+        - name: Display Encryption Reminder
+          ansible.builtin.debug:
+            msg:
+              - "⚠️  IMPORTANT: Encrypt your credentials before committing!"
+              - ""
+              - "Run these commands to encrypt the credentials:"
+              - ""
+              - "  cd {{ root_dir }}"
+              - "  ansible-vault encrypt_string '{{ nordvpn_username }}' --name 'nordvpn_username' --vault-id localhost@vault-pass.secret"
+              - "  ansible-vault encrypt_string '{{ nordvpn_password }}' --name 'nordvpn_password' --vault-id localhost@vault-pass.secret"
+              - ""
+              - "Then replace the plaintext values in:"
+              - "  {{ root_dir }}/environment/localhost/host_vars/localhost.yml"
+
+      when: not nordvpn_credentials_exist
+
+    # =========================================================================
+    # Deploy Credentials File
+    # =========================================================================
+
+    - name: Create Credentials File
+      ansible.builtin.copy:
+        dest: "/home/{{ user_login }}/.config/nordvpn/.credentials"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0600'
+        content: |
+          {{ nordvpn_username }}
+          {{ nordvpn_password }}
+
+    # =========================================================================
+    # Deploy Script
+    # =========================================================================
+
+    - name: Deploy nord Script
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/nord"
+        dest: "/home/{{ user_login }}/.local/bin/nord"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+
+    # =========================================================================
+    # Firewall Configuration
+    # =========================================================================
+
+    - name: Add OpenVPN to Firewalld
+      become: true
+      ansible.builtin.shell: |
+        firewall-cmd --add-service openvpn --permanent
+        firewall-cmd --reload
+      register: firewall_result
+      changed_when: "'ALREADY_ENABLED' not in firewall_result.stderr"
+      failed_when: false
+
+    # =========================================================================
+    # Usage Instructions
+    # =========================================================================
+
+    - name: Display Setup Instructions
+      ansible.builtin.debug:
+        msg:
+          - "════════════════════════════════════════════════════════════════"
+          - "NordVPN OpenVPN Manager Installation Complete"
+          - "════════════════════════════════════════════════════════════════"
+          - ""
+          - "📥 NEXT STEPS - Download OpenVPN Configs"
+          - ""
+          - "  1. Go to nordvpn.com → Dashboard → Downloads → Linux"
+          - "  2. Choose 'OpenVPN' tab"
+          - "  3. Download desired server configs (.ovpn files)"
+          - "  4. Move them to: ~/.config/nordvpn/configs/"
+          - ""
+          - "  Example:"
+          - "    mv ~/Downloads/*.ovpn ~/.config/nordvpn/configs/"
+          - ""
+          - "🚀 USAGE"
+          - ""
+          - "  List available configs:"
+          - "    nord list"
+          - ""
+          - "  Connect to VPN:"
+          - "    nord connect uk-london"
+          - ""
+          - "  Check status:"
+          - "    nord status"
+          - ""
+          - "  Switch servers:"
+          - "    nord switch us-newyork"
+          - ""
+          - "  Disconnect:"
+          - "    nord disconnect"
+          - ""
+          - "  View all commands:"
+          - "    nord --help"
+          - ""
+          - "💡 TIPS"
+          - ""
+          - "  • Configs auto-import on first connect"
+          - "  • Connections persist across reboots"
+          - "  • Use GNOME Settings → Network to see connections"
+          - "  • Credentials stored securely (mode 0600)"
+          - ""
+          - "🔒 SECURITY REMINDER"
+          - ""
+          - "  Remember to encrypt your credentials with ansible-vault!"
+          - "  See the instructions displayed above."
+          - ""
+          - "════════════════════════════════════════════════════════════════"
