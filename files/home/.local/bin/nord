@@ -186,6 +186,10 @@ list_configs() {
         echo "  $OVPN_DIR/"
         echo ""
         echo "Visit: nordvpn.com → Dashboard → Downloads → OpenVPN configs"
+    else
+        echo ""
+        echo "To connect: nord connect <name>"
+        echo "Or run 'nord' for interactive chooser"
     fi
 }
 
@@ -413,11 +417,76 @@ cleanup_old() {
     echo "$connections" | while read conn; do
         echo "  Removing: $conn"
         nmcli connection delete "$conn" 2>/dev/null || true
-        ((count++))
+        count=$((count + 1))
     done
 
     rm -f "$STATE_FILE"
     echo "Removed all nordvpn connections"
+}
+
+interactive_chooser() {
+    # Check if currently connected
+    local active=$(nmcli -t -f NAME,TYPE,STATE connection show --active | \
+                   grep ":vpn:activated" | \
+                   grep "^$NM_PREFIX" | \
+                   cut -d: -f1 || true)
+
+    if [ -n "$active" ]; then
+        # Already connected - offer switch/disconnect/cancel
+        local current="${active#$NM_PREFIX}"
+        echo "Currently connected: $current"
+        echo ""
+        echo "What would you like to do?"
+        echo "  1) Switch to different server"
+        echo "  2) Disconnect"
+        echo "  3) Cancel"
+        echo ""
+        read -p "Choose [1-3]: " choice
+
+        case "$choice" in
+            1)
+                echo ""
+                list_configs
+                echo ""
+                read -p "Enter server name to switch to: " server
+                if [ -n "$server" ]; then
+                    switch_vpn "$server"
+                fi
+                ;;
+            2)
+                disconnect_vpn
+                ;;
+            3|*)
+                echo "Cancelled"
+                ;;
+        esac
+    else
+        # Not connected - show list and connect
+        list_configs
+
+        # Get available configs
+        local configs=()
+        for file in "$OVPN_DIR"/*.ovpn; do
+            if [ -f "$file" ]; then
+                local file_base=$(basename "$file" .ovpn)
+                local display_name=$(echo "$file_base" | sed 's/\.nordvpn\.com\.\(udp\|tcp\)$//')
+                configs+=("$display_name")
+            fi
+        done
+
+        if [ ${#configs[@]} -eq 0 ]; then
+            return 1
+        fi
+
+        echo ""
+        read -p "Enter server name to connect (or press Enter to cancel): " server
+
+        if [ -n "$server" ]; then
+            connect_vpn "$server"
+        else
+            echo "Cancelled"
+        fi
+    fi
 }
 
 #============================================================================
@@ -429,7 +498,8 @@ show_usage() {
 nord - NordVPN OpenVPN Connection Manager v${NORD_VERSION}
 
 USAGE:
-    nord <command> [options]
+    nord                 Interactive mode (connect/switch/disconnect)
+    nord <command>       Run specific command
 
 COMMANDS:
     list                List available .ovpn configs
@@ -446,7 +516,8 @@ OPTIONS:
     --debug             Enable debug logging
 
 EXAMPLES:
-    nord list
+    nord                # Interactive chooser
+    nord list           # List available servers
     nord connect uk-london
     nord status
     nord switch us-newyork
@@ -495,8 +566,10 @@ main() {
     shift || true
 
     if [ -z "$command" ]; then
-        show_usage
-        exit 1
+        # No command provided - run interactive chooser
+        check_dependencies || exit 1
+        interactive_chooser
+        exit $?
     fi
 
     # Check dependencies for all commands except help/version
