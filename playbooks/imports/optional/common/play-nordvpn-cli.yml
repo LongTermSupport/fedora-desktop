@@ -7,13 +7,24 @@
     root_dir: "{{ inventory_dir }}/../../"
   tasks:
     # @see https://support.nordvpn.com/hc/en-us/articles/20196094470929-Installing-NordVPN-on-Linux-distributions
-    - name: Install NordVPN CLI
-      ansible.builtin.shell: |
-        set -e
-        yes | sh <(curl -sSf https://downloads.nordcdn.com/apps/linux/install.sh)
-      args:
-        executable: /bin/bash
-        creates: /usr/bin/nordvpn
+    - name: Import NordVPN GPG Key
+      ansible.builtin.rpm_key:
+        state: present
+        key: https://repo.nordvpn.com/gpg/nordvpn_public.asc
+
+    - name: Add NordVPN Repository
+      ansible.builtin.yum_repository:
+        name: nordvpn
+        description: NordVPN official repository
+        baseurl: https://repo.nordvpn.com/yum/nordvpn/centos/$releasever/$basearch
+        enabled: true
+        gpgcheck: true
+        gpgkey: https://repo.nordvpn.com/gpg/nordvpn_public.asc
+
+    - name: Install NordVPN Package
+      ansible.builtin.dnf:
+        name: nordvpn
+        state: present
 
     - name: Add User to nordvpn Group
       ansible.builtin.user:
