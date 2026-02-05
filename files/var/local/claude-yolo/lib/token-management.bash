@@ -2,7 +2,7 @@
 # Token Management Library
 # Shared token operations for claude-yolo and claude-browser
 #
-# Version: 1.2.0 - Expired token renew options in selection menu
+# Version: 1.3.0 - Add token validation before saving to prevent corruption
 
 # Function to list available tokens
 # Args: $1 = token_dir, $2 = tool_name (for display)
@@ -59,6 +59,26 @@ list_tokens() {
 
     echo "════════════════════════════════════════════════════════════════════════════════"
     echo ""
+}
+
+# Function to validate a token by testing it against the Claude API
+# Args: $1 = token to validate, $2 = image_name
+# Returns: 0 if valid, 1 if invalid
+validate_token() {
+    local token="$1"
+    local image_name="$2"
+
+    # Test the token by making a simple API call
+    # Claude Code with a valid token should be able to show version
+    if container_cmd run --rm \
+        -e "CLAUDE_CODE_OAUTH_TOKEN=$token" \
+        --entrypoint claude \
+        "$image_name" \
+        --version &>/dev/null; then
+        return 0  # Token works
+    else
+        return 1  # Token invalid
+    fi
 }
 
 # Function to create a new long-lived token
@@ -193,22 +213,37 @@ create_token() {
         token=$(grep -o 'sk-ant-oat01-[a-zA-Z0-9_-]\+' "$tmp_output" | head -1)
 
         if [ -n "$token" ]; then
-            # Save token to file
-            echo "$token" > "$token_file"
-            chmod 600 "$token_file"
-
-            # Remove old tokens for this name
-            for old_token in "$token_dir/${token_name}".*.token; do
-                if [ -f "$old_token" ] && [ "$old_token" != "$token_file" ]; then
-                    echo "✓ Removed old token: $(basename "$old_token")"
-                    rm -f "$old_token"
-                fi
-            done
-
             echo ""
-            echo "════════════════════════════════════════════════════════════════════════════"
-            echo "✓ Token created successfully!"
-            echo "════════════════════════════════════════════════════════════════════════════"
+            echo "Validating token..."
+
+            if validate_token "$token" "$image_name"; then
+                echo "✓ Token validated successfully"
+                echo ""
+
+                # Save token to file
+                echo "$token" > "$token_file"
+                chmod 600 "$token_file"
+
+                # Remove old tokens for this name
+                for old_token in "$token_dir/${token_name}".*.token; do
+                    if [ -f "$old_token" ] && [ "$old_token" != "$token_file" ]; then
+                        echo "✓ Removed old token: $(basename "$old_token")"
+                        rm -f "$old_token"
+                    fi
+                done
+
+                echo ""
+                echo "════════════════════════════════════════════════════════════════════════════"
+                echo "✓ Token created successfully!"
+                echo "════════════════════════════════════════════════════════════════════════════"
+            else
+                echo ""
+                print_error "Token validation failed"
+                echo "The extracted token does not authenticate properly."
+                echo "Please try creating the token again."
+                rm -f "$tmp_output"
+                exit 1
+            fi
             echo ""
             echo "Token: $token_name"
             echo "Expires: $expiry_date"
@@ -231,19 +266,34 @@ create_token() {
             read -p "Token: " manual_token
 
             if [ -n "$manual_token" ] && [[ "$manual_token" =~ ^sk-ant-oat01- ]]; then
-                echo "$manual_token" > "$token_file"
-                chmod 600 "$token_file"
-
-                # Remove old tokens
-                for old_token in "$token_dir/${token_name}".*.token; do
-                    if [ -f "$old_token" ] && [ "$old_token" != "$token_file" ]; then
-                        rm -f "$old_token"
-                    fi
-                done
-
                 echo ""
-                echo "✓ Token saved successfully!"
-                echo ""
+                echo "Validating token..."
+
+                if validate_token "$manual_token" "$image_name"; then
+                    echo "✓ Token validated successfully"
+                    echo ""
+
+                    echo "$manual_token" > "$token_file"
+                    chmod 600 "$token_file"
+
+                    # Remove old tokens
+                    for old_token in "$token_dir/${token_name}".*.token; do
+                        if [ -f "$old_token" ] && [ "$old_token" != "$token_file" ]; then
+                            rm -f "$old_token"
+                        fi
+                    done
+
+                    echo ""
+                    echo "✓ Token saved successfully!"
+                    echo ""
+                else
+                    echo ""
+                    print_error "Token validation failed"
+                    echo "The provided token does not authenticate properly."
+                    echo "Please verify the token and try again."
+                    rm -f "$tmp_output"
+                    exit 1
+                fi
             else
                 echo ""
                 print_error "Invalid token format"

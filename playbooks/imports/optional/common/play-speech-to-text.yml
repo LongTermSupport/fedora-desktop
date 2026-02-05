@@ -273,6 +273,39 @@
         group: "{{ user_login }}"
         mode: '0755'
 
+    # =========================================================================
+    # Claude Code Post-Processing Integration
+    # =========================================================================
+
+    - name: Create Speech-to-Text Config Directory
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.config/speech-to-text"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+
+    - name: Deploy Claude Processing Script
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/wsi-claude-process"
+        dest: "/home/{{ user_login }}/.local/bin/wsi-claude-process"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+
+    - name: Deploy Default Claude Prompt Template
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.config/speech-to-text/claude-prompt.txt"
+        dest: "/home/{{ user_login }}/.config/speech-to-text/claude-prompt.txt"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+        force: false  # Don't overwrite if user has customized
+
+    # =========================================================================
+    # Extension Reload
+    # =========================================================================
+
     - name: Check if Extension is Currently Enabled
       become: true
       become_user: "{{ user_login }}"

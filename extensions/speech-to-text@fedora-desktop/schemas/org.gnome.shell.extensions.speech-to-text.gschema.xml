@@ -61,5 +61,20 @@
       <summary>Whisper Model</summary>
       <description>Whisper model to use for transcription: "auto" (base for streaming, small for batch), "tiny", "base", "small", "medium", "large-v3"</description>
     </key>
+    <key name="toggle-recording-claude" type="as">
+      <default><![CDATA[['<Primary>Insert']]]></default>
+      <summary>Toggle Recording with Claude Processing</summary>
+      <description>Keybinding to toggle speech-to-text recording with Claude Code post-processing</description>
+    </key>
+    <key name="claude-enabled" type="b">
+      <default>false</default>
+      <summary>Enable Claude Code Processing</summary>
+      <description>Post-process transcriptions through Claude Code for reformatting and cleanup</description>
+    </key>
+    <key name="claude-model" type="s">
+      <default>'sonnet'</default>
+      <summary>Claude Model</summary>
+      <description>Claude model to use for post-processing: "sonnet" (balanced), "opus" (best quality), "haiku" (fastest)</description>
+    </key>
   </schema>
 </schemalist>

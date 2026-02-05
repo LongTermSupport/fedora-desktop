@@ -354,19 +354,32 @@ def run_standard_streaming(args):
             recording_done.wait(timeout=5)
 
         if not recording_done.is_set():
-            log(f"Timeout after {timeout}s, stopping...")
+            log(f"Timeout after {timeout}s, stopping gracefully...")
             stop_requested = True
             if recorder:
                 try:
-                    recorder.abort()
-                except Exception:
-                    pass
-                try:
-                    recorder.shutdown()
-                except Exception:
-                    pass
-            # Give thread a moment to finish
-            recording_done.wait(timeout=2)
+                    # First try graceful stop to get final transcription
+                    recorder.stop()
+                    log("Called recorder.stop() on timeout")
+                except Exception as e:
+                    log(f"Warning: recorder.stop() failed: {e}")
+
+                # Wait for final transcription
+                recording_done.wait(timeout=3)
+
+                # Only abort if stop didn't work
+                if not recording_done.is_set():
+                    log("Graceful stop failed, aborting...")
+                    try:
+                        recorder.abort()
+                    except Exception:
+                        pass
+                    try:
+                        recorder.shutdown()
+                    except Exception:
+                        pass
+                    # Give thread a moment to finish
+                    recording_done.wait(timeout=2)
 
         # Only raise error if it wasn't a user-requested stop
         if recorder_error and not stop_requested:
@@ -429,6 +442,30 @@ def run_standard_streaming(args):
 
     # Capitalize first letter
     text = text[0].upper() + text[1:] if len(text) > 1 else text.upper()
+
+    # Post-process through Claude Code if requested
+    if args.claude_process:
+        log(f"Post-processing through Claude Code (model: {args.claude_model})")
+        try:
+            # Call wsi-claude-process
+            cmd = ["wsi-claude-process", "--model", args.claude_model]
+            if args.debug:
+                cmd.append("--debug")
+            cmd.append(text)
+
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            if result.returncode == 0 and result.stdout.strip():
+                processed_text = result.stdout.strip()
+                log(f"Claude processing successful")
+                log(f"Original: {text}")
+                log(f"Processed: {processed_text}")
+                text = processed_text
+            else:
+                log(f"Claude processing failed (exit: {result.returncode}), using original text", "WARN")
+                if result.stderr:
+                    log(f"Error: {result.stderr}", "WARN")
+        except Exception as e:
+            log(f"Claude processing error: {e}, using original text", "WARN")
 
     # Wrap with marker if requested
     if args.wrap_marker:
@@ -681,6 +718,30 @@ def run_prebuffered_streaming(args):
         # Capitalize first letter
         text = text[0].upper() + text[1:] if len(text) > 1 else text.upper()
 
+        # Post-process through Claude Code if requested
+        if args.claude_process:
+            log(f"Post-processing through Claude Code (model: {args.claude_model})")
+            try:
+                # Call wsi-claude-process
+                cmd = ["wsi-claude-process", "--model", args.claude_model]
+                if args.debug:
+                    cmd.append("--debug")
+                cmd.append(text)
+
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                if result.returncode == 0 and result.stdout.strip():
+                    processed_text = result.stdout.strip()
+                    log(f"Claude processing successful")
+                    log(f"Original: {text}")
+                    log(f"Processed: {processed_text}")
+                    text = processed_text
+                else:
+                    log(f"Claude processing failed (exit: {result.returncode}), using original text", "WARN")
+                    if result.stderr:
+                        log(f"Error: {result.stderr}", "WARN")
+            except Exception as e:
+                log(f"Claude processing error: {e}, using original text", "WARN")
+
         # Wrap with marker if requested
         if args.wrap_marker:
             text = f'speech-to-text:"{text}"'
@@ -765,6 +826,10 @@ def main():
                         help="Suppress desktop notifications")
     parser.add_argument("--pre-buffer", action="store_true",
                         help="Start recording immediately while model loads (faster startup)")
+    parser.add_argument("--claude-process", action="store_true",
+                        help="Post-process transcription through Claude Code")
+    parser.add_argument("--claude-model", type=str, default="sonnet",
+                        help="Claude model for processing (sonnet/opus/haiku)")
 
     args = parser.parse_args()
 

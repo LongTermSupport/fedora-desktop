@@ -43,6 +43,8 @@ export default class SpeechToTextExtension extends Extension {
         this._language = 'system';    // 'system' = detect from locale, or 'en', etc.
         this._showNotifications = false;  // Show desktop notifications (off by default)
         this._whisperModel = 'auto';  // Whisper model: 'auto', 'tiny', 'base', 'small', 'medium', 'large-v3'
+        this._claudeEnabled = false;  // Enable Claude Code post-processing
+        this._claudeModel = 'sonnet';  // Claude model: 'sonnet', 'opus', 'haiku'
         this._currentState = 'IDLE';
         this._updatingToggles = false;  // Guard flag to prevent toggle cascade
         this._lastError = null;
@@ -56,6 +58,7 @@ export default class SpeechToTextExtension extends Extension {
         this._countdownLabel = null;
         this._flashTimer = null;
         this._flashState = false;
+        this._isClaudeMode = false;  // Track if recording is in Claude mode
 
         // Whisper model definitions (name, label, size, description)
         this._whisperModels = [
@@ -65,6 +68,13 @@ export default class SpeechToTextExtension extends Extension {
             ['small', 'Small', '~466MB', 'Balanced speed/accuracy'],
             ['medium', 'Medium', '~1.5GB', 'Slow, great accuracy'],
             ['large-v3', 'Large v3', '~3GB', 'Slowest, best accuracy'],
+        ];
+
+        // Claude model definitions (name, label, description)
+        this._claudeModels = [
+            ['sonnet', 'Sonnet', 'Balanced speed and quality'],
+            ['opus', 'Opus', 'Best quality, slower'],
+            ['haiku', 'Haiku', 'Fastest, lower quality'],
         ];
     }
 
@@ -119,6 +129,19 @@ export default class SpeechToTextExtension extends Extension {
                 );
                 this._log(`Keybinding registration result: ${bindingAdded}`);
 
+                // Add Ctrl+Insert keybinding for Claude processing
+                const claudeBindingAdded = Main.wm.addKeybinding(
+                    'toggle-recording-claude',
+                    this._settings,
+                    Meta.KeyBindingFlags.NONE,
+                    Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW,
+                    () => {
+                        this._log('CTRL+INSERT PRESSED - Claude processing mode!');
+                        this._launchWSIClaude();
+                    }
+                );
+                this._log(`Claude keybinding registration result: ${claudeBindingAdded}`);
+
                 // Note: abort-recording keybinding is added dynamically when recording starts
             } else {
                 Main.notify('STT Error', 'Schema lookup failed');
@@ -144,6 +167,7 @@ export default class SpeechToTextExtension extends Extension {
         // Remove keybindings
         try {
             Main.wm.removeKeybinding('toggle-recording');
+            Main.wm.removeKeybinding('toggle-recording-claude');
             this._removeAbortKeybinding();
         } catch (e) {
             // Ignore if keybinding doesn't exist
@@ -447,10 +471,53 @@ export default class SpeechToTextExtension extends Extension {
         });
         this._modelSubMenu.menu.addMenuItem(downloadItem);
 
+        // Separator before Claude Code section
+        menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
+        // Claude Code section header
+        const claudeHeader = new PopupMenu.PopupMenuItem('Claude Code Post-Processing:', { reactive: false });
+        claudeHeader.label.style = 'font-weight: bold;';
+        menu.addMenuItem(claudeHeader);
+
+        // Claude enabled toggle
+        this._claudeSwitch = new PopupMenu.PopupSwitchMenuItem('Process with Claude (Ctrl+Insert)', this._claudeEnabled);
+        this._preventMenuClose(this._claudeSwitch);
+        this._claudeSwitch.connect('toggled', (item, state) => {
+            if (this._updatingToggles) return;
+            this._claudeEnabled = state;
+            this._saveClaudeSetting(state);
+            this._log(`Claude processing ${state ? 'enabled' : 'disabled'}`);
+        });
+        menu.addMenuItem(this._claudeSwitch);
+
+        // Claude model submenu
+        this._claudeModelSubMenu = new PopupMenu.PopupSubMenuMenuItem('  ↳ Model: Sonnet');
+        menu.addMenuItem(this._claudeModelSubMenu);
+
+        // Claude model options
+        for (const [modelName, label, description] of this._claudeModels) {
+            const item = new PopupMenu.PopupMenuItem(`${label} - ${description}`);
+            item.connect('activate', () => {
+                this._claudeModel = modelName;
+                this._saveClaudeModelSetting(modelName);
+                this._updateClaudeModelLabel();
+                this._log(`Claude model set to: ${modelName}`);
+            });
+            this._claudeModelSubMenu.menu.addMenuItem(item);
+        }
+
+        // Edit prompt menu item
+        const editPromptItem = new PopupMenu.PopupMenuItem('  ↳ Edit Claude Prompt...');
+        editPromptItem.connect('activate', () => {
+            this._openClaudePromptEditor();
+        });
+        menu.addMenuItem(editPromptItem);
+
         // Set initial visibility for child options
         this._updatePasteToggles();
         this._updateLanguageLabel();
         this._updateModelLabel();
+        this._updateClaudeModelLabel();
 
         // Separator
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
@@ -593,8 +660,10 @@ export default class SpeechToTextExtension extends Extension {
         // Start with green background, white text
         // Note: Don't use 'system-status-icon' style_class - it has max-width that
         // truncates "REC 117" to "REC 1..." in streaming mode
+        // Use different prefix for Claude mode
+        const modePrefix = this._isClaudeMode ? '🤖 REC' : 'REC';
         this._countdownLabel = new St.Label({
-            text: `REC ${this._remainingSeconds}`,
+            text: `${modePrefix} ${this._remainingSeconds}`,
             y_align: 2,  // Clutter.ActorAlign.CENTER
             style: 'color: white; font-weight: bold; font-size: 13px; background-color: #44ff44; padding: 2px 4px; border-radius: 3px;'
         });
@@ -608,8 +677,9 @@ export default class SpeechToTextExtension extends Extension {
             this._remainingSeconds--;
 
             if (this._countdownLabel) {
-                // Update text
-                this._countdownLabel.text = `REC ${this._remainingSeconds}`;
+                // Update text with mode prefix
+                const modePrefix = this._isClaudeMode ? '🤖 REC' : 'REC';
+                this._countdownLabel.text = `${modePrefix} ${this._remainingSeconds}`;
 
                 // Update color/style based on time remaining
                 if (this._remainingSeconds > 10) {
@@ -715,11 +785,16 @@ export default class SpeechToTextExtension extends Extension {
 
     _launchWSI() {
         try {
-            // If currently recording, stop it instead of starting new
-            if (this._currentState === 'RECORDING') {
+            // If currently in any active state, stop it instead of starting new
+            if (this._currentState === 'RECORDING' ||
+                this._currentState === 'PREPARING' ||
+                this._currentState === 'TRANSCRIBING') {
                 this._stopRecording();
                 return;
             }
+
+            // Track that this is regular mode (not Claude)
+            this._isClaudeMode = false;
 
             // Pass debug, clipboard, auto-paste, and wrap-marker flags if enabled
             // Note: auto-enter is ON by default in auto-paste mode, so we pass --no-auto-enter to disable
@@ -756,6 +831,73 @@ export default class SpeechToTextExtension extends Extension {
             this._lastError = e.message;
             this._log(`Launch error: ${e.message}`);
             Main.notify('STT Error', e.message);
+        }
+    }
+
+    _launchWSIClaude() {
+        try {
+            // If currently in any active state, stop it instead of starting new
+            if (this._currentState === 'RECORDING' ||
+                this._currentState === 'PREPARING' ||
+                this._currentState === 'TRANSCRIBING') {
+                this._stopRecording();
+                return;
+            }
+
+            // Track that this is Claude mode
+            this._isClaudeMode = true;
+
+            // Build flags similar to _launchWSI
+            const debugFlag = this._debugEnabled ? ' --debug' : '';
+            const clipboardFlag = this._clipboardMode ? ' --clipboard' : '';
+            const autoPasteFlag = this._autoPaste ? ' --auto-paste' : '';
+            const noAutoEnterFlag = (this._autoPaste && !this._autoEnter) ? ' --no-auto-enter' : '';
+            const wrapMarkerFlag = this._wrapWithMarker ? ' --wrap-marker' : '';
+            const noNotifyFlag = !this._showNotifications ? ' --no-notify' : '';
+
+            // Use wsi-stream for streaming mode, otherwise use batch wsi
+            const script = this._streamingMode ? 'wsi-stream' : 'wsi';
+            const langFlag = ` --language ${this._getWhisperLanguage()}`;
+
+            // Add pre-buffer flag for streaming mode
+            const preBufferFlag = (this._streamingMode && this._preBufferAudio) ? ' --pre-buffer' : '';
+
+            // Claude-specific flags
+            const claudeProcessFlag = ' --claude-process';
+            const claudeModelFlag = ` --claude-model ${this._claudeModel}`;
+
+            const scriptPath = GLib.get_home_dir() + '/.local/bin/' + script;
+            const scriptArgs = debugFlag + clipboardFlag + autoPasteFlag + noAutoEnterFlag + wrapMarkerFlag + noNotifyFlag + langFlag + preBufferFlag + claudeProcessFlag + claudeModelFlag;
+
+            // Build command - wrap in bash if we need to set environment variables
+            let command;
+            if (this._whisperModel !== 'auto') {
+                // Need to set WHISPER_MODEL env var - use bash -c
+                command = `/bin/bash -c "WHISPER_MODEL=${this._whisperModel} ${scriptPath}${scriptArgs}"`;
+            } else {
+                // Auto mode uses script defaults - no env var needed
+                command = scriptPath + scriptArgs;
+            }
+
+            this._log(`Launching with Claude processing: ${command}`);
+            GLib.spawn_command_line_async(command);
+        } catch (e) {
+            this._lastError = e.message;
+            this._log(`Launch error: ${e.message}`);
+            Main.notify('STT Error', e.message);
+        }
+    }
+
+    _openClaudePromptEditor() {
+        const promptFile = GLib.get_home_dir() + '/.config/speech-to-text/claude-prompt.txt';
+
+        // Try to open with default text editor
+        try {
+            GLib.spawn_command_line_async(`xdg-open "${promptFile}"`);
+            this._log('Opening Claude prompt editor');
+        } catch (e) {
+            this._log(`Failed to open editor: ${e.message}`);
+            Main.notify('STT Error', `Failed to open editor: ${e.message}`);
         }
     }
 
@@ -900,6 +1042,19 @@ export default class SpeechToTextExtension extends Extension {
             } catch (e) {
                 this._preBufferAudio = false;
             }
+            try {
+                this._claudeEnabled = this._settings.get_boolean('claude-enabled');
+                if (this._claudeSwitch) {
+                    this._claudeSwitch.setToggleState(this._claudeEnabled);
+                }
+            } catch (e) {
+                this._claudeEnabled = false;
+            }
+            try {
+                this._claudeModel = this._settings.get_string('claude-model');
+            } catch (e) {
+                this._claudeModel = 'sonnet';
+            }
         }
     }
 
@@ -978,6 +1133,17 @@ Auto mode uses:
                 this._modelSubMenu.label.text = `Model: ${label}`;
             } else {
                 this._modelSubMenu.label.text = `Model: ${this._whisperModel}`;
+            }
+        }
+    }
+
+    _updateClaudeModelLabel() {
+        if (this._claudeModelSubMenu) {
+            const modelInfo = this._claudeModels.find(m => m[0] === this._claudeModel);
+            if (modelInfo) {
+                this._claudeModelSubMenu.label.text = `  ↳ Model: ${modelInfo[1]}`;
+            } else {
+                this._claudeModelSubMenu.label.text = `  ↳ Model: ${this._claudeModel}`;
             }
         }
     }
@@ -1074,6 +1240,26 @@ Auto mode uses:
         if (this._settings) {
             try {
                 this._settings.set_boolean('pre-buffer-audio', enabled);
+            } catch (e) {
+                // Setting may not exist yet
+            }
+        }
+    }
+
+    _saveClaudeSetting(enabled) {
+        if (this._settings) {
+            try {
+                this._settings.set_boolean('claude-enabled', enabled);
+            } catch (e) {
+                // Setting may not exist yet
+            }
+        }
+    }
+
+    _saveClaudeModelSetting(model) {
+        if (this._settings) {
+            try {
+                this._settings.set_string('claude-model', model);
             } catch (e) {
                 // Setting may not exist yet
             }
