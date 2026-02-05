@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.1.5"  # Fix: token renewal now reuses same token name
+CCY_VERSION="3.1.7"  # Add byte length check and improve token validation
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -702,6 +702,128 @@ if ! [[ "$CLAUDE_OAUTH_TOKEN" =~ ^sk-ant-oat01- ]]; then
     echo "Token must start with 'sk-ant-oat01-'"
     exit 1
 fi
+
+# Quick validation: Check token byte length (valid tokens are ~100-110 bytes)
+# This catches truncated/corrupted tokens before expensive API call
+TOKEN_BYTES=${#CLAUDE_OAUTH_TOKEN}
+TOKEN_VALIDATION_FAILED=false
+VALIDATION_FAILURE_REASON=""
+
+if [ "$TOKEN_BYTES" -lt 90 ] || [ "$TOKEN_BYTES" -gt 120 ]; then
+    TOKEN_VALIDATION_FAILED=true
+    VALIDATION_FAILURE_REASON="length"
+else
+    # Validate token against Claude API (sanity check for corruption)
+    echo "Validating token..."
+    if ! validate_token "$CLAUDE_OAUTH_TOKEN" "$IMAGE_NAME"; then
+        TOKEN_VALIDATION_FAILED=true
+        VALIDATION_FAILURE_REASON="api"
+    else
+        echo "✓ Token validated successfully"
+    fi
+fi
+
+# Handle token validation failure with unified recovery UI
+if [ "$TOKEN_VALIDATION_FAILED" = true ]; then
+    filename=$(basename "$SELECTED_TOKEN")
+    token_name="${filename%.*.token}"
+
+    echo ""
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo "❌ TOKEN VALIDATION FAILED"
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+    echo "Token: $filename"
+    echo "File: $SELECTED_TOKEN"
+
+    if [ "$VALIDATION_FAILURE_REASON" = "length" ]; then
+        echo "Length: $TOKEN_BYTES bytes (expected: 100-110 bytes)"
+        echo ""
+        echo "This token appears corrupted (truncated or has extra characters)."
+    else
+        echo ""
+        echo "The token has valid format, but does not authenticate with Claude API."
+    fi
+
+    echo ""
+    echo "Common causes:"
+    echo "  • Token file corrupted (truncated, extra characters, etc.)"
+    echo "  • Token was manually edited incorrectly"
+    echo "  • Token was revoked on Claude's side"
+    echo "  • File was damaged (filesystem issue, interrupted write, etc.)"
+    echo ""
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+    echo "Recovery options:"
+    echo ""
+    echo "  1) Recreate token (same name: '$token_name')"
+    echo "  2) Select different token"
+    echo "  3) Exit and fix manually"
+    echo ""
+
+    while true; do
+        read -p "Select option [1-3]: " recovery_choice
+        echo ""
+
+        case "$recovery_choice" in
+            1)
+                echo "Recreating token: $token_name"
+                echo ""
+                create_token "$TOKEN_DIR" "$GH_TOKEN" "$IMAGE_NAME" "ccy" "$token_name"
+                exit 0
+                ;;
+            2)
+                echo "Select a different token:"
+                echo ""
+                select_token "$TOKEN_DIR" "ccy" || {
+                    echo ""
+                    echo "No other valid tokens available."
+                    echo ""
+                    read -p "Create a new token? (Y/n): " create_now
+                    if [ "$create_now" != "n" ] && [ "$create_now" != "N" ]; then
+                        create_token "$TOKEN_DIR" "$GH_TOKEN" "$IMAGE_NAME" "ccy"
+                    fi
+                    echo "Cancelled. Create a token with: ccy --create-token"
+                    exit 1
+                }
+                # Token selected via select_token, reload and validate
+                CLAUDE_OAUTH_TOKEN=$(cat "$SELECTED_TOKEN")
+
+                # Validate the new token (both length and API)
+                TOKEN_BYTES=${#CLAUDE_OAUTH_TOKEN}
+                if [ "$TOKEN_BYTES" -lt 90 ] || [ "$TOKEN_BYTES" -gt 120 ]; then
+                    print_error "Selected token also has invalid length ($TOKEN_BYTES bytes)"
+                    echo "Please check your tokens or create a new one with: ccy --create-token"
+                    exit 1
+                fi
+
+                if ! validate_token "$CLAUDE_OAUTH_TOKEN" "$IMAGE_NAME"; then
+                    print_error "Selected token also failed validation"
+                    echo "Please check your tokens or create a new one with: ccy --create-token"
+                    exit 1
+                fi
+
+                echo "✓ Selected token validated successfully"
+                echo ""
+                break
+                ;;
+            3)
+                echo "Cancelled."
+                echo ""
+                echo "To fix manually:"
+                echo "  • Delete corrupted token: rm \"$SELECTED_TOKEN\""
+                echo "  • Create new token: ccy --create-token"
+                echo "  • Or view all tokens: ccy --list-tokens"
+                exit 1
+                ;;
+            *)
+                echo "Invalid choice. Please enter 1, 2, or 3"
+                echo ""
+                ;;
+        esac
+    done
+fi
+echo ""
 
 # Get current user's UID and GID for proper file ownership
 HOST_UID=$(id -u)

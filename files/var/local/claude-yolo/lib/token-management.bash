@@ -2,7 +2,7 @@
 # Token Management Library
 # Shared token operations for claude-yolo and claude-browser
 #
-# Version: 1.3.0 - Add token validation before saving to prevent corruption
+# Version: 1.4.0 - Add byte length check and validate pasted tokens with retry
 
 # Function to list available tokens
 # Args: $1 = token_dir, $2 = tool_name (for display)
@@ -262,17 +262,69 @@ create_token() {
             echo ""
             echo "The setup-token command ran, but we couldn't automatically extract the token."
             echo ""
-            echo "Please manually paste the token (starts with sk-ant-oat01-):"
-            read -p "Token: " manual_token
 
-            if [ -n "$manual_token" ] && [[ "$manual_token" =~ ^sk-ant-oat01- ]]; then
+            # Token paste loop with validation and retry
+            while true; do
+                echo "Please manually paste the token (starts with sk-ant-oat01-):"
+                read -p "Token: " manual_token
+
+                # Basic validation: format check
+                if [ -z "$manual_token" ]; then
+                    echo ""
+                    print_error "Token cannot be empty"
+                    echo ""
+                    read -p "Try again? (Y/n): " retry
+                    if [ "$retry" = "n" ] || [ "$retry" = "N" ]; then
+                        echo "Cancelled."
+                        rm -f "$tmp_output"
+                        exit 1
+                    fi
+                    echo ""
+                    continue
+                fi
+
+                if ! [[ "$manual_token" =~ ^sk-ant-oat01- ]]; then
+                    echo ""
+                    print_error "Invalid token format"
+                    echo "Token must start with 'sk-ant-oat01-'"
+                    echo ""
+                    read -p "Try again? (Y/n): " retry
+                    if [ "$retry" = "n" ] || [ "$retry" = "N" ]; then
+                        echo "Cancelled."
+                        rm -f "$tmp_output"
+                        exit 1
+                    fi
+                    echo ""
+                    continue
+                fi
+
+                # Quick validation: Check byte length
+                token_bytes=${#manual_token}
+                if [ "$token_bytes" -lt 90 ] || [ "$token_bytes" -gt 120 ]; then
+                    echo ""
+                    print_error "Invalid token length"
+                    echo "Length: $token_bytes bytes (expected: 100-110 bytes)"
+                    echo "Token appears truncated or has extra characters."
+                    echo ""
+                    read -p "Try again? (Y/n): " retry
+                    if [ "$retry" = "n" ] || [ "$retry" = "N" ]; then
+                        echo "Cancelled."
+                        rm -f "$tmp_output"
+                        exit 1
+                    fi
+                    echo ""
+                    continue
+                fi
+
+                # API validation: Test against Claude API
                 echo ""
-                echo "Validating token..."
+                echo "Validating token against Claude API..."
 
                 if validate_token "$manual_token" "$image_name"; then
                     echo "✓ Token validated successfully"
                     echo ""
 
+                    # Save token to file
                     echo "$manual_token" > "$token_file"
                     chmod 600 "$token_file"
 
@@ -286,23 +338,28 @@ create_token() {
                     echo ""
                     echo "✓ Token saved successfully!"
                     echo ""
+                    break
                 else
                     echo ""
                     print_error "Token validation failed"
-                    echo "The provided token does not authenticate properly."
-                    echo "Please verify the token and try again."
-                    rm -f "$tmp_output"
-                    exit 1
+                    echo "The provided token does not authenticate with Claude API."
+                    echo ""
+                    echo "Possible causes:"
+                    echo "  • Token was copied incorrectly (missing characters)"
+                    echo "  • Token has expired or been revoked"
+                    echo "  • Network connectivity issues"
+                    echo ""
+                    read -p "Try again? (Y/n): " retry
+                    if [ "$retry" = "n" ] || [ "$retry" = "N" ]; then
+                        echo ""
+                        echo "Cancelled. Please verify the token and try again."
+                        echo "Run: $tool_name --create-token"
+                        rm -f "$tmp_output"
+                        exit 1
+                    fi
+                    echo ""
                 fi
-            else
-                echo ""
-                print_error "Invalid token format"
-                echo "Token must start with 'sk-ant-oat01-'"
-                echo ""
-                echo "Try again with: $tool_name --create-token"
-                rm -f "$tmp_output"
-                exit 1
-            fi
+            done
         fi
     else
         docker_exit_code=$?
