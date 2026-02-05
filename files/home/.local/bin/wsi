@@ -785,9 +785,12 @@ if [ "$CLAUDE_PROCESS" = true ]; then
 fi
 
 # Wrap with speech-to-text marker if requested
-if [ "$WRAP_MARKER" = true ]; then
+# BUT: Don't wrap Claude-processed text - it's already clean and formatted
+if [ "$WRAP_MARKER" = true ] && [ "$CLAUDE_PROCESS" = false ]; then
     str="speech-to-text:\"$str\""
     log_debug "Wrapped with marker: '$str'"
+elif [ "$WRAP_MARKER" = true ] && [ "$CLAUDE_PROCESS" = true ]; then
+    log_debug "Skipping marker wrap - Claude processed text is already clean"
 fi
 
 #============================================================================

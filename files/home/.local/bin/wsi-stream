@@ -468,9 +468,12 @@ def run_standard_streaming(args):
             log(f"Claude processing error: {e}, using original text", "WARN")
 
     # Wrap with marker if requested
-    if args.wrap_marker:
+    # BUT: Don't wrap Claude-processed text - it's already clean and formatted
+    if args.wrap_marker and not args.claude_process:
         text = f'speech-to-text:"{text}"'
         log(f"Wrapped: {text}")
+    elif args.wrap_marker and args.claude_process:
+        log("Skipping marker wrap - Claude processed text is already clean")
 
     log(f"Final text ({len(text)} chars): {text}")
 
@@ -743,9 +746,12 @@ def run_prebuffered_streaming(args):
                 log(f"Claude processing error: {e}, using original text", "WARN")
 
         # Wrap with marker if requested
-        if args.wrap_marker:
+        # BUT: Don't wrap Claude-processed text - it's already clean and formatted
+        if args.wrap_marker and not args.claude_process:
             text = f'speech-to-text:"{text}"'
             log(f"Wrapped: {text}")
+        elif args.wrap_marker and args.claude_process:
+            log("Skipping marker wrap - Claude processed text is already clean")
 
         log(f"Final text ({len(text)} chars): {text}")
 
