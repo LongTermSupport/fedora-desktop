@@ -173,7 +173,7 @@ list_configs() {
             # Strip common NordVPN suffixes for display
             local display_name=$(echo "$file_base" | sed 's/\.nordvpn\.com\.\(udp\|tcp\)$//')
             echo "  $display_name"
-            ((count++))
+            count=$((count + 1))
         fi
     done
 
