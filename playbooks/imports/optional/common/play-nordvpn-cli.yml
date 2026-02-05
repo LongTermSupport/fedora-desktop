@@ -16,9 +16,9 @@
       ansible.builtin.yum_repository:
         name: nordvpn
         description: NordVPN official repository
-        baseurl: https://repo.nordvpn.com/yum/nordvpn/centos/$releasever/$basearch
+        baseurl: https://repo.nordvpn.com/yum/nordvpn/centos/$basearch
         enabled: true
-        gpgcheck: true
+        gpgcheck: false
         gpgkey: https://repo.nordvpn.com/gpg/nordvpn_public.asc
 
     - name: Install NordVPN Package
