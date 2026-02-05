@@ -425,6 +425,23 @@ cleanup_old() {
 }
 
 interactive_chooser() {
+    # Get available configs
+    local configs=()
+    for file in "$OVPN_DIR"/*.ovpn; do
+        if [ -f "$file" ]; then
+            local file_base=$(basename "$file" .ovpn)
+            local display_name=$(echo "$file_base" | sed 's/\.nordvpn\.com\.\(udp\|tcp\)$//')
+            configs+=("$display_name")
+        fi
+    done
+
+    if [ ${#configs[@]} -eq 0 ]; then
+        echo "No VPN configs found in $OVPN_DIR/"
+        echo ""
+        echo "Download .ovpn files from NordVPN and place them there."
+        return 1
+    fi
+
     # Check if currently connected
     local active=$(nmcli -t -f NAME,TYPE,STATE connection show --active | \
                    grep ":vpn:activated" | \
@@ -445,12 +462,22 @@ interactive_chooser() {
 
         case "$choice" in
             1)
+                # Show numbered list for switching
                 echo ""
-                list_configs
+                echo "Available VPN servers:"
+                local i=1
+                for config in "${configs[@]}"; do
+                    echo "  $i) $config"
+                    i=$((i + 1))
+                done
                 echo ""
-                read -p "Enter server name to switch to: " server
-                if [ -n "$server" ]; then
-                    switch_vpn "$server"
+                read -p "Choose [1-${#configs[@]}] or press Enter to cancel: " server_num
+
+                if [ -n "$server_num" ] && [ "$server_num" -ge 1 ] && [ "$server_num" -le ${#configs[@]} ]; then
+                    local selected="${configs[$((server_num - 1))]}"
+                    switch_vpn "$selected"
+                else
+                    echo "Cancelled"
                 fi
                 ;;
             2)
@@ -461,28 +488,19 @@ interactive_chooser() {
                 ;;
         esac
     else
-        # Not connected - show list and connect
-        list_configs
-
-        # Get available configs
-        local configs=()
-        for file in "$OVPN_DIR"/*.ovpn; do
-            if [ -f "$file" ]; then
-                local file_base=$(basename "$file" .ovpn)
-                local display_name=$(echo "$file_base" | sed 's/\.nordvpn\.com\.\(udp\|tcp\)$//')
-                configs+=("$display_name")
-            fi
+        # Not connected - show numbered list and connect
+        echo "Available VPN servers:"
+        local i=1
+        for config in "${configs[@]}"; do
+            echo "  $i) $config"
+            i=$((i + 1))
         done
-
-        if [ ${#configs[@]} -eq 0 ]; then
-            return 1
-        fi
-
         echo ""
-        read -p "Enter server name to connect (or press Enter to cancel): " server
+        read -p "Choose [1-${#configs[@]}] or press Enter to cancel: " server_num
 
-        if [ -n "$server" ]; then
-            connect_vpn "$server"
+        if [ -n "$server_num" ] && [ "$server_num" -ge 1 ] && [ "$server_num" -le ${#configs[@]} ]; then
+            local selected="${configs[$((server_num - 1))]}"
+            connect_vpn "$selected"
         else
             echo "Cancelled"
         fi
