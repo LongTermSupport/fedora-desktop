@@ -4,20 +4,19 @@ This guide covers installing and configuring NordVPN on Fedora with GNOME Shell 
 
 ## Overview
 
-Two playbooks are provided:
+A single playbook provides complete NordVPN setup:
 
-1. **play-nordvpn-cli.yml** - Installs the NordVPN CLI client
-2. **play-nordvpn-gnome-extension.yml** - Adds a system tray toggle for GUI control
+**play-nordvpn-cli.yml** - Installs the NordVPN CLI client and GNOME Shell extension
 
 ## Prerequisites
 
 - Active NordVPN subscription
 - Fedora desktop system
-- GNOME Shell desktop environment (for extension)
+- GNOME Shell desktop environment
 
 ## Installation Steps
 
-### Step 1: Install NordVPN CLI
+### Step 1: Install NordVPN
 
 ```bash
 ansible-playbook playbooks/imports/optional/common/play-nordvpn-cli.yml
@@ -27,31 +26,23 @@ This will:
 - Install the official NordVPN CLI client
 - Add your user to the `nordvpn` group
 - Enable and start the `nordvpnd` daemon
+- Install the NordVPN Connect GNOME Shell extension
 
-**IMPORTANT**: You must **reboot** after this step for group membership to take effect.
+**IMPORTANT**: You must **reboot** after installation for group membership to take effect.
 
-### Step 2: Authenticate
+### Step 2: Authenticate and Enable Extension
 
-After rebooting, log in to your NordVPN account:
+After rebooting:
 
-```bash
-nordvpn login
-```
+1. Log in to your NordVPN account:
+   ```bash
+   nordvpn login
+   ```
 
-This will open a browser window for authentication.
-
-### Step 3: Install GNOME Extension (Optional)
-
-For GUI system tray control:
-
-```bash
-ansible-playbook playbooks/imports/optional/common/play-nordvpn-gnome-extension.yml
-```
-
-After installation, restart GNOME Shell:
-- Press `Alt+F2`
-- Type `r` and press Enter
-- OR log out and log back in
+2. Restart GNOME Shell to activate the extension:
+   - Press `Alt+F2`
+   - Type `r` and press Enter
+   - The NordVPN icon will appear in your top bar
 
 ## Usage
 

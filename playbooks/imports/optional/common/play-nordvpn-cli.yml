@@ -38,21 +38,37 @@
         state: started
         enabled: true
 
+    - name: Install Gnome Shell Extension Installer
+      ansible.builtin.shell: |
+        cd /usr/bin
+        wget -O gnome-shell-extension-installer "https://github.com/brunelli/gnome-shell-extension-installer/raw/1200bd8566b2fbc55f8ccc96f07394996dfc2da9/gnome-shell-extension-installer"
+        chmod +x gnome-shell-extension-installer
+      args:
+        creates: /usr/bin/gnome-shell-extension-installer
+
+    - name: Install NordVPN GNOME Shell Extension
+      become: false
+      ansible.builtin.command: gnome-shell-extension-installer --yes {{ item.id }}
+      loop:
+        - name: NordVPN Connect
+          id: 1595
+          # https://extensions.gnome.org/extension/1595/nordvpn-connect/
+
     - name: Display Login Instructions
       ansible.builtin.debug:
         msg:
-          - "NordVPN CLI installed successfully!"
+          - "NordVPN CLI and GNOME extension installed successfully!"
           - ""
           - "IMPORTANT: You need to reboot for group membership to take effect."
           - ""
-          - "After reboot, authenticate with:"
-          - "  nordvpn login"
+          - "After reboot:"
+          - "  1. Log in to NordVPN: nordvpn login"
+          - "  2. Restart GNOME Shell: Alt+F2, type 'r', press Enter"
+          - "  3. The NordVPN icon will appear in your top bar"
           - ""
-          - "Basic commands:"
+          - "Basic CLI commands:"
           - "  nordvpn connect              # Connect to best server"
           - "  nordvpn connect <country>    # Connect to specific country"
           - "  nordvpn disconnect           # Disconnect"
           - "  nordvpn status               # Check connection status"
           - "  nordvpn settings             # View settings"
-          - ""
-          - "For GUI control, run: ansible-playbook playbooks/imports/optional/common/play-nordvpn-gnome-extension.yml"
