@@ -10,7 +10,7 @@
     - name: Install NordVPN CLI
       ansible.builtin.shell: |
         set -e
-        sh <(curl -sSf https://downloads.nordcdn.com/apps/linux/install.sh)
+        yes | sh <(curl -sSf https://downloads.nordcdn.com/apps/linux/install.sh)
       args:
         executable: /bin/bash
         creates: /usr/bin/nordvpn
