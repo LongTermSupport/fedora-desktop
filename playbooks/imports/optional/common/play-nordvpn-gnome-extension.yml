@@ -56,7 +56,13 @@
         - /tmp/nordvpn-connect-extension/extension.js
         - /tmp/nordvpn-connect-extension/metadata.json
         - /tmp/nordvpn-connect-extension/prefs.js
+        - /tmp/nordvpn-connect-extension/prefs.ui
+        - /tmp/nordvpn-connect-extension/prefs40.ui
         - /tmp/nordvpn-connect-extension/stylesheet.css
+        - /tmp/nordvpn-connect-extension/convenience.js
+        - /tmp/nordvpn-connect-extension/persistentData.js
+        - /tmp/nordvpn-connect-extension/subMenus.js
+        - /tmp/nordvpn-connect-extension/unescape.js
 
     - name: Copy Extension Subdirectories
       become: true
@@ -67,7 +73,7 @@
         remote_src: true
         mode: preserve
       loop:
-        - /tmp/nordvpn-connect-extension/icons/
+        - /tmp/nordvpn-connect-extension/img/
         - /tmp/nordvpn-connect-extension/schemas/
 
     - name: Compile GSettings Schema
