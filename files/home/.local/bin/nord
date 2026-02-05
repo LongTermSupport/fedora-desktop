@@ -169,9 +169,9 @@ list_configs() {
     local count=0
     for file in "$OVPN_DIR"/*.ovpn; do
         if [ -f "$file" ]; then
-            local basename=$(basename "$file" .ovpn)
+            local file_base=$(basename "$file" .ovpn)
             # Strip common NordVPN suffixes for display
-            local display_name=$(echo "$basename" | sed 's/\.nordvpn\.com\.\(udp\|tcp\)$//')
+            local display_name=$(echo "$file_base" | sed 's/\.nordvpn\.com\.\(udp\|tcp\)$//')
             echo "  $display_name"
             ((count++))
         fi
