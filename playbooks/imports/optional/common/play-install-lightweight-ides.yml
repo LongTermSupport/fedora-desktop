@@ -1,3 +1,4 @@
+#!/usr/bin/env ansible-playbook
 ---
 #!/usr/bin/env ansible-playbook
 # Install lightweight IDEs as alternatives to heavyweight IDEs

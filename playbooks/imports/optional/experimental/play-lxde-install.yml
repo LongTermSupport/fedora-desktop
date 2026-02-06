@@ -1,3 +1,4 @@
+#!/usr/bin/env ansible-playbook
 ---
 #!/usr/bin/env ansible-playbook
 # Install LXDE - THIS IS NOT TESTED - i just wnated to include installing dunst somewhere so that notifications owork

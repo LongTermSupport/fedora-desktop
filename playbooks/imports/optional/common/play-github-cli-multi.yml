@@ -1,3 +1,4 @@
+#!/usr/bin/env ansible-playbook
 ---
 #!/usr/bin/env ansible-playbook
 # GitHub CLI Multi-Account Setup - Leverages native gh multi-account support (v2.40.0+)

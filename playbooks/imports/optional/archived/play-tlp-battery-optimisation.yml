@@ -1,3 +1,4 @@
+#!/usr/bin/env ansible-playbook
 ---
 # This play will save your battery life!
 # It will install TLP, configure it to only charge your battery to 80% and then disable the radio devices when you are connected to LAN or WiFi

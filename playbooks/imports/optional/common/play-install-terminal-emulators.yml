@@ -1,3 +1,4 @@
+#!/usr/bin/env ansible-playbook
 ---
 #!/usr/bin/env ansible-playbook
 # Install modern terminal emulators optimized for Claude Code

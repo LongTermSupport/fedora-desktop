@@ -1,3 +1,4 @@
+#!/usr/bin/env ansible-playbook
 ---
 #!/usr/bin/env ansible-playbook
 # Docker Storage Driver Migration: fuse-overlayfs -> native overlay2

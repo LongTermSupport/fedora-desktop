@@ -1,3 +1,4 @@
+#!/usr/bin/env ansible-playbook
 ---
 # Fast File Manager Setup
 # Optimizes file picker performance and optionally replaces Nautilus

@@ -1,3 +1,4 @@
+#!/usr/bin/env ansible-playbook
 ---
 # Git is already installed as it was used to clone this repo,
 # so we just need to configure it

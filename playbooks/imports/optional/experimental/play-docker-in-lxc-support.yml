@@ -1,3 +1,4 @@
+#!/usr/bin/env ansible-playbook
 ---
 # Docker-in-LXC Support Playbook
 # This playbook configures the host system to support Docker running inside LXC containers

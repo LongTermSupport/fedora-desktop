@@ -1,3 +1,4 @@
+#!/usr/bin/env ansible-playbook
 ---
 #!/usr/bin/env ansible-playbook
 # Speech-to-Text GNOME Extension with GPU-accelerated Whisper (faster-whisper)

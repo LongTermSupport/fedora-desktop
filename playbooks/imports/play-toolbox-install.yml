@@ -1,3 +1,4 @@
+#!/usr/bin/env ansible-playbook
 ---
 # see https://raw.githubusercontent.com/jaredhocutt/ansible-jetbrains-toolbox/master/tasks/main.yml
 - hosts: desktop

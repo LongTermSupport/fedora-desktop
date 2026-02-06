@@ -1,3 +1,4 @@
+#!/usr/bin/env ansible-playbook
 ---
 #!/usr/bin/env ansible-playbook
 # Install NVIDIA drivers using RPM Fusion (recommended method for Fedora 42)
