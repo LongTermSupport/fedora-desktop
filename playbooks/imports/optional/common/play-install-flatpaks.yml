@@ -12,3 +12,7 @@
       become: true
       become_user: "{{ user_login }}"
       ansible.builtin.command: flatpak install flathub com.slack.Slack -y
+    - name: Install Shotcut
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command: flatpak install flathub org.shotcut.Shotcut -y
