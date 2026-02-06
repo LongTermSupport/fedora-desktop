@@ -28,6 +28,15 @@ Use these Unicode icons in plan documents:
 - ⏸️ `PAUSED` - Temporarily suspended
 - 👁️ `REVIEW` - Needs review/approval
 
+## Active Plans
+
+- [002-nordvpn-openvpn-manager](002-nordvpn-openvpn-manager/) - NordVPN OpenVPN connection manager
+- [004-comprehensive-feature-documentation](004-comprehensive-feature-documentation/) - Documentation for all major features (CCY, CCB, Nord, Speech-to-Text, etc.)
+
+## Completed Plans
+
+- None yet
+
 ## Archive
 
 The `Archive/` directory contains legacy plans created before adopting the structured plan workflow:
