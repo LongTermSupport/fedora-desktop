@@ -40,10 +40,10 @@ REQUIRED_CONTAINER_VERSION="1.4"
 
 set -e
 
-# Debug output helper - only prints when DEBUG_MODE=true
+# Debug output helper - only prints when DEBUG_CCY=true
 # Usage: debug "message"
 debug() {
-    [[ "$DEBUG_MODE" = true ]] && echo "DEBUG: $*" || true
+    [[ "$DEBUG_CCY" = true ]] && echo "DEBUG: $*" || true
 }
 
 # Calculate script hash (exclude this variable line to avoid circular dependency)
@@ -521,20 +521,17 @@ if [ "$SHOW_DEBUG_CHOOSER" = true ]; then
         exit 0
     fi
 
-    # Enable DEBUG_MODE for logging if any layer is enabled
-    if [ "$DEBUG_CCY" = true ] || [ "$DEBUG_ENTRYPOINT" = true ] || [ "$DEBUG_CLAUDE" = true ]; then
+    # Only enable DEBUG_MODE and logging for CCY layer
+    # Other layers (entrypoint, Claude) don't need log files
+    if [ "$DEBUG_CCY" = true ]; then
         DEBUG_MODE=true
         DEBUG_LOG="/tmp/ccy-debug-$(date +%Y%m%d-%H%M%S).log"
         echo ""
         echo "Debug logging to: $DEBUG_LOG"
         echo ""
-
-        # Only enable bash -x for CCY if that layer was selected
-        if [ "$DEBUG_CCY" = true ]; then
-            # Redirect all output to both terminal and log file
-            exec > >(tee -a "$DEBUG_LOG") 2>&1
-            set -x
-        fi
+        # Redirect all output to both terminal and log file
+        exec > >(tee -a "$DEBUG_LOG") 2>&1
+        set -x
     fi
 fi
 
@@ -1172,7 +1169,7 @@ fi
 echo "✓ Token: Long-lived OAuth (CLAUDE_CODE_OAUTH_TOKEN)"
 echo "✓ State: /workspace/.claude/ (project-level, persists in git repo)"
 
-if [ "$DEBUG_MODE" = true ]; then
+if [ "$DEBUG_CCY" = true ]; then
     echo ""
     echo "════════════════════════════════════════════════════════════════════════════════"
     echo "DEBUG: Pre-mount setup"
@@ -1218,8 +1215,8 @@ fi
 cleanup() {
     rm -rf "$CONFIG_TEMP"
 
-    # Show debug log if in debug mode
-    if [ "$DEBUG_MODE" = true ] && [ -n "$DEBUG_LOG" ]; then
+    # Show debug log if CCY debugging is enabled
+    if [ "$DEBUG_CCY" = true ] && [ -n "$DEBUG_LOG" ]; then
         echo ""
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo "DEBUG LOG (saved to $DEBUG_LOG)"
@@ -1233,7 +1230,7 @@ trap cleanup EXIT
 # Convert SSH_KEY_PATHS array to colon-separated string
 SSH_KEY_PATHS_STR=$(IFS=:; echo "${SSH_KEY_PATHS[*]}")
 
-if [ "$DEBUG_MODE" = true ]; then
+if [ "$DEBUG_CCY" = true ]; then
     echo ""
     echo "════════════════════════════════════════════════════════════════════════════════"
     echo "DEBUG: Docker run configuration"
