@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.1.8"  # Add Claude Opus 4.6 support: Agent Teams (default enabled), MAX_THINKING_TOKENS pass-through
+CCY_VERSION="3.2.0"  # Add debug layer selection: choose to debug CCY, entrypoint, or Claude Code independently
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -124,7 +124,7 @@ Usage: ccy [OPTIONS] [CLAUDE_ARGS...]
 
 Options:
   --rebuild              Force rebuild of container image (clears cache)
-  --debug                Enable debug output (bash -x)
+  --debug                Interactive debug layer selection (CCY, entrypoint, Claude Code)
   --engine ENGINE        Use specific container engine (docker/podman, default: podman)
   --ssh-key PATH         SSH private key to mount (can be specified multiple times)
   --no-ssh               Skip SSH key selection (git push will not work)
@@ -361,6 +361,10 @@ EOF
 # Check for wrapper flags
 FORCE_REBUILD=false
 DEBUG_MODE=false
+DEBUG_CCY=false
+DEBUG_ENTRYPOINT=false
+DEBUG_CLAUDE=false
+SHOW_DEBUG_CHOOSER=false
 SSH_KEYS=()
 CLAUDE_ARGS=()
 NEXT_IS_SSH_KEY=false
@@ -429,12 +433,7 @@ for arg in "$@"; do
     elif [ "$arg" = "--prompt" ]; then
         NEXT_IS_PROMPT=true
     elif [ "$arg" = "--debug" ]; then
-        DEBUG_MODE=true
-        DEBUG_LOG="/tmp/ccy-debug-$(date +%Y%m%d-%H%M%S).log"
-        # Redirect all output to both terminal and log file
-        exec > >(tee -a "$DEBUG_LOG") 2>&1
-        set -x
-        echo "Debug logging to: $DEBUG_LOG"
+        SHOW_DEBUG_CHOOSER=true
     elif [ "$arg" = "--engine" ]; then
         NEXT_IS_ENGINE=true
     elif [ "$arg" = "--ssh-key" ]; then
@@ -460,6 +459,84 @@ for arg in "$@"; do
         CLAUDE_ARGS+=("$arg")
     fi
 done
+
+# Handle debug layer selection
+if [ "$SHOW_DEBUG_CHOOSER" = true ]; then
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo "Debug Layer Selection"
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+    echo "Select which layers to debug (enter numbers separated by commas):"
+    echo ""
+    echo "  1. CCY wrapper (bash -x in ccy script)"
+    echo "  2. Container entrypoint (bash -x in entrypoint.sh)"
+    echo "  3. Claude Code (--debug flag to claude)"
+    echo ""
+    echo "Examples:"
+    echo "  3       - Only debug Claude Code"
+    echo "  1,3     - Debug CCY wrapper and Claude Code"
+    echo "  1,2,3   - Debug all layers"
+    echo ""
+    read -p "Enter layer numbers (or press Enter for all): " layer_input
+
+    # Default to all if empty
+    if [ -z "$layer_input" ]; then
+        layer_input="1,2,3"
+    fi
+
+    # Parse the CSV input
+    IFS=',' read -ra LAYERS <<< "$layer_input"
+    for layer in "${LAYERS[@]}"; do
+        layer=$(echo "$layer" | xargs) # trim whitespace
+        case "$layer" in
+            1)
+                DEBUG_CCY=true
+                ;;
+            2)
+                DEBUG_ENTRYPOINT=true
+                ;;
+            3)
+                DEBUG_CLAUDE=true
+                ;;
+            *)
+                print_error "Invalid layer number: $layer"
+                echo "Valid options are: 1, 2, 3" >&2
+                exit 1
+                ;;
+        esac
+    done
+
+    # Show what will be debugged
+    echo ""
+    echo "Debug configuration:"
+    [ "$DEBUG_CCY" = true ] && echo "  ✓ CCY wrapper (bash -x)"
+    [ "$DEBUG_ENTRYPOINT" = true ] && echo "  ✓ Container entrypoint (bash -x)"
+    [ "$DEBUG_CLAUDE" = true ] && echo "  ✓ Claude Code (--debug)"
+    echo ""
+
+    # Confirm
+    read -p "Continue with this configuration? [Y/n]: " confirm
+    if [[ "$confirm" =~ ^[Nn] ]]; then
+        echo "Aborted."
+        exit 0
+    fi
+
+    # Enable DEBUG_MODE for logging if any layer is enabled
+    if [ "$DEBUG_CCY" = true ] || [ "$DEBUG_ENTRYPOINT" = true ] || [ "$DEBUG_CLAUDE" = true ]; then
+        DEBUG_MODE=true
+        DEBUG_LOG="/tmp/ccy-debug-$(date +%Y%m%d-%H%M%S).log"
+        echo ""
+        echo "Debug logging to: $DEBUG_LOG"
+        echo ""
+
+        # Only enable bash -x for CCY if that layer was selected
+        if [ "$DEBUG_CCY" = true ]; then
+            # Redirect all output to both terminal and log file
+            exec > >(tee -a "$DEBUG_LOG") 2>&1
+            set -x
+        fi
+    fi
+fi
 
 # Ensure directory structure exists early
 mkdir -p "$CCY_ROOT"
@@ -2105,6 +2182,11 @@ fi
 # Add any other arguments passed through
 CLAUDE_CMD_ARGS+=("${CLAUDE_ARGS[@]}")
 
+# Add --debug flag to Claude Code if DEBUG_CLAUDE is enabled
+if [ "$DEBUG_CLAUDE" = true ]; then
+    CLAUDE_CMD_ARGS+=("--debug")
+fi
+
 # Use -it for interactive, -i only for headless (no TTY required)
 if [ "$HEADLESS_MODE" = true ]; then
     DOCKER_FLAGS="-i"
@@ -2128,6 +2210,7 @@ container_cmd run $DOCKER_FLAGS --rm \
     -e "GH_TOKEN=$GH_TOKEN" \
     -e "GITHUB_USERNAME=$GITHUB_USERNAME" \
     -e "DEBUG_MODE=$DEBUG_MODE" \
+    -e "DEBUG_ENTRYPOINT=$DEBUG_ENTRYPOINT" \
     -e "SSH_KEY_PATHS=$SSH_KEY_PATHS_STR" \
     -e "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-1}" \
     -e "MAX_THINKING_TOKENS=${MAX_THINKING_TOKENS:-}" \

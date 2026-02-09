@@ -5,8 +5,8 @@
 
 set -e
 
-# Enable debug mode if requested
-if [ "$DEBUG_MODE" = "true" ]; then
+# Enable debug mode if requested (for entrypoint layer only)
+if [ "$DEBUG_ENTRYPOINT" = "true" ]; then
     set -x
 fi
 
