@@ -38,11 +38,10 @@
           ===================================================================
           Configuration updated successfully.
 
-          To apply changes, either:
-          1. Reboot the system (recommended)
-          2. Or log out and log back in
+          REBOOT REQUIRED: systemd-logind does not reload config without
+          restarting, and restarting logind kills your session.
 
-          DO NOT restart systemd-logind manually - it will kill your session!
+          Please reboot the system for changes to take effect.
           ===================================================================
 
   handlers:
