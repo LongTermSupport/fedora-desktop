@@ -23,14 +23,10 @@
         mode: '0644'
 
     - name: Configure UPower to ignore lid (let logind handle it)
-      ansible.builtin.blockinfile:
+      ansible.builtin.lineinfile:
         path: /etc/UPower/UPower.conf
-        marker: "# {mark} ANSIBLE MANAGED: Disable UPower Lid Handling"
-        block: |
-          # Let systemd-logind handle lid events instead of GNOME/UPower
-          # This removes the inhibitor lock that blocks logind
-          IgnoreLid=true
-        insertafter: '^\[UPower\]'
+        regexp: '^IgnoreLid='
+        line: 'IgnoreLid=true'
         owner: root
         group: root
         mode: '0644'
