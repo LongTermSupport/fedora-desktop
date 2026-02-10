@@ -1,0 +1,76 @@
+#!/usr/bin/env ansible-playbook
+---
+- hosts: desktop
+  name: Install Markless - Terminal-based Markdown Viewer
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+    # Markless configuration
+    # Hardcoded version for security and reproducibility
+    marklessVersion: "0.9.6"
+    marklessUrl: "https://github.com/jvanderberg/markless/releases/download/v{{ marklessVersion }}/markless-x86_64-unknown-linux-gnu.tar.gz"
+    marklessSha256: "16b2bb2a1d85be460605746df8582e8c5e6a214f5cdaa570285d6707336d4490"
+    marklessPath: "/home/{{ user_login }}/.local/bin/markless"
+  tasks:
+    - name: Ensure .local/bin directory exists
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.local/bin"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+
+    - name: Install markless from GitHub releases
+      ansible.builtin.shell: |
+        set -ex
+        if [[ -f {{ marklessPath }} ]]; then
+          installedVersion="$({{ marklessPath }} --version 2>/dev/null | grep -Po '[0-9.]+' || echo '')"
+          desiredVersion="{{ marklessVersion }}"
+          if [[ "$installedVersion" == "$desiredVersion" ]]; then
+            echo "installed version $installedVersion is the same as the desired version $desiredVersion"
+            exit 0
+          fi
+          echo "upgrading from $installedVersion to $desiredVersion"
+        fi
+        cd /home/{{ user_login }}/Downloads
+        rm -rf markless*
+        wget "{{ marklessUrl }}"
+
+        # Verify SHA256 checksum
+        echo "{{ marklessSha256 }}  markless-x86_64-unknown-linux-gnu.tar.gz" | sha256sum -c -
+
+        tar -xzf markless-x86_64-unknown-linux-gnu.tar.gz
+        mv -f markless "{{ marklessPath }}"
+        chmod +x "{{ marklessPath }}"
+      args:
+        executable: /bin/bash
+      become: true
+      become_user: "{{ user_login }}"
+
+    - name: Verify markless installation
+      ansible.builtin.command: "{{ marklessPath }} --version"
+      register: markless_version_output
+      changed_when: false
+
+    - name: Display installation summary
+      ansible.builtin.debug:
+        msg:
+          - "============================================"
+          - "Markless Installation Complete!"
+          - "============================================"
+          - ""
+          - "✓ markless {{ marklessVersion }} installed"
+          - "✓ SHA256 checksum verified"
+          - "✓ Installed to: {{ marklessPath }}"
+          - ""
+          - "Usage:"
+          - "  markless <file.md>           - View markdown file"
+          - "  markless <directory>         - Browse directory"
+          - "  markless -w <file.md>        - Watch for changes"
+          - "  markless --help              - Show all options"
+          - ""
+          - "Features:"
+          - "  - Fast navigation with keyboard/mouse"
+          - "  - Image rendering (Kitty, Sixel, iTerm2)"
+          - "  - Syntax-highlighted code blocks"
+          - "  - Table of contents sidebar"
+          - "  - Search functionality"
