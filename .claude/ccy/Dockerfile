@@ -28,7 +28,8 @@ ENV PATH="/root/.local/bin:${PATH}"
 
 # Install Ansible testing and linting tools using pipx
 RUN pipx install ansible-lint && \
-    pipx install yamllint
+    pipx install yamllint && \
+    pipx install ruff
 
 # Install jmespath library for Ansible json_query filter
 # This is a library dependency, not a CLI tool, so use pip
