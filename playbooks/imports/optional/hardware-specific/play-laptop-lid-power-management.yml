@@ -1,0 +1,36 @@
+#!/usr/bin/env ansible-playbook
+---
+- hosts: desktop
+  name: Laptop Lid Power Management
+  become: true
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  tasks:
+    - name: Configure logind for laptop lid behavior
+      ansible.builtin.blockinfile:
+        path: /etc/systemd/logind.conf.d/laptop-lid.conf
+        marker: "# {mark} ANSIBLE MANAGED: Laptop Lid Behavior"
+        block: |
+          [Login]
+          # Suspend when lid closed on battery
+          HandleLidSwitch=suspend
+
+          # Don't suspend when lid closed on AC power
+          HandleLidSwitchExternalPower=ignore
+        create: true
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Notify user about reboot requirement
+      ansible.builtin.debug:
+        msg: |
+          ===================================================================
+          Configuration updated successfully.
+
+          To apply changes, either:
+          1. Reboot the system (recommended)
+          2. Or log out and log back in
+
+          DO NOT restart systemd-logind manually - it will kill your session!
+          ===================================================================

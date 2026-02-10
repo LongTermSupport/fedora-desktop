@@ -139,6 +139,51 @@ git add files/home/.local/bin/wsi-stream
 git commit -m "fix: update wsi-stream"
 ```
 
+## Providing Debug Commands to Users
+
+**ALWAYS provide non-interactive commands when asking users for diagnostic output.**
+
+When requesting command output for troubleshooting, ensure commands:
+- ✅ **Never open pagers** - Always use `--no-pager`, `| cat`, or `| head`
+- ✅ **Never open editors** - Avoid commands that invoke EDITOR/PAGER
+- ✅ **Are copy-paste ready** - Can be run directly without interaction
+- ✅ **Have bounded output** - Use `head`, `tail`, `-n` flags to limit output
+
+**Common pitfalls and fixes:**
+
+```bash
+# ❌ BAD - Opens interactive pager
+systemctl status service-name
+journalctl -u service-name
+systemd-analyze cat-config file.conf
+
+# ✅ GOOD - Non-interactive output
+systemctl status service-name --no-pager -l
+journalctl -u service-name -n 20 --no-pager
+systemd-analyze cat-config file.conf | cat
+
+# ❌ BAD - May open editor
+git log
+less /var/log/file.log
+systemctl cat service-name
+
+# ✅ GOOD - Direct output
+git log --oneline -n 10
+cat /var/log/file.log | tail -20
+systemctl cat service-name | cat
+```
+
+**Why this matters:**
+- Users may be in SSH sessions where pagers cause issues
+- Copy-paste workflows break with interactive prompts
+- Pager navigation is frustrating when you just want text output
+- Makes it easier to paste output back to you for analysis
+
+**Default flags to remember:**
+- `systemctl`: Add `--no-pager -l` (no pager, full output)
+- `journalctl`: Add `--no-pager -n 20` (no pager, last 20 lines)
+- Any command that might page: Pipe to `| cat` or `| head -50`
+
 ## Project Overview
 
 This is a **Fedora Desktop Configuration Management Project** that automates the setup of a freshly installed Fedora system for development work using Ansible. The project uses a branching strategy where each Fedora version has its own branch, with the target version defined in `vars/fedora-version.yml`, and provides a comprehensive desktop environment setup with development tools, customizations, and optional components.
