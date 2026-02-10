@@ -27,12 +27,14 @@ echo "→ Discovering Python files..."
 
 # Find .py files
 # Excludes .ansible/roles/ (galaxy-installed cache) but keeps roles/vendor/ (first-party tracked)
+# Excludes .claude/hooks-daemon/ (has its own QA system)
 PY_FILES=()
 while IFS= read -r -d '' file; do
     PY_FILES+=("$file")
 done < <(find "$REPO_ROOT" -type f -name "*.py" \
     ! -path "*/.git/*" \
     ! -path "*/.ansible/roles/*" \
+    ! -path "*/.claude/hooks-daemon/*" \
     ! -path "*/node_modules/*" \
     ! -path "*/untracked/*" \
     ! -path "*/__pycache__/*" \
@@ -48,6 +50,7 @@ while IFS= read -r file; do
 done < <(find "$REPO_ROOT" -type f -executable \
     ! -path "*/.git/*" \
     ! -path "*/.ansible/roles/*" \
+    ! -path "*/.claude/hooks-daemon/*" \
     ! -path "*/node_modules/*" \
     ! -path "*/untracked/*" \
     ! -name "*.py")
