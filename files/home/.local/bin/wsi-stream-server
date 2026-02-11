@@ -15,9 +15,11 @@ import os
 import sys
 import json
 import socket
+import subprocess
 import threading
 import time
 import signal
+import array
 import atexit
 from pathlib import Path
 from datetime import datetime
@@ -40,6 +42,13 @@ last_activity_time = time.time()
 idle_timeout = DEFAULT_IDLE_TIMEOUT
 recording_active = False
 current_client = None
+
+# Recording pipeline state (managed by START/STOP commands)
+audio_process = None          # pw-record subprocess capturing microphone audio
+audio_feed_thread = None      # Thread that reads audio chunks and feeds to recorder
+audio_feed_stop = None        # threading.Event to signal the feeding thread to stop
+transcription_text = ""       # Accumulated transcription from realtime callbacks
+transcription_lock = threading.Lock()  # Protects transcription_text from concurrent access
 
 
 def log(message, level="INFO"):
@@ -73,6 +82,28 @@ def check_idle_timeout():
     return idle_time >= idle_timeout
 
 
+def on_realtime_transcription_update(text):
+    """Callback for real-time transcription updates from the recorder.
+
+    Called by RealtimeSTT's realtime transcription worker whenever new partial
+    transcription text is available. Accumulates text in a thread-safe manner
+    so handle_stop_command() can retrieve the final result.
+    """
+    global transcription_text
+
+    if not text:
+        return
+
+    text = text.strip()
+    if not text:
+        return
+
+    with transcription_lock:
+        transcription_text = text
+
+    log(f"Realtime transcription update: '{text}'")
+
+
 def initialize_recorder(model_size="base", language="en", device_type="auto"):
     """Initialize the AudioToTextRecorder - expensive operation done once."""
     global recorder
@@ -89,6 +120,7 @@ def initialize_recorder(model_size="base", language="en", device_type="auto"):
             "silero_sensitivity": 0.4,
             "enable_realtime_transcription": True,
             "realtime_processing_pause": 0.2,
+            "on_realtime_transcription_update": on_realtime_transcription_update,
             "spinner": False,
         }
 
@@ -121,9 +153,133 @@ def initialize_recorder(model_size="base", language="en", device_type="auto"):
         return False
 
 
+def audio_feeding_thread_func(proc, stop_event):
+    """Read audio chunks from pw-record and feed them to the recorder.
+
+    This function runs in a dedicated thread. It reads raw PCM audio data
+    (16000 Hz, mono, S16_LE) from the pw-record subprocess stdout pipe and
+    feeds it to the recorder via feed_audio(). The thread exits when the
+    stop_event is set or the audio stream ends.
+
+    Args:
+        proc: The pw-record subprocess with audio data on stdout.
+        stop_event: threading.Event that signals this thread to stop.
+    """
+    # 1024 samples * 2 bytes per sample (S16_LE) = 2048 bytes per chunk
+    chunk_size = 1024 * 2
+    chunks_fed = 0
+
+    log("Audio feeding thread started")
+
+    try:
+        while not stop_event.is_set():
+            chunk = proc.stdout.read(chunk_size)
+            if not chunk:
+                log("Audio stream ended (pw-record closed)")
+                break
+
+            if len(chunk) < 2:
+                continue
+
+            # Convert raw bytes to signed 16-bit integer array.
+            # RealtimeSTT's feed_audio() expects array-like int16 data.
+            try:
+                audio_array = array.array('h', chunk)
+                recorder.feed_audio(audio_array)
+                chunks_fed += 1
+
+                if chunks_fed % 50 == 0:
+                    log(f"Fed {chunks_fed} audio chunks ({chunks_fed * chunk_size / 16000:.1f}s of audio)")
+            except Exception as e:
+                log(f"Error feeding audio chunk {chunks_fed}: {e}", "ERROR")
+                break
+    except Exception as e:
+        log(f"Audio feeding thread error: {e}", "ERROR")
+    finally:
+        log(f"Audio feeding thread exiting (fed {chunks_fed} chunks total)")
+
+
+def stop_recording_pipeline():
+    """Stop the active recording pipeline and clean up all resources.
+
+    Terminates the pw-record process, signals the feeding thread to stop,
+    calls recorder.stop() to finalize transcription, and returns the
+    accumulated transcription text.
+
+    Returns:
+        The transcribed text string, or empty string if nothing was captured.
+    """
+    global audio_process, audio_feed_thread, audio_feed_stop, transcription_text
+
+    # Step 1: Signal the feeding thread to stop reading audio
+    if audio_feed_stop:
+        audio_feed_stop.set()
+        log("Signaled audio feeding thread to stop")
+
+    # Step 2: Terminate pw-record so the feeding thread's read() unblocks
+    if audio_process:
+        try:
+            audio_process.terminate()
+            audio_process.wait(timeout=2)
+            log(f"pw-record terminated (exit code: {audio_process.returncode})")
+        except subprocess.TimeoutExpired:
+            log("pw-record did not terminate in time, killing", "WARN")
+            audio_process.kill()
+            audio_process.wait(timeout=1)
+            log("pw-record killed")
+        except Exception as e:
+            log(f"Error terminating pw-record: {e}", "WARN")
+            try:
+                audio_process.kill()
+            except Exception:
+                pass
+
+    # Step 3: Wait for the feeding thread to finish
+    if audio_feed_thread and audio_feed_thread.is_alive():
+        audio_feed_thread.join(timeout=3)
+        if audio_feed_thread.is_alive():
+            log("Audio feeding thread did not exit in time", "WARN")
+        else:
+            log("Audio feeding thread joined successfully")
+
+    # Step 4: Stop the recorder to finalize any pending transcription.
+    # With use_microphone=False, do NOT call recorder.text() as it blocks
+    # indefinitely. The realtime callback has already captured the text.
+    if recorder:
+        try:
+            recorder.stop()
+            log("Recorder stopped")
+        except Exception as e:
+            log(f"Error stopping recorder: {e}", "WARN")
+
+    # Step 5: Give the realtime transcription worker a brief moment to deliver
+    # any final callback before we read the accumulated text
+    time.sleep(0.3)
+
+    # Step 6: Retrieve accumulated transcription text
+    with transcription_lock:
+        result = transcription_text
+
+    # Step 7: Reset pipeline state for next recording cycle
+    audio_process = None
+    audio_feed_thread = None
+    audio_feed_stop = None
+
+    return result
+
+
 def handle_start_command(client_socket, params):
-    """Handle START recording command from client."""
+    """Handle START recording command from client.
+
+    Spawns a pw-record process to capture microphone audio, starts the
+    recorder's realtime transcription, and launches a feeding thread that
+    reads audio chunks from pw-record and feeds them to the recorder.
+
+    The audio pipeline:
+      microphone -> pw-record (16kHz mono S16_LE) -> feeding thread -> recorder.feed_audio() -> realtime callback -> transcription_text
+    """
     global recording_active, current_client
+    global audio_process, audio_feed_thread, audio_feed_stop, transcription_text
 
     update_activity()
 
@@ -134,13 +290,102 @@ def handle_start_command(client_socket, params):
         })
         return
 
-    recording_active = True
-    current_client = client_socket
+    if not recorder:
+        send_response(client_socket, {
+            "status": "error",
+            "message": "Recorder not initialized"
+        })
+        return
 
     log("START command received - beginning recording")
 
-    # TODO: Implement actual recording logic
-    # For now, just acknowledge
+    # Reset transcription accumulator for this new recording session
+    with transcription_lock:
+        transcription_text = ""
+
+    # Start pw-record to capture microphone audio as raw PCM data.
+    # Format: 16000 Hz sample rate, 1 channel (mono), signed 16-bit little-endian.
+    # This matches the format RealtimeSTT expects for feed_audio().
+    pw_record_cmd = [
+        "pw-record",
+        "--rate", "16000",
+        "--channels", "1",
+        "--format", "s16",
+        "-"  # Output raw PCM to stdout
+    ]
+
+    try:
+        audio_process = subprocess.Popen(
+            pw_record_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL
+        )
+        log(f"pw-record started (PID {audio_process.pid})")
+    except FileNotFoundError:
+        log("pw-record not found - PipeWire not installed", "ERROR")
+        send_response(client_socket, {
+            "status": "error",
+            "message": "pw-record not found (PipeWire required)"
+        })
+        return
+    except Exception as e:
+        log(f"Failed to start pw-record: {e}", "ERROR")
+        send_response(client_socket, {
+            "status": "error",
+            "message": f"Audio capture failed: {e}"
+        })
+        return
+
+    # Verify pw-record is actually running (check for immediate exit due to
+    # audio device busy, permission errors, etc.)
+    time.sleep(0.1)
+    if audio_process.poll() is not None:
+        exit_code = audio_process.returncode
+        log(f"pw-record exited immediately with code {exit_code}", "ERROR")
+        audio_process = None
+        send_response(client_socket, {
+            "status": "error",
+            "message": f"Audio capture failed (pw-record exit code: {exit_code})"
+        })
+        return
+
+    # Start the recorder's realtime transcription processing.
+    # This sets is_recording=True internally so feed_audio() data gets processed.
+    try:
+        recorder.start()
+        log("Recorder started (realtime transcription active)")
+    except Exception as e:
+        log(f"Failed to start recorder: {e}", "ERROR")
+        # Clean up pw-record since we can't proceed
+        try:
+            audio_process.terminate()
+            audio_process.wait(timeout=2)
+        except Exception:
+            try:
+                audio_process.kill()
+            except Exception:
+                pass
+        audio_process = None
+        send_response(client_socket, {
+            "status": "error",
+            "message": f"Recorder start failed: {e}"
+        })
+        return
+
+    # Launch the audio feeding thread to continuously read from pw-record
+    # and push chunks into the recorder
+    audio_feed_stop = threading.Event()
+    audio_feed_thread = threading.Thread(
+        target=audio_feeding_thread_func,
+        args=(audio_process, audio_feed_stop),
+        daemon=True
+    )
+    audio_feed_thread.start()
+    log("Audio feeding thread launched")
+
+    recording_active = True
+    current_client = client_socket
+
     send_response(client_socket, {
         "status": "recording",
         "message": "Recording started"
@@ -148,7 +393,12 @@ def handle_start_command(client_socket, params):
 
 
 def handle_stop_command(client_socket, params):
-    """Handle STOP recording command from client."""
+    """Handle STOP recording command from client.
+
+    Stops the pw-record audio capture, waits for the feeding thread to finish,
+    finalizes transcription via recorder.stop(), and returns the accumulated
+    transcription text to the client.
+    """
     global recording_active, current_client
 
     update_activity()
@@ -160,16 +410,19 @@ def handle_stop_command(client_socket, params):
         })
         return
 
+    log("STOP command received - stopping recording")
+
+    # Stop the entire recording pipeline and get the transcribed text
+    text = stop_recording_pipeline()
+
     recording_active = False
     current_client = None
 
-    log("STOP command received - stopping recording")
+    log(f"Recording stopped, transcription: '{text}' ({len(text)} chars)")
 
-    # TODO: Implement actual stop logic
-    # For now, just acknowledge
     send_response(client_socket, {
         "status": "stopped",
-        "transcription": "Test transcription"
+        "transcription": text
     })
 
 
@@ -266,11 +519,17 @@ def idle_monitor_thread():
 
 def cleanup():
     """Cleanup on exit."""
-    global recorder
+    global recorder, recording_active
 
     log("Server shutting down - cleaning up")
 
-    # Shutdown recorder
+    # If a recording is active, stop the pipeline first
+    if recording_active:
+        log("Active recording detected during shutdown - stopping pipeline")
+        stop_recording_pipeline()
+        recording_active = False
+
+    # Shutdown recorder (releases model memory and audio resources)
     if recorder:
         try:
             recorder.shutdown()
