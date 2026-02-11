@@ -181,7 +181,10 @@ systemctl cat service-name | cat
 
 **Default flags to remember:**
 - `systemctl`: Add `--no-pager -l` (no pager, full output)
-- `journalctl`: Add `--no-pager -n 20` (no pager, last 20 lines)
+- `journalctl`: Add `--no-pager --since "10 minutes ago"` (no pager, last 10 minutes minimum)
+  - **CRITICAL**: Never use `--since "1 minute ago"` - too short, misses context
+  - Use `"10 minutes ago"` as minimum, `"20 minutes ago"` for more context
+  - Can combine with `-n 100` to limit line count if needed
 - Any command that might page: Pipe to `| cat` or `| head -50`
 
 ## Project Overview
