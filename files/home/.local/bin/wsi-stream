@@ -388,18 +388,29 @@ def run_server_mode(args):
     log("Recording active (server mode)")
 
     # Wait for user to press Insert again (or timeout)
+    stop_requested = False
+
     def handle_signal(signum, frame):
+        nonlocal stop_requested
         log(f"Signal {signum} received, stopping recording")
+        stop_requested = True
 
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
     # Wait for stop signal (extension will kill this process)
+    # Use short sleep intervals so signal can interrupt quickly
+    timeout = args.timeout or 120
+    elapsed = 0
     try:
-        timeout = args.timeout or 120
-        time.sleep(timeout)
-        log("Timeout reached, stopping recording")
-    except:
+        while elapsed < timeout and not stop_requested:
+            time.sleep(0.1)  # Check every 100ms
+            elapsed += 0.1
+        if elapsed >= timeout:
+            log("Timeout reached, stopping recording")
+        else:
+            log("Stop signal received, stopping recording")
+    except KeyboardInterrupt:
         log("Interrupted, stopping recording")
 
     # Stop recording
