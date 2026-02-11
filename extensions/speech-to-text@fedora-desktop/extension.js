@@ -787,9 +787,9 @@ export default class SpeechToTextExtension extends Extension {
         // - Batch: 27s (3s safety buffer before 30s limit)
         this._remainingSeconds = this._streamingMode ? 117 : 27;
 
-        // Replace icon with countdown label
-        if (this._icon) {
-            this._indicator.remove_child(this._icon);
+        // Replace iconBox (which contains icon + server status dot) with countdown label
+        if (this._iconBox) {
+            this._indicator.remove_child(this._iconBox);
         }
 
         // Start with green background, white text
@@ -898,24 +898,17 @@ export default class SpeechToTextExtension extends Extension {
             return;
         }
 
-        // Restore icon
+        // Restore iconBox (which contains icon + server status dot)
         if (this._countdownLabel) {
             this._indicator.remove_child(this._countdownLabel);
             this._countdownLabel = null;
         }
 
-        if (!this._icon) {
-            this._icon = new St.Icon({
-                icon_name: 'audio-input-microphone-symbolic',
-                style_class: 'system-status-icon'
-            });
-        }
-
-        // Only add icon if it's not already a child
-        if (this._iconBox && this._icon) {
-            const children = this._iconBox.get_children();
-            if (!children.includes(this._icon)) {
-                this._iconBox.add_child(this._icon);
+        // Restore the iconBox if it's not already a child of indicator
+        if (this._iconBox) {
+            const children = this._indicator.get_children();
+            if (!children.includes(this._iconBox)) {
+                this._indicator.add_child(this._iconBox);
             }
         }
     }
