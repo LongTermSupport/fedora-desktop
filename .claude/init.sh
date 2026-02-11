@@ -87,11 +87,14 @@ HOOKS_DAEMON_ROOT_DIR="${HOOKS_DAEMON_ROOT_DIR:-$PROJECT_PATH/.claude/hooks-daem
 # Nested installation check
 #
 # Detects if hooks-daemon has been installed inside itself creating
-# .claude/hooks-daemon/.claude/hooks-daemon structure
+# .claude/hooks-daemon/.claude/hooks-daemon structure (runtime artifacts in wrong location)
 #
-if [[ -d "$PROJECT_PATH/.claude/hooks-daemon/.claude" ]]; then
+# NOTE: .claude/hooks-daemon/.claude/ may exist as template directory for project-level handlers (v2.10.0+)
+# Only flag if actual nested RUNTIME artifacts exist (hooks-daemon subdir with untracked/)
+#
+if [[ -d "$PROJECT_PATH/.claude/hooks-daemon/.claude/hooks-daemon/untracked" ]]; then
     emit_hook_error "Unknown" "nested_installation" \
-        "NESTED INSTALLATION DETECTED! Found: $PROJECT_PATH/.claude/hooks-daemon/.claude. Remove $PROJECT_PATH/.claude/hooks-daemon and reinstall."
+        "NESTED INSTALLATION DETECTED! Found runtime artifacts at: $PROJECT_PATH/.claude/hooks-daemon/.claude/hooks-daemon/untracked/. This indicates a failed upgrade. Remove nested artifacts and restart daemon."
     exit 0
 fi
 
