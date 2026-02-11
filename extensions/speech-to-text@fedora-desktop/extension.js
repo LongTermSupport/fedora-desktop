@@ -642,14 +642,16 @@ export default class SpeechToTextExtension extends Extension {
 
         // Only check if server mode is enabled and streaming mode is active
         if (this._streamingStartupMode !== 'server' || !this._streamingMode) {
+            // Not in server mode - always hide dot and mark server as cold
             if (this._serverStatusDot.visible) {
                 this._serverStatusDot.visible = false;
                 this._serverIsHot = false;
+                this._log('Server status: Not in server mode, hiding dot');
             }
             return;
         }
 
-        // Check if server is running by trying to connect to socket
+        // In server mode - check if server is actually running
         const runtimeDir = GLib.get_user_runtime_dir();
         if (!runtimeDir) {
             this._log('Cannot get runtime directory', 'WARN');
@@ -657,14 +659,21 @@ export default class SpeechToTextExtension extends Extension {
         }
 
         const socketPath = `${runtimeDir}/wsi-stream.socket`;
-        const file = Gio.File.new_for_path(socketPath);
 
+        // Check if socket file exists AND verify it's connectable (not stale)
         let serverIsRunning = false;
         try {
-            serverIsRunning = file.query_exists(null);
+            // First check if file exists
+            const file = Gio.File.new_for_path(socketPath);
+            if (file.query_exists(null)) {
+                // File exists - try to verify server is actually listening by checking process
+                // Use pgrep to check if wsi-stream-server process is running
+                const [success, stdout] = GLib.spawn_command_line_sync('pgrep -f "wsi-stream-server"');
+                serverIsRunning = success && stdout && stdout.length > 0;
+            }
         } catch (e) {
             this._log(`Server status check failed: ${e.message}`, 'WARN');
-            return;
+            serverIsRunning = false;
         }
 
         // Update dot visibility
@@ -1064,12 +1073,17 @@ export default class SpeechToTextExtension extends Extension {
                 }
             } else {
                 this._log('PID file not found, trying pkill fallback');
+                // Kill both batch mode and streaming mode processes
                 GLib.spawn_command_line_async('pkill -f "pw-record.*wfile"');
+                GLib.spawn_command_line_async('pkill -f "wsi-stream"');
+                GLib.spawn_command_line_async('pkill -f "wsi$"');
             }
         } catch (e) {
             this._log(`Stop error: ${e.message}`);
-            // Fallback to pkill
+            // Fallback to pkill - kill both batch and streaming
             GLib.spawn_command_line_async('pkill -f "pw-record.*wfile"');
+            GLib.spawn_command_line_async('pkill -f "wsi-stream"');
+            GLib.spawn_command_line_async('pkill -f "wsi$"');
         }
     }
 
@@ -1610,6 +1624,13 @@ Auto mode uses:
 
     _updateStatusLabel() {
         let statusText = `Status: ${this._currentState}`;
+
+        // Add server status if in server mode
+        if (this._streamingMode && this._streamingStartupMode === 'server') {
+            const serverStatus = this._serverIsHot ? '🔵 Hot' : 'Cold';
+            statusText += ` (Server: ${serverStatus})`;
+        }
+
         if (this._lastError) {
             statusText += ` - ${this._lastError.substring(0, 30)}`;
         }
