@@ -19,6 +19,8 @@ import signal
 import time
 import argparse
 import atexit
+import socket
+import json
 from pathlib import Path
 from datetime import datetime
 
@@ -30,6 +32,11 @@ TRANSCRIPTION_FILE = CACHE_DIR / "last-transcription.txt"
 BUFFER_FILE = CACHE_DIR / "streaming-buffer.txt"
 # Use same PID file as wsi so extension can stop us
 PID_FILE = Path("/dev/shm") / f"stt-recording-{os.getenv('USER')}.pid"
+
+# Server mode constants
+SERVER_SOCKET = Path(f"/run/user/{os.getuid()}/wsi-stream.socket")
+SERVER_SCRIPT = Path.home() / ".local/bin/wsi-stream-server"
+SERVER_PID_FILE = Path(f"/run/user/{os.getuid()}/wsi-stream-server.pid")
 
 DBUS_PATH = "/org/fedoradesktop/SpeechToText"
 DBUS_INTERFACE = "org.fedoradesktop.SpeechToText"
@@ -130,8 +137,23 @@ def copy_to_clipboard(text, use_clipboard=False):
 
     try:
         proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
-        proc.communicate(input=text.encode())
-        return proc.returncode == 0
+        stdout, stderr = proc.communicate(input=text.encode(), timeout=2)
+
+        if proc.returncode != 0:
+            log(f"Clipboard copy failed with exit code {proc.returncode}", "ERROR")
+            if stderr:
+                log(f"Clipboard error output: {stderr.decode()}", "ERROR")
+            return False
+
+        log(f"Clipboard copy successful ({len(text)} chars to {'CLIPBOARD' if use_clipboard else 'PRIMARY'})")
+        return True
+    except subprocess.TimeoutExpired:
+        log("Clipboard copy timed out", "ERROR")
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        return False
     except Exception as e:
         log(f"Clipboard copy failed: {e}", "ERROR")
         return False
@@ -139,10 +161,17 @@ def copy_to_clipboard(text, use_clipboard=False):
 
 def auto_paste(text, skip_enter=False):
     """Paste text at cursor using ydotool."""
+    # Copy to PRIMARY selection (for Shift+Insert in native apps)
     if not copy_to_clipboard(text, use_clipboard=False):
         return False
 
-    time.sleep(0.05)
+    # ALSO copy to CLIPBOARD (for web apps like WhatsApp Web)
+    # Web browsers often ignore PRIMARY and only read from CLIPBOARD
+    copy_to_clipboard(text, use_clipboard=True)
+
+    # Wait for clipboard to be ready - increased from 0.05s to 0.3s
+    # Web apps need extra time for clipboard sync
+    time.sleep(0.3)
 
     env = os.environ.copy()
     env["YDOTOOL_SOCKET"] = "/run/ydotool.socket"
@@ -215,6 +244,246 @@ def check_dependencies():
         log(f"RealtimeSTT not installed: {e}", "ERROR")
         notify("ERROR", "RealtimeSTT not installed\n\npip install --user RealtimeSTT")
         return False
+
+
+def is_server_running():
+    """Check if wsi-stream-server is running."""
+    if not SERVER_SOCKET.exists():
+        return False
+
+    # Try to ping the server
+    try:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(1)
+        sock.connect(str(SERVER_SOCKET))
+
+        # Send PING command
+        command = json.dumps({"command": "PING"}) + "\n"
+        sock.sendall(command.encode())
+
+        # Read response
+        response = sock.recv(4096).decode().strip()
+        sock.close()
+
+        data = json.loads(response)
+        return data.get("status") == "alive"
+    except Exception as e:
+        log(f"Server ping failed: {e}", "DEBUG")
+        return False
+
+
+def start_server(model_size="base", language="en"):
+    """Start the persistent server if not already running."""
+    if is_server_running():
+        log("Server already running")
+        return True
+
+    log("Starting persistent server...")
+
+    # Check if server script exists
+    if not SERVER_SCRIPT.exists():
+        log(f"Server script not found: {SERVER_SCRIPT}", "ERROR")
+        return False
+
+    # Build server command
+    cmd = [str(SERVER_SCRIPT), "--model", model_size, "--language", language]
+    if debug_mode:
+        cmd.append("--debug")
+
+    try:
+        # Start server in background
+        subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL if not debug_mode else None,
+            stderr=subprocess.DEVNULL if not debug_mode else None,
+            start_new_session=True  # Detach from parent
+        )
+
+        # Wait for server to be ready (up to 10 seconds)
+        for i in range(20):
+            time.sleep(0.5)
+            if is_server_running():
+                log("Server started successfully")
+                return True
+
+        log("Server failed to start (timeout)", "ERROR")
+        return False
+
+    except Exception as e:
+        log(f"Failed to start server: {e}", "ERROR")
+        return False
+
+
+def send_server_command(command, params=None):
+    """Send command to server and return response."""
+    if params is None:
+        params = {}
+
+    try:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(5)
+        sock.connect(str(SERVER_SOCKET))
+
+        # Send command
+        message = json.dumps({"command": command, "params": params}) + "\n"
+        sock.sendall(message.encode())
+
+        # Read response
+        response = sock.recv(4096).decode().strip()
+        sock.close()
+
+        return json.loads(response)
+
+    except Exception as e:
+        log(f"Server command failed: {e}", "ERROR")
+        return {"status": "error", "message": str(e)}
+
+
+def run_server_mode(args):
+    """Run in server mode - use persistent server for instant startup."""
+    global debug_mode, no_notify
+
+    debug_mode = args.debug
+    no_notify = args.no_notify
+
+    log("=== Server mode requested ===")
+
+    # Determine model and language
+    model_size = os.environ.get("WHISPER_MODEL", "base")
+    language = args.language or os.environ.get("WHISPER_LANGUAGE", "en") or "en"
+
+    # Start server if not running
+    if not is_server_running():
+        notify("PREPARING", "Starting server...")
+        if not start_server(model_size, language):
+            notify("ERROR", "Failed to start server")
+            return 1
+
+    log("Server ready - instant recording startup!")
+
+    # Write PID file so extension can stop us
+    PID_FILE.write_text(str(os.getpid()))
+
+    # Clear buffer file
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    BUFFER_FILE.write_text("")
+
+    # Start recording via server
+    notify("RECORDING", "Recording... (server mode)")
+
+    response = send_server_command("START", {
+        "auto_paste": args.auto_paste,
+        "clipboard": args.clipboard,
+        "wrap_marker": args.wrap_marker,
+        "no_auto_enter": args.no_auto_enter,
+    })
+
+    if response.get("status") != "recording":
+        log(f"Server START failed: {response}", "ERROR")
+        notify("ERROR", "Failed to start recording")
+        if PID_FILE.exists():
+            PID_FILE.unlink()
+        return 1
+
+    log("Recording active (server mode)")
+
+    # Wait for user to press Insert again (or timeout)
+    def handle_signal(signum, frame):
+        log(f"Signal {signum} received, stopping recording")
+
+    signal.signal(signal.SIGINT, handle_signal)
+    signal.signal(signal.SIGTERM, handle_signal)
+
+    # Wait for stop signal (extension will kill this process)
+    try:
+        timeout = args.timeout or 120
+        time.sleep(timeout)
+        log("Timeout reached, stopping recording")
+    except:
+        log("Interrupted, stopping recording")
+
+    # Stop recording
+    response = send_server_command("STOP")
+
+    if PID_FILE.exists():
+        PID_FILE.unlink()
+
+    if response.get("status") != "stopped":
+        log(f"Server STOP failed: {response}", "ERROR")
+        notify("ERROR", "Failed to stop recording")
+        return 1
+
+    # Get transcription
+    text = response.get("transcription", "").strip()
+
+    if not text:
+        log("No speech detected", "WARN")
+        notify("ERROR", "No speech detected")
+        if BUFFER_FILE.exists():
+            BUFFER_FILE.unlink()
+        return 1
+
+    # Capitalize first letter
+    text = text[0].upper() + text[1:] if len(text) > 1 else text.upper()
+
+    # Post-process through Claude Code if requested
+    if args.claude_process:
+        log(f"Post-processing through Claude Code (model: {args.claude_model}, style: {args.claude_style})")
+        try:
+            cmd = ["wsi-claude-process", "--model", args.claude_model, "--style", args.claude_style]
+            if args.debug:
+                cmd.append("--debug")
+            cmd.append(text)
+
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            if result.returncode == 0 and result.stdout.strip():
+                processed_text = result.stdout.strip()
+                log("Claude processing successful")
+                text = processed_text
+            else:
+                log("Claude processing failed, using original text", "WARN")
+        except Exception as e:
+            log(f"Claude processing error: {e}, using original text", "WARN")
+
+    # Wrap with marker if requested
+    if args.wrap_marker and not args.claude_process:
+        text = f'speech-to-text:"{text}"'
+
+    log(f"Final text ({len(text)} chars): {text}")
+
+    # Save to last-transcription file
+    TRANSCRIPTION_FILE.write_text(text)
+
+    # Cleanup buffer file
+    if BUFFER_FILE.exists():
+        BUFFER_FILE.unlink()
+
+    # Output
+    if args.auto_paste:
+        log("Auto-pasting")
+        time.sleep(0.2)
+        success = auto_paste(text, skip_enter=args.no_auto_enter)
+        if success:
+            preview = text[:60] + "..." if len(text) > 60 else text
+            notify("SUCCESS", preview)
+        else:
+            notify("ERROR", "Auto-paste failed")
+            return 1
+    else:
+        log("Copying to clipboard")
+        if copy_to_clipboard(text, use_clipboard=args.clipboard):
+            preview = text[:60] + "..." if len(text) > 60 else text
+            paste_hint = "Ctrl+V" if args.clipboard else "Middle-click"
+            notify("SUCCESS", f"{preview}\n\n{paste_hint} to paste")
+        else:
+            notify("ERROR", "Clipboard copy failed")
+            return 1
+
+    time.sleep(1)
+    emit_dbus_signal("StateChanged", "IDLE")
+
+    log("Server mode recording complete!")
+    return 0
 
 
 def run_streaming(args):
@@ -445,10 +714,10 @@ def run_standard_streaming(args):
 
     # Post-process through Claude Code if requested
     if args.claude_process:
-        log(f"Post-processing through Claude Code (model: {args.claude_model})")
+        log(f"Post-processing through Claude Code (model: {args.claude_model}, style: {args.claude_style})")
         try:
             # Call wsi-claude-process
-            cmd = ["wsi-claude-process", "--model", args.claude_model]
+            cmd = ["wsi-claude-process", "--model", args.claude_model, "--style", args.claude_style]
             if args.debug:
                 cmd.append("--debug")
             cmd.append(text)
@@ -723,10 +992,10 @@ def run_prebuffered_streaming(args):
 
         # Post-process through Claude Code if requested
         if args.claude_process:
-            log(f"Post-processing through Claude Code (model: {args.claude_model})")
+            log(f"Post-processing through Claude Code (model: {args.claude_model}, style: {args.claude_style})")
             try:
                 # Call wsi-claude-process
-                cmd = ["wsi-claude-process", "--model", args.claude_model]
+                cmd = ["wsi-claude-process", "--model", args.claude_model, "--style", args.claude_style]
                 if args.debug:
                     cmd.append("--debug")
                 cmd.append(text)
@@ -832,15 +1101,23 @@ def main():
                         help="Suppress desktop notifications")
     parser.add_argument("--pre-buffer", action="store_true",
                         help="Start recording immediately while model loads (faster startup)")
+    parser.add_argument("--server-mode", action="store_true",
+                        help="Use persistent server for instant startup (keeps model in memory)")
     parser.add_argument("--claude-process", action="store_true",
                         help="Post-process transcription through Claude Code")
     parser.add_argument("--claude-model", type=str, default="sonnet",
                         help="Claude model for processing (sonnet/opus/haiku)")
+    parser.add_argument("--claude-style", type=str, default="corporate",
+                        help="Claude processing style (corporate/natural)")
 
     args = parser.parse_args()
 
     try:
-        return run_streaming(args)
+        # Route to server mode if requested
+        if args.server_mode:
+            return run_server_mode(args)
+        else:
+            return run_streaming(args)
     except Exception as e:
         # Ensure critical errors are ALWAYS logged, even without debug mode
         global debug_mode

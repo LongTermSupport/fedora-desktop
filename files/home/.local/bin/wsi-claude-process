@@ -6,11 +6,12 @@
 #   wsi-claude-process [OPTIONS] <transcription-text>
 #
 # Options:
-#   -m, --model MODEL    Claude model (sonnet/opus/haiku, default: sonnet)
-#   -d, --debug          Enable debug logging
+#   -m, --model MODEL      Claude model (sonnet/opus/haiku, default: sonnet)
+#   -s, --style STYLE      Processing style (corporate/natural, default: corporate)
+#   -d, --debug            Enable debug logging
 #
 # Description:
-#   Reads prompt template from ~/.config/speech-to-text/claude-prompt.txt
+#   Reads prompt template from ~/.config/speech-to-text/claude-prompt-{style}.txt
 #   Replaces {TRANSCRIPTION} placeholder with actual transcribed text
 #   Calls Claude Code CLI (ccy) in headless mode
 #   Returns reformatted text or original text if processing fails
@@ -19,11 +20,12 @@
 set -euo pipefail
 
 # Configuration
-PROMPT_FILE="${HOME}/.config/speech-to-text/claude-prompt.txt"
+CONFIG_DIR="${HOME}/.config/speech-to-text"
 LOG_DIR="${HOME}/.local/share/speech-to-text"
 LOG_FILE="${LOG_DIR}/debug.log"
 DEBUG_MODE=false
 CLAUDE_MODEL="sonnet"
+STYLE="corporate"
 
 # Parse arguments
 TRANSCRIPTION=""
@@ -31,6 +33,10 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         -m|--model)
             CLAUDE_MODEL="$2"
+            shift 2
+            ;;
+        -s|--style)
+            STYLE="$2"
             shift 2
             ;;
         -d|--debug)
@@ -62,6 +68,7 @@ error_exit() {
 # Preflight checks
 log "Starting Claude Code post-processing"
 log "Model: $CLAUDE_MODEL"
+log "Style: $STYLE"
 log "Transcription length: ${#TRANSCRIPTION} chars"
 
 # Check if transcription is provided
@@ -74,9 +81,16 @@ if ! command -v claude &>/dev/null; then
     error_exit "claude CLI not found in PATH"
 fi
 
-# Check if prompt template exists
+# Select prompt file based on style
+PROMPT_FILE="${CONFIG_DIR}/claude-prompt-${STYLE}.txt"
+
+# Fallback to default corporate prompt if style file doesn't exist
 if [[ ! -f "$PROMPT_FILE" ]]; then
-    error_exit "Prompt template not found at $PROMPT_FILE"
+    log "Style-specific prompt not found: $PROMPT_FILE"
+    PROMPT_FILE="${CONFIG_DIR}/claude-prompt.txt"
+    if [[ ! -f "$PROMPT_FILE" ]]; then
+        error_exit "No prompt template found"
+    fi
 fi
 
 # Read prompt template

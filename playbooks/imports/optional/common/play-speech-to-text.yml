@@ -221,6 +221,14 @@
         group: "{{ user_login }}"
         mode: '0755'
 
+    - name: Deploy Streaming Server Script (wsi-stream-server)
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/wsi-stream-server"
+        dest: "/home/{{ user_login }}/.local/bin/wsi-stream-server"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+
     # =========================================================================
     # GNOME Extension
     # =========================================================================
@@ -294,14 +302,17 @@
         group: "{{ user_login }}"
         mode: '0755'
 
-    - name: Deploy Default Claude Prompt Template
+    - name: Deploy Claude Prompt Templates
       ansible.builtin.copy:
-        src: "{{ root_dir }}/files/home/.config/speech-to-text/claude-prompt.txt"
-        dest: "/home/{{ user_login }}/.config/speech-to-text/claude-prompt.txt"
+        src: "{{ root_dir }}/files/home/.config/speech-to-text/{{ item }}"
+        dest: "/home/{{ user_login }}/.config/speech-to-text/{{ item }}"
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: '0644'
         force: false  # Don't overwrite if user has customized
+      loop:
+        - claude-prompt-corporate.txt
+        - claude-prompt-natural.txt
 
     # =========================================================================
     # Extension Reload

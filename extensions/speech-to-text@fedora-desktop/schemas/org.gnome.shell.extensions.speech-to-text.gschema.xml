@@ -41,10 +41,10 @@
       <summary>Streaming Mode</summary>
       <description>Use real-time streaming transcription with VAD (auto-stops on silence). Requires RealtimeSTT to be installed.</description>
     </key>
-    <key name="pre-buffer-audio" type="b">
-      <default>false</default>
-      <summary>Pre-buffer Audio</summary>
-      <description>Start audio recording immediately while model loads in background (streaming mode only). Provides instant startup at cost of slightly higher complexity.</description>
+    <key name="streaming-startup-mode" type="s">
+      <default>'standard'</default>
+      <summary>Streaming Startup Mode</summary>
+      <description>Startup mode for streaming: "standard" (load model then start), "pre-buffer" (record while loading), "server" (persistent server for instant startup)</description>
     </key>
     <key name="language" type="s">
       <default>'system'</default>
@@ -63,8 +63,13 @@
     </key>
     <key name="toggle-recording-claude" type="as">
       <default><![CDATA[['<Primary>Insert']]]></default>
-      <summary>Toggle Recording with Claude Processing</summary>
-      <description>Keybinding to toggle speech-to-text recording with Claude Code post-processing</description>
+      <summary>Toggle Recording with Claude Processing (Corporate)</summary>
+      <description>Keybinding to toggle speech-to-text recording with Claude Code post-processing (professional/corporate style)</description>
+    </key>
+    <key name="toggle-recording-claude-natural" type="as">
+      <default><![CDATA[['<Alt>Insert']]]></default>
+      <summary>Toggle Recording with Claude Processing (Natural)</summary>
+      <description>Keybinding to toggle speech-to-text recording with Claude Code post-processing (natural/personal style)</description>
     </key>
     <key name="claude-enabled" type="b">
       <default>false</default>

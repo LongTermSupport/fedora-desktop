@@ -39,7 +39,7 @@ export default class SpeechToTextExtension extends Extension {
         this._autoEnter = true;  // Default: send Enter after auto-paste
         this._wrapWithMarker = false;
         this._streamingMode = false;  // Use RealtimeSTT streaming instead of batch
-        this._preBufferAudio = false;  // Pre-buffer audio for instant startup (streaming only)
+        this._streamingStartupMode = 'standard';  // 'standard', 'pre-buffer', or 'server'
         this._language = 'system';    // 'system' = detect from locale, or 'en', etc.
         this._showNotifications = false;  // Show desktop notifications (off by default)
         this._whisperModel = 'auto';  // Whisper model: 'auto', 'tiny', 'base', 'small', 'medium', 'large-v3'
@@ -51,6 +51,11 @@ export default class SpeechToTextExtension extends Extension {
         this._logDir = GLib.get_home_dir() + '/.local/share/speech-to-text';
         this._logFile = this._logDir + '/debug.log';
         this._iconResetTimeoutId = null;
+
+        // Server status indicator
+        this._serverStatusDot = null;
+        this._serverPollTimer = null;
+        this._serverIsHot = false;
 
         // Recording timer state
         this._recordingTimer = null;
@@ -82,12 +87,29 @@ export default class SpeechToTextExtension extends Extension {
         // Create panel indicator with menu
         this._indicator = new PanelMenu.Button(0.0, 'Speech to Text', false);
 
+        // Create a box to hold icon and status dot
+        this._iconBox = new St.BoxLayout({
+            style_class: 'panel-status-indicators-box'
+        });
+
         // Add icon
         this._icon = new St.Icon({
             icon_name: 'audio-input-microphone-symbolic',
             style_class: 'system-status-icon'
         });
-        this._indicator.add_child(this._icon);
+        this._iconBox.add_child(this._icon);
+
+        // Add server status indicator dot (initially hidden)
+        this._serverStatusDot = new St.Icon({
+            icon_name: 'media-record-symbolic',
+            style_class: 'system-status-icon',
+            style: 'color: #00d4ff; font-size: 8px;',  // Removed negative margin
+            visible: false
+        });
+        this._iconBox.add_child(this._serverStatusDot);
+
+        // Add the box to the indicator
+        this._indicator.add_child(this._iconBox);
 
         // Build the popup menu
         this._buildMenu();
@@ -129,18 +151,31 @@ export default class SpeechToTextExtension extends Extension {
                 );
                 this._log(`Keybinding registration result: ${bindingAdded}`);
 
-                // Add Ctrl+Insert keybinding for Claude processing
+                // Add Ctrl+Insert keybinding for Claude processing (corporate style)
                 const claudeBindingAdded = Main.wm.addKeybinding(
                     'toggle-recording-claude',
                     this._settings,
                     Meta.KeyBindingFlags.NONE,
                     Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW,
                     () => {
-                        this._log('CTRL+INSERT PRESSED - Claude processing mode!');
-                        this._launchWSIClaude();
+                        this._log('CTRL+INSERT PRESSED - Claude processing (corporate)!');
+                        this._launchWSIClaude('corporate');
                     }
                 );
                 this._log(`Claude keybinding registration result: ${claudeBindingAdded}`);
+
+                // Add Alt+Insert keybinding for Claude processing (natural style)
+                const claudeNaturalBindingAdded = Main.wm.addKeybinding(
+                    'toggle-recording-claude-natural',
+                    this._settings,
+                    Meta.KeyBindingFlags.NONE,
+                    Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW,
+                    () => {
+                        this._log('ALT+INSERT PRESSED - Claude processing (natural)!');
+                        this._launchWSIClaude('natural');
+                    }
+                );
+                this._log(`Claude natural keybinding registration result: ${claudeNaturalBindingAdded}`);
 
                 // Note: abort-recording keybinding is added dynamically when recording starts
             } else {
@@ -149,6 +184,9 @@ export default class SpeechToTextExtension extends Extension {
         } catch (e) {
             Main.notify('STT Error', `Keybinding setup failed: ${e.message}`);
         }
+
+        // Start server status polling
+        this._startServerStatusPolling();
 
         Main.notify('Speech to Text', 'Ready. Press Insert to record. Click icon for options.');
     }
@@ -168,6 +206,7 @@ export default class SpeechToTextExtension extends Extension {
         try {
             Main.wm.removeKeybinding('toggle-recording');
             Main.wm.removeKeybinding('toggle-recording-claude');
+            Main.wm.removeKeybinding('toggle-recording-claude-natural');
             this._removeAbortKeybinding();
         } catch (e) {
             // Ignore if keybinding doesn't exist
@@ -190,6 +229,9 @@ export default class SpeechToTextExtension extends Extension {
             GLib.Source.remove(this._flashTimer);
             this._flashTimer = null;
         }
+
+        // Stop server status polling
+        this._stopServerStatusPolling();
 
         if (this._indicator) {
             this._indicator.destroy();
@@ -354,27 +396,45 @@ export default class SpeechToTextExtension extends Extension {
             if (this._updatingToggles) return;  // Prevent cascade
             this._streamingMode = state;
             if (!state) {
-                // Disable pre-buffer when streaming is turned off
-                this._preBufferAudio = false;
-                this._savePreBufferSetting(false);
+                // Reset to standard mode when streaming is turned off
+                this._streamingStartupMode = 'standard';
+                this._saveStreamingStartupModeSetting('standard');
             }
             this._saveStreamingSetting(state);
             this._updatePasteToggles();
             this._updateModelLabel();  // Update model label to show new auto mode model
+            this._updateStreamingStartupLabel();
+            this._checkServerStatus();  // Immediate check when streaming mode changes
             this._log(`Streaming mode ${state ? 'enabled' : 'disabled'}`);
         });
         menu.addMenuItem(this._streamingSwitch);
 
-        // Pre-buffer toggle - child of streaming mode (starts recording while model loads)
-        this._preBufferSwitch = new PopupMenu.PopupSwitchMenuItem('    ↳ Pre-buffer audio (faster startup)', this._preBufferAudio);
-        this._preventMenuClose(this._preBufferSwitch);
-        this._preBufferSwitch.connect('toggled', (item, state) => {
-            if (this._updatingToggles) return;  // Prevent cascade
-            this._preBufferAudio = state;
-            this._savePreBufferSetting(state);
-            this._log(`Pre-buffer audio ${state ? 'enabled' : 'disabled'}`);
-        });
-        menu.addMenuItem(this._preBufferSwitch);
+        // Streaming startup mode - header item (non-interactive)
+        this._streamingStartupHeader = new PopupMenu.PopupMenuItem('    ↳ Startup: Standard', { reactive: false });
+        this._streamingStartupHeader.label.style = 'font-weight: bold; color: #888;';
+        menu.addMenuItem(this._streamingStartupHeader);
+
+        // Startup mode options (flat list, indented)
+        const startupModes = [
+            ['standard', 'Standard', 'Load model then start (~3-6s)'],
+            ['pre-buffer', 'Pre-buffer', 'Record while loading (~2-4s)'],
+            ['server', 'Server mode', 'Persistent server (<0.5s, uses memory)'],
+        ];
+
+        this._startupModeItems = [];
+        for (const [mode, label, description] of startupModes) {
+            const item = new PopupMenu.PopupMenuItem(`        • ${label} - ${description}`);
+            item.connect('activate', () => {
+                this._streamingStartupMode = mode;
+                this._saveStreamingStartupModeSetting(mode);
+                this._updateStreamingStartupLabel();
+                this._updateStartupModeSelection();
+                this._checkServerStatus();
+                this._log(`Streaming startup mode set to: ${mode}`);
+            });
+            this._startupModeItems.push({ item, mode });
+            menu.addMenuItem(item);
+        }
 
         // Wrap with marker toggle (works with all paste modes)
         this._wrapMarkerSwitch = new PopupMenu.PopupSwitchMenuItem('Wrap with speech-to-text marker', this._wrapWithMarker);
@@ -390,47 +450,42 @@ export default class SpeechToTextExtension extends Extension {
         // Separator before language
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-        // Language submenu
-        this._languageSubMenu = new PopupMenu.PopupSubMenuMenuItem('Language: System default');
-        menu.addMenuItem(this._languageSubMenu);
+        // Language - header item
+        this._languageHeader = new PopupMenu.PopupMenuItem('Language: System default', { reactive: false });
+        this._languageHeader.label.style = 'font-weight: bold;';
+        menu.addMenuItem(this._languageHeader);
 
-        // Language options
+        // Language options (flat list)
         const languages = [
             ['system', 'System default'],
             ['en', 'English'],
         ];
 
+        this._languageItems = [];
         for (const [code, label] of languages) {
-            const item = new PopupMenu.PopupMenuItem(label);
+            const item = new PopupMenu.PopupMenuItem(`  • ${label}`);
             item.connect('activate', () => {
                 this._language = code;
                 this._saveLanguageSetting(code);
                 this._updateLanguageLabel();
+                this._updateLanguageSelection();
                 this._log(`Language set to: ${code}`);
             });
-            this._languageSubMenu.menu.addMenuItem(item);
+            this._languageItems.push({ item, code });
+            menu.addMenuItem(item);
         }
 
-        // Whisper model submenu
-        this._modelSubMenu = new PopupMenu.PopupSubMenuMenuItem('Model: Auto');
-        menu.addMenuItem(this._modelSubMenu);
+        // Whisper model - header item
+        this._modelHeader = new PopupMenu.PopupMenuItem('Model: Auto', { reactive: false });
+        this._modelHeader.label.style = 'font-weight: bold;';
+        menu.addMenuItem(this._modelHeader);
 
-        // Model options - sort to show installed models first
-        const sortedModels = [...this._whisperModels].sort((a, b) => {
-            const aInstalled = this._checkModelInstalled(a[0]);
-            const bInstalled = this._checkModelInstalled(b[0]);
-            // Auto always first, then installed models, then uninstalled
-            if (a[0] === 'auto') return -1;
-            if (b[0] === 'auto') return 1;
-            if (aInstalled && !bInstalled) return -1;
-            if (!aInstalled && bInstalled) return 1;
-            return 0;
-        });
-
-        for (const [modelName, label, size] of sortedModels) {
+        // Model options (flat list)
+        this._modelItems = [];
+        for (const [modelName, label, size] of this._whisperModels) {
             const installed = this._checkModelInstalled(modelName);
             const status = installed ? '✓' : '⚠';
-            const item = new PopupMenu.PopupMenuItem(`${status} ${label} (${size})`);
+            const item = new PopupMenu.PopupMenuItem(`  ${status} ${label} (${size})`);
 
             // Gray out unavailable models
             if (!installed && modelName !== 'auto') {
@@ -443,33 +498,20 @@ export default class SpeechToTextExtension extends Extension {
                     this._whisperModel = modelName;
                     this._saveModelSetting(modelName);
                     this._updateModelLabel();
+                    this._updateModelSelection();
                     this._log(`Whisper model set to: ${modelName}`);
                 }
             });
-            this._modelSubMenu.menu.addMenuItem(item);
+            this._modelItems.push({ item, modelName });
+            menu.addMenuItem(item);
         }
 
-        // Add separator before uninstalled models for clarity
-        const hasUninstalled = this._whisperModels.some(m => !this._checkModelInstalled(m[0]) && m[0] !== 'auto');
-        const hasInstalled = this._whisperModels.some(m => this._checkModelInstalled(m[0]) && m[0] !== 'auto');
-        if (hasUninstalled && hasInstalled) {
-            // Find position of first uninstalled model
-            for (let i = 0; i < sortedModels.length; i++) {
-                if (!this._checkModelInstalled(sortedModels[i][0]) && sortedModels[i][0] !== 'auto') {
-                    this._modelSubMenu.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem(), i + 1);
-                    break;
-                }
-            }
-        }
-
-        // Add separator and download instructions
-        this._modelSubMenu.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-
-        const downloadItem = new PopupMenu.PopupMenuItem('How to download models...');
+        // Add download instructions
+        const downloadItem = new PopupMenu.PopupMenuItem('  How to download models...');
         downloadItem.connect('activate', () => {
             this._showModelDownloadInstructions();
         });
-        this._modelSubMenu.menu.addMenuItem(downloadItem);
+        menu.addMenuItem(downloadItem);
 
         // Separator before Claude Code section
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
@@ -490,20 +532,24 @@ export default class SpeechToTextExtension extends Extension {
         });
         menu.addMenuItem(this._claudeSwitch);
 
-        // Claude model submenu
-        this._claudeModelSubMenu = new PopupMenu.PopupSubMenuMenuItem('  ↳ Model: Sonnet');
-        menu.addMenuItem(this._claudeModelSubMenu);
+        // Claude model - header item
+        this._claudeModelHeader = new PopupMenu.PopupMenuItem('  ↳ Model: Sonnet', { reactive: false });
+        this._claudeModelHeader.label.style = 'font-weight: bold; color: #888;';
+        menu.addMenuItem(this._claudeModelHeader);
 
-        // Claude model options
+        // Claude model options (flat list)
+        this._claudeModelItems = [];
         for (const [modelName, label, description] of this._claudeModels) {
-            const item = new PopupMenu.PopupMenuItem(`${label} - ${description}`);
+            const item = new PopupMenu.PopupMenuItem(`      • ${label} - ${description}`);
             item.connect('activate', () => {
                 this._claudeModel = modelName;
                 this._saveClaudeModelSetting(modelName);
                 this._updateClaudeModelLabel();
+                this._updateClaudeModelSelection();
                 this._log(`Claude model set to: ${modelName}`);
             });
-            this._claudeModelSubMenu.menu.addMenuItem(item);
+            this._claudeModelItems.push({ item, modelName });
+            menu.addMenuItem(item);
         }
 
         // Edit prompt menu item
@@ -516,8 +562,13 @@ export default class SpeechToTextExtension extends Extension {
         // Set initial visibility for child options
         this._updatePasteToggles();
         this._updateLanguageLabel();
+        this._updateLanguageSelection();
         this._updateModelLabel();
+        this._updateModelSelection();
         this._updateClaudeModelLabel();
+        this._updateClaudeModelSelection();
+        this._updateStreamingStartupLabel();
+        this._updateStartupModeSelection();
 
         // Separator
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
@@ -581,6 +632,90 @@ export default class SpeechToTextExtension extends Extension {
                 this._log(`Error: ${errorMsg}`);
             }
         );
+    }
+
+    _checkServerStatus() {
+        // Safety check - don't run if objects aren't initialized
+        if (!this._serverStatusDot || !this._indicator) {
+            return;
+        }
+
+        // Only check if server mode is enabled and streaming mode is active
+        if (this._streamingStartupMode !== 'server' || !this._streamingMode) {
+            if (this._serverStatusDot.visible) {
+                this._serverStatusDot.visible = false;
+                this._serverIsHot = false;
+            }
+            return;
+        }
+
+        // Check if server is running by trying to connect to socket
+        const runtimeDir = GLib.get_user_runtime_dir();
+        if (!runtimeDir) {
+            this._log('Cannot get runtime directory', 'WARN');
+            return;
+        }
+
+        const socketPath = `${runtimeDir}/wsi-stream.socket`;
+        const file = Gio.File.new_for_path(socketPath);
+
+        let serverIsRunning = false;
+        try {
+            serverIsRunning = file.query_exists(null);
+        } catch (e) {
+            this._log(`Server status check failed: ${e.message}`, 'WARN');
+            return;
+        }
+
+        // Update dot visibility
+        if (serverIsRunning !== this._serverIsHot) {
+            this._serverIsHot = serverIsRunning;
+            if (this._serverStatusDot) {
+                this._serverStatusDot.visible = serverIsRunning;
+            }
+
+            this._log(`Server status changed: ${serverIsRunning ? 'hot' : 'cold'}`);
+        }
+    }
+
+    _startServerStatusPolling() {
+        // Poll server status every 5 seconds
+        if (this._serverPollTimer) {
+            return; // Already polling
+        }
+
+        // Initial check (wrapped in try-catch)
+        try {
+            this._checkServerStatus();
+        } catch (e) {
+            this._log(`Initial server check failed: ${e.message}`, 'ERROR');
+        }
+
+        // Start periodic polling
+        this._serverPollTimer = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 5, () => {
+            try {
+                this._checkServerStatus();
+            } catch (e) {
+                this._log(`Server polling error: ${e.message}`, 'ERROR');
+            }
+            return GLib.SOURCE_CONTINUE;
+        });
+
+        this._log('Server status polling started');
+    }
+
+    _stopServerStatusPolling() {
+        if (this._serverPollTimer) {
+            GLib.Source.remove(this._serverPollTimer);
+            this._serverPollTimer = null;
+            this._log('Server status polling stopped');
+        }
+
+        // Hide dot
+        if (this._serverStatusDot) {
+            this._serverStatusDot.visible = false;
+        }
+        this._serverIsHot = false;
     }
 
     _updateIconState(state) {
@@ -777,9 +912,11 @@ export default class SpeechToTextExtension extends Extension {
         }
 
         // Only add icon if it's not already a child
-        const children = this._indicator.get_children();
-        if (!children.includes(this._icon)) {
-            this._indicator.add_child(this._icon);
+        if (this._iconBox && this._icon) {
+            const children = this._iconBox.get_children();
+            if (!children.includes(this._icon)) {
+                this._iconBox.add_child(this._icon);
+            }
         }
     }
 
@@ -809,11 +946,19 @@ export default class SpeechToTextExtension extends Extension {
             const script = this._streamingMode ? 'wsi-stream' : 'wsi';
             const langFlag = ` --language ${this._getWhisperLanguage()}`;
 
-            // Add pre-buffer flag for streaming mode
-            const preBufferFlag = (this._streamingMode && this._preBufferAudio) ? ' --pre-buffer' : '';
+            // Add startup mode flags for streaming mode
+            let startupModeFlag = '';
+            if (this._streamingMode) {
+                if (this._streamingStartupMode === 'pre-buffer') {
+                    startupModeFlag = ' --pre-buffer';
+                } else if (this._streamingStartupMode === 'server') {
+                    startupModeFlag = ' --server-mode';
+                }
+                // 'standard' mode has no flag
+            }
 
             const scriptPath = GLib.get_home_dir() + '/.local/bin/' + script;
-            const scriptArgs = debugFlag + clipboardFlag + autoPasteFlag + noAutoEnterFlag + wrapMarkerFlag + noNotifyFlag + langFlag + preBufferFlag;
+            const scriptArgs = debugFlag + clipboardFlag + autoPasteFlag + noAutoEnterFlag + wrapMarkerFlag + noNotifyFlag + langFlag + startupModeFlag;
 
             // Build command - wrap in bash if we need to set environment variables
             let command;
@@ -834,7 +979,7 @@ export default class SpeechToTextExtension extends Extension {
         }
     }
 
-    _launchWSIClaude() {
+    _launchWSIClaude(style = 'corporate') {
         try {
             // If currently in any active state, stop it instead of starting new
             if (this._currentState === 'RECORDING' ||
@@ -851,7 +996,8 @@ export default class SpeechToTextExtension extends Extension {
             const debugFlag = this._debugEnabled ? ' --debug' : '';
             const clipboardFlag = this._clipboardMode ? ' --clipboard' : '';
             const autoPasteFlag = this._autoPaste ? ' --auto-paste' : '';
-            const noAutoEnterFlag = (this._autoPaste && !this._autoEnter) ? ' --no-auto-enter' : '';
+            // FORCE no-auto-enter for Claude modes - transcription needs review before sending
+            const noAutoEnterFlag = this._autoPaste ? ' --no-auto-enter' : '';
             const wrapMarkerFlag = this._wrapWithMarker ? ' --wrap-marker' : '';
             const noNotifyFlag = !this._showNotifications ? ' --no-notify' : '';
 
@@ -859,15 +1005,24 @@ export default class SpeechToTextExtension extends Extension {
             const script = this._streamingMode ? 'wsi-stream' : 'wsi';
             const langFlag = ` --language ${this._getWhisperLanguage()}`;
 
-            // Add pre-buffer flag for streaming mode
-            const preBufferFlag = (this._streamingMode && this._preBufferAudio) ? ' --pre-buffer' : '';
+            // Add startup mode flags for streaming mode
+            let startupModeFlag = '';
+            if (this._streamingMode) {
+                if (this._streamingStartupMode === 'pre-buffer') {
+                    startupModeFlag = ' --pre-buffer';
+                } else if (this._streamingStartupMode === 'server') {
+                    startupModeFlag = ' --server-mode';
+                }
+                // 'standard' mode has no flag
+            }
 
-            // Claude-specific flags
+            // Claude-specific flags with style parameter
             const claudeProcessFlag = ' --claude-process';
             const claudeModelFlag = ` --claude-model ${this._claudeModel}`;
+            const claudeStyleFlag = ` --claude-style ${style}`;
 
             const scriptPath = GLib.get_home_dir() + '/.local/bin/' + script;
-            const scriptArgs = debugFlag + clipboardFlag + autoPasteFlag + noAutoEnterFlag + wrapMarkerFlag + noNotifyFlag + langFlag + preBufferFlag + claudeProcessFlag + claudeModelFlag;
+            const scriptArgs = debugFlag + clipboardFlag + autoPasteFlag + noAutoEnterFlag + wrapMarkerFlag + noNotifyFlag + langFlag + startupModeFlag + claudeProcessFlag + claudeModelFlag + claudeStyleFlag;
 
             // Build command - wrap in bash if we need to set environment variables
             let command;
@@ -1038,9 +1193,9 @@ export default class SpeechToTextExtension extends Extension {
                 this._whisperModel = 'auto';
             }
             try {
-                this._preBufferAudio = this._settings.get_boolean('pre-buffer-audio');
+                this._streamingStartupMode = this._settings.get_string('streaming-startup-mode');
             } catch (e) {
-                this._preBufferAudio = false;
+                this._streamingStartupMode = 'standard';
             }
             try {
                 this._claudeEnabled = this._settings.get_boolean('claude-enabled');
@@ -1101,7 +1256,7 @@ Auto mode uses:
     }
 
     _updateLanguageLabel() {
-        if (this._languageSubMenu) {
+        if (this._languageHeader) {
             let label;
             if (this._language === 'system') {
                 // Get system locale and show it
@@ -1112,12 +1267,24 @@ Auto mode uses:
                 const labels = { 'en': 'English' };
                 label = labels[this._language] || this._language;
             }
-            this._languageSubMenu.label.text = `Language: ${label}`;
+            this._languageHeader.label.text = `Language: ${label}`;
+        }
+    }
+
+    _updateLanguageSelection() {
+        if (!this._languageItems) return;
+
+        for (const {item, code} of this._languageItems) {
+            if (code === this._language) {
+                item.setOrnament(PopupMenu.Ornament.DOT);
+            } else {
+                item.setOrnament(PopupMenu.Ornament.NONE);
+            }
         }
     }
 
     _updateModelLabel() {
-        if (this._modelSubMenu) {
+        if (this._modelHeader) {
             const modelInfo = this._whisperModels.find(m => m[0] === this._whisperModel);
             if (modelInfo) {
                 let label = modelInfo[1];  // Get label from array
@@ -1130,20 +1297,68 @@ Auto mode uses:
                     label = `Auto (${status} ${actualModel} for ${this._streamingMode ? 'streaming' : 'batch'})`;
                 }
 
-                this._modelSubMenu.label.text = `Model: ${label}`;
+                this._modelHeader.label.text = `Model: ${label}`;
             } else {
-                this._modelSubMenu.label.text = `Model: ${this._whisperModel}`;
+                this._modelHeader.label.text = `Model: ${this._whisperModel}`;
+            }
+        }
+    }
+
+    _updateModelSelection() {
+        if (!this._modelItems) return;
+
+        for (const {item, modelName} of this._modelItems) {
+            if (modelName === this._whisperModel) {
+                item.setOrnament(PopupMenu.Ornament.DOT);
+            } else {
+                item.setOrnament(PopupMenu.Ornament.NONE);
             }
         }
     }
 
     _updateClaudeModelLabel() {
-        if (this._claudeModelSubMenu) {
+        if (this._claudeModelHeader) {
             const modelInfo = this._claudeModels.find(m => m[0] === this._claudeModel);
             if (modelInfo) {
-                this._claudeModelSubMenu.label.text = `  ↳ Model: ${modelInfo[1]}`;
+                this._claudeModelHeader.label.text = `  ↳ Model: ${modelInfo[1]}`;
             } else {
-                this._claudeModelSubMenu.label.text = `  ↳ Model: ${this._claudeModel}`;
+                this._claudeModelHeader.label.text = `  ↳ Model: ${this._claudeModel}`;
+            }
+        }
+    }
+
+    _updateClaudeModelSelection() {
+        if (!this._claudeModelItems) return;
+
+        for (const {item, modelName} of this._claudeModelItems) {
+            if (modelName === this._claudeModel) {
+                item.setOrnament(PopupMenu.Ornament.DOT);
+            } else {
+                item.setOrnament(PopupMenu.Ornament.NONE);
+            }
+        }
+    }
+
+    _updateStreamingStartupLabel() {
+        if (this._streamingStartupHeader) {
+            const labels = {
+                'standard': 'Standard',
+                'pre-buffer': 'Pre-buffer',
+                'server': 'Server mode'
+            };
+            const label = labels[this._streamingStartupMode] || this._streamingStartupMode;
+            this._streamingStartupHeader.label.text = `    ↳ Startup: ${label}`;
+        }
+    }
+
+    _updateStartupModeSelection() {
+        if (!this._startupModeItems) return;
+
+        for (const {item, mode} of this._startupModeItems) {
+            if (mode === this._streamingStartupMode) {
+                item.setOrnament(PopupMenu.Ornament.DOT);
+            } else {
+                item.setOrnament(PopupMenu.Ornament.NONE);
             }
         }
     }
@@ -1166,10 +1381,14 @@ Auto mode uses:
                 this._streamingSwitch.visible = this._autoPaste;
                 this._streamingSwitch.setToggleState(this._streamingMode);
             }
-            // Pre-buffer only visible when streaming is active
-            if (this._preBufferSwitch) {
-                this._preBufferSwitch.visible = this._autoPaste && this._streamingMode;
-                this._preBufferSwitch.setToggleState(this._preBufferAudio);
+            // Streaming startup options only visible when streaming is active
+            if (this._streamingStartupHeader) {
+                this._streamingStartupHeader.visible = this._autoPaste && this._streamingMode;
+            }
+            if (this._startupModeItems) {
+                for (const {item} of this._startupModeItems) {
+                    item.visible = this._autoPaste && this._streamingMode;
+                }
             }
         } finally {
             this._updatingToggles = false;
@@ -1236,10 +1455,10 @@ Auto mode uses:
         }
     }
 
-    _savePreBufferSetting(enabled) {
+    _saveStreamingStartupModeSetting(mode) {
         if (this._settings) {
             try {
-                this._settings.set_boolean('pre-buffer-audio', enabled);
+                this._settings.set_string('streaming-startup-mode', mode);
             } catch (e) {
                 // Setting may not exist yet
             }
