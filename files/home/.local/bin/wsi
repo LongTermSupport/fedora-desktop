@@ -37,6 +37,7 @@ LANGUAGE=""  # Language code for Whisper (empty = use env var or default)
 NO_NOTIFY=false  # Suppress desktop notifications
 CLAUDE_PROCESS=false  # Post-process through Claude Code
 CLAUDE_MODEL="sonnet"  # Claude model: sonnet, opus, haiku
+CLAUDE_STYLE="corporate"  # Claude processing style: corporate, natural
 WHOST="127.0.0.1"
 WPORT="58080"
 
@@ -426,6 +427,11 @@ while [ $# -gt 0 ]; do
             log_debug "Claude model set to: $CLAUDE_MODEL"
             shift 2
             ;;
+        --claude-style)
+            CLAUDE_STYLE="$2"
+            log_debug "Claude style set to: $CLAUDE_STYLE"
+            shift 2
+            ;;
         -d|--debug)
             DEBUG=true
             VERBOSE=true
@@ -602,9 +608,9 @@ fi
 REC_PID=$!
 log_debug "pw-record started with PID $REC_PID"
 
-# Write PID file AFTER recording starts (use recorder PID, not shell PID)
-echo $REC_PID > "$PID_FILE"
-log_debug "PID file written: $PID_FILE ($REC_PID)"
+# Write PID file with shell PID so extension's SIGTERM triggers our trap
+echo $$ > "$PID_FILE"
+log_debug "PID file written: $PID_FILE ($$)"
 
 # Brief delay to let audio pipeline initialize before signaling ready
 # Prevents clipping the start of speech
@@ -728,9 +734,8 @@ log_debug "Raw transcription: '$str'"
 # TEXT POST-PROCESSING
 #============================================================================
 
-# Remove non-speech artifacts detected by Whisper (global replace)
-str="${str//\(*\)}"
-str="${str//\[*\]}"
+# Remove non-speech artifacts detected by Whisper (non-greedy via sed)
+str=$(echo "$str" | sed 's/([^)]*)//g; s/\[[^]]*\]//g')
 
 # Remove leading newlines
 str="${str#$'\n'}"
@@ -763,10 +768,13 @@ if [ "$CLAUDE_PROCESS" = true ]; then
 
     if command -v wsi-claude-process &>/dev/null; then
         # Call the Claude processing script
-        claude_args="--model $CLAUDE_MODEL"
-        [ "$DEBUG" = true ] && claude_args="$claude_args --debug"
+        claude_cmd_args=()
+        claude_cmd_args+=("--model" "$CLAUDE_MODEL")
+        claude_cmd_args+=("--style" "$CLAUDE_STYLE")
+        [ "$DEBUG" = true ] && claude_cmd_args+=("--debug")
+        claude_cmd_args+=("$str")
 
-        processed_str=$(wsi-claude-process $claude_args "$str" 2>&1)
+        processed_str=$(wsi-claude-process "${claude_cmd_args[@]}" 2>>"$LOG_FILE")
         claude_exit=$?
 
         if [ $claude_exit -eq 0 ] && [ -n "$processed_str" ]; then

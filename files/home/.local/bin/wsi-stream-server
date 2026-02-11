@@ -20,7 +20,6 @@ import threading
 import time
 import signal
 import array
-import atexit
 from pathlib import Path
 from datetime import datetime
 
@@ -41,7 +40,7 @@ shutdown_requested = False
 last_activity_time = time.time()
 idle_timeout = DEFAULT_IDLE_TIMEOUT
 recording_active = False
-current_client = None
+server_start_time = None
 
 # Recording pipeline state (managed by START/STOP commands)
 audio_process = None          # pw-record subprocess capturing microphone audio
@@ -125,21 +124,14 @@ def initialize_recorder(model_size="base", language="en", device_type="auto"):
         }
 
         # Device selection
-        if device_type == "auto":
-            try:
-                recorder_config["device"] = "cuda"
-                recorder_config["compute_type"] = "float16"
-                log("Using GPU (CUDA)")
-            except Exception:
-                recorder_config["device"] = "cpu"
-                recorder_config["compute_type"] = "int8"
-                log("Using CPU")
-        elif device_type == "gpu":
+        if device_type == "auto" or device_type == "gpu":
             recorder_config["device"] = "cuda"
             recorder_config["compute_type"] = "float16"
+            log("Requesting GPU (CUDA)")
         else:
             recorder_config["device"] = "cpu"
             recorder_config["compute_type"] = "int8"
+            log("Using CPU")
 
         recorder = AudioToTextRecorder(**recorder_config)
         log("Recorder initialized successfully - ready for instant recording")
@@ -264,6 +256,8 @@ def stop_recording_pipeline():
     audio_process = None
     audio_feed_thread = None
     audio_feed_stop = None
+    with transcription_lock:
+        transcription_text = ""
 
     return result
 
@@ -278,7 +272,7 @@ def handle_start_command(client_socket, params):
     The audio pipeline:
       microphone -> pw-record (16kHz mono S16_LE) -> feeding thread -> recorder.feed_audio() -> realtime callback -> transcription_text
     """
-    global recording_active, current_client
+    global recording_active
     global audio_process, audio_feed_thread, audio_feed_stop, transcription_text
 
     update_activity()
@@ -384,7 +378,6 @@ def handle_start_command(client_socket, params):
     log("Audio feeding thread launched")
 
     recording_active = True
-    current_client = client_socket
 
     send_response(client_socket, {
         "status": "recording",
@@ -399,7 +392,7 @@ def handle_stop_command(client_socket, params):
     finalizes transcription via recorder.stop(), and returns the accumulated
     transcription text to the client.
     """
-    global recording_active, current_client
+    global recording_active
 
     update_activity()
 
@@ -416,7 +409,6 @@ def handle_stop_command(client_socket, params):
     text = stop_recording_pipeline()
 
     recording_active = False
-    current_client = None
 
     log(f"Recording stopped, transcription: '{text}' ({len(text)} chars)")
 
@@ -433,7 +425,8 @@ def handle_ping_command(client_socket, params):
     send_response(client_socket, {
         "status": "alive",
         "recording": recording_active,
-        "uptime": time.time() - last_activity_time
+        "uptime_seconds": time.time() - server_start_time,
+        "idle_seconds": time.time() - last_activity_time
     })
 
 
@@ -517,9 +510,16 @@ def idle_monitor_thread():
             shutdown_requested = True
 
 
+cleanup_done = False
+
+
 def cleanup():
     """Cleanup on exit."""
-    global recorder, recording_active
+    global recorder, recording_active, cleanup_done
+
+    if cleanup_done:
+        return
+    cleanup_done = True
 
     log("Server shutting down - cleaning up")
 
@@ -562,7 +562,7 @@ def signal_handler(signum, frame):
 
 
 def main():
-    global debug_mode, idle_timeout, shutdown_requested
+    global debug_mode, idle_timeout, shutdown_requested, server_start_time
 
     # Parse arguments
     import argparse
@@ -583,12 +583,12 @@ def main():
     debug_mode = args.debug
     idle_timeout = args.timeout
 
+    server_start_time = time.time()
     log("=== WSI-Stream Server Starting ===")
     log(f"Model: {args.model}, Language: {args.language}, Device: {args.device}")
     log(f"Idle timeout: {idle_timeout}s")
 
-    # Register cleanup handlers
-    atexit.register(cleanup)
+    # Register signal handlers
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
 

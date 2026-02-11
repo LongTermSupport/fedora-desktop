@@ -26,3 +26,4 @@ Output: "Yeah, that sounds good. Let me know when you're free"
 
 Now clean up this transcription (output ONLY the cleaned text, nothing else):
 
+{TRANSCRIPTION}

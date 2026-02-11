@@ -246,12 +246,35 @@ def check_dependencies():
         return False
 
 
+def run_claude_processing(text, args):
+    """Post-process transcription through Claude Code."""
+    log(f"Post-processing through Claude Code (model: {args.claude_model}, style: {args.claude_style})")
+    try:
+        cmd = ["wsi-claude-process", "--model", args.claude_model, "--style", args.claude_style]
+        if args.debug:
+            cmd.append("--debug")
+        cmd.append(text)
+
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        if result.returncode == 0 and result.stdout.strip():
+            log("Claude processing successful")
+            return result.stdout.strip()
+        else:
+            log(f"Claude processing failed (exit: {result.returncode}), using original text", "WARN")
+            if result.stderr:
+                log(f"Claude stderr: {result.stderr}", "WARN")
+            return text
+    except Exception as e:
+        log(f"Claude processing error: {e}, using original text", "WARN")
+        return text
+
+
 def is_server_running():
     """Check if wsi-stream-server is running."""
     if not SERVER_SOCKET.exists():
         return False
 
-    # Try to ping the server
+    sock = None
     try:
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.settimeout(1)
@@ -263,13 +286,17 @@ def is_server_running():
 
         # Read response
         response = sock.recv(4096).decode().strip()
-        sock.close()
-
         data = json.loads(response)
         return data.get("status") == "alive"
     except Exception as e:
         log(f"Server ping failed: {e}", "DEBUG")
         return False
+    finally:
+        if sock:
+            try:
+                sock.close()
+            except Exception:
+                pass
 
 
 def start_server(model_size="base", language="en"):
@@ -371,12 +398,7 @@ def run_server_mode(args):
     # Start recording via server
     notify("RECORDING", "Recording... (server mode)")
 
-    response = send_server_command("START", {
-        "auto_paste": args.auto_paste,
-        "clipboard": args.clipboard,
-        "wrap_marker": args.wrap_marker,
-        "no_auto_enter": args.no_auto_enter,
-    })
+    response = send_server_command("START")
 
     if response.get("status") != "recording":
         log(f"Server START failed: {response}", "ERROR")
@@ -401,12 +423,11 @@ def run_server_mode(args):
     # Wait for stop signal (extension will kill this process)
     # Use short sleep intervals so signal can interrupt quickly
     timeout = args.timeout or 120
-    elapsed = 0
+    start_time = time.monotonic()
     try:
-        while elapsed < timeout and not stop_requested:
+        while (time.monotonic() - start_time) < timeout and not stop_requested:
             time.sleep(0.1)  # Check every 100ms
-            elapsed += 0.1
-        if elapsed >= timeout:
+        if (time.monotonic() - start_time) >= timeout:
             log("Timeout reached, stopping recording")
         else:
             log("Stop signal received, stopping recording")
@@ -439,22 +460,7 @@ def run_server_mode(args):
 
     # Post-process through Claude Code if requested
     if args.claude_process:
-        log(f"Post-processing through Claude Code (model: {args.claude_model}, style: {args.claude_style})")
-        try:
-            cmd = ["wsi-claude-process", "--model", args.claude_model, "--style", args.claude_style]
-            if args.debug:
-                cmd.append("--debug")
-            cmd.append(text)
-
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            if result.returncode == 0 and result.stdout.strip():
-                processed_text = result.stdout.strip()
-                log("Claude processing successful")
-                text = processed_text
-            else:
-                log("Claude processing failed, using original text", "WARN")
-        except Exception as e:
-            log(f"Claude processing error: {e}, using original text", "WARN")
+        text = run_claude_processing(text, args)
 
     # Wrap with marker if requested
     if args.wrap_marker and not args.claude_process:
@@ -595,15 +601,10 @@ def run_standard_streaming(args):
             "spinner": False,
         }
 
-        # Try GPU
-        try:
-            recorder_config["device"] = "cuda"
-            recorder_config["compute_type"] = "float16"
-            log("Using GPU (CUDA)")
-        except Exception:
-            recorder_config["device"] = "cpu"
-            recorder_config["compute_type"] = "int8"
-            log("Using CPU")
+        # Request GPU - let AudioToTextRecorder handle fallback internally
+        recorder_config["device"] = "cuda"
+        recorder_config["compute_type"] = "float16"
+        log("Requesting GPU (CUDA)")
 
         recorder = AudioToTextRecorder(**recorder_config)
         log("Recorder initialized, waiting for audio pipeline...")
@@ -725,27 +726,7 @@ def run_standard_streaming(args):
 
     # Post-process through Claude Code if requested
     if args.claude_process:
-        log(f"Post-processing through Claude Code (model: {args.claude_model}, style: {args.claude_style})")
-        try:
-            # Call wsi-claude-process
-            cmd = ["wsi-claude-process", "--model", args.claude_model, "--style", args.claude_style]
-            if args.debug:
-                cmd.append("--debug")
-            cmd.append(text)
-
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            if result.returncode == 0 and result.stdout.strip():
-                processed_text = result.stdout.strip()
-                log(f"Claude processing successful")
-                log(f"Original: {text}")
-                log(f"Processed: {processed_text}")
-                text = processed_text
-            else:
-                log(f"Claude processing failed (exit: {result.returncode}), using original text", "WARN")
-                if result.stderr:
-                    log(f"Error: {result.stderr}", "WARN")
-        except Exception as e:
-            log(f"Claude processing error: {e}, using original text", "WARN")
+        text = run_claude_processing(text, args)
 
     # Wrap with marker if requested
     # BUT: Don't wrap Claude-processed text - it's already clean and formatted
@@ -842,9 +823,6 @@ def run_prebuffered_streaming(args):
         )
         log(f"pw-record started with PID {audio_process.pid}")
 
-        # Update PID file to pw-record's PID so extension can stop us
-        PID_FILE.write_text(str(audio_process.pid))
-
         # Audio buffer for chunks captured while model loads
         audio_buffer = []
         chunk_size = 1024 * 2  # 1024 samples * 2 bytes per sample (S16_LE)
@@ -870,15 +848,10 @@ def run_prebuffered_streaming(args):
                     "spinner": False,
                 }
 
-                # Try GPU
-                try:
-                    recorder_config["device"] = "cuda"
-                    recorder_config["compute_type"] = "float16"
-                    log("Using GPU (CUDA)")
-                except Exception:
-                    recorder_config["device"] = "cpu"
-                    recorder_config["compute_type"] = "int8"
-                    log("Using CPU")
+                # Request GPU - let AudioToTextRecorder handle fallback internally
+                recorder_config["device"] = "cuda"
+                recorder_config["compute_type"] = "float16"
+                log("Requesting GPU (CUDA)")
 
                 recorder = AudioToTextRecorder(**recorder_config)
                 log("Model loaded successfully!")
@@ -1003,27 +976,7 @@ def run_prebuffered_streaming(args):
 
         # Post-process through Claude Code if requested
         if args.claude_process:
-            log(f"Post-processing through Claude Code (model: {args.claude_model}, style: {args.claude_style})")
-            try:
-                # Call wsi-claude-process
-                cmd = ["wsi-claude-process", "--model", args.claude_model, "--style", args.claude_style]
-                if args.debug:
-                    cmd.append("--debug")
-                cmd.append(text)
-
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-                if result.returncode == 0 and result.stdout.strip():
-                    processed_text = result.stdout.strip()
-                    log(f"Claude processing successful")
-                    log(f"Original: {text}")
-                    log(f"Processed: {processed_text}")
-                    text = processed_text
-                else:
-                    log(f"Claude processing failed (exit: {result.returncode}), using original text", "WARN")
-                    if result.stderr:
-                        log(f"Error: {result.stderr}", "WARN")
-            except Exception as e:
-                log(f"Claude processing error: {e}, using original text", "WARN")
+            text = run_claude_processing(text, args)
 
         # Wrap with marker if requested
         # BUT: Don't wrap Claude-processed text - it's already clean and formatted
@@ -1087,6 +1040,7 @@ def run_prebuffered_streaming(args):
             except Exception:
                 pass
 
+        emit_dbus_signal("StateChanged", "IDLE")
         return 1
 
 

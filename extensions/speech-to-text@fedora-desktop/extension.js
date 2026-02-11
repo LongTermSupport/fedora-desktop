@@ -660,16 +660,15 @@ export default class SpeechToTextExtension extends Extension {
 
         const socketPath = `${runtimeDir}/wsi-stream.socket`;
 
-        // Check if socket file exists AND verify it's connectable (not stale)
+        // Check if PID file and socket both exist (non-blocking file stat)
+        const pidFilePath = `${runtimeDir}/wsi-stream-server.pid`;
         let serverIsRunning = false;
         try {
-            // First check if file exists
-            const file = Gio.File.new_for_path(socketPath);
-            if (file.query_exists(null)) {
-                // File exists - try to verify server is actually listening by checking process
-                // Use pgrep to check if wsi-stream-server process is running
-                const [success, stdout] = GLib.spawn_command_line_sync('pgrep -f "wsi-stream-server"');
-                serverIsRunning = success && stdout && stdout.length > 0;
+            const pidFile = Gio.File.new_for_path(pidFilePath);
+            if (pidFile.query_exists(null)) {
+                // PID file exists - check if socket also exists (both needed)
+                const socketFile = Gio.File.new_for_path(socketPath);
+                serverIsRunning = socketFile.query_exists(null);
             }
         } catch (e) {
             this._log(`Server status check failed: ${e.message}`, 'WARN');
@@ -922,6 +921,16 @@ export default class SpeechToTextExtension extends Extension {
         }
     }
 
+    _validateShellArg(value, allowedValues) {
+        // Only allow known-safe values to prevent shell injection
+        if (allowedValues && !allowedValues.includes(value)) {
+            this._log(`Invalid argument value: ${value}`);
+            return allowedValues[0]; // Return safe default
+        }
+        // Additional safety: strip any shell metacharacters
+        return value.replace(/[;&|`$(){}'"\\!#~<>]/g, '');
+    }
+
     _launchWSI() {
         try {
             // If currently in any active state, stop it instead of starting new
@@ -965,8 +974,13 @@ export default class SpeechToTextExtension extends Extension {
             // Build command - wrap in bash if we need to set environment variables
             let command;
             if (this._whisperModel !== 'auto') {
+                // Validate model name against known values before shell interpolation
+                const safeModel = this._validateShellArg(
+                    this._whisperModel,
+                    this._whisperModels.map(m => m[0])
+                );
                 // Need to set WHISPER_MODEL env var - use bash -c
-                command = `/bin/bash -c "WHISPER_MODEL=${this._whisperModel} ${scriptPath}${scriptArgs}"`;
+                command = `/bin/bash -c "WHISPER_MODEL=${safeModel} ${scriptPath}${scriptArgs}"`;
             } else {
                 // Auto mode uses script defaults - no env var needed
                 command = scriptPath + scriptArgs;
@@ -1018,9 +1032,13 @@ export default class SpeechToTextExtension extends Extension {
                 // 'standard' mode has no flag
             }
 
-            // Claude-specific flags with style parameter
+            // Claude-specific flags with style parameter - validate before interpolation
+            const safeClaudeModel = this._validateShellArg(
+                this._claudeModel,
+                this._claudeModels.map(m => m[0])
+            );
             const claudeProcessFlag = ' --claude-process';
-            const claudeModelFlag = ` --claude-model ${this._claudeModel}`;
+            const claudeModelFlag = ` --claude-model ${safeClaudeModel}`;
             const claudeStyleFlag = ` --claude-style ${style}`;
 
             const scriptPath = GLib.get_home_dir() + '/.local/bin/' + script;
@@ -1029,8 +1047,13 @@ export default class SpeechToTextExtension extends Extension {
             // Build command - wrap in bash if we need to set environment variables
             let command;
             if (this._whisperModel !== 'auto') {
+                // Validate model name against known values before shell interpolation
+                const safeModel = this._validateShellArg(
+                    this._whisperModel,
+                    this._whisperModels.map(m => m[0])
+                );
                 // Need to set WHISPER_MODEL env var - use bash -c
-                command = `/bin/bash -c "WHISPER_MODEL=${this._whisperModel} ${scriptPath}${scriptArgs}"`;
+                command = `/bin/bash -c "WHISPER_MODEL=${safeModel} ${scriptPath}${scriptArgs}"`;
             } else {
                 // Auto mode uses script defaults - no env var needed
                 command = scriptPath + scriptArgs;
@@ -1046,7 +1069,7 @@ export default class SpeechToTextExtension extends Extension {
     }
 
     _openClaudePromptEditor() {
-        const promptFile = GLib.get_home_dir() + '/.config/speech-to-text/claude-prompt.txt';
+        const promptFile = GLib.get_home_dir() + '/.config/speech-to-text/claude-prompt-corporate.txt';
 
         // Try to open with default text editor
         try {
@@ -1073,17 +1096,19 @@ export default class SpeechToTextExtension extends Extension {
                 }
             } else {
                 this._log('PID file not found, trying pkill fallback');
+                const binDir = GLib.get_home_dir() + '/.local/bin';
                 // Kill both batch mode and streaming mode processes
                 GLib.spawn_command_line_async('pkill -f "pw-record.*wfile"');
-                GLib.spawn_command_line_async('pkill -f "wsi-stream"');
-                GLib.spawn_command_line_async('pkill -f "wsi$"');
+                GLib.spawn_command_line_async(`pkill -f "${binDir}/wsi-stream"`);
+                GLib.spawn_command_line_async(`pkill -f "${binDir}/wsi --"`);
             }
         } catch (e) {
             this._log(`Stop error: ${e.message}`);
+            const binDir = GLib.get_home_dir() + '/.local/bin';
             // Fallback to pkill - kill both batch and streaming
             GLib.spawn_command_line_async('pkill -f "pw-record.*wfile"');
-            GLib.spawn_command_line_async('pkill -f "wsi-stream"');
-            GLib.spawn_command_line_async('pkill -f "wsi$"');
+            GLib.spawn_command_line_async(`pkill -f "${binDir}/wsi-stream"`);
+            GLib.spawn_command_line_async(`pkill -f "${binDir}/wsi --"`);
         }
     }
 
@@ -1099,8 +1124,9 @@ export default class SpeechToTextExtension extends Extension {
         // Kill the process tree forcefully with SIGKILL to prevent transcription
         try {
             // Kill wsi/wsi-stream and any child processes
-            GLib.spawn_command_line_async('pkill -9 -f "wsi-stream"');
-            GLib.spawn_command_line_async('pkill -9 -f "wsi$"');
+            const binDir = GLib.get_home_dir() + '/.local/bin';
+            GLib.spawn_command_line_async(`pkill -9 -f "${binDir}/wsi-stream"`);
+            GLib.spawn_command_line_async(`pkill -9 -f "${binDir}/wsi --"`);
             GLib.spawn_command_line_async('pkill -9 -f "pw-record.*wfile"');
 
             // Clean up PID file

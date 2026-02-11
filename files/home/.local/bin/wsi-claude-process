@@ -103,7 +103,7 @@ log "Constructed full prompt (${#FULL_PROMPT} chars)"
 
 # Call Claude CLI in headless mode
 log "Calling claude with model=$CLAUDE_MODEL"
-if ! RESULT=$(echo "$FULL_PROMPT" | claude --model "$CLAUDE_MODEL" 2>&1); then
+if ! RESULT=$(echo "$FULL_PROMPT" | claude --model "$CLAUDE_MODEL" 2>>"$LOG_FILE"); then
     log "claude failed: $RESULT"
     error_exit "Claude processing failed"
 fi
