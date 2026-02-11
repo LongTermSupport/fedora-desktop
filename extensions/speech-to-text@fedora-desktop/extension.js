@@ -111,19 +111,7 @@ export default class SpeechToTextExtension extends Extension {
         // Add the box to the indicator
         this._indicator.add_child(this._iconBox);
 
-        // Build the popup menu
-        this._buildMenu();
-
-        // Add to panel
-        Main.panel.addToStatusArea('speech-to-text', this._indicator);
-
-        // Subscribe to DBus signals from wsi script
-        this._subscribeToDBus();
-
-        // Ensure log directory exists
-        this._ensureLogDirectory();
-
-        // Setup keybinding
+        // Setup keybinding and load settings BEFORE building menu
         try {
             const schemaDir = this.path + '/schemas';
             const schemaSource = Gio.SettingsSchemaSource.new_from_directory(
@@ -135,7 +123,7 @@ export default class SpeechToTextExtension extends Extension {
             if (schema) {
                 this._settings = new Gio.Settings({ settings_schema: schema });
 
-                // Load debug setting
+                // Load ALL settings FIRST (before building menu)
                 this._loadDebugSetting();
 
                 this._log('Attempting to add keybinding...');
@@ -184,6 +172,18 @@ export default class SpeechToTextExtension extends Extension {
         } catch (e) {
             Main.notify('STT Error', `Keybinding setup failed: ${e.message}`);
         }
+
+        // Now build the menu AFTER settings are loaded
+        this._buildMenu();
+
+        // Add to panel
+        Main.panel.addToStatusArea('speech-to-text', this._indicator);
+
+        // Subscribe to DBus signals from wsi script
+        this._subscribeToDBus();
+
+        // Ensure log directory exists
+        this._ensureLogDirectory();
 
         // Start server status polling
         this._startServerStatusPolling();
