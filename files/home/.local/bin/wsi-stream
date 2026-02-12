@@ -249,6 +249,9 @@ def check_dependencies():
 def run_claude_processing(text, args):
     """Post-process transcription through Claude Code."""
     log(f"Post-processing through Claude Code (model: {args.claude_model}, style: {args.claude_style})")
+    # Log raw transcription being sent to Claude
+    preview = text[:100] + "..." if len(text) > 100 else text
+    log(f"Raw transcription to Claude ({len(text)} chars): {preview}")
     try:
         cmd = ["wsi-claude-process", "--model", args.claude_model, "--style", args.claude_style]
         if args.debug:

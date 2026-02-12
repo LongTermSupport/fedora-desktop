@@ -309,7 +309,7 @@
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: '0644'
-        force: false  # Don't overwrite if user has customized
+        force: true  # Always overwrite to get latest prompt updates
       loop:
         - claude-prompt-corporate.txt
         - claude-prompt-natural.txt
