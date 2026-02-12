@@ -302,6 +302,21 @@
         group: "{{ user_login }}"
         mode: '0755'
 
+    - name: Backup Existing Claude Prompt Templates (if different from source)
+      ansible.builtin.copy:
+        src: "/home/{{ user_login }}/.config/speech-to-text/{{ item }}"
+        dest: "/home/{{ user_login }}/.config/speech-to-text/{{ item }}.bak"
+        remote_src: true
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+        force: true
+      loop:
+        - claude-prompt-corporate.txt
+        - claude-prompt-natural.txt
+      when: lookup('file', root_dir + '/files/home/.config/speech-to-text/' + item, errors='ignore') != lookup('file', '/home/' + user_login + '/.config/speech-to-text/' + item, errors='ignore')
+      failed_when: false  # Don't fail if file doesn't exist yet
+
     - name: Deploy Claude Prompt Templates
       ansible.builtin.copy:
         src: "{{ root_dir }}/files/home/.config/speech-to-text/{{ item }}"
@@ -309,7 +324,7 @@
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: '0644'
-        force: true  # Always overwrite to get latest prompt updates
+        force: true
       loop:
         - claude-prompt-corporate.txt
         - claude-prompt-natural.txt
