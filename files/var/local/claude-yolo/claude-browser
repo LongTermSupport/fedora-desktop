@@ -36,7 +36,7 @@ done
 # BROWSER MODE: Browser container version
 # IMPORTANT: When modifying the Dockerfile, ALWAYS increment REQUIRED_CONTAINER_VERSION!
 # This ensures users automatically rebuild when critical container changes are made.
-REQUIRED_CONTAINER_VERSION="1.1"
+REQUIRED_CONTAINER_VERSION="1.2"
 
 set -e
 
