@@ -434,6 +434,11 @@ def run_server_mode(args):
     except KeyboardInterrupt:
         log("Interrupted, stopping recording")
 
+    # INSTANT VISUAL FEEDBACK: Change to spinner IMMEDIATELY
+    # This happens BEFORE server cleanup, so user sees instant response to Insert key
+    emit_dbus_signal("StateChanged", "TRANSCRIBING")
+    log("Changed to spinner (instant feedback - processing)")
+
     # Stop recording
     response = send_server_command("STOP")
 
@@ -496,6 +501,7 @@ def run_server_mode(args):
             notify("ERROR", "Clipboard copy failed")
             return 1
 
+    # Send IDLE to clear the spinner and return to normal state
     time.sleep(1)
     emit_dbus_signal("StateChanged", "IDLE")
 
