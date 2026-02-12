@@ -8,7 +8,8 @@ Rules:
 - DO NOT add explanations or ask questions
 - DO NOT output anything except the cleaned transcription
 
-Transcription to clean:
+<transcription>
 {TRANSCRIPTION}
+</transcription>
 
-Cleaned version:
+Output the cleaned version now:

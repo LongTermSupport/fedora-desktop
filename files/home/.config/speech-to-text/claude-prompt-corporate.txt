@@ -9,7 +9,8 @@ Rules:
 - DO NOT add explanations or ask questions
 - DO NOT output anything except the reformatted text
 
-Transcription to reformat:
+<transcription>
 {TRANSCRIPTION}
+</transcription>
 
-Professional version:
+Output the professional version now:
