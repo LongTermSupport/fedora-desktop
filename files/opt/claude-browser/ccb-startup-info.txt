@@ -11,6 +11,7 @@ ENVIRONMENT:
 CAPABILITIES:
 • Control real browsers through Playwright MCP
 • Direct Chrome DevTools Protocol access via chrome-ws CLI
+• Token-efficient browser automation via agent-browser CLI (93% context reduction!)
 • Browsers open on your desktop for visual debugging
 • Full development environment (git, gh, ripgrep, jq, Node.js, Python)
 • GitHub CLI authenticated (can create PRs, issues, etc.)
@@ -21,6 +22,11 @@ CAPABILITIES:
 BROWSER AUTOMATION:
 • Use Playwright MCP tools to control browsers
 • Use chrome-ws for lightweight Chrome DevTools Protocol operations
+• Use agent-browser for token-efficient multi-page acceptance testing (93% context reduction!)
+  - Full help: agent-browser --help
+  - Quick start: agent-browser --headed open https://example.com
+  - Get page refs: agent-browser snapshot -i
+  - Interact: agent-browser click @e5
 • Create acceptance tests interactively
 • Debug and explore web applications visually
 • Scrape and automate web workflows

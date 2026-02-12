@@ -5,7 +5,7 @@ ARG DOCKERFILE_HASH="unknown"
 
 # Metadata
 # IMPORTANT: When modifying this Dockerfile, ALWAYS increment claude-browser-version!
-LABEL claude-browser-version="1.1"
+LABEL claude-browser-version="1.2"
 LABEL claude-browser-dockerfile-hash="${DOCKERFILE_HASH}"
 LABEL description="Claude Code Browser Mode - Isolated container with Playwright MCP for browser automation"
 
@@ -78,6 +78,12 @@ RUN npm install -g playwright && \
 # Playwright MCP server (provides browser automation)
 RUN npm install -g @playwright/mcp@latest
 # Note: Puppeteer MCP server package not available yet, using Playwright only for MVP
+
+# Install agent-browser - Token-efficient browser automation CLI for AI agents
+# Achieves 93% context reduction vs traditional browser automation
+# Perfect for acceptance testing and multi-page automation workflows
+RUN npm install -g agent-browser && \
+    agent-browser install
 
 # Install chrome-ws (Chrome DevTools Protocol CLI tool)
 # Zero-dependency tool for direct browser control via CDP
