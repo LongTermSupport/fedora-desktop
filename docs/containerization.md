@@ -300,6 +300,7 @@ This creates a feature-complete Docker-based `claude-browser` container with:
 - **Full development environment**: git, gh, ripgrep, jq, yq, vim, python
 - **Browser automation**: Chromium, Firefox, WebKit with Playwright
 - **Claude Code + MCP**: Playwright MCP server for browser control
+- **Token-efficient CLI**: agent-browser for 93% context reduction in multi-page flows
 - **Node.js LTS v20**: Latest stable JavaScript runtime
 - **GUI support**: Headed browser windows visible on desktop (Wayland/X11)
 - **Proper isolation**: Container home, no /tmp sharing (secure)
@@ -322,7 +323,30 @@ ccb --token your_token_name
 # - Take screenshots and interact with pages
 # - Write and debug Playwright tests interactively
 # - Browsers appear as visible windows on your desktop
+# - Use agent-browser for token-efficient multi-page automation
 ```
+
+**Browser Automation Tools Available:**
+
+CCB provides multiple browser automation approaches:
+
+**agent-browser (Recommended for multi-page flows):**
+```bash
+# Token-efficient browser automation (93% context reduction)
+agent-browser --help              # Comprehensive built-in docs
+agent-browser --headed open https://example.com
+agent-browser snapshot -i         # Get interactive elements with @refs
+agent-browser click @e5           # Click using reference from snapshot
+agent-browser fill @e3 "test"     # Fill form fields
+agent-browser screenshot page.png # Take screenshots
+```
+
+**Playwright MCP (For complex assertions):**
+- Use MCP tools through Claude Code for full test framework features
+- Better for single-page complex interactions and assertions
+- Higher token usage but more powerful assertions
+
+**Best Practice:** Use agent-browser for exploring and multi-page acceptance tests (avoids context exhaustion), then switch to Playwright MCP for detailed single-page assertions.
 
 **Key Features:**
 

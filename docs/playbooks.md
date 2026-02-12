@@ -123,6 +123,76 @@ Distrobox installation:
 - Auto-shares home directory with containers
 - See [Containerization Guide](containerization.md) for comparison with LXC/Docker
 
+#### play-install-claude-yolo.yml
+Claude Code containerized environments (Docker/Podman-based):
+- **CCY (YOLO Mode)**: General-purpose development container
+- **CCB (Browser Mode)**: Browser automation with Playwright + agent-browser
+- Unified token management (same OAuth tokens for both)
+- Custom Dockerfile support per project
+- Proper isolation with container home directories
+- See [Containerization Guide](containerization.md) for full details
+
+**What's installed:**
+- Both containers: git, gh, ripgrep, jq, yq, vim, python, Node.js 20, Claude Code
+- CCB only: Playwright browsers (Chrome, Chromium, Firefox, WebKit), Playwright MCP, **agent-browser CLI**
+
+**Key features of agent-browser:**
+- 93% context reduction for multi-page flows vs traditional DOM inspection
+- Headed mode support (`--headed` flag) for visual debugging
+- Reference-based selection (`@e1`, `@e2`) from compact accessibility snapshots
+- Perfect complement to Playwright MCP (use agent-browser for exploration, MCP for assertions)
+
+**Usage:**
+```bash
+# Create tokens (shared between ccy and ccb)
+ccy --create-token
+
+# General development
+cd ~/Projects/my-project
+ccy
+
+# Browser automation
+cd ~/Projects/my-project
+ccb
+
+# Inside CCB - use agent-browser for token-efficient automation
+agent-browser --help              # Comprehensive built-in docs
+agent-browser --headed open https://example.com
+agent-browser snapshot -i         # Get @refs for elements
+agent-browser click @e5           # Click using reference
+agent-browser fill @e3 "test"     # Fill form fields
+
+# Or use Playwright MCP through Claude Code for complex assertions
+```
+
+**Token efficiency example:**
+```bash
+# Traditional approach: 100,000+ tokens for 5-page flow
+# agent-browser: ~8,000 tokens for same flow (93% reduction!)
+```
+
+**Installation options:**
+```bash
+# Install both ccy and ccb (recommended)
+ansible-playbook playbooks/imports/optional/common/play-install-claude-yolo.yml
+
+# Install only ccy (skip browser mode)
+ansible-playbook playbooks/imports/optional/common/play-install-claude-yolo.yml -e install_browser_mode=false
+```
+
+**Custom Dockerfiles:**
+```bash
+# AI-guided customization (comprehensive planning)
+ccy --custom-docker  # or: ccb --custom-docker
+
+# Quick template-based customization
+ccy --custom  # or: ccb --custom
+```
+
+**Comparison: CCB vs play-distrobox-playwright:**
+- CCB: Docker-based, proper isolation, agent-browser included, unified with ccy
+- play-distrobox-playwright: Distrobox-based, shared home, no agent-browser
+
 #### play-distrobox-playwright.yml
 Playwright browser testing environment:
 - Creates shared `playwright-tests` container (Ubuntu 22.04)
