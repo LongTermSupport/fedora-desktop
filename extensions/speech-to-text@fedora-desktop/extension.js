@@ -64,6 +64,7 @@ export default class SpeechToTextExtension extends Extension {
         this._flashTimer = null;
         this._flashState = false;
         this._isClaudeMode = false;  // Track if recording is in Claude mode
+        this._claudeStyle = null;  // Track Claude style: 'corporate' or 'natural'
 
         // Whisper model definitions (name, label, size, description)
         this._whisperModels = [
@@ -803,8 +804,11 @@ export default class SpeechToTextExtension extends Extension {
         // Start with green background, white text
         // Note: Don't use 'system-status-icon' style_class - it has max-width that
         // truncates "REC 117" to "REC 1..." in streaming mode
-        // Use different prefix for Claude mode
-        const modePrefix = this._isClaudeMode ? '🤖 REC' : 'REC';
+        // Use different prefix for Claude mode based on style
+        let modePrefix = 'REC';
+        if (this._isClaudeMode) {
+            modePrefix = this._claudeStyle === 'natural' ? '💬 REC' : '🤖 REC';
+        }
         this._countdownLabel = new St.Label({
             text: `${modePrefix} ${this._remainingSeconds}`,
             y_align: 2,  // Clutter.ActorAlign.CENTER
@@ -820,8 +824,11 @@ export default class SpeechToTextExtension extends Extension {
             this._remainingSeconds--;
 
             if (this._countdownLabel) {
-                // Update text with mode prefix
-                const modePrefix = this._isClaudeMode ? '🤖 REC' : 'REC';
+                // Update text with mode prefix based on Claude style
+                let modePrefix = 'REC';
+                if (this._isClaudeMode) {
+                    modePrefix = this._claudeStyle === 'natural' ? '💬 REC' : '🤖 REC';
+                }
                 this._countdownLabel.text = `${modePrefix} ${this._remainingSeconds}`;
 
                 // Update color/style based on time remaining
@@ -943,6 +950,7 @@ export default class SpeechToTextExtension extends Extension {
 
             // Track that this is regular mode (not Claude)
             this._isClaudeMode = false;
+            this._claudeStyle = null;
 
             // Pass debug, clipboard, auto-paste, and wrap-marker flags if enabled
             // Note: auto-enter is ON by default in auto-paste mode, so we pass --no-auto-enter to disable
@@ -1005,8 +1013,9 @@ export default class SpeechToTextExtension extends Extension {
                 return;
             }
 
-            // Track that this is Claude mode
+            // Track that this is Claude mode with specific style
             this._isClaudeMode = true;
+            this._claudeStyle = style;
 
             // Build flags similar to _launchWSI
             const debugFlag = this._debugEnabled ? ' --debug' : '';
