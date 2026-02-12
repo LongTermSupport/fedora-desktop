@@ -10,7 +10,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="1.4"
+LABEL claude-yolo-version="1.5"
 LABEL claude-yolo-dockerfile-hash="${DOCKERFILE_HASH}"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 
@@ -60,9 +60,13 @@ RUN npm install -g @anthropic-ai/claude-code
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
-# Copy startup info file
+# Copy startup info and documentation
 COPY ccy-startup-info.txt /opt/claude-yolo/ccy-startup-info.txt
 RUN chmod 444 /opt/claude-yolo/ccy-startup-info.txt
+
+RUN mkdir -p /opt/claude-yolo/docs
+COPY docs/CUSTOM-DOCKERFILES.txt /opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt
+RUN chmod 444 /opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt
 
 # Set workspace directory
 WORKDIR /workspace

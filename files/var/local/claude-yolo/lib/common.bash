@@ -2,7 +2,7 @@
 # Claude YOLO Common Library
 # Shared helpers for claude-yolo and claude-yolo-browser
 #
-# Version: 1.3.0
+# Version: 1.4.0
 
 # Color codes for consistent output
 readonly COLOR_RESET='\033[0m'
@@ -106,11 +106,13 @@ check_git_repo() {
 # This function:
 # 1. Forces .claude/ccy/.gitignore to exist with correct content (warns if updating)
 # 2. FAILS LOUDLY if any dangerous files are already tracked in git
+# 3. WARNS if Dockerfile exists but is gitignored (won't be shared with team)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 check_ccy_gitignore_safety() {
     local ccy_dir=".claude/ccy"
     local ccy_gitignore="$ccy_dir/.gitignore"
+    local ccy_dockerfile="$ccy_dir/Dockerfile"
 
     # Expected .gitignore content
     local expected_gitignore="# CCY session data - NEVER commit sensitive files
@@ -153,7 +155,9 @@ check_ccy_gitignore_safety() {
     tracked_files=$(git ls-files "$ccy_dir" 2>/dev/null || echo "")
 
     if [ -z "$tracked_files" ]; then
-        return 0  # Nothing tracked, all good
+        # Nothing tracked - check if Dockerfile exists but is being ignored
+        check_dockerfile_gitignored
+        return $?
     fi
 
     # Filter out safe files: .gitignore and Dockerfile
@@ -175,7 +179,9 @@ check_ccy_gitignore_safety() {
     dangerous_files=$(echo "$dangerous_files" | sed '/^$/d')
 
     if [ -z "$dangerous_files" ]; then
-        return 0  # Only safe files tracked
+        # Only safe files tracked - still check if Dockerfile should be tracked
+        check_dockerfile_gitignored
+        return $?
     fi
 
     # ═══════════════════════════════════════════════════════════════════════════
@@ -223,6 +229,77 @@ check_ccy_gitignore_safety() {
     echo "" >&2
 
     return 1
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Check if Dockerfile exists but is gitignored (won't be shared with team)
+# ═══════════════════════════════════════════════════════════════════════════════
+# This is a WARNING, not an error. The project will still work, but team members
+# won't get the custom container configuration.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+check_dockerfile_gitignored() {
+    local ccy_dockerfile=".claude/ccy/Dockerfile"
+
+    # If Dockerfile doesn't exist, nothing to check
+    if [ ! -f "$ccy_dockerfile" ]; then
+        return 0
+    fi
+
+    # Check if Dockerfile is tracked
+    if git ls-files --error-unmatch "$ccy_dockerfile" >/dev/null 2>&1; then
+        # Dockerfile is tracked - all good!
+        return 0
+    fi
+
+    # Check if Dockerfile is gitignored
+    if git check-ignore -q "$ccy_dockerfile" 2>/dev/null; then
+        # Dockerfile exists but is gitignored - WARN but don't fail
+        echo "" >&2
+        echo -e "${COLOR_YELLOW}════════════════════════════════════════════════════════════════════════════════${COLOR_RESET}" >&2
+        echo -e "${COLOR_YELLOW}⚠️  WARNING: Custom Dockerfile is gitignored${COLOR_RESET}" >&2
+        echo -e "${COLOR_YELLOW}════════════════════════════════════════════════════════════════════════════════${COLOR_RESET}" >&2
+        echo "" >&2
+        echo "Your custom Dockerfile won't be shared with your team:" >&2
+        echo "  ${COLOR_RED}✗${COLOR_RESET} $ccy_dockerfile (exists but gitignored)" >&2
+        echo "" >&2
+        echo -e "${COLOR_YELLOW}Why this matters:${COLOR_RESET}" >&2
+        echo "  • Team members won't get your container configuration" >&2
+        echo "  • CI/CD won't have the right environment" >&2
+        echo "  • Container setup is lost when cloning repository" >&2
+        echo "" >&2
+        echo -e "${COLOR_GREEN}To fix (recommended):${COLOR_RESET}" >&2
+        echo "" >&2
+        echo "  # Check what's ignoring it" >&2
+        echo "  git check-ignore -v $ccy_dockerfile" >&2
+        echo "" >&2
+        echo "  # Option 1: Add exception to project .gitignore" >&2
+        echo "  echo '!.claude/ccy/Dockerfile' >> .gitignore" >&2
+        echo "" >&2
+        echo "  # Option 2: Track it explicitly (overrides gitignore)" >&2
+        echo "  git add -f $ccy_dockerfile" >&2
+        echo "" >&2
+        echo "  # Verify it will be tracked" >&2
+        echo "  git ls-files $ccy_dockerfile" >&2
+        echo "" >&2
+        echo -e "${COLOR_BLUE}Safe to track:${COLOR_RESET}" >&2
+        echo "  ✓ .claude/ccy/Dockerfile     (container configuration)" >&2
+        echo "  ✓ .claude/ccy/.gitignore     (protection rules)" >&2
+        echo "" >&2
+        echo -e "${COLOR_RED}NEVER track:${COLOR_RESET}" >&2
+        echo "  ✗ .claude/ccy/.last-launch.conf  (contains token names)" >&2
+        echo "  ✗ .claude/ccy/*                  (session data)" >&2
+        echo "" >&2
+        echo -e "${COLOR_YELLOW}════════════════════════════════════════════════════════════════════════════════${COLOR_RESET}" >&2
+        echo "" >&2
+
+        # This is a warning, not a fatal error
+        return 0
+    fi
+
+    # Dockerfile exists but is neither tracked nor ignored (unusual)
+    # This can happen in a fresh repo before first commit
+    return 0
 }
 
 # Project name extraction

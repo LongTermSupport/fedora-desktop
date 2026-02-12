@@ -13,4 +13,10 @@ CAPABILITIES:
 • Container is ephemeral - for permanent tools, extend the Dockerfile
 • YOLO mode = fast iteration, no permission prompts
 
+CUSTOM DOCKERFILES:
+• Project needs Python 3.12, Go, or other tools? Create a custom Dockerfile!
+• Documentation: cat /opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt
+• Quick setup: On host, run 'ccy --custom-docker' for AI-guided creation
+• Custom Dockerfiles persist in .claude/ccy/Dockerfile (tracked in git)
+
 Your project files are at /workspace. Use git, write code, run tests, create commits and PRs!

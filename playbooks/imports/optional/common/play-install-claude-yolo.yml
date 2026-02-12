@@ -106,6 +106,18 @@
         - scripts
         - entrypoint
 
+    - name: Create Documentation Directory
+      become: true
+      ansible.builtin.file:
+        path: /opt/claude-yolo/docs
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      tags:
+        - scripts
+        - docs
+
     - name: Copy CCY Startup Info File
       become: true
       ansible.builtin.copy:
@@ -116,6 +128,18 @@
         mode: "0644"
       tags:
         - scripts
+
+    - name: Copy Custom Dockerfiles Documentation
+      become: true
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt"
+        dest: /opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt
+        owner: root
+        group: root
+        mode: "0644"
+      tags:
+        - scripts
+        - docs
 
     - name: Copy Custom Dockerfile Templates (Never Overwrite User Changes)
       become: true
