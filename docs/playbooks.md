@@ -172,36 +172,197 @@ Firefox enhancements:
 - Sets up policies from files/etc/firefox/policies/policies.json
 
 #### play-github-cli-multi.yml
-Multi-account GitHub CLI configuration:
-- Configures multiple GitHub accounts
-- Sets up account switching
-- Manages authentication tokens
+Multi-account GitHub CLI management:
+- **Multiple GitHub accounts** (work, personal, open-source, etc.)
+- **SSH keys per account** with account-specific configuration
+- **Bash helper functions** for seamless account switching
+- **Account-specific operations** (clone, remote setup, gh commands)
+
+**Setup process**:
+1. Run playbook (prompts for accounts in format: `alias:username`)
+2. SSH keys generated automatically per account
+3. Authenticate with `gh auth login` for each account
+4. Bash functions available immediately
+
+**Available functions**:
+```bash
+gh-list                    # List all configured accounts
+gh-whoami                  # Show current active account
+gh-status                  # Check authentication status
+gh-switch work             # Switch to work account
+github-test-ssh            # Test SSH for all accounts
+
+# Account-specific commands (example with 'work')
+gh-work pr list            # Run gh CLI as work account
+clone-work owner/repo      # Clone with work account SSH
+remote-work owner/repo     # Set git remote for work account
+gh-token-work              # Get GitHub token
+gh-work-make-default       # Set as default account
+```
+
+**Configuration files**:
+- Account definitions: `environment/localhost/host_vars/localhost.yml`
+- SSH keys: `~/.ssh/github_<alias>` (per account)
+- SSH config: `~/.ssh/config` (separate host blocks)
+- Bash functions: `~/.bashrc-includes/gh-aliases.inc.bash`
+
+**Adding new accounts**: Edit `github_accounts` in host_vars, re-run playbook
+
+**Example workflow**:
+```bash
+# Work on company project
+gh-switch work
+clone-work company/private-repo
+cd private-repo
+gh-work pr create
+
+# Switch to personal project
+gh-switch personal
+clone-personal myusername/hobby-project
+cd hobby-project
+gh-personal issue list
+```
 
 #### play-gnome-shell.yml & play-gnome-shell-extensions.yml
-GNOME desktop customization:
-- Installs shell extensions
-- Configures extension settings
+GNOME desktop customization and extensions:
+
+**System extensions**:
+- **dash-to-dock**: Application dock with customization
+
+**Third-party extensions** (via gnome-shell-extension-installer):
+- **Blur my Shell** (3193): Blur effects for panels and overview
+- **Vitals** (1460): System monitoring (CPU, memory, temperature)
+- **AppIndicator Support** (615): System tray icons
+- **Clipboard Indicator** (779): Clipboard history manager
+- **Just Perfection** (3843): Customize GNOME Shell behaviour
+- **Tiling Shell** (7065): Window tiling and snapping
+- **Space Bar** (5090): Workspace navigation enhancements
+
+**Custom extensions**:
+- **workspace-names-overview**: Show workspace names in overview
+
+**What you get**:
+- Enhanced window management (tiling)
+- System monitoring in top bar
+- Clipboard history access
+- Visual enhancements (blur effects)
+- Better workspace navigation
 
 #### play-golang.yml
 Go programming language:
-- Installs Go compiler and tools
+- Golang compiler and standard tools from DNF repositories
+- Latest stable version for Fedora 42
+
+**What you get**:
+```bash
+go version
+go build
+go test
+go mod init
+```
+
+#### play-rust-dev.yml
+Rust development environment:
+- **Rustup** toolchain manager for Rust version management
+- **Stable toolchain** with automatic updates
+- **Essential components**: rustfmt, clippy, rust-analyzer, rust-src, llvm-tools-preview
+- **cargo-binstall** for faster binary installations
+- **20+ Cargo tools** for development workflow
+
+**Cargo tools installed**:
+- `cargo-watch` - Auto-rebuild on file changes
+- `cargo-edit` - Add/remove/upgrade dependencies from CLI
+- `cargo-audit` - Security vulnerability scanning
+- `cargo-outdated` - Check for outdated dependencies
+- `cargo-expand` - Expand macros (debugging)
+- `cargo-machete` - Find unused dependencies
+- `cargo-nextest` - Next-generation test runner
+- `cargo-deny` - Dependency linting
+- `cargo-tarpaulin` - Code coverage
+
+**What you get**:
+```bash
+# Rust toolchain
+rustc --version
+cargo --version
+rustfmt --version
+cargo clippy --version
+
+# Development workflow
+cargo new my-project
+cd my-project
+cargo watch -x run          # Auto-rebuild
+cargo clippy                # Linting
+cargo audit                 # Security check
+cargo nextest run           # Fast testing
+```
+
+**Cargo configuration optimizations**:
+- Parallel jobs optimized for your CPU
+- Git fetch with shallow clones
+- Sparse registry for faster updates
+
+**System dependencies included**: GCC, CMake, OpenSSL, SQLite, PostgreSQL, MySQL development libraries for common crate compilation
 
 #### play-gsettings.yml
 Desktop settings configuration:
 - Applies custom GNOME settings via gsettings
 
 #### play-hd-audio.yml
-Audio system enhancements:
-- Configures PipeWire for high-quality audio
-- Sets up Bluetooth audio codecs
-- Optimizes audio latency
+High-fidelity audio system:
+- **HD sample rate support**: 44.1kHz, 48kHz, 88.2kHz, 96kHz, 176.4kHz, **192kHz**
+- **Dynamic rate switching**: Automatic based on active audio streams
+- **PipeWire optimization**: Quantum tuning (32-8192) for low latency
+- **Bluetooth codecs**: LDAC (HQ), aptX, aptX-HD, AAC, SBC-XQ
+- **USB audio**: Special handling with larger buffers for DACs
+- **High-quality resampling**: Quality level 10
+
+**What you get**:
+- Studio-quality audio playback up to 192kHz/24-bit
+- LDAC codec for wireless headphones (990kbps)
+- Optimized latency for music production
+- Better Bluetooth headphone compatibility (controller mode: bredr)
+
+**For audiophiles**:
+- Works with external DACs
+- Supports high-resolution audio files (FLAC, DSD)
+- Professional music production capabilities
+- Low-latency monitoring
 
 #### play-python.yml
 Python development environment:
-- Installs Python packages
-- Configures pyenv for version management
-- Sets up PDM package manager
-- Installs Hugging Face tools
+- **pyenv** for Python version management
+- **Python versions**: 3.11.13 (LTS), 3.12.11 (stable), 3.13.1 (latest)
+- **PDM** (Python Dependency Manager) for modern dependency management
+- **pipx** for isolated CLI tool installations
+- **Hugging Face Hub CLI** for ML model management
+- Development dependencies: SDK headers, compression libs, cryptography support
+
+**What you get**:
+```bash
+# Switch Python versions
+pyenv versions
+pyenv global 3.12.11
+
+# PDM workflow
+pdm init
+pdm add requests
+pdm install
+
+# Isolated tools
+pipx install black
+pipx install ruff
+```
+
+**Installed Python versions**:
+- 3.11.13 - Long-term support (recommended for production)
+- 3.12.11 - Current stable (best balance)
+- 3.13.1 - Latest features (experimental)
+
+**Package managers**:
+- pip - Standard (pre-installed with Python)
+- PDM - Modern, fast, PEP-compliant (recommended for new projects)
+- pipx - For installing CLI tools in isolation
 
 #### play-vscode.yml
 Visual Studio Code installation:
@@ -227,6 +388,54 @@ Music streaming:
 - Installs Qobuz CLI tools
 - Configures Last.fm scrobbling
 - Sets up rescrobbled service
+
+#### play-install-terminal-emulators.yml
+Modern high-performance terminal emulators optimized for Claude Code:
+- **Alacritty**: GPU-accelerated, lowest input latency, OpenGL rendering
+- **Kitty**: Feature-rich with native tabs, image protocol, ligature support
+- **Ghostty**: New GTK4 terminal (v1.0 Dec 2025), zero config, hundreds of themes
+- **Foot**: Wayland-native minimalist, 21MB memory, CPU rendering, server/client mode
+
+**Comparison**:
+| Terminal | GPU | Latency | Features | Memory | Best For |
+|----------|-----|---------|----------|--------|----------|
+| Alacritty | ✅ | Lowest | Minimal | ~50MB | Speed, responsiveness |
+| Kitty | ✅ | Low | Rich | ~80MB | Power users, features |
+| Ghostty | ❌ | Low | Balanced | ~40MB | GTK integration, themes |
+| Foot | ❌ | Medium | Minimal | ~20MB | Wayland, efficiency |
+
+All terminals support:
+- True colour (24-bit)
+- Fast rendering
+- Excellent Claude Code performance
+- Customizable via config files
+
+**Usage**:
+```bash
+# Launch your preferred terminal
+alacritty
+kitty
+ghostty
+footclient  # or 'foot' for standalone
+```
+
+#### play-speech-to-text.yml
+GPU-accelerated speech-to-text with AI enhancement:
+- **faster-whisper** with NVIDIA CUDA GPU acceleration
+- **RealtimeSTT** for real-time streaming transcription
+- **Model sizes**: tiny, base, small, medium, large-v3
+- **Claude Code integration**: Professional text formatting (corporate/natural modes)
+- **GNOME Shell extension** with keyboard shortcuts
+- **Auto-paste**: Text types automatically at cursor
+
+**Keyboard shortcuts**:
+- **Insert**: Record and transcribe (raw)
+- **Ctrl+Insert**: Record with corporate AI processing 🤖
+- **Alt+Insert**: Record with natural AI processing 💬
+
+**Requirements**: NVIDIA GPU with drivers installed (`play-nvidia.yml`)
+
+**See comprehensive guide**: [Speech-to-Text Documentation](features/speech-to-text.md)
 
 ### Hardware-Specific
 
