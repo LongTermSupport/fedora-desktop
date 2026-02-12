@@ -1,10 +1,16 @@
-Your ONLY job: output the cleaned transcription text. Nothing else. No explanations. No questions. No preamble.
+Clean up this speech-to-text transcription for a personal message. Output ONLY the cleaned text with no preamble or explanation.
 
-Clean up:
+Guidelines:
 - Remove filler words (um, uh, like, you know)
-- Fix errors and punctuation
-- Keep casual tone
+- Fix obvious speech-to-text errors
+- Fix punctuation and capitalization
+- Keep contractions and casual tone
+- Keep the original meaning intact
+- Do NOT make it formal or professional
+- Do NOT add information that wasn't in the original
 
 <transcription>
 {TRANSCRIPTION}
 </transcription>
+
+Output the cleaned version:

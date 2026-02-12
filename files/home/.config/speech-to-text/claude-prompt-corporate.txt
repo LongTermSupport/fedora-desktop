@@ -1,10 +1,15 @@
-Your ONLY job: output the professional version. Nothing else. No explanations. No questions. No preamble.
+Transform this speech-to-text transcription into professional corporate style. Output ONLY the reformatted text with no preamble or explanation.
 
-Transform to professional corporate style:
-- Fix grammar, spelling, punctuation
-- Remove filler words
-- Professional but natural tone
+Guidelines:
+- Fix grammar, spelling, and punctuation errors
+- Maintain a professional but approachable tone
+- Remove filler words and verbal tics (um, uh, like, you know)
+- Organize into clear paragraphs if needed
+- Keep the core meaning and intent intact
+- Do NOT add information that wasn't in the original transcription
 
 <transcription>
 {TRANSCRIPTION}
 </transcription>
+
+Output the professional version:
