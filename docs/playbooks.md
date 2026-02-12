@@ -166,10 +166,19 @@ ccy-browser
 ```
 
 #### play-firefox.yml
-Firefox enhancements:
-- Installs Firefox package
-- Installs Firefox Profile Switcher Connector
-- Sets up policies from files/etc/firefox/policies/policies.json
+Firefox with enterprise policies:
+- Firefox browser from DNF
+- **Firefox Profile Switcher Connector** for multi-profile management
+- **Enterprise policies** via `/etc/firefox/policies/policies.json`
+
+**What policies control**:
+- Default homepage and search engine
+- Extension installation sources
+- Privacy and security settings
+- Update behaviour
+- Developer tools access
+
+**Customizing policies**: Edit `files/etc/firefox/policies/policies.json` in repository, re-run playbook
 
 #### play-github-cli-multi.yml
 Multi-account GitHub CLI management:
@@ -366,28 +375,93 @@ pipx install ruff
 
 #### play-vscode.yml
 Visual Studio Code installation:
-- Adds Microsoft repository
-- Installs VS Code
+- Adds Microsoft's official Fedora repository
+- Installs VS Code with GPG key verification
+- Latest stable version
+
+**Recommended extensions** (install via VS Code):
+- Python: ms-python.python
+- Rust: rust-lang.rust-analyzer
+- Go: golang.go
+- GitLens: eamodio.gitlens
+- Claude Code: Anthropic's official extension
 
 #### play-vpn.yml
 VPN client setup:
-- Installs WireGuard tools
-- Configures VPN connections
+- **WireGuard** tools and NetworkManager integration
+- **OpenVPN** firewall rules
+- Network profile importing
+
+**Usage**:
+```bash
+# Import WireGuard config
+nmcli connection import type wireguard file vpn-config.conf
+
+# Connect
+nmcli connection up vpn-name
+
+# Disconnect
+nmcli connection down vpn-name
+```
 
 #### play-cloudflare-warp.yml
-Cloudflare WARP client:
-- Installs WARP VPN client
+Cloudflare WARP zero-trust VPN:
+- Cloudflare WARP client from official repository
+- **DNS over HTTPS** with malware filtering
+- **systemd-resolved** integration
+- Automatic registration and connection
+
+**Features**:
+- Zero-trust network access
+- 1.1.1.1 DNS with privacy
+- Malware and tracking protection
+- Faster internet (optimized routing)
 
 #### play-lastpass.yml
-Password manager:
-- Installs LastPass CLI
-- Configures accounts
+LastPass CLI password manager:
+- LastPass command-line interface
+- **Single or multi-account** support
+- Account-specific aliases (lpass-work, lpass-personal)
+
+**Setup** (prompted during playbook):
+- Single account: Simple setup
+- Multiple accounts: Define aliases (e.g., `work,personal`)
+
+**Usage**:
+```bash
+# Single account
+lpass login user@example.com
+lpass show github
+lpass logout
+
+# Multi-account
+lpass-work login work@company.com
+lpass-personal login me@gmail.com
+lpass-status  # Check all accounts
+```
 
 #### play-qobuz-cli.yml
-Music streaming:
-- Installs Qobuz CLI tools
-- Configures Last.fm scrobbling
-- Sets up rescrobbled service
+Qobuz high-fidelity music streaming:
+- **hifi-rs**: Rust-based Qobuz player
+- **qobuz-player**: Enhanced fork with web interface (default)
+- **rescrobbled**: Last.fm scrobbling systemd service
+- Configurable default player via environment variable
+
+**Shell functions**:
+```bash
+play [album/track]    # Play with default player
+hplay [album/track]   # Force hifi-rs player
+qplay [album/track]   # Force qobuz-player
+qobuz_switch          # Switch default player
+qobuz_web             # Open web interface
+qobuz_status          # Show current player
+```
+
+**Features**:
+- High-resolution audio streaming (up to 24-bit/192kHz)
+- Web interface for qobuz-player (http://localhost:port)
+- Last.fm scrobbling integration
+- Playlist support with shuffle
 
 #### play-install-terminal-emulators.yml
 Modern high-performance terminal emulators optimized for Claude Code:
