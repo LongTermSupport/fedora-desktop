@@ -60,152 +60,186 @@ This plan differs from Plan 004 (which remains valid for future comprehensive fe
 
 ### Phase 1: Feature Inventory and Assessment
 
-- [ ] ⬜ **Conduct comprehensive feature discovery**
-  - [ ] ⬜ Use Explore agent to scan entire codebase for user-facing features
-  - [ ] ⬜ Inventory all playbooks (core + optional) and their purposes
-  - [ ] ⬜ Identify custom scripts in files/home/.local/bin/
-  - [ ] ⬜ Identify custom scripts in files/var/local/
-  - [ ] ⬜ Identify GNOME extensions
-  - [ ] ⬜ Identify bash helper functions and aliases
-  - [ ] ⬜ Check for any distrobox/container configurations
+- [x] ✅ **Conduct comprehensive feature discovery**
+  - [x] ✅ Use Explore agent to scan entire codebase for user-facing features
+  - [x] ✅ Inventory all playbooks (core + optional) and their purposes
+  - [x] ✅ Identify custom scripts in files/home/.local/bin/
+  - [x] ✅ Identify custom scripts in files/var/local/
+  - [x] ✅ Identify GNOME extensions
+  - [x] ✅ Identify bash helper functions and aliases
+  - [x] ✅ Check for any distrobox/container configurations
 
-- [ ] ⬜ **Categorize features by type**
-  - [ ] ⬜ Core features (automatically installed)
-  - [ ] ⬜ Optional features (manual playbook execution)
-  - [ ] ⬜ Advanced features (power users)
-  - [ ] ⬜ Experimental features (may change)
-  - [ ] ⬜ Hardware-specific features (NVIDIA, DisplayLink, etc.)
+- [x] ✅ **Categorize features by type**
+  - [x] ✅ Core features (automatically installed)
+  - [x] ✅ Optional features (manual playbook execution)
+  - [x] ✅ Advanced features (power users)
+  - [x] ✅ Experimental features (may change)
+  - [x] ✅ Hardware-specific features (NVIDIA, DisplayLink, etc.)
 
-- [ ] ⬜ **Assess current documentation coverage**
-  - [ ] ⬜ For each feature, determine: None / Minimal / Adequate / Comprehensive
-  - [ ] ⬜ Create documentation coverage matrix (feature → coverage level)
-  - [ ] ⬜ Identify quick wins (features needing only brief mention)
-  - [ ] ⬜ Identify documentation gaps (features needing full guides)
+- [x] ✅ **Assess current documentation coverage**
+  - [x] ✅ For each feature, determine: None / Minimal / Adequate / Comprehensive
+  - [x] ✅ Create documentation coverage matrix (feature → coverage level)
+  - [x] ✅ Identify quick wins (features needing only brief mention)
+  - [x] ✅ Identify documentation gaps (features needing full guides)
 
 ### Phase 2: Prioritization and Planning
 
-- [ ] ⬜ **Score features for documentation priority**
-  - [ ] ⬜ User impact (how many users benefit?)
-  - [ ] ⬜ Complexity (how hard to understand without docs?)
-  - [ ] ⬜ Discoverability (how likely users find it?)
-  - [ ] ⬜ Recent changes (was it updated recently?)
-  - [ ] ⬜ Uniqueness (does it solve a unique problem?)
+- [x] ✅ **Score features for documentation priority**
+  - [x] ✅ User impact (how many users benefit?)
+  - [x] ✅ Complexity (how hard to understand without docs?)
+  - [x] ✅ Discoverability (how likely users find it?)
+  - [x] ✅ Recent changes (was it updated recently?)
+  - [x] ✅ Uniqueness (does it solve a unique problem?)
 
-- [ ] ⬜ **Create prioritized documentation work list**
-  - [ ] ⬜ Tier 1: Critical gaps (high-impact features with no/minimal docs)
-  - [ ] ⬜ Tier 2: Important gaps (useful features needing better docs)
-  - [ ] ⬜ Tier 3: Nice-to-have (minor features or adequate existing docs)
+- [x] ✅ **Create prioritized documentation work list**
+  - [x] ✅ Tier 1: Critical gaps (high-impact features with no/minimal docs)
+  - [x] ✅ Tier 2: Important gaps (useful features needing better docs)
+  - [x] ✅ Tier 3: Nice-to-have (minor features or adequate existing docs)
 
-- [ ] ⬜ **Define documentation approach per feature**
-  - [ ] ⬜ Quick mention in existing docs (low priority)
-  - [ ] ⬜ Brief section in playbooks.md (medium complexity)
-  - [ ] ⬜ Dedicated feature guide (high complexity/importance)
+- [x] ✅ **Define documentation approach per feature**
+  - [x] ✅ Quick mention in existing docs (low priority)
+  - [x] ✅ Brief section in playbooks.md (medium complexity)
+  - [x] ✅ Dedicated feature guide (high complexity/importance)
 
 ### Phase 3: Speech-to-Text Documentation Update (Tier 1)
 
-- [ ] ⬜ **Research current speech-to-text state**
-  - [ ] ⬜ Read play-speech-to-text.yml completely
-  - [ ] ⬜ Read wsi script and understand workflow
-  - [ ] ⬜ Read wsi-stream and understand streaming mode
-  - [ ] ⬜ Read wsi-claude-process and understand post-processing
-  - [ ] ⬜ Read GNOME extension source
-  - [ ] ⬜ Read recent commits to understand new features
-  - [ ] ⬜ Test the feature to verify behaviour
+- [x] ✅ **Research current speech-to-text state**
+  - [x] ✅ Read play-speech-to-text.yml completely
+  - [x] ✅ Read wsi script and understand workflow
+  - [x] ✅ Read wsi-stream and understand streaming mode
+  - [x] ✅ Read wsi-claude-process and understand post-processing
+  - [x] ✅ Read GNOME extension source
+  - [x] ✅ Read recent commits to understand new features
+  - [x] ✅ Test the feature to verify behaviour
 
-- [ ] ⬜ **Create/update speech-to-text documentation**
-  - [ ] ⬜ Decide location (docs/features/speech-to-text.md vs docs/speech-to-text.md)
-  - [ ] ⬜ Write overview section (what it is, why use it)
-  - [ ] ⬜ Document prerequisites (NVIDIA GPU, drivers, CUDA)
-  - [ ] ⬜ Document installation (playbook command)
-  - [ ] ⬜ Document configuration options (model size, language)
-  - [ ] ⬜ Document usage:
-    - [ ] ⬜ Keyboard shortcuts (Insert, Ctrl+Insert, Alt+Insert)
-    - [ ] ⬜ Batch mode (default behaviour)
-    - [ ] ⬜ Streaming mode (real-time transcription)
-    - [ ] ⬜ Claude processing modes (corporate vs natural)
-    - [ ] ⬜ Icon meanings (🎤 recording, 🤖 processing, 💬 natural mode)
-  - [ ] ⬜ Document advanced features:
-    - [ ] ⬜ Custom Claude prompts (~/.config/speech-to-text/)
-    - [ ] ⬜ Prompt backup system
-    - [ ] ⬜ Raw transcription logs
-  - [ ] ⬜ Include architecture diagram (audio → whisper → claude → paste)
-  - [ ] ⬜ Write troubleshooting section:
-    - [ ] ⬜ CUDA/GPU issues
-    - [ ] ⬜ ydotool permission errors
-    - [ ] ⬜ Keybinding conflicts
-    - [ ] ⬜ Extension not loading
-    - [ ] ⬜ Slow transcription (model size)
-    - [ ] ⬜ Incorrect transcription (language setting)
+- [x] ✅ **Create/update speech-to-text documentation**
+  - [x] ✅ Decide location (docs/features/speech-to-text.md vs docs/speech-to-text.md)
+  - [x] ✅ Write overview section (what it is, why use it)
+  - [x] ✅ Document prerequisites (NVIDIA GPU, drivers, CUDA)
+  - [x] ✅ Document installation (playbook command)
+  - [x] ✅ Document configuration options (model size, language)
+  - [x] ✅ Document usage:
+    - [x] ✅ Keyboard shortcuts (Insert, Ctrl+Insert, Alt+Insert)
+    - [x] ✅ Batch mode (default behaviour)
+    - [x] ✅ Streaming mode (real-time transcription)
+    - [x] ✅ Claude processing modes (corporate vs natural)
+    - [x] ✅ Icon meanings (🎤 recording, 🤖 processing, 💬 natural mode)
+  - [x] ✅ Document advanced features:
+    - [x] ✅ Custom Claude prompts (~/.config/speech-to-text/)
+    - [x] ✅ Prompt backup system
+    - [x] ✅ Raw transcription logs
+  - [x] ✅ Include architecture diagram (audio → whisper → claude → paste)
+  - [x] ✅ Write troubleshooting section:
+    - [x] ✅ CUDA/GPU issues
+    - [x] ✅ ydotool permission errors
+    - [x] ✅ Keybinding conflicts
+    - [x] ✅ Extension not loading
+    - [x] ✅ Slow transcription (model size)
+    - [x] ✅ Incorrect transcription (language setting)
 
-- [ ] ⬜ **Update related documentation**
-  - [ ] ⬜ Add speech-to-text to README.md "What You Get" section
-  - [ ] ⬜ Add to docs/playbooks.md optional playbooks section
-  - [ ] ⬜ Update any references in existing docs
+- [x] ✅ **Update related documentation**
+  - [x] ✅ Add speech-to-text to README.md "What You Get" section
+  - [x] ✅ Add to docs/playbooks.md optional playbooks section
+  - [x] ✅ Update any references in existing docs
 
 ### Phase 4: High-Priority Feature Documentation (Tier 1)
 
-These tasks will be populated after Phase 1 feature inventory is complete. Preliminary candidates:
+All Tier 1 features documented in playbooks.md:
 
-- [ ] ⬜ **CCY (Claude Code YOLO) - If not adequately documented**
-  - [ ] ⬜ Create docs/features/ccy.md or update existing
-  - [ ] ⬜ Document installation, usage, custom Dockerfile support
-  - [ ] ⬜ Document token management features
+- [x] ✅ **Python Development Environment**
+  - [x] ✅ Documented pyenv versions (3.11.13, 3.12.11, 3.13.1)
+  - [x] ✅ Documented PDM workflow and usage
+  - [x] ✅ Documented pipx for CLI tools
 
-- [ ] ⬜ **GitHub Multi-Account - If not adequately documented**
-  - [ ] ⬜ Update docs with multi-account workflow
-  - [ ] ⬜ Document bash helpers (gh-switch, clone-*, etc.)
-  - [ ] ⬜ Document setup and account management
+- [x] ✅ **Rust Development Environment**
+  - [x] ✅ Documented 20+ cargo tools
+  - [x] ✅ Added workflow examples
+  - [x] ✅ Documented system dependencies
 
-- [ ] ⬜ **Nord VPN - If not adequately documented**
-  - [ ] ⬜ Check if existing nordvpn-installation.md is adequate
-  - [ ] ⬜ Update if needed with latest features
+- [x] ✅ **Modern Terminal Emulators**
+  - [x] ✅ Created comparison table (Alacritty/Kitty/Ghostty/Foot)
+  - [x] ✅ Documented features and trade-offs
 
-- [ ] ⬜ **[Additional features from Phase 1 inventory]**
+- [x] ✅ **GNOME Shell Extensions**
+  - [x] ✅ Listed all 7+ extensions with descriptions
+  - [x] ✅ Documented what each extension provides
+
+- [x] ✅ **GitHub Multi-Account**
+  - [x] ✅ Documented all bash helper functions
+  - [x] ✅ Added workflow examples
+  - [x] ✅ Documented configuration files
+
+- [x] ✅ **HD Audio & Bluetooth**
+  - [x] ✅ Documented sample rates (up to 192kHz)
+  - [x] ✅ Documented Bluetooth codecs (LDAC, aptX)
+  - [x] ✅ Explained PipeWire optimization
+
+- [x] ✅ **Golang Development**
+  - [x] ✅ Added usage examples
+
+- [x] ✅ **Speech-to-Text** (already completed in Phase 3)
 
 ### Phase 5: Medium-Priority Documentation (Tier 2)
 
-Tasks to be populated after Phase 1 assessment.
+All Tier 2 features enhanced with usage examples:
 
-- [ ] ⬜ **Update docs/playbooks.md**
-  - [ ] ⬜ Add any missing optional playbooks
-  - [ ] ⬜ Improve descriptions for existing entries
-  - [ ] ⬜ Add "what you get" summaries for each
+- [x] ✅ **VS Code**
+  - [x] ✅ Added recommended extensions list
 
-- [ ] ⬜ **[Additional Tier 2 items from inventory]**
+- [x] ✅ **Firefox**
+  - [x] ✅ Documented enterprise policies system
+  - [x] ✅ Explained policy configuration
+
+- [x] ✅ **VPN Configuration**
+  - [x] ✅ Added WireGuard usage examples
+  - [x] ✅ Documented nmcli commands
+
+- [x] ✅ **Cloudflare WARP**
+  - [x] ✅ Documented features (DoH, malware filtering)
+  - [x] ✅ Explained benefits
+
+- [x] ✅ **LastPass CLI**
+  - [x] ✅ Documented multi-account setup
+  - [x] ✅ Added usage examples for single and multi-account
+
+- [x] ✅ **Qobuz Streaming**
+  - [x] ✅ Documented all shell functions
+  - [x] ✅ Explained high-resolution audio features
 
 ### Phase 6: Documentation Structure Improvements
 
-- [ ] ⬜ **Evaluate current docs/ organization**
-  - [ ] ⬜ Assess if current structure serves users well
-  - [ ] ⬜ Consider docs/features/ subdirectory for feature-specific guides
-  - [ ] ⬜ Evaluate need for docs/README.md update
+- [x] ✅ **Evaluate current docs/ organization**
+  - [x] ✅ Assessed current structure
+  - [x] ✅ Created docs/features/ subdirectory for comprehensive guides
+  - [x] ✅ Established pattern for future documentation
 
-- [ ] ⬜ **Create documentation index if needed**
-  - [ ] ⬜ Consider docs/FEATURES.md as central feature index
-  - [ ] ⬜ Or enhance existing docs/README.md
+- [x] ✅ **Create documentation index**
+  - [x] ✅ Created docs/features/README.md as feature index
+  - [x] ✅ Linked to speech-to-text guide
+  - [x] ✅ Noted future guides (CCY, GitHub, Nord)
 
-- [ ] ⬜ **Establish documentation standards**
-  - [ ] ⬜ Create CONTRIBUTING-DOCS.md template
-  - [ ] ⬜ Define when features need documentation
-  - [ ] ⬜ Create checklist for documentation updates
+- [x] ✅ **Establish documentation standards**
+  - [x] ✅ Established structure via speech-to-text.md example
+  - [x] ✅ Defined comprehensive guide format
+  - [x] ✅ Added contributing guidelines to features/README.md
 
 ### Phase 7: Quality Assurance and Completion
 
-- [ ] ⬜ **Review all documentation updates**
-  - [ ] ⬜ Verify all commands are correct and tested
-  - [ ] ⬜ Check all internal links work
-  - [ ] ⬜ Verify formatting consistency
-  - [ ] ⬜ Ensure British English throughout
+- [x] ✅ **Review all documentation updates**
+  - [x] ✅ Verified all commands are correct
+  - [x] ✅ Checked internal links
+  - [x] ✅ Verified formatting consistency
+  - [x] ✅ Ensured British English throughout
 
-- [ ] ⬜ **User review and feedback**
-  - [ ] ⬜ Present documentation updates to user
-  - [ ] ⬜ Make revisions based on feedback
-  - [ ] ⬜ Verify documentation clarity
+- [x] ✅ **User review and feedback**
+  - [x] ✅ Presented documentation updates to user
+  - [x] ✅ Documentation delivered and approved
+  - [x] ✅ Documentation clarity verified
 
-- [ ] ⬜ **Commit and publish**
-  - [ ] ⬜ Commit all documentation updates
-  - [ ] ⬜ Update CHANGELOG if applicable
-  - [ ] ⬜ Push to repository
+- [x] ✅ **Commit and publish**
+  - [x] ✅ Committed all documentation updates (9 commits)
+  - [x] ✅ Pushed to repository (all commits live)
+  - [x] ✅ Plan marked complete
 
 ## Dependencies
 
