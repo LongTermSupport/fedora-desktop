@@ -48,6 +48,9 @@ audio_feed_thread = None      # Thread that reads audio chunks and feeds to reco
 audio_feed_stop = None        # threading.Event to signal the feeding thread to stop
 transcription_text = ""       # Accumulated transcription from realtime callbacks
 transcription_lock = threading.Lock()  # Protects transcription_text from concurrent access
+active_client_addr = None     # Address of client that started current recording (for disconnect detection)
+watchdog_timer = None         # Timer that enforces maximum recording duration (Layer 3 protection)
+WATCHDOG_TIMEOUT = 125        # Maximum recording duration (5 seconds buffer beyond client timeout)
 
 
 def log(message, level="INFO"):
@@ -191,6 +194,32 @@ def audio_feeding_thread_func(proc, stop_event):
         log(f"Audio feeding thread exiting (fed {chunks_fed} chunks total)")
 
 
+def watchdog_timeout_handler():
+    """LAYER 3 PROTECTION: Watchdog timer callback - force stop if recording runs too long.
+
+    This is the last line of defense against microphone resource leaks.
+    If the client crashes, disconnects, or fails to send STOP within the timeout,
+    this timer will forcibly stop the recording pipeline.
+    """
+    global recording_active, active_client_addr, watchdog_timer
+
+    log("LAYER 3 PROTECTION: Watchdog timeout triggered", "WARN")
+    log(f"Recording exceeded {WATCHDOG_TIMEOUT}s without STOP - forcing cleanup")
+
+    if recording_active:
+        try:
+            stop_recording_pipeline()
+            recording_active = False
+            active_client_addr = None
+            log("Watchdog: Recording pipeline stopped successfully")
+        except Exception as e:
+            log(f"Watchdog: Error during forced stop: {e}", "ERROR")
+    else:
+        log("Watchdog: Recording already stopped (false alarm)")
+
+    watchdog_timer = None
+
+
 def stop_recording_pipeline():
     """Stop the active recording pipeline and clean up all resources.
 
@@ -244,9 +273,27 @@ def stop_recording_pipeline():
         except Exception as e:
             log(f"Error stopping recorder: {e}", "WARN")
 
-    # Step 5: Give the realtime transcription worker a brief moment to deliver
-    # any final callback before we read the accumulated text
-    time.sleep(0.3)
+    # Step 5: Wait for final transcription to complete
+    # Poll transcription_text until it stops updating (max 2 seconds)
+    # This ensures we capture the last spoken words
+    last_text = ""
+    stable_count = 0
+    max_polls = 20  # 20 * 0.1s = 2 seconds max
+
+    for _ in range(max_polls):
+        time.sleep(0.1)
+        with transcription_lock:
+            current_text = transcription_text
+
+        if current_text == last_text:
+            stable_count += 1
+            if stable_count >= 3:  # Stable for 0.3s
+                break
+        else:
+            stable_count = 0
+            last_text = current_text
+
+    log(f"Final transcription stabilized after {(_ + 1) * 0.1:.1f}s")
 
     # Step 6: Retrieve accumulated transcription text
     with transcription_lock:
@@ -272,7 +319,7 @@ def handle_start_command(client_socket, params):
     The audio pipeline:
       microphone -> pw-record (16kHz mono S16_LE) -> feeding thread -> recorder.feed_audio() -> realtime callback -> transcription_text
     """
-    global recording_active
+    global recording_active, active_client_addr
     global audio_process, audio_feed_thread, audio_feed_stop, transcription_text
 
     update_activity()
@@ -292,6 +339,13 @@ def handle_start_command(client_socket, params):
         return
 
     log("START command received - beginning recording")
+
+    # Track the client that started this recording (for disconnect detection)
+    try:
+        active_client_addr = client_socket.getpeername()
+        log(f"Tracking client: {active_client_addr}")
+    except Exception:
+        active_client_addr = "unknown"
 
     # Reset transcription accumulator for this new recording session
     with transcription_lock:
@@ -379,6 +433,14 @@ def handle_start_command(client_socket, params):
 
     recording_active = True
 
+    # LAYER 3 PROTECTION: Start watchdog timer
+    # If client crashes or fails to send STOP, this will force cleanup
+    global watchdog_timer
+    watchdog_timer = threading.Timer(WATCHDOG_TIMEOUT, watchdog_timeout_handler)
+    watchdog_timer.daemon = True
+    watchdog_timer.start()
+    log(f"Watchdog timer started ({WATCHDOG_TIMEOUT}s timeout)")
+
     send_response(client_socket, {
         "status": "recording",
         "message": "Recording started"
@@ -392,7 +454,7 @@ def handle_stop_command(client_socket, params):
     finalizes transcription via recorder.stop(), and returns the accumulated
     transcription text to the client.
     """
-    global recording_active
+    global recording_active, active_client_addr, watchdog_timer
 
     update_activity()
 
@@ -405,10 +467,17 @@ def handle_stop_command(client_socket, params):
 
     log("STOP command received - stopping recording")
 
+    # Cancel watchdog timer since we're stopping gracefully
+    if watchdog_timer:
+        watchdog_timer.cancel()
+        watchdog_timer = None
+        log("Watchdog timer cancelled (graceful stop)")
+
     # Stop the entire recording pipeline and get the transcribed text
     text = stop_recording_pipeline()
 
     recording_active = False
+    active_client_addr = None
 
     log(f"Recording stopped, transcription: '{text}' ({len(text)} chars)")
 
@@ -453,10 +522,26 @@ def send_response(client_socket, data):
 
 def handle_client(client_socket):
     """Handle a client connection."""
+    global recording_active, active_client_addr
+
+    client_addr = None
+    try:
+        client_addr = client_socket.getpeername()
+    except Exception:
+        client_addr = "unknown"
+
     try:
         # Read command from client
         data = client_socket.recv(4096).decode().strip()
         if not data:
+            log(f"Client {client_addr} disconnected (empty data)")
+            # Check if this is the active recording client
+            if recording_active and client_addr == active_client_addr:
+                log("LAYER 2 PROTECTION: Active recording client disconnected without STOP", "WARN")
+                log("Automatically stopping recording pipeline to release microphone")
+                stop_recording_pipeline()
+                recording_active = False
+                active_client_addr = None
             return
 
         try:
@@ -471,7 +556,7 @@ def handle_client(client_socket):
         cmd_type = command.get("command")
         params = command.get("params", {})
 
-        log(f"Received command: {cmd_type}")
+        log(f"Received command: {cmd_type} from {client_addr}")
 
         # Dispatch to handler
         if cmd_type == "START":
@@ -488,8 +573,18 @@ def handle_client(client_socket):
                 "message": f"Unknown command: {cmd_type}"
             })
 
+    except (ConnectionResetError, BrokenPipeError) as e:
+        log(f"Client {client_addr} connection lost: {e}", "WARN")
+        # LAYER 2 PROTECTION: Client crashed or was killed
+        if recording_active and client_addr == active_client_addr:
+            log("LAYER 2 PROTECTION: Active recording client lost connection", "WARN")
+            log("Automatically stopping recording pipeline to release microphone")
+            stop_recording_pipeline()
+            recording_active = False
+            active_client_addr = None
+
     except Exception as e:
-        log(f"Error handling client: {e}", "ERROR")
+        log(f"Error handling client {client_addr}: {e}", "ERROR")
 
     finally:
         try:
@@ -515,7 +610,7 @@ cleanup_done = False
 
 def cleanup():
     """Cleanup on exit."""
-    global recorder, recording_active, cleanup_done
+    global recorder, recording_active, cleanup_done, watchdog_timer, active_client_addr
 
     if cleanup_done:
         return
@@ -523,11 +618,18 @@ def cleanup():
 
     log("Server shutting down - cleaning up")
 
+    # Cancel watchdog timer if running
+    if watchdog_timer:
+        watchdog_timer.cancel()
+        watchdog_timer = None
+        log("Watchdog timer cancelled (server shutdown)")
+
     # If a recording is active, stop the pipeline first
     if recording_active:
         log("Active recording detected during shutdown - stopping pipeline")
         stop_recording_pipeline()
         recording_active = False
+        active_client_addr = None
 
     # Shutdown recorder (releases model memory and audio resources)
     if recorder:
@@ -591,6 +693,32 @@ def main():
     # Register signal handlers
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
+
+    # SINGLETON ENFORCEMENT: Check if another instance is already running
+    if PID_FILE.exists():
+        try:
+            existing_pid = int(PID_FILE.read_text().strip())
+            # Check if that PID is actually running
+            try:
+                os.kill(existing_pid, 0)  # Signal 0 just checks if process exists
+                # Process exists - another instance is running
+                log(f"ERROR: Server already running (PID {existing_pid})", "ERROR")
+                log(f"PID file: {PID_FILE}", "ERROR")
+                log("To force restart, kill the existing server first:", "ERROR")
+                log(f"  kill {existing_pid}", "ERROR")
+                sys.exit(1)
+            except OSError:
+                # Process doesn't exist - stale PID file
+                log(f"Removing stale PID file (PID {existing_pid} not running)", "WARN")
+                PID_FILE.unlink()
+        except (ValueError, OSError) as e:
+            log(f"Invalid PID file, removing: {e}", "WARN")
+            PID_FILE.unlink()
+
+    # Check if socket already exists (shouldn't happen but be safe)
+    if SOCKET_PATH.exists():
+        log(f"Removing stale socket: {SOCKET_PATH}", "WARN")
+        SOCKET_PATH.unlink()
 
     # Write PID file
     try:

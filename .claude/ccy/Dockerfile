@@ -57,6 +57,12 @@ RUN wget -qO /tmp/ripgrep.deb https://github.com/BurntSushi/ripgrep/releases/dow
 # Install Ansible collections required by the project
 RUN ansible-galaxy collection install community.general ansible.posix
 
+# Create mount points for read-only host filesystem access (debugging)
+# These will be bound at runtime via CCY --extra-mounts flag
+RUN mkdir -p /host-debug-logs \
+             /host-bin \
+             /host-config
+
 # Verify installations
 RUN ansible --version && \
     ansible-lint --version && \

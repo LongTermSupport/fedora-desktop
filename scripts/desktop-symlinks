@@ -1,0 +1,83 @@
+#!/bin/bash
+# CCY Read-Only Mount Wrapper
+#
+# Launches CCY container with read-only bind mounts to host debug files.
+# This provides safe, read-only access to logs and scripts for debugging.
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+echo "=== CCY with Read-Only Debug Mounts ==="
+echo
+
+# Check if we're already in CCY container
+if [ -d "/workspace" ] && [ "$PWD" = "/workspace" ]; then
+    echo "✓ ALREADY IN CCY CONTAINER"
+    echo
+    echo "Available read-only mounts:"
+    echo "  /host-debug-logs/  → ~/.local/share/speech-to-text/"
+    echo "  /host-bin/         → ~/.local/bin/"
+    echo "  /host-config/      → ~/.config/speech-to-text/"
+    echo
+    echo "Usage:"
+    echo "  tail -f /host-debug-logs/debug.log          # Watch STT logs"
+    echo "  cat /host-bin/wsi-stream                    # Read deployed script"
+    echo "  ls -la /host-config/                        # View STT config"
+    echo
+    exit 0
+fi
+
+# We're on host - prepare to launch CCY with extra mounts
+echo "Preparing to launch CCY with debug mounts..."
+echo
+
+# Detect container engine
+if command -v podman &>/dev/null; then
+    CONTAINER_CMD="podman"
+elif command -v docker &>/dev/null; then
+    CONTAINER_CMD="docker"
+else
+    echo "ERROR: Neither podman nor docker found"
+    exit 1
+fi
+
+echo "Using: $CONTAINER_CMD"
+echo
+
+# Define the mounts we want (read-only)
+EXTRA_MOUNTS=(
+    "-v" "$HOME/.local/share/speech-to-text:/host-debug-logs:ro"
+    "-v" "$HOME/.local/bin:/host-bin:ro"
+    "-v" "$HOME/.config/speech-to-text:/host-config:ro"
+)
+
+echo "Read-only mounts:"
+for mount in "${EXTRA_MOUNTS[@]}"; do
+    if [[ "$mount" == "-v" ]]; then
+        continue
+    fi
+    echo "  $mount"
+done
+echo
+
+# Find CCY command
+if ! command -v ccy &>/dev/null; then
+    echo "ERROR: 'ccy' command not found in PATH"
+    echo
+    echo "CCY should be installed at: /var/local/claude-yolo/claude-yolo"
+    echo "Try running: sudo ansible-playbook playbooks/imports/optional/common/play-install-claude-yolo.yml"
+    exit 1
+fi
+
+echo "Launching CCY with extra mounts..."
+echo "Note: This modifies the container launch temporarily"
+echo
+
+# Export environment variable that CCY can check for extra mounts
+# (This requires CCY script modification to read CCY_EXTRA_MOUNTS)
+export CCY_EXTRA_MOUNTS="${EXTRA_MOUNTS[*]}"
+
+# Launch CCY (passing through any arguments)
+exec ccy "$@"

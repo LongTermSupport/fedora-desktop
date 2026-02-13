@@ -161,28 +161,24 @@ def copy_to_clipboard(text, use_clipboard=False):
 
 def auto_paste(text, skip_enter=False):
     """Paste text at cursor using ydotool."""
-    # Copy to PRIMARY selection (for Shift+Insert in native apps)
-    if not copy_to_clipboard(text, use_clipboard=False):
+    # Copy to CLIPBOARD (Ctrl+V works everywhere: native apps, browsers, terminals)
+    if not copy_to_clipboard(text, use_clipboard=True):
         return False
 
-    # ALSO copy to CLIPBOARD (for web apps like WhatsApp Web)
-    # Web browsers often ignore PRIMARY and only read from CLIPBOARD
-    copy_to_clipboard(text, use_clipboard=True)
-
-    # Wait for clipboard to be ready - increased from 0.05s to 0.3s
-    # Web apps need extra time for clipboard sync
+    # Wait for clipboard to be ready
     time.sleep(0.3)
 
     env = os.environ.copy()
     env["YDOTOOL_SOCKET"] = "/run/ydotool.socket"
 
     try:
-        # Simulate Shift+Insert (42=Shift, 110=Insert)
+        # Simulate Ctrl+V (29=Ctrl, 47=V)
+        # Works in all modern apps: browsers, native apps, terminals (with Shift)
         subprocess.run(
-            ["ydotool", "key", "42:1", "110:1", "110:0", "42:0"],
+            ["ydotool", "key", "29:1", "47:1", "47:0", "29:0"],
             env=env, check=True, timeout=5
         )
-        log("Paste simulated via Shift+Insert")
+        log("Paste simulated via Ctrl+V")
 
         # Longer delay for longer text
         delay = min(0.3 + len(text) * 0.002, 1.0)
@@ -329,14 +325,19 @@ def start_server(model_size="base", language="en"):
             start_new_session=True  # Detach from parent
         )
 
-        # Wait for server to be ready (up to 10 seconds)
-        for i in range(20):
+        # Wait for server to be ready (up to 45 seconds for model loading)
+        # Model loading can take 20-30 seconds on first start
+        log("Waiting for server to load model (this may take 20-30 seconds)...")
+        for i in range(90):  # 90 * 0.5s = 45 seconds max
             time.sleep(0.5)
             if is_server_running():
-                log("Server started successfully")
+                log(f"Server started successfully (took {(i+1)*0.5:.1f}s)")
                 return True
+            # Log progress every 5 seconds so user knows it's working
+            if (i + 1) % 10 == 0:
+                log(f"Still waiting for server... ({(i+1)*0.5:.0f}s elapsed)")
 
-        log("Server failed to start (timeout)", "ERROR")
+        log("Server failed to start (timeout after 45s)", "ERROR")
         return False
 
     except Exception as e:
@@ -378,6 +379,41 @@ def run_server_mode(args):
 
     log("=== Server mode requested ===")
 
+    # Track whether recording is active (for cleanup)
+    recording_active = False
+    cleanup_done = False
+
+    def ensure_stop_sent():
+        """Ensure STOP command is sent to server - called on exit or signal."""
+        nonlocal cleanup_done
+        if cleanup_done:
+            return
+        cleanup_done = True
+
+        if recording_active:
+            log("Cleanup: Sending STOP to server")
+            try:
+                send_server_command("STOP")
+                log("Cleanup: STOP sent successfully")
+            except Exception as e:
+                log(f"Cleanup: Failed to send STOP: {e}", "ERROR")
+
+        # Clean up PID file
+        if PID_FILE.exists():
+            try:
+                PID_FILE.unlink()
+            except Exception:
+                pass
+
+        # Send IDLE signal to extension
+        try:
+            emit_dbus_signal("StateChanged", "IDLE")
+        except Exception:
+            pass
+
+    # Register cleanup function to run on ANY exit (normal or abnormal)
+    atexit.register(ensure_stop_sent)
+
     # Determine model and language
     model_size = os.environ.get("WHISPER_MODEL", "base")
     language = args.language or os.environ.get("WHISPER_LANGUAGE", "en") or "en"
@@ -411,14 +447,17 @@ def run_server_mode(args):
         return 1
 
     log("Recording active (server mode)")
+    recording_active = True  # Mark as active for cleanup
 
     # Wait for user to press Insert again (or timeout)
     stop_requested = False
 
     def handle_signal(signum, frame):
-        nonlocal stop_requested
-        log(f"Signal {signum} received, stopping recording")
+        nonlocal stop_requested, recording_active
+        log(f"Signal {signum} received, requesting stop")
         stop_requested = True
+        # Mark as inactive so atexit doesn't try to send STOP again
+        recording_active = False
 
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
@@ -436,6 +475,8 @@ def run_server_mode(args):
             log("Stop signal received, stopping recording")
     except KeyboardInterrupt:
         log("Interrupted, stopping recording")
+        # Let the signal handler or normal flow handle it
+        # Don't exit here - continue to normal STOP flow
 
     # INSTANT VISUAL FEEDBACK: Change to spinner IMMEDIATELY
     # This happens BEFORE server cleanup, so user sees instant response to Insert key
@@ -444,6 +485,10 @@ def run_server_mode(args):
 
     # Stop recording
     response = send_server_command("STOP")
+
+    # Mark as inactive immediately after STOP sent
+    # This prevents atexit handler from trying to send STOP again
+    recording_active = False
 
     if PID_FILE.exists():
         PID_FILE.unlink()

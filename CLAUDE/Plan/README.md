@@ -32,6 +32,7 @@ Use these Unicode icons in plan documents:
 
 - [002-nordvpn-openvpn-manager](002-nordvpn-openvpn-manager/) - NordVPN OpenVPN connection manager
 - [004-comprehensive-feature-documentation](004-comprehensive-feature-documentation/) - Documentation for all major features (CCY, CCB, Nord, Speech-to-Text, etc.)
+- [007-speech-to-text-resource-leak-fixes](007-speech-to-text-resource-leak-fixes/) - Fix microphone resource leak, transcription truncation, and browser paste failures
 
 ## Completed Plans
 
