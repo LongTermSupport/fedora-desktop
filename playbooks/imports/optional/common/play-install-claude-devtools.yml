@@ -5,7 +5,9 @@
   become: false
   vars:
     root_dir: "{{ inventory_dir }}/../../"
-    ccdt_image: "ghcr.io/matt1398/claude-devtools"
+    ccdt_repo: "https://github.com/matt1398/claude-devtools"
+    ccdt_src_dir: "/opt/claude-devtools"
+    ccdt_image: "claude-devtools"
   vars_files:
     - "{{ inventory_dir }}/../../vars/container-defaults.yml"
   tasks:
@@ -36,10 +38,29 @@
           Check: podman info
       when: container_service_check.rc != 0
 
-    - name: Pull claude-devtools Container Image
-      ansible.builtin.command: "{{ container_engine }} pull {{ ccdt_image }}"
-      register: image_pull
-      changed_when: "'Digest' in image_pull.stdout or 'pulled' in image_pull.stdout or image_pull.rc == 0"
+    - name: Create claude-devtools Source Directory
+      become: true
+      ansible.builtin.file:
+        path: "{{ ccdt_src_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Clone claude-devtools Repository
+      become: true
+      ansible.builtin.git:
+        repo: "{{ ccdt_repo }}"
+        dest: "{{ ccdt_src_dir }}"
+        update: true
+        force: false
+      register: git_clone
+
+    - name: Build claude-devtools Container Image
+      ansible.builtin.command: >
+        {{ container_engine }} build -t {{ ccdt_image }}:latest {{ ccdt_src_dir }}
+      register: image_build
+      changed_when: git_clone.changed or image_build.rc == 0
 
     - name: Ensure ~/.local/bin Directory Exists
       ansible.builtin.file:
@@ -72,7 +93,7 @@
           - "Claude DevTools (ccdt) Installation Complete"
           - "════════════════════════════════════════════════════════════════"
           - ""
-          - "✅ Image pre-pulled: ghcr.io/matt1398/claude-devtools"
+          - "✅ Image built: claude-devtools:latest (from github.com/matt1398/claude-devtools)"
           - "✅ Script installed: ~/.local/bin/ccdt"
           - "✅ Shell alias:      ccdt"
           - ""

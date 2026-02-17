@@ -28,7 +28,7 @@ set -euo pipefail
 #============================================================================
 # CONFIGURATION
 #============================================================================
-readonly CCDT_IMAGE="ghcr.io/matt1398/claude-devtools"
+readonly CCDT_IMAGE="claude-devtools"
 readonly CCDT_PORT=3456
 readonly CCDT_URL="http://localhost:${CCDT_PORT}"
 
