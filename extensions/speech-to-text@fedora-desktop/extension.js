@@ -34,7 +34,6 @@ export default class SpeechToTextExtension extends Extension {
 
         // Debug mode state
         this._debugEnabled = false;
-        this._clipboardMode = false;
         this._autoPaste = false;
         this._autoEnter = true;  // Default: send Enter after auto-paste
         this._wrapWithMarker = false;
@@ -348,26 +347,12 @@ export default class SpeechToTextExtension extends Extension {
         // Separator
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-        // Clipboard mode toggle
-        this._clipboardSwitch = new PopupMenu.PopupSwitchMenuItem('Use Ctrl+V (not middle-click)', this._clipboardMode);
-        this._preventMenuClose(this._clipboardSwitch);
-        this._clipboardSwitch.connect('toggled', (item, state) => {
-            if (this._updatingToggles) return;  // Prevent cascade
-            this._clipboardMode = state;
-            if (state) this._autoPaste = false;  // Mutually exclusive
-            this._saveClipboardSetting(state);
-            this._updatePasteToggles();
-            this._log(`Clipboard mode ${state ? 'enabled' : 'disabled'}`);
-        });
-        menu.addMenuItem(this._clipboardSwitch);
-
         // Auto-paste toggle
         this._autoPasteSwitch = new PopupMenu.PopupSwitchMenuItem('Auto-paste at cursor', this._autoPaste);
         this._preventMenuClose(this._autoPasteSwitch);
         this._autoPasteSwitch.connect('toggled', (item, state) => {
             if (this._updatingToggles) return;  // Prevent cascade
             this._autoPaste = state;
-            if (state) this._clipboardMode = false;  // Mutually exclusive
             if (!state) {
                 // Disable streaming when auto-paste is turned off
                 this._streamingMode = false;
@@ -447,6 +432,13 @@ export default class SpeechToTextExtension extends Extension {
             this._log(`Wrap marker ${state ? 'enabled' : 'disabled'}`);
         });
         menu.addMenuItem(this._wrapMarkerSwitch);
+
+        // Open paste config file
+        const openConfigItem = new PopupMenu.PopupMenuItem('Open Config File...');
+        openConfigItem.connect('activate', () => {
+            this._openPasteConfigFile();
+        });
+        menu.addMenuItem(openConfigItem);
 
         // Separator before language
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
@@ -952,14 +944,14 @@ export default class SpeechToTextExtension extends Extension {
             this._isClaudeMode = false;
             this._claudeStyle = null;
 
-            // Pass debug, clipboard, auto-paste, and wrap-marker flags if enabled
+            // Pass debug, auto-paste, and wrap-marker flags if enabled
             // Note: auto-enter is ON by default in auto-paste mode, so we pass --no-auto-enter to disable
             const debugFlag = this._debugEnabled ? ' --debug' : '';
-            const clipboardFlag = this._clipboardMode ? ' --clipboard' : '';
             const autoPasteFlag = this._autoPaste ? ' --auto-paste' : '';
             const noAutoEnterFlag = (this._autoPaste && !this._autoEnter) ? ' --no-auto-enter' : '';
             const wrapMarkerFlag = this._wrapWithMarker ? ' --wrap-marker' : '';
             const noNotifyFlag = !this._showNotifications ? ' --no-notify' : '';
+            const pasteWithShiftFlag = this._autoPaste ? ` --paste-with-shift ${this._getPasteWithShift()}` : '';
 
             // Use wsi-stream for streaming mode, otherwise use batch wsi
             const script = this._streamingMode ? 'wsi-stream' : 'wsi';
@@ -977,7 +969,7 @@ export default class SpeechToTextExtension extends Extension {
             }
 
             const scriptPath = GLib.get_home_dir() + '/.local/bin/' + script;
-            const scriptArgs = debugFlag + clipboardFlag + autoPasteFlag + noAutoEnterFlag + wrapMarkerFlag + noNotifyFlag + langFlag + startupModeFlag;
+            const scriptArgs = debugFlag + autoPasteFlag + noAutoEnterFlag + wrapMarkerFlag + noNotifyFlag + langFlag + startupModeFlag + pasteWithShiftFlag;
 
             // Build command - wrap in bash if we need to set environment variables
             let command;
@@ -1019,12 +1011,12 @@ export default class SpeechToTextExtension extends Extension {
 
             // Build flags similar to _launchWSI
             const debugFlag = this._debugEnabled ? ' --debug' : '';
-            const clipboardFlag = this._clipboardMode ? ' --clipboard' : '';
             const autoPasteFlag = this._autoPaste ? ' --auto-paste' : '';
             // FORCE no-auto-enter for Claude modes - transcription needs review before sending
             const noAutoEnterFlag = this._autoPaste ? ' --no-auto-enter' : '';
             const wrapMarkerFlag = this._wrapWithMarker ? ' --wrap-marker' : '';
             const noNotifyFlag = !this._showNotifications ? ' --no-notify' : '';
+            const pasteWithShiftFlag = this._autoPaste ? ` --paste-with-shift ${this._getPasteWithShift()}` : '';
 
             // Use wsi-stream for streaming mode, otherwise use batch wsi
             const script = this._streamingMode ? 'wsi-stream' : 'wsi';
@@ -1051,7 +1043,7 @@ export default class SpeechToTextExtension extends Extension {
             const claudeStyleFlag = ` --claude-style ${style}`;
 
             const scriptPath = GLib.get_home_dir() + '/.local/bin/' + script;
-            const scriptArgs = debugFlag + clipboardFlag + autoPasteFlag + noAutoEnterFlag + wrapMarkerFlag + noNotifyFlag + langFlag + startupModeFlag + claudeProcessFlag + claudeModelFlag + claudeStyleFlag;
+            const scriptArgs = debugFlag + autoPasteFlag + noAutoEnterFlag + wrapMarkerFlag + noNotifyFlag + langFlag + startupModeFlag + pasteWithShiftFlag + claudeProcessFlag + claudeModelFlag + claudeStyleFlag;
 
             // Build command - wrap in bash if we need to set environment variables
             let command;
@@ -1074,6 +1066,66 @@ export default class SpeechToTextExtension extends Extension {
             this._lastError = e.message;
             this._log(`Launch error: ${e.message}`);
             Main.notify('STT Error', e.message);
+        }
+    }
+
+    _readPasteConfig() {
+        // Read ~/.config/speech-to-text/config.ini
+        // Returns { defaultMode: 'with-shift'|'no-shift', ctrlVApps: [...] }
+        const configFile = GLib.get_home_dir() + '/.config/speech-to-text/config.ini';
+        try {
+            const file = Gio.File.new_for_path(configFile);
+            if (!file.query_exists(null)) {
+                return { defaultMode: 'with-shift', ctrlVApps: [] };
+            }
+            const [success, contents] = file.load_contents(null);
+            if (!success) return { defaultMode: 'with-shift', ctrlVApps: [] };
+
+            const text = new TextDecoder().decode(contents);
+            let defaultMode = 'with-shift';
+            let ctrlVApps = [];
+
+            for (const line of text.split('\n')) {
+                const trimmed = line.trim();
+                if (trimmed.startsWith('#') || trimmed.startsWith('[') || !trimmed) continue;
+                const eqIdx = trimmed.indexOf('=');
+                if (eqIdx < 0) continue;
+                const key = trimmed.slice(0, eqIdx).trim();
+                const value = trimmed.slice(eqIdx + 1).trim();
+                if (key === 'default') defaultMode = value;
+                if (key === 'ctrl_v_apps') ctrlVApps = value.split(',').map(s => s.trim()).filter(Boolean);
+            }
+
+            return { defaultMode, ctrlVApps };
+        } catch (e) {
+            this._log(`Paste config read error: ${e.message}`);
+            return { defaultMode: 'with-shift', ctrlVApps: [] };
+        }
+    }
+
+    _getPasteWithShift() {
+        // Returns 1 (Ctrl+Shift+V) or 0 (Ctrl+V) based on focused window and config
+        const wmClass = global.display.focus_window ? global.display.focus_window.get_wm_class() : null;
+        const config = this._readPasteConfig();
+
+        if (wmClass && config.ctrlVApps.includes(wmClass)) {
+            this._log(`WM class "${wmClass}" in ctrl_v_apps → Ctrl+V`);
+            return 0;
+        }
+
+        const useShift = config.defaultMode !== 'no-shift';
+        this._log(`WM class "${wmClass}" → ${useShift ? 'Ctrl+Shift+V' : 'Ctrl+V'} (default: ${config.defaultMode})`);
+        return useShift ? 1 : 0;
+    }
+
+    _openPasteConfigFile() {
+        const configFile = GLib.get_home_dir() + '/.config/speech-to-text/config.ini';
+        try {
+            GLib.spawn_command_line_async(`xdg-open "${configFile}"`);
+            this._log('Opening paste config file');
+        } catch (e) {
+            this._log(`Failed to open config file: ${e.message}`);
+            Main.notify('STT Error', `Failed to open config file: ${e.message}`);
         }
     }
 
@@ -1175,14 +1227,6 @@ export default class SpeechToTextExtension extends Extension {
                 }
             } catch (e) {
                 this._debugEnabled = false;
-            }
-            try {
-                this._clipboardMode = this._settings.get_boolean('clipboard-mode');
-                if (this._clipboardSwitch) {
-                    this._clipboardSwitch.setToggleState(this._clipboardMode);
-                }
-            } catch (e) {
-                this._clipboardMode = false;
             }
             try {
                 this._autoPaste = this._settings.get_boolean('auto-paste');
@@ -1409,9 +1453,6 @@ Auto mode uses:
         // Prevent cascading toggle events from causing menu issues
         this._updatingToggles = true;
         try {
-            if (this._clipboardSwitch) {
-                this._clipboardSwitch.setToggleState(this._clipboardMode);
-            }
             if (this._autoPasteSwitch) {
                 this._autoPasteSwitch.setToggleState(this._autoPaste);
             }
@@ -1441,16 +1482,6 @@ Auto mode uses:
         if (this._settings) {
             try {
                 this._settings.set_boolean('debug-mode', enabled);
-            } catch (e) {
-                // Setting may not exist yet
-            }
-        }
-    }
-
-    _saveClipboardSetting(enabled) {
-        if (this._settings) {
-            try {
-                this._settings.set_boolean('clipboard-mode', enabled);
             } catch (e) {
                 // Setting may not exist yet
             }

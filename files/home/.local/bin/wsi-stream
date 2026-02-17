@@ -169,9 +169,9 @@ def copy_to_clipboard(text, use_clipboard=False):
         return False
 
 
-def auto_paste(text, skip_enter=False):
+def auto_paste(text, skip_enter=False, paste_with_shift=True):
     """Paste text at cursor using ydotool."""
-    # Copy to CLIPBOARD (Ctrl+V works everywhere: native apps, browsers, terminals)
+    # Copy to CLIPBOARD (Ctrl+Shift+V / Ctrl+V both read from CLIPBOARD)
     if not copy_to_clipboard(text, use_clipboard=True):
         return False
 
@@ -182,15 +182,20 @@ def auto_paste(text, skip_enter=False):
     env["YDOTOOL_SOCKET"] = "/run/ydotool.socket"
 
     try:
-        # Simulate Ctrl+Shift+V (29=Ctrl, 42=Shift, 47=V)
-        # Ctrl+Shift+V is the correct paste shortcut for terminals (GNOME Terminal etc.)
-        # and also works in browsers (paste as plain text) and most native apps.
-        # Plain Ctrl+V does NOT paste in terminal emulators on Linux.
-        subprocess.run(
-            ["ydotool", "key", "29:1", "42:1", "47:1", "47:0", "42:0", "29:0"],
-            env=env, check=True, timeout=5
-        )
-        log("Paste simulated via Ctrl+Shift+V")
+        if paste_with_shift:
+            # Ctrl+Shift+V (29=Ctrl, 42=Shift, 47=V) - correct for terminals
+            subprocess.run(
+                ["ydotool", "key", "29:1", "42:1", "47:1", "47:0", "42:0", "29:0"],
+                env=env, check=True, timeout=5
+            )
+            log("Paste simulated via Ctrl+Shift+V")
+        else:
+            # Ctrl+V (29=Ctrl, 47=V) - correct for browsers and most GUI apps
+            subprocess.run(
+                ["ydotool", "key", "29:1", "47:1", "47:0", "29:0"],
+                env=env, check=True, timeout=5
+            )
+            log("Paste simulated via Ctrl+V")
 
         # Longer delay for longer text
         delay = min(0.3 + len(text) * 0.002, 1.0)
@@ -544,7 +549,7 @@ def run_server_mode(args):
     if args.auto_paste:
         log("Auto-pasting")
         time.sleep(0.2)
-        success = auto_paste(text, skip_enter=args.no_auto_enter)
+        success = auto_paste(text, skip_enter=args.no_auto_enter, paste_with_shift=args.paste_with_shift)
         if success:
             preview = text[:60] + "..." if len(text) > 60 else text
             notify("SUCCESS", preview)
@@ -816,7 +821,7 @@ def run_standard_streaming(args):
         log("Auto-pasting (instant - transcription was real-time)")
         # Small delay to ensure any focus changes from recorder shutdown settle
         time.sleep(0.2)
-        success = auto_paste(text, skip_enter=args.no_auto_enter)
+        success = auto_paste(text, skip_enter=args.no_auto_enter, paste_with_shift=args.paste_with_shift)
         if success:
             preview = text[:60] + "..." if len(text) > 60 else text
             notify("SUCCESS", preview)
@@ -1065,7 +1070,7 @@ def run_prebuffered_streaming(args):
         if args.auto_paste:
             log("Auto-pasting (instant - transcription was real-time)")
             time.sleep(0.2)
-            success = auto_paste(text, skip_enter=args.no_auto_enter)
+            success = auto_paste(text, skip_enter=args.no_auto_enter, paste_with_shift=args.paste_with_shift)
             if success:
                 preview = text[:60] + "..." if len(text) > 60 else text
                 notify("SUCCESS", preview)
@@ -1140,6 +1145,8 @@ def main():
                         help="Claude model for processing (sonnet/opus/haiku)")
     parser.add_argument("--claude-style", type=str, default="corporate",
                         help="Claude processing style (corporate/natural)")
+    parser.add_argument("--paste-with-shift", type=int, default=1,
+                        help="Paste key: 1=Ctrl+Shift+V (terminals), 0=Ctrl+V (browsers/GUI apps)")
 
     args = parser.parse_args()
 

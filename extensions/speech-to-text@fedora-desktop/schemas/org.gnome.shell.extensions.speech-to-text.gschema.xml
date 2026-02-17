@@ -16,11 +16,6 @@
       <summary>Debug Mode</summary>
       <description>Enable verbose logging to ~/.local/share/speech-to-text/debug.log</description>
     </key>
-    <key name="clipboard-mode" type="b">
-      <default>false</default>
-      <summary>Clipboard Mode</summary>
-      <description>Use CLIPBOARD (Ctrl+V) instead of PRIMARY selection (middle-click)</description>
-    </key>
     <key name="auto-paste" type="b">
       <default>false</default>
       <summary>Auto Paste</summary>
