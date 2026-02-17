@@ -65,14 +65,20 @@ export default class SpeechToTextExtension extends Extension {
         this._isClaudeMode = false;  // Track if recording is in Claude mode
         this._claudeStyle = null;  // Track Claude style: 'corporate' or 'natural'
 
-        // Whisper model definitions (name, label, size, description)
+        // Whisper model definitions (name, label, size, description, englishOnly)
         this._whisperModels = [
-            ['auto', 'Auto (optimized per mode)', 'varies', 'Base for streaming, small for batch'],
-            ['tiny', 'Tiny', '~75MB', 'Fastest, basic accuracy'],
-            ['base', 'Base', '~142MB', 'Fast, good accuracy'],
-            ['small', 'Small', '~466MB', 'Balanced speed/accuracy'],
-            ['medium', 'Medium', '~1.5GB', 'Slow, great accuracy'],
-            ['large-v3', 'Large v3', '~3GB', 'Slowest, best accuracy'],
+            ['auto', 'Auto (optimized per mode)', 'varies', 'Base for streaming, small for batch', false],
+            // Multilingual models
+            ['tiny', 'Tiny', '~75MB', 'Fastest, basic accuracy', false],
+            ['base', 'Base', '~142MB', 'Fast, good accuracy', false],
+            ['small', 'Small', '~466MB', 'Balanced speed/accuracy', false],
+            ['medium', 'Medium', '~1.5GB', 'Slow, great accuracy', false],
+            ['large-v3', 'Large v3', '~3GB', 'Slowest, best accuracy', false],
+            // English-only models (smaller and faster — no multilingual capability)
+            ['tiny.en', 'Tiny English', '~41MB', 'Fastest, English only', true],
+            ['base.en', 'Base English', '~77MB', 'Fast, good accuracy, English only', true],
+            ['small.en', 'Small English', '~252MB', 'Balanced, English only', true],
+            ['medium.en', 'Medium English', '~789MB', 'Great accuracy, English only', true],
         ];
 
         // Claude model definitions (name, label, description)
@@ -473,38 +479,54 @@ export default class SpeechToTextExtension extends Extension {
         this._modelHeader.label.style = 'font-weight: bold;';
         menu.addMenuItem(this._modelHeader);
 
-        // Model options (flat list)
+        // Model options with section headers
         this._modelItems = [];
-        for (const [modelName, label, size] of this._whisperModels) {
-            const installed = this._checkModelInstalled(modelName);
-            const status = installed ? '✓' : '⚠';
-            const item = new PopupMenu.PopupMenuItem(`  ${status} ${label} (${size})`);
+        let _seenMultilingual = false;
+        let _seenEnglishOnly = false;
 
-            // Gray out unavailable models
-            if (!installed && modelName !== 'auto') {
-                item.setSensitive(false);
-                item.label.style = 'color: #888;';
+        for (const [modelName, label, size,, englishOnly] of this._whisperModels) {
+            // Section header before first multilingual (non-auto) model
+            if (!englishOnly && modelName !== 'auto' && !_seenMultilingual) {
+                _seenMultilingual = true;
+                const mlHeader = new PopupMenu.PopupMenuItem('  — Multilingual:', { reactive: false });
+                mlHeader.label.style = 'color: #888; font-style: italic;';
+                menu.addMenuItem(mlHeader);
             }
 
-            item.connect('activate', () => {
-                if (installed || modelName === 'auto') {
+            // Section header before first English-only model
+            if (englishOnly && !_seenEnglishOnly) {
+                _seenEnglishOnly = true;
+                const enHeader = new PopupMenu.PopupMenuItem('  — English-only (smaller, faster):', { reactive: false });
+                enHeader.label.style = 'color: #888; font-style: italic;';
+                menu.addMenuItem(enHeader);
+            }
+
+            const installed = this._checkModelInstalled(modelName);
+
+            if (installed || modelName === 'auto') {
+                // Installed / always-available: click to select
+                const status = modelName === 'auto' ? '●' : '✓';
+                const item = new PopupMenu.PopupMenuItem(`  ${status} ${label} (${size})`);
+                item.connect('activate', () => {
                     this._whisperModel = modelName;
                     this._saveModelSetting(modelName);
                     this._updateModelLabel();
                     this._updateModelSelection();
                     this._log(`Whisper model set to: ${modelName}`);
-                }
-            });
-            this._modelItems.push({ item, modelName });
-            menu.addMenuItem(item);
+                });
+                this._modelItems.push({ item, modelName });
+                menu.addMenuItem(item);
+            } else {
+                // Not installed: click to open terminal and download
+                const item = new PopupMenu.PopupMenuItem(`  ⬇ ${label} (${size})`);
+                item.label.style = 'color: #5af;';
+                item.connect('activate', () => {
+                    this._installModel(modelName);
+                });
+                this._modelItems.push({ item, modelName });
+                menu.addMenuItem(item);
+            }
         }
-
-        // Add download instructions
-        const downloadItem = new PopupMenu.PopupMenuItem('  How to download models...');
-        downloadItem.connect('activate', () => {
-            this._showModelDownloadInstructions();
-        });
-        menu.addMenuItem(downloadItem);
 
         // Separator before Claude Code section
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
@@ -1299,45 +1321,35 @@ export default class SpeechToTextExtension extends Extension {
         }
     }
 
-    _showModelDownloadInstructions() {
-        // Show instructions for downloading Whisper models
-        const instructions = `To download a Whisper model:
+    _installModel(modelName) {
+        // Open a terminal to download the selected Whisper model
+        const modelInfo = this._whisperModels.find(m => m[0] === modelName);
+        const label = modelInfo ? modelInfo[1] : modelName;
+        const size = modelInfo ? modelInfo[2] : '?';
 
-1. Open a terminal
-2. Run one of these commands:
+        const bashCmd = [
+            `echo 'Installing Whisper model: ${label} (${size})'`,
+            `echo 'This may take several minutes — do not close this window.'`,
+            `echo ''`,
+            `python3 -c "from faster_whisper import WhisperModel; WhisperModel('${modelName}', device='cpu')"`,
+            `echo ''`,
+            `echo 'Done! Model ${modelName} is ready.'`,
+            `echo 'Log out and back in to see it in the extension menu.'`,
+            `echo ''`,
+            `read -p 'Press Enter to close...' _`,
+        ].join('; ');
 
-   # Tiny model (~75MB, fastest)
-   WHISPER_MODEL=tiny ~/.local/bin/wsi --debug
-
-   # Base model (~142MB, fast) ← RECOMMENDED for streaming
-   WHISPER_MODEL=base ~/.local/bin/wsi --debug
-
-   # Small model (~466MB, balanced) ← RECOMMENDED for batch
-   WHISPER_MODEL=small ~/.local/bin/wsi --debug
-
-   # Medium model (~1.5GB, slow but accurate)
-   WHISPER_MODEL=medium ~/.local/bin/wsi --debug
-
-   # Large-v3 model (~3GB, best accuracy)
-   WHISPER_MODEL=large-v3 ~/.local/bin/wsi --debug
-
-3. Say "test" when recording starts
-4. The model will download automatically
-5. After download completes, it will be available in this menu
-
-Note: First download can take several minutes depending on model size.
-
-Auto mode uses:
-- "base" model for streaming mode (real-time transcription)
-- "small" model for batch mode (transcribe after recording)`;
-
-        // Use zenity to show instructions dialog
         try {
-            GLib.spawn_command_line_async(`zenity --info --width=600 --title="Download Whisper Models" --text="${instructions.replace(/"/g, '\\"')}"`);
+            GLib.spawn_command_line_async(
+                `gnome-terminal --title="Install Whisper Model" -- bash -c "${bashCmd.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+            );
+            this._log(`Opening terminal to install model: ${modelName}`);
         } catch (e) {
-            this._log(`Failed to show download instructions: ${e.message}`);
-            // Fallback: use GNOME notification
-            Main.notify('Download Whisper Models', 'Run: WHISPER_MODEL=tiny ~/.local/bin/wsi --debug\n\nSee debug log for full instructions.');
+            this._log(`Failed to open terminal for model install: ${e.message}`);
+            Main.notify(
+                'Install Whisper Model',
+                `Run in a terminal:\npython3 -c "from faster_whisper import WhisperModel; WhisperModel('${modelName}', device='cpu')"`
+            );
         }
     }
 
