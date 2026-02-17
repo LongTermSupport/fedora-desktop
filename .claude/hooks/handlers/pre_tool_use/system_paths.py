@@ -12,6 +12,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "hooks-daemon/src"))
 
 from claude_code_hooks_daemon.core import Decision, Handler, HookResult
+from claude_code_hooks_daemon.core.acceptance_test import AcceptanceTest, TestType
 from claude_code_hooks_daemon.core.utils import get_file_path
 
 
@@ -99,6 +100,29 @@ class SystemPathsHandler(Handler):
                 f"See CLAUDE.md 'INFRASTRUCTURE AS CODE - ANSIBLE-ONLY DEPLOYMENT' for details."
             ),
         )
+
+    def get_acceptance_tests(self) -> list[AcceptanceTest]:
+        """Return acceptance tests for SystemPathsHandler."""
+        return [
+            AcceptanceTest(
+                title="Block Write to /etc/ system path",
+                command='echo "Write to /etc/hosts"',
+                description="Blocks direct editing of deployed system config files",
+                expected_decision=Decision.DENY,
+                expected_message_patterns=[r"BLOCKED.*Direct editing", r"CORRECT APPROACH"],
+                safety_notes="Uses echo - safe to execute",
+                test_type=TestType.BLOCKING,
+            ),
+            AcceptanceTest(
+                title="Allow Write to /workspace/ project path",
+                command='echo "Write to /workspace/files/etc/hosts"',
+                description="Permits editing project source files in /workspace/",
+                expected_decision=Decision.ALLOW,
+                expected_message_patterns=[],
+                safety_notes="Uses echo - safe to execute",
+                test_type=TestType.BLOCKING,
+            ),
+        ]
 
     def _get_project_path(self, file_path: str) -> str:
         """Determine the correct project path for a system file.

@@ -13,6 +13,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "hooks-daemon/src"))
 
 from claude_code_hooks_daemon.core import Decision, Handler, HookResult
+from claude_code_hooks_daemon.core.acceptance_test import AcceptanceTest, TestType
 from claude_code_hooks_daemon.core.utils import get_bash_command
 
 
@@ -131,6 +132,38 @@ class AnsibleEnforcementHandler(Handler):
                 f"See CLAUDE.md 'INFRASTRUCTURE AS CODE - ANSIBLE-ONLY DEPLOYMENT' for details."
             ),
         )
+
+    def get_acceptance_tests(self) -> list[AcceptanceTest]:
+        """Return acceptance tests for AnsibleEnforcementHandler."""
+        return [
+            AcceptanceTest(
+                title="Block dnf install command",
+                command='echo "dnf install vim"',
+                description="Blocks direct package installation - must use Ansible",
+                expected_decision=Decision.DENY,
+                expected_message_patterns=[r"BLOCKED.*Direct system management", r"CORRECT APPROACH"],
+                safety_notes="Uses echo - safe to execute",
+                test_type=TestType.BLOCKING,
+            ),
+            AcceptanceTest(
+                title="Block systemctl enable command",
+                command='echo "systemctl enable nginx"',
+                description="Blocks direct service management - must use Ansible",
+                expected_decision=Decision.DENY,
+                expected_message_patterns=[r"BLOCKED.*Direct system management"],
+                safety_notes="Uses echo - safe to execute",
+                test_type=TestType.BLOCKING,
+            ),
+            AcceptanceTest(
+                title="Allow dnf info query command",
+                command="dnf info vim",
+                description="Permits read-only package queries",
+                expected_decision=Decision.ALLOW,
+                expected_message_patterns=[],
+                safety_notes="Read-only query, safe to execute",
+                test_type=TestType.BLOCKING,
+            ),
+        ]
 
     def _categorize_command(self, command: str) -> str:
         """Determine the category of system command.

@@ -80,9 +80,6 @@ handlers:
       enabled: true            # Enabled for automatic ESLint validation
       priority: 10
 
-    validate_sitemap:          # Validates sitemap structure after writes
-      enabled: true            # Enabled for sitemap validation
-      priority: 20
 
   # SessionStart handlers (run when session starts)
   session_start:
@@ -109,9 +106,6 @@ handlers:
       enabled: true         # Enabled for prompt library reminders
       priority: 10
 
-    remind_validator:       # Reminds about HTML validation
-      enabled: true         # Enabled for validation reminders
-      priority: 20
 
   # UserPromptSubmit handlers (run when user submits prompt)
   user_prompt_submit:
