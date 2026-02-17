@@ -20,11 +20,25 @@ GPU-accelerated voice typing for your entire desktop. Record speech with Insert 
 
 ---
 
+### [Claude DevTools (ccdt)](claude-devtools.md)
+Visualise full Claude Code session logs in a web UI. Restores the detailed tool-output visibility
+that recent Claude Code updates replaced with opaque summaries.
+
+**Key features:**
+- Auto-detects CCY project sessions vs host sessions
+- On-demand Podman container (zero idle resource usage)
+- Read-only mount (cannot modify session files)
+- `--host` flag and explicit path support
+
+**Prerequisites:** Podman installed
+
+---
+
 ## Coming Soon
 
 Documentation for these features is planned:
 
-- **CCY/CCB (Claude Code YOLO)**: Containerized Claude Code with token management
+- **CCY/CCB (Claude Code YOLO)**: Containerised Claude Code with token management
 - **GitHub Multi-Account**: Complete multi-account workflow guide
 - **Nord VPN Manager**: Interactive OpenVPN connection chooser
 
