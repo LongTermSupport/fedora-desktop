@@ -182,13 +182,15 @@ def auto_paste(text, skip_enter=False):
     env["YDOTOOL_SOCKET"] = "/run/ydotool.socket"
 
     try:
-        # Simulate Ctrl+V (29=Ctrl, 47=V)
-        # Works in all modern apps: browsers, native apps, terminals (with Shift)
+        # Simulate Ctrl+Shift+V (29=Ctrl, 42=Shift, 47=V)
+        # Ctrl+Shift+V is the correct paste shortcut for terminals (GNOME Terminal etc.)
+        # and also works in browsers (paste as plain text) and most native apps.
+        # Plain Ctrl+V does NOT paste in terminal emulators on Linux.
         subprocess.run(
-            ["ydotool", "key", "29:1", "47:1", "47:0", "29:0"],
+            ["ydotool", "key", "29:1", "42:1", "47:1", "47:0", "42:0", "29:0"],
             env=env, check=True, timeout=5
         )
-        log("Paste simulated via Ctrl+V")
+        log("Paste simulated via Ctrl+Shift+V")
 
         # Longer delay for longer text
         delay = min(0.3 + len(text) * 0.002, 1.0)
