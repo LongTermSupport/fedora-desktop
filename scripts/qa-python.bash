@@ -1,33 +1,29 @@
 #!/usr/bin/bash
-# Python QA validation for entire project
-# Finds and validates all Python files
+# Python QA validation - LLM-friendly
+# stdout:  terse — errors + summary only
+# JSON:    ${QA_JSON_OUT:-/tmp/qa-python-results.json}
+#
+# jq usage:
+#   jq '.status'                # "pass" or "fail"
+#   jq '.summary'               # {total, passed, failed}
+#   jq '.failures[]'            # syntax errors
+#   jq '.ruff_diagnostics[]'    # ruff issues with file/line/code/message
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+JSON_OUT="${QA_JSON_OUT:-/tmp/qa-python-results.json}"
+TMP_RESULTS=$(mktemp)
+trap 'rm -f "$TMP_RESULTS"' EXIT
 ERRORS=0
-CHECKED=0
-
-echo "=== Python QA - Repository-wide ==="
-echo ""
 
 # Fail fast: check required dependencies
-echo "→ Checking dependencies..."
 if ! command -v ruff &>/dev/null; then
-    echo "  ✗ ruff not installed"
-    echo ""
-    echo "Install with: sudo dnf install ruff"
+    echo "✗ python: ruff not installed (sudo dnf install ruff)"
     exit 1
 fi
-echo "  ✓ ruff found"
-echo ""
 
-# Find all Python files (exclude .git, venv, __pycache__, etc.)
-echo "→ Discovering Python files..."
-
-# Find .py files
-# Excludes .ansible/roles/ (galaxy-installed cache) but keeps roles/vendor/ (first-party tracked)
-# Excludes .claude/hooks-daemon/ (has its own QA system)
+# Discover files
 PY_FILES=()
 while IFS= read -r -d '' file; do
     PY_FILES+=("$file")
@@ -42,7 +38,6 @@ done < <(find "$REPO_ROOT" -type f -name "*.py" \
     ! -path "*/venv/*" \
     -print0)
 
-# Find executable Python scripts (shebang)
 while IFS= read -r file; do
     if head -n1 "$file" 2>/dev/null | grep -q "^#!/.*python"; then
         PY_FILES+=("$file")
@@ -55,48 +50,59 @@ done < <(find "$REPO_ROOT" -type f -executable \
     ! -path "*/untracked/*" \
     ! -name "*.py")
 
-echo "  Found ${#PY_FILES[@]} Python files"
-echo ""
+TOTAL=${#PY_FILES[@]}
 
 # Syntax check each file
 for file in "${PY_FILES[@]}"; do
     rel_path="${file#$REPO_ROOT/}"
-    echo "→ Checking: $rel_path"
-
-    if python3 -m py_compile "$file" 2>/dev/null; then
-        echo "  ✓ Syntax valid"
-        ((CHECKED++)) || true
+    if err=$(python3 -m py_compile "$file" 2>&1); then
+        jq -nc --arg f "$rel_path" '{"file":$f,"type":"python","status":"pass"}' >> "$TMP_RESULTS"
     else
-        echo "  ✗ Syntax error"
-        python3 -m py_compile "$file" 2>&1  # Show the error
+        echo "✗ python: $rel_path: $err"
+        jq -nc --arg f "$rel_path" --arg e "$err" \
+            '{"file":$f,"type":"python","status":"fail","error":$e}' >> "$TMP_RESULTS"
         ((ERRORS++)) || true
     fi
 done
 
-echo ""
-
-# Ruff linting (mandatory, default rules with auto-fix)
-if [ ${#PY_FILES[@]} -gt 0 ]; then
-    echo "→ Running ruff --fix (auto-fixing safe fixes)..."
+# Ruff: auto-fix then capture remaining diagnostics as JSON
+RUFF_JSON="[]"
+if [[ $TOTAL -gt 0 ]]; then
     ruff check --fix "${PY_FILES[@]}" >/dev/null 2>&1 || true
-
-    echo "→ Checking for remaining ruff errors..."
-    RUFF_FAILED=0
-    ruff check "${PY_FILES[@]}" 2>&1 || RUFF_FAILED=1
-    if [ $RUFF_FAILED -eq 1 ]; then
-        echo "  ✗ Ruff errors found (manual intervention required)"
+    ruff_raw=$(ruff check --output-format json "${PY_FILES[@]}" 2>/dev/null) || true
+    RUFF_JSON="${ruff_raw:-[]}"
+    ruff_count=$(printf '%s' "$RUFF_JSON" | jq 'length')
+    if [[ "$ruff_count" -gt 0 ]]; then
+        echo "✗ python: ruff: $ruff_count issues (see $JSON_OUT .ruff_diagnostics)"
         ((ERRORS++)) || true
-    else
-        echo "  ✓ Ruff passed"
     fi
 fi
 
-echo ""
-echo "Checked: $CHECKED files"
-if [ $ERRORS -eq 0 ]; then
-    echo "✓ All Python QA checks passed"
+# Write JSON
+STATUS="pass"
+[[ $ERRORS -gt 0 ]] && STATUS="fail"
+
+jq -s \
+    --arg status "$STATUS" \
+    --argjson ruff "$RUFF_JSON" \
+    '{
+        "type": "python",
+        "status": $status,
+        "summary": {
+            "total": length,
+            "passed": ([.[] | select(.status == "pass")] | length),
+            "failed": ([.[] | select(.status == "fail")] | length)
+        },
+        "results": .,
+        "failures": [.[] | select(.status == "fail")],
+        "ruff_diagnostics": $ruff
+    }' "$TMP_RESULTS" > "$JSON_OUT"
+
+# Terse summary
+if [[ $ERRORS -eq 0 ]]; then
+    echo "✓ python: $TOTAL files OK"
     exit 0
 else
-    echo "✗ $ERRORS check(s) failed"
+    echo "✗ python: failed → $JSON_OUT"
     exit 1
 fi

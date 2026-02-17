@@ -20,6 +20,7 @@
 #   ccdt                    Auto-detect: CCY project session or host session
 #   ccdt <path>             Explicit path: smart-detects .claude/ccy/ or .claude/
 #   ccdt --host             Force host sessions (~/.claude) regardless of CWD
+#   ccdt --verbose          Pass --verbose to claude-devtools (raw JSON, full prompts)
 #   ccdt --help             Show this help
 #============================================================================
 
@@ -44,6 +45,7 @@ USAGE:
     ccdt                Auto-detect session path from current directory
     ccdt <path>         Use specific path (checks for .claude/ccy/ within it)
     ccdt --host         Force host sessions (~/.claude) regardless of CWD
+    ccdt --verbose      Pass --verbose to claude-devtools (raw JSON, full prompts)
     ccdt --help         Show this help message
 
 SESSION DETECTION:
@@ -122,6 +124,7 @@ resolve_explicit_path() {
 
 launch_devtools() {
     local claude_root="$1"
+    local verbose="${2:-false}"
 
     # Validate the resolved path exists
     if [[ ! -d "$claude_root" ]]; then
@@ -139,12 +142,17 @@ launch_devtools() {
     echo "  Press Ctrl+C to stop"
     echo ""
 
+    local extra_args=()
+    [[ "$verbose" == true ]] && extra_args+=("--verbose")
+
     exec podman run \
         --rm \
+        --init \
         -p "${CCDT_PORT}:${CCDT_PORT}" \
         -v "${claude_root}:/data/.claude:ro" \
         -e "CLAUDE_ROOT=/data/.claude" \
-        "${CCDT_IMAGE}"
+        "${CCDT_IMAGE}" \
+        "${extra_args[@]+"${extra_args[@]}"}"
 }
 
 #============================================================================
@@ -153,6 +161,7 @@ launch_devtools() {
 
 main() {
     local force_host=false
+    local verbose=false
     local explicit_path=""
 
     # Parse arguments
@@ -164,6 +173,10 @@ main() {
                 ;;
             --host)
                 force_host=true
+                shift
+                ;;
+            --verbose|-v)
+                verbose=true
                 shift
                 ;;
             -*)
@@ -202,7 +215,7 @@ main() {
         fi
     fi
 
-    launch_devtools "$claude_root"
+    launch_devtools "$claude_root" "$verbose"
 }
 
 main "$@"
