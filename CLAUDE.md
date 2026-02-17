@@ -89,23 +89,27 @@ CCY_VERSION="3.0.1"  # Fix: persist sessions in .claude/ccy/
 
 ### ⚠️ MANDATORY: Run QA Scripts Before Committing
 
-**ALWAYS run QA scripts before committing changes to Bash or Python files.**
+**ALWAYS run QA before committing changes to Bash or Python files.**
 
-The project includes QA scripts that validate syntax and catch common errors:
+**ALWAYS and ONLY use this single command:**
 
 ```bash
-# Run ALL QA checks (recommended)
 ./scripts/qa-all.bash
+```
 
-# Or run individual checks
-./scripts/qa-bash.bash    # Bash syntax validation
-./scripts/qa-python.bash  # Python syntax + linting
+**NEVER use individual scripts directly** (`qa-bash.bash`, `qa-python.bash`) - always use `qa-all.bash`.
+
+**For GNOME Shell extension JavaScript**, run ESLint via the binary directly (NOT `npm run lint` - blocked by hooks):
+
+```bash
+cd /workspace/extensions && node_modules/.bin/eslint speech-to-text@fedora-desktop/extension.js
 ```
 
 **Rules:**
 1. **Run `./scripts/qa-all.bash` before EVERY commit** that touches Bash or Python files
-2. **Fix all errors** before committing - QA failures indicate broken code
-3. **Do not skip QA** - even for "small" changes
+2. **Run ESLint before EVERY commit** that touches extension JavaScript
+3. **Fix all errors** before committing - QA failures indicate broken code
+4. **Do not skip QA** - even for "small" changes
 
 **What QA catches:**
 - ✅ Bash syntax errors (`bash -n` validation)
