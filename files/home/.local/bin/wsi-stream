@@ -136,24 +136,34 @@ def copy_to_clipboard(text, use_clipboard=False):
         return False
 
     try:
+        # Do NOT use communicate() - it waits for wl-copy to exit, which drops
+        # clipboard ownership before we can paste. Instead, write to stdin and
+        # leave the process running so it holds clipboard ownership until pasted.
         proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
-        stdout, stderr = proc.communicate(input=text.encode(), timeout=2)
+        proc.stdin.write(text.encode())
+        proc.stdin.close()
 
-        if proc.returncode != 0:
-            log(f"Clipboard copy failed with exit code {proc.returncode}", "ERROR")
-            if stderr:
-                log(f"Clipboard error output: {stderr.decode()}", "ERROR")
+        # Brief wait for wl-copy to register with the compositor
+        time.sleep(0.1)
+
+        # Check process status (but don't wait for it - it should stay alive)
+        rc = proc.poll()
+        if rc is not None and rc != 0:
+            log(f"Clipboard copy failed with exit code {rc}", "ERROR")
             return False
 
-        log(f"Clipboard copy successful ({len(text)} chars to {'CLIPBOARD' if use_clipboard else 'PRIMARY'})")
-        return True
-    except subprocess.TimeoutExpired:
-        log("Clipboard copy timed out", "ERROR")
+        # Verify clipboard was actually set (debug only)
         try:
-            proc.kill()
-        except Exception:
-            pass
-        return False
+            verify = subprocess.run(["wl-paste"], capture_output=True, timeout=1)
+            if verify.returncode == 0 and verify.stdout:
+                log(f"Clipboard copy successful ({len(text)} chars to {'CLIPBOARD' if use_clipboard else 'PRIMARY'})")
+                log(f"Clipboard verified: {len(verify.stdout.decode())} chars readable")
+            else:
+                log(f"Clipboard copy: wl-copy started but clipboard empty (rc={verify.returncode})", "WARN")
+        except Exception as e:
+            log(f"Clipboard copy successful ({len(text)} chars) - verify skipped: {e}")
+
+        return True
     except Exception as e:
         log(f"Clipboard copy failed: {e}", "ERROR")
         return False

@@ -213,6 +213,15 @@
           - python3-devel
         state: present
 
+    - name: Stop wsi-stream-server if Running (to pick up updated scripts)
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.shell:
+        cmd: pkill -f wsi-stream-server
+      register: pkill_result
+      changed_when: pkill_result.rc == 0
+      failed_when: pkill_result.rc not in [0, 1]  # 1 = no process found, that's fine
+
     - name: Deploy Streaming Script (wsi-stream)
       ansible.builtin.copy:
         src: "{{ root_dir }}/files/home/.local/bin/wsi-stream"
