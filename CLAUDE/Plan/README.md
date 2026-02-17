@@ -33,10 +33,14 @@ Use these Unicode icons in plan documents:
 - [002-nordvpn-openvpn-manager](002-nordvpn-openvpn-manager/) - NordVPN OpenVPN connection manager
 - [004-comprehensive-feature-documentation](004-comprehensive-feature-documentation/) - Documentation for all major features (CCY, CCB, Nord, Speech-to-Text, etc.)
 - [007-speech-to-text-resource-leak-fixes](007-speech-to-text-resource-leak-fixes/) - Fix microphone resource leak, transcription truncation, and browser paste failures
-
+- [009-claude-devtools](009-claude-devtools/) - Install and integrate claude-devtools session visualiser (implementation committed, pending host deployment and testing)
 ## Completed Plans
 
 - None yet
+
+## Cancelled Plans
+
+- [012-fix-plugin-handlers](012-fix-plugin-handlers/) - Upstream bug in `claude-code-hooks-daemon`; bug report filed at `untracked/upstream-bug-report-plugin-handler-suffix.md`
 
 ## Archive
 

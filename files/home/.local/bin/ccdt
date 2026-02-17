@@ -1,0 +1,208 @@
+#!/usr/bin/env bash
+#============================================================================
+# ccdt - Claude Code DevTools Session Viewer
+#============================================================================
+# Launches claude-devtools as an on-demand Podman container to visualise
+# Claude Code session logs. Supports both host Claude Code sessions
+# (~/.claude/) and CCY project sessions (<project-dir>/.claude/ccy/).
+#
+# ARCHITECTURE:
+#   On-demand Podman container — starts instantly (image pre-pulled),
+#   opens browser at http://localhost:3456, cleans up on exit.
+#   No persistent service required; sessions are files on disk.
+#
+# DEPLOYMENT:
+#   Source:  files/home/.local/bin/ccdt (this file)
+#   Deploy:  ~/.local/bin/ccdt
+#   Via:     playbooks/imports/optional/common/play-install-claude-devtools.yml
+#
+# USAGE:
+#   ccdt                    Auto-detect: CCY project session or host session
+#   ccdt <path>             Explicit path: smart-detects .claude/ccy/ or .claude/
+#   ccdt --host             Force host sessions (~/.claude) regardless of CWD
+#   ccdt --help             Show this help
+#============================================================================
+
+set -euo pipefail
+
+#============================================================================
+# CONFIGURATION
+#============================================================================
+readonly CCDT_IMAGE="ghcr.io/matt1398/claude-devtools"
+readonly CCDT_PORT=3456
+readonly CCDT_URL="http://localhost:${CCDT_PORT}"
+
+#============================================================================
+# USAGE
+#============================================================================
+
+show_usage() {
+    cat <<EOF
+ccdt - Claude Code DevTools Session Viewer
+
+USAGE:
+    ccdt                Auto-detect session path from current directory
+    ccdt <path>         Use specific path (checks for .claude/ccy/ within it)
+    ccdt --host         Force host sessions (~/.claude) regardless of CWD
+    ccdt --help         Show this help message
+
+SESSION DETECTION:
+    Auto-detect walks up from \$PWD looking for .claude/ccy/ (CCY project).
+    Falls back to ~/.claude (host Claude Code sessions) if not found.
+
+EXAMPLES:
+    ccdt                        # From a CCY project dir → shows project sessions
+    ccdt                        # From elsewhere → shows host sessions
+    ccdt ~/Projects/my-project  # Explicit project path
+    ccdt --host                 # Always show host sessions
+
+URL:
+    Opens at: ${CCDT_URL}
+
+EOF
+}
+
+#============================================================================
+# SESSION PATH DETECTION
+#============================================================================
+
+# Walk up from a directory looking for .claude/ccy/
+# Prints the path if found, exits non-zero if not found
+find_ccy_root() {
+    local dir="$1"
+    while [[ "$dir" != "/" ]]; do
+        if [[ -d "${dir}/.claude/ccy" ]]; then
+            echo "${dir}/.claude/ccy"
+            return 0
+        fi
+        dir="$(dirname "$dir")"
+    done
+    return 1
+}
+
+# Resolve CLAUDE_ROOT from an explicit path argument.
+# Checks for .claude/ccy/ within the path first, then .claude/, then the path itself.
+resolve_explicit_path() {
+    local arg_path="$1"
+
+    # Expand ~ if present
+    arg_path="${arg_path/#\~/$HOME}"
+
+    if [[ ! -e "$arg_path" ]]; then
+        echo "ERROR: Path does not exist: ${arg_path}" >&2
+        exit 1
+    fi
+
+    # Check for .claude/ccy/ within the given path
+    if [[ -d "${arg_path}/.claude/ccy" ]]; then
+        echo "${arg_path}/.claude/ccy"
+        return 0
+    fi
+
+    # Check for .claude/ within the given path
+    if [[ -d "${arg_path}/.claude" ]]; then
+        echo "${arg_path}/.claude"
+        return 0
+    fi
+
+    # Use path directly if it looks like a claude root
+    if [[ -d "$arg_path" ]]; then
+        echo "$arg_path"
+        return 0
+    fi
+
+    echo "ERROR: Could not resolve a Claude session directory from: ${arg_path}" >&2
+    echo "       Expected .claude/ccy/, .claude/, or a direct session path." >&2
+    exit 1
+}
+
+#============================================================================
+# LAUNCH
+#============================================================================
+
+launch_devtools() {
+    local claude_root="$1"
+
+    # Validate the resolved path exists
+    if [[ ! -d "$claude_root" ]]; then
+        echo "ERROR: Session directory does not exist: ${claude_root}" >&2
+        exit 1
+    fi
+
+    echo "════════════════════════════════════════════════════════════"
+    echo "  ccdt — Claude Code DevTools"
+    echo "════════════════════════════════════════════════════════════"
+    echo ""
+    echo "  Session path:  ${claude_root}"
+    echo "  URL:           ${CCDT_URL}"
+    echo ""
+    echo "  Press Ctrl+C to stop"
+    echo ""
+
+    exec podman run \
+        --rm \
+        -p "${CCDT_PORT}:${CCDT_PORT}" \
+        -v "${claude_root}:/data/.claude:ro" \
+        -e "CLAUDE_ROOT=/data/.claude" \
+        "${CCDT_IMAGE}"
+}
+
+#============================================================================
+# MAIN
+#============================================================================
+
+main() {
+    local force_host=false
+    local explicit_path=""
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --help|-h)
+                show_usage
+                exit 0
+                ;;
+            --host)
+                force_host=true
+                shift
+                ;;
+            -*)
+                echo "ERROR: Unknown option: $1" >&2
+                echo "Run 'ccdt --help' for usage." >&2
+                exit 1
+                ;;
+            *)
+                if [[ -n "$explicit_path" ]]; then
+                    echo "ERROR: Too many arguments. Expected at most one path." >&2
+                    exit 1
+                fi
+                explicit_path="$1"
+                shift
+                ;;
+        esac
+    done
+
+    local claude_root
+
+    if [[ "$force_host" == true ]]; then
+        # Forced host mode
+        claude_root="${HOME}/.claude"
+
+    elif [[ -n "$explicit_path" ]]; then
+        # Explicit path given
+        claude_root="$(resolve_explicit_path "$explicit_path")"
+
+    else
+        # Auto-detect: walk up from PWD looking for CCY project
+        if ccy_root="$(find_ccy_root "$PWD")"; then
+            claude_root="$ccy_root"
+        else
+            # Fall back to host sessions
+            claude_root="${HOME}/.claude"
+        fi
+    fi
+
+    launch_devtools "$claude_root"
+}
+
+main "$@"

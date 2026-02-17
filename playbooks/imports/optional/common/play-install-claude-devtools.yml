@@ -1,0 +1,102 @@
+#!/usr/bin/env ansible-playbook
+---
+- hosts: desktop
+  name: Claude DevTools (ccdt) - On-Demand Session Viewer Installation
+  become: false
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+    ccdt_image: "ghcr.io/matt1398/claude-devtools"
+  vars_files:
+    - "{{ inventory_dir }}/../../vars/container-defaults.yml"
+  tasks:
+    - name: Check if Container Engine is Installed
+      ansible.builtin.command: which {{ container_engine }}
+      register: container_engine_check
+      failed_when: false
+      changed_when: false
+
+    - name: Verify Container Engine is Available
+      ansible.builtin.fail:
+        msg: |
+          {{ container_engine }} is not installed or not in PATH.
+          Please install {{ container_engine }} first.
+          Run: ansible-playbook playbooks/imports/play-podman.yml
+      when: container_engine_check.rc != 0
+
+    - name: Check Container Engine Service is Accessible
+      ansible.builtin.command: "{{ container_engine }} ps"
+      register: container_service_check
+      failed_when: false
+      changed_when: false
+
+    - name: Verify Container Engine Service
+      ansible.builtin.fail:
+        msg: |
+          {{ container_engine }} is not accessible.
+          Check: podman info
+      when: container_service_check.rc != 0
+
+    - name: Pull claude-devtools Container Image
+      ansible.builtin.command: "{{ container_engine }} pull {{ ccdt_image }}"
+      register: image_pull
+      changed_when: "'Digest' in image_pull.stdout or 'pulled' in image_pull.stdout or image_pull.rc == 0"
+
+    - name: Ensure ~/.local/bin Directory Exists
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.local/bin"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+
+    - name: Deploy ccdt Script
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/ccdt"
+        dest: "/home/{{ user_login }}/.local/bin/ccdt"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+
+    - name: Deploy Bashrc Include for ccdt Alias
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/bashrc-includes/claude-devtools.bash"
+        dest: "/home/{{ user_login }}/.bashrc-includes/claude-devtools.bash"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0644"
+
+    - name: Display Installation Summary
+      ansible.builtin.debug:
+        msg:
+          - "════════════════════════════════════════════════════════════════"
+          - "Claude DevTools (ccdt) Installation Complete"
+          - "════════════════════════════════════════════════════════════════"
+          - ""
+          - "✅ Image pre-pulled: ghcr.io/matt1398/claude-devtools"
+          - "✅ Script installed: ~/.local/bin/ccdt"
+          - "✅ Shell alias:      ccdt"
+          - ""
+          - "🚀 Quick Start"
+          - ""
+          - "  Reload shell:"
+          - "    source ~/.bashrc"
+          - ""
+          - "  View host Claude Code sessions:"
+          - "    ccdt"
+          - ""
+          - "  View CCY project sessions (from project dir):"
+          - "    cd ~/Projects/my-project"
+          - "    ccdt"
+          - ""
+          - "  Force host sessions:"
+          - "    ccdt --host"
+          - ""
+          - "  Explicit path:"
+          - "    ccdt ~/Projects/my-project"
+          - ""
+          - "📺 Opens at: http://localhost:3456"
+          - ""
+          - "💡 Help:"
+          - "    ccdt --help"
+          - ""
+          - "════════════════════════════════════════════════════════════════"
