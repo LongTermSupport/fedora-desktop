@@ -122,6 +122,33 @@ resolve_explicit_path() {
 # LAUNCH
 #============================================================================
 
+# Derive a meaningful container name from the session path.
+# Follows the same pattern as CCY: <project-name>_ccdt
+# Examples:
+#   ~/.claude              → host_ccdt
+#   ~/Projects/foo/.claude → foo_ccdt
+#   ~/Projects/foo/.claude/ccy → foo_ccdt
+derive_container_name() {
+    local path="$1"
+    local project
+
+    if [[ "$path" == "${HOME}/.claude" ]]; then
+        project="host"
+    elif [[ "$path" == *"/.claude/ccy" ]]; then
+        # grandparent of .claude/ccy
+        project="$(basename "$(dirname "$(dirname "$path")")")"
+    elif [[ "$path" == *"/.claude" ]]; then
+        # parent of .claude
+        project="$(basename "$(dirname "$path")")"
+    else
+        project="$(basename "$path")"
+    fi
+
+    # Sanitize: only alphanumeric, dash, underscore
+    project="${project//[^a-zA-Z0-9_-]/-}"
+    echo "${project}_ccdt"
+}
+
 launch_devtools() {
     local claude_root="$1"
     local verbose="${2:-false}"
@@ -132,11 +159,15 @@ launch_devtools() {
         exit 1
     fi
 
+    local container_name
+    container_name="$(derive_container_name "$claude_root")"
+
     echo "════════════════════════════════════════════════════════════"
     echo "  ccdt — Claude Code DevTools"
     echo "════════════════════════════════════════════════════════════"
     echo ""
     echo "  Session path:  ${claude_root}"
+    echo "  Container:     ${container_name}"
     echo "  URL:           ${CCDT_URL}"
     echo ""
     echo "  Press Ctrl+C to stop"
@@ -148,6 +179,8 @@ launch_devtools() {
     exec podman run \
         --rm \
         --init \
+        --replace \
+        --name "${container_name}" \
         -p "${CCDT_PORT}:${CCDT_PORT}" \
         -v "${claude_root}:/data/.claude:ro" \
         -e "CLAUDE_ROOT=/data/.claude" \
