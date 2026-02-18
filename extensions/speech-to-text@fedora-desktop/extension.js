@@ -1061,18 +1061,33 @@ export default class SpeechToTextExtension extends Extension {
     }
 
     _openModelManager() {
-        // Launch wsi-model-manager in a terminal window
+        // Launch wsi-model-manager in a terminal window.
+        // Terminals tried in order: kgx (GTK4, native Wayland) → gnome-terminal → xterm.
+        // A bash wrapper primes the PTY to 120×35 so Textual initialises at a usable size;
+        // the xterm resize escape requests the terminal window to resize visually too.
         const script = GLib.get_home_dir() + '/.local/bin/wsi-model-manager';
         this._log('Opening model manager');
+
+        // \\033 in JS template literal → \033 in string → printf interprets as ESC octal escape.
+        const bashCmd = `'printf "\\033[8;35;120t"; stty rows 35 cols 120 2>/dev/null; exec ${script}'`;
+
         try {
-            GLib.spawn_command_line_async(`gnome-terminal -- ${script}`);
-        } catch (e) {
-            // Fallback to xterm on minimal installs
+            // kgx (GNOME Console) — native Wayland GTK4, default on Fedora 42 / GNOME 48
+            GLib.spawn_command_line_async(`kgx -- bash -c ${bashCmd}`);
+        } catch (_e1) {
             try {
-                GLib.spawn_command_line_async(`xterm -title "Whisper Model Manager" -e ${script}`);
-            } catch (e2) {
-                this._log(`Cannot open terminal: ${e2.message}`);
-                Main.notify('Speech to Text', 'Cannot open terminal. Run: wsi-model-manager');
+                // gnome-terminal — older GTK3, still common on some installs
+                GLib.spawn_command_line_async(`gnome-terminal -- bash -c ${bashCmd}`);
+            } catch (_e2) {
+                try {
+                    // xterm — minimal installs; supports -geometry directly
+                    GLib.spawn_command_line_async(
+                        `xterm -geometry 120x35 -title "Whisper Model Manager" -e ${script}`
+                    );
+                } catch (e3) {
+                    this._log(`Cannot open terminal: ${e3.message}`);
+                    Main.notify('Speech to Text', 'Cannot open terminal. Run: wsi-model-manager');
+                }
             }
         }
     }

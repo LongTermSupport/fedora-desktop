@@ -15,6 +15,36 @@ On Wayland, GNOME Shell cannot be restarted without ending the session. This mea
 2. **Inform the user clearly**: "You must log out and log back in for the extension changes to take effect."
 3. Do not suggest any other reload method - they do not work on Wayland
 
+## ⚠️ DEPLOYMENT: Update Playbook When Adding Extension Files
+
+**When you add a new `.js` file to the extension directory, you MUST also add it to the Ansible playbook.**
+
+The playbook that deploys the extension is:
+```
+playbooks/imports/optional/common/play-speech-to-text.yml
+```
+
+Look for the **"Copy Extension Files"** task and add your new file to the loop:
+```yaml
+- name: Copy Extension Files
+  ansible.builtin.copy:
+    ...
+  loop:
+    - extension.js
+    - prefs.js        # ← example: this was added when prefs.js was created
+    - metadata.json
+```
+
+**If you forget this step**, the file will exist in the repo but will never be deployed to the system. Extension features relying on the new file will silently fail (e.g., `openPreferences()` does nothing if `prefs.js` is missing).
+
+**Checklist when adding a new extension file:**
+1. Add the file to the extension source directory
+2. Add it to the "Copy Extension Files" loop in the playbook
+3. Deploy with the playbook
+4. Log out and log back in to reload the extension
+
+---
+
 ## ⚠️ ARCHITECTURE: Keep Extension Code Thin
 
 **Because reloading extensions requires logout, minimize code in extension.js.**

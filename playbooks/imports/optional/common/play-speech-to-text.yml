@@ -273,6 +273,7 @@
         mode: '0644'
       loop:
         - extension.js
+        - prefs.js
         - metadata.json
 
     - name: Copy GSettings Schema
