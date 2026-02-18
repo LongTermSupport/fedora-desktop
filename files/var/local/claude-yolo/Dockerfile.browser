@@ -5,7 +5,7 @@ ARG DOCKERFILE_HASH="unknown"
 
 # Metadata
 # IMPORTANT: When modifying this Dockerfile, ALWAYS increment claude-browser-version!
-LABEL claude-browser-version="1.2"
+LABEL claude-browser-version="1.3"
 LABEL claude-browser-dockerfile-hash="${DOCKERFILE_HASH}"
 LABEL description="Claude Code Browser Mode - Isolated container with Playwright MCP for browser automation"
 
@@ -65,8 +65,9 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
 RUN wget -qO /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 \
     && chmod +x /usr/bin/yq
 
-# Install Claude Code globally
-RUN npm install -g @anthropic-ai/claude-code
+# Install Claude Code using native installer
+RUN curl -fsSL https://claude.ai/install.sh | sh
+ENV PATH="/root/.local/bin:$PATH"
 
 # Install Playwright and browsers globally
 # Install chrome (Google Chrome) in addition to chromium, firefox, webkit

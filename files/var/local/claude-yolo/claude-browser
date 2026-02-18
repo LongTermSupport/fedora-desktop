@@ -11,7 +11,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCB_VERSION="1.4.0"  # Fix: Use parent-project naming to avoid container/network collisions
+CCB_VERSION="1.5.0"  # Switch Claude Code install from npm to native installer
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,7 +36,7 @@ done
 # BROWSER MODE: Browser container version
 # IMPORTANT: When modifying the Dockerfile, ALWAYS increment REQUIRED_CONTAINER_VERSION!
 # This ensures users automatically rebuild when critical container changes are made.
-REQUIRED_CONTAINER_VERSION="1.2"
+REQUIRED_CONTAINER_VERSION="1.3"
 
 set -e
 
@@ -700,8 +700,8 @@ check_claude_code_updates() {
     # Get version from container
     local container_version=$(container_cmd run --rm --entrypoint claude "$image_name" --version 2>/dev/null | grep -oP '(?<=claude-code/)\d+\.\d+\.\d+' || echo "unknown")
 
-    # Get latest version from npm (with timeout)
-    local latest_version=$(timeout 5 npm view @anthropic-ai/claude-code version 2>/dev/null || echo "unknown")
+    # Get latest version from npm registry API (no npm CLI required)
+    local latest_version=$(timeout 5 curl -fsSL "https://registry.npmjs.org/@anthropic-ai/claude-code/latest" 2>/dev/null | grep -oP '"version":\s*"\K[^"]+' | head -1 || echo "unknown")
 
     if [ "$container_version" = "unknown" ] || [ "$latest_version" = "unknown" ]; then
         # Can't determine versions, cache failure and skip notification

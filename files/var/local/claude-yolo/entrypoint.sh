@@ -117,7 +117,7 @@ if [ ! -f /root/.claude.json ]; then
     cat > /root/.claude.json <<'EOF'
 {
   "hasCompletedOnboarding": true,
-  "installMethod": "npm",
+  "installMethod": "native",
   "bypassPermissionsModeAccepted": true
 }
 EOF

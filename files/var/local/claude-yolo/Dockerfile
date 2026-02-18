@@ -10,7 +10,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="1.5"
+LABEL claude-yolo-version="1.6"
 LABEL claude-yolo-dockerfile-hash="${DOCKERFILE_HASH}"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 
@@ -52,9 +52,9 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
 RUN wget -qO /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 \
     && chmod +x /usr/bin/yq
 
-# Install Claude Code globally
-# Note: This will be updated at runtime by the wrapper script if needed
-RUN npm install -g @anthropic-ai/claude-code
+# Install Claude Code using native installer
+RUN curl -fsSL https://claude.ai/install.sh | sh
+ENV PATH="/root/.local/bin:$PATH"
 
 # Copy and set up entrypoint script
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
