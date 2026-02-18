@@ -312,15 +312,6 @@
         group: "{{ user_login }}"
         mode: '0755'
 
-    - name: Deploy Paste Config (only if not already customised)
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/home/.config/speech-to-text/config.ini"
-        dest: "/home/{{ user_login }}/.config/speech-to-text/config.ini"
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: '0644'
-        force: false  # Never overwrite user's customisations
-
     - name: Deploy Claude Processing Script
       ansible.builtin.copy:
         src: "{{ root_dir }}/files/home/.local/bin/wsi-claude-process"

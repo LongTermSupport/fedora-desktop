@@ -46,6 +46,7 @@ export default class SpeechToTextExtension extends Extension {
         this._claudeModel = 'sonnet';  // Claude model: 'sonnet', 'opus', 'haiku'
         this._currentState = 'IDLE';
         this._updatingToggles = false;  // Guard flag to prevent toggle cascade
+        this._settingsChangedId = null;
         this._lastError = null;
         this._logDir = GLib.get_home_dir() + '/.local/share/speech-to-text';
         this._logFile = this._logDir + '/debug.log';
@@ -184,6 +185,9 @@ export default class SpeechToTextExtension extends Extension {
         // Now build the menu AFTER settings are loaded
         this._buildMenu();
 
+        // Sync internal state when prefs window changes a setting
+        this._connectSettingsSignals();
+
         // Add to panel
         Main.panel.addToStatusArea('speech-to-text', this._indicator);
 
@@ -246,8 +250,13 @@ export default class SpeechToTextExtension extends Extension {
             this._indicator = null;
         }
 
+        // Disconnect settings change listener
+        if (this._settingsChangedId && this._settings) {
+            this._settings.disconnect(this._settingsChangedId);
+            this._settingsChangedId = null;
+        }
+
         this._settings = null;
-        this._logLines = null;
     }
 
     _addAbortKeybinding() {
@@ -291,336 +300,108 @@ export default class SpeechToTextExtension extends Extension {
     _buildMenu() {
         const menu = this._indicator.menu;
 
-        // Status section (non-interactive header)
+        // Status
         this._statusLabel = new PopupMenu.PopupMenuItem('Status: IDLE', { reactive: false });
         this._statusLabel.label.style = 'font-weight: bold;';
         menu.addMenuItem(this._statusLabel);
 
-        // Separator
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-        // Notifications toggle
-        this._notifySwitch = new PopupMenu.PopupSwitchMenuItem('Show Notifications', this._showNotifications);
-        this._preventMenuClose(this._notifySwitch);
-        this._notifySwitch.connect('toggled', (item, state) => {
-            if (this._updatingToggles) return;  // Prevent cascade
-            this._showNotifications = state;
-            this._saveNotificationsSetting(state);
-            this._log(`Notifications ${state ? 'enabled' : 'disabled'}`);
+        // Auto-paste toggle — most-used setting, kept in popup for quick access
+        this._autoPasteSwitch = new PopupMenu.PopupSwitchMenuItem('Auto-paste at cursor', this._autoPaste);
+        this._preventMenuClose(this._autoPasteSwitch);
+        this._autoPasteSwitch.connect('toggled', (item, state) => {
+            if (this._updatingToggles) return;
+            this._autoPaste = state;
+            this._saveAutoPasteSetting(state);
+            this._log(`Auto-paste ${state ? 'enabled' : 'disabled'}`);
         });
-        menu.addMenuItem(this._notifySwitch);
+        menu.addMenuItem(this._autoPasteSwitch);
 
-        // Debug toggle
+        // Debug toggle — kept in popup so it's reachable when diagnosing issues
         this._debugSwitch = new PopupMenu.PopupSwitchMenuItem('Debug Logging', this._debugEnabled);
         this._preventMenuClose(this._debugSwitch);
         this._debugSwitch.connect('toggled', (item, state) => {
-            if (this._updatingToggles) return;  // Prevent cascade
+            if (this._updatingToggles) return;
             this._debugEnabled = state;
             this._saveDebugSetting(state);
             this._log(`Debug mode ${state ? 'enabled' : 'disabled'}`);
         });
         menu.addMenuItem(this._debugSwitch);
 
-        // View logs button
-        const viewLogsItem = new PopupMenu.PopupMenuItem('View Debug Log...');
-        viewLogsItem.connect('activate', () => {
-            this._openLogViewer();
-        });
-        menu.addMenuItem(viewLogsItem);
-
-        // Clear logs button
-        const clearLogsItem = new PopupMenu.PopupMenuItem('Clear Debug Log');
-        clearLogsItem.connect('activate', () => {
-            this._clearLog();
-        });
-        menu.addMenuItem(clearLogsItem);
-
-        // Separator
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-        // Copy last transcription button
-        const copyTranscriptionItem = new PopupMenu.PopupMenuItem('Copy Last Transcription');
-        copyTranscriptionItem.connect('activate', () => {
-            this._copyLastTranscription();
-        });
-        menu.addMenuItem(copyTranscriptionItem);
+        const copyItem = new PopupMenu.PopupMenuItem('Copy Last Transcription');
+        copyItem.connect('activate', () => { this._copyLastTranscription(); });
+        menu.addMenuItem(copyItem);
 
-        // View last transcription button
-        const viewTranscriptionItem = new PopupMenu.PopupMenuItem('View Last Transcription...');
-        viewTranscriptionItem.connect('activate', () => {
-            this._openLastTranscription();
-        });
-        menu.addMenuItem(viewTranscriptionItem);
+        const viewLogItem = new PopupMenu.PopupMenuItem('View Debug Log...');
+        viewLogItem.connect('activate', () => { this._openLogViewer(); });
+        menu.addMenuItem(viewLogItem);
 
-        // Separator
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-        // Auto-paste toggle
-        this._autoPasteSwitch = new PopupMenu.PopupSwitchMenuItem('Auto-paste at cursor', this._autoPaste);
-        this._preventMenuClose(this._autoPasteSwitch);
-        this._autoPasteSwitch.connect('toggled', (item, state) => {
-            if (this._updatingToggles) return;  // Prevent cascade
-            this._autoPaste = state;
-            if (!state) {
-                // Disable streaming when auto-paste is turned off
-                this._streamingMode = false;
-                this._saveStreamingSetting(false);
-            }
-            this._saveAutoPasteSetting(state);
-            this._updatePasteToggles();
-            this._log(`Auto-paste ${state ? 'enabled' : 'disabled'}`);
-        });
-        menu.addMenuItem(this._autoPasteSwitch);
-
-        // Auto-enter toggle (send Return after auto-paste) - child of auto-paste
-        this._autoEnterSwitch = new PopupMenu.PopupSwitchMenuItem('  ↳ Send Enter after paste', this._autoEnter);
-        this._preventMenuClose(this._autoEnterSwitch);
-        this._autoEnterSwitch.connect('toggled', (item, state) => {
-            if (this._updatingToggles) return;  // Prevent cascade
-            this._autoEnter = state;
-            this._saveAutoEnterSetting(state);
-            this._log(`Auto-enter ${state ? 'enabled' : 'disabled'}`);
-        });
-        menu.addMenuItem(this._autoEnterSwitch);
-
-        // Streaming mode toggle - child of auto-paste (uses RealtimeSTT for real-time transcription)
-        this._streamingSwitch = new PopupMenu.PopupSwitchMenuItem('  ↳ Streaming mode (instant)', this._streamingMode);
-        this._preventMenuClose(this._streamingSwitch);
-        this._streamingSwitch.connect('toggled', (item, state) => {
-            if (this._updatingToggles) return;  // Prevent cascade
-            this._streamingMode = state;
-            if (!state) {
-                // Reset to standard mode when streaming is turned off
-                this._streamingStartupMode = 'standard';
-                this._saveStreamingStartupModeSetting('standard');
-            }
-            this._saveStreamingSetting(state);
-            this._updatePasteToggles();
-            this._updateModelLabel();  // Update model label to show new auto mode model
-            this._updateStreamingStartupLabel();
-            this._checkServerStatus();  // Immediate check when streaming mode changes
-            this._log(`Streaming mode ${state ? 'enabled' : 'disabled'}`);
-        });
-        menu.addMenuItem(this._streamingSwitch);
-
-        // Streaming startup mode - header item (non-interactive)
-        this._streamingStartupHeader = new PopupMenu.PopupMenuItem('    ↳ Startup: Standard', { reactive: false });
-        this._streamingStartupHeader.label.style = 'font-weight: bold; color: #888;';
-        menu.addMenuItem(this._streamingStartupHeader);
-
-        // Startup mode options (flat list, indented)
-        const startupModes = [
-            ['standard', 'Standard', 'Load model then start (~3-6s)'],
-            ['pre-buffer', 'Pre-buffer', 'Record while loading (~2-4s)'],
-            ['server', 'Server mode', 'Persistent server (<0.5s, uses memory)'],
-        ];
-
-        this._startupModeItems = [];
-        for (const [mode, label, description] of startupModes) {
-            const item = new PopupMenu.PopupMenuItem(`        • ${label} - ${description}`);
-            item.connect('activate', () => {
-                this._streamingStartupMode = mode;
-                this._saveStreamingStartupModeSetting(mode);
-                this._updateStreamingStartupLabel();
-                this._updateStartupModeSelection();
-                this._checkServerStatus();
-                this._log(`Streaming startup mode set to: ${mode}`);
-            });
-            this._startupModeItems.push({ item, mode });
-            menu.addMenuItem(item);
-        }
-
-        // Wrap with marker toggle (works with all paste modes)
-        this._wrapMarkerSwitch = new PopupMenu.PopupSwitchMenuItem('Wrap with speech-to-text marker', this._wrapWithMarker);
-        this._preventMenuClose(this._wrapMarkerSwitch);
-        this._wrapMarkerSwitch.connect('toggled', (item, state) => {
-            if (this._updatingToggles) return;  // Prevent cascade
-            this._wrapWithMarker = state;
-            this._saveWrapMarkerSetting(state);
-            this._log(`Wrap marker ${state ? 'enabled' : 'disabled'}`);
-        });
-        menu.addMenuItem(this._wrapMarkerSwitch);
-
-        // Open paste config file
-        const openConfigItem = new PopupMenu.PopupMenuItem('Open Config File...');
-        openConfigItem.connect('activate', () => {
-            this._openPasteConfigFile();
-        });
-        menu.addMenuItem(openConfigItem);
-
-        // Separator before language
-        menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-
-        // Language - header item
-        this._languageHeader = new PopupMenu.PopupMenuItem('Language: System default', { reactive: false });
-        this._languageHeader.label.style = 'font-weight: bold;';
-        menu.addMenuItem(this._languageHeader);
-
-        // Language options (flat list)
-        const languages = [
-            ['system', 'System default'],
-            ['en', 'English'],
-        ];
-
-        this._languageItems = [];
-        for (const [code, label] of languages) {
-            const item = new PopupMenu.PopupMenuItem(`  • ${label}`);
-            item.connect('activate', () => {
-                this._language = code;
-                this._saveLanguageSetting(code);
-                this._updateLanguageLabel();
-                this._updateLanguageSelection();
-                this._log(`Language set to: ${code}`);
-            });
-            this._languageItems.push({ item, code });
-            menu.addMenuItem(item);
-        }
-
-        // Whisper model - header item
-        this._modelHeader = new PopupMenu.PopupMenuItem('Model: Auto', { reactive: false });
-        this._modelHeader.label.style = 'font-weight: bold;';
-        menu.addMenuItem(this._modelHeader);
-
-        // Model options — only installed models are shown; hidden items are refreshed on menu open.
-        // Section headers are tracked so they can be hidden when no models in their section are installed.
-        this._modelItems = [];
-        this._multilingualHeader = null;
-        this._englishOnlyHeader = null;
-
-        for (const [modelName, label, size,, englishOnly] of this._whisperModels) {
-            // Section header before first multilingual (non-auto) model
-            if (!englishOnly && modelName !== 'auto' && !this._multilingualHeader) {
-                const mlHeader = new PopupMenu.PopupMenuItem('  — Multilingual:', { reactive: false });
-                mlHeader.label.style = 'color: #888; font-style: italic;';
-                this._multilingualHeader = mlHeader;
-                menu.addMenuItem(mlHeader);
-            }
-
-            // Section header before first English-only model
-            if (englishOnly && !this._englishOnlyHeader) {
-                const enHeader = new PopupMenu.PopupMenuItem('  — English-only (smaller, faster):', { reactive: false });
-                enHeader.label.style = 'color: #888; font-style: italic;';
-                this._englishOnlyHeader = enHeader;
-                menu.addMenuItem(enHeader);
-            }
-
-            if (modelName === 'auto') {
-                const item = new PopupMenu.PopupMenuItem('  ● Auto (optimized per mode)');
-                item.connect('activate', () => {
-                    this._whisperModel = 'auto';
-                    this._saveModelSetting('auto');
-                    this._updateModelLabel();
-                    this._updateModelSelection();
-                    this._log('Whisper model set to: auto');
-                });
-                this._modelItems.push({ item, modelName });
-                menu.addMenuItem(item);
-                continue;
-            }
-
-            // Non-auto models: create item, show only if installed
-            const installed = this._checkModelInstalled(modelName);
-            const item = new PopupMenu.PopupMenuItem(`  ✓ ${label} (${size})`);
-            item.visible = installed;
-            item.connect('activate', () => {
-                this._whisperModel = modelName;
-                this._saveModelSetting(modelName);
-                this._updateModelLabel();
-                this._updateModelSelection();
-                this._log(`Whisper model set to: ${modelName}`);
-            });
-            this._modelItems.push({ item, modelName });
-            menu.addMenuItem(item);
-        }
-
-        // Manager launcher — always visible
-        const manageModelsItem = new PopupMenu.PopupMenuItem('  ⬇ Download more models...');
-        manageModelsItem.label.style = 'color: #5af;';
-        manageModelsItem.connect('activate', () => {
-            this._openModelManager();
-        });
+        const manageModelsItem = new PopupMenu.PopupMenuItem('Manage Whisper Models...');
+        manageModelsItem.connect('activate', () => { this._openModelManager(); });
         menu.addMenuItem(manageModelsItem);
 
-        // Separator before Claude Code section
-        menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        const settingsItem = new PopupMenu.PopupMenuItem('Settings...');
+        settingsItem.connect('activate', () => { this.openPreferences(); });
+        menu.addMenuItem(settingsItem);
 
-        // Claude Code section header
-        const claudeHeader = new PopupMenu.PopupMenuItem('Claude Code Post-Processing:', { reactive: false });
-        claudeHeader.label.style = 'font-weight: bold;';
-        menu.addMenuItem(claudeHeader);
-
-        // Claude enabled toggle
-        this._claudeSwitch = new PopupMenu.PopupSwitchMenuItem('Process with Claude (Ctrl+Insert)', this._claudeEnabled);
-        this._preventMenuClose(this._claudeSwitch);
-        this._claudeSwitch.connect('toggled', (item, state) => {
-            if (this._updatingToggles) return;
-            this._claudeEnabled = state;
-            this._saveClaudeSetting(state);
-            this._log(`Claude processing ${state ? 'enabled' : 'disabled'}`);
+        // Update status line each time the menu opens
+        menu.connect('open-state-changed', (m, open) => {
+            if (open) this._updateStatusLabel();
         });
-        menu.addMenuItem(this._claudeSwitch);
+    }
 
-        // Claude model - header item
-        this._claudeModelHeader = new PopupMenu.PopupMenuItem('  ↳ Model: Sonnet', { reactive: false });
-        this._claudeModelHeader.label.style = 'font-weight: bold; color: #888;';
-        menu.addMenuItem(this._claudeModelHeader);
+    _connectSettingsSignals() {
+        if (!this._settings) return;
 
-        // Claude model options (flat list)
-        this._claudeModelItems = [];
-        for (const [modelName, label, description] of this._claudeModels) {
-            const item = new PopupMenu.PopupMenuItem(`      • ${label} - ${description}`);
-            item.connect('activate', () => {
-                this._claudeModel = modelName;
-                this._saveClaudeModelSetting(modelName);
-                this._updateClaudeModelLabel();
-                this._updateClaudeModelSelection();
-                this._log(`Claude model set to: ${modelName}`);
-            });
-            this._claudeModelItems.push({ item, modelName });
-            menu.addMenuItem(item);
-        }
-
-        // Edit prompt menu item
-        const editPromptItem = new PopupMenu.PopupMenuItem('  ↳ Edit Claude Prompt...');
-        editPromptItem.connect('activate', () => {
-            this._openClaudePromptEditor();
-        });
-        menu.addMenuItem(editPromptItem);
-
-        // Set initial visibility for child options
-        this._updatePasteToggles();
-        this._updateLanguageLabel();
-        this._updateLanguageSelection();
-        this._updateModelLabel();
-        this._updateModelSelection();
-        this._updateClaudeModelLabel();
-        this._updateClaudeModelSelection();
-        this._updateStreamingStartupLabel();
-        this._updateStartupModeSelection();
-
-        // Separator
-        menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-
-        // Recent log header
-        const logHeader = new PopupMenu.PopupMenuItem('Recent Log:', { reactive: false });
-        logHeader.label.style = 'font-style: italic; color: #888;';
-        menu.addMenuItem(logHeader);
-
-        // Placeholder for log lines (last 5)
-        this._logLines = [];
-        for (let i = 0; i < 5; i++) {
-            const line = new PopupMenu.PopupMenuItem('', { reactive: false });
-            line.label.style = 'font-size: 0.9em; font-family: monospace;';
-            this._logLines.push(line);
-            menu.addMenuItem(line);
-        }
-
-        // Refresh logs and installed model list when menu opens
-        menu.connect('open-state-changed', (menu, open) => {
-            if (open) {
-                this._refreshLogDisplay();
-                this._updateStatusLabel();
-                this._refreshModelSection();
+        this._settingsChangedId = this._settings.connect('changed', (_settings, key) => {
+            this._updatingToggles = true;
+            try {
+                switch (key) {
+                case 'debug-mode':
+                    this._debugEnabled = this._settings.get_boolean(key);
+                    if (this._debugSwitch) this._debugSwitch.setToggleState(this._debugEnabled);
+                    break;
+                case 'auto-paste':
+                    this._autoPaste = this._settings.get_boolean(key);
+                    if (this._autoPasteSwitch) this._autoPasteSwitch.setToggleState(this._autoPaste);
+                    break;
+                case 'auto-enter':
+                    this._autoEnter = this._settings.get_boolean(key);
+                    break;
+                case 'wrap-marker':
+                    this._wrapWithMarker = this._settings.get_boolean(key);
+                    break;
+                case 'streaming-mode':
+                    this._streamingMode = this._settings.get_boolean(key);
+                    this._checkServerStatus();
+                    break;
+                case 'streaming-startup-mode':
+                    this._streamingStartupMode = this._settings.get_string(key);
+                    this._checkServerStatus();
+                    break;
+                case 'language':
+                    this._language = this._settings.get_string(key);
+                    break;
+                case 'whisper-model':
+                    this._whisperModel = this._settings.get_string(key);
+                    break;
+                case 'claude-enabled':
+                    this._claudeEnabled = this._settings.get_boolean(key);
+                    break;
+                case 'claude-model':
+                    this._claudeModel = this._settings.get_string(key);
+                    break;
+                case 'show-notifications':
+                    this._showNotifications = this._settings.get_boolean(key);
+                    break;
+                }
+            } finally {
+                this._updatingToggles = false;
             }
         });
     }
@@ -1105,77 +886,21 @@ export default class SpeechToTextExtension extends Extension {
         }
     }
 
-    _readPasteConfig() {
-        // Read ~/.config/speech-to-text/config.ini
-        // Returns { defaultMode: 'with-shift'|'no-shift', ctrlVApps: [...] }
-        const configFile = GLib.get_home_dir() + '/.config/speech-to-text/config.ini';
-        try {
-            const file = Gio.File.new_for_path(configFile);
-            if (!file.query_exists(null)) {
-                return { defaultMode: 'with-shift', ctrlVApps: [] };
-            }
-            const [success, contents] = file.load_contents(null);
-            if (!success) return { defaultMode: 'with-shift', ctrlVApps: [] };
-
-            const text = new TextDecoder().decode(contents);
-            let defaultMode = 'with-shift';
-            let ctrlVApps = [];
-
-            for (const line of text.split('\n')) {
-                const trimmed = line.trim();
-                if (trimmed.startsWith('#') || trimmed.startsWith('[') || !trimmed) continue;
-                const eqIdx = trimmed.indexOf('=');
-                if (eqIdx < 0) continue;
-                const key = trimmed.slice(0, eqIdx).trim();
-                const value = trimmed.slice(eqIdx + 1).trim();
-                if (key === 'default') defaultMode = value;
-                if (key === 'ctrl_v_apps') ctrlVApps = value.split(',').map(s => s.trim()).filter(Boolean);
-            }
-
-            return { defaultMode, ctrlVApps };
-        } catch (e) {
-            this._log(`Paste config read error: ${e.message}`);
-            return { defaultMode: 'with-shift', ctrlVApps: [] };
-        }
-    }
-
     _getPasteWithShift() {
-        // Returns 1 (Ctrl+Shift+V) or 0 (Ctrl+V) based on focused window and config
+        // Returns 1 (Ctrl+Shift+V) or 0 (Ctrl+V) based on focused window and GSettings
         const wmClass = global.display.focus_window ? global.display.focus_window.get_wm_class() : null;
-        const config = this._readPasteConfig();
+        const defaultMode = this._settings ? this._settings.get_string('paste-default-mode') : 'with-shift';
+        const ctrlVAppsStr = this._settings ? this._settings.get_string('paste-ctrl-v-apps') : '';
+        const ctrlVApps = ctrlVAppsStr.split(',').map(s => s.trim()).filter(Boolean);
 
-        if (wmClass && config.ctrlVApps.includes(wmClass)) {
-            this._log(`WM class "${wmClass}" in ctrl_v_apps → Ctrl+V`);
+        if (wmClass && ctrlVApps.includes(wmClass)) {
+            this._log(`WM class "${wmClass}" in ctrl-v-apps → Ctrl+V`);
             return 0;
         }
 
-        const useShift = config.defaultMode !== 'no-shift';
-        this._log(`WM class "${wmClass}" → ${useShift ? 'Ctrl+Shift+V' : 'Ctrl+V'} (default: ${config.defaultMode})`);
+        const useShift = defaultMode !== 'no-shift';
+        this._log(`WM class "${wmClass}" → ${useShift ? 'Ctrl+Shift+V' : 'Ctrl+V'} (default: ${defaultMode})`);
         return useShift ? 1 : 0;
-    }
-
-    _openPasteConfigFile() {
-        const configFile = GLib.get_home_dir() + '/.config/speech-to-text/config.ini';
-        try {
-            GLib.spawn_command_line_async(`xdg-open "${configFile}"`);
-            this._log('Opening paste config file');
-        } catch (e) {
-            this._log(`Failed to open config file: ${e.message}`);
-            Main.notify('STT Error', `Failed to open config file: ${e.message}`);
-        }
-    }
-
-    _openClaudePromptEditor() {
-        const promptFile = GLib.get_home_dir() + '/.config/speech-to-text/claude-prompt-corporate.txt';
-
-        // Try to open with default text editor
-        try {
-            GLib.spawn_command_line_async(`xdg-open "${promptFile}"`);
-            this._log('Opening Claude prompt editor');
-        } catch (e) {
-            this._log(`Failed to open editor: ${e.message}`);
-            Main.notify('STT Error', `Failed to open editor: ${e.message}`);
-        }
     }
 
     _stopRecording() {
@@ -1335,35 +1060,6 @@ export default class SpeechToTextExtension extends Extension {
         }
     }
 
-    _refreshModelSection() {
-        // Re-check which models are installed and update item visibility.
-        // Called each time the menu opens so newly downloaded models appear immediately.
-        if (!this._modelItems) return;
-
-        let hasMultilingual = false;
-        let hasEnglishOnly = false;
-
-        for (const { item, modelName } of this._modelItems) {
-            if (modelName === 'auto') continue;
-            const installed = this._checkModelInstalled(modelName);
-            item.visible = installed;
-            if (installed) {
-                const modelInfo = this._whisperModels.find(m => m[0] === modelName);
-                if (modelInfo) {
-                    if (modelInfo[4]) hasEnglishOnly = true;
-                    else hasMultilingual = true;
-                }
-            }
-        }
-
-        // Hide section headers when no models in their group are installed
-        if (this._multilingualHeader) this._multilingualHeader.visible = hasMultilingual;
-        if (this._englishOnlyHeader) this._englishOnlyHeader.visible = hasEnglishOnly;
-
-        this._updateModelLabel();
-        this._updateModelSelection();
-    }
-
     _openModelManager() {
         // Launch wsi-model-manager in a terminal window
         const script = GLib.get_home_dir() + '/.local/bin/wsi-model-manager';
@@ -1378,143 +1074,6 @@ export default class SpeechToTextExtension extends Extension {
                 this._log(`Cannot open terminal: ${e2.message}`);
                 Main.notify('Speech to Text', 'Cannot open terminal. Run: wsi-model-manager');
             }
-        }
-    }
-
-    _updateLanguageLabel() {
-        if (this._languageHeader) {
-            let label;
-            if (this._language === 'system') {
-                // Get system locale and show it
-                const locale = GLib.getenv('LANG') || 'en_GB.UTF-8';
-                const langCode = locale.split('_')[0];  // en_GB.UTF-8 -> en
-                label = `System (${locale.split('.')[0]} → ${langCode})`;
-            } else {
-                const labels = { 'en': 'English' };
-                label = labels[this._language] || this._language;
-            }
-            this._languageHeader.label.text = `Language: ${label}`;
-        }
-    }
-
-    _updateLanguageSelection() {
-        if (!this._languageItems) return;
-
-        for (const {item, code} of this._languageItems) {
-            if (code === this._language) {
-                item.setOrnament(PopupMenu.Ornament.DOT);
-            } else {
-                item.setOrnament(PopupMenu.Ornament.NONE);
-            }
-        }
-    }
-
-    _updateModelLabel() {
-        if (this._modelHeader) {
-            const modelInfo = this._whisperModels.find(m => m[0] === this._whisperModel);
-            if (modelInfo) {
-                let label = modelInfo[1];  // Get label from array
-
-                // For auto mode, show what it will actually use
-                if (this._whisperModel === 'auto') {
-                    const actualModel = this._streamingMode ? 'base' : 'small';
-                    const actualInstalled = this._checkModelInstalled(actualModel);
-                    const status = actualInstalled ? '✓' : '⚠';
-                    label = `Auto (${status} ${actualModel} for ${this._streamingMode ? 'streaming' : 'batch'})`;
-                }
-
-                this._modelHeader.label.text = `Model: ${label}`;
-            } else {
-                this._modelHeader.label.text = `Model: ${this._whisperModel}`;
-            }
-        }
-    }
-
-    _updateModelSelection() {
-        if (!this._modelItems) return;
-
-        for (const {item, modelName} of this._modelItems) {
-            if (modelName === this._whisperModel) {
-                item.setOrnament(PopupMenu.Ornament.DOT);
-            } else {
-                item.setOrnament(PopupMenu.Ornament.NONE);
-            }
-        }
-    }
-
-    _updateClaudeModelLabel() {
-        if (this._claudeModelHeader) {
-            const modelInfo = this._claudeModels.find(m => m[0] === this._claudeModel);
-            if (modelInfo) {
-                this._claudeModelHeader.label.text = `  ↳ Model: ${modelInfo[1]}`;
-            } else {
-                this._claudeModelHeader.label.text = `  ↳ Model: ${this._claudeModel}`;
-            }
-        }
-    }
-
-    _updateClaudeModelSelection() {
-        if (!this._claudeModelItems) return;
-
-        for (const {item, modelName} of this._claudeModelItems) {
-            if (modelName === this._claudeModel) {
-                item.setOrnament(PopupMenu.Ornament.DOT);
-            } else {
-                item.setOrnament(PopupMenu.Ornament.NONE);
-            }
-        }
-    }
-
-    _updateStreamingStartupLabel() {
-        if (this._streamingStartupHeader) {
-            const labels = {
-                'standard': 'Standard',
-                'pre-buffer': 'Pre-buffer',
-                'server': 'Server mode'
-            };
-            const label = labels[this._streamingStartupMode] || this._streamingStartupMode;
-            this._streamingStartupHeader.label.text = `    ↳ Startup: ${label}`;
-        }
-    }
-
-    _updateStartupModeSelection() {
-        if (!this._startupModeItems) return;
-
-        for (const {item, mode} of this._startupModeItems) {
-            if (mode === this._streamingStartupMode) {
-                item.setOrnament(PopupMenu.Ornament.DOT);
-            } else {
-                item.setOrnament(PopupMenu.Ornament.NONE);
-            }
-        }
-    }
-
-    _updatePasteToggles() {
-        // Prevent cascading toggle events from causing menu issues
-        this._updatingToggles = true;
-        try {
-            if (this._autoPasteSwitch) {
-                this._autoPasteSwitch.setToggleState(this._autoPaste);
-            }
-            // Auto-enter and streaming only visible when auto-paste is active
-            if (this._autoEnterSwitch) {
-                this._autoEnterSwitch.visible = this._autoPaste;
-            }
-            if (this._streamingSwitch) {
-                this._streamingSwitch.visible = this._autoPaste;
-                this._streamingSwitch.setToggleState(this._streamingMode);
-            }
-            // Streaming startup options only visible when streaming is active
-            if (this._streamingStartupHeader) {
-                this._streamingStartupHeader.visible = this._autoPaste && this._streamingMode;
-            }
-            if (this._startupModeItems) {
-                for (const {item} of this._startupModeItems) {
-                    item.visible = this._autoPaste && this._streamingMode;
-                }
-            }
-        } finally {
-            this._updatingToggles = false;
         }
     }
 
@@ -1538,96 +1097,6 @@ export default class SpeechToTextExtension extends Extension {
         }
     }
 
-    _saveWrapMarkerSetting(enabled) {
-        if (this._settings) {
-            try {
-                this._settings.set_boolean('wrap-marker', enabled);
-            } catch (e) {
-                // Setting may not exist yet
-            }
-        }
-    }
-
-    _saveAutoEnterSetting(enabled) {
-        if (this._settings) {
-            try {
-                this._settings.set_boolean('auto-enter', enabled);
-            } catch (e) {
-                // Setting may not exist yet
-            }
-        }
-    }
-
-    _saveStreamingSetting(enabled) {
-        if (this._settings) {
-            try {
-                this._settings.set_boolean('streaming-mode', enabled);
-            } catch (e) {
-                // Setting may not exist yet
-            }
-        }
-    }
-
-    _saveStreamingStartupModeSetting(mode) {
-        if (this._settings) {
-            try {
-                this._settings.set_string('streaming-startup-mode', mode);
-            } catch (e) {
-                // Setting may not exist yet
-            }
-        }
-    }
-
-    _saveClaudeSetting(enabled) {
-        if (this._settings) {
-            try {
-                this._settings.set_boolean('claude-enabled', enabled);
-            } catch (e) {
-                // Setting may not exist yet
-            }
-        }
-    }
-
-    _saveClaudeModelSetting(model) {
-        if (this._settings) {
-            try {
-                this._settings.set_string('claude-model', model);
-            } catch (e) {
-                // Setting may not exist yet
-            }
-        }
-    }
-
-    _saveLanguageSetting(lang) {
-        if (this._settings) {
-            try {
-                this._settings.set_string('language', lang);
-            } catch (e) {
-                // Setting may not exist yet
-            }
-        }
-    }
-
-    _saveNotificationsSetting(enabled) {
-        if (this._settings) {
-            try {
-                this._settings.set_boolean('show-notifications', enabled);
-            } catch (e) {
-                // Setting may not exist yet
-            }
-        }
-    }
-
-    _saveModelSetting(model) {
-        if (this._settings) {
-            try {
-                this._settings.set_string('whisper-model', model);
-            } catch (e) {
-                // Setting may not exist yet
-            }
-        }
-    }
-
     _getWhisperLanguage() {
         // Convert extension language setting to Whisper language code
         if (this._language === 'system') {
@@ -1635,37 +1104,6 @@ export default class SpeechToTextExtension extends Extension {
             return locale.split('_')[0];  // en_GB.UTF-8 -> en
         }
         return this._language;
-    }
-
-    _checkModelInstalled(modelName) {
-        // Check if a Whisper model is downloaded in huggingface cache
-        // Models are stored in: ~/.cache/huggingface/hub/models--Systran--faster-whisper-{model}/
-        if (modelName === 'auto') {
-            return true;  // Auto is always "available" (uses whichever models are installed)
-        }
-
-        const cacheDir = GLib.get_home_dir() + '/.cache/huggingface/hub';
-        const modelDir = `models--Systran--faster-whisper-${modelName}`;
-        const fullPath = `${cacheDir}/${modelDir}`;
-
-        try {
-            const file = Gio.File.new_for_path(fullPath);
-            return file.query_exists(null);
-        } catch (e) {
-            return false;
-        }
-    }
-
-    _getModelDisplayName(modelName) {
-        // Get display name with installation status
-        const installed = this._checkModelInstalled(modelName);
-        const modelInfo = this._whisperModels.find(m => m[0] === modelName);
-        if (!modelInfo) return modelName;
-
-        const label = modelInfo[1];
-        const size = modelInfo[2];
-        const status = installed ? '✓' : '⚠';
-        return `${status} ${label} (${size})`;
     }
 
     _log(message) {
@@ -1691,40 +1129,6 @@ export default class SpeechToTextExtension extends Extension {
             stream.close(null);
         } catch (e) {
             // Silent fail for logging
-        }
-    }
-
-    _readRecentLogs(numLines = 10) {
-        try {
-            const file = Gio.File.new_for_path(this._logFile);
-            if (!file.query_exists(null)) {
-                return ['(no logs yet)'];
-            }
-
-            const [success, contents] = file.load_contents(null);
-            if (!success) return ['(cannot read log)'];
-
-            const text = new TextDecoder().decode(contents);
-            const lines = text.trim().split('\n');
-            return lines.slice(-numLines);
-        } catch (e) {
-            return [`(error: ${e.message})`];
-        }
-    }
-
-    _refreshLogDisplay() {
-        const recentLogs = this._readRecentLogs(5);
-        for (let i = 0; i < 5; i++) {
-            if (i < recentLogs.length) {
-                // Truncate long lines for display
-                let line = recentLogs[i];
-                if (line.length > 50) {
-                    line = line.substring(0, 47) + '...';
-                }
-                this._logLines[i].label.text = line;
-            } else {
-                this._logLines[i].label.text = '';
-            }
         }
     }
 
@@ -1825,42 +1229,4 @@ export default class SpeechToTextExtension extends Extension {
         }
     }
 
-    _openLastTranscription() {
-        const transcriptionFile = GLib.get_home_dir() + '/.cache/speech-to-text/last-transcription.txt';
-
-        // Check if file exists
-        const file = Gio.File.new_for_path(transcriptionFile);
-        if (!file.query_exists(null)) {
-            Main.notify('Speech to Text', 'No transcription available yet');
-            return;
-        }
-
-        // Open transcription file with default text editor
-        try {
-            Gio.AppInfo.launch_default_for_uri(
-                'file://' + transcriptionFile,
-                null
-            );
-        } catch (e) {
-            // Fallback: open with gnome-text-editor
-            try {
-                GLib.spawn_command_line_async(`gnome-text-editor ${transcriptionFile}`);
-            } catch (e2) {
-                Main.notify('STT', `Cannot open transcription: ${e2.message}`);
-            }
-        }
-    }
-
-    _clearLog() {
-        try {
-            const file = Gio.File.new_for_path(this._logFile);
-            if (file.query_exists(null)) {
-                file.delete(null);
-            }
-            this._log('Log cleared');
-            this._refreshLogDisplay();
-        } catch (e) {
-            Main.notify('STT', `Cannot clear log: ${e.message}`);
-        }
-    }
 }

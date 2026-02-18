@@ -76,5 +76,15 @@
       <summary>Claude Model</summary>
       <description>Claude model to use for post-processing: "sonnet" (balanced), "opus" (best quality), "haiku" (fastest)</description>
     </key>
+    <key name="paste-default-mode" type="s">
+      <default>'with-shift'</default>
+      <summary>Default Paste Shortcut</summary>
+      <description>Default paste key combo: "with-shift" for Ctrl+Shift+V (correct for terminals), "no-shift" for Ctrl+V (correct for browsers and GUI apps)</description>
+    </key>
+    <key name="paste-ctrl-v-apps" type="s">
+      <default>'Google-chrome,Firefox,firefox,Brave-browser,Chromium,chromium,thunderbird,Slack,Discord'</default>
+      <summary>Apps Using Ctrl+V</summary>
+      <description>Comma-separated WM_CLASS names of apps that use Ctrl+V instead of Ctrl+Shift+V for pasting</description>
+    </key>
   </schema>
 </schemalist>
