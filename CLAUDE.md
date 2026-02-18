@@ -846,6 +846,21 @@ These style rules ensure consistency across the project, improve maintainability
 
 ## Development Workflow
 
+### Plan Commit Rule
+
+**Plans MUST be committed alongside the work they describe.**
+
+- When completing work that has an associated plan in `CLAUDE/Plan/`, commit the plan in the **same commit** as the implementation
+- When creating a new plan that leads to immediate work, commit both together
+- Never leave plan directories untracked/uncommitted after the related work is committed
+- Plans capture intent and decisions — they have no value sitting untracked on disk
+
+**Checklist before committing implementation work:**
+```bash
+git status  # Check for untracked CLAUDE/Plan/ directories
+git add CLAUDE/Plan/NNN-description/  # Stage the plan alongside code changes
+```
+
 ### Common Commands
 ```bash
 # Run main configuration
