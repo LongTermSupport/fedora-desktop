@@ -36,6 +36,7 @@
           - python3-pip
           - zenity
           - wev  # Wayland event viewer for debugging keybindings
+          - foot  # Wayland-native terminal; used by extension for model manager (supports --window-size-chars)
         state: present
 
     - name: Stop User ydotool Service if Running

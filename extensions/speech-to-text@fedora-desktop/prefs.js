@@ -13,7 +13,7 @@ import { ExtensionPreferences } from 'resource:///org/gnome/Shell/Extensions/js/
 
 export default class SpeechToTextPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
-        const settings = this.getSettings();
+        const settings = this.getSettings('org.gnome.shell.extensions.speech-to-text');
         window.set_default_size(600, 700);
 
         const page = new Adw.PreferencesPage({
