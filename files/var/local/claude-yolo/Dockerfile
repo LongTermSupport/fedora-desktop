@@ -10,7 +10,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="1.7"
+LABEL claude-yolo-version="1.8"
 LABEL claude-yolo-dockerfile-hash="${DOCKERFILE_HASH}"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 
@@ -36,6 +36,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-yaml \
     tini \
     tree \
+    shellcheck \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
