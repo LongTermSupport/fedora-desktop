@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import shutil
 import sys
+import time
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -56,7 +57,7 @@ MODELS: list[tuple[str, str, str, str, bool, str]] = [
     ('medium',          'Medium',         'Systran/faster-whisper-medium',          '~1.5GB', False, 'Great accuracy'),
     ('large-v2',        'Large v2',       'Systran/faster-whisper-large-v2',        '~3.0GB', False, 'Very high accuracy'),
     ('large-v3',        'Large v3',       'Systran/faster-whisper-large-v3',        '~3.0GB', False, 'Best quality'),
-    ('large-v3-turbo',  'Large v3 Turbo', 'Systran/faster-whisper-large-v3-turbo',  '~1.6GB', False, 'Distilled, fast + accurate'),
+    ('large-v3-turbo',  'Large v3 Turbo', 'mobiuslabsgmbh/faster-whisper-large-v3-turbo', '~800MB', False, 'Distilled, fast + accurate'),
     # English-only
     ('tiny.en',         'Tiny EN',        'Systran/faster-whisper-tiny.en',         '~41MB',  True,  'English only — fastest'),
     ('base.en',         'Base EN',        'Systran/faster-whisper-base.en',         '~77MB',  True,  'English only — fast'),
@@ -66,6 +67,27 @@ MODELS: list[tuple[str, str, str, str, bool, str]] = [
 
 CACHE_DIR = Path.home() / '.cache' / 'huggingface' / 'hub'
 
+# Approximate download sizes in bytes (used for progress display)
+EXPECTED_BYTES: dict[str, int] = {
+    'tiny':             75_000_000,
+    'base':            142_000_000,
+    'small':           466_000_000,
+    'medium':        1_500_000_000,
+    'large-v2':      3_000_000_000,
+    'large-v3':      3_000_000_000,
+    'large-v3-turbo':  800_000_000,
+    'tiny.en':          41_000_000,
+    'base.en':          77_000_000,
+    'small.en':        252_000_000,
+    'medium.en':       789_000_000,
+}
+
+
+def repo_cache_dir(repo_id: str) -> Path:
+    """Return the HuggingFace cache directory for a given repo ID."""
+    # HuggingFace stores repos as: models--{org}--{model}
+    return CACHE_DIR / ('models--' + repo_id.replace('/', '--'))
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -74,8 +96,8 @@ CACHE_DIR = Path.home() / '.cache' / 'huggingface' / 'hub'
 def get_installed() -> set[str]:
     """Return set of model IDs that are fully present in the HuggingFace cache."""
     installed: set[str] = set()
-    for model_id, *_ in MODELS:
-        model_dir = CACHE_DIR / f'models--Systran--faster-whisper-{model_id}'
+    for model_id, _label, repo_id, *_ in MODELS:
+        model_dir = repo_cache_dir(repo_id)
         if not model_dir.exists():
             continue
         snapshots = model_dir / 'snapshots'
@@ -112,7 +134,9 @@ class ConfirmScreen(Screen):
         self._model_id = model_id
 
     def compose(self) -> ComposeResult:
-        model_dir = CACHE_DIR / f'models--Systran--faster-whisper-{self._model_id}'
+        entry = next((m for m in MODELS if m[0] == self._model_id), None)
+        repo_id = entry[2] if entry else f'Systran/faster-whisper-{self._model_id}'
+        model_dir = repo_cache_dir(repo_id)
         try:
             size = human_size(model_dir)
         except Exception:
@@ -175,6 +199,7 @@ class ModelManagerApp(App):
         self._downloading: set[str] = set()
         self._filter_text = ''
         self._visible_model_ids: list[str] = []  # tracks row order for cursor lookup
+        self._download_progress: dict[str, str] = {}  # model_id → progress string
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -209,7 +234,9 @@ class ModelManagerApp(App):
             lang = Text('EN only', style='cyan') if english_only else Text('Multi', style='green')
 
             if model_id in self._downloading:
-                status = Text('⬇ Downloading', style='bold yellow')
+                prog = self._download_progress.get(model_id, '')
+                label_text = f'⬇ {prog}' if prog else '⬇ Downloading…'
+                status = Text(label_text, style='bold yellow')
             elif model_id in self._installed:
                 status = Text('✓ Installed', style='bold green')
             else:
@@ -289,17 +316,48 @@ class ModelManagerApp(App):
         self._rebuild_table()
         self.notify(f'Downloading {model_id}… this may take several minutes')
         self._do_download(model_id, entry[2])
+        self._poll_progress(model_id)
 
     @work(thread=True)
     def _do_download(self, model_id: str, repo: str) -> None:
+        # token=False: Systran models are public; avoids system keyring password prompts
         try:
-            snapshot_download(repo_id=repo, local_files_only=False)
+            snapshot_download(repo_id=repo, local_files_only=False, token=False)
             self.call_from_thread(self._download_done, model_id, True, '')
         except Exception as exc:
             self.call_from_thread(self._download_done, model_id, False, str(exc))
 
+    @work(thread=True)
+    def _poll_progress(self, model_id: str) -> None:
+        """Poll blobs directory size every second to show download progress."""
+        entry = next((m for m in MODELS if m[0] == model_id), None)
+        repo_id = entry[2] if entry else f'Systran/faster-whisper-{model_id}'
+        blobs_dir = repo_cache_dir(repo_id) / 'blobs'
+        expected = EXPECTED_BYTES.get(model_id, 0)
+        while model_id in self._downloading:
+            try:
+                if blobs_dir.exists():
+                    downloaded = sum(
+                        f.stat().st_size for f in blobs_dir.iterdir() if f.is_file()
+                    )
+                    dl_str = human_size(blobs_dir) if blobs_dir.exists() else '0 B'
+                    if expected:
+                        pct = min(99, int(downloaded * 100 / expected))
+                        progress = f'{dl_str} / {pct}%'
+                    else:
+                        progress = dl_str
+                    self.call_from_thread(self._set_progress, model_id, progress)
+            except Exception:
+                pass
+            time.sleep(1)
+
+    def _set_progress(self, model_id: str, progress: str) -> None:
+        self._download_progress[model_id] = progress
+        self._rebuild_table()
+
     def _download_done(self, model_id: str, success: bool, error: str) -> None:
         self._downloading.discard(model_id)
+        self._download_progress.pop(model_id, None)
         if success:
             self._installed.add(model_id)
             self.notify(f'✓ {model_id} downloaded successfully')
@@ -325,7 +383,9 @@ class ModelManagerApp(App):
         confirmed, model_id = result
         if not confirmed:
             return
-        model_dir = CACHE_DIR / f'models--Systran--faster-whisper-{model_id}'
+        entry = next((m for m in MODELS if m[0] == model_id), None)
+        repo_id = entry[2] if entry else f'Systran/faster-whisper-{model_id}'
+        model_dir = repo_cache_dir(repo_id)
         try:
             shutil.rmtree(model_dir)
             self._installed.discard(model_id)
@@ -351,6 +411,7 @@ class ModelManagerApp(App):
             self._rebuild_table()
             self.notify(f'Downloading {model_id}… this may take several minutes')
             self._do_download(model_id, entry[2])
+            self._poll_progress(model_id)
 
 
 # ---------------------------------------------------------------------------
