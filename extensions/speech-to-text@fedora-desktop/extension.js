@@ -1062,38 +1062,26 @@ export default class SpeechToTextExtension extends Extension {
 
     _openModelManager() {
         // Launch wsi-model-manager in a terminal window.
-        // Terminals tried in order:
-        //   foot        — Wayland-native, supports --window-size-chars for exact initial size
-        //   ptyxis      — GNOME 47+ default terminal (replaces kgx/gnome-terminal)
-        //   kgx         — older GNOME Console (GNOME 42-46)
-        //   xterm       — last resort; supports -geometry
-        // Wayland compositors ignore xterm resize escape sequences, so we rely on foot
-        // (installed by the playbook) for a properly-sized window rather than stty hacks.
+        // Strategy:
+        //   1. foot (installed by playbook) — Wayland-native, --window-size-chars gives
+        //      exact initial geometry without relying on escape sequences that Wayland
+        //      compositors ignore for security.
+        //   2. xdg-terminal-exec (installed by playbook) — XDG standard that opens
+        //      whatever terminal the user has set as default (Ptyxis, kgx, etc.).
+        //      No size control, but at least uses the right terminal.
         const script = GLib.get_home_dir() + '/.local/bin/wsi-model-manager';
         this._log('Opening model manager');
 
         try {
-            // foot: Wayland-native, installed by playbook, supports exact window geometry
+            // foot: exact 120×35 window, Wayland-native, HiDPI-aware
             GLib.spawn_command_line_async(`foot --window-size-chars=120x35 -- ${script}`);
         } catch (_e1) {
             try {
-                // ptyxis: GNOME 47+ default terminal
-                GLib.spawn_command_line_async(`ptyxis -- ${script}`);
-            } catch (_e2) {
-                try {
-                    // kgx: GNOME Console (GNOME 42-46)
-                    GLib.spawn_command_line_async(`kgx -- ${script}`);
-                } catch (_e3) {
-                    try {
-                        // xterm: supports -geometry directly
-                        GLib.spawn_command_line_async(
-                            `xterm -geometry 120x35 -title "Whisper Model Manager" -e ${script}`
-                        );
-                    } catch (e4) {
-                        this._log(`Cannot open terminal: ${e4.message}`);
-                        Main.notify('Speech to Text', 'Cannot open terminal. Run: wsi-model-manager');
-                    }
-                }
+                // xdg-terminal-exec: opens the user's configured default terminal
+                GLib.spawn_command_line_async(`xdg-terminal-exec ${script}`);
+            } catch (e2) {
+                this._log(`Cannot open terminal: ${e2.message}`);
+                Main.notify('Speech to Text', 'Cannot open terminal. Run: wsi-model-manager');
             }
         }
     }

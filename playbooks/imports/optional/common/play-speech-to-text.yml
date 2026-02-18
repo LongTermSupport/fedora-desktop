@@ -37,6 +37,7 @@
           - zenity
           - wev  # Wayland event viewer for debugging keybindings
           - foot  # Wayland-native terminal; used by extension for model manager (supports --window-size-chars)
+          - xdg-terminal-exec  # XDG default terminal launcher; fallback if foot unavailable
         state: present
 
     - name: Stop User ydotool Service if Running
