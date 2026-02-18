@@ -93,6 +93,7 @@
           - faster-whisper
           - nvidia-cublas-cu12
           - nvidia-cudnn-cu12==9.*
+          - textual
         extra_args: --user
         state: present
 
@@ -234,6 +235,14 @@
       ansible.builtin.copy:
         src: "{{ root_dir }}/files/home/.local/bin/wsi-stream-server"
         dest: "/home/{{ user_login }}/.local/bin/wsi-stream-server"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+
+    - name: Deploy Whisper Model Manager (wsi-model-manager)
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/wsi-model-manager"
+        dest: "/home/{{ user_login }}/.local/bin/wsi-model-manager"
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: '0755'

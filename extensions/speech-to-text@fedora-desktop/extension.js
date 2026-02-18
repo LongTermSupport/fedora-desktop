@@ -73,7 +73,9 @@ export default class SpeechToTextExtension extends Extension {
             ['base', 'Base', '~142MB', 'Fast, good accuracy', false],
             ['small', 'Small', '~466MB', 'Balanced speed/accuracy', false],
             ['medium', 'Medium', '~1.5GB', 'Slow, great accuracy', false],
-            ['large-v3', 'Large v3', '~3GB', 'Slowest, best accuracy', false],
+            ['large-v2', 'Large v2', '~3GB', 'Very high accuracy', false],
+            ['large-v3', 'Large v3', '~3GB', 'Best quality', false],
+            ['large-v3-turbo', 'Large v3 Turbo', '~1.6GB', 'Distilled, fast + accurate', false],
             // English-only models (smaller and faster — no multilingual capability)
             ['tiny.en', 'Tiny English', '~41MB', 'Fastest, English only', true],
             ['base.en', 'Base English', '~77MB', 'Fast, good accuracy, English only', true],
@@ -479,54 +481,65 @@ export default class SpeechToTextExtension extends Extension {
         this._modelHeader.label.style = 'font-weight: bold;';
         menu.addMenuItem(this._modelHeader);
 
-        // Model options with section headers
+        // Model options — only installed models are shown; hidden items are refreshed on menu open.
+        // Section headers are tracked so they can be hidden when no models in their section are installed.
         this._modelItems = [];
-        let _seenMultilingual = false;
-        let _seenEnglishOnly = false;
+        this._multilingualHeader = null;
+        this._englishOnlyHeader = null;
 
         for (const [modelName, label, size,, englishOnly] of this._whisperModels) {
             // Section header before first multilingual (non-auto) model
-            if (!englishOnly && modelName !== 'auto' && !_seenMultilingual) {
-                _seenMultilingual = true;
+            if (!englishOnly && modelName !== 'auto' && !this._multilingualHeader) {
                 const mlHeader = new PopupMenu.PopupMenuItem('  — Multilingual:', { reactive: false });
                 mlHeader.label.style = 'color: #888; font-style: italic;';
+                this._multilingualHeader = mlHeader;
                 menu.addMenuItem(mlHeader);
             }
 
             // Section header before first English-only model
-            if (englishOnly && !_seenEnglishOnly) {
-                _seenEnglishOnly = true;
+            if (englishOnly && !this._englishOnlyHeader) {
                 const enHeader = new PopupMenu.PopupMenuItem('  — English-only (smaller, faster):', { reactive: false });
                 enHeader.label.style = 'color: #888; font-style: italic;';
+                this._englishOnlyHeader = enHeader;
                 menu.addMenuItem(enHeader);
             }
 
-            const installed = this._checkModelInstalled(modelName);
-
-            if (installed || modelName === 'auto') {
-                // Installed / always-available: click to select
-                const status = modelName === 'auto' ? '●' : '✓';
-                const item = new PopupMenu.PopupMenuItem(`  ${status} ${label} (${size})`);
+            if (modelName === 'auto') {
+                const item = new PopupMenu.PopupMenuItem('  ● Auto (optimized per mode)');
                 item.connect('activate', () => {
-                    this._whisperModel = modelName;
-                    this._saveModelSetting(modelName);
+                    this._whisperModel = 'auto';
+                    this._saveModelSetting('auto');
                     this._updateModelLabel();
                     this._updateModelSelection();
-                    this._log(`Whisper model set to: ${modelName}`);
+                    this._log('Whisper model set to: auto');
                 });
                 this._modelItems.push({ item, modelName });
                 menu.addMenuItem(item);
-            } else {
-                // Not installed: click to open terminal and download
-                const item = new PopupMenu.PopupMenuItem(`  ⬇ ${label} (${size})`);
-                item.label.style = 'color: #5af;';
-                item.connect('activate', () => {
-                    this._installModel(modelName);
-                });
-                this._modelItems.push({ item, modelName });
-                menu.addMenuItem(item);
+                continue;
             }
+
+            // Non-auto models: create item, show only if installed
+            const installed = this._checkModelInstalled(modelName);
+            const item = new PopupMenu.PopupMenuItem(`  ✓ ${label} (${size})`);
+            item.visible = installed;
+            item.connect('activate', () => {
+                this._whisperModel = modelName;
+                this._saveModelSetting(modelName);
+                this._updateModelLabel();
+                this._updateModelSelection();
+                this._log(`Whisper model set to: ${modelName}`);
+            });
+            this._modelItems.push({ item, modelName });
+            menu.addMenuItem(item);
         }
+
+        // Manager launcher — always visible
+        const manageModelsItem = new PopupMenu.PopupMenuItem('  ⬇ Download more models...');
+        manageModelsItem.label.style = 'color: #5af;';
+        manageModelsItem.connect('activate', () => {
+            this._openModelManager();
+        });
+        menu.addMenuItem(manageModelsItem);
 
         // Separator before Claude Code section
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
@@ -602,11 +615,12 @@ export default class SpeechToTextExtension extends Extension {
             menu.addMenuItem(line);
         }
 
-        // Refresh logs when menu opens
+        // Refresh logs and installed model list when menu opens
         menu.connect('open-state-changed', (menu, open) => {
             if (open) {
                 this._refreshLogDisplay();
                 this._updateStatusLabel();
+                this._refreshModelSection();
             }
         });
     }
@@ -1321,35 +1335,49 @@ export default class SpeechToTextExtension extends Extension {
         }
     }
 
-    _installModel(modelName) {
-        // Open a terminal to download the selected Whisper model
-        const modelInfo = this._whisperModels.find(m => m[0] === modelName);
-        const label = modelInfo ? modelInfo[1] : modelName;
-        const size = modelInfo ? modelInfo[2] : '?';
+    _refreshModelSection() {
+        // Re-check which models are installed and update item visibility.
+        // Called each time the menu opens so newly downloaded models appear immediately.
+        if (!this._modelItems) return;
 
-        const bashCmd = [
-            `echo 'Installing Whisper model: ${label} (${size})'`,
-            `echo 'This may take several minutes — do not close this window.'`,
-            `echo ''`,
-            `python3 -c "from faster_whisper import WhisperModel; WhisperModel('${modelName}', device='cpu')"`,
-            `echo ''`,
-            `echo 'Done! Model ${modelName} is ready.'`,
-            `echo 'Log out and back in to see it in the extension menu.'`,
-            `echo ''`,
-            `read -p 'Press Enter to close...' _`,
-        ].join('; ');
+        let hasMultilingual = false;
+        let hasEnglishOnly = false;
 
+        for (const { item, modelName } of this._modelItems) {
+            if (modelName === 'auto') continue;
+            const installed = this._checkModelInstalled(modelName);
+            item.visible = installed;
+            if (installed) {
+                const modelInfo = this._whisperModels.find(m => m[0] === modelName);
+                if (modelInfo) {
+                    if (modelInfo[4]) hasEnglishOnly = true;
+                    else hasMultilingual = true;
+                }
+            }
+        }
+
+        // Hide section headers when no models in their group are installed
+        if (this._multilingualHeader) this._multilingualHeader.visible = hasMultilingual;
+        if (this._englishOnlyHeader) this._englishOnlyHeader.visible = hasEnglishOnly;
+
+        this._updateModelLabel();
+        this._updateModelSelection();
+    }
+
+    _openModelManager() {
+        // Launch wsi-model-manager in a terminal window
+        const script = GLib.get_home_dir() + '/.local/bin/wsi-model-manager';
+        this._log('Opening model manager');
         try {
-            GLib.spawn_command_line_async(
-                `gnome-terminal --title="Install Whisper Model" -- bash -c "${bashCmd.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
-            );
-            this._log(`Opening terminal to install model: ${modelName}`);
+            GLib.spawn_command_line_async(`gnome-terminal -- ${script}`);
         } catch (e) {
-            this._log(`Failed to open terminal for model install: ${e.message}`);
-            Main.notify(
-                'Install Whisper Model',
-                `Run in a terminal:\npython3 -c "from faster_whisper import WhisperModel; WhisperModel('${modelName}', device='cpu')"`
-            );
+            // Fallback to xterm on minimal installs
+            try {
+                GLib.spawn_command_line_async(`xterm -title "Whisper Model Manager" -e ${script}`);
+            } catch (e2) {
+                this._log(`Cannot open terminal: ${e2.message}`);
+                Main.notify('Speech to Text', 'Cannot open terminal. Run: wsi-model-manager');
+            }
         }
     }
 

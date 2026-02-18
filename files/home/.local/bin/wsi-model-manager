@@ -1,0 +1,352 @@
+#!/usr/bin/env python3
+"""Whisper Model Manager — browse and download faster-whisper models.
+
+Usage: wsi-model-manager
+
+Keys:
+  d / Enter  Download selected model
+  r          Remove selected model from cache
+  /          Focus filter box
+  Esc        Clear filter / close confirmation
+  F5         Refresh installed status
+  q          Quit
+"""
+
+from __future__ import annotations
+
+import shutil
+import sys
+from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# Dependency checks
+# ---------------------------------------------------------------------------
+
+try:
+    from textual.app import App, ComposeResult
+    from textual.binding import Binding
+    from textual.screen import Screen
+    from textual.widgets import DataTable, Footer, Header, Input, Label, Static
+    from textual import work
+    from rich.text import Text
+except ImportError:
+    print("Error: 'textual' package is not installed.")
+    print("Install with:  pip install --user textual")
+    sys.exit(1)
+
+try:
+    from huggingface_hub import snapshot_download
+except ImportError:
+    print("Error: 'huggingface_hub' package is not installed.")
+    print("It should be installed as a dependency of faster-whisper.")
+    print("Install with:  pip install --user huggingface-hub")
+    sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# Model catalogue
+# ---------------------------------------------------------------------------
+
+# (model_id, label, hf_repo, approx_size, english_only, description)
+MODELS: list[tuple[str, str, str, str, bool, str]] = [
+    # Multilingual
+    ('tiny',            'Tiny',           'Systran/faster-whisper-tiny',            '~75MB',  False, 'Fastest, basic accuracy'),
+    ('base',            'Base',           'Systran/faster-whisper-base',            '~142MB', False, 'Fast, good accuracy'),
+    ('small',           'Small',          'Systran/faster-whisper-small',           '~466MB', False, 'Balanced speed/accuracy'),
+    ('medium',          'Medium',         'Systran/faster-whisper-medium',          '~1.5GB', False, 'Great accuracy'),
+    ('large-v2',        'Large v2',       'Systran/faster-whisper-large-v2',        '~3.0GB', False, 'Very high accuracy'),
+    ('large-v3',        'Large v3',       'Systran/faster-whisper-large-v3',        '~3.0GB', False, 'Best quality'),
+    ('large-v3-turbo',  'Large v3 Turbo', 'Systran/faster-whisper-large-v3-turbo',  '~1.6GB', False, 'Distilled, fast + accurate'),
+    # English-only
+    ('tiny.en',         'Tiny EN',        'Systran/faster-whisper-tiny.en',         '~41MB',  True,  'English only — fastest'),
+    ('base.en',         'Base EN',        'Systran/faster-whisper-base.en',         '~77MB',  True,  'English only — fast'),
+    ('small.en',        'Small EN',       'Systran/faster-whisper-small.en',        '~252MB', True,  'English only — balanced'),
+    ('medium.en',       'Medium EN',      'Systran/faster-whisper-medium.en',       '~789MB', True,  'English only — great'),
+]
+
+CACHE_DIR = Path.home() / '.cache' / 'huggingface' / 'hub'
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def get_installed() -> set[str]:
+    """Return set of model IDs that are fully present in the HuggingFace cache."""
+    installed: set[str] = set()
+    for model_id, *_ in MODELS:
+        model_dir = CACHE_DIR / f'models--Systran--faster-whisper-{model_id}'
+        if not model_dir.exists():
+            continue
+        snapshots = model_dir / 'snapshots'
+        if snapshots.exists() and any(snapshots.iterdir()):
+            installed.add(model_id)
+    return installed
+
+
+def human_size(path: Path) -> str:
+    """Return human-readable size of a directory tree."""
+    total = sum(f.stat().st_size for f in path.rglob('*') if f.is_file())
+    for unit in ('B', 'KB', 'MB', 'GB'):
+        if total < 1024:
+            return f'{total:.0f} {unit}'
+        total /= 1024.0
+    return f'{total:.1f} TB'
+
+
+# ---------------------------------------------------------------------------
+# Confirmation screen
+# ---------------------------------------------------------------------------
+
+class ConfirmScreen(Screen):
+    """Simple yes/no confirmation before removing a model."""
+
+    BINDINGS = [
+        Binding('y', 'confirm', 'Yes, remove'),
+        Binding('n', 'cancel', 'No, cancel'),
+        Binding('escape', 'cancel', 'Cancel'),
+    ]
+
+    def __init__(self, model_id: str) -> None:
+        super().__init__()
+        self._model_id = model_id
+
+    def compose(self) -> ComposeResult:
+        model_dir = CACHE_DIR / f'models--Systran--faster-whisper-{self._model_id}'
+        try:
+            size = human_size(model_dir)
+        except Exception:
+            size = '?'
+        yield Static(
+            f'\n  Remove model: [bold]{self._model_id}[/bold]\n\n'
+            f'  Size on disk: {size}\n\n'
+            f'  This deletes the model from the HuggingFace cache.\n'
+            f'  You can re-download it at any time.\n\n'
+            f'  Press [bold green]Y[/bold green] to confirm, '
+            f'[bold]N[/bold] or [bold]Esc[/bold] to cancel.\n',
+            markup=True,
+        )
+
+    def action_confirm(self) -> None:
+        self.dismiss((True, self._model_id))
+
+    def action_cancel(self) -> None:
+        self.dismiss((False, self._model_id))
+
+
+# ---------------------------------------------------------------------------
+# Main app
+# ---------------------------------------------------------------------------
+
+class ModelManagerApp(App):
+    """Whisper Model Manager — browse and download faster-whisper models."""
+
+    CSS = """
+    Screen {
+        layout: vertical;
+    }
+    Input {
+        height: 3;
+        margin: 0 1;
+    }
+    DataTable {
+        height: 1fr;
+    }
+    #status {
+        height: 1;
+        padding: 0 1;
+        background: $surface;
+        color: $text-muted;
+    }
+    """
+
+    BINDINGS = [
+        Binding('q', 'quit', 'Quit'),
+        Binding('d', 'download', 'Download'),
+        Binding('r', 'remove', 'Remove'),
+        Binding('f5', 'refresh', 'Refresh'),
+        Binding('/', 'focus_filter', 'Filter'),
+        Binding('escape', 'clear_filter', 'Clear'),
+    ]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._installed: set[str] = set()
+        self._downloading: set[str] = set()
+        self._filter_text = ''
+
+    def compose(self) -> ComposeResult:
+        yield Header(show_clock=False)
+        yield Input(placeholder='Filter models...  (press / to focus)', id='filter')
+        yield DataTable(id='table', cursor_type='row', zebra_stripes=True)
+        yield Static('', id='status')
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.title = 'Whisper Model Manager'
+        self.sub_title = 'faster-whisper (Systran)'
+        table = self.query_one('#table', DataTable)
+        table.add_columns('Status', 'Model', 'Size', 'Lang', 'Description')
+        self._installed = get_installed()
+        self._rebuild_table()
+        table.focus()
+
+    # ------------------------------------------------------------------
+    # Table management
+    # ------------------------------------------------------------------
+
+    def _rebuild_table(self) -> None:
+        table = self.query_one('#table', DataTable)
+        table.clear()
+        f = self._filter_text.lower()
+
+        for model_id, label, _repo, size, english_only, desc in MODELS:
+            if f and f not in label.lower() and f not in desc.lower() and f not in model_id.lower():
+                continue
+
+            lang = Text('EN only', style='cyan') if english_only else Text('Multi', style='green')
+
+            if model_id in self._downloading:
+                status = Text('⬇ Downloading', style='bold yellow')
+            elif model_id in self._installed:
+                status = Text('✓ Installed', style='bold green')
+            else:
+                status = Text('  Available', style='dim')
+
+            table.add_row(status, label, size, lang, desc, key=model_id)
+
+        self._update_status()
+
+    def _update_status(self) -> None:
+        n = len(self._installed)
+        total = len(MODELS)
+        dl = len(self._downloading)
+        msg = f'{n} of {total} models installed'
+        if dl:
+            msg += f'  ·  {dl} downloading...'
+        self.query_one('#status', Static).update(msg)
+
+    def _selected_model_id(self) -> str | None:
+        table = self.query_one('#table', DataTable)
+        if table.cursor_row < 0:
+            return None
+        key = table.get_row_key_at(table.cursor_row)
+        return key.value if key else None
+
+    # ------------------------------------------------------------------
+    # Input / filter
+    # ------------------------------------------------------------------
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id == 'filter':
+            self._filter_text = event.value
+            self._rebuild_table()
+
+    def action_focus_filter(self) -> None:
+        self.query_one('#filter', Input).focus()
+
+    def action_clear_filter(self) -> None:
+        inp = self.query_one('#filter', Input)
+        if inp.value:
+            inp.value = ''
+            self._filter_text = ''
+            self._rebuild_table()
+        self.query_one('#table', DataTable).focus()
+
+    # ------------------------------------------------------------------
+    # Refresh
+    # ------------------------------------------------------------------
+
+    def action_refresh(self) -> None:
+        self._installed = get_installed()
+        self._rebuild_table()
+        self.notify('Model list refreshed')
+
+    # ------------------------------------------------------------------
+    # Download
+    # ------------------------------------------------------------------
+
+    def action_download(self) -> None:
+        model_id = self._selected_model_id()
+        if not model_id:
+            self.notify('Select a model first', severity='warning')
+            return
+        if model_id in self._installed:
+            self.notify(f'{model_id} is already installed', severity='warning')
+            return
+        if model_id in self._downloading:
+            self.notify(f'{model_id} is already downloading', severity='warning')
+            return
+
+        entry = next((m for m in MODELS if m[0] == model_id), None)
+        if not entry:
+            return
+
+        self._downloading.add(model_id)
+        self._rebuild_table()
+        self.notify(f'Downloading {model_id}… this may take several minutes')
+        self._do_download(model_id, entry[2])
+
+    @work(thread=True)
+    def _do_download(self, model_id: str, repo: str) -> None:
+        try:
+            snapshot_download(repo_id=repo, local_files_only=False)
+            self.call_from_thread(self._download_done, model_id, True, '')
+        except Exception as exc:
+            self.call_from_thread(self._download_done, model_id, False, str(exc))
+
+    def _download_done(self, model_id: str, success: bool, error: str) -> None:
+        self._downloading.discard(model_id)
+        if success:
+            self._installed.add(model_id)
+            self.notify(f'✓ {model_id} downloaded successfully')
+        else:
+            self.notify(f'✗ Download failed: {error}', severity='error')
+        self._rebuild_table()
+
+    # ------------------------------------------------------------------
+    # Remove
+    # ------------------------------------------------------------------
+
+    def action_remove(self) -> None:
+        model_id = self._selected_model_id()
+        if not model_id:
+            self.notify('Select a model first', severity='warning')
+            return
+        if model_id not in self._installed:
+            self.notify(f'{model_id} is not installed', severity='warning')
+            return
+        self.push_screen(ConfirmScreen(model_id), self._remove_confirmed)
+
+    def _remove_confirmed(self, result: tuple[bool, str]) -> None:
+        confirmed, model_id = result
+        if not confirmed:
+            return
+        model_dir = CACHE_DIR / f'models--Systran--faster-whisper-{model_id}'
+        try:
+            shutil.rmtree(model_dir)
+            self._installed.discard(model_id)
+            self._rebuild_table()
+            self.notify(f'✓ {model_id} removed')
+        except Exception as exc:
+            self.notify(f'Failed to remove {model_id}: {exc}', severity='error')
+
+    # ------------------------------------------------------------------
+    # Table enter key = download
+    # ------------------------------------------------------------------
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        model_id = event.row_key.value if event.row_key else None
+        if not model_id:
+            return
+        if model_id not in self._installed and model_id not in self._downloading:
+            self.action_download()
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+if __name__ == '__main__':
+    app = ModelManagerApp()
+    app.run()
