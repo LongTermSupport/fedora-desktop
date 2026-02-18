@@ -5,7 +5,7 @@ ARG DOCKERFILE_HASH="unknown"
 
 # Metadata
 # IMPORTANT: When modifying this Dockerfile, ALWAYS increment claude-browser-version!
-LABEL claude-browser-version="1.5"
+LABEL claude-browser-version="1.6"
 LABEL claude-browser-dockerfile-hash="${DOCKERFILE_HASH}"
 LABEL description="Claude Code Browser Mode - Isolated container with Playwright MCP for browser automation"
 
@@ -150,6 +150,10 @@ RUN echo '{\n\
 
 # Set workspace directory
 WORKDIR /workspace
+
+# Suppress "switched from npm to native installer" warning banner
+# This env var gates the jfq() warning hook in Claude Code's cli.js
+ENV DISABLE_INSTALLATION_CHECKS=1
 
 # Note: USER directive is NOT set here - we use --user flag at runtime
 # This allows dynamic UID/GID mapping to match the host user

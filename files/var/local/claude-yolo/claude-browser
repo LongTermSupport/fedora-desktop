@@ -11,7 +11,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCB_VERSION="1.5.2"  # Revert to npm install; suppress migration warning via installMethod
+CCB_VERSION="1.5.3"  # Suppress npm migration warning via DISABLE_INSTALLATION_CHECKS env var
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,7 +36,7 @@ done
 # BROWSER MODE: Browser container version
 # IMPORTANT: When modifying the Dockerfile, ALWAYS increment REQUIRED_CONTAINER_VERSION!
 # This ensures users automatically rebuild when critical container changes are made.
-REQUIRED_CONTAINER_VERSION="1.5"
+REQUIRED_CONTAINER_VERSION="1.6"
 
 set -e
 

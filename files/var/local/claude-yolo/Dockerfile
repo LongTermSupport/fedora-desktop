@@ -10,7 +10,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="1.9"
+LABEL claude-yolo-version="2.0"
 LABEL claude-yolo-dockerfile-hash="${DOCKERFILE_HASH}"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 
@@ -74,6 +74,10 @@ WORKDIR /workspace
 
 # Help tools detect container environment
 ENV DEVCONTAINER=true
+
+# Suppress "switched from npm to native installer" warning banner
+# This env var gates the jfq() warning hook in Claude Code's cli.js
+ENV DISABLE_INSTALLATION_CHECKS=1
 
 # Note: USER directive is NOT set here - we use --user flag at runtime
 # This allows dynamic UID/GID mapping to match the host user
