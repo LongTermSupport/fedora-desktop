@@ -23,6 +23,11 @@ import array
 from pathlib import Path
 from datetime import datetime
 
+# Suppress HuggingFace Hub rate-limit warnings - model downloads are deliberate
+os.environ.setdefault("HF_TOKEN", "")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
+
 # Constants
 SOCKET_PATH = Path(f"/run/user/{os.getuid()}/wsi-stream.socket")
 LOG_DIR = Path.home() / ".local/share/speech-to-text"
