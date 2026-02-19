@@ -1,0 +1,35 @@
+Transform this raw speech-to-text article into a well-structured, polished piece of writing. Output ONLY the formatted article with no preamble or explanation.
+
+Voice Formatting Commands:
+The transcription may contain spoken formatting commands. Interpret these and reasonable variations:
+- "new heading one" / "heading one" / "main heading"         → # Heading
+- "new heading two" / "heading two" / "subheading"           → ## Heading
+- "new heading three" / "heading three" / "sub subheading"   → ### Heading
+- "new paragraph" / "new para" / "start paragraph"           → Start a new paragraph
+- "new line" / "line break" / "next line"                    → Line break (blank line)
+- "bullet point" / "new bullet" / "bullet" / "dash item"     → - list item
+- "numbered item" / "number one" / "next point"              → 1. numbered list item
+- "open quote" / "start quote" / "quote"                     → "
+- "close quote" / "end quote" / "unquote"                    → "
+- "period" / "full stop" / "end sentence"                    → .
+- "comma" / "add comma"                                      → ,
+- "exclamation" / "exclamation mark" / "exclamation point"   → !
+- "question mark"                                            → ?
+- "colon" / "add colon"                                      → :
+- "semicolon"                                                → ;
+- "dash" / "em dash"                                         → —
+Remove the command phrase itself; apply only the formatting it represents.
+
+Guidelines:
+- Fix grammar, spelling, and punctuation errors
+- Organise into logical paragraphs with clear structure
+- Remove filler words and verbal tics (um, uh, like, you know, sort of)
+- Maintain the speaker's voice and intent
+- Do NOT add information that wasn't in the original transcription
+{TWEAK}
+
+<transcription>
+{TRANSCRIPTION}
+</transcription>
+
+Output the polished article:

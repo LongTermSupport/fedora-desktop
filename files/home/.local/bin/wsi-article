@@ -1,0 +1,327 @@
+#!/usr/bin/env python3
+"""
+WSI-Article - Article Mode: Looped Streaming Speech-to-Text
+============================================================
+Records indefinitely in 120-second chunks. Each chunk is appended to a raw
+article file. wsi-article-window displays the raw text and a Claude-polished
+version, re-polishing after each chunk.
+
+WORKFLOW:
+  1. Shift+Insert -> extension launches wsi-article-window
+  2. wsi-article-window launches this script as a subprocess
+  3. Records continuously; every 120 seconds, flushes the chunk
+  4. Window polls the trigger file and re-polishes via Claude
+  5. Stop Recording button (or Escape keybinding) terminates this script
+"""
+
+import os
+import sys
+import subprocess
+import signal
+import time
+import argparse
+import atexit
+from pathlib import Path
+from datetime import datetime
+
+# Constants
+LOG_DIR = Path.home() / ".local/share/speech-to-text"
+LOG_FILE = LOG_DIR / "debug.log"
+CACHE_DIR = Path.home() / ".cache/speech-to-text"
+
+# Use same PID file as wsi-stream so Escape keybinding can stop us
+PID_FILE = Path("/dev/shm") / f"stt-recording-{os.getenv('USER')}.pid"
+
+# Article-specific files
+ARTICLE_RAW_FILE = CACHE_DIR / "article-raw.txt"
+ARTICLE_PARTIAL_FILE = CACHE_DIR / "article-partial.txt"
+ARTICLE_TRIGGER_FILE = CACHE_DIR / "article-chunk.trigger"
+
+DBUS_PATH = "/org/fedoradesktop/SpeechToText"
+DBUS_INTERFACE = "org.fedoradesktop.SpeechToText"
+
+CHUNK_DURATION = 120  # seconds per chunk before flushing
+
+# Global state
+debug_mode = False
+no_notify = False
+stop_requested = False
+recorder = None
+
+
+def cleanup_on_exit():
+    """Ensure IDLE signal is sent and mic is released on any exit."""
+    global recorder
+    try:
+        emit_dbus_signal("StateChanged", "IDLE")
+    except Exception:
+        pass
+    if recorder:
+        try:
+            recorder.shutdown()
+        except Exception:
+            pass
+    for f in (PID_FILE, ARTICLE_PARTIAL_FILE):
+        if f.exists():
+            try:
+                f.unlink()
+            except Exception:
+                pass
+
+
+atexit.register(cleanup_on_exit)
+
+
+def log(message, level="INFO"):
+    """Log message to file and stderr if debug mode."""
+    timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    log_line = f"[{timestamp}] [ARTICLE] [{level}] {message}"
+    if debug_mode:
+        print(log_line, file=sys.stderr)
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        with open(LOG_FILE, "a") as f:
+            f.write(log_line + "\n")
+
+
+def emit_dbus_signal(signal_name, value):
+    """Emit DBus signal for extension communication."""
+    try:
+        subprocess.run([
+            "gdbus", "emit", "--session",
+            "--object-path", DBUS_PATH,
+            "--signal", f"{DBUS_INTERFACE}.{signal_name}",
+            value
+        ], capture_output=True, timeout=1)
+    except Exception as e:
+        log(f"DBus signal failed: {e}", "WARN")
+
+
+def notify(state, message):
+    """Send DBus state signal and optional desktop notification."""
+    log(f"State: {state} - {message}")
+    emit_dbus_signal("StateChanged", state)
+    if no_notify:
+        return
+    try:
+        subprocess.run([
+            "gdbus", "call", "--session",
+            "--dest", "org.freedesktop.Notifications",
+            "--object-path", "/org/freedesktop/Notifications",
+            "--method", "org.freedesktop.Notifications.Notify",
+            "speech-to-text-article", "0", "audio-input-microphone",
+            "Article Mode", message, "[]", "{}", "2000"
+        ], capture_output=True, timeout=1)
+    except Exception:
+        pass
+
+
+def on_partial_update(new_text):
+    """Real-time transcription callback - writes partial to file for window."""
+    if not new_text or not new_text.strip():
+        return
+    try:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        ARTICLE_PARTIAL_FILE.write_text(new_text.strip())
+    except Exception as e:
+        log(f"Partial write failed: {e}", "WARN")
+
+
+def flush_chunk(chunk_texts, chunk_num):
+    """Append accumulated chunk text to the article raw file and signal window."""
+    if not chunk_texts:
+        log(f"Chunk {chunk_num}: nothing to flush")
+        return
+    chunk_text = " ".join(chunk_texts)
+    if chunk_text:
+        chunk_text = chunk_text[0].upper() + chunk_text[1:]
+    log(f"Flushing chunk {chunk_num} ({len(chunk_text)} chars)")
+    try:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        with open(ARTICLE_RAW_FILE, "a") as f:
+            f.write(chunk_text + "\n\n")
+        # Write trigger file with timestamp to signal the window
+        ARTICLE_TRIGGER_FILE.write_text(str(time.time()))
+        log(f"Chunk {chunk_num} written to {ARTICLE_RAW_FILE}")
+    except Exception as e:
+        log(f"Chunk flush failed: {e}", "ERROR")
+
+
+def check_dependencies():
+    """Verify RealtimeSTT is available."""
+    try:
+        import RealtimeSTT  # noqa: F401
+        log("RealtimeSTT imported successfully")
+        return True
+    except ImportError as e:
+        log(f"RealtimeSTT not installed: {e}", "ERROR")
+        notify("ERROR", "RealtimeSTT not installed\n\npip install --user RealtimeSTT")
+        return False
+
+
+def run_article_mode(args):
+    """Main article mode: record in 120-second chunks, loop indefinitely."""
+    global debug_mode, no_notify, stop_requested, recorder
+
+    if not check_dependencies():
+        return 1
+
+    from RealtimeSTT import AudioToTextRecorder
+
+    # Write PID file so the Escape keybinding and Stop button can terminate us
+    PID_FILE.write_text(str(os.getpid()))
+    log(f"PID file written: {PID_FILE} (pid={os.getpid()})")
+
+    # Clear article files from any previous session
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    ARTICLE_RAW_FILE.write_text("")
+    ARTICLE_PARTIAL_FILE.write_text("")
+    if ARTICLE_TRIGGER_FILE.exists():
+        ARTICLE_TRIGGER_FILE.unlink()
+
+    model_size = os.environ.get("WHISPER_MODEL", "base")
+    language = args.language or os.environ.get("WHISPER_LANGUAGE", "en") or None
+    log(f"Using model: {model_size}, language: {language or 'auto-detect'}")
+
+    def handle_signal(signum, frame):
+        global stop_requested
+        log(f"Signal {signum} received - stopping article mode")
+        stop_requested = True
+        if recorder:
+            try:
+                recorder.abort()
+            except Exception as e:
+                log(f"abort() failed: {e}", "WARN")
+
+    signal.signal(signal.SIGINT, handle_signal)
+    signal.signal(signal.SIGTERM, handle_signal)
+
+    try:
+        notify("PREPARING", "Loading model...")
+
+        recorder_config = {
+            "model": model_size,
+            "language": language,
+            "silero_sensitivity": 0.4,
+            # Short silence: phrases return naturally in the recording loop
+            "post_speech_silence_duration": 1.5,
+            "min_length_of_recording": 0.3,
+            "min_gap_between_recordings": 0.1,
+            "enable_realtime_transcription": True,
+            "realtime_processing_pause": 0.2,
+            "on_realtime_transcription_update": on_partial_update,
+            "spinner": False,
+        }
+
+        recorder_config["device"] = "cuda"
+        recorder_config["compute_type"] = "float16"
+        log("Requesting GPU (CUDA)")
+
+        recorder = AudioToTextRecorder(**recorder_config)
+        log("Recorder initialized")
+
+        notify("PREPARING", "Initializing audio...")
+        time.sleep(0.5)
+
+        notify("RECORDING", "Article mode recording...")
+
+        chunk_texts = []
+        chunk_start = time.time()
+        chunk_num = 0
+
+        # Article recording loop: collect phrases, flush every CHUNK_DURATION seconds
+        while not stop_requested:
+            try:
+                phrase = recorder.text()
+            except Exception as e:
+                if stop_requested:
+                    break
+                log(f"Phrase error (continuing): {e}", "WARN")
+                continue
+
+            if phrase and phrase.strip():
+                chunk_texts.append(phrase.strip())
+                log(f"Phrase collected ({len(phrase)} chars)")
+
+            # Check if 120-second chunk boundary has been crossed
+            elapsed = time.time() - chunk_start
+            if elapsed >= CHUNK_DURATION and not stop_requested:
+                chunk_num += 1
+                flush_chunk(chunk_texts, chunk_num)
+                chunk_texts = []
+                chunk_start = time.time()
+                log(f"Starting chunk {chunk_num + 1}")
+
+        # Flush any remaining phrases on stop
+        if chunk_texts:
+            chunk_num += 1
+            flush_chunk(chunk_texts, chunk_num)
+
+        log("Article recording loop ended cleanly")
+
+    except Exception as e:
+        log(f"Article mode error: {e}", "ERROR")
+        notify("ERROR", f"Article recording failed: {e}")
+        return 1
+
+    finally:
+        if PID_FILE.exists():
+            PID_FILE.unlink()
+        if ARTICLE_PARTIAL_FILE.exists():
+            try:
+                ARTICLE_PARTIAL_FILE.unlink()
+            except Exception:
+                pass
+        if recorder:
+            try:
+                recorder.abort()
+            except Exception:
+                pass
+            try:
+                recorder.stop()
+            except Exception:
+                pass
+            try:
+                recorder.shutdown()
+            except Exception:
+                pass
+            del recorder
+            recorder = None
+            import gc
+            gc.collect()
+            log("Recorder cleanup complete")
+        emit_dbus_signal("StateChanged", "IDLE")
+        log("Sent IDLE signal")
+
+    return 0
+
+
+def main():
+    global debug_mode, no_notify
+
+    parser = argparse.ArgumentParser(
+        description="Article mode: looped streaming speech-to-text"
+    )
+    parser.add_argument("-d", "--debug", action="store_true",
+                        help="Enable debug logging")
+    parser.add_argument("-l", "--language", type=str, default=None,
+                        help="Language code (e.g. 'en')")
+    parser.add_argument("--no-notify", action="store_true",
+                        help="Suppress desktop notifications")
+
+    args = parser.parse_args()
+    debug_mode = args.debug
+    no_notify = args.no_notify
+
+    try:
+        return run_article_mode(args)
+    except Exception as e:
+        debug_mode = True
+        log(f"FATAL ERROR: {e}", "CRITICAL")
+        import traceback
+        log(traceback.format_exc(), "CRITICAL")
+        notify("ERROR", f"Article mode crashed: {e}")
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

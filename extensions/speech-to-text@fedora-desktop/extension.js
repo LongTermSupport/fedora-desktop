@@ -65,6 +65,8 @@ export default class SpeechToTextExtension extends Extension {
         this._flashState = false;
         this._isClaudeMode = false;  // Track if recording is in Claude mode
         this._claudeStyle = null;  // Track Claude style: 'corporate' or 'natural'
+        this._isArticleMode = false;  // Track if article mode window is open
+        this._elapsedSeconds = 0;  // Elapsed seconds shown in article mode indicator
 
         // Whisper model definitions (name, label, size, description, englishOnly)
         this._whisperModels = [
@@ -339,6 +341,10 @@ export default class SpeechToTextExtension extends Extension {
         viewLogItem.connect('activate', () => { this._openLogViewer(); });
         menu.addMenuItem(viewLogItem);
 
+        const articleItem = new PopupMenu.PopupMenuItem('Create Article...');
+        articleItem.connect('activate', () => { this._launchArticleMode(); });
+        menu.addMenuItem(articleItem);
+
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
         const manageModelsItem = new PopupMenu.PopupMenuItem('Manage Whisper Models...');
@@ -552,7 +558,9 @@ export default class SpeechToTextExtension extends Extension {
                 break;
             case 'RECORDING':
                 this._icon.style = 'color: #ff4444;';  // Red
-                this._startCountdown();
+                if (!this._isArticleMode) {
+                    this._startCountdown();
+                }
                 this._addAbortKeybinding();  // Enable Escape key during recording
                 break;
             case 'TRANSCRIBING':
@@ -590,6 +598,8 @@ export default class SpeechToTextExtension extends Extension {
             default:
                 this._stopCountdown();
                 this._removeAbortKeybinding();  // Disable Escape key when idle
+                this._isArticleMode = false;
+                this._elapsedSeconds = 0;
                 this._icon.icon_name = 'audio-input-microphone-symbolic';  // Restore mic icon
                 this._icon.style = '';  // Default
                 break;
@@ -884,6 +894,77 @@ export default class SpeechToTextExtension extends Extension {
             this._log(`Launch error: ${e.message}`);
             Main.notify('STT Error', e.message);
         }
+    }
+
+    _launchArticleMode() {
+        try {
+            // Don't allow opening article mode while another recording is active
+            if (this._currentState === 'RECORDING' ||
+                this._currentState === 'PREPARING' ||
+                this._currentState === 'TRANSCRIBING') {
+                this._log('Article mode: another recording is already active');
+                return;
+            }
+
+            this._isArticleMode = true;
+            this._isClaudeMode = false;
+            this._claudeStyle = null;
+
+            const debugFlag = this._debugEnabled ? ' --debug' : '';
+            const noNotifyFlag = !this._showNotifications ? ' --no-notify' : '';
+            const langFlag = ` --language ${this._getWhisperLanguage()}`;
+            const safeClaudeModel = this._validateShellArg(
+                this._claudeModel,
+                this._claudeModels.map(m => m[0])
+            );
+            const modelFlag = ` --model ${safeClaudeModel}`;
+
+            const scriptPath = GLib.get_home_dir() + '/.local/bin/wsi-article-window';
+            const command = scriptPath + debugFlag + noNotifyFlag + langFlag + modelFlag;
+
+            this._log(`Launching article mode: ${command}`);
+            GLib.spawn_command_line_async(command);
+
+            // Start elapsed timer immediately for visual feedback
+            this._startElapsedTimer();
+        } catch (e) {
+            this._isArticleMode = false;
+            this._lastError = e.message;
+            this._log(`Article mode launch error: ${e.message}`);
+            Main.notify('STT Error', e.message);
+        }
+    }
+
+    _startElapsedTimer() {
+        // Reuse the same _countdownLabel and _recordingTimer variables
+        // so _stopCountdown() handles cleanup correctly.
+        this._stopCountdown();
+
+        this._elapsedSeconds = 0;
+
+        // Replace iconBox with elapsed-time label
+        if (this._iconBox) {
+            this._indicator.remove_child(this._iconBox);
+        }
+
+        this._countdownLabel = new St.Label({
+            text: 'ART 0m',
+            y_align: 2,  // Clutter.ActorAlign.CENTER
+            style: 'color: white; font-weight: bold; font-size: 13px; background-color: #44ff44; padding: 2px 4px; border-radius: 3px;'
+        });
+        this._indicator.add_child(this._countdownLabel);
+
+        this._log('Article mode elapsed timer started');
+
+        // Increment every 60 seconds (no auto-stop — article mode is indefinite)
+        this._recordingTimer = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 60, () => {
+            this._elapsedSeconds += 60;
+            const elapsedMin = Math.floor(this._elapsedSeconds / 60);
+            if (this._countdownLabel) {
+                this._countdownLabel.text = `ART ${elapsedMin}m`;
+            }
+            return GLib.SOURCE_CONTINUE;
+        });
     }
 
     _getPasteWithShift() {

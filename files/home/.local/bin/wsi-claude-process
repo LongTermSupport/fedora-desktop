@@ -26,6 +26,7 @@ LOG_FILE="${LOG_DIR}/debug.log"
 DEBUG_MODE=false
 CLAUDE_MODEL="sonnet"
 STYLE="corporate"
+TWEAK=""
 
 # Parse arguments
 TRANSCRIPTION=""
@@ -42,6 +43,10 @@ while [[ $# -gt 0 ]]; do
         -d|--debug)
             DEBUG_MODE=true
             shift
+            ;;
+        -t|--tweak)
+            TWEAK="$2"
+            shift 2
             ;;
         *)
             TRANSCRIPTION="$1"
@@ -99,6 +104,15 @@ log "Loaded prompt template (${#PROMPT_TEMPLATE} chars)"
 
 # Replace {TRANSCRIPTION} placeholder
 FULL_PROMPT="${PROMPT_TEMPLATE//\{TRANSCRIPTION\}/$TRANSCRIPTION}"
+
+# Replace {TWEAK} placeholder (used by article prompt; no-op for others)
+if [[ -n "$TWEAK" ]]; then
+    TWEAK_LINE=$'\nAdditional instruction: '"$TWEAK"
+else
+    TWEAK_LINE=""
+fi
+FULL_PROMPT="${FULL_PROMPT//\{TWEAK\}/$TWEAK_LINE}"
+
 log "Constructed full prompt (${#FULL_PROMPT} chars)"
 
 # Call Claude CLI in headless mode

@@ -249,6 +249,22 @@
         group: "{{ user_login }}"
         mode: '0755'
 
+    - name: Deploy Article Mode Script (wsi-article)
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/wsi-article"
+        dest: "/home/{{ user_login }}/.local/bin/wsi-article"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+
+    - name: Deploy Article Mode Window (wsi-article-window)
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/wsi-article-window"
+        dest: "/home/{{ user_login }}/.local/bin/wsi-article-window"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+
     # =========================================================================
     # GNOME Extension
     # =========================================================================
@@ -335,6 +351,7 @@
       loop:
         - claude-prompt-corporate.txt
         - claude-prompt-natural.txt
+        - claude-prompt-article.txt
       when: lookup('file', root_dir + '/files/home/.config/speech-to-text/' + item, errors='ignore') != lookup('file', '/home/' + user_login + '/.config/speech-to-text/' + item, errors='ignore')
       failed_when: false  # Don't fail if file doesn't exist yet
 
@@ -349,6 +366,7 @@
       loop:
         - claude-prompt-corporate.txt
         - claude-prompt-natural.txt
+        - claude-prompt-article.txt
 
     # =========================================================================
     # Extension Reload
