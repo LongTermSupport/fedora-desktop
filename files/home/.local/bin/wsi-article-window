@@ -29,6 +29,7 @@ ARTICLE_RAW_FILE = CACHE_DIR / "article-raw.txt"
 ARTICLE_BUFFER_FILE = CACHE_DIR / "article-buffer.txt"
 ARTICLE_PARTIAL_FILE = CACHE_DIR / "article-partial.txt"
 ARTICLE_TRIGGER_FILE = CACHE_DIR / "article-chunk.trigger"
+ARTICLE_RECORDING_ACTIVE_FILE = CACHE_DIR / "article-recording.active"
 ARTICLE_SCRIPT = Path.home() / ".local/bin/wsi-article"
 
 # Pass through offline mode env vars so wsi-article inherits them
@@ -53,6 +54,7 @@ class ArticleWindow(Gtk.ApplicationWindow):
         self.poll_timer_id = None
         self._force_kill_timer = None
         self._final_polish_done = False
+        self._recording_active_seen = False
 
         # Skip any pre-existing trigger file from a previous session
         if ARTICLE_TRIGGER_FILE.exists():
@@ -240,6 +242,11 @@ class ArticleWindow(Gtk.ApplicationWindow):
                 self._final_polish_done = True
                 self._on_process_stopped()
             return True
+
+        # ── Recording active marker: wsi-article has entered the record loop ─
+        if not self._recording_active_seen and ARTICLE_RECORDING_ACTIVE_FILE.exists():
+            self._recording_active_seen = True
+            self._set_status("Recording… (speak now — press ■ Stop when done)")
 
         # ── Trigger file: new 120s chunk flushed ────────────────────────────
         if ARTICLE_TRIGGER_FILE.exists():

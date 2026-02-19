@@ -38,6 +38,7 @@ ARTICLE_RAW_FILE = CACHE_DIR / "article-raw.txt"
 ARTICLE_BUFFER_FILE = CACHE_DIR / "article-buffer.txt"   # within-chunk phrases
 ARTICLE_PARTIAL_FILE = CACHE_DIR / "article-partial.txt"  # real-time partial
 ARTICLE_TRIGGER_FILE = CACHE_DIR / "article-chunk.trigger"
+ARTICLE_RECORDING_ACTIVE_FILE = CACHE_DIR / "article-recording.active"  # set when loop starts
 
 DBUS_PATH = "/org/fedoradesktop/SpeechToText"
 DBUS_INTERFACE = "org.fedoradesktop.SpeechToText"
@@ -59,7 +60,7 @@ def cleanup_on_exit():
     except Exception:
         pass
     _release_recorder()
-    for f in (PID_FILE, ARTICLE_PARTIAL_FILE, ARTICLE_BUFFER_FILE):
+    for f in (PID_FILE, ARTICLE_PARTIAL_FILE, ARTICLE_BUFFER_FILE, ARTICLE_RECORDING_ACTIVE_FILE):
         if f.exists():
             try:
                 f.unlink()
@@ -243,6 +244,9 @@ def run_article_mode(args):
         notify("PREPARING", "Initializing audio...")
         time.sleep(0.5)
 
+        ARTICLE_RECORDING_ACTIVE_FILE.write_text(str(os.getpid()))
+        log("Recording active marker written")
+
         # Do NOT emit RECORDING via DBus — the old extension (before logout)
         # has no _isArticleMode guard and would start a countdown that calls
         # _stopRecording() at ~117s, killing the process. The panel indicator
@@ -340,7 +344,7 @@ def run_article_mode(args):
         if PID_FILE.exists():
             PID_FILE.unlink()
         _release_recorder()
-        for f in (ARTICLE_PARTIAL_FILE, ARTICLE_BUFFER_FILE):
+        for f in (ARTICLE_PARTIAL_FILE, ARTICLE_BUFFER_FILE, ARTICLE_RECORDING_ACTIVE_FILE):
             if f.exists():
                 try:
                     f.unlink()
