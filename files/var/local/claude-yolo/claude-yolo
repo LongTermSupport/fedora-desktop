@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.4.4"  # Suppress npm migration warning via DISABLE_INSTALLATION_CHECKS env var
+CCY_VERSION="3.4.6"  # Add --disable-custom-docker flag to skip custom image build
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -136,6 +136,7 @@ Options:
   --connect [NETWORK]    Connect running container to network
   --custom               Create/edit custom project Dockerfile interactively
   --custom-docker        AI-guided Dockerfile creation and customization
+  --disable-custom-docker  Skip custom Dockerfile build, use base image (for fixing broken Dockerfiles)
   --prompt "text"        Start Claude Code with a preseeded prompt
   --headless             Run in headless mode (requires --prompt)
   --top                  Container manager: list/stop all CCY containers
@@ -360,6 +361,7 @@ EOF
 
 # Check for wrapper flags
 FORCE_REBUILD=false
+DISABLE_CUSTOM_DOCKER=false
 DEBUG_MODE=false
 DEBUG_CCY=false
 DEBUG_ENTRYPOINT=false
@@ -424,6 +426,8 @@ for arg in "$@"; do
         NEXT_IS_PROMPT=false
     elif [ "$arg" = "--rebuild" ]; then
         FORCE_REBUILD=true
+    elif [ "$arg" = "--disable-custom-docker" ]; then
+        DISABLE_CUSTOM_DOCKER=true
     elif [ "$arg" = "--no-ssh" ]; then
         NO_SSH_MODE=true
     elif [ "$arg" = "--no-network" ]; then
@@ -1059,7 +1063,7 @@ PROJECT_IMAGE_NAME="claude-yolo:${PROJECT_NAME}"
 PROJECT_DOCKERFILE_HASH_FILE="$HOME/.cache/claude-yolo-${PROJECT_NAME}-dockerfile-hash"
 PROJECT_BASE_VERSION_FILE="$HOME/.cache/claude-yolo-${PROJECT_NAME}-base-version"
 
-if [ -f "$PROJECT_DOCKERFILE" ]; then
+if [ -f "$PROJECT_DOCKERFILE" ] && [ "$DISABLE_CUSTOM_DOCKER" = false ]; then
     echo ""
     echo "════════════════════════════════════════════════════════════════════════════════"
     echo "✅ Custom Dockerfile detected: .claude/ccy/Dockerfile"
@@ -1151,8 +1155,9 @@ if [ -f "$PROJECT_DOCKERFILE" ]; then
             echo ""
             print_error "Failed to build project-specific image"
             echo ""
-            echo "Falling back to base image: claude-yolo:latest"
-            echo ""
+            echo "Fix the Dockerfile and retry, or remove it to use the base image."
+            echo "Dockerfile: $PROJECT_DOCKERFILE"
+            exit 1
         fi
     fi
 
