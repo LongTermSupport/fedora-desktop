@@ -352,6 +352,7 @@
         - claude-prompt-corporate.txt
         - claude-prompt-natural.txt
         - claude-prompt-article.txt
+        - claude-prompt-humanize.txt
       when: lookup('file', root_dir + '/files/home/.config/speech-to-text/' + item, errors='ignore') != lookup('file', '/home/' + user_login + '/.config/speech-to-text/' + item, errors='ignore')
       failed_when: false  # Don't fail if file doesn't exist yet
 
@@ -367,6 +368,7 @@
         - claude-prompt-corporate.txt
         - claude-prompt-natural.txt
         - claude-prompt-article.txt
+        - claude-prompt-humanize.txt
 
     # =========================================================================
     # Extension Reload

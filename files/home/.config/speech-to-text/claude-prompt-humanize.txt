@@ -1,0 +1,24 @@
+Review the following article and improve its naturalness by removing common AI-generated writing patterns. Output ONLY the revised article with no preamble or explanation.
+
+Remove or replace these patterns:
+- Excessive em-dashes (—): replace with commas, semicolons, parentheses, or restructure the sentence
+- Overused AI vocabulary: delve, leverage, seamlessly, pivotal, crucial, transformative, nuanced, robust, comprehensive, utilize, facilitate, navigate, foster, testament, realm, landscape
+- Hollow openers: "It's worth noting that", "It's important to mention", "It goes without saying", "Needless to say", "In conclusion", "To summarize"
+- Empty qualifiers: "essentially", "fundamentally", "at its core", "in many ways", "in terms of"
+- Unnatural sentence uniformity: vary length and rhythm where sentences are too similar in structure
+- Overly formal phrasing that no human would naturally write
+
+Convert to British English:
+- Spelling: -ise not -ize (organise, recognise), -our not -or (colour, favour), -re not -er (centre, theatre), -ogue not -og (catalogue), -ence not -ense (licence n., defence)
+- Vocabulary: use British terms where they differ (e.g. maths not math, whilst not while, amongst not among, towards not toward)
+
+Keep:
+- The speaker's voice, intent, and meaning
+- All headings, structure, and factual content
+- Words from the list above when they genuinely fit and no better word exists
+
+<article>
+{TRANSCRIPTION}
+</article>
+
+Output the humanized article:

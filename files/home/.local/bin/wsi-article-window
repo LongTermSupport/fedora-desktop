@@ -3,8 +3,11 @@
 WSI-Article-Window - Two-pane article drafting UI
 ==================================================
 Launched by the GNOME Shell extension via 'Create Article...' in the panel menu.
-Opens a GTK4 window, launches wsi-article as a subprocess, and re-polishes via
-Claude after each 120-second chunk (and on stop).
+Opens a GTK4 window, launches wsi-article as a subprocess, and runs a two-stage
+Claude polish after each 120-second chunk (and on stop):
+
+  Stage 1 — Structure:  raw transcript → coherent article  (Structured tab)
+  Stage 2 — Humanize:   article → LLM-giveaway-free prose  (Humanized tab)
 """
 
 import gi
@@ -52,7 +55,7 @@ class ArticleWindow(Gtk.ApplicationWindow):
         self._final_polish_done = False
 
         self.set_title("Article Mode — Speech to Text")
-        self.set_default_size(1100, 700)
+        self.set_default_size(1200, 700)
 
         self._build_ui()
         self._start_recorder()
@@ -120,23 +123,39 @@ class ArticleWindow(Gtk.ApplicationWindow):
         left_box.append(raw_scroll)
         paned.set_start_child(left_box)
 
-        # Right pane: Polished article + tweak controls
+        # Right pane: Tabbed polished views + tweak controls
         right_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         right_box.set_margin_top(10)
         right_box.set_margin_start(6)
         right_box.set_margin_end(10)
         right_box.set_margin_bottom(10)
 
-        polished_label = Gtk.Label(label="Polished Article")
-        polished_label.set_halign(Gtk.Align.START)
-        polished_label.add_css_class("heading")
-        right_box.append(polished_label)
+        # Notebook with Structured and Humanized tabs
+        self.notebook = Gtk.Notebook()
+        self.notebook.set_vexpand(True)
 
-        polished_scroll = Gtk.ScrolledWindow()
-        polished_scroll.set_vexpand(True)
-        polished_scroll.set_hexpand(True)
-        polished_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        # Tab 1: Structured (stage 1 — article polish)
+        structured_scroll = Gtk.ScrolledWindow()
+        structured_scroll.set_vexpand(True)
+        structured_scroll.set_hexpand(True)
+        structured_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        self.structured_buffer = Gtk.TextBuffer()
+        self.structured_view = Gtk.TextView(buffer=self.structured_buffer)
+        self.structured_view.set_editable(False)
+        self.structured_view.set_cursor_visible(False)
+        self.structured_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        self.structured_view.set_left_margin(8)
+        self.structured_view.set_right_margin(8)
+        self.structured_view.set_top_margin(8)
+        self.structured_view.set_bottom_margin(8)
+        structured_scroll.set_child(self.structured_view)
+        self.notebook.append_page(structured_scroll, Gtk.Label(label="Structured"))
 
+        # Tab 2: Humanized (stage 2 — LLM-giveaway removal)
+        humanized_scroll = Gtk.ScrolledWindow()
+        humanized_scroll.set_vexpand(True)
+        humanized_scroll.set_hexpand(True)
+        humanized_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         self.polished_buffer = Gtk.TextBuffer()
         self.polished_view = Gtk.TextView(buffer=self.polished_buffer)
         self.polished_view.set_editable(False)
@@ -146,8 +165,10 @@ class ArticleWindow(Gtk.ApplicationWindow):
         self.polished_view.set_right_margin(8)
         self.polished_view.set_top_margin(8)
         self.polished_view.set_bottom_margin(8)
-        polished_scroll.set_child(self.polished_view)
-        right_box.append(polished_scroll)
+        humanized_scroll.set_child(self.polished_view)
+        self.notebook.append_page(humanized_scroll, Gtk.Label(label="Humanized"))
+
+        right_box.append(self.notebook)
 
         # Tweak controls
         right_box.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
@@ -324,32 +345,67 @@ class ArticleWindow(Gtk.ApplicationWindow):
         tweak = self.tweak_entry.get_text().strip()
 
         def polish_thread():
-            cmd = [
+            # ── Stage 1: structure the transcript into an article ────────────
+            cmd1 = [
                 "wsi-claude-process",
                 "--style", "article",
                 "--model", self.args.model,
             ]
             if tweak:
-                cmd.extend(["--tweak", tweak])
+                cmd1.extend(["--tweak", tweak])
             if self.args.debug:
-                cmd.append("--debug")
-            cmd.append(raw_text)
+                cmd1.append("--debug")
+            cmd1.append(raw_text)
             try:
-                result = subprocess.run(
-                    cmd, capture_output=True, text=True, timeout=120
+                result1 = subprocess.run(
+                    cmd1, capture_output=True, text=True, timeout=120
                 )
-                polished = result.stdout.strip() if result.returncode == 0 else ""
+                stage1 = result1.stdout.strip() if result1.returncode == 0 else ""
             except Exception:
-                polished = ""
-            GLib.idle_add(self._on_polish_done, polished)
+                stage1 = ""
+
+            if not stage1:
+                GLib.idle_add(self._on_polish_done, "")
+                return
+
+            # Show stage 1 result immediately; signal stage 2 is starting
+            GLib.idle_add(self._on_stage1_done, stage1)
+
+            # ── Stage 2: humanize (remove LLM giveaways) ────────────────────
+            cmd2 = [
+                "wsi-claude-process",
+                "--style", "humanize",
+                "--model", self.args.model,
+            ]
+            if self.args.debug:
+                cmd2.append("--debug")
+            cmd2.append(stage1)
+            try:
+                result2 = subprocess.run(
+                    cmd2, capture_output=True, text=True, timeout=120
+                )
+                stage2 = result2.stdout.strip() if result2.returncode == 0 else ""
+            except Exception:
+                stage2 = ""
+
+            # Fall back to stage 1 if humanization fails
+            GLib.idle_add(self._on_polish_done, stage2 or stage1)
 
         threading.Thread(target=polish_thread, daemon=True).start()
+
+    def _on_stage1_done(self, text):
+        """Stage 1 complete: show structured result and signal stage 2 running."""
+        self._set_structured_text(text)
+        self.notebook.set_current_page(0)
+        self._set_status("Structured ✓ — humanizing… (stage 2/2)")
+        return False
 
     def _on_polish_done(self, polished_text):
         self.is_polishing = False
         self.repolish_btn.set_sensitive(True)
         if polished_text:
             self._set_polished_text(polished_text)
+            self.notebook.set_current_page(1)
             n = self.chunk_count
             self._set_status(
                 f"Polished ✓  ({n} chunk{'s' if n != 1 else ''} recorded)"
@@ -376,15 +432,22 @@ class ArticleWindow(Gtk.ApplicationWindow):
         return False  # GLib.SOURCE_REMOVE
 
     def _on_copy(self, _btn):
-        polished = self.polished_buffer.get_text(
-            self.polished_buffer.get_start_iter(),
-            self.polished_buffer.get_end_iter(), False
-        ).strip()
-        raw = self.raw_buffer.get_text(
-            self.raw_buffer.get_start_iter(),
-            self.raw_buffer.get_end_iter(), False
-        ).strip()
-        text = polished or raw
+        """Copy from whichever tab is currently active."""
+        active = self.notebook.get_current_page()
+        if active == 0:
+            buf = self.structured_buffer
+            src = "structured"
+        else:
+            buf = self.polished_buffer
+            src = "humanized"
+        text = buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False).strip()
+        if not text:
+            # Fall back to raw if the active tab is empty
+            text = self.raw_buffer.get_text(
+                self.raw_buffer.get_start_iter(),
+                self.raw_buffer.get_end_iter(), False
+            ).strip()
+            src = "raw"
         if not text:
             self._set_status("Nothing to copy yet")
             return
@@ -392,7 +455,6 @@ class ArticleWindow(Gtk.ApplicationWindow):
             proc = subprocess.Popen(["wl-copy"], stdin=subprocess.PIPE)
             proc.stdin.write(text.encode())
             proc.stdin.close()
-            src = "polished" if polished else "raw"
             self._set_status(f"Copied {src} article to clipboard ✓")
         except Exception as e:
             self._set_status(f"Copy failed: {e}")
@@ -421,6 +483,15 @@ class ArticleWindow(Gtk.ApplicationWindow):
     def _scroll_raw_to_bottom(self):
         end = self.raw_buffer.get_end_iter()
         self.raw_view.scroll_to_iter(end, 0.0, False, 0.0, 1.0)
+        return False
+
+    def _set_structured_text(self, text):
+        self.structured_buffer.set_text(text)
+        GLib.idle_add(self._scroll_structured_to_top)
+
+    def _scroll_structured_to_top(self):
+        start = self.structured_buffer.get_start_iter()
+        self.structured_view.scroll_to_iter(start, 0.0, False, 0.0, 0.0)
         return False
 
     def _set_polished_text(self, text):
