@@ -400,11 +400,8 @@ def run_server_mode(args):
     no_notify = args.no_notify
 
     if debug_mode:
-        try:
-            LOG_DIR.mkdir(parents=True, exist_ok=True)
-            LOG_FILE.write_text("")  # Fresh log each session
-        except Exception:
-            pass
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        LOG_FILE.write_text("")  # Fresh log each session
 
     log("=== Server mode requested ===")
 
@@ -595,11 +592,8 @@ def run_streaming(args):
     current_text = ""
 
     if debug_mode:
-        try:
-            LOG_DIR.mkdir(parents=True, exist_ok=True)
-            LOG_FILE.write_text("")  # Fresh log each session
-        except Exception:
-            pass
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        LOG_FILE.write_text("")  # Fresh log each session
 
     log(f"Starting streaming transcription (pre-buffer: {args.pre_buffer})...")
 
