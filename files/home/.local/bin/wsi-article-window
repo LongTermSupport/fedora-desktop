@@ -291,7 +291,18 @@ class ArticleWindow(Gtk.ApplicationWindow):
             self._run_polish(self._read_all_raw())
 
     def _on_process_stopped(self):
-        """Called when wsi-article exits. Triggers a final polish."""
+        """Called when wsi-article exits. Resets panel indicator and polishes."""
+        # Emit IDLE so the extension panel resets even if wsi-article was
+        # force-killed and its atexit handler never ran.
+        try:
+            subprocess.run([
+                "gdbus", "emit", "--session",
+                "--object-path", "/org/fedoradesktop/SpeechToText",
+                "--signal", "org.fedoradesktop.SpeechToText.StateChanged",
+                "IDLE",
+            ], capture_output=True, timeout=1)
+        except Exception:
+            pass
         combined = self._read_all_raw()
         if combined.strip():
             self._set_raw_text(combined)

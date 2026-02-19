@@ -246,37 +246,52 @@ def run_article_mode(args):
         chunk_start = time.time()
         chunk_num = 0
 
-        while not stop_requested:
-            # Each recorder.text() call returns one phrase (after 1.5s silence)
-            # or returns when recorder.stop() is called from signal handler
-            phrase_done = threading.Event()
-            phrase_result = [None]
+        # Shared phrase state — only ONE phrase thread runs at a time.
+        # Creating these outside the loop avoids the Python late-binding closure
+        # bug where a new iteration's reassignment clobbers the old thread's
+        # phrase_done/phrase_result references, leading to concurrent
+        # recorder.text() calls that corrupt the recorder after ~120s.
+        phrase_done = threading.Event()
+        phrase_result = [None]
 
-            def _phrase_thread():
-                try:
-                    phrase_result[0] = recorder.text()
-                except Exception as e:
-                    log(f"recorder.text() error: {e}", "WARN")
-                finally:
-                    phrase_done.set()
-                    phrase_unblock.set()
+        def _phrase_thread_fn():
+            try:
+                phrase_result[0] = recorder.text()
+            except Exception as e:
+                log(f"recorder.text() error: {e}", "WARN")
+                phrase_result[0] = None
+            finally:
+                phrase_done.set()
+                phrase_unblock.set()
 
-            t = threading.Thread(target=_phrase_thread, daemon=True)
+        def _start_phrase_thread():
+            phrase_done.clear()
+            phrase_result[0] = None
+            t = threading.Thread(target=_phrase_thread_fn, daemon=True)
             t.start()
 
-            # Wait for phrase or stop signal
-            phrase_unblock.wait(timeout=30)
+        # Start the first phrase before entering the loop
+        _start_phrase_thread()
+
+        while not stop_requested:
+            # Wait for phrase completion, stop signal, or periodic chunk-timer
+            # check. Short timeout (5s) keeps chunk flush responsive.
+            phrase_unblock.wait(timeout=5)
             phrase_unblock.clear()
 
             if stop_requested:
                 # Give the phrase thread a moment to return final text
                 phrase_done.wait(timeout=3)
 
-            phrase = phrase_result[0]
-            if phrase and phrase.strip():
-                chunk_texts.append(phrase.strip())
-                write_buffer(chunk_texts)
-                log(f"Phrase collected: {len(phrase)} chars")
+            # If a phrase completed, collect it and start the next one
+            if phrase_done.is_set():
+                phrase = phrase_result[0]
+                if phrase and phrase.strip():
+                    chunk_texts.append(phrase.strip())
+                    write_buffer(chunk_texts)
+                    log(f"Phrase collected: {len(phrase)} chars")
+                if not stop_requested:
+                    _start_phrase_thread()
 
             # Flush chunk every CHUNK_DURATION seconds
             elapsed = time.time() - chunk_start

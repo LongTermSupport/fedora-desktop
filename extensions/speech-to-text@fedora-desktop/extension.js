@@ -553,12 +553,14 @@ export default class SpeechToTextExtension extends Extension {
 
         switch (state) {
             case 'PREPARING':
-                // Orange icon while audio pipeline initializes
-                this._icon.style = 'color: #ffaa00;';  // Orange/Yellow
+                if (!this._isArticleMode) {
+                    // Orange icon while audio pipeline initializes
+                    this._icon.style = 'color: #ffaa00;';  // Orange/Yellow
+                }
                 break;
             case 'RECORDING':
-                this._icon.style = 'color: #ff4444;';  // Red
                 if (!this._isArticleMode) {
+                    this._icon.style = 'color: #ff4444;';  // Red
                     this._startCountdown();
                 }
                 this._addAbortKeybinding();  // Enable Escape key during recording
@@ -940,29 +942,29 @@ export default class SpeechToTextExtension extends Extension {
         // so _stopCountdown() handles cleanup correctly.
         this._stopCountdown();
 
-        this._elapsedSeconds = 0;
-
-        // Replace iconBox with elapsed-time label
+        // Replace iconBox with a spinner label — no countdown since article
+        // mode records indefinitely. Spinner communicates "keeps going".
         if (this._iconBox) {
             this._indicator.remove_child(this._iconBox);
         }
 
+        const spinnerChars = ['◐', '◓', '◑', '◒'];
+        let spinnerIdx = 0;
+
         this._countdownLabel = new St.Label({
-            text: 'ART 0m',
+            text: `ART ${spinnerChars[0]}`,
             y_align: 2,  // Clutter.ActorAlign.CENTER
             style: 'color: white; font-weight: bold; font-size: 13px; background-color: #44ff44; padding: 2px 4px; border-radius: 3px;'
         });
         this._indicator.add_child(this._countdownLabel);
 
-        this._log('Article mode elapsed timer started');
+        this._log('Article mode spinner started');
 
-        // Increment every 60 seconds (no auto-stop — article mode is indefinite)
-        this._recordingTimer = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 60, () => {
-            this._elapsedSeconds += 60;
-            const elapsedMin = Math.floor(this._elapsedSeconds / 60);
-            if (this._countdownLabel) {
-                this._countdownLabel.text = `ART ${elapsedMin}m`;
-            }
+        // Advance spinner every 600ms — clearly signals indefinite recording
+        this._recordingTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 600, () => {
+            spinnerIdx = (spinnerIdx + 1) % spinnerChars.length;
+            if (this._countdownLabel)
+                this._countdownLabel.text = `ART ${spinnerChars[spinnerIdx]}`;
             return GLib.SOURCE_CONTINUE;
         });
     }
