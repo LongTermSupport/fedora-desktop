@@ -54,6 +54,13 @@ class ArticleWindow(Gtk.ApplicationWindow):
         self._force_kill_timer = None
         self._final_polish_done = False
 
+        # Skip any pre-existing trigger file from a previous session
+        if ARTICLE_TRIGGER_FILE.exists():
+            try:
+                self.last_trigger_mtime = ARTICLE_TRIGGER_FILE.stat().st_mtime
+            except Exception:
+                pass
+
         self.set_title("Article Mode — Speech to Text")
         self.set_default_size(1200, 700)
 
