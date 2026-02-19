@@ -326,7 +326,7 @@ def start_server(model_size="base", language="en"):
         log("Server already running")
         return True
 
-    log("Starting persistent server...")
+    log(f"Starting persistent server (model={model_size}, language={language})...")
 
     # Check if server script exists
     if not SERVER_SCRIPT.exists():
@@ -398,6 +398,13 @@ def run_server_mode(args):
 
     debug_mode = args.debug
     no_notify = args.no_notify
+
+    if debug_mode:
+        try:
+            LOG_DIR.mkdir(parents=True, exist_ok=True)
+            LOG_FILE.write_text("")  # Fresh log each session
+        except Exception:
+            pass
 
     log("=== Server mode requested ===")
 
@@ -586,6 +593,13 @@ def run_streaming(args):
     no_notify = args.no_notify
     stop_requested = False
     current_text = ""
+
+    if debug_mode:
+        try:
+            LOG_DIR.mkdir(parents=True, exist_ok=True)
+            LOG_FILE.write_text("")  # Fresh log each session
+        except Exception:
+            pass
 
     log(f"Starting streaming transcription (pre-buffer: {args.pre_buffer})...")
 

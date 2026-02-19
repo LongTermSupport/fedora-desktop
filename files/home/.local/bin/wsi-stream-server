@@ -691,6 +691,14 @@ def main():
     idle_timeout = args.timeout
 
     server_start_time = time.time()
+
+    # Truncate log file on each server start so it doesn't grow unboundedly
+    try:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        LOG_FILE.write_text("")
+    except Exception:
+        pass
+
     log("=== WSI-Stream Server Starting ===")
     log(f"Model: {args.model}, Language: {args.language}, Device: {args.device}")
     log(f"Idle timeout: {idle_timeout}s")
