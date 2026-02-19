@@ -2,23 +2,9 @@
 """
 WSI-Article-Window - Two-pane article drafting UI
 ==================================================
-Launched by the GNOME Shell extension (Shift+Insert).
-Opens a GTK4 window with raw transcript and polished article panes,
-launches wsi-article as a subprocess, and re-polishes via Claude after
-each 120-second chunk.
-
-LAYOUT:
-  ┌──────────────────────────────────────────────────┐
-  │  [■ Stop Recording]     Status: Recording…       │
-  ├─────────────────────┬────────────────────────────┤
-  │  Raw Transcript     │  Polished Article           │
-  │  (auto-updates      │  (auto-polished per chunk)  │
-  │  in real-time)      │                             │
-  │                     ├────────────────────────────┤
-  │                     │  Prompt tweak (optional):   │
-  │                     │  [___________________]      │
-  │                     │  [Re-polish]  [Copy]        │
-  └─────────────────────┴────────────────────────────┘
+Launched by the GNOME Shell extension via 'Create Article...' in the panel menu.
+Opens a GTK4 window, launches wsi-article as a subprocess, and re-polishes via
+Claude after each 120-second chunk (and on stop).
 """
 
 import gi
@@ -37,9 +23,18 @@ from pathlib import Path
 # File paths
 CACHE_DIR = Path.home() / ".cache/speech-to-text"
 ARTICLE_RAW_FILE = CACHE_DIR / "article-raw.txt"
+ARTICLE_BUFFER_FILE = CACHE_DIR / "article-buffer.txt"
 ARTICLE_PARTIAL_FILE = CACHE_DIR / "article-partial.txt"
 ARTICLE_TRIGGER_FILE = CACHE_DIR / "article-chunk.trigger"
 ARTICLE_SCRIPT = Path.home() / ".local/bin/wsi-article"
+
+# Pass through offline mode env vars so wsi-article inherits them
+_RECORDER_ENV = {
+    **os.environ,
+    "HF_TOKEN": "",
+    "TRANSFORMERS_OFFLINE": "1",
+    "HF_DATASETS_OFFLINE": "1",
+}
 
 
 class ArticleWindow(Gtk.ApplicationWindow):
@@ -49,9 +44,12 @@ class ArticleWindow(Gtk.ApplicationWindow):
         self.article_proc = None
         self.last_trigger_mtime = 0.0
         self.last_partial_mtime = 0.0
+        self.last_buffer_mtime = 0.0
         self.is_polishing = False
         self.chunk_count = 0
         self.poll_timer_id = None
+        self._force_kill_timer = None
+        self._final_polish_done = False
 
         self.set_title("Article Mode — Speech to Text")
         self.set_default_size(1100, 700)
@@ -62,7 +60,6 @@ class ArticleWindow(Gtk.ApplicationWindow):
         self.connect("close-request", self._on_close)
 
     def _build_ui(self):
-        """Build the two-pane interface."""
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.set_child(main_box)
 
@@ -84,9 +81,7 @@ class ArticleWindow(Gtk.ApplicationWindow):
         header.append(self.status_label)
 
         main_box.append(header)
-
-        sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-        main_box.append(sep)
+        main_box.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
 
         # ── Paned content ────────────────────────────────────────────────────
         paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
@@ -123,7 +118,6 @@ class ArticleWindow(Gtk.ApplicationWindow):
         self.raw_view.set_bottom_margin(8)
         raw_scroll.set_child(self.raw_view)
         left_box.append(raw_scroll)
-
         paned.set_start_child(left_box)
 
         # Right pane: Polished article + tweak controls
@@ -156,9 +150,7 @@ class ArticleWindow(Gtk.ApplicationWindow):
         right_box.append(polished_scroll)
 
         # Tweak controls
-        tweak_sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-        tweak_sep.set_margin_top(4)
-        right_box.append(tweak_sep)
+        right_box.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
 
         tweak_label = Gtk.Label(label="Prompt tweak (optional):")
         tweak_label.set_halign(Gtk.Align.START)
@@ -188,7 +180,6 @@ class ArticleWindow(Gtk.ApplicationWindow):
         paned.set_end_child(right_box)
 
     def _start_recorder(self):
-        """Launch wsi-article as a subprocess."""
         cmd = [str(ARTICLE_SCRIPT)]
         if self.args.debug:
             cmd.append("--debug")
@@ -197,26 +188,32 @@ class ArticleWindow(Gtk.ApplicationWindow):
         if self.args.no_notify:
             cmd.append("--no-notify")
         try:
-            self.article_proc = subprocess.Popen(cmd)
+            self.article_proc = subprocess.Popen(cmd, env=_RECORDER_ENV)
             self._set_status("Loading model… (first start may take a few seconds)")
         except Exception as e:
             self._set_status(f"Failed to start recorder: {e}")
             self.stop_btn.set_sensitive(False)
 
     def _start_polling(self):
-        """Start polling for file changes every 500ms."""
         self.poll_timer_id = GLib.timeout_add(500, self._poll_files)
 
     def _poll_files(self):
-        """Poll article files for changes. Returns True to keep timer alive."""
-        # Check if wsi-article has exited
+        # ── Check if wsi-article has exited ─────────────────────────────────
         if self.article_proc is not None and self.article_proc.poll() is not None:
             self.article_proc = None
             self.stop_btn.set_sensitive(False)
             self.stop_btn.set_label("■ Stopped")
-            self._set_status("Recording stopped — review and copy your article")
+            # Cancel force-kill timer if it was pending
+            if self._force_kill_timer:
+                GLib.Source.remove(self._force_kill_timer)
+                self._force_kill_timer = None
+            # Trigger final polish from whatever has been accumulated
+            if not self._final_polish_done:
+                self._final_polish_done = True
+                self._on_process_stopped()
+            return True
 
-        # Check trigger file (a new chunk was flushed)
+        # ── Trigger file: new 120s chunk flushed ────────────────────────────
         if ARTICLE_TRIGGER_FILE.exists():
             try:
                 mtime = ARTICLE_TRIGGER_FILE.stat().st_mtime
@@ -227,62 +224,90 @@ class ArticleWindow(Gtk.ApplicationWindow):
             except Exception:
                 pass
 
-        # Check partial file (real-time updates within current chunk)
+        # ── Buffer file: within-chunk accumulated phrases ────────────────────
+        if ARTICLE_BUFFER_FILE.exists():
+            try:
+                mtime = ARTICLE_BUFFER_FILE.stat().st_mtime
+                if mtime > self.last_buffer_mtime:
+                    self.last_buffer_mtime = mtime
+                    self._update_display()
+            except Exception:
+                pass
+
+        # ── Partial file: real-time phrase fragment ──────────────────────────
         if ARTICLE_PARTIAL_FILE.exists():
             try:
                 mtime = ARTICLE_PARTIAL_FILE.stat().st_mtime
                 if mtime > self.last_partial_mtime:
                     self.last_partial_mtime = mtime
-                    self._update_partial()
+                    self._update_display()
             except Exception:
                 pass
 
         return True  # GLib.SOURCE_CONTINUE
 
-    def _update_partial(self):
-        """Update left pane with completed chunks + current partial phrase."""
+    def _read_all_raw(self):
+        """Return the combined raw text: completed chunks + current buffer."""
+        raw = ""
+        buf = ""
         try:
-            raw = ARTICLE_RAW_FILE.read_text() if ARTICLE_RAW_FILE.exists() else ""
-            partial = ARTICLE_PARTIAL_FILE.read_text() if ARTICLE_PARTIAL_FILE.exists() else ""
-            display = raw
-            if partial.strip():
-                if display and not display.endswith("\n"):
-                    display += "\n"
-                display += f"[{partial.strip()}]"
-            self._set_raw_text(display)
+            if ARTICLE_RAW_FILE.exists():
+                raw = ARTICLE_RAW_FILE.read_text()
         except Exception:
             pass
+        try:
+            if ARTICLE_BUFFER_FILE.exists():
+                buf = ARTICLE_BUFFER_FILE.read_text()
+        except Exception:
+            pass
+        combined = raw
+        if buf.strip():
+            if combined and not combined.endswith("\n"):
+                combined += "\n"
+            combined += buf
+        return combined
+
+    def _update_display(self):
+        """Refresh left pane: completed raw + buffer + [current partial]."""
+        combined = self._read_all_raw()
+        partial = ""
+        try:
+            if ARTICLE_PARTIAL_FILE.exists():
+                partial = ARTICLE_PARTIAL_FILE.read_text().strip()
+        except Exception:
+            pass
+        display = combined
+        if partial:
+            if display and not display.endswith("\n"):
+                display += "\n"
+            display += f"[{partial}]"
+        self._set_raw_text(display)
 
     def _on_new_chunk(self):
-        """Called when a new 120-second chunk has been flushed."""
-        try:
-            raw = ARTICLE_RAW_FILE.read_text() if ARTICLE_RAW_FILE.exists() else ""
-            self._set_raw_text(raw)
-        except Exception:
-            pass
-        self._set_status(
-            f"Chunk {self.chunk_count} complete — polishing…"
-        )
+        """Called when a 120-second chunk is flushed."""
+        self._update_display()
+        self._set_status(f"Chunk {self.chunk_count} complete — polishing…")
         if not self.is_polishing:
-            self._run_polish()
+            self._run_polish(self._read_all_raw())
+
+    def _on_process_stopped(self):
+        """Called when wsi-article exits. Triggers a final polish."""
+        combined = self._read_all_raw()
+        if combined.strip():
+            self._set_raw_text(combined)
+            self._set_status("Recording stopped — polishing final article…")
+            self._run_polish(combined)
+        else:
+            self._set_status("Recording stopped — no text captured")
 
     def _on_repolish(self, _btn):
-        """Manual re-polish triggered by button."""
         if not self.is_polishing:
             self._set_status("Re-polishing…")
-            self._run_polish()
+            self._run_polish(self._read_all_raw())
 
-    def _run_polish(self):
-        """Run Claude polishing in a background thread."""
-        if self.is_polishing:
+    def _run_polish(self, raw_text):
+        if self.is_polishing or not raw_text.strip():
             return
-        try:
-            raw = ARTICLE_RAW_FILE.read_text() if ARTICLE_RAW_FILE.exists() else ""
-        except Exception:
-            return
-        if not raw.strip():
-            return
-
         self.is_polishing = True
         self.repolish_btn.set_sensitive(False)
         tweak = self.tweak_entry.get_text().strip()
@@ -297,7 +322,7 @@ class ArticleWindow(Gtk.ApplicationWindow):
                 cmd.extend(["--tweak", tweak])
             if self.args.debug:
                 cmd.append("--debug")
-            cmd.append(raw)
+            cmd.append(raw_text)
             try:
                 result = subprocess.run(
                     cmd, capture_output=True, text=True, timeout=120
@@ -310,36 +335,43 @@ class ArticleWindow(Gtk.ApplicationWindow):
         threading.Thread(target=polish_thread, daemon=True).start()
 
     def _on_polish_done(self, polished_text):
-        """Called on the main thread when polishing completes."""
         self.is_polishing = False
         self.repolish_btn.set_sensitive(True)
         if polished_text:
             self._set_polished_text(polished_text)
-            chunks = self.chunk_count
+            n = self.chunk_count
             self._set_status(
-                f"Polished ✓ — {chunks} chunk{'s' if chunks != 1 else ''} recorded"
+                f"Polished ✓  ({n} chunk{'s' if n != 1 else ''} recorded)"
             )
         else:
             self._set_status("Polishing failed — is Claude (claude CLI) available?")
-        return False  # GLib.SOURCE_REMOVE
+        return False
 
     def _on_stop(self, _btn):
-        """Terminate the wsi-article subprocess."""
-        if self.article_proc and self.article_proc.poll() is None:
-            self.article_proc.terminate()
+        """Terminate wsi-article; force-kill after 3 seconds if needed."""
+        proc = self.article_proc
+        if proc and proc.poll() is None:
+            proc.terminate()
             self._set_status("Stopping…")
+            # Schedule a force-kill in case terminate doesn't unblock the recorder
+            self._force_kill_timer = GLib.timeout_add(3000, self._force_kill)
+
+    def _force_kill(self):
+        """Force-kill wsi-article if it hasn't exited after terminate()."""
+        self._force_kill_timer = None
+        proc = self.article_proc
+        if proc and proc.poll() is None:
+            proc.kill()
+        return False  # GLib.SOURCE_REMOVE
 
     def _on_copy(self, _btn):
-        """Copy the polished article to clipboard (falls back to raw)."""
         polished = self.polished_buffer.get_text(
             self.polished_buffer.get_start_iter(),
-            self.polished_buffer.get_end_iter(),
-            False
+            self.polished_buffer.get_end_iter(), False
         ).strip()
         raw = self.raw_buffer.get_text(
             self.raw_buffer.get_start_iter(),
-            self.raw_buffer.get_end_iter(),
-            False
+            self.raw_buffer.get_end_iter(), False
         ).strip()
         text = polished or raw
         if not text:
@@ -349,25 +381,29 @@ class ArticleWindow(Gtk.ApplicationWindow):
             proc = subprocess.Popen(["wl-copy"], stdin=subprocess.PIPE)
             proc.stdin.write(text.encode())
             proc.stdin.close()
-            source = "polished" if polished else "raw"
-            self._set_status(f"Copied {source} article to clipboard ✓")
+            src = "polished" if polished else "raw"
+            self._set_status(f"Copied {src} article to clipboard ✓")
         except Exception as e:
             self._set_status(f"Copy failed: {e}")
 
     def _on_close(self, _window):
-        """Stop the timer and recorder when the window is closed."""
         if self.poll_timer_id:
             GLib.Source.remove(self.poll_timer_id)
             self.poll_timer_id = None
-        if self.article_proc and self.article_proc.poll() is None:
-            self.article_proc.terminate()
-        return False  # Allow the window to close
+        if self._force_kill_timer:
+            GLib.Source.remove(self._force_kill_timer)
+            self._force_kill_timer = None
+        proc = self.article_proc
+        if proc and proc.poll() is None:
+            proc.terminate()
+            # Give it a moment, then kill
+            GLib.timeout_add(1000, lambda: proc.kill() if proc.poll() is None else None)
+        return False
 
     def _set_status(self, text):
         self.status_label.set_text(text)
 
     def _set_raw_text(self, text):
-        """Update raw transcript pane and scroll to bottom."""
         self.raw_buffer.set_text(text)
         GLib.idle_add(self._scroll_raw_to_bottom)
 
@@ -377,7 +413,6 @@ class ArticleWindow(Gtk.ApplicationWindow):
         return False
 
     def _set_polished_text(self, text):
-        """Update polished article pane and scroll to top."""
         self.polished_buffer.set_text(text)
         GLib.idle_add(self._scroll_polished_to_top)
 
@@ -388,19 +423,12 @@ class ArticleWindow(Gtk.ApplicationWindow):
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Article mode two-pane UI"
-    )
-    parser.add_argument("-d", "--debug", action="store_true",
-                        help="Enable debug logging")
-    parser.add_argument("-l", "--language", type=str, default=None,
-                        help="Language code (e.g. 'en')")
-    parser.add_argument("--no-notify", action="store_true",
-                        help="Suppress desktop notifications")
+    parser = argparse.ArgumentParser(description="Article mode two-pane UI")
+    parser.add_argument("-d", "--debug", action="store_true")
+    parser.add_argument("-l", "--language", type=str, default=None)
+    parser.add_argument("--no-notify", action="store_true")
     parser.add_argument("--model", type=str, default="sonnet",
-                        choices=["sonnet", "opus", "haiku"],
-                        help="Claude model for polishing")
-
+                        choices=["sonnet", "opus", "haiku"])
     args = parser.parse_args()
 
     app = Gtk.Application(
@@ -413,7 +441,6 @@ def main():
         win.present()
 
     app.connect("activate", on_activate)
-    # Pass only the program name to GTK so it doesn't try to parse our args
     return app.run([sys.argv[0]])
 
 
