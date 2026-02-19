@@ -7,6 +7,8 @@ article file. wsi-article-window displays the raw text and a Claude-polished
 version, re-polishing after each chunk.
 """
 
+SCRIPT_VERSION = "1.2.0"
+
 import os
 import sys
 import subprocess
@@ -183,6 +185,7 @@ def run_article_mode(args):
 
     from RealtimeSTT import AudioToTextRecorder
 
+    print(f"wsi-article v{SCRIPT_VERSION} starting (pid={os.getpid()})", file=sys.stderr)
     PID_FILE.write_text(str(os.getpid()))
     log(f"PID file written: {PID_FILE} (pid={os.getpid()})")
 
@@ -240,7 +243,23 @@ def run_article_mode(args):
         notify("PREPARING", "Initializing audio...")
         time.sleep(0.5)
 
-        notify("RECORDING", "Article mode recording...")
+        # Do NOT emit RECORDING via DBus — the old extension (before logout)
+        # has no _isArticleMode guard and would start a countdown that calls
+        # _stopRecording() at ~117s, killing the process. The panel indicator
+        # is handled by the window's _launchArticleMode() spinner instead.
+        log("Article mode recording started")
+        if not no_notify:
+            try:
+                subprocess.run([
+                    "gdbus", "call", "--session",
+                    "--dest", "org.freedesktop.Notifications",
+                    "--object-path", "/org/freedesktop/Notifications",
+                    "--method", "org.freedesktop.Notifications.Notify",
+                    "speech-to-text-article", "0", "audio-input-microphone",
+                    "Article Mode", "Recording…", "[]", "{}", "2000"
+                ], capture_output=True, timeout=1)
+            except Exception:
+                pass
 
         chunk_texts = []
         chunk_start = time.time()
