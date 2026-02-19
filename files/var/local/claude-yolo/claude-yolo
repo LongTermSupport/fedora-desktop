@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.4.6"  # Add --disable-custom-docker flag to skip custom image build
+CCY_VERSION="3.4.7"  # Output AI fix command with build error context on Dockerfile build failure
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1138,25 +1138,48 @@ if [ -f "$PROJECT_DOCKERFILE" ] && [ "$DISABLE_CUSTOM_DOCKER" = false ]; then
         project_dockerfile_hash=$(md5sum "$PROJECT_DOCKERFILE" | cut -d' ' -f1 | cut -c1-16)
 
         # Use buildkit for cache mounts and pass Dockerfile hash
-        if DOCKER_BUILDKIT=1 container_cmd build \
+        # Capture output to temp file for error reporting while still displaying live
+        build_log=$(mktemp /tmp/ccy-build-XXXXXX.log)
+        if (set -o pipefail; DOCKER_BUILDKIT=1 container_cmd build \
             --build-arg BUILDKIT_INLINE_CACHE=1 \
             --build-arg DOCKERFILE_HASH="$project_dockerfile_hash" \
             -t "$PROJECT_IMAGE_NAME" \
             -f "$PROJECT_DOCKERFILE" \
-            .; then
+            . 2>&1 | tee "$build_log"); then
 
             # Save hashes and versions to track changes
             echo "$current_project_hash" > "$PROJECT_DOCKERFILE_HASH_FILE"
             echo "$current_base_version" > "$PROJECT_BASE_VERSION_FILE"
+            rm -f "$build_log"
             echo ""
             echo "✓ Project image built successfully: $PROJECT_IMAGE_NAME"
             [ -n "$rebuild_reason" ] && echo "  Rebuild reason: $rebuild_reason"
         else
+            # Write fix prompt with error context to a temp file for easy copy-paste
+            fix_prompt_file=$(mktemp /tmp/ccy-fix-dockerfile-XXXXXX.txt)
+            {
+                echo "The custom Dockerfile at .claude/ccy/Dockerfile failed to build."
+                echo ""
+                echo "Build error (last 40 lines):"
+                echo ""
+                tail -40 "$build_log"
+                echo ""
+                echo "Please fix the Dockerfile so it builds successfully. Work interactively"
+                echo "with the user to understand what they need. Alternatively, if they prefer,"
+                echo "rename it (.claude/ccy/Dockerfile.bak) or delete it to use the base image."
+                echo "After fixing, tell the user to re-run: ccy"
+            } > "$fix_prompt_file"
+            rm -f "$build_log"
+
             echo ""
             print_error "Failed to build project-specific image"
             echo ""
-            echo "Fix the Dockerfile and retry, or remove it to use the base image."
             echo "Dockerfile: $PROJECT_DOCKERFILE"
+            echo ""
+            echo "To fix interactively with AI, paste this command:"
+            echo ""
+            echo "  ccy --disable-custom-docker --prompt \"\$(cat $fix_prompt_file)\""
+            echo ""
             exit 1
         fi
     fi
