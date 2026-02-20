@@ -47,12 +47,19 @@ export -f container_cmd
 
 # Source additional library modules
 LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=/dev/null
 source "$LIB_DIR/token-management.bash"
+# shellcheck source=/dev/null
 source "$LIB_DIR/ssh-handling.bash"
+# shellcheck source=/dev/null
 source "$LIB_DIR/network-management.bash"
+# shellcheck source=/dev/null
 source "$LIB_DIR/dockerfile-custom.bash"
+# shellcheck source=/dev/null
 source "$LIB_DIR/ui-helpers.bash"
+# shellcheck source=/dev/null
 source "$LIB_DIR/session-management.bash"
+# shellcheck source=/dev/null
 source "$LIB_DIR/docker-health.bash"
 
 # Output formatting helpers
@@ -164,7 +171,8 @@ check_ccy_gitignore_safety() {
     # Filter out safe files: .gitignore and Dockerfile
     local dangerous_files=""
     while IFS= read -r file; do
-        local basename=$(basename "$file")
+        local basename
+        basename=$(basename "$file")
         case "$basename" in
             .gitignore|Dockerfile|allowed-hostnames)
                 # Safe to track
@@ -373,8 +381,9 @@ check_dockerfile_gitignored() {
 # Uses parent-project format to avoid collisions (e.g., "ec-site" instead of just "site")
 # Excludes generic parent folder names
 get_project_name() {
-    local project_dir=$(basename "$(pwd)" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/_/g')
-    local parent_dir=$(basename "$(dirname "$(pwd)")" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/_/g')
+    local project_dir parent_dir
+    project_dir=$(basename "$(pwd)" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/_/g')
+    parent_dir=$(basename "$(dirname "$(pwd)")" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/_/g')
     local generic_folders="projects|repos|work|src|code|dev|home"
 
     # Check if parent folder is NOT a generic name (case insensitive)
@@ -482,12 +491,12 @@ show_spinner() {
     local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
     local i=0
 
-    while kill -0 $pid 2>/dev/null; do
+    while kill -0 "$pid" 2>/dev/null; do
         i=$(( (i+1) %10 ))
-        printf "\r${message} ${spin:$i:1} "
+        printf "\r%s %s " "$message" "${spin:$i:1}"
         sleep 0.1
     done
-    printf "\r${message} ✓ \n"
+    printf "\r%s ✓ \n" "$message"
 }
 
 # Confirmation prompt
@@ -502,7 +511,7 @@ confirm() {
     fi
 
     while true; do
-        read -p "$prompt" response
+        read -rp "$prompt" response
         response=${response:-$default}
 
         case "$response" in
@@ -547,12 +556,14 @@ get_claude_version() {
 # Returns: 0 (true) if valid, 1 (false) if expired/expiring
 is_token_valid() {
     local token_file="$1"
-    local filename=$(basename "$token_file")
+    local filename
+    filename=$(basename "$token_file")
 
     # Extract expiry date from filename: NAME.YYYY-MM-DD.token
     if [[ "$filename" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2})\.token$ ]]; then
         local expiry_date="${BASH_REMATCH[1]}"
-        local today=$(date +%Y-%m-%d)
+        local today
+        today=$(date +%Y-%m-%d)
 
         # Compare dates
         if [[ "$expiry_date" < "$today" ]]; then
@@ -591,11 +602,13 @@ list_ccy_tokens() {
     echo "Token storage: $token_dir"
     echo ""
 
-    local today=$(date +%Y-%m-%d)
+    local today
+    today=$(date +%Y-%m-%d)
 
     for token_file in "$token_dir"/*.token; do
         if [ -f "$token_file" ]; then
-            local filename=$(basename "$token_file")
+            local filename
+            filename=$(basename "$token_file")
             local token_name="${filename%.*.token}"
 
             # Extract expiry date from filename
@@ -637,7 +650,8 @@ get_project_state_dir() {
     local repo_path="$PWD"
 
     # Get git remote URL - fail fast if not configured
-    local git_remote=$(git remote get-url origin 2>/dev/null)
+    local git_remote
+    git_remote=$(git remote get-url origin 2>/dev/null)
     if [ -z "$git_remote" ]; then
         print_error "No git remote 'origin' configured"
         echo "" >&2
@@ -655,7 +669,8 @@ get_project_state_dir() {
     # Examples:
     #   git@github.com:user/repo.git -> user_repo
     #   https://github.com/user/repo.git -> user_repo
-    local project_name=$(echo "$git_remote" | sed -E 's|.*[:/]([^/]+)/([^/]+)(\.git)?$|\1_\2|')
+    local project_name
+    project_name=$(echo "$git_remote" | sed -E 's|.*[:/]([^/]+)/([^/]+)(\.git)?$|\1_\2|')
 
     local project_root="$project_dir/$project_name"
     local project_claude_dir="$project_root/.claude"
@@ -702,6 +717,7 @@ load_launch_config() {
     fi
 
     # Source config
+    # shellcheck source=/dev/null
     source "$config_file" 2>/dev/null || {
         echo "Warning: Config file corrupted, reconfiguring..." >&2
         rm -f "$config_file"
@@ -804,7 +820,7 @@ EOFCONFIG
 # Discover github_ SSH keys in ~/.ssh/
 # Returns: array of SSH key paths in GITHUB_KEYS global variable
 discover_github_ssh_keys() {
-    GITHUB_KEYS=($(find "$HOME/.ssh" -type f -name "github_*" ! -name "*.pub" 2>/dev/null | sort))
+    mapfile -t GITHUB_KEYS < <(find "$HOME/.ssh" -type f -name "github_*" ! -name "*.pub" 2>/dev/null | sort)
 }
 
 # Container version validation and build helpers
@@ -820,13 +836,14 @@ validate_container_version() {
     local required_version="$3"
 
     # Get version and hash from built image
-    local image_version=$(container_cmd image inspect "$image_name" \
+    local image_version image_hash current_hash
+    image_version=$(container_cmd image inspect "$image_name" \
         --format '{{index .Config.Labels "claude-yolo-version"}}' 2>/dev/null || echo "0")
-    local image_hash=$(container_cmd image inspect "$image_name" \
+    image_hash=$(container_cmd image inspect "$image_name" \
         --format '{{index .Config.Labels "claude-yolo-dockerfile-hash"}}' 2>/dev/null || echo "unknown")
 
     # Calculate current Dockerfile hash (16 char md5, like CCY_HASH)
-    local current_hash=$(md5sum "$dockerfile_path" | cut -d' ' -f1 | cut -c1-16)
+    current_hash=$(md5sum "$dockerfile_path" | cut -d' ' -f1 | cut -c1-16)
 
     # Validate version and hash together (like CCY version validation)
     local version_match=false
@@ -897,15 +914,19 @@ validate_container_version() {
 build_container_with_hash() {
     local image_name="$1"
     local dockerfile_dir="$2"
-    local additional_flags="$3"
     local dockerfile_path="$dockerfile_dir/Dockerfile"
 
+    # Collect optional extra flags as array (avoids unquoted expansion)
+    local -a extra_flags=()
+    [[ -n "${3:-}" ]] && extra_flags=("$3")
+
     # Calculate Dockerfile hash
-    local dockerfile_hash=$(md5sum "$dockerfile_path" | cut -d' ' -f1 | cut -c1-16)
+    local dockerfile_hash
+    dockerfile_hash=$(md5sum "$dockerfile_path" | cut -d' ' -f1 | cut -c1-16)
 
     # Build with hash as build arg
     container_cmd build \
-        $additional_flags \
+        "${extra_flags[@]}" \
         --build-arg DOCKERFILE_HASH="$dockerfile_hash" \
         -t "$image_name" \
         "$dockerfile_dir"
@@ -939,7 +960,8 @@ get_next_container_name() {
     local base_name="${project_name}_${suffix}"
 
     # Get all running containers matching this project
-    local existing_containers=$(container_cmd ps --format '{{.Names}}' | grep "^${base_name}" || true)
+    local existing_containers
+    existing_containers=$(container_cmd ps --format '{{.Names}}' | grep "^${base_name}" || true)
 
     # If no container exists, use base name (no suffix)
     if [ -z "$existing_containers" ]; then
