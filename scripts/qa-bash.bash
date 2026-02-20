@@ -14,7 +14,8 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 JSON_OUT="${QA_JSON_OUT:-/tmp/qa-bash-results.json}"
 TMP_RESULTS=$(mktemp)
-trap 'rm -f "$TMP_RESULTS"' EXIT
+TMP_SC=$(mktemp)
+trap 'rm -f "$TMP_RESULTS" "$TMP_SC"' EXIT
 ERRORS=0
 
 # Discover files
@@ -45,7 +46,7 @@ TOTAL=${#BASH_FILES[@]}
 
 # Syntax check each file
 for file in "${BASH_FILES[@]}"; do
-    rel_path="${file#$REPO_ROOT/}"
+    rel_path="${file#"$REPO_ROOT"/}"
     if err=$(bash -n "$file" 2>&1); then
         jq -nc --arg f "$rel_path" '{"file":$f,"type":"bash","status":"pass"}' >> "$TMP_RESULTS"
     else
@@ -57,21 +58,26 @@ for file in "${BASH_FILES[@]}"; do
 done
 
 # Shellcheck (optional, captures JSON if available)
-SHELLCHECK_JSON="[]"
+# Use xargs -0 to batch files — avoids ARG_MAX when there are many files.
+# Each xargs batch outputs a JSON array; jq 'add // []' flattens them all into one.
 if command -v shellcheck &>/dev/null && [[ $TOTAL -gt 0 ]]; then
-    sc_raw=$(shellcheck --format json "${BASH_FILES[@]}" 2>/dev/null) || true
-    SHELLCHECK_JSON="${sc_raw:-[]}"
-    sc_count=$(printf '%s' "$SHELLCHECK_JSON" | jq 'length')
+    printf '%s\0' "${BASH_FILES[@]}" \
+        | xargs -0 shellcheck --format json 2>/dev/null \
+        | jq -s 'add // []' > "$TMP_SC" || true
+    sc_count=$(jq 'length' "$TMP_SC")
     [[ "$sc_count" -gt 0 ]] && echo "⚠ shellcheck: $sc_count issues (see $JSON_OUT .shellcheck_diagnostics)"
+else
+    printf '[]' > "$TMP_SC"
 fi
 
 # Write JSON
+# Use --slurpfile for shellcheck data — avoids ARG_MAX when JSON is large (754+ issues).
 STATUS="pass"
 [[ $ERRORS -gt 0 ]] && STATUS="fail"
 
 jq -s \
     --arg status "$STATUS" \
-    --argjson sc "$SHELLCHECK_JSON" \
+    --slurpfile sc "$TMP_SC" \
     '{
         "type": "bash",
         "status": $status,
@@ -82,7 +88,7 @@ jq -s \
         },
         "results": .,
         "failures": [.[] | select(.status == "fail")],
-        "shellcheck_diagnostics": $sc
+        "shellcheck_diagnostics": ($sc | first)
     }' "$TMP_RESULTS" > "$JSON_OUT"
 
 # Terse summary

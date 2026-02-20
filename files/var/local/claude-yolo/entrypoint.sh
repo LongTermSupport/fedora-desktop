@@ -98,6 +98,10 @@ fi
 # Set sandbox mode to bypass root detection
 export IS_SANDBOX=1
 
+# Disable Ink's hardcoded ctrl+z suspend handler (patched in Dockerfile to check this env var).
+# Without this, ctrl+z sends unblockable SIGSTOP to the process - unrecoverable in a container.
+export CCY_DISABLE_SUSPEND=1
+
 # Symlink /root/.claude to /workspace/.claude/ccy for project-local session storage
 # This keeps containers ephemeral while persisting sessions in the project directory
 mkdir -p /workspace/.claude/ccy
@@ -112,25 +116,6 @@ if [ -e /root/.claude ]; then
 fi
 ln -sf /workspace/.claude/ccy /root/.claude
 
-# Disable CTRL+Z suspend keybinding. In a CCY container the podman process
-# cannot be recovered with fg once backgrounded. Only write if keybindings.json
-# does not already exist so we never clobber user customisations.
-if [ ! -f /root/.claude/keybindings.json ]; then
-    cat > /root/.claude/keybindings.json <<'EOF'
-{
-  "$schema": "https://www.schemastore.org/claude-code-keybindings.json",
-  "$docs": "https://code.claude.com/docs/en/keybindings",
-  "bindings": [
-    {
-      "context": "Global",
-      "bindings": {
-        "ctrl+z": null
-      }
-    }
-  ]
-}
-EOF
-fi
 
 # Create .claude.json if it doesn't exist (preserves existing state in project)
 if [ ! -f /root/.claude.json ]; then
