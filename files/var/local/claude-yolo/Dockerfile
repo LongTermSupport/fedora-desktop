@@ -10,7 +10,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.0"
+LABEL claude-yolo-version="2.1"
 LABEL claude-yolo-dockerfile-hash="${DOCKERFILE_HASH}"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 

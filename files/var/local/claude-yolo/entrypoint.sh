@@ -112,6 +112,26 @@ if [ -e /root/.claude ]; then
 fi
 ln -sf /workspace/.claude/ccy /root/.claude
 
+# Disable CTRL+Z suspend keybinding. In a CCY container the podman process
+# cannot be recovered with fg once backgrounded. Only write if keybindings.json
+# does not already exist so we never clobber user customisations.
+if [ ! -f /root/.claude/keybindings.json ]; then
+    cat > /root/.claude/keybindings.json <<'EOF'
+{
+  "$schema": "https://www.schemastore.org/claude-code-keybindings.json",
+  "$docs": "https://code.claude.com/docs/en/keybindings",
+  "bindings": [
+    {
+      "context": "Global",
+      "bindings": {
+        "ctrl+z": null
+      }
+    }
+  ]
+}
+EOF
+fi
+
 # Create .claude.json if it doesn't exist (preserves existing state in project)
 if [ ! -f /root/.claude.json ]; then
     cat > /root/.claude.json <<'EOF'
