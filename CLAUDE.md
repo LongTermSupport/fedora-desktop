@@ -87,6 +87,38 @@ CCY_VERSION="3.0.1"  # Fix: persist sessions in .claude/ccy/
 - `files/var/local/claude-yolo/claude-yolo` (main CCY wrapper)
 - Any file with version tracking
 
+### ⚠️ KNOWN FRAGILE PATCH: Ink ctrl+z → SIGSTOP suppression
+
+**The container image patches Claude Code's `cli.js` to disable ctrl+z suspend.**
+
+**Background:** Ink (Claude Code's terminal UI framework) has a hardcoded input handler that is checked BEFORE the keybinding system:
+```js
+// Inside Ink's raw input loop (minified, fG5 name may change between versions):
+if (z.name === "z" && z.ctrl && fG5) { A.handleSuspend() }
+// where: fG5 = process.platform !== "win32"
+```
+`handleSuspend()` calls `process.kill(pid, 'SIGSTOP')` — an unblockable signal. In a CCY container, this makes Claude unrecoverable (no shell to run `fg`). Setting `"ctrl+z": null` in `keybindings.json` does NOT fix this — the key is intercepted before keybindings are consulted.
+
+**The patch** (in `files/var/local/claude-yolo/Dockerfile`, applied after `npm install`):
+```js
+// Original:
+fG5 = process.platform !== "win32"
+// Patched to:
+fG5 = process.platform !== "win32" && !process.env.CCY_DISABLE_SUSPEND
+```
+The entrypoint sets `CCY_DISABLE_SUSPEND=1`. The patch exits non-zero (fails the build) if the target string is not found.
+
+**When Claude Code updates break this patch:**
+- The Docker build will fail with: `CCY PATCH ERROR: ctrl+z patch target not found`
+- Find the new minified variable name: `grep -o '.\{20\}platform.*win32.\{20\}' cli.js`
+- Locate the suspend check: search for `handleSuspend` and trace back to the condition
+- Update the `orig` string in the Dockerfile `RUN node -e` patch step
+- Bump container version (Dockerfile label + `REQUIRED_CONTAINER_VERSION` in claude-yolo)
+
+**Files involved:**
+- `files/var/local/claude-yolo/Dockerfile` — the patch RUN step
+- `files/var/local/claude-yolo/entrypoint.sh` — sets `CCY_DISABLE_SUSPEND=1`
+
 ### ⚠️ MANDATORY: Run QA Scripts Before Committing
 
 **ALWAYS run QA before committing changes to Bash or Python files.**
