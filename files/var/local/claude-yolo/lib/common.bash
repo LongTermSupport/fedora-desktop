@@ -116,10 +116,11 @@ check_ccy_gitignore_safety() {
 
     # Expected .gitignore content
     local expected_gitignore="# CCY session data - NEVER commit sensitive files
-# Only .gitignore and Dockerfile are safe to track
+# Only .gitignore, Dockerfile, and allowed-hostnames are safe to track
 *
 !.gitignore
-!Dockerfile"
+!Dockerfile
+!allowed-hostnames"
 
     # ═══════════════════════════════════════════════════════════════════════════
     # STEP 1: Force .claude/ccy/.gitignore to exist with correct content
@@ -165,7 +166,7 @@ check_ccy_gitignore_safety() {
     while IFS= read -r file; do
         local basename=$(basename "$file")
         case "$basename" in
-            .gitignore|Dockerfile)
+            .gitignore|Dockerfile|allowed-hostnames)
                 # Safe to track
                 ;;
             *)
@@ -228,6 +229,72 @@ check_ccy_gitignore_safety() {
     echo -e "${COLOR_RED}════════════════════════════════════════════════════════════════════════════════${COLOR_RESET}" >&2
     echo "" >&2
 
+    return 1
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# check_allowed_hostname: Enforce hostname restrictions for CCY projects
+#
+# If .claude/ccy/allowed-hostnames exists, the current hostname must match
+# at least one entry. This prevents accidentally running Docker-based CCY on
+# projects that should only run inside an LXC or other specific environment.
+#
+# File format (.claude/ccy/allowed-hostnames):
+#   - One entry per line
+#   - Lines starting with # are comments; inline # also stripped
+#   - Blank lines are ignored
+#   - *  alone on a line = allow any hostname (useful to document without blocking)
+#   - Glob patterns supported: myhost-*, *.local, prod-??
+#
+# If the file does not exist, there is no restriction (opt-in enforcement).
+# ═══════════════════════════════════════════════════════════════════════════════
+
+check_allowed_hostname() {
+    local allowed_file=".claude/ccy/allowed-hostnames"
+
+    # No restriction file = no restriction
+    if [[ ! -f "$allowed_file" ]]; then
+        return 0
+    fi
+
+    local current_hostname
+    current_hostname=$(hostname)
+
+    # Parse allowed entries: strip comments and blank lines
+    local allowed_hostnames=()
+    while IFS= read -r line; do
+        line="${line%%#*}"            # strip inline comments
+        line="${line//[[:space:]]/}"  # strip all whitespace
+        [[ -n "$line" ]] && allowed_hostnames+=("$line")
+    done < "$allowed_file"
+
+    # Empty file after parsing = no restriction
+    if [[ ${#allowed_hostnames[@]} -eq 0 ]]; then
+        return 0
+    fi
+
+    # Match hostname against each entry (glob patterns via case statement)
+    local pattern
+    for pattern in "${allowed_hostnames[@]}"; do
+        # shellcheck disable=SC2254  # unquoted intentional: glob pattern matching
+        case "$current_hostname" in
+            $pattern) return 0 ;;
+        esac
+    done
+
+    print_error "CCY is not allowed to run on this host"
+    echo "" >&2
+    echo "  Current hostname:  $current_hostname" >&2
+    echo "  Allowed patterns:  ${allowed_hostnames[*]}" >&2
+    echo "" >&2
+    echo "This project restricts which hosts can run the Docker-based CCY." >&2
+    echo "  Restriction file: .claude/ccy/allowed-hostnames" >&2
+    echo "" >&2
+    echo "This project is intended to run via CCY inside its own environment" >&2
+    echo "(e.g. an LXC container), not from the desktop CCY Docker container." >&2
+    echo "" >&2
+    echo "To allow this host, add it to the restriction file:" >&2
+    echo "  echo \"$current_hostname\" >> .claude/ccy/allowed-hostnames" >&2
     return 1
 }
 

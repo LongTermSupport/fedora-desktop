@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.4.7"  # Output AI fix command with build error context on Dockerfile build failure
+CCY_VERSION="3.5.0"  # feat: hostname restriction via .claude/ccy/allowed-hostnames
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -57,6 +57,9 @@ check_git_repo || exit 1
 
 # Security check: Ensure no dangerous files are tracked in .claude/ccy/
 check_ccy_gitignore_safety || exit 1
+
+# Hostname restriction: prevent running Desktop CCY on projects locked to a specific host
+check_allowed_hostname || exit 1
 
 # Migration: detect and offer to remove old session directories (v2.x -> v3.x)
 if [ -d ".claude/ccy/sessions" ]; then
@@ -1277,7 +1280,7 @@ if [ "$DEBUG_CCY" = true ]; then
     echo "    -v $PWD:/workspace \\"
     echo "    ... (other mounts) ..."
     echo "    $IMAGE_NAME \\"
-    echo "    claude --dangerously-skip-permissions ${CLAUDE_ARGS[@]}"
+    echo "    claude --dangerously-skip-permissions ${CLAUDE_ARGS[*]}"
     echo "════════════════════════════════════════════════════════════════════════════════"
     echo ""
     echo "Debug log saved to: $DEBUG_LOG"

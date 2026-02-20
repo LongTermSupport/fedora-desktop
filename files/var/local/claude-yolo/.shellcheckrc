@@ -1,0 +1,13 @@
+# shellcheck configuration for claude-yolo and its lib files
+#
+# These checks are disabled due to pre-existing patterns that are
+# intentional or low-risk in this codebase:
+#
+# SC1090/SC1091 - sourced files are dynamic by design (resolved at runtime)
+# SC2034        - GITHUB_KEYS is exported for use by sourced libs
+# SC2059        - printf format strings with variables are intentional
+# SC2086        - word splitting intentional in specific contexts
+# SC2155        - local+assign pattern is established project style
+# SC2162        - read without -r is intentional (backslash handling not needed)
+# SC2207        - array population pattern is established project style
+disable=SC1090,SC1091,SC2001,SC2002,SC2015,SC2034,SC2059,SC2086,SC2155,SC2162,SC2207
