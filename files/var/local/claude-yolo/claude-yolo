@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.5.1"  # fix: resolve all shellcheck warnings in claude-yolo and common.bash
+CCY_VERSION="3.5.2"  # fix: disable CTRL+Z suspend in TTY to prevent unrecoverable backgrounding
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1244,6 +1244,11 @@ fi
 
 # Cleanup function
 cleanup() {
+    # Restore terminal suspend character if we disabled it before container launch
+    if [[ -n "${_CCY_STTY_SAVED:-}" ]]; then
+        stty "$_CCY_STTY_SAVED" 2>/dev/null || true
+    fi
+
     rm -rf "$CONFIG_TEMP"
 
     # Show debug log if CCY debugging is enabled
@@ -2220,6 +2225,14 @@ if [ "$HEADLESS_MODE" = true ]; then
     DOCKER_FLAGS="-i"
 else
     DOCKER_FLAGS="-it"
+fi
+
+# Disable CTRL+Z (suspend) for this terminal session. Inside a CCY container
+# there is no way to foreground a backgrounded podman process, so it only
+# causes lost work. Saved state is restored in cleanup() on exit.
+if [[ -t 0 ]]; then
+    _CCY_STTY_SAVED=$(stty -g)
+    stty susp undef
 fi
 
 # Show the exact command that will be executed (for debugging)
