@@ -1,0 +1,14 @@
+# shellcheck configuration for claude-yolo and its lib files
+#
+# ⚠️  DO NOT ADD SUPPRESSIONS HERE UNLESS THE ISSUE GENUINELY CANNOT BE FIXED.
+#     NO SHORTCUTS. Fix the code properly instead.
+#
+# Valid reasons to suppress:
+#   - Intentional word splitting that cannot be refactored to an array
+#   - Dynamic source paths that are resolved at runtime (use source=/dev/null inline)
+#   - Third-party or generated code outside our control
+#
+# Invalid reasons to suppress:
+#   - "It's too much work to fix"
+#   - "It's pre-existing so it doesn't matter"
+#   - "It works fine in practice"
