@@ -1,0 +1,329 @@
+#!/usr/bin/env python3
+"""
+WSI Stream Server Manager
+==========================
+Diagnose and control the wsi-stream-server and related processes.
+
+Usage:
+  wsi-server-manager            Interactive TUI
+  wsi-server-manager --status   Print status and exit (non-zero if problem detected)
+"""
+
+import json
+import os
+import signal
+import socket
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+UID = os.getuid()
+USER = os.environ.get("USER", "user")
+
+SOCKET_PATH = Path(f"/run/user/{UID}/wsi-stream.socket")
+SERVER_PID_FILE = Path(f"/run/user/{UID}/wsi-stream-server.pid")
+CLIENT_PID_FILE = Path(f"/dev/shm/stt-recording-{USER}.pid")
+SERVER_LOG = Path.home() / ".local/share/speech-to-text/server.log"
+
+
+def send_command(cmd, timeout=5):
+    """Send a JSON command to the server socket and return the response."""
+    try:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        sock.connect(str(SOCKET_PATH))
+        sock.sendall((json.dumps({"command": cmd}) + "\n").encode())
+        response = sock.recv(4096).decode().strip()
+        sock.close()
+        return json.loads(response)
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+def pid_alive(pid):
+    """Return True if a process with the given PID is running."""
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def read_pid_file(path):
+    """Read a PID file and return the PID if the process is running, else None."""
+    p = Path(path)
+    if p.exists():
+        try:
+            pid = int(p.read_text().strip())
+            if pid_alive(pid):
+                return pid
+        except (ValueError, OSError):
+            pass
+    return None
+
+
+def get_pw_record_pids():
+    """Return list of pw-record process PIDs."""
+    try:
+        r = subprocess.run(["pgrep", "-f", "pw-record"], capture_output=True, text=True)
+        if r.returncode == 0:
+            return [int(p) for p in r.stdout.strip().split() if p]
+    except Exception:
+        pass
+    return []
+
+
+def ping_server():
+    """Ping the server and return the PING response dict, or None if unreachable."""
+    if not SOCKET_PATH.exists():
+        return None
+    r = send_command("PING")
+    return r if r.get("status") == "alive" else None
+
+
+def fmt_secs(s):
+    """Format seconds as a human-readable duration string."""
+    s = int(s)
+    if s < 60:
+        return f"{s}s"
+    m, s = divmod(s, 60)
+    if m < 60:
+        return f"{m}m {s}s"
+    h, m = divmod(m, 60)
+    return f"{h}h {m}m"
+
+
+def collect_status():
+    """Collect all relevant process and server state."""
+    return {
+        "server_pid": read_pid_file(SERVER_PID_FILE),
+        "ping": ping_server(),
+        "pw_pids": get_pw_record_pids(),
+        "client_pid": read_pid_file(CLIENT_PID_FILE),
+    }
+
+
+def show_status(s):
+    """Print the status panel."""
+    ping = s["ping"]
+    rec = ping.get("recording", False) if ping else False
+    pw_pids = s["pw_pids"]
+
+    # Determine overall health for header colour hint (ANSI, stripped if no tty)
+    is_stuck = rec and not s["client_pid"]
+
+    print("┌──────────────────────────────────────────────────┐")
+    print("│           WSI Stream Server Manager              │")
+    print("└──────────────────────────────────────────────────┘")
+    print()
+
+    # Server
+    if s["server_pid"] and ping:
+        up = fmt_secs(ping.get("uptime_seconds", 0))
+        idle = fmt_secs(ping.get("idle_seconds", 0))
+        print(f"  Server    : RUNNING   PID={s['server_pid']}  up={up}  idle={idle}")
+    elif s["server_pid"]:
+        print(f"  Server    : RUNNING   PID={s['server_pid']}  (socket unresponsive)")
+    else:
+        print(f"  Server    : STOPPED")
+
+    # Recording state
+    if ping:
+        if rec and is_stuck:
+            print(f"  Recording : ACTIVE    ← STUCK (client gone, mic still held)")
+        elif rec:
+            print(f"  Recording : ACTIVE")
+        else:
+            print(f"  Recording : idle")
+    else:
+        print(f"  Recording : unknown   (server not responding)")
+
+    # pw-record
+    if pw_pids:
+        pids_str = ", ".join(str(p) for p in pw_pids)
+        print(f"  pw-record : RUNNING   PID={pids_str}  ← mic is held open")
+    else:
+        print(f"  pw-record : not running")
+
+    # Client (wsi-stream process)
+    if s["client_pid"]:
+        print(f"  Client    : RUNNING   PID={s['client_pid']}")
+    else:
+        print(f"  Client    : not running")
+
+    # Server log
+    if SERVER_LOG.exists():
+        size = SERVER_LOG.stat().st_size
+        print(f"  Log       : {size} bytes  ({SERVER_LOG})")
+    else:
+        print(f"  Log       : not found")
+
+    print()
+
+
+def show_menu(s):
+    """Print the action menu."""
+    ping = s["ping"]
+    rec = ping.get("recording", False) if ping else False
+
+    print("  ─── Actions ──────────────────────────────────────")
+
+    if ping and rec:
+        print("  [1] Send STOP command    ← clears stuck recording, server stays hot")
+    else:
+        print("  [1] Send STOP command    (no active recording)")
+
+    if ping:
+        print("  [2] Send SHUTDOWN        ← graceful server stop")
+    else:
+        print("  [2] Send SHUTDOWN        (server not responding)")
+
+    if s["server_pid"]:
+        print(f"  [3] Kill server SIGTERM  (PID {s['server_pid']})")
+        print(f"  [4] Kill server SIGKILL  (nuclear)")
+    else:
+        print("  [3] Kill server SIGTERM  (not running)")
+        print("  [4] Kill server SIGKILL  (not running)")
+
+    if pw_pids := s["pw_pids"]:
+        pids_str = ", ".join(str(p) for p in pw_pids)
+        print(f"  [5] Kill pw-record       ← releases mic (PID {pids_str})")
+    else:
+        print("  [5] Kill pw-record       (not running)")
+
+    print("  [l] View server log")
+    print("  [r] Refresh")
+    print("  [q] Quit")
+    print()
+
+
+def do_action(choice, s):
+    """Execute the chosen action. Returns a result message string, or None for refresh."""
+    ping = s["ping"]
+    rec = ping.get("recording", False) if ping else False
+
+    if choice == "1":
+        if not ping:
+            return "Server not responding — cannot send STOP"
+        if not rec:
+            return "No active recording to stop"
+        resp = send_command("STOP", timeout=15)
+        if resp.get("status") == "stopped":
+            text = resp.get("transcription", "").strip()
+            if text:
+                preview = text[:80] + "..." if len(text) > 80 else text
+                return f"Stopped. Transcription: '{preview}'"
+            return "Stopped (no transcription captured)"
+        return f"STOP failed: {resp.get('message', str(resp))}"
+
+    elif choice == "2":
+        if not ping:
+            return "Server not responding — cannot send SHUTDOWN"
+        resp = send_command("SHUTDOWN")
+        return f"Shutdown command sent: {resp.get('status', str(resp))}"
+
+    elif choice == "3":
+        pid = s["server_pid"]
+        if not pid:
+            return "Server not running"
+        try:
+            os.kill(pid, signal.SIGTERM)
+            return f"SIGTERM sent to server PID {pid} — will clean up and exit"
+        except OSError as e:
+            return f"Kill failed: {e}"
+
+    elif choice == "4":
+        pid = s["server_pid"]
+        if not pid:
+            return "Server not running"
+        try:
+            os.kill(pid, signal.SIGKILL)
+            return f"SIGKILL sent to server PID {pid}"
+        except OSError as e:
+            return f"Kill failed: {e}"
+
+    elif choice == "5":
+        pids = s["pw_pids"]
+        if not pids:
+            return "No pw-record processes found"
+        killed = []
+        for pid in pids:
+            try:
+                os.kill(pid, signal.SIGTERM)
+                killed.append(pid)
+            except OSError:
+                pass
+        if killed:
+            return f"SIGTERM sent to pw-record PID(s): {', '.join(str(p) for p in killed)}"
+        return "Nothing killed (all pids gone already?)"
+
+    elif choice == "l":
+        view_log()
+        return None
+
+    elif choice == "r":
+        return None
+
+    elif choice == "q":
+        print()
+        sys.exit(0)
+
+    else:
+        return f"Unknown option: {choice!r} — enter 1-5, l, r, or q"
+
+
+def view_log():
+    """Open the server log in less (or print tail if less unavailable)."""
+    if not SERVER_LOG.exists():
+        input("  Log not found. Press Enter to continue...")
+        return
+    try:
+        subprocess.run(["less", "+G", "--", str(SERVER_LOG)])
+    except Exception:
+        lines = SERVER_LOG.read_text().splitlines()[-50:]
+        print("\n".join(lines))
+        input("\nPress Enter to continue...")
+
+
+def status_mode():
+    """Print status and exit. Exit code 1 if a problem is detected."""
+    s = collect_status()
+    show_status(s)
+    ping = s["ping"]
+    is_stuck = ping and ping.get("recording", False) and not s["client_pid"]
+    sys.exit(1 if is_stuck else 0)
+
+
+def main():
+    if "--status" in sys.argv:
+        status_mode()
+
+    msg = None
+    while True:
+        os.system("clear")
+        s = collect_status()
+        show_status(s)
+
+        if msg:
+            print(f"  → {msg}")
+            print()
+            msg = None
+
+        show_menu(s)
+
+        try:
+            choice = input("  Choice: ").strip().lower()
+        except (KeyboardInterrupt, EOFError):
+            print()
+            sys.exit(0)
+
+        result = do_action(choice, s)
+        if result:
+            msg = result
+            # Brief pause so background actions (kill, stop) have time to take effect
+            time.sleep(0.8)
+
+
+if __name__ == "__main__":
+    main()

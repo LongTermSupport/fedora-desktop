@@ -351,6 +351,10 @@ export default class SpeechToTextExtension extends Extension {
         manageModelsItem.connect('activate', () => { this._openModelManager(); });
         menu.addMenuItem(manageModelsItem);
 
+        const serverManagerItem = new PopupMenu.PopupMenuItem('Server Manager...');
+        serverManagerItem.connect('activate', () => { this._openServerManager(); });
+        menu.addMenuItem(serverManagerItem);
+
         const settingsItem = new PopupMenu.PopupMenuItem('Settings...');
         settingsItem.connect('activate', () => { this.openPreferences(); });
         menu.addMenuItem(settingsItem);
@@ -1165,6 +1169,24 @@ export default class SpeechToTextExtension extends Extension {
             } catch (e2) {
                 this._log(`Cannot open terminal: ${e2.message}`);
                 Main.notify('Speech to Text', 'Cannot open terminal. Run: wsi-model-manager');
+            }
+        }
+    }
+
+    _openServerManager() {
+        // Launch wsi-server-manager in a compact terminal window.
+        // 60×24 is sufficient for the status display and menu.
+        const script = GLib.get_home_dir() + '/.local/bin/wsi-server-manager';
+        this._log('Opening server manager');
+
+        try {
+            GLib.spawn_command_line_async(`foot --window-size-chars=60x24 -- ${script}`);
+        } catch (_e1) {
+            try {
+                GLib.spawn_command_line_async(`xdg-terminal-exec ${script}`);
+            } catch (e2) {
+                this._log(`Cannot open terminal: ${e2.message}`);
+                Main.notify('Speech to Text', 'Cannot open terminal. Run: wsi-server-manager');
             }
         }
     }

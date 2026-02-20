@@ -249,6 +249,14 @@
         group: "{{ user_login }}"
         mode: '0755'
 
+    - name: Deploy Server Manager (wsi-server-manager)
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/wsi-server-manager"
+        dest: "/home/{{ user_login }}/.local/bin/wsi-server-manager"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+
     - name: Deploy Article Mode Script (wsi-article)
       ansible.builtin.copy:
         src: "{{ root_dir }}/files/home/.local/bin/wsi-article"
