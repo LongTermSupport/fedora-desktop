@@ -50,7 +50,8 @@ if (src.includes(SUSPEND_GUARD)) {
 //   grep -o '.\{20\}platform.*win32.\{20\}' cli.js
 // then add it to this list.
 const knownPatterns = [
-    'fG5=process.platform!=="win32"',
+    'wT5=process.platform!=="win32"',  // Claude Code ~0.2.x (2025-02+)
+    'fG5=process.platform!=="win32"',  // Claude Code earlier versions
     // Add future known patterns here as Claude Code updates change the variable name
 ];
 
@@ -71,14 +72,15 @@ for (const orig of knownPatterns) {
 
 // Strategy 2: Dynamic discovery.
 // The minified variable name changes between Claude Code versions.
-// Search for a platform-check assignment within 500 chars before handleSuspend().
-const handleSuspendIdx = src.indexOf('handleSuspend');
-if (handleSuspendIdx !== -1) {
-    const windowStart = Math.max(0, handleSuspendIdx - 500);
-    const window = src.substring(windowStart, handleSuspendIdx + 100);
-    const match = window.match(/(\w+)=process\.platform!=="win32"/);
-    if (match) {
-        const orig = match[0];
+// Step A: find the variable used in the ctrl+z call site: z.ctrl&&<VAR> near handleSuspend.
+// Step B: find that variable's assignment: <VAR>=process.platform!=="win32".
+// This is more reliable than searching near handleSuspend, because the assignment
+// may be far from both the call site and the method definition.
+const ctrlZMatch = src.match(/z\.name==="z"&&z\.ctrl&&(\w+)/);
+if (ctrlZMatch) {
+    const varName = ctrlZMatch[1];
+    const orig = varName + '=process.platform!=="win32"';
+    if (src.includes(orig)) {
         const count = src.split(orig).length - 1;
         if (count === 1) {
             src = src.replace(orig, orig + SUSPEND_GUARD);
@@ -89,6 +91,8 @@ if (handleSuspendIdx !== -1) {
         } else {
             process.stderr.write('CCY PATCH WARNING: dynamic pattern "' + orig + '" found ' + count + ' times - too ambiguous to patch safely\n');
         }
+    } else {
+        process.stderr.write('CCY PATCH WARNING: found ctrl+z var "' + varName + '" but could not find its platform assignment\n');
     }
 }
 
