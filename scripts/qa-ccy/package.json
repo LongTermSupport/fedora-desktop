@@ -1,0 +1,9 @@
+{
+  "name": "ccy-qa",
+  "version": "1.0.0",
+  "description": "QA test dependencies for CCY container patches",
+  "private": true,
+  "dependencies": {
+    "@anthropic-ai/claude-code": "latest"
+  }
+}

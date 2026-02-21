@@ -106,6 +106,18 @@
         - scripts
         - entrypoint
 
+    - name: Copy ctrl+z Patch Script (part of Docker build context)
+      become: true
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/var/local/claude-yolo/ccy-ctrl-z-patch.js"
+        dest: /opt/claude-yolo/ccy-ctrl-z-patch.js
+        owner: root
+        group: root
+        mode: "0644"
+      tags:
+        - scripts
+        - dockerfile
+
     - name: Create Documentation Directory
       become: true
       ansible.builtin.file:
@@ -129,14 +141,19 @@
       tags:
         - scripts
 
-    - name: Copy Custom Dockerfiles Documentation
+    - name: Copy Documentation into Docker Build Context
       become: true
       ansible.builtin.copy:
-        src: "{{ root_dir }}/files/opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt"
-        dest: /opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
         owner: root
         group: root
         mode: "0644"
+      loop:
+        - src: "{{ root_dir }}/files/opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt"
+          dest: /opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt
+        - src: "{{ root_dir }}/files/opt/claude-yolo/docs/CCY-CCB-GUIDE.txt"
+          dest: /opt/claude-yolo/docs/CCY-CCB-GUIDE.txt
       tags:
         - scripts
         - docs

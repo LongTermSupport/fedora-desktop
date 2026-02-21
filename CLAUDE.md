@@ -138,11 +138,25 @@ The entrypoint sets `CCY_DISABLE_SUSPEND=1`. The patch script uses two strategie
 cd /workspace/extensions && node_modules/.bin/eslint speech-to-text@fedora-desktop/extension.js
 ```
 
+**For CCY ctrl+z patch** (`ccy-ctrl-z-patch.js`), run the dedicated patch QA script:
+
+```bash
+# First run (installs latest Claude Code into scripts/qa-ccy/node_modules/):
+./scripts/qa-ctrl-z-patch.bash --update
+
+# Subsequent runs (uses cached install, fast):
+./scripts/qa-ctrl-z-patch.bash
+
+# After a Claude Code release, refresh and re-verify:
+./scripts/qa-ctrl-z-patch.bash --update
+```
+
 **Rules:**
 1. **Run `./scripts/qa-all.bash` before EVERY commit** that touches Bash or Python files
 2. **Run ESLint before EVERY commit** that touches extension JavaScript
-3. **Fix all errors** before committing - QA failures indicate broken code
-4. **Do not skip QA** - even for "small" changes
+3. **Run `./scripts/qa-ctrl-z-patch.bash` before EVERY commit** that touches `ccy-ctrl-z-patch.js`
+4. **Fix all errors** before committing - QA failures indicate broken code
+5. **Do not skip QA** - even for "small" changes
 
 **What QA catches:**
 - ✅ Bash syntax errors (`bash -n` validation)

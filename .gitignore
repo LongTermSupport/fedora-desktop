@@ -29,6 +29,10 @@ __pycache__/
 # MCP cache and runtime data
 .playwright-mcp/
 
+# CCY patch QA - cached Claude Code npm install (gitignored, rebuild with qa-ctrl-z-patch.bash --update)
+scripts/qa-ccy/node_modules/
+scripts/qa-ccy/package-lock.json
+
 # Safety net for common sensitive file types
 *.key
 *.pem

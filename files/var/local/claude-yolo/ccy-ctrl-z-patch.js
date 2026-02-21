@@ -27,7 +27,8 @@
 
 const fs = require('fs');
 
-const CLI_PATH = '/usr/local/lib/node_modules/@anthropic-ai/claude-code/cli.js';
+// CCY_CLI_PATH env var overrides the default path — used by qa-ctrl-z-patch.bash for testing.
+const CLI_PATH = process.env.CCY_CLI_PATH || '/usr/local/lib/node_modules/@anthropic-ai/claude-code/cli.js';
 const SUSPEND_GUARD = '&&!process.env.CCY_DISABLE_SUSPEND';
 
 // Read cli.js
