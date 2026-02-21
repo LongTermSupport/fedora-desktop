@@ -408,6 +408,37 @@
       tags:
         - browser
 
+    - name: Create Browser Documentation Directory
+      become: true
+      ansible.builtin.file:
+        path: /opt/claude-browser/docs
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      when: install_browser_mode
+      tags:
+        - browser
+        - docs
+
+    - name: Copy Documentation into Browser Docker Build Context
+      become: true
+      ansible.builtin.copy:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop:
+        - src: "{{ root_dir }}/files/opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt"
+          dest: /opt/claude-browser/docs/CUSTOM-DOCKERFILES.txt
+        - src: "{{ root_dir }}/files/opt/claude-yolo/docs/CCY-CCB-GUIDE.txt"
+          dest: /opt/claude-browser/docs/CCY-CCB-GUIDE.txt
+      when: install_browser_mode
+      tags:
+        - browser
+        - docs
+
     - name: Copy Browser Wrapper Script
       become: true
       ansible.builtin.copy:
