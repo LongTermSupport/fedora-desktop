@@ -99,24 +99,25 @@ if (z.name === "z" && z.ctrl && fG5) { A.handleSuspend() }
 ```
 `handleSuspend()` calls `process.kill(pid, 'SIGSTOP')` — an unblockable signal. In a CCY container, this makes Claude unrecoverable (no shell to run `fg`). Setting `"ctrl+z": null` in `keybindings.json` does NOT fix this — the key is intercepted before keybindings are consulted.
 
-**The patch** (in `files/var/local/claude-yolo/Dockerfile`, applied after `npm install`):
+**The patch** (applied after `npm install` via `ccy-ctrl-z-patch.js`):
 ```js
-// Original:
+// Original (variable name is minified, changes between Claude Code versions):
 fG5 = process.platform !== "win32"
 // Patched to:
 fG5 = process.platform !== "win32" && !process.env.CCY_DISABLE_SUSPEND
 ```
-The entrypoint sets `CCY_DISABLE_SUSPEND=1`. The patch exits non-zero (fails the build) if the target string is not found.
+The entrypoint sets `CCY_DISABLE_SUSPEND=1`. The patch script uses two strategies: (1) known hardcoded patterns, (2) dynamic regex discovery near `handleSuspend`. It **soft-fails** (warns but does not break the build) if both strategies fail — the container remains usable but ctrl+z may freeze it.
 
-**When Claude Code updates break this patch:**
-- The Docker build will fail with: `CCY PATCH ERROR: ctrl+z patch target not found`
-- Find the new minified variable name: `grep -o '.\{20\}platform.*win32.\{20\}' cli.js`
-- Locate the suspend check: search for `handleSuspend` and trace back to the condition
-- Update the `orig` string in the Dockerfile `RUN node -e` patch step
+**When Claude Code updates break the dynamic discovery too:**
+- Build output will show: `CCY PATCH WARNING: ctrl+z patch target not found - skipping`
+- Find the new minified variable name in the installed cli.js:
+  `grep -o '.\{20\}platform.*win32.\{20\}' /usr/local/lib/node_modules/@anthropic-ai/claude-code/cli.js`
+- Add the new pattern string to `knownPatterns` array in `ccy-ctrl-z-patch.js`
 - Bump container version (Dockerfile label + `REQUIRED_CONTAINER_VERSION` in claude-yolo)
 
 **Files involved:**
-- `files/var/local/claude-yolo/Dockerfile` — the patch RUN step
+- `files/var/local/claude-yolo/ccy-ctrl-z-patch.js` — the patch script (update `knownPatterns` here)
+- `files/var/local/claude-yolo/Dockerfile` — COPYs and RUNs the patch script
 - `files/var/local/claude-yolo/entrypoint.sh` — sets `CCY_DISABLE_SUSPEND=1`
 
 ### ⚠️ MANDATORY: Run QA Scripts Before Committing

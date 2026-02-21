@@ -10,7 +10,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.3"
+LABEL claude-yolo-version="2.4"
 LABEL claude-yolo-dockerfile-hash="${DOCKERFILE_HASH}"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 
@@ -59,18 +59,11 @@ RUN npm install -g @anthropic-ai/claude-code
 
 # Patch Ink's hardcoded ctrl+z handler in Claude Code to respect CCY_DISABLE_SUSPEND env var.
 # Ink intercepts ctrl+z BEFORE the keybinding system and calls process.kill(pid, 'SIGSTOP')
-# which is unblockable. The flag fG5=process.platform!=="win32" controls this path.
-# We extend it to also check !process.env.CCY_DISABLE_SUSPEND so the entrypoint can disable it.
-RUN node -e " \
-  const fs = require('fs'); \
-  const p = '/usr/local/lib/node_modules/@anthropic-ai/claude-code/cli.js'; \
-  let src = fs.readFileSync(p, 'utf8'); \
-  const orig = 'fG5=process.platform!==\"win32\"'; \
-  if (!src.includes(orig)) { process.stderr.write('CCY PATCH ERROR: ctrl+z patch target not found - Claude Code internals may have changed\n'); process.exit(1); } \
-  src = src.replace(orig, 'fG5=process.platform!==\"win32\"&&!process.env.CCY_DISABLE_SUSPEND'); \
-  fs.writeFileSync(p, src); \
-  process.stdout.write('CCY PATCH: ctrl+z suspend patch applied\n'); \
-"
+# which is unblockable. This patch extends the platform check to also test CCY_DISABLE_SUSPEND.
+# The patch is BEST-EFFORT: uses dynamic discovery and soft-fails if Claude Code internals change.
+# See ccy-ctrl-z-patch.js and CLAUDE.md "KNOWN FRAGILE PATCH" section for details.
+COPY ccy-ctrl-z-patch.js /tmp/ccy-ctrl-z-patch.js
+RUN node /tmp/ccy-ctrl-z-patch.js && rm /tmp/ccy-ctrl-z-patch.js
 
 # Copy and set up entrypoint script
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
