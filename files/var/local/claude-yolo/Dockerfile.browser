@@ -5,7 +5,7 @@ ARG DOCKERFILE_HASH="unknown"
 
 # Metadata
 # IMPORTANT: When modifying this Dockerfile, ALWAYS increment claude-browser-version!
-LABEL claude-browser-version="1.6"
+LABEL claude-browser-version="1.7"
 LABEL claude-browser-dockerfile-hash="${DOCKERFILE_HASH}"
 LABEL description="Claude Code Browser Mode - Isolated container with Playwright MCP for browser automation"
 
@@ -85,6 +85,21 @@ RUN npm install -g @playwright/mcp@latest
 # Perfect for acceptance testing and multi-page automation workflows
 RUN npm install -g agent-browser && \
     agent-browser install
+
+# Configure agent-browser with Wayland/Docker display args (mirrors Playwright MCP config)
+# Without this, every invocation requires --headed --args "..." flags
+RUN mkdir -p /root/.agent-browser && \
+    echo '{\n\
+  "headed": true,\n\
+  "args": [\n\
+    "--enable-features=UseOzonePlatform",\n\
+    "--ozone-platform=wayland",\n\
+    "--no-sandbox",\n\
+    "--disable-gpu",\n\
+    "--disable-software-rasterizer",\n\
+    "--disable-dev-shm-usage"\n\
+  ]\n\
+}' > /root/.agent-browser/config.json
 
 # Install chrome-ws (Chrome DevTools Protocol CLI tool)
 # Zero-dependency tool for direct browser control via CDP

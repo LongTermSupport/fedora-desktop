@@ -19,6 +19,13 @@ CAPABILITIES:
 • Running as root user - install packages freely (apt, npm, pip, etc.)
 • Container is ephemeral - for permanent tools, extend the Dockerfile
 
+CUSTOM DOCKERFILES:
+• Project needs Python 3.12, Go, Ansible, or other tools? Create a custom Dockerfile!
+• Documentation: cat /opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt
+• Quick setup: On host, run 'ccb --custom-docker' for AI-guided creation
+• Projects can share one Dockerfile for both ccy and ccb (.claude/ccy/Dockerfile)
+• Custom Dockerfiles persist in .claude/ccb/Dockerfile or .claude/ccy/Dockerfile (tracked in git)
+
 BROWSER AUTOMATION:
 • Use Playwright MCP tools to control browsers
 • Use chrome-ws for lightweight Chrome DevTools Protocol operations

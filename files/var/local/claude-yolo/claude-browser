@@ -11,7 +11,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCB_VERSION="1.5.3"  # Suppress npm migration warning via DISABLE_INSTALLATION_CHECKS env var
+CCB_VERSION="1.6.0"  # Add shared Dockerfile support: fall back to .claude/ccy/Dockerfile with claude-browser:latest base
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,7 +36,7 @@ done
 # BROWSER MODE: Browser container version
 # IMPORTANT: When modifying the Dockerfile, ALWAYS increment REQUIRED_CONTAINER_VERSION!
 # This ensures users automatically rebuild when critical container changes are made.
-REQUIRED_CONTAINER_VERSION="1.6"
+REQUIRED_CONTAINER_VERSION="1.7"
 
 set -e
 
@@ -784,14 +784,22 @@ check_claude_code_updates "$IMAGE_NAME"
 # Uses parent-project format to avoid collisions (defined in lib/common.bash)
 PROJECT_NAME=$(get_project_name)
 PROJECT_DOCKERFILE=".claude/ccb/Dockerfile"
-PROJECT_IMAGE_NAME="claude-yolo:${PROJECT_NAME}"
+PROJECT_IMAGE_NAME="claude-browser:${PROJECT_NAME}"
 PROJECT_DOCKERFILE_HASH_FILE="$HOME/.cache/claude-yolo-${PROJECT_NAME}-dockerfile-hash"
-PROJECT_BASE_VERSION_FILE="$HOME/.cache/claude-yolo-${PROJECT_NAME}-base-version"
+PROJECT_BASE_VERSION_FILE="$HOME/.cache/claude-browser-${PROJECT_NAME}-base-version"
+PROJECT_CUSTOM_BASE_ARG=""
+
+# Fall back to shared CCY Dockerfile if no CCB-specific one exists.
+# The CCY Dockerfile uses ARG BASE_IMAGE so CCB can build it with claude-browser:latest.
+if [ ! -f "$PROJECT_DOCKERFILE" ] && [ -f ".claude/ccy/Dockerfile" ]; then
+    PROJECT_DOCKERFILE=".claude/ccy/Dockerfile"
+    PROJECT_CUSTOM_BASE_ARG="--build-arg BASE_IMAGE=claude-browser:latest"
+fi
 
 if [ -f "$PROJECT_DOCKERFILE" ]; then
     echo ""
     echo "════════════════════════════════════════════════════════════════════════════════"
-    echo "✅ Custom Dockerfile detected: .claude/ccb/Dockerfile"
+    echo "✅ Custom Dockerfile detected: $PROJECT_DOCKERFILE"
     echo "════════════════════════════════════════════════════════════════════════════════"
     echo ""
     echo "This project uses a custom container image with project-specific tools."
@@ -809,7 +817,7 @@ if [ -f "$PROJECT_DOCKERFILE" ]; then
     fi
 
     # Get current base image version
-    current_base_version=$(container_cmd image inspect "claude-yolo:latest" \
+    current_base_version=$(container_cmd image inspect "claude-browser:latest" \
         --format '{{index .Config.Labels "claude-yolo-version"}}' 2>/dev/null || echo "unknown")
 
     # Get base version that project image was built with
@@ -838,7 +846,7 @@ if [ -f "$PROJECT_DOCKERFILE" ]; then
         echo "Previous base: v$previous_base_version"
         echo "Current base:  v$current_base_version"
         echo ""
-        echo "Project images inherit from claude-yolo:latest."
+        echo "Project images inherit from claude-browser:latest."
         echo "Rebuilding to include base image changes (e.g., tini, security fixes)..."
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo ""
@@ -862,10 +870,17 @@ if [ -f "$PROJECT_DOCKERFILE" ]; then
         # Calculate project Dockerfile hash for build arg
         project_dockerfile_hash=$(md5sum "$PROJECT_DOCKERFILE" | cut -d' ' -f1 | cut -c1-16)
 
+        # Parse optional base image override (used when sharing .claude/ccy/Dockerfile)
+        extra_build_args=()
+        if [ -n "$PROJECT_CUSTOM_BASE_ARG" ]; then
+            read -ra extra_build_args <<< "$PROJECT_CUSTOM_BASE_ARG"
+        fi
+
         # Use buildkit for cache mounts and pass Dockerfile hash
         if DOCKER_BUILDKIT=1 container_cmd build \
             --build-arg BUILDKIT_INLINE_CACHE=1 \
             --build-arg DOCKERFILE_HASH="$project_dockerfile_hash" \
+            "${extra_build_args[@]}" \
             -t "$PROJECT_IMAGE_NAME" \
             -f "$PROJECT_DOCKERFILE" \
             .; then
@@ -880,7 +895,7 @@ if [ -f "$PROJECT_DOCKERFILE" ]; then
             echo ""
             print_error "Failed to build project-specific image"
             echo ""
-            echo "Falling back to base image: claude-yolo:latest"
+            echo "Falling back to base image: claude-browser:latest"
             echo ""
         fi
     fi
@@ -1402,8 +1417,16 @@ elif [ ${#CLAUDE_ARGS[@]} -eq 0 ]; then
     CONTAINER_ENGINE_TITLE=$(echo "$CONTAINER_ENGINE" | sed 's/./\U&/')
     STARTUP_INFO=$(cat "$STARTUP_INFO_FILE" | sed "s/__CONTAINER_ENGINE__/${CONTAINER_ENGINE_TITLE}/")
 
+    # Detect which Dockerfile is active: ccb-specific, or shared ccy fallback
+    _detected_dockerfile=""
+    if [ -f ".claude/ccb/Dockerfile" ]; then
+        _detected_dockerfile=".claude/ccb/Dockerfile"
+    elif [ -f ".claude/ccy/Dockerfile" ]; then
+        _detected_dockerfile=".claude/ccy/Dockerfile"
+    fi
+
     # Show tip about custom Dockerfile if not using one (custom Dockerfile info shown earlier in header)
-    if [ ! -f ".claude/ccb/Dockerfile" ]; then
+    if [ -z "$_detected_dockerfile" ]; then
         # No custom Dockerfile - show helpful tip
         echo "
 💡 TIP: This project doesn't have a custom Dockerfile yet!
@@ -1418,10 +1441,10 @@ More info: https://github.com/LongTermSupport/fedora-desktop/blob/main/docs/cont
     echo ""
 
     # Also add Dockerfile info to system prompt for Claude
-    if [ -f ".claude/ccb/Dockerfile" ]; then
+    if [ -n "$_detected_dockerfile" ]; then
         STARTUP_INFO+="
 
-✅ Custom Dockerfile detected: .claude/ccb/Dockerfile
+✅ Custom Dockerfile detected: $_detected_dockerfile
 
 This project uses a custom container image with project-specific tools.
 The container will automatically rebuild if the Dockerfile changes.

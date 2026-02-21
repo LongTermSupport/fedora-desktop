@@ -4,7 +4,8 @@
 # Extends claude-yolo with Ansible, development tools, and utilities
 # used by the Fedora desktop configuration playbooks
 
-FROM claude-yolo:latest
+ARG BASE_IMAGE=claude-yolo:latest
+FROM ${BASE_IMAGE}
 
 # Install Ansible and core development tools
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \

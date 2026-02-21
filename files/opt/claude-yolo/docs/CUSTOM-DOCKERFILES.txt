@@ -119,25 +119,35 @@ Then build and run:
   ccy --rebuild
   ccy
 
-File Location (CRITICAL!)
---------------------------
-The custom Dockerfile MUST be at:
-  .claude/ccy/Dockerfile      # For ccy (general mode)
-  .claude/ccb/Dockerfile      # For ccb (browser mode)
+File Location
+-------------
+Primary location (used by BOTH ccy and ccb):
+  .claude/ccy/Dockerfile
 
-These paths are hardcoded in the wrapper scripts.
+CCB-specific override (optional, only needed for browser-only tools):
+  .claude/ccb/Dockerfile
+
+CCB automatically falls back to .claude/ccy/Dockerfile if no .claude/ccb/Dockerfile
+exists. This means most projects only need ONE Dockerfile.
+
+See "ARG BASE_IMAGE" in Best Practices below to make a single file work for both.
 
 ================================================================================
 5. BEST PRACTICES
 ================================================================================
 
-1. Always Start with Base Image
---------------------------------
-  FROM claude-yolo:latest
+1. Use ARG BASE_IMAGE for Shared Dockerfiles (Recommended)
+-----------------------------------------------------------
+  ARG BASE_IMAGE=claude-yolo:latest
+  FROM ${BASE_IMAGE}
 
   # Your customizations here
 
-For browser mode:
+This allows ONE Dockerfile (.claude/ccy/Dockerfile) to work for both ccy and ccb.
+When ccb builds from .claude/ccy/Dockerfile it automatically passes:
+  --build-arg BASE_IMAGE=claude-browser:latest
+
+If you need a CCB-only Dockerfile (rare), you can still hardcode:
   FROM claude-browser:latest
 
 2. Use Cache Mounts for Performance
@@ -351,9 +361,10 @@ Solutions:
   # Check file exists at correct path
   ls -la .claude/ccy/Dockerfile
 
-  # Path must be exactly:
-  .claude/ccy/Dockerfile   # For ccy
-  .claude/ccb/Dockerfile   # For ccb
+  # Primary path (works for both ccy and ccb):
+  .claude/ccy/Dockerfile
+  # CCB-specific override (optional):
+  .claude/ccb/Dockerfile
 
   # Rebuild explicitly
   ccy --rebuild
@@ -434,12 +445,14 @@ QUICK REFERENCE
 ================================================================================
 
 Create custom Dockerfile:
-  ccy --custom-docker              # AI-guided
-  ccy --custom                     # Template-based
+  ccy --custom-docker              # AI-guided (ccy)
+  ccy --custom                     # Template-based (ccy)
+  ccb --custom-docker              # AI-guided (ccb)
+  ccb --custom                     # Template-based (ccb)
 
 Edit existing:
-  vim .claude/ccy/Dockerfile
-  ccy --rebuild
+  vim .claude/ccy/Dockerfile       # Shared (works for both ccy and ccb)
+  ccy --rebuild && ccb --rebuild   # Rebuild both after changes
 
 View documentation:
   cat /opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt
@@ -456,8 +469,10 @@ Check what's installed:
 
 ================================================================================
 
-Remember: Custom Dockerfiles are per-project. Each project's Dockerfile
-creates a container tagged as claude-yolo:<project-name>.
+Remember: Custom Dockerfiles are per-project and shared between ccy and ccb.
+  ccy builds: claude-yolo:<project-name>   (extends claude-yolo:latest)
+  ccb builds: claude-browser:<project-name> (extends claude-browser:latest)
+Use ARG BASE_IMAGE in your Dockerfile so one file works for both.
 
 For more help, see the main containerization documentation on the host:
   cat ~/Projects/fedora-desktop/docs/containerization.md
