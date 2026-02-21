@@ -10,7 +10,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.2"
+LABEL claude-yolo-version="2.3"
 LABEL claude-yolo-dockerfile-hash="${DOCKERFILE_HASH}"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 
@@ -82,7 +82,9 @@ RUN chmod 444 /opt/claude-yolo/ccy-startup-info.txt
 
 RUN mkdir -p /opt/claude-yolo/docs
 COPY docs/CUSTOM-DOCKERFILES.txt /opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt
-RUN chmod 444 /opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt
+COPY docs/CCY-CCB-GUIDE.txt /opt/claude-yolo/docs/CCY-CCB-GUIDE.txt
+RUN chmod 444 /opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt \
+              /opt/claude-yolo/docs/CCY-CCB-GUIDE.txt
 
 # Set workspace directory
 WORKDIR /workspace

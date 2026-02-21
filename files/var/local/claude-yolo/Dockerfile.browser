@@ -5,7 +5,7 @@ ARG DOCKERFILE_HASH="unknown"
 
 # Metadata
 # IMPORTANT: When modifying this Dockerfile, ALWAYS increment claude-browser-version!
-LABEL claude-browser-version="1.7"
+LABEL claude-browser-version="1.8"
 LABEL claude-browser-dockerfile-hash="${DOCKERFILE_HASH}"
 LABEL description="Claude Code Browser Mode - Isolated container with Playwright MCP for browser automation"
 
@@ -121,6 +121,13 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 # Copy startup info file
 COPY ccb-startup-info.txt /opt/claude-browser/ccb-startup-info.txt
 RUN chmod 444 /opt/claude-browser/ccb-startup-info.txt
+
+# Copy documentation into container so Claude agents can read it
+RUN mkdir -p /opt/claude-browser/docs
+COPY docs/CCY-CCB-GUIDE.txt /opt/claude-browser/docs/CCY-CCB-GUIDE.txt
+COPY docs/CUSTOM-DOCKERFILES.txt /opt/claude-browser/docs/CUSTOM-DOCKERFILES.txt
+RUN chmod 444 /opt/claude-browser/docs/CCY-CCB-GUIDE.txt \
+              /opt/claude-browser/docs/CUSTOM-DOCKERFILES.txt
 
 # Create Playwright MCP configuration file for browser launch options (JSON format)
 # MCP format uses "browser.launchOptions" not "use.launchOptions"

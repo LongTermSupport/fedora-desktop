@@ -1,0 +1,483 @@
+================================================================================
+CUSTOM DOCKERFILES FOR CCY/CCB
+================================================================================
+
+This guide explains how to create project-specific custom Dockerfiles that
+extend the base CCY/CCB containers with additional tools and dependencies.
+
+TABLE OF CONTENTS
+-----------------
+1. Quick Start
+2. Understanding the Container Environment
+3. When to Use Custom Dockerfiles
+4. Creating a Custom Dockerfile
+5. Best Practices
+6. Common Examples
+7. Troubleshooting
+8. Git Tracking (IMPORTANT!)
+
+================================================================================
+1. QUICK START
+================================================================================
+
+  # AI-guided creation (recommended)
+  ccy --custom-docker
+
+  # Quick manual edit
+  ccy --custom
+
+  # Rebuild after changes
+  ccy --rebuild
+
+  # View this documentation
+  cat /opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt
+
+================================================================================
+2. UNDERSTANDING THE CONTAINER ENVIRONMENT
+================================================================================
+
+What is CCY/CCB?
+----------------
+  ccy = Claude Code in Docker with --dangerously-skip-permissions (YOLO mode)
+  ccb = ccy + browser automation (Playwright, Chrome, Firefox, WebKit)
+  Purpose: Safe rapid iteration without permission prompts, isolated from host
+
+Base Image: claude-yolo:latest
+------------------------------
+Pre-installed tools:
+  • System: Debian slim, git, gh CLI, SSH, ripgrep, jq, yq, vim, tini
+  • Languages: Node.js 20, npm, Python 3 (system version)
+  • Claude Code: Latest version, auto-updated
+  • User: root (inside container only, safe due to user namespace mapping)
+
+Runtime Configuration
+--------------------
+Volume Mounts:
+  • $PWD:/workspace - Your project (read/write)
+  • ~/.claude:/root/.claude - Claude Code state (symlinked to /workspace/.claude/ccy)
+  • ~/.claude-tokens/ccy/tokens - API tokens
+  • ~/.ssh/<keys> - SSH keys (optional)
+  • ~/.gitconfig - Git config (optional)
+
+Working Directory: /workspace (your project root)
+Network: Can auto-connect to Docker networks
+Isolation: Rootless Docker recommended
+
+================================================================================
+3. WHEN TO USE CUSTOM DOCKERFILES
+================================================================================
+
+✅ Use Custom Dockerfile When:
+  • Language versions: Python 3.12, Go, Rust, Ruby, Java, etc.
+  • Language tools: pytest, black, golangci-lint, cargo-clippy
+  • Database clients: postgresql-client, mysql-client, mongodb-tools
+  • Cloud CLIs: aws-cli, gcloud, azure-cli, terraform, pulumi
+  • Build tools: make, cmake, gradle, maven, cargo
+  • Testing tools: selenium (for non-ccb projects)
+  • Formatters/Linters: prettier, eslint, shellcheck, yamllint
+
+❌ DON'T Use Custom Dockerfile For:
+  • Application code - It's mounted from host at runtime
+  • Project dependencies - npm install, pip install run at dev time
+  • Secrets or credentials - Pass via environment
+  • Tools already in base - Node.js 20, git, gh, Claude Code
+
+================================================================================
+4. CREATING A CUSTOM DOCKERFILE
+================================================================================
+
+Method 1: AI-Guided Creation (Recommended)
+------------------------------------------
+  cd /your/project
+  ccy --custom-docker
+
+This will:
+  1. Launch Claude Code in planning mode
+  2. Investigate your project structure
+  3. Ask clarifying questions
+  4. Propose features for your approval
+  5. Create optimized Dockerfile with comprehensive comments
+  6. Validate the result
+
+Method 2: Template-Based Creation
+----------------------------------
+  cd /your/project
+  ccy --custom
+
+Available templates:
+  • Dockerfile.project-template - Blank with examples
+  • Dockerfile.example-ansible - Ansible + testing tools
+  • Dockerfile.example-golang - Go + development tools
+
+Method 3: Manual Creation
+-------------------------
+  cd /your/project
+  mkdir -p .claude/ccy
+  vim .claude/ccy/Dockerfile
+
+Then build and run:
+  ccy --rebuild
+  ccy
+
+File Location
+-------------
+Primary location (used by BOTH ccy and ccb):
+  .claude/ccy/Dockerfile
+
+CCB-specific override (optional, only needed for browser-only tools):
+  .claude/ccb/Dockerfile
+
+CCB automatically falls back to .claude/ccy/Dockerfile if no .claude/ccb/Dockerfile
+exists. This means most projects only need ONE Dockerfile.
+
+See "ARG BASE_IMAGE" in Best Practices below to make a single file work for both.
+
+================================================================================
+5. BEST PRACTICES
+================================================================================
+
+1. Use ARG BASE_IMAGE for Shared Dockerfiles (Recommended)
+-----------------------------------------------------------
+  ARG BASE_IMAGE=claude-yolo:latest
+  FROM ${BASE_IMAGE}
+
+  # Your customizations here
+
+This allows ONE Dockerfile (.claude/ccy/Dockerfile) to work for both ccy and ccb.
+When ccb builds from .claude/ccy/Dockerfile it automatically passes:
+  --build-arg BASE_IMAGE=claude-browser:latest
+
+If you need a CCB-only Dockerfile (rare), you can still hardcode:
+  FROM claude-browser:latest
+
+2. Use Cache Mounts for Performance
+------------------------------------
+  # Faster apt package installation
+  RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+      --mount=type=cache,target=/var/lib/apt,sharing=locked \
+      apt-get update && \
+      apt-get install -y python3.12 && \
+      rm -rf /var/lib/apt/lists/*
+
+  # Faster pip installations
+  RUN --mount=type=cache,target=/root/.cache/pip \
+      pip3 install poetry pytest black
+
+Benefits:
+  • First build: ~5 minutes
+  • Rebuilds with cache: ~30 seconds
+  • Cache shared across projects
+
+3. Layer Organization
+---------------------
+Put rarely-changing items at top, frequently-changing at bottom:
+
+  FROM claude-yolo:latest
+
+  # System packages (rarely change)
+  RUN apt-get update && apt-get install -y build-essential
+
+  # Language runtimes (occasionally change)
+  RUN curl -sSL https://get.haskellstack.org/ | sh
+
+  # Development tools (change more often)
+  RUN pip install mypy black pytest
+
+  # Project-specific tools (change most often)
+  RUN npm install -g @mycompany/custom-tool
+
+4. Comprehensive Comments
+--------------------------
+  # ========================================================================
+  # Python 3.12 + Development Tools
+  # ========================================================================
+  # Project uses Python 3.12 (specified in pyproject.toml)
+  # Installing: python3.12, poetry, pytest, black, mypy
+  #
+  # Why Python 3.12?
+  # - Project requires match/case syntax (3.10+)
+  # - Uses tomllib from stdlib (3.11+)
+  # - Performance improvements in 3.12
+  # ========================================================================
+
+5. Verify Installations
+------------------------
+  # Install Go
+  RUN wget -qO- https://go.dev/dl/go1.21.5.linux-amd64.tar.gz | \
+      tar -C /usr/local -xzf -
+
+  ENV PATH="/usr/local/go/bin:${PATH}"
+
+  # Verify installation
+  RUN go version && \
+      go env GOPATH
+
+6. Set Environment Variables
+-----------------------------
+  # Python configuration
+  ENV PYTHONUNBUFFERED=1 \
+      PIP_NO_CACHE_DIR=1 \
+      PYTHONDONTWRITEBYTECODE=1
+
+  # Go configuration
+  ENV GOPATH="/go" \
+      PATH="/go/bin:${PATH}"
+
+7. Keep It Minimal
+------------------
+Only install what you actually need.
+
+  # ❌ BAD - Installing everything
+  RUN apt-get install -y python3 ruby golang rust java
+
+  # ✅ GOOD - Only what the project needs
+  RUN apt-get install -y python3.12 python3-pip
+
+================================================================================
+6. COMMON EXAMPLES
+================================================================================
+
+Example 1: Python Project with PostgreSQL
+------------------------------------------
+  FROM claude-yolo:latest
+
+  # Python 3.12 + Poetry + PostgreSQL client
+  RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+      --mount=type=cache,target=/var/lib/apt,sharing=locked \
+      apt-get update && \
+      apt-get install -y --no-install-recommends \
+          python3.12 \
+          python3.12-venv \
+          python3-pip \
+          postgresql-client-15 \
+          libpq-dev \
+      && rm -rf /var/lib/apt/lists/*
+
+  RUN --mount=type=cache,target=/root/.cache/pip \
+      pip3 install --upgrade pip && \
+      pip3 install poetry pytest black mypy ruff
+
+  ENV PYTHONUNBUFFERED=1 \
+      PIP_NO_CACHE_DIR=1
+
+  RUN python3.12 --version && \
+      poetry --version && \
+      psql --version
+
+Example 2: Go Project with AWS CLI
+-----------------------------------
+  FROM claude-yolo:latest
+
+  # Install Go 1.21
+  RUN wget -qO- https://go.dev/dl/go1.21.5.linux-amd64.tar.gz | \
+      tar -C /usr/local -xzf -
+
+  ENV PATH="/usr/local/go/bin:/root/go/bin:${PATH}" \
+      GOPATH="/root/go"
+
+  # Install Go development tools
+  RUN --mount=type=cache,target=/root/go/pkg/mod \
+      go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+
+  # Install AWS CLI v2
+  RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
+      unzip -q awscliv2.zip && \
+      ./aws/install && \
+      rm -rf aws awscliv2.zip
+
+  RUN go version && \
+      golangci-lint --version && \
+      aws --version
+
+Example 3: TypeScript with Docker-in-Docker
+--------------------------------------------
+  FROM claude-yolo:latest
+
+  # Install TypeScript tools
+  RUN --mount=type=cache,target=/root/.npm \
+      npm install -g \
+          typescript \
+          ts-node \
+          eslint \
+          prettier
+
+  # Install Docker CLI
+  RUN apt-get update && \
+      apt-get install -y ca-certificates curl gnupg && \
+      install -m 0755 -d /etc/apt/keyrings && \
+      curl -fsSL https://download.docker.com/linux/debian/gpg | \
+          gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
+      echo "deb [signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" | \
+          tee /etc/apt/sources.list.d/docker.list > /dev/null && \
+      apt-get update && \
+      apt-get install -y docker-ce-cli
+
+  RUN tsc --version && docker --version
+
+================================================================================
+7. TROUBLESHOOTING
+================================================================================
+
+Container Doesn't Rebuild
+--------------------------
+Problem: Changes to .claude/ccy/Dockerfile don't take effect
+
+Solution:
+  ccy --rebuild  # Force rebuild
+
+Build Fails with "Package not found"
+-------------------------------------
+Problem: Package name is wrong or not in Debian slim
+
+Solutions:
+  # Check package availability
+  docker run --rm debian:slim apt-cache search <package-name>
+
+  # Use full package name
+  apt-get install -y postgresql-client-15  # Not just postgresql
+
+Slow Rebuilds
+-------------
+Problem: Every rebuild takes 5+ minutes
+
+Solution: Add cache mounts (see Best Practices section)
+
+Command Not Found in Container
+-------------------------------
+Problem: Installed a tool but it's not in PATH
+
+Solutions:
+  # Add to PATH
+  ENV PATH="/usr/local/go/bin:${PATH}"
+
+  # Check where it was installed
+  RUN which tool || find /usr -name tool 2>/dev/null
+
+Custom Dockerfile Not Used
+---------------------------
+Problem: Container still uses base image
+
+Solutions:
+  # Check file exists at correct path
+  ls -la .claude/ccy/Dockerfile
+
+  # Primary path (works for both ccy and ccb):
+  .claude/ccy/Dockerfile
+  # CCB-specific override (optional):
+  .claude/ccb/Dockerfile
+
+  # Rebuild explicitly
+  ccy --rebuild
+
+Share Template with Team
+-------------------------
+Problem: Created great Dockerfile, want to reuse
+
+Solution:
+  # Save as template (requires sudo on host)
+  sudo cp .claude/ccy/Dockerfile \
+      /opt/claude-yolo/custom-dockerfiles/Dockerfile.example-myproject
+
+  # Add descriptive comment at top
+  sudo vim /opt/claude-yolo/custom-dockerfiles/Dockerfile.example-myproject
+
+  # Now it appears in template selection menu
+  ccy --custom  # (in a new project)
+
+================================================================================
+8. GIT TRACKING (IMPORTANT!)
+================================================================================
+
+What Should Be Tracked?
+------------------------
+✅ TRACK THESE:
+  .claude/ccy/Dockerfile          # Custom container config
+  .claude/ccb/Dockerfile          # Browser mode config
+  .claude/agents/                 # Custom agents
+  .claude/hooks/                  # Git hooks
+  .claude/commands/               # Slash commands
+
+❌ DO NOT TRACK THESE:
+  .claude/ccy/                    # Session state (except Dockerfile!)
+  .claude/history/                # Command history
+  .claude/todos/                  # Task lists
+  .claude/.claude.json            # User preferences
+  .claude-tokens/                 # API tokens (NEVER track!)
+
+Recommended .gitignore
+----------------------
+Add this to your project's .gitignore:
+
+  # Claude Code state (but keep custom configs)
+  .claude/*
+  !.claude/ccy/Dockerfile
+  !.claude/ccb/Dockerfile
+  !.claude/agents/
+  !.claude/hooks/
+  !.claude/commands/
+
+  # Claude tokens (CRITICAL - never track!)
+  .claude-tokens/
+
+Why This Matters
+----------------
+If you gitignore .claude/ccy/ completely, your Dockerfile won't be tracked!
+This means:
+  • Team members won't get your container setup
+  • CI/CD won't have the right environment
+  • Container config is lost when cloning
+
+CCY Detection
+-------------
+CCY should detect when Dockerfile is ignored and warn you. If you see:
+
+  ⚠️  WARNING: .claude/ccy/Dockerfile is gitignored
+
+  Your custom Dockerfile won't be shared with your team!
+
+  Fix: Update .gitignore to allow Dockerfile:
+    echo '!.claude/ccy/Dockerfile' >> .gitignore
+
+Follow those instructions to fix it.
+
+================================================================================
+QUICK REFERENCE
+================================================================================
+
+Create custom Dockerfile:
+  ccy --custom-docker              # AI-guided (ccy)
+  ccy --custom                     # Template-based (ccy)
+  ccb --custom-docker              # AI-guided (ccb)
+  ccb --custom                     # Template-based (ccb)
+
+Edit existing:
+  vim .claude/ccy/Dockerfile       # Shared (works for both ccy and ccb)
+  ccy --rebuild && ccb --rebuild   # Rebuild both after changes
+
+View documentation:
+  cat /opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt
+
+View templates:
+  ls /opt/claude-yolo/custom-dockerfiles/
+  cat /opt/claude-yolo/custom-dockerfiles/Dockerfile.project-template
+
+Check what's installed:
+  ccy
+  # Then in container:
+  which tool-name
+  tool-name --version
+
+================================================================================
+
+Remember: Custom Dockerfiles are per-project and shared between ccy and ccb.
+  ccy builds: claude-yolo:<project-name>   (extends claude-yolo:latest)
+  ccb builds: claude-browser:<project-name> (extends claude-browser:latest)
+Use ARG BASE_IMAGE in your Dockerfile so one file works for both.
+
+For more help, see the main containerization documentation on the host:
+  cat ~/Projects/fedora-desktop/docs/containerization.md
+
+Or online:
+  https://github.com/LongTermSupport/fedora-desktop
+
+================================================================================

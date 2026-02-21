@@ -418,26 +418,49 @@ ccy --custom-docker  # or ccb --custom-docker
 
 #### How It Works
 
-**File Location:**
-- `ccy`: `.claude/ccy/Dockerfile` in your project root
-- `ccb`: `.claude/ccb/Dockerfile` in your project root
+**Dockerfile Fallback Priority**
 
-**Base Images:**
-- `ccy`: Extends `claude-yolo:latest`
-- `ccb`: Extends `claude-browser:latest`
+This is the key thing to understand. When `ccb` or `ccy` starts, it looks for a Dockerfile in this order:
 
-**What's Already Included:**
-- Node.js 20, npm
-- Python 3 (system version)
-- git, gh CLI
-- Claude Code (latest)
-- Development tools: ripgrep, jq, yq, vim
-- For `ccb`: Playwright, browsers (Chrome, Firefox, WebKit)
+| Priority | `ccy` looks for | `ccb` looks for | Result |
+|----------|-----------------|-----------------|--------|
+| 1 (highest) | `.claude/ccy/Dockerfile` | `.claude/ccb/Dockerfile` | Tool-specific custom image |
+| 2 (fallback) | *(n/a)* | `.claude/ccy/Dockerfile` | Shared image with browser base |
+| 3 (default) | *(none found)* | *(none found)* | Base image only |
 
-**Image Caching:**
-- Custom images cached as `claude-yolo:<project-name>`
+**The practical implication:** most projects only need ONE Dockerfile at `.claude/ccy/Dockerfile`.
+`ccb` will automatically use it, building it with `claude-browser:latest` as the base instead of
+`claude-yolo:latest` — so the resulting image gets both your project tools AND the browser stack.
+
+**The `ARG BASE_IMAGE` pattern (required for shared Dockerfiles):**
+
+```dockerfile
+# .claude/ccy/Dockerfile — works for BOTH ccy and ccb
+ARG BASE_IMAGE=claude-yolo:latest
+FROM ${BASE_IMAGE}
+
+# Your project tools here — same for both ccy and ccb
+RUN apt-get install -y your-tools
+```
+
+- `ccy` builds it with default `BASE_IMAGE=claude-yolo:latest`
+- `ccb` builds it with `--build-arg BASE_IMAGE=claude-browser:latest` automatically
+
+**When to create a separate `.claude/ccb/Dockerfile`:**
+
+Only when you need CCB-specific tools not needed in CCY (rare). In that case, `ccb` uses its own
+file and ignores `.claude/ccy/Dockerfile`. Both files can coexist.
+
+**Built image names:**
+- `ccy` builds: `claude-yolo:<project-name>`
+- `ccb` builds: `claude-browser:<project-name>`
 - Automatic rebuilds when Dockerfile changes detected
 - Fast rebuilds with cache mounts
+
+**What's already included in the base images:**
+- Node.js 20, npm, Python 3, git, gh CLI, Claude Code (latest)
+- Development tools: ripgrep, jq, yq, vim
+- `ccb` base additionally: Playwright, browsers (Chrome, Firefox, WebKit), agent-browser, chrome-ws
 
 #### Example Workflow
 
