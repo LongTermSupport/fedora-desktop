@@ -16,12 +16,9 @@ if [ -z "$GH_TOKEN" ]; then
     exit 1
 fi
 
-# Note: /opt/claude-project-state is mounted with project-specific state
-# It contains settings, conversation history, etc.
-# We copy it into ~/.claude before running Claude Code - we do NOT mount directly
-# to ~/.claude because newer Claude Code versions may try to rm ~/.claude during
-# initialization, which fails with EBUSY if it is a bind mount point.
-# We only need to set up git, gh CLI, SSH, and MCP here.
+# Note: ~/.claude is already mounted with project-specific state
+# It contains credentials, settings, and all conversation history
+# We only need to set up git, gh CLI, SSH, and MCP
 
 # Configure git
 if [ -f /tmp/claude-config-import/gitconfig ]; then
@@ -109,39 +106,8 @@ if [ -d ~/.cache/ms-playwright ]; then
     rm -rf ~/.cache/ms-playwright/mcp-*
 fi
 
-# Sync project-specific Claude state into ~/.claude
-# /opt/claude-project-state is the bind-mounted persistent state directory.
-# We copy into ~/.claude (a real dir in the image) rather than mounting there
-# directly because newer Claude Code versions try to rm ~/.claude on init,
-# which fails with EBUSY on a bind mount point and causes Claude to exit.
-CLAUDE_STATE_SRC="/opt/claude-project-state"
-if [ -d "$CLAUDE_STATE_SRC" ] && [ "$(ls -A "$CLAUDE_STATE_SRC" 2>/dev/null)" ]; then
-    cp -a "$CLAUDE_STATE_SRC/." /root/.claude/
-fi
-
-# Sync ~/.claude back to persistent storage on exit (including after crash/signal)
-sync_claude_state_back() {
-    if [ -d "$CLAUDE_STATE_SRC" ]; then
-        cp -a /root/.claude/. "$CLAUDE_STATE_SRC/" 2>/dev/null || true
-    fi
-}
-
 # Set sandbox mode to bypass root detection
 export IS_SANDBOX=1
 
-# Run Claude Code in a subshell so we can sync state back after exit.
-# We cannot use exec here because we need to run sync_claude_state_back afterward.
-"$@" &
-CLAUDE_PID=$!
-
-# Forward SIGTERM/SIGINT/SIGHUP to the Claude process
-trap 'kill -TERM $CLAUDE_PID 2>/dev/null || true' TERM INT HUP
-
-# Wait for Claude to finish
-wait $CLAUDE_PID
-CLAUDE_EXIT_CODE=$?
-
-# Persist Claude state back to the mounted volume
-sync_claude_state_back
-
-exit $CLAUDE_EXIT_CODE
+# Execute the command
+exec "$@"

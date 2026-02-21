@@ -5,7 +5,7 @@ ARG DOCKERFILE_HASH="unknown"
 
 # Metadata
 # IMPORTANT: When modifying this Dockerfile, ALWAYS increment claude-browser-version!
-LABEL claude-browser-version="1.9"
+LABEL claude-browser-version="1.8"
 LABEL claude-browser-dockerfile-hash="${DOCKERFILE_HASH}"
 LABEL description="Claude Code Browser Mode - Isolated container with Playwright MCP for browser automation"
 
