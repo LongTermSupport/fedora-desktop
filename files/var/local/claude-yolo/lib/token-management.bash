@@ -1,6 +1,6 @@
 #!/bin/bash
 # Token Management Library
-# Shared token operations for claude-yolo and claude-browser
+# Token operations for claude-yolo (ccy)
 #
 # Version: 1.4.0 - Add byte length check and validate pasted tokens with retry
 

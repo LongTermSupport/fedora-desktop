@@ -10,7 +10,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.4"
+LABEL claude-yolo-version="2.5"
 LABEL claude-yolo-dockerfile-hash="${DOCKERFILE_HASH}"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 
@@ -57,6 +57,47 @@ RUN wget -qO /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/downloa
 # installMethod in .claude.json is set to "native" by entrypoint to suppress migration warnings
 RUN npm install -g @anthropic-ai/claude-code
 
+# Install system dependencies for Chromium (required by agent-browser)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libnss3 \
+    libnspr4 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libdrm2 \
+    libxkbcommon0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libasound2 \
+    libpango-1.0-0 \
+    libcairo2 \
+    libatspi2.0-0 \
+    libgtk-3-0 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install agent-browser - token-efficient browser automation CLI for AI agents
+RUN npm install -g agent-browser && \
+    agent-browser install
+
+# Configure agent-browser with Wayland/Docker display args
+# Without this, every invocation requires --headed --args "..." flags
+RUN mkdir -p /root/.agent-browser && \
+    echo '{\n\
+  "headed": true,\n\
+  "args": [\n\
+    "--enable-features=UseOzonePlatform",\n\
+    "--ozone-platform=wayland",\n\
+    "--no-sandbox",\n\
+    "--disable-gpu",\n\
+    "--disable-software-rasterizer",\n\
+    "--disable-dev-shm-usage"\n\
+  ]\n\
+}' > /root/.agent-browser/config.json
+
 # Patch Ink's hardcoded ctrl+z handler in Claude Code to respect CCY_DISABLE_SUSPEND env var.
 # Ink intercepts ctrl+z BEFORE the keybinding system and calls process.kill(pid, 'SIGSTOP')
 # which is unblockable. This patch extends the platform check to also test CCY_DISABLE_SUSPEND.
@@ -78,6 +119,10 @@ COPY docs/CUSTOM-DOCKERFILES.txt /opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt
 COPY docs/CCY-CCB-GUIDE.txt /opt/claude-yolo/docs/CCY-CCB-GUIDE.txt
 RUN chmod 444 /opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt \
               /opt/claude-yolo/docs/CCY-CCB-GUIDE.txt
+
+# Copy Claude Code skills for browser automation
+RUN mkdir -p /root/.claude/skills
+COPY skills/browsing/ /root/.claude/skills/browsing/
 
 # Set workspace directory
 WORKDIR /workspace

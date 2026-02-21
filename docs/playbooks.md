@@ -12,7 +12,6 @@ Complete catalog of available features and how to use them.
 - [Install Docker](#play-dockeryml) - Rootless Docker setup
 - [Set up Distrobox](#play-install-distroboxyml) - Seamless dev environments
 - [Python development](#play-pythonyml) - pyenv and PDM
-- [Playwright testing](#play-distrobox-playwrightyml) - Automated browser testing
 
 ## Core Playbooks (Automatically Run)
 
@@ -124,115 +123,52 @@ Distrobox installation:
 - See [Containerization Guide](containerization.md) for comparison with LXC/Docker
 
 #### play-install-claude-yolo.yml
-Claude Code containerized environments (Docker/Podman-based):
-- **CCY (YOLO Mode)**: General-purpose development container
-- **CCB (Browser Mode)**: Browser automation with Playwright + agent-browser
-- Unified token management (same OAuth tokens for both)
+Claude Code containerised environment (Docker/Podman-based):
+- **CCY (YOLO Mode)**: General-purpose development container with browser automation built in
+- Unified token management
 - Custom Dockerfile support per project
 - Proper isolation with container home directories
-- See [Containerization Guide](containerization.md) for full details
+- See [Containerisation Guide](containerization.md) for full details
 
 **What's installed:**
-- Both containers: git, gh, ripgrep, jq, yq, vim, python, Node.js 20, Claude Code
-- CCB only: Playwright browsers (Chrome, Chromium, Firefox, WebKit), Playwright MCP, **agent-browser CLI**
+- git, gh, ripgrep, jq, yq, vim, python, Node.js 20, Claude Code
+- **agent-browser CLI**: Token-efficient browser automation via Chromium (no Playwright needed)
 
 **Key features of agent-browser:**
 - 93% context reduction for multi-page flows vs traditional DOM inspection
 - Headed mode support (`--headed` flag) for visual debugging
 - Reference-based selection (`@e1`, `@e2`) from compact accessibility snapshots
-- Perfect complement to Playwright MCP (use agent-browser for exploration, MCP for assertions)
 
 **Usage:**
 ```bash
-# Create tokens (shared between ccy and ccb)
+# Create a token
 ccy --create-token
 
-# General development
+# General development (browser automation included)
 cd ~/Projects/my-project
 ccy
 
-# Browser automation
-cd ~/Projects/my-project
-ccb
-
-# Inside CCB - use agent-browser for token-efficient automation
+# Inside CCY — browser automation ready to use
 agent-browser --help              # Comprehensive built-in docs
 agent-browser --headed open https://example.com
 agent-browser snapshot -i         # Get @refs for elements
 agent-browser click @e5           # Click using reference
 agent-browser fill @e3 "test"     # Fill form fields
-
-# Or use Playwright MCP through Claude Code for complex assertions
 ```
 
 **Token efficiency example:**
 ```bash
-# Traditional approach: 100,000+ tokens for 5-page flow
+# Traditional DOM inspection: 100,000+ tokens for 5-page flow
 # agent-browser: ~8,000 tokens for same flow (93% reduction!)
-```
-
-**Installation options:**
-```bash
-# Install both ccy and ccb (recommended)
-ansible-playbook playbooks/imports/optional/common/play-install-claude-yolo.yml
-
-# Install only ccy (skip browser mode)
-ansible-playbook playbooks/imports/optional/common/play-install-claude-yolo.yml -e install_browser_mode=false
 ```
 
 **Custom Dockerfiles:**
 ```bash
-# AI-guided customization (comprehensive planning)
-ccy --custom-docker  # or: ccb --custom-docker
+# AI-guided customisation (comprehensive planning)
+ccy --custom-docker
 
-# Quick template-based customization
-ccy --custom  # or: ccb --custom
-```
-
-**Comparison: CCB vs play-distrobox-playwright:**
-- CCB: Docker-based, proper isolation, agent-browser included, unified with ccy
-- play-distrobox-playwright: Distrobox-based, shared home, no agent-browser
-
-#### play-distrobox-playwright.yml
-Playwright browser testing environment:
-- Creates shared `playwright-tests` container (Ubuntu 22.04)
-- Installs Node.js LTS v20
-- Installs Playwright browsers (Chromium, Firefox, WebKit)
-- Provides GUI support for visible testing
-- Shared across all projects in ~/Projects/
-- Each project maintains own dependencies
-- Adds `playwright-test` alias and helper commands
-- Includes `playwright-distrobox` management script
-- Installs `ccy-browser` command for AI-assisted browser automation
-- **Requires**: `play-install-distrobox.yml` must be run first
-
-**Benefits**:
-- Zero Fedora desktop pollution (all tools in container)
-- ~400MB browsers shared across projects
-- Different Playwright versions per project supported
-- Browser windows appear on desktop
-- AI-assisted test development with Claude Code
-
-**Usage**:
-```bash
-# Quick access
-playwright-test  # Enter container manually
-ccy-browser      # Launch Claude Code in browser mode
-
-# Management
-playwright-distrobox status    # Show status
-playwright-distrobox update    # Update browsers
-playwright-distrobox recreate  # Rebuild container
-```
-
-**Claude Code Browser Automation**:
-```bash
-cd ~/Projects/my-project/tests
-ccy-browser
-# Claude Code launches inside Playwright container
-# - Write/debug tests with AI assistance
-# - Live browser feedback on desktop
-# - Full Playwright environment available
+# Quick template-based customisation
+ccy --custom
 ```
 
 #### play-firefox.yml
@@ -642,9 +578,6 @@ ansible-playbook playbooks/imports/optional/common/play-docker.yml
 
 # Install Distrobox
 ansible-playbook playbooks/imports/optional/common/play-install-distrobox.yml
-
-# Set up Playwright testing environment (requires distrobox)
-ansible-playbook playbooks/imports/optional/common/play-distrobox-playwright.yml
 
 # Install NVIDIA drivers
 ansible-playbook playbooks/imports/optional/hardware-specific/play-nvidia.yml

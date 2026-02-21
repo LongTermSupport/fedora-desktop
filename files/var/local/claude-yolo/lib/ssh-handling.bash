@@ -1,6 +1,6 @@
 #!/bin/bash
 # SSH Handling Library
-# Shared SSH key operations for claude-yolo and claude-browser
+# Shared SSH key operations for claude-yolo (ccy)
 #
 # Version: 1.0.0
 
@@ -14,7 +14,7 @@ discover_and_select_ssh_keys() {
     # These keys are managed by play-github-cli-multi.yml which creates keys with
     # the pattern ~/.ssh/github_<alias> for each configured GitHub account.
     # See: playbooks/imports/optional/common/play-github-cli-multi.yml:163-183
-    GITHUB_KEYS=($(find "$HOME/.ssh" -type f -name "github_*" ! -name "*.pub" 2>/dev/null | sort))
+    mapfile -t GITHUB_KEYS < <(find "$HOME/.ssh" -type f -name "github_*" ! -name "*.pub" 2>/dev/null | sort)
 
     if [ ${#GITHUB_KEYS[@]} -gt 0 ]; then
         echo ""
@@ -30,7 +30,6 @@ discover_and_select_ssh_keys() {
         echo ""
 
         for i in "${!GITHUB_KEYS[@]}"; do
-            key_name=$(basename "${GITHUB_KEYS[$i]}")
             echo "  $((i+1))) ${GITHUB_KEYS[$i]}"
         done
 
@@ -39,7 +38,7 @@ discover_and_select_ssh_keys() {
         echo ""
 
         while true; do
-            read -p "Select SSH key [0-${#GITHUB_KEYS[@]}]: " selection
+            read -rp "Select SSH key [0-${#GITHUB_KEYS[@]}]: " selection
             echo ""
 
             if [ -z "$selection" ]; then
@@ -82,7 +81,7 @@ discover_and_select_ssh_keys() {
         echo "Or specify a key manually:"
         echo "  $tool_name --ssh-key ~/.ssh/id_ed25519"
         echo ""
-        read -p "Press Enter to continue WITHOUT SSH key, or Ctrl+C to cancel: "
+        read -rp "Press Enter to continue WITHOUT SSH key, or Ctrl+C to cancel: " _unused
         echo ""
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo ""
@@ -149,6 +148,7 @@ build_ssh_mounts_and_validate() {
             # Load gh aliases if not already loaded (script runs in subshell)
             if ! type "$token_func" &>/dev/null; then
                 if [ -f "$HOME/.bashrc-includes/gh-aliases.inc.bash" ]; then
+                    # shellcheck source=/dev/null
                     source "$HOME/.bashrc-includes/gh-aliases.inc.bash"
                 fi
             fi

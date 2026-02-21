@@ -1,11 +1,11 @@
 #!/bin/bash
 # Custom Dockerfile Management Library
-# Shared custom Dockerfile workflow for claude-yolo and claude-browser
+# Custom Dockerfile workflow for claude-yolo (ccy)
 #
 # Version: 1.2.0
 
 # Function to create/update custom Dockerfile for project
-# Args: $1 = script_path ($0), $2 = project_subdir (".claude/ccy" or ".claude/ccb"), $3 = tool_name (for display)
+# Args: $1 = script_path ($0), $2 = project_subdir (".claude/ccy"), $3 = tool_name (for display)
 custom_dockerfile() {
     local script_path="$1"
     local project_subdir="$2"
@@ -31,7 +31,7 @@ custom_dockerfile() {
         echo ""
 
         while true; do
-            read -p "Select [1-4]: " choice
+            read -rp "Select [1-4]: " choice
             echo ""
 
             case "$choice" in
@@ -78,7 +78,8 @@ custom_dockerfile() {
     local i=1
     for template in "$custom_dir"/Dockerfile.*; do
         if [ -f "$template" ]; then
-            local name=$(basename "$template")
+            local name
+            name=$(basename "$template")
             local desc=""
 
             # Extract description from first comment line
@@ -110,7 +111,7 @@ custom_dockerfile() {
     local template_name
 
     while true; do
-        read -p "Select template [1-${#templates[@]}]: " selection
+        read -rp "Select template [1-${#templates[@]}]: " selection
         echo ""
 
         if [ -z "$selection" ]; then
@@ -150,7 +151,7 @@ custom_dockerfile() {
     echo ""
 
     while true; do
-        read -p "Select [1-3]: " edit_choice
+        read -rp "Select [1-3]: " edit_choice
         echo ""
 
         case "$edit_choice" in
@@ -194,14 +195,10 @@ get_dockerfile_creation_prompt() {
     local base_image="claude-yolo:latest"
     local rebuild_cmd="$tool_name --rebuild"
 
-    if [ "$tool_name" = "ccb" ]; then
-        base_image="claude-browser:latest"
-    fi
-
     cat << 'PROMPT_EOF'
-# PROJECT-SPECIFIC DOCKERFILE CREATION FOR CCY/CCB
+# PROJECT-SPECIFIC DOCKERFILE CREATION FOR CCY
 
-You are helping the user create a custom Dockerfile for this project to use with ccy (Claude Code YOLO mode) or ccb (Claude Code Browser mode).
+You are helping the user create a custom Dockerfile for this project to use with ccy (Claude Code YOLO mode).
 
 ## YOUR MISSION
 
@@ -214,12 +211,11 @@ Create an optimized, project-specific Dockerfile through a collaborative plannin
 5. **Create Dockerfile** with validation
 6. **Provide Next Steps** with clear instructions
 
-## IMPORTANT CONTEXT: How CCY/CCB Work
+## IMPORTANT CONTEXT: How CCY Works
 
-### What is CCY/CCB?
+### What is CCY?
 
 - **ccy** = Claude Code running in Docker with `--dangerously-skip-permissions` (YOLO mode)
-- **ccb** = ccy + browser automation (Playwright, Chrome, Firefox, WebKit)
 - **Purpose**: Safe rapid iteration without permission prompts, isolated from host system
 
 ### The Container Environment
@@ -234,17 +230,6 @@ Pre-installed tools:
 - **User**: root (inside container only, safe due to Docker user namespace mapping)
 
 PROMPT_EOF
-
-    if [ "$tool_name" = "ccb" ]; then
-        cat << 'PROMPT_EOF'
-**For ccb (browser mode), the base also includes:**
-- Playwright MCP server
-- Chrome, Chromium, Firefox, WebKit browsers
-- Chrome DevTools Protocol CLI
-- GUI support (Wayland/X11)
-
-PROMPT_EOF
-    fi
 
     cat << 'PROMPT_EOF'
 **Runtime Configuration:**
@@ -268,7 +253,7 @@ PROMPT_EOF
 - **Database clients**: postgresql-client, mysql-client, mongodb-tools
 - **Cloud CLIs**: aws-cli, gcloud, azure-cli, terraform, pulumi
 - **Build tools**: make, cmake, gradle, maven, cargo
-- **Testing tools**: selenium (for non-ccb projects)
+- **Testing tools**: selenium, playwright
 - **Formatters/Linters**: prettier, eslint, shellcheck, yamllint
 - **Package managers**: pip, poetry, pipenv, composer, bundle
 
@@ -343,7 +328,6 @@ Ask the user targeted questions based on your investigation. Examples:
 > 4. Any database clients or cloud CLIs needed?
 
 **Always ask about:**
-- Whether this is for ccy or ccb (browser automation needs?)
 - Database clients
 - Cloud CLIs
 - Testing requirements
@@ -568,13 +552,14 @@ PROMPT_EOF
 get_dockerfile_improvement_prompt() {
     local project_subdir="$1"
     local tool_name="$2"
+    # shellcheck disable=SC2034
     local dockerfile_path="$project_subdir/Dockerfile"
     local rebuild_cmd="$tool_name --rebuild"
 
     cat << 'PROMPT_EOF'
 # ANALYZE AND IMPROVE EXISTING DOCKERFILE
 
-You are helping the user improve an existing custom Dockerfile for ccy/ccb.
+You are helping the user improve an existing custom Dockerfile for ccy.
 
 ## YOUR MISSION
 
@@ -706,7 +691,7 @@ PROMPT_EOF
 }
 
 # Guided Dockerfile creation with comprehensive AI planning
-# Args: $1 = script_path ($0), $2 = project_subdir (".claude/ccy" or ".claude/ccb"), $3 = tool_name (for display)
+# Args: $1 = script_path ($0), $2 = project_subdir (".claude/ccy"), $3 = tool_name (for display)
 create_dockerfile_guided() {
     local script_path="$1"
     local project_subdir="$2"
@@ -730,7 +715,7 @@ create_dockerfile_guided() {
         echo ""
 
         while true; do
-            read -p "Select [1-3]: " choice
+            read -rp "Select [1-3]: " choice
             echo ""
 
             case "$choice" in
@@ -775,7 +760,7 @@ create_dockerfile_guided() {
     echo "  • Propose features and optimizations for your approval"
     echo "  • Create the Dockerfile with comprehensive comments and validation"
     echo ""
-    read -p "Press Enter to continue..."
+    read -rp "Press Enter to continue..."
     echo ""
 
     # Launch with comprehensive prompt

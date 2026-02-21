@@ -198,9 +198,6 @@ ansible-playbook playbooks/imports/optional/common/play-docker.yml
 # Distrobox
 ansible-playbook playbooks/imports/optional/common/play-install-distrobox.yml
 
-# Playwright testing environment
-ansible-playbook playbooks/imports/optional/common/play-distrobox-playwright.yml
-
 # Python development
 ansible-playbook playbooks/imports/optional/common/play-python.yml
 

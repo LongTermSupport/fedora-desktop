@@ -39,7 +39,7 @@ Everything you need to get started:
 Complete catalog of available features:
 - Core features (automatic)
 - Development tools (Docker, Python, Go, VS Code)
-- Container platforms (LXC, Docker, Distrobox, Playwright)
+- Container platforms (LXC, Docker, Distrobox)
 - Hardware support (NVIDIA, DisplayLink, audio)
 - Desktop enhancements (GNOME, Firefox, VPN)
 - How to run optional playbooks
@@ -58,7 +58,6 @@ Comprehensive comparison and usage guide:
 - When to use each technology
 - Installation and configuration
 - Real-world usage examples
-- Playwright automated testing setup
 - Docker-in-LXC for isolated development
 - Troubleshooting container issues
 
@@ -137,9 +136,6 @@ ansible-playbook playbooks/imports/optional/common/play-docker.yml
 
 # Install Distrobox
 ansible-playbook playbooks/imports/optional/common/play-install-distrobox.yml
-
-# Set up Playwright testing
-ansible-playbook playbooks/imports/optional/common/play-distrobox-playwright.yml
 
 # Install Python environment
 ansible-playbook playbooks/imports/optional/common/play-python.yml
@@ -236,7 +232,6 @@ distrobox enter dev
 - [LXC setup](containerization.md#lxc-linux-containers)
 - [Docker rootless](containerization.md#docker)
 - [Distrobox integration](containerization.md#distrobox)
-- [Playwright testing](containerization.md#playwright-distrobox-automated)
 - [Docker-in-LXC](containerization.md#advanced-docker-in-lxc)
 
 **Development & Contributing**

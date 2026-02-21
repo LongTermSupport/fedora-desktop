@@ -35,8 +35,8 @@ This directory contains Claude Code configuration and hooks for this project.
 **Example:**
 
 ```
-❌ Blocked: /var/local/claude-yolo/claude-yolo-browser
-✓ Correct: files/var/local/claude-yolo/claude-yolo-browser
+❌ Blocked: /var/local/claude-yolo/claude-yolo
+✓ Correct: files/var/local/claude-yolo/claude-yolo
            + ansible-playbook playbooks/imports/optional/common/...
 ```
 

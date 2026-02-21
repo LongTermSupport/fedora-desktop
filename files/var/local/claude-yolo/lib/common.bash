@@ -1,6 +1,6 @@
 #!/bin/bash
 # Claude YOLO Common Library
-# Shared helpers for claude-yolo and claude-yolo-browser
+# Shared helpers for claude-yolo (ccy)
 #
 # Version: 1.4.0
 
@@ -446,7 +446,7 @@ check_claude_token() {
         echo "  2. Or use 'ccy --create-token' for container-specific tokens" >&2
         echo "" >&2
         echo "Tokens are stored in ~/.claude/ and automatically available" >&2
-        echo "to all environments (desktop, ccy, ccy-browser)." >&2
+        echo "to all environments (desktop, ccy)." >&2
         echo "" >&2
         return 1
     fi
@@ -639,7 +639,6 @@ list_ccy_tokens() {
 }
 
 # CCY Project Configuration System
-# Shared between ccy (Docker) and ccy-browser (Distrobox)
 
 # Get project state directory based on git remote
 # Args: ccy_root (e.g., ~/.claude-tokens/ccy)
@@ -820,6 +819,7 @@ EOFCONFIG
 # Discover github_ SSH keys in ~/.ssh/
 # Returns: array of SSH key paths in GITHUB_KEYS global variable
 discover_github_ssh_keys() {
+    # shellcheck disable=SC2034
     mapfile -t GITHUB_KEYS < <(find "$HOME/.ssh" -type f -name "github_*" ! -name "*.pub" 2>/dev/null | sort)
 }
 

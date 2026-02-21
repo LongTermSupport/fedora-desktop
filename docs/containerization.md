@@ -284,100 +284,9 @@ ls ~/   # Your actual home directory
 - Available packages
 - Init system (limited)
 
-### Claude Code Browser (ccb) - Docker-Based Automation
+### Custom Dockerfiles for CCY
 
-This project provides a comprehensive browser automation environment via Docker:
-
-```bash
-# Install both ccy (YOLO mode) and ccb (Browser mode)
-ansible-playbook playbooks/imports/optional/common/play-install-claude-yolo.yml
-
-# Or install only ccy (skip browser mode)
-ansible-playbook playbooks/imports/optional/common/play-install-claude-yolo.yml -e install_browser_mode=false
-```
-
-This creates a feature-complete Docker-based `claude-browser` container with:
-- **Full development environment**: git, gh, ripgrep, jq, yq, vim, python
-- **Browser automation**: Chromium, Firefox, WebKit with Playwright
-- **Claude Code + MCP**: Playwright MCP server for browser control
-- **Token-efficient CLI**: agent-browser for 93% context reduction in multi-page flows
-- **Node.js LTS v20**: Latest stable JavaScript runtime
-- **GUI support**: Headed browser windows visible on desktop (Wayland/X11)
-- **Proper isolation**: Container home, no /tmp sharing (secure)
-- **Token sharing**: Uses same token pool as `ccy` (unified auth)
-- **SSH & Git**: Keys and config mounted from host
-
-**Usage:**
-```bash
-# Navigate to any project
-cd ~/Projects/my-project
-
-# Launch Claude Code with browser automation
-ccb
-
-# Or use specific token
-ccb --token your_token_name
-
-# Inside Claude Code:
-# - Ask Claude to navigate to websites
-# - Take screenshots and interact with pages
-# - Write and debug Playwright tests interactively
-# - Browsers appear as visible windows on your desktop
-# - Use agent-browser for token-efficient multi-page automation
-```
-
-**Browser Automation Tools Available:**
-
-CCB provides multiple browser automation approaches:
-
-**agent-browser (Recommended for multi-page flows):**
-```bash
-# Token-efficient browser automation (93% context reduction)
-agent-browser --help              # Comprehensive built-in docs
-agent-browser --headed open https://example.com
-agent-browser snapshot -i         # Get interactive elements with @refs
-agent-browser click @e5           # Click using reference from snapshot
-agent-browser fill @e3 "test"     # Fill form fields
-agent-browser screenshot page.png # Take screenshots
-```
-
-**Playwright MCP (For complex assertions):**
-- Use MCP tools through Claude Code for full test framework features
-- Better for single-page complex interactions and assertions
-- Higher token usage but more powerful assertions
-
-**Best Practice:** Use agent-browser for exploring and multi-page acceptance tests (avoids context exhaustion), then switch to Playwright MCP for detailed single-page assertions.
-
-**Key Features:**
-
-**Headed Browser Mode:**
-- Browser windows appear on your Wayland/X11 desktop
-- Watch Claude interact with websites in real-time
-- Visual debugging of browser automation
-- Full desktop integration via XDG_RUNTIME_DIR mount
-
-**Proper Isolation:**
-- Separate container home directory (no host pollution)
-- No /tmp sharing (security benefit over distrobox)
-- MCP cache stays in container
-- Separate project state from `ccy` (no config pollution)
-
-**Unified Token Management:**
-- Shares token pool with `ccy` (`~/.claude-tokens/ccy/`)
-- Use `ccy --create-token` to create tokens for both
-- No duplicate token management
-
-**Benefits:**
-- ✅ Headed browser mode working reliably
-- ✅ Better isolation than distrobox
-- ✅ Consistent architecture with `ccy` (both Docker-based)
-- ✅ Proper Wayland support with full XDG runtime
-- ✅ No host desktop pollution
-- ✅ AI-assisted browser automation with visible feedback
-
-### Custom Dockerfiles for CCY/CCB
-
-Both `ccy` and `ccb` support project-specific container customization through custom Dockerfiles. This allows you to extend the base container with additional tools, languages, and dependencies needed for your specific project.
+`ccy` supports project-specific container customization through custom Dockerfiles. This allows you to extend the base container with additional tools, languages, and dependencies needed for your specific project.
 
 #### When to Use Custom Dockerfiles
 
@@ -394,7 +303,7 @@ Create a custom Dockerfile when you need:
 **Quick Template-Based (`--custom`)**:
 ```bash
 cd ~/Projects/my-project
-ccy --custom  # or ccb --custom
+ccy --custom
 
 # Interactive menu:
 # 1. Select template (ansible/golang/project-template)
@@ -405,7 +314,7 @@ ccy --custom  # or ccb --custom
 **AI-Guided Planning (`--custom-docker`)**:
 ```bash
 cd ~/Projects/my-project
-ccy --custom-docker  # or ccb --custom-docker
+ccy --custom-docker
 
 # Comprehensive workflow:
 # 1. Claude enters planning mode
@@ -420,47 +329,22 @@ ccy --custom-docker  # or ccb --custom-docker
 
 **Dockerfile Fallback Priority**
 
-This is the key thing to understand. When `ccb` or `ccy` starts, it looks for a Dockerfile in this order:
+This is the key thing to understand. When `ccy` starts, it looks for a Dockerfile in this order:
 
-| Priority | `ccy` looks for | `ccb` looks for | Result |
-|----------|-----------------|-----------------|--------|
-| 1 (highest) | `.claude/ccy/Dockerfile` | `.claude/ccb/Dockerfile` | Tool-specific custom image |
-| 2 (fallback) | *(n/a)* | `.claude/ccy/Dockerfile` | Shared image with browser base |
-| 3 (default) | *(none found)* | *(none found)* | Base image only |
-
-**The practical implication:** most projects only need ONE Dockerfile at `.claude/ccy/Dockerfile`.
-`ccb` will automatically use it, building it with `claude-browser:latest` as the base instead of
-`claude-yolo:latest` — so the resulting image gets both your project tools AND the browser stack.
-
-**The `ARG BASE_IMAGE` pattern (required for shared Dockerfiles):**
-
-```dockerfile
-# .claude/ccy/Dockerfile — works for BOTH ccy and ccb
-ARG BASE_IMAGE=claude-yolo:latest
-FROM ${BASE_IMAGE}
-
-# Your project tools here — same for both ccy and ccb
-RUN apt-get install -y your-tools
-```
-
-- `ccy` builds it with default `BASE_IMAGE=claude-yolo:latest`
-- `ccb` builds it with `--build-arg BASE_IMAGE=claude-browser:latest` automatically
-
-**When to create a separate `.claude/ccb/Dockerfile`:**
-
-Only when you need CCB-specific tools not needed in CCY (rare). In that case, `ccb` uses its own
-file and ignores `.claude/ccy/Dockerfile`. Both files can coexist.
+| Priority | `ccy` looks for | Result |
+|----------|-----------------|--------|
+| 1 (highest) | `.claude/ccy/Dockerfile` | Custom project image |
+| 2 (default) | *(none found)* | Base image only |
 
 **Built image names:**
 - `ccy` builds: `claude-yolo:<project-name>`
-- `ccb` builds: `claude-browser:<project-name>`
 - Automatic rebuilds when Dockerfile changes detected
 - Fast rebuilds with cache mounts
 
-**What's already included in the base images:**
+**What's already included in the base image:**
 - Node.js 20, npm, Python 3, git, gh CLI, Claude Code (latest)
 - Development tools: ripgrep, jq, yq, vim
-- `ccb` base additionally: Playwright, browsers (Chrome, Firefox, WebKit), agent-browser, chrome-ws
+- agent-browser CLI for token-efficient browser automation via Chromium
 
 #### Example Workflow
 
@@ -757,11 +641,11 @@ npm install && npm run dev  # Browser opens on host desktop
 # Bad: Install Playwright on Fedora (pollutes host, may break)
 npm install playwright  # ❌ System library conflicts, desktop pollution
 
-# Good: Use Claude Code Browser (ccb)
+# Good: Use CCY with built-in agent-browser
 cd ~/Projects/my-project
-ccb  # ✅ Docker-based, isolated, headed browser mode
-# Ask Claude to navigate websites, take screenshots, debug tests
-# Browser windows appear on your desktop for visual feedback
+ccy  # ✅ Docker-based, isolated, headed browser mode
+# agent-browser is pre-installed — ask Claude to navigate, screenshot, test
+# Browser windows appear on your desktop via Wayland forwarding
 ```
 
 ### Example 3: Multi-Distro Testing

@@ -1,6 +1,6 @@
 #!/bin/bash
 # UI Helpers Library
-# Shared display and UI functions for claude-yolo and claude-browser
+# Shared display and UI functions for claude-yolo (ccy)
 #
 # Version: 1.0.0
 

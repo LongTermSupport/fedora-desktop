@@ -1,6 +1,6 @@
 #!/bin/bash
 # Network Management Library
-# Shared Docker network operations for claude-yolo and claude-browser
+# Shared Docker network operations for claude-yolo (ccy)
 #
 # Version: 1.5.0 - Auto-add DNS servers for WARP/localhost DNS compatibility
 
@@ -8,8 +8,10 @@
 # Returns: network-name based on folder name, or repo name as fallback
 # Priority: parent-project format > project-only (with warning) > git remote
 get_expected_network_name() {
-    local project_name=$(basename "$PWD")
-    local parent_folder=$(basename "$(dirname "$PWD")")
+    local project_name
+    project_name=$(basename "$PWD")
+    local parent_folder
+    parent_folder=$(basename "$(dirname "$PWD")")
     local generic_folders="projects|repos|work|src|code|dev|home"
 
     # PRIORITY 1: Try parent-folder-project-folder naming (unless parent is generic)
@@ -34,10 +36,12 @@ get_expected_network_name() {
 
     # PRIORITY 3: Try to get repo name from git remote
     if git rev-parse --git-dir > /dev/null 2>&1; then
-        local repo_url=$(git config --get remote.origin.url 2>/dev/null || echo "")
+        local repo_url
+        repo_url=$(git config --get remote.origin.url 2>/dev/null || echo "")
         if [ -n "$repo_url" ]; then
             # Extract repo name from URL (handles both HTTP and SSH formats)
-            local repo_name=$(basename "$repo_url" .git)
+            local repo_name
+            repo_name=$(basename "$repo_url" .git)
             local repo_network="${repo_name}-network"
 
             if container_cmd network ls --format '{{.Name}}' | grep -q "^${repo_network}$"; then
@@ -59,15 +63,18 @@ get_expected_network_name() {
 
 # Get the persisted network file path for current project
 get_network_persistence_file() {
-    local project_path=$(pwd)
-    local project_hash=$(echo -n "$project_path" | sha256sum | cut -d' ' -f1 | cut -c1-16)
+    local project_path
+    project_path=$(pwd)
+    local project_hash
+    project_hash=$(echo -n "$project_path" | sha256sum | cut -d' ' -f1 | cut -c1-16)
     echo "$HOME/.claude-tokens/ccy/projects/$project_hash/network"
 }
 
 # Save network name to persistence file
 save_network_preference() {
     local network_name="$1"
-    local network_file=$(get_network_persistence_file)
+    local network_file
+    network_file=$(get_network_persistence_file)
 
     mkdir -p "$(dirname "$network_file")"
     echo "$network_name" > "$network_file"
@@ -75,7 +82,8 @@ save_network_preference() {
 
 # Load network name from persistence file
 load_network_preference() {
-    local network_file=$(get_network_persistence_file)
+    local network_file
+    network_file=$(get_network_persistence_file)
 
     if [ -f "$network_file" ]; then
         cat "$network_file"
@@ -91,7 +99,8 @@ connect_to_network() {
     local network_name="$1"
     local container_suffix="$2"
     local tool_name="${3:-ccy}"
-    local project_name=$(basename "$PWD")
+    local project_name
+    project_name=$(basename "$PWD")
     local base_name="${project_name}${container_suffix}"
     local container_name=""
 
@@ -140,7 +149,7 @@ connect_to_network() {
             echo ""
 
             while true; do
-                read -p "Select container [0-${#matching_containers[@]}] (0): " selection
+                read -rp "Select container [0-${#matching_containers[@]}] (0): " selection
                 selection=${selection:-0}  # Default to 0 if empty
                 echo ""
 
@@ -164,7 +173,8 @@ connect_to_network() {
 
     if [ -z "$network_name" ]; then
         # Check for persisted network preference first
-        local persisted_network=$(load_network_preference 2>/dev/null || echo "")
+        local persisted_network
+        persisted_network=$(load_network_preference 2>/dev/null || echo "")
 
         if [ -n "$persisted_network" ]; then
             # Verify the persisted network still exists
@@ -210,7 +220,8 @@ connect_to_network() {
         local best_match_index=""
 
         # Get expected network name (folder-name-network or repo-name-network)
-        local expected_network=$(get_expected_network_name)
+        local expected_network
+        expected_network=$(get_expected_network_name)
 
         while IFS= read -r net; do
             # Skip default networks
@@ -234,11 +245,9 @@ connect_to_network() {
         fi
 
         # Show networks with optional default
-        local start_index=1
         if [ -n "$best_match" ]; then
             echo "  0) $best_match (default - expected network for this project)"
             echo ""
-            start_index=1
         fi
 
         for i in "${!networks[@]}"; do
@@ -251,10 +260,10 @@ connect_to_network() {
 
         while true; do
             if [ -n "$best_match" ]; then
-                read -p "Select network [0-${#networks[@]}] (0): " selection
+                read -rp "Select network [0-${#networks[@]}] (0): " selection
                 selection=${selection:-0}  # Default to 0 if empty
             else
-                read -p "Select network [1-${#networks[@]}]: " selection
+                read -rp "Select network [1-${#networks[@]}]: " selection
             fi
             echo ""
 
@@ -313,7 +322,8 @@ connect_to_network() {
 
         for container in "${matching_containers[@]}"; do
             echo "  → $container"
-            local error_output=$(container_cmd network connect "$network_name" "$container" 2>&1)
+            local error_output
+            error_output=$(container_cmd network connect "$network_name" "$container" 2>&1)
             local exit_code=$?
 
             if [ $exit_code -eq 0 ]; then
@@ -356,7 +366,8 @@ connect_to_network() {
         echo "Connecting $container_name to $network_name..."
         echo ""
 
-        local error_output=$(container_cmd network connect "$network_name" "$container_name" 2>&1)
+        local error_output
+        error_output=$(container_cmd network connect "$network_name" "$container_name" 2>&1)
         local exit_code=$?
 
         if [ $exit_code -eq 0 ]; then
@@ -384,14 +395,15 @@ connect_to_network() {
             echo "Error: $error_output"
             echo ""
             echo "Container networks:"
-            local networks=$(container_cmd inspect "$container_name" --format '{{json .NetworkSettings.Networks}}' 2>/dev/null)
-            if [ "$networks" = "null" ] || [ -z "$networks" ]; then
+            local networks_json
+            networks_json=$(container_cmd inspect "$container_name" --format '{{json .NetworkSettings.Networks}}' 2>/dev/null)
+            if [ "$networks_json" = "null" ] || [ -z "$networks_json" ]; then
                 echo "  (none - container has no network connections)"
                 echo ""
                 echo "This is unusual. The container may need to be restarted."
                 echo "Try: $tool_name (restart the container)"
             else
-                echo "$networks" | jq -r 'keys[]' | sed 's/^/  /'
+                echo "$networks_json" | jq -r 'keys[]' | awk '{ print "  " $0 }'
             fi
             echo ""
             exit 1
@@ -523,7 +535,7 @@ _do_compose_start() {
 
     # Offer to start compose
     while true; do
-        read -p "Start services with $compose_name up -d? [Y/n]: " start_choice
+        read -rp "Start services with $compose_name up -d? [Y/n]: " start_choice
         start_choice=${start_choice:-Y}
         echo ""
 

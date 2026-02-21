@@ -1,9 +1,9 @@
 ================================================================================
-CUSTOM DOCKERFILES FOR CCY/CCB
+CUSTOM DOCKERFILES FOR CCY
 ================================================================================
 
 This guide explains how to create project-specific custom Dockerfiles that
-extend the base CCY/CCB containers with additional tools and dependencies.
+extend the base CCY container with additional tools and dependencies.
 
 TABLE OF CONTENTS
 -----------------
@@ -36,10 +36,9 @@ TABLE OF CONTENTS
 2. UNDERSTANDING THE CONTAINER ENVIRONMENT
 ================================================================================
 
-What is CCY/CCB?
-----------------
-  ccy = Claude Code in Docker with --dangerously-skip-permissions (YOLO mode)
-  ccb = ccy + browser automation (Playwright, Chrome, Firefox, WebKit)
+What is CCY?
+------------
+  ccy = Claude Code in a container with --dangerously-skip-permissions (YOLO mode)
   Purpose: Safe rapid iteration without permission prompts, isolated from host
 
 Base Image: claude-yolo:latest
@@ -48,6 +47,7 @@ Pre-installed tools:
   • System: Debian slim, git, gh CLI, SSH, ripgrep, jq, yq, vim, tini
   • Languages: Node.js 20, npm, Python 3 (system version)
   • Claude Code: Latest version, auto-updated
+  • Browser: agent-browser CLI + Chromium (Wayland/X11 support)
   • User: root (inside container only, safe due to user namespace mapping)
 
 Runtime Configuration
@@ -61,7 +61,7 @@ Volume Mounts:
 
 Working Directory: /workspace (your project root)
 Network: Can auto-connect to Docker networks
-Isolation: Rootless Docker recommended
+Isolation: Rootless Docker/Podman recommended
 
 ================================================================================
 3. WHEN TO USE CUSTOM DOCKERFILES
@@ -73,14 +73,13 @@ Isolation: Rootless Docker recommended
   • Database clients: postgresql-client, mysql-client, mongodb-tools
   • Cloud CLIs: aws-cli, gcloud, azure-cli, terraform, pulumi
   • Build tools: make, cmake, gradle, maven, cargo
-  • Testing tools: selenium (for non-ccb projects)
   • Formatters/Linters: prettier, eslint, shellcheck, yamllint
 
 ❌ DON'T Use Custom Dockerfile For:
   • Application code - It's mounted from host at runtime
   • Project dependencies - npm install, pip install run at dev time
   • Secrets or credentials - Pass via environment
-  • Tools already in base - Node.js 20, git, gh, Claude Code
+  • Tools already in base - Node.js 20, git, gh, Claude Code, agent-browser
 
 ================================================================================
 4. CREATING A CUSTOM DOCKERFILE
@@ -121,36 +120,13 @@ Then build and run:
 
 File Location
 -------------
-Primary location (used by BOTH ccy and ccb):
-  .claude/ccy/Dockerfile
-
-CCB-specific override (optional, only needed for browser-only tools):
-  .claude/ccb/Dockerfile
-
-CCB automatically falls back to .claude/ccy/Dockerfile if no .claude/ccb/Dockerfile
-exists. This means most projects only need ONE Dockerfile.
-
-See "ARG BASE_IMAGE" in Best Practices below to make a single file work for both.
+  .claude/ccy/Dockerfile    (the only location - used by ccy)
 
 ================================================================================
 5. BEST PRACTICES
 ================================================================================
 
-1. Use ARG BASE_IMAGE for Shared Dockerfiles (Recommended)
------------------------------------------------------------
-  ARG BASE_IMAGE=claude-yolo:latest
-  FROM ${BASE_IMAGE}
-
-  # Your customizations here
-
-This allows ONE Dockerfile (.claude/ccy/Dockerfile) to work for both ccy and ccb.
-When ccb builds from .claude/ccy/Dockerfile it automatically passes:
-  --build-arg BASE_IMAGE=claude-browser:latest
-
-If you need a CCB-only Dockerfile (rare), you can still hardcode:
-  FROM claude-browser:latest
-
-2. Use Cache Mounts for Performance
+1. Use Cache Mounts for Performance
 ------------------------------------
   # Faster apt package installation
   RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -168,7 +144,7 @@ Benefits:
   • Rebuilds with cache: ~30 seconds
   • Cache shared across projects
 
-3. Layer Organization
+2. Layer Organization
 ---------------------
 Put rarely-changing items at top, frequently-changing at bottom:
 
@@ -186,7 +162,7 @@ Put rarely-changing items at top, frequently-changing at bottom:
   # Project-specific tools (change most often)
   RUN npm install -g @mycompany/custom-tool
 
-4. Comprehensive Comments
+3. Comprehensive Comments
 --------------------------
   # ========================================================================
   # Python 3.12 + Development Tools
@@ -200,7 +176,7 @@ Put rarely-changing items at top, frequently-changing at bottom:
   # - Performance improvements in 3.12
   # ========================================================================
 
-5. Verify Installations
+4. Verify Installations
 ------------------------
   # Install Go
   RUN wget -qO- https://go.dev/dl/go1.21.5.linux-amd64.tar.gz | \
@@ -212,7 +188,7 @@ Put rarely-changing items at top, frequently-changing at bottom:
   RUN go version && \
       go env GOPATH
 
-6. Set Environment Variables
+5. Set Environment Variables
 -----------------------------
   # Python configuration
   ENV PYTHONUNBUFFERED=1 \
@@ -223,7 +199,7 @@ Put rarely-changing items at top, frequently-changing at bottom:
   ENV GOPATH="/go" \
       PATH="/go/bin:${PATH}"
 
-7. Keep It Minimal
+6. Keep It Minimal
 ------------------
 Only install what you actually need.
 
@@ -361,11 +337,6 @@ Solutions:
   # Check file exists at correct path
   ls -la .claude/ccy/Dockerfile
 
-  # Primary path (works for both ccy and ccb):
-  .claude/ccy/Dockerfile
-  # CCB-specific override (optional):
-  .claude/ccb/Dockerfile
-
   # Rebuild explicitly
   ccy --rebuild
 
@@ -392,7 +363,6 @@ What Should Be Tracked?
 ------------------------
 ✅ TRACK THESE:
   .claude/ccy/Dockerfile          # Custom container config
-  .claude/ccb/Dockerfile          # Browser mode config
   .claude/agents/                 # Custom agents
   .claude/hooks/                  # Git hooks
   .claude/commands/               # Slash commands
@@ -411,7 +381,6 @@ Add this to your project's .gitignore:
   # Claude Code state (but keep custom configs)
   .claude/*
   !.claude/ccy/Dockerfile
-  !.claude/ccb/Dockerfile
   !.claude/agents/
   !.claude/hooks/
   !.claude/commands/
@@ -445,14 +414,12 @@ QUICK REFERENCE
 ================================================================================
 
 Create custom Dockerfile:
-  ccy --custom-docker              # AI-guided (ccy)
-  ccy --custom                     # Template-based (ccy)
-  ccb --custom-docker              # AI-guided (ccb)
-  ccb --custom                     # Template-based (ccb)
+  ccy --custom-docker              # AI-guided
+  ccy --custom                     # Template-based
 
 Edit existing:
-  vim .claude/ccy/Dockerfile       # Shared (works for both ccy and ccb)
-  ccy --rebuild && ccb --rebuild   # Rebuild both after changes
+  vim .claude/ccy/Dockerfile
+  ccy --rebuild                    # Rebuild after changes
 
 View documentation:
   cat /opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt
@@ -469,15 +436,10 @@ Check what's installed:
 
 ================================================================================
 
-Remember: Custom Dockerfiles are per-project and shared between ccy and ccb.
+Remember: Custom Dockerfiles are per-project.
   ccy builds: claude-yolo:<project-name>   (extends claude-yolo:latest)
-  ccb builds: claude-browser:<project-name> (extends claude-browser:latest)
-Use ARG BASE_IMAGE in your Dockerfile so one file works for both.
 
-For more help, see the main containerization documentation on the host:
+For more help, see the main containerisation documentation on the host:
   cat ~/Projects/fedora-desktop/docs/containerization.md
-
-Or online:
-  https://github.com/LongTermSupport/fedora-desktop
 
 ================================================================================

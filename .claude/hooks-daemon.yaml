@@ -64,6 +64,15 @@ handlers:
     markdown_organization: # Enforces markdown file organization rules
       enabled: true        # Enabled for strict md organization
       priority: 50
+      options:
+        allowed_markdown_paths:
+          - "^src/claude_code_hooks_daemon/guides/.*\\.md$"  # Shipped daemon guides
+          - "^claude/.*\\.md$"                               # LLM docs (CLAUDE/)
+          - "^docs/.*\\.md$"                                 # Human-facing docs
+          - "^untracked/.*\\.md$"                            # Temporary/scratch docs
+          - "^releases/.*\\.md$"                             # Release notes
+          - "^eslint-rules/.*\\.md$"                         # ESLint rule docs
+          - "^files/opt/claude-yolo/skills/.*\\.md$"         # Container-deployed skill docs
 
     # TOOL USAGE HANDLERS (Priority 50-60)
     web_search_year:       # Fixes year in web search queries (uses current year)

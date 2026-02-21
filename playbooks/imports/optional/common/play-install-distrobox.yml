@@ -29,7 +29,4 @@
           - "  distrobox create --name ubuntu-dev --image ubuntu:22.04"
           - "  distrobox enter ubuntu-dev"
           - ""
-          - "For Playwright browser testing, run:"
-          - "  ansible-playbook playbooks/imports/optional/common/play-distrobox-playwright.yml"
-          - ""
           - "Documentation: docs/containerization.md"

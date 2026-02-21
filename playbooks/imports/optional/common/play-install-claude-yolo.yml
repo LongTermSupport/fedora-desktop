@@ -6,7 +6,6 @@
   become: false
   vars:
     root_dir: "{{ inventory_dir }}/../../"
-    install_browser_mode: true # Set to false to skip browser mode installation
   vars_files:
     - "{{ inventory_dir }}/../../vars/container-defaults.yml"
   tasks:
@@ -158,6 +157,34 @@
         - scripts
         - docs
 
+    - name: Create Skills Directory in Docker Build Context
+      become: true
+      ansible.builtin.file:
+        path: /opt/claude-yolo/skills/browsing
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      tags:
+        - scripts
+        - skills
+
+    - name: Copy Browsing Skills into Docker Build Context
+      become: true
+      ansible.builtin.copy:
+        src: "{{ item }}"
+        dest: /opt/claude-yolo/skills/browsing/
+        owner: root
+        group: root
+        mode: "0644"
+      loop:
+        - "{{ root_dir }}/files/opt/claude-yolo/skills/browsing/SKILL.md"
+        - "{{ root_dir }}/files/opt/claude-yolo/skills/browsing/COMMANDLINE-USAGE.md"
+        - "{{ root_dir }}/files/opt/claude-yolo/skills/browsing/EXAMPLES.md"
+      tags:
+        - scripts
+        - skills
+
     - name: Copy Custom Dockerfile Templates (Never Overwrite User Changes)
       become: true
       ansible.builtin.copy:
@@ -175,7 +202,7 @@
         - scripts
         - templates
 
-    # Shared library for DRY helpers (used by ccy and ccy-browser)
+    # Shared library for DRY helpers (used by ccy)
     - name: Create Shared Library Directory
       become: true
       ansible.builtin.file:
@@ -288,263 +315,119 @@
       changed_when: false
 
     # =========================================================================
-    # Browser Mode Installation (Optional - controlled by install_browser_mode)
+    # CCB Artifact Cleanup — remove all remnants of the retired CCB system
     # =========================================================================
 
-    - name: Create Claude Browser Base Directory
+    - name: Remove claude-browser:latest Container Image
+      ansible.builtin.command: "{{ container_engine }} rmi claude-browser:latest"
+      register: rmi_result
+      failed_when: false
+      changed_when: rmi_result.rc == 0
+      tags:
+        - cleanup
+        - browser
+
+    - name: Remove /opt/claude-browser Build Context Directory
       become: true
       ansible.builtin.file:
         path: /opt/claude-browser
-        state: directory
-        owner: root
-        group: root
-        mode: "0755"
-      when: install_browser_mode
+        state: absent
       tags:
+        - cleanup
         - browser
 
-    - name: Copy Dockerfile for Browser Container
-      become: true
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/var/local/claude-yolo/Dockerfile.browser"
-        dest: /opt/claude-browser/Dockerfile
-        owner: root
-        group: root
-        mode: "0644"
-      when: install_browser_mode
-      tags:
-        - browser
-        - dockerfile
-
-    - name: Copy Browser Entrypoint Script
-      become: true
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/var/local/claude-yolo/entrypoint-browser.sh"
-        dest: /opt/claude-browser/entrypoint.sh
-        owner: root
-        group: root
-        mode: "0755"
-      when: install_browser_mode
-      tags:
-        - browser
-        - entrypoint
-
-    - name: Create chrome-ws Directory
+    - name: Remove claude-browser Wrapper Script
       become: true
       ansible.builtin.file:
-        path: /opt/claude-browser/chrome-ws
-        state: directory
-        owner: root
-        group: root
-        mode: "0755"
-      when: install_browser_mode
+        path: /var/local/claude-yolo/claude-browser
+        state: absent
       tags:
+        - cleanup
         - browser
 
-    - name: Copy chrome-ws CLI Tool
-      become: true
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/opt/claude-browser/chrome-ws/chrome-ws"
-        dest: /opt/claude-browser/chrome-ws/chrome-ws
-        owner: root
-        group: root
-        mode: "0755"
-      when: install_browser_mode
-      tags:
-        - browser
-        - chrome-ws
-
-    - name: Copy chrome-ws Library
-      become: true
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/opt/claude-browser/chrome-ws/chrome-ws-lib.js"
-        dest: /opt/claude-browser/chrome-ws/chrome-ws-lib.js
-        owner: root
-        group: root
-        mode: "0644"
-      when: install_browser_mode
-      tags:
-        - browser
-        - chrome-ws
-
-    - name: Create Skills Directory
+    - name: Remove ccb Bashrc Include (Root)
       become: true
       ansible.builtin.file:
-        path: /opt/claude-browser/skills/browsing
-        state: directory
-        owner: root
-        group: root
-        mode: "0755"
-      when: install_browser_mode
+        path: /root/.bashrc-includes/claude-browser.bash
+        state: absent
       tags:
+        - cleanup
         - browser
 
-    - name: Copy chrome-ws Skills Documentation
-      become: true
-      ansible.builtin.copy:
-        src: "{{ item }}"
-        dest: /opt/claude-browser/skills/browsing/
-        owner: root
-        group: root
-        mode: "0644"
-      loop:
-        - "{{ root_dir }}/files/opt/claude-browser/skills/browsing/SKILL.md"
-        - "{{ root_dir }}/files/opt/claude-browser/skills/browsing/COMMANDLINE-USAGE.md"
-        - "{{ root_dir }}/files/opt/claude-browser/skills/browsing/EXAMPLES.md"
-      when: install_browser_mode
-      tags:
-        - browser
-        - skills
-
-    - name: Copy Browser Startup Info File
-      become: true
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/opt/claude-browser/ccb-startup-info.txt"
-        dest: /opt/claude-browser/ccb-startup-info.txt
-        owner: root
-        group: root
-        mode: "0644"
-      when: install_browser_mode
-      tags:
-        - browser
-
-    - name: Create Browser Documentation Directory
-      become: true
+    - name: Remove ccb Bashrc Include (User)
       ansible.builtin.file:
-        path: /opt/claude-browser/docs
-        state: directory
-        owner: root
-        group: root
-        mode: "0755"
-      when: install_browser_mode
+        path: /home/{{ user_login }}/.bashrc-includes/claude-browser.bash
+        state: absent
       tags:
-        - browser
-        - docs
-
-    - name: Copy Documentation into Browser Docker Build Context
-      become: true
-      ansible.builtin.copy:
-        src: "{{ item.src }}"
-        dest: "{{ item.dest }}"
-        owner: root
-        group: root
-        mode: "0644"
-      loop:
-        - src: "{{ root_dir }}/files/opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt"
-          dest: /opt/claude-browser/docs/CUSTOM-DOCKERFILES.txt
-        - src: "{{ root_dir }}/files/opt/claude-yolo/docs/CCY-CCB-GUIDE.txt"
-          dest: /opt/claude-browser/docs/CCY-CCB-GUIDE.txt
-      when: install_browser_mode
-      tags:
-        - browser
-        - docs
-
-    - name: Copy Browser Wrapper Script
-      become: true
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/var/local/claude-yolo/claude-browser"
-        dest: /var/local/claude-yolo/claude-browser
-        owner: root
-        group: root
-        mode: "0755"
-      when: install_browser_mode
-      tags:
-        - browser
-        - wrapper
-
-    - name: Deploy Bashrc Include for ccb Alias (Root)
-      become: true
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/home/bashrc-includes/claude-browser.bash"
-        dest: /root/.bashrc-includes/claude-browser.bash
-        owner: root
-        group: root
-        mode: "0644"
-      when: install_browser_mode
-      tags:
+        - cleanup
         - browser
 
-    - name: Deploy Bashrc Include for ccb Alias (User)
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/home/bashrc-includes/claude-browser.bash"
-        dest: /home/{{ user_login }}/.bashrc-includes/claude-browser.bash
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: "0644"
-      when: install_browser_mode
+    - name: Notify About CCB Token Data Preservation
+      ansible.builtin.debug:
+        msg:
+          - "ℹ️  CCB token data preserved at ~/.claude-tokens/ccb/"
+          - "   Remove manually if no longer needed:"
+          - "   rm -rf ~/.claude-tokens/ccb/"
       tags:
-        - browser
-
-    - name: Create CCB Root Directory
-      ansible.builtin.file:
-        path: /home/{{ user_login }}/.claude-tokens/ccb
-        state: directory
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: "0700"
-      when: install_browser_mode
-      tags:
-        - browser
-
-    - name: Create CCB Projects Directory
-      ansible.builtin.file:
-        path: /home/{{ user_login }}/.claude-tokens/ccb/projects
-        state: directory
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: "0700"
-      when: install_browser_mode
-      tags:
-        - browser
-
-    - name: Calculate Browser Dockerfile Hash for Build
-      ansible.builtin.shell: md5sum /opt/claude-browser/Dockerfile | cut -d' ' -f1 | cut -c1-16
-      register: browser_dockerfile_hash
-      changed_when: false
-      when: install_browser_mode
-      tags:
-        - browser
-
-    - name: Build Claude Browser Container Image with Hash
-      ansible.builtin.command: >
-        {{ container_engine }} build
-        --build-arg DOCKERFILE_HASH={{ browser_dockerfile_hash.stdout }}
-        -t claude-browser:latest
-        /opt/claude-browser
-      register: browser_container_build
-      changed_when: "'Successfully built' in browser_container_build.stdout or 'Successfully tagged' in browser_container_build.stdout or browser_container_build.rc == 0"
-      when: install_browser_mode
-      tags:
-        - browser
-
-    - name: Verify Browser Container Image
-      ansible.builtin.command: "{{ container_engine }} image inspect claude-browser:latest"
-      register: browser_image_verify
-      changed_when: false
-      when: install_browser_mode
-      tags:
+        - cleanup
         - browser
 
     # =========================================================================
-    # Unified Installation Summary
+    # claude-yolo-browser (Distrobox) Artifact Cleanup — retired experiment
     # =========================================================================
 
-    - name: Display Unified Installation Summary
+    - name: Remove claude-yolo-browser Wrapper Script
+      become: true
+      ansible.builtin.file:
+        path: /var/local/claude-yolo/claude-yolo-browser
+        state: absent
+      tags:
+        - cleanup
+        - distrobox
+
+    - name: Remove claude-yolo-browser Bashrc Include (Root)
+      become: true
+      ansible.builtin.file:
+        path: /root/.bashrc-includes/claude-yolo-browser.bash
+        state: absent
+      tags:
+        - cleanup
+        - distrobox
+
+    - name: Remove claude-yolo-browser Bashrc Include (User)
+      ansible.builtin.file:
+        path: /home/{{ user_login }}/.bashrc-includes/claude-yolo-browser.bash
+        state: absent
+      tags:
+        - cleanup
+        - distrobox
+
+    - name: Remove playwright-tests Distrobox Container
+      ansible.builtin.command: distrobox rm playwright-tests --force
+      register: distrobox_rm_result
+      failed_when: false
+      changed_when: distrobox_rm_result.rc == 0
+      tags:
+        - cleanup
+        - distrobox
+
+    # =========================================================================
+    # Installation Summary
+    # =========================================================================
+
+    - name: Display Installation Summary
       ansible.builtin.debug:
         msg:
           - "════════════════════════════════════════════════════════════════"
-          - "Claude Code Containers Installation Complete"
+          - "Claude Code CCY Installation Complete"
           - "════════════════════════════════════════════════════════════════"
           - ""
-          - "✅ CCY (General YOLO Mode)"
+          - "✅ CCY — Claude Code YOLO Mode"
           - "   • Container: claude-yolo:latest"
           - "   • Alias: ccy"
           - "   • Tokens: ~/.claude-tokens/ccy/"
-          - ""
-          - "{{ '✅ CCB (Browser Mode)' if install_browser_mode else '⊘ CCB (Browser Mode) - Skipped' }}"
-          - "{{ '   • Container: claude-browser:latest' if install_browser_mode else '' }}"
-          - "{{ '   • Alias: ccb' if install_browser_mode else '' }}"
-          - "{{ '   • chrome-ws CLI + Playwright MCP' if install_browser_mode else '' }}"
+          - "   • Browser: agent-browser (Chromium) built in"
+          - "   • Wayland display forwarding: automatic"
           - ""
           - "🚀 Quick Start"
           - ""
@@ -555,19 +438,19 @@
           - "    cd ~/Projects/your-project"
           - "    ccy"
           - ""
-          - "{{ '  Browser automation:' if install_browser_mode else '' }}"
-          - "{{ '    ccb' if install_browser_mode else '' }}"
+          - "  Browser automation (inside CCY container):"
+          - "    agent-browser --help"
           - ""
           - "💡 Token Management"
           - ""
-          - "  Create/manage tokens (shared between ccy and ccb):"
+          - "  Create/manage tokens:"
           - "    ccy --create-token"
           - "    ccy --list-tokens"
           - "    ccy --token personal"
           - ""
           - "  First run:"
           - "    1. cd /your/project"
-          - "    2. ccy (or ccb)"
+          - "    2. ccy"
           - "    3. Follow prompts for token setup"
           - "    4. Use /login in Claude Code"
           - ""
@@ -585,6 +468,5 @@
           - "📚 More Info"
           - ""
           - "  ccy --help    # Show ccy options"
-          - "{{ '  ccb --help    # Show ccb options' if install_browser_mode else '' }}"
           - ""
           - "════════════════════════════════════════════════════════════════"
