@@ -11,7 +11,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCB_VERSION="1.6.1"  # docs: add CCY-CCB-GUIDE.txt + CUSTOM-DOCKERFILES.txt to ccb container, bump container to 1.8
+CCB_VERSION="1.6.2"  # fix: set installMethod to native (was npm) to prevent Claude Code migration rm of ~/.claude
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -940,7 +940,7 @@ if [ ! -f "$project_config" ]; then
     cat > "$project_config" <<'EOF'
 {
   "hasCompletedOnboarding": true,
-  "installMethod": "npm"
+  "installMethod": "native"
 }
 EOF
     chmod 600 "$project_config"
