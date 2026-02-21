@@ -1,6 +1,6 @@
 # Plan 017: Retire CCB and CCB-Browser — Single CCY Tool
 
-**Status**: 🔄 In Progress
+**Status**: 🟢 Complete
 **Created**: 2026-02-21
 **Owner**: Claude Code
 **Priority**: High
@@ -133,12 +133,12 @@ New scope: `claude-yolo-browser` (the `ccyb` / `ccy-browser` distrobox-based Pla
 - [x] ✅ **Task 8.4**: Add cleanup tasks to Ansible (`play-install-claude-yolo.yml`) for deployed distrobox artifacts on target hosts
 - [x] ✅ **Task 8.5**: Remaining references found and being cleaned up (see Task 7.9)
 
-### Phase 9: QA and Final Commit ⬜
+### Phase 9: QA and Final Commit ✅
 
-- [ ] ⬜ **Task 9.1**: Run `./scripts/qa-all.bash` — all checks pass
-- [ ] ⬜ **Task 9.2**: Run `./scripts/qa-ctrl-z-patch.bash` — ctrl+z patch still applies
-- [ ] ⬜ **Task 9.3**: Grep entire repo for `ccb`, `claude-browser`, `ccyb`, `ccy-browser`, `claude-yolo-browser` — confirm clean
-- [ ] ⬜ **Task 9.4**: Commit all changes with reference to this plan
+- [x] ✅ **Task 9.1**: Run `./scripts/qa-all.bash` — all checks pass (205 bash + 102 python files OK)
+- [x] ✅ **Task 9.2**: Run `./scripts/qa-ctrl-z-patch.bash` — ctrl+z patch applies correctly (Claude Code 2.1.50)
+- [x] ✅ **Task 9.3**: Grep sweep confirms clean — only intentional cleanup task names and gitignored session files
+- [x] ✅ **Task 9.4**: Committed as `f99c056` — 37 files changed, 1356 insertions, 7205 deletions
 
 ## Technical Decisions
 
@@ -197,5 +197,7 @@ New scope: `claude-yolo-browser` (the `ccyb` / `ccy-browser` distrobox-based Pla
 - Scope expanded: `claude-yolo-browser` (distrobox Playwright tool) also removed — never used, clean cut
 - Phases 1–7 (partial) complete: Dockerfile, wrapper, entrypoint, Ansible, file cleanup, skills docs all done
 - Remaining: lib file CCB text, CLAUDE.md check, distrobox removal, QA
+- All phases complete. Final commit: `f99c056`
+- Net result: 37 files changed, 7205 lines deleted, CCY is the single tool
 
 Refs: CLAUDE/Plan/017-merge-ccy-ccb/PLAN.md
