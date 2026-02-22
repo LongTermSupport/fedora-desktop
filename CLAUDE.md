@@ -371,43 +371,7 @@ This repository is publicly accessible on GitHub. **NEVER** commit:
 
 This is not paranoia - it's basic security hygiene for public repositories.
 
-**Automated Protection - Git Hooks:**
-
-This repository uses version-controlled git hooks to prevent accidental leaks:
-- **`scripts/git-hooks/pre-commit`**: Scans staged files for sensitive patterns
-- **`scripts/git-hooks/commit-msg`**: Validates commit messages for sensitive information
-
-The hooks are automatically configured and enforced by:
-- **Initial Setup**: `run.bash` calls `play-git-hooks-security.yml` during bootstrap
-- **Ongoing Enforcement**: `playbook-main.yml` includes `play-git-hooks-security.yml`
-- **Verification**: Ansible validates hooks exist, are executable, and are configured
-
-This ensures:
-- ✓ Hooks are tracked in version control and distributed with the repository
-- ✓ All contributors automatically get the latest hook versions
-- ✓ Updates to hooks are pulled with normal `git pull`
-- ✓ Hook configuration is verified every time the main playbook runs
-- ✓ No way to accidentally disable the hooks
-
-**What the hooks protect against:**
-- ✓ API keys, tokens, passwords, SSH keys
-- ✓ Private email domains (.dev, .internal, .corp, .local)
-- ✓ Specific username patterns (e.g., acme-username.token)
-- ✓ Hardcoded paths with usernames
-- ✓ Private IP addresses
-
-**Safe placeholders allowed:**
-- ✓ example_user, test_user, {{ user_login }}
-- ✓ user@example.com, admin@example.com
-- ✓ 192.168.x.x, 10.x.x.x
-
-**Manual installation** (for existing clones):
-```bash
-cd ~/Projects/fedora-desktop
-git config core.hooksPath scripts/git-hooks
-```
-
-**Note:** Hooks can be bypassed with `git commit --no-verify`, but this is **strongly discouraged**.
+**Automated Protection - Git Hooks:** `scripts/git-hooks/pre-commit` and `commit-msg` scan staged files and commit messages for secrets/sensitive patterns. Enforced by Ansible on every main playbook run. Manual install: `git config core.hooksPath scripts/git-hooks`
 
 ### ⚠️ INFRASTRUCTURE AS CODE - ANSIBLE-ONLY DEPLOYMENT
 
@@ -623,110 +587,26 @@ Examples:
 ### Package Management Patterns
 
 #### Package Module Usage
-- **Use `package` module for simple installations**:
-  ```yaml
-  - name: Basic packages
-    package:
-      name: "{{ packages }}"
-      state: present
-    vars:
-      packages:
-        - vim
-        - wget
-        - bash-completion
-  ```
-
-- **Use `dnf` module for Fedora-specific features**:
-  ```yaml
-  - name: Install with DNF-specific options
-    dnf:
-      name:
-        - docker-ce
-        - docker-ce-cli
-        - containerd.io
-  ```
+- **Use `package` module for simple installations, `dnf` module for Fedora-specific features** (repos, enablerepo, etc.)
 
 #### Package List Organization
-- **Group packages logically with descriptive comments**:
-  ```yaml
-  packages:
-    # Essential system tools
-    - vim
-    - wget
-    - bash-completion
-    # Development dependencies  
-    - gcc
-    - gcc-c++
-    - cmake
-  ```
+- **Group packages logically with descriptive comments**
 
 ### Service Management Patterns
 
 #### SystemD Service Handling
-- **Use consistent systemd service patterns**:
-  ```yaml
-  # For system services
-  - name: Enable and Start Service
-    systemd:
-      name: service_name
-      state: started
-      enabled: yes
-
-  # For user services
-  - name: Enable User Service
-    systemd:
-      name: docker
-      state: started
-      enabled: yes
-      scope: user
-  ```
+- **Use consistent systemd service patterns** (`state: started`, `enabled: yes`; add `scope: user` for user services)
 
 #### Service Restart via Handlers
-- **Use handlers for service restarts triggered by config changes**:
-  ```yaml
-  tasks:
-    - name: Update Config
-      lineinfile:
-        path: /path/to/config
-        line: "setting = value"
-      notify: restart-service
-
-  handlers:
-    - name: restart-service
-      systemd:
-        name: service_name
-        state: restarted
-  ```
+- **Use handlers for service restarts triggered by config changes** (`notify:` in task + `handlers:` block with `state: restarted`)
 
 ### User vs System Configuration Patterns
 
 #### Privilege Escalation
-- **Be explicit about become usage**:
-  ```yaml
-  # System-level changes
-  - name: System Configuration
-    become: true
-    blockinfile:
-      path: /etc/config
-
-  # User-level changes with specific user
-  - name: User Configuration  
-    become: true
-    become_user: "{{ user_login }}"
-    command: user_specific_command
-  ```
+- **Be explicit about become usage**: `become: true` for system-level; add `become_user: "{{ user_login }}"` for user-level tasks
 
 #### File Ownership and Permissions
-- **Always set appropriate ownership for user files**:
-  ```yaml
-  - name: User SSH Config
-    blockinfile:
-      path: "/home/{{ user_login }}/.ssh/config"
-      create: true
-      owner: "{{ user_login }}"
-      group: "{{ user_login }}"
-      mode: '0600'
-  ```
+- **Always set appropriate ownership for user files** (`owner:`, `group:`, `mode:` on every file task)
 
 ### Error Handling and Validation Patterns
 
@@ -776,31 +656,10 @@ Examples:
 ### Task Organization and Naming
 
 #### Task Names
-- **Use descriptive, action-oriented task names**:
-  ```yaml
-  - name: Install YQ Binary from GitHub
-  - name: Set up SSH Config for LXC Containers  
-  - name: Enable Flathub Repository
-  - name: Copy SSH ID to root User
-  ```
+- **Use descriptive, action-oriented task names**: e.g., "Install YQ Binary from GitHub", "Enable Flathub Repository"
 
 #### Task Grouping
-- **Group related tasks with `block` when appropriate**:
-  ```yaml
-  - name: Vim Configuration Setup
-    block:
-      - name: Get Colourscheme
-        get_url:
-          url: https://raw.githubusercontent.com/ajmwagar/vim-deus/master/colors/deus.vim
-          dest: /usr/share/vim/vimfiles/colors/deus.vim
-
-      - name: Vim Configs
-        blockinfile:
-          marker: "\" {mark} Vim Colourscheme"  
-          block: colors deus
-          path: /etc/vimrc.local
-          create: true
-  ```
+- **Group related tasks with `block` when appropriate**
 
 #### Tagging Strategy
 - **Use meaningful tags for selective execution**:
@@ -831,34 +690,15 @@ Examples:
   ```
 
 #### External Repository Integration
-- **Use shell modules with proper error handling for external installs**:
-  ```yaml
-  - name: Install from External Source
-    shell: |
-      set -x  # Enable command echoing for debugging
-      command1 && \
-      command2 && \
-      command3
-    args:
-      executable: /bin/bash
-      creates: /expected/result/file
-  ```
+- **Use shell modules with proper error handling for external installs** (`set -x`, `args.executable: /bin/bash`, `creates:` for idempotency)
 
 ### Code Quality Guidelines
 
 #### Comments and Documentation
-- **Include relevant comments for complex operations**:
-  ```yaml
-  # Set Controller Mode to bredr to Fix Bluetooth Headphones
-  # @see https://gitlab.freedesktop.org/pipewire/pipewire/-/wikis/Performance-tuning
-  ```
+- **Include relevant comments for complex operations**, especially `@see` links for non-obvious choices
 
 #### Conditional Logic
-- **Keep conditional logic simple and readable**:
-  ```yaml
-  # Use when conditions sparingly and clearly
-  when: ansible_distribution == 'Fedora'
-  ```
+- **Keep conditional logic simple and readable** (e.g., `when: ansible_distribution == 'Fedora'`)
 
 These style rules ensure consistency across the project, improve maintainability, and follow Ansible best practices while accommodating the specific needs of Fedora desktop configuration management.
 

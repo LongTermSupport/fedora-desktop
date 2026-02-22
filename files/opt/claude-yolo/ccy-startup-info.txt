@@ -10,8 +10,9 @@ CAPABILITIES:
 • GitHub CLI authenticated (can create PRs, issues, etc.)
 • SSH keys mounted for git operations
 • Running as root user - install packages freely (apt, npm, pip, etc.)
-• Container is ephemeral - for permanent tools, extend the Dockerfile
+• Container is ephemeral - for permanent tools, extend .claude/ccy/Dockerfile
 • YOLO mode = fast iteration, no permission prompts
+• Browser automation: agent-browser is installed for web testing/scraping — run 'agent-browser --help' for usage
 
 DOCUMENTATION (read these to understand this environment):
 • Full system guide:    cat /opt/claude-yolo/docs/CCY-CCB-GUIDE.txt
