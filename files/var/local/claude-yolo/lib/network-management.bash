@@ -2,7 +2,7 @@
 # Network Management Library
 # Shared Docker network operations for claude-yolo (ccy)
 #
-# Version: 1.5.0 - Auto-add DNS servers for WARP/localhost DNS compatibility
+# Version: 1.6.0 - Track when CCY starts compose for session-end teardown offer
 
 # Get the expected network name for the current project
 # Returns: network-name based on folder name, or repo name as fallback
@@ -546,6 +546,9 @@ _do_compose_start() {
                     echo ""
                     echo "✓ Compose services started"
                     echo ""
+                    # Track for session-end teardown offer (read by claude-yolo after container exits)
+                    export CCY_COMPOSE_WAS_STARTED=true
+                    export CCY_COMPOSE_CMD="$compose_cmd"
                     echo "Waiting for containers..."
                     sleep 2
 

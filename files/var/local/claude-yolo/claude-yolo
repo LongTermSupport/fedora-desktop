@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.6.1"  # fix: agent-browser config args must be string not array (container 2.6)
+CCY_VERSION="3.6.2"  # feat: offer to stop compose services on session end, show resource stats
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1631,6 +1631,9 @@ if [[ "$CROSS_ENGINE_MISMATCH" = true ]]; then
                                             echo ""
                                             echo "✓ Compose services started"
                                             echo ""
+                                            # Track for session-end teardown offer
+                                            export CCY_COMPOSE_WAS_STARTED=true
+                                            export CCY_COMPOSE_CMD="podman-compose"
                                             echo "Waiting for networks..."
                                             sleep 2
 
@@ -2280,3 +2283,56 @@ container_cmd run $DOCKER_FLAGS --rm \
     -w /workspace \
     "$IMAGE_NAME" \
     claude --dangerously-skip-permissions "${CLAUDE_CMD_ARGS[@]}"
+
+# Offer to stop compose services if CCY started them this session
+if [[ "${CCY_COMPOSE_WAS_STARTED:-}" = "true" ]]; then
+    echo ""
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo "CCY Session Ended — Compose Services Running"
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+    echo "Compose services were started for this CCY session."
+    echo ""
+
+    # List containers with resource stats so user can tell if anything is active
+    echo "Running containers (resource usage):"
+    echo ""
+    if ! container_cmd stats --no-stream 2>/dev/null; then
+        # Fallback if stats unavailable
+        container_cmd ps --format "  • {{.Names}} ({{.Image}})" 2>/dev/null || true
+    fi
+    echo ""
+    echo "Command: $CCY_COMPOSE_CMD down"
+    echo ""
+
+    while true; do
+        read -rp "Stop compose services? [Y/n]: " _stop_choice
+        _stop_choice=${_stop_choice:-Y}
+        echo ""
+        case "$_stop_choice" in
+            Y|y|Yes|yes)
+                echo "Stopping compose services..."
+                if $CCY_COMPOSE_CMD down; then
+                    echo ""
+                    echo "✓ Compose services stopped"
+                else
+                    echo ""
+                    echo "⚠ Failed to stop compose services"
+                    echo "Run manually: $CCY_COMPOSE_CMD down"
+                fi
+                break
+                ;;
+            N|n|No|no)
+                echo "Compose services left running."
+                echo "To stop later: $CCY_COMPOSE_CMD down"
+                break
+                ;;
+            *)
+                echo "Invalid choice. Please enter y or n"
+                echo ""
+                ;;
+        esac
+    done
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+fi
