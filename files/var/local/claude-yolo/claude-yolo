@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.6.2"  # feat: offer to stop compose services on session end, show resource stats
+CCY_VERSION="3.6.3"  # feat: add --prevent flag to disable CCY for a project folder
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -143,6 +143,7 @@ Options:
   --prompt "text"        Start Claude Code with a preseeded prompt
   --headless             Run in headless mode (requires --prompt)
   --top                  Container manager: list/stop all CCY containers
+  --prevent              Disable CCY for this project folder (writes 'never' to .claude/ccy/allowed-hostnames)
   --help, -h             Show this help message
 
 All other arguments are passed directly to Claude Code with --dangerously-skip-permissions
@@ -383,6 +384,7 @@ CREATE_TOKEN_MODE=false
 LIST_TOKENS_MODE=false
 CONNECT_MODE=false
 CUSTOM_MODE=false
+PREVENT_MODE=false
 CONNECT_NETWORK=""
 NO_SSH_MODE=false
 SPECIFIED_NETWORK=""
@@ -462,6 +464,8 @@ for arg in "$@"; do
         CUSTOM_DOCKER_MODE=true
     elif [ "$arg" = "--top" ]; then
         TOP_MODE=true
+    elif [ "$arg" = "--prevent" ]; then
+        PREVENT_MODE=true
     else
         CLAUDE_ARGS+=("$arg")
     fi
@@ -567,6 +571,23 @@ fi
 # Handle --top mode (global container management - doesn't need git repo)
 if [ "$TOP_MODE" = true ]; then
     show_container_top "yolo"
+    exit 0
+fi
+
+# Handle prevent mode: disable CCY for this project folder
+if [ "$PREVENT_MODE" = true ]; then
+    allowed_file=".claude/ccy/allowed-hostnames"
+    mkdir -p ".claude/ccy"
+    if grep -qx "never" "$allowed_file" 2>/dev/null; then
+        echo "CCY is already disabled for this project ($allowed_file already contains 'never')."
+    else
+        echo "never" >> "$allowed_file"
+        echo "✓ CCY disabled for this project."
+        echo "  Written 'never' to $allowed_file"
+        echo ""
+        echo "To re-enable CCY, remove or edit that file:"
+        echo "  rm $allowed_file"
+    fi
     exit 0
 fi
 

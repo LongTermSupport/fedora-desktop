@@ -251,7 +251,8 @@ check_ccy_gitignore_safety() {
 #   - One entry per line
 #   - Lines starting with # are comments; inline # also stripped
 #   - Blank lines are ignored
-#   - *  alone on a line = allow any hostname (useful to document without blocking)
+#   - never  alone on a line = disable CCY for this project entirely (any host)
+#   - *      alone on a line = allow any hostname (useful to document without blocking)
 #   - Glob patterns supported: myhost-*, *.local, prod-??
 #
 # If the file does not exist, there is no restriction (opt-in enforcement).
@@ -284,6 +285,16 @@ check_allowed_hostname() {
     # Match hostname against each entry (glob patterns via case statement)
     local pattern
     for pattern in "${allowed_hostnames[@]}"; do
+        # Special keyword: never = unconditionally disabled for this project
+        if [[ "$pattern" == "never" ]]; then
+            print_error "CCY is disabled for this project"
+            echo "" >&2
+            echo "This project has CCY unconditionally disabled via:" >&2
+            echo "  .claude/ccy/allowed-hostnames  (contains 'never')" >&2
+            echo "" >&2
+            echo "To re-enable CCY for this project, remove or edit that file." >&2
+            return 1
+        fi
         # shellcheck disable=SC2254  # unquoted intentional: glob pattern matching
         case "$current_hostname" in
             $pattern) return 0 ;;
