@@ -15,6 +15,7 @@ TABLE OF CONTENTS
 5. Rebuilding and updating
 6. File locations reference
 7. How to help the user set up a new project
+8. Restricting which hosts can run CCY (allowed-hostnames)
 
 
 ================================================================================
@@ -135,10 +136,11 @@ ON THE HOST (not accessible from container):
   ~/.cache/claude-yolo-version-check   Version check cache
 
 GIT-TRACKED PROJECT FILES:
-  .claude/ccy/Dockerfile   Custom container config (TRACK THIS)
-  .claude/agents/          Custom agents
-  .claude/hooks/           Git hooks for Claude Code
-  .claude/commands/        Slash commands
+  .claude/ccy/Dockerfile          Custom container config (TRACK THIS)
+  .claude/ccy/allowed-hostnames   Hostname restrictions (TRACK THIS if used)
+  .claude/agents/                 Custom agents
+  .claude/hooks/                  Git hooks for Claude Code
+  .claude/commands/               Slash commands
 
 NOT TRACKED (gitignored runtime state):
   .claude/ccy/             Session state, history, databases
@@ -171,6 +173,49 @@ container is missing tools the project needs:
 
 The user can also run `ccy --custom-docker` from the host for a guided
 creation workflow that doesn't require an active session.
+
+================================================================================
+8. RESTRICTING WHICH HOSTS CAN RUN CCY (allowed-hostnames)
+================================================================================
+
+Some projects should only run CCY from a specific machine or environment
+(e.g. an LXC container, a CI server, or never at all). The file
+.claude/ccy/allowed-hostnames enforces this.
+
+HOW IT WORKS:
+  - If the file does not exist: no restriction, CCY runs anywhere (default)
+  - If the file exists: the current hostname must match an entry, or CCY exits
+  - The file is opt-in — most projects will never need it
+
+FILE FORMAT:
+  - One entry per line
+  - Lines starting with # are comments; inline # is also stripped
+  - Blank lines are ignored
+  - Glob patterns are supported: myhost-*, *.local, prod-??
+  - *      alone = allow any hostname (documents intent without blocking)
+  - never  alone = unconditionally disable CCY for this project
+
+QUICK SETUP:
+  # Disable CCY for a project entirely (run on HOST):
+  ccy --prevent
+
+  # Allow only specific hosts:
+  echo "my-lxc-hostname" >> .claude/ccy/allowed-hostnames
+  echo "build-server-*"  >> .claude/ccy/allowed-hostnames
+
+  # Allow the current host:
+  echo "$(hostname)" >> .claude/ccy/allowed-hostnames
+
+RE-ENABLING:
+  # Remove the restriction entirely:
+  rm .claude/ccy/allowed-hostnames
+
+  # Or remove the 'never' line and add allowed hostnames instead
+
+COMMIT THE FILE:
+  If you create this file, commit it so teammates get the restriction too.
+  It is listed as a tracked file in section 6.
+
 
 ================================================================================
 END OF GUIDE
