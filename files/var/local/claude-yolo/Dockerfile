@@ -109,9 +109,9 @@ RUN chmod 444 /opt/claude-yolo/ccy-startup-info.txt
 
 RUN mkdir -p /opt/claude-yolo/docs
 COPY docs/CUSTOM-DOCKERFILES.txt /opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt
-COPY docs/CCY-CCB-GUIDE.txt /opt/claude-yolo/docs/CCY-CCB-GUIDE.txt
+COPY docs/CCY-GUIDE.txt /opt/claude-yolo/docs/CCY-GUIDE.txt
 RUN chmod 444 /opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt \
-              /opt/claude-yolo/docs/CCY-CCB-GUIDE.txt
+              /opt/claude-yolo/docs/CCY-GUIDE.txt
 
 # Copy Claude Code skills for browser automation
 RUN mkdir -p /root/.claude/skills

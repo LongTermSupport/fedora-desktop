@@ -151,8 +151,8 @@
       loop:
         - src: "{{ root_dir }}/files/opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt"
           dest: /opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt
-        - src: "{{ root_dir }}/files/opt/claude-yolo/docs/CCY-CCB-GUIDE.txt"
-          dest: /opt/claude-yolo/docs/CCY-CCB-GUIDE.txt
+        - src: "{{ root_dir }}/files/opt/claude-yolo/docs/CCY-GUIDE.txt"
+          dest: /opt/claude-yolo/docs/CCY-GUIDE.txt
       tags:
         - scripts
         - docs
@@ -315,7 +315,7 @@
       changed_when: false
 
     # =========================================================================
-    # CCB Artifact Cleanup — remove all remnants of the retired CCB system
+    # Retired claude-browser artifact cleanup — remove all remnants of the retired claude-browser system
     # =========================================================================
 
     - name: Remove claude-browser:latest Container Image
@@ -345,7 +345,7 @@
         - cleanup
         - browser
 
-    - name: Remove ccb Bashrc Include (Root)
+    - name: Remove claude-browser Bashrc Include (Root)
       become: true
       ansible.builtin.file:
         path: /root/.bashrc-includes/claude-browser.bash
@@ -354,7 +354,7 @@
         - cleanup
         - browser
 
-    - name: Remove ccb Bashrc Include (User)
+    - name: Remove claude-browser Bashrc Include (User)
       ansible.builtin.file:
         path: /home/{{ user_login }}/.bashrc-includes/claude-browser.bash
         state: absent
@@ -362,10 +362,10 @@
         - cleanup
         - browser
 
-    - name: Notify About CCB Token Data Preservation
+    - name: Notify About Retired claude-browser Token Data
       ansible.builtin.debug:
         msg:
-          - "ℹ️  CCB token data preserved at ~/.claude-tokens/ccb/"
+          - "ℹ️  Retired claude-browser token data preserved at ~/.claude-tokens/ccb/"
           - "   Remove manually if no longer needed:"
           - "   rm -rf ~/.claude-tokens/ccb/"
       tags:

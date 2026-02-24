@@ -226,6 +226,6 @@ The playbook pulls the latest source and rebuilds the image.
 
 ## Related
 
-- [CCY/CCB Guide](../containerization.md) — containerised Claude Code
+- [CCY Guide](../containerization.md) — containerised Claude Code
 - [Playbooks Reference](../playbooks.md)
 - [claude-devtools upstream](https://github.com/matt1398/claude-devtools)

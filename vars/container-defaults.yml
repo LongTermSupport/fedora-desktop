@@ -1,6 +1,6 @@
 ---
 # Container Engine Configuration
-# Default container engine for CCY/CCB and related playbooks
+# Default container engine for CCY and related playbooks
 #
 # Override in host_vars/localhost.yml:
 #   container_engine: docker

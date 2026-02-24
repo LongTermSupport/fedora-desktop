@@ -54,7 +54,7 @@ PROJECT-SPECIFIC TOOLS (if a custom Dockerfile exists for this project):
   Run `cat /workspace/.claude/ccy/Dockerfile` to see what was added.
 
 DOCUMENTATION (this container):
-  CCY system guide:     cat /opt/claude-yolo/docs/CCY-CCB-GUIDE.txt
+  CCY system guide:     cat /opt/claude-yolo/docs/CCY-GUIDE.txt
   Dockerfile guide:     cat /opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt
   Skills:               ls /root/.claude/skills/
 

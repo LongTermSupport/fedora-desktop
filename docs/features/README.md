@@ -38,7 +38,7 @@ that recent Claude Code updates replaced with opaque summaries.
 
 Documentation for these features is planned:
 
-- **CCY/CCB (Claude Code YOLO)**: Containerised Claude Code with token management
+- **CCY (Claude Code YOLO)**: Containerised Claude Code with token management
 - **GitHub Multi-Account**: Complete multi-account workflow guide
 - **Nord VPN Manager**: Interactive OpenVPN connection chooser
 
