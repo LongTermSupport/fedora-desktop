@@ -39,10 +39,25 @@ state but custom configs like Dockerfiles and agents are tracked).
 ================================================================================
 
 BASE TOOLS:
-  git, gh (GitHub CLI), ssh, ripgrep, jq, yq, vim, nano, htop, curl, wget
+  git, gh (GitHub CLI), ssh, ripgrep (rg), jq, yq, vim, nano, htop, curl, wget
   Node.js 20, npm, Python 3, pip
   Claude Code (latest version, auto-updated)
   tini (PID 1 signal handling)
+
+SEARCH / PROCESS:
+  fzf, pv (pipe viewer), moreutils (sponge, ts, vidir, ifne, parallel...)
+
+NETWORK:
+  curl, wget, nc (netcat-openbsd), dig / nslookup / host (dnsutils)
+
+IMAGE / PDF TOOLS:
+  imagemagick  — convert, identify, mogrify (image conversion, resize, inspection)
+  poppler-utils — pdftotext, pdfinfo, pdftoppm, pdfimages (PDF text/image extraction)
+  ghostscript  — gs (PDF/PS rendering; required by imagemagick for PDF input)
+  exiftool     — read/write metadata from images, PDFs, video files
+
+DATABASE:
+  sqlite3      — SQLite CLI (inspect databases common in web/mobile apps)
 
 BROWSER AUTOMATION:
   agent-browser CLI (token-efficient Chromium automation)

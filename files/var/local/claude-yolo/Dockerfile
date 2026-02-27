@@ -10,7 +10,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.6"
+LABEL claude-yolo-version="2.7"
 LABEL claude-yolo-dockerfile-hash="${DOCKERFILE_HASH}"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 
@@ -37,6 +37,29 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tini \
     tree \
     shellcheck \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install image/PDF processing and web development utilities
+# poppler-utils: pdftotext, pdfinfo, pdftoppm, pdfimages (PDF text/image extraction)
+# imagemagick:   convert, identify, mogrify (image conversion, resize, inspection)
+# ghostscript:   gs (PDF/PS rendering; required by imagemagick for PDF operations)
+# sqlite3:       sqlite3 CLI (inspect SQLite databases common in web apps)
+# dnsutils:      dig, nslookup, host (DNS debugging)
+# netcat-openbsd: nc (port checking, raw HTTP testing)
+# moreutils:     sponge, ts, vidir, ifne, parallel (extra Unix utilities)
+# pv:            pipe viewer (monitor progress of large data pipelines)
+# libimage-exiftool-perl: exiftool (read/write metadata from images, PDFs, video)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    poppler-utils \
+    imagemagick \
+    ghostscript \
+    sqlite3 \
+    dnsutils \
+    netcat-openbsd \
+    moreutils \
+    pv \
+    libimage-exiftool-perl \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 

@@ -6,13 +6,24 @@ ENVIRONMENT:
 • Isolated from host system (secure sandbox)
 
 CAPABILITIES:
-• Full development environment (git, gh, ripgrep, jq, Node.js, Python)
+• Full development environment (see CLI TOOLS below)
 • GitHub CLI authenticated (can create PRs, issues, etc.)
 • SSH keys mounted for git operations
 • Running as root user - install packages freely (apt, npm, pip, etc.)
 • Container is ephemeral - for permanent tools, extend .claude/ccy/Dockerfile
 • YOLO mode = fast iteration, no permission prompts
-• Browser automation: agent-browser is installed for web testing/scraping — run 'agent-browser --help' for usage
+
+CLI TOOLS (pre-installed):
+  Version control:  git, gh (GitHub CLI), ssh
+  Search/process:   ripgrep (rg), jq, yq, fzf, pv, moreutils (sponge, ts, vidir, ifne...)
+  Network:          curl, wget, nc (netcat-openbsd), dig/nslookup/host (dnsutils)
+  Image/PDF:        convert/identify (imagemagick), pdftotext/pdfinfo/pdftoppm (poppler-utils),
+                    gs (ghostscript), exiftool (libimage-exiftool-perl)
+  Database:         sqlite3
+  Shell/debug:      vim, nano, htop, tree, less, fzf, shellcheck, unzip, bash-completion
+  Runtimes:         Node.js 20 + npm, Python 3 + pip
+  Browser:          agent-browser (token-efficient Chromium automation)
+                    — run 'agent-browser --help' for usage
 
 DOCUMENTATION (read these to understand this environment):
 • Full system guide:    cat /opt/claude-yolo/docs/CCY-GUIDE.txt
