@@ -18,6 +18,7 @@ set -euo pipefail
 BOOT_DIR="/boot/fedora-netinstall"
 GRUB_ENTRY="/etc/grub.d/40_fedora_netinstall"
 BASE_URL="https://download.fedoraproject.org/pub/fedora/linux/releases"
+KS_URL="https://raw.githubusercontent.com/LongTermSupport/fedora-desktop/F43/fedora-install/ks.cfg"
 
 # --- helpers ---
 
@@ -151,7 +152,7 @@ do_setup() {
 #!/bin/bash
 cat << 'EOF'
 menuentry "Fedora ${target_version} Network Install" {
-    linux /fedora-netinstall/vmlinuz inst.repo=${repo_url}
+    linux /fedora-netinstall/vmlinuz inst.repo=${repo_url} inst.ks=${KS_URL}
     initrd /fedora-netinstall/initrd.img
 }
 EOF
@@ -168,8 +169,8 @@ GRUBEOF
     echo "Next steps:"
     echo "  1. Reboot your system"
     echo "  2. In GRUB menu, select 'Fedora ${target_version} Network Install'"
-    echo "  3. In Anaconda, go to Network & Host Name to connect WiFi"
-    echo "  4. Proceed with installation (you can wipe the entire disk)"
+    echo "  3. The kickstart TUI will prompt for WiFi, LUKS, and user details"
+    echo "  4. Installation proceeds automatically after the prompts"
     echo ""
     echo "To remove this boot entry later:"
     echo "  sudo bash $0 --remove"

@@ -171,6 +171,11 @@
         - /root
         - /home/{{ user_login }}
 
+    - name: Check if SSH key exists
+      ansible.builtin.stat:
+        path: /home/{{ user_login }}/.ssh/id
+      register: user_ssh_key
+
     - name: Copy SSH ID to root
       ansible.builtin.copy:
         remote_src: true
@@ -181,6 +186,7 @@
       loop:
         - id
         - id.pub
+      when: user_ssh_key.stat.exists
 
     - name: Install YQ
       become: true
@@ -199,3 +205,4 @@
         fwupdmgr refresh --force
         fwupdmgr get-updates
         fwupdmgr update
+      ignore_errors: true

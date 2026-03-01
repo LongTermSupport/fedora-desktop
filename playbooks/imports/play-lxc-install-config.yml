@@ -69,12 +69,19 @@
         marker: "# {mark} ANSIBLE MANAGED - LXC Install"
         path: /etc/sysconfig/lxc-net
 
+    - name: Check if GitHub SSH access is available
+      ansible.builtin.command: ssh -T git@github.com -o BatchMode=yes -o StrictHostKeyChecking=accept-new
+      register: github_ssh_check
+      changed_when: false
+      failed_when: false
+
     - name: Clone LXC Bash
       become: true
       become_user: "{{ user_login }}"
       ansible.builtin.git:
         repo: git@github.com:LongTermSupport/lxc-bash.git
         dest: /home/{{ user_login }}/Projects/lxc-bash
+      when: github_ssh_check.rc == 1
 
     - name: Add Aliases to bashrc file
       ansible.builtin.lineinfile:

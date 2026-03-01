@@ -9,6 +9,10 @@
         path: ~/.local/share/JetBrains/Toolbox
       register: st_jetbrains_toolbox
 
+    - name: Check if display server is available
+      ansible.builtin.set_fact:
+        has_display: "{{ lookup('env', 'DISPLAY') != '' or lookup('env', 'WAYLAND_DISPLAY') != '' }}"
+
     - block:
         - name: Get available releases
           ansible.builtin.uri:
@@ -71,7 +75,7 @@
             "$TOOLBOX_BIN" --install
           args:
             executable: /bin/bash
-      when: st_jetbrains_toolbox.stat.exists == False
+      when: st_jetbrains_toolbox.stat.exists == False and has_display
       always:
         - name: Delete temporary download directory
           ansible.builtin.file:
@@ -108,4 +112,5 @@
         executable: /bin/bash
       when:
         - st_jetbrains_toolbox.stat.exists == True
+        - has_display
         - st_jetbrains_symlink.stat.exists == False or st_jetbrains_desktop.stat.exists == False
