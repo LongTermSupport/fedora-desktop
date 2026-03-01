@@ -172,24 +172,28 @@ create_wifi_overlay() {
     mkdir -p "$nm_dir"
 
     local conn_file="${nm_dir}/installer-wifi.nmconnection"
-    cat > "$conn_file" << 'NMEOF'
+    local conn_uuid
+    conn_uuid=$(cat /proc/sys/kernel/random/uuid)
+    {
+        cat << NMEOF
 [connection]
 id=installer-wifi
+uuid=${conn_uuid}
 type=wifi
 autoconnect=true
 autoconnect-priority=100
 
 [wifi]
 NMEOF
-    printf 'ssid=%s\n' "$SETUP_WIFI_SSID" >> "$conn_file"
-    cat >> "$conn_file" << 'NMEOF2'
+        printf 'ssid=%s\n' "$SETUP_WIFI_SSID"
+        cat << 'NMEOF2'
 mode=infrastructure
 
 [wifi-security]
 key-mgmt=wpa-psk
 NMEOF2
-    printf 'psk=%s\n' "$SETUP_WIFI_PASS" >> "$conn_file"
-    cat >> "$conn_file" << 'NMEOF3'
+        printf 'psk=%s\n' "$SETUP_WIFI_PASS"
+        cat << 'NMEOF3'
 
 [ipv4]
 method=auto
@@ -197,6 +201,7 @@ method=auto
 [ipv6]
 method=auto
 NMEOF3
+    } > "$conn_file"
     chmod 600 "$conn_file"
 
     # Create cpio archive (newc format, gzipped — same as initrd)
@@ -266,7 +271,7 @@ do_setup() {
 #!/bin/bash
 cat << 'EOF'
 menuentry "Fedora ${target_version} Network Install" {
-    linux /fedora-netinstall/vmlinuz inst.repo=${repo_url} inst.ks=hd:UUID=${boot_uuid}:/fedora-netinstall/ks.cfg inst.text
+    linux /fedora-netinstall/vmlinuz inst.repo=${repo_url} inst.ks=hd:UUID=${boot_uuid}:/fedora-netinstall/ks.cfg inst.text rd.shell
     initrd /fedora-netinstall/initrd.img /fedora-netinstall/wifi-overlay.img
 }
 EOF
