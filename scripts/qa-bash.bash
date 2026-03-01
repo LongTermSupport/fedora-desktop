@@ -25,6 +25,8 @@ while IFS= read -r -d '' file; do
 done < <(find "$REPO_ROOT" -type f \( -name "*.sh" -o -name "*.bash" \) \
     ! -path "*/.git/*" \
     ! -path "*/.ansible/roles/*" \
+    ! -path "*/.claude/ccy/plugins/*" \
+    ! -path "*/.claude/ccy/file-history/*" \
     ! -path "*/node_modules/*" \
     ! -path "*/untracked/*" \
     -print0)
@@ -37,6 +39,8 @@ while IFS= read -r file; do
 done < <(find "$REPO_ROOT" -type f -executable \
     ! -path "*/.git/*" \
     ! -path "*/.ansible/roles/*" \
+    ! -path "*/.claude/ccy/plugins/*" \
+    ! -path "*/.claude/ccy/file-history/*" \
     ! -path "*/node_modules/*" \
     ! -path "*/untracked/*" \
     ! -name "*.sh" \

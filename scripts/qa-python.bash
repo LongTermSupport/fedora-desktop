@@ -31,6 +31,8 @@ done < <(find "$REPO_ROOT" -type f -name "*.py" \
     ! -path "*/.git/*" \
     ! -path "*/.ansible/roles/*" \
     ! -path "*/.claude/hooks-daemon/*" \
+    ! -path "*/.claude/ccy/plugins/*" \
+    ! -path "*/.claude/ccy/file-history/*" \
     ! -path "*/node_modules/*" \
     ! -path "*/untracked/*" \
     ! -path "*/__pycache__/*" \
@@ -46,6 +48,8 @@ done < <(find "$REPO_ROOT" -type f -executable \
     ! -path "*/.git/*" \
     ! -path "*/.ansible/roles/*" \
     ! -path "*/.claude/hooks-daemon/*" \
+    ! -path "*/.claude/ccy/plugins/*" \
+    ! -path "*/.claude/ccy/file-history/*" \
     ! -path "*/node_modules/*" \
     ! -path "*/untracked/*" \
     ! -name "*.py")
@@ -54,7 +58,7 @@ TOTAL=${#PY_FILES[@]}
 
 # Syntax check each file
 for file in "${PY_FILES[@]}"; do
-    rel_path="${file#$REPO_ROOT/}"
+    rel_path="${file#"$REPO_ROOT"/}"
     if err=$(python3 -m py_compile "$file" 2>&1); then
         jq -nc --arg f "$rel_path" '{"file":$f,"type":"python","status":"pass"}' >> "$TMP_RESULTS"
     else
