@@ -123,7 +123,24 @@ do_remove() {
 collect_wifi() {
     echo ""
     echo "--- WiFi for installer boot ---"
-    echo "The installer needs WiFi before it can start."
+
+    # Try to detect active WiFi connection from NetworkManager
+    local active_conn
+    active_conn=$(nmcli -t -f TYPE,NAME connection show --active 2>/dev/null \
+        | grep '^802-11-wireless:' | head -1 | cut -d: -f2)
+
+    if [[ -n "$active_conn" ]]; then
+        SETUP_WIFI_SSID=$(nmcli -t -f 802-11-wireless.ssid connection show "$active_conn" 2>/dev/null | cut -d: -f2)
+        SETUP_WIFI_PASS=$(nmcli -s -t -f 802-11-wireless-security.psk connection show "$active_conn" 2>/dev/null | cut -d: -f2)
+
+        if [[ -n "$SETUP_WIFI_SSID" ]] && [[ -n "$SETUP_WIFI_PASS" ]]; then
+            echo "Detected active WiFi: $SETUP_WIFI_SSID"
+            return
+        fi
+    fi
+
+    # Fallback: prompt interactively
+    echo "Could not detect active WiFi. Please enter credentials."
     echo ""
 
     while true; do
