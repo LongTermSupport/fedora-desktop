@@ -56,6 +56,11 @@ preflight_checks() {
     fi
 
     if [[ "$mode" == "setup" ]]; then
+        # Remove previous netinstall files before space check (only one should exist)
+        if [[ -d "$BOOT_DIR" ]]; then
+            rm -rf "$BOOT_DIR"
+        fi
+
         # Check /boot has enough space (~300MB needed)
         local avail_kb
         avail_kb=$(df --output=avail /boot | tail -1 | tr -d ' ')
@@ -127,12 +132,7 @@ do_setup() {
     boot_uuid=$(blkid -s UUID -o value "$boot_source" 2>/dev/null) || die "Cannot determine /boot UUID"
     echo "Detected /boot UUID: ${boot_uuid}"
 
-    # Clean up any previous install
-    if [[ -d "$BOOT_DIR" ]]; then
-        echo "Removing previous netinstall files..."
-        rm -rf "$BOOT_DIR"
-    fi
-
+    # Previous files already cleaned in preflight_checks
     mkdir -p "$BOOT_DIR"
 
     # Copy kickstart file to /boot so it's available without network
@@ -178,6 +178,11 @@ menuentry "Fedora ${target_version} Network Install" {
 EOF
 GRUBEOF
     chmod +x "$GRUB_ENTRY"
+
+    # Disable Fedora's menu_auto_hide so the GRUB menu is visible
+    echo "Disabling GRUB menu auto-hide..."
+    grub2-editenv - unset menu_auto_hide
+    grub2-editenv - unset menu_hide_ok
 
     echo "Regenerating GRUB config..."
     grub2-mkconfig -o /boot/grub2/grub.cfg 2>/dev/null
