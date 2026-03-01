@@ -1,4 +1,4 @@
-FROM node:20-slim
+FROM node:20-slim AS base
 
 # Accept build arg for Dockerfile hash (calculated by wrapper at build time)
 ARG DOCKERFILE_HASH="unknown"
@@ -10,7 +10,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.7"
+LABEL claude-yolo-version="2.8"
 LABEL claude-yolo-dockerfile-hash="${DOCKERFILE_HASH}"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 
@@ -158,3 +158,20 @@ ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]
 
 # Default command (will be overridden by wrapper)
 CMD ["claude", "--help"]
+
+# ============================================================================
+# Full image: base + pre-bundled LSP language servers
+# ============================================================================
+# Projects that need a leaner image with specific LSPs can use:
+#   FROM claude-yolo:base
+# and install only the servers they need (see CUSTOM-DOCKERFILES.txt).
+#
+# Pre-bundled servers: TypeScript/JS, Python (pyright), Bash, PHP (intelephense)
+# The entrypoint auto-enables ENABLE_LSP_TOOL in Claude Code settings.json.
+FROM base AS full
+RUN npm install -g \
+    typescript-language-server \
+    typescript \
+    pyright \
+    bash-language-server \
+    intelephense

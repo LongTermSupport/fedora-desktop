@@ -926,6 +926,10 @@ build_container_with_hash() {
     local image_name="$1"
     local dockerfile_dir="$2"
     local dockerfile_path="$dockerfile_dir/Dockerfile"
+    # Optional 4th arg: if set, also build this image name using --target base.
+    # Used to produce claude-yolo:base alongside claude-yolo:latest so project
+    # Dockerfiles can extend the lean base and add only the LSPs they need.
+    local base_image_name="${4:-}"
 
     # Collect optional extra flags as array (avoids unquoted expansion)
     local -a extra_flags=()
@@ -935,7 +939,17 @@ build_container_with_hash() {
     local dockerfile_hash
     dockerfile_hash=$(md5sum "$dockerfile_path" | cut -d' ' -f1 | cut -c1-16)
 
-    # Build with hash as build arg
+    # Build base stage first if requested (shares layers with full build below)
+    if [[ -n "$base_image_name" ]]; then
+        container_cmd build \
+            "${extra_flags[@]}" \
+            --build-arg DOCKERFILE_HASH="$dockerfile_hash" \
+            --target base \
+            -t "$base_image_name" \
+            "$dockerfile_dir"
+    fi
+
+    # Build with hash as build arg (builds final stage: full image with LSPs)
     container_cmd build \
         "${extra_flags[@]}" \
         --build-arg DOCKERFILE_HASH="$dockerfile_hash" \

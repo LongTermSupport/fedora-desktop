@@ -3,6 +3,18 @@
 # This template is used by 'ccy --custom' to create a custom container for your project.
 # The base image (claude-yolo:latest) already includes: git, gh, Node.js, npm, Claude Code
 #
+# CHOOSING A BASE IMAGE:
+# ┌─────────────────────┬──────────────────────────────────────────────────────┐
+# │ FROM claude-yolo:latest │ Full image with pre-bundled LSP servers:         │
+# │                         │   TypeScript, Python (pyright), Bash, PHP        │
+# │                         │   Good default for most projects.                │
+# ├─────────────────────────┼──────────────────────────────────────────────────┤
+# │ FROM claude-yolo:base   │ Lean image without LSP servers.                  │
+# │                         │   Use when you only need specific LSPs or none.  │
+# │                         │   Add only the servers your project needs:       │
+# │                         │   RUN npm install -g typescript-language-server  │
+# └─────────────────────────┴──────────────────────────────────────────────────┘
+#
 # INSTRUCTIONS FOR CLAUDE CODE:
 # When customizing this Dockerfile:
 # 1. Run commands to check what's already installed (e.g., which python3, npm list -g)
@@ -59,6 +71,22 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # Example: Set Python environment
 # ENV PYTHONUNBUFFERED=1
 # ENV PIP_NO_CACHE_DIR=1
+
+# ============================================================================
+# LSP Language Servers (only needed if using FROM claude-yolo:base)
+# ============================================================================
+# claude-yolo:latest already includes: TypeScript, Python, Bash, PHP LSP servers.
+# If you used FROM claude-yolo:base, add only what your project needs:
+
+# RUN npm install -g typescript-language-server typescript   # TypeScript/JavaScript
+# RUN npm install -g pyright                                 # Python
+# RUN npm install -g bash-language-server                    # Bash/Shell
+# RUN npm install -g intelephense                            # PHP
+# RUN npm install -g vscode-langservers-extracted            # HTML/CSS/JSON
+# RUN npm install -g @astrojs/language-server                # Astro
+# RUN npm install -g @vue/language-server                    # Vue
+# (Go: install gopls via go install golang.org/x/tools/gopls@latest)
+# (Rust: install rust-analyzer via rustup component add rust-analyzer)
 
 # ============================================================================
 # Global npm/node packages

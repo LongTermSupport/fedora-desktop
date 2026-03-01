@@ -9,12 +9,13 @@ TABLE OF CONTENTS
 -----------------
 1. Quick Start
 2. Understanding the Container Environment
-3. When to Use Custom Dockerfiles
-4. Creating a Custom Dockerfile
-5. Best Practices
-6. Common Examples
-7. Troubleshooting
-8. Git Tracking (IMPORTANT!)
+3. LSP Language Server Customization
+4. When to Use Custom Dockerfiles
+5. Creating a Custom Dockerfile
+6. Best Practices
+7. Common Examples
+8. Troubleshooting
+9. Git Tracking (IMPORTANT!)
 
 ================================================================================
 1. QUICK START
@@ -41,14 +42,22 @@ What is CCY?
   ccy = Claude Code in a container with --dangerously-skip-permissions (YOLO mode)
   Purpose: Safe rapid iteration without permission prompts, isolated from host
 
-Base Image: claude-yolo:latest
-------------------------------
-Pre-installed tools:
+Two Base Images Available
+-------------------------
+  claude-yolo:latest   Full image (recommended default)
+  claude-yolo:base     Lean image without LSP servers
+
+claude-yolo:latest pre-installed tools:
   • System: Debian slim, git, gh CLI, SSH, ripgrep, jq, yq, vim, tini
   • Languages: Node.js 20, npm, Python 3 (system version)
   • Claude Code: Latest version, auto-updated
+  • LSP servers: TypeScript/JS, Python (pyright), Bash, PHP (intelephense)
   • Browser: agent-browser CLI + Chromium (Wayland/X11 support)
   • User: root (inside container only, safe due to user namespace mapping)
+
+claude-yolo:base is identical but without the LSP servers.
+Use it when your project needs different LSPs or a smaller image.
+Both images are built and tagged automatically by ccy.
 
 Runtime Configuration
 --------------------
@@ -64,7 +73,72 @@ Network: Can auto-connect to Docker networks
 Isolation: Rootless Docker/Podman recommended
 
 ================================================================================
-3. WHEN TO USE CUSTOM DOCKERFILES
+3. LSP LANGUAGE SERVER CUSTOMIZATION
+================================================================================
+
+Claude Code has an LSP (Language Server Protocol) tool that provides semantic
+code intelligence: go-to-definition, find-references, type info, diagnostics,
+and symbol search across the entire project — much faster than grep.
+
+The LSP tool is automatically enabled (ENABLE_LSP_TOOL=1 in settings.json) when
+you use any CCY image. Language servers must be installed for it to work.
+
+Pre-bundled Servers (in claude-yolo:latest)
+-------------------------------------------
+  TypeScript/JS:  typescript-language-server + typescript
+  Python:         pyright
+  Bash/Shell:     bash-language-server
+  PHP:            intelephense
+
+These cover the most common languages. If your project only uses these, you
+don't need to do anything — LSP just works.
+
+Using Only Specific LSPs (claude-yolo:base)
+-------------------------------------------
+If you want a leaner image with only the servers your project needs:
+
+  FROM claude-yolo:base
+
+  # Add only what you need:
+  RUN npm install -g typescript-language-server typescript
+  RUN npm install -g pyright
+
+This avoids ~200-400MB of unused LSP packages.
+
+Adding Extra LSP Servers (claude-yolo:latest)
+----------------------------------------------
+If you need servers beyond the pre-bundled ones, extend the full image:
+
+  FROM claude-yolo:latest
+
+  # HTML/CSS/JSON (from VS Code):
+  RUN npm install -g vscode-langservers-extracted
+
+  # Vue:
+  RUN npm install -g @vue/language-server
+
+  # Astro:
+  RUN npm install -g @astrojs/language-server
+
+  # Go (requires go to be installed first):
+  RUN go install golang.org/x/tools/gopls@latest
+
+  # Rust (requires rustup):
+  RUN rustup component add rust-analyzer
+
+Plugin Enablement
+-----------------
+After starting ccy for the first time with LSP servers installed, you may
+need to enable the Claude Code LSP plugin:
+
+  claude plugin list                    # See available plugins
+  claude plugin enable <lsp-plugin>     # Enable it
+  /restart                              # Restart Claude Code
+
+This is a one-time step; plugin state persists in .claude/ccy/.
+
+================================================================================
+4. WHEN TO USE CUSTOM DOCKERFILES
 ================================================================================
 
 ✅ Use Custom Dockerfile When:
@@ -82,7 +156,7 @@ Isolation: Rootless Docker/Podman recommended
   • Tools already in base - Node.js 20, git, gh, Claude Code, agent-browser
 
 ================================================================================
-4. CREATING A CUSTOM DOCKERFILE
+5. CREATING A CUSTOM DOCKERFILE
 ================================================================================
 
 Method 1: AI-Guided Creation (Recommended)
@@ -123,7 +197,7 @@ File Location
   .claude/ccy/Dockerfile    (the only location - used by ccy)
 
 ================================================================================
-5. BEST PRACTICES
+6. BEST PRACTICES
 ================================================================================
 
 1. Use Cache Mounts for Performance
@@ -210,7 +284,7 @@ Only install what you actually need.
   RUN apt-get install -y python3.12 python3-pip
 
 ================================================================================
-6. COMMON EXAMPLES
+7. COMMON EXAMPLES
 ================================================================================
 
 Example 1: Python Project with PostgreSQL
@@ -291,7 +365,7 @@ Example 3: TypeScript with Docker-in-Docker
   RUN tsc --version && docker --version
 
 ================================================================================
-7. TROUBLESHOOTING
+8. TROUBLESHOOTING
 ================================================================================
 
 Container Doesn't Rebuild
@@ -356,7 +430,7 @@ Solution:
   ccy --custom  # (in a new project)
 
 ================================================================================
-8. GIT TRACKING (IMPORTANT!)
+9. GIT TRACKING (IMPORTANT!)
 ================================================================================
 
 What Should Be Tracked?

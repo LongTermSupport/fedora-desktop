@@ -117,6 +117,20 @@ fi
 ln -sf /workspace/.claude/ccy /root/.claude
 
 
+# Ensure Claude Code settings have LSP enabled (non-destructive: preserves existing settings)
+# Language servers are pre-installed in the image; this flag activates the LSP tool.
+SETTINGS_FILE="/root/.claude/settings.json"
+if [ -f "$SETTINGS_FILE" ]; then
+    # Merge ENABLE_LSP_TOOL into existing env block without overwriting other keys
+    UPDATED=$(jq '.env = ((.env // {}) + {"ENABLE_LSP_TOOL": "1"})' "$SETTINGS_FILE") \
+        && echo "$UPDATED" > "$SETTINGS_FILE"
+    echo "✓ LSP enabled in existing settings.json"
+else
+    printf '{\n  "env": {\n    "ENABLE_LSP_TOOL": "1"\n  }\n}\n' > "$SETTINGS_FILE"
+    chmod 600 "$SETTINGS_FILE"
+    echo "✓ Created settings.json with LSP enabled"
+fi
+
 # Create .claude.json if it doesn't exist (preserves existing state in project)
 if [ ! -f /root/.claude.json ]; then
     cat > /root/.claude.json <<'EOF'
