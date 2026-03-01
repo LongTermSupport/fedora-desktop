@@ -32,6 +32,7 @@
       ansible.builtin.command: podman info
       register: podman_info
       changed_when: false
+      failed_when: false
 
     - name: Show Podman Version
       ansible.builtin.debug:

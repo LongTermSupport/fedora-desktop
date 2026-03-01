@@ -39,10 +39,19 @@
         - /etc/subuid
         - /etc/subgid
 
+    - name: Check if user D-Bus session is available
+      ansible.builtin.command: systemctl --user status
+      become: true
+      become_user: "{{ user_login }}"
+      register: dbus_session_check
+      changed_when: false
+      failed_when: false
+
     - name: Run Rootless Setup
       ansible.builtin.command: dockerd-rootless-setuptool.sh install
       args:
         creates: /home/{{user_login}}/.config/systemd/user/docker.service
+      when: dbus_session_check.rc == 0
 
     - name: Enable and Start User Rootless Docker Systemd Service
       ansible.builtin.systemd:
@@ -50,3 +59,4 @@
         state: started
         enabled: true
         scope: user
+      when: dbus_session_check.rc == 0

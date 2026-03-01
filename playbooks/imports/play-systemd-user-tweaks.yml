@@ -182,3 +182,4 @@
       become: true
       become_user: "{{ user_login }}"
       listen: reload-systemd-user-daemon
+      ignore_errors: true  # Fails during headless firstboot (no D-Bus user session)
