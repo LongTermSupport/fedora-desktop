@@ -39,7 +39,7 @@ preflight_checks() {
     fi
 
     # Required commands
-    for cmd in curl grub2-mkconfig df; do
+    for cmd in curl grub2-mkconfig df cpio; do
         if ! command -v "$cmd" &>/dev/null; then
             die "Required command not found: $cmd"
         fi
@@ -120,10 +120,83 @@ do_remove() {
     echo "Done. Network install entry removed."
 }
 
+collect_wifi() {
+    echo ""
+    echo "--- WiFi for installer boot ---"
+    echo "The installer needs WiFi before it can start."
+    echo ""
+
+    while true; do
+        read -r -p "WiFi SSID: " SETUP_WIFI_SSID
+        if [[ -z "$SETUP_WIFI_SSID" ]]; then
+            echo "SSID cannot be empty."
+            continue
+        fi
+        read -r -s -p "WiFi password: " SETUP_WIFI_PASS
+        echo ""
+        if [[ -z "$SETUP_WIFI_PASS" ]]; then
+            echo "Password cannot be empty."
+            continue
+        fi
+        if [[ "$SETUP_WIFI_PASS" =~ [\\] ]]; then
+            echo "Password cannot contain backslashes (NetworkManager limitation)."
+            continue
+        fi
+        break
+    done
+}
+
+create_wifi_overlay() {
+    # Pack a .nmconnection file into a cpio initrd overlay so dracut
+    # auto-connects WiFi before Anaconda needs network for inst.repo
+    local overlay_dir
+    overlay_dir=$(mktemp -d)
+    local nm_dir="${overlay_dir}/etc/NetworkManager/system-connections"
+    mkdir -p "$nm_dir"
+
+    local conn_file="${nm_dir}/installer-wifi.nmconnection"
+    cat > "$conn_file" << 'NMEOF'
+[connection]
+id=installer-wifi
+type=wifi
+autoconnect=true
+autoconnect-priority=100
+
+[wifi]
+NMEOF
+    printf 'ssid=%s\n' "$SETUP_WIFI_SSID" >> "$conn_file"
+    cat >> "$conn_file" << 'NMEOF2'
+mode=infrastructure
+
+[wifi-security]
+key-mgmt=wpa-psk
+NMEOF2
+    printf 'psk=%s\n' "$SETUP_WIFI_PASS" >> "$conn_file"
+    cat >> "$conn_file" << 'NMEOF3'
+
+[ipv4]
+method=auto
+
+[ipv6]
+method=auto
+NMEOF3
+    chmod 600 "$conn_file"
+
+    # Create cpio archive (newc format, gzipped — same as initrd)
+    (cd "$overlay_dir" && find . -print0 | cpio --null -o -H newc 2>/dev/null) \
+        | gzip > "${BOOT_DIR}/wifi-overlay.img"
+    rm -rf "$overlay_dir"
+    echo "  WiFi overlay created for '$SETUP_WIFI_SSID'"
+}
+
 do_setup() {
     local target_version="$1"
     local vmlinuz_url="${BASE_URL}/${target_version}/Everything/x86_64/os/images/pxeboot/vmlinuz"
     local initrd_url="${BASE_URL}/${target_version}/Everything/x86_64/os/images/pxeboot/initrd.img"
+    local repo_url="${BASE_URL}/${target_version}/Everything/x86_64/os/"
+
+    # Collect WiFi credentials — needed for initrd overlay so dracut has network
+    collect_wifi
 
     # Detect /boot partition UUID for inst.ks= (Anaconda needs hd:UUID= to find local files)
     local boot_source boot_uuid
@@ -143,6 +216,10 @@ do_setup() {
     # Update version-specific values in the copied kickstart
     sed -i "s/^SETUP_BRANCH=.*/SETUP_BRANCH=\"F${target_version}\"/" "${BOOT_DIR}/ks.cfg"
     sed -i "s|releases/[0-9]*/Everything|releases/${target_version}/Everything|" "${BOOT_DIR}/ks.cfg"
+
+    # Create WiFi initrd overlay — dracut merges this so NM auto-connects on boot
+    echo "Creating WiFi initrd overlay..."
+    create_wifi_overlay
 
     echo "Downloading Fedora ${target_version} kernel and initrd to ${BOOT_DIR}..."
     echo "  vmlinuz..."
@@ -172,8 +249,8 @@ do_setup() {
 #!/bin/bash
 cat << 'EOF'
 menuentry "Fedora ${target_version} Network Install" {
-    linux /fedora-netinstall/vmlinuz inst.ks=hd:UUID=${boot_uuid}:/fedora-netinstall/ks.cfg inst.text
-    initrd /fedora-netinstall/initrd.img
+    linux /fedora-netinstall/vmlinuz inst.repo=${repo_url} inst.ks=hd:UUID=${boot_uuid}:/fedora-netinstall/ks.cfg inst.text
+    initrd /fedora-netinstall/initrd.img /fedora-netinstall/wifi-overlay.img
 }
 EOF
 GRUBEOF
