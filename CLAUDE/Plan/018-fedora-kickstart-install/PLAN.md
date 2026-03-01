@@ -1,6 +1,6 @@
 # Plan 018: Fedora Kickstart Automated Install
 
-> Status: DRAFT
+> Status: In Progress
 > Created: 2026-03-01
 > Branch: F43
 > Target: Fedora 43
@@ -56,14 +56,13 @@ Detailed research supporting this plan:
 
 ## File Structure
 
-All new files go in `fedora-install/`:
+All files in `fedora-install/`:
 
 ```
 fedora-install/
-├── setup-netinstall-boot.bash    # Already exists — sets up GRUB network boot entry
-├── ks.cfg                        # NEW — Main kickstart file
-├── build-iso.bash                # NEW — Embed ks.cfg into Fedora ISO via mkksiso
-└── firstboot-setup.bash          # NEW — Firstboot script (deployed by %post to installed system)
+├── setup-netinstall-boot.bash    # Creates ISO partition, downloads netinstall ISO, configures GRUB
+├── ks.cfg                        # Main kickstart file (TUI %pre, partitioning, firstboot service)
+└── build-iso.bash                # FUTURE — Embed ks.cfg into Fedora ISO via mkksiso for USB boot
 ```
 
 ## Implementation Steps
@@ -253,17 +252,39 @@ sudo mkksiso --ks fedora-install/ks.cfg <input-iso> <output-iso>
 
 This creates a self-contained bootable ISO where kickstart is automatically applied.
 
-### Step 4: Update `fedora-install/setup-netinstall-boot.bash`
+### Step 4: Rewrite `fedora-install/setup-netinstall-boot.bash` (ISO partition approach)
 
-Add `inst.ks=` parameter to the GRUB entry so the kickstart file is applied when booting the network install. The kickstart needs to be served — options:
+**Problem**: The original PXE approach downloaded vmlinuz + initrd from the netinstall mirror and created a WiFi initrd overlay. This failed because the PXE initrd lacks Intel iwlwifi drivers — those live in install.img (stage2, ~820MB), which itself must be downloaded over WiFi. Chicken-and-egg.
 
-- **Option A**: Serve from a local HTTP server (`python3 -m http.server`)
-- **Option B**: Serve from GitHub raw URL (public repo, so this works)
-- **Option C**: Place on a small FAT partition referenced via `inst.ks=hd:LABEL=...`
+**Solution**: Create a 2GB ext4 partition (FDINST) by shrinking the LUKS container from the end, download the full Fedora netinstall ISO onto it, and boot via GRUB with `inst.stage2=hd:LABEL=FDINST:/fedora-install.iso`. Anaconda loads stage2 from local disk (no network needed during dracut). WiFi connects in %pre for package downloads.
 
-For the network install flow, Option B is simplest:
+**Setup flow**:
+1. Preflight checks (root, commands, GRUB, LUKS exists, Btrfs >= 5GB free)
+2. Read version from `vars/fedora-version.yml`, construct ISO URL, verify with HTTP HEAD
+3. Detect disk layout: root dm-crypt → LUKS backing partition → parent disk
+4. Find or create FDINST partition (shrink Btrfs→LUKS→partition, create p4, mkfs.ext4)
+5. Download ISO with `curl -z` freshness check, verify >= 100MB
+6. Loop-mount ISO, extract vmlinuz + initrd.img to `/boot/fedora-netinstall/`
+7. Copy ks.cfg with version substitution
+8. Create GRUB entry: `inst.stage2=hd:LABEL=FDINST:/fedora-install.iso inst.ks=hd:UUID=<boot>:/fedora-netinstall/ks.cfg`
+9. Disable GRUB auto-hide, regenerate GRUB config, unmount FDINST
+
+**Remove flow** (reverse): rm boot files → rm GRUB entry → parted rm p4 → grow p3 100% → cryptsetup resize → btrfs resize max → regenerate GRUB
+
+**Partition operations** (shrink from END — safe, no data movement):
+- Create: btrfs resize -2g → cryptsetup resize --size → parted resizepart → parted mkpart → mkfs.ext4
+- Remove: parted rm → parted resizepart 100% → cryptsetup resize (no --size = fill) → btrfs resize max
+- Each step has rollback on failure
+
+**File layout after setup**:
 ```
-inst.ks=https://raw.githubusercontent.com/LongTermSupport/fedora-desktop/F43/fedora-install/ks.cfg
+/boot/fedora-netinstall/        (on /boot, ext4)
+├── vmlinuz      (17MB)
+├── initrd.img   (252MB)
+└── ks.cfg       (20KB)
+
+/mnt/fedora-install/            (FDINST partition, 2GB ext4)
+└── fedora-install.iso  (~800MB)
 ```
 
 ### Step 5: Handle Ansible Playbook Compatibility
@@ -338,8 +359,15 @@ Some playbooks in the main chain need modifications or guards for automated cont
 
 ## Out of Scope (Future Work)
 
-- Dedicated ISO boot partition (discussed earlier — 4GB partition for ISO storage for repeated reinstalls)
 - Multiple kickstart profiles (e.g., minimal vs full)
-- WiFi auto-configuration during install
 - Private repo support (PAT/deploy key)
 - Multi-disk / RAID configurations
+- USB ISO embedding via mkksiso (build-iso.bash)
+
+## Notes & Updates
+
+### 2026-03-01
+- Rewrote `setup-netinstall-boot.bash` from PXE download to ISO partition approach
+- PXE initrd lacks iwlwifi drivers; netinstall ISO's stage2 (install.img) has full driver support
+- ISO partition approach eliminates chicken-and-egg problem: stage2 loads from disk, WiFi connects later in %pre
+- Updated ks.cfg comments (3 lines) to reference ISO approach instead of initrd overlay
