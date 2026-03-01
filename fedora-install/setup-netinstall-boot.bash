@@ -124,7 +124,6 @@ do_setup() {
     local target_version="$1"
     local vmlinuz_url="${BASE_URL}/${target_version}/Everything/x86_64/os/images/pxeboot/vmlinuz"
     local initrd_url="${BASE_URL}/${target_version}/Everything/x86_64/os/images/pxeboot/initrd.img"
-    local repo_url="${BASE_URL}/${target_version}/Everything/x86_64/os/"
 
     # Detect /boot partition UUID for inst.ks= (Anaconda needs hd:UUID= to find local files)
     local boot_source boot_uuid
@@ -141,8 +140,9 @@ do_setup() {
     fi
     echo "Copying kickstart file..."
     cp "$KS_SOURCE" "${BOOT_DIR}/ks.cfg"
-    # Update SETUP_BRANCH in the copied kickstart to match the target version
+    # Update version-specific values in the copied kickstart
     sed -i "s/^SETUP_BRANCH=.*/SETUP_BRANCH=\"F${target_version}\"/" "${BOOT_DIR}/ks.cfg"
+    sed -i "s|releases/[0-9]*/Everything|releases/${target_version}/Everything|" "${BOOT_DIR}/ks.cfg"
 
     echo "Downloading Fedora ${target_version} kernel and initrd to ${BOOT_DIR}..."
     echo "  vmlinuz..."
@@ -172,7 +172,7 @@ do_setup() {
 #!/bin/bash
 cat << 'EOF'
 menuentry "Fedora ${target_version} Network Install" {
-    linux /fedora-netinstall/vmlinuz inst.repo=${repo_url} inst.ks=hd:UUID=${boot_uuid}:/fedora-netinstall/ks.cfg inst.text
+    linux /fedora-netinstall/vmlinuz inst.ks=hd:UUID=${boot_uuid}:/fedora-netinstall/ks.cfg inst.text
     initrd /fedora-netinstall/initrd.img
 }
 EOF
