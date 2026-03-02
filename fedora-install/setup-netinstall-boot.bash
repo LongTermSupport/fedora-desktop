@@ -33,7 +33,7 @@ BASE_URL="https://download.fedoraproject.org/pub/fedora/linux/releases"
 FDINST_LABEL="FDINST"
 FDINST_MOUNT="/mnt/fedora-install"
 NETINSTALL_PREFIX="Fedora-Everything-netinst-x86_64"
-WORKSTATION_PREFIX="Fedora-Workstation-Live-x86_64"
+WORKSTATION_PREFIX="Fedora-Workstation-Live"
 # 4 GiB partition — fits netinstall.iso (~1.1GB) + squashfs.img (~1.8GB)
 SHRINK_SIZE_GIB=4
 SHRINK_SIZE_SECTORS=8388608  # 4 * 1024 * 1024 * 1024 / 512
@@ -71,6 +71,8 @@ get_version_from_file() {
 find_root_dm_path() {
     local root_source
     root_source=$(findmnt -no SOURCE / 2>/dev/null) || die "Cannot determine root filesystem device"
+    # Strip Btrfs subvolume suffix (e.g. /dev/mapper/luks-xxx[/root] → /dev/mapper/luks-xxx)
+    root_source="${root_source%%\[*}"
     if [[ ! "$root_source" =~ ^/dev/mapper/ ]]; then
         die "Root filesystem is not on device-mapper (LUKS required). Got: $root_source"
     fi
@@ -97,7 +99,8 @@ find_luks_backing_partition() {
 find_parent_disk() {
     local partition="$1"
     local parent
-    parent=$(lsblk -no PKNAME "$partition" 2>/dev/null | head -1)
+    # lsblk may return multiple lines (e.g. partition then disk); take the last
+    parent=$(lsblk -no PKNAME "$partition" 2>/dev/null | tail -1)
     if [[ -z "$parent" ]]; then
         die "Cannot determine parent disk for: $partition"
     fi
@@ -200,10 +203,30 @@ preflight_checks() {
 # --- partition operations ---
 
 # Shrink Btrfs→LUKS→partition from the end, create new FDINST partition in freed space
+prompt_luks_passphrase() {
+    local dm_name="$1"
+    local passphrase
+    read -r -s -p "Enter LUKS passphrase for ${dm_name}: " passphrase
+    echo "" >&2
+    # Verify the passphrase works
+    if ! printf '%s' "$passphrase" | cryptsetup open --test-passphrase "/dev/mapper/${dm_name}" --type luks2 2>/dev/null; then
+        # --test-passphrase on dm path may not work; try backing device
+        local backing
+        backing=$(cryptsetup status "$dm_name" 2>/dev/null | awk '/device:/{print $2}')
+        if [[ -n "$backing" ]]; then
+            if ! printf '%s' "$passphrase" | cryptsetup open --test-passphrase "$backing" 2>/dev/null; then
+                die "Invalid LUKS passphrase"
+            fi
+        fi
+    fi
+    printf '%s' "$passphrase"
+}
+
 create_fdinst_partition() {
     local disk="$1"
     local luks_part_num="$2"
     local dm_name="$3"
+    local luks_pass="$4"
     local new_part_num=$(( luks_part_num + 1 ))
 
     # Verify no partition exists after the LUKS partition
@@ -236,12 +259,12 @@ create_fdinst_partition() {
         die "Failed to shrink Btrfs filesystem"
     fi
 
-    # Step 2: Shrink LUKS dm device
+    # Step 2: Shrink LUKS dm device (requires passphrase)
     echo "  Step 2/5: Shrinking LUKS container..."
     local current_dm_sectors
     current_dm_sectors=$(blockdev --getsz "/dev/mapper/${dm_name}")
     local new_dm_sectors=$(( current_dm_sectors - SHRINK_SIZE_SECTORS ))
-    if ! cryptsetup resize "$dm_name" --size "$new_dm_sectors"; then
+    if ! printf '%s' "$luks_pass" | cryptsetup resize "$dm_name" --size "$new_dm_sectors"; then
         echo "  ROLLBACK: Restoring Btrfs size..."
         btrfs filesystem resize max / 2>/dev/null || true
         die "Failed to shrink LUKS container"
@@ -251,7 +274,7 @@ create_fdinst_partition() {
     echo "  Step 3/5: Shrinking partition ${luks_part_num}..."
     if ! parted -s "$disk" resizepart "$luks_part_num" "${new_end}s"; then
         echo "  ROLLBACK: Restoring LUKS and Btrfs..."
-        cryptsetup resize "$dm_name" 2>/dev/null || true
+        printf '%s' "$luks_pass" | cryptsetup resize "$dm_name" 2>/dev/null || true
         btrfs filesystem resize max / 2>/dev/null || true
         die "Failed to shrink partition ${luks_part_num}"
     fi
@@ -261,7 +284,7 @@ create_fdinst_partition() {
     if ! parted -s "$disk" mkpart "$FDINST_LABEL" ext4 "${new_start}s" 100%; then
         echo "  ROLLBACK: Restoring partition, LUKS, and Btrfs..."
         parted -s "$disk" resizepart "$luks_part_num" "${old_end}s" 2>/dev/null || true
-        cryptsetup resize "$dm_name" 2>/dev/null || true
+        printf '%s' "$luks_pass" | cryptsetup resize "$dm_name" 2>/dev/null || true
         btrfs filesystem resize max / 2>/dev/null || true
         die "Failed to create partition ${new_part_num}"
     fi
@@ -277,7 +300,7 @@ create_fdinst_partition() {
         parted -s "$disk" rm "$new_part_num" 2>/dev/null || true
         partprobe "$disk" 2>/dev/null || true
         parted -s "$disk" resizepart "$luks_part_num" "${old_end}s" 2>/dev/null || true
-        cryptsetup resize "$dm_name" 2>/dev/null || true
+        printf '%s' "$luks_pass" | cryptsetup resize "$dm_name" 2>/dev/null || true
         btrfs filesystem resize max / 2>/dev/null || true
         die "Failed to format ${new_part_dev}"
     fi
@@ -291,6 +314,7 @@ remove_fdinst_partition() {
     local disk="$2"
     local luks_part_num="$3"
     local dm_name="$4"
+    local luks_pass="$5"
 
     local fdinst_part_num
     fdinst_part_num=$(find_partition_number "$fdinst_dev")
@@ -315,9 +339,9 @@ remove_fdinst_partition() {
     parted -s "$disk" resizepart "$luks_part_num" 100%
     partprobe "$disk"
 
-    # Step 3: Grow LUKS dm device to fill partition (no --size = fill)
+    # Step 3: Grow LUKS dm device to fill partition (requires passphrase)
     echo "  Step 3/4: Growing LUKS container..."
-    cryptsetup resize "$dm_name"
+    printf '%s' "$luks_pass" | cryptsetup resize "$dm_name"
 
     # Step 4: Grow Btrfs to fill LUKS
     echo "  Step 4/4: Growing Btrfs filesystem..."
@@ -370,8 +394,9 @@ discover_workstation_url() {
     echo "Discovering Workstation Live ISO for Fedora ${version}..." >&2
 
     local filename
+    # Workstation Live naming: Fedora-Workstation-Live-43-1.6.x86_64.iso
     filename=$(curl -sfL --max-time 30 "$dir_url" 2>/dev/null \
-        | grep -oP "${WORKSTATION_PREFIX}-${version}-[0-9.]+\.iso" \
+        | grep -oP "${WORKSTATION_PREFIX}-${version}-[0-9.]+\.x86_64\.iso" \
         | head -1)
 
     if [[ -z "$filename" ]]; then
@@ -540,7 +565,9 @@ do_setup() {
         echo "FDINST partition found: $fdinst_dev (skipping creation)"
     else
         echo "FDINST partition not found. Creating..."
-        create_fdinst_partition "$disk" "$luks_part_num" "$dm_name"
+        local luks_pass
+        luks_pass=$(prompt_luks_passphrase "$dm_name")
+        create_fdinst_partition "$disk" "$luks_part_num" "$dm_name" "$luks_pass"
         fdinst_dev=$(find_fdinst_partition)
         if [[ -z "$fdinst_dev" ]]; then
             die "FDINST partition was created but cannot be found by label"
@@ -655,7 +682,9 @@ do_remove() {
         disk=$(find_parent_disk "$luks_part")
         luks_part_num=$(find_partition_number "$luks_part")
 
-        remove_fdinst_partition "$fdinst_dev" "$disk" "$luks_part_num" "$dm_name"
+        local luks_pass
+        luks_pass=$(prompt_luks_passphrase "$dm_name")
+        remove_fdinst_partition "$fdinst_dev" "$disk" "$luks_part_num" "$dm_name" "$luks_pass"
     else
         echo "  FDINST partition not found (already clean)"
     fi
