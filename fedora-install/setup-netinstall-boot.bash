@@ -272,7 +272,7 @@ create_fdinst_partition() {
 
     # Step 3: Shrink partition (outermost layer)
     echo "  Step 3/5: Shrinking partition ${luks_part_num}..."
-    if ! parted -s "$disk" resizepart "$luks_part_num" "${new_end}s"; then
+    if ! parted ---pretend-input-tty -s "$disk" resizepart "$luks_part_num" "${new_end}s" Yes; then
         echo "  ROLLBACK: Restoring LUKS and Btrfs..."
         printf '%s' "$luks_pass" | cryptsetup resize "$dm_name" 2>/dev/null || true
         btrfs filesystem resize max / 2>/dev/null || true
