@@ -93,6 +93,23 @@ error(){
   echo -e "${RED}${CROSS} $1${NC}"
 }
 
+wait_for_network(){
+  info "Checking network connectivity..."
+  local attempts=0
+  local max_attempts=30
+  while ! curl --silent --show-error --max-time 5 --output /dev/null https://github.com; do
+    attempts=$((attempts + 1))
+    if [[ $attempts -ge $max_attempts ]]; then
+      echo -e "${RED}${CROSS} ERROR: No network connectivity after $max_attempts attempts${NC}" >&2
+      echo -e "${YELLOW}${INFO} Please check your network connection and re-run this script${NC}" >&2
+      exit 1
+    fi
+    echo -e "${YELLOW}${WARN} Network not ready (attempt $attempts/$max_attempts) — retrying in 2s...${NC}"
+    sleep 2
+  done
+  success "Network connectivity confirmed"
+}
+
 confirm(){
   local msg="$1"
   local yn=""
@@ -343,6 +360,8 @@ promptForValue(){
 
 echo -e "\n${MAGENTA}${BOLD}Installation Process${NC}"
 echo -e "${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+wait_for_network
+
 echo -e "\n${YELLOW}${INFO} You will be asked for your sudo password${NC}\n"
 title "Installing System Dependencies"
 info "Installing: git, python3, python3-libdnf5, grubby, jq, openssl, pipx"
@@ -827,6 +846,14 @@ fi
 echo -e "\n${GREEN}${BOLD}╔══════════════════════════════════════════════════════════════╗${NC}"
 echo -e "${GREEN}${BOLD}║                    ALL DONE!                                ║${NC}"
 echo -e "${GREEN}${BOLD}╚══════════════════════════════════════════════════════════════╝${NC}\n"
+
+echo -e "${CYAN}${BOLD}Optional next steps${NC} (run after reboot):"
+echo -e "  ${ARROW} GitHub multi-account setup (SSH keys + browser auth):"
+echo -e "    ${BOLD}cd ~/Projects/fedora-desktop${NC}"
+echo -e "    ${BOLD}./playbooks/imports/optional/common/play-github-cli-multi.yml${NC}"
+echo -e "  ${ARROW} Python development environment (pyenv + pyenv versions):"
+echo -e "    ${BOLD}./playbooks/imports/optional/common/play-python.yml${NC}"
+echo
 
 # Mark setup complete so the GNOME autostart doesn't re-fire after reboot
 mkdir -p ~/.local/state
