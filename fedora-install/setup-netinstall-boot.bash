@@ -773,6 +773,82 @@ GRUBEOF
     # Unmount FDINST
     unmount_fdinst
 
+    # Verify everything is actually readable before declaring success
+    echo "Verifying setup..."
+    local errors=0
+
+    # Re-mount read-only to verify FDINST files
+    mount_fdinst "$fdinst_dev"
+
+    local netinstall_path="${FDINST_MOUNT}/${netinstall_name}"
+    local squashfs_path="${FDINST_MOUNT}/${squashfs_name}"
+
+    # Check netinstall ISO: exists, readable, minimum size, valid ISO magic
+    if [[ ! -f "$netinstall_path" ]]; then
+        echo "  FAIL: ${netinstall_name} not found on FDINST" >&2; (( errors++ )) || true
+    elif ! stat -c%s "$netinstall_path" >/dev/null 2>&1; then
+        echo "  FAIL: ${netinstall_name} inode unreadable (filesystem corruption)" >&2; (( errors++ )) || true
+    else
+        local iso_size iso_type
+        iso_size=$(stat -c%s "$netinstall_path")
+        if [[ "$iso_size" -lt "$MIN_ISO_SIZE" ]]; then
+            echo "  FAIL: ${netinstall_name} too small (${iso_size} bytes)" >&2; (( errors++ )) || true
+        else
+            iso_type=$(file "$netinstall_path" 2>/dev/null)
+            if ! echo "$iso_type" | grep -qi "ISO 9660"; then
+                echo "  FAIL: ${netinstall_name} not a valid ISO (file says: ${iso_type})" >&2; (( errors++ )) || true
+            else
+                echo "  OK: ${netinstall_name} ($(( iso_size / 1024 / 1024 ))MB, valid ISO)"
+            fi
+        fi
+    fi
+
+    # Check squashfs: exists, readable, minimum size, valid squashfs magic
+    if [[ ! -f "$squashfs_path" ]]; then
+        echo "  FAIL: ${squashfs_name} not found on FDINST" >&2; (( errors++ )) || true
+    elif ! stat -c%s "$squashfs_path" >/dev/null 2>&1; then
+        echo "  FAIL: ${squashfs_name} inode unreadable (filesystem corruption)" >&2; (( errors++ )) || true
+    else
+        local sq_size sq_type
+        sq_size=$(stat -c%s "$squashfs_path")
+        if [[ "$sq_size" -lt "$MIN_SQUASHFS_SIZE" ]]; then
+            echo "  FAIL: ${squashfs_name} too small (${sq_size} bytes)" >&2; (( errors++ )) || true
+        else
+            sq_type=$(file "$squashfs_path" 2>/dev/null)
+            # Accept squashfs or erofs — Fedora switched Live images from squashfs to erofs
+            if ! echo "$sq_type" | grep -qiE "(squashfs|erofs)"; then
+                echo "  FAIL: ${squashfs_name} not a valid filesystem image (file says: ${sq_type})" >&2; (( errors++ )) || true
+            else
+                echo "  OK: ${squashfs_name} ($(( sq_size / 1024 / 1024 ))MB, valid: ${sq_type%%,*})"
+            fi
+        fi
+    fi
+
+    unmount_fdinst
+
+    # Check boot files
+    for f in vmlinuz initrd.img ks.cfg; do
+        local path="${BOOT_DIR}/${f}"
+        if [[ ! -s "$path" ]]; then
+            echo "  FAIL: ${path} missing or empty" >&2; (( errors++ )) || true
+        else
+            echo "  OK: ${path} ($(( $(stat -c%s "$path") / 1024 ))KB)"
+        fi
+    done
+
+    # Check GRUB entry exists and references the right files
+    if [[ ! -x "$GRUB_ENTRY" ]]; then
+        echo "  FAIL: GRUB entry missing: ${GRUB_ENTRY}" >&2; (( errors++ )) || true
+    elif ! grep -q "$netinstall_name" "$GRUB_ENTRY"; then
+        echo "  FAIL: GRUB entry does not reference ${netinstall_name}" >&2; (( errors++ )) || true
+    else
+        echo "  OK: GRUB entry references correct ISO"
+    fi
+
+    if [[ "$errors" -gt 0 ]]; then
+        die "Setup verification failed with ${errors} error(s). Do not reboot — fix above issues first."
+    fi
+
     echo ""
     echo "=== Setup complete ==="
     echo "Fedora ${target_version} install boot entry is ready."
