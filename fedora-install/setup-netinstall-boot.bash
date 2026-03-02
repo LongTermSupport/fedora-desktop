@@ -46,7 +46,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 KS_SOURCE="${SCRIPT_DIR}/ks.cfg"
 VERSION_FILE="${REPO_DIR}/vars/fedora-version.yml"
-DRY_RUN=0  # Set to 1 by --dry-run: skips interactive prompts, fails if they'd be needed
+NONINTERACTIVE=0  # Set to 1 by --non-interactive: dies if any interactive prompt would be needed
 
 # --- helpers ---
 
@@ -669,8 +669,8 @@ do_setup() {
     if [[ -n "$fdinst_dev" ]]; then
         echo "FDINST partition found: $fdinst_dev (skipping creation)"
     else
-        if [[ "$DRY_RUN" -eq 1 ]]; then
-            die "FDINST partition not found. Cannot create in dry-run mode (requires LUKS passphrase). Run without --dry-run first."
+        if [[ "$NONINTERACTIVE" -eq 1 ]]; then
+            die "FDINST partition not found. Creation requires LUKS passphrase (interactive). Run without --non-interactive first."
         fi
         echo "FDINST partition not found. Creating..."
         local luks_pass
@@ -874,19 +874,19 @@ case "${1:-}" in
         udevadm settle 2>/dev/null || true
         echo "  Clean. Re-run without --clean to repopulate."
         ;;
-    --dry-run|-d)
-        DRY_RUN=1
+    --non-interactive|-n)
+        NONINTERACTIVE=1
         preflight_checks "setup"
 
         TARGET_VERSION=$(get_version_from_file)
-        echo "Target version: Fedora ${TARGET_VERSION} (dry-run: non-interactive)"
+        echo "Target version: Fedora ${TARGET_VERSION} (non-interactive)"
         echo ""
 
         do_setup "$TARGET_VERSION"
         ;;
     --help|-h)
         echo "Usage: sudo bash $0"
-        echo "       sudo bash $0 --dry-run"
+        echo "       sudo bash $0 --non-interactive"
         echo "       sudo bash $0 --clean"
         echo "       sudo bash $0 --remove"
         echo ""
@@ -895,10 +895,10 @@ case "${1:-}" in
         echo "extracts boot files to /boot, and configures GRUB."
         echo "No USB key or PXE server needed."
         echo ""
-        echo "  --dry-run Non-interactive: skips LUKS passphrase prompts."
-        echo "            Fails if FDINST partition doesn't exist yet."
-        echo "            Use when iterating on the script without user input."
-        echo "  --clean   Wipe all files on FDINST partition (keep partition)"
+        echo "  -n, --non-interactive"
+        echo "            Dies if any step would require interactive input"
+        echo "            (e.g. LUKS passphrase). FDINST partition must exist."
+        echo "  --clean   Reformat FDINST partition (keep partition, wipe files)"
         echo "  --remove  Remove FDINST partition and reclaim disk space"
         echo ""
         echo "Uses the version from vars/fedora-version.yml."
