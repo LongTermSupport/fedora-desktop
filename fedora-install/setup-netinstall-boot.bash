@@ -146,7 +146,7 @@ preflight_checks() {
 
     local required_cmds=(curl grub2-mkconfig blkid lsblk findmnt)
     if [[ "$mode" == "setup" ]]; then
-        required_cmds+=(parted mkfs.ext4 cryptsetup btrfs mount umount partprobe blockdev)
+        required_cmds+=(parted mkfs.ext4 cryptsetup btrfs mount umount partprobe blockdev fuser)
     elif [[ "$mode" == "remove" ]]; then
         required_cmds+=(parted cryptsetup btrfs partprobe blockdev)
     fi
@@ -356,14 +356,27 @@ remove_fdinst_partition() {
 mount_fdinst() {
     local fdinst_dev="$1"
     mkdir -p "$FDINST_MOUNT"
-    if ! mountpoint -q "$FDINST_MOUNT" 2>/dev/null; then
-        mount "$fdinst_dev" "$FDINST_MOUNT"
+    # Always force a clean mount — stale mounts cause deleted files to hold space
+    if mountpoint -q "$FDINST_MOUNT" 2>/dev/null; then
+        unmount_fdinst
     fi
+    mount "$fdinst_dev" "$FDINST_MOUNT"
 }
 
 unmount_fdinst() {
-    if mountpoint -q "$FDINST_MOUNT" 2>/dev/null; then
-        umount "$FDINST_MOUNT"
+    if ! mountpoint -q "$FDINST_MOUNT" 2>/dev/null; then
+        return
+    fi
+    sync
+    if umount "$FDINST_MOUNT" 2>/dev/null; then
+        return
+    fi
+    # Kill processes holding the mount, then retry
+    echo "  FDINST busy — killing processes using ${FDINST_MOUNT}..."
+    fuser -mk "$FDINST_MOUNT" 2>/dev/null || true
+    sleep 1
+    if ! umount "$FDINST_MOUNT" 2>/dev/null; then
+        die "Cannot unmount ${FDINST_MOUNT}. Check 'fuser -v ${FDINST_MOUNT}' and retry."
     fi
 }
 
@@ -575,7 +588,7 @@ do_setup() {
         fi
     fi
 
-    # Mount FDINST partition
+    # Mount FDINST partition (forces clean remount to reclaim space from stale handles)
     mount_fdinst "$fdinst_dev"
 
     # Versioned filenames — ensures version change (e.g. F43→F44) replaces stale files
@@ -589,6 +602,17 @@ do_setup() {
     for old in "${FDINST_MOUNT}"/netinstall*.iso "${FDINST_MOUNT}"/fedora-install.iso "${FDINST_MOUNT}"/workstation*.iso; do
         [[ -f "$old" ]] && [[ "$(basename "$old")" != "$netinstall_name" ]] && rm -f "$old" && echo "Removed stale: $(basename "$old")"
     done
+
+    # Fail fast: verify FDINST has enough space for final files (~3.1GB)
+    # squashfs (~2GB) + netinstall (~1.1GB) — existing files are excluded from the check
+    local fdinst_avail_kb needed_kb=0
+    fdinst_avail_kb=$(df --output=avail "$FDINST_MOUNT" | tail -1 | tr -d ' ')
+    [[ ! -f "${FDINST_MOUNT}/${squashfs_name}" ]] && needed_kb=$(( needed_kb + 2200 * 1024 ))
+    [[ ! -f "${FDINST_MOUNT}/${netinstall_name}" ]] && needed_kb=$(( needed_kb + 1200 * 1024 ))
+    if [[ "$needed_kb" -gt 0 ]] && [[ "$fdinst_avail_kb" -lt "$needed_kb" ]]; then
+        die "FDINST has $(( fdinst_avail_kb / 1024 ))MB free, need ~$(( needed_kb / 1024 ))MB. Run: sudo bash $0 --clean"
+    fi
+    echo "FDINST free: $(( fdinst_avail_kb / 1024 ))MB"
 
     # squashfs is extracted from the Workstation Live ISO. The ISO is large
     # (~2.6GB) so we download it to ~/Downloads to avoid filling FDINST.
