@@ -396,17 +396,18 @@ else
 fi
 
 title "Setting up Ansible Environment"
-info "Installing Ansible and dependencies"
-pipx install --include-deps ansible > /dev/null 2>&1 || success "Ansible already installed"
-pipx inject ansible jmespath > /dev/null 2>&1 || success "jmespath already configured"
-pipx inject ansible passlib > /dev/null 2>&1 || success "passlib already configured"
-pipx inject ansible ansible-lint > /dev/null 2>&1 || success "ansible-lint already configured"
-if [ ! -L ~/.local/bin/ansible-lint ]; then
-    ln -s ~/.local/share/pipx/venvs/ansible/bin/ansible-lint ~/.local/bin/
-    success "Created ansible-lint symlink"
+info "Installing Ansible and dependencies via pipx"
+if pipx list --short | grep -q "ansible"; then
+  success "Ansible already installed"
 else
-    success "ansible-lint symlink exists"
+  pipx install --include-deps ansible
+  pipx inject ansible jmespath
+  pipx inject ansible passlib
+  pipx inject ansible ansible-lint
 fi
+# Ensure ~/.local/bin exists, then force-create symlink
+mkdir -p ~/.local/bin
+ln -sf ~/.local/share/pipx/venvs/ansible/bin/ansible-lint ~/.local/bin/ansible-lint
 completed
 
 title "Creating SSH Key Pair\n\nNOTE - you must set a password\n\nSuggest you use your login password"
