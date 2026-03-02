@@ -23,11 +23,9 @@ wizard handles everything interactively on first login.**
 
 - Remove the systemd firstboot service entirely
 - Move git clone to %post (during install, while network is available)
-- Create an interactive terminal wizard with per-step retry
-- Wizard opens automatically in gnome-terminal on first GNOME login
+- On first GNOME login, open gnome-terminal and run `run.bash` interactively
 - Wizard exits silently on subsequent logins (completion marker check)
-- Every step visible to the user, with clear retry on failure
-- Wizard is re-runnable at any time: `fedora-desktop-setup.bash`
+- run.bash writes completion marker before reboot so autostart doesn't re-fire
 
 ## Non-Goals
 
@@ -55,9 +53,11 @@ can access them without sudo.
 - [x] ✅ **Task 1.3**: Remove show-firstboot.bash helper script
 - [x] ✅ **Task 1.4**: Add git clone attempt in %post (non-fatal)
 - [x] ✅ **Task 1.5**: Add config file copy to user-readable location
-- [x] ✅ **Task 1.6**: Create fedora-desktop-setup.bash interactive wizard
+- [x] ✅ **Task 1.6**: Replace embedded wizard — autostart wrapper just calls run.bash
 - [x] ✅ **Task 1.7**: Create fedora-desktop-autostart.bash wrapper
 - [x] ✅ **Task 1.8**: Update GNOME autostart .desktop entry
+- [x] ✅ **Task 1.9**: Add completion marker to run.bash (before reboot prompt)
+- [x] ✅ **Task 1.10**: Fix all pre-existing shellcheck issues in run.bash
 
 ### Phase 2: Playbook Review
 
@@ -67,19 +67,20 @@ can access them without sudo.
 - [ ] ⬜ **Task 2.2**: Review "optional but essential" plays
   - play-python.yml (optional/common) — should it be in main?
   - Assess other optional plays that are commonly needed
-- [ ] ⬜ **Task 2.3**: Add network wait to wizard (brief check before each network step)
+- [ ] ⬜ **Task 2.3**: Add network wait to run.bash (brief check before each network step)
 
 ### Phase 3: QA & Commit
 
-- [ ] ⬜ **Task 3.1**: Run `./scripts/qa-all.bash`
-- [ ] ⬜ **Task 3.2**: Commit with plan reference
+- [x] ✅ **Task 3.1**: Run `./scripts/qa-all.bash`
+- [x] ✅ **Task 3.2**: Commit with plan reference
 
 ## Technical Decisions
 
-### Decision 1: Wizard as embedded bash script vs repo script
-**Decision**: Embed wizard in ks.cfg (not sourced from repo) so it exists even
-if the clone fails. The wizard handles clone failure with retry.
-**Date**: 2026-03-02
+### Decision 1: Custom wizard vs existing run.bash
+**Decision**: Use run.bash directly — it already IS the interactive wizard.
+No embedded wizard needed. The autostart wrapper is a thin shell: checks for
+completion marker, clones repo if missing, then runs `run.bash`.
+**Date**: 2026-03-02 (revised after initial implementation)
 
 ### Decision 2: Completion marker location
 **Decision**: `~/.local/state/fedora-desktop-setup-complete` — user-writable,
@@ -100,12 +101,12 @@ and keeps the .desktop file simple.
 
 ## Success Criteria
 
-- [ ] No systemd service in installed system
-- [ ] On first GNOME login, gnome-terminal opens with wizard automatically
-- [ ] On subsequent logins, nothing opens (completion marker present)
-- [ ] Each wizard step has retry loop
-- [ ] Wizard is re-runnable: `sudo /usr/local/bin/fedora-desktop-setup.bash`
-- [ ] `./scripts/qa-all.bash` passes
+- [x] ✅ No systemd service in installed system
+- [x] ✅ On first GNOME login, gnome-terminal opens running run.bash
+- [x] ✅ On subsequent logins, nothing opens (completion marker present)
+- [x] ✅ run.bash writes completion marker before reboot prompt
+- [x] ✅ `./scripts/qa-all.bash` passes
+- [ ] ⬜ Phase 2: playbook-main.yml composition review
 
 ## Notes & Updates
 
@@ -114,3 +115,10 @@ and keeps the .desktop file simple.
 - Key insight: boot into GNOME, run stuff in terminal, user-friendly with retry
 - Previous approach: headless systemd service with tail-log GNOME popup workaround
 - New approach: interactive wizard that IS the setup, not a monitor of hidden setup
+
+### 2026-03-02 (Phase 1 complete)
+- User insight: "why don't we just run run.bash? are we wheel reinventing?"
+- Replaced 170-line embedded wizard with thin autostart wrapper calling run.bash
+- run.bash gains completion marker (`~/.local/state/fedora-desktop-setup-complete`)
+- Fixed all pre-existing shellcheck issues in run.bash (SC2034, SC2155, SC2162, SC2181, SC2086)
+- Phase 1 fully committed. Phase 2 (playbook-main.yml review) is next.
