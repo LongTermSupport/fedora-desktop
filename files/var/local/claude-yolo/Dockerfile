@@ -10,7 +10,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.8"
+LABEL claude-yolo-version="2.9"
 LABEL claude-yolo-dockerfile-hash="${DOCKERFILE_HASH}"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 
@@ -75,6 +75,13 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
 # Install yq (YAML processor)
 RUN wget -qO /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 \
     && chmod +x /usr/bin/yq
+
+# Install Ansible via pipx (for playbook development and compatibility testing)
+RUN pip3 install --break-system-packages pipx \
+    && pipx install --include-deps ansible \
+    && pipx inject ansible jmespath \
+    && pipx inject ansible passlib
+ENV PATH="/root/.local/bin:${PATH}"
 
 # Install Claude Code via npm
 # installMethod in .claude.json is set to "native" by entrypoint to suppress migration warnings
