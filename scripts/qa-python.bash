@@ -19,8 +19,8 @@ ERRORS=0
 
 # Fail fast: check required dependencies
 if ! command -v ruff &>/dev/null; then
-    echo "✗ python: ruff not installed (sudo dnf install ruff)"
-    exit 1
+    echo "✗ python: ruff not installed (sudo dnf install ruff)" >&2
+    exit 2
 fi
 
 # Discover files

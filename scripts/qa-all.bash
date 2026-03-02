@@ -21,11 +21,22 @@ trap 'rm -f "$TMP_BASH" "$TMP_PYTHON"' EXIT
 FAILED=0
 
 # Run sub-checks (each writes JSON to temp file, outputs terse to stdout)
-if ! QA_JSON_OUT="$TMP_BASH" "$SCRIPT_DIR/qa-bash.bash"; then
+# Exit code 2 = missing required tool — refuse to run entirely
+rc=0
+QA_JSON_OUT="$TMP_BASH" "$SCRIPT_DIR/qa-bash.bash" || rc=$?
+if [[ $rc -eq 2 ]]; then
+    echo "ERROR: Missing required tools. Install them and re-run." >&2
+    exit 2
+elif [[ $rc -ne 0 ]]; then
     ((FAILED++)) || true
 fi
 
-if ! QA_JSON_OUT="$TMP_PYTHON" "$SCRIPT_DIR/qa-python.bash"; then
+rc=0
+QA_JSON_OUT="$TMP_PYTHON" "$SCRIPT_DIR/qa-python.bash" || rc=$?
+if [[ $rc -eq 2 ]]; then
+    echo "ERROR: Missing required tools. Install them and re-run." >&2
+    exit 2
+elif [[ $rc -ne 0 ]]; then
     ((FAILED++)) || true
 fi
 
