@@ -2,7 +2,7 @@
 # Network Management Library
 # Shared Docker network operations for claude-yolo (ccy)
 #
-# Version: 1.6.0 - Track when CCY starts compose for session-end teardown offer
+# Version: 1.7.0 - Skip compose start prompt when services already running
 
 # Get the expected network name for the current project
 # Returns: network-name based on folder name, or repo name as fallback
@@ -599,6 +599,59 @@ _do_compose_start() {
     done
 }
 
+# Check if any compose services are currently running in this directory
+# Sets COMPOSE_NETWORK if a running container is found on a non-default network
+# Returns: 0 if at least one service is running, 1 if not or undetermined
+_compose_already_running() {
+    # Determine available compose command (mirrors _do_compose_start logic)
+    local compose_cmd=""
+    if [[ "$CONTAINER_ENGINE" = "podman" ]]; then
+        local podman_compose_path
+        if podman_compose_path=$(command -v podman-compose 2>/dev/null) && [[ -n "$podman_compose_path" ]]; then
+            compose_cmd="podman-compose"
+        fi
+    else
+        local docker_compose_path
+        if docker_compose_path=$(command -v docker-compose 2>/dev/null) && [[ -n "$docker_compose_path" ]]; then
+            compose_cmd="docker-compose"
+        else
+            local dc_version
+            if dc_version=$(docker compose version 2>/dev/null) && [[ -n "$dc_version" ]]; then
+                compose_cmd="docker compose"
+            fi
+        fi
+    fi
+    [[ -z "$compose_cmd" ]] && return 1
+
+    # Get container IDs reported by compose (includes stopped containers)
+    local compose_output
+    local container_ids=()
+    if compose_output=$($compose_cmd ps -q 2>/dev/null) && [[ -n "$compose_output" ]]; then
+        mapfile -t container_ids < <(echo "$compose_output" | grep -v '^$')
+    fi
+    [[ ${#container_ids[@]} -eq 0 ]] && return 1
+
+    # Check each container ID to confirm at least one is actually running
+    local cid
+    for cid in "${container_ids[@]}"; do
+        local running_state
+        if running_state=$(container_cmd inspect "$cid" --format '{{.State.Running}}' 2>/dev/null) \
+            && [[ "$running_state" == "true" ]]; then
+            # Extract its non-default network so CCY can join it
+            # \$ produces a literal $ in double-quoted strings (Go template vars, not shell vars)
+            local net_fmt net_output net=""
+            net_fmt="{{range \$k, \$v := .NetworkSettings.Networks}}{{\$k}} {{end}}"
+            if net_output=$(container_cmd inspect "$cid" --format "$net_fmt" 2>/dev/null); then
+                net=$(echo "$net_output" | tr ' ' '\n' | grep -vE '^(bridge|host|none|podman|)$' | head -1)
+            fi
+            [[ -n "$net" ]] && COMPOSE_NETWORK="$net"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
 # Check for compose files and offer to start services (used when network doesn't exist)
 # Args: $1 = expected_network (optional), $2 = project_name
 # Sets: COMPOSE_NETWORK (the network created/found after starting compose)
@@ -613,6 +666,11 @@ offer_compose_start() {
     # Check for compose files using shared helper
     if ! has_compose_files; then
         return 1
+    fi
+
+    # If services are already running, use their network without prompting
+    if _compose_already_running; then
+        return 0
     fi
 
     echo "────────────────────────────────────────────────────────────────────────────────"
@@ -679,6 +737,7 @@ ensure_network_dns() {
 }
 
 # Export functions
+export -f _compose_already_running
 export -f ensure_network_dns
 export -f get_expected_network_name
 export -f get_network_persistence_file
