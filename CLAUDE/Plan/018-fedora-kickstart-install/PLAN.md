@@ -366,6 +366,17 @@ Some playbooks in the main chain need modifications or guards for automated cont
 
 ## Notes & Updates
 
+### 2026-03-02 — v3: liveimg approach
+- **Problem with v2**: netinstall ISO + `url` + `%packages` downloads ~2GB packages over WiFi each reinstall
+- **v3 solution**: Use `liveimg` kickstart directive to deploy the Workstation Live filesystem from a local squashfs.img
+- `setup-netinstall-boot.bash` now downloads **two ISOs**: netinstall (~1.1GB) and Workstation Live (~2.2GB)
+- Workstation Live ISO is temporary — squashfs.img is extracted, ISO deleted to save space
+- FDINST partition holds: `netinstall.iso` (~1.1GB) + `squashfs.img` (~1.8GB) = ~2.9GB total (fits in 4GB)
+- Anaconda boots from netinstall ISO (`inst.stage2`), deploys Workstation filesystem via `liveimg --url=file:///mnt/fdinst/squashfs.img`
+- Base install is fully offline; WiFi only needed for `dnf install` in `%post` (extra packages) and firstboot Ansible
+- `%packages` section removed entirely (liveimg ignores it); replaced with `dnf install` in `%post --chroot`
+- FDINST partition mounted read-only in `%pre` so liveimg can access squashfs.img
+
 ### 2026-03-01
 - Rewrote `setup-netinstall-boot.bash` from PXE download to ISO partition approach
 - PXE initrd lacks iwlwifi drivers; netinstall ISO's stage2 (install.img) has full driver support

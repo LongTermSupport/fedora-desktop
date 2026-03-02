@@ -1,13 +1,16 @@
 #!/usr/bin/bash
 # Set up a GRUB boot entry for Fedora install via local ISO partition
 #
-# Creates a 2GB ext4 partition (labeled FDINST) by shrinking the LUKS
-# container from the end, downloads the Fedora netinstall ISO onto it,
-# extracts vmlinuz + initrd to /boot, and creates a GRUB menu entry.
+# Creates a 4GB ext4 partition (labeled FDINST) by shrinking the LUKS
+# container from the end, downloads the Fedora netinstall ISO and
+# Workstation Live ISO, extracts squashfs.img from the Live ISO (then
+# deletes it), extracts vmlinuz + initrd to /boot from the netinstall
+# ISO, and creates a GRUB menu entry.
 #
-# Anaconda boots with inst.stage2=hd:LABEL=FDINST:/fedora-install.iso
-# (loads stage2 from local disk — no network needed during dracut).
-# WiFi connects interactively in the kickstart %pre for package downloads.
+# Anaconda boots from the netinstall ISO (inst.stage2=hd:LABEL=FDINST:/netinstall.iso)
+# and deploys the Workstation Live filesystem via liveimg (squashfs.img).
+# The base install is fully offline — WiFi is only needed for the dnf
+# install in %post and the firstboot Ansible run.
 # No USB key or PXE server required.
 #
 # Usage: sudo bash ./fedora-install/setup-netinstall-boot.bash
@@ -29,12 +32,14 @@ GRUB_ENTRY="/etc/grub.d/40_fedora_netinstall"
 BASE_URL="https://download.fedoraproject.org/pub/fedora/linux/releases"
 FDINST_LABEL="FDINST"
 FDINST_MOUNT="/mnt/fedora-install"
-ISO_RELEASE_SUFFIX="1.1"  # Fedora GA release suffix (consistent across releases)
-# 2 GiB in 512-byte sectors: 2 * 1024 * 1024 * 1024 / 512
-SHRINK_SIZE_GIB=2
-SHRINK_SIZE_SECTORS=4194304
-MIN_BTRFS_FREE_GIB=5
-MIN_ISO_SIZE=$((100 * 1024 * 1024))  # 100MB — sanity check for corrupt downloads
+NETINSTALL_PREFIX="Fedora-Everything-netinst-x86_64"
+WORKSTATION_PREFIX="Fedora-Workstation-Live-x86_64"
+# 4 GiB partition — fits netinstall.iso (~1.1GB) + squashfs.img (~1.8GB)
+SHRINK_SIZE_GIB=4
+SHRINK_SIZE_SECTORS=8388608  # 4 * 1024 * 1024 * 1024 / 512
+MIN_BTRFS_FREE_GIB=7
+MIN_ISO_SIZE=$((500 * 1024 * 1024))        # 500MB minimum for ISO downloads
+MIN_SQUASHFS_SIZE=$((500 * 1024 * 1024))   # 500MB — squashfs.img is ~1.8GB
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -339,59 +344,124 @@ unmount_fdinst() {
 
 # --- ISO operations ---
 
-construct_iso_url() {
+discover_netinstall_url() {
     local version="$1"
-    local filename="Fedora-Everything-netinst-x86_64-${version}-${ISO_RELEASE_SUFFIX}.iso"
-    echo "${BASE_URL}/${version}/Everything/x86_64/iso/${filename}"
-}
+    local dir_url="${BASE_URL}/${version}/Everything/x86_64/iso/"
 
-verify_iso_url() {
-    local url="$1"
-    echo "Verifying ISO exists on server..."
-    local http_code
-    http_code=$(curl -sIL -o /dev/null -w '%{http_code}' --max-time 30 "$url" 2>/dev/null || echo "000")
-    if [[ "$http_code" != "200" ]]; then
-        die "ISO not found at: $url (HTTP ${http_code}). Check Fedora version and release suffix."
+    echo "Discovering netinstall ISO for Fedora ${version}..." >&2
+
+    local filename
+    filename=$(curl -sfL --max-time 30 "$dir_url" 2>/dev/null \
+        | grep -oP "${NETINSTALL_PREFIX}-${version}-[0-9.]+\.iso" \
+        | head -1)
+
+    if [[ -z "$filename" ]]; then
+        die "Cannot find netinstall ISO in: $dir_url"
     fi
+
+    echo "  Found: $filename" >&2
+    echo "${dir_url}${filename}"
 }
 
-download_iso() {
-    local iso_url="$1"
-    local iso_dest="${FDINST_MOUNT}/fedora-install.iso"
-    local temp_iso="${iso_dest}.partial"
+discover_workstation_url() {
+    local version="$1"
+    local dir_url="${BASE_URL}/${version}/Workstation/x86_64/iso/"
 
-    echo "Downloading ISO (skips if local copy is current)..."
-    rm -f "$temp_iso"
+    echo "Discovering Workstation Live ISO for Fedora ${version}..." >&2
+
+    local filename
+    filename=$(curl -sfL --max-time 30 "$dir_url" 2>/dev/null \
+        | grep -oP "${WORKSTATION_PREFIX}-${version}-[0-9.]+\.iso" \
+        | head -1)
+
+    if [[ -z "$filename" ]]; then
+        die "Cannot find Workstation Live ISO in: $dir_url"
+    fi
+
+    echo "  Found: $filename" >&2
+    echo "${dir_url}${filename}"
+}
+
+download_file() {
+    local url="$1"
+    local dest="$2"
+    local min_size="$3"
+    local description="$4"
+    local temp="${dest}.partial"
+
+    echo "Downloading ${description} (skips if local copy is current)..."
+    rm -f "$temp"
 
     # curl -z: sends If-Modified-Since header based on local file timestamp
     # If server returns 304 Not Modified, output file is empty (or not written)
-    if ! curl -fL --progress-bar -z "$iso_dest" -o "$temp_iso" "$iso_url"; then
-        rm -f "$temp_iso"
-        die "Failed to download ISO from: $iso_url"
+    if ! curl -fL --progress-bar -z "$dest" -o "$temp" "$url"; then
+        rm -f "$temp"
+        die "Failed to download ${description} from: $url"
     fi
 
-    if [[ -s "$temp_iso" ]]; then
+    if [[ -s "$temp" ]]; then
         # New file downloaded — verify minimum size
         local size
-        size=$(stat -c%s "$temp_iso")
-        if [[ "$size" -lt "$MIN_ISO_SIZE" ]]; then
-            rm -f "$temp_iso"
-            die "Downloaded ISO too small (${size} bytes, expected >=100MB). Possible download error."
+        size=$(stat -c%s "$temp")
+        if [[ "$size" -lt "$min_size" ]]; then
+            rm -f "$temp"
+            die "Downloaded ${description} too small (${size} bytes). Possible download error."
         fi
-        mv "$temp_iso" "$iso_dest"
-        echo "  Downloaded ISO: $(( size / 1024 / 1024 ))MB"
+        mv "$temp" "$dest"
+        echo "  Downloaded ${description}: $(( size / 1024 / 1024 ))MB"
     else
-        rm -f "$temp_iso"
-        if [[ -f "$iso_dest" ]]; then
-            echo "  ISO is up to date (not modified on server)"
+        rm -f "$temp"
+        if [[ -f "$dest" ]]; then
+            echo "  ${description} is up to date (not modified on server)"
         else
-            die "ISO download produced no output and no local copy exists"
+            die "${description} download produced no output and no local copy exists"
         fi
     fi
 }
 
+extract_squashfs() {
+    local workstation_iso="${FDINST_MOUNT}/workstation.iso"
+    local squashfs_dest="${FDINST_MOUNT}/squashfs.img"
+    local iso_mount
+    iso_mount=$(mktemp -d)
+
+    echo "Extracting squashfs.img from Workstation Live ISO..."
+    if ! mount -o loop,ro "$workstation_iso" "$iso_mount"; then
+        rmdir "$iso_mount"
+        die "Failed to loop-mount Workstation ISO: $workstation_iso"
+    fi
+
+    local squashfs_src="${iso_mount}/LiveOS/squashfs.img"
+    if [[ ! -f "$squashfs_src" ]]; then
+        umount "$iso_mount"
+        rmdir "$iso_mount"
+        die "squashfs.img not found in Workstation ISO at LiveOS/squashfs.img"
+    fi
+
+    cp "$squashfs_src" "$squashfs_dest"
+
+    umount "$iso_mount"
+    rmdir "$iso_mount"
+
+    # Delete the Workstation ISO to free space (only squashfs.img is needed)
+    rm -f "$workstation_iso"
+
+    # Verify squashfs.img
+    if [[ ! -s "$squashfs_dest" ]]; then
+        die "Extracted squashfs.img is empty"
+    fi
+    local squashfs_size
+    squashfs_size=$(stat -c%s "$squashfs_dest")
+    if [[ "$squashfs_size" -lt "$MIN_SQUASHFS_SIZE" ]]; then
+        die "Extracted squashfs.img too small (${squashfs_size} bytes, expected >= 500MB)"
+    fi
+
+    echo "  squashfs.img: $(( squashfs_size / 1024 / 1024 ))MB"
+    echo "  Workstation ISO deleted (no longer needed)"
+}
+
 extract_boot_files() {
-    local iso_path="${FDINST_MOUNT}/fedora-install.iso"
+    local iso_path="${FDINST_MOUNT}/netinstall.iso"
     local iso_mount
     iso_mount=$(mktemp -d)
 
@@ -445,9 +515,9 @@ extract_boot_files() {
 do_setup() {
     local target_version="$1"
 
-    local iso_url
-    iso_url=$(construct_iso_url "$target_version")
-    verify_iso_url "$iso_url"
+    local netinstall_url workstation_url
+    netinstall_url=$(discover_netinstall_url "$target_version")
+    workstation_url=$(discover_workstation_url "$target_version")
 
     # Detect disk layout: root dm → LUKS backing partition → parent disk
     local dm_path dm_name luks_part disk luks_part_num
@@ -480,10 +550,16 @@ do_setup() {
     # Mount FDINST partition
     mount_fdinst "$fdinst_dev"
 
-    # Download ISO (curl -z skips if local copy is current)
-    download_iso "$iso_url"
+    # Download netinstall ISO (~1.1GB — provides Anaconda + kickstart support)
+    download_file "$netinstall_url" "${FDINST_MOUNT}/netinstall.iso" "$MIN_ISO_SIZE" "netinstall ISO"
 
-    # Extract vmlinuz + initrd.img from ISO to /boot
+    # Download Workstation Live ISO (~2.2GB — temporary, deleted after squashfs extraction)
+    download_file "$workstation_url" "${FDINST_MOUNT}/workstation.iso" "$MIN_ISO_SIZE" "Workstation Live ISO"
+
+    # Extract squashfs.img from Workstation ISO and delete the ISO
+    extract_squashfs
+
+    # Extract vmlinuz + initrd.img from netinstall ISO to /boot
     extract_boot_files
 
     # Copy kickstart file to /boot
@@ -493,7 +569,6 @@ do_setup() {
     echo "Copying kickstart file..."
     cp "$KS_SOURCE" "${BOOT_DIR}/ks.cfg"
     sed -i "s/^SETUP_BRANCH=.*/SETUP_BRANCH=\"F${target_version}\"/" "${BOOT_DIR}/ks.cfg"
-    sed -i "s|releases/[0-9]*/Everything|releases/${target_version}/Everything|" "${BOOT_DIR}/ks.cfg"
 
     # Detect /boot UUID for inst.ks= (Anaconda needs hd:UUID= to find local files)
     local boot_source boot_uuid
@@ -506,7 +581,7 @@ do_setup() {
 #!/bin/bash
 cat << 'EOF'
 menuentry "Fedora ${target_version} Install (ISO)" {
-    linux /fedora-netinstall/vmlinuz inst.stage2=hd:LABEL=${FDINST_LABEL}:/fedora-install.iso inst.ks=hd:UUID=${boot_uuid}:/fedora-netinstall/ks.cfg inst.text
+    linux /fedora-netinstall/vmlinuz inst.stage2=hd:LABEL=${FDINST_LABEL}:/netinstall.iso inst.ks=hd:UUID=${boot_uuid}:/fedora-netinstall/ks.cfg inst.text
     initrd /fedora-netinstall/initrd.img
 }
 EOF
@@ -528,11 +603,14 @@ GRUBEOF
     echo "=== Setup complete ==="
     echo "Fedora ${target_version} install boot entry is ready."
     echo ""
-    echo "Disk layout:"
+    echo "FDINST partition (${fdinst_dev}):"
+    echo "  netinstall.iso  — Anaconda installer (inst.stage2)"
+    echo "  squashfs.img    — Workstation Live filesystem (liveimg)"
+    echo ""
+    echo "Boot files:"
     echo "  ${BOOT_DIR}/vmlinuz     — kernel"
     echo "  ${BOOT_DIR}/initrd.img  — initial ramdisk"
     echo "  ${BOOT_DIR}/ks.cfg      — kickstart"
-    echo "  ${fdinst_dev} (FDINST)  — ISO partition"
     echo ""
     echo "Next steps:"
     echo "  1. Reboot your system"
@@ -600,9 +678,10 @@ case "${1:-}" in
         echo "Usage: sudo bash $0"
         echo "       sudo bash $0 --remove"
         echo ""
-        echo "Sets up a GRUB boot entry for Fedora install from a local ISO."
-        echo "Creates a 2GB partition for the ISO, extracts boot files to /boot,"
-        echo "and configures GRUB. No USB key or PXE server needed."
+        echo "Sets up a GRUB boot entry for Fedora install from local ISOs."
+        echo "Creates a 4GB partition for the netinstall ISO + squashfs.img,"
+        echo "extracts boot files to /boot, and configures GRUB."
+        echo "No USB key or PXE server needed."
         echo ""
         echo "Uses the version from vars/fedora-version.yml."
         exit 0
