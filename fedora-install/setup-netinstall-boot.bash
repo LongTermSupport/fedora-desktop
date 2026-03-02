@@ -34,7 +34,8 @@ FDINST_LABEL="FDINST"
 FDINST_MOUNT="/mnt/fedora-install"
 NETINSTALL_PREFIX="Fedora-Everything-netinst-x86_64"
 WORKSTATION_PREFIX="Fedora-Workstation-Live"
-# 4 GiB partition — fits netinstall.iso (~1.1GB) + squashfs.img (~1.8GB)
+# 4 GiB partition — holds netinstall.iso (~1.1GB) + squashfs.img (~2GB) = ~3.1GB
+# Workstation ISO is downloaded to /tmp (root fs) during extraction, not to FDINST
 SHRINK_SIZE_GIB=4
 SHRINK_SIZE_SECTORS=8388608  # 4 * 1024 * 1024 * 1024 / 512
 MIN_BTRFS_FREE_GIB=7
@@ -272,7 +273,7 @@ create_fdinst_partition() {
 
     # Step 3: Shrink partition (outermost layer)
     echo "  Step 3/5: Shrinking partition ${luks_part_num}..."
-    if ! parted ---pretend-input-tty -s "$disk" resizepart "$luks_part_num" "${new_end}s" Yes; then
+    if ! parted "$disk" resizepart "$luks_part_num" "${new_end}s"; then
         echo "  ROLLBACK: Restoring LUKS and Btrfs..."
         printf '%s' "$luks_pass" | cryptsetup resize "$dm_name" 2>/dev/null || true
         btrfs filesystem resize max / 2>/dev/null || true
@@ -419,7 +420,11 @@ download_file() {
 
     # curl -z: sends If-Modified-Since header based on local file timestamp
     # If server returns 304 Not Modified, output file is empty (or not written)
-    if ! curl -fL --progress-bar -z "$dest" -o "$temp" "$url"; then
+    local curl_args=(-fL --progress-bar -o "$temp")
+    if [[ -f "$dest" ]]; then
+        curl_args+=(-z "$dest")
+    fi
+    if ! curl "${curl_args[@]}" "$url"; then
         rm -f "$temp"
         die "Failed to download ${description} from: $url"
     fi
@@ -445,8 +450,8 @@ download_file() {
 }
 
 extract_squashfs() {
-    local workstation_iso="${FDINST_MOUNT}/workstation.iso"
-    local squashfs_dest="${FDINST_MOUNT}/squashfs.img"
+    local workstation_iso="$1"
+    local squashfs_dest="$2"
     local iso_mount
     iso_mount=$(mktemp -d)
 
@@ -468,7 +473,7 @@ extract_squashfs() {
     umount "$iso_mount"
     rmdir "$iso_mount"
 
-    # Delete the Workstation ISO to free space (only squashfs.img is needed)
+    # Delete the Workstation ISO (only squashfs.img is needed)
     rm -f "$workstation_iso"
 
     # Verify squashfs.img
@@ -486,7 +491,7 @@ extract_squashfs() {
 }
 
 extract_boot_files() {
-    local iso_path="${FDINST_MOUNT}/netinstall.iso"
+    local iso_path="$1"
     local iso_mount
     iso_mount=$(mktemp -d)
 
@@ -540,10 +545,6 @@ extract_boot_files() {
 do_setup() {
     local target_version="$1"
 
-    local netinstall_url workstation_url
-    netinstall_url=$(discover_netinstall_url "$target_version")
-    workstation_url=$(discover_workstation_url "$target_version")
-
     # Detect disk layout: root dm → LUKS backing partition → parent disk
     local dm_path dm_name luks_part disk luks_part_num
     dm_path=$(find_root_dm_path)
@@ -577,17 +578,44 @@ do_setup() {
     # Mount FDINST partition
     mount_fdinst "$fdinst_dev"
 
-    # Download netinstall ISO (~1.1GB — provides Anaconda + kickstart support)
-    download_file "$netinstall_url" "${FDINST_MOUNT}/netinstall.iso" "$MIN_ISO_SIZE" "netinstall ISO"
+    # Versioned filenames — ensures version change (e.g. F43→F44) replaces stale files
+    local squashfs_name="squashfs-${target_version}.img"
+    local netinstall_name="netinstall-${target_version}.iso"
 
-    # Download Workstation Live ISO (~2.2GB — temporary, deleted after squashfs extraction)
-    download_file "$workstation_url" "${FDINST_MOUNT}/workstation.iso" "$MIN_ISO_SIZE" "Workstation Live ISO"
+    # Remove stale files: other versions + unversioned legacy files from earlier runs
+    for old in "${FDINST_MOUNT}"/squashfs*.img; do
+        [[ -f "$old" ]] && [[ "$(basename "$old")" != "$squashfs_name" ]] && rm -f "$old" && echo "Removed stale: $(basename "$old")"
+    done
+    for old in "${FDINST_MOUNT}"/netinstall*.iso "${FDINST_MOUNT}"/fedora-install.iso "${FDINST_MOUNT}"/workstation*.iso; do
+        [[ -f "$old" ]] && [[ "$(basename "$old")" != "$netinstall_name" ]] && rm -f "$old" && echo "Removed stale: $(basename "$old")"
+    done
 
-    # Extract squashfs.img from Workstation ISO and delete the ISO
-    extract_squashfs
+    # squashfs is extracted from the Workstation Live ISO. The ISO is large
+    # (~2.6GB) so we download it to ~/Downloads to avoid filling FDINST.
+    # Only squashfs.img (~2GB) lands on FDINST. The ISO persists in ~/Downloads
+    # for idempotent re-runs (deleted after successful extraction).
+    if [[ -f "${FDINST_MOUNT}/${squashfs_name}" ]]; then
+        echo "${squashfs_name} already present (skipping Workstation download)"
+    else
+        local real_home
+        real_home=$(eval echo "~${SUDO_USER:-$USER}")
+        local download_dir="${real_home}/Downloads"
+        mkdir -p "$download_dir"
+
+        local workstation_url workstation_iso
+        workstation_url=$(discover_workstation_url "$target_version")
+        workstation_iso="${download_dir}/$(basename "$workstation_url")"
+        download_file "$workstation_url" "$workstation_iso" "$MIN_ISO_SIZE" "Workstation Live ISO"
+        extract_squashfs "$workstation_iso" "${FDINST_MOUNT}/${squashfs_name}"
+    fi
+
+    # Download netinstall ISO directly to FDINST (curl -z checks freshness if file exists)
+    local netinstall_url
+    netinstall_url=$(discover_netinstall_url "$target_version")
+    download_file "$netinstall_url" "${FDINST_MOUNT}/${netinstall_name}" "$MIN_ISO_SIZE" "netinstall ISO"
 
     # Extract vmlinuz + initrd.img from netinstall ISO to /boot
-    extract_boot_files
+    extract_boot_files "${FDINST_MOUNT}/${netinstall_name}"
 
     # Copy kickstart file to /boot
     if [[ ! -f "$KS_SOURCE" ]]; then
@@ -596,6 +624,7 @@ do_setup() {
     echo "Copying kickstart file..."
     cp "$KS_SOURCE" "${BOOT_DIR}/ks.cfg"
     sed -i "s/^SETUP_BRANCH=.*/SETUP_BRANCH=\"F${target_version}\"/" "${BOOT_DIR}/ks.cfg"
+    sed -i "s|squashfs-FEDORA_VERSION\.img|${squashfs_name}|" "${BOOT_DIR}/ks.cfg"
 
     # Detect /boot UUID for inst.ks= (Anaconda needs hd:UUID= to find local files)
     local boot_source boot_uuid
@@ -608,7 +637,7 @@ do_setup() {
 #!/bin/bash
 cat << 'EOF'
 menuentry "Fedora ${target_version} Install (ISO)" {
-    linux /fedora-netinstall/vmlinuz inst.stage2=hd:LABEL=${FDINST_LABEL}:/netinstall.iso inst.ks=hd:UUID=${boot_uuid}:/fedora-netinstall/ks.cfg inst.text
+    linux /fedora-netinstall/vmlinuz inst.stage2=hd:LABEL=${FDINST_LABEL}:/${netinstall_name} inst.ks=hd:UUID=${boot_uuid}:/fedora-netinstall/ks.cfg inst.text
     initrd /fedora-netinstall/initrd.img
 }
 EOF
@@ -631,8 +660,8 @@ GRUBEOF
     echo "Fedora ${target_version} install boot entry is ready."
     echo ""
     echo "FDINST partition (${fdinst_dev}):"
-    echo "  netinstall.iso  — Anaconda installer (inst.stage2)"
-    echo "  squashfs.img    — Workstation Live filesystem (liveimg)"
+    echo "  ${netinstall_name}  — Anaconda installer (inst.stage2)"
+    echo "  ${squashfs_name}    — Workstation Live filesystem (liveimg)"
     echo ""
     echo "Boot files:"
     echo "  ${BOOT_DIR}/vmlinuz     — kernel"
@@ -703,14 +732,30 @@ case "${1:-}" in
     --remove|-r)
         do_remove
         ;;
+    --clean|-c)
+        preflight_checks "setup"
+        fdinst_dev=$(find_fdinst_partition)
+        if [[ -z "$fdinst_dev" ]]; then
+            die "FDINST partition not found — nothing to clean"
+        fi
+        mount_fdinst "$fdinst_dev"
+        echo "Cleaning FDINST partition (${fdinst_dev})..."
+        find "$FDINST_MOUNT" -maxdepth 1 -type f -delete
+        echo "  All files removed. Re-run without --clean to repopulate."
+        unmount_fdinst
+        ;;
     --help|-h)
         echo "Usage: sudo bash $0"
+        echo "       sudo bash $0 --clean"
         echo "       sudo bash $0 --remove"
         echo ""
         echo "Sets up a GRUB boot entry for Fedora install from local ISOs."
         echo "Creates a 4GB partition for the netinstall ISO + squashfs.img,"
         echo "extracts boot files to /boot, and configures GRUB."
         echo "No USB key or PXE server needed."
+        echo ""
+        echo "  --clean   Wipe all files on FDINST partition (keep partition)"
+        echo "  --remove  Remove FDINST partition and reclaim disk space"
         echo ""
         echo "Uses the version from vars/fedora-version.yml."
         exit 0
