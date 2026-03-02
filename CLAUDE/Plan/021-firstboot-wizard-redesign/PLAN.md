@@ -1,6 +1,6 @@
 # Plan 021: Firstboot Wizard Redesign
 
-**Status**: 🔄 In Progress
+**Status**: 🟢 Complete
 **Created**: 2026-03-02
 **Owner**: Agent
 **Priority**: High
@@ -61,13 +61,16 @@ can access them without sudo.
 
 ### Phase 2: Playbook Review
 
-- [ ] ⬜ **Task 2.1**: Audit playbook-main.yml — remove interactive plays
-  - play-github-cli-multi.yml has headless guard but is conceptually interactive
-  - Consider moving it to wizard's "optional next steps" section
-- [ ] ⬜ **Task 2.2**: Review "optional but essential" plays
-  - play-python.yml (optional/common) — should it be in main?
-  - Assess other optional plays that are commonly needed
-- [ ] ⬜ **Task 2.3**: Add network wait to run.bash (brief check before each network step)
+- [x] ✅ **Task 2.1**: Remove play-github-cli-multi.yml from playbook-main.yml
+  - Uses ansible `pause:` prompts for SSH key setup and browser auth — cannot run non-interactively
+  - Now listed in run.bash optional next steps section after ALL DONE
+- [x] ✅ **Task 2.2**: Reviewed optional-but-essential plays
+  - play-python.yml: stays in main (already there, essential for dev workstation)
+  - play-docker.yml: stays in main (legacy project compatibility)
+  - play-github-cli-multi.yml: moved out of main (interactive)
+- [x] ✅ **Task 2.3**: Add wait_for_network() to run.bash
+  - Polls https://github.com up to 30 times (2s sleep) before first DNF install
+  - Surfaces curl errors to user, fails fast with clear message if unreachable
 
 ### Phase 3: QA & Commit
 
