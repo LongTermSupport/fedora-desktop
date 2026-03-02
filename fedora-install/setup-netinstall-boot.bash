@@ -46,6 +46,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 KS_SOURCE="${SCRIPT_DIR}/ks.cfg"
 VERSION_FILE="${REPO_DIR}/vars/fedora-version.yml"
+DRY_RUN=0  # Set to 1 by --dry-run: skips interactive prompts, fails if they'd be needed
 
 # --- helpers ---
 
@@ -130,9 +131,25 @@ partition_device_path() {
     fi
 }
 
-# Find partition with FDINST filesystem label (returns device path or empty)
+# Find FDINST partition by label, with positional fallback.
+# The label can be lost if a previous --clean was interrupted between dd and mkfs.
 find_fdinst_partition() {
-    blkid -L "$FDINST_LABEL" 2>/dev/null || true
+    # Primary: find by filesystem label
+    local dev
+    dev=$(blkid -L "$FDINST_LABEL" 2>/dev/null) && [[ -n "$dev" ]] && echo "$dev" && return
+
+    # Fallback: partition right after LUKS (where create_fdinst_partition puts it)
+    local dm_path dm_name luks_part disk luks_part_num
+    dm_path=$(find_root_dm_path 2>/dev/null) || return
+    dm_name=$(find_dm_name "$dm_path")
+    luks_part=$(find_luks_backing_partition "$dm_name" 2>/dev/null) || return
+    disk=$(find_parent_disk "$luks_part" 2>/dev/null) || return
+    luks_part_num=$(find_partition_number "$luks_part" 2>/dev/null) || return
+    local next_part
+    next_part=$(partition_device_path "$disk" "$(( luks_part_num + 1 ))")
+    if [[ -b "$next_part" ]]; then
+        echo "$next_part"
+    fi
 }
 
 # --- preflight ---
@@ -353,14 +370,84 @@ remove_fdinst_partition() {
     rmdir "$FDINST_MOUNT" 2>/dev/null || true
 }
 
+# Fully release a block device: unmount, detach loop devices, kill holders, settle udev
+release_device() {
+    local dev="$1"
+    sync
+    # Unmount from expected mountpoint
+    if mountpoint -q "$FDINST_MOUNT" 2>/dev/null; then
+        echo "  Releasing: unmounting ${FDINST_MOUNT}..."
+        fuser -mk "$FDINST_MOUNT" 2>/dev/null || true
+        umount "$FDINST_MOUNT" 2>/dev/null || true
+    fi
+    # Unmount device wherever it appears in /proc/mounts
+    if grep -q "$dev" /proc/mounts 2>/dev/null; then
+        echo "  Releasing: ${dev} in /proc/mounts, unmounting..."
+        umount -f "$dev" 2>/dev/null || true
+    fi
+    # Detach stale loop devices backed by files on FDINST (e.g. from a
+    # previous run that died mid-ISO-extraction). These hold the partition
+    # busy at the kernel level even after the mount is gone.
+    local loop_dev back_file
+    for loop_dev in /dev/loop*; do
+        [[ -b "$loop_dev" ]] || continue
+        back_file=$(losetup -n -O BACK-FILE "$loop_dev" 2>/dev/null) || continue
+        if [[ "$back_file" == "${FDINST_MOUNT}/"* ]]; then
+            echo "  Releasing: detaching stale loop device ${loop_dev} (${back_file})"
+            losetup -d "$loop_dev" 2>/dev/null || true
+        fi
+    done
+    # Kill anything holding the raw device open
+    fuser -mk "$dev" 2>/dev/null || true
+    # Check for stale ext4 journal thread (jbd2). A lazy unmount (umount -l)
+    # detaches the mount from the namespace but leaves the jbd2 kernel thread
+    # running, keeping the filesystem "alive" in kernel memory. This causes
+    # EBUSY on mkfs and stale data on mount. Fix: remove the partition from the
+    # kernel (kills jbd2), then re-add it.
+    local bdev parent_disk part_num
+    bdev=$(basename "$dev")
+    if ps -eo comm 2>/dev/null | grep -q "jbd2/${bdev}"; then
+        echo "  Releasing: stale jbd2/${bdev} thread detected, forcing journal close..."
+        # Mount read-only to force ext4 to commit and close the journal (stops jbd2),
+        # then unmount cleanly. This clears stale kernel state from lazy unmounts.
+        local tmp_mnt
+        tmp_mnt=$(mktemp -d)
+        if mount -o ro "$dev" "$tmp_mnt" 2>/dev/null; then
+            # Remount ro forces journal flush if it was rw
+            umount "$tmp_mnt" 2>/dev/null || true
+        fi
+        rmdir "$tmp_mnt" 2>/dev/null || true
+        sleep 1
+        if ps -eo comm 2>/dev/null | grep -q "jbd2/${bdev}"; then
+            echo "  Warning: jbd2/${bdev} persists — reboot may be needed for clean state"
+        fi
+    fi
+    # Flush device buffers and wait for udev
+    blockdev --flushbufs "$dev" 2>/dev/null || true
+    udevadm settle 2>/dev/null || true
+}
+
+FDINST_LOOP=""  # Tracks loop device if used (for cleanup in unmount_fdinst)
+
 mount_fdinst() {
     local fdinst_dev="$1"
     mkdir -p "$FDINST_MOUNT"
-    # Always force a clean mount — stale mounts cause deleted files to hold space
-    if mountpoint -q "$FDINST_MOUNT" 2>/dev/null; then
-        unmount_fdinst
+    release_device "$fdinst_dev"
+
+    # If a stale jbd2 kernel thread exists for this device (from a previous lazy
+    # unmount), mounting directly would reuse the cached stale filesystem instead
+    # of reading fresh data from disk. Mounting via a loop device creates a fresh
+    # block layer path that bypasses the stale kernel cache.
+    local bdev
+    bdev=$(basename "$fdinst_dev")
+    if ps -eo comm 2>/dev/null | grep -q "jbd2/${bdev}"; then
+        echo "  Stale jbd2/${bdev} detected — mounting via loop device..."
+        FDINST_LOOP=$(losetup --find --show "$fdinst_dev")
+        mount "$FDINST_LOOP" "$FDINST_MOUNT"
+    else
+        FDINST_LOOP=""
+        mount "$fdinst_dev" "$FDINST_MOUNT"
     fi
-    mount "$fdinst_dev" "$FDINST_MOUNT"
 }
 
 unmount_fdinst() {
@@ -368,15 +455,19 @@ unmount_fdinst() {
         return
     fi
     sync
-    if umount "$FDINST_MOUNT" 2>/dev/null; then
-        return
-    fi
-    # Kill processes holding the mount, then retry
-    echo "  FDINST busy — killing processes using ${FDINST_MOUNT}..."
-    fuser -mk "$FDINST_MOUNT" 2>/dev/null || true
-    sleep 1
     if ! umount "$FDINST_MOUNT" 2>/dev/null; then
-        die "Cannot unmount ${FDINST_MOUNT}. Check 'fuser -v ${FDINST_MOUNT}' and retry."
+        # Kill processes holding the mount, then retry
+        echo "  FDINST busy — killing processes using ${FDINST_MOUNT}..."
+        fuser -mk "$FDINST_MOUNT" 2>/dev/null || true
+        sleep 1
+        if ! umount "$FDINST_MOUNT" 2>/dev/null; then
+            die "Cannot unmount ${FDINST_MOUNT}. Check 'fuser -v ${FDINST_MOUNT}' and retry."
+        fi
+    fi
+    # Clean up loop device if one was used
+    if [[ -n "${FDINST_LOOP:-}" ]]; then
+        losetup -d "$FDINST_LOOP" 2>/dev/null || true
+        FDINST_LOOP=""
     fi
 }
 
@@ -578,6 +669,9 @@ do_setup() {
     if [[ -n "$fdinst_dev" ]]; then
         echo "FDINST partition found: $fdinst_dev (skipping creation)"
     else
+        if [[ "$DRY_RUN" -eq 1 ]]; then
+            die "FDINST partition not found. Cannot create in dry-run mode (requires LUKS passphrase). Run without --dry-run first."
+        fi
         echo "FDINST partition not found. Creating..."
         local luks_pass
         luks_pass=$(prompt_luks_passphrase "$dm_name")
@@ -762,14 +856,37 @@ case "${1:-}" in
         if [[ -z "$fdinst_dev" ]]; then
             die "FDINST partition not found — nothing to clean"
         fi
-        mount_fdinst "$fdinst_dev"
+        release_device "$fdinst_dev"
         echo "Cleaning FDINST partition (${fdinst_dev})..."
-        find "$FDINST_MOUNT" -maxdepth 1 -type f -delete
-        echo "  All files removed. Re-run without --clean to repopulate."
-        unmount_fdinst
+        # mkfs.ext4 directly on the block device may fail with EBUSY if the
+        # kernel holds a stale jbd2 reference (e.g. from a previous lazy unmount).
+        # The BLKBSZSET ioctl refuses when any opener exists. Workaround:
+        # create the filesystem in a temp file (always works), then dd it
+        # onto the device (raw writes bypass the block device ioctl).
+        dev_size=$(blockdev --getsize64 "$fdinst_dev")
+        img=$(mktemp)
+        truncate -s "$dev_size" "$img"
+        mkfs.ext4 -L "$FDINST_LABEL" -q "$img"
+        echo "  Writing fresh filesystem to ${fdinst_dev}..."
+        dd if="$img" of="$fdinst_dev" bs=4M conv=fsync 2>/dev/null
+        rm -f "$img"
+        blockdev --flushbufs "$fdinst_dev" 2>/dev/null || true
+        udevadm settle 2>/dev/null || true
+        echo "  Clean. Re-run without --clean to repopulate."
+        ;;
+    --dry-run|-d)
+        DRY_RUN=1
+        preflight_checks "setup"
+
+        TARGET_VERSION=$(get_version_from_file)
+        echo "Target version: Fedora ${TARGET_VERSION} (dry-run: non-interactive)"
+        echo ""
+
+        do_setup "$TARGET_VERSION"
         ;;
     --help|-h)
         echo "Usage: sudo bash $0"
+        echo "       sudo bash $0 --dry-run"
         echo "       sudo bash $0 --clean"
         echo "       sudo bash $0 --remove"
         echo ""
@@ -778,6 +895,9 @@ case "${1:-}" in
         echo "extracts boot files to /boot, and configures GRUB."
         echo "No USB key or PXE server needed."
         echo ""
+        echo "  --dry-run Non-interactive: skips LUKS passphrase prompts."
+        echo "            Fails if FDINST partition doesn't exist yet."
+        echo "            Use when iterating on the script without user input."
         echo "  --clean   Wipe all files on FDINST partition (keep partition)"
         echo "  --remove  Remove FDINST partition and reclaim disk space"
         echo ""
