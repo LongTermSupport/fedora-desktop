@@ -377,6 +377,12 @@ Some playbooks in the main chain need modifications or guards for automated cont
 - `%packages` section removed entirely (liveimg ignores it); replaced with `dnf install` in `%post --chroot`
 - FDINST partition mounted read-only in `%pre` so liveimg can access squashfs.img
 
+### 2026-03-02 — Installer UX: keyboard layout + font size
+- **Keyboard layout**: GRUB entry passes `vconsole.keymap=<detected>` from host's `localectl`/`/etc/vconsole.conf` so `%pre` TUI gets correct keymap (e.g. `gb` not `us` — @ is in the wrong place on UK keyboards)
+- **Font size**: GRUB entry passes `vconsole.font=latarcyrheb-sun32` so installer console uses 32px font instead of the tiny default
+- **Installed system keyboard**: `setup-netinstall-boot.bash` sed-substitutes detected X11 layout into the copied `ks.cfg` `keyboard --xlayouts=` directive
+- `ks.cfg` `%pre` calls `setfont latarcyrheb-sun32 2>/dev/null || true` after switching to tty6 as belt-and-suspenders fallback
+
 ### 2026-03-01
 - Rewrote `setup-netinstall-boot.bash` from PXE download to ISO partition approach
 - PXE initrd lacks iwlwifi drivers; netinstall ISO's stage2 (install.img) has full driver support

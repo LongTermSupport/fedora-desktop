@@ -67,6 +67,26 @@ get_version_from_file() {
     echo "$version"
 }
 
+# Detect the host's VC keymap for vconsole.keymap= kernel parameter
+detect_host_vconsole_keymap() {
+    local keymap
+    keymap=$(localectl status 2>/dev/null | awk '/VC Keymap:/{print $3}')
+    if [[ -z "$keymap" ]] || [[ "$keymap" == "n/a" ]]; then
+        keymap=$(grep '^KEYMAP=' /etc/vconsole.conf 2>/dev/null | cut -d= -f2 | tr -d '"')
+    fi
+    echo "${keymap:-us}"
+}
+
+# Detect the host's X11 layout for kickstart keyboard --xlayouts=
+detect_host_x11_layout() {
+    local layout
+    layout=$(localectl status 2>/dev/null | awk '/X11 Layout:/{print $3}')
+    if [[ -z "$layout" ]] || [[ "$layout" == "n/a" ]]; then
+        layout=$(detect_host_vconsole_keymap)
+    fi
+    echo "${layout:-us}"
+}
+
 # --- device detection ---
 
 # Find the device-mapper path for the root filesystem (e.g. /dev/mapper/luks-<uuid>)
@@ -404,9 +424,9 @@ release_device() {
     # running, keeping the filesystem "alive" in kernel memory. This causes
     # EBUSY on mkfs and stale data on mount. Fix: remove the partition from the
     # kernel (kills jbd2), then re-add it.
-    local bdev parent_disk part_num
+    local bdev
     bdev=$(basename "$dev")
-    if ps -eo comm 2>/dev/null | grep -q "jbd2/${bdev}"; then
+    if pgrep -q "jbd2/${bdev}" 2>/dev/null; then
         echo "  Releasing: stale jbd2/${bdev} thread detected, forcing journal close..."
         # Mount read-only to force ext4 to commit and close the journal (stops jbd2),
         # then unmount cleanly. This clears stale kernel state from lazy unmounts.
@@ -418,7 +438,7 @@ release_device() {
         fi
         rmdir "$tmp_mnt" 2>/dev/null || true
         sleep 1
-        if ps -eo comm 2>/dev/null | grep -q "jbd2/${bdev}"; then
+        if pgrep -q "jbd2/${bdev}" 2>/dev/null; then
             echo "  Warning: jbd2/${bdev} persists — reboot may be needed for clean state"
         fi
     fi
@@ -440,7 +460,7 @@ mount_fdinst() {
     # block layer path that bypasses the stale kernel cache.
     local bdev
     bdev=$(basename "$fdinst_dev")
-    if ps -eo comm 2>/dev/null | grep -q "jbd2/${bdev}"; then
+    if pgrep -q "jbd2/${bdev}" 2>/dev/null; then
         echo "  Stale jbd2/${bdev} detected — mounting via loop device..."
         FDINST_LOOP=$(losetup --find --show "$fdinst_dev")
         mount "$FDINST_LOOP" "$FDINST_MOUNT"
@@ -744,6 +764,13 @@ do_setup() {
     sed -i "s/^SETUP_BRANCH=.*/SETUP_BRANCH=\"F${target_version}\"/" "${BOOT_DIR}/ks.cfg"
     sed -i "s|squashfs-FEDORA_VERSION\.img|${squashfs_name}|" "${BOOT_DIR}/ks.cfg"
 
+    # Detect keyboard layout from host and substitute into kickstart
+    local vconsole_keymap x11_layout
+    vconsole_keymap=$(detect_host_vconsole_keymap)
+    x11_layout=$(detect_host_x11_layout)
+    echo "Detected keyboard: VC=${vconsole_keymap}, X11=${x11_layout}"
+    sed -i "s/^keyboard --xlayouts=.*/keyboard --xlayouts='${x11_layout}'/" "${BOOT_DIR}/ks.cfg"
+
     # Detect /boot UUID for inst.ks= (Anaconda needs hd:UUID= to find local files)
     local boot_source boot_uuid
     boot_source=$(findmnt -no SOURCE /boot 2>/dev/null) || die "Cannot determine /boot device"
@@ -755,7 +782,7 @@ do_setup() {
 #!/bin/bash
 cat << 'EOF'
 menuentry "Fedora ${target_version} Install (ISO)" {
-    linux /fedora-netinstall/vmlinuz inst.stage2=hd:LABEL=${FDINST_LABEL}:/${netinstall_name} inst.ks=hd:UUID=${boot_uuid}:/fedora-netinstall/ks.cfg inst.text
+    linux /fedora-netinstall/vmlinuz inst.stage2=hd:LABEL=${FDINST_LABEL}:/${netinstall_name} inst.ks=hd:UUID=${boot_uuid}:/fedora-netinstall/ks.cfg inst.text vconsole.keymap=${vconsole_keymap} vconsole.font=latarcyrheb-sun32
     initrd /fedora-netinstall/initrd.img
 }
 EOF
