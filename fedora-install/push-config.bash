@@ -66,6 +66,10 @@ if ! command -v gh > /dev/null; then
     die "GitHub CLI (gh) is not installed. Run: sudo dnf install gh"
 fi
 
+if ! command -v ansible-vault > /dev/null; then
+    die "ansible-vault not found. Ensure ansible is installed and ~/.local/bin is in PATH.\nTry: pipx install ansible-core"
+fi
+
 if ! gh auth status; then
     die "Not authenticated with GitHub. Run: gh auth login"
 fi
@@ -179,12 +183,12 @@ if [[ ${#plain_violations[@]} -gt 0 ]]; then
 
         info "Encrypting: ${BOLD}${var_name}${NC}"
 
-        # Encrypt and write vault block to temp file
+        # Encrypt and write vault block to temp file (stderr goes to terminal)
         tmp_enc=$(mktemp)
         ansible-vault encrypt_string \
             --vault-id "localhost@${vault_pass_file}" \
             "$plain_value" \
-            --name "$var_name" > "$tmp_enc" 2>/dev/null
+            --name "$var_name" > "$tmp_enc"
 
         # Replace the plain-text line with the vault block in-place
         python3 - "$var_name" "$LOCALHOST_YML" "$tmp_enc" <<'PYEOF'
