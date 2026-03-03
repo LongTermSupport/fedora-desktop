@@ -26,7 +26,7 @@ BUG="🐛"
 
 ## Step counter
 STEP_CURRENT=0
-STEP_TOTAL=15
+STEP_TOTAL=13
 
 ## Assertions
 if [[ "$(whoami)" == "root" ]];
@@ -497,26 +497,8 @@ if ! gh auth status > /dev/null 2>&1; then
 else
   success "Already authenticated with GitHub"
 fi
-completed
-
-
-title "Verifying GitHub Account Configuration"
-info "Checking account consistency"
-ghAuthLoginName="$(gh api user | jq -r '.login')"
-set +e
-sshGithubName="$(ssh -T git@github.com -i ~/.ssh/id |& grep -Po '(?<=Hi ).*(?=! You)')"
-set -e
-if [[ "$ghAuthLoginName" != "$sshGithubName" ]]; then
-  error "GitHub account mismatch detected"
-  echo -e "   ${RED}CLI account: $ghAuthLoginName${NC}"
-  echo -e "   ${RED}SSH account: $sshGithubName${NC}\n"
-  echo -e "${YELLOW}${ARROW} To fix this issue:${NC}"
-  echo -e "   1. Run 'gh auth logout'"
-  echo -e "   2. Login again with the correct account"
-  echo -e "   3. Ensure SSH key upload is selected\n"
-  exit 1
-fi
-success "Account verification passed: $ghAuthLoginName"
+primary_gh_username="$(gh api user --jq '.login')"
+success "Primary GitHub account: $primary_gh_username"
 completed
 
 title "Configuring GitHub SSH Access"
@@ -552,60 +534,64 @@ curl -sL https://api.github.com/meta | jq -r '.ssh_keys | .[]' | sed -e 's/^/git
 success "GitHub host keys updated"
 completed
 
-title "Setting up Project Directory"
-if [ ! -d ~/Projects ]; then
-  mkdir -p ~/Projects
-  success "Projects directory created"
-else
-  success "Projects directory exists"
-fi
-completed
-
-title "Cloning Configuration Repository"
-cd ~/Projects
+title "Setting up Project Directory and Repository"
+mkdir -p ~/Projects
 if [[ ! -d ~/Projects/fedora-desktop ]]; then
   info "Cloning fedora-desktop repository"
-  git clone git@github.com:LongTermSupport/fedora-desktop.git > /dev/null 2>&1
-  success "Repository cloned successfully"
+  git clone https://github.com/LongTermSupport/fedora-desktop.git ~/Projects/fedora-desktop
+  success "Repository cloned"
 else
-  success "Repository already exists"
+  info "Pulling latest changes"
+  git -C ~/Projects/fedora-desktop pull
+  success "Repository updated"
 fi
-completed
-
-
-if [[ ! -f ~/Projects/fedora-desktop/environment/localhost/host_vars/localhost.yml ]]; then
-  title "User Configuration Setup"
-  info "Please provide your user information"
-  
-  echo -e "\n${CYAN}Current system user: ${BOLD}$(whoami)${NC}"
-  user_login="$(promptForValue 'user login')"
-  
-  user_name="$(promptForValue 'full name')"
-  
-  user_email="$(promptForValue 'email address')"
-  completed
-
-  title "Generating Ansible Configuration"
-  cat <<EOF > ~/Projects/fedora-desktop/environment/localhost/host_vars/localhost.yml
-user_login: "$user_login"
-user_name: "$user_name"
-user_email: "$user_email"
-EOF
-  completed
-fi
-
-title "Updating Repository"
 cd ~/Projects/fedora-desktop
-info "Pulling latest changes"
-git pull > /dev/null 2>&1
-success "Repository updated"
 completed
 
-title "Configuring Git Security Hooks"
-info "Enabling git hooks to prevent accidental commits of sensitive information"
-ansible-playbook ~/Projects/fedora-desktop/playbooks/imports/play-git-hooks-security.yml \
-  --ask-become-pass 2>&1 | tee -a "$LOG_FILE" || handle_playbook_failure ~/Projects/fedora-desktop/playbooks/imports/play-git-hooks-security.yml $?
-success "Git security hooks configured and verified"
+
+title "Loading Personal Configuration"
+localhost_yml=~/Projects/fedora-desktop/environment/localhost/host_vars/localhost.yml
+config_repo="${primary_gh_username}/fedora-desktop-config"
+
+if [[ -f "$localhost_yml" ]]; then
+  success "Personal configuration already present"
+else
+  info "Checking for personal config repo: github.com/${config_repo}"
+  raw_content=""
+  if raw_content=$(gh api "repos/${config_repo}/contents/localhost.yml" --jq '.content' 2>/dev/null); then
+    printf '%s' "$raw_content" | base64 -d > "$localhost_yml"
+    success "Configuration pulled from github.com/${config_repo}"
+  else
+    info "No config repo found — entering configuration manually"
+    echo -e "\n${CYAN}Current system user: ${BOLD}$(whoami)${NC}"
+    user_login="$(promptForValue 'user login')"
+    user_name="$(promptForValue 'full name')"
+    user_email="$(promptForValue 'email address')"
+
+    echo -e "\n${CYAN}${ARROW}${NC} Enter GitHub accounts (alias:username, comma-separated)"
+    echo -e "   Single account:  ${BOLD}johndoe${NC}"
+    echo -e "   Multi-account:   ${BOLD}personal:johndoe,work:johndoe-work${NC}"
+    github_accounts_raw="$(promptForValue 'GitHub accounts')"
+
+    {
+      printf 'user_login: "%s"\n' "$user_login"
+      printf 'user_name: "%s"\n' "$user_name"
+      printf 'user_email: "%s"\n' "$user_email"
+      printf '# GitHub CLI accounts\n'
+      printf 'github_accounts:\n'
+      while IFS= read -r pair; do
+        pair="${pair// /}"
+        if [[ "$pair" == *":"* ]]; then
+          printf '  %s: "%s"\n' "${pair%%:*}" "${pair##*:}"
+        elif [[ -n "$pair" ]]; then
+          printf '  personal: "%s"\n' "$pair"
+        fi
+      done < <(printf '%s' "$github_accounts_raw" | tr ',' '\n')
+    } > "$localhost_yml"
+
+    success "Configuration written"
+  fi
+fi
 completed
 
 title "Ansible Vault Configuration"
@@ -647,6 +633,20 @@ else
 fi
 
 if [[ $main_exit_code -eq 0 ]]; then
+  info "Running GitHub multi-account setup"
+  multi_exit_code=0
+  if sudo -n true 2>/dev/null; then
+    ./playbooks/imports/optional/common/play-github-cli-multi.yml
+    multi_exit_code=$?
+  else
+    ./playbooks/imports/optional/common/play-github-cli-multi.yml --ask-become-pass
+    multi_exit_code=$?
+  fi
+  if [[ $multi_exit_code -ne 0 ]]; then
+    warning "Multi-account setup incomplete — run manually when ready:"
+    echo -e "   ${BOLD}cd ~/Projects/fedora-desktop${NC}"
+    echo -e "   ${BOLD}./playbooks/imports/optional/common/play-github-cli-multi.yml${NC}"
+  fi
   completed
 else
   error "Main playbook failed with exit code: $main_exit_code"
@@ -857,10 +857,8 @@ echo -e "${GREEN}${BOLD}║                    ALL DONE!                        
 echo -e "${GREEN}${BOLD}╚══════════════════════════════════════════════════════════════╝${NC}\n"
 
 echo -e "${CYAN}${BOLD}Optional next steps${NC} (run after reboot):"
-echo -e "  ${ARROW} GitHub multi-account setup (SSH keys + browser auth):"
-echo -e "    ${BOLD}cd ~/Projects/fedora-desktop${NC}"
-echo -e "    ${BOLD}./playbooks/imports/optional/common/play-github-cli-multi.yml${NC}"
 echo -e "  ${ARROW} Python development environment (pyenv + pyenv versions):"
+echo -e "    ${BOLD}cd ~/Projects/fedora-desktop${NC}"
 echo -e "    ${BOLD}./playbooks/imports/optional/common/play-python.yml${NC}"
 echo
 
