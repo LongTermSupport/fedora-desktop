@@ -10,7 +10,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.10"
+LABEL claude-yolo-version="2.11"
 LABEL claude-yolo-dockerfile-hash="${DOCKERFILE_HASH}"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 
@@ -33,7 +33,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     openssh-client \
     python3 \
     python3-pip \
+    python3-venv \
     python3-yaml \
+    pipx \
     tini \
     tree \
     shellcheck \
@@ -77,8 +79,8 @@ RUN wget -qO /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/downloa
     && chmod +x /usr/bin/yq
 
 # Install Ansible via pipx (for playbook development and compatibility testing)
-RUN pip3 install --break-system-packages pipx \
-    && pipx install --include-deps ansible \
+# pipx is installed via apt (python3-venv also required for pipx venv creation)
+RUN pipx install --include-deps ansible \
     && pipx inject ansible jmespath \
     && pipx inject ansible passlib
 
