@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.7.5"  # fix: auto-trust /workspace on startup (hasTrustDialogAccepted), container v2.12
+CCY_VERSION="3.7.6"  # fix: show real changelog on base image rebuild (from CCY_VERSION comment)
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1140,7 +1140,10 @@ if [ -f "$PROJECT_DOCKERFILE" ] && [ "$DISABLE_CUSTOM_DOCKER" = false ]; then
         echo "Current base:  v$current_base_version"
         echo ""
         echo "Project images inherit from claude-yolo:latest."
-        echo "Rebuilding to include base image changes (e.g., tini, security fixes)..."
+        # Extract changelog from the CCY_VERSION comment in this script (e.g. "# fix: ...")
+        ccy_version_line=$(grep '^CCY_VERSION=' "$0")
+        ccy_changelog="${ccy_version_line#*# }"
+        echo "Rebuilding to include: $ccy_changelog"
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo ""
         should_build=true
