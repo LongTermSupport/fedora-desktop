@@ -7,8 +7,8 @@
 # The config repo is: <primary-github-username>/fedora-desktop-config (private)
 # It is created automatically if it does not exist.
 #
-# Before pushing, validates that all sensitive variables in localhost.yml
-# are Ansible Vault-encrypted. Refuses to push plain-text secrets.
+# Before pushing, automatically encrypts any plain-text sensitive variables
+# using ansible-vault, then verifies all vault values decrypt cleanly.
 #
 # After pushing, verifies the file was written correctly by reading it back.
 
@@ -142,41 +142,102 @@ success "Active account: $selected_account"
 
 config_repo="${selected_account}/${CONFIG_REPO_NAME}"
 
-## ── Vault validation ──────────────────────────────────────────────────────────
+## ── Vault validation and auto-encryption ──────────────────────────────────────
 
 echo
-info "Validating vault encryption in localhost.yml..."
+info "Checking vault encryption in localhost.yml..."
 
-# Variable names that MUST be Ansible Vault-encrypted (not plain text).
-# Match lines like:  some_secret_key: plainvalue
-# A vaulted value looks like:  some_secret_key: !vault |
+vault_pass_file="${PROJECT_ROOT}/vault-pass.secret"
+if [[ ! -f "$vault_pass_file" ]]; then
+    die "Vault password file not found: ${vault_pass_file}\nRun the main Ansible playbook first to initialise your vault."
+fi
+
+# Variable names that MUST be Ansible Vault-encrypted (not plain text)
 sensitive_pattern="(password|passwd|secret|token|api_key|api_secret|private_key|passphrase)"
 
+# Collect plain-text violations
 plain_violations=()
 while IFS= read -r line; do
-    # Skip blank lines and comments
     [[ -z "$line" ]] && continue
     [[ "$line" =~ ^[[:space:]]*# ]] && continue
-    # Check if the line defines a sensitive var with a non-vault value
     if echo "$line" | grep -qiE "^\s*[a-z_]*(${sensitive_pattern})[a-z_]*\s*:"; then
         if ! echo "$line" | grep -q "!vault"; then
-            plain_violations+=("  $line")
+            plain_violations+=("$line")
         fi
     fi
 done < "$LOCALHOST_YML"
 
 if [[ ${#plain_violations[@]} -gt 0 ]]; then
-    echo -e "${RED}${CROSS} Sensitive variables must be Ansible Vault-encrypted before pushing:${NC}" >&2
-    for v in "${plain_violations[@]}"; do
-        echo -e "${RED}${v}${NC}" >&2
+    warning "${#plain_violations[@]} plain-text secret(s) found — encrypting in-place..."
+    echo
+
+    for orig_line in "${plain_violations[@]}"; do
+        # Extract variable name: strip leading whitespace, take key before first colon
+        var_name=$(echo "$orig_line" | sed 's/^[[:space:]]*//' | cut -d: -f1 | sed 's/[[:space:]]*$//')
+        # Extract plain value: everything after 'key: ' (standard YAML format)
+        plain_value="${orig_line#*: }"
+
+        info "Encrypting: ${BOLD}${var_name}${NC}"
+
+        # Encrypt and write vault block to temp file
+        tmp_enc=$(mktemp)
+        ansible-vault encrypt_string \
+            --vault-id "localhost@${vault_pass_file}" \
+            "$plain_value" \
+            --name "$var_name" > "$tmp_enc" 2>/dev/null
+
+        # Replace the plain-text line with the vault block in-place
+        python3 - "$var_name" "$LOCALHOST_YML" "$tmp_enc" <<'PYEOF'
+import sys, re
+
+var_name = sys.argv[1]
+yaml_file = sys.argv[2]
+enc_file  = sys.argv[3]
+
+with open(enc_file) as f:
+    enc_block = f.read().rstrip('\n')
+
+with open(yaml_file) as f:
+    content = f.read()
+
+# Match the plain-text YAML line for this variable (captures leading indentation)
+pattern = r'^([ \t]*)' + re.escape(var_name) + r'[ \t]*:[ \t]*(?!!vault).*$'
+
+def replace(m):
+    indent = m.group(1)
+    return '\n'.join(indent + ln for ln in enc_block.split('\n'))
+
+new_content, count = re.subn(pattern, replace, content, count=1, flags=re.MULTILINE)
+if count == 0:
+    print(f'ERROR: could not locate plain-text line for {var_name}', file=sys.stderr)
+    sys.exit(1)
+
+with open(yaml_file, 'w') as f:
+    f.write(new_content)
+PYEOF
+
+        rm -f "$tmp_enc"
+        success "Encrypted: ${var_name}"
     done
-    echo >&2
-    echo -e "${YELLOW}${ARROW} Encrypt with:${NC}" >&2
-    echo -e "   ansible-vault encrypt_string 'your-secret' --name 'var_name'" >&2
-    die "Refusing to push plain-text secrets to GitHub"
+
+    echo
+    success "All ${#plain_violations[@]} plain-text secret(s) encrypted in localhost.yml"
+else
+    success "No plain-text secrets detected"
 fi
 
-success "Vault validation passed — no plain-text secrets detected"
+## ── Verify vault decryption ───────────────────────────────────────────────────
+
+echo
+info "Verifying all vault-encrypted values decrypt cleanly..."
+if ansible localhost -i "localhost," -c local \
+    --vault-id "localhost@${vault_pass_file}" \
+    -m debug -a "msg=ok" \
+    -e "@${LOCALHOST_YML}" > /dev/null; then
+    success "Vault decryption verified — all values decrypt cleanly"
+else
+    die "Vault decryption check failed — vault password may be wrong or values corrupted\nCheck: ${vault_pass_file}"
+fi
 
 ## ── Create repo if needed ─────────────────────────────────────────────────────
 
