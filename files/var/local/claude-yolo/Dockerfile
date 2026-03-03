@@ -10,7 +10,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.9"
+LABEL claude-yolo-version="2.10"
 LABEL claude-yolo-dockerfile-hash="${DOCKERFILE_HASH}"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 
@@ -81,6 +81,9 @@ RUN pip3 install --break-system-packages pipx \
     && pipx install --include-deps ansible \
     && pipx inject ansible jmespath \
     && pipx inject ansible passlib
+
+# Install semgrep for QA pattern checks (qa-patterns.bash uses .semgrep/bash-conventions.yml)
+RUN pipx install semgrep
 ENV PATH="/root/.local/bin:${PATH}"
 
 # Install Claude Code via npm

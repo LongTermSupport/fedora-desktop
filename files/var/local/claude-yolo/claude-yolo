@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.7.1"  # fix: add Ansible via pipx to container for playbook dev and compatibility testing
+CCY_VERSION="3.7.2"  # fix: semgrep in container (2.10), explicit error handling in network-management
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,7 +36,7 @@ done
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.9"
+REQUIRED_CONTAINER_VERSION="2.10"
 
 set -e
 

@@ -174,7 +174,9 @@ connect_to_network() {
     if [ -z "$network_name" ]; then
         # Check for persisted network preference first
         local persisted_network
-        persisted_network=$(load_network_preference 2>/dev/null || echo "")
+        if ! persisted_network=$(load_network_preference 2>/dev/null); then
+            persisted_network=""
+        fi
 
         if [ -n "$persisted_network" ]; then
             # Verify the persisted network still exists

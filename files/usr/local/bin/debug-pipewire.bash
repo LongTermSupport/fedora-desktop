@@ -36,4 +36,6 @@ else
 fi
 echo ""
 echo "## PipeWire Graph Info for qobuz-player"
-pw-dump | jq '.[] | select(.info.props."application.name" == "PipeWire ALSA [qobuz-player]") | {name: .info.props."application.name", api: .info.props."client.api", node: .info.props."node.name"}' 2>/dev/null || echo "qobuz-player not found in PipeWire graph"
+if ! pw-dump | jq '.[] | select(.info.props."application.name" == "PipeWire ALSA [qobuz-player]") | {name: .info.props."application.name", api: .info.props."client.api", node: .info.props."node.name"}' 2>/dev/null; then
+    echo "qobuz-player not found in PipeWire graph"
+fi

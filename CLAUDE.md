@@ -130,7 +130,12 @@ The entrypoint sets `CCY_DISABLE_SUSPEND=1`. The patch script uses two strategie
 ./scripts/qa-all.bash
 ```
 
-**NEVER use individual scripts directly** (`qa-bash.bash`, `qa-python.bash`) - always use `qa-all.bash`.
+**NEVER use individual scripts directly** (`qa-bash.bash`, `qa-python.bash`, `qa-patterns.bash`) - always use `qa-all.bash`.
+
+`qa-all.bash` runs three checks:
+- `qa-bash.bash` — shellcheck + `bash -n` on all bash files
+- `qa-python.bash` — `python3 -m py_compile` + ruff on all Python files
+- `qa-patterns.bash` — Semgrep rules from `.semgrep/bash-conventions.yml` (catches error-hiding patterns like `|| echo`)
 
 **For GNOME Shell extension JavaScript**, run ESLint via the binary directly (NOT `npm run lint` - blocked by hooks):
 
@@ -162,6 +167,7 @@ cd /workspace/extensions && node_modules/.bin/eslint speech-to-text@fedora-deskt
 - ✅ Bash syntax errors (`bash -n` validation)
 - ✅ Python syntax errors (`python3 -m py_compile`)
 - ✅ Common Python issues (via `ruff` if installed)
+- ✅ Error-hiding bash patterns (`|| echo` — Semgrep, `.semgrep/bash-conventions.yml`)
 
 **What QA does NOT catch (known limitations):**
 - ❌ **Runtime API incompatibilities** - e.g., calling a library method with parameters it no longer accepts

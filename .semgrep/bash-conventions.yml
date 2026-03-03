@@ -1,0 +1,19 @@
+rules:
+  # Rule: ban || echo error hiding
+  #
+  # WRONG: cmd || echo "WARNING: something failed"
+  # WRONG: VAR=$(cmd || echo "default")   ← swallows failure silently
+  # RIGHT: if ! cmd; then echo "ERROR: ..." >&2; exit 1; fi
+  # RIGHT: VAR=$(cmd) # let it fail
+  #
+  # See CLAUDE.md: "Fail Fast" and "No error hiding" principles.
+  - id: bash-error-hiding-pipe-echo
+    pattern: $CMD || echo $MSG
+    message: >
+      Error hiding: '$CMD || echo' swallows the failure of $CMD.
+      Use: if ! $CMD; then echo 'ERROR: ...' >&2; exit 1; fi
+    languages: [bash]
+    severity: ERROR
+    metadata:
+      category: correctness
+      confidence: HIGH

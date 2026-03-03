@@ -17,7 +17,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 JSON_OUT="/tmp/qa-results.json"
 TMP_BASH=$(mktemp)
 TMP_PYTHON=$(mktemp)
-trap 'rm -f "$TMP_BASH" "$TMP_PYTHON"' EXIT
+TMP_PATTERNS=$(mktemp)
+trap 'rm -f "$TMP_BASH" "$TMP_PYTHON" "$TMP_PATTERNS"' EXIT
 FAILED=0
 
 # Run sub-checks (each writes JSON to temp file, outputs terse to stdout)
@@ -28,7 +29,7 @@ if [[ $rc -eq 2 ]]; then
     echo "ERROR: Missing required tools. Install them and re-run." >&2
     exit 2
 elif [[ $rc -ne 0 ]]; then
-    ((FAILED++)) || true
+    FAILED=$((FAILED + 1))
 fi
 
 rc=0
@@ -37,10 +38,19 @@ if [[ $rc -eq 2 ]]; then
     echo "ERROR: Missing required tools. Install them and re-run." >&2
     exit 2
 elif [[ $rc -ne 0 ]]; then
-    ((FAILED++)) || true
+    FAILED=$((FAILED + 1))
 fi
 
-# Merge JSON from both checks
+rc=0
+QA_JSON_OUT="$TMP_PATTERNS" "$SCRIPT_DIR/qa-patterns.bash" || rc=$?
+if [[ $rc -eq 2 ]]; then
+    echo "ERROR: Missing required tools (semgrep). Install with: pipx install semgrep" >&2
+    exit 2
+elif [[ $rc -ne 0 ]]; then
+    FAILED=$((FAILED + 1))
+fi
+
+# Merge JSON from all checks
 STATUS="pass"
 [[ $FAILED -gt 0 ]] && STATUS="fail"
 
@@ -55,10 +65,11 @@ jq -s \
         },
         "failures": [.[].failures[]],
         "checks": {
-            "bash":   .[0],
-            "python": .[1]
+            "bash":     .[0],
+            "python":   .[1],
+            "patterns": .[2]
         }
-    }' "$TMP_BASH" "$TMP_PYTHON" > "$JSON_OUT"
+    }' "$TMP_BASH" "$TMP_PYTHON" "$TMP_PATTERNS" > "$JSON_OUT"
 
 # Final terse summary
 TOTAL=$(jq '.summary.total' "$JSON_OUT")
