@@ -396,6 +396,14 @@ else
 fi
 
 title "Setting up Ansible Environment"
+# sudo dnf install pipx (above) or the kickstart %post can create ~/.local owned
+# by root, which causes pipx to fail with PermissionError on its log directory.
+# Fix ownership before running pipx.
+if [[ -d ~/.local ]] && [[ "$(stat -c%U ~/.local)" != "$(whoami)" ]]; then
+    info "Fixing ~/.local ownership (was created by root)"
+    sudo chown -R "$(id -u):$(id -g)" ~/.local
+fi
+mkdir -p ~/.local/bin ~/.local/share ~/.local/state
 info "Installing Ansible and dependencies via pipx"
 if pipx list --short | grep -q "ansible"; then
   success "Ansible already installed"
