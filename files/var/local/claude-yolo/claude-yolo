@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.7.4"  # feat: self-heal broken Dockerfile; fix: add python3-venv to base image (container v2.11)
+CCY_VERSION="3.7.5"  # fix: auto-trust /workspace on startup (hasTrustDialogAccepted), container v2.12
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,7 +36,7 @@ done
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.11"
+REQUIRED_CONTAINER_VERSION="2.12"
 
 set -e
 

@@ -146,5 +146,16 @@ else
     echo "✓ Using existing .claude.json from project storage"
 fi
 
+# Mark /workspace as trusted so the "do you trust this folder?" prompt is suppressed.
+# hasTrustDialogAccepted is stored per-project in .claude.json — set it unconditionally
+# since the file may have been created without it (or the container may be fresh).
+trust_updated=$(jq '.projects["/workspace"].hasTrustDialogAccepted = true' /root/.claude.json)
+if [ -z "$trust_updated" ]; then
+    echo "ERROR: Failed to update .claude.json trust flag" >&2
+    exit 1
+fi
+echo "$trust_updated" > /root/.claude.json
+echo "✓ /workspace marked as trusted (hasTrustDialogAccepted)"
+
 # Execute the command
 exec "$@"
