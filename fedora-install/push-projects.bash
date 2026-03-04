@@ -157,44 +157,73 @@ tmp_manifest=$(mktemp)
 repo_count=0
 skip_count=0
 
-# Detect which per-account SSH key can access a given URL.
-# Cached by owner (org/user) so each unique owner is only tested once.
-# Captures probe output into a variable — expected SSH failures are not errors to surface.
-declare -A _owner_key_cache
+# Map GitHub org/user login → SSH key alias using ownership data.
+# Strategy:
+#   1. SSH-probe each ~/.ssh/github_* key to identify its GitHub username.
+#      GitHub exits 1 even on auth success ("Hi USER!") — use if to capture output
+#      regardless of exit code without hiding errors.
+#   2. For each identified account, ask the GitHub API which orgs it OWNS
+#      (role=owner on the membership, not merely member/admin-on-repos).
+# This fixes the "first-key-wins" problem: git ls-remote succeeds with any key
+# on public repos, so alphabetically-first keys were always selected.
 
+declare -A _user_key_map  # github_username → key_alias
+declare -A _org_key_map   # org_or_user_login → key_alias
+
+info "Mapping SSH keys to GitHub accounts..."
+for _kf in ~/.ssh/github_*; do
+    [[ "$_kf" == *.pub ]] && continue
+    [[ ! -f "$_kf" ]] && continue
+    _kalias="${_kf#"$HOME/.ssh/github_"}"
+    # GitHub always exits 1 even on success — use if to capture output safely
+    _ssh_id=""
+    if _ssh_id=$(ssh -i "$_kf" \
+        -o IdentitiesOnly=yes -o BatchMode=yes \
+        -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
+        git@github.com 2>&1); then :; fi
+    # GitHub responds: "Hi USERNAME! You've successfully authenticated..."
+    if [[ "$_ssh_id" =~ Hi\ ([^!]+)! ]]; then
+        _gh_username="${BASH_REMATCH[1]}"
+        _user_key_map["$_gh_username"]="$_kalias"
+        _org_key_map["$_gh_username"]="$_kalias"
+        info "  key:${_kalias} → @${_gh_username}"
+    fi
+done
+
+info "Resolving org ownership via GitHub API..."
+for _gh_user in "${!_user_key_map[@]}"; do
+    _kalias="${_user_key_map[$_gh_user]}"
+    gh auth switch --hostname github.com --user "$_gh_user" 2>/dev/null || continue
+    while IFS= read -r _org_login; do
+        [[ -z "$_org_login" ]] && continue
+        # First org-owner mapped wins — org ownership (role=owner) is the actual creator/admin
+        # of the org, not just someone with repo access granted by the owner
+        if [[ -z "${_org_key_map[$_org_login]:-}" ]]; then
+            _org_key_map["$_org_login"]="$_kalias"
+            info "  org:${_org_login} → key:${_kalias}"
+        fi
+    done < <(gh api /user/memberships/orgs \
+        --paginate \
+        --jq '.[] | select(.role == "owner") | .organization.login' 2>/dev/null)
+done
+
+# Restore the account selected for this session
+gh auth switch --hostname github.com --user "$selected_account"
+
+# Look up the SSH key alias for a repo URL — pure map lookup, no SSH probing.
 _find_key_alias() {
     local url="$1"
-    # Extract owner from git@github.com:OWNER/repo.git
     local _url_path owner
-    _url_path="${url##*:}"   # strip up to last colon → OWNER/repo.git
-    owner="${_url_path%%/*}" # strip from first slash → OWNER
+    _url_path="${url##*:}"    # strip up to last colon → OWNER/repo.git
+    owner="${_url_path%%/*}"  # strip from first slash → OWNER
 
-    # Non-SSH URLs (local paths, https) may produce empty/unusable owner — skip caching
+    # Non-SSH URLs (local paths, https) — no key hint needed
     if [[ -z "$owner" ]] || [[ "$owner" == "$url" ]]; then
         echo ""
         return
     fi
 
-    if [[ -v _owner_key_cache["$owner"] ]]; then
-        echo "${_owner_key_cache[$owner]}"
-        return
-    fi
-
-    local _kalias _probe
-    for _kf in ~/.ssh/github_*; do
-        [[ "$_kf" == *.pub ]] && continue
-        [[ ! -f "$_kf" ]] && continue
-        _kalias="${_kf#"$HOME/.ssh/github_"}"
-        if _probe=$(GIT_SSH_COMMAND="ssh -i $_kf -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=5" \
-                git ls-remote "$url" HEAD 2>&1); then
-            _owner_key_cache["$owner"]="$_kalias"
-            echo "$_kalias"
-            return
-        fi
-    done
-
-    _owner_key_cache["$owner"]=""
-    echo ""
+    echo "${_org_key_map[$owner]:-}"
 }
 
 # Find all .git directories up to 6 levels deep (supports org/category/repo nesting)
