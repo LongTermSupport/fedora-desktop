@@ -7,7 +7,9 @@
     - name: Apply Gsettings
       become: true
       become_user: "{{ user_login }}"
-      ansible.builtin.shell: "{{ item }}"
+      # dbus-run-session provides a temporary D-Bus session so gsettings works
+      # without GNOME currently running (e.g. SSH sessions, fresh installs)
+      ansible.builtin.shell: "dbus-run-session -- {{ item }}"
       loop:
         # disable caps lock key
         - gsettings set org.gnome.desktop.input-sources xkb-options \[\'caps:none\'\]
