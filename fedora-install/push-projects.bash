@@ -191,16 +191,16 @@ for _kf in ~/.ssh/github_*; do
 done
 
 info "Resolving org ownership via GitHub API..."
+declare -A _org_candidates  # org_login → space-separated list of key aliases (all admins)
 for _gh_user in "${!_user_key_map[@]}"; do
     _kalias="${_user_key_map[$_gh_user]}"
     gh auth switch --hostname github.com --user "$_gh_user" 2>/dev/null || continue
     while IFS= read -r _org_login; do
         [[ -z "$_org_login" ]] && continue
-        # First org-owner mapped wins — GitHub returns role="admin" for org owners;
-        # regular members with repo access show role="member" and are excluded
-        if [[ -z "${_org_key_map[$_org_login]:-}" ]]; then
-            _org_key_map["$_org_login"]="$_kalias"
-            info "  org:${_org_login} → key:${_kalias}"
+        if [[ -z "${_org_candidates[$_org_login]:-}" ]]; then
+            _org_candidates["$_org_login"]="$_kalias"
+        else
+            _org_candidates["$_org_login"]+=" $_kalias"
         fi
     done < <(gh api /user/memberships/orgs \
         --paginate \
@@ -209,6 +209,40 @@ done
 
 # Restore the account selected for this session
 gh auth switch --hostname github.com --user "$selected_account"
+
+# Assign each org to the appropriate key.
+# Single-admin orgs are assigned automatically.
+# Orgs with multiple admin keys prompt the user to choose.
+for _org_login in "${!_org_candidates[@]}"; do
+    IFS=' ' read -ra _cands <<< "${_org_candidates[$_org_login]}"
+    if [[ ${#_cands[@]} -eq 1 ]]; then
+        _org_key_map["$_org_login"]="${_cands[0]}"
+        info "  org:${_org_login} → key:${_cands[0]}"
+    else
+        echo
+        echo -e "${CYAN}Multiple keys have admin access to org: ${BOLD}${_org_login}${NC}"
+        _i=1
+        for _ka in "${_cands[@]}"; do
+            for _gh_u in "${!_user_key_map[@]}"; do
+                if [[ "${_user_key_map[$_gh_u]}" == "$_ka" ]]; then
+                    echo -e "  ${BOLD}${_i})${NC} key:${_ka} (@${_gh_u})"
+                    break
+                fi
+            done
+            _i=$((_i+1))
+        done
+        while true; do
+            read -rp "Select key for ${_org_login} (1-${#_cands[@]}): " _choice
+            if [[ "$_choice" =~ ^[0-9]+$ ]] && [[ "$_choice" -ge 1 ]] && [[ "$_choice" -le ${#_cands[@]} ]]; then
+                _chosen="${_cands[$((_choice-1))]}"
+                break
+            fi
+            echo -e "${RED}Invalid choice. Enter a number between 1 and ${#_cands[@]}${NC}"
+        done
+        _org_key_map["$_org_login"]="$_chosen"
+        info "  org:${_org_login} → key:${_chosen}"
+    fi
+done
 
 # Look up the SSH key alias for a repo URL — pure map lookup, no SSH probing.
 _find_key_alias() {
