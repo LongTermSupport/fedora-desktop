@@ -171,6 +171,32 @@ manifest_content=$(
     | cut -f2-
 )
 
+## ── Load SSH Keys into Agent ─────────────────────────────────────────────────
+# Load all keys upfront so clone loop never prompts for passphrases.
+# ssh-add is idempotent — "Identity already added" if key is already loaded.
+
+echo
+info "Loading SSH keys into agent (enter passphrases once — avoids repeated prompts during clone)..."
+
+if [[ -z "${SSH_AUTH_SOCK:-}" ]]; then
+    warning "No ssh-agent detected (SSH_AUTH_SOCK not set). You may be prompted for passphrases repeatedly during cloning."
+else
+    _keys_to_add=()
+    [[ -f "$HOME/.ssh/id" ]] && _keys_to_add+=("$HOME/.ssh/id")
+    for _key in ~/.ssh/github_*; do
+        [[ "$_key" == *.pub ]] && continue
+        [[ ! -f "$_key" ]] && continue
+        _keys_to_add+=("$_key")
+    done
+
+    for _key in "${_keys_to_add[@]}"; do
+        if ! ssh-add "$_key"; then
+            warning "  Could not add $(basename "$_key") — you may be prompted during clone"
+        fi
+    done
+    success "SSH agent ready (${#_keys_to_add[@]} keys checked)"
+fi
+
 ## ── Reclone ───────────────────────────────────────────────────────────────────
 
 # Try cloning with the hinted key first (from manifest), then default, then all keys.
