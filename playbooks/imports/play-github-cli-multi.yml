@@ -54,106 +54,17 @@
       ansible.builtin.set_fact:
         github_accounts_configured: "{{ github_accounts is defined and github_accounts | length > 0 }}"
 
-    # CONFIGURATION SETUP
-    - block:
-        - name: Ask for configuration type
-          ansible.builtin.pause:
-            prompt: |2
-
-              ========================================================================
-              GITHUB CLI MULTI-ACCOUNT CONFIGURATION
-              ========================================================================
-
-              Current authentication status:
-              {{ auth_status.stdout }}
-
-              How many GitHub accounts do you want to configure?
-
-              1 - Single account (simple setup, standard gh usage)
-              2 - Multiple accounts (with aliases like gh-work, gh-personal)
-              3 - Skip (keep existing configuration)
-
-              Enter choice (1, 2, or 3)
-          register: config_choice
-
-        - name: Exit if skipping
-          ansible.builtin.meta: end_play
-          when: config_choice.user_input == "3"
-
-        - name: Get single account details
-          ansible.builtin.pause:
-            prompt: |2
-
-              Enter your GitHub account details.
-
-              Username (e.g., johndoe)
-          register: single_username
-          when: config_choice.user_input == "1"
-
-        - name: Get single account alias
-          ansible.builtin.pause:
-            prompt: |2
-
-              Enter an alias for this account (e.g., main, default, personal)
-              This will be used for reference
-          register: single_alias
-          when: config_choice.user_input == "1"
-
-        - name: Get multiple account details
-          ansible.builtin.pause:
-            prompt: |2
-
-              Enter your GitHub accounts as comma-separated alias:username pairs.
-
-              Example: work:johndoe-work,personal:johndoe,oss:johndoe-oss
-
-              The aliases will be used for commands (e.g., gh-work, gh-personal)
-
-              Enter accounts
-          register: multi_accounts
-          when: config_choice.user_input == "2"
-
-        - name: Parse multi-account input
-          ansible.builtin.set_fact:
-            parsed_accounts: |
-              {% set accounts = {} %}
-              {% for pair in multi_accounts.user_input.split(',') %}
-              {%   set parts = pair.strip().split(':') %}
-              {%   if parts | length == 2 %}
-              {%     set _ = accounts.update({parts[0].strip(): parts[1].strip()}) %}
-              {%   endif %}
-              {% endfor %}
-              {{ accounts }}
-          when: config_choice.user_input == "2"
-
-        - name: Write single account configuration
-          ansible.builtin.blockinfile:
-            path: "{{ vault_file }}"
-            marker: "# {mark} ANSIBLE MANAGED: GitHub Accounts Configuration"
-            block: |
-              # GitHub CLI accounts
-              github_accounts:
-                {{ single_alias.user_input }}: "{{ single_username.user_input }}"
-          when: config_choice.user_input == "1"
-
-        - name: Write multi-account configuration
-          ansible.builtin.blockinfile:
-            path: "{{ vault_file }}"
-            marker: "# {mark} ANSIBLE MANAGED: GitHub Accounts Configuration"
-            block: |
-              # GitHub CLI accounts
-              github_accounts:
-              {% for alias, username in parsed_accounts.items() %}
-                {{ alias }}: "{{ username }}"
-              {% endfor %}
-          when: config_choice.user_input == "2"
-
-        - name: Reload variables
-          ansible.builtin.include_vars: "{{ vault_file }}"
-        - name: Update github_accounts_configured
-          ansible.builtin.set_fact:
-            github_accounts_configured: true
+    # CONFIGURATION CHECK - github_accounts must be set in localhost.yml (populated by run.bash)
+    - name: Skip if github_accounts not configured
       when: not github_accounts_configured
+      block:
+        - ansible.builtin.debug:
+            msg: >
+              Skipping GitHub multi-account setup — github_accounts not configured in localhost.yml.
+              Re-run run.bash which will prompt for account details, or add github_accounts manually:
+                github_accounts:
+                  personal: "your-github-username"
+        - ansible.builtin.meta: end_play
 
     # AUTHENTICATION SETUP
     - name: Check which accounts need authentication
@@ -308,96 +219,15 @@
               {% if item.stdout == 'authenticated' %}✓ Already authenticated with gh CLI{% else %}⚠ Needs gh CLI authentication{% endif %}
           loop: "{{ gh_auth_check.results }}"
 
-        - name: Create gh authentication script
-          ansible.builtin.copy:
-            content: |
-              #!/bin/bash
-
-              echo "========================================"
-              echo "GitHub CLI Authentication Setup"
-              echo "========================================"
-              echo ""
-              echo "This script will authenticate the following GitHub accounts:"
-              {% for item in gh_auth_check.results %}
-              {% if item.stdout != 'authenticated' %}
-              echo "  - {{ item.item.key }} ({{ item.item.value }})"
-              {% endif %}
-              {% endfor %}
-              echo ""
-              echo "You will be prompted for each account."
-              echo "Choose 'Login with a web browser' for easiest setup."
-              echo ""
-              echo "Press Enter to continue..."
-              read
-
-              {% for item in gh_auth_check.results %}
-              {% if item.stdout != 'authenticated' %}
-              echo ""
-              echo "========================================"
-              echo "Authenticating: {{ item.item.key }} ({{ item.item.value }})"
-              echo "========================================"
-              gh auth login --hostname github.com --git-protocol ssh
-              {% endif %}
-              {% endfor %}
-
-              echo ""
-              echo "========================================"
-              echo "Authentication Complete!"
-              echo "========================================"
-              echo ""
-              echo "Current status:"
-              gh auth status
-              echo ""
-              echo "Press Enter to close this window..."
-              read
-            dest: /tmp/gh-auth-setup.sh
-            mode: "0755"
-            owner: "{{ user_login }}"
-            group: "{{ user_login }}"
-          when: gh_auth_check.results | selectattr('stdout', 'equalto', 'not authenticated') | list | length > 0
-
-        - name: Wait for authentication completion
-          ansible.builtin.pause:
-            prompt: |2
-
-              ========================================
-              GITHUB CLI AUTHENTICATION REQUIRED
-              ========================================
-
-              Please open a new terminal and run:
-
-                bash /tmp/gh-auth-setup.sh
-
-              Complete the authentication process, then
-              press Enter here to continue...
-          when: gh_auth_check.results | selectattr('stdout', 'equalto', 'not authenticated') | list | length > 0
-
-        - name: Verify all accounts are now authenticated
-          ansible.builtin.shell: gh auth status 2>&1 | grep -q "{{ item.value }}" && echo "authenticated" || echo "not authenticated"
-          register: final_auth_check
-          changed_when: false
-          loop: "{{ github_accounts | default({}) | dict2items }}"
-
-        - name: Display final authentication status
-          ansible.builtin.debug:
-            msg: |
-              Final authentication status:
-              {% for item in final_auth_check.results %}
-              {{ item.item.key }} ({{ item.item.value }}): {% if item.stdout == 'authenticated' %}✓ Authenticated{% else %}✗ NOT authenticated - needs manual setup{% endif %}
-              {% endfor %}
-
-        - name: Check if any accounts still need authentication
+        - name: Assert all accounts are authenticated with gh CLI
           ansible.builtin.assert:
-            that: item.stdout == 'authenticated'
-            fail_msg: "Account {{ item.item.key }} ({{ item.item.value }}) is NOT authenticated. Run: gh auth login --hostname github.com --git-protocol ssh"
-            success_msg: "Account {{ item.item.key }} ({{ item.item.value }}) is authenticated ✓"
-          loop: "{{ final_auth_check.results }}"
-          register: auth_assertions
-
-        - name: Summary of failed authentications
-          ansible.builtin.fail:
-            msg: "Some accounts failed to authenticate. Check the messages above and run the gh auth login commands manually."
-          when: auth_assertions.results | selectattr('failed', 'defined') | selectattr('failed') | list | length > 0
+            that:
+              - item.stdout == 'authenticated'
+            fail_msg: >
+              Account '{{ item.item.key }}' ({{ item.item.value }}) is not authenticated with gh CLI.
+              Run: gh auth login --hostname github.com --git-protocol ssh
+              Or re-run run.bash which authenticates all configured accounts automatically.
+          loop: "{{ gh_auth_check.results }}"
       when: github_accounts_configured
 
     # GIT ACCOUNT HELPER SETUP

@@ -627,6 +627,52 @@ else
 fi
 completed
 
+title "Authenticating GitHub Accounts"
+if grep -q 'github_accounts' "$localhost_yml" 2>/dev/null; then
+  info "Checking authentication status for all configured GitHub accounts"
+  # Parse github_accounts from localhost.yml — use Python to ignore !vault tags
+  mapfile -t _gh_account_pairs < <(python3 - "$localhost_yml" <<'PYEOF'
+import sys, yaml
+
+def _ignore_vault(loader, tag_suffix, node):
+    return None
+
+_loader = yaml.SafeLoader
+yaml.add_multi_constructor('', _ignore_vault, Loader=_loader)
+
+with open(sys.argv[1]) as f:
+    data = yaml.load(f, Loader=_loader)
+
+for alias, username in (data.get('github_accounts') or {}).items():
+    print(f"{alias}:{username}")
+PYEOF
+  )
+
+  if [[ ${#_gh_account_pairs[@]} -eq 0 ]]; then
+    warning "No github_accounts entries parsed — skipping additional account auth"
+  else
+    for _pair in "${_gh_account_pairs[@]}"; do
+      _alias="${_pair%%:*}"
+      _username="${_pair##*:}"
+      if gh auth status 2>&1 | grep -q "$_username"; then
+        success "Already authenticated: $_alias ($_username)"
+      else
+        echo -e "\n${CYAN}${ARROW}${NC} Authenticating GitHub account: ${BOLD}$_alias ($_username)${NC}"
+        echo -e "${YELLOW}${INFO} Please choose SSH as the authentication method${NC}\n"
+        if ! gh auth login --hostname github.com --git-protocol ssh; then
+          error "Failed to authenticate: $_alias ($_username)"
+          echo -e "${YELLOW}${ARROW} Run manually: gh auth login --hostname github.com --git-protocol ssh${NC}"
+        else
+          success "Authenticated: $_alias ($_username)"
+        fi
+      fi
+    done
+  fi
+else
+  success "Single account setup — no additional accounts to authenticate"
+fi
+completed
+
 title "Running Ansible Playbooks"
 info "Installing Ansible requirements"
 ansible-galaxy install -r requirements.yml > /dev/null 2>&1
@@ -648,20 +694,6 @@ else
 fi
 
 if [[ $main_exit_code -eq 0 ]]; then
-  info "Running GitHub multi-account setup"
-  multi_exit_code=0
-  if sudo -n true 2>/dev/null; then
-    ./playbooks/imports/optional/common/play-github-cli-multi.yml
-    multi_exit_code=$?
-  else
-    ./playbooks/imports/optional/common/play-github-cli-multi.yml --ask-become-pass
-    multi_exit_code=$?
-  fi
-  if [[ $multi_exit_code -ne 0 ]]; then
-    warning "Multi-account setup incomplete — run manually when ready:"
-    echo -e "   ${BOLD}cd ~/Projects/fedora-desktop${NC}"
-    echo -e "   ${BOLD}./playbooks/imports/optional/common/play-github-cli-multi.yml${NC}"
-  fi
   completed
 else
   error "Main playbook failed with exit code: $main_exit_code"
