@@ -627,9 +627,9 @@ else
 fi
 completed
 
-title "Authenticating GitHub Accounts"
+title "Preparing SSH Keys for GitHub Accounts"
 if grep -q 'github_accounts' "$localhost_yml" 2>/dev/null; then
-  info "Checking authentication status for all configured GitHub accounts"
+  info "Generating any missing per-account SSH keys"
   # Parse github_accounts from localhost.yml — use Python to ignore !vault tags
   mapfile -t _gh_account_pairs < <(python3 - "$localhost_yml" <<'PYEOF'
 import sys, yaml
@@ -649,49 +649,27 @@ PYEOF
   )
 
   if [[ ${#_gh_account_pairs[@]} -eq 0 ]]; then
-    warning "No github_accounts entries parsed — skipping additional account auth"
+    warning "No github_accounts entries parsed — skipping"
   else
     for _pair in "${_gh_account_pairs[@]}"; do
       _alias="${_pair%%:*}"
       _username="${_pair##*:}"
-      # Primary detection: try auth switch (fast, works for stored non-active accounts)
-      # Fallback: grep auth status text (catches currently active account)
-      _already_authed=false
-      if gh auth switch --hostname github.com --user "$_username" 2>/dev/null; then
-        _already_authed=true
-      elif gh auth status 2>&1 | grep -q "$_username"; then
-        _already_authed=true
+
+      # Ensure per-account SSH key exists — playbook will handle GitHub upload
+      _key_private="$HOME/.ssh/github_${_alias}"
+      if [[ ! -f "$_key_private" ]]; then
+        info "Generating SSH key for $_alias ($_username)"
+        ssh-keygen -t ed25519 -C "${_username}@github" -f "$_key_private" -N ""
       fi
 
-      if [[ "$_already_authed" == "true" ]]; then
-        success "Already authenticated: $_alias ($_username)"
+      # SSH is what matters for git operations — check if it works already
+      if ssh -o BatchMode=yes -o StrictHostKeyChecking=no -i "$_key_private" \
+           -T git@github.com 2>&1 | grep -q "successfully authenticated"; then
+        success "SSH access confirmed: $_alias ($_username)"
       else
-        echo -e "\n${CYAN}${ARROW}${NC} Authenticating GitHub account: ${BOLD}$_alias ($_username)${NC}"
-        echo -e "${YELLOW}${INFO} Choose SSH as the authentication method, then complete authentication in your browser${NC}\n"
-        # Generate per-account SSH key now if it doesn't exist
-        # (the playbook detects existing keys and skips re-generation)
-        _key_private="$HOME/.ssh/github_${_alias}"
-        if [[ ! -f "$_key_private" ]]; then
-          info "Generating SSH key for $_alias"
-          ssh-keygen -t ed25519 -C "${_username}@github" -f "$_key_private" -N ""
-        fi
-        # --skip-ssh-key avoids the interactive key-selection menu;
-        # key upload to GitHub is handled by the configuration playbook
-        gh auth login --hostname github.com --git-protocol ssh --skip-ssh-key
-        # Verify auth succeeded after login attempt
-        if gh auth switch --hostname github.com --user "$_username" 2>/dev/null \
-           || gh auth status 2>&1 | grep -q "$_username"; then
-          success "Authenticated: $_alias ($_username)"
-        else
-          error "Failed to authenticate: $_alias ($_username)"
-          echo -e "${YELLOW}${ARROW} Run manually: gh auth login --hostname github.com --git-protocol ssh${NC}"
-        fi
+        info "SSH key for $_alias not yet on GitHub — the setup playbook will prompt you to add it"
       fi
     done
-    # Restore primary account as active after authenticating additional accounts
-    if ! gh auth switch --hostname github.com --user "$primary_gh_username" 2>/dev/null; then
-      warning "Could not restore primary account ($primary_gh_username) as active — run: gh auth switch --user $primary_gh_username"
-    fi
   fi
 else
   success "Single account setup — no additional accounts to authenticate"

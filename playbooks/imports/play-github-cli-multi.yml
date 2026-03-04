@@ -205,29 +205,24 @@
             msg: "All SSH keys are already configured on GitHub ✓"
           when: ssh_keys_to_add | length == 0
 
-        - name: Check gh auth status for each account
-          ansible.builtin.shell: |
-            gh auth status 2>&1 | grep -q "{{ item.value }}" && echo "authenticated" || echo "not authenticated"
-          register: gh_auth_check
+        - name: Final SSH verification for all accounts
+          ansible.builtin.shell: >
+            ssh -o BatchMode=yes -o StrictHostKeyChecking=no
+            -i "/home/{{ user_login }}/.ssh/github_{{ item.key }}"
+            -T git@github.com 2>&1
+          register: ssh_final_verify
           changed_when: false
           loop: "{{ github_accounts | default({}) | dict2items }}"
 
-        - name: Display accounts needing gh CLI authentication
-          ansible.builtin.debug:
-            msg: |
-              Account '{{ item.item.key }}' ({{ item.item.value }}):
-              {% if item.stdout == 'authenticated' %}✓ Already authenticated with gh CLI{% else %}⚠ Needs gh CLI authentication{% endif %}
-          loop: "{{ gh_auth_check.results }}"
-
-        - name: Assert all accounts are authenticated with gh CLI
+        - name: Assert SSH access works for all accounts
           ansible.builtin.assert:
-            that:
-              - item.stdout == 'authenticated'
+            that: "'successfully authenticated' in item.stdout"
             fail_msg: >
-              Account '{{ item.item.key }}' ({{ item.item.value }}) is not authenticated with gh CLI.
-              Run: gh auth login --hostname github.com --git-protocol ssh
-              Or re-run run.bash which authenticates all configured accounts automatically.
-          loop: "{{ gh_auth_check.results }}"
+              SSH access failed for '{{ item.item.key }}' ({{ item.item.value }}).
+              Add ~/.ssh/github_{{ item.item.key }}.pub to GitHub:
+              https://github.com/settings/keys
+            success_msg: "SSH access confirmed: {{ item.item.key }} ({{ item.item.value }}) ✓"
+          loop: "{{ ssh_final_verify.results }}"
       when: github_accounts_configured
 
     # GIT ACCOUNT HELPER SETUP
