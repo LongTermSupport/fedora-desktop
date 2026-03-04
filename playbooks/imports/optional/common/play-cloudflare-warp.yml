@@ -25,12 +25,17 @@
       become: true
       become_user: "{{ user_login }}"
       ansible.builtin.shell: |
-        # untested, hopefully works
         set -ex
+        # Delete existing registration if present before creating a new one
+        if warp-cli --accept-tos registration show 2>/dev/null | grep -q 'Registration ID'; then
+          warp-cli --accept-tos registration delete
+        fi
         yes | warp-cli --accept-tos registration new
         warp-cli --accept-tos connect
         warp-cli --accept-tos mode doh
         warp-cli --accept-tos dns families malware
+      args:
+        executable: /bin/bash
     - name: Systemd Resolved Config
       ansible.builtin.copy:
         dest: /etc/systemd/resolved.conf
