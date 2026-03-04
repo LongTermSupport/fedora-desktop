@@ -654,19 +654,42 @@ PYEOF
     for _pair in "${_gh_account_pairs[@]}"; do
       _alias="${_pair%%:*}"
       _username="${_pair##*:}"
-      if gh auth status 2>&1 | grep -q "$_username"; then
+      # Primary detection: try auth switch (fast, works for stored non-active accounts)
+      # Fallback: grep auth status text (catches currently active account)
+      _already_authed=false
+      if gh auth switch --hostname github.com --user "$_username" 2>/dev/null; then
+        _already_authed=true
+      elif gh auth status 2>&1 | grep -q "$_username"; then
+        _already_authed=true
+      fi
+
+      if [[ "$_already_authed" == "true" ]]; then
         success "Already authenticated: $_alias ($_username)"
       else
         echo -e "\n${CYAN}${ARROW}${NC} Authenticating GitHub account: ${BOLD}$_alias ($_username)${NC}"
-        echo -e "${YELLOW}${INFO} Please choose SSH as the authentication method${NC}\n"
-        if ! gh auth login --hostname github.com --git-protocol ssh; then
+        echo -e "${YELLOW}${INFO} Choose SSH as the authentication method${NC}"
+        echo -e "${YELLOW}${INFO} If asked about SSH keys, select ${BOLD}Skip${NC}${YELLOW} — keys are set up by the configuration playbook${NC}\n"
+        # Specify per-account key if it already exists so gh can detect it's already on GitHub
+        _key_file="$HOME/.ssh/github_${_alias}.pub"
+        if [[ -f "$_key_file" ]]; then
+          gh auth login --hostname github.com --git-protocol ssh --ssh-key-file "$_key_file"
+        else
+          gh auth login --hostname github.com --git-protocol ssh
+        fi
+        # Verify auth succeeded after login attempt
+        if gh auth switch --hostname github.com --user "$_username" 2>/dev/null \
+           || gh auth status 2>&1 | grep -q "$_username"; then
+          success "Authenticated: $_alias ($_username)"
+        else
           error "Failed to authenticate: $_alias ($_username)"
           echo -e "${YELLOW}${ARROW} Run manually: gh auth login --hostname github.com --git-protocol ssh${NC}"
-        else
-          success "Authenticated: $_alias ($_username)"
         fi
       fi
     done
+    # Restore primary account as active after authenticating additional accounts
+    if ! gh auth switch --hostname github.com --user "$primary_gh_username" 2>/dev/null; then
+      warning "Could not restore primary account ($primary_gh_username) as active — run: gh auth switch --user $primary_gh_username"
+    fi
   fi
 else
   success "Single account setup — no additional accounts to authenticate"
