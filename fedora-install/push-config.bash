@@ -258,6 +258,66 @@ else
     success "Created private repo: github.com/${config_repo}"
 fi
 
+## ── Ensure README.md exists in config repo ────────────────────────────────────
+
+echo
+info "Ensuring README.md exists in config repo..."
+
+readme_b64=$(cat <<'README_EOF' | base64 -w 0
+# fedora-desktop-config
+
+Private configuration backup for the [fedora-desktop](https://github.com/LongTermSupport/fedora-desktop) Ansible setup.
+
+## Contents
+
+| File | Description |
+|------|-------------|
+| `localhost.yml` | Ansible host variables (`environment/localhost/host_vars/localhost.yml`) |
+
+## Security
+
+All sensitive values (passwords, API keys, tokens) are encrypted with
+[Ansible Vault](https://docs.ansible.com/ansible/latest/vault_guide/index.html).
+The vault password is **not** stored here — keep it in your password manager.
+
+## Restore on Fresh Install
+
+`run.bash` pulls `localhost.yml` from this repo automatically during setup,
+skipping the manual configuration prompts. No action needed.
+
+## Manual Restore
+
+```bash
+gh api repos/OWNER/fedora-desktop-config/contents/localhost.yml \
+    --jq '.content' | base64 -d \
+    > ~/Projects/fedora-desktop/environment/localhost/host_vars/localhost.yml
+```
+
+Replace `OWNER` with your GitHub username.
+
+## Backup
+
+```bash
+~/Projects/fedora-desktop/fedora-install/push-config.bash
+```
+
+---
+
+> ⚠️ **Keep this repo private.** It contains your personal system configuration.
+README_EOF
+)
+
+if gh api "repos/${config_repo}/contents/README.md" --jq '.sha' > /dev/null 2>/dev/null; then
+    success "README.md already exists"
+else
+    gh api "repos/${config_repo}/contents/README.md" \
+        -X PUT \
+        -f message="Add README.md" \
+        -f content="$readme_b64" \
+        > /dev/null
+    success "README.md created"
+fi
+
 ## ── Push file ─────────────────────────────────────────────────────────────────
 
 echo
