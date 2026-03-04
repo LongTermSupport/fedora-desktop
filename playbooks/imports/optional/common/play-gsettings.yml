@@ -11,3 +11,5 @@
       loop:
         # disable caps lock key
         - gsettings set org.gnome.desktop.input-sources xkb-options \[\'caps:none\'\]
+        # disable middle-click closing tabs in Ptyxis terminal
+        - gsettings set org.gnome.Ptyxis tab-middle-click 'nothing'
