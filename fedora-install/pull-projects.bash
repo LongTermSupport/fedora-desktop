@@ -166,16 +166,19 @@ try_clone() {
     local dest="$2"
     local key_hint="${3:-}"
     local _ssh_opts="IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=no"
+    _tried_keys=()  # populated for caller to use in failure messages
 
     # Try hinted key first (set by push-projects)
     if [[ -n "$key_hint" ]] && [[ -f "$HOME/.ssh/github_${key_hint}" ]]; then
         local _hint_key="$HOME/.ssh/github_${key_hint}"
+        _tried_keys+=("github_${key_hint}(hint)")
         if _out=$(GIT_SSH_COMMAND="ssh -i $_hint_key -o $_ssh_opts" git clone "$url" "$dest" 2>&1); then
             return 0
         fi
     fi
 
     # Try default identity
+    _tried_keys+=("default")
     if _out=$(git clone "$url" "$dest" 2>&1); then
         return 0
     fi
@@ -185,6 +188,7 @@ try_clone() {
         [[ "$_key" == *.pub ]] && continue
         [[ ! -f "$_key" ]] && continue
         [[ "$_key" == "$HOME/.ssh/github_${key_hint}" ]] && continue  # already tried
+        _tried_keys+=("$(basename "$_key")")
         if _out=$(GIT_SSH_COMMAND="ssh -i $_key -o $_ssh_opts" git clone "$url" "$dest" 2>&1); then
             info "  Cloned using key: $(basename "$_key")"
             return 0
@@ -228,8 +232,8 @@ while IFS=$'\t' read -r rel_path origin_url key_hint; do
         success "Cloned: ${rel_path}"
         cloned=$((cloned + 1))
     else
-        warning "Failed: ${rel_path} (${origin_url})"
-        failed_repos+=("${rel_path}: ${origin_url}")
+        warning "Failed: ${rel_path} (tried: ${_tried_keys[*]})"
+        failed_repos+=("${rel_path}: ${origin_url} [tried: ${_tried_keys[*]}]")
         failed=$((failed + 1))
     fi
 done <<< "$manifest_content"
