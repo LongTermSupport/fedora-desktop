@@ -718,17 +718,31 @@ run_playbook() {
   run_playbook_with_issue_option "$1" "$2"
 }
 
+# Parse a space/comma-separated list of numbers; print valid ones (one per line)
+_parse_number_list() {
+  local input="$1"
+  local max="$2"
+  local normalized="${input//,/ }"
+  for n in $normalized; do
+    if [[ "$n" =~ ^[0-9]+$ ]] && [[ "$n" -ge 1 ]] && [[ "$n" -le "$max" ]]; then
+      echo "$n"
+    else
+      warning "Ignoring invalid number: $n (valid range: 1-$max)" >&2
+    fi
+  done
+}
+
 # Function to display menu
 show_menu() {
   local category="$1"
   shift
   local playbooks=("$@")
   local choice
-  
+
   while true; do
     echo -e "\n${CYAN}${BOLD}$category Playbooks${NC}"
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    
+
     local i=1
     for pb in "${playbooks[@]}"; do
       local name
@@ -737,6 +751,8 @@ show_menu() {
       ((i++))
     done
     echo -e "  ${BOLD}A)${NC} Run all"
+    echo -e "  ${BOLD}W)${NC} Whitelist — enter numbers to run (e.g. 1 3 5 or 1,3,5)"
+    echo -e "  ${BOLD}B)${NC} Blacklist — enter numbers to skip, run all others"
     echo -e "  ${BOLD}S)${NC} Skip to next section"
     echo -e "  ${BOLD}Q)${NC} Quit optional installations"
 
@@ -764,6 +780,42 @@ show_menu() {
         done
         break
         ;;
+      [Ww])
+        read -rp "Enter numbers to run (space or comma separated): " _wl_input
+        mapfile -t _wl_nums < <(_parse_number_list "$_wl_input" "${#playbooks[@]}")
+        if [[ ${#_wl_nums[@]} -eq 0 ]]; then
+          warning "No valid numbers entered — try again"
+        else
+          for n in "${_wl_nums[@]}"; do
+            local pb="${playbooks[$((n-1))]}"
+            local name
+            name=$(basename "$pb" .yml | sed 's/^play-//' | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
+            run_playbook "$pb" "$name"
+          done
+          break
+        fi
+        ;;
+      [Bb])
+        read -rp "Enter numbers to skip (space or comma separated, Enter to run all): " _bl_input
+        mapfile -t _bl_nums < <(_parse_number_list "$_bl_input" "${#playbooks[@]}")
+        local _idx=1
+        for pb in "${playbooks[@]}"; do
+          local _skip=false
+          for n in "${_bl_nums[@]}"; do
+            if [[ "$_idx" -eq "$n" ]]; then
+              _skip=true
+              break
+            fi
+          done
+          if [[ "$_skip" == "false" ]]; then
+            local name
+            name=$(basename "$pb" .yml | sed 's/^play-//' | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
+            run_playbook "$pb" "$name"
+          fi
+          ((_idx++))
+        done
+        break
+        ;;
       [Ss])
         break
         ;;
@@ -772,7 +824,7 @@ show_menu() {
         ;;
       *)
         error "Invalid choice: '$choice'"
-        echo -e "${YELLOW}${ARROW} Please enter a number (1-${#playbooks[@]}), A, S, or Q${NC}\n"
+        echo -e "${YELLOW}${ARROW} Please enter a number, A, W, B, S, or Q${NC}\n"
         sleep 1
         ;;
     esac
