@@ -158,6 +158,32 @@ info "Manifest contains ${total} repositories"
 
 ## ── Reclone ───────────────────────────────────────────────────────────────────
 
+# Try cloning with default key first, then fall back to each ~/.ssh/github_* key.
+# Standard git@github.com: URLs are preserved (no alias URLs) so repos work
+# inside containers and other environments that lack SSH config aliases.
+try_clone() {
+    local url="$1"
+    local dest="$2"
+
+    # Default identity first
+    if git clone "$url" "$dest" 2>/dev/null; then
+        return 0
+    fi
+
+    # Try each per-account GitHub SSH key
+    for _key in ~/.ssh/github_*; do
+        [[ "$_key" == *.pub ]] && continue
+        [[ ! -f "$_key" ]] && continue
+        if GIT_SSH_COMMAND="ssh -i $_key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=no" \
+                git clone "$url" "$dest" 2>/dev/null; then
+            info "  Cloned using key: $(basename "$_key")"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
 echo
 info "Recloning into ${PROJECTS_DIR}..."
 mkdir -p "$PROJECTS_DIR"
@@ -183,7 +209,7 @@ while IFS=$'\t' read -r rel_path origin_url; do
     info "Cloning: ${BOLD}${rel_path}${NC}"
     info "  ${ARROW} ${origin_url}"
     mkdir -p "$(dirname "$target")"
-    if git clone "$origin_url" "$target" 2>&1; then
+    if try_clone "$origin_url" "$target"; then
         success "Cloned: ${rel_path}"
         cloned=$((cloned + 1))
     else
