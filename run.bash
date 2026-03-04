@@ -668,16 +668,16 @@ PYEOF
       else
         echo -e "\n${CYAN}${ARROW}${NC} Authenticating GitHub account: ${BOLD}$_alias ($_username)${NC}"
         echo -e "${YELLOW}${INFO} Choose SSH as the authentication method, then complete authentication in your browser${NC}\n"
-        # Generate per-account SSH key now if it doesn't exist, so gh auth login can
-        # auto-handle key upload (skips silently if already on GitHub, uploads if not)
-        # The playbook will detect existing keys and skip re-generation (idempotent)
+        # Generate per-account SSH key now if it doesn't exist
+        # (the playbook detects existing keys and skips re-generation)
         _key_private="$HOME/.ssh/github_${_alias}"
-        _key_file="${_key_private}.pub"
         if [[ ! -f "$_key_private" ]]; then
           info "Generating SSH key for $_alias"
           ssh-keygen -t ed25519 -C "${_username}@github" -f "$_key_private" -N ""
         fi
-        gh auth login --hostname github.com --git-protocol ssh --ssh-key-file "$_key_file"
+        # --skip-ssh-key avoids the interactive key-selection menu;
+        # key upload to GitHub is handled by the configuration playbook
+        gh auth login --hostname github.com --git-protocol ssh --skip-ssh-key
         # Verify auth succeeded after login attempt
         if gh auth switch --hostname github.com --user "$_username" 2>/dev/null \
            || gh auth status 2>&1 | grep -q "$_username"; then
