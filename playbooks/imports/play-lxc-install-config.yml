@@ -115,6 +115,29 @@
         # Note: IPv6 modules are typically auto-loaded by firewalld
       tags: [kernel_modules, lxc_docker]
 
+    # ── Sanity Checks ──────────────────────────────────────────────────────────
+    - name: Sanity — lxc service is active
+      ansible.builtin.command: systemctl is-active lxc
+      changed_when: false
+
+    - name: Sanity — lxcbr0 bridge interface is up
+      ansible.builtin.command: ip link show lxcbr0
+      changed_when: false
+
+    - name: Sanity — lxc-ls command works
+      ansible.builtin.command: lxc-ls
+      changed_when: false
+
+    - name: Sanity — lxc-checkconfig
+      ansible.builtin.command: lxc-checkconfig
+      register: lxc_checkconfig_result
+      changed_when: false
+      failed_when: false
+
+    - name: Show lxc-checkconfig results (review for any disabled features)
+      ansible.builtin.debug:
+        msg: "{{ lxc_checkconfig_result.stdout_lines }}"
+
   handlers:
     - name: sysctl
       ansible.builtin.command: sysctl -p
