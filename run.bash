@@ -555,8 +555,26 @@ config_repo="${primary_gh_username}/fedora-desktop-config"
 
 info "Checking for personal config repo: github.com/${config_repo}"
 if raw_content=$(gh api "repos/${config_repo}/contents/localhost.yml" --jq '.content' 2>/dev/null); then
-  printf '%s' "$raw_content" | base64 -d > "$localhost_yml"
-  success "Configuration pulled from github.com/${config_repo}"
+  # Config repo has a file — check if local copy already has real data
+  local_has_data=false
+  if [[ -f "$localhost_yml" ]] && grep -qE '(!vault|github_accounts)' "$localhost_yml"; then
+    local_has_data=true
+  fi
+  if [[ "$local_has_data" == "true" ]]; then
+    echo -e "\n${YELLOW}${WARN} localhost.yml already contains real configuration.${NC}"
+    echo -e "   1) Pull from config repo (recommended — overwrites local)"
+    echo -e "   2) Keep existing local file"
+    read -rp "   Choice [1/2]: " _choice
+    if [[ "${_choice}" != "2" ]]; then
+      printf '%s' "$raw_content" | base64 -d > "$localhost_yml"
+      success "Configuration pulled from github.com/${config_repo}"
+    else
+      success "Keeping existing localhost.yml"
+    fi
+  else
+    printf '%s' "$raw_content" | base64 -d > "$localhost_yml"
+    success "Configuration pulled from github.com/${config_repo}"
+  fi
 elif [[ -f "$localhost_yml" ]]; then
   success "Config repo not found — using existing localhost.yml"
 else
