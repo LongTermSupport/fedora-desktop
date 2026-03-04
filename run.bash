@@ -428,6 +428,7 @@ mkdir -p ~/.local/bin
 ln -sf ~/.local/share/pipx/venvs/ansible/bin/ansible-lint ~/.local/bin/ansible-lint
 completed
 
+_ssh_key_password=""  # saved here, offered as default for github_ SSH keys later
 title "Creating SSH Key Pair\n\nNOTE - you must set a password\n\nSuggest you use your login password"
 if [[ ! -f ~/.ssh/id ]]; then
   while true; do
@@ -439,6 +440,7 @@ if [[ ! -f ~/.ssh/id ]]; then
     echo "Passwords not matched, please try again"
   done
   ssh-keygen -t ed25519 -f ~/.ssh/id -P "$password"
+  _ssh_key_password="$password"
 else
   echo " - found existing key"
 fi
@@ -637,6 +639,48 @@ else
 fi
 completed
 
+title "GitHub SSH Key Passphrase"
+# GitHub SSH keys (github_*) are full account keys — they must be passphrase-protected.
+# The passphrase is stored in the vault so the Ansible playbook can manage keys idempotently.
+_github_ssh_passphrase=""
+
+if grep -q 'github_ssh_passphrase:' "$localhost_yml" 2>/dev/null; then
+  success "github_ssh_passphrase already configured in localhost.yml"
+else
+  info "GitHub SSH keys require a passphrase (these are full account keys, not deploy keys)"
+  echo
+  if [[ -n "$_ssh_key_password" ]]; then
+    echo -e "${CYAN}${ARROW}${NC} Use the same password as your main SSH key (~/.ssh/id) for all GitHub keys?"
+    read -rsp "   Press 'y' to use same, 'n' to enter a different one: " -n 1 _yn
+    echo
+    if [[ "${_yn,,}" == "y" ]]; then
+      _github_ssh_passphrase="$_ssh_key_password"
+      success "Using same password as ~/.ssh/id"
+    fi
+  fi
+
+  if [[ -z "$_github_ssh_passphrase" ]]; then
+    info "Hint: your login password is a convenient choice"
+    while true; do
+      read -rsp "   GitHub SSH keys passphrase: " _github_ssh_passphrase
+      echo
+      read -rsp "   Confirm passphrase: " _confirm_passphrase
+      echo
+      [[ "$_github_ssh_passphrase" == "$_confirm_passphrase" ]] && break
+      echo -e "${RED}${CROSS} Passphrases do not match — try again${NC}"
+    done
+  fi
+
+  info "Encrypting github_ssh_passphrase and saving to vault..."
+  # printf avoids trailing newline that echo adds — passphrase must be exact
+  _encrypted=$(printf '%s' "$_github_ssh_passphrase" | ansible-vault encrypt_string \
+    --vault-id "localhost@./vault-pass.secret" \
+    --stdin-name 'github_ssh_passphrase')
+  printf '\n%s\n' "$_encrypted" >> "$localhost_yml"
+  success "github_ssh_passphrase saved to localhost.yml (vault-encrypted)"
+fi
+completed
+
 title "Preparing SSH Keys for GitHub Accounts"
 if grep -q 'github_accounts' "$localhost_yml" 2>/dev/null; then
   info "Generating any missing per-account SSH keys"
@@ -661,6 +705,20 @@ PYEOF
   if [[ ${#_gh_account_pairs[@]} -eq 0 ]]; then
     warning "No github_accounts entries parsed — skipping"
   else
+    # If any key needs generating and passphrase isn't in memory (e.g. pulled from config
+    # repo), prompt once before the loop rather than letting ssh-keygen use empty passphrase
+    _any_key_missing=false
+    for _pair in "${_gh_account_pairs[@]}"; do
+      _alias="${_pair%%:*}"
+      [[ ! -f "$HOME/.ssh/github_${_alias}" ]] && { _any_key_missing=true; break; }
+    done
+
+    if [[ "$_any_key_missing" == "true" ]] && [[ -z "$_github_ssh_passphrase" ]]; then
+      info "Enter github_ssh_passphrase to generate SSH keys (same value as stored in your vault):"
+      read -rsp "   Passphrase: " _github_ssh_passphrase
+      echo
+    fi
+
     for _pair in "${_gh_account_pairs[@]}"; do
       _alias="${_pair%%:*}"
       _username="${_pair##*:}"
@@ -669,7 +727,7 @@ PYEOF
       _key_private="$HOME/.ssh/github_${_alias}"
       if [[ ! -f "$_key_private" ]]; then
         info "Generating SSH key for $_alias ($_username)"
-        ssh-keygen -t ed25519 -C "${_username}@github" -f "$_key_private" -N ""
+        ssh-keygen -t ed25519 -C "${_username}@github" -f "$_key_private" -N "${_github_ssh_passphrase:-}"
       fi
 
       success "SSH key ready: $_alias ($_username)"
