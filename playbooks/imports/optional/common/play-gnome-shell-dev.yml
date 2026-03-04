@@ -24,20 +24,9 @@
       register: real_user_home
       changed_when: false
 
-    - name: Detect Desktop Environment
-      ansible.builtin.shell: echo "$XDG_CURRENT_DESKTOP"
-      register: desktop_env
-      changed_when: false
-
-    - name: Set Desktop Environment Facts
+    - name: Set User Home Fact
       ansible.builtin.set_fact:
-        is_gnome: "{{ 'GNOME' in desktop_env.stdout }}"
         user_home: "{{ real_user_home.stdout }}"
-
-    - name: Check if GNOME Desktop
-      ansible.builtin.fail:
-        msg: "This playbook requires GNOME desktop environment"
-      when: not is_gnome
 
     # =========================================================================
     # Install Dependencies

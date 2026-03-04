@@ -717,6 +717,20 @@ else
   fi
 fi
 
+## ── Restore Projects ─────────────────────────────────────────────────────────
+
+title "Restoring Projects"
+_pull_projects_script=~/Projects/fedora-desktop/fedora-install/pull-projects.bash
+if [[ -f "$_pull_projects_script" ]]; then
+  if confirm "Would you like to restore projects from your config repo manifest?"; then
+    if ! "$_pull_projects_script" --account "$primary_gh_username"; then
+      warning "Projects restore failed or no manifest found — continuing"
+    fi
+  fi
+else
+  warning "pull-projects.bash not found — skipping project restore"
+fi
+
 echo -e "\n${GREEN}${BOLD}╔══════════════════════════════════════════════════════════════╗${NC}"
 echo -e "${GREEN}${BOLD}║              MAIN INSTALLATION COMPLETE!                    ║${NC}"
 echo -e "${GREEN}${BOLD}╚══════════════════════════════════════════════════════════════╝${NC}\n"
