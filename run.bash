@@ -734,8 +734,11 @@ run_playbook() {
 _parse_number_list() {
   local input="$1"
   local max="$2"
-  local normalized="${input//,/ }"
-  for n in $normalized; do
+  local -a tokens
+  # Global IFS=$'\n\t' excludes spaces, so use explicit IFS for splitting
+  IFS=' ,' read -ra tokens <<< "$input"
+  for n in "${tokens[@]}"; do
+    [[ -z "$n" ]] && continue
     if [[ "$n" =~ ^[0-9]+$ ]] && [[ "$n" -ge 1 ]] && [[ "$n" -le "$max" ]]; then
       echo "$n"
     else
