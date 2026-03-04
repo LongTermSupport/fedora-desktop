@@ -179,8 +179,11 @@ echo
 info "Loading SSH keys into agent (enter passphrases once — avoids repeated prompts during clone)..."
 
 if [[ -z "${SSH_AUTH_SOCK:-}" ]]; then
-    warning "No ssh-agent detected (SSH_AUTH_SOCK not set). You may be prompted for passphrases repeatedly during cloning."
-else
+    info "No ssh-agent detected — starting one for this session..."
+    eval "$(ssh-agent -s)" > /dev/null
+fi
+
+if [[ -n "${SSH_AUTH_SOCK:-}" ]]; then
     _keys_to_add=()
     [[ -f "$HOME/.ssh/id" ]] && _keys_to_add+=("$HOME/.ssh/id")
     for _key in ~/.ssh/github_*; do
