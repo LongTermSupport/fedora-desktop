@@ -137,9 +137,11 @@
           loop: "{{ github_accounts | default({}) | dict2items }}"
 
         - name: Test SSH connections
-          ansible.builtin.shell: ssh -T git@github.com-{{ item.key }} 2>&1 || true
+          ansible.builtin.shell: ssh -T git@github.com-{{ item.key }} 2>&1
           register: ssh_test
           changed_when: false
+          # GitHub SSH always exits 1 when authenticated (no shell access) — only rc=255 means real failure
+          failed_when: ssh_test.rc not in [0, 1]
           loop: "{{ github_accounts | default({}) | dict2items }}"
 
         - name: Check which SSH keys need to be added
@@ -188,9 +190,11 @@
           when: ssh_keys_to_add | length > 0
 
         - name: Re-test SSH connections after adding keys
-          ansible.builtin.shell: ssh -T git@github.com-{{ item.key }} 2>&1 || true
+          ansible.builtin.shell: ssh -T git@github.com-{{ item.key }} 2>&1
           register: ssh_retest
           changed_when: false
+          # GitHub SSH always exits 1 when authenticated (no shell access) — only rc=255 means real failure
+          failed_when: ssh_retest.rc not in [0, 1]
           loop: "{{ github_accounts | default({}) | dict2items }}"
           when: ssh_keys_to_add | length > 0
 
@@ -212,6 +216,8 @@
             -T git@github.com 2>&1
           register: ssh_final_verify
           changed_when: false
+          # GitHub SSH always exits 1 when authenticated (no shell access) — only rc=255 means real failure
+          failed_when: ssh_final_verify.rc not in [0, 1]
           loop: "{{ github_accounts | default({}) | dict2items }}"
 
         - name: Assert SSH access works for all accounts
