@@ -84,6 +84,21 @@
       when: github_accounts_configured
 
     # SSH KEY GENERATION AND SETUP
+    - name: Assert github_ssh_passphrase is set in vault
+      ansible.builtin.assert:
+        that:
+          - github_ssh_passphrase is defined
+          - github_ssh_passphrase | length > 0
+        fail_msg: |
+          ERROR: github_ssh_passphrase not found in vault!
+
+          Add it to environment/localhost/host_vars/localhost.yml:
+          ansible-vault encrypt_string 'your-passphrase' --name 'github_ssh_passphrase' --vault-id localhost@vault-pass.secret
+
+          This passphrase protects your GitHub SSH private keys.
+          All github_* keys use the same passphrase.
+      when: github_accounts_configured
+
     - name: Generate SSH keys for accounts
       block:
         - name: Ensure .ssh directory exists
@@ -104,13 +119,29 @@
           ansible.builtin.shell: |
             ssh-keygen -t ed25519 -C "{{ item.item.value }}@github" \
               -f "/home/{{ user_login }}/.ssh/github_{{ item.item.key }}" \
-              -N "" 2>&1
+              -N "{{ github_ssh_passphrase }}" 2>&1
           args:
             executable: /bin/bash
           when: not item.stat.exists
           loop: "{{ ssh_key_status.results }}"
           loop_control:
             label: "{{ item.item.key }}"
+
+        - name: Add passphrase to existing passphrase-less GitHub SSH keys
+          ansible.builtin.shell: |
+            ssh-keygen -p -P "" -N "{{ github_ssh_passphrase }}" \
+              -f "/home/{{ user_login }}/.ssh/github_{{ item.item.key }}" 2>&1
+          args:
+            executable: /bin/bash
+          when: item.stat.exists
+          loop: "{{ ssh_key_status.results }}"
+          loop_control:
+            label: "{{ item.item.key }}"
+          register: passphrase_update
+          failed_when: false
+          # rc=0: passphrase added (key had empty passphrase)
+          # rc!=0: key already has a passphrase — expected, not an error
+          changed_when: passphrase_update.rc == 0
 
         - name: Set proper permissions on SSH keys
           ansible.builtin.file:
