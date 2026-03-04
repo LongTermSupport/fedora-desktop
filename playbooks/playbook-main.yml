@@ -1,6 +1,7 @@
 #!/usr/bin/env ansible-playbook
 ---
-#!/usr/bin/env ansible-playbook
+# NOTE: Everything imported here runs by default and is NOT optional.
+# Do not store playbooks imported here under imports/optional/ — move them to imports/.
 - import_playbook: imports/play-AA-preflight-sanity.yml
 - import_playbook: imports/play-basic-configs.yml
 - import_playbook: imports/play-prevent-ssh-suspend.yml
@@ -13,9 +14,9 @@
 - import_playbook: imports/play-ms-fonts.yml
 - import_playbook: imports/play-rpm-fusion.yml
 - import_playbook: imports/play-toolbox-install.yml
-- import_playbook: imports/optional/common/play-docker.yml
+- import_playbook: imports/play-docker.yml
 - import_playbook: imports/play-podman.yml
-- import_playbook: imports/optional/common/play-python.yml
+- import_playbook: imports/play-python.yml
 - import_playbook: imports/play-claude-code.yml
-- import_playbook: imports/optional/common/play-install-claude-yolo.yml
-- import_playbook: imports/optional/common/play-gsettings.yml
+- import_playbook: imports/play-install-claude-yolo.yml
+- import_playbook: imports/play-gsettings.yml
