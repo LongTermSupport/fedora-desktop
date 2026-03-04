@@ -163,7 +163,7 @@ skip_count=0
 #      GitHub exits 1 even on auth success ("Hi USER!") — use if to capture output
 #      regardless of exit code without hiding errors.
 #   2. For each identified account, ask the GitHub API which orgs it OWNS
-#      (role=owner on the membership, not merely member/admin-on-repos).
+#      (GitHub returns role="admin" for org owners, "member" for everyone else).
 # This fixes the "first-key-wins" problem: git ls-remote succeeds with any key
 # on public repos, so alphabetically-first keys were always selected.
 
@@ -196,15 +196,15 @@ for _gh_user in "${!_user_key_map[@]}"; do
     gh auth switch --hostname github.com --user "$_gh_user" 2>/dev/null || continue
     while IFS= read -r _org_login; do
         [[ -z "$_org_login" ]] && continue
-        # First org-owner mapped wins — org ownership (role=owner) is the actual creator/admin
-        # of the org, not just someone with repo access granted by the owner
+        # First org-owner mapped wins — GitHub returns role="admin" for org owners;
+        # regular members with repo access show role="member" and are excluded
         if [[ -z "${_org_key_map[$_org_login]:-}" ]]; then
             _org_key_map["$_org_login"]="$_kalias"
             info "  org:${_org_login} → key:${_kalias}"
         fi
     done < <(gh api /user/memberships/orgs \
         --paginate \
-        --jq '.[] | select(.role == "owner") | .organization.login' 2>/dev/null)
+        --jq '.[] | select(.role == "admin") | .organization.login' 2>/dev/null)
 done
 
 # Restore the account selected for this session
