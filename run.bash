@@ -822,37 +822,82 @@ echo -e "${MAGENTA}━━━━━━━━━━━━━━━━━━━━�
 
 if confirm "Would you like to install optional components?"; then
   cd ~/Projects/fedora-desktop
-  
+
+  # Playbooks that always run without prompting (auto-run before the interactive menu)
+  auto_run_common=(
+    "play-speech-to-text.yml"
+  )
+
   # Common optional playbooks
   if [[ -d playbooks/imports/optional/common ]]; then
     mapfile -t common_playbooks < <(find playbooks/imports/optional/common -name "*.yml" -type f | sort)
     if [[ ${#common_playbooks[@]} -gt 0 ]]; then
-      info "Found ${#common_playbooks[@]} common optional playbooks"
-      if ! show_menu "Common Optional" "${common_playbooks[@]}"; then
-        info "Skipping remaining optional installations"
+
+      # Auto-run whitelisted playbooks first (no prompt)
+      menu_playbooks=()
+      for pb in "${common_playbooks[@]}"; do
+        pb_base=$(basename "$pb")
+        _is_auto=false
+        for _auto_name in "${auto_run_common[@]}"; do
+          if [[ "$pb_base" == "$_auto_name" ]]; then
+            _is_auto=true
+            break
+          fi
+        done
+        if [[ "$_is_auto" == "true" ]]; then
+          name=$(basename "$pb" .yml | sed 's/^play-//' | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
+          info "Auto-running: $name"
+          run_playbook "$pb" "$name"
+        else
+          menu_playbooks+=("$pb")
+        fi
+      done
+
+      # Interactive menu for the rest
+      if [[ ${#menu_playbooks[@]} -gt 0 ]]; then
+        info "Found ${#menu_playbooks[@]} common optional playbooks"
+        if ! show_menu "Common Optional" "${menu_playbooks[@]}"; then
+          info "Skipping remaining optional installations"
+        fi
       fi
     fi
   fi
-  
-  # Hardware-specific playbooks
+
+  # Hardware-specific playbooks — auto-run detected, skip undetected, prompt for uncertain
   if [[ -d playbooks/imports/optional/hardware-specific ]]; then
     mapfile -t hw_playbooks < <(find playbooks/imports/optional/hardware-specific -name "*.yml" -type f | sort)
     if [[ ${#hw_playbooks[@]} -gt 0 ]]; then
       echo -e "\n${CYAN}${BOLD}Hardware-Specific Playbooks${NC}"
       echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
       info "Analyzing your hardware..."
-      
-      i=1
+
+      hw_auto=()
+      hw_prompt=()
       for pb in "${hw_playbooks[@]}"; do
         name=$(basename "$pb" .yml | sed 's/^play-//' | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
-        status=$(check_hardware "$pb")
-        echo -e "  ${BOLD}$i)${NC} $name $status"
-        ((i++))
+        hw_status=$(check_hardware "$pb")
+        if echo "$hw_status" | grep -q "RECOMMENDED"; then
+          hw_auto+=("$pb")
+          success "Hardware detected — will auto-run: $name"
+        elif echo "$hw_status" | grep -q "NOT DETECTED\|DESKTOP"; then
+          info "Hardware not detected — skipping: $name"
+        else
+          hw_prompt+=("$pb")
+          warning "Needs manual check: $name $hw_status"
+        fi
       done
-      echo
-      
-      if confirm "Would you like to configure hardware-specific components?"; then
-        show_menu "Hardware-Specific" "${hw_playbooks[@]}"
+
+      # Auto-run recommended hardware playbooks
+      for pb in "${hw_auto[@]}"; do
+        name=$(basename "$pb" .yml | sed 's/^play-//' | tr '-' ' ' | sed 's/\b\(.\)/\u\1/g')
+        run_playbook "$pb" "$name"
+      done
+
+      # Prompt for uncertain hardware playbooks
+      if [[ ${#hw_prompt[@]} -gt 0 ]]; then
+        if confirm "Would you like to configure hardware-specific components that need manual checking?"; then
+          show_menu "Hardware-Specific" "${hw_prompt[@]}"
+        fi
       fi
     fi
   fi
