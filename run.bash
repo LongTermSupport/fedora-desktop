@@ -6,6 +6,14 @@ set -u
 set -o pipefail
 IFS=$'\n\t'
 
+# Flag: skip main install, jump straight to optional playbooks menu
+OPTIONAL_ONLY=false
+for _arg in "$@"; do
+  if [[ "$_arg" == "--optional-only" ]]; then
+    OPTIONAL_ONLY=true
+  fi
+done
+
 ## Colors and formatting
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -357,6 +365,8 @@ promptForValue(){
 }
 
 ## Process
+
+if [[ "$OPTIONAL_ONLY" != "true" ]]; then
 
 echo -e "\n${MAGENTA}${BOLD}Installation Process${NC}"
 echo -e "${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -711,6 +721,8 @@ echo -e "\n${GREEN}${BOLD}╔═════════════════
 echo -e "${GREEN}${BOLD}║              MAIN INSTALLATION COMPLETE!                    ║${NC}"
 echo -e "${GREEN}${BOLD}╚══════════════════════════════════════════════════════════════╝${NC}\n"
 
+fi # end: OPTIONAL_ONLY skip block
+
 ## Optional Playbooks Menu System
 
 # Function to run a playbook (wrapper for backward compatibility)
@@ -872,7 +884,7 @@ check_hardware() {
 echo -e "\n${MAGENTA}${BOLD}Optional Configurations${NC}"
 echo -e "${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
-if confirm "Would you like to install optional components?"; then
+if [[ "$OPTIONAL_ONLY" == "true" ]] || confirm "Would you like to install optional components?"; then
   cd ~/Projects/fedora-desktop
 
   # Playbooks that always run without prompting (auto-run before the interactive menu)
