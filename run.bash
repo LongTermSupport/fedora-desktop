@@ -876,9 +876,8 @@ if confirm "Would you like to install optional components?"; then
   cd ~/Projects/fedora-desktop
 
   # Playbooks that always run without prompting (auto-run before the interactive menu)
-  auto_run_common=(
-    "play-speech-to-text.yml"
-  )
+  # NOTE: play-speech-to-text.yml removed pending GPU/CPU split — see issue #11
+  auto_run_common=()
 
   # Common optional playbooks
   if [[ -d playbooks/imports/optional/common ]]; then
