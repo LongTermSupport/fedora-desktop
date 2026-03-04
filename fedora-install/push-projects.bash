@@ -157,6 +157,40 @@ tmp_manifest=$(mktemp)
 repo_count=0
 skip_count=0
 
+# Detect which per-account SSH key can access a given URL.
+# Cached by owner (org/user) so each unique owner is only tested once.
+# Captures probe output into a variable — expected SSH failures are not errors to surface.
+declare -A _owner_key_cache
+
+_find_key_alias() {
+    local url="$1"
+    # Extract owner from git@github.com:OWNER/repo.git
+    local _url_path owner
+    _url_path="${url##*:}"   # strip up to last colon → OWNER/repo.git
+    owner="${_url_path%%/*}" # strip from first slash → OWNER
+
+    if [[ -v _owner_key_cache["$owner"] ]]; then
+        echo "${_owner_key_cache[$owner]}"
+        return
+    fi
+
+    local _kalias _probe
+    for _kf in ~/.ssh/github_*; do
+        [[ "$_kf" == *.pub ]] && continue
+        [[ ! -f "$_kf" ]] && continue
+        _kalias="${_kf#"$HOME/.ssh/github_"}"
+        if _probe=$(GIT_SSH_COMMAND="ssh -i $_kf -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=5" \
+                git ls-remote "$url" HEAD 2>&1); then
+            _owner_key_cache["$owner"]="$_kalias"
+            echo "$_kalias"
+            return
+        fi
+    done
+
+    _owner_key_cache["$owner"]=""
+    echo ""
+}
+
 # Find all .git directories up to 6 levels deep (supports org/category/repo nesting)
 while IFS= read -r git_dir; do
     repo_dir="${git_dir%/.git}"
@@ -168,8 +202,9 @@ while IFS= read -r git_dir; do
         continue
     fi
 
-    printf '%s\t%s\n' "$rel_path" "$origin_url" >> "$tmp_manifest"
-    info "  ${BOLD}${rel_path}${NC} ${ARROW} ${origin_url}"
+    key_alias=$(_find_key_alias "$origin_url")
+    printf '%s\t%s\t%s\n' "$rel_path" "$origin_url" "$key_alias" >> "$tmp_manifest"
+    info "  ${BOLD}${rel_path}${NC} ${ARROW} ${origin_url}${key_alias:+ [key: ${key_alias}]}"
     repo_count=$((repo_count + 1))
 done < <(find "$PROJECTS_DIR" -maxdepth 6 -name ".git" -type d | sort)
 

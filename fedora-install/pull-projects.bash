@@ -158,15 +158,25 @@ info "Manifest contains ${total} repositories"
 
 ## ── Reclone ───────────────────────────────────────────────────────────────────
 
-# Try cloning with default key first, then fall back to each ~/.ssh/github_* key.
+# Try cloning with the hinted key first (from manifest), then default, then all keys.
 # Standard git@github.com: URLs are preserved (no alias URLs) so repos work
 # inside containers and other environments that lack SSH config aliases.
 try_clone() {
     local url="$1"
     local dest="$2"
+    local key_hint="${3:-}"
+    local _ssh_opts="IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=no"
 
-    # Default identity first
-    if git clone "$url" "$dest" 2>/dev/null; then
+    # Try hinted key first (set by push-projects)
+    if [[ -n "$key_hint" ]] && [[ -f "$HOME/.ssh/github_${key_hint}" ]]; then
+        local _hint_key="$HOME/.ssh/github_${key_hint}"
+        if _out=$(GIT_SSH_COMMAND="ssh -i $_hint_key -o $_ssh_opts" git clone "$url" "$dest" 2>&1); then
+            return 0
+        fi
+    fi
+
+    # Try default identity
+    if _out=$(git clone "$url" "$dest" 2>&1); then
         return 0
     fi
 
@@ -174,8 +184,8 @@ try_clone() {
     for _key in ~/.ssh/github_*; do
         [[ "$_key" == *.pub ]] && continue
         [[ ! -f "$_key" ]] && continue
-        if GIT_SSH_COMMAND="ssh -i $_key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=no" \
-                git clone "$url" "$dest" 2>/dev/null; then
+        [[ "$_key" == "$HOME/.ssh/github_${key_hint}" ]] && continue  # already tried
+        if _out=$(GIT_SSH_COMMAND="ssh -i $_key -o $_ssh_opts" git clone "$url" "$dest" 2>&1); then
             info "  Cloned using key: $(basename "$_key")"
             return 0
         fi
@@ -193,7 +203,7 @@ skipped=0
 failed=0
 failed_repos=()
 
-while IFS=$'\t' read -r rel_path origin_url; do
+while IFS=$'\t' read -r rel_path origin_url key_hint; do
     # Skip blank lines and comments
     [[ -z "$rel_path" ]] && continue
     [[ "$rel_path" =~ ^# ]] && continue
@@ -209,7 +219,7 @@ while IFS=$'\t' read -r rel_path origin_url; do
     info "Cloning: ${BOLD}${rel_path}${NC}"
     info "  ${ARROW} ${origin_url}"
     mkdir -p "$(dirname "$target")"
-    if try_clone "$origin_url" "$target"; then
+    if try_clone "$origin_url" "$target" "${key_hint:-}"; then
         success "Cloned: ${rel_path}"
         cloned=$((cloned + 1))
     else
