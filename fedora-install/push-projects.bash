@@ -106,7 +106,11 @@ if [[ -n "$selected_account" ]]; then
     fi
 elif [[ ${#auth_accounts[@]} -eq 1 ]]; then
     selected_account="${auth_accounts[0]}"
-    info "Using GitHub account: ${BOLD}${selected_account}${NC}"
+    echo -e "\n${CYAN}One GitHub account detected: ${BOLD}${selected_account}${NC}"
+    read -rp "Use this account? [Y/n]: " _confirm
+    if [[ "${_confirm,,}" == "n" ]]; then
+        die "Aborted. Authenticate the correct account with: gh auth login"
+    fi
 else
     echo -e "\n${CYAN}Multiple GitHub accounts authenticated:${NC}"
     i=1

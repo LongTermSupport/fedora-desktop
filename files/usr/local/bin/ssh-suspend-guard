@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Hold a systemd sleep inhibitor lock while inbound SSH sessions are active.
+# Prevents the machine from suspending mid-session.
+# Managed by ssh-suspend-guard.service — do not run directly.
+
+set -euo pipefail
+
+inhibit_pid=""
+
+take_lock() {
+    if [[ -z "$inhibit_pid" ]]; then
+        systemd-inhibit \
+            --what=sleep \
+            --why="Active SSH session(s)" \
+            --who="ssh-suspend-guard" \
+            sleep infinity &
+        inhibit_pid=$!
+        logger -t ssh-suspend-guard "inhibit lock taken (pid: ${inhibit_pid})"
+    fi
+}
+
+release_lock() {
+    if [[ -n "$inhibit_pid" ]]; then
+        kill "$inhibit_pid" 2>/dev/null
+        inhibit_pid=""
+        logger -t ssh-suspend-guard "inhibit lock released"
+    fi
+}
+
+trap release_lock EXIT TERM INT
+
+logger -t ssh-suspend-guard "started"
+
+while true; do
+    # Detect established inbound SSH connections (sshd listening on port 22)
+    if ss -tnp state established 'sport = :22' | grep -q sshd; then
+        take_lock
+    else
+        release_lock
+    fi
+    sleep 10
+done

@@ -1,0 +1,66 @@
+#!/usr/bin/env ansible-playbook
+---
+- hosts: desktop
+  name: Prevent Suspend During SSH Sessions
+  become: true
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  tasks:
+    - name: Deploy ssh-suspend-guard script
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/usr/local/bin/ssh-suspend-guard"
+        dest: /usr/local/bin/ssh-suspend-guard
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Deploy ssh-suspend-guard systemd service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/ssh-suspend-guard.service
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Prevent suspend during active SSH sessions
+          After=sshd.service
+          Wants=sshd.service
+
+          [Service]
+          Type=simple
+          ExecStart=/usr/local/bin/ssh-suspend-guard
+          Restart=always
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Enable and start ssh-suspend-guard
+      ansible.builtin.systemd:
+        name: ssh-suspend-guard
+        state: started
+        enabled: true
+        daemon_reload: true
+
+    - name: Get user UID
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ user_login }}"
+
+    - name: Disable suspend on AC power (plugged in = never idle-suspend)
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        argv:
+          - gsettings
+          - set
+          - org.gnome.settings-daemon.plugins.power
+          - sleep-inactive-ac-type
+          - nothing
+      environment:
+        DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ ansible_facts.getent_passwd[user_login][1] }}/bus"
+      changed_when: false
+
+    - name: Verify ssh-suspend-guard is running
+      ansible.builtin.command: systemctl is-active ssh-suspend-guard
+      changed_when: false
