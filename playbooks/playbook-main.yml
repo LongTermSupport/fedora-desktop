@@ -18,3 +18,4 @@
 - import_playbook: imports/optional/common/play-python.yml
 - import_playbook: imports/play-claude-code.yml
 - import_playbook: imports/optional/common/play-install-claude-yolo.yml
+- import_playbook: imports/optional/common/play-gsettings.yml
