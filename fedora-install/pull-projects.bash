@@ -156,6 +156,21 @@ done <<< "$manifest_content"
 
 info "Manifest contains ${total} repositories"
 
+# Re-sort by path depth so parent repos clone before their nested children.
+# find | sort orders .claude before .git alphabetically, which means a nested
+# repo like Family/qnap/.claude/hooks-daemon appears before Family/qnap in the
+# manifest — cloning it first creates the directory, then cloning the parent
+# fails into a non-empty destination.
+manifest_content=$(
+    echo "$manifest_content" \
+    | awk -F'\t' '
+        /^[[:space:]]*$/ || /^#/ { print "0\t" $0; next }
+        { n = split($1, a, "/"); print n "\t" $0 }
+    ' \
+    | sort -s -k1,1n \
+    | cut -f2-
+)
+
 ## ── Reclone ───────────────────────────────────────────────────────────────────
 
 # Try cloning with the hinted key first (from manifest), then default, then all keys.
