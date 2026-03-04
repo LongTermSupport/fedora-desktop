@@ -11,9 +11,9 @@
     - name: Check Ansible
       ansible.builtin.assert:
         that:
-          - ansible_version.full is version('2.15', '>=')
+          - ansible_version.full is version('2.20', '>=')
         fail_msg: |
-          This project requires Ansible 2.15 or greater
+          This project requires Ansible 2.20 or greater
 
     - name: Check Fedora
       ansible.builtin.assert:
