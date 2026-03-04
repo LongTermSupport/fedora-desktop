@@ -265,7 +265,7 @@
               1. Go to: https://github.com/settings/keys
               2. Log in as: {{ item.item.item.value }}
               3. Click "New SSH key"
-              4. Title: "{{ ansible_hostname }}-{{ item.item.item.key }}"
+              4. Title: "{{ ansible_facts['hostname'] }}-{{ item.item.item.key }}"
               5. Paste this key:
 
               {{ item.stdout }}
