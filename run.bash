@@ -553,16 +553,14 @@ title "Loading Personal Configuration"
 localhost_yml=~/Projects/fedora-desktop/environment/localhost/host_vars/localhost.yml
 config_repo="${primary_gh_username}/fedora-desktop-config"
 
-if [[ -f "$localhost_yml" ]]; then
-  success "Personal configuration already present"
+info "Checking for personal config repo: github.com/${config_repo}"
+if raw_content=$(gh api "repos/${config_repo}/contents/localhost.yml" --jq '.content' 2>/dev/null); then
+  printf '%s' "$raw_content" | base64 -d > "$localhost_yml"
+  success "Configuration pulled from github.com/${config_repo}"
+elif [[ -f "$localhost_yml" ]]; then
+  success "Config repo not found — using existing localhost.yml"
 else
-  info "Checking for personal config repo: github.com/${config_repo}"
-  raw_content=""
-  if raw_content=$(gh api "repos/${config_repo}/contents/localhost.yml" --jq '.content' 2>/dev/null); then
-    printf '%s' "$raw_content" | base64 -d > "$localhost_yml"
-    success "Configuration pulled from github.com/${config_repo}"
-  else
-    info "No config repo found — entering configuration manually"
+  info "No config repo found — entering configuration manually"
     echo -e "\n${CYAN}Current system user: ${BOLD}$(whoami)${NC}"
     user_login="$(promptForValue 'user login')"
     user_name="$(promptForValue 'full name')"
@@ -590,7 +588,6 @@ else
     } > "$localhost_yml"
 
     success "Configuration written"
-  fi
 fi
 completed
 
