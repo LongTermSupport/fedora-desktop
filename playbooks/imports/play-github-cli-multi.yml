@@ -273,25 +273,7 @@
             mode: "0755"
       when: github_accounts_configured and github_accounts is defined
 
-    # SINGLE ACCOUNT - simple setup
-    - block:
-        - name: Display single account completion
-          ansible.builtin.pause:
-            seconds: 0
-            prompt: |2
-
-              ========================================================================
-              GitHub CLI Single Account Setup Complete!
-              ========================================================================
-
-              Account: {{ github_accounts.values() | first }}
-
-              Standard gh commands will work normally.
-              The account is authenticated and ready to use.
-              ========================================================================
-      when: github_accounts_configured and github_accounts is defined and github_accounts | length == 1
-
-    # MULTI-ACCOUNT - create aliases and helpers
+    # GITHUB ACCOUNT ALIASES AND HELPERS - always use multi-account paradigm
     - block:
         - name: Create GitHub CLI aliases include file
           ansible.builtin.blockinfile:
@@ -814,7 +796,7 @@
 
               Restart shell or run: source ~/.bashrc
               ========================================================================
-      when: github_accounts_configured and github_accounts is defined and github_accounts | length > 1
+      when: github_accounts_configured and github_accounts is defined
 
     - name: Ensure bashrc-includes directory exists
       ansible.builtin.file:
