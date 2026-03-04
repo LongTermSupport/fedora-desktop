@@ -662,13 +662,7 @@ PYEOF
         ssh-keygen -t ed25519 -C "${_username}@github" -f "$_key_private" -N ""
       fi
 
-      # SSH is what matters for git operations — check if it works already
-      if ssh -o BatchMode=yes -o StrictHostKeyChecking=no -i "$_key_private" \
-           -T git@github.com 2>&1 | grep -q "successfully authenticated"; then
-        success "SSH access confirmed: $_alias ($_username)"
-      else
-        info "SSH key for $_alias not yet on GitHub — the setup playbook will prompt you to add it"
-      fi
+      success "SSH key ready: $_alias ($_username)"
     done
   fi
 else
