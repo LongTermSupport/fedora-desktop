@@ -136,6 +136,21 @@
                   IdentitiesOnly yes
           loop: "{{ github_accounts | default({}) | dict2items }}"
 
+        - name: Add default Host github.com SSH config entry
+          ansible.builtin.blockinfile:
+            path: "/home/{{ user_login }}/.ssh/config"
+            create: true
+            owner: "{{ user_login }}"
+            group: "{{ user_login }}"
+            mode: "0600"
+            marker: "# {mark} ANSIBLE MANAGED: GitHub default"
+            block: |
+              Host github.com
+                  HostName github.com
+                  User git
+                  IdentityFile ~/.ssh/id
+                  IdentitiesOnly yes
+
         - name: Test SSH connections
           ansible.builtin.shell: ssh -T git@github.com-{{ item.key }} 2>&1
           register: ssh_test
