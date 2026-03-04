@@ -164,6 +164,8 @@ mkdir -p "$PROJECTS_DIR"
 
 cloned=0
 skipped=0
+failed=0
+failed_repos=()
 
 while IFS=$'\t' read -r rel_path origin_url; do
     # Skip blank lines and comments
@@ -181,24 +183,38 @@ while IFS=$'\t' read -r rel_path origin_url; do
     info "Cloning: ${BOLD}${rel_path}${NC}"
     info "  ${ARROW} ${origin_url}"
     mkdir -p "$(dirname "$target")"
-    git clone "$origin_url" "$target"
-    success "Cloned: ${rel_path}"
-    cloned=$((cloned + 1))
+    if git clone "$origin_url" "$target" 2>&1; then
+        success "Cloned: ${rel_path}"
+        cloned=$((cloned + 1))
+    else
+        warning "Failed: ${rel_path} (${origin_url})"
+        failed_repos+=("${rel_path}: ${origin_url}")
+        failed=$((failed + 1))
+    fi
 done <<< "$manifest_content"
 
 ## ── Done ──────────────────────────────────────────────────────────────────────
 
 echo
 echo -e "${GREEN}${BOLD}╔══════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}${BOLD}║              Projects recloned successfully!                ║${NC}"
+echo -e "${GREEN}${BOLD}║              Projects reclone complete                      ║${NC}"
 echo -e "${GREEN}${BOLD}╚══════════════════════════════════════════════════════════════╝${NC}"
 echo
 echo -e "  ${ARROW} Cloned:  ${BOLD}${cloned}${NC}"
 echo -e "  ${ARROW} Skipped: ${BOLD}${skipped}${NC} (already existed)"
+echo -e "  ${ARROW} Failed:  ${BOLD}${failed}${NC}"
 echo
 if [[ "$cloned" -gt 0 ]]; then
     echo -e "${CYAN}Note: SSH aliases in remote URLs (e.g. github.com-work) require${NC}"
     echo -e "${CYAN}multi-account SSH keys to be configured. Run:${NC}"
     echo -e "  ${BOLD}./playbooks/imports/optional/common/play-github-cli-multi.yml${NC}"
     echo
+fi
+if [[ ${#failed_repos[@]} -gt 0 ]]; then
+    echo -e "${YELLOW}${WARN} Failed repos (check SSH keys / access rights):${NC}"
+    for _repo in "${failed_repos[@]}"; do
+        echo -e "  ${RED}${CROSS}${NC} ${_repo}"
+    done
+    echo
+    exit 1
 fi
