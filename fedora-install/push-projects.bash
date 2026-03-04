@@ -169,6 +169,12 @@ _find_key_alias() {
     _url_path="${url##*:}"   # strip up to last colon → OWNER/repo.git
     owner="${_url_path%%/*}" # strip from first slash → OWNER
 
+    # Non-SSH URLs (local paths, https) may produce empty/unusable owner — skip caching
+    if [[ -z "$owner" ]] || [[ "$owner" == "$url" ]]; then
+        echo ""
+        return
+    fi
+
     if [[ -v _owner_key_cache["$owner"] ]]; then
         echo "${_owner_key_cache[$owner]}"
         return
