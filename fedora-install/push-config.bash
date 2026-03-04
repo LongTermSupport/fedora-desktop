@@ -238,7 +238,7 @@ fi
 
 echo
 info "Verifying all vault-encrypted values decrypt cleanly..."
-if ansible localhost -i "localhost," -c local \
+if ansible desktop \
     --vault-id "localhost@${vault_pass_file}" \
     -m debug -a "msg=ok" \
     -e "@${LOCALHOST_YML}" > /dev/null; then
