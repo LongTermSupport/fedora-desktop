@@ -216,6 +216,11 @@ while IFS=$'\t' read -r rel_path origin_url key_hint; do
         continue
     fi
 
+    # Convert GitHub HTTPS URLs to SSH format — avoids credential prompts
+    if [[ "$origin_url" == https://github.com/* ]]; then
+        origin_url="git@github.com:${origin_url#https://github.com/}"
+    fi
+
     info "Cloning: ${BOLD}${rel_path}${NC}"
     info "  ${ARROW} ${origin_url}"
     mkdir -p "$(dirname "$target")"

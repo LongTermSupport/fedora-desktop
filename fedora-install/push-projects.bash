@@ -208,6 +208,11 @@ while IFS= read -r git_dir; do
         continue
     fi
 
+    # Convert GitHub HTTPS URLs to SSH format — avoids credential prompts on pull
+    if [[ "$origin_url" == https://github.com/* ]]; then
+        origin_url="git@github.com:${origin_url#https://github.com/}"
+    fi
+
     key_alias=$(_find_key_alias "$origin_url")
     printf '%s\t%s\t%s\n' "$rel_path" "$origin_url" "$key_alias" >> "$tmp_manifest"
     info "  ${BOLD}${rel_path}${NC} ${ARROW} ${origin_url}${key_alias:+ [key: ${key_alias}]}"
