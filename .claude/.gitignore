@@ -22,3 +22,6 @@ __pycache__/
 # Virtual environments (if created locally)
 venv/
 .venv/
+
+# Claude Code Hooks Daemon - runtime files
+hooks-daemon/untracked/
