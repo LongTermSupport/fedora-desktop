@@ -183,7 +183,7 @@ After your first install (once Ansible vault secrets are set up):
 
 ```bash
 cd ~/Projects/fedora-desktop
-./scripts/push-config.bash
+./fedora-install/push.bash config
 ```
 
 This will:
@@ -231,17 +231,18 @@ to GitHub:
 ```bash
 cd ~/Projects/fedora-desktop
 
-# 1. Back up your Ansible config (localhost.yml)
-./fedora-install/push-config.bash
+# Back up both config and projects in one command (recommended)
+./fedora-install/push.bash
 
-# 2. Back up your projects list (which repos to restore)
-./fedora-install/push-projects.bash
+# Or individually:
+./fedora-install/push.bash config    # localhost.yml only
+./fedora-install/push.bash projects  # projects manifest only
 ```
 
-`push-config.bash` saves your `localhost.yml` (usernames, email, GitHub
+`push.bash config` saves your `localhost.yml` (usernames, email, GitHub
 accounts, encrypted API keys) to a private repo on GitHub.
 
-`push-projects.bash` scans `~/Projects`, records every git repo's remote URL
+`push.bash projects` scans `~/Projects`, records every git repo's remote URL
 and the SSH key it needs, and saves that manifest to the same private repo.
 It will prompt you to choose the right key if an org is accessible by more
 than one of your GitHub accounts.

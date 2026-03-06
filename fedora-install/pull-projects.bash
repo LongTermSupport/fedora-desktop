@@ -143,7 +143,7 @@ info "Fetching ${MANIFEST_PATH} from github.com/${config_repo}..."
 if ! manifest_content=$(gh api \
     "repos/${config_repo}/contents/${MANIFEST_PATH}" \
     --jq '.content' 2>/dev/null | base64 -d); then
-    die "Manifest not found in github.com/${config_repo}\nRun push-projects.bash first to generate it."
+    die "Manifest not found in github.com/${config_repo}\nRun push.bash projects (or push.bash all) to generate it."
 fi
 
 # Count non-comment, non-blank lines

@@ -46,3 +46,6 @@ scripts/qa-ccy/package-lock.json
 SECURITY-INCIDENT-LOG.md
 FORCE-PUSH-REQUIRED.md
 *-incident*.md
+
+# Claude Code Hooks Daemon
+.claude/hooks-daemon/
