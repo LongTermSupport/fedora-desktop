@@ -622,7 +622,17 @@ fi
 completed
 
 title "Ansible Vault Configuration"
-if [[ -f ~/Projects/fedora-desktop/vault-pass.secret ]]; then
+if grep -qF '!vault' "$localhost_yml" 2>/dev/null; then
+  # localhost.yml pulled from config repo has encrypted values — need the matching vault password.
+  # The kickstart auto-generated a random vault-pass.secret; replace it with the real one.
+  echo -e "\n${CYAN}${ARROW}${NC} Your localhost.yml has vault-encrypted values."
+  echo -e "   Enter your vault password (from your password manager):"
+  read -rsp "   " vaultPass
+  echo
+  echo "$vaultPass" > ~/Projects/fedora-desktop/vault-pass.secret
+  chmod 600 ~/Projects/fedora-desktop/vault-pass.secret
+  success "Vault password configured"
+elif [[ -f ~/Projects/fedora-desktop/vault-pass.secret ]]; then
   success "Existing vault password found"
 else
   info "Setting up Ansible vault"
@@ -674,7 +684,6 @@ else
   info "Encrypting github_ssh_passphrase and saving to vault..."
   # printf avoids trailing newline that echo adds — passphrase must be exact
   _encrypted=$(printf '%s' "$_github_ssh_passphrase" | ansible-vault encrypt_string \
-    --vault-id "localhost@./vault-pass.secret" \
     --stdin-name 'github_ssh_passphrase')
   printf '\n%s\n' "$_encrypted" >> "$localhost_yml"
   success "github_ssh_passphrase saved to localhost.yml (vault-encrypted)"
