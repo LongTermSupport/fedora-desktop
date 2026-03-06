@@ -22,7 +22,8 @@ handlers:
     sed_blocker:           # Blocks sed command usage (use Edit tool instead)
       enabled: true
       priority: 10
-      blocking_mode: direct_invocation_only  # Allow writing scripts that contain sed; block direct sed calls
+      options:
+        blocking_mode: direct_invocation_only  # Allow writing scripts that contain sed; block direct sed calls
 
     absolute_path:         # Enforces absolute paths in file operations
       enabled: true
