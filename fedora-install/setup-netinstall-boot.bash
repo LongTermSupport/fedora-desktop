@@ -260,6 +260,99 @@ prompt_luks_passphrase() {
     printf '%s' "$passphrase"
 }
 
+prompt_grub_install_password() {
+    # Prompt for the GRUB install entry password and return the PBKDF2 hash.
+    # grub2-mkpasswd-pbkdf2 reads two lines from stdin (password + confirmation).
+    local pass1 pass2 hash
+    echo "" >&2
+    echo "--- GRUB Install Entry Password ---" >&2
+    echo "This password protects the install boot entry in the GRUB menu." >&2
+    echo "Normal Fedora boot entries are NOT affected." >&2
+    echo "" >&2
+    while true; do
+        read -r -s -p "GRUB install password (min 6 chars): " pass1
+        echo "" >&2
+        if [[ -z "$pass1" ]]; then
+            echo "Password cannot be empty." >&2
+            continue
+        fi
+        if [[ ${#pass1} -lt 6 ]]; then
+            echo "Password must be at least 6 characters." >&2
+            continue
+        fi
+        read -r -s -p "Confirm GRUB install password: " pass2
+        echo "" >&2
+        if [[ "$pass1" == "$pass2" ]]; then
+            break
+        fi
+        echo "Passwords do not match. Try again." >&2
+    done
+    hash=$(printf '%s\n%s\n' "$pass1" "$pass1" | grub2-mkpasswd-pbkdf2 2>&1 \
+        | grep -oP 'grub\.pbkdf2\.\S+')
+    if [[ -z "$hash" ]]; then
+        echo "Warning: grub2-mkpasswd-pbkdf2 failed to generate hash." >&2
+        return 1
+    fi
+    printf '%s' "$hash"
+}
+
+prompt_install_auth_code() {
+    # Prompt for the %pre authorization code and return its sha256 hash.
+    # This hash is substituted into the deployed ks.cfg on /boot.
+    local code1 code2
+    echo "" >&2
+    echo "--- Kickstart Authorization Code ---" >&2
+    echo "This code is required in the installer itself (second security layer)." >&2
+    echo "Use a different secret from the GRUB install password." >&2
+    echo "" >&2
+    while true; do
+        read -r -s -p "Installation authorization code (min 4 chars): " code1
+        echo "" >&2
+        if [[ -z "$code1" ]]; then
+            echo "Code cannot be empty." >&2
+            continue
+        fi
+        if [[ ${#code1} -lt 4 ]]; then
+            echo "Code must be at least 4 characters." >&2
+            continue
+        fi
+        read -r -s -p "Confirm authorization code: " code2
+        echo "" >&2
+        if [[ "$code1" == "$code2" ]]; then
+            break
+        fi
+        echo "Codes do not match. Try again." >&2
+    done
+    printf '%s' "$code1" | sha256sum | cut -d' ' -f1
+}
+
+set_grub_font() {
+    # Generate a larger GRUB font for readability on HiDPI/laptop displays.
+    # Tries multiple source font paths (soft-fail: cosmetic only).
+    local target=/boot/grub2/fonts/unicode-large.pf2
+    local font_src
+    for font_src in \
+        /usr/share/grub/unicode.pf2 \
+        /usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf \
+        /usr/share/fonts/google-noto/NotoSans-Regular.ttf \
+        /usr/share/fonts/liberation-sans/LiberationSans-Regular.ttf; do
+        if [[ -f "$font_src" ]] && grub2-mkfont \
+                --output="$target" --size=32 "$font_src" 2>/dev/null; then
+            echo "  GRUB font: generated unicode-large.pf2 (32px) from $(basename "$font_src")"
+            # Set GRUB_FONT so font survives future grub2-mkconfig runs
+            if grep -q '^GRUB_FONT=' /etc/default/grub 2>/dev/null; then
+                sed -i "s|^GRUB_FONT=.*|GRUB_FONT=${target}|" /etc/default/grub
+            else
+                echo "GRUB_FONT=${target}" >> /etc/default/grub
+            fi
+            echo "  GRUB font: GRUB_FONT set in /etc/default/grub"
+            return 0
+        fi
+    done
+    echo "  GRUB font: could not generate large font (soft-fail — cosmetic only)"
+    return 0
+}
+
 create_fdinst_partition() {
     local disk="$1"
     local luks_part_num="$2"
@@ -771,14 +864,58 @@ do_setup() {
     echo "Detected keyboard: VC=${vconsole_keymap}, X11=${x11_layout}"
     sed -i "s/^keyboard --xlayouts=.*/keyboard --xlayouts='${x11_layout}'/" "${BOOT_DIR}/ks.cfg"
 
+    # Prompt for %pre authorization code and substitute hash into deployed ks.cfg.
+    # This is a second security layer: checked in the installer itself before any disk ops.
+    local install_auth_hash=""
+    if [[ "$NONINTERACTIVE" -eq 0 ]]; then
+        install_auth_hash=$(prompt_install_auth_code)
+        sed -i "s|INSTALL_AUTH_HASH='PLACEHOLDER'|INSTALL_AUTH_HASH='${install_auth_hash}'|" \
+            "${BOOT_DIR}/ks.cfg"
+        echo "  Kickstart authorization code set."
+    else
+        echo "  Warning: non-interactive mode — kickstart authorization check disabled (PLACEHOLDER kept)."
+    fi
+
     # Detect /boot UUID for inst.ks= (Anaconda needs hd:UUID= to find local files)
     local boot_source boot_uuid
     boot_source=$(findmnt -no SOURCE /boot 2>/dev/null) || die "Cannot determine /boot device"
     boot_uuid=$(blkid -s UUID -o value "$boot_source" 2>/dev/null) || die "Cannot determine /boot UUID"
 
+    # Prompt for GRUB install entry password (first security layer).
+    # On Fedora with BLS, normal kernel entries have grub_arg --unrestricted in
+    # /boot/loader/entries/*.conf — they remain accessible without any password.
+    local grub_install_hash=""
+    if [[ "$NONINTERACTIVE" -eq 0 ]]; then
+        if grub_install_hash=$(prompt_grub_install_password); then
+            echo "  GRUB install entry password set."
+        else
+            echo "  Warning: GRUB password hash generation failed — install entry will be unprotected."
+            grub_install_hash=""
+        fi
+    else
+        echo "  Warning: non-interactive mode — GRUB install entry will be unprotected."
+    fi
+
     # Create GRUB entry
     echo "Creating GRUB entry..."
-    cat > "$GRUB_ENTRY" << GRUBEOF
+    if [[ -n "$grub_install_hash" ]]; then
+        # Password-protected: superuser definition + --users "" restricts to superusers only.
+        # Normal Fedora boot entries are unaffected (BLS grub_arg --unrestricted).
+        cat > "$GRUB_ENTRY" << GRUBEOF
+#!/bin/bash
+cat << 'EOF'
+set superusers="grub-install"
+password_pbkdf2 grub-install ${grub_install_hash}
+
+menuentry "Fedora ${target_version} Install (ISO)" --users "" {
+    linux /fedora-netinstall/vmlinuz inst.stage2=hd:LABEL=${FDINST_LABEL}:/${netinstall_name} inst.ks=hd:UUID=${boot_uuid}:/fedora-netinstall/ks.cfg inst.text vconsole.keymap=${vconsole_keymap} vconsole.font=latarcyrheb-sun32
+    initrd /fedora-netinstall/initrd.img
+}
+EOF
+GRUBEOF
+    else
+        # No password: unprotected entry (non-interactive mode or hash generation failed)
+        cat > "$GRUB_ENTRY" << GRUBEOF
 #!/bin/bash
 cat << 'EOF'
 menuentry "Fedora ${target_version} Install (ISO)" {
@@ -787,12 +924,17 @@ menuentry "Fedora ${target_version} Install (ISO)" {
 }
 EOF
 GRUBEOF
+    fi
     chmod +x "$GRUB_ENTRY"
 
     # Ensure GRUB menu is visible (not auto-hidden)
     echo "Disabling GRUB menu auto-hide..."
     grub2-editenv - unset menu_auto_hide
     grub2-editenv - unset menu_hide_ok
+
+    # Set larger GRUB font for readability on HiDPI/laptop displays
+    echo "Setting GRUB menu font..."
+    set_grub_font
 
     echo "Regenerating GRUB config..."
     grub2-mkconfig -o /boot/grub2/grub.cfg 2>/dev/null
