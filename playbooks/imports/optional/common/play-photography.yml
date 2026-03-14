@@ -1,0 +1,44 @@
+#!/usr/bin/env ansible-playbook
+---
+- hosts: desktop
+  name: Install Photography Tools
+  become: true
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+
+  tasks:
+    - name: Install Photography Packages
+      ansible.builtin.package:
+        name:
+          # RAW processing
+          - rawtherapee          # Advanced RAW processor with batch support
+          - darktable            # Non-destructive RAW workflow + digital asset management
+          # Pixel editing
+          - gimp                 # Full-featured image editor for retouching and compositing
+          # Photo management / cataloging
+          - digikam              # Feature-rich photo manager with face recognition and tagging
+          # Panorama and lens correction
+          - hugin                # Panorama stitcher and lens calibration tool
+          # Metadata inspection
+          - perl-Image-ExifTool  # CLI tool for reading/writing EXIF/IPTC/XMP metadata
+        state: present
+      tags: photography
+
+    - name: Display Installation Complete Message
+      ansible.builtin.debug:
+        msg: |
+          Photography tools installed:
+            rawtherapee          - RAW photo processor with advanced colour management
+            darktable            - Non-destructive RAW workflow and digital asset manager
+            gimp                 - Pixel editor for retouching and compositing
+            digikam              - Photo cataloger with face recognition and tag management
+            hugin                - Panorama stitching and lens calibration
+            perl-Image-ExifTool  - CLI EXIF/IPTC/XMP metadata reader/writer (exiftool)
+
+          Launch from the applications menu, or on the command line:
+            rawtherapee
+            darktable
+            gimp
+            digikam
+            hugin
+            exiftool <file>
