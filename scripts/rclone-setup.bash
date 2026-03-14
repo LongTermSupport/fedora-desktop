@@ -18,23 +18,112 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 HOST_VARS="$PROJECT_ROOT/environment/localhost/host_vars/localhost.yml"
 VAULT_PASS_FILE="$PROJECT_ROOT/vault-pass.secret"
 RCLONE_CONF="$HOME/.config/rclone/rclone.conf"
+PLAYBOOK="$PROJECT_ROOT/playbooks/imports/optional/common/play-rclone.yml"
 MODE="${1:-full}"  # full | mounts
 
 # ---------------------------------------------------------------------------
-die()    { echo "ERROR: $*" >&2; exit 1; }
-header() { echo ""; echo "━━━ $* ━━━"; echo ""; }
+die()     { echo ""; echo "  ✗ FATAL: $*" >&2; echo ""; exit 1; }
+ok()      { echo "  ✓ $*"; }
+warn()    { echo "  ⚠ $*"; }
+header()  { echo ""; echo "━━━ $* ━━━"; echo ""; }
+check()   { echo -n "  Checking $1 ... "; }
 # ---------------------------------------------------------------------------
 
 # --- Preflight checks -------------------------------------------------------
 
-command -v rclone > /dev/null || die "rclone not installed.
-Run the playbook first:
-  ansible-playbook $PROJECT_ROOT/playbooks/imports/optional/common/play-rclone.yml"
+header "Preflight checks"
 
-command -v ansible-vault > /dev/null || die "ansible-vault not found. Is Ansible installed?"
+# Guard: must not run inside CCY container
+check "environment (not CCY container)"
+if [[ "$PROJECT_ROOT" == "/workspace" && "$(id -u)" == "0" ]]; then
+    echo "FAIL"
+    die "Running inside CCY container as root.
+This script must run on the HOST system where your Fedora desktop lives.
+Exit the container and run from your host project directory:
+  ~/Projects/fedora-desktop/scripts/rclone-setup.bash"
+fi
+ok "host environment (not container)"
 
-[[ -f "$VAULT_PASS_FILE" ]] || die "Vault password file not found: $VAULT_PASS_FILE"
-[[ -f "$HOST_VARS" ]]       || die "host_vars not found: $HOST_VARS"
+# Required tools
+check "ansible-playbook"
+if ! command -v ansible-playbook > /dev/null; then
+    echo "FAIL"
+    die "ansible-playbook not found.
+Install Ansible first:
+  sudo dnf install ansible"
+fi
+ok "ansible-playbook ($(ansible-playbook --version | head -1))"
+
+check "ansible-vault"
+if ! command -v ansible-vault > /dev/null; then
+    echo "FAIL"
+    die "ansible-vault not found. Should be installed with Ansible."
+fi
+ok "ansible-vault"
+
+check "python3"
+if ! command -v python3 > /dev/null; then
+    echo "FAIL"
+    die "python3 not found. Required for host_vars patching."
+fi
+ok "python3 ($(python3 --version))"
+
+# Required files
+check "vault password ($VAULT_PASS_FILE)"
+if [[ ! -f "$VAULT_PASS_FILE" ]]; then
+    echo "FAIL"
+    die "Vault password file not found: $VAULT_PASS_FILE
+This file is gitignored and must exist on your host.
+If you're starting fresh, re-run the bootstrap:
+  $PROJECT_ROOT/run.bash"
+fi
+ok "vault password file exists"
+
+check "host_vars ($HOST_VARS)"
+if [[ ! -f "$HOST_VARS" ]]; then
+    echo "FAIL"
+    die "host_vars not found: $HOST_VARS
+Unexpected — check that the repository is properly cloned."
+fi
+ok "host_vars/localhost.yml exists"
+
+check "rclone playbook"
+if [[ ! -f "$PLAYBOOK" ]]; then
+    echo "FAIL"
+    die "Playbook not found: $PLAYBOOK
+Try: git pull"
+fi
+ok "play-rclone.yml exists"
+
+# Check rclone — install via playbook if missing
+check "rclone binary"
+if ! command -v rclone > /dev/null; then
+    echo "not installed"
+    warn "rclone not found — running playbook to install it first..."
+    echo ""
+    ansible-playbook "$PLAYBOOK" || die "Playbook failed during rclone install. Check output above."
+    echo ""
+    if ! command -v rclone > /dev/null; then
+        die "rclone still not found after running playbook.
+Check playbook output for errors."
+    fi
+    ok "rclone installed ($(rclone --version | head -1))"
+else
+    ok "rclone ($(rclone --version | head -1))"
+fi
+
+# Validate mode argument
+check "mode argument"
+if [[ "$MODE" != "full" && "$MODE" != "mounts" ]]; then
+    echo "FAIL"
+    die "Unknown mode: '$MODE'
+Valid modes: full | mounts
+Usage: $0 [full|mounts]"
+fi
+ok "mode = $MODE"
+
+echo ""
+echo "All preflight checks passed."
 
 # --- Step 1: rclone config --------------------------------------------------
 
@@ -44,6 +133,13 @@ if [[ "$MODE" != "mounts" ]]; then
     echo "Add or modify remotes, then choose 'q' (quit) when done."
     echo ""
     rclone config
+
+    # Verify at least one remote exists after config
+    REMOTE_COUNT=$(rclone listremotes | wc -l)
+    if [[ "$REMOTE_COUNT" -eq 0 ]]; then
+        die "No remotes configured in rclone.
+Re-run this script and add at least one remote in the rclone config wizard."
+    fi
 fi
 
 # --- Step 2: Vault the config -----------------------------------------------
@@ -53,14 +149,17 @@ VAULTED=""
 if [[ "$MODE" != "mounts" ]]; then
     header "Step 2: Vault rclone config"
 
-    [[ -f "$RCLONE_CONF" ]] || die "rclone config not found at $RCLONE_CONF
-Run 'rclone config' to create it first."
+    if [[ ! -f "$RCLONE_CONF" ]]; then
+        die "rclone config not found at $RCLONE_CONF
+This is unexpected after completing rclone config — check rclone output above."
+    fi
 
     echo "Encrypting $RCLONE_CONF with ansible-vault..."
     VAULTED=$(ansible-vault encrypt_string \
         --vault-id "localhost@$VAULT_PASS_FILE" \
         --stdin-name rclone_config \
-        < "$RCLONE_CONF") || die "ansible-vault encrypt_string failed"
+        < "$RCLONE_CONF") || die "ansible-vault encrypt_string failed.
+Check that vault-pass.secret contains the correct vault password."
 
     echo "Config vaulted successfully."
 fi
@@ -75,7 +174,7 @@ if [[ -n "$REMOTES" ]]; then
     echo "Available remotes:"
     while IFS= read -r remote; do echo "  $remote"; done <<< "$REMOTES"
 else
-    echo "(No remotes configured yet — run without 'mounts' argument to set them up)"
+    echo "(No remotes configured — run without 'mounts' argument to set them up)"
 fi
 
 echo ""
@@ -179,17 +278,15 @@ PYEOF
 
 echo "host_vars updated: $HOST_VARS"
 
-# --- Step 6: Deploy prompt --------------------------------------------------
+# --- Step 6: Deploy ---------------------------------------------------------
 
 header "Step 5: Deploy"
-
-PLAYBOOK="$PROJECT_ROOT/playbooks/imports/optional/common/play-rclone.yml"
 
 echo "Ready to deploy config and mount services."
 read -rp "Run the playbook now? [y/N] " DEPLOY
 
 if [[ "${DEPLOY,,}" == "y" ]]; then
-    ansible-playbook "$PLAYBOOK"
+    ansible-playbook "$PLAYBOOK" || die "Playbook failed. Check output above."
     echo ""
     if [[ ${#MOUNT_NAMES[@]} -gt 0 ]]; then
         echo "Mount services enabled. Start them now with:"
