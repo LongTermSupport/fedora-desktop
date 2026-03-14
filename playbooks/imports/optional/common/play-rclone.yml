@@ -1,0 +1,197 @@
+#!/usr/bin/env ansible-playbook
+---
+# rclone cloud storage with optional auto-mounted remotes via systemd user services.
+#
+# VAULT SETUP - add these to environment/localhost/host_vars/localhost.yml:
+#
+#   # The full contents of ~/.config/rclone/rclone.conf (encrypt with ansible-vault):
+#   rclone_config: !vault |
+#     $ANSIBLE_VAULT;1.2;AES256;localhost
+#     ...
+#
+#   # Mount definitions (not sensitive - no vault needed):
+#   rclone_mounts:
+#     - name: gdrive                            # used for systemd service name
+#       remote: "gdrive:/"                      # rclone remote:path spec
+#       mountpoint: "/home/{{ user_login }}/mnt/gdrive"
+#     - name: photos-backup
+#       remote: "s3:mybucket/photos"
+#       mountpoint: "/home/{{ user_login }}/mnt/photos-backup"
+#
+# WORKFLOW (first time):
+#   1. Run this playbook to install rclone
+#   2. Configure remotes interactively:  rclone config
+#   3. Vault the generated config:
+#        ansible-vault encrypt_string --stdin-name rclone_config \
+#          < ~/.config/rclone/rclone.conf
+#   4. Paste the output into host_vars/localhost.yml
+#   5. Define rclone_mounts in host_vars/localhost.yml
+#   6. Re-run this playbook to deploy config and create mount services
+#
+# WORKFLOW (updating config - adding/changing a remote):
+#   1. Decrypt current config:
+#        ansible localhost -m debug -a var=rclone_config | grep -A999 '"rclone_config"'
+#      Or copy from the deployed file:
+#        cat ~/.config/rclone/rclone.conf
+#   2. Edit via: rclone config  (modifies ~/.config/rclone/rclone.conf in place)
+#   3. Re-vault:
+#        ansible-vault encrypt_string --stdin-name rclone_config \
+#          < ~/.config/rclone/rclone.conf
+#   4. Replace the rclone_config value in host_vars/localhost.yml
+#   5. Re-run this playbook
+
+- hosts: desktop
+  name: Install and Configure rclone with Cloud Storage Mounts
+  become: true
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+
+  tasks:
+    # =========================================================================
+    # Installation
+    # =========================================================================
+
+    - name: Install rclone and FUSE3
+      ansible.builtin.package:
+        name:
+          - rclone
+          - fuse3
+        state: present
+      tags: rclone
+
+    - name: Allow non-root users to use FUSE mounts (user_allow_other)
+      ansible.builtin.lineinfile:
+        path: /etc/fuse.conf
+        regexp: '^#?\s*user_allow_other'
+        line: 'user_allow_other'
+      tags: rclone
+
+    # =========================================================================
+    # rclone configuration from vault
+    # =========================================================================
+
+    - name: Create rclone config directory
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.config/rclone"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0700'
+      tags: rclone
+
+    - name: Deploy rclone config from vault
+      ansible.builtin.copy:
+        content: "{{ rclone_config }}"
+        dest: "/home/{{ user_login }}/.config/rclone/rclone.conf"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0600'
+      when: rclone_config is defined
+      tags: rclone
+
+    # =========================================================================
+    # Systemd user mount services (only when rclone_mounts is defined)
+    # =========================================================================
+
+    - name: Create systemd user config directory
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.config/systemd/user"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+      when: rclone_mounts is defined
+      tags: rclone, mounts
+
+    - name: Enable linger so user services survive logout and start at boot
+      ansible.builtin.command:
+        cmd: loginctl enable-linger {{ user_login }}
+        creates: /var/lib/systemd/linger/{{ user_login }}
+      when: rclone_mounts is defined
+      tags: rclone, mounts
+
+    - name: Create mount point directories
+      ansible.builtin.file:
+        path: "{{ item.mountpoint }}"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+      loop: "{{ rclone_mounts }}"
+      when: rclone_mounts is defined
+      tags: rclone, mounts
+
+    - name: Create systemd user service for each rclone mount
+      ansible.builtin.copy:
+        dest: "/home/{{ user_login }}/.config/systemd/user/rclone-{{ item.name }}.service"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=rclone mount - {{ item.name }}
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=notify
+          ExecStart=/usr/bin/rclone mount \
+            --config=%h/.config/rclone/rclone.conf \
+            --vfs-cache-mode writes \
+            --allow-other \
+            {{ item.remote }} {{ item.mountpoint }}
+          ExecStop=/bin/fusermount3 -u {{ item.mountpoint }}
+          Restart=on-failure
+          RestartSec=10
+
+          [Install]
+          WantedBy=default.target
+      loop: "{{ rclone_mounts }}"
+      when: rclone_mounts is defined
+      tags: rclone, mounts
+
+    - name: Reload systemd user daemon and enable rclone mount services
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.systemd:
+        name: "rclone-{{ item.name }}.service"
+        enabled: true
+        daemon_reload: true
+        scope: user
+      loop: "{{ rclone_mounts }}"
+      when: rclone_mounts is defined
+      tags: rclone, mounts
+
+    # =========================================================================
+    # Summary
+    # =========================================================================
+
+    - name: Display Status
+      ansible.builtin.debug:
+        msg: |
+          rclone installation complete.
+
+          {% if rclone_config is defined %}
+          Config deployed: ~/.config/rclone/rclone.conf
+          {% else %}
+          Config NOT deployed - rclone_config not defined in host_vars.
+          Run 'rclone config' to set up remotes, then vault the result:
+            ansible-vault encrypt_string --stdin-name rclone_config \
+              < ~/.config/rclone/rclone.conf
+          {% endif %}
+
+          {% if rclone_mounts is defined %}
+          Mount services enabled ({{ rclone_mounts | length }} mount(s)):
+          {% for mount in rclone_mounts %}
+            rclone-{{ mount.name }}.service  →  {{ mount.remote }} at {{ mount.mountpoint }}
+          {% endfor %}
+
+          Services start automatically on login (linger enabled).
+          To start now without re-login:
+            systemctl --user start rclone-<name>.service
+          To check status:
+            systemctl --user status rclone-<name>.service
+          {% else %}
+          No mounts configured - define rclone_mounts in host_vars/localhost.yml
+          then re-run this playbook.
+          {% endif %}
