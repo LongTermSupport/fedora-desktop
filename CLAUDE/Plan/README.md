@@ -38,6 +38,7 @@ Use these Unicode icons in plan documents:
 - [013-claude-devtools](013-claude-devtools/) - claude-devtools (ccdt) installation plan (latest iteration)
 - [014-whisper-model-manager](014-whisper-model-manager/) - Replace cluttered model dropdown with a dedicated Textual TUI (`wsi-model-manager`) for browsing and downloading Whisper models
 - [020-semgrep-custom-bash-rules](020-semgrep-custom-bash-rules/) - Add Semgrep with custom bash convention rules (no error hiding, fail-fast enforcement) integrated into qa-all.bash
+- [023-hostname-based-inventory](023-hostname-based-inventory/) - Migrate Ansible inventory from hardcoded `localhost` to machine hostname, supporting per-machine host_vars and multiple laptops
 
 ## Completed Plans
 
