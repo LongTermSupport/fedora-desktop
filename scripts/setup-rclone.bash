@@ -202,8 +202,11 @@ This is unexpected after completing rclone config — check rclone output above.
     fi
 
     info "Encrypting $RCLONE_CONF with ansible-vault..."
-    VAULTED=$(ansible-vault encrypt_string \
-        --vault-id "localhost@$VAULT_PASS_FILE" \
+    # Use ANSIBLE_CONFIG explicitly so ansible.cfg (which defines the localhost
+    # vault-id and password file) is always found regardless of working directory.
+    # --encrypt-vault-id selects which loaded id to encrypt with (no duplicate).
+    VAULTED=$(ANSIBLE_CONFIG="$PROJECT_ROOT/ansible.cfg" ansible-vault encrypt_string \
+        --encrypt-vault-id localhost \
         --stdin-name rclone_config \
         < "$RCLONE_CONF") || die "ansible-vault encrypt_string failed.
 Check that vault-pass.secret contains the correct vault password."
