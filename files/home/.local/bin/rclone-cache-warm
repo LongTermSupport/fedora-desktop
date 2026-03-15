@@ -1,0 +1,81 @@
+#!/bin/bash
+# rclone-cache-warm - warm the VFS file cache for a directory on an rclone mount
+#
+# Usage: rclone-cache-warm [--fast] [PATH]
+#   PATH    directory to warm (default: current directory)
+#   --fast  refresh directory metadata only (requires mount started with --rc)
+#
+# Default mode reads every file through the mount, populating the VFS cache so
+# subsequent access (e.g. geeqie browsing RAW files) is local-speed.
+#
+# --fast mode only refreshes rclone's directory listing cache (metadata, no
+# file downloads). Useful after adding files to the remote. Requires the mount
+# service to be started with --rc (remote control endpoint).
+
+set -euo pipefail
+
+FAST=false
+TARGET=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --fast)
+            FAST=true
+            shift
+            ;;
+        --help | -h)
+            sed -n '2,/^$/p' "$0" | sed 's/^# \?//'
+            exit 0
+            ;;
+        -*)
+            echo "ERROR: Unknown option: $1" >&2
+            exit 1
+            ;;
+        *)
+            TARGET="$1"
+            shift
+            ;;
+    esac
+done
+
+TARGET="$(realpath "${TARGET:-.}")"
+
+if [[ ! -d "$TARGET" ]]; then
+    echo "ERROR: Not a directory: $TARGET" >&2
+    exit 1
+fi
+
+# Verify the target is under an rclone VFS mount
+MOUNT_LINE=$(findmnt -n -o SOURCE,TARGET -t fuse.rclone --target "$TARGET" 2>/dev/null || true)
+if [[ -z "$MOUNT_LINE" ]]; then
+    echo "ERROR: '$TARGET' is not under an rclone VFS mount" >&2
+    echo "  (checked for fuse.rclone filesystem type via findmnt)" >&2
+    exit 1
+fi
+
+RCLONE_SOURCE=$(awk '{print $1}' <<<"$MOUNT_LINE")
+MOUNT_POINT=$(awk '{print $2}' <<<"$MOUNT_LINE")
+REL_PATH=$(realpath --relative-to="$MOUNT_POINT" "$TARGET")
+[[ "$REL_PATH" == "." ]] && REL_PATH=""
+
+echo "Mount:  $RCLONE_SOURCE → $MOUNT_POINT"
+echo "Target: $TARGET"
+
+if [[ "$FAST" == true ]]; then
+    echo "Refreshing directory cache (fast mode)..."
+    RC_ARGS=("fs=$RCLONE_SOURCE" "recursive=true")
+    [[ -n "$REL_PATH" ]] && RC_ARGS+=("remote=$REL_PATH")
+    if ! rclone rc vfs/refresh "${RC_ARGS[@]}"; then
+        echo "" >&2
+        echo "ERROR: rclone rc failed." >&2
+        echo "  --fast mode requires the mount to be started with --rc." >&2
+        exit 1
+    fi
+    echo "Directory cache refreshed."
+else
+    FILE_COUNT=$(find "$TARGET" -type f | wc -l)
+    echo "Warming cache: reading $FILE_COUNT files (4 parallel streams)..."
+    find "$TARGET" -type f -print0 | xargs -0 -P 4 -I{} sh -c 'cat "$1" > /dev/null && printf "." >&2' -- {}
+    echo ""
+    echo "Done. $FILE_COUNT files cached."
+fi
