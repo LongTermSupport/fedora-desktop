@@ -218,37 +218,58 @@ fi
 
 header "Step 3: Configure mount points"
 
-REMOTES=$(rclone listremotes | sed 's/:$//')
+# Build indexed array of remote names (strip trailing colon)
+mapfile -t REMOTE_LIST < <(rclone listremotes | sed 's/:$//')
 
-if [[ -n "$REMOTES" ]]; then
-    echo -e "  ${CYAN}Available remotes:${NC}"
-    while IFS= read -r remote; do echo -e "    ${BOLD}$remote${NC}"; done <<< "$REMOTES"
-else
+if [[ ${#REMOTE_LIST[@]} -eq 0 ]]; then
     echo "  (No remotes configured — run without 'mounts' argument to set them up)"
+    echo ""
 fi
-
-echo ""
-echo -e "  Define auto-mount points. ${DIM}Press Enter with no name to finish.${NC}"
-echo -e "  ${DIM}Leave mountpoint blank to use ~/mnt/<name>.${NC}"
-echo ""
 
 MOUNT_NAMES=()
 MOUNT_REMOTES=()
 MOUNT_POINTS=()
 
 while true; do
-    read -rp "  Mount name (e.g. gdrive-personal): " MOUNT_NAME
-    [[ -z "$MOUNT_NAME" ]] && break
+    # Show numbered remote picker
+    if [[ ${#REMOTE_LIST[@]} -gt 0 ]]; then
+        echo -e "  ${CYAN}Available remotes:${NC}"
+        for i in "${!REMOTE_LIST[@]}"; do
+            echo -e "    ${BOLD}$((i+1))${NC}  ${REMOTE_LIST[$i]}"
+        done
+        echo ""
+    fi
 
-    read -rp "  Remote spec (e.g. gdrive-personal:/): " MOUNT_REMOTE
-    if [[ -z "$MOUNT_REMOTE" ]]; then
-        warn "Remote spec required — skipping."
+    echo -e "  ${DIM}Press Enter with no selection to finish adding mounts.${NC}"
+    read -rp "  Select remote to mount [1-${#REMOTE_LIST[@]}]: " REMOTE_SEL
+    [[ -z "$REMOTE_SEL" ]] && break
+
+    # Validate selection is a number in range
+    if ! [[ "$REMOTE_SEL" =~ ^[0-9]+$ ]] || \
+       (( REMOTE_SEL < 1 || REMOTE_SEL > ${#REMOTE_LIST[@]} )); then
+        warn "Invalid selection — enter a number between 1 and ${#REMOTE_LIST[@]}."
+        echo ""
         continue
     fi
 
+    SELECTED_REMOTE="${REMOTE_LIST[$((REMOTE_SEL-1))]}"
+
+    # Subpath within the remote (default: /)
+    read -rp "  Subpath within $SELECTED_REMOTE [/]: " REMOTE_SUBPATH
+    REMOTE_SUBPATH="${REMOTE_SUBPATH:-/}"
+
+    # Mount name: default to lowercase remote name with hyphens
+    DEFAULT_MOUNT_NAME="${SELECTED_REMOTE,,}"
+    DEFAULT_MOUNT_NAME="${DEFAULT_MOUNT_NAME// /-}"
+    read -rp "  Mount name [$DEFAULT_MOUNT_NAME]: " MOUNT_NAME
+    MOUNT_NAME="${MOUNT_NAME:-$DEFAULT_MOUNT_NAME}"
+
+    # Mountpoint: default to ~/mnt/<name>
     DEFAULT_MOUNTPOINT="$HOME/mnt/$MOUNT_NAME"
-    read -rp "  Mountpoint [$DEFAULT_MOUNTPOINT]: " MOUNT_POINT
+    read -rp "  Local mountpoint [$DEFAULT_MOUNTPOINT]: " MOUNT_POINT
     MOUNT_POINT="${MOUNT_POINT:-$DEFAULT_MOUNTPOINT}"
+
+    MOUNT_REMOTE="${SELECTED_REMOTE}:${REMOTE_SUBPATH}"
 
     MOUNT_NAMES+=("$MOUNT_NAME")
     MOUNT_REMOTES+=("$MOUNT_REMOTE")
