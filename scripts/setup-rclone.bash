@@ -254,19 +254,28 @@ while true; do
 
     SELECTED_REMOTE="${REMOTE_LIST[$((REMOTE_SEL-1))]}"
 
-    # Show top-level folders to help the user choose a subpath
+    # List top-level folders — if this fails the remote is broken/unreachable
     echo ""
-    echo -e "  ${CYAN}Top-level folders in ${BOLD}$SELECTED_REMOTE${NC}${CYAN}:${NC}"
-    if TOP_DIRS=$(rclone lsd "${SELECTED_REMOTE}:/" 2>/dev/null | awk '{print $NF}'); then
+    echo -e "  ${CYAN}Connecting to ${BOLD}$SELECTED_REMOTE${NC}${CYAN}...${NC}"
+    LSD_OUT=$(mktemp)
+    LSD_ERR=$(mktemp)
+    if rclone lsd "${SELECTED_REMOTE}:/" >"$LSD_OUT" 2>"$LSD_ERR"; then
+        TOP_DIRS=$(awk '{print $NF}' "$LSD_OUT")
+        rm -f "$LSD_OUT" "$LSD_ERR"
+        echo -e "  ${CYAN}Top-level folders in ${BOLD}$SELECTED_REMOTE${NC}${CYAN}:${NC}"
         if [[ -n "$TOP_DIRS" ]]; then
             while IFS= read -r dir; do
                 echo -e "    ${DIM}/$dir${NC}"
             done <<< "$TOP_DIRS"
         else
-            echo -e "    ${DIM}(remote is empty)${NC}"
+            echo -e "    ${DIM}(remote root is empty)${NC}"
         fi
     else
-        echo -e "    ${DIM}(could not list — remote may be unreachable)${NC}"
+        LSD_ERR_MSG=$(cat "$LSD_ERR")
+        rm -f "$LSD_OUT" "$LSD_ERR"
+        warn "Could not connect to $SELECTED_REMOTE:"
+        echo -e "    ${DIM}${LSD_ERR_MSG}${NC}"
+        die "Remote is unreachable — check your rclone config and network, then re-run this script."
     fi
     echo ""
 
