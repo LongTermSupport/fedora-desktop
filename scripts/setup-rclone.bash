@@ -231,23 +231,30 @@ MOUNT_REMOTES=()
 MOUNT_POINTS=()
 
 while true; do
-    # Show numbered remote picker
+    # Show numbered remote picker (mark remotes that already have a mount configured)
     if [[ ${#REMOTE_LIST[@]} -gt 0 ]]; then
         echo -e "  ${CYAN}Available remotes:${NC}"
         for i in "${!REMOTE_LIST[@]}"; do
-            echo -e "    ${BOLD}$((i+1))${NC}  ${REMOTE_LIST[$i]}"
+            REMOTE_ALREADY=""
+            for configured in "${MOUNT_REMOTES[@]+"${MOUNT_REMOTES[@]}"}"; do
+                if [[ "$configured" == "${REMOTE_LIST[$i]}:"* ]]; then
+                    REMOTE_ALREADY="  ${GREEN}✓ mounted${NC}"
+                    break
+                fi
+            done
+            echo -e "    ${BOLD}$((i+1))${NC}  ${REMOTE_LIST[$i]}${REMOTE_ALREADY}"
         done
+        echo -e "    ${BOLD}0${NC}  Done — no more mounts"
         echo ""
     fi
 
-    echo -e "  ${DIM}Press Enter with no selection to finish adding mounts.${NC}"
-    read -rp "  Select remote to mount [1-${#REMOTE_LIST[@]}]: " REMOTE_SEL
-    [[ -z "$REMOTE_SEL" ]] && break
+    read -rp "  Select remote to mount [0-${#REMOTE_LIST[@]}]: " REMOTE_SEL
+    [[ -z "$REMOTE_SEL" || "$REMOTE_SEL" == "0" ]] && break
 
     # Validate selection is a number in range
     if ! [[ "$REMOTE_SEL" =~ ^[0-9]+$ ]] || \
        (( REMOTE_SEL < 1 || REMOTE_SEL > ${#REMOTE_LIST[@]} )); then
-        warn "Invalid selection — enter a number between 1 and ${#REMOTE_LIST[@]}."
+        warn "Invalid selection — enter a number between 1 and ${#REMOTE_LIST[@]}, or 0 to finish."
         echo ""
         continue
     fi
