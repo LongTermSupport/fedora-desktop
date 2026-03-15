@@ -294,14 +294,14 @@ while true; do
                 echo -e "    ${CYAN}https://console.developers.google.com/apis/api/drive.googleapis.com${NC}"
             fi
             echo ""
-            echo -e "  Then wait ~1 minute and re-run: ${BOLD}./scripts/setup-rclone.bash mounts${NC}"
+            echo -e "  Then wait ~1 minute and select this remote again to retry."
         elif echo "$LSD_ERR_MSG" | grep -q "AuthError\|oauth\|token\|401\|invalid_grant"; then
             echo -e "  ${YELLOW}▶ Authentication failed — the OAuth token may be missing or expired.${NC}"
             echo ""
-            echo -e "  Fix: re-authenticate this remote:"
+            echo -e "  Fix: open another terminal and re-authenticate:"
             echo -e "    ${BOLD}rclone config reconnect ${SELECTED_REMOTE}:${NC}"
             echo ""
-            echo -e "  Then re-run: ${BOLD}./scripts/setup-rclone.bash mounts${NC}"
+            echo -e "  Then select this remote again to retry."
         elif echo "$LSD_ERR_MSG" | grep -q "connection refused\|no such host\|network\|dial tcp"; then
             echo -e "  ${YELLOW}▶ Network error — could not reach the remote service.${NC}"
             echo ""
@@ -311,8 +311,9 @@ while true; do
             echo ""
             echo -e "  Try: ${BOLD}rclone lsd ${SELECTED_REMOTE}:/${NC} to investigate further."
         fi
+        echo -e "  Fix the issue above, then select this remote again to retry."
         echo ""
-        die "Cannot continue until the remote is reachable."
+        continue
     fi
     echo ""
 
