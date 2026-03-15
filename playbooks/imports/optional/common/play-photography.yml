@@ -19,6 +19,8 @@
           - digikam              # Feature-rich photo manager with face recognition and tagging
           # Panorama and lens correction
           - hugin                # Panorama stitcher and lens calibration tool
+          # Image viewing
+          - geeqie               # Lightweight image viewer with RAW support and EXIF display
           # Metadata inspection
           - perl-Image-ExifTool  # CLI tool for reading/writing EXIF/IPTC/XMP metadata
         state: present
@@ -32,6 +34,7 @@
             darktable            - Non-destructive RAW workflow and digital asset manager
             gimp                 - Pixel editor for retouching and compositing
             digikam              - Photo cataloger with face recognition and tag management
+            geeqie               - Lightweight image viewer with RAW support and EXIF display
             hugin                - Panorama stitching and lens calibration
             perl-Image-ExifTool  - CLI EXIF/IPTC/XMP metadata reader/writer (exiftool)
 
@@ -40,5 +43,6 @@
             darktable
             gimp
             digikam
+            geeqie
             hugin
             exiftool <file>
