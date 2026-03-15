@@ -1,5 +1,5 @@
 #!/bin/bash
-# rclone-setup.bash
+# Interactive rclone remote config, vault setup, and mount management
 #
 # Interactive helper for rclone setup and host_vars vault management.
 # Runs rclone config, vaults the result, collects mount definitions,
