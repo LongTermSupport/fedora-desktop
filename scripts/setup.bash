@@ -45,11 +45,17 @@ fi
 RUNNING_VERSION=$(grep -oP 'Fedora release \K[0-9]+' /etc/redhat-release)
 EXPECTED_VERSION=$(grep 'fedora_version:' "$PROJECT_ROOT/vars/fedora-version.yml" | awk '{print $2}')
 if [[ "$RUNNING_VERSION" != "$EXPECTED_VERSION" ]]; then
-    echo "FAIL"
-    die "Fedora version mismatch: running $RUNNING_VERSION, repo targets $EXPECTED_VERSION.
-Switch branch: git checkout F${RUNNING_VERSION}"
+    echo "WARN"
+    warn "Fedora version mismatch: running Fedora $RUNNING_VERSION but repo targets Fedora $EXPECTED_VERSION."
+    warn "The correct branch for this host may be: git checkout F${RUNNING_VERSION}"
+    echo ""
+    read -rp "  Continue anyway? [y/N] " CONTINUE_ANYWAY
+    if [[ "${CONTINUE_ANYWAY,,}" != "y" ]]; then
+        die "Aborted due to Fedora version mismatch."
+    fi
+else
+    ok "Fedora $RUNNING_VERSION"
 fi
-ok "Fedora $RUNNING_VERSION"
 
 echo ""
 echo "All preflight checks passed."
