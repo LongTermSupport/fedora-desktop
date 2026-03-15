@@ -156,12 +156,13 @@
       when: rclone_mounts is defined
       tags: rclone, mounts
 
-    - name: Reload systemd user daemon and enable rclone mount services
+    - name: Reload systemd user daemon, enable and start rclone mount services
       become: true
       become_user: "{{ user_login }}"
       ansible.builtin.systemd:
         name: "rclone-{{ item.name }}.service"
         enabled: true
+        state: started
         daemon_reload: true
         scope: user
       loop: "{{ rclone_mounts }}"
@@ -192,9 +193,7 @@
             rclone-{{ mount.name }}.service  →  {{ mount.remote }} at {{ mount.mountpoint }}
           {% endfor %}
 
-          Services start automatically on login (linger enabled).
-          To start now without re-login:
-            systemctl --user start rclone-<name>.service
+          Services started and enabled (linger enabled — survive logout/reboot).
           To check status:
             systemctl --user status rclone-<name>.service
           {% else %}

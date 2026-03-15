@@ -432,9 +432,9 @@ if [[ "${DEPLOY,,}" == "y" ]]; then
     ansible-playbook "$PLAYBOOK" || die "Playbook failed. Check output above."
     echo ""
     if [[ ${#MOUNT_NAMES[@]} -gt 0 ]]; then
-        ok "Mount services enabled. Start them now with:"
+        ok "Mount services started and enabled."
         for name in "${MOUNT_NAMES[@]}"; do
-            echo -e "    ${BOLD}systemctl --user start rclone-${name}.service${NC}"
+            echo -e "    ${DIM}systemctl --user status rclone-${name}.service${NC}"
         done
     fi
 else
