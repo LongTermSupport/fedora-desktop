@@ -226,9 +226,39 @@ if [[ ${#REMOTE_LIST[@]} -eq 0 ]]; then
     echo ""
 fi
 
+# Pre-populate from existing host_vars (handles !vault tags safely)
 MOUNT_NAMES=()
 MOUNT_REMOTES=()
 MOUNT_POINTS=()
+
+mapfile -t _EXISTING < <(python3 - "$HOST_VARS" <<'PYEOF'
+import sys, yaml
+
+class VaultLoader(yaml.SafeLoader):
+    pass
+VaultLoader.add_constructor('!vault', lambda loader, node: '__VAULTED__')
+
+with open(sys.argv[1]) as f:
+    data = yaml.load(f, Loader=VaultLoader)
+
+for m in data.get('rclone_mounts') or []:
+    print(f"{m['name']}|{m['remote']}|{m['mountpoint']}")
+PYEOF
+)
+
+if [[ ${#_EXISTING[@]} -gt 0 ]]; then
+    echo -e "  ${CYAN}Existing mounts (already in host_vars):${NC}"
+    for entry in "${_EXISTING[@]}"; do
+        IFS='|' read -r _n _r _p <<< "$entry"
+        MOUNT_NAMES+=("$_n")
+        MOUNT_REMOTES+=("$_r")
+        MOUNT_POINTS+=("$_p")
+        echo -e "    ${GREEN}✓${NC} $_n → $_r at $_p"
+    done
+    echo ""
+    echo -e "  ${DIM}Add more mounts below, or select 0 to keep as-is.${NC}"
+    echo ""
+fi
 
 while true; do
     # Show numbered remote picker (mark remotes that already have a mount configured)
