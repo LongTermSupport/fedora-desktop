@@ -112,6 +112,27 @@ else
     ok "rclone ($(rclone --version | head -1))"
 fi
 
+# Fedora version matches repo expectation
+check "Fedora version"
+if [[ ! -f /etc/redhat-release ]]; then
+    echo "FAIL"
+    die "/etc/redhat-release not found — this script must run on a Fedora host."
+fi
+if ! grep -qi "^Fedora release" /etc/redhat-release; then
+    echo "FAIL"
+    die "Not running on Fedora: $(cat /etc/redhat-release)
+This repository targets Fedora only."
+fi
+RUNNING_VERSION=$(grep -oP 'Fedora release \K[0-9]+' /etc/redhat-release)
+EXPECTED_VERSION=$(grep 'fedora_version:' "$PROJECT_ROOT/vars/fedora-version.yml" | awk '{print $2}')
+if [[ "$RUNNING_VERSION" != "$EXPECTED_VERSION" ]]; then
+    echo "FAIL"
+    die "Fedora version mismatch: running Fedora $RUNNING_VERSION but repo targets Fedora $EXPECTED_VERSION.
+Switch to the correct branch:
+  git checkout F${RUNNING_VERSION}"
+fi
+ok "Fedora $RUNNING_VERSION matches repo (vars/fedora-version.yml)"
+
 # Validate mode argument
 check "mode argument"
 if [[ "$MODE" != "full" && "$MODE" != "mounts" ]]; then
