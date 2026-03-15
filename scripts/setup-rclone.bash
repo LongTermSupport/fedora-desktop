@@ -254,8 +254,25 @@ while true; do
 
     SELECTED_REMOTE="${REMOTE_LIST[$((REMOTE_SEL-1))]}"
 
-    # Subpath within the remote (default: /)
-    read -rp "  Subpath within $SELECTED_REMOTE [/]: " REMOTE_SUBPATH
+    # Show top-level folders to help the user choose a subpath
+    echo ""
+    echo -e "  ${CYAN}Top-level folders in ${BOLD}$SELECTED_REMOTE${NC}${CYAN}:${NC}"
+    if TOP_DIRS=$(rclone lsd "${SELECTED_REMOTE}:/" 2>/dev/null | awk '{print $NF}'); then
+        if [[ -n "$TOP_DIRS" ]]; then
+            while IFS= read -r dir; do
+                echo -e "    ${DIM}/$dir${NC}"
+            done <<< "$TOP_DIRS"
+        else
+            echo -e "    ${DIM}(remote is empty)${NC}"
+        fi
+    else
+        echo -e "    ${DIM}(could not list — remote may be unreachable)${NC}"
+    fi
+    echo ""
+
+    # Subpath within the remote (default: / = entire remote)
+    echo -e "  ${DIM}Enter a folder path to mount only part of the remote, or press Enter for the whole drive.${NC}"
+    read -rp "  Folder to mount [/ (entire drive)]: " REMOTE_SUBPATH
     REMOTE_SUBPATH="${REMOTE_SUBPATH:-/}"
 
     # Mount name: default to lowercase remote name with hyphens
