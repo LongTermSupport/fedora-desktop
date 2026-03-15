@@ -9,6 +9,9 @@
 #     $ANSIBLE_VAULT;1.2;AES256;localhost
 #     ...
 #
+#   # Optional: disable GNOME Files bookmarks (default: true)
+#   rclone_gnome_bookmarks: false
+#
 #   # Mount definitions (not sensitive - no vault needed):
 #   rclone_mounts:
 #     - name: gdrive                            # used for systemd service name
@@ -170,6 +173,37 @@
       tags: rclone, mounts
 
     # =========================================================================
+    # GNOME Files (Nautilus) bookmarks
+    # Enabled by default — set rclone_gnome_bookmarks: false in host_vars to skip
+    # =========================================================================
+
+    - name: Ensure GTK-3.0 config directory exists
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.config/gtk-3.0"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+      when:
+        - rclone_mounts is defined
+        - rclone_gnome_bookmarks | default(true)
+      tags: rclone, mounts, bookmarks
+
+    - name: Add GNOME Files bookmarks for rclone mounts
+      ansible.builtin.lineinfile:
+        path: "/home/{{ user_login }}/.config/gtk-3.0/bookmarks"
+        line: "file://{{ item.mountpoint }} {{ item.name }}"
+        create: true
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+      loop: "{{ rclone_mounts }}"
+      when:
+        - rclone_mounts is defined
+        - rclone_gnome_bookmarks | default(true)
+      tags: rclone, mounts, bookmarks
+
+    # =========================================================================
     # Summary
     # =========================================================================
 
@@ -196,6 +230,11 @@
           Services started and enabled (linger enabled — survive logout/reboot).
           To check status:
             systemctl --user status rclone-<name>.service
+
+          {% if rclone_gnome_bookmarks | default(true) %}
+          GNOME Files bookmarks added for all mounts (~/.config/gtk-3.0/bookmarks).
+          To disable bookmarks: set rclone_gnome_bookmarks: false in host_vars.
+          {% endif %}
           {% else %}
           No mounts configured - define rclone_mounts in host_vars/localhost.yml
           then re-run this playbook.
