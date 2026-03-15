@@ -1093,8 +1093,10 @@ echo -e "${GREEN}${BOLD}║                    ALL DONE!                        
 echo -e "${GREEN}${BOLD}╚══════════════════════════════════════════════════════════════╝${NC}\n"
 
 echo -e "${CYAN}${BOLD}Optional next steps${NC} (run after reboot):"
-echo -e "  ${ARROW} Python development environment (pyenv + pyenv versions):"
+echo -e "  ${ARROW} Optional setup scripts (rclone cloud storage, etc.):"
 echo -e "    ${BOLD}cd ~/Projects/fedora-desktop${NC}"
+echo -e "    ${BOLD}./scripts/setup.bash${NC}"
+echo -e "  ${ARROW} Python development environment (pyenv + pyenv versions):"
 echo -e "    ${BOLD}./playbooks/imports/optional/common/play-python.yml${NC}"
 echo
 
