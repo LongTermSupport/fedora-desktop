@@ -277,6 +277,11 @@ while true; do
         warn "Could not connect to ${BOLD}$SELECTED_REMOTE${NC}."
         echo ""
 
+        # Show the rclone error message (log lines only, skip the JSON Details blob)
+        LSD_ERR_SUMMARY=$(echo "$LSD_ERR_MSG" | grep -E "^[0-9]{4}/" | sed 's/^[0-9/: ]*//')
+        echo -e "  ${DIM}rclone: ${LSD_ERR_SUMMARY}${NC}"
+        echo ""
+
         # Give targeted advice based on the error
         if echo "$LSD_ERR_MSG" | grep -q "SERVICE_DISABLED\|API has not been used\|accessNotConfigured"; then
             PROJECT_ID=$(echo "$LSD_ERR_MSG" | grep -oP 'project[= ]\K[0-9]+' | head -1)
@@ -302,12 +307,9 @@ while true; do
             echo ""
             echo -e "  Check your internet connection, then re-run this script."
         else
-            echo -e "  ${YELLOW}▶ Unexpected error:${NC}"
-            echo "$LSD_ERR_MSG" | while IFS= read -r line; do
-                echo -e "    ${DIM}$line${NC}"
-            done
+            echo -e "  ${YELLOW}▶ Unexpected error — see rclone output above.${NC}"
             echo ""
-            echo -e "  Try: ${BOLD}rclone lsd ${SELECTED_REMOTE}:/${NC} to investigate."
+            echo -e "  Try: ${BOLD}rclone lsd ${SELECTED_REMOTE}:/${NC} to investigate further."
         fi
         echo ""
         die "Cannot continue until the remote is reachable."
