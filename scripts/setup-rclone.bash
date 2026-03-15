@@ -273,9 +273,44 @@ while true; do
     else
         LSD_ERR_MSG=$(cat "$LSD_ERR")
         rm -f "$LSD_OUT" "$LSD_ERR"
-        warn "Could not connect to $SELECTED_REMOTE:"
-        echo -e "    ${DIM}${LSD_ERR_MSG}${NC}"
-        die "Remote is unreachable — check your rclone config and network, then re-run this script."
+        echo ""
+        warn "Could not connect to ${BOLD}$SELECTED_REMOTE${NC}."
+        echo ""
+
+        # Give targeted advice based on the error
+        if echo "$LSD_ERR_MSG" | grep -q "SERVICE_DISABLED\|API has not been used\|accessNotConfigured"; then
+            PROJECT_ID=$(echo "$LSD_ERR_MSG" | grep -oP 'project[= ]\K[0-9]+' | head -1)
+            echo -e "  ${YELLOW}▶ The Google Drive API is not enabled on your GCP project.${NC}"
+            echo ""
+            echo -e "  Fix: visit this URL and click ${BOLD}Enable${NC}:"
+            if [[ -n "$PROJECT_ID" ]]; then
+                echo -e "    ${CYAN}https://console.developers.google.com/apis/api/drive.googleapis.com/overview?project=${PROJECT_ID}${NC}"
+            else
+                echo -e "    ${CYAN}https://console.developers.google.com/apis/api/drive.googleapis.com${NC}"
+            fi
+            echo ""
+            echo -e "  Then wait ~1 minute and re-run: ${BOLD}./scripts/setup-rclone.bash mounts${NC}"
+        elif echo "$LSD_ERR_MSG" | grep -q "AuthError\|oauth\|token\|401\|invalid_grant"; then
+            echo -e "  ${YELLOW}▶ Authentication failed — the OAuth token may be missing or expired.${NC}"
+            echo ""
+            echo -e "  Fix: re-authenticate this remote:"
+            echo -e "    ${BOLD}rclone config reconnect ${SELECTED_REMOTE}:${NC}"
+            echo ""
+            echo -e "  Then re-run: ${BOLD}./scripts/setup-rclone.bash mounts${NC}"
+        elif echo "$LSD_ERR_MSG" | grep -q "connection refused\|no such host\|network\|dial tcp"; then
+            echo -e "  ${YELLOW}▶ Network error — could not reach the remote service.${NC}"
+            echo ""
+            echo -e "  Check your internet connection, then re-run this script."
+        else
+            echo -e "  ${YELLOW}▶ Unexpected error:${NC}"
+            echo "$LSD_ERR_MSG" | while IFS= read -r line; do
+                echo -e "    ${DIM}$line${NC}"
+            done
+            echo ""
+            echo -e "  Try: ${BOLD}rclone lsd ${SELECTED_REMOTE}:/${NC} to investigate."
+        fi
+        echo ""
+        die "Cannot continue until the remote is reachable."
     fi
     echo ""
 
