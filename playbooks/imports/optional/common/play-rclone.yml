@@ -14,6 +14,10 @@
 #     - name: gdrive                            # used for systemd service name
 #       remote: "gdrive:/"                      # rclone remote:path spec
 #       mountpoint: "/home/{{ user_login }}/mnt/gdrive"
+#       # Optional cache overrides (defaults shown):
+#       # cache_mode: full       # off | minimal | writes | full  (default: full)
+#       # cache_max_size: 10G    # max local cache size            (default: 10G)
+#       # cache_max_age: 48h     # evict files not accessed within (default: 48h)
 #     - name: photos-backup
 #       remote: "s3:mybucket/photos"
 #       mountpoint: "/home/{{ user_login }}/mnt/photos-backup"
@@ -137,7 +141,9 @@
           Type=notify
           ExecStart=/usr/bin/rclone mount \
             --config=%h/.config/rclone/rclone.conf \
-            --vfs-cache-mode writes \
+            --vfs-cache-mode {{ item.cache_mode | default('full') }} \
+            --vfs-cache-max-size {{ item.cache_max_size | default('10G') }} \
+            --vfs-cache-max-age {{ item.cache_max_age | default('48h') }} \
             --allow-other \
             {{ item.remote }} {{ item.mountpoint }}
           ExecStop=/bin/fusermount3 -u {{ item.mountpoint }}
