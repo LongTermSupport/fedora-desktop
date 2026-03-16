@@ -10,7 +10,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.12"
+LABEL claude-yolo-version="2.13"
 LABEL claude-yolo-dockerfile-hash="${DOCKERFILE_HASH}"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 
@@ -125,6 +125,11 @@ RUN mkdir -p /root/.agent-browser && \
   "headed": true,\n\
   "args": "--enable-features=UseOzonePlatform,--ozone-platform=wayland,--no-sandbox,--disable-gpu,--disable-software-rasterizer,--disable-dev-shm-usage"\n\
 }' > /root/.agent-browser/config.json
+
+# Stub for common typo: agentbrowser → agent-browser
+RUN printf '#!/bin/sh\necho "Command not found: agentbrowser" >&2\necho "Did you mean: agent-browser" >&2\nexit 1\n' \
+    > /usr/local/bin/agentbrowser && \
+    chmod +x /usr/local/bin/agentbrowser
 
 # Patch Ink's hardcoded ctrl+z handler in Claude Code to respect CCY_DISABLE_SUSPEND env var.
 # Ink intercepts ctrl+z BEFORE the keybinding system and calls process.kill(pid, 'SIGSTOP')
