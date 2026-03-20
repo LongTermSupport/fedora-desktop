@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.8.0"  # feat: --rebuild=claude|project|full, fast in-place Claude Code update
+CCY_VERSION="3.8.1"  # fix: --rebuild (no args) defaults to full mode
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -128,7 +128,7 @@ Claude Code YOLO Mode (ccy) - Container-based execution with --dangerously-skip-
 Usage: ccy [OPTIONS] [CLAUDE_ARGS...]
 
 Options:
-  --rebuild[=MODE]       Update Claude Code: claude (default, fast npm update), project (project image only), full (clean rebuild)
+  --rebuild[=MODE]       Rebuild: (default) full clean rebuild; claude=fast npm update base only; project=npm update + rebuild project image
   --debug                Interactive debug layer selection (CCY, entrypoint, Claude Code)
   --engine ENGINE        Use specific container engine (docker/podman, default: podman)
   --ssh-key PATH         SSH private key to mount (can be specified multiple times)
@@ -367,7 +367,7 @@ EOF
 
 # Check for wrapper flags
 FORCE_REBUILD=false
-REBUILD_MODE="claude"
+REBUILD_MODE="full"
 DISABLE_CUSTOM_DOCKER=false
 DEBUG_MODE=false
 DEBUG_CCY=false
@@ -434,7 +434,7 @@ for arg in "$@"; do
         NEXT_IS_PROMPT=false
     elif [ "$arg" = "--rebuild" ]; then
         FORCE_REBUILD=true
-        REBUILD_MODE="claude"
+        REBUILD_MODE="full"
     elif [[ "$arg" == "--rebuild="* ]]; then
         FORCE_REBUILD=true
         REBUILD_MODE="${arg#--rebuild=}"
@@ -1093,7 +1093,14 @@ if [ "$FORCE_REBUILD" = true ]; then
             echo "✓ Claude Code updated"
             ;;
         project)
-            echo "Project rebuild mode: skipping base image rebuild"
+            echo "Updating Claude Code and rebuilding project image..."
+            if container_cmd image inspect "$IMAGE_NAME" &>/dev/null; then
+                update_claude_inplace "$IMAGE_NAME"
+                if container_cmd image inspect "$BASE_IMAGE_NAME" &>/dev/null; then
+                    update_claude_inplace "$BASE_IMAGE_NAME"
+                fi
+            fi
+            rm -f "$VERSION_CHECK_CACHE"
             ;;
         full)
             echo "Forcing full container rebuild (no cache)..."
