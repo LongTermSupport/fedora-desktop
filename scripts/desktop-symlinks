@@ -67,7 +67,7 @@ if ! command -v ccy &>/dev/null; then
     echo "ERROR: 'ccy' command not found in PATH"
     echo
     echo "CCY should be installed at: /var/local/claude-yolo/claude-yolo"
-    echo "Try running: sudo ansible-playbook playbooks/imports/optional/common/play-install-claude-yolo.yml"
+    echo "Try running: sudo ansible-playbook playbooks/imports/play-install-claude-yolo.yml"
     exit 1
 fi
 

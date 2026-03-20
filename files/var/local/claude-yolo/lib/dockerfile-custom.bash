@@ -99,7 +99,7 @@ custom_dockerfile() {
         print_error "No templates found in $custom_dir"
         echo ""
         echo "Run the ansible playbook to install templates:"
-        echo "  ansible-playbook playbooks/imports/optional/common/play-install-claude-yolo.yml"
+        echo "  ansible-playbook playbooks/imports/play-install-claude-yolo.yml"
         exit 1
     fi
 

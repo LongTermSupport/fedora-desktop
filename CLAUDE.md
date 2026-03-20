@@ -425,7 +425,7 @@ sudo chmod +x /var/local/claude-yolo/claude-yolo
 **Example - CORRECT approach:**
 ```bash
 # ✅ GOOD - Ansible deployment
-ansible-playbook playbooks/imports/optional/common/play-install-claude-yolo.yml
+ansible-playbook playbooks/imports/play-install-claude-yolo.yml
 ```
 
 **If you catch yourself or the user suggesting manual steps:**

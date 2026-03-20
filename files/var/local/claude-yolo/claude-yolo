@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.8.1"  # fix: --rebuild (no args) defaults to full mode
+CCY_VERSION="3.8.2"  # fix: correct ansible playbook path in error messages
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1079,7 +1079,7 @@ if [ "$FORCE_REBUILD" = true ]; then
                 echo "No base image found - running full build first..."
                 if [ ! -f "$DOCKERFILE_DIR/Dockerfile" ]; then
                     echo "Error: Dockerfile not found at $DOCKERFILE_DIR/Dockerfile"
-                    echo "Please run the ansible playbook: playbooks/imports/optional/common/play-install-claude-yolo.yml"
+                    echo "Please run the ansible playbook: playbooks/imports/play-install-claude-yolo.yml"
                     exit 1
                 fi
                 build_container_with_hash "$IMAGE_NAME" "$DOCKERFILE_DIR" "--no-cache" "$BASE_IMAGE_NAME"
@@ -1106,7 +1106,7 @@ if [ "$FORCE_REBUILD" = true ]; then
             echo "Forcing full container rebuild (no cache)..."
             if [ ! -f "$DOCKERFILE_DIR/Dockerfile" ]; then
                 echo "Error: Dockerfile not found at $DOCKERFILE_DIR/Dockerfile"
-                echo "Please run the ansible playbook: playbooks/imports/optional/common/play-install-claude-yolo.yml"
+                echo "Please run the ansible playbook: playbooks/imports/play-install-claude-yolo.yml"
                 exit 1
             fi
             build_container_with_hash "$IMAGE_NAME" "$DOCKERFILE_DIR" "--no-cache" "$BASE_IMAGE_NAME"
@@ -1121,7 +1121,7 @@ if ! container_cmd image inspect "$IMAGE_NAME" &> /dev/null; then
     echo "Building Claude YOLO container image (first time setup)..."
     if [ ! -f "$DOCKERFILE_DIR/Dockerfile" ]; then
         echo "Error: Dockerfile not found at $DOCKERFILE_DIR/Dockerfile"
-        echo "Please run the ansible playbook: playbooks/imports/optional/common/play-install-claude-yolo.yml"
+        echo "Please run the ansible playbook: playbooks/imports/play-install-claude-yolo.yml"
         exit 1
     fi
     build_container_with_hash "$IMAGE_NAME" "$DOCKERFILE_DIR" "" "$BASE_IMAGE_NAME"
