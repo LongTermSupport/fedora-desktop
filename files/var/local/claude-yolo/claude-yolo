@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.7.7"  # fix: add agentbrowser stub pointing to agent-browser
+CCY_VERSION="3.8.0"  # feat: --rebuild=claude|project|full, fast in-place Claude Code update
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -128,7 +128,7 @@ Claude Code YOLO Mode (ccy) - Container-based execution with --dangerously-skip-
 Usage: ccy [OPTIONS] [CLAUDE_ARGS...]
 
 Options:
-  --rebuild              Force rebuild of container image (clears cache)
+  --rebuild[=MODE]       Update Claude Code: claude (default, fast npm update), project (project image only), full (clean rebuild)
   --debug                Interactive debug layer selection (CCY, entrypoint, Claude Code)
   --engine ENGINE        Use specific container engine (docker/podman, default: podman)
   --ssh-key PATH         SSH private key to mount (can be specified multiple times)
@@ -367,6 +367,7 @@ EOF
 
 # Check for wrapper flags
 FORCE_REBUILD=false
+REBUILD_MODE="claude"
 DISABLE_CUSTOM_DOCKER=false
 DEBUG_MODE=false
 DEBUG_CCY=false
@@ -433,6 +434,15 @@ for arg in "$@"; do
         NEXT_IS_PROMPT=false
     elif [ "$arg" = "--rebuild" ]; then
         FORCE_REBUILD=true
+        REBUILD_MODE="claude"
+    elif [[ "$arg" == "--rebuild="* ]]; then
+        FORCE_REBUILD=true
+        REBUILD_MODE="${arg#--rebuild=}"
+        if [[ "$REBUILD_MODE" != "claude" && "$REBUILD_MODE" != "project" && "$REBUILD_MODE" != "full" ]]; then
+            print_error "Invalid --rebuild mode: $REBUILD_MODE"
+            echo "Valid modes: claude (default), project, full" >&2
+            exit 1
+        fi
     elif [ "$arg" = "--disable-custom-docker" ]; then
         DISABLE_CUSTOM_DOCKER=true
     elif [ "$arg" = "--no-ssh" ]; then
@@ -1041,18 +1051,62 @@ check_claude_code_updates() {
 # Ensure cache directory exists
 mkdir -p "$(dirname "$VERSION_CHECK_CACHE")"
 
-# Force rebuild if --rebuild flag was provided
-if [ "$FORCE_REBUILD" = true ]; then
-    echo "Forcing container rebuild..."
-    if [ ! -f "$DOCKERFILE_DIR/Dockerfile" ]; then
-        echo "Error: Dockerfile not found at $DOCKERFILE_DIR/Dockerfile"
-        echo "Please run the ansible playbook: playbooks/imports/optional/common/play-install-claude-yolo.yml"
-        exit 1
+# Fast in-place Claude Code update: run npm install in temp container then commit back
+update_claude_inplace() {
+    local image_name="$1"
+    local temp_name="ccy-claude-update-$$"
+    echo "  npm install -g @anthropic-ai/claude-code@latest in $image_name..."
+    if ! container_cmd run \
+        --name "$temp_name" \
+        --entrypoint sh \
+        "$image_name" \
+        -c "npm install -g @anthropic-ai/claude-code@latest 2>&1"; then
+        container_cmd rm -f "$temp_name" 2>/dev/null || true
+        print_error "Failed to update Claude Code in $image_name"
+        return 1
     fi
-    build_container_with_hash "$IMAGE_NAME" "$DOCKERFILE_DIR" "--no-cache" "$BASE_IMAGE_NAME"
-    # Clear version cache to force Claude Code update check
-    rm -f "$VERSION_CHECK_CACHE"
-    echo "✓ Container image rebuilt successfully"
+    container_cmd commit "$temp_name" "$image_name" >/dev/null
+    container_cmd rm "$temp_name" >/dev/null
+    echo "  ✓ Updated $image_name"
+}
+
+# Handle --rebuild flag: mode-aware (claude=fast in-place, project=project image only, full=clean rebuild)
+if [ "$FORCE_REBUILD" = true ]; then
+    case "$REBUILD_MODE" in
+        claude)
+            echo "Updating Claude Code in-place (fast path)..."
+            if ! container_cmd image inspect "$IMAGE_NAME" &>/dev/null; then
+                echo "No base image found - running full build first..."
+                if [ ! -f "$DOCKERFILE_DIR/Dockerfile" ]; then
+                    echo "Error: Dockerfile not found at $DOCKERFILE_DIR/Dockerfile"
+                    echo "Please run the ansible playbook: playbooks/imports/optional/common/play-install-claude-yolo.yml"
+                    exit 1
+                fi
+                build_container_with_hash "$IMAGE_NAME" "$DOCKERFILE_DIR" "--no-cache" "$BASE_IMAGE_NAME"
+            else
+                update_claude_inplace "$IMAGE_NAME"
+                if container_cmd image inspect "$BASE_IMAGE_NAME" &>/dev/null; then
+                    update_claude_inplace "$BASE_IMAGE_NAME"
+                fi
+            fi
+            rm -f "$VERSION_CHECK_CACHE"
+            echo "✓ Claude Code updated"
+            ;;
+        project)
+            echo "Project rebuild mode: skipping base image rebuild"
+            ;;
+        full)
+            echo "Forcing full container rebuild (no cache)..."
+            if [ ! -f "$DOCKERFILE_DIR/Dockerfile" ]; then
+                echo "Error: Dockerfile not found at $DOCKERFILE_DIR/Dockerfile"
+                echo "Please run the ansible playbook: playbooks/imports/optional/common/play-install-claude-yolo.yml"
+                exit 1
+            fi
+            build_container_with_hash "$IMAGE_NAME" "$DOCKERFILE_DIR" "--no-cache" "$BASE_IMAGE_NAME"
+            rm -f "$VERSION_CHECK_CACHE"
+            echo "✓ Container image rebuilt successfully"
+            ;;
+    esac
 fi
 
 # Check if Docker image exists
@@ -1149,9 +1203,16 @@ if [ -f "$PROJECT_DOCKERFILE" ] && [ "$DISABLE_CUSTOM_DOCKER" = false ]; then
         should_build=true
         rebuild_reason="base image updated"
     elif [ "$FORCE_REBUILD" = true ]; then
-        echo "Force rebuild requested..."
-        should_build=true
-        rebuild_reason="--rebuild flag"
+        if [ "$REBUILD_MODE" = "claude" ] && container_cmd image inspect "$PROJECT_IMAGE_NAME" &>/dev/null; then
+            echo "Updating Claude Code in project image (fast)..."
+            update_claude_inplace "$PROJECT_IMAGE_NAME"
+            echo "$current_project_hash" > "$PROJECT_DOCKERFILE_HASH_FILE"
+            echo "$current_base_version" > "$PROJECT_BASE_VERSION_FILE"
+        else
+            echo "Force rebuild requested..."
+            should_build=true
+            rebuild_reason="--rebuild flag"
+        fi
     else
         echo "✓ Using cached project image (Dockerfile and base unchanged)"
     fi
