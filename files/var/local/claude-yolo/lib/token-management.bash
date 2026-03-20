@@ -2,7 +2,35 @@
 # Token Management Library
 # Token operations for claude-yolo (ccy)
 #
-# Version: 1.4.0 - Add byte length check and validate pasted tokens with retry
+# Version: 1.5.0 - Color-code expiry dates (green >30d, orange ≤30d, red ≤5d)
+
+# Returns expiry_date string wrapped in ANSI color based on days remaining
+# Args: $1 = expiry_date (YYYY-MM-DD)
+# Outputs: colored string (or plain if terminal doesn't support colors)
+colorize_expiry() {
+    local expiry_date="$1"
+    local today
+    today=$(date +%Y-%m-%d)
+
+    # Calculate days remaining
+    local expiry_epoch today_epoch days_remaining
+    expiry_epoch=$(date -d "$expiry_date" +%s 2>/dev/null) || { echo "$expiry_date"; return; }
+    today_epoch=$(date -d "$today" +%s)
+    days_remaining=$(( (expiry_epoch - today_epoch) / 86400 ))
+
+    local RED='\033[31m'
+    local ORANGE='\033[38;5;208m'
+    local GREEN='\033[32m'
+    local RESET='\033[0m'
+
+    if [ "$days_remaining" -le 5 ]; then
+        printf "${RED}%s${RESET}" "$expiry_date"
+    elif [ "$days_remaining" -le 30 ]; then
+        printf "${ORANGE}%s${RESET}" "$expiry_date"
+    else
+        printf "${GREEN}%s${RESET}" "$expiry_date"
+    fi
+}
 
 # Function to list available tokens
 # Args: $1 = token_dir, $2 = tool_name (for display)
@@ -27,11 +55,13 @@ list_tokens() {
     echo "Token storage: $token_dir"
     echo ""
 
-    local today=$(date +%Y-%m-%d)
+    local today
+    today=$(date +%Y-%m-%d)
 
     for token_file in "$token_dir"/*.token; do
         if [ -f "$token_file" ]; then
-            local filename=$(basename "$token_file")
+            local filename
+            filename=$(basename "$token_file")
             local token_name="${filename%.*.token}"
 
             # Extract expiry date from filename
@@ -47,7 +77,7 @@ list_tokens() {
 
                 echo "  • $token_name"
                 echo "    File: $token_file"
-                echo "    Expires: $expiry_date ($status)"
+                echo "    Expires: $(colorize_expiry "$expiry_date") ($status)"
             else
                 echo "  • $filename"
                 echo "    File: $token_file"
@@ -123,7 +153,7 @@ create_token() {
         echo "Renewing token: $token_name"
     else
         while true; do
-            read -p "Enter a name for this token (e.g., 'personal', 'work', 'default'): " token_name
+            read -r -p "Enter a name for this token (e.g., 'personal', 'work', 'default'): " token_name
 
             if [ -z "$token_name" ]; then
                 print_error "Token name cannot be empty"
@@ -144,7 +174,8 @@ create_token() {
     # NOTE: claude setup-token doesn't tell us when the token actually expires,
     # so we use 90 days as a conservative estimate. If you get auth errors before
     # that, just recreate the token.
-    local expiry_date=$(date -d "+90 days" +%Y-%m-%d)
+    local expiry_date
+    expiry_date=$(date -d "+90 days" +%Y-%m-%d)
     echo ""
     echo "Token expiry: $expiry_date (90 days from today)"
     echo "Note: This is an estimate - recreate the token if you get auth errors"
@@ -163,7 +194,7 @@ create_token() {
             fi
         done
         echo ""
-        read -p "Overwrite? (y/N): " overwrite
+        read -r -p "Overwrite? (y/N): " overwrite
         if [ "$overwrite" != "y" ] && [ "$overwrite" != "Y" ]; then
             echo "Cancelled. Token not created."
             exit 0
@@ -190,7 +221,7 @@ create_token() {
     echo "  4. The process will save it automatically"
     echo ""
     echo "Press Enter to continue..."
-    read
+    read -r
     echo ""
 
     # Run setup-token via claude CLI entrypoint
@@ -266,14 +297,14 @@ create_token() {
             # Token paste loop with validation and retry
             while true; do
                 echo "Please manually paste the token (starts with sk-ant-oat01-):"
-                read -p "Token: " manual_token
+                read -r -p "Token: " manual_token
 
                 # Basic validation: format check
                 if [ -z "$manual_token" ]; then
                     echo ""
                     print_error "Token cannot be empty"
                     echo ""
-                    read -p "Try again? (Y/n): " retry
+                    read -r -p "Try again? (Y/n): " retry
                     if [ "$retry" = "n" ] || [ "$retry" = "N" ]; then
                         echo "Cancelled."
                         rm -f "$tmp_output"
@@ -288,7 +319,7 @@ create_token() {
                     print_error "Invalid token format"
                     echo "Token must start with 'sk-ant-oat01-'"
                     echo ""
-                    read -p "Try again? (Y/n): " retry
+                    read -r -p "Try again? (Y/n): " retry
                     if [ "$retry" = "n" ] || [ "$retry" = "N" ]; then
                         echo "Cancelled."
                         rm -f "$tmp_output"
@@ -306,7 +337,7 @@ create_token() {
                     echo "Length: $token_bytes bytes (expected: 100-110 bytes)"
                     echo "Token appears truncated or has extra characters."
                     echo ""
-                    read -p "Try again? (Y/n): " retry
+                    read -r -p "Try again? (Y/n): " retry
                     if [ "$retry" = "n" ] || [ "$retry" = "N" ]; then
                         echo "Cancelled."
                         rm -f "$tmp_output"
@@ -349,7 +380,7 @@ create_token() {
                     echo "  • Token has expired or been revoked"
                     echo "  • Network connectivity issues"
                     echo ""
-                    read -p "Try again? (Y/n): " retry
+                    read -r -p "Try again? (Y/n): " retry
                     if [ "$retry" = "n" ] || [ "$retry" = "N" ]; then
                         echo ""
                         echo "Cancelled. Please verify the token and try again."
@@ -416,7 +447,8 @@ select_token() {
     # Get list of valid (non-expired) token files
     local valid_tokens=()
     local expired_tokens=()
-    local today=$(date +%Y-%m-%d)
+    local today
+    today=$(date +%Y-%m-%d)
 
     for token_file in "$token_dir"/*.token; do
         if [ -f "$token_file" ]; then
@@ -435,7 +467,8 @@ select_token() {
         echo ""
         echo "⚠  Found ${#expired_tokens[@]} expired token(s):"
         for token_file in "${expired_tokens[@]}"; do
-            local filename=$(basename "$token_file")
+            local filename
+            filename=$(basename "$token_file")
             local token_name="${filename%.*.token}"
             local expiry_date=""
             if [[ "$filename" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2})\.token$ ]]; then
@@ -462,13 +495,14 @@ select_token() {
 
     for i in "${!valid_tokens[@]}"; do
         local token_file="${valid_tokens[$i]}"
-        local filename=$(basename "$token_file")
+        local filename
+        filename=$(basename "$token_file")
         local token_name="${filename%.*.token}"
 
         # Extract expiry
         if [[ "$filename" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2})\.token$ ]]; then
             local expiry_date="${BASH_REMATCH[1]}"
-            echo "  $((i+1))) $token_name (expires: $expiry_date)"
+            echo "  $((i+1))) $token_name (expires: $(colorize_expiry "$expiry_date"))"
         else
             echo "  $((i+1))) $token_name"
         fi
@@ -497,7 +531,7 @@ select_token() {
     fi
 
     while true; do
-        read -p "Select token [0-${#valid_tokens[@]}${renew_hint}]: " selection
+        read -r -p "Select token [0-${#valid_tokens[@]}${renew_hint}]: " selection
         echo ""
 
         if [ -z "$selection" ]; then
@@ -514,7 +548,9 @@ select_token() {
                 local renew_name="${expired_names[$((renew_idx-1))]}"
                 echo "Renewing expired token: $renew_name"
                 echo ""
+                # shellcheck disable=SC2153
                 create_token "$token_dir" "$GH_TOKEN" "$IMAGE_NAME" "ccy" "$renew_name"
+                # shellcheck disable=SC2317
                 exit 0
             else
                 echo "Invalid renew selection: $selection"
@@ -524,11 +560,14 @@ select_token() {
         fi
 
         if [ "$selection" = "0" ]; then
+            # shellcheck disable=SC2153
             create_token "$token_dir" "$GH_TOKEN" "$IMAGE_NAME" "ccy"
+            # shellcheck disable=SC2317
             exit 0
         elif [ "$selection" -ge 1 ] && [ "$selection" -le ${#valid_tokens[@]} ] 2>/dev/null; then
             SELECTED_TOKEN="${valid_tokens[$((selection-1))]}"
-            local filename=$(basename "$SELECTED_TOKEN")
+            local filename
+            filename=$(basename "$SELECTED_TOKEN")
             local token_name="${filename%.*.token}"
 
             echo "✓ Selected token: $token_name"
