@@ -5,6 +5,13 @@
   become: true
   vars:
     root_dir: "{{ inventory_dir }}/../../"
+    # RapidRAW - hardcoded version for security and reproducibility
+    # @see https://github.com/CyberTimon/RapidRAW/releases
+    rapidraw_version: "1.5.2"
+    rapidraw_rpm: "03_RapidRAW_v{{ rapidraw_version }}_ubuntu-22.04_x86_64.rpm"
+    rapidraw_url: "https://github.com/CyberTimon/RapidRAW/releases/download/v{{ rapidraw_version }}/{{ rapidraw_rpm }}"
+    rapidraw_sha256: "89cf392824e8e2d45beaac092f3b13e315611d4966cdd5aeea93f9b7c2738614"
+    rapidraw_tmp: "/tmp/{{ rapidraw_rpm }}"
 
   tasks:
     - name: Install Photography Packages
@@ -26,6 +33,40 @@
         state: present
       tags: photography
 
+    # RapidRAW: GPU-accelerated RAW editor (wgpu/Vulkan). Installed as native RPM
+    # rather than Flatpak to avoid NVIDIA DMA-buf blank window bug and Vulkan
+    # driver version mismatch issues inside the Flatpak sandbox.
+    - name: Check if RapidRAW is already installed at target version
+      ansible.builtin.shell: |
+        rpm -q rapidraw --queryformat '%{VERSION}' 2>/dev/null || echo "not-installed"
+      register: rapidraw_installed_version
+      changed_when: false
+      tags: rapidraw
+
+    - name: Download RapidRAW RPM
+      ansible.builtin.get_url:
+        url: "{{ rapidraw_url }}"
+        dest: "{{ rapidraw_tmp }}"
+        checksum: "sha256:{{ rapidraw_sha256 }}"
+        mode: "0644"
+      when: rapidraw_installed_version.stdout != rapidraw_version
+      tags: rapidraw
+
+    - name: Install RapidRAW RPM
+      ansible.builtin.dnf:
+        name: "{{ rapidraw_tmp }}"
+        state: present
+        disable_gpg_check: true  # Community release, no GPG key
+      when: rapidraw_installed_version.stdout != rapidraw_version
+      tags: rapidraw
+
+    - name: Clean up RapidRAW RPM
+      ansible.builtin.file:
+        path: "{{ rapidraw_tmp }}"
+        state: absent
+      when: rapidraw_installed_version.stdout != rapidraw_version
+      tags: rapidraw
+
     - name: Display Installation Complete Message
       ansible.builtin.debug:
         msg: |
@@ -37,6 +78,9 @@
             geeqie               - Lightweight image viewer with RAW support and EXIF display
             hugin                - Panorama stitching and lens calibration
             perl-Image-ExifTool  - CLI EXIF/IPTC/XMP metadata reader/writer (exiftool)
+            rapidraw             - GPU-accelerated RAW editor (wgpu/Vulkan)
+                                   NOTE: disable Compatibility Mode in Settings > Processing
+                                   on first launch for full GPU performance
 
           Launch from the applications menu, or on the command line:
             rawtherapee
@@ -46,3 +90,4 @@
             geeqie
             hugin
             exiftool <file>
+            rapidraw
