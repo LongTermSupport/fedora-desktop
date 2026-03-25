@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.8.2"  # fix: correct ansible playbook path in error messages
+CCY_VERSION="3.8.3"  # fix: restore ENTRYPOINT/CMD after in-place claude update commit
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1065,7 +1065,10 @@ update_claude_inplace() {
         print_error "Failed to update Claude Code in $image_name"
         return 1
     fi
-    container_cmd commit "$temp_name" "$image_name" >/dev/null
+    container_cmd commit \
+        --change 'ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]' \
+        --change 'CMD ["claude", "--help"]' \
+        "$temp_name" "$image_name" >/dev/null
     container_cmd rm "$temp_name" >/dev/null
     echo "  ✓ Updated $image_name"
 }
