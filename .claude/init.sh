@@ -17,6 +17,9 @@
 
 set -euo pipefail
 
+# Flag set by ensure_daemon when ci_enabled: true and daemon can't start
+_HOOKS_DAEMON_CI_ENFORCED=false
+
 #
 # emit_hook_error() - Output a valid hook error response to stdout
 #
@@ -42,37 +45,72 @@ emit_hook_error() {
     # Log to stderr for debugging (agent won't see this)
     echo "HOOKS DAEMON ERROR [$error_type]: $error_details" >&2
 
-    # Build error context message
-    # NOTE: Language is intentionally measured to avoid triggering investigation loops
-    # in LLM agents. Previous "STOP work immediately" wording caused agents to abandon
-    # tasks and enter analysis cycles instead of simply restarting the daemon.
+    # Build error context message based on CI enforcement policy
     local context_msg
-    context_msg=$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s' \
-        "HOOKS DAEMON: Not currently running" \
-        "" \
-        "Error: $error_type - $error_details" \
-        "" \
-        "Hook safety handlers are inactive until the daemon is restarted." \
-        "If you are in the middle of an upgrade, this is expected and temporary." \
-        "" \
-        "TO FIX (usually takes a few seconds):" \
-        "1. Run: python -m claude_code_hooks_daemon.daemon.cli restart" \
-        "2. Verify: python -m claude_code_hooks_daemon.daemon.cli status" \
-        "" \
-        "If restart fails, check logs:" \
-        "  python -m claude_code_hooks_daemon.daemon.cli logs" \
-        "Then inform the user if the issue persists.")
+
+    if [[ "$_HOOKS_DAEMON_CI_ENFORCED" == "true" ]]; then
+        # CI ENFORCED: Loud STOP message — project requires daemon via ci_enabled: true
+        context_msg=$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s' \
+            "STOP - DO NOT PROCEED" \
+            "" \
+            "The hooks daemon is REQUIRED for this project (ci_enabled: true in .claude/hooks-daemon.yaml) but is NOT installed or running in this environment." \
+            "" \
+            "ALL safety handlers, code quality checks, and workflow enforcement are INACTIVE." \
+            "" \
+            "ACTION REQUIRED:" \
+            "1. STOP all work immediately - do not use any tools" \
+            "2. Report to the user: 'Hooks daemon must be installed before running Claude Code agents in this environment'" \
+            "3. Installation guide: CLAUDE/LLM-INSTALL.md" \
+            "" \
+            "DO NOT attempt to install the daemon yourself. DO NOT continue working without the daemon.")
+    else
+        # Standard error message
+        # NOTE: Language is intentionally measured to avoid triggering investigation loops
+        # in LLM agents. Previous "STOP work immediately" wording caused agents to abandon
+        # tasks and enter analysis cycles instead of simply restarting the daemon.
+        context_msg=$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s' \
+            "HOOKS DAEMON: Not currently running" \
+            "" \
+            "Error: $error_type - $error_details" \
+            "" \
+            "Hook safety handlers are inactive until the daemon is restarted." \
+            "If you are in the middle of an upgrade, this is expected and temporary." \
+            "" \
+            "TO FIX (usually takes a few seconds):" \
+            "1. Run: python -m claude_code_hooks_daemon.daemon.cli restart" \
+            "2. Verify: python -m claude_code_hooks_daemon.daemon.cli status" \
+            "" \
+            "If restart fails, check logs:" \
+            "  python -m claude_code_hooks_daemon.daemon.cli logs" \
+            "Then inform the user if the issue persists.")
+    fi
 
     # Event-specific JSON formatting using jq (already a dependency)
     # Stop/SubagentStop: top-level decision only (deny to show error)
     # Other events: hookSpecificOutput with context (fail-open allow)
     if command -v jq &>/dev/null; then
-        if [[ "$event_name" == "Stop" || "$event_name" == "SubagentStop" ]]; then
-            jq -n --arg reason "Hooks daemon not running - protection not active" \
-                '{"decision": "block", "reason": $reason}'
+        if [[ "$_HOOKS_DAEMON_CI_ENFORCED" == "true" ]]; then
+            # CI enforced: hard deny/block for ALL event types to prevent work
+            local ci_reason="Hooks daemon REQUIRED (ci_enabled: true) but not installed"
+            if [[ "$event_name" == "PreToolUse" ]]; then
+                jq -n --arg reason "$context_msg" \
+                    '{"decision": "deny", "reason": $reason}'
+            elif [[ "$event_name" == "Stop" || "$event_name" == "SubagentStop" ]]; then
+                jq -n --arg reason "$ci_reason" \
+                    '{"decision": "block", "reason": $reason}'
+            else
+                jq -n --arg event "$event_name" --arg context "$context_msg" \
+                    '{"hookSpecificOutput": {"hookEventName": $event, "additionalContext": $context}}'
+            fi
         else
-            jq -n --arg event "$event_name" --arg context "$context_msg" \
-                '{"hookSpecificOutput": {"hookEventName": $event, "additionalContext": $context}}'
+            # Standard: Stop/SubagentStop block, others fail-open with context
+            if [[ "$event_name" == "Stop" || "$event_name" == "SubagentStop" ]]; then
+                jq -n --arg reason "Hooks daemon not running - protection not active" \
+                    '{"decision": "block", "reason": $reason}'
+            else
+                jq -n --arg event "$event_name" --arg context "$context_msg" \
+                    '{"hookSpecificOutput": {"hookEventName": $event, "additionalContext": $context}}'
+            fi
         fi
     else
         # Fallback if jq not available (should not happen - jq is required)
@@ -364,21 +402,122 @@ start_daemon() {
 }
 
 #
+# _is_ci_enforced() - Check if ci_enabled: true in daemon config
+#
+# Parses .claude/hooks-daemon.yaml for the ci_enabled flag under daemon section.
+# Uses grep (universally available — no Python/yq dependency needed in CI).
+#
+# Returns:
+#   0 if ci_enabled: true found (daemon is required)
+#   1 otherwise (default: fail open)
+#
+_is_ci_enforced() {
+    local config_file="$PROJECT_PATH/.claude/hooks-daemon.yaml"
+    [[ -f "$config_file" ]] && grep -qE '^\s+ci_enabled:\s*true' "$config_file"
+}
+
+#
+# _passthrough_flag_path() - Get path to passthrough state file
+#
+# State file prevents repeated config parsing and noise on every hook call.
+# Created on first daemon failure when ci_enabled is NOT true.
+# Cleaned up when daemon starts successfully (recovery).
+#
+_passthrough_flag_path() {
+    local passthrough_dir="$HOOKS_DAEMON_ROOT_DIR/untracked"
+    if [[ ! -d "$passthrough_dir" ]]; then
+        if ! mkdir -p "$passthrough_dir" 2>/dev/null; then
+            echo "HOOKS DAEMON: Could not create passthrough state directory: $passthrough_dir" >&2
+        fi
+    fi
+    echo "$passthrough_dir/.hooks-passthrough"
+}
+
+#
+# _enter_passthrough_mode() - Override send_request_stdin to return empty JSON
+#
+# When daemon is unavailable and ci_enabled is not set, hook events
+# silently pass through with no blocking and no context injection.
+#
+_enter_passthrough_mode() {
+    # shellcheck disable=SC2317
+    send_request_stdin() {
+        cat > /dev/null
+        echo '{}'
+    }
+    export -f send_request_stdin
+}
+
+#
 # ensure_daemon() - Start daemon if not running (lazy startup)
 #
 # Idempotent function safe to call on every hook invocation.
 # Only starts daemon if not already running.
 #
+# When daemon cannot start:
+#   - If ci_enabled: true in config: hard fail (return 1), forwarder blocks
+#   - Otherwise (default): noisy first time, then silent passthrough
+#
 # Returns:
-#   0 if daemon is running (started or already running)
-#   1 if daemon failed to start
+#   0 if daemon is running or passthrough mode active
+#   1 if ci_enabled: true and daemon failed to start
 #
 ensure_daemon() {
     if is_daemon_running; then
         return 0
     fi
 
-    start_daemon
+    # Check passthrough state file — daemon already failed before, skip silently
+    local passthrough_flag
+    passthrough_flag=$(_passthrough_flag_path)
+    if [[ -f "$passthrough_flag" ]]; then
+        _enter_passthrough_mode
+        return 0
+    fi
+
+    # Try to start daemon
+    if start_daemon; then
+        # Clean up passthrough flag on recovery (daemon was fixed/installed)
+        rm -f "$passthrough_flag"
+        return 0
+    fi
+
+    # Daemon failed to start — check CI enforcement policy from config
+    if _is_ci_enforced; then
+        # ci_enabled: true — hard fail, forwarder will call emit_hook_error
+        # with the loud STOP message (see _HOOKS_DAEMON_CI_ENFORCED handling)
+        _HOOKS_DAEMON_CI_ENFORCED=true
+        return 1
+    fi
+
+    # Default: fail open — noisy first time, then silent passthrough
+    echo "HOOKS DAEMON: Daemon unavailable — running in passthrough mode (handlers inactive)" >&2
+    echo "HOOKS DAEMON: All operations will proceed without safety checks" >&2
+
+    # Write state file so subsequent hook calls are silent
+    if ! touch "$passthrough_flag" 2>/dev/null; then
+        echo "HOOKS DAEMON: Could not write passthrough state file (noise will repeat)" >&2
+    fi
+
+    # First call: return one-time advisory context so agent sees the warning once
+    # shellcheck disable=SC2317
+    send_request_stdin() {
+        local input
+        input=$(cat)
+        # Extract event name for proper response format
+        local event_name
+        event_name=$(echo "$input" | python3 -c "import sys,json; print(json.loads(sys.stdin.read()).get('event','Unknown'))" 2>/dev/null || echo "Unknown")
+
+        if command -v jq >/dev/null; then
+            jq -n --arg event "$event_name" \
+                --arg context "HOOKS DAEMON: Not installed or unavailable in this environment. Safety handlers are INACTIVE. All operations allowed without validation. This warning appears once." \
+                '{"hookSpecificOutput": {"hookEventName": $event, "additionalContext": $context}}'
+        else
+            echo '{}'
+        fi
+    }
+    export -f send_request_stdin
+    return 0
 }
 
 #

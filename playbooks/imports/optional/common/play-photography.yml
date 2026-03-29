@@ -12,6 +12,13 @@
     rapidraw_url: "https://github.com/CyberTimon/RapidRAW/releases/download/v{{ rapidraw_version }}/{{ rapidraw_rpm }}"
     rapidraw_sha256: "89cf392824e8e2d45beaac092f3b13e315611d4966cdd5aeea93f9b7c2738614"
     rapidraw_tmp: "/tmp/{{ rapidraw_rpm }}"
+    # ART - hardcoded version for security and reproducibility
+    # @see https://artraweditor.github.io/ | https://github.com/artraweditor/ART/releases
+    art_version: "1.26.3"
+    art_appimage: "ART-{{ art_version }}-x86_64.AppImage"
+    art_url: "https://github.com/artraweditor/ART/releases/download/{{ art_version }}/{{ art_appimage }}"
+    art_sha256: "6c072495b39bb30219bc71d656b6f7557830259e2f34b9f17d3d6ece3355eede"
+    art_install_path: "/opt/{{ art_appimage }}"
 
   tasks:
     - name: Install Photography Packages
@@ -67,6 +74,54 @@
       when: rapidraw_installed_version.stdout != rapidraw_version
       tags: rapidraw
 
+    # ART: Advanced RAW editor (ART fork of RawTherapee) with improved tone mapping
+    # and masking. Installed as AppImage since no official RPM is available.
+    - name: Check if ART is already installed at target version
+      ansible.builtin.stat:
+        path: "{{ art_install_path }}"
+      register: art_stat
+      changed_when: false
+      tags: art
+
+    - name: Download ART AppImage
+      ansible.builtin.get_url:
+        url: "{{ art_url }}"
+        dest: "{{ art_install_path }}"
+        checksum: "sha256:{{ art_sha256 }}"
+        mode: "0755"
+      when: not art_stat.stat.exists
+      tags: art
+
+    - name: Create ART symlink in /usr/local/bin
+      ansible.builtin.file:
+        src: "{{ art_install_path }}"
+        dest: "/usr/local/bin/ART"
+        state: link
+      tags: art
+
+    - name: Download ART icon
+      ansible.builtin.get_url:
+        url: "https://raw.githubusercontent.com/artraweditor/ART/master/rtdata/images/png/ART-logo-256.png"
+        dest: /usr/share/pixmaps/ART.png
+        mode: "0644"
+      tags: art
+
+    - name: Create ART desktop entry
+      ansible.builtin.copy:
+        dest: /usr/share/applications/ART.desktop
+        mode: "0644"
+        content: |
+          [Desktop Entry]
+          Name=ART
+          Comment=Advanced RAW photo editor
+          Exec=/usr/local/bin/ART %f
+          Icon=ART
+          Terminal=false
+          Type=Application
+          Categories=Graphics;Photography;RasterGraphics;
+          MimeType=image/x-nikon-nef;image/x-canon-cr2;image/x-canon-crw;image/x-adobe-dng;image/x-fuji-raf;image/tiff;image/jpeg;
+      tags: art
+
     - name: Display Installation Complete Message
       ansible.builtin.debug:
         msg: |
@@ -81,6 +136,8 @@
             rapidraw             - GPU-accelerated RAW editor (wgpu/Vulkan)
                                    NOTE: disable Compatibility Mode in Settings > Processing
                                    on first launch for full GPU performance
+            ART                  - Advanced RAW editor (ART fork of RawTherapee)
+                                   with improved tone mapping, masking, and local edits
 
           Launch from the applications menu, or on the command line:
             rawtherapee
@@ -91,3 +148,4 @@
             hugin
             exiftool <file>
             rapidraw
+            ART
