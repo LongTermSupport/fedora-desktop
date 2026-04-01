@@ -3,7 +3,7 @@
 ## Setup
 ## !! BUMP THIS VERSION ON EVERY CHANGE TO THIS FILE — NO EXCEPTIONS !!
 ## !! If you forget, there is NO WAY to tell which version is running !!
-RUN_BASH_VERSION="1.0.6"
+RUN_BASH_VERSION="1.0.7"
 set -e
 set -u
 set -o pipefail
@@ -35,9 +35,6 @@ INFO="ℹ"
 WARN="⚠"
 BUG="🐛"
 
-## Script directory (for finding files relative to this script, not CWD)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 ## Step counter
 STEP_CURRENT=0
 STEP_TOTAL=13
@@ -58,26 +55,9 @@ echo -e "${BLUE}${BOLD}║          FEDORA DESKTOP CONFIGURATION INSTALLER      
 echo -e "${BLUE}${BOLD}╚══════════════════════════════════════════════════════════════╝${NC}"
 echo -e "  ${CYAN}run.bash v${RUN_BASH_VERSION}${NC}\n"
 
-# Check Fedora version matches expected version from config
-echo -e "${CYAN}${INFO} Checking system requirements...${NC}"
-if [[ -f "$SCRIPT_DIR/vars/fedora-version.yml" ]]; then
-  expected_version=$(grep "fedora_version:" "$SCRIPT_DIR/vars/fedora-version.yml" | cut -d: -f2 | tr -d ' ')
-  actual_version=$(grep "^VERSION_ID=" /etc/os-release | cut -d= -f2)
-  
-  if [[ "$actual_version" != "$expected_version" ]]; then
-    echo -e "${RED}${BOLD}${CROSS} ERROR - Fedora version mismatch${NC}"
-    echo -e "   Expected: Fedora ${BOLD}$expected_version${NC}"
-    echo -e "   Actual:   Fedora ${BOLD}$actual_version${NC}\n"
-    echo -e "${YELLOW}${ARROW} Please check out the correct branch for your Fedora version${NC}\n"
-    exit 1
-  fi
-  echo -e "${GREEN}${CHECK} Fedora version check passed: $actual_version${NC}"
-  fedora_version="$actual_version"
-else
-  echo -e "${YELLOW}${WARN} WARNING - Could not find vars/fedora-version.yml${NC}"
-  echo -e "   Skipping version check, but this may cause issues\n"
-  fedora_version=$(grep "^VERSION_ID=" /etc/os-release | cut -d= -f2)
-fi
+# Detect actual Fedora version (version check happens after repo clone)
+fedora_version=$(grep "^VERSION_ID=" /etc/os-release | cut -d= -f2)
+echo -e "${CYAN}${INFO} Running on Fedora ${fedora_version}${NC}"
 
 ## Functions
 
@@ -565,6 +545,22 @@ else
   success "Repository updated"
 fi
 cd ~/Projects/fedora-desktop
+
+# Fail fast: verify Fedora version matches this branch
+version_file=~/Projects/fedora-desktop/vars/fedora-version.yml
+if [[ ! -f "$version_file" ]]; then
+  error "Cannot find $version_file — repository may be corrupt"
+  exit 1
+fi
+expected_version=$(grep "fedora_version:" "$version_file" | cut -d: -f2 | tr -d ' ')
+if [[ "$fedora_version" != "$expected_version" ]]; then
+  error "Fedora version mismatch"
+  echo -e "   Expected: Fedora ${BOLD}$expected_version${NC} (from branch)"
+  echo -e "   Actual:   Fedora ${BOLD}$fedora_version${NC}"
+  echo -e "\n${YELLOW}${ARROW} Check out the correct branch for your Fedora version${NC}"
+  exit 1
+fi
+success "Fedora version verified: $fedora_version matches branch"
 completed
 
 
