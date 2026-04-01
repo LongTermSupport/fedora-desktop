@@ -3,7 +3,7 @@
 ## Setup
 ## !! BUMP THIS VERSION ON EVERY CHANGE TO THIS FILE — NO EXCEPTIONS !!
 ## !! If you forget, there is NO WAY to tell which version is running !!
-RUN_BASH_VERSION="1.0.2"
+RUN_BASH_VERSION="1.0.3"
 set -e
 set -u
 set -o pipefail
@@ -747,9 +747,20 @@ PYEOF
     done
 
     if [[ "$_any_key_missing" == "true" ]] && [[ -z "$_github_ssh_passphrase" ]]; then
-      info "Enter github_ssh_passphrase to generate SSH keys (same value as stored in your vault):"
-      read -rsp "   Passphrase: " _github_ssh_passphrase
-      echo
+      # Passphrase exists in vault (from config repo) — decrypt it rather than
+      # asking the user to re-type it, which risks a mismatch
+      info "Decrypting github_ssh_passphrase from vault..."
+      _github_ssh_passphrase=$(ansible localhost -c local \
+        -e "@$localhost_yml" \
+        -m debug -a "msg={{ github_ssh_passphrase }}" \
+        --vault-id "localhost@$vault_pass_file" 2>/dev/null \
+        | grep '"msg"' | sed 's/.*"msg": "\(.*\)"/\1/')
+      if [[ -z "$_github_ssh_passphrase" ]]; then
+        error "Failed to decrypt github_ssh_passphrase from vault"
+        echo -e "   ${YELLOW}${ARROW}${NC} Check that vault-pass.secret is correct"
+        exit 1
+      fi
+      success "Passphrase decrypted from vault"
     fi
 
     for _pair in "${_gh_account_pairs[@]}"; do
