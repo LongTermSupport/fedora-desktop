@@ -3,13 +3,13 @@
 ## Setup
 ## !! BUMP THIS VERSION ON EVERY CHANGE TO THIS FILE — NO EXCEPTIONS !!
 ## !! If you forget, there is NO WAY to tell which version is running !!
-RUN_BASH_VERSION="1.0.3"
+RUN_BASH_VERSION="1.0.4"
 set -e
 set -u
 set -o pipefail
 IFS=$'\n\t'
 
-# Flag: skip main install, jump straight to optional playbooks menu
+# Flags
 OPTIONAL_ONLY=false
 for _arg in "$@"; do
   if [[ "$_arg" == "--optional-only" ]]; then
@@ -572,59 +572,69 @@ title "Loading Personal Configuration"
 localhost_yml=~/Projects/fedora-desktop/environment/localhost/host_vars/localhost.yml
 config_repo="${primary_gh_username}/fedora-desktop-config"
 
-info "Checking for personal config repo: github.com/${config_repo}"
+# Check if config repo exists
+has_config_repo=false
 if raw_content=$(gh api "repos/${config_repo}/contents/localhost.yml" --jq '.content' 2>/dev/null); then
-  # Config repo has a file — check if local copy already has real data
-  local_has_data=false
-  if [[ -f "$localhost_yml" ]] && grep -qE '(!vault|github_accounts)' "$localhost_yml"; then
-    local_has_data=true
-  fi
-  if [[ "$local_has_data" == "true" ]]; then
-    echo -e "\n${YELLOW}${WARN} localhost.yml already contains real configuration.${NC}"
-    echo -e "   1) Pull from config repo (recommended — overwrites local)"
-    echo -e "   2) Keep existing local file"
-    read -rp "   Choice [1/2]: " _choice
-    if [[ "${_choice}" != "2" ]]; then
-      printf '%s' "$raw_content" | base64 -d > "$localhost_yml"
-      success "Configuration pulled from github.com/${config_repo}"
-    else
-      success "Keeping existing localhost.yml"
-    fi
-  else
-    printf '%s' "$raw_content" | base64 -d > "$localhost_yml"
-    success "Configuration pulled from github.com/${config_repo}"
-  fi
-elif [[ -f "$localhost_yml" ]]; then
-  success "Config repo not found — using existing localhost.yml"
+  has_config_repo=true
+  info "Config repo found: github.com/${config_repo}"
 else
-  info "No config repo found — entering configuration manually"
-    echo -e "\n${CYAN}Current system user: ${BOLD}$(whoami)${NC}"
-    user_login="$(promptForValue 'user login')"
-    user_name="$(promptForValue 'full name')"
-    user_email="$(promptForValue 'email address')"
+  info "No config repo found at github.com/${config_repo}"
+fi
 
-    echo -e "\n${CYAN}${ARROW}${NC} Enter GitHub accounts (alias:username, comma-separated)"
-    echo -e "   Single account:  ${BOLD}johndoe${NC}"
-    echo -e "   Multi-account:   ${BOLD}personal:johndoe,work:johndoe-work${NC}"
-    github_accounts_raw="$(promptForValue 'GitHub accounts')"
+# Present configuration source choice
+echo -e "\n${CYAN}${ARROW}${NC} How would you like to configure this system?"
+_option=1
+if [[ "$has_config_repo" == "true" ]]; then
+  echo -e "   ${_option}) Pull saved configuration from config repo (recommended)"
+  _opt_pull=$_option
+  (( _option++ ))
+fi
+if [[ -f "$localhost_yml" ]] && grep -qE '(!vault|github_accounts)' "$localhost_yml"; then
+  echo -e "   ${_option}) Keep existing local configuration"
+  _opt_keep=$_option
+  (( _option++ ))
+fi
+echo -e "   ${_option}) Configure fresh (enter details manually)"
+_opt_fresh=$_option
 
-    {
-      printf 'user_login: "%s"\n' "$user_login"
-      printf 'user_name: "%s"\n' "$user_name"
-      printf 'user_email: "%s"\n' "$user_email"
-      printf '# GitHub CLI accounts\n'
-      printf 'github_accounts:\n'
-      while IFS= read -r pair; do
-        pair="${pair// /}"
-        if [[ "$pair" == *":"* ]]; then
-          printf '  %s: "%s"\n' "${pair%%:*}" "${pair##*:}"
-        elif [[ -n "$pair" ]]; then
-          printf '  personal: "%s"\n' "$pair"
-        fi
-      done < <(printf '%s' "$github_accounts_raw" | tr ',' '\n')
-    } > "$localhost_yml"
+read -rp "   Choice [1-${_option}]: " _config_choice
 
-    success "Configuration written"
+if [[ "$has_config_repo" == "true" ]] && [[ "${_config_choice}" == "${_opt_pull}" ]]; then
+  printf '%s' "$raw_content" | base64 -d > "$localhost_yml"
+  success "Configuration pulled from github.com/${config_repo}"
+elif [[ -n "${_opt_keep:-}" ]] && [[ "${_config_choice}" == "${_opt_keep}" ]]; then
+  success "Keeping existing localhost.yml"
+elif [[ "${_config_choice}" == "${_opt_fresh}" ]]; then
+  echo -e "\n${CYAN}Current system user: ${BOLD}$(whoami)${NC}"
+  user_login="$(promptForValue 'user login')"
+  user_name="$(promptForValue 'full name')"
+  user_email="$(promptForValue 'email address')"
+
+  echo -e "\n${CYAN}${ARROW}${NC} Enter GitHub accounts (alias:username, comma-separated)"
+  echo -e "   Single account:  ${BOLD}johndoe${NC}"
+  echo -e "   Multi-account:   ${BOLD}personal:johndoe,work:johndoe-work${NC}"
+  github_accounts_raw="$(promptForValue 'GitHub accounts')"
+
+  {
+    printf 'user_login: "%s"\n' "$user_login"
+    printf 'user_name: "%s"\n' "$user_name"
+    printf 'user_email: "%s"\n' "$user_email"
+    printf '# GitHub CLI accounts\n'
+    printf 'github_accounts:\n'
+    while IFS= read -r pair; do
+      pair="${pair// /}"
+      if [[ "$pair" == *":"* ]]; then
+        printf '  %s: "%s"\n' "${pair%%:*}" "${pair##*:}"
+      elif [[ -n "$pair" ]]; then
+        printf '  personal: "%s"\n' "$pair"
+      fi
+    done < <(printf '%s' "$github_accounts_raw" | tr ',' '\n')
+  } > "$localhost_yml"
+
+  success "Configuration written"
+else
+  error "Invalid choice: ${_config_choice}"
+  exit 1
 fi
 completed
 

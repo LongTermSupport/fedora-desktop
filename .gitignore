@@ -49,3 +49,6 @@ FORCE-PUSH-REQUIRED.md
 
 # Claude Code Hooks Daemon
 .claude/hooks-daemon/
+
+# Claude Code managed worktrees
+.claude/worktrees/
