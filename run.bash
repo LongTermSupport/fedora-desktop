@@ -3,7 +3,7 @@
 ## Setup
 ## !! BUMP THIS VERSION ON EVERY CHANGE TO THIS FILE — NO EXCEPTIONS !!
 ## !! If you forget, there is NO WAY to tell which version is running !!
-RUN_BASH_VERSION="1.0.7"
+RUN_BASH_VERSION="1.0.8"
 set -e
 set -u
 set -o pipefail
@@ -613,6 +613,42 @@ elif [[ "${_config_choice}" == "${_opt_fresh}" ]]; then
   echo -e "   ${BOLD}One account:${NC}      johndoe"
   echo -e "   ${BOLD}Multiple accounts:${NC} personal:johndoe,work:johndoe-corp"
   github_accounts_raw="$(promptForValue 'GitHub username(s), comma separated')"
+
+  # Count entries and validate format
+  _account_count=$(printf '%s' "$github_accounts_raw" | tr ',' '\n' | grep -c '[^[:space:]]')
+  _has_unaliased=false
+  while IFS= read -r pair; do
+    pair="${pair// /}"
+    [[ -z "$pair" ]] && continue
+    if [[ "$pair" != *":"* ]]; then
+      _has_unaliased=true
+    fi
+  done < <(printf '%s' "$github_accounts_raw" | tr ',' '\n')
+
+  if [[ "$_has_unaliased" == "true" ]] && [[ "$_account_count" -gt 1 ]]; then
+    error "Multiple accounts require aliases. Use format: alias:username,alias:username"
+    echo -e "   You entered: ${BOLD}${github_accounts_raw}${NC}"
+    echo -e "   Example:     ${BOLD}personal:user1,work:user2${NC}"
+    exit 1
+  fi
+
+  # Validate: no duplicate aliases
+  declare -A _seen_aliases=()
+  while IFS= read -r pair; do
+    pair="${pair// /}"
+    if [[ "$pair" == *":"* ]]; then
+      _alias="${pair%%:*}"
+    elif [[ -n "$pair" ]]; then
+      _alias="personal"
+    else
+      continue
+    fi
+    if [[ -n "${_seen_aliases[$_alias]:-}" ]]; then
+      error "Duplicate alias '${_alias}' — each account needs a unique alias"
+      exit 1
+    fi
+    _seen_aliases[$_alias]=1
+  done < <(printf '%s' "$github_accounts_raw" | tr ',' '\n')
 
   {
     printf 'user_login: "%s"\n' "$user_login"
