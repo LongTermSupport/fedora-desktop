@@ -748,6 +748,10 @@ fi
 completed
 
 title "Running Ansible Playbooks"
+info "Pulling latest changes before running playbooks"
+git pull
+success "Repository up to date"
+
 info "Installing Ansible requirements"
 ansible-galaxy install -r requirements.yml > /dev/null 2>&1
 success "Requirements installed"
