@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 
 ## Setup
-RUN_BASH_VERSION="1.0.0"  # Bump on every change to run.bash
+## !! BUMP THIS VERSION ON EVERY CHANGE TO THIS FILE — NO EXCEPTIONS !!
+## !! If you forget, there is NO WAY to tell which version is running !!
+RUN_BASH_VERSION="1.0.1"
 set -e
 set -u
 set -o pipefail
