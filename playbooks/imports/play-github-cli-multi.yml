@@ -182,24 +182,25 @@
                   IdentityFile ~/.ssh/id
                   IdentitiesOnly yes
 
-        - name: Create SSH askpass helper for GitHub keys
-          ansible.builtin.copy:
-            dest: "/tmp/.ansible_gh_askpass"
-            mode: "0700"
-            content: |
-              #!/bin/bash
-              echo "$GITHUB_SSH_PASSPHRASE"
-
         - name: Start SSH agent and load GitHub keys
           ansible.builtin.shell: |
             eval $(ssh-agent -s) >/dev/null 2>&1
-            echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK" > /tmp/.ansible_ssh_agent_env
-            echo "SSH_AGENT_PID=$SSH_AGENT_PID" >> /tmp/.ansible_ssh_agent_env
+            echo "export SSH_AUTH_SOCK=$SSH_AUTH_SOCK" > /tmp/.ansible_ssh_agent_env
+            echo "export SSH_AGENT_PID=$SSH_AGENT_PID" >> /tmp/.ansible_ssh_agent_env
+            askpass=$(mktemp /tmp/.ansible_askpass.XXXXXX)
+            cat > "$askpass" <<'ASKPASS_EOF'
+            #!/bin/bash
+            echo "$GITHUB_SSH_PASSPHRASE"
+            ASKPASS_EOF
+            chmod 700 "$askpass"
+            export SSH_ASKPASS="$askpass"
+            export SSH_ASKPASS_REQUIRE=force
             for key in /home/{{ user_login }}/.ssh/github_*; do
               [[ "$key" == *.pub ]] && continue
-              SSH_ASKPASS="/tmp/.ansible_gh_askpass" SSH_ASKPASS_REQUIRE=force \
-                ssh-add "$key" </dev/null 2>/dev/null || true
+              ssh-add "$key" </dev/null 2>&1
             done
+            rm -f "$askpass"
+            ssh-add -l 2>&1
           args:
             executable: /bin/bash
           environment:
@@ -317,7 +318,7 @@
               source /tmp/.ansible_ssh_agent_env
               ssh-agent -k >/dev/null 2>&1 || true
             fi
-            rm -f /tmp/.ansible_ssh_agent_env /tmp/.ansible_gh_askpass
+            rm -f /tmp/.ansible_ssh_agent_env /tmp/.ansible_askpass.*
           args:
             executable: /bin/bash
           changed_when: false
