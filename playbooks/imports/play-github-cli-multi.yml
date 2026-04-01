@@ -182,35 +182,14 @@
                   IdentityFile ~/.ssh/id
                   IdentitiesOnly yes
 
-        - name: Start SSH agent and load GitHub keys
-          ansible.builtin.shell: |
-            eval $(ssh-agent -s) >/dev/null 2>&1
-            echo "export SSH_AUTH_SOCK=$SSH_AUTH_SOCK" > /tmp/.ansible_ssh_agent_env
-            echo "export SSH_AGENT_PID=$SSH_AGENT_PID" >> /tmp/.ansible_ssh_agent_env
-            askpass=$(mktemp /tmp/.ansible_askpass.XXXXXX)
-            cat > "$askpass" <<'ASKPASS_EOF'
-            #!/bin/bash
-            echo "$GITHUB_SSH_PASSPHRASE"
-            ASKPASS_EOF
-            chmod 700 "$askpass"
-            export SSH_ASKPASS="$askpass"
-            export SSH_ASKPASS_REQUIRE=force
-            for key in /home/{{ user_login }}/.ssh/github_*; do
-              [[ "$key" == *.pub ]] && continue
-              ssh-add "$key" </dev/null 2>&1
-            done
-            rm -f "$askpass"
-            ssh-add -l 2>&1
-          args:
-            executable: /bin/bash
-          environment:
-            GITHUB_SSH_PASSPHRASE: "{{ github_ssh_passphrase }}"
-          changed_when: false
-
         - name: Test SSH connections
           ansible.builtin.shell: |
-            source /tmp/.ansible_ssh_agent_env
-            ssh -T git@github.com-{{ item.key }} 2>&1
+            tmp_key=$(mktemp)
+            trap 'rm -f "$tmp_key"' EXIT
+            cp "/home/{{ user_login }}/.ssh/github_{{ item.key }}" "$tmp_key"
+            chmod 600 "$tmp_key"
+            ssh-keygen -p -P "{{ github_ssh_passphrase }}" -N "" -f "$tmp_key" >/dev/null 2>&1
+            ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -i "$tmp_key" -T git@github.com 2>&1
           args:
             executable: /bin/bash
           register: ssh_test
@@ -266,8 +245,12 @@
 
         - name: Re-test SSH connections after adding keys
           ansible.builtin.shell: |
-            source /tmp/.ansible_ssh_agent_env
-            ssh -T git@github.com-{{ item.key }} 2>&1
+            tmp_key=$(mktemp)
+            trap 'rm -f "$tmp_key"' EXIT
+            cp "/home/{{ user_login }}/.ssh/github_{{ item.key }}" "$tmp_key"
+            chmod 600 "$tmp_key"
+            ssh-keygen -p -P "{{ github_ssh_passphrase }}" -N "" -f "$tmp_key" >/dev/null 2>&1
+            ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -i "$tmp_key" -T git@github.com 2>&1
           args:
             executable: /bin/bash
           register: ssh_retest
@@ -290,10 +273,12 @@
 
         - name: Final SSH verification for all accounts
           ansible.builtin.shell: |
-            source /tmp/.ansible_ssh_agent_env
-            ssh -o BatchMode=yes -o StrictHostKeyChecking=no \
-              -i "/home/{{ user_login }}/.ssh/github_{{ item.key }}" \
-              -T git@github.com 2>&1
+            tmp_key=$(mktemp)
+            trap 'rm -f "$tmp_key"' EXIT
+            cp "/home/{{ user_login }}/.ssh/github_{{ item.key }}" "$tmp_key"
+            chmod 600 "$tmp_key"
+            ssh-keygen -p -P "{{ github_ssh_passphrase }}" -N "" -f "$tmp_key" >/dev/null 2>&1
+            ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -i "$tmp_key" -T git@github.com 2>&1
           args:
             executable: /bin/bash
           register: ssh_final_verify
@@ -311,18 +296,6 @@
               https://github.com/settings/keys
             success_msg: "SSH access confirmed: {{ item.item.key }} ({{ item.item.value }}) ✓"
           loop: "{{ ssh_final_verify.results }}"
-      always:
-        - name: Clean up SSH agent and temporary files
-          ansible.builtin.shell: |
-            if [ -f /tmp/.ansible_ssh_agent_env ]; then
-              source /tmp/.ansible_ssh_agent_env
-              ssh-agent -k >/dev/null 2>&1 || true
-            fi
-            rm -f /tmp/.ansible_ssh_agent_env /tmp/.ansible_askpass.*
-          args:
-            executable: /bin/bash
-          changed_when: false
-          failed_when: false
       when: github_accounts_configured
 
     # GIT ACCOUNT HELPER SETUP
