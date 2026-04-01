@@ -3,7 +3,7 @@
 ## Setup
 ## !! BUMP THIS VERSION ON EVERY CHANGE TO THIS FILE — NO EXCEPTIONS !!
 ## !! If you forget, there is NO WAY to tell which version is running !!
-RUN_BASH_VERSION="1.0.1"
+RUN_BASH_VERSION="1.0.2"
 set -e
 set -u
 set -o pipefail
@@ -35,6 +35,9 @@ INFO="ℹ"
 WARN="⚠"
 BUG="🐛"
 
+## Script directory (for finding files relative to this script, not CWD)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 ## Step counter
 STEP_CURRENT=0
 STEP_TOTAL=13
@@ -57,8 +60,8 @@ echo -e "  ${CYAN}run.bash v${RUN_BASH_VERSION}${NC}\n"
 
 # Check Fedora version matches expected version from config
 echo -e "${CYAN}${INFO} Checking system requirements...${NC}"
-if [[ -f ./vars/fedora-version.yml ]]; then
-  expected_version=$(grep "fedora_version:" ./vars/fedora-version.yml | cut -d: -f2 | tr -d ' ')
+if [[ -f "$SCRIPT_DIR/vars/fedora-version.yml" ]]; then
+  expected_version=$(grep "fedora_version:" "$SCRIPT_DIR/vars/fedora-version.yml" | cut -d: -f2 | tr -d ' ')
   actual_version=$(grep "^VERSION_ID=" /etc/os-release | cut -d= -f2)
   
   if [[ "$actual_version" != "$expected_version" ]]; then
