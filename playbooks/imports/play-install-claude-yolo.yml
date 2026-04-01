@@ -6,8 +6,10 @@
   become: false
   vars:
     root_dir: "{{ inventory_dir }}/../../"
-  vars_files:
-    - "{{ inventory_dir }}/../../vars/container-defaults.yml"
+  pre_tasks:
+    - name: Load container defaults
+      ansible.builtin.include_vars:
+        file: "{{ root_dir }}/vars/container-defaults.yml"
   tasks:
     - name: Check if Container Engine is Installed
       ansible.builtin.command: which {{ container_engine }}

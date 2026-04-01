@@ -12,8 +12,10 @@
   become: false
   vars:
     root_dir: "{{ inventory_dir }}/../../"
-  vars_files:
-    - "{{ inventory_dir }}/../../environment/localhost/host_vars/localhost.yml"
+  pre_tasks:
+    - name: Load host vars
+      ansible.builtin.include_vars:
+        file: "{{ root_dir }}/environment/localhost/host_vars/localhost.yml"
   tasks:
     # =========================================================================
     # System Dependencies

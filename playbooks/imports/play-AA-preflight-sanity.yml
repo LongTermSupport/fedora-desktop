@@ -3,8 +3,12 @@
 - hosts: desktop
   name: Preflight Sanity
   become: true
-  vars_files:
-    - "{{ inventory_dir }}/../../vars/fedora-version.yml"
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  pre_tasks:
+    - name: Load Fedora version config
+      ansible.builtin.include_vars:
+        file: "{{ root_dir }}/vars/fedora-version.yml"
   tasks:
     - name: Check Ansible
       ansible.builtin.assert:

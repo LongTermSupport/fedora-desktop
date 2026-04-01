@@ -3,7 +3,7 @@
 ## Setup
 ## !! BUMP THIS VERSION ON EVERY CHANGE TO THIS FILE — NO EXCEPTIONS !!
 ## !! If you forget, there is NO WAY to tell which version is running !!
-RUN_BASH_VERSION="1.0.8"
+RUN_BASH_VERSION="1.0.9"
 set -e
 set -u
 set -o pipefail
@@ -623,7 +623,7 @@ elif [[ "${_config_choice}" == "${_opt_fresh}" ]]; then
     if [[ "$pair" != *":"* ]]; then
       _has_unaliased=true
     fi
-  done < <(printf '%s' "$github_accounts_raw" | tr ',' '\n')
+  done < <(printf '%s\n' "$github_accounts_raw" | tr ',' '\n')
 
   if [[ "$_has_unaliased" == "true" ]] && [[ "$_account_count" -gt 1 ]]; then
     error "Multiple accounts require aliases. Use format: alias:username,alias:username"
@@ -648,7 +648,7 @@ elif [[ "${_config_choice}" == "${_opt_fresh}" ]]; then
       exit 1
     fi
     _seen_aliases[$_alias]=1
-  done < <(printf '%s' "$github_accounts_raw" | tr ',' '\n')
+  done < <(printf '%s\n' "$github_accounts_raw" | tr ',' '\n')
 
   {
     printf 'user_login: "%s"\n' "$user_login"
@@ -663,7 +663,7 @@ elif [[ "${_config_choice}" == "${_opt_fresh}" ]]; then
       elif [[ -n "$pair" ]]; then
         printf '  personal: "%s"\n' "$pair"
       fi
-    done < <(printf '%s' "$github_accounts_raw" | tr ',' '\n')
+    done < <(printf '%s\n' "$github_accounts_raw" | tr ',' '\n')
   } > "$localhost_yml"
 
   success "Configuration written"

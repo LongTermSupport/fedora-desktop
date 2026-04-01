@@ -8,8 +8,12 @@
 # To disable, add to host_vars/localhost.yml: nvidia_install_vulkan: false
 - hosts: desktop
   become: true
-  vars_files:
-    - "{{ inventory_dir }}/../../vars/fedora-version.yml"
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  pre_tasks:
+    - name: Load Fedora version config
+      ansible.builtin.include_vars:
+        file: "{{ root_dir }}/vars/fedora-version.yml"
   tasks:
     - name: Enable RPM Fusion repositories
       ansible.builtin.dnf:

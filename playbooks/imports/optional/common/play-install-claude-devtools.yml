@@ -8,8 +8,10 @@
     ccdt_repo: "https://github.com/matt1398/claude-devtools"
     ccdt_src_dir: "/opt/claude-devtools"
     ccdt_image: "claude-devtools"
-  vars_files:
-    - "{{ inventory_dir }}/../../vars/container-defaults.yml"
+  pre_tasks:
+    - name: Load container defaults
+      ansible.builtin.include_vars:
+        file: "{{ root_dir }}/vars/container-defaults.yml"
   tasks:
     - name: Check if Container Engine is Installed
       ansible.builtin.command: which {{ container_engine }}
