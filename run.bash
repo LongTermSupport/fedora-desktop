@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 ## Setup
+RUN_BASH_VERSION="1.0.0"  # Bump on every change to run.bash
 set -e
 set -u
 set -o pipefail
@@ -49,7 +50,8 @@ fi
 clear
 echo -e "${BLUE}${BOLD}╔══════════════════════════════════════════════════════════════╗${NC}"
 echo -e "${BLUE}${BOLD}║          FEDORA DESKTOP CONFIGURATION INSTALLER             ║${NC}"
-echo -e "${BLUE}${BOLD}╚══════════════════════════════════════════════════════════════╝${NC}\n"
+echo -e "${BLUE}${BOLD}╚══════════════════════════════════════════════════════════════╝${NC}"
+echo -e "  ${CYAN}run.bash v${RUN_BASH_VERSION}${NC}\n"
 
 # Check Fedora version matches expected version from config
 echo -e "${CYAN}${INFO} Checking system requirements...${NC}"
