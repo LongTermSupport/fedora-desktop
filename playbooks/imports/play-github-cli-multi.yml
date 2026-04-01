@@ -255,40 +255,17 @@
           args:
             executable: /bin/bash
           timeout: 30
-          register: ssh_retest
+          register: ssh_test
           changed_when: false
           # rc 0/1 = GitHub responded, 124 = timeout, 255 = SSH error — only fail on unexpected codes
-          failed_when: ssh_retest.rc not in [0, 1, 124, 255]
+          failed_when: ssh_test.rc not in [0, 1, 124, 255]
           loop: "{{ github_accounts | default({}) | dict2items }}"
           when: ssh_keys_to_add | length > 0
 
         - name: Display SSH test results
           ansible.builtin.debug:
-            msg: "{{ item.item.key }}: {{ 'Connected ✓' if 'successfully authenticated' in item.stdout else 'Not connected - SSH key needs to be added to GitHub'
-              }}"
+            msg: "{{ item.item.key }}: {{ 'Connected ✓' if 'successfully authenticated' in item.stdout else 'FAILED — key not recognised by GitHub' }}"
           loop: "{{ ssh_test.results }}"
-
-        - name: Skip SSH key setup message if all connected
-          ansible.builtin.debug:
-            msg: "All SSH keys are already configured on GitHub ✓"
-          when: ssh_keys_to_add | length == 0
-
-        - name: Final SSH verification for all accounts
-          ansible.builtin.shell: |
-            tmp_key=$(mktemp)
-            trap 'rm -f "$tmp_key"' EXIT
-            cp "/home/{{ user_login }}/.ssh/github_{{ item.key }}" "$tmp_key"
-            chmod 600 "$tmp_key"
-            ssh-keygen -p -P "{{ github_ssh_passphrase }}" -N "" -f "$tmp_key" >/dev/null 2>&1
-            timeout 15 ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -i "$tmp_key" -T git@github.com 2>&1
-          args:
-            executable: /bin/bash
-          timeout: 30
-          register: ssh_final_verify
-          changed_when: false
-          # rc 0/1 = GitHub responded, 124 = timeout, 255 = SSH error — only fail on unexpected codes
-          failed_when: ssh_final_verify.rc not in [0, 1, 124, 255]
-          loop: "{{ github_accounts | default({}) | dict2items }}"
 
         - name: Assert SSH access works for all accounts
           ansible.builtin.assert:
@@ -298,7 +275,7 @@
               Add ~/.ssh/github_{{ item.item.key }}.pub to GitHub:
               https://github.com/settings/keys
             success_msg: "SSH access confirmed: {{ item.item.key }} ({{ item.item.value }}) ✓"
-          loop: "{{ ssh_final_verify.results }}"
+          loop: "{{ ssh_test.results }}"
       when: github_accounts_configured
 
     # GIT ACCOUNT HELPER SETUP
