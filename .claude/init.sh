@@ -20,6 +20,9 @@ set -euo pipefail
 # Flag set by ensure_daemon when ci_enabled: true and daemon can't start
 _HOOKS_DAEMON_CI_ENFORCED=false
 
+# Flag set by ensure_daemon when daemon directory/venv is absent (fresh clone)
+_HOOKS_DAEMON_NOT_INSTALLED=false
+
 #
 # emit_hook_error() - Output a valid hook error response to stdout
 #
@@ -63,6 +66,20 @@ emit_hook_error() {
             "3. Installation guide: CLAUDE/LLM-INSTALL.md" \
             "" \
             "DO NOT attempt to install the daemon yourself. DO NOT continue working without the daemon.")
+    elif [[ "$_HOOKS_DAEMON_NOT_INSTALLED" == "true" ]]; then
+        # NOT INSTALLED: Guide to install guide — project was cloned but daemon never set up
+        context_msg=$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s' \
+            "HOOKS DAEMON: Not installed" \
+            "" \
+            "This project uses the Claude Code Hooks Daemon for safety enforcement," \
+            "but the daemon is not installed in this environment." \
+            "" \
+            "ALL safety handlers, code quality checks, and workflow enforcement are INACTIVE." \
+            "" \
+            "TO INSTALL — read and follow the guide (do not improvise):" \
+            "  CLAUDE/LLM-INSTALL.md" \
+            "" \
+            "After installing, the daemon starts automatically on the next hook event.")
     else
         # Standard error message
         # NOTE: Language is intentionally measured to avoid triggering investigation loops
@@ -97,6 +114,15 @@ emit_hook_error() {
                     '{"decision": "deny", "reason": $reason}'
             elif [[ "$event_name" == "Stop" || "$event_name" == "SubagentStop" ]]; then
                 jq -n --arg reason "$ci_reason" \
+                    '{"decision": "block", "reason": $reason}'
+            else
+                jq -n --arg event "$event_name" --arg context "$context_msg" \
+                    '{"hookSpecificOutput": {"hookEventName": $event, "additionalContext": $context}}'
+            fi
+        elif [[ "$_HOOKS_DAEMON_NOT_INSTALLED" == "true" ]]; then
+            # Not installed: Stop/SubagentStop block, others fail-open with install guidance
+            if [[ "$event_name" == "Stop" || "$event_name" == "SubagentStop" ]]; then
+                jq -n --arg reason "Hooks daemon not installed - protection not active" \
                     '{"decision": "block", "reason": $reason}'
             else
                 jq -n --arg event "$event_name" --arg context "$context_msg" \
@@ -141,6 +167,7 @@ fi
 
 # Load environment overrides if present (for self-installation or custom setups)
 if [[ -f "$PROJECT_PATH/.claude/hooks-daemon.env" ]]; then
+    # shellcheck disable=SC1091
     source "$PROJECT_PATH/.claude/hooks-daemon.env"
 fi
 
@@ -222,14 +249,17 @@ _get_hostname_suffix() {
 
     # No hostname? Use MD5 of current time for uniqueness
     if [[ -z "$hostname" ]]; then
-        local timestamp=$(date +%s.%N)
-        local hash=$(echo -n "$timestamp" | md5sum | cut -c1-8)
+        local timestamp
+        timestamp=$(date +%s.%N)
+        local hash
+        hash=$(echo -n "$timestamp" | md5sum | cut -c1-8)
         echo "-${hash}"
         return 0
     fi
 
     # Sanitize hostname for filesystem safety: lowercase, no spaces
-    local sanitized=$(echo "$hostname" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
+    local sanitized
+    sanitized=$(echo "$hostname" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
     echo "-${sanitized}"
 }
 
@@ -417,6 +447,44 @@ _is_ci_enforced() {
 }
 
 #
+# _is_daemon_installed() - Check if daemon is installed (dir + venv Python present)
+#
+# Distinguishes "not installed" (fresh clone) from "installed but not running".
+# Used by ensure_daemon() to set _HOOKS_DAEMON_NOT_INSTALLED for better error messages.
+#
+# Returns:
+#   0 if daemon appears installed
+#   1 if daemon directory or venv Python is absent
+#
+_is_daemon_installed() {
+    [[ -d "$HOOKS_DAEMON_ROOT_DIR" ]] && [[ -f "$PYTHON_CMD" ]]
+}
+
+#
+# _is_ci_environment() - Detect if running in any CI/CD environment
+#
+# Checks common CI environment variables across major platforms.
+# Used to determine whether to enter passthrough mode on daemon failure.
+#
+# Returns:
+#   0 if running in CI (passthrough allowed)
+#   1 if not CI (fail with error)
+#
+_is_ci_environment() {
+    # Standard flag — GitHub Actions, GitLab CI, CircleCI, Travis, Bitbucket, Buildkite...
+    [[ -n "${CI:-}" ]] && return 0
+    # GitHub Actions (belt-and-suspenders)
+    [[ -n "${GITHUB_ACTIONS:-}" ]] && return 0
+    # GitLab CI (belt-and-suspenders)
+    [[ -n "${GITLAB_CI:-}" ]] && return 0
+    # Jenkins (does not set CI)
+    [[ -n "${JENKINS_URL:-}" ]] && return 0
+    # Azure DevOps (does not set CI)
+    [[ -n "${TF_BUILD:-}" ]] && return 0
+    return 1
+}
+
+#
 # _passthrough_flag_path() - Get path to passthrough state file
 #
 # State file prevents repeated config parsing and noise on every hook call.
@@ -456,68 +524,80 @@ _enter_passthrough_mode() {
 #
 # When daemon cannot start:
 #   - If ci_enabled: true in config: hard fail (return 1), forwarder blocks
-#   - Otherwise (default): noisy first time, then silent passthrough
+#   - If CI environment detected: passthrough mode (daemon not installed in pipeline)
+#   - Otherwise (non-CI dev environment): fail with error (return 1), forwarder
+#     calls emit_hook_error so agent sees "Not currently running" and can restart
 #
 # Returns:
-#   0 if daemon is running or passthrough mode active
-#   1 if ci_enabled: true and daemon failed to start
+#   0 if daemon is running or CI passthrough mode active
+#   1 if daemon failed and must report error to agent
 #
 ensure_daemon() {
     if is_daemon_running; then
+        # Daemon running — clean up stale CI passthrough flag if present
+        local passthrough_flag
+        passthrough_flag=$(_passthrough_flag_path)
+        rm -f "$passthrough_flag" 2>/dev/null
         return 0
     fi
 
-    # Check passthrough state file — daemon already failed before, skip silently
     local passthrough_flag
     passthrough_flag=$(_passthrough_flag_path)
-    if [[ -f "$passthrough_flag" ]]; then
+
+    # CI optimisation: skip start attempt if passthrough flag exists
+    # (daemon not installed in CI — no point trying repeatedly)
+    if _is_ci_environment && [[ -f "$passthrough_flag" ]] && ! _is_ci_enforced; then
         _enter_passthrough_mode
         return 0
     fi
 
     # Try to start daemon
     if start_daemon; then
-        # Clean up passthrough flag on recovery (daemon was fixed/installed)
-        rm -f "$passthrough_flag"
+        rm -f "$passthrough_flag" 2>/dev/null
         return 0
     fi
 
-    # Daemon failed to start — check CI enforcement policy from config
+    # Daemon failed to start — determine response based on environment/config
+
+    # ci_enabled: true — hard fail regardless of environment
     if _is_ci_enforced; then
-        # ci_enabled: true — hard fail, forwarder will call emit_hook_error
-        # with the loud STOP message (see _HOOKS_DAEMON_CI_ENFORCED handling)
         _HOOKS_DAEMON_CI_ENFORCED=true
         return 1
     fi
 
-    # Default: fail open — noisy first time, then silent passthrough
-    echo "HOOKS DAEMON: Daemon unavailable — running in passthrough mode (handlers inactive)" >&2
-    echo "HOOKS DAEMON: All operations will proceed without safety checks" >&2
+    # CI environment (but not enforced): passthrough mode — daemon simply not installed
+    if _is_ci_environment; then
+        echo "HOOKS DAEMON: Daemon unavailable in CI environment — passthrough mode active (handlers inactive)" >&2
+        echo "HOOKS DAEMON: All operations will proceed without safety checks" >&2
+        if ! touch "$passthrough_flag" 2>/dev/null; then
+            echo "HOOKS DAEMON: Could not write passthrough state file (noise will repeat)" >&2
+        fi
 
-    # Write state file so subsequent hook calls are silent
-    if ! touch "$passthrough_flag" 2>/dev/null; then
-        echo "HOOKS DAEMON: Could not write passthrough state file (noise will repeat)" >&2
+        # First call: return one-time advisory context so agent sees the warning once
+        # shellcheck disable=SC2317
+        send_request_stdin() {
+            local input
+            input=$(cat)
+            local event_name
+            event_name=$(echo "$input" | python3 -c "import sys,json; print(json.loads(sys.stdin.read()).get('event','Unknown'))" 2>/dev/null || echo "Unknown")
+            if command -v jq >/dev/null; then
+                jq -n --arg event "$event_name" \
+                    --arg context "HOOKS DAEMON: Not installed in CI environment. Safety handlers are INACTIVE. All operations allowed without validation. This warning appears once." \
+                    '{"hookSpecificOutput": {"hookEventName": $event, "additionalContext": $context}}'
+            else
+                echo '{}'
+            fi
+        }
+        export -f send_request_stdin
+        return 0
     fi
 
-    # First call: return one-time advisory context so agent sees the warning once
-    # shellcheck disable=SC2317
-    send_request_stdin() {
-        local input
-        input=$(cat)
-        # Extract event name for proper response format
-        local event_name
-        event_name=$(echo "$input" | python3 -c "import sys,json; print(json.loads(sys.stdin.read()).get('event','Unknown'))" 2>/dev/null || echo "Unknown")
-
-        if command -v jq >/dev/null; then
-            jq -n --arg event "$event_name" \
-                --arg context "HOOKS DAEMON: Not installed or unavailable in this environment. Safety handlers are INACTIVE. All operations allowed without validation. This warning appears once." \
-                '{"hookSpecificOutput": {"hookEventName": $event, "additionalContext": $context}}'
-        else
-            echo '{}'
-        fi
-    }
-    export -f send_request_stdin
-    return 0
+    # Non-CI environment: fail with error so agent sees it and can act
+    # Distinguish not-installed (fresh clone) from installed-but-not-starting
+    if ! _is_daemon_installed; then
+        _HOOKS_DAEMON_NOT_INSTALLED=true
+    fi
+    return 1
 }
 
 #

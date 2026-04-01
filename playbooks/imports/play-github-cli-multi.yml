@@ -182,8 +182,36 @@
                   IdentityFile ~/.ssh/id
                   IdentitiesOnly yes
 
+        - name: Create SSH askpass helper for GitHub keys
+          ansible.builtin.copy:
+            dest: "/tmp/.ansible_gh_askpass"
+            mode: "0700"
+            content: |
+              #!/bin/bash
+              echo "$GITHUB_SSH_PASSPHRASE"
+
+        - name: Start SSH agent and load GitHub keys
+          ansible.builtin.shell: |
+            eval $(ssh-agent -s) >/dev/null 2>&1
+            echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK" > /tmp/.ansible_ssh_agent_env
+            echo "SSH_AGENT_PID=$SSH_AGENT_PID" >> /tmp/.ansible_ssh_agent_env
+            for key in /home/{{ user_login }}/.ssh/github_*; do
+              [[ "$key" == *.pub ]] && continue
+              SSH_ASKPASS="/tmp/.ansible_gh_askpass" SSH_ASKPASS_REQUIRE=force \
+                ssh-add "$key" </dev/null 2>/dev/null || true
+            done
+          args:
+            executable: /bin/bash
+          environment:
+            GITHUB_SSH_PASSPHRASE: "{{ github_ssh_passphrase }}"
+          changed_when: false
+
         - name: Test SSH connections
-          ansible.builtin.shell: ssh -T git@github.com-{{ item.key }} 2>&1
+          ansible.builtin.shell: |
+            source /tmp/.ansible_ssh_agent_env
+            ssh -T git@github.com-{{ item.key }} 2>&1
+          args:
+            executable: /bin/bash
           register: ssh_test
           changed_when: false
           # GitHub SSH always exits 1 when authenticated (no shell access) — only rc=255 means real failure
@@ -236,7 +264,11 @@
           when: ssh_keys_to_add | length > 0
 
         - name: Re-test SSH connections after adding keys
-          ansible.builtin.shell: ssh -T git@github.com-{{ item.key }} 2>&1
+          ansible.builtin.shell: |
+            source /tmp/.ansible_ssh_agent_env
+            ssh -T git@github.com-{{ item.key }} 2>&1
+          args:
+            executable: /bin/bash
           register: ssh_retest
           changed_when: false
           # GitHub SSH always exits 1 when authenticated (no shell access) — only rc=255 means real failure
@@ -256,10 +288,13 @@
           when: ssh_keys_to_add | length == 0
 
         - name: Final SSH verification for all accounts
-          ansible.builtin.shell: >
-            ssh -o BatchMode=yes -o StrictHostKeyChecking=no
-            -i "/home/{{ user_login }}/.ssh/github_{{ item.key }}"
-            -T git@github.com 2>&1
+          ansible.builtin.shell: |
+            source /tmp/.ansible_ssh_agent_env
+            ssh -o BatchMode=yes -o StrictHostKeyChecking=no \
+              -i "/home/{{ user_login }}/.ssh/github_{{ item.key }}" \
+              -T git@github.com 2>&1
+          args:
+            executable: /bin/bash
           register: ssh_final_verify
           changed_when: false
           # GitHub SSH always exits 1 when authenticated (no shell access) — only rc=255 means real failure
@@ -275,6 +310,18 @@
               https://github.com/settings/keys
             success_msg: "SSH access confirmed: {{ item.item.key }} ({{ item.item.value }}) ✓"
           loop: "{{ ssh_final_verify.results }}"
+      always:
+        - name: Clean up SSH agent and temporary files
+          ansible.builtin.shell: |
+            if [ -f /tmp/.ansible_ssh_agent_env ]; then
+              source /tmp/.ansible_ssh_agent_env
+              ssh-agent -k >/dev/null 2>&1 || true
+            fi
+            rm -f /tmp/.ansible_ssh_agent_env /tmp/.ansible_gh_askpass
+          args:
+            executable: /bin/bash
+          changed_when: false
+          failed_when: false
       when: github_accounts_configured
 
     # GIT ACCOUNT HELPER SETUP
