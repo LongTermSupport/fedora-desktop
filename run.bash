@@ -622,17 +622,34 @@ fi
 completed
 
 title "Ansible Vault Configuration"
+vault_pass_file=~/Projects/fedora-desktop/vault-pass.secret
 if grep -qF '!vault' "$localhost_yml" 2>/dev/null; then
-  # localhost.yml pulled from config repo has encrypted values — need the matching vault password.
-  # The kickstart auto-generated a random vault-pass.secret; replace it with the real one.
-  echo -e "\n${CYAN}${ARROW}${NC} Your localhost.yml has vault-encrypted values."
-  echo -e "   Enter your vault password (from your password manager):"
-  read -rsp "   " vaultPass
-  echo
-  echo "$vaultPass" > ~/Projects/fedora-desktop/vault-pass.secret
-  chmod 600 ~/Projects/fedora-desktop/vault-pass.secret
-  success "Vault password configured"
-elif [[ -f ~/Projects/fedora-desktop/vault-pass.secret ]]; then
+  # localhost.yml has encrypted values — need the matching vault password
+  if [[ -f "$vault_pass_file" ]] && [[ -s "$vault_pass_file" ]]; then
+    # Test existing vault password against encrypted values
+    if ansible localhost -c local -e "@$localhost_yml" -m debug -a "msg=vault_ok" \
+       --vault-id "localhost@$vault_pass_file" 2>/dev/null | grep -q "vault_ok"; then
+      success "Existing vault password verified"
+    else
+      error "Existing vault-pass.secret cannot decrypt localhost.yml"
+      echo -e "   ${YELLOW}${ARROW}${NC} The file exists but the password is wrong."
+      echo -e "   Enter the correct vault password (from your password manager):"
+      read -rsp "   " vaultPass
+      echo
+      echo "$vaultPass" > "$vault_pass_file"
+      chmod 600 "$vault_pass_file"
+      success "Vault password updated"
+    fi
+  else
+    echo -e "\n${CYAN}${ARROW}${NC} Your localhost.yml has vault-encrypted values."
+    echo -e "   Enter your vault password (from your password manager):"
+    read -rsp "   " vaultPass
+    echo
+    echo "$vaultPass" > "$vault_pass_file"
+    chmod 600 "$vault_pass_file"
+    success "Vault password configured"
+  fi
+elif [[ -f "$vault_pass_file" ]]; then
   success "Existing vault password found"
 else
   info "Setting up Ansible vault"
@@ -645,7 +662,7 @@ else
   else
     success "Vault password configured"
   fi
-  echo "$vaultPass" > ~/Projects/fedora-desktop/vault-pass.secret
+  echo "$vaultPass" > "$vault_pass_file"
 fi
 completed
 
