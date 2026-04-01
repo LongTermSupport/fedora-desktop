@@ -6,23 +6,23 @@
     "Preferences": {
       "apz.allow_zooming": {
         "Value": false,
-        "Status": "locked"
+        "Status": "default"
       },
       "browser.gesture.pinch.in": {
         "Value": "",
-        "Status": "locked"
+        "Status": "default"
       },
       "browser.gesture.pinch.out": {
         "Value": "",
-        "Status": "locked"
+        "Status": "default"
       },
       "browser.gesture.pinch.in.shift": {
         "Value": "",
-        "Status": "locked"
+        "Status": "default"
       },
       "browser.gesture.pinch.out.shift": {
         "Value": "",
-        "Status": "locked"
+        "Status": "default"
       },
       "browser.profiles.enabled": {
         "Value": true,
