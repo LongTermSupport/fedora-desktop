@@ -3,11 +3,14 @@
 ## Setup
 ## !! BUMP THIS VERSION ON EVERY CHANGE TO THIS FILE — NO EXCEPTIONS !!
 ## !! If you forget, there is NO WAY to tell which version is running !!
-RUN_BASH_VERSION="1.0.9"
+RUN_BASH_VERSION="1.0.10"
 set -e
 set -u
 set -o pipefail
 IFS=$'\n\t'
+
+# Safety net: always clean up sensitive temp files on exit
+trap 'rm -f /tmp/.github_ssh_pp' EXIT
 
 # Flags
 OPTIONAL_ONLY=false
