@@ -189,13 +189,14 @@
             cp "/home/{{ user_login }}/.ssh/github_{{ item.key }}" "$tmp_key"
             chmod 600 "$tmp_key"
             ssh-keygen -p -P "{{ github_ssh_passphrase }}" -N "" -f "$tmp_key" >/dev/null 2>&1
-            ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -i "$tmp_key" -T git@github.com 2>&1
+            timeout 15 ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -i "$tmp_key" -T git@github.com 2>&1
           args:
             executable: /bin/bash
+          timeout: 30
           register: ssh_test
           changed_when: false
-          # GitHub SSH always exits 1 when authenticated (no shell access) — only rc=255 means real failure
-          failed_when: ssh_test.rc not in [0, 1]
+          # rc 0/1 = GitHub responded, 124 = timeout, 255 = SSH error — only fail on unexpected codes
+          failed_when: ssh_test.rc not in [0, 1, 124, 255]
           loop: "{{ github_accounts | default({}) | dict2items }}"
 
         - name: Check which SSH keys need to be added
@@ -250,13 +251,14 @@
             cp "/home/{{ user_login }}/.ssh/github_{{ item.key }}" "$tmp_key"
             chmod 600 "$tmp_key"
             ssh-keygen -p -P "{{ github_ssh_passphrase }}" -N "" -f "$tmp_key" >/dev/null 2>&1
-            ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -i "$tmp_key" -T git@github.com 2>&1
+            timeout 15 ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -i "$tmp_key" -T git@github.com 2>&1
           args:
             executable: /bin/bash
+          timeout: 30
           register: ssh_retest
           changed_when: false
-          # GitHub SSH always exits 1 when authenticated (no shell access) — only rc=255 means real failure
-          failed_when: ssh_retest.rc not in [0, 1]
+          # rc 0/1 = GitHub responded, 124 = timeout, 255 = SSH error — only fail on unexpected codes
+          failed_when: ssh_retest.rc not in [0, 1, 124, 255]
           loop: "{{ github_accounts | default({}) | dict2items }}"
           when: ssh_keys_to_add | length > 0
 
@@ -278,13 +280,14 @@
             cp "/home/{{ user_login }}/.ssh/github_{{ item.key }}" "$tmp_key"
             chmod 600 "$tmp_key"
             ssh-keygen -p -P "{{ github_ssh_passphrase }}" -N "" -f "$tmp_key" >/dev/null 2>&1
-            ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -i "$tmp_key" -T git@github.com 2>&1
+            timeout 15 ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -i "$tmp_key" -T git@github.com 2>&1
           args:
             executable: /bin/bash
+          timeout: 30
           register: ssh_final_verify
           changed_when: false
-          # GitHub SSH always exits 1 when authenticated (no shell access) — only rc=255 means real failure
-          failed_when: ssh_final_verify.rc not in [0, 1]
+          # rc 0/1 = GitHub responded, 124 = timeout, 255 = SSH error — only fail on unexpected codes
+          failed_when: ssh_final_verify.rc not in [0, 1, 124, 255]
           loop: "{{ github_accounts | default({}) | dict2items }}"
 
         - name: Assert SSH access works for all accounts
