@@ -28,17 +28,3 @@
         mode: "0644"
         owner: root
         group: root
-
-    # Create Firefox profiles per GitHub account
-    # Uses Firefox's new native profile system (browser.profiles.enabled)
-    - name: Create Firefox profiles for GitHub accounts
-      become_user: "{{ user_login }}"
-      ansible.builtin.shell: |
-        firefox -CreateProfile "{{ item.key }}" -no-remote 2>&1
-      args:
-        executable: /bin/bash
-      register: profile_create
-      changed_when: "'already exists' not in profile_create.stderr"
-      failed_when: false
-      loop: "{{ github_accounts | default({}) | dict2items }}"
-      when: github_accounts is defined and github_accounts | length > 0
