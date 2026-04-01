@@ -3,7 +3,7 @@
 ## Setup
 ## !! BUMP THIS VERSION ON EVERY CHANGE TO THIS FILE — NO EXCEPTIONS !!
 ## !! If you forget, there is NO WAY to tell which version is running !!
-RUN_BASH_VERSION="1.0.5"
+RUN_BASH_VERSION="1.0.6"
 set -e
 set -u
 set -o pipefail
@@ -612,13 +612,11 @@ elif [[ "${_config_choice}" == "${_opt_fresh}" ]]; then
 
   echo -e "\n${CYAN}${ARROW}${NC} Enter your GitHub username(s)"
   echo -e "   These are the usernames you log into github.com with."
+  echo -e "   For multiple accounts, prefix each with a short alias and colon."
   echo -e ""
   echo -e "   ${BOLD}One account:${NC}      johndoe"
   echo -e "   ${BOLD}Multiple accounts:${NC} personal:johndoe,work:johndoe-corp"
-  echo -e ""
-  echo -e "   For multiple accounts, prefix each with a short alias and colon."
-  echo -e "   All on one line, separated by commas."
-  github_accounts_raw="$(promptForValue 'GitHub username(s)')"
+  github_accounts_raw="$(promptForValue 'GitHub username(s), comma separated')"
 
   {
     printf 'user_login: "%s"\n' "$user_login"
