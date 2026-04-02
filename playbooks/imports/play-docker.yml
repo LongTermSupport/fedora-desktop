@@ -1,6 +1,5 @@
 #!/usr/bin/env ansible-playbook
 ---
-#!/usr/bin/env ansible-playbook
 - hosts: desktop
   become: false
   vars:
@@ -49,6 +48,8 @@
 
     - name: Run Rootless Setup
       ansible.builtin.command: dockerd-rootless-setuptool.sh install
+      become: true
+      become_user: "{{ user_login }}"
       args:
         creates: /home/{{user_login}}/.config/systemd/user/docker.service
       when: dbus_session_check.rc == 0
@@ -59,4 +60,6 @@
         state: started
         enabled: true
         scope: user
+      become: true
+      become_user: "{{ user_login }}"
       when: dbus_session_check.rc == 0

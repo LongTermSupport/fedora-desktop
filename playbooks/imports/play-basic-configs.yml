@@ -205,6 +205,8 @@
       become: true
       ansible.builtin.shell: |
         wget -qO /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 && chmod +x /usr/bin/yq
+      args:
+        creates: /usr/bin/yq
       tags: yq
 
     - name: DNF Parallel
