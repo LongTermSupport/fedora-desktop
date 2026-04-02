@@ -40,7 +40,7 @@
       ansible.builtin.shell: gh auth status 2>/dev/null
       register: gh_auth_check
       changed_when: false
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — next task handles with end_play
       check_mode: false
 
     - name: Skip if gh is not authenticated (e.g. firstboot)
@@ -135,7 +135,7 @@
             label: "{{ item.item.key }}"
           register: passphrase_verify
           changed_when: false
-          failed_when: false
+          failed_when: false  # FAIL-FAST-OK: test-then-fail — next task gives actionable error message
 
         - name: Fail fast if existing keys have wrong passphrase
           ansible.builtin.fail:

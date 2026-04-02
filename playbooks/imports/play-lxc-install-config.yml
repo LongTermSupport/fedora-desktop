@@ -73,7 +73,7 @@
       ansible.builtin.command: ssh -T git@github.com -o BatchMode=yes -o StrictHostKeyChecking=accept-new
       register: github_ssh_check
       changed_when: false
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — SSH access determines clone method
 
     - name: Clone LXC Bash
       become: true
@@ -132,7 +132,7 @@
       ansible.builtin.command: lxc-checkconfig
       register: lxc_checkconfig_result
       changed_when: false
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — some kernel features may be disabled
 
     - name: Show lxc-checkconfig results (review for any disabled features)
       ansible.builtin.debug:

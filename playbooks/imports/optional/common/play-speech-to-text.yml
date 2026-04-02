@@ -49,7 +49,7 @@
         scope: user
         state: stopped
         enabled: false
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: service may not be installed yet
 
     - name: Create ydotool System Service Override Directory
       ansible.builtin.file:
@@ -363,7 +363,7 @@
         - claude-prompt-article.txt
         - claude-prompt-humanize.txt
       when: lookup('file', root_dir + '/files/home/.config/speech-to-text/' + item, errors='ignore') != lookup('file', '/home/' + user_login + '/.config/speech-to-text/' + item, errors='ignore')
-      failed_when: false  # Don't fail if file doesn't exist yet
+      failed_when: false  # FAIL-FAST-OK: dest file may not exist on first deploy
 
     - name: Deploy Claude Prompt Templates
       ansible.builtin.copy:
@@ -390,7 +390,7 @@
         cmd: gnome-extensions list --enabled | grep -q "{{ extension_name }}"
       register: extension_enabled
       changed_when: false
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — extension may not be enabled yet
 
     - name: Disable Extension (to force reload)
       become: true
@@ -400,7 +400,7 @@
       when: extension_enabled.rc == 0
       register: disable_result
       changed_when: disable_result.rc == 0
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: disable may fail if GNOME session is unavailable
 
     - name: Wait for Extension to Unload
       ansible.builtin.pause:
@@ -414,7 +414,7 @@
         cmd: gnome-extensions enable {{ extension_name }}
       register: enable_result
       changed_when: "'is now enabled' in enable_result.stderr or enable_result.rc == 0"
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: enable may fail if GNOME session is unavailable
 
     - name: Extension Reload Complete
       ansible.builtin.debug:

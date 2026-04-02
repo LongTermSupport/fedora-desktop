@@ -26,13 +26,13 @@
         state: started
         enabled: true
         scope: user
-      ignore_errors: true
+      ignore_errors: true  # FAIL-FAST-OK: socket may fail during headless firstboot
 
     - name: Display Podman Info
       ansible.builtin.command: podman info
       register: podman_info
       changed_when: false
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — info display, non-critical
 
     - name: Show Podman Version
       ansible.builtin.debug:

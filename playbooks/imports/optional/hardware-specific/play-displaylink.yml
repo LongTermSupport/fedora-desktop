@@ -17,7 +17,7 @@
       ansible.builtin.shell: mokutil --sb-state
       register: secure_boot_state
       changed_when: false
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — secure boot may not be available
 
     - name: Validate MOK password is in vault
       ansible.builtin.assert:
@@ -50,7 +50,7 @@
         return_content: true
       register: github_release
       changed_when: false
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — GitHub API may be unreachable
 
     - name: Parse latest version information
       ansible.builtin.set_fact:
@@ -124,7 +124,7 @@
       ansible.builtin.shell: mokutil --test-key /var/lib/dkms/mok.pub
       register: mok_enrolled
       changed_when: false
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — MOK key may not be enrolled yet
       when:
         - "'SecureBoot enabled' in secure_boot_state.stdout"
         - mok_key.stat.exists

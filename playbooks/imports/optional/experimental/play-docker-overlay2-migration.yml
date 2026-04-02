@@ -95,7 +95,7 @@
       ansible.builtin.command: grep -q "^overlay " /proc/modules
       register: overlay_module_check
       changed_when: false
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — next task loads module if missing
 
     - name: Load overlay Module if Not Loaded
       become: true
@@ -113,14 +113,14 @@
     - name: Check if Rootless Docker is Running  # noqa: command-instead-of-module
       ansible.builtin.command: systemctl --user is-active docker.socket
       register: docker_socket_status
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — docker socket may not be active
       changed_when: false
 
     - name: Try to Start Rootless Docker  # noqa: command-instead-of-module
       ansible.builtin.command: systemctl --user start docker.socket
       register: docker_start_result
       changed_when: docker_start_result.rc == 0
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: docker may not be installed yet (fresh install)
       when: docker_socket_status.rc != 0
 
     - name: Brief Pause for Docker Startup  # noqa: no-handler
@@ -135,7 +135,7 @@
       ansible.builtin.command: docker info --format '{{ '{{' }}.Driver{{ '}}' }}'
       register: current_driver
       changed_when: false
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — docker may not be running
 
     - name: Handle Docker Not Running (Fresh Install or Reset)
       ansible.builtin.set_fact:
@@ -159,7 +159,7 @@
       ansible.builtin.command: docker images -q
       register: existing_images
       changed_when: false
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — listing images for data assessment
       when: current_driver.stdout != "not_running"
 
     - name: Count Docker Images
@@ -170,7 +170,7 @@
       ansible.builtin.command: docker ps -aq
       register: existing_containers
       changed_when: false
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — listing containers for data assessment
       when: current_driver.stdout != "not_running"
 
     - name: Count Docker Containers
@@ -254,12 +254,12 @@
 
     - name: Stop Rootless Docker Service  # noqa: command-instead-of-module
       ansible.builtin.command: systemctl --user stop docker.service
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: service may not be running
       changed_when: true
 
     - name: Stop Rootless Docker Socket  # noqa: command-instead-of-module
       ansible.builtin.command: systemctl --user stop docker.socket
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: socket may not be active
       changed_when: true
 
     - name: Wait for Docker to Stop
@@ -291,13 +291,13 @@
       ansible.builtin.command: systemctl --user start docker.socket
       register: start_socket_result
       changed_when: start_socket_result.rc == 0
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: unit files may be missing, next task warns user
 
     - name: Start Rootless Docker Service  # noqa: command-instead-of-module
       ansible.builtin.command: systemctl --user start docker.service
       register: start_service_result
       changed_when: start_service_result.rc == 0
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: unit files may be missing, next task warns user
 
     - name: Warn if Docker Failed to Start
       ansible.builtin.debug:

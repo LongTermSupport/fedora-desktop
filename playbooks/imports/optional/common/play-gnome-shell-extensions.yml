@@ -68,4 +68,4 @@
           export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
           gnome-extensions enable workspace-names-overview@fedora-desktop || true
       changed_when: false
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: GNOME session may not be active during playbook run

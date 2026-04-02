@@ -223,7 +223,7 @@
           ansible.builtin.shell: |
             {{ qobuzPlayerPath }} api search test 2>&1
           register: qobuz_player_verify
-          failed_when: false
+          failed_when: false  # FAIL-FAST-OK: probe — verifying API credentials are configured
           changed_when: false
           no_log: true
 
@@ -416,7 +416,7 @@
       ansible.builtin.shell: |
         hifi-rs api search test -o json 2>&1
       register: hifirs_api_check
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — checking if Qobuz credentials are set
       changed_when: false
 
     - name: Manual hifi-rs Setup Required

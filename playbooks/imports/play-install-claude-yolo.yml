@@ -14,7 +14,7 @@
     - name: Check if Container Engine is Installed
       ansible.builtin.command: which {{ container_engine }}
       register: container_engine_check
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — next task fails with install instructions
       changed_when: false
 
     - name: Verify Container Engine is Available
@@ -32,7 +32,7 @@
     - name: Check for podman-compose (Podman only)
       ansible.builtin.command: which podman-compose
       register: podman_compose_check
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — next task fails with install instructions
       changed_when: false
       when: container_engine == 'podman'
 
@@ -51,7 +51,7 @@
     - name: Check Container Engine Service is Running
       ansible.builtin.command: "{{ container_engine }} ps"
       register: container_service_check
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — next task fails with troubleshooting info
       changed_when: false
 
     - name: Verify Container Engine Service
@@ -323,7 +323,7 @@
     - name: Remove claude-browser:latest Container Image
       ansible.builtin.command: "{{ container_engine }} rmi claude-browser:latest"
       register: rmi_result
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: image may not exist (already cleaned up)
       changed_when: rmi_result.rc == 0
       tags:
         - cleanup
@@ -407,7 +407,7 @@
     - name: Remove playwright-tests Distrobox Container
       ansible.builtin.command: distrobox rm playwright-tests --force
       register: distrobox_rm_result
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: container may not exist (already cleaned up)
       changed_when: distrobox_rm_result.rc == 0
       tags:
         - cleanup

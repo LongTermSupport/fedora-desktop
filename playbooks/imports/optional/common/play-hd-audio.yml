@@ -21,7 +21,7 @@
           - "*bluetooth*.conf"
           - "*alsa-properties*.conf"
       register: existing_audio_configs
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — config directories may not exist yet
 
     - name: Prompt for audio config removal if exists
       ansible.builtin.pause:

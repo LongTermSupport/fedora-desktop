@@ -113,7 +113,7 @@
         LPASS_HOME=/home/{{ user_login }}/.lpass-{{ item.key }} lpass status 2>&1 | grep -q "Logged in as {{ item.value }}" && echo "authenticated" || echo "needs_auth"
       register: auth_status
       changed_when: false
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — checking if accounts are authenticated
       loop: "{{ lastpass_accounts | dict2items }}"
 
     - name: Display authentication status

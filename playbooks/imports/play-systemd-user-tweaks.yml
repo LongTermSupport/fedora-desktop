@@ -123,7 +123,7 @@
       become_user: "{{ user_login }}"
       register: oomd_verify
       changed_when: false
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — oomd config may not be applied yet
       args:
         executable: /bin/bash
       tags:
@@ -182,4 +182,4 @@
       become: true
       become_user: "{{ user_login }}"
       listen: reload-systemd-user-daemon
-      ignore_errors: true  # Fails during headless firstboot (no D-Bus user session)
+      ignore_errors: true  # FAIL-FAST-OK: fails during headless firstboot (no D-Bus session)

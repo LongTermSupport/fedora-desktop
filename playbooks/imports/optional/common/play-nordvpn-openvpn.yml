@@ -166,7 +166,7 @@
         firewall-cmd --reload
       register: firewall_result
       changed_when: "'ALREADY_ENABLED' not in firewall_result.stderr"
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: firewalld may not be running
 
     # =========================================================================
     # Usage Instructions

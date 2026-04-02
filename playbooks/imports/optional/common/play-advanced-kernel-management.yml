@@ -79,7 +79,7 @@
       ansible.builtin.command: /usr/bin/python3 /usr/local/bin/manage-kernel-versions.py
       register: kernel_mgmt_output
       changed_when: false
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — next task displays results
       tags:
         - kernel-mgmt
 
@@ -94,7 +94,7 @@
       ansible.builtin.command: dnf versionlock list
       register: versionlock_status
       changed_when: false
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — versionlock may not be configured
       tags:
         - kernel-mgmt
 

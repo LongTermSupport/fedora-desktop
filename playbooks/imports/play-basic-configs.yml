@@ -223,4 +223,4 @@
         fwupdmgr refresh --force
         fwupdmgr get-updates
         fwupdmgr update
-      ignore_errors: true
+      ignore_errors: true  # FAIL-FAST-OK: firmware updates may not be available

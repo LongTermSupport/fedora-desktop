@@ -39,7 +39,7 @@
     - name: Check if NVM is already configured in bashrc
       ansible.builtin.shell: grep -q 'NVM_DIR' "/home/{{ user_login }}/.bashrc"
       register: nvm_in_bashrc
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — checking if NVM is already configured
       changed_when: false
 
     - name: Configure NVM in Bash Profile Files (only if not already present)

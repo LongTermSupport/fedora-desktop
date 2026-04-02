@@ -60,7 +60,7 @@
       ansible.builtin.shell: mokutil --sb-state
       register: secure_boot_state
       changed_when: false
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — secure boot may not be available
 
     - name: Install MOK prerequisites
       ansible.builtin.dnf:
@@ -101,7 +101,7 @@
       ansible.builtin.shell: mokutil --test-key /etc/pki/akmods/certs/public_key.der
       register: mok_enrolled
       changed_when: false
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — MOK key may not be enrolled yet
       when:
         - "'SecureBoot enabled' in secure_boot_state.stdout"
         - akmods_mok_key.stat.exists

@@ -18,7 +18,8 @@ JSON_OUT="/tmp/qa-results.json"
 TMP_BASH=$(mktemp)
 TMP_PYTHON=$(mktemp)
 TMP_PATTERNS=$(mktemp)
-trap 'rm -f "$TMP_BASH" "$TMP_PYTHON" "$TMP_PATTERNS"' EXIT
+TMP_ANSIBLE=$(mktemp)
+trap 'rm -f "$TMP_BASH" "$TMP_PYTHON" "$TMP_PATTERNS" "$TMP_ANSIBLE"' EXIT
 FAILED=0
 
 # Run sub-checks (each writes JSON to temp file, outputs terse to stdout)
@@ -47,6 +48,13 @@ if [[ $rc -eq 2 ]]; then
     echo "ERROR: Missing required tools (semgrep). Install with: pipx install semgrep" >&2
     exit 2
 elif [[ $rc -ne 0 ]]; then
+    FAILED=$((FAILED + 1))
+fi
+
+# Ansible fail-fast check (no JSON output — standalone pass/fail)
+rc=0
+"$SCRIPT_DIR/qa-ansible.bash" || rc=$?
+if [[ $rc -ne 0 ]]; then
     FAILED=$((FAILED + 1))
 fi
 

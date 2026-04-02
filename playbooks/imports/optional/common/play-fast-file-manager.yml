@@ -137,7 +137,7 @@
         - tracker-xdg-portal-3.service
         - tracker-miner-fs-control-3.service
       when: disable_tracker
-      failed_when: false  # Some services may not exist
+      failed_when: false  # FAIL-FAST-OK: tracker services may not exist on this system
       tags:
         - performance
         - tracker
@@ -202,4 +202,4 @@
       loop:
         - xdg-desktop-portal.service
         - xdg-desktop-portal-gnome.service
-      failed_when: false  # Don't fail if services aren't running
+      failed_when: false  # FAIL-FAST-OK: xdg-portal services may not be running

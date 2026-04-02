@@ -16,7 +16,7 @@
     - name: Check if Container Engine is Installed
       ansible.builtin.command: which {{ container_engine }}
       register: container_engine_check
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — next task fails with install instructions
       changed_when: false
 
     - name: Verify Container Engine is Available
@@ -30,7 +30,7 @@
     - name: Check Container Engine Service is Accessible
       ansible.builtin.command: "{{ container_engine }} ps"
       register: container_service_check
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — next task fails with troubleshooting info
       changed_when: false
 
     - name: Verify Container Engine Service
