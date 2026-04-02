@@ -47,6 +47,13 @@ check_vault_pass() {
   fi
 }
 
+# Decrypt all host vars to JSON (single ansible call, reliable output)
+_decrypt_all_json() {
+  ansible-inventory --host localhost \
+    --vault-id "${VAULT_ID}@${VAULT_PASS_FILE}" \
+    -i environment/localhost/hosts.yml
+}
+
 cmd_get() {
   local varname="${1:?Usage: vault.bash get <varname>}"
   check_vault_pass
@@ -56,37 +63,42 @@ cmd_get() {
     exit 1
   fi
 
-  ansible localhost -c local \
-    --vault-id "${VAULT_ID}@${VAULT_PASS_FILE}" \
-    -m debug -a "msg={{ ${varname} }}" \
-    -i environment/localhost/hosts.yml 2>/dev/null \
-    | grep -oP 'msg: \K.*' \
-    | sed 's/^"//;s/"$//'
+  _decrypt_all_json | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+val = data.get('${varname}', '<NOT FOUND>')
+print(val)
+"
 }
 
 cmd_dump() {
   check_vault_pass
 
-  local vars
-  vars=$(grep -B0 '!vault' "$VAULT_FILE" \
-    | grep -oP '^[a-zA-Z_][a-zA-Z0-9_]*(?=:)' \
-    | sort)
+  local vault_vars
+  vault_vars=$(cmd_list)
 
-  for varname in $vars; do
-    local value
-    value=$(ansible localhost -c local \
-      --vault-id "${VAULT_ID}@${VAULT_PASS_FILE}" \
-      -m debug -a "msg={{ ${varname} }}" \
-      -i environment/localhost/hosts.yml 2>/dev/null \
-      | grep -oP 'msg: \K.*' \
-      | sed 's/^"//;s/"$//')
-    printf '%-30s %s\n' "$varname" "$value"
-  done
+  if [[ -z "$vault_vars" ]]; then
+    echo "No vault-encrypted variables found in $VAULT_FILE" >&2
+    return
+  fi
+
+  _decrypt_all_json | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+vault_vars = '''${vault_vars}'''.strip().split('\n')
+for var in vault_vars:
+    val = data.get(var, '<NOT FOUND>')
+    if not isinstance(val, str):
+        val = repr(val)
+    if len(val) > 80:
+        val = val[:77] + '...'
+    print(f'{var:<30} {val}')
+"
 }
 
 cmd_list() {
   check_vault_pass
-  grep -B0 '!vault' "$VAULT_FILE" \
+  grep ': !vault' "$VAULT_FILE" \
     | grep -oP '^[a-zA-Z_][a-zA-Z0-9_]*(?=:)' \
     | sort
 }
