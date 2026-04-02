@@ -194,23 +194,13 @@
 
         - name: Test SSH connections
           ansible.builtin.shell: |
-            # Create askpass script — reads passphrase from temp file, no system package needed
-            askpass=$(mktemp)
-            trap 'rm -f "$askpass"; [ -n "$SSH_AGENT_PID" ] && ssh-agent -k >/dev/null 2>&1' EXIT
-            printf '#!/bin/bash\ncat /tmp/.github_ssh_pp\n' > "$askpass"
-            chmod 700 "$askpass"
-
-            # Start agent and add key via askpass
-            eval "$(ssh-agent -s)" >/dev/null 2>&1
-            export SSH_ASKPASS="$askpass"
-            export SSH_ASKPASS_REQUIRE=force
-            export DISPLAY=:0
-            if ! ssh-add "/home/{{ user_login }}/.ssh/github_{{ item.key }}" </dev/null 2>&1; then
-              echo "ERROR: ssh-add failed for github_{{ item.key }}" >&2
-            fi
-
-            # Test connection — BatchMode prevents hanging if agent key missing
-            timeout 15 ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -T git@github.com-{{ item.key }} 2>&1
+            tmp_key=$(mktemp)
+            trap 'rm -f "$tmp_key"' EXIT
+            cp "/home/{{ user_login }}/.ssh/github_{{ item.key }}" "$tmp_key"
+            chmod 600 "$tmp_key"
+            # Strip passphrase from temp copy — reads from file, never in Ansible output
+            ssh-keygen -p -P "$(cat /tmp/.github_ssh_pp)" -N "" -f "$tmp_key" >/dev/null 2>&1
+            timeout 15 ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -i "$tmp_key" -T git@github.com 2>&1
           args:
             executable: /bin/bash
           timeout: 30
@@ -267,20 +257,12 @@
 
         - name: Re-test SSH connections after adding keys
           ansible.builtin.shell: |
-            askpass=$(mktemp)
-            trap 'rm -f "$askpass"; [ -n "$SSH_AGENT_PID" ] && ssh-agent -k >/dev/null 2>&1' EXIT
-            printf '#!/bin/bash\ncat /tmp/.github_ssh_pp\n' > "$askpass"
-            chmod 700 "$askpass"
-
-            eval "$(ssh-agent -s)" >/dev/null 2>&1
-            export SSH_ASKPASS="$askpass"
-            export SSH_ASKPASS_REQUIRE=force
-            export DISPLAY=:0
-            if ! ssh-add "/home/{{ user_login }}/.ssh/github_{{ item.key }}" </dev/null 2>&1; then
-              echo "ERROR: ssh-add failed for github_{{ item.key }}" >&2
-            fi
-
-            timeout 15 ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -T git@github.com-{{ item.key }} 2>&1
+            tmp_key=$(mktemp)
+            trap 'rm -f "$tmp_key"' EXIT
+            cp "/home/{{ user_login }}/.ssh/github_{{ item.key }}" "$tmp_key"
+            chmod 600 "$tmp_key"
+            ssh-keygen -p -P "$(cat /tmp/.github_ssh_pp)" -N "" -f "$tmp_key" >/dev/null 2>&1
+            timeout 15 ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -i "$tmp_key" -T git@github.com 2>&1
           args:
             executable: /bin/bash
           timeout: 30
