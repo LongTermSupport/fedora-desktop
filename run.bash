@@ -3,7 +3,7 @@
 ## Setup
 ## !! BUMP THIS VERSION ON EVERY CHANGE TO THIS FILE — NO EXCEPTIONS !!
 ## !! If you forget, there is NO WAY to tell which version is running !!
-RUN_BASH_VERSION="1.0.10"
+RUN_BASH_VERSION="1.0.11"
 set -e
 set -u
 set -o pipefail
@@ -341,15 +341,30 @@ run_playbook_with_issue_option(){
 }
 
 promptForValue(){
-  local item v yn
+  local item v yn validate
   item="$1"
-  yn=n
-  while [[ "$yn" != "y" ]]; do
+  validate="${2:-}"
+  while true; do
     echo -e "\n${CYAN}${ARROW}${NC} Please enter your ${BOLD}$item${NC}:" 1>&2
     read -rp "   " v
+    # Basic validation: must not be empty
+    if [[ -z "${v// /}" ]]; then
+      echo -e "   ${RED}${CROSS} Cannot be empty${NC}" 1>&2
+      continue
+    fi
+    # Custom validation
+    if [[ "$validate" == "email" ]] && [[ "$v" != *@*.* ]]; then
+      echo -e "   ${RED}${CROSS} Must be a valid email address${NC}" 1>&2
+      continue
+    fi
+    if [[ "$validate" == "min3" ]] && [[ "${#v}" -lt 3 ]]; then
+      echo -e "   ${RED}${CROSS} Must be at least 3 characters${NC}" 1>&2
+      continue
+    fi
     echo -e "\n   You entered: ${BOLD}$v${NC}" 1>&2
     read -rsp "   Is this correct? (y/n): " -n 1 yn 1>&2
     echo 1>&2
+    [[ "$yn" == "y" ]] && break
   done
   echo "$v"
 }
@@ -605,9 +620,9 @@ elif [[ -n "${_opt_keep:-}" ]] && [[ "${_config_choice}" == "${_opt_keep}" ]]; t
   success "Keeping existing localhost.yml"
 elif [[ "${_config_choice}" == "${_opt_fresh}" ]]; then
   echo -e "\n${CYAN}Current system user: ${BOLD}$(whoami)${NC}"
-  user_login="$(promptForValue 'user login')"
-  user_name="$(promptForValue 'full name')"
-  user_email="$(promptForValue 'email address')"
+  user_login="$(promptForValue 'user login' min3)"
+  user_name="$(promptForValue 'full name' min3)"
+  user_email="$(promptForValue 'email address' email)"
 
   echo -e "\n${CYAN}${ARROW}${NC} Enter your GitHub username(s)"
   echo -e "   These are the usernames you log into github.com with."
