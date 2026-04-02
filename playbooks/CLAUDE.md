@@ -1,4 +1,8 @@
-# Playbooks Directory - Claude Code Instructions
+# Playbooks Directory
+
+**Ansible style rules and patterns:** @../CLAUDE/AnsibleStyle.md
+
+**Deployment workflow (edit → playbook → deploy → test):** @../CLAUDE/InfrastructureAsCode.md
 
 ## Executable Playbooks Requirement
 
