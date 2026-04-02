@@ -498,12 +498,32 @@ dnf install package-name
 ### Core Principles
 All code in this project must adhere to these fundamental principles:
 
-#### Fail Fast
+#### Fail Fast — HARD RULE
+
+**This is the #1 principle of this project. It is non-negotiable.**
+
 - **Exit immediately on errors** - Use `set -e` in all bash scripts
 - **Validate early** - Check prerequisites before starting work
 - **No silent failures** - Every error must stop execution with clear message
 - **Explicit error handling** - Don't hide errors or use fallback values
 - **Exit codes matter** - Always check command success with `if !` or `&&`
+- **NEVER skip and continue** - If an operation should succeed, FAIL on error — do not skip it with a warning message
+- **NEVER decouple dependent operations** - If task B depends on task A, they MUST be coupled so failure in A prevents B
+
+**Ansible-specific fail-fast rules:**
+
+- ❌ **`failed_when: false`** — PROHIBITED unless it is a genuine probe (check-then-act pattern where a subsequent task uses the registered result)
+- ❌ **`ignore_errors: true`** — PROHIBITED unless there is a documented, legitimate reason with `# FAIL-FAST-OK: <reason>`
+- ❌ **`when:` conditions that silently skip on error** — PROHIBITED. Do not use `when:` to skip a task when a prerequisite failed — FAIL with an actionable error instead
+- ❌ **"Skip and warn" pattern** — NEVER use `debug` to warn about a failure and continue. If it matters enough to warn about, it matters enough to fail on
+- ✅ **`# FAIL-FAST-OK: <reason>`** — Required annotation on ANY `failed_when: false` or `ignore_errors`. QA enforces this via `scripts/qa-ansible.bash`
+- ✅ **Probe-then-fail pattern** — `failed_when: false` is OK when: the result is registered, AND a subsequent task explicitly fails or branches on it
+
+**QA enforcement:**
+- `scripts/qa-ansible.bash` scans all playbooks for `failed_when: false`, `ignore_errors: true/yes`, `ignore_unreachable: true`
+- Every instance MUST have a `# FAIL-FAST-OK: <reason>` annotation on the same line
+- Unannotated instances cause QA failure
+- Note: QA cannot catch `when:` conditions that effectively swallow errors — this requires code review discipline
 
 Examples:
 ```bash
@@ -515,6 +535,34 @@ fi
 
 # BAD: Silent failure with default
 REQUIRED_VAR="${REQUIRED_VAR:-default}"
+```
+
+```yaml
+# GOOD: Probe then fail with actionable message
+- name: Check if service is installed
+  command: which myservice
+  register: service_check
+  failed_when: false  # FAIL-FAST-OK: probe — next task fails with install instructions
+
+- name: Fail if service not installed
+  fail:
+    msg: "myservice is not installed. Run: dnf install myservice"
+  when: service_check.rc != 0
+
+# BAD: Skip and warn (NEVER DO THIS)
+- name: Check something
+  command: some-check
+  register: result
+  failed_when: false
+
+- name: Do the thing
+  command: do-thing
+  when: result.rc == 0  # ← Silently skips on error!
+
+- name: Warn if skipped
+  debug:
+    msg: "WARNING: thing was skipped"  # ← User sees warning, system is broken
+  when: result.rc != 0
 ```
 
 #### YAGNI (You Aren't Gonna Need It)
