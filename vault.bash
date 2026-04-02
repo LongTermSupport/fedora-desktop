@@ -47,60 +47,60 @@ check_vault_pass() {
   fi
 }
 
-# Decrypt all host vars to JSON (single ansible call, reliable output)
-_decrypt_all_json() {
-  ansible-inventory --host localhost \
-    --vault-id "${VAULT_ID}@${VAULT_PASS_FILE}" \
-    -i environment/localhost/hosts.yml
+# Use ansible's Python API directly — no CLI output parsing needed
+_vault_py() {
+  python3 - "$@" << 'PYEOF'
+import re, sys
+from ansible.parsing.dataloader import DataLoader
+from ansible.parsing.vault import VaultSecret
+
+VAULT_FILE = "environment/localhost/host_vars/localhost.yml"
+
+loader = DataLoader()
+with open("vault-pass.secret", "rb") as f:
+    loader.set_vault_secrets([("localhost", VaultSecret(f.read().strip()))])
+data = loader.load_from_file(VAULT_FILE)
+
+def vault_var_names():
+    with open(VAULT_FILE) as f:
+        return sorted(re.findall(r"^([a-zA-Z_]\w*):.*!vault", f.read(), re.MULTILINE))
+
+cmd = sys.argv[1]
+
+if cmd == "get":
+    name = sys.argv[2]
+    if name not in data:
+        print(f"ERROR: '{name}' not found in {VAULT_FILE}", file=sys.stderr)
+        sys.exit(1)
+    print(str(data[name]))
+
+elif cmd == "list":
+    for name in vault_var_names():
+        print(name)
+
+elif cmd == "dump":
+    for name in vault_var_names():
+        val = str(data.get(name, "<NOT FOUND>"))
+        if len(val) > 80:
+            val = val[:77] + "..."
+        print(f"{name:<30} {val}")
+PYEOF
 }
 
 cmd_get() {
   local varname="${1:?Usage: vault.bash get <varname>}"
   check_vault_pass
-
-  if ! grep -q "^${varname}:" "$VAULT_FILE" 2>/dev/null; then
-    echo "ERROR: Variable '$varname' not found in $VAULT_FILE" >&2
-    exit 1
-  fi
-
-  _decrypt_all_json | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-val = data.get('${varname}', '<NOT FOUND>')
-print(val)
-"
+  _vault_py get "$varname"
 }
 
 cmd_dump() {
   check_vault_pass
-
-  local vault_vars
-  vault_vars=$(cmd_list)
-
-  if [[ -z "$vault_vars" ]]; then
-    echo "No vault-encrypted variables found in $VAULT_FILE" >&2
-    return
-  fi
-
-  _decrypt_all_json | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-vault_vars = '''${vault_vars}'''.strip().split('\n')
-for var in vault_vars:
-    val = data.get(var, '<NOT FOUND>')
-    if not isinstance(val, str):
-        val = repr(val)
-    if len(val) > 80:
-        val = val[:77] + '...'
-    print(f'{var:<30} {val}')
-"
+  _vault_py dump
 }
 
 cmd_list() {
   check_vault_pass
-  grep ': !vault' "$VAULT_FILE" \
-    | grep -oP '^[a-zA-Z_][a-zA-Z0-9_]*(?=:)' \
-    | sort
+  _vault_py list
 }
 
 cmd_encrypt() {
