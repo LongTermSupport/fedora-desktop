@@ -1,19 +1,16 @@
 #!/usr/bin/env ansible-playbook
 ---
-#!/usr/bin/env ansible-playbook
 - hosts: desktop
-  name: Deploy UniFi Network Controller for Seamless WiFi Roaming (Podman)
+  name: Deploy UniFi Network Controller for Seamless WiFi Roaming (Podman Compose)
   become: true
   vars:
     root_dir: "{{ inventory_dir }}/../../"
     # UniFi controller data persists across container rebuilds
     unifi_data_dir: /home/{{ user_login }}/.local/share/unifi
-    unifi_container_name: unifi-network-controller
     # @see https://hub.docker.com/r/linuxserver/unifi-network-application/tags
     unifi_image: lscr.io/linuxserver/unifi-network-application:latest
     # MongoDB is required by the UniFi Network Application
     unifi_mongo_image: docker.io/library/mongo:7.0
-    unifi_mongo_container_name: unifi-mongodb
   tasks:
     # ── Setup Guide ────────────────────────────────────────────────────────────
     # Full setup guide including wired AP adoption, seamless roaming config,
@@ -57,102 +54,68 @@
             roles: [{ role: "dbOwner", db: "unifi_stat" }]
           });
 
-    # ── Podman Pod ──────────────────────────────────────────────────────────────
-    # Using a pod groups MongoDB + UniFi into a shared network namespace
-    # so they can communicate over localhost
+    # ── Compose File ──────────────────────────────────────────────────────────
+    # Defines both containers and their relationship in one declarative file
+    # podman compose reads standard docker-compose.yml format
 
-    - name: Create UniFi Pod
+    - name: Deploy UniFi Compose File
+      ansible.builtin.copy:
+        dest: "{{ unifi_data_dir }}/docker-compose.yml"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0644"
+        content: |
+          # UniFi Network Controller — podman compose
+          # Start: podman compose up -d
+          # Stop:  podman compose down
+          services:
+            mongodb:
+              image: {{ unifi_mongo_image }}
+              container_name: unifi-mongodb
+              volumes:
+                - {{ unifi_data_dir }}/mongodb/data:/data/db:Z
+                - {{ unifi_data_dir }}/mongodb/init/init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro,Z
+              restart: unless-stopped
+
+            unifi:
+              image: {{ unifi_image }}
+              container_name: unifi-network-controller
+              depends_on:
+                - mongodb
+              environment:
+                PUID: "1000"
+                PGID: "1000"
+                TZ: Europe/London
+                MONGO_USER: unifi
+                MONGO_PASS: unifi
+                MONGO_HOST: mongodb
+                MONGO_PORT: "27017"
+                MONGO_DBNAME: unifi
+                MEM_LIMIT: "1024"
+              volumes:
+                - {{ unifi_data_dir }}/config:/config:Z
+              ports:
+                - "8443:8443"       # Web UI (HTTPS)
+                - "8080:8080"       # Device communication (inform)
+                - "3478:3478/udp"   # STUN (AP discovery)
+                - "10001:10001/udp" # AP discovery (L2)
+                - "1900:1900/udp"   # UPnP/DLNA
+                - "8843:8843"       # Guest portal HTTPS
+                - "6789:6789"       # Speed test
+              restart: unless-stopped
+
+    # ── Pull Container Images ─────────────────────────────────────────────────
+    # Pre-pull images so first `unifi-controller start` is faster
+    # The controller is on-demand — the playbook does NOT start it
+
+    - name: Pull UniFi Container Images
       become: true
       become_user: "{{ user_login }}"
-      ansible.builtin.command: >
-        podman pod create
-        --name unifi-pod
-        --publish 8443:8443
-        --publish 3478:3478/udp
-        --publish 10001:10001/udp
-        --publish 8080:8080
-        --publish 1900:1900/udp
-        --publish 8843:8843
-        --publish 6789:6789
-      register: pod_create
-      changed_when: pod_create.rc == 0
-      failed_when: false  # FAIL-FAST-OK: pod may already exist
-
-    - name: Verify UniFi Pod Exists
-      become: true
-      become_user: "{{ user_login }}"
-      ansible.builtin.command: podman pod exists unifi-pod
-      changed_when: false
-
-    # ── MongoDB Container ───────────────────────────────────────────────────────
-
-    - name: Start MongoDB Container for UniFi
-      become: true
-      become_user: "{{ user_login }}"
-      ansible.builtin.command: >
-        podman run -d
-        --pod unifi-pod
-        --name {{ unifi_mongo_container_name }}
-        --volume {{ unifi_data_dir }}/mongodb/data:/data/db:Z
-        --volume {{ unifi_data_dir }}/mongodb/init/init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro,Z
-        --restart unless-stopped
-        {{ unifi_mongo_image }}
-      register: mongo_start
-      changed_when: mongo_start.rc == 0
-      failed_when: false  # FAIL-FAST-OK: container may already exist/be running
-
-    - name: Verify MongoDB Container is Running
-      become: true
-      become_user: "{{ user_login }}"
-      ansible.builtin.shell: |
-        set -e
-        state=$(podman inspect --format '{{ '{{' }}.State.Status{{ '}}' }}' {{ unifi_mongo_container_name }})
-        if [ "$state" != "running" ]; then
-          echo "MongoDB container state: $state (expected: running)" >&2
-          exit 1
-        fi
+      ansible.builtin.command: podman compose pull
       args:
-        executable: /bin/bash
-      changed_when: false
-
-    # ── UniFi Network Application Container ─────────────────────────────────────
-
-    - name: Start UniFi Network Application Container
-      become: true
-      become_user: "{{ user_login }}"
-      ansible.builtin.command: >
-        podman run -d
-        --pod unifi-pod
-        --name {{ unifi_container_name }}
-        --env PUID=1000
-        --env PGID=1000
-        --env TZ=Europe/London
-        --env MONGO_USER=unifi
-        --env MONGO_PASS=unifi
-        --env MONGO_HOST=127.0.0.1
-        --env MONGO_PORT=27017
-        --env MONGO_DBNAME=unifi
-        --env MEM_LIMIT=1024
-        --volume {{ unifi_data_dir }}/config:/config:Z
-        --restart unless-stopped
-        {{ unifi_image }}
-      register: unifi_start
-      changed_when: unifi_start.rc == 0
-      failed_when: false  # FAIL-FAST-OK: container may already exist/be running
-
-    - name: Verify UniFi Container is Running
-      become: true
-      become_user: "{{ user_login }}"
-      ansible.builtin.shell: |
-        set -e
-        state=$(podman inspect --format '{{ '{{' }}.State.Status{{ '}}' }}' {{ unifi_container_name }})
-        if [ "$state" != "running" ]; then
-          echo "UniFi container state: $state (expected: running)" >&2
-          exit 1
-        fi
-      args:
-        executable: /bin/bash
-      changed_when: false
+        chdir: "{{ unifi_data_dir }}"
+      register: compose_pull
+      changed_when: "'Pull complete' in compose_pull.stdout or 'Downloaded' in compose_pull.stdout or compose_pull.rc == 0"
 
     # ── Firewall Rules ──────────────────────────────────────────────────────────
     # AP discovery requires these ports to be open on the host firewall
@@ -181,7 +144,7 @@
       changed_when: true
 
     # ── Launch Script ─────────────────────────────────────────────────────────
-    # On-demand launcher: starts the pod, opens the web UI, waits for stop
+    # On-demand launcher: starts the stack, opens the web UI, waits for stop
 
     - name: Deploy UniFi Controller Launch Script
       ansible.builtin.copy:
@@ -193,46 +156,75 @@
           #!/usr/bin/env bash
           set -e
 
-          POD="unifi-pod"
+          COMPOSE_DIR="{{ unifi_data_dir }}"
+          PROPERTIES="$COMPOSE_DIR/config/data/system.properties"
           URL="https://localhost:8443"
 
-          start_pod() {
-            if podman pod exists "$POD" && [ "$(podman pod inspect "$POD" --format '{{ '{{' }}.State{{ '}}' }}')" = "Running" ]; then
-              echo "UniFi pod already running"
+          # Detect current LAN IP and write to system.properties before every start
+          # APs need to reach the controller over the network — the container's
+          # internal IP (10.89.x.x) is unreachable, so we set the host's LAN IP
+          # @see https://help.ui.com/hc/en-us/articles/204909754
+          update_inform_host() {
+            local lan_ip
+            lan_ip=$(ip -4 route get 1.1.1.1 | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}')
+            if [ -z "$lan_ip" ]; then
+              echo "WARNING: Could not detect LAN IP — APs may not be able to reach the controller" >&2
+              return
+            fi
+            mkdir -p "$(dirname "$PROPERTIES")"
+            # Container remaps UIDs — reclaim ownership so we can write
+            # Inside podman's user namespace, UID 0 maps to the host user
+            podman unshare chown -R 0:0 "$COMPOSE_DIR/config/data/" 2>/dev/null || true
+            # Remove any existing system_ip line, then append current
+            if [ -f "$PROPERTIES" ]; then
+              grep -v '^system_ip=' "$PROPERTIES" > "$PROPERTIES.tmp"
+              mv "$PROPERTIES.tmp" "$PROPERTIES"
+            fi
+            echo "system_ip=$lan_ip" >> "$PROPERTIES"
+            echo "Controller inform host set to: $lan_ip"
+          }
+
+          start_stack() {
+            if [ "$(podman compose -f "$COMPOSE_DIR/docker-compose.yml" ps -q 2>/dev/null | wc -l)" -ge 2 ]; then
+              echo "UniFi stack already running"
             else
-              echo "Starting UniFi pod..."
-              podman pod start "$POD"
+              update_inform_host
+              echo "Starting UniFi stack..."
+              podman compose -f "$COMPOSE_DIR/docker-compose.yml" up -d
               echo "Waiting for controller to initialise..."
               sleep 5
             fi
           }
 
-          stop_pod() {
+          stop_stack() {
             echo ""
-            echo "Stopping UniFi pod..."
-            podman pod stop "$POD"
+            echo "Stopping UniFi stack..."
+            podman compose -f "$COMPOSE_DIR/docker-compose.yml" down
             echo "UniFi controller stopped."
           }
 
           case "${1:-start}" in
             start)
-              start_pod
+              start_stack
               echo "UniFi Controller: $URL"
               xdg-open "$URL" 2>/dev/null || echo "Open $URL in your browser"
               echo ""
               echo "Press Ctrl+C to stop the controller."
-              trap stop_pod EXIT
+              trap stop_stack EXIT
               # Keep running until user presses Ctrl+C
               while true; do sleep 60; done
               ;;
             stop)
-              stop_pod
+              stop_stack
               ;;
             status)
-              podman pod ps --filter "name=$POD" --no-trunc
+              podman compose -f "$COMPOSE_DIR/docker-compose.yml" ps
+              ;;
+            logs)
+              podman compose -f "$COMPOSE_DIR/docker-compose.yml" logs -f
               ;;
             *)
-              echo "Usage: unifi-controller [start|stop|status]"
+              echo "Usage: unifi-controller [start|stop|status|logs]"
               exit 1
               ;;
           esac
@@ -261,25 +253,26 @@
 
     - name: Show UniFi Controller Access Info
       ansible.builtin.debug:
-        msg: |
-          ╔══════════════════════════════════════════════════════════════╗
-          ║  UniFi Network Controller deployed successfully!           ║
-          ║                                                            ║
-          ║  Launch from GNOME Activities: search "UniFi"              ║
-          ║  Or from terminal: unifi-controller start                  ║
-          ║                                                            ║
-          ║  Web UI: https://localhost:8443                            ║
-          ║                                                            ║
-          ║  Commands:                                                 ║
-          ║    unifi-controller start   — start + open browser         ║
-          ║    unifi-controller stop    — stop the controller          ║
-          ║    unifi-controller status  — check pod status             ║
-          ║                                                            ║
-          ║  Data directory: {{ unifi_data_dir }}
-          ║                                                            ║
-          ║  NOTE: First startup takes 1-2 minutes.                   ║
-          ║  Accept the self-signed certificate warning in browser.    ║
-          ║                                                            ║
-          ║  Setup guide: docs/UnifiSetupGuide.md                      ║
-          ║  (AP adoption, roaming setup, troubleshooting)             ║
-          ╚══════════════════════════════════════════════════════════════╝
+        msg:
+          - ""
+          - "UniFi Network Controller deployed successfully!"
+          - ""
+          - "  Launch:  search 'UniFi' in GNOME Activities"
+          - "  Or run:  unifi-controller start"
+          - ""
+          - "  Web UI:  https://localhost:8443"
+          - ""
+          - "  Commands:"
+          - "    unifi-controller start    start + open browser"
+          - "    unifi-controller stop     stop the controller"
+          - "    unifi-controller status   show container status"
+          - "    unifi-controller logs     follow container logs"
+          - ""
+          - "  Data:    {{ unifi_data_dir }}"
+          - "  Compose: {{ unifi_data_dir }}/docker-compose.yml"
+          - ""
+          - "  NOTE: First startup takes 1-2 minutes."
+          - "  Accept the self-signed certificate warning in browser."
+          - ""
+          - "  Setup guide: docs/UnifiSetupGuide.md"
+          - ""

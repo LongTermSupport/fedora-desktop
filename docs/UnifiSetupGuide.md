@@ -11,9 +11,10 @@ Three wired UniFi APs, all sharing the same SSID, managed by a single controller
 ```bash
 cd ~/Projects/fedora-desktop
 ./playbooks/imports/optional/common/play-unifi-controller.yml
+unifi-controller start
 ```
 
-Then open **https://localhost:8443** (accept the self-signed certificate warning). First startup takes 1-2 minutes while the controller initialises.
+The playbook deploys the compose file, pulls images, and installs the CLI. It does **not** start the controller — use `unifi-controller start` for that. First startup takes 1-2 minutes. Accept the self-signed certificate warning in the browser.
 
 ## What the Playbook Deploys
 
@@ -22,7 +23,7 @@ Then open **https://localhost:8443** (accept the self-signed certificate warning
 | MongoDB 7.0 | `unifi-mongodb` | Database backend (required by UniFi) |
 | UniFi Network Application | `unifi-network-controller` | AP management, WiFi config, roaming |
 
-Both containers run in a shared Podman pod (`unifi-pod`) so they communicate over localhost. Data persists in `~/.local/share/unifi/`.
+Both containers are defined in `~/.local/share/unifi/docker-compose.yml` and managed via `podman compose`. Data persists in `~/.local/share/unifi/`.
 
 The playbook also:
 - Opens required firewall ports (see [Ports Reference](#ports-reference))
@@ -43,10 +44,12 @@ Connect all three APs via ethernet to your router or switch and power them. That
 
 ### Step 2: Controller First Run
 
-1. Open **https://localhost:8443**
-2. Create an admin account
-3. Select **Advanced Setup** to stay local-only (skip Ubiquiti cloud account)
-4. The controller will scan for devices on your LAN
+1. Run `unifi-controller start` — this detects your LAN IP, sets the inform host, and starts the stack
+2. Open **https://localhost:8443** (the script opens it automatically)
+3. Accept the self-signed certificate warning
+4. Create an admin account
+5. Select **Advanced Setup** to stay local-only (skip Ubiquiti cloud account)
+6. Complete the setup wizard (set device name, timezone, language)
 
 ### Step 3: Adopt All Three APs
 
@@ -74,13 +77,13 @@ These settings ensure your phone switches APs smoothly without drops:
 
 **802.11r note:** Most modern phones and laptops support it. Some older IoT devices (smart bulbs, old printers) may have trouble connecting with it enabled. If that happens, create a second SSID without 802.11r for those devices.
 
-### Step 6: Set Controller Hostname
+### Step 6: Verify Controller Hostname
 
-**Important** — APs need to reach the controller over the network:
+The launch script automatically detects your LAN IP and sets `system_ip` in `system.properties` every time you start the controller. This ensures APs can reach it even if your laptop's IP changes (DHCP). Verify this in the web UI:
 
-1. Go to **Settings > System > Advanced**
-2. Set **Controller Hostname/IP** to your machine's LAN IP (e.g., `192.168.1.x`)
-3. Do NOT use `localhost` or `127.0.0.1` — the APs can't reach that
+1. Go to **Settings > System**
+2. Check **Server IP** shows your LAN IP (e.g., `192.168.1.x`), not a container IP like `10.89.x.x`
+3. If it shows the wrong IP, restart the controller — `unifi-controller stop` then `unifi-controller start`
 
 ### Step 7: Verify
 
@@ -103,7 +106,7 @@ The controller runs on-demand — it is **not** auto-started on boot.
 
 ### Desktop Launcher
 
-Search **"UniFi"** in GNOME Activities to launch. This opens a terminal that starts the pod, opens the web UI in your browser, and keeps running until you close it or press Ctrl+C.
+Search **"UniFi"** in GNOME Activities to launch. This opens a terminal that detects your LAN IP, starts the containers, opens the web UI in your browser, and keeps running until you close it or press Ctrl+C.
 
 ### Command Line
 
@@ -116,20 +119,24 @@ unifi-controller stop
 
 # Check status
 unifi-controller status
+
+# Follow container logs
+unifi-controller logs
 ```
 
 When launched with `start`, the controller keeps running in the foreground. Press **Ctrl+C** to stop it cleanly.
 
-### Direct Pod Management
+### Direct Compose Management
 
 ```bash
-# View individual containers
-podman ps --pod
+# View container status
+podman compose -f ~/.local/share/unifi/docker-compose.yml ps
 
-# View UniFi logs
+# Follow all logs
+unifi-controller logs
+
+# View individual container logs
 podman logs -f unifi-network-controller
-
-# View MongoDB logs
 podman logs -f unifi-mongodb
 ```
 
@@ -171,8 +178,7 @@ To completely remove and redeploy:
 
 ```bash
 unifi-controller stop
-podman pod rm unifi-pod
-rm -rf ~/.local/share/unifi
+sudo rm -rf ~/.local/share/unifi    # sudo needed — container UID remapping
 
 # Re-run the playbook
 ./playbooks/imports/optional/common/play-unifi-controller.yml
@@ -183,12 +189,11 @@ rm -rf ~/.local/share/unifi
 ### Controller won't start
 
 ```bash
-# Check pod status
-podman pod ps --no-trunc
+# Check container status
+unifi-controller status
 
 # Check container logs
-podman logs unifi-network-controller 2>&1 | tail -30
-podman logs unifi-mongodb 2>&1 | tail -30
+unifi-controller logs
 
 # Check if ports are already in use
 ss -tlnp | grep -E '8443|8080|3478'
@@ -216,16 +221,26 @@ ss -tlnp | grep -E '8443|8080|3478'
 - Check your phone supports 802.11r (most modern phones do)
 - Some Android phones are "sticky" by design — Minimum RSSI helps override this
 
-### Controller accessible only on localhost
+### APs stuck in adoption loop
 
-Set the controller hostname to your machine's LAN IP:
-1. **Settings > System > Advanced**
-2. Set **Controller Hostname/IP** to your LAN IP (e.g., `192.168.1.x`)
-3. APs need this to communicate with the controller
+The controller's inform URL is set to the container's internal IP (e.g., `10.89.x.x`) instead of your LAN IP. The launch script handles this automatically, but if APs are looping:
+
+1. Stop and restart: `unifi-controller stop && unifi-controller start`
+2. Verify **Settings > System** shows your LAN IP as **Server IP**, not a `10.89.x.x` address
+3. If still wrong, check `~/.local/share/unifi/config/data/system.properties` contains `system_ip=` with your LAN IP
+4. Factory reset stuck APs (hold reset 10+ seconds) so they re-discover the controller
+
+### File permission errors on start
+
+The MongoDB container remaps UIDs via rootless Podman, so files under `config/data/` may be owned by a high-numbered UID. The launch script runs `podman unshare chown` to reclaim ownership before each start. If you still get permission errors:
+
+```bash
+podman unshare chown -R 0:0 ~/.local/share/unifi/config/data/
+```
 
 ## Notes
 
 - **Controller is on-demand** — launch it when you need to manage your network. Basic WiFi continues when the controller is stopped, but you cannot make changes or view stats.
-- **MongoDB credentials** (`unifi`/`unifi`) are internal to the pod and not exposed externally.
+- **MongoDB credentials** (`unifi`/`unifi`) are internal to the compose network and not exposed externally.
 - **Timezone** is set to `Europe/London` in the playbook — edit `TZ` variable before deploying if needed.
 - **Memory limit** is set to 1024MB — increase `MEM_LIMIT` in the playbook if managing many clients.
