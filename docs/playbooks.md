@@ -10,7 +10,7 @@ Complete catalog of available features and how to use them.
 
 **Common tasks:**
 - [Install Docker](#play-dockeryml) - Rootless Docker setup
-- [Set up Distrobox](#play-install-distroboxyml) - Seamless dev environments
+- [Set up Distrobox](#play-distroboxyml) - Seamless dev environments
 - [Python development](#play-pythonyml) - pyenv and PDM
 
 ## Core Playbooks (Automatically Run)
@@ -101,8 +101,8 @@ ansible-playbook playbooks/imports/optional/<category>/<playbook>.yml
 
 Popular add-ons for development work:
 
-#### play-install-flatpaks.yml
-Installs Flatpak applications:
+#### play-comms.yml
+Installs communication applications:
 - Enables Flathub repository
 - Installs Slack
 
@@ -114,7 +114,7 @@ Docker container platform:
 - Configures subuid/subgid for user namespaces
 - See [Containerization Guide](containerization.md) for details
 
-#### play-install-distrobox.yml
+#### play-distrobox.yml
 Distrobox installation:
 - Installs distrobox package
 - Provides seamless container integration for development
@@ -122,7 +122,7 @@ Distrobox installation:
 - Auto-shares home directory with containers
 - See [Containerization Guide](containerization.md) for comparison with LXC/Docker
 
-#### play-install-claude-yolo.yml
+#### play-claude-yolo.yml
 Claude Code containerised environment (Docker/Podman-based):
 - **CCY (YOLO Mode)**: General-purpose development container with browser automation built in
 - Unified token management
@@ -469,7 +469,7 @@ qobuz_status          # Show current player
 - Last.fm scrobbling integration
 - Playlist support with shuffle
 
-#### play-install-terminal-emulators.yml
+#### play-terminal-emulators.yml
 Modern high-performance terminal emulators optimized for Claude Code:
 - **Alacritty**: GPU-accelerated, lowest input latency, OpenGL rendering
 - **Kitty**: Feature-rich with native tabs, image protocol, ligature support
@@ -570,14 +570,14 @@ Laptop power management (deprecated):
 ## Running Optional Playbooks
 
 ```bash
-# Install Flatpak applications
-ansible-playbook playbooks/imports/optional/common/play-install-flatpaks.yml
+# Install communication applications
+ansible-playbook playbooks/imports/play-comms.yml
 
 # Set up Docker
 ansible-playbook playbooks/imports/optional/common/play-docker.yml
 
 # Install Distrobox
-ansible-playbook playbooks/imports/optional/common/play-install-distrobox.yml
+ansible-playbook playbooks/imports/optional/common/play-distrobox.yml
 
 # Install NVIDIA drivers
 ansible-playbook playbooks/imports/optional/hardware-specific/play-nvidia.yml

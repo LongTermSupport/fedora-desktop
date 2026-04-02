@@ -226,7 +226,7 @@ You get Ubuntu's package ecosystem and compatibility while:
 ### Installation
 Optional playbook (run manually):
 ```bash
-ansible-playbook playbooks/imports/optional/common/play-install-distrobox.yml
+ansible-playbook playbooks/imports/optional/common/play-distrobox.yml
 ```
 
 ### Basic Usage

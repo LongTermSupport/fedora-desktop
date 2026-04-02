@@ -196,7 +196,7 @@ cd ~/Projects/fedora-desktop
 ansible-playbook playbooks/imports/optional/common/play-docker.yml
 
 # Distrobox
-ansible-playbook playbooks/imports/optional/common/play-install-distrobox.yml
+ansible-playbook playbooks/imports/optional/common/play-distrobox.yml
 
 # Python development
 ansible-playbook playbooks/imports/optional/common/play-python.yml

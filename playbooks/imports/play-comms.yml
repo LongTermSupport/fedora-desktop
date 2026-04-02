@@ -1,0 +1,16 @@
+#!/usr/bin/env ansible-playbook
+---
+# Communication tools - Slack, etc.
+# Flatpak is already installed by default, we just need to add to it
+- hosts: desktop
+  name: Communication Tools
+  become: false
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  tasks:
+    - name: Enable Flathub
+      ansible.builtin.command: flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+    - name: Install Slack
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command: flatpak install flathub com.slack.Slack -y

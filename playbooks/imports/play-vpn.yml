@@ -1,0 +1,26 @@
+#!/usr/bin/env ansible-playbook
+---
+# VPN tools - WireGuard and OpenVPN
+#
+# This installs VPN client tools and configures firewall rules.
+# WireGuard configs must be imported manually:
+#   sudo nmcli connection import type wireguard file /etc/wireguard/my-vpn.conf
+- hosts: desktop
+  name: VPN Tools
+  become: true
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  tasks:
+    - name: Install VPN Packages
+      ansible.builtin.dnf:
+        name:
+          - wireguard-tools
+          - NetworkManager-openvpn
+          - NetworkManager-openvpn-gnome
+        state: present
+
+    - name: Allow OpenVPN Through Firewall
+      ansible.posix.firewalld:
+        service: openvpn
+        permanent: true
+        state: enabled

@@ -135,7 +135,7 @@ cd ~/Projects/fedora-desktop
 ansible-playbook playbooks/imports/optional/common/play-docker.yml
 
 # Install Distrobox
-ansible-playbook playbooks/imports/optional/common/play-install-distrobox.yml
+ansible-playbook playbooks/imports/optional/common/play-distrobox.yml
 
 # Install Python environment
 ansible-playbook playbooks/imports/optional/common/play-python.yml

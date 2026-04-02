@@ -14,7 +14,7 @@
 # DEPLOYMENT:
 #   Source:  files/home/.local/bin/ccdt (this file)
 #   Deploy:  ~/.local/bin/ccdt
-#   Via:     playbooks/imports/optional/common/play-install-claude-devtools.yml
+#   Via:     playbooks/imports/optional/common/play-claude-devtools.yml
 #
 # USAGE:
 #   ccdt                    Auto-detect: CCY project session or host session

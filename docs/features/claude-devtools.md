@@ -48,7 +48,7 @@ Sessions are plain files on disk — there is nothing to "watch" at idle. Launch
 ### Deploy with Ansible
 
 ```bash
-ansible-playbook playbooks/imports/optional/common/play-install-claude-devtools.yml
+ansible-playbook playbooks/imports/optional/common/play-claude-devtools.yml
 ```
 
 The playbook:
@@ -174,7 +174,7 @@ Stop the conflicting process, then retry `ccdt`.
 If the container image was not built during installation:
 
 ```bash
-ansible-playbook playbooks/imports/optional/common/play-install-claude-devtools.yml
+ansible-playbook playbooks/imports/optional/common/play-claude-devtools.yml
 ```
 
 This re-clones the repo (or pulls updates) and rebuilds the image.
@@ -217,7 +217,7 @@ To update to the latest claude-devtools:
 
 ```bash
 # On host system (not in CCY container)
-ansible-playbook playbooks/imports/optional/common/play-install-claude-devtools.yml
+ansible-playbook playbooks/imports/optional/common/play-claude-devtools.yml
 ```
 
 The playbook pulls the latest source and rebuilds the image.

@@ -425,7 +425,7 @@ sudo chmod +x /var/local/claude-yolo/claude-yolo
 **Example - CORRECT approach:**
 ```bash
 # ✅ GOOD - Ansible deployment
-ansible-playbook playbooks/imports/play-install-claude-yolo.yml
+ansible-playbook playbooks/imports/play-claude-yolo.yml
 ```
 
 **If you catch yourself or the user suggesting manual steps:**
@@ -760,7 +760,7 @@ git add CLAUDE/Plan/NNN-description/  # Stage the plan alongside code changes
 ./playbooks/playbook-main.yml
 
 # Run optional playbook
-ansible-playbook ./playbooks/imports/optional/common/play-install-flatpaks.yml
+ansible-playbook ./playbooks/imports/optional/common/play-comms.yml
 
 # Check specific component
 ansible-playbook ./playbooks/imports/play-basic-configs.yml --ask-become-pass

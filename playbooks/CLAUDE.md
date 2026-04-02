@@ -52,7 +52,7 @@ This script:
 Test that a playbook is properly executable:
 ```bash
 # Should show ansible-playbook version, not "permission denied"
-./playbooks/imports/optional/common/play-install-flatpaks.yml --version
+./playbooks/imports/optional/common/play-comms.yml --version
 ```
 
 ### Pre-commit Hook Recommendation

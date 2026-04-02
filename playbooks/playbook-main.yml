@@ -19,5 +19,12 @@
 - import_playbook: imports/play-podman.yml
 - import_playbook: imports/play-python.yml
 - import_playbook: imports/play-claude-code.yml
-- import_playbook: imports/play-install-claude-yolo.yml
+- import_playbook: imports/play-claude-yolo.yml
+- import_playbook: imports/play-comms.yml
+- import_playbook: imports/play-gnome-shell.yml
+- import_playbook: imports/play-gnome-shell-extensions.yml
+- import_playbook: imports/play-markless.yml
+- import_playbook: imports/play-terminal-emulators.yml
+- import_playbook: imports/play-vscode.yml
+- import_playbook: imports/play-vpn.yml
 - import_playbook: imports/play-gsettings.yml
