@@ -290,6 +290,7 @@
           ansible.builtin.debug:
             msg: "{{ item.item.key }}: {{ 'Connected ✓' if 'successfully authenticated' in item.stdout else 'FAILED — key not recognised by GitHub' }}"
           loop: "{{ ssh_test.results }}"
+          when: item.stdout is defined
 
         - name: Assert SSH access works for all accounts
           ansible.builtin.assert:
@@ -300,6 +301,7 @@
               https://github.com/settings/keys
             success_msg: "SSH access confirmed: {{ item.item.key }} ({{ item.item.value }}) ✓"
           loop: "{{ ssh_test.results }}"
+          when: item.stdout is defined
       always:
         - name: Clean up SSH askpass helper (always runs, even on failure)
           ansible.builtin.file:
