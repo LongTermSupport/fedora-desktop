@@ -1,6 +1,5 @@
 #!/usr/bin/env ansible-playbook
 ---
-#!/usr/bin/env ansible-playbook
 # Customisations for Gnome Shell - only worth doing if you actually use Gnome
 - hosts: desktop
   name: Gnome Shell Extensions
@@ -9,14 +8,10 @@
     root_dir: "{{ inventory_dir }}/../../"
   tasks:
     - name: Install Gnome Shell Extension Installer
-      ansible.builtin.shell: |
-        cd /usr/bin
-        # Pin to specific commit for reproducibility and security
-        # Current master as of 2025-08, update if needed
-        wget -O gnome-shell-extension-installer "https://github.com/brunelli/gnome-shell-extension-installer/raw/1200bd8566b2fbc55f8ccc96f07394996dfc2da9/gnome-shell-extension-installer"
-        chmod +x gnome-shell-extension-installer
-      args:
-        creates: /usr/bin/gnome-shell-extension-installer
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/usr/bin/gnome-shell-extension-installer"
+        dest: /usr/bin/gnome-shell-extension-installer
+        mode: "0755"
 
     - name: Install DNF packages
       ansible.builtin.dnf:
