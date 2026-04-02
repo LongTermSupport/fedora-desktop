@@ -68,7 +68,7 @@ then
 
     alias gti=git
 
-    complete -r cd  # completion on symlinks is unusual and a __complete__ pain in the arse. Let's remove it
+    complete -r cd 2>/dev/null  # completion on symlinks is unusual and a __complete__ pain in the arse. Let's remove it
 
     export EDITOR=vim
     alias vi="vim"
