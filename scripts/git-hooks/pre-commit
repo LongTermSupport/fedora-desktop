@@ -19,7 +19,7 @@ declare -a SENSITIVE_PATTERNS=(
 
     # Common username patterns with company/personal identifiers
     # Will exclude example_user, test_user, etc. in the script logic below
-    "[a-z]{3,}_[a-z]{3,}\\.(token|key|credential)::Specific username in credential filename"
+    "[a-z]{3,}_[a-z]{3,}\\.(token|key|credential)\\b::Specific username in credential filename"
 
     # SSH/API key patterns (actual keys, not references)
     "ssh-rsa [A-Za-z0-9+/=]{50,}::SSH public key"

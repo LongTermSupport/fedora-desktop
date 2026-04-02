@@ -168,6 +168,14 @@
             mode: "0600"
           loop: "{{ github_accounts | default({}) | dict2items }}"
 
+        - name: Install ssh-agent-start helper script
+          ansible.builtin.copy:
+            src: "{{ root_dir }}/files/home/.local/bin/ssh-agent-start"
+            dest: "/home/{{ user_login }}/.local/bin/ssh-agent-start"
+            owner: "{{ user_login }}"
+            group: "{{ user_login }}"
+            mode: "0755"
+
         - name: Create SSH config entries
           ansible.builtin.blockinfile:
             path: "/home/{{ user_login }}/.ssh/config"
