@@ -241,6 +241,9 @@ distrobox enter dev
 - [Testing procedures](development.md#testing)
 - [Pull request process](development.md#contributing)
 
+**GitHub**
+- [Multi-account management](github-multi-account.md) — Setup, commands, adding/removing accounts
+
 **Installation & Setup**
 - [Prerequisites](installation.md#prerequisites)
 - [Quick install](installation.md#quick-install)

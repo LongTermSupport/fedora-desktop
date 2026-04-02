@@ -1,5 +1,7 @@
 # GNOME Shell Extensions Development
 
+**QA rules (ESLint requirement):** @../CLAUDE/QA.md
+
 ## ⚠️ WAYLAND: Extension Reload Requires Logout
 
 **This system runs Wayland, NOT X11.**
