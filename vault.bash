@@ -18,6 +18,7 @@ Usage: ./vault.bash <command> [args]
 
 Commands:
   get <varname>           Decrypt and display a single vault variable
+  get-raw <varname>       Show exact bytes (debug whitespace/quote issues)
   dump                    Decrypt and display ALL vault variables
   list                    List all vault-encrypted variable names
   encrypt <varname>       Encrypt a string and output the vault block
@@ -48,7 +49,7 @@ check_vault_pass() {
 }
 
 # Decrypt a single vault variable using ansible CLI
-# Forces minimal callback to get predictable JSON output regardless of ansible.cfg
+# Uses python3 json (stdlib) to parse — immune to ansible output format settings
 _decrypt_var() {
   local varname="$1"
   ANSIBLE_STDOUT_CALLBACK=ansible.builtin.minimal \
@@ -56,7 +57,15 @@ _decrypt_var() {
     --vault-id "${VAULT_ID}@${VAULT_PASS_FILE}" \
     -m debug -a "msg={{ ${varname} }}" \
     -i environment/localhost/hosts.yml 2>/dev/null \
-    | sed 's/.*"msg": "//;s/"[[:space:]]*}$//'
+    | python3 -c "
+import sys, json, re
+raw = sys.stdin.read()
+m = re.search(r'=>\s*(\{.*\})', raw, re.DOTALL)
+if m:
+    print(json.loads(m.group(1))['msg'], end='')
+else:
+    print(raw, end='')
+"
 }
 
 cmd_get() {
@@ -69,6 +78,23 @@ cmd_get() {
   fi
 
   _decrypt_var "$varname"
+  echo  # newline after value
+}
+
+# Show exact bytes of a decrypted vault variable (debug whitespace/quote issues)
+cmd_get_raw() {
+  local varname="${1:?Usage: vault.bash get-raw <varname>}"
+  check_vault_pass
+
+  if ! grep -qP "^${varname}:.*!vault" "$VAULT_FILE" 2>/dev/null; then
+    echo "ERROR: Variable '$varname' not found as vault-encrypted in $VAULT_FILE" >&2
+    exit 1
+  fi
+
+  echo "=== Decrypted value for '$varname' (cat -A shows exact bytes) ==="
+  _decrypt_var "$varname" | cat -A
+  echo
+  echo "=== Length: $(_decrypt_var "$varname" | wc -c) bytes ==="
 }
 
 cmd_dump() {
@@ -160,6 +186,7 @@ cmd_set() {
 # Main dispatch
 case "${1:-}" in
   get)     shift; cmd_get "$@" ;;
+  get-raw) shift; cmd_get_raw "$@" ;;
   dump)    shift; cmd_dump "$@" ;;
   list)    shift; cmd_list "$@" ;;
   encrypt) shift; cmd_encrypt "$@" ;;
