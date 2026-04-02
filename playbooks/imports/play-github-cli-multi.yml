@@ -115,6 +115,44 @@
           register: ssh_key_status
           loop: "{{ github_accounts | default({}) | dict2items }}"
 
+        - name: Create passphrase file for SSH key operations
+          ansible.builtin.copy:
+            content: "{{ github_ssh_passphrase }}"
+            dest: "/tmp/.github_ssh_pp"
+            mode: "0600"
+            owner: "{{ user_login }}"
+          no_log: true
+
+        - name: Verify existing keys work with vault passphrase
+          ansible.builtin.shell: |
+            ssh-keygen -y -P "$(cat /tmp/.github_ssh_pp)" \
+              -f "/home/{{ user_login }}/.ssh/github_{{ item.item.key }}" >/dev/null 2>&1
+          args:
+            executable: /bin/bash
+          when: item.stat.exists
+          loop: "{{ ssh_key_status.results }}"
+          loop_control:
+            label: "{{ item.item.key }}"
+          register: passphrase_verify
+          changed_when: false
+          failed_when: false
+
+        - name: Fail fast if existing keys have wrong passphrase
+          ansible.builtin.fail:
+            msg: |
+              SSH key ~/.ssh/github_{{ item.item.item.key }} exists but the vault
+              passphrase does not unlock it. The key has a different passphrase.
+
+              To fix, delete the key and re-run this playbook:
+                rm ~/.ssh/github_{{ item.item.item.key }} ~/.ssh/github_{{ item.item.item.key }}.pub
+
+              Or update the vault passphrase to match:
+                ./vault.bash set github_ssh_passphrase
+          when: item.rc is defined and item.rc != 0
+          loop: "{{ passphrase_verify.results | default([]) }}"
+          loop_control:
+            label: "{{ item.item.item.key | default('unknown') }}"
+
         - name: Generate SSH keys for missing accounts
           ansible.builtin.shell: |
             ssh-keygen -t ed25519 -C "{{ item.item.value }}@github" \
@@ -127,23 +165,6 @@
           loop: "{{ ssh_key_status.results }}"
           loop_control:
             label: "{{ item.item.key }}"
-
-        - name: Add passphrase to existing passphrase-less GitHub SSH keys
-          ansible.builtin.shell: |
-            ssh-keygen -p -P "" -N "{{ github_ssh_passphrase }}" \
-              -f "/home/{{ user_login }}/.ssh/github_{{ item.item.key }}" 2>&1
-          args:
-            executable: /bin/bash
-          no_log: true
-          when: item.stat.exists
-          loop: "{{ ssh_key_status.results }}"
-          loop_control:
-            label: "{{ item.item.key }}"
-          register: passphrase_update
-          failed_when: false
-          # rc=0: passphrase added (key had empty passphrase)
-          # rc!=0: key already has a passphrase — expected, not an error
-          changed_when: passphrase_update.rc == 0
 
         - name: Set proper permissions on SSH keys
           ansible.builtin.file:
@@ -183,14 +204,6 @@
                   User git
                   IdentityFile ~/.ssh/id
                   IdentitiesOnly yes
-
-        - name: Create SSH askpass helper
-          ansible.builtin.copy:
-            content: "{{ github_ssh_passphrase }}"
-            dest: "/tmp/.github_ssh_pp"
-            mode: "0600"
-            owner: "{{ user_login }}"
-          no_log: true
 
         - name: Test SSH connections
           ansible.builtin.shell: |

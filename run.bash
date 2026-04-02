@@ -813,11 +813,13 @@ PYEOF
       # Passphrase exists in vault (from config repo) — decrypt it rather than
       # asking the user to re-type it, which risks a mismatch
       info "Decrypting github_ssh_passphrase from vault..."
-      _github_ssh_passphrase=$(ansible localhost -c local \
+      # Force minimal callback to get predictable JSON output regardless of ansible.cfg
+      _github_ssh_passphrase=$(ANSIBLE_STDOUT_CALLBACK=ansible.builtin.minimal \
+        ansible localhost -c local \
         -e "@$localhost_yml" \
         -m debug -a "msg={{ github_ssh_passphrase }}" \
         --vault-id "localhost@$vault_pass_file" 2>/dev/null \
-        | grep '"msg"' | sed 's/.*"msg": "\(.*\)"/\1/')
+        | python3 -c "import sys,json,re;raw=sys.stdin.read();m=re.search(r'=>\s*(\{.*\})',raw,re.DOTALL);print(json.loads(m.group(1))['msg'],end='')" 2>/dev/null)
       if [[ -z "$_github_ssh_passphrase" ]]; then
         error "Failed to decrypt github_ssh_passphrase from vault"
         echo -e "   ${YELLOW}${ARROW}${NC} Check that vault-pass.secret is correct"
