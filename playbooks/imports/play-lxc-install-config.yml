@@ -69,24 +69,54 @@
         marker: "# {mark} ANSIBLE MANAGED - LXC Install"
         path: /etc/sysconfig/lxc-net
 
-    - name: Verify GitHub SSH access
+    - name: Verify GitHub SSH access and clone LXC Bash
       become_user: "{{ user_login }}"
-      ansible.builtin.command: ssh -T git@github.com -o BatchMode=yes -o StrictHostKeyChecking=accept-new
-      changed_when: false
-      # ssh -T git@github.com returns rc=1 on SUCCESS ("Hi username!")
-      failed_when: github_ssh_check.rc != 1
-      register: github_ssh_check
+      block:
+        - name: Create passphrase file for SSH operations
+          ansible.builtin.copy:
+            content: "{{ github_ssh_passphrase }}"
+            dest: "/tmp/.lxc_ssh_pp"
+            mode: "0600"
+            owner: "{{ user_login }}"
+          no_log: true
 
-    - name: Clone LXC Bash
-      become_user: "{{ user_login }}"
-      ansible.builtin.git:
-        repo: git@github.com:LongTermSupport/lxc-bash.git
-        dest: /home/{{ user_login }}/Projects/lxc-bash
+        - name: Verify GitHub SSH access
+          ansible.builtin.shell: |
+            tmp_key=$(mktemp)
+            trap 'rm -f "$tmp_key"' EXIT
+            cp "/home/{{ user_login }}/.ssh/id" "$tmp_key"
+            chmod 600 "$tmp_key"
+            ssh-keygen -p -P "$(cat /tmp/.lxc_ssh_pp)" -N "" -f "$tmp_key" >/dev/null 2>&1
+            timeout 15 ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -i "$tmp_key" -T git@github.com 2>&1
+          args:
+            executable: /bin/bash
+          register: github_ssh_check
+          changed_when: false
+          # rc 1 = GitHub responded with "Hi username!" (success)
+          failed_when: "'successfully authenticated' not in github_ssh_check.stdout"
 
-    - name: Add Aliases to bashrc file
-      ansible.builtin.lineinfile:
-        line: source /home/{{ user_login }}/Projects/lxc-bash/lxc-bash-completion.bash
-        path: /home/{{ user_login }}/.bashrc
+        - name: Clone LXC Bash
+          ansible.builtin.shell: |
+            tmp_key=$(mktemp)
+            trap 'rm -f "$tmp_key"' EXIT
+            cp "/home/{{ user_login }}/.ssh/id" "$tmp_key"
+            chmod 600 "$tmp_key"
+            ssh-keygen -p -P "$(cat /tmp/.lxc_ssh_pp)" -N "" -f "$tmp_key" >/dev/null 2>&1
+            GIT_SSH_COMMAND="ssh -i $tmp_key -o BatchMode=yes -o StrictHostKeyChecking=accept-new" \
+              git clone git@github.com:LongTermSupport/lxc-bash.git "/home/{{ user_login }}/Projects/lxc-bash"
+          args:
+            executable: /bin/bash
+            creates: "/home/{{ user_login }}/Projects/lxc-bash"
+
+        - name: Add Aliases to bashrc file
+          ansible.builtin.lineinfile:
+            line: source /home/{{ user_login }}/Projects/lxc-bash/lxc-bash-completion.bash
+            path: /home/{{ user_login }}/.bashrc
+      always:
+        - name: Clean up passphrase file
+          ansible.builtin.file:
+            path: "/tmp/.lxc_ssh_pp"
+            state: absent
 
     - name: Increase System Limits
       ansible.builtin.blockinfile:
