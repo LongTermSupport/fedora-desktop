@@ -47,60 +47,54 @@ check_vault_pass() {
   fi
 }
 
-# Use ansible's Python API directly — no CLI output parsing needed
-_vault_py() {
-  python3 - "$@" << 'PYEOF'
-import re, sys
-from ansible.parsing.dataloader import DataLoader
-from ansible.parsing.vault import VaultSecret
-
-VAULT_FILE = "environment/localhost/host_vars/localhost.yml"
-
-loader = DataLoader()
-with open("vault-pass.secret", "rb") as f:
-    loader.set_vault_secrets([("localhost", VaultSecret(f.read().strip()))])
-data = loader.load_from_file(VAULT_FILE)
-
-def vault_var_names():
-    with open(VAULT_FILE) as f:
-        return sorted(re.findall(r"^([a-zA-Z_]\w*):.*!vault", f.read(), re.MULTILINE))
-
-cmd = sys.argv[1]
-
-if cmd == "get":
-    name = sys.argv[2]
-    if name not in data:
-        print(f"ERROR: '{name}' not found in {VAULT_FILE}", file=sys.stderr)
-        sys.exit(1)
-    print(str(data[name]))
-
-elif cmd == "list":
-    for name in vault_var_names():
-        print(name)
-
-elif cmd == "dump":
-    for name in vault_var_names():
-        val = str(data.get(name, "<NOT FOUND>"))
-        if len(val) > 80:
-            val = val[:77] + "..."
-        print(f"{name:<30} {val}")
-PYEOF
+# Decrypt a single vault variable using ansible CLI
+# Forces minimal callback to get predictable JSON output regardless of ansible.cfg
+_decrypt_var() {
+  local varname="$1"
+  ANSIBLE_STDOUT_CALLBACK=ansible.builtin.minimal \
+  ansible localhost -c local \
+    --vault-id "${VAULT_ID}@${VAULT_PASS_FILE}" \
+    -m debug -a "msg={{ ${varname} }}" \
+    -i environment/localhost/hosts.yml 2>/dev/null \
+    | sed 's/.*"msg": "//;s/"[[:space:]]*}$//'
 }
 
 cmd_get() {
   local varname="${1:?Usage: vault.bash get <varname>}"
   check_vault_pass
-  _vault_py get "$varname"
+
+  if ! grep -qP "^${varname}:.*!vault" "$VAULT_FILE" 2>/dev/null; then
+    echo "ERROR: Variable '$varname' not found as vault-encrypted in $VAULT_FILE" >&2
+    exit 1
+  fi
+
+  _decrypt_var "$varname"
 }
 
 cmd_dump() {
   check_vault_pass
-  _vault_py dump
+
+  local vault_vars
+  vault_vars=$(cmd_list)
+
+  if [[ -z "$vault_vars" ]]; then
+    echo "No vault-encrypted variables found in $VAULT_FILE" >&2
+    return
+  fi
+
+  local varname value
+  while IFS= read -r varname; do
+    value=$(_decrypt_var "$varname")
+    if [[ "${#value}" -gt 80 ]]; then
+      value="${value:0:77}..."
+    fi
+    printf '%-30s %s\n' "$varname" "$value"
+  done <<< "$vault_vars"
 }
 
 cmd_list() {
   check_vault_pass
-  _vault_py list
+  grep -oP '^[a-zA-Z_]\w*(?=:.*!vault)' "$VAULT_FILE" | sort
 }
 
 cmd_encrypt() {
