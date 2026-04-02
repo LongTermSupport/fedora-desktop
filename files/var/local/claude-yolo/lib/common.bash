@@ -58,8 +58,6 @@ source "$LIB_DIR/dockerfile-custom.bash"
 # shellcheck source=/dev/null
 source "$LIB_DIR/ui-helpers.bash"
 # shellcheck source=/dev/null
-source "$LIB_DIR/session-management.bash"
-# shellcheck source=/dev/null
 source "$LIB_DIR/docker-health.bash"
 
 # Output formatting helpers
