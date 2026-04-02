@@ -69,32 +69,24 @@
         marker: "# {mark} ANSIBLE MANAGED - LXC Install"
         path: /etc/sysconfig/lxc-net
 
-    - name: Check if GitHub SSH access is available
+    - name: Verify GitHub SSH access
       ansible.builtin.command: ssh -T git@github.com -o BatchMode=yes -o StrictHostKeyChecking=accept-new
-      register: github_ssh_check
       changed_when: false
       # ssh -T git@github.com returns rc=1 on SUCCESS ("Hi username!")
-      failed_when: false  # FAIL-FAST-OK: probe — gates clone+bashrc block below
+      failed_when: github_ssh_check.rc != 1
+      register: github_ssh_check
 
-    - name: Clone LXC Bash and configure shell
-      block:
-        - name: Clone LXC Bash
-          become: true
-          become_user: "{{ user_login }}"
-          ansible.builtin.git:
-            repo: git@github.com:LongTermSupport/lxc-bash.git
-            dest: /home/{{ user_login }}/Projects/lxc-bash
+    - name: Clone LXC Bash
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.git:
+        repo: git@github.com:LongTermSupport/lxc-bash.git
+        dest: /home/{{ user_login }}/Projects/lxc-bash
 
-        - name: Add Aliases to bashrc file
-          ansible.builtin.lineinfile:
-            line: source /home/{{ user_login }}/Projects/lxc-bash/lxc-bash-completion.bash
-            path: /home/{{ user_login }}/.bashrc
-      when: github_ssh_check.rc == 1
-
-    - name: Skip LXC Bash clone (no GitHub SSH access)
-      ansible.builtin.debug:
-        msg: "Skipping lxc-bash clone — GitHub SSH not available. Run the GitHub multi-account playbook first, then re-run."
-      when: github_ssh_check.rc != 1
+    - name: Add Aliases to bashrc file
+      ansible.builtin.lineinfile:
+        line: source /home/{{ user_login }}/Projects/lxc-bash/lxc-bash-completion.bash
+        path: /home/{{ user_login }}/.bashrc
 
     - name: Increase System Limits
       ansible.builtin.blockinfile:
