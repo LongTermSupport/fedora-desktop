@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+# ssh-agent-start — start ssh-agent and add private keys
+#
+# Usage:
+#   ssh-agent-start --all     Add all private keys (non-interactive)
+#   ssh-agent-start           Interactive mode — choose which keys to add
+set -euo pipefail
+
+SSH_DIR="$HOME/.ssh"
+
+# Discover private keys: files that are NOT .pub, config, known_hosts, authorized_keys
+discover_private_keys() {
+    local keys=()
+    for f in "$SSH_DIR"/*; do
+        [ -f "$f" ] || continue
+        local name
+        name="$(basename "$f")"
+        # Skip non-key files
+        case "$name" in
+            *.pub|config|known_hosts|known_hosts.old|authorized_keys|*.swp|*.bak) continue ;;
+        esac
+        keys+=("$f")
+    done
+    printf '%s\n' "${keys[@]}"
+}
+
+add_key() {
+    local key="$1"
+    local name
+    name="$(basename "$key")"
+    if ssh-add "$key" 2>&1; then
+        echo "  Added: $name"
+    else
+        echo "  FAILED: $name" >&2
+    fi
+}
+
+ensure_agent() {
+    if [ -z "${SSH_AUTH_SOCK:-}" ]; then
+        echo "ssh-agent is not running. Start it with:"
+        echo "  eval \$(ssh-agent -s)"
+        exit 1
+    fi
+}
+
+mode_all() {
+    ensure_agent
+    local keys
+    keys="$(discover_private_keys)"
+    if [ -z "$keys" ]; then
+        echo "No private keys found in $SSH_DIR"
+        exit 0
+    fi
+    echo "Adding all private keys from $SSH_DIR:"
+    while IFS= read -r key; do
+        add_key "$key"
+    done <<< "$keys"
+    echo ""
+    echo "Done. Loaded keys:"
+    ssh-add -l
+}
+
+mode_interactive() {
+    ensure_agent
+    local -a keys
+    mapfile -t keys < <(discover_private_keys)
+    if [ ${#keys[@]} -eq 0 ]; then
+        echo "No private keys found in $SSH_DIR"
+        exit 0
+    fi
+
+    echo "Private keys in $SSH_DIR:"
+    echo ""
+    local i=1
+    for key in "${keys[@]}"; do
+        local name
+        name="$(basename "$key")"
+        # Check if already loaded
+        if ssh-add -l 2>/dev/null | grep -q "$key"; then
+            echo "  $i) $name  [already loaded]"
+        else
+            echo "  $i) $name"
+        fi
+        ((i++))
+    done
+    echo ""
+    echo "  a) Add all"
+    echo "  q) Quit"
+    echo ""
+
+    read -rp "Enter numbers (space-separated), 'a' for all, or 'q' to quit: " choice
+
+    case "$choice" in
+        q|Q) echo "Cancelled."; exit 0 ;;
+        a|A)
+            for key in "${keys[@]}"; do
+                add_key "$key"
+            done
+            ;;
+        *)
+            for num in $choice; do
+                if [[ "$num" =~ ^[0-9]+$ ]] && [ "$num" -ge 1 ] && [ "$num" -le ${#keys[@]} ]; then
+                    add_key "${keys[$((num-1))]}"
+                else
+                    echo "  Skipping invalid selection: $num" >&2
+                fi
+            done
+            ;;
+    esac
+
+    echo ""
+    echo "Loaded keys:"
+    ssh-add -l
+}
+
+usage() {
+    echo "Usage: ssh-agent-start [--all]"
+    echo ""
+    echo "  --all    Add all private keys non-interactively"
+    echo "  (none)   Interactive mode — choose which keys to add"
+    echo ""
+    echo "Only adds actual private key files — skips .pub, config, known_hosts."
+}
+
+case "${1:-}" in
+    --all|-a) mode_all ;;
+    --help|-h) usage ;;
+    "") mode_interactive ;;
+    *) echo "Unknown option: $1"; usage; exit 1 ;;
+esac

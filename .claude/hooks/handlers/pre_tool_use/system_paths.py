@@ -101,6 +101,20 @@ class SystemPathsHandler(Handler):
             ),
         )
 
+    def get_claude_md(self) -> str | None:
+        """Return CLAUDE.md guidance for this handler."""
+        blocked = ", ".join(self.BLOCKED_PATHS)
+        return (
+            "## system_paths — do not edit deployed system files directly\n\n"
+            f"Writing or editing files under system paths ({blocked}) is blocked.\n"
+            "These are deployed files managed by Ansible.\n\n"
+            "**Edit the project source instead**:\n"
+            "- `/etc/foo` → `files/etc/foo`\n"
+            "- `/var/local/foo` → `files/var/local/foo`\n"
+            "- `/usr/bin/foo` → `files/usr/bin/foo`\n\n"
+            "Then deploy via Ansible playbook."
+        )
+
     def get_acceptance_tests(self) -> list[AcceptanceTest]:
         """Return acceptance tests for SystemPathsHandler."""
         return [

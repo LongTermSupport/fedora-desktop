@@ -133,6 +133,20 @@ class AnsibleEnforcementHandler(Handler):
             ),
         )
 
+    def get_claude_md(self) -> str | None:
+        """Return CLAUDE.md guidance for this handler."""
+        return (
+            "## ansible_enforcement — no direct system management commands\n\n"
+            "Direct package management, service management, and system configuration "
+            "commands are blocked. All system changes must go through Ansible playbooks.\n\n"
+            "**Blocked**: `dnf install`, `systemctl enable/start/stop`, `gsettings set`, "
+            "`useradd`, `pip install` (system), `npm install -g`, `flatpak install`\n\n"
+            "**Allowed** (read-only queries): `dnf info/list/search`, `systemctl status`, "
+            "`gsettings get`, `flatpak list`\n\n"
+            "**Use instead**: Create/update Ansible playbook in `playbooks/imports/` "
+            "and deploy with `ansible-playbook`."
+        )
+
     def get_acceptance_tests(self) -> list[AcceptanceTest]:
         """Return acceptance tests for AnsibleEnforcementHandler."""
         return [

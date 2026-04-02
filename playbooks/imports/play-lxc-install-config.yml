@@ -49,6 +49,7 @@
         create: true
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
+        mode: "0600"
         block: |
           Host "10.0.*.*"
             IdentityFile ~/.ssh/id_lxc
