@@ -9,6 +9,7 @@
     root_dir: "{{ inventory_dir }}/../../"
   tasks:
     - name: Enable Flathub
+      become: true
       ansible.builtin.command: flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
     - name: Install Slack
       become: true
