@@ -89,10 +89,11 @@
 
     - name: Vim Colours
       block:
-        - name: Get Colourscheme
-          ansible.builtin.get_url:
-            url: https://raw.githubusercontent.com/ajmwagar/vim-deus/master/colors/deus.vim
+        - name: Install Colourscheme
+          ansible.builtin.copy:
+            src: "{{ root_dir }}/files/usr/share/vim/vimfiles/colors/deus.vim"
             dest: /usr/share/vim/vimfiles/colors/deus.vim
+            mode: "0644"
 
         - name: Vim Configs
           ansible.builtin.blockinfile:
