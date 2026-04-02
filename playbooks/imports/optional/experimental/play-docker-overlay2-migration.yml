@@ -291,19 +291,22 @@
       ansible.builtin.command: systemctl --user start docker.socket
       register: start_socket_result
       changed_when: start_socket_result.rc == 0
-      failed_when: false  # FAIL-FAST-OK: unit files may be missing, next task warns user
+      failed_when: false  # FAIL-FAST-OK: unit files may be missing, next task fails with actionable message
 
     - name: Start Rootless Docker Service  # noqa: command-instead-of-module
       ansible.builtin.command: systemctl --user start docker.service
       register: start_service_result
       changed_when: start_service_result.rc == 0
-      failed_when: false  # FAIL-FAST-OK: unit files may be missing, next task warns user
+      failed_when: false  # FAIL-FAST-OK: unit files may be missing, next task fails with actionable message
 
-    - name: Warn if Docker Failed to Start
-      ansible.builtin.debug:
+    - name: Fail if Docker Failed to Start
+      ansible.builtin.fail:
         msg: |
-          WARNING: Docker failed to start. Unit files may be missing.
+          Docker failed to start after migration. Unit files may be missing.
+
+          The storage driver has been configured to overlay2, but Docker could not be started.
           Run the Docker playbook to restore: ansible-playbook playbooks/imports/optional/common/play-docker.yml
+          Then re-run this migration playbook.
       when: start_socket_result.rc != 0 or start_service_result.rc != 0
 
     - name: Wait for Docker Service to Initialize

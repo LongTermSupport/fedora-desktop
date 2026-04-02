@@ -217,10 +217,21 @@
       changed_when: true
       tags: grub
 
-    - name: Hardware
+    - name: Check and Apply Firmware Updates via fwupd
       ansible.builtin.shell: |
+        set -e
         fwupdmgr get-devices
         fwupdmgr refresh --force
-        fwupdmgr get-updates
-        fwupdmgr update
-      ignore_errors: true  # FAIL-FAST-OK: firmware updates may not be available
+        rc=0
+        fwupdmgr get-updates || rc=$?
+        if [ "$rc" -ne 0 ] && [ "$rc" -ne 2 ]; then
+          exit "$rc"
+        fi
+        rc=0
+        fwupdmgr update || rc=$?
+        if [ "$rc" -ne 0 ] && [ "$rc" -ne 2 ]; then
+          exit "$rc"
+        fi
+      args:
+        executable: /bin/bash
+      changed_when: true  # get-updates/update return rc=2 when no updates available

@@ -69,11 +69,12 @@
         marker: "# {mark} ANSIBLE MANAGED - LXC Install"
         path: /etc/sysconfig/lxc-net
 
-    - name: Check if GitHub SSH access is available
+    - name: Verify GitHub SSH access is available
       ansible.builtin.command: ssh -T git@github.com -o BatchMode=yes -o StrictHostKeyChecking=accept-new
       register: github_ssh_check
       changed_when: false
-      failed_when: false  # FAIL-FAST-OK: probe — SSH access determines clone method
+      # ssh -T git@github.com returns rc=1 on SUCCESS ("Hi username!")
+      failed_when: github_ssh_check.rc != 1
 
     - name: Clone LXC Bash
       become: true
@@ -81,7 +82,6 @@
       ansible.builtin.git:
         repo: git@github.com:LongTermSupport/lxc-bash.git
         dest: /home/{{ user_login }}/Projects/lxc-bash
-      when: github_ssh_check.rc == 1
 
     - name: Add Aliases to bashrc file
       ansible.builtin.lineinfile:
@@ -132,11 +132,11 @@
       ansible.builtin.command: lxc-checkconfig
       register: lxc_checkconfig_result
       changed_when: false
-      failed_when: false  # FAIL-FAST-OK: probe — some kernel features may be disabled
+      failed_when: false  # FAIL-FAST-OK: best-effort informational — lxc-checkconfig returns non-zero when optional kernel features are disabled
 
     - name: Show lxc-checkconfig results (review for any disabled features)
       ansible.builtin.debug:
-        msg: "{{ lxc_checkconfig_result.stdout_lines }}"
+        msg: "{{ ['NOTE: Review output below for critical features. Some optional features may be disabled — this is normal.'] + lxc_checkconfig_result.stdout_lines }}"
 
   handlers:
     - name: sysctl

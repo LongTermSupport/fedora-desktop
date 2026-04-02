@@ -20,19 +20,23 @@
         state: present
         extra_args: --user
 
+    - name: Check if user D-Bus session is available
+      ansible.builtin.command: systemctl --user status
+      register: dbus_session_check
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — D-Bus session may not exist yet
+
     - name: Enable Podman Socket for Docker Compatibility (Optional)
       ansible.builtin.systemd:
         name: podman.socket
         state: started
         enabled: true
         scope: user
-      ignore_errors: true  # FAIL-FAST-OK: socket may fail during headless firstboot
+      when: dbus_session_check.rc == 0
 
-    - name: Display Podman Info
+    - name: Verify Podman Install
       ansible.builtin.command: podman info
-      register: podman_info
       changed_when: false
-      failed_when: false  # FAIL-FAST-OK: probe — info display, non-critical
 
     - name: Show Podman Version
       ansible.builtin.debug:

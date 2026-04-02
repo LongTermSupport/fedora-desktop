@@ -159,6 +159,13 @@
     # Firewall Configuration
     # =========================================================================
 
+    - name: Check if Firewalld is Running
+      become: true
+      ansible.builtin.command: systemctl is-active firewalld
+      register: firewalld_status
+      failed_when: false  # FAIL-FAST-OK: probe — firewalld may not be running
+      changed_when: false
+
     - name: Add OpenVPN to Firewalld
       become: true
       ansible.builtin.shell: |
@@ -166,7 +173,17 @@
         firewall-cmd --reload
       register: firewall_result
       changed_when: "'ALREADY_ENABLED' not in firewall_result.stderr"
-      failed_when: false  # FAIL-FAST-OK: firewalld may not be running
+      when: firewalld_status.rc == 0
+
+    - name: Warn if Firewalld is Not Running
+      ansible.builtin.debug:
+        msg:
+          - "WARNING: firewalld is not running — OpenVPN firewall rule was NOT applied."
+          - "VPN connections may fail until you enable the firewall rule."
+          - "To fix, start firewalld and re-run this playbook:"
+          - "  sudo systemctl start firewalld"
+          - "  ansible-playbook playbooks/imports/optional/common/play-nordvpn-openvpn.yml"
+      when: firewalld_status.rc != 0
 
     # =========================================================================
     # Usage Instructions

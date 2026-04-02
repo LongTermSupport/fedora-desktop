@@ -348,22 +348,31 @@
         group: "{{ user_login }}"
         mode: '0755'
 
-    - name: Backup Existing Claude Prompt Templates (if different from source)
-      ansible.builtin.copy:
-        src: "/home/{{ user_login }}/.config/speech-to-text/{{ item }}"
-        dest: "/home/{{ user_login }}/.config/speech-to-text/{{ item }}.bak"
-        remote_src: true
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: '0644'
-        force: true
+    - name: Check Existing Claude Prompt Templates
+      ansible.builtin.stat:
+        path: "/home/{{ user_login }}/.config/speech-to-text/{{ item }}"
+      register: existing_prompts
       loop:
         - claude-prompt-corporate.txt
         - claude-prompt-natural.txt
         - claude-prompt-article.txt
         - claude-prompt-humanize.txt
-      when: lookup('file', root_dir + '/files/home/.config/speech-to-text/' + item, errors='ignore') != lookup('file', '/home/' + user_login + '/.config/speech-to-text/' + item, errors='ignore')
-      failed_when: false  # FAIL-FAST-OK: dest file may not exist on first deploy
+
+    - name: Backup Existing Claude Prompt Templates (if different from source)
+      ansible.builtin.copy:
+        src: "/home/{{ user_login }}/.config/speech-to-text/{{ item.item }}"
+        dest: "/home/{{ user_login }}/.config/speech-to-text/{{ item.item }}.bak"
+        remote_src: true
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+        force: true
+      loop: "{{ existing_prompts.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      when:
+        - item.stat.exists
+        - lookup('file', root_dir + '/files/home/.config/speech-to-text/' + item.item, errors='ignore') != lookup('file', '/home/' + user_login + '/.config/speech-to-text/' + item.item, errors='ignore')
 
     - name: Deploy Claude Prompt Templates
       ansible.builtin.copy:
@@ -419,4 +428,9 @@
     - name: Extension Reload Complete
       ansible.builtin.debug:
         msg: "✓ Speech-to-Text extension reloaded successfully"
-      when: extension_enabled.rc == 0
+      when: enable_result.rc == 0
+
+    - name: Extension Enable Deferred
+      ansible.builtin.debug:
+        msg: "⚠ Extension will be enabled on next GNOME session start (no active session detected)"
+      when: enable_result.rc != 0

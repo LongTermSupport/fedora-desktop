@@ -50,7 +50,7 @@
         return_content: true
       register: github_release
       changed_when: false
-      failed_when: false  # FAIL-FAST-OK: probe — GitHub API may be unreachable
+      failed_when: false  # FAIL-FAST-OK: probe — GitHub API may be unreachable; user warned via pause
 
     - name: Parse latest version information
       ansible.builtin.set_fact:
@@ -100,12 +100,24 @@
       when: not version_check_failed
 
     - name: Warning about version check failure
-      ansible.builtin.debug:
-        msg:
-          - "WARNING: Unable to verify DisplayLink package version against GitHub"
-          - "Proceeding with installation of version: {{ displaylink_version }}"
-          - "If installation fails, manually check for updates at:"
-          - "https://github.com/displaylink-rpm/displaylink-rpm/releases"
+      ansible.builtin.pause:
+        prompt: |2
+
+          ========================================================================
+          WARNING: VERSION CHECK FAILED
+          ========================================================================
+
+          Unable to verify DisplayLink package version against GitHub.
+          Proceeding will install version: {{ displaylink_version }}
+
+          DisplayLink is a kernel driver — installing an outdated or incompatible
+          version can cause system instability, boot failures, or display issues.
+
+          If you want to verify manually before proceeding, check:
+          https://github.com/displaylink-rpm/displaylink-rpm/releases
+
+          Press ENTER to accept the risk and continue, or Ctrl+C to abort...
+          ========================================================================
       when: version_check_failed
 
     - name: Install DisplayLink RPM
