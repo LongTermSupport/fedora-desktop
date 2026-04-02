@@ -1,0 +1,285 @@
+#!/usr/bin/env ansible-playbook
+---
+#!/usr/bin/env ansible-playbook
+- hosts: desktop
+  name: Deploy UniFi Network Controller for Seamless WiFi Roaming (Podman)
+  become: true
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+    # UniFi controller data persists across container rebuilds
+    unifi_data_dir: /home/{{ user_login }}/.local/share/unifi
+    unifi_container_name: unifi-network-controller
+    # @see https://hub.docker.com/r/linuxserver/unifi-network-application/tags
+    unifi_image: lscr.io/linuxserver/unifi-network-application:latest
+    # MongoDB is required by the UniFi Network Application
+    unifi_mongo_image: docker.io/library/mongo:7.0
+    unifi_mongo_container_name: unifi-mongodb
+  tasks:
+    # ── Setup Guide ────────────────────────────────────────────────────────────
+    # Full setup guide including wired AP adoption, seamless roaming config,
+    # troubleshooting, and backup/restore: docs/UnifiSetupGuide.md
+
+    # ── Data Directories ────────────────────────────────────────────────────────
+
+    - name: Create UniFi Persistent Data Directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+      loop:
+        - "{{ unifi_data_dir }}"
+        - "{{ unifi_data_dir }}/config"
+        - "{{ unifi_data_dir }}/mongodb/data"
+        - "{{ unifi_data_dir }}/mongodb/init"
+
+    # ── MongoDB Init Script ─────────────────────────────────────────────────────
+    # UniFi Network Application requires a dedicated MongoDB user/database
+    # @see https://github.com/linuxserver/docker-unifi-network-application
+
+    - name: Deploy MongoDB Init Script for UniFi
+      ansible.builtin.copy:
+        dest: "{{ unifi_data_dir }}/mongodb/init/init-mongo.js"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0644"
+        content: |
+          // Creates the UniFi database and user on first MongoDB start
+          db.getSiblingDB("unifi").createUser({
+            user: "unifi",
+            pwd: "unifi",
+            roles: [{ role: "dbOwner", db: "unifi" }]
+          });
+          db.getSiblingDB("unifi_stat").createUser({
+            user: "unifi",
+            pwd: "unifi",
+            roles: [{ role: "dbOwner", db: "unifi_stat" }]
+          });
+
+    # ── Podman Pod ──────────────────────────────────────────────────────────────
+    # Using a pod groups MongoDB + UniFi into a shared network namespace
+    # so they can communicate over localhost
+
+    - name: Create UniFi Pod
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command: >
+        podman pod create
+        --name unifi-pod
+        --publish 8443:8443
+        --publish 3478:3478/udp
+        --publish 10001:10001/udp
+        --publish 8080:8080
+        --publish 1900:1900/udp
+        --publish 8843:8843
+        --publish 6789:6789
+      register: pod_create
+      changed_when: pod_create.rc == 0
+      failed_when: false  # FAIL-FAST-OK: pod may already exist
+
+    - name: Verify UniFi Pod Exists
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command: podman pod exists unifi-pod
+      changed_when: false
+
+    # ── MongoDB Container ───────────────────────────────────────────────────────
+
+    - name: Start MongoDB Container for UniFi
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command: >
+        podman run -d
+        --pod unifi-pod
+        --name {{ unifi_mongo_container_name }}
+        --volume {{ unifi_data_dir }}/mongodb/data:/data/db:Z
+        --volume {{ unifi_data_dir }}/mongodb/init/init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro,Z
+        --restart unless-stopped
+        {{ unifi_mongo_image }}
+      register: mongo_start
+      changed_when: mongo_start.rc == 0
+      failed_when: false  # FAIL-FAST-OK: container may already exist/be running
+
+    - name: Verify MongoDB Container is Running
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.shell: |
+        set -e
+        state=$(podman inspect --format '{{ '{{' }}.State.Status{{ '}}' }}' {{ unifi_mongo_container_name }})
+        if [ "$state" != "running" ]; then
+          echo "MongoDB container state: $state (expected: running)" >&2
+          exit 1
+        fi
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    # ── UniFi Network Application Container ─────────────────────────────────────
+
+    - name: Start UniFi Network Application Container
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command: >
+        podman run -d
+        --pod unifi-pod
+        --name {{ unifi_container_name }}
+        --env PUID=1000
+        --env PGID=1000
+        --env TZ=Europe/London
+        --env MONGO_USER=unifi
+        --env MONGO_PASS=unifi
+        --env MONGO_HOST=127.0.0.1
+        --env MONGO_PORT=27017
+        --env MONGO_DBNAME=unifi
+        --env MEM_LIMIT=1024
+        --volume {{ unifi_data_dir }}/config:/config:Z
+        --restart unless-stopped
+        {{ unifi_image }}
+      register: unifi_start
+      changed_when: unifi_start.rc == 0
+      failed_when: false  # FAIL-FAST-OK: container may already exist/be running
+
+    - name: Verify UniFi Container is Running
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.shell: |
+        set -e
+        state=$(podman inspect --format '{{ '{{' }}.State.Status{{ '}}' }}' {{ unifi_container_name }})
+        if [ "$state" != "running" ]; then
+          echo "UniFi container state: $state (expected: running)" >&2
+          exit 1
+        fi
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    # ── Firewall Rules ──────────────────────────────────────────────────────────
+    # AP discovery requires these ports to be open on the host firewall
+    # @see https://help.ui.com/hc/en-us/articles/218506997
+
+    - name: Open UniFi Ports in Firewall
+      ansible.builtin.shell: |
+        set -e
+        # STUN (AP discovery)
+        firewall-cmd --permanent --add-port=3478/udp
+        # Device communication
+        firewall-cmd --permanent --add-port=8080/tcp
+        # Web UI (HTTPS)
+        firewall-cmd --permanent --add-port=8443/tcp
+        # AP discovery (L2)
+        firewall-cmd --permanent --add-port=10001/udp
+        # DLNA/UPnP (optional)
+        firewall-cmd --permanent --add-port=1900/udp
+        # Guest portal HTTPS (optional)
+        firewall-cmd --permanent --add-port=8843/tcp
+        # Speed test (optional)
+        firewall-cmd --permanent --add-port=6789/tcp
+        firewall-cmd --reload
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    # ── Launch Script ─────────────────────────────────────────────────────────
+    # On-demand launcher: starts the pod, opens the web UI, waits for stop
+
+    - name: Deploy UniFi Controller Launch Script
+      ansible.builtin.copy:
+        dest: /home/{{ user_login }}/.local/bin/unifi-controller
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+        content: |
+          #!/usr/bin/env bash
+          set -e
+
+          POD="unifi-pod"
+          URL="https://localhost:8443"
+
+          start_pod() {
+            if podman pod exists "$POD" && [ "$(podman pod inspect "$POD" --format '{{ '{{' }}.State{{ '}}' }}')" = "Running" ]; then
+              echo "UniFi pod already running"
+            else
+              echo "Starting UniFi pod..."
+              podman pod start "$POD"
+              echo "Waiting for controller to initialise..."
+              sleep 5
+            fi
+          }
+
+          stop_pod() {
+            echo ""
+            echo "Stopping UniFi pod..."
+            podman pod stop "$POD"
+            echo "UniFi controller stopped."
+          }
+
+          case "${1:-start}" in
+            start)
+              start_pod
+              echo "UniFi Controller: $URL"
+              xdg-open "$URL" 2>/dev/null || echo "Open $URL in your browser"
+              echo ""
+              echo "Press Ctrl+C to stop the controller."
+              trap stop_pod EXIT
+              # Keep running until user presses Ctrl+C
+              while true; do sleep 60; done
+              ;;
+            stop)
+              stop_pod
+              ;;
+            status)
+              podman pod ps --filter "name=$POD" --no-trunc
+              ;;
+            *)
+              echo "Usage: unifi-controller [start|stop|status]"
+              exit 1
+              ;;
+          esac
+
+    # ── Desktop Launcher ───────────────────────────────────────────────────────
+    # GNOME application launcher — shows in Activities search as "UniFi"
+
+    - name: Deploy UniFi Desktop Launcher
+      ansible.builtin.copy:
+        dest: /home/{{ user_login }}/.local/share/applications/unifi-controller.desktop
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0644"
+        content: |
+          [Desktop Entry]
+          Name=UniFi Controller
+          Comment=Start UniFi Network Controller and open web UI
+          Exec=/home/{{ user_login }}/.local/bin/unifi-controller start
+          Icon=network-wireless
+          Terminal=true
+          Type=Application
+          Categories=Network;System;
+          Keywords=unifi;wifi;network;access point;router;
+
+    # ── Post-Install Info ───────────────────────────────────────────────────────
+
+    - name: Show UniFi Controller Access Info
+      ansible.builtin.debug:
+        msg: |
+          ╔══════════════════════════════════════════════════════════════╗
+          ║  UniFi Network Controller deployed successfully!           ║
+          ║                                                            ║
+          ║  Launch from GNOME Activities: search "UniFi"              ║
+          ║  Or from terminal: unifi-controller start                  ║
+          ║                                                            ║
+          ║  Web UI: https://localhost:8443                            ║
+          ║                                                            ║
+          ║  Commands:                                                 ║
+          ║    unifi-controller start   — start + open browser         ║
+          ║    unifi-controller stop    — stop the controller          ║
+          ║    unifi-controller status  — check pod status             ║
+          ║                                                            ║
+          ║  Data directory: {{ unifi_data_dir }}
+          ║                                                            ║
+          ║  NOTE: First startup takes 1-2 minutes.                   ║
+          ║  Accept the self-signed certificate warning in browser.    ║
+          ║                                                            ║
+          ║  Setup guide: docs/UnifiSetupGuide.md                      ║
+          ║  (AP adoption, roaming setup, troubleshooting)             ║
+          ╚══════════════════════════════════════════════════════════════╝

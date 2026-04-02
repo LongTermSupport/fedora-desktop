@@ -244,6 +244,9 @@ distrobox enter dev
 **GitHub**
 - [Multi-account management](github-multi-account.md) — Setup, commands, adding/removing accounts
 
+**Networking**
+- [UniFi Setup Guide](UnifiSetupGuide.md) — Controller deployment, mesh AP adoption, troubleshooting
+
 **Installation & Setup**
 - [Prerequisites](installation.md#prerequisites)
 - [Quick install](installation.md#quick-install)
