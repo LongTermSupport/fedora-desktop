@@ -223,7 +223,6 @@
         mode: "0755"
       loop:
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/common.bash"
-        - "{{ root_dir }}/files/var/local/claude-yolo/lib/ui-helpers.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/ssh-handling.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/token-management.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/network-management.bash"
@@ -233,11 +232,20 @@
         - scripts
         - library
 
-    # Remove old symlinks (cleanup from previous versions)
+    # Remove old symlinks and dead files (cleanup from previous versions)
     - name: Remove Old Symlink in /usr/local/bin
       become: true
       ansible.builtin.file:
         path: /usr/local/bin/claude-yolo
+        state: absent
+      tags:
+        - scripts
+        - cleanup
+
+    - name: Remove Dead ui-helpers.bash Library
+      become: true
+      ansible.builtin.file:
+        path: /var/local/claude-yolo/lib/ui-helpers.bash
         state: absent
       tags:
         - scripts
