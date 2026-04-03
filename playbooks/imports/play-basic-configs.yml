@@ -201,6 +201,22 @@
         - id.pub
       when: user_ssh_key.stat.exists
 
+    - name: Ensure ~/.local/bin directory exists
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.local/bin"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+
+    - name: Install ssh-agent-start helper script
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/ssh-agent-start"
+        dest: "/home/{{ user_login }}/.local/bin/ssh-agent-start"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+
     - name: Install YQ
       become: true
       ansible.builtin.shell: |
