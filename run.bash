@@ -453,7 +453,8 @@ completed
 
 title "Set Custom Hostname"
 if [[ "$(hostname)" == "fedora" ]]; then
-  echo "found default hostname, please choose a new one:"
+  echo "found default hostname, please choose a new one"
+  echo "(your machine hostname, eg joseph-laptop, joseph-fedora etc)"
   read -rp "Hostname: " hostname
   sudo hostnamectl set-hostname "$hostname"
 fi
@@ -501,10 +502,16 @@ function ghCheckTokenPermission(){
 if ! gh auth status > /dev/null 2>&1; then
   echo -e "\n${YELLOW}${BOLD}┌─────────────────────────────────────────────────┐${NC}"
   echo -e "${YELLOW}${BOLD}│                    IMPORTANT                    │${NC}"
-  echo -e "${YELLOW}${BOLD}│   PLEASE CHOOSE SSH AS THE AUTHENTICATION      │${NC}"
-  echo -e "${YELLOW}${BOLD}│                    METHOD!                      │${NC}"
+  echo -e "${YELLOW}${BOLD}│   YOU MUST CHOOSE SSH WHEN ASKED FOR THE       │${NC}"
+  echo -e "${YELLOW}${BOLD}│   PREFERRED PROTOCOL FOR GIT OPERATIONS        │${NC}"
   echo -e "${YELLOW}${BOLD}└─────────────────────────────────────────────────┘${NC}\n"
-  
+
+  read -rp "Confirm you will choose SSH for GitHub authentication (Y/n): " confirm_ssh
+  if [[ "${confirm_ssh,,}" == "n" ]]; then
+    error "SSH is required - please re-run and choose SSH"
+    exit 1
+  fi
+
   if ! gh auth login; then
     error "Failed to login to GitHub"
     echo -e "${YELLOW}${ARROW} Please try running 'gh auth login' manually${NC}"
@@ -619,9 +626,15 @@ if [[ "$has_config_repo" == "true" ]] && [[ "${_config_choice}" == "${_opt_pull}
 elif [[ -n "${_opt_keep:-}" ]] && [[ "${_config_choice}" == "${_opt_keep}" ]]; then
   success "Keeping existing localhost.yml"
 elif [[ "${_config_choice}" == "${_opt_fresh}" ]]; then
-  echo -e "\n${CYAN}Current system user: ${BOLD}$(whoami)${NC}"
-  user_login="$(promptForValue 'user login' min3)"
-  user_name="$(promptForValue 'full name' min3)"
+  echo ""
+  read -rp "   User login [$(whoami)]: " user_login
+  user_login="${user_login:-$(whoami)}"
+  if [[ ${#user_login} -lt 3 ]]; then
+    error "User login must be at least 3 characters"
+    exit 1
+  fi
+  read -rp "   Full name [${user_login}]: " user_name
+  user_name="${user_name:-$user_login}"
   user_email="$(promptForValue 'email address' email)"
 
   echo -e "\n${CYAN}${ARROW}${NC} Enter your GitHub username(s)"
