@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.9.0"  # feat: detect and clean up stale containers after unclean shutdown
+CCY_VERSION="3.9.1"  # fix: remove invalid "dead" state filter (Podman-incompatible)
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

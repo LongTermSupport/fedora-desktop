@@ -44,7 +44,7 @@ find_zombie_containers() {
     printf '%s\n' "${zombies[@]}"
 }
 
-# Find CCY containers that are stopped, dead, or in created state
+# Find CCY containers that are stopped or in created state
 # These are leftover from unclean shutdowns (battery death, crash, kill -9)
 # where the --rm flag never fired
 # Args: suffix (default: "yolo")
@@ -54,9 +54,10 @@ find_stale_containers() {
     local stale=()
 
     # Query all non-running containers matching CCY naming pattern
-    # Check each non-running status separately for compatibility
+    # Valid states for both Docker and Podman: exited, created
+    # (Docker also has "dead" but Podman does not)
     local status
-    for status in exited dead created; do
+    for status in exited created; do
         local containers
         containers=$(container_cmd ps -a \
             --filter "name=_${suffix}" \
