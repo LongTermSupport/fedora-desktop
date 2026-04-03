@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.9.1"  # fix: remove invalid "dead" state filter (Podman-incompatible)
+CCY_VERSION="3.10.0"  # feat: --export-token, spring cleaning (dead code, shellcheck, exit→return)
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,7 +22,7 @@ else
 fi
 
 # Load specialized libraries
-for lib in token-management ssh-handling network-management dockerfile-custom ui-helpers; do
+for lib in token-management ssh-handling network-management dockerfile-custom docker-health; do
     if [ -f "$SCRIPT_DIR/lib/$lib.bash" ]; then
         source "$SCRIPT_DIR/lib/$lib.bash"
     else
@@ -75,7 +75,7 @@ if [ -d ".claude/ccy/sessions" ]; then
         echo ""
         echo "Claude Code now uses .claude/ directly (project-level state)."
         echo ""
-        read -p "Remove old session directories? [y/N] " remove_sessions
+        read -rp "Remove old session directories? [y/N] " remove_sessions
         case "$remove_sessions" in
             y|Y|yes|Yes)
                 rm -rf .claude/ccy/sessions
@@ -136,6 +136,7 @@ Options:
   --token NAME           Use specific named token
   --create-token         Create a new named token
   --list-tokens          List available tokens
+  --export-token NAME    Export a token as a portable import script
   --network NETWORK      Auto-connect to specified container network on launch
   --no-network           Skip network auto-detection
   --connect [NETWORK]    Connect running container to network
@@ -179,6 +180,7 @@ Examples:
   ccy --create-token            # Create a new named token
   ccy --token personal          # Use "personal" token
   ccy --list-tokens             # List available tokens
+  ccy --export-token personal    # Export token for sharing
 
 Custom Dockerfile (Quick template-based):
   ccy --custom                  # Template selection workflow
@@ -385,8 +387,13 @@ NEXT_IS_ENGINE=false
 SPECIFIED_TOKEN=""
 CREATE_TOKEN_MODE=false
 LIST_TOKENS_MODE=false
+EXPORT_TOKEN_MODE=false
+EXPORT_TOKEN_NAME=""
+NEXT_IS_EXPORT_TOKEN=false
 CONNECT_MODE=false
 CUSTOM_MODE=false
+CUSTOM_DOCKER_MODE=false
+TOP_MODE=false
 PREVENT_MODE=false
 CONNECT_NETWORK=""
 NO_SSH_MODE=false
@@ -420,6 +427,9 @@ for arg in "$@"; do
         fi
         SSH_KEYS+=("$arg")
         NEXT_IS_SSH_KEY=false
+    elif [ "$NEXT_IS_EXPORT_TOKEN" = true ]; then
+        EXPORT_TOKEN_NAME="$arg"
+        NEXT_IS_EXPORT_TOKEN=false
     elif [ "$NEXT_IS_TOKEN" = true ]; then
         SPECIFIED_TOKEN="$arg"
         NEXT_IS_TOKEN=false
@@ -465,6 +475,9 @@ for arg in "$@"; do
         CREATE_TOKEN_MODE=true
     elif [ "$arg" = "--list-tokens" ]; then
         LIST_TOKENS_MODE=true
+    elif [ "$arg" = "--export-token" ]; then
+        EXPORT_TOKEN_MODE=true
+        NEXT_IS_EXPORT_TOKEN=true
     elif [ "$arg" = "--network" ]; then
         NEXT_IS_NETWORK=true
     elif [ "$arg" = "--connect" ]; then
@@ -500,7 +513,7 @@ if [ "$SHOW_DEBUG_CHOOSER" = true ]; then
     echo "  1,3     - Debug CCY wrapper and Claude Code"
     echo "  1,2,3   - Debug all layers"
     echo ""
-    read -p "Enter layer numbers (or press Enter for all): " layer_input
+    read -rp "Enter layer numbers (or press Enter for all): " layer_input
 
     # Default to all if empty
     if [ -z "$layer_input" ]; then
@@ -538,7 +551,7 @@ if [ "$SHOW_DEBUG_CHOOSER" = true ]; then
     echo ""
 
     # Confirm
-    read -p "Continue with this configuration? [Y/n]: " confirm
+    read -rp "Continue with this configuration? [Y/n]: " confirm
     if [[ "$confirm" =~ ^[Nn] ]]; then
         echo "Aborted."
         exit 0
@@ -609,10 +622,24 @@ if [ "$LIST_TOKENS_MODE" = true ]; then
     exit 0
 fi
 
+# Handle export token mode (doesn't need SSH/GH setup)
+if [ "$EXPORT_TOKEN_MODE" = true ]; then
+    if [ -z "$EXPORT_TOKEN_NAME" ]; then
+        print_error "--export-token requires a token name"
+        echo "Usage: ccy --export-token NAME"
+        echo ""
+        echo "Available tokens:"
+        list_tokens "$TOKEN_DIR" "ccy"
+        exit 1
+    fi
+    export_token "$TOKEN_DIR" "$EXPORT_TOKEN_NAME"
+    exit $?
+fi
+
 # Handle connect mode (doesn't need SSH/GH setup)
 if [ "$CONNECT_MODE" = true ]; then
     connect_to_network "$CONNECT_NETWORK" "_yolo" "ccy"
-    exit 0
+    exit $?
 fi
 
 # Handle custom mode (doesn't need SSH/GH setup)
@@ -629,7 +656,6 @@ fi
 
 # Try to load previous launch configuration (if no flags specified)
 CONFIG_LOADED=false
-SAVED_NETWORK=""
 
 if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
    [[ -z "$SPECIFIED_TOKEN" ]] && [[ -z "$SPECIFIED_NETWORK" ]] && \
@@ -650,7 +676,7 @@ if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
         echo ""
 
         while true; do
-            read -p "Use same configuration? [Y/n] " use_config
+            read -rp "Use same configuration? [Y/n] " use_config
             use_config=${use_config:-Y}
             echo ""
 
@@ -698,12 +724,12 @@ fi
 
 # Build SSH mounts and validate GitHub access
 # This sets: SSH_MOUNTS, SSH_KEY_PATHS, GITHUB_USERNAME, GH_TOKEN
-build_ssh_mounts_and_validate "ccy"
+build_ssh_mounts_and_validate "ccy" || exit 1
 
 # Handle create token mode (requires SSH/GH setup for container functionality)
 if [ "$CREATE_TOKEN_MODE" = true ]; then
     create_token "$TOKEN_DIR" "$GH_TOKEN" "$IMAGE_NAME" "ccy"
-    exit 0
+    exit $?
 fi
 
 # Token selection logic
@@ -750,7 +776,7 @@ if [ -n "$SPECIFIED_TOKEN" ]; then
         echo ""
         echo "This token cannot be used. You must create a new token."
         echo ""
-        read -p "Create a new token now? (Y/n): " create_now
+        read -rp "Create a new token now? (Y/n): " create_now
         if [ "$create_now" != "n" ] && [ "$create_now" != "N" ]; then
             create_token "$TOKEN_DIR" "$GH_TOKEN" "$IMAGE_NAME" "ccy" "$token_name"
         fi
@@ -773,7 +799,7 @@ else
         echo ""
         echo "You need to create a token before using ccy."
         echo ""
-        read -p "Create a token now? (Y/n): " create_now
+        read -rp "Create a token now? (Y/n): " create_now
 
         if [ "$create_now" = "n" ] || [ "$create_now" = "N" ]; then
             echo "Cancelled. Create a token later with: ccy --create-token"
@@ -794,7 +820,7 @@ else
             echo "All tokens are expired or expiring today."
             echo "You must create a new token."
             echo ""
-            read -p "Create a token now? (Y/n): " create_now
+            read -rp "Create a token now? (Y/n): " create_now
             if [ "$create_now" != "n" ] && [ "$create_now" != "N" ]; then
                 create_token "$TOKEN_DIR" "$GH_TOKEN" "$IMAGE_NAME" "ccy"
             fi
@@ -876,7 +902,7 @@ if [ "$TOKEN_VALIDATION_FAILED" = true ]; then
     echo ""
 
     while true; do
-        read -p "Select option [1-3]: " recovery_choice
+        read -rp "Select option [1-3]: " recovery_choice
         echo ""
 
         case "$recovery_choice" in
@@ -893,7 +919,7 @@ if [ "$TOKEN_VALIDATION_FAILED" = true ]; then
                     echo ""
                     echo "No other valid tokens available."
                     echo ""
-                    read -p "Create a new token? (Y/n): " create_now
+                    read -rp "Create a new token? (Y/n): " create_now
                     if [ "$create_now" != "n" ] && [ "$create_now" != "N" ]; then
                         create_token "$TOKEN_DIR" "$GH_TOKEN" "$IMAGE_NAME" "ccy"
                     fi
@@ -1013,7 +1039,8 @@ check_claude_code_updates() {
 
     # Check if cache exists and is fresh (less than 24 hours old)
     if [ -f "$cache_file" ]; then
-        local cache_age=$(( $(date +%s) - $(stat -c %Y "$cache_file" 2>/dev/null || echo 0) ))
+        local cache_age
+        cache_age=$(( $(date +%s) - $(stat -c %Y "$cache_file" 2>/dev/null || echo 0) ))
         if [ "$cache_age" -lt "$cache_duration" ]; then
             # Cache is fresh, skip check
             return 0
@@ -1024,10 +1051,12 @@ check_claude_code_updates() {
     echo "Checking for Claude Code updates (daily check)..."
 
     # Get version from container
-    local container_version=$(container_cmd run --rm --entrypoint claude "$image_name" --version 2>/dev/null | grep -oP '(?<=claude-code/)\d+\.\d+\.\d+' || echo "unknown")
+    local container_version
+    container_version=$(container_cmd run --rm --entrypoint claude "$image_name" --version 2>/dev/null | grep -oP '(?<=claude-code/)\d+\.\d+\.\d+' || echo "unknown")
 
     # Get latest version from npm registry API (no npm CLI required)
-    local latest_version=$(timeout 5 curl -fsSL "https://registry.npmjs.org/@anthropic-ai/claude-code/latest" 2>/dev/null | grep -oP '"version":\s*"\K[^"]+' | head -1 || echo "unknown")
+    local latest_version
+    latest_version=$(timeout 5 curl -fsSL "https://registry.npmjs.org/@anthropic-ai/claude-code/latest" 2>/dev/null | grep -oP '"version":\s*"\K[^"]+' | head -1 || echo "unknown")
 
     if [ "$container_version" = "unknown" ] || [ "$latest_version" = "unknown" ]; then
         # Can't determine versions, cache failure and skip notification
@@ -1419,7 +1448,7 @@ if [ "$DEBUG_CCY" = true ]; then
     echo "After exiting, review the debug log with:"
     echo "  cat $DEBUG_LOG"
     echo ""
-    read -p "Press Enter to continue..."
+    read -rp "Press Enter to continue..."
 fi
 
 # Run container with project workspace
@@ -1510,7 +1539,7 @@ if [[ -n "$SPECIFIED_NETWORK" ]]; then
                 echo ""
 
                 while true; do
-                    read -p "Continue without network connection? [Y/n] " continue_choice
+                    read -rp "Continue without network connection? [Y/n] " continue_choice
                     continue_choice=${continue_choice:-Y}
                     echo ""
 
@@ -1667,7 +1696,7 @@ if [[ "$CROSS_ENGINE_MISMATCH" = true ]]; then
         echo ""
 
         while true; do
-            read -p "Select option [1-4]: " cleanup_choice
+            read -rp "Select option [1-4]: " cleanup_choice
             echo ""
 
             case "$cleanup_choice" in
@@ -1686,7 +1715,7 @@ if [[ "$CROSS_ENGINE_MISMATCH" = true ]]; then
                     echo ""
 
                     while true; do
-                        read -p "Choose cleanup method [a/b]: " prune_choice
+                        read -rp "Choose cleanup method [a/b]: " prune_choice
                         echo ""
 
                         case "$prune_choice" in
@@ -1742,7 +1771,7 @@ if [[ "$CROSS_ENGINE_MISMATCH" = true ]]; then
 
                         if command -v podman-compose &>/dev/null; then
                             while true; do
-                                read -p "Start services with podman-compose up -d? [Y/n]: " start_compose
+                                read -rp "Start services with podman-compose up -d? [Y/n]: " start_compose
                                 start_compose=${start_compose:-Y}
                                 echo ""
 
@@ -1878,7 +1907,7 @@ if [[ "$CROSS_ENGINE_MISMATCH" = true ]]; then
         echo ""
 
         while true; do
-            read -p "Continue without network connection? [Y/n] " mismatch_choice
+            read -rp "Continue without network connection? [Y/n] " mismatch_choice
             mismatch_choice=${mismatch_choice:-Y}
             echo ""
 
@@ -1917,7 +1946,7 @@ if [ ${#MATCHING_NETWORKS[@]} -gt 0 ] && [ -z "$SPECIFIED_NETWORK" ]; then
         echo ""
 
         while true; do
-            read -p "Connect to this network? (Y/n): " connect_choice
+            read -rp "Connect to this network? (Y/n): " connect_choice
             connect_choice=${connect_choice:-Y}  # Default to Yes
             echo ""
 
@@ -1952,7 +1981,7 @@ if [ ${#MATCHING_NETWORKS[@]} -gt 0 ] && [ -z "$SPECIFIED_NETWORK" ]; then
         echo ""
 
         while true; do
-            read -p "Connect to this network? (Y/n/list): " connect_choice
+            read -rp "Connect to this network? (Y/n/list): " connect_choice
             connect_choice=${connect_choice:-Y}
             echo ""
 
@@ -1985,7 +2014,7 @@ if [ ${#MATCHING_NETWORKS[@]} -gt 0 ] && [ -z "$SPECIFIED_NETWORK" ]; then
                     echo ""
 
                     while true; do
-                        read -p "Select [0-${#MATCHING_NETWORKS[@]}]: " net_choice
+                        read -rp "Select [0-${#MATCHING_NETWORKS[@]}]: " net_choice
                         echo ""
 
                         if [ "$net_choice" = "0" ]; then
@@ -2079,7 +2108,7 @@ else
 
             if [ -n "$COMPOSE_CMD" ]; then
                 while true; do
-                    read -p "Start compose services? ($COMPOSE_CMD up -d) [y/N] " start_compose
+                    read -rp "Start compose services? ($COMPOSE_CMD up -d) [y/N] " start_compose
                     start_compose=${start_compose:-N}
                     echo ""
 

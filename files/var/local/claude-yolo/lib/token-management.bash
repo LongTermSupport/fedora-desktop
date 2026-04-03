@@ -130,7 +130,7 @@ create_token() {
         echo "" >&2
         echo "GH_TOKEN is required for the container's git/gh functionality." >&2
         echo "Token creation must happen AFTER SSH/GH setup." >&2
-        exit 1
+        return 1
     fi
 
     echo ""
@@ -197,7 +197,7 @@ create_token() {
         read -r -p "Overwrite? (y/N): " overwrite
         if [ "$overwrite" != "y" ] && [ "$overwrite" != "Y" ]; then
             echo "Cancelled. Token not created."
-            exit 0
+            return 0
         fi
     fi
 
@@ -208,7 +208,7 @@ create_token() {
     echo ""
 
     # Create temporary output file for token
-    tmp_output="/tmp/${tool_name}-token-setup-$$"
+    tmp_output=$(mktemp "/tmp/${tool_name}-token-setup-XXXXXX")
 
     echo "════════════════════════════════════════════════════════════════════════════════"
     echo ""
@@ -273,7 +273,7 @@ create_token() {
                 echo "The extracted token does not authenticate properly."
                 echo "Please try creating the token again."
                 rm -f "$tmp_output"
-                exit 1
+                return 1
             fi
             echo ""
             echo "Token: $token_name"
@@ -308,7 +308,7 @@ create_token() {
                     if [ "$retry" = "n" ] || [ "$retry" = "N" ]; then
                         echo "Cancelled."
                         rm -f "$tmp_output"
-                        exit 1
+                        return 1
                     fi
                     echo ""
                     continue
@@ -323,7 +323,7 @@ create_token() {
                     if [ "$retry" = "n" ] || [ "$retry" = "N" ]; then
                         echo "Cancelled."
                         rm -f "$tmp_output"
-                        exit 1
+                        return 1
                     fi
                     echo ""
                     continue
@@ -341,7 +341,7 @@ create_token() {
                     if [ "$retry" = "n" ] || [ "$retry" = "N" ]; then
                         echo "Cancelled."
                         rm -f "$tmp_output"
-                        exit 1
+                        return 1
                     fi
                     echo ""
                     continue
@@ -386,7 +386,7 @@ create_token() {
                         echo "Cancelled. Please verify the token and try again."
                         echo "Run: $tool_name --create-token"
                         rm -f "$tmp_output"
-                        exit 1
+                        return 1
                     fi
                     echo ""
                 fi
@@ -424,13 +424,13 @@ create_token() {
 
         echo ""
         rm -f "$tmp_output"
-        exit 1
+        return 1
     fi
 
     # Cleanup
     rm -f "$tmp_output"
 
-    exit 0
+    return 0
 }
 
 # Function to select a token interactively
@@ -551,7 +551,7 @@ select_token() {
                 # shellcheck disable=SC2153
                 create_token "$token_dir" "$GH_TOKEN" "$IMAGE_NAME" "ccy" "$renew_name"
                 # shellcheck disable=SC2317
-                exit 0
+                return 0
             else
                 echo "Invalid renew selection: $selection"
                 echo ""
@@ -563,7 +563,7 @@ select_token() {
             # shellcheck disable=SC2153
             create_token "$token_dir" "$GH_TOKEN" "$IMAGE_NAME" "ccy"
             # shellcheck disable=SC2317
-            exit 0
+            return 0
         elif [ "$selection" -ge 1 ] && [ "$selection" -le ${#valid_tokens[@]} ] 2>/dev/null; then
             SELECTED_TOKEN="${valid_tokens[$((selection-1))]}"
             local filename
@@ -583,7 +583,85 @@ select_token() {
     done
 }
 
+# Function to export a token as a self-contained import script
+# Args: $1 = token_dir, $2 = token_name
+# Outputs: bash script snippet to stdout
+export_token() {
+    local token_dir="$1"
+    local token_name="$2"
+
+    # Find matching token file
+    local matching_tokens=("$token_dir/${token_name}".*.token)
+    if [ ! -f "${matching_tokens[0]}" ] || [ "${matching_tokens[0]}" = "$token_dir/${token_name}.*.token" ]; then
+        print_error "No token found with name: $token_name"
+        echo ""
+        echo "Available tokens:"
+        list_tokens "$token_dir" "ccy"
+        return 1
+    fi
+
+    # Use the most recent token if multiple exist
+    local token_file="${matching_tokens[-1]}"
+    local filename
+    filename=$(basename "$token_file")
+
+    # Extract expiry date
+    local expiry_date=""
+    if [[ "$filename" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2})\.token$ ]]; then
+        expiry_date="${BASH_REMATCH[1]}"
+    else
+        print_error "Token file has invalid format: $filename"
+        return 1
+    fi
+
+    # Check if token is expired
+    if ! is_token_valid "$token_file"; then
+        print_error "Token '$token_name' is expired (${expiry_date})"
+        echo "Create a new token first: ccy --create-token"
+        return 1
+    fi
+
+    # Read token content
+    local token_content
+    token_content=$(cat "$token_file")
+
+    if [ -z "$token_content" ]; then
+        print_error "Token file is empty: $token_file"
+        return 1
+    fi
+
+    # Validate token doesn't contain characters that would break quoting
+    if [[ "$token_content" == *"'"* ]]; then
+        print_error "Token contains unexpected characters"
+        return 1
+    fi
+
+    echo "#!/bin/bash"
+    echo "# CCY Token Import — exported from: ccy --export-token $token_name"
+    echo "# Token: $token_name | Expires: $expiry_date"
+    echo "# Generated: $(date '+%Y-%m-%d %H:%M:%S')"
+    echo "#"
+    echo "# Paste this entire block into a terminal on the target machine."
+    echo "# Or save to LastPass/1Password as a secure note."
+    echo ""
+    echo "set -euo pipefail"
+    echo ""
+    echo "TOKEN_DIR=\"\$HOME/.claude-tokens/ccy/tokens\""
+    echo "TOKEN_FILE=\"\$TOKEN_DIR/${token_name}.${expiry_date}.token\""
+    echo ""
+    echo "mkdir -p \"\$HOME/.claude-tokens/ccy/tokens\""
+    echo "chmod 700 \"\$HOME/.claude-tokens/ccy\""
+    echo "chmod 700 \"\$HOME/.claude-tokens/ccy/tokens\""
+    echo ""
+    echo "printf '%s' '${token_content}' > \"\$TOKEN_FILE\""
+    echo "chmod 600 \"\$TOKEN_FILE\""
+    echo ""
+    echo "echo \"Token '${token_name}' imported (expires ${expiry_date}).\""
+    echo "echo \"Use with: ccy --token ${token_name}\""
+}
+
 # Export functions
 export -f list_tokens
 export -f create_token
 export -f select_token
+export -f export_token

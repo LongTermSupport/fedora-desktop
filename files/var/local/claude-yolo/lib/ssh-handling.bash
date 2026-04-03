@@ -123,7 +123,7 @@ build_ssh_mounts_and_validate() {
             echo ""
             echo "Or set up GitHub keys with:"
             echo "  ansible-playbook playbooks/imports/optional/common/play-github-cli-multi.yml"
-            exit 1
+            return 1
         fi
 
         echo "✓ Detected GitHub account for SSH key: $GITHUB_USERNAME"
@@ -133,16 +133,19 @@ build_ssh_mounts_and_validate() {
     if ! command_exists gh; then
         print_error "gh (GitHub CLI) not found"
         echo "Install it with: ansible-playbook playbooks/imports/play-git-configure-and-tools.yml"
-        exit 1
+        return 1
     fi
 
     # If we detected a GitHub username from SSH key, get the account-specific token
     # This requires play-github-cli-multi.yml to be configured and shell reloaded
     if [ -n "$GITHUB_USERNAME" ] && [ ${#SSH_KEYS[@]} -gt 0 ]; then
         # Extract alias from the first SSH key
+        local key_basename
         key_basename=$(basename "${SSH_KEYS[0]}")
         if [[ "$key_basename" =~ ^github_(.+)$ ]]; then
+            local alias
             alias="${BASH_REMATCH[1]}"
+            local token_func
             token_func="gh-token-${alias}"
 
             # Load gh aliases if not already loaded (script runs in subshell)
@@ -167,7 +170,7 @@ build_ssh_mounts_and_validate() {
                 echo "  1. Run: ansible-playbook playbooks/imports/optional/common/play-github-cli-multi.yml"
                 echo "  2. Verify: ls -la ~/.bashrc-includes/gh-aliases.inc.bash"
                 echo "  3. Verify: grep $token_func ~/.bashrc-includes/gh-aliases.inc.bash"
-                exit 1
+                return 1
             fi
 
             # Get the token for the specific account
@@ -179,7 +182,7 @@ build_ssh_mounts_and_validate() {
                 echo "Account is not authenticated with gh CLI."
                 echo ""
                 echo "Fix: ansible-playbook playbooks/imports/optional/common/play-github-cli-multi.yml"
-                exit 1
+                return 1
             fi
 
             echo "✓ Retrieved token for GitHub account: $GITHUB_USERNAME (via $token_func)"
@@ -195,7 +198,7 @@ build_ssh_mounts_and_validate() {
             echo ""
             echo "For multi-account setup with github_ SSH keys, run:"
             echo "  ansible-playbook playbooks/imports/optional/common/play-github-cli-multi.yml"
-            exit 1
+            return 1
         fi
     fi
 }

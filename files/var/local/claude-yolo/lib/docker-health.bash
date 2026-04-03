@@ -4,9 +4,6 @@
 #
 # Version: 1.1.0 - Container engine abstraction (docker/podman support)
 
-# Minimum kernel version for native overlay2 with rootless Docker + SELinux
-readonly MIN_KERNEL_OVERLAY2="5.13.0"
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # ZOMBIE CONTAINER DETECTION
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -19,7 +16,8 @@ find_zombie_containers() {
     local zombies=()
 
     # Get all running containers matching the suffix pattern
-    local containers=$(container_cmd ps --filter "name=_${suffix}" --format '{{.Names}}' 2>/dev/null)
+    local containers
+    containers=$(container_cmd ps --filter "name=_${suffix}" --format '{{.Names}}' 2>/dev/null)
 
     if [ -z "$containers" ]; then
         return 0  # No containers found
@@ -29,7 +27,8 @@ find_zombie_containers() {
         [ -z "$container_name" ] && continue
 
         # Check if this container was started with -it (TTY mode)
-        local has_tty=$(container_cmd inspect --format '{{.Config.Tty}}' "$container_name" 2>/dev/null)
+        local has_tty
+        has_tty=$(container_cmd inspect --format '{{.Config.Tty}}' "$container_name" 2>/dev/null)
 
         if [ "$has_tty" = "true" ]; then
             # Check if there's a container run process still attached
@@ -81,7 +80,8 @@ get_container_stats() {
     local container_name="$1"
 
     # Get stats in one call
-    local stats=$(container_cmd stats --no-stream --format '{{.CPUPerc}}|{{.MemUsage}}|{{.PIDs}}' "$container_name" 2>/dev/null)
+    local stats
+    stats=$(container_cmd stats --no-stream --format '{{.CPUPerc}}|{{.MemUsage}}|{{.PIDs}}' "$container_name" 2>/dev/null)
 
     if [ -z "$stats" ]; then
         echo "unknown|unknown|unknown"
@@ -135,10 +135,14 @@ show_zombie_container_tui() {
 
     local i=1
     for container in "${zombies[@]}"; do
-        local stats=$(get_container_stats "$container")
-        local cpu=$(echo "$stats" | cut -d'|' -f1)
-        local mem=$(echo "$stats" | cut -d'|' -f2)
-        local uptime=$(get_container_uptime "$container")
+        local stats
+        stats=$(get_container_stats "$container")
+        local cpu
+        cpu=$(echo "$stats" | cut -d'|' -f1)
+        local mem
+        mem=$(echo "$stats" | cut -d'|' -f2)
+        local uptime
+        uptime=$(get_container_uptime "$container")
 
         printf "%-4s %-30s %-10s %-20s %-10s\n" "$i)" "$container" "$cpu" "$mem" "$uptime"
         i=$((i + 1))
@@ -155,7 +159,7 @@ show_zombie_container_tui() {
     echo ""
 
     while true; do
-        read -p "Choice [a/s/i/q]: " choice
+        read -rp "Choice [a/s/i/q]: " choice
         echo ""
 
         case "$choice" in
@@ -175,7 +179,7 @@ show_zombie_container_tui() {
                 ;;
             s|S)
                 echo "Enter container numbers to stop (space-separated, e.g., '1 3 4'):"
-                read -p "> " selections
+                read -rp "> " selections
 
                 for sel in $selections; do
                     if [[ "$sel" =~ ^[0-9]+$ ]] && [ "$sel" -ge 1 ] && [ "$sel" -le ${#zombies[@]} ]; then
@@ -209,272 +213,6 @@ show_zombie_container_tui() {
                 ;;
         esac
     done
-}
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# OVERLAY2 MIGRATION SUPPORT
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# Check if kernel supports native overlay2 for rootless containers
-# Returns: 0 if supported, 1 if not
-check_overlay2_kernel_support() {
-    local kernel_version=$(uname -r | cut -d'-' -f1)
-
-    # Compare versions
-    if version_greater_than "$kernel_version" "$MIN_KERNEL_OVERLAY2" || \
-       [ "$kernel_version" = "$MIN_KERNEL_OVERLAY2" ]; then
-        return 0
-    fi
-
-    return 1
-}
-
-# Check if overlay kernel module is loaded
-# Returns: 0 if loaded, 1 if not
-check_overlay_module() {
-    lsmod | grep -q "^overlay " 2>/dev/null
-}
-
-# Check current docker storage driver
-# Returns: storage driver name (e.g., "overlay2", "fuse-overlayfs")
-get_docker_storage_driver() {
-    container_cmd info --format '{{.Driver}}' 2>/dev/null || echo "unknown"
-}
-
-# Check if rootless docker is using native overlay2
-# Returns: 0 if using native overlay2, 1 otherwise
-is_using_native_overlay2() {
-    local driver=$(get_docker_storage_driver)
-    [ "$driver" = "overlay2" ]
-}
-
-# Check if user has any existing docker data that would need migration
-# Returns: 0 if data exists, 1 if clean
-has_docker_data() {
-    local docker_root="${HOME}/.local/share/docker"
-
-    # Check for any storage directory
-    if [ -d "${docker_root}/overlay2" ] || [ -d "${docker_root}/fuse-overlayfs" ]; then
-        # Check if there are actually images/containers
-        local image_count=$(container_cmd images -q 2>/dev/null | wc -l)
-        local container_count=$(container_cmd ps -aq 2>/dev/null | wc -l)
-
-        if [ "$image_count" -gt 0 ] || [ "$container_count" -gt 0 ]; then
-            return 0  # Has data
-        fi
-    fi
-
-    return 1  # No significant data
-}
-
-# Get size of docker data directory
-# Returns: human-readable size string
-get_docker_data_size() {
-    local docker_root="${HOME}/.local/share/docker"
-    du -sh "$docker_root" 2>/dev/null | cut -f1 || echo "unknown"
-}
-
-# Show overlay2 migration TUI
-# This is called from Ansible or manually to guide migration
-# Returns: 0 if migration completed/skipped, 1 if cancelled
-show_overlay2_migration_tui() {
-    local current_driver=$(get_docker_storage_driver)
-
-    # Already on overlay2
-    if [ "$current_driver" = "overlay2" ]; then
-        echo "✓ Docker is already using native overlay2 storage driver"
-        return 0
-    fi
-
-    # Check kernel support
-    if ! check_overlay2_kernel_support; then
-        local kernel_version=$(uname -r)
-        echo ""
-        echo "════════════════════════════════════════════════════════════════════════════════"
-        echo "⚠️  Native overlay2 Not Supported"
-        echo "════════════════════════════════════════════════════════════════════════════════"
-        echo ""
-        echo "Your kernel ($kernel_version) does not support native overlay2 for rootless Docker."
-        echo "Required: kernel $MIN_KERNEL_OVERLAY2 or later"
-        echo ""
-        echo "You will continue using fuse-overlayfs, which works but has higher CPU overhead."
-        echo "════════════════════════════════════════════════════════════════════════════════"
-        echo ""
-        return 0
-    fi
-
-    # Check overlay module
-    if ! check_overlay_module; then
-        echo ""
-        echo "════════════════════════════════════════════════════════════════════════════════"
-        echo "⚠️  Overlay Kernel Module Not Loaded"
-        echo "════════════════════════════════════════════════════════════════════════════════"
-        echo ""
-        echo "The overlay kernel module is not loaded."
-        echo "This may require running: sudo modprobe overlay"
-        echo ""
-        echo "You will continue using fuse-overlayfs for now."
-        echo "════════════════════════════════════════════════════════════════════════════════"
-        echo ""
-        return 0
-    fi
-
-    # Kernel supports overlay2 but docker is using fuse-overlayfs
-    echo ""
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo "🚀 Native overlay2 Available"
-    echo "════════════════════════════════════════════════════════════════════════════════"
-    echo ""
-    echo "Your system supports native overlay2, which is faster than fuse-overlayfs."
-    echo ""
-    echo "Current driver:  $current_driver"
-    echo "Recommended:     overlay2"
-    echo ""
-    echo "Benefits of native overlay2:"
-    echo "  • Significantly lower CPU usage (no FUSE overhead)"
-    echo "  • Faster container startup"
-    echo "  • Better I/O performance"
-    echo ""
-
-    if has_docker_data; then
-        local data_size=$(get_docker_data_size)
-        local image_count=$(container_cmd images -q 2>/dev/null | wc -l)
-        local container_count=$(container_cmd ps -aq 2>/dev/null | wc -l)
-
-        echo "⚠️  Migration Required"
-        echo ""
-        echo "Switching storage drivers requires removing existing Docker data:"
-        echo "  • Images: $image_count"
-        echo "  • Containers: $container_count (including stopped)"
-        echo "  • Data size: $data_size"
-        echo ""
-        echo "After migration, you will need to:"
-        echo "  • Rebuild container images (ccy --rebuild)"
-        echo "  • Pull any Docker Hub images again"
-        echo ""
-        echo "Options:"
-        echo "  [m] Migrate to overlay2 (will delete all Docker data)"
-        echo "  [s] Skip migration (continue using $current_driver)"
-        echo "  [q] Quit"
-        echo ""
-
-        while true; do
-            read -p "Choice [m/s/q]: " choice
-            echo ""
-
-            case "$choice" in
-                m|M)
-                    echo "Starting migration to overlay2..."
-                    echo ""
-
-                    # Stop docker
-                    echo "Stopping rootless Docker..."
-                    systemctl --user stop docker.service docker.socket 2>/dev/null || true
-
-                    # Remove docker data
-                    echo "Removing Docker data..."
-                    rm -rf "${HOME}/.local/share/docker"
-
-                    # Create daemon.json with overlay2
-                    mkdir -p "${HOME}/.config/docker"
-                    cat > "${HOME}/.config/docker/daemon.json" <<'EOF'
-{
-  "storage-driver": "overlay2"
-}
-EOF
-                    echo "Created ~/.config/docker/daemon.json with overlay2 driver"
-
-                    # Start docker
-                    echo "Starting rootless Docker..."
-                    systemctl --user start docker.socket docker.service
-
-                    # Verify
-                    sleep 2
-                    local new_driver=$(get_docker_storage_driver)
-                    if [ "$new_driver" = "overlay2" ]; then
-                        echo ""
-                        echo "✓ Migration successful! Docker is now using native overlay2"
-                        echo ""
-                        echo "Next steps:"
-                        echo "  • Run 'ccy --rebuild' to rebuild the CCY container"
-                        echo "  • Pull any other images you need"
-                    else
-                        echo ""
-                        echo "⚠️  Migration may have failed. Current driver: $new_driver"
-                        echo "Check: docker info | grep 'Storage Driver'"
-                    fi
-
-                    return 0
-                    ;;
-                s|S)
-                    echo "Skipping migration. Continuing with $current_driver."
-                    return 0
-                    ;;
-                q|Q)
-                    echo "Cancelled."
-                    return 1
-                    ;;
-                *)
-                    echo "Invalid choice. Please enter m, s, or q."
-                    echo ""
-                    ;;
-            esac
-        done
-    else
-        # No data to migrate - easy path
-        echo "No existing Docker data found. Clean migration is possible."
-        echo ""
-        echo "Options:"
-        echo "  [m] Switch to overlay2 (recommended)"
-        echo "  [s] Skip (continue using $current_driver)"
-        echo ""
-
-        while true; do
-            read -p "Choice [m/s]: " choice
-            echo ""
-
-            case "$choice" in
-                m|M)
-                    echo "Configuring overlay2..."
-
-                    # Stop docker
-                    systemctl --user stop docker.service docker.socket 2>/dev/null || true
-
-                    # Remove any existing storage dir
-                    rm -rf "${HOME}/.local/share/docker"
-
-                    # Create daemon.json
-                    mkdir -p "${HOME}/.config/docker"
-                    cat > "${HOME}/.config/docker/daemon.json" <<'EOF'
-{
-  "storage-driver": "overlay2"
-}
-EOF
-
-                    # Start docker
-                    systemctl --user start docker.socket docker.service
-
-                    sleep 2
-                    local new_driver=$(get_docker_storage_driver)
-                    if [ "$new_driver" = "overlay2" ]; then
-                        echo "✓ Docker configured with native overlay2"
-                    else
-                        echo "⚠️  Configuration may have failed. Current driver: $new_driver"
-                    fi
-
-                    return 0
-                    ;;
-                s|S)
-                    echo "Skipping. Continuing with $current_driver."
-                    return 0
-                    ;;
-                *)
-                    echo "Invalid choice. Please enter m or s."
-                    echo ""
-                    ;;
-            esac
-        done
-    fi
 }
 
 # Quick check for zombie containers at startup
@@ -561,6 +299,7 @@ clean_stale_containers_startup() {
 show_container_top() {
     local suffix="${1:-yolo}"
 
+    while true; do
     # Clean up stale containers first (stopped/dead from unclean shutdowns)
     clean_stale_containers_startup "$suffix"
 
@@ -593,14 +332,19 @@ show_container_top() {
 
     local i=1
     for container in "${containers[@]}"; do
-        local stats=$(get_container_stats "$container")
-        local cpu=$(echo "$stats" | cut -d'|' -f1)
-        local mem=$(echo "$stats" | cut -d'|' -f2 | cut -d'/' -f1)  # Just usage, not limit
-        local uptime=$(get_container_uptime "$container")
+        local stats
+        stats=$(get_container_stats "$container")
+        local cpu
+        cpu=$(echo "$stats" | cut -d'|' -f1)
+        local mem
+        mem=$(echo "$stats" | cut -d'|' -f2 | cut -d'/' -f1)  # Just usage, not limit
+        local uptime
+        uptime=$(get_container_uptime "$container")
 
         # Check if zombie (no container run process attached)
         local status="active"
-        local has_tty=$(container_cmd inspect --format '{{.Config.Tty}}' "$container" 2>/dev/null)
+        local has_tty
+        has_tty=$(container_cmd inspect --format '{{.Config.Tty}}' "$container" 2>/dev/null)
         if [ "$has_tty" = "true" ]; then
             if ! pgrep -f "${CONTAINER_ENGINE} run.*--name[= ]${container}( |$)" >/dev/null 2>&1; then
                 status="orphan?"
@@ -622,7 +366,7 @@ show_container_top() {
     echo ""
 
     while true; do
-        read -p "Action: " action
+        read -rp "Action: " action
         echo ""
 
         case "$action" in
@@ -630,9 +374,7 @@ show_container_top() {
                 return 0
                 ;;
             r|R|refresh)
-                # Recursive call to refresh
-                show_container_top "$suffix"
-                return $?
+                continue 2
                 ;;
             a|A|all)
                 echo "Stopping all containers..."
@@ -671,7 +413,8 @@ show_container_top() {
                 else
                     echo ""
                     # Show updated list
-                    local remaining=$(container_cmd ps --filter "name=_${suffix}" --format '{{.Names}}' 2>/dev/null | wc -l)
+                    local remaining
+                    remaining=$(container_cmd ps --filter "name=_${suffix}" --format '{{.Names}}' 2>/dev/null | wc -l)
                     if [ "$remaining" -eq 0 ]; then
                         echo "✓ All CCY containers stopped"
                         return 0
@@ -683,6 +426,7 @@ show_container_top() {
                 echo ""
                 ;;
         esac
+    done
     done
 }
 
@@ -718,9 +462,12 @@ check_project_containers_startup() {
 
     local i=1
     for container in "${containers[@]}"; do
-        local stats=$(get_container_stats "$container")
-        local cpu=$(echo "$stats" | cut -d'|' -f1)
-        local uptime=$(get_container_uptime "$container")
+        local stats
+        stats=$(get_container_stats "$container")
+        local cpu
+        cpu=$(echo "$stats" | cut -d'|' -f1)
+        local uptime
+        uptime=$(get_container_uptime "$container")
         printf "%-3s %-30s %-8s %-12s\n" "$i)" "$container" "$cpu" "$uptime"
         i=$((i + 1))
     done
@@ -736,7 +483,7 @@ check_project_containers_startup() {
     echo ""
 
     while true; do
-        read -p "Choice [c/s/m/q]: " choice
+        read -rp "Choice [c/s/m/q]: " choice
         echo ""
 
         case "$choice" in
@@ -759,7 +506,7 @@ check_project_containers_startup() {
                 ;;
             m|M)
                 echo "Enter container numbers to stop (space-separated), or 'b' to go back:"
-                read -p "> " selections
+                read -rp "> " selections
 
                 if [ "$selections" = "b" ] || [ "$selections" = "B" ]; then
                     continue
@@ -791,19 +538,7 @@ check_project_containers_startup() {
 }
 
 # Export functions
-export -f find_zombie_containers
-export -f get_container_stats
-export -f get_container_uptime
-export -f show_zombie_container_tui
-export -f check_overlay2_kernel_support
-export -f check_overlay_module
-export -f get_docker_storage_driver
-export -f is_using_native_overlay2
-export -f has_docker_data
-export -f get_docker_data_size
-export -f show_overlay2_migration_tui
 export -f check_zombie_containers_startup
-export -f find_stale_containers
 export -f clean_stale_containers_startup
 export -f show_container_top
 export -f check_project_containers_startup

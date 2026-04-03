@@ -122,7 +122,7 @@ connect_to_network() {
         echo "Start $tool_name first, then run this in another terminal:"
         echo "  $tool_name --connect <network_name>"
         echo ""
-        exit 1
+        return 1
     fi
 
     # Determine if we should connect all or select one
@@ -243,7 +243,7 @@ connect_to_network() {
             echo ""
             echo "Create a network first:"
             echo "  $CONTAINER_ENGINE network create ${project_name}_network"
-            exit 1
+            return 1
         fi
 
         # Show networks with optional default
@@ -309,7 +309,7 @@ connect_to_network() {
         echo ""
         echo "Available networks:"
         container_cmd network ls --format "  {{.Name}}"
-        exit 1
+        return 1
     fi
 
     # Connect container(s) to network
@@ -408,11 +408,11 @@ connect_to_network() {
                 echo "$networks_json" | jq -r 'keys[]' | awk '{ print "  " $0 }'
             fi
             echo ""
-            exit 1
+            return 1
         fi
     fi
 
-    exit 0
+    return 0
 }
 
 # Check if a network has running containers
@@ -739,15 +739,8 @@ ensure_network_dns() {
 }
 
 # Export functions
-export -f _compose_already_running
 export -f ensure_network_dns
-export -f get_expected_network_name
-export -f get_network_persistence_file
-export -f save_network_preference
 export -f load_network_preference
 export -f connect_to_network
-export -f network_has_running_containers
-export -f has_compose_files
 export -f check_and_start_compose_services
-export -f _do_compose_start
 export -f offer_compose_start
