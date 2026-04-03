@@ -40,6 +40,30 @@
       args:
         creates: /home/{{ user_login }}/.bash-git-prompt/.git/config
 
+    - name: Prompt to Start SSH Agent on SSH Sessions
+      ansible.builtin.blockinfile:
+        path: /home/{{ user_login }}/.bashrc
+        marker: "# {mark} ANSIBLE MANAGED: SSH Agent Prompt"
+        insertbefore: "# BEGIN ANSIBLE MANAGED: Git Bash Prompt"
+        block: |
+          # On SSH sessions without a working agent, offer to start one
+          # (must run before bash-git-prompt to avoid passphrase prompt on stdin)
+          if [[ -n "${SSH_CONNECTION:-}" && $- == *i* ]]; then
+              if ! ssh-add -l &>/dev/null; then
+                  echo "SSH session detected without a working SSH agent."
+                  read -rp "Start ssh-agent and load keys? [Y/n] " _ssh_reply
+                  if [[ "${_ssh_reply:-Y}" =~ ^[Yy]?$ ]]; then
+                      eval "$(ssh-agent -s)" > /dev/null
+                      if command -v ssh-agent-start &>/dev/null; then
+                          ssh-agent-start --all
+                      else
+                          ssh-add
+                      fi
+                  fi
+                  unset _ssh_reply
+              fi
+          fi
+
     - name: Update ~/.bashrc File for the Bash Git Prompt
       ansible.builtin.blockinfile:
         path: /home/{{ user_login }}/.bashrc
