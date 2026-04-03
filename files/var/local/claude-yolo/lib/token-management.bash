@@ -636,28 +636,120 @@ export_token() {
         return 1
     fi
 
-    echo "#!/bin/bash"
-    echo "# CCY Token Import — exported from: ccy --export-token $token_name"
-    echo "# Token: $token_name | Expires: $expiry_date"
-    echo "# Generated: $(date '+%Y-%m-%d %H:%M:%S')"
-    echo "#"
-    echo "# Paste this entire block into a terminal on the target machine."
-    echo "# Or save to LastPass/1Password as a secure note."
-    echo ""
-    echo "set -euo pipefail"
-    echo ""
-    echo "TOKEN_DIR=\"\$HOME/.claude-tokens/ccy/tokens\""
-    echo "TOKEN_FILE=\"\$TOKEN_DIR/${token_name}.${expiry_date}.token\""
-    echo ""
-    echo "mkdir -p \"\$HOME/.claude-tokens/ccy/tokens\""
-    echo "chmod 700 \"\$HOME/.claude-tokens/ccy\""
-    echo "chmod 700 \"\$HOME/.claude-tokens/ccy/tokens\""
-    echo ""
-    echo "printf '%s' '${token_content}' > \"\$TOKEN_FILE\""
-    echo "chmod 600 \"\$TOKEN_FILE\""
-    echo ""
-    echo "echo \"Token '${token_name}' imported (expires ${expiry_date}).\""
-    echo "echo \"Use with: ccy --token ${token_name}\""
+    # Output a single pasteable command using heredoc
+    echo "# CCY Token: $token_name | Expires: $expiry_date | Generated: $(date '+%Y-%m-%d %H:%M:%S')"
+    echo "# Paste into terminal on target machine, or save in LastPass/1Password."
+    cat <<OUTER
+bash <<'CCYTOKEN'
+set -eo pipefail
+mkdir -p "\$HOME/.claude-tokens/ccy/tokens"
+chmod 700 "\$HOME/.claude-tokens/ccy" "\$HOME/.claude-tokens/ccy/tokens"
+printf '%s' '${token_content}' > "\$HOME/.claude-tokens/ccy/tokens/${token_name}.${expiry_date}.token"
+chmod 600 "\$HOME/.claude-tokens/ccy/tokens/${token_name}.${expiry_date}.token"
+echo "Token '${token_name}' imported (expires ${expiry_date}). Use with: ccy --token ${token_name}"
+CCYTOKEN
+OUTER
+}
+
+# Interactive multi-token export
+# Args: $1 = token_dir
+# Outputs: combined bash import script to stdout
+export_tokens_interactive() {
+    local token_dir="$1"
+
+    if [ ! -d "$token_dir" ]; then
+        print_error "Token directory not found: $token_dir"
+        return 1
+    fi
+
+    # Collect valid tokens
+    local valid_tokens=()
+    local valid_names=()
+    for token_file in "$token_dir"/*.token; do
+        if [ -f "$token_file" ] && is_token_valid "$token_file"; then
+            valid_tokens+=("$token_file")
+            local filename
+            filename=$(basename "$token_file")
+            valid_names+=("${filename%.*.token}")
+        fi
+    done
+
+    if [ ${#valid_tokens[@]} -eq 0 ]; then
+        print_error "No valid (non-expired) tokens found"
+        echo ""
+        echo "Create a token first: ccy --create-token"
+        return 1
+    fi
+
+    echo "" >&2
+    echo "════════════════════════════════════════════════════════════════════════════════" >&2
+    echo "Export Tokens" >&2
+    echo "════════════════════════════════════════════════════════════════════════════════" >&2
+    echo "" >&2
+
+    for i in "${!valid_tokens[@]}"; do
+        local filename
+        filename=$(basename "${valid_tokens[$i]}")
+        local expiry_date=""
+        if [[ "$filename" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2})\.token$ ]]; then
+            expiry_date="${BASH_REMATCH[1]}"
+            echo "  $((i+1))) ${valid_names[$i]} (expires: $(colorize_expiry "$expiry_date"))" >&2
+        else
+            echo "  $((i+1))) ${valid_names[$i]}" >&2
+        fi
+    done
+
+    echo "" >&2
+    echo "  a) Export all" >&2
+    echo "" >&2
+
+    local selections
+    while true; do
+        read -r -p "Select tokens to export [1-${#valid_tokens[@]}, space-separated, or a]: " selections
+        echo "" >&2
+
+        if [ -z "$selections" ]; then
+            echo "No selection made." >&2
+            echo "" >&2
+            continue
+        fi
+
+        if [ "$selections" = "a" ]; then
+            # Export all
+            for name in "${valid_names[@]}"; do
+                export_token "$token_dir" "$name"
+                echo ""
+            done
+            echo "Exported ${#valid_names[@]} token(s)." >&2
+            return 0
+        fi
+
+        # Validate all selections first
+        local selected_names=()
+        local all_valid=true
+        for sel in $selections; do
+            if [ "$sel" -ge 1 ] && [ "$sel" -le ${#valid_tokens[@]} ] 2>/dev/null; then
+                selected_names+=("${valid_names[$((sel-1))]}")
+            else
+                echo "Invalid selection: $sel (enter 1-${#valid_tokens[@]} or a)" >&2
+                echo "" >&2
+                all_valid=false
+                break
+            fi
+        done
+
+        if [ "$all_valid" = false ]; then
+            continue
+        fi
+
+        # Export selected tokens
+        for name in "${selected_names[@]}"; do
+            export_token "$token_dir" "$name"
+            echo ""
+        done
+        echo "Exported ${#selected_names[@]} token(s)." >&2
+        return 0
+    done
 }
 
 # Export functions
@@ -665,3 +757,4 @@ export -f list_tokens
 export -f create_token
 export -f select_token
 export -f export_token
+export -f export_tokens_interactive

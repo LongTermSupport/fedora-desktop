@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.10.0"  # feat: --export-token, spring cleaning (dead code, shellcheck, exit→return)
+CCY_VERSION="3.10.1"  # fix: --export-token interactive multi-select, output pasteable command not script
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -136,7 +136,7 @@ Options:
   --token NAME           Use specific named token
   --create-token         Create a new named token
   --list-tokens          List available tokens
-  --export-token NAME    Export a token as a portable import script
+  --export-token [NAME]  Export token(s) as portable import script (interactive if no name)
   --network NETWORK      Auto-connect to specified container network on launch
   --no-network           Skip network auto-detection
   --connect [NETWORK]    Connect running container to network
@@ -180,7 +180,8 @@ Examples:
   ccy --create-token            # Create a new named token
   ccy --token personal          # Use "personal" token
   ccy --list-tokens             # List available tokens
-  ccy --export-token personal    # Export token for sharing
+  ccy --export-token             # Interactive multi-token export
+  ccy --export-token personal    # Export specific token
 
 Custom Dockerfile (Quick template-based):
   ccy --custom                  # Template selection workflow
@@ -625,12 +626,9 @@ fi
 # Handle export token mode (doesn't need SSH/GH setup)
 if [ "$EXPORT_TOKEN_MODE" = true ]; then
     if [ -z "$EXPORT_TOKEN_NAME" ]; then
-        print_error "--export-token requires a token name"
-        echo "Usage: ccy --export-token NAME"
-        echo ""
-        echo "Available tokens:"
-        list_tokens "$TOKEN_DIR" "ccy"
-        exit 1
+        # Interactive multi-select
+        export_tokens_interactive "$TOKEN_DIR"
+        exit $?
     fi
     export_token "$TOKEN_DIR" "$EXPORT_TOKEN_NAME"
     exit $?
