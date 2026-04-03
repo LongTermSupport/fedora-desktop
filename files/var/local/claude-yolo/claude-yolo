@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.8.4"  # chore: rename play-install-claude-yolo → play-claude-yolo
+CCY_VERSION="3.9.0"  # feat: detect and clean up stale containers after unclean shutdown
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -975,6 +975,19 @@ if [ "$CONTAINER_ENGINE" = "docker" ]; then
     fi
 fi
 # Podman running as non-root is inherently rootless - no check needed
+
+# ═══════════════════════════════════════════════════════════════════════════
+# STALE & ZOMBIE CONTAINER CLEANUP
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Clean up containers left over from unclean shutdowns (battery death, crash)
+# These are stopped/dead containers where --rm never fired — auto-removed
+clean_stale_containers_startup "yolo"
+
+# Check for zombie containers (running but with no controlling terminal)
+if ! check_zombie_containers_startup "yolo"; then
+    exit 0
+fi
 
 # ═══════════════════════════════════════════════════════════════════════════
 # EXISTING CONTAINER CHECK
@@ -2370,6 +2383,13 @@ echo "Executing Claude Code with arguments:"
 echo "  claude --dangerously-skip-permissions ${CLAUDE_CMD_ARGS[*]}"
 echo "════════════════════════════════════════════════════════════════════════════════"
 echo ""
+
+# Safety net: remove any leftover container with this name
+# Handles "external entity" edge case where container storage has the name
+# but ps -a doesn't show it (e.g., after unclean shutdown with corrupt state)
+if container_cmd rm -f "$CONTAINER_NAME" 2>&1 | grep -q "$CONTAINER_NAME"; then
+    echo "Removed leftover container: $CONTAINER_NAME"
+fi
 
 container_cmd run $DOCKER_FLAGS --rm \
     --name "$CONTAINER_NAME" \

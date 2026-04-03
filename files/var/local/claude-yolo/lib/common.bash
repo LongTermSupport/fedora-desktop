@@ -982,9 +982,14 @@ get_next_container_name() {
     local suffix="$2"
     local base_name="${project_name}_${suffix}"
 
-    # Get all running containers matching this project
-    local existing_containers
-    existing_containers=$(container_cmd ps --format '{{.Names}}' | grep "^${base_name}" || true)
+    # Get all containers matching this project (including stopped/dead)
+    # Using -a to prevent name collisions with stale containers from unclean shutdowns
+    local all_names
+    all_names=$(container_cmd ps -a --format '{{.Names}}')
+    local existing_containers=""
+    if echo "$all_names" | grep -q "^${base_name}"; then
+        existing_containers=$(echo "$all_names" | grep "^${base_name}")
+    fi
 
     # If no container exists, use base name (no suffix)
     if [ -z "$existing_containers" ]; then

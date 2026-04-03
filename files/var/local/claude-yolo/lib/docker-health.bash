@@ -44,6 +44,35 @@ find_zombie_containers() {
     printf '%s\n' "${zombies[@]}"
 }
 
+# Find CCY containers that are stopped, dead, or in created state
+# These are leftover from unclean shutdowns (battery death, crash, kill -9)
+# where the --rm flag never fired
+# Args: suffix (default: "yolo")
+# Returns: newline-separated list of container names
+find_stale_containers() {
+    local suffix="${1:-yolo}"
+    local stale=()
+
+    # Query all non-running containers matching CCY naming pattern
+    # Check each non-running status separately for compatibility
+    local status
+    for status in exited dead created; do
+        local containers
+        containers=$(container_cmd ps -a \
+            --filter "name=_${suffix}" \
+            --filter "status=${status}" \
+            --format '{{.Names}}' 2>/dev/null)
+
+        while IFS= read -r name; do
+            [ -n "$name" ] && stale+=("$name")
+        done <<< "$containers"
+    done
+
+    if [ ${#stale[@]} -gt 0 ]; then
+        printf '%s\n' "${stale[@]}" | sort -u
+    fi
+}
+
 # Get detailed stats for a container
 # Args: container_name
 # Returns: formatted stats string
@@ -469,6 +498,58 @@ check_zombie_containers_startup() {
     return 0
 }
 
+# Clean up stale (stopped/dead) CCY containers at startup
+# These are leftover from unclean shutdowns where --rm didn't fire
+# Auto-removes without prompting since these containers are unrecoverable
+# Args: suffix (default: "yolo")
+# Returns: 0 always (cleanup is best-effort)
+clean_stale_containers_startup() {
+    local suffix="${1:-yolo}"
+    local stale=()
+
+    while IFS= read -r name; do
+        [ -n "$name" ] && stale+=("$name")
+    done < <(find_stale_containers "$suffix")
+
+    if [ ${#stale[@]} -eq 0 ]; then
+        return 0
+    fi
+
+    echo ""
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo "Cleaning Up Stale Containers"
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+    echo "Found ${#stale[@]} container(s) left over from an unclean shutdown."
+    echo "These containers are stopped/dead and unrecoverable — removing automatically."
+    echo ""
+
+    local cleaned=0
+    local failed=0
+    for container in "${stale[@]}"; do
+        echo -n "  Removing $container... "
+        local rm_output
+        if rm_output=$(container_cmd rm -f "$container" 2>&1); then
+            echo "✓"
+            cleaned=$((cleaned + 1))
+        else
+            echo "✗ ($rm_output)"
+            failed=$((failed + 1))
+        fi
+    done
+
+    echo ""
+    if [ "$failed" -eq 0 ]; then
+        echo "✓ Cleaned up $cleaned stale container(s)"
+    else
+        echo "Cleaned $cleaned, failed to remove $failed container(s)"
+        echo "  Manual cleanup: $CONTAINER_ENGINE rm -f <container_name>"
+    fi
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+    return 0
+}
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # CCY TOP - CONTAINER MANAGEMENT TUI
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -478,6 +559,9 @@ check_zombie_containers_startup() {
 # Args: suffix (default: "yolo")
 show_container_top() {
     local suffix="${1:-yolo}"
+
+    # Clean up stale containers first (stopped/dead from unclean shutdowns)
+    clean_stale_containers_startup "$suffix"
 
     # Get all containers matching the suffix
     local containers=()
@@ -718,5 +802,7 @@ export -f has_docker_data
 export -f get_docker_data_size
 export -f show_overlay2_migration_tui
 export -f check_zombie_containers_startup
+export -f find_stale_containers
+export -f clean_stale_containers_startup
 export -f show_container_top
 export -f check_project_containers_startup
