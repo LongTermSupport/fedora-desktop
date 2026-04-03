@@ -50,13 +50,9 @@ Key finding: The QA scripts (`qa-*.bash`, `run.bash`) are clean — all shellche
 
 Lowest risk — removing tracked backups and reorganising orphaned files.
 
-- [ ] ⬜ **1.1: Remove tracked backup directories from git**
-  - [ ] ⬜ `git rm -r --cached .claude/hooks.bak/`
-  - [ ] ⬜ `git rm -r --cached .claude/hooks.bak.20260126_071010/`
-  - [ ] ⬜ `git rm -r --cached .claude/hooks.bak.20260128_031122/`
-  - [ ] ⬜ `git rm --cached .claude/settings.json.bak`
-  - [ ] ⬜ `git rm --cached .claude/hooks-daemon/.claude/settings.json.bak`
-  - [ ] ⬜ Verify `.gitignore` has rules to prevent re-addition
+- [x] ~~**1.1: Remove tracked backup directories from git**~~ — FALSE ALARM
+  - Backup files exist on disk but are already gitignored by `.claude/*.bak` rule
+  - They were never tracked in git. Research agent incorrectly assumed they were committed.
 
 - [ ] ⬜ **1.2: Relocate orphaned documentation**
   - [ ] ⬜ Move `CCY-EXTRACTION-PLAN.md` to `CLAUDE/Plan/Archive/` (or delete if no longer relevant)
@@ -186,7 +182,7 @@ Higher-risk fixes — changes to installation behaviour.
 
 ## Success Criteria
 
-- [ ] Zero tracked backup files in `.claude/`
+- [x] ~~Zero tracked backup files in `.claude/`~~ — were never tracked
 - [ ] No orphaned documentation in repo root
 - [ ] All bash scripts pass shellcheck (excluding SC1090/SC1091 source-following)
 - [ ] All bash scripts have `set -e`
@@ -203,7 +199,7 @@ Higher-risk fixes — changes to installation behaviour.
 | `set -e` breaks status scripts on systems without hardware | Medium | Medium | Wrap hardware checks in `if/else`; test on target system |
 | Removing curl-to-bash breaks installer scripts | Medium | Low | Download-then-execute pattern is equivalent; test installations |
 | `state: present` leaves outdated packages | Low | Low | Users can manually update; `dnf upgrade` handles this |
-| Removing backup files loses useful reference | Low | Low | Files remain in git history if ever needed |
+| ~~Removing backup files loses useful reference~~ | N/A | N/A | FALSE ALARM — files were never tracked |
 | ~~BFG history rewrite for localhost.yml~~ | ~~High~~ | N/A | CANCELLED — file not tracked in git |
 
 ## Notes & Updates

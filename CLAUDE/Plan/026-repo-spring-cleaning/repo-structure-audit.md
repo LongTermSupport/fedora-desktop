@@ -5,19 +5,19 @@
 **Tracked files**: 278
 **Overall health**: Good — minor cleanup needed
 
-## Backup Files Tracked in Git (Medium Severity)
+## ~~Backup Files Tracked in Git~~ — FALSE ALARM
 
-These backup directories/files were committed before `.gitignore` rules existed. Total ~2.4MB of unnecessary git history.
+These backup directories/files exist on disk but are **already gitignored** by the `.claude/*.bak` rule. They were never tracked in git. The research agent incorrectly assumed they were committed.
 
-| Path | Size | Description |
-|------|------|-------------|
-| `.claude/hooks.bak/` | 2.1M | Old hooks implementation (Jan 6). Full Python controller, tests, `__pycache__/` with 188 `.pyc` files |
-| `.claude/hooks.bak.20260126_071010/` | 40K | Timestamped backup (Jan 26). Outdated hook wrappers |
-| `.claude/hooks.bak.20260128_031122/` | 272K | Timestamped backup (Jan 28). Contains handlers subdirectory |
-| `.claude/settings.json.bak` | 1.8K | Settings backup (Jan 28) |
-| `.claude/hooks-daemon/.claude/settings.json.bak` | Small | Nested backup file |
+| Path | Size | Git Status |
+|------|------|------------|
+| `.claude/hooks.bak/` | 2.1M | Not tracked (gitignored) |
+| `.claude/hooks.bak.20260126_071010/` | 40K | Not tracked (gitignored) |
+| `.claude/hooks.bak.20260128_031122/` | 272K | Not tracked (gitignored) |
+| `.claude/settings.json.bak` | 1.8K | Not tracked (gitignored) |
+| `.claude/hooks-daemon/.claude/settings.json.bak` | Small | Not tracked (gitignored) |
 
-**Fix**: Remove from git tracking with `git rm -r --cached`. The `.gitignore` already has rules for `.bak` files so they won't be re-added.
+**No action needed.**
 
 ## Orphaned Documentation (Low Severity)
 
