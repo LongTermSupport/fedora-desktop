@@ -1,6 +1,6 @@
 # Plan 026: Repository Spring Cleaning (Non-CCY)
 
-**Status**: ⬜ Not Started
+**Status**: 🔄 In Progress
 **Created**: 2026-04-03
 **Type**: Refactoring / Cleanup
 **Priority**: Medium
@@ -54,17 +54,15 @@ Lowest risk — removing tracked backups and reorganising orphaned files.
   - Backup files exist on disk but are already gitignored by `.claude/*.bak` rule
   - They were never tracked in git. Research agent incorrectly assumed they were committed.
 
-- [ ] ⬜ **1.2: Relocate orphaned documentation**
-  - [ ] ⬜ Move `CCY-EXTRACTION-PLAN.md` to `CLAUDE/Plan/Archive/` (or delete if no longer relevant)
-  - [ ] ⬜ Update any references
+- [x] ✅ **1.2: Remove orphaned documentation**
+  - [x] ✅ Deleted `CCY-EXTRACTION-PLAN.md` from repo root (never executed, outdated)
 
-- [ ] ⬜ **1.3: Fix plan directory organisation**
-  - [ ] ⬜ Verify Plan 012 location matches its "Cancelled" status in README
-  - [ ] ⬜ Update `CLAUDE/Plan/README.md` if needed
+- [x] ✅ **1.3: Fix plan directory organisation**
+  - [x] ✅ Verified Plan 012 is at `012-fix-plugin-handlers/` and correctly listed as "Cancelled" in README — no fix needed
 
-- [ ] ⬜ **1.4: Verify and commit Phase 1**
-  - [ ] ⬜ Run `./scripts/qa-all.bash`
-  - [ ] ⬜ Commit: "chore: remove tracked backup files and relocate orphaned docs"
+- [x] ✅ **1.4: Verify and commit Phase 1**
+  - [x] ✅ QA passed
+  - [x] ✅ Committed
 
 ### ~~Phase 2: Security — Personal Information Review~~ — CANCELLED
 
@@ -79,12 +77,13 @@ Fix issues in non-CCY bash scripts. All changes are to deployed files — requir
   - [ ] ⬜ `scripts/check-displaylink-status.sh` — add `set -e` after shebang
   - [ ] ⬜ Verify scripts still work with fail-fast (some status checks may need `if/else` refactoring)
 
-- [ ] ⬜ **3.2: Remove dead code from status scripts**
-  - [ ] ⬜ `nvidia-status.bash` — remove unused `PACKAGES_OK` (line 112) and `VAAPI_OK` (line 317)
-  - [ ] ⬜ `check-displaylink-status.sh` — remove unused `DKMS_OK` (lines 99, 102, 106)
+- [x] ✅ **3.2: Remove dead code from status scripts**
+  - [x] ✅ `nvidia-status.bash` — removed unused `PACKAGES_OK` and `VAAPI_OK`
+  - [x] ✅ `check-displaylink-status.sh` — removed unused `DKMS_OK` (3 locations)
 
 - [ ] ⬜ **3.3: Fix shellcheck warnings in status scripts**
-  - [ ] ⬜ `nvidia-status.bash:192-194` — quote variables in nvidia-smi output
+  - [x] ✅ `nvidia-status.bash:192-194` — quoted variables in nvidia-smi output (SC2086)
+  - [x] ✅ `nvidia-status.bash:186` — replaced indirect `$?` check with direct `if cmd` (SC2181)
   - [ ] ⬜ `check-displaylink-status.sh:83` — fix glob pattern with `-d` test (SC2144)
   - [ ] ⬜ `check-displaylink-status.sh:84,154,161` — replace `ls` with `find` (SC2012)
 
@@ -93,8 +92,8 @@ Fix issues in non-CCY bash scripts. All changes are to deployed files — requir
   - [ ] ⬜ `zz_lts-fedora-desktop.bash:100` — quote command substitution (SC2086)
   - [ ] ⬜ `zz_lts-fedora-desktop.bash:78-91` — fix function argument passing (SC2120)
 
-- [ ] ⬜ **3.5: Clean up dead code in profile script**
-  - [ ] ⬜ `zz_lts-fedora-desktop.bash:44-55` — remove commented-out 12-line block
+- [x] ✅ **3.5: Clean up dead code in profile script**
+  - [x] ✅ `zz_lts-fedora-desktop.bash:44-55` — removed commented-out 12-line prompt block
 
 - [ ] ⬜ **3.6: Fix `ls` usage in GNOME script**
   - [ ] ⬜ `extensions/scripts/gnome-shell-extract-js.bash:95` — replace `ls` with glob/find
@@ -108,18 +107,18 @@ Fix issues in non-CCY bash scripts. All changes are to deployed files — requir
 
 Mechanical fix across 7 playbooks. Low risk.
 
-- [ ] ⬜ **4.1: Remove duplicate shebangs**
-  - [ ] ⬜ `playbooks/imports/play-claude-yolo.yml` — remove duplicate line 3
-  - [ ] ⬜ `playbooks/imports/play-podman.yml` — remove duplicate line 3
-  - [ ] ⬜ `playbooks/imports/play-python.yml` — remove duplicate line 3
-  - [ ] ⬜ `playbooks/imports/play-vscode.yml` — remove duplicate line 3
-  - [ ] ⬜ `playbooks/imports/play-gnome-shell.yml` — remove duplicate line 3
-  - [ ] ⬜ `playbooks/imports/play-systemd-user-tweaks.yml` — remove duplicate line 3
-  - [ ] ⬜ `playbooks/imports/play-github-cli-multi.yml` — remove duplicate line 3
+- [x] ✅ **4.1: Remove duplicate shebangs**
+  - [x] ✅ `playbooks/imports/play-claude-yolo.yml`
+  - [x] ✅ `playbooks/imports/play-podman.yml`
+  - [x] ✅ `playbooks/imports/play-python.yml`
+  - [x] ✅ `playbooks/imports/play-vscode.yml`
+  - [x] ✅ `playbooks/imports/play-gnome-shell.yml`
+  - [x] ✅ `playbooks/imports/play-systemd-user-tweaks.yml`
+  - [x] ✅ `playbooks/imports/play-github-cli-multi.yml`
 
-- [ ] ⬜ **4.2: Verify and commit Phase 4**
-  - [ ] ⬜ Run `./scripts/qa-all.bash`
-  - [ ] ⬜ Commit: "fix(ansible): remove duplicate shebangs from 7 playbooks"
+- [x] ✅ **4.2: Verify and commit Phase 4**
+  - [x] ✅ QA passed
+  - [x] ✅ Committed (bundled with Phase 1 and 3 zero-risk fixes)
 
 ### Phase 5: Ansible — Curl-to-Bash and State Latest
 

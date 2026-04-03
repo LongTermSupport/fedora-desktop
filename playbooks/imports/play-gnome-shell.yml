@@ -1,6 +1,5 @@
 #!/usr/bin/env ansible-playbook
 ---
-#!/usr/bin/env ansible-playbook
 - hosts: desktop
   name: Gnome Shell Extensions
   become: true

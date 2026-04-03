@@ -100,8 +100,6 @@ if [[ $CHECK_ONLY -eq 0 ]]; then
     echo -e "${BLUE}────────────────────────${NC}"
 fi
 
-PACKAGES_OK=1
-
 # Core driver packages
 check_pkg() {
     if rpm -q "$1" &>/dev/null; then
@@ -109,7 +107,6 @@ check_pkg() {
         print_status 0 "$2: ${BOLD}$VERSION${NC}"
     else
         print_status 1 "$2: ${BOLD}Not installed${NC}"
-        PACKAGES_OK=0
     fi
 }
 
@@ -185,13 +182,12 @@ fi
 
 DRIVER_OK=0
 if command -v nvidia-smi &>/dev/null; then
-    NVIDIA_SMI_OUTPUT=$(nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader 2>&1)
-    if [ $? -eq 0 ]; then
+    if NVIDIA_SMI_OUTPUT=$(nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader 2>&1); then
         print_status 0 "nvidia-smi: ${BOLD}Working${NC}"
         while IFS=',' read -r gpu_name driver_ver memory; do
-            echo -e "      GPU: ${BOLD}$(echo $gpu_name | xargs)${NC}"
-            echo -e "      Driver: ${BOLD}$(echo $driver_ver | xargs)${NC}"
-            echo -e "      VRAM: ${BOLD}$(echo $memory | xargs)${NC}"
+            echo -e "      GPU: ${BOLD}$(echo "$gpu_name" | xargs)${NC}"
+            echo -e "      Driver: ${BOLD}$(echo "$driver_ver" | xargs)${NC}"
+            echo -e "      VRAM: ${BOLD}$(echo "$memory" | xargs)${NC}"
         done <<< "$NVIDIA_SMI_OUTPUT"
         DRIVER_OK=1
     else
@@ -291,7 +287,6 @@ if [[ $CHECK_ONLY -eq 0 ]]; then
     echo -e "${BLUE}───────────────────────────────${NC}"
 fi
 
-VAAPI_OK=0
 VAAPI_PKG_MISSING=0
 
 # Check if nvidia-vaapi-driver package is installed
@@ -314,7 +309,6 @@ if command -v vainfo &>/dev/null; then
         if [ -n "$VAAPI_DRIVER" ]; then
             echo -e "      Driver: ${BOLD}$VAAPI_DRIVER${NC}"
         fi
-        VAAPI_OK=1
     else
         print_warning "VA-API: ${BOLD}Driver loaded but no profiles${NC}"
     fi

@@ -1,6 +1,5 @@
 #!/usr/bin/env ansible-playbook
 ---
-#!/usr/bin/env ansible-playbook
 - hosts: desktop
   name: Claude Code YOLO/Browser Mode - Container-based Installation
   become: false

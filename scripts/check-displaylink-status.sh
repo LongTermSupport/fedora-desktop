@@ -96,14 +96,11 @@ DKMS_STATUS=$(dkms status 2>/dev/null | grep evdi)
 if [ -n "$DKMS_STATUS" ]; then
     if echo "$DKMS_STATUS" | grep -q "installed"; then
         print_status 0 "DKMS compilation: ${BOLD}$DKMS_STATUS${NC}"
-        DKMS_OK=1
     else
         print_status 1 "DKMS compilation: ${BOLD}$DKMS_STATUS${NC}"
-        DKMS_OK=0
     fi
 else
     print_status 1 "DKMS compilation: ${BOLD}evdi module not found${NC}"
-    DKMS_OK=0
 fi
 
 LSMOD_EVDI=$(lsmod | grep evdi)
