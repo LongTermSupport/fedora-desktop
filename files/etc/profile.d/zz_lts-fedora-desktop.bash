@@ -24,6 +24,12 @@ export HISTFILESIZE=20000
 export HISTSIZE=10000
 export HISTIGNORE="&:ls:[bf]g:exit"
 
+# User local bin
+if [[ -d ~/.local/bin ]];
+then
+    PATH="$HOME/.local/bin:$PATH"
+fi
+
 # Composer global install
 if [[ -d ~/.config/composer/vendor/bin/ ]];
 then
@@ -40,6 +46,7 @@ fi
 if [[ $- == *i* ]]
 then
 
+    # shellcheck source=/dev/null
     source /var/local/ps1-prompt
 
     #Prevent Ctrl+S Freezing things
@@ -63,7 +70,7 @@ then
     # Docker Node stuff
     DOCKER_NODE_VER=${DOCKER_NODE_VER:-16}
     docker-node-version() {
-      case "$1" in
+      case "${1:-}" in
         -s|--set)
           if [ "$2" ]; then
               DOCKER_NODE_VER="$2"
@@ -72,19 +79,20 @@ then
           fi
           return 0
       esac
-      echo $DOCKER_NODE_VER
+      echo "$DOCKER_NODE_VER"
     }
     docker-node-image() {
-      echo -n "node:$(docker-node-version)"
+      echo -n "node:$(docker-node-version "$@")"
     }
     docker-node-run() {
     set -x
       local dp
       [ "$1" = "bash" ] && dp="-it"
       dp="$dp --rm"
-      dp="$dp -v "$PWD":/usr/src/app"
+      dp="$dp -v ${PWD}:/usr/src/app"
       dp="$dp -w /usr/src/app"
-      docker run $dp $(docker-node-image) "$@"
+      # shellcheck disable=SC2086
+      docker run $dp "$(docker-node-image "$@")" "$@"
     set +x
     }
     dnode() { docker-node-run "$@"; }
