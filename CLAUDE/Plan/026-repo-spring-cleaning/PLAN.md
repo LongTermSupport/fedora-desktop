@@ -8,7 +8,7 @@
 
 ## Overview
 
-The full repository (excluding CCY files covered by Plan 025) has accumulated technical debt across bash scripts, Ansible playbooks, and repo structure. A comprehensive audit identified 18 bash script issues, 20 Ansible playbook issues, and several repo structure problems including 2.4MB of tracked backup files.
+The full repository (excluding CCY files covered by Plan 025) has accumulated technical debt across bash scripts, Ansible playbooks, and repo structure. A comprehensive audit identified 18 bash script issues, 19 Ansible playbook issues (one finding was a false alarm), and minor repo structure problems (orphaned documentation).
 
 The most notable findings are: 7 playbooks with duplicate shebangs, 3 playbooks piping curl to bash, 2 status scripts missing `set -e`, and tracked backup directories that should have been gitignored.
 
@@ -182,10 +182,10 @@ Higher-risk fixes — changes to installation behaviour.
 ## Success Criteria
 
 - [x] ~~Zero tracked backup files in `.claude/`~~ — were never tracked
-- [ ] No orphaned documentation in repo root
+- [x] No orphaned documentation in repo root
 - [ ] All bash scripts pass shellcheck (excluding SC1090/SC1091 source-following)
 - [ ] All bash scripts have `set -e`
-- [ ] Zero duplicate shebangs in playbooks
+- [x] Zero duplicate shebangs in playbooks
 - [ ] No curl-piped-to-bash patterns in playbooks
 - [ ] No `state: latest` in package installation tasks
 - [x] ~~Security decision documented for `localhost.yml`~~ — not tracked in git, no action needed
@@ -209,3 +209,6 @@ Higher-risk fixes — changes to installation behaviour.
 - Ansible: 19 findings (3 High, 5 Medium, 4 Low, 7 Informational) — H4 (personal info) was false alarm
 - Repo structure: 5 backup items to remove, 1 orphaned doc, 1 plan location issue
 - Supporting analysis: [bash-audit.md](bash-audit.md), [ansible-audit.md](ansible-audit.md), [repo-structure-audit.md](repo-structure-audit.md)
+- FALSE ALARMS: H4 (localhost.yml not tracked), Phase 1.1 (backup files already gitignored) — research agents didn't verify `git ls-files`
+- Zero-risk fixes committed: deleted CCY-EXTRACTION-PLAN.md, removed dead variables (PACKAGES_OK, VAAPI_OK, DKMS_OK), quoted nvidia-smi vars, fixed indirect $? check, removed commented-out prompt block, removed duplicate shebangs from 7 playbooks
+- Shellcheck issues reduced from 454 to 447 across repo
