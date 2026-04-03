@@ -70,6 +70,13 @@
         marker: "# {mark} ANSIBLE MANAGED - LXC Install"
         path: /etc/sysconfig/lxc-net
 
+    - name: Disable IPv6 on lxc-net (not needed, causes stale address errors on restart)
+      ansible.builtin.blockinfile:
+        block: LXC_IPV6_ENABLE="false"
+        marker: "# {mark} ANSIBLE MANAGED - LXC IPv6"
+        path: /etc/sysconfig/lxc-net
+      notify: restart lxc-net
+
     - name: Verify GitHub SSH access and clone LXC Bash
       become_user: "{{ user_login }}"
       block:
@@ -172,3 +179,8 @@
   handlers:
     - name: sysctl
       ansible.builtin.command: sysctl -p
+
+    - name: restart lxc-net
+      ansible.builtin.systemd:
+        name: lxc-net
+        state: restarted
