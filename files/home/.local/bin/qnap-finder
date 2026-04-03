@@ -175,8 +175,8 @@ else
     echo -e "${YELLOW}${BOLD}No QNAP devices found.${NC}"
     echo ""
     echo "Troubleshooting:"
-    echo "  - Run with sudo for MAC-based detection:  sudo qnap-finder"
+    echo "  - Re-run for MAC-based detection (will prompt for sudo):  qnap-finder"
     echo "  - Check the NAS is powered on and connected"
     echo "  - Try browsing:  http://<nas-ip>:8080/cgi-bin/"
-    echo "  - Use broader scan:  sudo lan-scan find-nas"
+    echo "  - Use broader scan:  lan-scan find-nas"
 fi

@@ -189,8 +189,8 @@ Usage:
   lan-scan watch        Live ARP monitor — shows devices as they appear
 
 Examples:
-  sudo lan-scan                  # Find all devices, highlight QNAPs
-  sudo lan-scan find-nas         # Find NAS devices by open ports
+  lan-scan                       # Find all devices, highlight QNAPs
+  lan-scan find-nas              # Find NAS devices by open ports
   lan-scan ports <ip-address>    # What ports are open on this host?
 EOF
 }
