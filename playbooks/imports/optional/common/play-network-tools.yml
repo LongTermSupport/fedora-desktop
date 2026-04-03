@@ -1,0 +1,64 @@
+#!/usr/bin/env ansible-playbook
+---
+# Network discovery and diagnostics tools
+#
+# Installs nmap, arp-scan, and custom lan-scan script for finding
+# devices on the local network (QNAP NAS servers, etc.)
+- hosts: desktop
+  name: Network Discovery Tools
+  become: true
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  tasks:
+    # ── Packages ───────────────────────────────────────────────────────────────
+
+    - name: Install Network Discovery Packages
+      ansible.builtin.dnf:
+        name:
+          - nmap                # Port scanning and host discovery
+          - arp-scan            # Fast L2 ARP-based discovery (shows MAC vendors)
+          - avahi-tools         # mDNS/Bonjour browsing (avahi-browse)
+          - nss-mdns            # mDNS hostname resolution (.local domains)
+          - net-tools           # ifconfig, netstat, arp (legacy but useful)
+          - bind-utils          # dig, nslookup, host
+        state: present
+
+    # ── Custom Scripts ─────────────────────────────────────────────────────────
+
+    - name: Deploy Network Discovery Scripts
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/{{ item }}"
+        dest: /home/{{ user_login }}/.local/bin/{{ item }}
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+      loop:
+        - lan-scan
+        - qnap-finder
+
+    # ── Post-Install Info ──────────────────────────────────────────────────────
+
+    - name: Show Network Tools Usage
+      ansible.builtin.debug:
+        msg:
+          - ""
+          - "Network discovery tools installed!"
+          - ""
+          - "  Find QNAP NAS devices:"
+          - "    sudo qnap-finder"
+          - ""
+          - "  Quick ARP scan (all devices, highlights QNAPs):"
+          - "    sudo lan-scan"
+          - ""
+          - "  Find NAS devices by open ports:"
+          - "    sudo lan-scan find-nas"
+          - ""
+          - "  Port scan a specific host:"
+          - "    lan-scan ports <ip-address>"
+          - ""
+          - "  Live ARP monitor:"
+          - "    sudo lan-scan watch"
+          - ""
+          - "  Other tools installed:"
+          - "    nmap, arp-scan, avahi-browse, dig, nslookup"
+          - ""

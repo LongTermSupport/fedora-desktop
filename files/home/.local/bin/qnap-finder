@@ -1,0 +1,182 @@
+#!/usr/bin/env bash
+set -e
+
+# qnap-finder — find QNAP NAS devices on the local network
+# Deployed by: playbooks/imports/optional/common/play-network-tools.yml
+
+# QNAP serves its web UI on HTTP :8080/cgi-bin/
+# Also checks MAC OUI prefixes and HTTPS :443
+
+# ── QNAP MAC OUI prefixes ─────────────────────────────────────────────────────
+# @see https://maclookup.app/vendors/qnap-systems-inc
+QNAP_OUIS=("00:08:9b" "24:5e:be")
+
+# ── Colours ────────────────────────────────────────────────────────────────────
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+DIM='\033[2m'
+NC='\033[0m'
+
+# ── Helpers ────────────────────────────────────────────────────────────────────
+
+get_default_interface() {
+    ip -4 route show default | awk '{print $5; exit}'
+}
+
+get_subnet() {
+    local iface
+    iface=$(get_default_interface)
+    if [ -z "$iface" ]; then
+        echo "ERROR: No default network interface found" >&2
+        exit 1
+    fi
+    ip -4 addr show dev "$iface" | awk '/inet / {print $2; exit}'
+}
+
+is_qnap_mac() {
+    local mac="${1,,}"
+    local prefix="${mac:0:8}"
+    for oui in "${QNAP_OUIS[@]}"; do
+        [ "$prefix" = "$oui" ] && return 0
+    done
+    return 1
+}
+
+# Probe a host for QNAP web UI
+# Returns 0 if QNAP detected, sets QNAP_MODEL and QNAP_URL
+probe_qnap() {
+    local ip="$1"
+    QNAP_MODEL=""
+    QNAP_URL=""
+
+    # Try HTTP :8080/cgi-bin/ first (standard QNAP QTS URL)
+    local response
+    if response=$(curl -sS --max-time 3 --connect-timeout 2 \
+                       -o /dev/null -w "%{http_code}" \
+                       "http://${ip}:8080/cgi-bin/" 2>/dev/null); then
+        if [ "$response" = "200" ] || [ "$response" = "301" ] || [ "$response" = "302" ]; then
+            QNAP_URL="http://${ip}:8080/cgi-bin/"
+            # Try to grab the page title for model info
+            local html
+            if html=$(curl -sS --max-time 3 "http://${ip}:8080/cgi-bin/" 2>/dev/null); then
+                QNAP_MODEL=$(echo "$html" | grep -ioP '(?<=<title>)[^<]+' | head -1)
+            fi
+            return 0
+        fi
+    fi
+
+    # Try HTTPS :443 as fallback
+    if response=$(curl -sSkS --max-time 3 --connect-timeout 2 \
+                       -o /dev/null -w "%{http_code}" \
+                       "https://${ip}/" 2>/dev/null); then
+        if [ "$response" = "200" ] || [ "$response" = "301" ] || [ "$response" = "302" ]; then
+            local html
+            if html=$(curl -sSkS --max-time 3 "https://${ip}/" 2>/dev/null); then
+                # Check if it looks like QNAP (QTS, QuTS, QNAP in page)
+                if echo "$html" | grep -qiE 'qnap|qts|quts'; then
+                    QNAP_URL="https://${ip}/"
+                    QNAP_MODEL=$(echo "$html" | grep -ioP '(?<=<title>)[^<]+' | head -1)
+                    return 0
+                fi
+            fi
+        fi
+    fi
+
+    return 1
+}
+
+# ── Main ───────────────────────────────────────────────────────────────────────
+
+echo -e "${BOLD}QNAP Finder${NC}"
+echo ""
+
+subnet=$(get_subnet)
+iface=$(get_default_interface)
+
+echo -e "${DIM}Subnet: ${subnet}  Interface: ${iface}${NC}"
+echo ""
+
+# ── Phase 1: Fast ARP scan for QNAP MAC addresses ─────────────────────────────
+echo -e "${BOLD}Phase 1: ARP scan for QNAP MAC addresses...${NC}"
+
+mac_hits=()
+if [ "$(id -u)" -eq 0 ]; then
+    while IFS=$'\t' read -r ip mac vendor; do
+        [ -z "$ip" ] && continue
+        if is_qnap_mac "$mac"; then
+            mac_hits+=("$ip")
+            echo -e "  ${GREEN}Found MAC match: ${ip}  (${mac} — ${vendor})${NC}"
+        fi
+    done < <(arp-scan --localnet --interface="$iface" --plain 2>/dev/null)
+else
+    echo -e "  ${DIM}(skipped — run with sudo for MAC-based detection)${NC}"
+fi
+
+if [ ${#mac_hits[@]} -eq 0 ] && [ "$(id -u)" -eq 0 ]; then
+    echo -e "  ${DIM}No QNAP MACs found on this subnet${NC}"
+fi
+echo ""
+
+# ── Phase 2: Port scan for :8080 hosts ────────────────────────────────────────
+echo -e "${BOLD}Phase 2: Scanning for port 8080 (QNAP QTS web UI)...${NC}"
+
+port_hits=()
+nmap_out=$(mktemp)
+nmap -sT -p 8080 --open --min-rate 500 -T4 "$subnet" -oG "$nmap_out" 2>/dev/null
+while read -r line; do
+    ip=$(echo "$line" | awk '{print $2}')
+    [ -n "$ip" ] && port_hits+=("$ip")
+done < <(grep "8080/open" "$nmap_out")
+rm -f "$nmap_out"
+
+if [ ${#port_hits[@]} -eq 0 ]; then
+    echo -e "  ${DIM}No hosts with port 8080 open${NC}"
+else
+    echo -e "  ${DIM}Found ${#port_hits[@]} host(s) with port 8080 open${NC}"
+fi
+echo ""
+
+# ── Phase 3: Probe candidates ─────────────────────────────────────────────────
+# Merge MAC hits and port hits, deduplicate
+all_candidates=()
+for ip in "${mac_hits[@]}" "${port_hits[@]}"; do
+    local_dup=0
+    for existing in "${all_candidates[@]}"; do
+        [ "$ip" = "$existing" ] && local_dup=1 && break
+    done
+    [ "$local_dup" -eq 0 ] && all_candidates+=("$ip")
+done
+
+echo -e "${BOLD}Phase 3: Probing ${#all_candidates[@]} candidate(s) for QNAP web UI...${NC}"
+echo ""
+
+qnaps_found=0
+for ip in "${all_candidates[@]}"; do
+    echo -ne "  ${DIM}Probing ${ip}...${NC} "
+    if probe_qnap "$ip"; then
+        qnaps_found=$((qnaps_found + 1))
+        echo ""
+        echo -e "  ${GREEN}${BOLD}✓ QNAP #${qnaps_found}: ${ip}${NC}"
+        [ -n "$QNAP_MODEL" ] && echo -e "    ${CYAN}Title: ${QNAP_MODEL}${NC}"
+        echo -e "    ${CYAN}URL:   ${QNAP_URL}${NC}"
+        echo ""
+    else
+        echo -e "${DIM}not QNAP${NC}"
+    fi
+done
+
+# ── Summary ────────────────────────────────────────────────────────────────────
+echo ""
+if [ "$qnaps_found" -gt 0 ]; then
+    echo -e "${GREEN}${BOLD}Found ${qnaps_found} QNAP device(s).${NC}"
+else
+    echo -e "${YELLOW}${BOLD}No QNAP devices found.${NC}"
+    echo ""
+    echo "Troubleshooting:"
+    echo "  - Run with sudo for MAC-based detection:  sudo qnap-finder"
+    echo "  - Check the NAS is powered on and connected"
+    echo "  - Try browsing:  http://<nas-ip>:8080/cgi-bin/"
+    echo "  - Use broader scan:  sudo lan-scan find-nas"
+fi
