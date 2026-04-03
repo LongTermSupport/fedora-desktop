@@ -34,17 +34,9 @@
 - **Description**: `state: latest` prevents reproducible deployments — different versions installed on each run.
 - **Fix**: Use `state: present` (accept whatever is installed or install default version).
 
-### H4: Personal information in public repository
+### ~~H4: Personal information in public repository~~ — FALSE ALARM
 - **File**: `environment/localhost/host_vars/localhost.yml`
-- **Lines**: 1-3, 21, 39-48
-- **Description**: Real usernames, email addresses, and account mappings committed to public repo:
-  - `user_login`, `user_name`, `user_email` — real personal details
-  - `qobuz_username` — real email address (unencrypted)
-  - `lastpass_accounts` — real email-to-account mappings
-  - `github_accounts` — real GitHub usernames
-  - NordVPN username (partially exposed)
-- **Note**: Passwords and API keys are correctly vault-encrypted. Only the non-secret identifiers are exposed. The project's own SecurityRules.md prohibits "Personal information", "Account mappings", and "Sensitive examples" in version control.
-- **Fix**: Either vault-encrypt the sensitive identifiers, move to a gitignored file, or accept as known risk and document the exception.
+- **Status**: **NOT AN ISSUE** — file is not tracked in git. It exists locally but is correctly excluded from version control. The research agent incorrectly flagged this as committed.
 
 ## Medium Severity (5)
 

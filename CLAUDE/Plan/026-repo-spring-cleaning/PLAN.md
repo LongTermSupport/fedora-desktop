@@ -10,7 +10,7 @@
 
 The full repository (excluding CCY files covered by Plan 025) has accumulated technical debt across bash scripts, Ansible playbooks, and repo structure. A comprehensive audit identified 18 bash script issues, 20 Ansible playbook issues, and several repo structure problems including 2.4MB of tracked backup files.
 
-The most notable findings are: personal information exposed in `localhost.yml` in a public repo, 7 playbooks with duplicate shebangs, 3 playbooks piping curl to bash, 2 status scripts missing `set -e`, and tracked backup directories that should have been gitignored.
+The most notable findings are: 7 playbooks with duplicate shebangs, 3 playbooks piping curl to bash, 2 status scripts missing `set -e`, and tracked backup directories that should have been gitignored.
 
 This plan addresses all findings systematically, ordered by impact and risk. Each phase is self-contained and independently committable.
 
@@ -19,7 +19,7 @@ This plan addresses all findings systematically, ordered by impact and risk. Eac
 - Remove tracked backup files and orphaned documentation from git
 - Fix all high-severity bash script issues (missing `set -e`, dead code)
 - Fix all high-severity Ansible issues (duplicate shebangs, curl-to-bash, `state: latest`)
-- Address personal information exposure in `localhost.yml`
+- ~~Address personal information exposure in `localhost.yml`~~ — false alarm, file not tracked
 - Fix medium-severity issues where practical
 - Maintain identical runtime behaviour throughout
 
@@ -70,22 +70,9 @@ Lowest risk — removing tracked backups and reorganising orphaned files.
   - [ ] ⬜ Run `./scripts/qa-all.bash`
   - [ ] ⬜ Commit: "chore: remove tracked backup files and relocate orphaned docs"
 
-### Phase 2: Security — Personal Information Review
+### ~~Phase 2: Security — Personal Information Review~~ — CANCELLED
 
-Address exposed personal information in public repo.
-
-- [ ] ⬜ **2.1: Audit `localhost.yml` exposure**
-  - [ ] ⬜ Catalogue all unencrypted personal identifiers (usernames, emails, account mappings)
-  - [ ] ⬜ Determine which values genuinely need protection vs which are acceptable
-  - [ ] ⬜ Discuss with user: vault-encrypt identifiers, move to gitignored file, or document as accepted risk
-
-- [ ] ⬜ **2.2: Implement chosen approach**
-  - [ ] ⬜ Apply chosen fix (vault-encrypt, gitignore, or document exception)
-  - [ ] ⬜ If removing from git: use BFG or `git filter-branch` to purge from history
-  - [ ] ⬜ Update SecurityRules.md if documenting an exception
-
-- [ ] ⬜ **2.3: Verify and commit Phase 2**
-  - [ ] ⬜ Commit
+`localhost.yml` is NOT tracked in git — false alarm from the research agent. No action needed.
 
 ### Phase 3: Bash Script Fixes
 
@@ -189,9 +176,9 @@ Higher-risk fixes — changes to installation behaviour.
 **Context**: Repo structure cleanup (removing backups) is zero-risk and makes the repo cleaner for all subsequent work.
 **Decision**: Phase 1 handles structure, then security, then code fixes.
 
-### Decision 2: Security finding requires user input
-**Context**: `localhost.yml` contains real personal identifiers in a public repo. The project's SecurityRules.md prohibits this, but the file also uses variable-level vault encryption correctly for secrets. The unencrypted values (usernames, emails, account mappings) may be considered acceptable by the owner.
-**Decision**: Phase 2 requires user discussion before implementation. Options: vault-encrypt identifiers, move to gitignored file, or document as accepted risk.
+### Decision 2: Security finding was false alarm
+**Context**: Research agent flagged `localhost.yml` as containing personal info in a public repo. Investigation confirmed the file is NOT tracked in git — it exists only locally. No action needed.
+**Decision**: Phase 2 cancelled.
 
 ### Decision 3: Status scripts need careful `set -e` addition
 **Context**: Adding `set -e` to status scripts that check hardware state could cause premature exits if hardware isn't present (e.g., `nvidia-smi` failing on non-NVIDIA systems).
@@ -206,7 +193,7 @@ Higher-risk fixes — changes to installation behaviour.
 - [ ] Zero duplicate shebangs in playbooks
 - [ ] No curl-piped-to-bash patterns in playbooks
 - [ ] No `state: latest` in package installation tasks
-- [ ] Security decision documented for `localhost.yml`
+- [x] ~~Security decision documented for `localhost.yml`~~ — not tracked in git, no action needed
 - [ ] `./scripts/qa-all.bash` passes
 
 ## Risks & Mitigations
@@ -217,13 +204,13 @@ Higher-risk fixes — changes to installation behaviour.
 | Removing curl-to-bash breaks installer scripts | Medium | Low | Download-then-execute pattern is equivalent; test installations |
 | `state: present` leaves outdated packages | Low | Low | Users can manually update; `dnf upgrade` handles this |
 | Removing backup files loses useful reference | Low | Low | Files remain in git history if ever needed |
-| BFG history rewrite for localhost.yml | High | Low | Only do if user confirms; coordinate with any forks |
+| ~~BFG history rewrite for localhost.yml~~ | ~~High~~ | N/A | CANCELLED — file not tracked in git |
 
 ## Notes & Updates
 
 ### 2026-04-03
 - Plan created based on comprehensive audit by three research agents
 - Bash scripts: 18 findings (2 High, 10 Medium, 6 Low) across 4 files
-- Ansible: 20 findings (4 High, 5 Medium, 4 Low, 7 Informational)
+- Ansible: 19 findings (3 High, 5 Medium, 4 Low, 7 Informational) — H4 (personal info) was false alarm
 - Repo structure: 5 backup items to remove, 1 orphaned doc, 1 plan location issue
 - Supporting analysis: [bash-audit.md](bash-audit.md), [ansible-audit.md](ansible-audit.md), [repo-structure-audit.md](repo-structure-audit.md)
