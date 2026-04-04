@@ -63,12 +63,12 @@ emit_hook_error() {
             "ACTION REQUIRED:" \
             "1. STOP all work immediately - do not use any tools" \
             "2. Report to the user: 'Hooks daemon must be installed before running Claude Code agents in this environment'" \
-            "3. Installation guide: CLAUDE/LLM-INSTALL.md" \
+            "3. Install using the skill: /hooks-daemon install (invoke via Skill tool)" \
             "" \
-            "DO NOT attempt to install the daemon yourself. DO NOT continue working without the daemon.")
+            "DO NOT continue working without the daemon.")
     elif [[ "$_HOOKS_DAEMON_NOT_INSTALLED" == "true" ]]; then
         # NOT INSTALLED: Guide to install guide — project was cloned but daemon never set up
-        context_msg=$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s' \
+        context_msg=$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s' \
             "HOOKS DAEMON: Not installed" \
             "" \
             "This project uses the Claude Code Hooks Daemon for safety enforcement," \
@@ -76,10 +76,12 @@ emit_hook_error() {
             "" \
             "ALL safety handlers, code quality checks, and workflow enforcement are INACTIVE." \
             "" \
-            "TO INSTALL — read and follow the guide (do not improvise):" \
-            "  CLAUDE/LLM-INSTALL.md" \
+            "TO INSTALL — use the hooks-daemon skill (do not improvise):" \
+            "  /hooks-daemon install" \
             "" \
-            "After installing, the daemon starts automatically on the next hook event.")
+            "Invoke via Skill tool: skill=\"hooks-daemon\", args=\"install\"" \
+            "" \
+            "After installing, restart your Claude session for hooks to activate.")
     else
         # Standard error message
         # NOTE: Language is intentionally measured to avoid triggering investigation loops

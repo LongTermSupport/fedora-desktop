@@ -7,10 +7,10 @@
     root_dir: "{{ inventory_dir }}/../../"
     # RapidRAW - hardcoded version for security and reproducibility
     # @see https://github.com/CyberTimon/RapidRAW/releases
-    rapidraw_version: "1.5.2"
+    rapidraw_version: "1.5.3"
     rapidraw_rpm: "03_RapidRAW_v{{ rapidraw_version }}_ubuntu-22.04_x86_64.rpm"
     rapidraw_url: "https://github.com/CyberTimon/RapidRAW/releases/download/v{{ rapidraw_version }}/{{ rapidraw_rpm }}"
-    rapidraw_sha256: "89cf392824e8e2d45beaac092f3b13e315611d4966cdd5aeea93f9b7c2738614"
+    rapidraw_sha256: "4efc732a38aa33a4ac806697b5b748fe3f99ecf9ab80880af8b85b339b972e33"
     rapidraw_tmp: "/tmp/{{ rapidraw_rpm }}"
     # ART - hardcoded version for security and reproducibility
     # @see https://artraweditor.github.io/ | https://github.com/artraweditor/ART/releases
