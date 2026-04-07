@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.10.1"  # fix: --export-token interactive multi-select, output pasteable command not script
+CCY_VERSION="3.11.0"  # feat: --update-token=NAME to renew an existing token without waiting for expiry
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -135,6 +135,7 @@ Options:
   --no-ssh               Skip SSH key selection (git push will not work)
   --token NAME           Use specific named token
   --create-token         Create a new named token
+  --update-token=NAME    Replace an existing named token (e.g. invalidated before expiry)
   --list-tokens          List available tokens
   --export-token [NAME]  Export token(s) as portable import script (interactive if no name)
   --network NETWORK      Auto-connect to specified container network on launch
@@ -178,6 +179,7 @@ Examples:
 
   # Token management:
   ccy --create-token            # Create a new named token
+  ccy --update-token=personal   # Renew an existing token (e.g. after invalidation)
   ccy --token personal          # Use "personal" token
   ccy --list-tokens             # List available tokens
   ccy --export-token             # Interactive multi-token export
@@ -387,6 +389,9 @@ NEXT_IS_PROMPT=false
 NEXT_IS_ENGINE=false
 SPECIFIED_TOKEN=""
 CREATE_TOKEN_MODE=false
+UPDATE_TOKEN_MODE=false
+UPDATE_TOKEN_NAME=""
+NEXT_IS_UPDATE_TOKEN=false
 LIST_TOKENS_MODE=false
 EXPORT_TOKEN_MODE=false
 EXPORT_TOKEN_NAME=""
@@ -431,6 +436,9 @@ for arg in "$@"; do
     elif [ "$NEXT_IS_EXPORT_TOKEN" = true ]; then
         EXPORT_TOKEN_NAME="$arg"
         NEXT_IS_EXPORT_TOKEN=false
+    elif [ "$NEXT_IS_UPDATE_TOKEN" = true ]; then
+        UPDATE_TOKEN_NAME="$arg"
+        NEXT_IS_UPDATE_TOKEN=false
     elif [ "$NEXT_IS_TOKEN" = true ]; then
         SPECIFIED_TOKEN="$arg"
         NEXT_IS_TOKEN=false
@@ -474,6 +482,16 @@ for arg in "$@"; do
         NEXT_IS_TOKEN=true
     elif [ "$arg" = "--create-token" ]; then
         CREATE_TOKEN_MODE=true
+    elif [[ "$arg" == "--update-token="* ]]; then
+        UPDATE_TOKEN_MODE=true
+        UPDATE_TOKEN_NAME="${arg#--update-token=}"
+        if [ -z "$UPDATE_TOKEN_NAME" ]; then
+            print_error "--update-token requires a token name (e.g. --update-token=personal)"
+            exit 1
+        fi
+    elif [ "$arg" = "--update-token" ]; then
+        UPDATE_TOKEN_MODE=true
+        NEXT_IS_UPDATE_TOKEN=true
     elif [ "$arg" = "--list-tokens" ]; then
         LIST_TOKENS_MODE=true
     elif [ "$arg" = "--export-token" ]; then
@@ -727,6 +745,16 @@ build_ssh_mounts_and_validate "ccy" || exit 1
 # Handle create token mode (requires SSH/GH setup for container functionality)
 if [ "$CREATE_TOKEN_MODE" = true ]; then
     create_token "$TOKEN_DIR" "$GH_TOKEN" "$IMAGE_NAME" "ccy"
+    exit $?
+fi
+
+# Handle update token mode (renew an existing named token before/after invalidation)
+if [ "$UPDATE_TOKEN_MODE" = true ]; then
+    if [ -z "$UPDATE_TOKEN_NAME" ]; then
+        print_error "--update-token requires a token name (e.g. --update-token=personal)"
+        exit 1
+    fi
+    create_token "$TOKEN_DIR" "$GH_TOKEN" "$IMAGE_NAME" "ccy" "$UPDATE_TOKEN_NAME"
     exit $?
 fi
 
