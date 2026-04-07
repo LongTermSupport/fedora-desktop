@@ -657,6 +657,28 @@ Track these for each plan:
 
 ## Integration with Git
 
+### When to Commit Plans
+
+**The hard rule**: never let plan state lag behind code state. Both of these patterns are valid and encouraged:
+
+**Pattern A — Plan + code in one commit** (preferred when both change in one session):
+
+```bash
+git add CLAUDE/Plan/001-handler/PLAN.md src/handlers/destructive_git.py
+git commit -m "Plan 001: Implement destructive git handler"
+```
+
+**Pattern B — Plan-only commit** (encouraged for plan creation, research updates, decision-gate notes, or status changes that are not tied to a code change):
+
+```bash
+git add CLAUDE/Plan/001-handler/
+git commit -m "Plan 001: Add research notes for handler design"
+```
+
+**What is prohibited**: committing code that completes plan tasks while leaving the plan file unchanged on disk. This creates drift between what the plan says and what the codebase actually contains, which is the bug the rule exists to prevent.
+
+The canonical version of this rule lives in [CLAUDE.md → Plan Commit Rule](../CLAUDE.md#plan-commit-rule).
+
 ### Commit Messages
 
 Reference plans in commits:

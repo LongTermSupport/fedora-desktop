@@ -69,12 +69,31 @@ When providing diagnostic commands to users, always use `--no-pager`, `| cat`, o
 
 ## Plan Commit Rule
 
-Plans MUST be committed alongside the work they describe. Never leave plan directories untracked after related work is committed.
+**Never let plan state lag behind the work it tracks.** When code work completes, advances, or invalidates a plan task, the corresponding plan file changes must be committed too — ideally in the same commit as the code, but at minimum within the same session.
+
+This rule exists to prevent **drift between plan state and code state**. It is *not* a restriction on when plans can be committed.
+
+### Encouraged
+
+- Committing a brand-new plan on its own, with no related code yet — fine and recommended so the plan is tracked immediately
+- Committing plan research, decision-gate notes, or status updates on their own
+- Committing plan progress in the same commit as the code that implements it (preferred when both change in one session)
+
+### Prohibited
+
+- Committing code that completes plan tasks while leaving the plan file unchanged on disk
+- Leaving an untracked `CLAUDE/Plan/NNN-…/` directory after committing related work
+- Marking tasks ✅ in conversation but not in the plan file
+- Bundling unrelated plan edits with unrelated code changes — split them into separate commits
+
+### Quick check before any work commit
 
 ```bash
-git status  # Check for untracked CLAUDE/Plan/ directories
-git add CLAUDE/Plan/NNN-description/  # Stage the plan alongside code changes
+git status  # Look for untracked CLAUDE/Plan/ dirs and unstaged plan edits
+git add CLAUDE/Plan/NNN-description/  # Stage plan alongside related code
 ```
+
+If `git status` shows plan files modified by your session, decide before committing: stage them with the related code, **or** make a separate plan-only commit. Do not leave them dangling.
 
 ---
 
