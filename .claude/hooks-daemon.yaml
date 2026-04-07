@@ -1,3 +1,15 @@
+# Claude Code Hooks Daemon - Handler Configuration
+#
+# AFTER EDITING THIS FILE: restart the daemon for changes to take effect.
+#   User: type /hooks-daemon restart
+#   Claude: use Skill tool with skill="hooks-daemon" args="restart"
+#
+# Verify it is running:
+#   User: type /hooks-daemon health
+#   Claude: use Skill tool with skill="hooks-daemon" args="health"
+#
+# Full handler reference: .claude/hooks-daemon/CLAUDE/HANDLER_DEVELOPMENT.md
+
 version: "1.0"
 
 # Daemon configuration

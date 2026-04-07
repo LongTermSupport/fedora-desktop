@@ -15,7 +15,7 @@ source "$SCRIPT_DIR/../init.sh"
 # Try to start daemon - if it fails, output proper JSON error to stdout
 if ! ensure_daemon; then
     emit_hook_error "PostToolUse" "daemon_startup_failed" \
-        "Failed to start hooks daemon. Check logs with: python -m claude_code_hooks_daemon.daemon.cli logs"
+        "Failed to start hooks daemon. Use the hooks-daemon skill to check logs (Skill tool: skill=hooks-daemon, args=logs)"
     exit 0  # Exit 0 so Claude processes the JSON response
 fi
 
