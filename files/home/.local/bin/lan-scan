@@ -45,6 +45,18 @@ is_qnap_mac() {
     return 1
 }
 
+resolve_hostname() {
+    local ip="$1"
+    local name=""
+    # Try reverse DNS first
+    name=$(host "$ip" 2>/dev/null | awk '/domain name pointer/ {print $NF; exit}' | sed 's/\.$//')
+    # Fall back to mDNS (avahi) if available and DNS returned nothing
+    if [ -z "$name" ] && command -v avahi-resolve-address &>/dev/null; then
+        name=$(avahi-resolve-address "$ip" 2>/dev/null | awk '{print $2}')
+    fi
+    echo "${name:--}"
+}
+
 require_root() {
     if [ "$(id -u)" -ne 0 ]; then
         echo "This command requires root privileges for raw packet access." >&2
@@ -66,26 +78,35 @@ cmd_scan() {
     echo ""
 
     # arp-scan is fastest for L2 discovery — shows MAC vendor strings
-    local tmpfile
-    tmpfile=$(mktemp)
-    arp-scan --localnet --interface="$iface" --plain 2>/dev/null > "$tmpfile"
+    # Run twice to improve reliability (devices don't always respond to every probe)
+    local tmpraw tmpdedup
+    tmpraw=$(mktemp)
+    tmpdedup=$(mktemp)
+    arp-scan --localnet --interface="$iface" --plain 2>/dev/null >> "$tmpraw"
+    arp-scan --localnet --interface="$iface" --plain 2>/dev/null >> "$tmpraw"
+
+    # Deduplicate by IP (keep first MAC/vendor seen), then sort by IP numerically
+    awk -F'\t' '!seen[$1]++ { print }' "$tmpraw" \
+        | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n > "$tmpdedup"
 
     # Column headers
-    printf "${BOLD}%-18s  %-20s  %s${NC}\n" "IP Address" "MAC Address" "Vendor / Info"
-    printf "%-18s  %-20s  %s\n" "──────────────────" "────────────────────" "────────────────────────────"
+    printf "${BOLD}%-18s  %-20s  %-30s  %s${NC}\n" "IP Address" "MAC Address" "Hostname" "Vendor / Info"
+    printf "%-18s  %-20s  %-30s  %s\n" "──────────────────" "────────────────────" "──────────────────────────────" "────────────────────────────"
 
     local qnap_found=()
     while IFS=$'\t' read -r ip mac vendor; do
         [ -z "$ip" ] && continue
+        local hostname
+        hostname=$(resolve_hostname "$ip")
         if is_qnap_mac "$mac"; then
-            printf "${GREEN}${BOLD}%-18s  %-20s  %s  ← QNAP${NC}\n" "$ip" "$mac" "$vendor"
+            printf "${GREEN}${BOLD}%-18s  %-20s  %-30s  %s  ← QNAP${NC}\n" "$ip" "$mac" "$hostname" "$vendor"
             qnap_found+=("$ip")
         else
-            printf "%-18s  %-20s  %s\n" "$ip" "$mac" "$vendor"
+            printf "%-18s  %-20s  %-30s  %s\n" "$ip" "$mac" "$hostname" "$vendor"
         fi
-    done < "$tmpfile"
+    done < "$tmpdedup"
 
-    rm -f "$tmpfile"
+    rm -f "$tmpraw" "$tmpdedup"
     echo ""
 
     if [ ${#qnap_found[@]} -gt 0 ]; then
