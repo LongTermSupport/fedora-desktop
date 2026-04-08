@@ -201,6 +201,14 @@
     # WARNING: First install can take MANY MINUTES (5-15+) due to large downloads
     # (PyTorch ~2GB, plus many dependencies). Subsequent runs are instant.
 
+    - name: Install System Dependencies for RealtimeSTT
+      ansible.builtin.dnf:
+        name:
+          - portaudio-devel
+          - python3-devel
+          - openblas-devel
+        state: present
+
     - name: Install RealtimeSTT for Streaming Mode (WARNING - CAN TAKE MANY MINUTES ON FIRST RUN)
       become: true
       become_user: "{{ user_login }}"
@@ -208,13 +216,6 @@
         name:
           - RealtimeSTT
         extra_args: --user
-        state: present
-
-    - name: Install PortAudio for RealtimeSTT (System Dependency)
-      ansible.builtin.dnf:
-        name:
-          - portaudio-devel
-          - python3-devel
         state: present
 
     - name: Stop wsi-stream-server if Running (to pick up updated scripts)
