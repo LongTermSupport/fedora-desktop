@@ -195,6 +195,16 @@ Writing code that silently swallows errors is blocked. All errors must be handle
 
 **Required action**: Handle errors explicitly — log them, return them to the caller, or propagate them. Silent error suppression masks bugs and makes debugging impossible.
 
+## gh_issue_comments — always include --comments on gh issue view
+
+`gh issue view` without `--comments` is blocked. Issue comments often contain critical context, clarifications, and updates not in the issue body.
+
+**Blocked**: `gh issue view 123`, `gh issue view 123 --repo owner/repo`
+
+**Allowed**: `gh issue view 123 --comments`, `gh issue view 123 --json title,body,comments`
+
+If using `--json`, include `comments` in the field list instead of adding `--comments`.
+
 ## git_stash — git stash is advisory by default
 
 `git stash`, `git stash push`, and `git stash save` trigger this handler. `git stash pop`, `git stash apply`, `git stash list`, and `git stash show` are always allowed.
@@ -241,6 +251,35 @@ Writing a new `.md` file to an unrecognised location is blocked. Markdown files 
 **Plan file redirection**: when `track_plans_in_project` is enabled, Claude Code planning mode writes are automatically redirected to the project's `CLAUDE/Plan/` directory. Plan folders must follow the `NNNN-description/` naming convention.
 
 If you need a markdown file in a new location, add a pattern to `allowed_markdown_paths` in `.claude/hooks-daemon.yaml`.
+
+## npm_command — use llm: prefixed npm commands
+
+Direct `npm run` and `npx` commands are blocked or advised against. Projects with `llm:` prefixed scripts in `package.json` should use those instead.
+
+**Why**: `llm:` commands are configured for LLM-friendly output (no spinners, no colour codes, structured results).
+
+**Example**: Use `npm run llm:build` instead of `npm run build`.
+
+If no `llm:` commands exist in `package.json`, the handler operates in advisory mode (warns but does not block).
+
+### Pipe Blocker
+
+Commands piped to `tail` or `head` are **blocked** — piping truncates output and causes information loss.
+
+**Use a temp file instead:**
+
+```bash
+# WRONG — blocked:
+pytest tests/ 2>&1 | tail -20
+
+# RIGHT — redirect to temp file:
+pytest tests/ > /tmp/pytest_out.txt 2>&1
+# Then read selectively if needed
+```
+
+**Allowed** (whitelisted): `grep`, `rg`, `awk`, `sed`, `jq`, `ls`, `cat`, `git log`, `git tag`, `git branch`, and other cheap filtering commands.
+
+**Add to whitelist** (if safe to pipe): set `extra_whitelist` in `.claude/hooks-daemon.yaml` under `pipe_blocker`.
 
 ## qa_suppression — QA suppression annotations are blocked
 
@@ -329,45 +368,6 @@ Content inside markdown code blocks is exempt from validation.
 Worktrees are isolated branches. Cross-copying corrupts that isolation and can silently overwrite in-progress work.
 
 **Allowed**: operations within the same worktree branch. **To merge changes**: use `git merge` or `git cherry-pick` instead.
-
-## gh_issue_comments — always include --comments on gh issue view
-
-`gh issue view` without `--comments` is blocked. Issue comments often contain critical context, clarifications, and updates not in the issue body.
-
-**Blocked**: `gh issue view 123`, `gh issue view 123 --repo owner/repo`
-
-**Allowed**: `gh issue view 123 --comments`, `gh issue view 123 --json title,body,comments`
-
-If using `--json`, include `comments` in the field list instead of adding `--comments`.
-
-## npm_command — use llm: prefixed npm commands
-
-Direct `npm run` and `npx` commands are blocked or advised against. Projects with `llm:` prefixed scripts in `package.json` should use those instead.
-
-**Why**: `llm:` commands are configured for LLM-friendly output (no spinners, no colour codes, structured results).
-
-**Example**: Use `npm run llm:build` instead of `npm run build`.
-
-If no `llm:` commands exist in `package.json`, the handler operates in advisory mode (warns but does not block).
-
-### Pipe Blocker
-
-Commands piped to `tail` or `head` are **blocked** — piping truncates output and causes information loss.
-
-**Use a temp file instead:**
-
-```bash
-# WRONG — blocked:
-pytest tests/ 2>&1 | tail -20
-
-# RIGHT — redirect to temp file:
-pytest tests/ > /tmp/pytest_out.txt 2>&1
-# Then read selectively if needed
-```
-
-**Allowed** (whitelisted): `grep`, `rg`, `awk`, `sed`, `jq`, `ls`, `cat`, `git log`, `git tag`, `git branch`, and other cheap filtering commands.
-
-**Add to whitelist** (if safe to pipe): set `extra_whitelist` in `.claude/hooks-daemon.yaml` under `pipe_blocker`.
 
 ## system_paths — do not edit deployed system files directly
 
