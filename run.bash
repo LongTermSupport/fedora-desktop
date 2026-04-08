@@ -531,6 +531,10 @@ if ! ghCheckTokenPermission "admin:public_key" > /dev/null 2>&1; then
   warning "Missing admin:public_key permission - requesting it now"
   gh auth refresh -h github.com -s admin:public_key
 fi
+if ! ghCheckTokenPermission "read:project" "true"; then
+  warning "Missing read:project permission - requesting it now"
+  gh auth refresh -h github.com -s read:project
+fi
 
 ssh_key_fingerprint=$(ssh-keygen -lf ~/.ssh/id.pub | awk '{print $2}')
 # Use gh api to check for SSH keys without triggering signing key scope warning
