@@ -263,7 +263,7 @@
       ansible.builtin.pip:
         name:
           - RealtimeSTT
-        extra_args: --user
+        extra_args: --user --resume-retries 5
         state: present
 
     - name: Stop wsi-stream-server if Running (to pick up updated scripts)
