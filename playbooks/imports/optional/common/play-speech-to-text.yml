@@ -209,6 +209,27 @@
           - openblas-devel
         state: present
 
+    # scipy-openblas32 provides a bundled OpenBLAS + pkg-config for scipy's meson build.
+    # Required on Python 3.14 where scipy 1.15.2 has no pre-built wheel and must build
+    # from source. scipy's meson checks for 'scipy-openblas' (via pkgconfig) first —
+    # this is what scipy-openblas32 provides. System openblas-devel alone is not enough
+    # because Fedora's openblas pkg-config names differ from what scipy expects.
+    - name: Install scipy-openblas32 (bundled OpenBLAS for Python 3.14 scipy source build)
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.pip:
+        name: scipy-openblas32
+        extra_args: --user
+        state: present
+
+    - name: Get scipy-openblas32 pkg-config directory
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        cmd: /usr/bin/python3 -c "import scipy_openblas32; print(scipy_openblas32.get_pkg_config_dir())"
+      register: scipy_openblas_pkgconfig
+      changed_when: false
+
     - name: Install RealtimeSTT for Streaming Mode (WARNING - CAN TAKE MANY MINUTES ON FIRST RUN)
       become: true
       become_user: "{{ user_login }}"
@@ -217,6 +238,10 @@
           - RealtimeSTT
         extra_args: --user
         state: present
+      environment:
+        # Include scipy-openblas32 pkgconfig dir so meson finds 'scipy-openblas'.
+        # Must also include system paths since setting PKG_CONFIG_PATH overrides defaults.
+        PKG_CONFIG_PATH: "{{ scipy_openblas_pkgconfig.stdout }}:/usr/lib64/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig"
 
     - name: Stop wsi-stream-server if Running (to pick up updated scripts)
       become: true
