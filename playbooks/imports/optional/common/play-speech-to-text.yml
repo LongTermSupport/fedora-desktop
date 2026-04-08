@@ -226,7 +226,7 @@
       become: true
       become_user: "{{ user_login }}"
       ansible.builtin.command:
-        cmd: /usr/bin/python3 -c "import scipy_openblas32; print(scipy_openblas32.get_pkg_config_dir())"
+        cmd: /usr/bin/python3 -c "import scipy_openblas32; print(scipy_openblas32.get_pkg_config())"
       register: scipy_openblas_pkgconfig
       changed_when: false
 
