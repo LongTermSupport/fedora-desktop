@@ -1,158 +1,148 @@
+# Claude Code Hooks Daemon - Handler Configuration
+#
+# AFTER EDITING THIS FILE: restart the daemon for changes to take effect.
+#   User: type /hooks-daemon restart
+#   Claude: use Skill tool with skill="hooks-daemon" args="restart"
+#
+# Verify it is running:
+#   User: type /hooks-daemon health
+#   Claude: use Skill tool with skill="hooks-daemon" args="health"
+#
+# Full handler reference: .claude/hooks-daemon/CLAUDE/HANDLER_DEVELOPMENT.md
+
 version: "1.0"
 
 # Daemon configuration
 daemon:
   idle_timeout_seconds: 600  # Auto-shutdown after 10 minutes of inactivity
   log_level: INFO
+  enable_hello_world_handlers: false
+  enforce_single_daemon_process: true  # Auto-enabled (container detected)
 
-  enable_hello_world_handlers: false  # Disable hello_world test handlers
-                                      # Set to true to see "✅ {Event} hook system active" messages
-
-# Built-in handler configuration
+# Handler Configuration
 # Handlers run in priority order (lower number = earlier execution)
 # Priority ranges: 5=test, 10-20=safety, 25-45=workflow, 50-60=tool usage
+
 handlers:
   # PreToolUse handlers (run before every tool call)
   pre_tool_use:
     # SAFETY HANDLERS (Priority 10-20)
-    destructive_git:       # Blocks git reset --hard, git clean -f, etc
-      enabled: true
-      priority: 10
-
-    sed_blocker:           # Blocks sed command usage (use Edit tool instead)
+    destructive_git: {enabled: true, priority: 10}          # Block git reset --hard, clean -f, etc
+    daemon_restart_verifier: {enabled: true, priority: 10}  # Advisory: suggest daemon restart verification
+    sed_blocker:                                             # Block sed (use Edit tool instead)
       enabled: true
       priority: 10
       options:
-        blocking_mode: direct_invocation_only  # Allow writing scripts that contain sed; block direct sed calls
+        blocking_mode: direct_invocation_only  # Allow scripts that contain sed; block direct calls
+    pip_break_system: {enabled: true, priority: 10}         # Block pip --break-system-packages
+    sudo_pip: {enabled: true, priority: 10}                 # Block sudo pip
+    curl_pipe_shell: {enabled: true, priority: 10}          # Block curl | bash patterns
+    lock_file_edit_blocker: {enabled: true, priority: 10}   # Block direct editing of lock files
+    daemon_location_guard: {enabled: true, priority: 11}    # Prevent cd into .claude/hooks-daemon
+    absolute_path: {enabled: true, priority: 12}            # Require absolute paths in file operations
+    error_hiding_blocker: {enabled: true, priority: 13}     # Block || true, except: pass, empty catch
+    security_antipattern: {enabled: true, priority: 15}     # Block hardcoded secrets and injection
+    pipe_blocker: {enabled: true, priority: 15}             # Block dangerous pipe patterns
+    worktree_file_copy: {enabled: true, priority: 15}       # Prevent worktree file copies
+    dangerous_permissions: {enabled: true, priority: 15}    # Block chmod 777, chown root
+    tdd_enforcement: {enabled: true, priority: 15}          # Enforce test-first development
+    git_stash: {enabled: true, priority: 20}                # Warn about git stash
 
-    absolute_path:         # Enforces absolute paths in file operations
-      enabled: true
-      priority: 12
-
-    worktree_file_copy:    # Prevents copying files between git worktrees
-      enabled: true
-      priority: 15
-
-    git_stash:             # Warns about git stash (stashes can be lost)
-      enabled: true
-      priority: 20
-
-    # CODE QUALITY HANDLERS (Priority 25-45)
-    qa_suppression:        # Prevents QA suppression comments (replaces eslint_disable in v2.9.0+)
-      enabled: true
-      priority: 30
-
-    tdd_enforcement:       # Enforces test-first development
+    # CODE QUALITY HANDLERS (Priority 25-35)
+    qa_suppression: {enabled: true, priority: 30}           # Block QA suppression comments (11 languages)
+    validate_plan_number: {enabled: true, priority: 30}     # Validate plan number format (001-, 002-, etc)
+    plan_number_helper: {enabled: true, priority: 30}       # Provide correct next plan number
+    markdown_organization:                                   # Plan tracking and markdown organisation
       enabled: true
       priority: 35
-
-    # WORKFLOW HANDLERS (Priority 40-50)
-    validate_plan_number:  # Validates plan number format (001-, 002-, etc)
-      enabled: true        # Enabled for CLAUDE/Plan/ workflow
-      priority: 40
-
-    plan_time_estimates:   # Blocks time estimates in plan files
-      enabled: true        # Enabled for CLAUDE/Plan/ workflow
-      priority: 45
-
-    plan_workflow:         # Provides guidance when creating plans
-      enabled: true        # Enabled for CLAUDE/Plan/ workflow
-      priority: 45
-
-    npm_command:           # Restricts npm commands to approved list
-      enabled: true        # Enabled for strict npm usage control
-      priority: 50
-
-    markdown_organization: # Enforces markdown file organization rules
-      enabled: true        # Enabled for strict md organization
-      priority: 50
       options:
+        track_plans_in_project: "CLAUDE/Plan"
+        plan_workflow_docs: "CLAUDE/PlanWorkflow.md"
         allowed_markdown_paths:
-          - "^src/claude_code_hooks_daemon/guides/.*\\.md$"  # Shipped daemon guides
-          - "^claude/.*\\.md$"                               # LLM docs (CLAUDE/)
-          - "^docs/.*\\.md$"                                 # Human-facing docs
-          - "^untracked/.*\\.md$"                            # Temporary/scratch docs
-          - "^releases/.*\\.md$"                             # Release notes
-          - "^eslint-rules/.*\\.md$"                         # ESLint rule docs
-          - "^files/opt/claude-yolo/skills/.*\\.md$"         # Container-deployed skill docs
+          - "^CLAUDE/.*\\.md$"          # LLM docs
+          - "^docs/.*\\.md$"            # Human-facing docs
+          - "^untracked/.*\\.md$"       # Temporary/scratch docs
+          - "^RELEASES/.*\\.md$"        # Release notes
+          - "^files/opt/claude-yolo/skills/.*\\.md$"  # Container-deployed skill docs
 
-    # TOOL USAGE HANDLERS (Priority 50-60)
-    web_search_year:       # Fixes year in web search queries (uses current year)
-      enabled: true
-      priority: 55
+    lsp_enforcement: {enabled: true, priority: 38}          # Steer toward LSP tools instead of Grep
 
-    british_english:       # Warns about American English spelling
-      enabled: true
-      priority: 60
+    # WORKFLOW HANDLERS (Priority 40-55)
+    gh_issue_comments: {enabled: true, priority: 40}        # Require --comments on gh issue view
+    plan_time_estimates: {enabled: true, priority: 40}      # Block time estimates in plans
+    global_npm_advisor: {enabled: true, priority: 40}       # Advise on npm install -g (non-blocking)
+    plan_workflow: {enabled: true, priority: 45}            # Guidance when creating plans
+    task_tdd_advisor: {enabled: true, priority: 45}         # Advise on TDD workflow for Task agents
+    npm_command: {enabled: true, priority: 50}              # Restrict npm commands to approved list
+    plan_completion_advisor: {enabled: true, priority: 50}  # Advise on plan completion steps
+    validate_instruction_content: {enabled: true, priority: 50}  # Block ephemeral content in CLAUDE.md
+    web_search_year: {enabled: true, priority: 55}          # Fix outdated years in searches
+
+    # ADVISORY HANDLERS (Priority 56-60)
+    daemon_docs_guard: {enabled: true, priority: 57}        # Warn when reading daemon internal docs
+    british_english: {enabled: true, priority: 60}          # Warn about American English spellings
 
   # PostToolUse handlers (run after tool execution)
   post_tool_use:
-    validate_eslint_on_write:  # Runs ESLint after file writes
-      enabled: true            # Enabled for automatic ESLint validation
-      priority: 10
+    validate_eslint_on_write: {enabled: true, priority: 10}  # Run ESLint after JS/TS file writes
+    lint_on_edit: {enabled: true, priority: 25}              # Language-aware lint after Write/Edit
+    bash_error_detector: {enabled: true, priority: 50}       # Detect bash errors in output
 
+  # PermissionRequest - Auto-approve decisions
+  permission_request:
+    auto_approve_reads: {enabled: true, priority: 10}  # Auto-approve read-only operations
 
-  # SessionStart handlers (run when session starts)
-  session_start:
-    yolo_container_detection:     # Detects YOLO container environments (enabled by default)
-      enabled: true                # Set to false to disable YOLO detection
-      priority: 40                 # Workflow range priority
+  # Notification - Custom notification handling
+  notification:
+    notification_logger: {enabled: true, priority: 10}  # Log notifications
 
-    workflow_state_restoration:  # Restores workflow state after compaction
-      enabled: true              # Enabled for workflow state management
-      priority: 10
-
-  # PreCompact handlers (run before conversation compaction)
-  pre_compact:
-    workflow_state_pre_compact:  # Saves workflow state before compaction
-      enabled: true              # Enabled for workflow state management
-      priority: 10
-
-  # SessionEnd handlers (run when session ends)
-  session_end: {}
-
-  # SubagentStop handlers (run when subagent completes)
-  subagent_stop:
-    remind_prompt_library:  # Reminds about prompt library after agent work
-      enabled: true         # Enabled for prompt library reminders
-      priority: 10
-
-
-  # UserPromptSubmit handlers (run when user submits prompt)
+  # UserPromptSubmit - Context injection before processing
   user_prompt_submit:
-    # Note: auto_continue handler removed in v2.10.0
-    git_context_injector:  # Injects git status as context
-      enabled: true
-      priority: 10
+    git_context_injector: {enabled: true, priority: 20}  # Inject git context into prompts
 
-  # StatusLine handlers (run to populate status line display)
+  # SessionStart - Initialise environment
+  session_start:
+    yolo_container_detection: {enabled: true, priority: 40}       # Detect YOLO container environments
+    workflow_state_restoration: {enabled: true, priority: 50}     # Restore workflow state after compaction
+    hook_registration_checker: {enabled: true, priority: 51}      # Validate hook registrations
+    optimal_config_checker: {enabled: true, priority: 52}         # Check for optimal Claude Code settings
+    git_filemode_checker: {enabled: true, priority: 53}           # Warn when git core.fileMode=false
+    gitignore_safety_checker: {enabled: true, priority: 54}       # Warn when .claude/ paths not gitignored
+    suggest_status_line: {enabled: true, priority: 55}            # Suggest status line setup
+    version_check: {enabled: true, priority: 55}                  # Check for daemon updates
+
+  # SessionEnd - Cleanup on exit
+  session_end:
+    cleanup: {enabled: true, priority: 10}  # Session cleanup
+
+  # Stop - Control agent continuation
+  stop:
+    auto_continue_stop: {enabled: true, priority: 15}        # Require "STOPPING BECAUSE:" prefix
+    hedging_language_detector: {enabled: true, priority: 30}  # Detect guessing language in output
+    task_completion_checker: {enabled: true, priority: 50}    # Check for task completion
+
+  # SubagentStop - Control subagent continuation
+  subagent_stop:
+    subagent_completion_logger: {enabled: true, priority: 10}  # Log subagent completion
+    remind_prompt_library: {enabled: true, priority: 20}       # Remind about prompt library
+
+  # PreCompact - Before conversation compaction
+  pre_compact:
+    transcript_archiver: {enabled: true, priority: 10}         # Archive transcripts
+    workflow_state_pre_compact: {enabled: true, priority: 50}  # Save workflow state
+
+  # StatusLine handlers
   status_line:
-    git_repo_name:      # Shows repository name (cached for performance)
-      enabled: true
-      priority: 5  # Changed from 3 (minimum is 5)
+    git_repo_name: {enabled: true, priority: 5}     # Git repository name
+    account_display: {enabled: true, priority: 6}   # Account information
+    model_context: {enabled: true, priority: 10}    # Model name and context %
+    usage_tracking: {enabled: true, priority: 15}   # Usage statistics
+    git_branch: {enabled: true, priority: 20}       # Current git branch
+    thinking_mode: {enabled: true, priority: 25}    # Current thinking mode
+    startup_cleanup: {enabled: true, priority: 28}  # Stale file cleanup indicator
+    daemon_stats: {enabled: true, priority: 30}     # Daemon health metrics
 
-    account_display:    # Shows Claude account username
-      enabled: true
-      priority: 5
-
-    model_context:      # Shows color-coded model name and context percentage
-      enabled: true
-      priority: 10
-
-    git_branch:         # Shows current git branch
-      enabled: true
-      priority: 20
-
-    daemon_stats:       # Shows daemon uptime, memory, log level, errors
-      enabled: true
-      priority: 30
-
-  # Other hook events
-  permission_request: {}
-  notification: {}
-  stop: {}
-
-# Project-level handlers (custom handlers in .claude/hooks/handlers/)
+# Project-level custom handlers
 plugins:
   paths: []
   plugins:
