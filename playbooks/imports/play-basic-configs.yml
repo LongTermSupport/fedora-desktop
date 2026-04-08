@@ -78,6 +78,7 @@
           - python3-libdnf5
           - multitail
           - figlet
+          - p7zip
       tags: packages
 
     - name: Passwordless Sudo
