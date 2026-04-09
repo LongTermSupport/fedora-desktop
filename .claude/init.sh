@@ -63,12 +63,12 @@ emit_hook_error() {
             "ACTION REQUIRED:" \
             "1. STOP all work immediately - do not use any tools" \
             "2. Report to the user: 'Hooks daemon must be installed before running Claude Code agents in this environment'" \
-            "3. Install using the skill: /hooks-daemon install (invoke via Skill tool)" \
+            "3. Use the hooks-daemon skill to install (Skill tool: skill=hooks-daemon, args=install)" \
             "" \
             "DO NOT continue working without the daemon.")
     elif [[ "$_HOOKS_DAEMON_NOT_INSTALLED" == "true" ]]; then
         # NOT INSTALLED: Guide to install guide — project was cloned but daemon never set up
-        context_msg=$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s' \
+        context_msg=$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s' \
             "HOOKS DAEMON: Not installed" \
             "" \
             "This project uses the Claude Code Hooks Daemon for safety enforcement," \
@@ -77,9 +77,7 @@ emit_hook_error() {
             "ALL safety handlers, code quality checks, and workflow enforcement are INACTIVE." \
             "" \
             "TO INSTALL — use the hooks-daemon skill (do not improvise):" \
-            "  /hooks-daemon install" \
-            "" \
-            "Invoke via Skill tool: skill=\"hooks-daemon\", args=\"install\"" \
+            "  Use the hooks-daemon skill to install (Skill tool: skill=hooks-daemon, args=install)" \
             "" \
             "After installing, restart your Claude session for hooks to activate.")
     else
@@ -96,11 +94,11 @@ emit_hook_error() {
             "If you are in the middle of an upgrade, this is expected and temporary." \
             "" \
             "TO FIX (usually takes a few seconds):" \
-            "1. Run: python -m claude_code_hooks_daemon.daemon.cli restart" \
-            "2. Verify: python -m claude_code_hooks_daemon.daemon.cli status" \
+            "Use the hooks-daemon skill to restart the daemon." \
+            "Then use the hooks-daemon skill to verify health." \
+            "Invoke via Skill tool with skill=hooks-daemon and args=restart or args=health." \
             "" \
-            "If restart fails, check logs:" \
-            "  python -m claude_code_hooks_daemon.daemon.cli logs" \
+            "If restart fails, use the hooks-daemon skill to check logs (args=logs)." \
             "Then inform the user if the issue persists.")
     fi
 
@@ -644,11 +642,11 @@ def emit_error_json(event_name, error_type, error_details):
         'If you are in the middle of an upgrade, this is expected and temporary.',
         '',
         'TO FIX (usually takes a few seconds):',
-        '1. Run: python -m claude_code_hooks_daemon.daemon.cli restart',
-        '2. Verify: python -m claude_code_hooks_daemon.daemon.cli status',
+        'Use the hooks-daemon skill to restart the daemon.',
+        'Then use the hooks-daemon skill to verify health.',
+        'Invoke via Skill tool with skill=hooks-daemon and args=restart or args=health.',
         '',
-        'If restart fails, check logs:',
-        '  python -m claude_code_hooks_daemon.daemon.cli logs',
+        'If restart fails, use the hooks-daemon skill to check logs (args=logs).',
         'Then inform the user if the issue persists.',
     ]
     context = chr(10).join(context_lines)

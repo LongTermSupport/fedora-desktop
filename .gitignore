@@ -19,6 +19,8 @@ __pycache__/
 .claude/hooks-daemon.v*-old/
 .claude/*.backup
 .claude/*.bak
+.claude/*.bak*
+*.pre-inject
 .claude/*.old-broken
 .claude/*backup-*
 

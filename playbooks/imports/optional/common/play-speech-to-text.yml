@@ -201,20 +201,69 @@
     # WARNING: First install can take MANY MINUTES (5-15+) due to large downloads
     # (PyTorch ~2GB, plus many dependencies). Subsequent runs are instant.
 
+    - name: Install System Dependencies for RealtimeSTT
+      ansible.builtin.dnf:
+        name:
+          - portaudio-devel
+          - python3-devel
+          - openblas-devel
+        state: present
+
+    # scipy-openblas32 provides a bundled OpenBLAS + pkg-config for scipy's meson build.
+    # Required on Python 3.14 where scipy 1.15.2 has no pre-built wheel and must build
+    # from source. scipy's meson checks for 'scipy-openblas' (via pkgconfig) first —
+    # this is what scipy-openblas32 provides. System openblas-devel alone is not enough
+    # because Fedora's openblas pkg-config names differ from what scipy expects.
+    - name: Install scipy-openblas32 (bundled OpenBLAS for Python 3.14 scipy source build)
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.pip:
+        name: scipy-openblas32
+        extra_args: --user
+        state: present
+
+    # get_pkg_config() returns the .pc file CONTENT (not a path). Write it to a real
+    # file so pkg-config can find it. PKG_CONFIG_PATH must point to the directory
+    # containing the .pc file — not the content itself.
+    # scipy's meson build looks for module name 'scipy-openblas', so the file must
+    # be named scipy-openblas.pc.
+    - name: Write scipy-openblas32 pkg-config file to /tmp
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.shell:
+        cmd: |
+          set -e
+          mkdir -p /tmp/scipy-openblas-pkgconfig
+          /usr/bin/python3 -c "import scipy_openblas32; print(scipy_openblas32.get_pkg_config())" \
+            > /tmp/scipy-openblas-pkgconfig/scipy-openblas.pc
+        executable: /bin/bash
+      changed_when: false
+
+    # Install scipy separately before RealtimeSTT so PKG_CONFIG_PATH reaches meson.
+    # pip's build isolation spawns a subprocess boundary that swallows environment:
+    # variables from the Ansible pip module — using shell with explicit export
+    # guarantees the var is inherited by all children (pip → meson-python → meson → pkg-config).
+    # Once scipy is installed here, RealtimeSTT's pip install finds it already satisfied
+    # and skips the source build entirely.
+    - name: Install scipy 1.15.2 (Python 3.14 source build via scipy-openblas32)
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.shell:
+        cmd: |
+          set -e
+          export PKG_CONFIG_PATH="/tmp/scipy-openblas-pkgconfig:/usr/lib64/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig"
+          pip3 install --user scipy==1.15.2
+        executable: /bin/bash
+      register: scipy_install_result
+      changed_when: "'Successfully installed' in scipy_install_result.stdout"
+
     - name: Install RealtimeSTT for Streaming Mode (WARNING - CAN TAKE MANY MINUTES ON FIRST RUN)
       become: true
       become_user: "{{ user_login }}"
       ansible.builtin.pip:
         name:
           - RealtimeSTT
-        extra_args: --user
-        state: present
-
-    - name: Install PortAudio for RealtimeSTT (System Dependency)
-      ansible.builtin.dnf:
-        name:
-          - portaudio-devel
-          - python3-devel
+        extra_args: --user --resume-retries 5
         state: present
 
     - name: Stop wsi-stream-server if Running (to pick up updated scripts)
