@@ -103,8 +103,10 @@ export IS_SANDBOX=1
 export CCY_DISABLE_SUSPEND=1
 
 # Enable fullscreen rendering (alternate screen buffer, no flicker, flat memory usage).
+# Disable mouse capture so native terminal selection works (especially over SSH/tmux).
 # See: https://docs.anthropic.com/en/docs/claude-code/fullscreen
 export CLAUDE_CODE_NO_FLICKER=1
+export CLAUDE_CODE_DISABLE_MOUSE=1
 
 # Symlink /root/.claude to /workspace/.claude/ccy for project-local session storage
 # This keeps containers ephemeral while persisting sessions in the project directory
