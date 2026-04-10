@@ -36,7 +36,7 @@ done
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.13"
+REQUIRED_CONTAINER_VERSION="2.14"
 
 set -e
 
