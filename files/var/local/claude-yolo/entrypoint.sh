@@ -125,16 +125,43 @@ ln -sf /workspace/.claude/ccy /root/.claude
 
 # Ensure Claude Code settings have LSP enabled (non-destructive: preserves existing settings)
 # Language servers are pre-installed in the image; this flag activates the LSP tool.
+# PHPantom LSP plugin is enabled by default; Intelephense available as fallback.
+# To switch PHP LSP: change enabledPlugins in settings.json
+#   PHPantom (default):  "phpantom-lsp": true,  "php-lsp@claude-plugins-official": false
+#   Intelephense:        "phpantom-lsp": false,  "php-lsp@claude-plugins-official": true
 SETTINGS_FILE="/root/.claude/settings.json"
 if [ -f "$SETTINGS_FILE" ]; then
-    # Merge ENABLE_LSP_TOOL into existing env block without overwriting other keys
-    UPDATED=$(jq '.env = ((.env // {}) + {"ENABLE_LSP_TOOL": "1"})' "$SETTINGS_FILE") \
+    # Merge ENABLE_LSP_TOOL and PHPantom plugin into existing settings without overwriting other keys
+    UPDATED=$(jq '
+        .env = ((.env // {}) + {"ENABLE_LSP_TOOL": "1"}) |
+        .enabledPlugins = ((.enabledPlugins // {}) + {"phpantom-lsp": true})
+    ' "$SETTINGS_FILE") \
         && echo "$UPDATED" > "$SETTINGS_FILE"
-    echo "✓ LSP enabled in existing settings.json"
+    echo "✓ LSP enabled in existing settings.json (PHPantom default)"
 else
-    printf '{\n  "env": {\n    "ENABLE_LSP_TOOL": "1"\n  }\n}\n' > "$SETTINGS_FILE"
+    cat > "$SETTINGS_FILE" <<'SETTINGS_EOF'
+{
+  "env": {
+    "ENABLE_LSP_TOOL": "1"
+  },
+  "enabledPlugins": {
+    "phpantom-lsp": true
+  }
+}
+SETTINGS_EOF
     chmod 600 "$SETTINGS_FILE"
-    echo "✓ Created settings.json with LSP enabled"
+    echo "✓ Created settings.json with LSP enabled (PHPantom default)"
+fi
+
+# Install PHPantom LSP plugin if not already present
+# This copies the plugin from the image to the user's plugin directory
+PHPANTOM_PLUGIN_DIR="/root/.claude/plugins/phpantom-lsp"
+if [ ! -d "$PHPANTOM_PLUGIN_DIR/.claude-plugin" ]; then
+    mkdir -p "$PHPANTOM_PLUGIN_DIR"
+    cp -r /opt/claude-yolo/plugins/phpantom-lsp/.claude-plugin "$PHPANTOM_PLUGIN_DIR/"
+    echo "✓ PHPantom LSP plugin installed"
+else
+    echo "✓ PHPantom LSP plugin already present"
 fi
 
 # Create .claude.json if it doesn't exist (preserves existing state in project)

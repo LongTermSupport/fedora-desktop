@@ -88,10 +88,26 @@ Pre-bundled Servers (in claude-yolo:latest)
   TypeScript/JS:  typescript-language-server + typescript
   Python:         pyright
   Bash/Shell:     bash-language-server
-  PHP:            intelephense
+  PHP:            phpantom_lsp (default) + intelephense (fallback)
 
 These cover the most common languages. If your project only uses these, you
 don't need to do anything — LSP just works.
+
+Switching PHP LSP Server
+------------------------
+Two PHP language servers are pre-installed. PHPantom is the default (faster,
+Rust-based, native Laravel support). Intelephense is available as fallback.
+
+To switch, edit enabledPlugins in .claude/settings.json (or settings.local.json):
+
+  PHPantom (default):
+    "phpantom-lsp": true
+
+  Intelephense:
+    "phpantom-lsp": false,
+    "php-lsp@claude-plugins-official": true
+
+Only enable one PHP LSP at a time — both map .php files to the same language.
 
 Using Only Specific LSPs (claude-yolo:base)
 -------------------------------------------

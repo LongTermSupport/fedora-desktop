@@ -9,17 +9,20 @@ This directory contains implementation plans following the claude-code-hooks-dae
 ### Quick Reference
 
 Plans use numbered prefixes for sequential organization:
+
 - `001-description/` - First plan
 - `002-description/` - Second plan
 - etc.
 
 Each plan directory contains:
+
 - `PLAN.md` - Main plan document with tasks, goals, and progress tracking
 - Supporting files (implementation, tests, documentation)
 
 ### Task Status Icons
 
 Use these Unicode icons in plan documents:
+
 - ⬜ `TODO` - Not started
 - ✅ `DONE` - Completed successfully
 - 🔄 `IN_PROGRESS` - Currently working on
@@ -45,6 +48,7 @@ Use these Unicode icons in plan documents:
 - [027-contextual-shell-history](027-contextual-shell-history/) - Replace bash history with Atuin for directory/git-workspace-aware command recall
 - [028-fedora-screen-sharing](028-fedora-screen-sharing/) - Diagnose and fix unstable screen sharing on Fedora 43 GNOME (Slack desktop broken by `app.asar` hardcode; Meet freezes traced to mutter ScreenCast bugs fixed in 49.3/49.5)
 - [029-rapid-raw-cloud-ai](029-rapid-raw-cloud-ai/) - Evaluate cloud GPU paths for RapidRAW Tier 2 generative AI: free local-first verification (dGPU + Tier 1), local SD 1.5 prototype, vast.ai $10-credit prototype with SDXL/Flux Fill, then evidence-based decision gate before any productionisation
+- [030-phpantom-lsp](030-phpantom-lsp/) - Research PHPantom (Rust-based PHP LSP) as replacement for Intelephense; decision gate before implementation
 
 ## Completed Plans
 
@@ -70,6 +74,7 @@ These are preserved for reference but don't follow the current plan structure.
 See [PlanWorkflow.md](../PlanWorkflow.md) for complete instructions.
 
 **Quick start:**
+
 ```bash
 # Create new plan directory
 mkdir -p CLAUDE/Plan/001-my-feature
@@ -84,6 +89,7 @@ vim CLAUDE/Plan/001-my-feature/PLAN.md
 ## Plan Workflow Integration
 
 The hooks daemon enforces plan workflow standards:
+
 - ✅ `validate_plan_number` - Ensures correct numbering format
 - ✅ `plan_time_estimates` - Blocks time estimates in plans
 - ✅ `plan_workflow` - Provides guidance when creating plans

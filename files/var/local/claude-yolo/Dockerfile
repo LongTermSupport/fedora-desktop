@@ -1,3 +1,21 @@
+# ============================================================================
+# Build stage: compile PHPantom LSP from source with musl for a static binary
+# ============================================================================
+# The pre-built PHPantom binary requires GLIBC 2.39 (built on Ubuntu 24.04),
+# but our runtime base image is Debian 12 bookworm (GLIBC 2.36).
+# Building with musl produces a fully static binary that works on any Linux.
+FROM rust:slim AS phpantom-builder
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    musl-tools \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+RUN rustup target add x86_64-unknown-linux-musl
+# Pin to a specific release tag for reproducible builds
+RUN git clone --depth 1 --branch 0.7.0 https://github.com/AJenbo/phpantom_lsp.git /build
+WORKDIR /build
+RUN cargo build --release --target x86_64-unknown-linux-musl
+# The static binary will be copied into the runtime image below
+
 FROM node:20-slim AS base
 
 # Accept build arg for Dockerfile hash (calculated by wrapper at build time)
@@ -10,7 +28,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.15"
+LABEL claude-yolo-version="2.16"
 LABEL claude-yolo-dockerfile-hash="${DOCKERFILE_HASH}"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 
@@ -188,7 +206,9 @@ CMD ["claude", "--help"]
 #   FROM claude-yolo:base
 # and install only the servers they need (see CUSTOM-DOCKERFILES.txt).
 #
-# Pre-bundled servers: TypeScript/JS, Python (pyright), Bash, PHP (intelephense)
+# Pre-bundled servers: TypeScript/JS, Python (pyright), Bash,
+#   PHP: PHPantom (default, Rust-based) + Intelephense (fallback, Node-based)
+#   Switch PHP LSP via enabledPlugins in .claude/settings.json
 # The entrypoint auto-enables ENABLE_LSP_TOOL in Claude Code settings.json.
 FROM base AS full
 RUN npm install -g \
@@ -197,3 +217,8 @@ RUN npm install -g \
     pyright \
     bash-language-server \
     intelephense
+# PHPantom LSP: static musl binary from build stage (no GLIBC dependency)
+COPY --from=phpantom-builder /build/target/x86_64-unknown-linux-musl/release/phpantom_lsp /usr/local/bin/phpantom_lsp
+RUN chmod 755 /usr/local/bin/phpantom_lsp
+# PHPantom Claude Code plugin (registers phpantom_lsp as an LSP server for .php files)
+COPY plugins/phpantom-lsp/ /opt/claude-yolo/plugins/phpantom-lsp/

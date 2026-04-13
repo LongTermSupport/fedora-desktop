@@ -1,0 +1,14 @@
+{
+  "name": "phpantom-lsp",
+  "description": "PHP language server (PHPantom) for code intelligence — fast Rust-based alternative to Intelephense",
+  "version": "1.0.0",
+  "lspServers": {
+    "phpantom": {
+      "command": "phpantom_lsp",
+      "args": [],
+      "extensionToLanguage": {
+        ".php": "php"
+      }
+    }
+  }
+}

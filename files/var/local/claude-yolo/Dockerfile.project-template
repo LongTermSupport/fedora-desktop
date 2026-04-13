@@ -76,12 +76,14 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # LSP Language Servers (only needed if using FROM claude-yolo:base)
 # ============================================================================
 # claude-yolo:latest already includes: TypeScript, Python, Bash, PHP LSP servers.
+# PHP has two servers: PHPantom (default, Rust-based) and Intelephense (fallback).
+# Switch between them via enabledPlugins in .claude/settings.json.
 # If you used FROM claude-yolo:base, add only what your project needs:
 
 # RUN npm install -g typescript-language-server typescript   # TypeScript/JavaScript
 # RUN npm install -g pyright                                 # Python
 # RUN npm install -g bash-language-server                    # Bash/Shell
-# RUN npm install -g intelephense                            # PHP
+# RUN npm install -g intelephense                            # PHP (Intelephense)
 # RUN npm install -g vscode-langservers-extracted            # HTML/CSS/JSON
 # RUN npm install -g @astrojs/language-server                # Astro
 # RUN npm install -g @vue/language-server                    # Vue
