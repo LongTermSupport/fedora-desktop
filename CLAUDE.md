@@ -142,6 +142,8 @@ After editing `.claude/hooks-daemon.yaml` — restart the daemon using the `hook
 
 The handlers listed below are active in this project. Read this section to avoid triggering unnecessary blocks.
 
+**When a tool is blocked by a handler, do not stop working.** Read the block reason, modify your approach, and continue with your task.
+
 ## absolute_path — always use absolute paths
 
 The `Read`, `Write`, and `Edit` tools require absolute paths. Relative paths are blocked.
@@ -411,6 +413,23 @@ Direct package management, service management, and system configuration commands
 **Allowed** (read-only queries): `dnf info/list/search`, `systemctl status`, `gsettings get`, `flatpak list`
 
 **Use instead**: Create/update Ansible playbook in `playbooks/imports/` and deploy with `ansible-playbook`.
+
+## markdown_table_formatter — markdown tables are auto-aligned
+
+After every `Write` or `Edit` of a `.md` or `.markdown` file, the content is re-formatted via `mdformat + mdformat-gfm` so that table pipes are aligned and column widths are consistent. The handler is non-terminal and advisory — it never blocks, it just rewrites the file on disk.
+
+**What changes:**
+
+- Table pipes are aligned vertically and delimiter rows widened to match cell widths.
+- Ordered lists keep consecutive numbering (`1.` `2.` `3.`).
+- `---` thematic breaks are preserved (mdformat's 70-underscore default is post-processed back).
+- Asterisks in table cells are escaped (`*` → `\*`) as required by GFM.
+
+**Ad-hoc formatting of existing files:**
+
+```
+$PYTHON -m claude_code_hooks_daemon.daemon.cli format-markdown <path>
+```
 
 ### Stop Explanation Required
 

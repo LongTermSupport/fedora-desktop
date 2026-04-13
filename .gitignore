@@ -54,3 +54,6 @@ FORCE-PUSH-REQUIRED.md
 
 # Claude Code managed worktrees
 .claude/worktrees/
+
+# ClaudeMdInjector backup (session artifact, never commit)
+.CLAUDE.md.pre-inject

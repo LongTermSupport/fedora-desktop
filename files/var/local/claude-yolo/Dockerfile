@@ -10,7 +10,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.14"
+LABEL claude-yolo-version="2.15"
 LABEL claude-yolo-dockerfile-hash="${DOCKERFILE_HASH}"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 
@@ -87,6 +87,11 @@ RUN pipx install --include-deps ansible \
 # Install semgrep for QA pattern checks (qa-patterns.bash uses .semgrep/bash-conventions.yml)
 RUN pipx install semgrep
 ENV PATH="/root/.local/bin:${PATH}"
+
+# Install uv (fast Python package manager, required by hooks-daemon upgrade)
+RUN curl -fsSL https://astral.sh/uv/install.sh -o /tmp/uv-install.sh \
+    && sh /tmp/uv-install.sh \
+    && rm /tmp/uv-install.sh
 
 # Install Claude Code via npm
 # installMethod in .claude.json is set to "native" by entrypoint to suppress migration warnings
