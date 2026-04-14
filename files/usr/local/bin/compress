@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+# compress — opinionated wrapper around `ouch` for quick file/folder archiving.
+#
+# Default format: .tar.xz (best general-purpose ratio on Linux).
+# Use one of --zip, --gz, --bz2, --zst, --7z, or explicit --xz to switch.
+# Passing more than one algorithm flag is a hard error (fail fast).
+
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage:
+  compress [ALGO] [--force] PATH
+
+Archive a file or folder. Default format is .tar.xz.
+
+Algorithm flags (pass EXACTLY ONE; omit for default --xz):
+  --xz     Produce PATH.tar.xz  (default)
+  --gz     Produce PATH.tar.gz
+  --bz2    Produce PATH.tar.bz2
+  --zst    Produce PATH.tar.zst
+  --zip    Produce PATH.zip
+  --7z     Produce PATH.7z
+
+Options:
+  --force  Overwrite existing output archive
+  -h, --help  Show this help
+
+Examples:
+  compress myfolder              # -> myfolder.tar.xz
+  compress --zip myfolder        # -> myfolder.zip
+  compress --7z myfile.log       # -> myfile.log.7z
+  compress --force --xz myfolder # overwrite existing myfolder.tar.xz
+EOF
+}
+
+die() {
+  printf 'compress: %s\n' "$*" >&2
+  exit 2
+}
+
+# Parse args. Collect algo flags into an array so we can fail fast on multiples.
+declare -a algo_flags=()
+force=0
+input=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --xz|--gz|--bz2|--zst|--zip|--7z)
+      algo_flags+=("$1")
+      shift
+      ;;
+    --force)
+      force=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      die "unknown option: $1 (try --help)"
+      ;;
+    *)
+      if [[ -n "$input" ]]; then
+        die "only one PATH accepted; got '$input' and '$1'"
+      fi
+      input="$1"
+      shift
+      ;;
+  esac
+done
+
+# Accept a trailing positional after `--`
+if [[ -z "$input" && $# -gt 0 ]]; then
+  input="$1"
+  shift
+fi
+
+if [[ -z "$input" ]]; then
+  usage >&2
+  exit 2
+fi
+
+# Fail fast: more than one algo flag is unsupported.
+if [[ ${#algo_flags[@]} -gt 1 ]]; then
+  die "conflicting algorithm flags: ${algo_flags[*]} — pass exactly one"
+fi
+
+# Default to --xz if none given.
+algo="${algo_flags[0]:---xz}"
+
+case "$algo" in
+  --xz)  ext="tar.xz"  ;;
+  --gz)  ext="tar.gz"  ;;
+  --bz2) ext="tar.bz2" ;;
+  --zst) ext="tar.zst" ;;
+  --zip) ext="zip"     ;;
+  --7z)  ext="7z"      ;;
+  *)     die "internal error: unhandled algo '$algo'" ;;
+esac
+
+if [[ ! -e "$input" ]]; then
+  die "no such file or directory: $input"
+fi
+
+# Strip trailing slash from folder names so "foo/" -> "foo.tar.xz", not "foo/.tar.xz"
+input_trimmed="${input%/}"
+output="${input_trimmed}.${ext}"
+
+if [[ -e "$output" ]]; then
+  if [[ "$force" -eq 0 ]]; then
+    die "output already exists: $output (pass --force to overwrite)"
+  fi
+  rm -rf -- "$output"
+fi
+
+if ! command -v ouch >/dev/null 2>&1; then
+  die "backend missing: /usr/local/bin/ouch — run play-compression-helpers.yml to install"
+fi
+
+exec ouch compress -- "$input_trimmed" "$output"

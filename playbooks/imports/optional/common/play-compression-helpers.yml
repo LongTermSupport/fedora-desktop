@@ -1,0 +1,97 @@
+#!/usr/bin/env ansible-playbook
+---
+- hosts: desktop
+  name: Compression Helpers - installs `compress` and `uncompress` commands
+  become: true
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+    # Pin ouch version for reproducibility. Update deliberately.
+    # @see https://github.com/ouch-org/ouch/releases
+    ouchVersion: "0.6.1"
+    ouchArch: "x86_64-unknown-linux-musl"
+    ouchDir: "/opt/ouch-{{ ouchVersion }}"
+    ouchBin: "/usr/local/bin/ouch"
+    ouchUrl: "https://github.com/ouch-org/ouch/releases/download/{{ ouchVersion }}/ouch-{{ ouchArch }}.tar.gz"
+  tasks:
+    - name: Preflight - assert ncompress is not installed (conflicts with our compress/uncompress)
+      ansible.builtin.command: rpm -q ncompress
+      register: ncompress_check
+      failed_when: false  # FAIL-FAST-OK: probe — we want the non-zero exit path here
+      changed_when: false
+
+    - name: Fail if ncompress is installed (would shadow our wrappers via /usr/bin)
+      ansible.builtin.fail:
+        msg: |
+          The `ncompress` package is installed and provides /usr/bin/compress and
+          /usr/bin/uncompress (the legacy SVR4 tools). These would shadow our
+          wrappers in /usr/local/bin on some PATH orderings.
+
+          Remove it first: sudo dnf remove ncompress
+      when: ncompress_check.rc == 0
+
+    - name: Create versioned ouch directory
+      ansible.builtin.file:
+        path: "{{ ouchDir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Download and extract ouch static musl binary
+      ansible.builtin.unarchive:
+        src: "{{ ouchUrl }}"
+        dest: "{{ ouchDir }}"
+        remote_src: true
+        creates: "{{ ouchDir }}/ouch-{{ ouchArch }}/ouch"
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Symlink ouch into /usr/local/bin
+      ansible.builtin.file:
+        src: "{{ ouchDir }}/ouch-{{ ouchArch }}/ouch"
+        dest: "{{ ouchBin }}"
+        state: link
+        force: true
+
+    - name: Verify ouch runs
+      ansible.builtin.command: "{{ ouchBin }} --version"
+      register: ouch_version
+      changed_when: false
+
+    - name: Assert ouch version matches pin
+      ansible.builtin.assert:
+        that:
+          - ouchVersion in ouch_version.stdout
+        fail_msg: "ouch reports '{{ ouch_version.stdout }}' — expected version {{ ouchVersion }}"
+
+    - name: Install compress wrapper
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/usr/local/bin/compress"
+        dest: /usr/local/bin/compress
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install uncompress wrapper
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/usr/local/bin/uncompress"
+        dest: /usr/local/bin/uncompress
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Display installation summary
+      ansible.builtin.debug:
+        msg:
+          - "============================================"
+          - "Compression Helpers Installed"
+          - "============================================"
+          - "compress   -> /usr/local/bin/compress"
+          - "uncompress -> /usr/local/bin/uncompress"
+          - ""
+          - "Try:"
+          - "  compress myfolder              # -> myfolder.tar.xz"
+          - "  compress --zip myfolder        # -> myfolder.zip"
+          - "  compress --7z myfile           # -> myfile.7z"
+          - "  uncompress anything.tar.xz     # -> ./anything/"

@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+# uncompress — opinionated wrapper around `ouch decompress`.
+#
+# Safety guarantee: ALWAYS extracts into a dedicated folder named after the
+# archive (with compression extensions stripped). Never floods the current
+# working directory with files, regardless of archive contents.
+#
+# Format is auto-detected by `ouch` from the archive extension.
+
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage:
+  uncompress [--force] ARCHIVE
+
+Extract an archive into a new folder named after the archive, created in the
+current working directory. Format auto-detected (tar.xz, tar.gz, tar.bz2,
+tar.zst, zip, 7z, rar, lz4, br, xz, gz, bz2, zst, and more via `ouch`).
+
+Options:
+  --force     Replace target folder if it already exists
+  -h, --help  Show this help
+
+Examples:
+  uncompress archive.tar.xz      # -> ./archive/
+  uncompress archive.zip         # -> ./archive/
+  uncompress --force project.7z  # -> ./project/ (replacing existing)
+EOF
+}
+
+die() {
+  printf 'uncompress: %s\n' "$*" >&2
+  exit 2
+}
+
+force=0
+archive=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --force)
+      force=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      die "unknown option: $1 (try --help)"
+      ;;
+    *)
+      if [[ -n "$archive" ]]; then
+        die "only one ARCHIVE accepted; got '$archive' and '$1'"
+      fi
+      archive="$1"
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "$archive" && $# -gt 0 ]]; then
+  archive="$1"
+  shift
+fi
+
+if [[ -z "$archive" ]]; then
+  usage >&2
+  exit 2
+fi
+
+if [[ ! -f "$archive" ]]; then
+  die "no such file: $archive"
+fi
+
+if [[ ! -r "$archive" ]]; then
+  die "cannot read: $archive"
+fi
+
+if ! command -v ouch >/dev/null 2>&1; then
+  die "backend missing: /usr/local/bin/ouch — run play-compression-helpers.yml to install"
+fi
+
+# Derive target folder name from archive basename by stripping compression
+# extensions. First strip a terminal compression ext; if what remains ends in
+# .tar, strip that too. Covers: .tar.xz .tar.gz .tar.bz2 .tar.zst .tar.lz4
+# .zip .7z .rar .xz .gz .bz2 .zst .lz4 .br .tar
+base="$(basename -- "$archive")"
+case "$base" in
+  *.tar.xz)  stem="${base%.tar.xz}"  ;;
+  *.tar.gz)  stem="${base%.tar.gz}"  ;;
+  *.tar.bz2) stem="${base%.tar.bz2}" ;;
+  *.tar.bz3) stem="${base%.tar.bz3}" ;;
+  *.tar.zst) stem="${base%.tar.zst}" ;;
+  *.tar.lz4) stem="${base%.tar.lz4}" ;;
+  *.tar.br)  stem="${base%.tar.br}"  ;;
+  *.tar)     stem="${base%.tar}"     ;;
+  *.tgz)     stem="${base%.tgz}"     ;;
+  *.tbz2)    stem="${base%.tbz2}"    ;;
+  *.txz)     stem="${base%.txz}"     ;;
+  *.tzst)    stem="${base%.tzst}"    ;;
+  *.zip)     stem="${base%.zip}"     ;;
+  *.7z)      stem="${base%.7z}"      ;;
+  *.rar)     stem="${base%.rar}"     ;;
+  *.xz)      stem="${base%.xz}"      ;;
+  *.gz)      stem="${base%.gz}"      ;;
+  *.bz2)     stem="${base%.bz2}"     ;;
+  *.bz3)     stem="${base%.bz3}"     ;;
+  *.zst)     stem="${base%.zst}"     ;;
+  *.lz4)     stem="${base%.lz4}"     ;;
+  *.br)      stem="${base%.br}"      ;;
+  *)
+    die "cannot derive target folder: unrecognised extension on '$base'"
+    ;;
+esac
+
+if [[ -z "$stem" ]]; then
+  die "derived empty target folder name from '$base'"
+fi
+
+target="./$stem"
+
+if [[ -e "$target" ]]; then
+  if [[ "$force" -eq 0 ]]; then
+    die "target folder already exists: $target (pass --force to replace)"
+  fi
+  rm -rf -- "$target"
+fi
+
+mkdir -- "$target"
+exec ouch decompress --dir "$target" -- "$archive"
