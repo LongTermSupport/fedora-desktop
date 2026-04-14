@@ -49,6 +49,7 @@ Use these Unicode icons in plan documents:
 - [028-fedora-screen-sharing](028-fedora-screen-sharing/) - Diagnose and fix unstable screen sharing on Fedora 43 GNOME (Slack desktop broken by `app.asar` hardcode; Meet freezes traced to mutter ScreenCast bugs fixed in 49.3/49.5)
 - [029-rapid-raw-cloud-ai](029-rapid-raw-cloud-ai/) - Evaluate cloud GPU paths for RapidRAW Tier 2 generative AI: free local-first verification (dGPU + Tier 1), local SD 1.5 prototype, vast.ai $10-credit prototype with SDXL/Flux Fill, then evidence-based decision gate before any productionisation
 - [030-phpantom-lsp](030-phpantom-lsp/) - Research PHPantom (Rust-based PHP LSP) as replacement for Intelephense; decision gate before implementation
+- [031-reliable-screen-sharing](031-reliable-screen-sharing/) - Find reliable screen-sharing alternatives for WFH devs on Fedora 43 Wayland (complements Plan 028); 4 parallel research tracks: self-hosted platforms, native Linux tools, current SaaS, unconventional approaches
 
 ## Completed Plans
 
