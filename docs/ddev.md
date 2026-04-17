@@ -46,7 +46,25 @@ ls .ddev/config.yaml
 
 If the `.ddev/` directory exists, the project is DDEV-ready.
 
-### 3. Start DDEV
+### 3. Symlink the DDEV Environment Config (Magento/EC Projects)
+
+EC projects include a `ddev.env.php` with database and cache settings for DDEV. Symlink it into place before starting:
+
+```bash
+ln -sf ddev.env.php app/etc/env.php
+```
+
+This replaces the production `env.php` with the DDEV-specific configuration (database host, credentials, cache backends, etc.).
+
+**Forgot to do this before `ddev start`?** No problem — create the symlink and restart:
+
+```bash
+ln -sf ddev.env.php app/etc/env.php
+ddev restart
+ddev exec bin/magento cache:flush
+```
+
+### 4. Start DDEV
 
 ```bash
 ddev start
@@ -54,7 +72,7 @@ ddev start
 
 This pulls and starts the containers (web server, database, etc.) based on `.ddev/config.yaml`. First run downloads images and takes longer.
 
-### 4. Import the Database (if needed)
+### 5. Import the Database (if needed)
 
 If the project needs a database dump:
 
@@ -68,7 +86,7 @@ ddev import-db --file=path/to/database.sql
 
 Supported formats: `.sql`, `.sql.gz`, `.sql.bz2`, `.sql.xz`, `.zip`, `.tar`, `.tar.gz`, `.tgz`.
 
-### 5. Access the Site
+### 6. Access the Site
 
 ```bash
 # Open in browser
@@ -79,6 +97,16 @@ ddev describe
 ```
 
 DDEV provides HTTPS URLs with locally-trusted certificates (via mkcert).
+
+## How DDEV Routing Works
+
+No `/etc/hosts` changes needed. DDEV uses three layers:
+
+1. **Public wildcard DNS** — The `ddev.site` domain has DNS records that resolve `*.ddev.site` to `127.0.0.1` (localhost). Your project URL (e.g. `https://project-name.ddev.site`) already points to your machine.
+2. **ddev-router** — A traefik reverse proxy container listens on ports 80/443 on localhost. It receives the request and routes it to the correct project container based on the hostname.
+3. **mkcert** — Provides locally-trusted HTTPS certificates for `*.ddev.site`, so the browser trusts the connection without warnings.
+
+**Request flow:** browser → DNS (`*.ddev.site` → `127.0.0.1`) → ddev-router (port 80/443) → project container.
 
 ## Common Commands
 
