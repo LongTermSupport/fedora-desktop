@@ -1,0 +1,61 @@
+#!/usr/bin/env ansible-playbook
+---
+- hosts: desktop
+  name: DDEV Local Development Environment
+  become: false
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  tasks:
+    - name: Check if Docker is Installed
+      ansible.builtin.command: docker --version
+      register: docker_check
+      failed_when: false  # FAIL-FAST-OK: probe check
+      changed_when: false
+
+    - name: Fail if Docker is Not Available
+      ansible.builtin.fail:
+        msg: >
+          Docker is required for DDEV.
+          Run: ansible-playbook playbooks/imports/play-docker.yml
+      when: docker_check.rc != 0
+
+    - name: Install mkcert
+      become: true
+      ansible.builtin.dnf:
+        name: mkcert
+        state: present
+
+    - name: Install Local CA via mkcert
+      ansible.builtin.command: mkcert -install
+      become: true
+      become_user: "{{ user_login }}"
+      args:
+        creates: "/home/{{ user_login }}/.local/share/mkcert/rootCA.pem"
+
+    - name: Add DDEV Yum Repository
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/yum.repos.d/ddev.repo
+        content: |
+          [ddev]
+          name=DDEV
+          baseurl=https://pkg.ddev.com/yum/
+          gpgcheck=0
+          enabled=1
+        mode: "0644"
+
+    - name: Install DDEV
+      become: true
+      ansible.builtin.dnf:
+        name: ddev
+        state: present
+        update_cache: true
+
+    - name: Verify DDEV Installation
+      ansible.builtin.command: ddev version
+      register: ddev_version
+      changed_when: false
+
+    - name: Show DDEV Version
+      ansible.builtin.debug:
+        var: ddev_version.stdout_lines
