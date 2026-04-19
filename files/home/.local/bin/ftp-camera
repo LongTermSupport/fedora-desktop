@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+set -e
+
+# ftp-camera — start FTP server for Sony A7V camera uploads
+# Deployed by: playbooks/imports/optional/common/play-ftp-camera.yml
+
+# Resolve upload directory from the camera FTP user's home directory
+# (set by play-ftp-camera.yml via ftp_camera_upload_dir variable)
+UPLOAD_DIR=$(getent passwd camera | cut -d: -f6)
+if [ -z "$UPLOAD_DIR" ]; then
+    echo "ERROR: 'camera' user not found — run play-ftp-camera.yml first" >&2
+    exit 1
+fi
+
+MONITOR_PID=""
+
+# ── Colours ───────────────────────────────────────────────────────────────────
+BOLD='\033[1m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+# ── Helpers ────────────────────────────────────────────────────────────────────
+
+get_local_ip() {
+    local iface
+    iface=$(ip -4 route show default | awk '{print $5; exit}')
+    if [ -z "$iface" ]; then
+        echo "ERROR: No default network interface found — is the network connected?" >&2
+        exit 1
+    fi
+    ip -4 addr show dev "$iface" | awk '/inet / {print $2; exit}' | cut -d/ -f1
+}
+
+# ── Cleanup ────────────────────────────────────────────────────────────────────
+
+cleanup() {
+    echo ""
+    echo -e "${BOLD}Stopping FTP server...${NC}"
+
+    if [ -n "$MONITOR_PID" ] && ps -p "$MONITOR_PID" > /dev/null; then
+        kill "$MONITOR_PID"
+    fi
+
+    if systemctl is-active --quiet vsftpd; then
+        sudo systemctl stop vsftpd
+    fi
+
+    # Remove firewall rules only if they were added (probe-then-act)
+    if sudo firewall-cmd --query-service=ftp --quiet; then
+        sudo firewall-cmd --remove-service=ftp --quiet
+    fi
+    if sudo firewall-cmd --query-port=30000-30100/tcp --quiet; then
+        sudo firewall-cmd --remove-port=30000-30100/tcp --quiet
+    fi
+
+    echo -e "${GREEN}FTP server stopped.${NC}"
+    echo ""
+    echo -e "${BOLD}Files in upload directory (${UPLOAD_DIR}):${NC}"
+    if [ -d "$UPLOAD_DIR" ] && [ "$(ls -A "$UPLOAD_DIR")" ]; then
+        ls -lh "$UPLOAD_DIR"
+    else
+        echo "  (no files)"
+    fi
+}
+
+trap cleanup EXIT
+trap 'exit 0' INT TERM
+
+# ── Main ───────────────────────────────────────────────────────────────────────
+
+LOCAL_IP=$(get_local_ip)
+
+echo -e "${BOLD}Starting camera FTP server...${NC}"
+sudo systemctl start vsftpd
+sudo firewall-cmd --add-service=ftp --quiet
+sudo firewall-cmd --add-port=30000-30100/tcp --quiet
+
+echo ""
+echo -e "${GREEN}${BOLD}FTP server ready${NC}"
+echo ""
+echo -e "  ${BOLD}Sony A7V camera settings:${NC}"
+echo -e "    Menu → Network → FTP Transfer Func. → Server Settings"
+echo ""
+echo -e "    Server (Hostname):  ${CYAN}${LOCAL_IP}${NC}"
+echo -e "    Port:               ${CYAN}21${NC}"
+echo -e "    User:               ${CYAN}camera${NC}"
+echo -e "    Passive Mode:       ${CYAN}On${NC}"
+echo -e "    Destination Folder: ${CYAN}/${NC}"
+echo ""
+echo -e "  ${BOLD}Upload directory:${NC}  ${CYAN}${UPLOAD_DIR}${NC}"
+echo ""
+echo -e "${YELLOW}Monitoring for uploads — press Ctrl+C to stop${NC}"
+echo ""
+
+# Monitor upload directory and print files as they arrive
+# Runs in background so INT trap fires correctly on Ctrl+C
+inotifywait -m -r -q \
+    -e close_write,moved_to \
+    --format "  [%T] %e  %w%f" \
+    --timefmt "%H:%M:%S" \
+    "$UPLOAD_DIR" &
+MONITOR_PID=$!
+
+wait "$MONITOR_PID"
