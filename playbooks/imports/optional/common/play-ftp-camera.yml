@@ -6,8 +6,8 @@
   vars:
     root_dir: "{{ inventory_dir }}/../../"
     # Upload directory — override in environment/localhost/host_vars/localhost.yml
-    # if you want files somewhere other than ~/Pictures/camera-ftp
-    ftp_camera_upload_dir: "/home/{{ user_login }}/Pictures/camera-ftp"
+    # Uses /srv/ to avoid path traversal issues (home dirs are mode 700)
+    ftp_camera_upload_dir: "/srv/camera-ftp"
     ftp_camera_user: camera
 
   tasks:
@@ -46,14 +46,6 @@
         path: /etc/shells
         line: /sbin/nologin
         state: present
-
-    - name: Ensure Pictures directory exists
-      ansible.builtin.file:
-        path: "/home/{{ user_login }}/Pictures"
-        state: directory
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: "0755"
 
     - name: Create camera FTP upload directory
       ansible.builtin.file:
