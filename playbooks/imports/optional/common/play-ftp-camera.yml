@@ -61,6 +61,24 @@
         groups: "{{ ftp_camera_user }}"
         append: true
 
+    - name: Grant {{ user_login }} full access to upload directory (ACL)
+      ansible.posix.acl:
+        path: "{{ ftp_camera_upload_dir }}"
+        entity: "{{ user_login }}"
+        etype: user
+        permissions: rwX
+        state: present
+
+    - name: Set default ACL so new files inherit {{ user_login }} access
+      # Ensures uploaded files and RAW editor sidecars are all accessible
+      ansible.posix.acl:
+        path: "{{ ftp_camera_upload_dir }}"
+        entity: "{{ user_login }}"
+        etype: user
+        permissions: rwX
+        default: true
+        state: present
+
     - name: Deploy vsftpd configuration
       ansible.builtin.copy:
         src: "{{ root_dir }}/files/etc/vsftpd/vsftpd.conf"
