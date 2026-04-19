@@ -57,11 +57,23 @@ cleanup() {
 
     echo -e "${GREEN}FTP server stopped.${NC}"
     echo ""
-    echo -e "${BOLD}Files in upload directory (${UPLOAD_DIR}):${NC}"
+
+    # Summary statistics
     if [ -d "$UPLOAD_DIR" ] && [ "$(ls -A "$UPLOAD_DIR")" ]; then
-        ls -lh "$UPLOAD_DIR"
+        local file_count total_bytes total_human
+        file_count=$(find "$UPLOAD_DIR" -type f | wc -l)
+        total_bytes=$(find "$UPLOAD_DIR" -type f -printf '%s\n' | awk '{s+=$1} END {print s+0}')
+        total_human=$(numfmt --to=iec-i --suffix=B "$total_bytes")
+        echo -e "${BOLD}Upload summary:${NC}"
+        echo -e "  Files: ${CYAN}${file_count}${NC}"
+        echo -e "  Total: ${CYAN}${total_human}${NC}"
+        echo -e "  Path:  ${CYAN}${UPLOAD_DIR}${NC}"
+        echo ""
+        find "$UPLOAD_DIR" -type f -printf '  %h/%f  %s\n' \
+            | awk '{size=$NF; $NF=""; cmd="numfmt --to=iec-i --suffix=B " size; cmd | getline h; close(cmd); printf "%s %s\n", $0, h}'
     else
-        echo "  (no files)"
+        echo -e "${BOLD}Upload summary:${NC}"
+        echo "  (no files received)"
     fi
 }
 
