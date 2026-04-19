@@ -61,12 +61,13 @@
         groups: "{{ ftp_camera_user }}"
         append: true
 
-    - name: Grant {{ user_login }} full access to upload directory (ACL)
+    - name: Grant {{ user_login }} full access to upload directory (ACL, recursive)
       ansible.posix.acl:
         path: "{{ ftp_camera_upload_dir }}"
         entity: "{{ user_login }}"
         etype: user
         permissions: rwX
+        recursive: true
         state: present
 
     - name: Set default ACL so new files inherit {{ user_login }} access
