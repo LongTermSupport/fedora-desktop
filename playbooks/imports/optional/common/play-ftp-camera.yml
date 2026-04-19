@@ -94,9 +94,9 @@
         group: root
         mode: "0755"
 
-    - name: Allow vsftpd to access FTP home directories (SELinux)
+    - name: Allow vsftpd full access to local user files (SELinux)
       ansible.posix.seboolean:
-        name: ftp_home_dir
+        name: ftpd_full_access
         state: true
         persistent: true
 
