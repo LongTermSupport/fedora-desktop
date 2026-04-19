@@ -94,11 +94,18 @@
         group: root
         mode: "0755"
 
-    - name: Allow vsftpd full access to local user files (SELinux)
-      ansible.posix.seboolean:
-        name: ftpd_full_access
-        state: true
-        persistent: true
+    - name: Set SELinux file context on upload directory (allows vsftpd write access)
+      # public_content_rw_t is the designated type for FTP-writable directories.
+      # This is targeted: only the upload dir gets FTP access, not the whole system.
+      community.general.sefcontext:
+        target: "{{ ftp_camera_upload_dir }}(/.*)?"
+        setype: public_content_rw_t
+        state: present
+
+    - name: Apply SELinux file context to upload directory
+      ansible.builtin.command:
+        cmd: "restorecon -R {{ ftp_camera_upload_dir }}"
+      changed_when: true
 
     - name: Disable vsftpd auto-start (managed manually via ftp-camera script)
       ansible.builtin.systemd:
