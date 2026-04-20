@@ -50,11 +50,6 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 RUN wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 \
     && chmod +x /usr/local/bin/yq
 
-# Install ripgrep (rg) - modern grep alternative
-RUN wget -qO /tmp/ripgrep.deb https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep_14.1.1-1_amd64.deb \
-    && dpkg -i /tmp/ripgrep.deb \
-    && rm /tmp/ripgrep.deb
-
 # Install Ansible collections required by the project
 RUN ansible-galaxy collection install community.general ansible.posix
 
