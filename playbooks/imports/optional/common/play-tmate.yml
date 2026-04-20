@@ -1,0 +1,34 @@
+#!/usr/bin/env ansible-playbook
+---
+# tmate — instant terminal sharing via SSH
+#
+# Shares your terminal session with a unique SSH URL. Useful for pair
+# programming, remote debugging, and giving others temporary access.
+# @see https://tmate.io/
+- hosts: desktop
+  name: tmate - Instant Terminal Sharing
+  become: true
+  tasks:
+    - name: Install tmate
+      ansible.builtin.dnf:
+        name:
+          - tmate
+        state: present
+
+    - name: Show tmate Usage
+      ansible.builtin.debug:
+        msg:
+          - ""
+          - "tmate installed!"
+          - ""
+          - "  Start a shared session:"
+          - "    tmate"
+          - ""
+          - "  Show connection URLs:"
+          - "    tmate show-messages"
+          - ""
+          - "  Start read-only session:"
+          - "    tmate -F"
+          - ""
+          - "  @see https://tmate.io/"
+          - ""
