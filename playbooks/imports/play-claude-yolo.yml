@@ -118,6 +118,19 @@
         - scripts
         - dockerfile
 
+    - name: Copy PHPantom LSP Plugin into Docker Build Context
+      become: true
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/var/local/claude-yolo/plugins/"
+        dest: /opt/claude-yolo/plugins/
+        owner: root
+        group: root
+        mode: "0644"
+        directory_mode: "0755"
+      tags:
+        - scripts
+        - dockerfile
+
     - name: Create Documentation Directory
       become: true
       ansible.builtin.file:
