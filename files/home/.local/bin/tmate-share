@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -e
+
+# tmate-share — start tmate and show only read-only connection URLs
+# Deployed by: playbooks/imports/optional/common/play-collaboration.yml
+#
+# Security: only displays read-only URLs so you naturally share those.
+# For full read-write access, use tmate-full instead.
+
+tmate -F &
+TMATE_PID=$!
+
+# Wait for tmate to establish the session and generate URLs
+for _ in $(seq 1 30); do
+    if tmate show-messages 2>/dev/null | grep -q "read only"; then
+        break
+    fi
+    sleep 0.5
+done
+
+echo ""
+echo "=== Read-Only Session URLs ==="
+echo ""
+tmate show-messages 2>/dev/null | grep "read only"
+echo ""
+echo "(for read-write access, use tmate-full)"
+echo ""
+
+# Bring tmate back to foreground
+wait "$TMATE_PID"
