@@ -102,16 +102,30 @@
           - docker-compose-plugin
 
     # ────────────────────────────────────────────────────────────────
-    # subuid/subgid — retained for other user-namespace tools
-    # (distrobox, rootless Podman). Harmless for rootful Docker.
+    # Clean up subuid/subgid entries written by earlier versions of this
+    # playbook. Rootful Docker does not use subuid/subgid at all, and
+    # Fedora's shadow-utils auto-allocates a range for every user at
+    # creation time (see /etc/login.defs SUB_UID_COUNT) — which is what
+    # rootless Podman and distrobox actually use. The hand-managed
+    # 100000:65536 block overlapped Fedora's auto-allocated range, so
+    # we remove both marker variants and leave only Fedora's default.
     # ────────────────────────────────────────────────────────────────
-    - name: Setup ID Maps for rootless tools (distrobox, podman)
+    - name: Remove legacy subuid/subgid block (original default marker)
+      become: true
+      ansible.builtin.blockinfile:
+        path: "{{ item }}"
+        marker: "# {mark} ANSIBLE MANAGED BLOCK"
+        state: absent
+      loop:
+        - /etc/subuid
+        - /etc/subgid
+
+    - name: Remove legacy subuid/subgid block (custom marker from earlier v3)
       become: true
       ansible.builtin.blockinfile:
         path: "{{ item }}"
         marker: "# {mark} ANSIBLE MANAGED: subuid/subgid for rootless containers"
-        block: |
-          {{ user_login }}:100000:65536
+        state: absent
       loop:
         - /etc/subuid
         - /etc/subgid

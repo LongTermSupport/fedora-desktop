@@ -54,17 +54,17 @@ Rootless Docker would require `--no-bind-mounts`, Mutagen, sysctl tweaks, and a 
 
 ### What's already in the repo we're using
 
-| Capability                                                       | Source                           | Changes                                                                                                                    |
-| ---------------------------------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `docker-ce` + `docker-ce-cli` + `containerd.io` + compose plugin | `play-docker.yml:21-29`          | unchanged                                                                                                                  |
-| `/etc/subuid` + `/etc/subgid` for user                           | `play-docker.yml:31-39`          | retained — harmless in rootful mode, other tools may use                                                                   |
-| `docker.service` / `docker.socket` system units                  | ships with `docker-ce`           | **newly enabled** (replaces rootless user-service)                                                                         |
-| `docker` group                                                   | ships with `docker-ce`           | **user newly added** to this group                                                                                         |
-| Rootless user-service via `dockerd-rootless-setuptool.sh`        | `play-docker.yml:49-65`          | **removed** from fresh deploys; **actively uninstalled** on legacy hosts (stat-gated cleanup block at top of new playbook) |
-| Podman + `podman.socket`                                         | `play-podman.yml`                | **completely untouched**                                                                                                   |
-| LXC                                                              | `play-lxc-install-config.yml`    | **completely untouched**                                                                                                   |
-| `container_engine: podman` default                               | `vars/container-defaults.yml:10` | **unchanged** — Podman remains the repo default                                                                            |
-| CCY using Podman directly                                        | `files/var/local/claude-yolo/`   | **unchanged** — CCY never sees Docker                                                                                      |
+| Capability                                                       | Source                           | Changes                                                                                                                                                        |
+| ---------------------------------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docker-ce` + `docker-ce-cli` + `containerd.io` + compose plugin | `play-docker.yml:21-29`          | unchanged                                                                                                                                                      |
+| `/etc/subuid` + `/etc/subgid` for user                           | `play-docker.yml:31-39`          | **removed** — Fedora auto-allocates subuid/subgid at user creation; hand-managed `100000:65536` overlapped that range and is actively stripped on legacy hosts |
+| `docker.service` / `docker.socket` system units                  | ships with `docker-ce`           | **newly enabled** (replaces rootless user-service)                                                                                                             |
+| `docker` group                                                   | ships with `docker-ce`           | **user newly added** to this group                                                                                                                             |
+| Rootless user-service via `dockerd-rootless-setuptool.sh`        | `play-docker.yml:49-65`          | **removed** from fresh deploys; **actively uninstalled** on legacy hosts (stat-gated cleanup block at top of new playbook)                                     |
+| Podman + `podman.socket`                                         | `play-podman.yml`                | **completely untouched**                                                                                                                                       |
+| LXC                                                              | `play-lxc-install-config.yml`    | **completely untouched**                                                                                                                                       |
+| `container_engine: podman` default                               | `vars/container-defaults.yml:10` | **unchanged** — Podman remains the repo default                                                                                                                |
+| CCY using Podman directly                                        | `files/var/local/claude-yolo/`   | **unchanged** — CCY never sees Docker                                                                                                                          |
 
 ### Security note
 
@@ -96,7 +96,7 @@ Legend: ✅ done, 🔄 in progress, ⬜ not started, ♻️ replace/refactor v1 
 - [x] ✅ **Task 3.2**: D-Bus probe retained but scoped to the legacy-cleanup block only (guarded by `when: legacy_rootless.stat.exists`); drops through as no-op on fresh hosts
 - [x] ✅ **Task 3.3**: Removed `dockerd-rootless-setuptool.sh install` task from fresh-install path
 - [x] ✅ **Task 3.4**: Removed user-scope `systemd` enable of `docker` from fresh-install path
-- [x] ✅ **Task 3.5**: Retained subuid/subgid block (other user-namespace tools still depend)
+- [x] ✅ **Task 3.5**: ~~Retained subuid/subgid block~~ — revised (see Decision 4-revised): subuid/subgid block is now *actively removed*. Rootful Docker doesn't use it; Fedora auto-allocates for Podman/distrobox; the hardcoded `100000:65536` overlapped Fedora's range.
 - [x] ✅ **Task 3.6**: Added `docker info` verification task (runs via `become: true` so it works on first deploy before the user re-logs for new group membership)
 - [x] ✅ **Task 3.7**: N/A — `play-docker-overlay2-migration.yml` is already hard-disabled (lines 46+ force `ansible.builtin.fail`); no additional preflight needed. Decision 5 superseded.
 - [x] ✅ **Task 3.8 (new)**: Active legacy-rootless cleanup added (supersedes Decision 3):
@@ -204,13 +204,20 @@ Legend: ✅ done, 🔄 in progress, ⬜ not started, ♻️ replace/refactor v1 
 
 **What is NOT cleaned**: `~/.local/share/docker` storage. This can contain user images — deliberately preserved. Users can `rm -rf` manually once satisfied nothing is needed.
 
-### Decision 4 (v3): Keep subuid/subgid block in `play-docker.yml`
+### Decision 4 (v3): Keep subuid/subgid block in `play-docker.yml` (SUPERSEDED by 4-revised)
 
-**Context**: `play-docker.yml:31-39` writes `{{ user_login }}:100000:65536` to `/etc/subuid` and `/etc/subgid`. Needed for rootless Docker (obsolete in Approach C) but also useful for other user-namespace-using tools.
+**Context**: `play-docker.yml:31-39` writes `{{ user_login }}:100000:65536` to `/etc/subuid` and `/etc/subgid`. Needed for rootless Docker (obsolete in Approach C) but also "useful for other user-namespace-using tools."
 
-**Decision**: Keep the block. Benign; removing it is a separate cleanup that isn't this plan's scope. Tools that may want it: rootless Podman (already configured), distrobox (installed), future user-namespace experiments.
+**Original decision (2026-04-21)**: Keep the block. Benign; removing it is a separate cleanup.
 
-**Date**: 2026-04-21
+**Revised decision (2026-04-21, same day, user question)**: Strip it. Reasons:
+
+- Rootful Docker never uses subuid/subgid
+- Fedora's `shadow-utils` auto-allocates a subuid/subgid range on user creation (see `/etc/login.defs` `SUB_UID_COUNT`) — that's what rootless Podman and distrobox actually consume
+- The hardcoded `100000:65536` range *overlapped* with Fedora's auto-allocated range (typically `524288:65536`), giving two entries for the same user — cosmetically ugly and technically redundant
+- Verified on one legacy host: `getsubids joseph` showed the Fedora range intact; stripping the hand-managed blocks leaves Podman/distrobox fully functional
+
+**Implementation**: `play-docker.yml` now has two `blockinfile … state: absent` tasks that remove both marker variants (the original default marker from v1, and the custom marker I briefly introduced in the first v3 commit). Fresh hosts: both tasks are no-ops. Legacy hosts: both blocks are stripped, leaving only Fedora's auto-allocated entry.
 
 ### Decision 5 (v3): `play-docker-overlay2-migration.yml` (SUPERSEDED — no action needed)
 
