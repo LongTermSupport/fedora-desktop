@@ -174,7 +174,6 @@ Piping network content directly to a shell is blocked. It executes untrusted rem
 **Blocked**: `curl URL | bash`, `curl URL | sh`, `wget URL | bash`, `curl URL | sudo bash`
 
 **Safe alternative**: download first, inspect, then execute:
-
 ```
 curl -o /tmp/script.sh URL
 cat /tmp/script.sh          # inspect
@@ -197,7 +196,6 @@ Before making a `git commit` in the hooks daemon repository, this handler advise
 **Blocked**: `chmod 777`, `chmod 666`, `chmod a+w`, `chmod o+w`
 
 **Use least-privilege permissions instead**:
-
 - Executable scripts: `chmod 755` (owner rwx, group/other rx)
 - Regular files: `chmod 644` (owner rw, group/other r)
 - Private files: `chmod 600` (owner rw only)
@@ -206,17 +204,17 @@ Before making a `git commit` in the hooks daemon repository, this handler advise
 
 The following git commands are permanently blocked and will always be denied:
 
-| Command                  | Reason                                                                   |
-| ------------------------ | ------------------------------------------------------------------------ |
-| `git reset --hard`       | Permanently destroys all uncommitted changes                             |
-| `git clean -f`           | Permanently deletes untracked files                                      |
-| `git checkout -- <file>` | Discards all local changes to that file                                  |
-| `git restore <file>`     | Discards local changes (`--staged` is allowed)                           |
-| `git stash drop`         | Permanently destroys stashed changes                                     |
-| `git stash clear`        | Permanently destroys all stashes                                         |
-| `git push --force`       | Can overwrite remote history and destroy teammates' work                 |
-| `git branch -D`          | Force-deletes branch without checking if merged (lowercase `-d` is safe) |
-| `git commit --amend`     | Rewrites the previous commit — create a new commit instead               |
+| Command | Reason |
+|---------|--------|
+| `git reset --hard` | Permanently destroys all uncommitted changes |
+| `git clean -f` | Permanently deletes untracked files |
+| `git checkout -- <file>` | Discards all local changes to that file |
+| `git restore <file>` | Discards local changes (`--staged` is allowed) |
+| `git stash drop` | Permanently destroys stashed changes |
+| `git stash clear` | Permanently destroys all stashes |
+| `git push --force` | Can overwrite remote history and destroy teammates' work |
+| `git branch -D` | Force-deletes branch without checking if merged (lowercase `-d` is safe) |
+| `git commit --amend` | Rewrites the previous commit — create a new commit instead |
 
 If the user needs to run one of these, ask them to do it manually. Do not attempt to work around the block.
 
@@ -227,118 +225,12 @@ If the user needs to run one of these, ask them to do it manually. Do not attemp
 Writing code that silently swallows errors is blocked. All errors must be handled explicitly.
 
 **Blocked patterns (examples)**:
-
 - Python: bare `except` clauses with an empty body, catching and discarding all exceptions
 - Shell: redirecting stderr to `/dev/null` to silence failures, `|| true` to suppress non-zero exit codes
 - JavaScript/TypeScript: empty `catch` blocks that swallow exceptions
 - Go: `_ = err` (discarding error return values without handling)
 
 **Required action**: Handle errors explicitly — log them, return them to the caller, or propagate them. Silent error suppression masks bugs and makes debugging impossible.
-
-## git_stash — git stash is advisory by default
-
-`git stash`, `git stash push`, and `git stash save` trigger this handler. `git stash pop`, `git stash apply`, `git stash list`, and `git stash show` are always allowed.
-
-**Default mode** (`warn`): stash is allowed but an advisory message explains risks.
-**Deny mode** (`deny`): stash is blocked — use `git commit` to checkpoint work instead.
-
-Configure via `handlers.pre_tool_use.git_stash.options.mode: deny` to enforce the stricter policy.
-
-## lsp_enforcement — use LSP tools for code symbol lookups
-
-Using `Grep` or `Bash` (grep/rg) to find class definitions, function signatures, or symbol references is blocked or redirected to LSP tools, which are faster and semantically accurate.
-
-**Prefer LSP tools for**:
-
-- Finding where a class or function is defined → `goToDefinition`
-- Finding all usages of a symbol → `findReferences`
-- Getting type information or documentation → `hover`
-- Listing all symbols in a file → `documentSymbol`
-- Searching symbols across the project → `workspaceSymbol`
-
-**Grep/Bash grep is still appropriate for**: text patterns in content, log searching, finding strings in config files.
-
-Default mode (`block_once`): the first symbol-lookup grep in a session is denied with guidance; subsequent retries are allowed.
-
-## security_antipattern — OWASP security antipatterns are blocked
-
-Writing code that contains security antipatterns is blocked across all supported languages. Fix the code to use safe patterns instead.
-
-**Blocked categories**:
-
-- SQL injection: building queries via string concatenation (use parameterised queries)
-- Command injection: passing unvalidated input to subprocess (use argument lists)
-- Hardcoded credentials: API keys, passwords, tokens embedded in source code
-- Weak cryptography: MD5 or SHA1 for password hashing (use bcrypt/argon2)
-- Path traversal: unvalidated user input used in file paths
-
-**Supported languages**: Python, JavaScript/TypeScript, Go, PHP, Ruby, Java, Kotlin, C#, Rust, Swift, Dart.
-
-## sed_blocker — sed is forbidden for file modification
-
-`sed` is blocked because Claude gets sed syntax wrong and a single error can silently destroy hundreds of files with no recovery possible.
-
-**Blocked**:
-
-- `sed -i` / `sed -e` (in-place file editing via Bash tool)
-- `grep -rl X | xargs sed -i` (mass file modification)
-- Shell scripts (`.sh`/`.bash`) written via Write tool that contain `sed`
-
-**Allowed** (read-only, no file modification):
-
-- `cat file | sed 's/x/y/' | grep z` (pipeline transforming stdout only)
-- `sed` mentioned in commit messages, PR bodies, or `.md` documentation files
-
-**Use instead**:
-
-- `Edit` tool — safe, atomic, verifiable
-- Parallel Haiku agents with `Edit` tool for bulk changes across many files:
-  1. Identify all files to update
-  2. Dispatch one Haiku agent per file
-  3. Each agent uses the `Edit` tool (never `sed`)
-
-## tdd_enforcement — test file must exist before source file
-
-Creating a production source file is blocked until a corresponding test file exists.
-
-**TDD workflow (required)**:
-
-1. Create the **test file first** (e.g. `tests/unit/handlers/test_my_handler.py`)
-2. Write failing tests — RED phase
-3. Create the source file and implement until tests pass — GREEN phase
-4. Refactor — REFACTOR phase
-
-**Supported languages**: Python, Go, JavaScript/TypeScript, PHP, Rust, Java, C#, Kotlin, Ruby, Swift, Dart
-
-**Test file locations checked** (any satisfies the block):
-
-- Separate mirror: `tests/unit/{subdir}/test_{module}.py`
-- Collocated: `{source_dir}/{module}.test.ts` (JS/TS projects)
-- Test subdirectory: `{source_dir}/__tests__/{module}.test.ts`
-
-**Allowed through without blocking**: vendor dirs, node_modules, build outputs, generated files, and file extensions not in the supported language list.
-
-## validate_instruction_content — CLAUDE.md and README.md must have stable content
-
-Writing ephemeral or session-specific content to `CLAUDE.md` or `README.md` is blocked. These files should contain only stable instructions, not implementation logs or session state.
-
-**Blocked content types**:
-
-- Timestamps and ISO dates
-- Status emoji followed by completion words (e.g. checkmark + 'Done')
-- Implementation log sentences ('created the file X', 'added the class Y')
-- Test output counts ('3 tests passed')
-- LLM summary section headings ('## Summary', '## Key Points')
-
-Content inside markdown code blocks is exempt from validation.
-
-## worktree_file_copy — do not copy files between worktrees and the main repo
-
-`cp`, `mv`, and `rsync` operations that move files from a worktree directory (`untracked/worktrees/` or `.claude/worktrees/`) into the main repo (`src/`, `tests/`, `config/`) — or vice versa — are blocked.
-
-Worktrees are isolated branches. Cross-copying corrupts that isolation and can silently overwrite in-progress work.
-
-**Allowed**: operations within the same worktree branch. **To merge changes**: use `git merge` or `git cherry-pick` instead.
 
 ## gh_issue_comments — always include --comments on gh issue view
 
@@ -350,6 +242,15 @@ Worktrees are isolated branches. Cross-copying corrupts that isolation and can s
 
 If using `--json`, include `comments` in the field list instead of adding `--comments`.
 
+## git_stash — git stash is advisory by default
+
+`git stash`, `git stash push`, and `git stash save` trigger this handler. `git stash pop`, `git stash apply`, `git stash list`, and `git stash show` are always allowed.
+
+**Default mode** (`warn`): stash is allowed but an advisory message explains risks.
+**Deny mode** (`deny`): stash is blocked — use `git commit` to checkpoint work instead.
+
+Configure via `handlers.pre_tool_use.git_stash.options.mode: deny` to enforce the stricter policy.
+
 ## lock_file_edit_blocker — never directly edit lock files
 
 Direct `Write` or `Edit` to package manager lock files is blocked. Lock files are generated artifacts; manual edits create checksum mismatches and broken dependency graphs.
@@ -357,12 +258,36 @@ Direct `Write` or `Edit` to package manager lock files is blocked. Lock files ar
 **Blocked files**: `composer.lock`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `Gemfile.lock`, `Cargo.lock`, `go.sum`, `Package.resolved`, `Pipfile.lock`, and others.
 
 **Use package manager commands instead**:
-
 - PHP: `composer install` / `composer require package`
 - Node: `npm install` / `yarn add package`
 - Ruby: `bundle install` / `bundle add gem`
 - Rust: `cargo add crate`
 - Go: `go get module`
+
+## lsp_enforcement — use LSP tools for code symbol lookups
+
+Using `Grep` or `Bash` (grep/rg) to find class definitions, function signatures, or symbol references is blocked or redirected to LSP tools, which are faster and semantically accurate.
+
+**Prefer LSP tools for**:
+- Finding where a class or function is defined → `goToDefinition`
+- Finding all usages of a symbol → `findReferences`
+- Getting type information or documentation → `hover`
+- Listing all symbols in a file → `documentSymbol`
+- Searching symbols across the project → `workspaceSymbol`
+
+**Grep/Bash grep is still appropriate for**: text patterns in content, log searching, finding strings in config files.
+
+Default mode (`block_once`): the first symbol-lookup grep in a session is denied with guidance; subsequent retries are allowed.
+
+## markdown_organization — markdown files must go in allowed locations
+
+Writing a new `.md` file to an unrecognised location is blocked. Markdown files must be placed in project-configured allowed paths.
+
+**Common allowed locations**: `CLAUDE/`, `docs/`, `RELEASES/`, `CLAUDE/Plan/`, root-level `README.md`, or any path matching the `allowed_markdown_paths` config.
+
+**Plan file redirection**: when `track_plans_in_project` is enabled, Claude Code planning mode writes are automatically redirected to the project's `CLAUDE/Plan/` directory. Plan folders must follow the `NNNN-description/` naming convention.
+
+If you need a markdown file in a new location, add a pattern to `allowed_markdown_paths` in `.claude/hooks-daemon.yaml`.
 
 ## npm_command — use llm: prefixed npm commands
 
@@ -398,7 +323,6 @@ pytest tests/ > /tmp/pytest_out.txt 2>&1
 Writing QA suppression directives into source files is blocked across all supported languages. Fix the underlying code issue instead.
 
 **Blocked annotation types (by language)**:
-
 - Python: `noqa` directives, `type: ignore` annotations
 - JavaScript/TypeScript: `eslint-disable` inline directives
 - Go: `nolint` directives (golangci-lint)
@@ -409,19 +333,78 @@ Writing QA suppression directives into source files is blocked across all suppor
 
 **Required action**: Fix the code so QA passes without suppression. If a suppression is genuinely necessary, ask the user to add it manually — this signals a conscious decision rather than a shortcut.
 
-## markdown_organization — markdown files must go in allowed locations
+## security_antipattern — OWASP security antipatterns are blocked
 
-Writing a new `.md` file to an unrecognised location is blocked. Markdown files must be placed in project-configured allowed paths.
+Writing code that contains security antipatterns is blocked across all supported languages. Fix the code to use safe patterns instead.
 
-**Common allowed locations**: `CLAUDE/`, `docs/`, `RELEASES/`, `CLAUDE/Plan/`, root-level `README.md`, or any path matching the `allowed_markdown_paths` config.
+**Blocked categories**:
+- SQL injection: building queries via string concatenation (use parameterised queries)
+- Command injection: passing unvalidated input to subprocess (use argument lists)
+- Hardcoded credentials: API keys, passwords, tokens embedded in source code
+- Weak cryptography: MD5 or SHA1 for password hashing (use bcrypt/argon2)
+- Path traversal: unvalidated user input used in file paths
 
-**Dependency directories**: `vendor/` (PHP) and `node_modules/` (JS) are treated as implicit monorepos — each package is a sub-project where normal markdown rules apply (e.g. `vendor/acme/lib/docs/guide.md` is allowed, `vendor/acme/lib/random/notes.md` is blocked).
+**Supported languages**: Python, JavaScript/TypeScript, Go, PHP, Ruby, Java, Kotlin, C#, Rust, Swift, Dart.
 
-**Plan file redirection**: when `track_plans_in_project` is enabled, Claude Code planning mode writes are automatically redirected to the project's `CLAUDE/Plan/` directory. Plan folders must follow the `NNNN-description/` naming convention.
+## sed_blocker — sed is forbidden for file modification
 
-If you need a markdown file in a new location, add a pattern to `allowed_markdown_paths` in `.claude/hooks-daemon.yaml`.
+`sed` is blocked because Claude gets sed syntax wrong and a single error can silently destroy hundreds of files with no recovery possible.
 
-If your project has sub-projects with their own `docs/`, `CLAUDE/`, etc., configure `monorepo_subproject_patterns` in `.claude/hooks-daemon.yaml` so normal rules apply within each sub-project.
+**Blocked**:
+- `sed -i` / `sed -e` (in-place file editing via Bash tool)
+- `grep -rl X | xargs sed -i` (mass file modification)
+- Shell scripts (`.sh`/`.bash`) written via Write tool that contain `sed`
+
+**Allowed** (read-only, no file modification):
+- `cat file | sed 's/x/y/' | grep z` (pipeline transforming stdout only)
+- `sed` mentioned in commit messages, PR bodies, or `.md` documentation files
+
+**Use instead**:
+- `Edit` tool — safe, atomic, verifiable
+- Parallel Haiku agents with `Edit` tool for bulk changes across many files:
+  1. Identify all files to update
+  2. Dispatch one Haiku agent per file
+  3. Each agent uses the `Edit` tool (never `sed`)
+
+## tdd_enforcement — test file must exist before source file
+
+Creating a production source file is blocked until a corresponding test file exists.
+
+**TDD workflow (required)**:
+1. Create the **test file first** (e.g. `tests/unit/handlers/test_my_handler.py`)
+2. Write failing tests — RED phase
+3. Create the source file and implement until tests pass — GREEN phase
+4. Refactor — REFACTOR phase
+
+**Supported languages**: Python, Go, JavaScript/TypeScript, PHP, Rust, Java, C#, Kotlin, Ruby, Swift, Dart
+
+**Test file locations checked** (any satisfies the block):
+- Separate mirror: `tests/unit/{subdir}/test_{module}.py`
+- Collocated: `{source_dir}/{module}.test.ts` (JS/TS projects)
+- Test subdirectory: `{source_dir}/__tests__/{module}.test.ts`
+
+**Allowed through without blocking**: vendor dirs, node_modules, build outputs, generated files, and file extensions not in the supported language list.
+
+## validate_instruction_content — CLAUDE.md and README.md must have stable content
+
+Writing ephemeral or session-specific content to `CLAUDE.md` or `README.md` is blocked. These files should contain only stable instructions, not implementation logs or session state.
+
+**Blocked content types**:
+- Timestamps and ISO dates
+- Status emoji followed by completion words (e.g. checkmark + 'Done')
+- Implementation log sentences ('created the file X', 'added the class Y')
+- Test output counts ('3 tests passed')
+- LLM summary section headings ('## Summary', '## Key Points')
+
+Content inside markdown code blocks is exempt from validation.
+
+## worktree_file_copy — do not copy files between worktrees and the main repo
+
+`cp`, `mv`, and `rsync` operations that move files from a worktree directory (`untracked/worktrees/` or `.claude/worktrees/`) into the main repo (`src/`, `tests/`, `config/`) — or vice versa — are blocked.
+
+Worktrees are isolated branches. Cross-copying corrupts that isolation and can silently overwrite in-progress work.
+
+**Allowed**: operations within the same worktree branch. **To merge changes**: use `git merge` or `git cherry-pick` instead.
 
 ## system_paths — do not edit deployed system files directly
 
@@ -429,7 +412,6 @@ Writing or editing files under system paths (/etc/, /var/, /usr/, /opt/, /root/,
 These are deployed files managed by Ansible.
 
 **Edit the project source instead**:
-
 - `/etc/foo` → `files/etc/foo`
 - `/var/local/foo` → `files/var/local/foo`
 - `/usr/bin/foo` → `files/usr/bin/foo`
@@ -463,23 +445,6 @@ After every `Write` or `Edit` of a `.md` or `.markdown` file, the content is re-
 $PYTHON -m claude_code_hooks_daemon.daemon.cli format-markdown <path>
 ```
 
-## hook_registration_checker — hooks configuration policy
-
-On every new session this handler audits hook configuration across `.claude/settings.json` and `.claude/settings.local.json`. When it reports issues, fix them — do not ignore the warning.
-
-### Policy
-
-1. **All hooks live in `settings.json`.** That file is tracked in version control, visible to teammates, and is the single source of truth for the daemon.
-2. **`settings.local.json` must contain ZERO `hooks` entries.** It exists for per-developer `permissions` and IDE state only. A `hooks` block there is either (a) invisible to the rest of the team, or (b) duplicated with `settings.json` — in which case the hook fires twice per event.
-3. **Hook commands must invoke the daemon wrapper.** Every registered command must end with `/.claude/hooks/{event}`. Anything else (inline Python, custom shell scripts, bespoke paths) is a legacy setup that bypasses the daemon entirely.
-
-### Remediation
-
-- **Hooks in `settings.local.json`**: move each `hooks` entry to `settings.json`, then delete the `hooks` key from `settings.local.json`. Confirm no duplicates remain.
-- **Legacy-style commands**: replace them with a project-level handler. Run `$PYTHON -m claude_code_hooks_daemon.daemon.cli init-project-handlers` to scaffold `.claude/project-handlers/`, port the logic into a handler class, then restore the daemon wrapper in `settings.json`. The daemon will auto-discover the new handler on restart.
-- **Missing hooks**: the daemon's installer writes the full set. If any are missing, re-run `install.py` or manually add the missing `{event_name}` entry pointing at `"$CLAUDE_PROJECT_DIR"/.claude/hooks/{bash-key}`.
-- **Duplicate hooks**: a hook registered in both files fires twice. Keep the `settings.json` entry, delete from `settings.local.json`.
-
 ### Stop Explanation Required
 
 Before stopping, **prefix your final message** with `STOPPING BECAUSE:` followed by a clear reason:
@@ -491,18 +456,15 @@ STOPPING BECAUSE: all tasks complete, QA passes, daemon restart verified.
 **Why**: The stop hook enforces intentional stops. Stopping without an explanation triggers an auto-block that asks you to explain or continue.
 
 **Alternatives**:
-
 - `STOPPING BECAUSE: <reason>` — stops cleanly with explanation
 - Continue working — no need to stop unless all work is genuinely complete
 
 **Do NOT**:
-
 - Stop mid-task without explanation
 - Ask confirmation questions and then stop (the hook auto-continues those)
 - Use `AUTO-CONTINUE` unless you intend to keep working indefinitely
 
 **Before asking a question, evaluate it critically**:
-
 - Tautological/rhetorical questions with obvious answers ("Should I continue?", "Would you like me to proceed?") — do NOT ask, just do it
 - Errors with a clear next step ("The test failed, should I fix it?") — do NOT ask, just fix it
 - Genuine choice questions where all options are valid ("Which of A, B, or C should we use?") — these deserve a response. Use `STOPPING BECAUSE: need user input` and ask your question
