@@ -28,6 +28,47 @@
                Fix: sudo systemctl status docker --no-pager -l
       when: docker_info.rc != 0
 
+    - name: Probe Docker daemon security options (detects rootless)
+      ansible.builtin.command: docker info --format '{% raw %}{{.SecurityOptions}}{% endraw %}'
+      register: docker_security
+      changed_when: false
+
+    - name: Fail if Docker daemon is rootless (DDEV requires rootful on Linux)
+      ansible.builtin.fail:
+        msg: |
+          Docker is reachable but running in ROOTLESS mode:
+            SecurityOptions: {{ docker_security.stdout }}
+
+          DDEV on Linux requires ROOTFUL Docker (see CLAUDE/ContainerEngines.md).
+          play-docker.yml installs rootful; this host appears to be reaching
+          a different Docker daemon.
+
+          Likely causes and fixes:
+            1. DOCKER_HOST env var points at a user-scope socket.
+               Fix: unset DOCKER_HOST   (and/or start a fresh shell)
+            2. Docker context is pinned to a rootless context.
+               Check: docker context ls
+               Fix:   docker context use default
+            3. play-docker.yml has not been re-run since the rootful pivot.
+               Fix:   ansible-playbook playbooks/imports/play-docker.yml
+      when: "'name=rootless' in docker_security.stdout"
+
+    - name: Query {{ user_login }}'s group membership
+      ansible.builtin.command: id -nG {{ user_login }}
+      register: ddev_user_groups
+      changed_when: false
+
+    - name: Assert {{ user_login }} is in docker group
+      ansible.builtin.assert:
+        that:
+          - "'docker' in ddev_user_groups.stdout.split()"
+        fail_msg: |
+          {{ user_login }} is not a member of the docker group.
+          Current groups: {{ ddev_user_groups.stdout }}
+
+          Fix: re-run ansible-playbook playbooks/imports/play-docker.yml
+          then log out and back in (or run `newgrp docker`).
+
     - name: Install mkcert
       become: true
       ansible.builtin.dnf:
