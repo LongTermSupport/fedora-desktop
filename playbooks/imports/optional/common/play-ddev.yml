@@ -69,18 +69,14 @@
           Fix: re-run ansible-playbook playbooks/imports/play-docker.yml
           then log out and back in (or run `newgrp docker`).
 
-    - name: Install mkcert
+    # DDEV's RPM ships /usr/bin/mkcert itself. Fedora's standalone mkcert
+    # package conflicts with it file-for-file, so remove the standalone
+    # package first on legacy hosts (no-op on fresh hosts).
+    - name: Remove Fedora standalone mkcert package (conflicts with DDEV's bundled mkcert)
       become: true
       ansible.builtin.dnf:
         name: mkcert
-        state: present
-
-    - name: Install Local CA via mkcert
-      ansible.builtin.command: mkcert -install
-      become: true
-      become_user: "{{ user_login }}"
-      args:
-        creates: "/home/{{ user_login }}/.local/share/mkcert/rootCA.pem"
+        state: absent
 
     - name: Add DDEV Yum Repository
       become: true
@@ -94,12 +90,19 @@
           enabled=1
         mode: "0644"
 
-    - name: Install DDEV
+    - name: Install DDEV (brings its own mkcert binary)
       become: true
       ansible.builtin.dnf:
         name: ddev
         state: present
         update_cache: true
+
+    - name: Install Local CA via mkcert
+      ansible.builtin.command: mkcert -install
+      become: true
+      become_user: "{{ user_login }}"
+      args:
+        creates: "/home/{{ user_login }}/.local/share/mkcert/rootCA.pem"
 
     - name: Verify DDEV Installation
       ansible.builtin.command: ddev version

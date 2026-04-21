@@ -368,3 +368,12 @@ Compare to PLAN.md v2's sketch — ~100 lines of sysctl / context / fuse-overlay
 - User approved Approach C (rootful Docker for DDEV, with explicit top-level rule: "use Podman wherever possible; Docker for compat/legacy only; understand it is less secure")
 - Phase 2 (strategy + top-level docs) completed: `CLAUDE/ContainerEngines.md` written; `CLAUDE.md` Critical Rules + Topic Files Index updated
 - PLAN.md rewritten as v3 — Phases 3-8 remain to implement
+
+### 2026-04-21 (v3 — post-deploy findings from real host run)
+
+Issues surfaced while running the v3 playbook end-to-end on the host, each fixed in a dedicated commit on the `ddev` branch:
+
+- **Docker group lag** — added explicit `group: docker, state: present` + `id -nG` assertion in `play-docker.yml` (commit `3e75b78`).
+- **subuid/subgid investigation** — user challenged "why does rootful Docker need `100000:65536`?". Found Fedora's shadow-utils auto-allocates (typically `524288:65536`) for every user at creation time, which rootless Podman/distrobox consume. The playbook's hand-managed block overlapped Fedora's range. Decision 4 superseded: block stripped entirely via two `blockinfile … state: absent` tasks (one per marker variant) (commit `c4efd88`).
+- **Rootless-daemon detection gap in play-ddev.yml** — `docker info` alone could not distinguish a rootful daemon from a rootless one reached via `DOCKER_HOST` or a pinned context. Added `docker info --format '{{.SecurityOptions}}'` check for `name=rootless` + explicit `id -nG`/docker group assertion (commit `e5e008d`).
+- **DDEV/mkcert file conflict** — `ddev-1.25.1` RPM ships `/usr/bin/mkcert` itself, conflicting file-for-file with Fedora's `mkcert-1.4.4` package. The playbook was installing Fedora's mkcert *first*, then failing on `dnf install ddev`. Fix: replace `mkcert` install with `mkcert` removal (legacy cleanup), reorder so DDEV installs first and `mkcert -install` runs against DDEV's bundled binary.
