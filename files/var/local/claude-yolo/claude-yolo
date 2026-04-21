@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.12.0"  # bump: container version 2.16 - add PHPantom LSP (Rust-based PHP LSP, dual-install with Intelephense)
+CCY_VERSION="3.12.1"  # fix: version check grep pattern — claude --version output format changed, update detection was silently broken
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1077,8 +1077,9 @@ check_claude_code_updates() {
     echo "Checking for Claude Code updates (daily check)..."
 
     # Get version from container
+    # `claude --version` outputs "X.Y.Z (Claude Code)" — extract the semver
     local container_version
-    container_version=$(container_cmd run --rm --entrypoint claude "$image_name" --version 2>/dev/null | grep -oP '(?<=claude-code/)\d+\.\d+\.\d+' || echo "unknown")
+    container_version=$(container_cmd run --rm --entrypoint claude "$image_name" --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -1 || echo "unknown")
 
     # Get latest version from npm registry API (no npm CLI required)
     local latest_version

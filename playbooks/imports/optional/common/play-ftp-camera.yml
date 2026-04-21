@@ -1,0 +1,169 @@
+#!/usr/bin/env ansible-playbook
+---
+- hosts: desktop
+  name: Install Camera FTP Server (Sony A7V)
+  become: true
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+    # Upload directory — override in environment/localhost/host_vars/localhost.yml
+    # Uses /srv/ to avoid path traversal issues (home dirs are mode 700)
+    ftp_camera_upload_dir: "/srv/camera-ftp"
+    ftp_camera_user: camera
+
+  tasks:
+
+    - name: Preflight — assert ftp_camera_password is set
+      ansible.builtin.assert:
+        that:
+          - ftp_camera_password is defined
+          - ftp_camera_password | length > 0
+        fail_msg: |
+          ftp_camera_password is not defined.
+
+          Add it to environment/localhost/host_vars/localhost.yml and encrypt it:
+            ansible-vault encrypt_string 'yourpassword' --name 'ftp_camera_password'
+
+    - name: Install vsftpd and inotify-tools
+      ansible.builtin.package:
+        name:
+          - vsftpd         # FTP server
+          - inotify-tools  # File system event monitoring (used by ftp-camera wrapper)
+        state: present
+      tags: packages
+
+    - name: Create camera FTP user
+      ansible.builtin.user:
+        name: "{{ ftp_camera_user }}"
+        password: "{{ ftp_camera_password | password_hash('sha512') }}"
+        home: "{{ ftp_camera_upload_dir }}"
+        shell: /sbin/nologin
+        create_home: false
+        comment: "Camera FTP upload user — managed by Ansible"
+      no_log: true
+
+    - name: Ensure /sbin/nologin is listed in /etc/shells (required for FTP auth via PAM)
+      ansible.builtin.lineinfile:
+        path: /etc/shells
+        line: /sbin/nologin
+        state: present
+
+    - name: Create camera FTP upload directory
+      ansible.builtin.file:
+        path: "{{ ftp_camera_upload_dir }}"
+        state: directory
+        owner: "{{ ftp_camera_user }}"
+        group: "{{ ftp_camera_user }}"
+        mode: "0775"
+
+    - name: Add {{ user_login }} to camera group for upload directory access
+      ansible.builtin.user:
+        name: "{{ user_login }}"
+        groups: "{{ ftp_camera_user }}"
+        append: true
+
+    - name: Grant {{ user_login }} full access to upload directory (ACL, recursive)
+      ansible.posix.acl:
+        path: "{{ ftp_camera_upload_dir }}"
+        entity: "{{ user_login }}"
+        etype: user
+        permissions: rwX
+        recursive: true
+        state: present
+
+    - name: Set default ACL so new files inherit {{ user_login }} access
+      # Ensures uploaded files and RAW editor sidecars are all accessible
+      ansible.posix.acl:
+        path: "{{ ftp_camera_upload_dir }}"
+        entity: "{{ user_login }}"
+        etype: user
+        permissions: rwX
+        default: true
+        state: present
+
+    - name: Deploy vsftpd configuration
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/etc/vsftpd/vsftpd.conf"
+        dest: /etc/vsftpd/vsftpd.conf
+        owner: root
+        group: root
+        mode: "0600"
+      notify: Restart vsftpd if running
+
+    - name: Deploy vsftpd camera user allowlist
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/etc/vsftpd/camera-users.txt"
+        dest: /etc/vsftpd/camera-users.txt
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Ensure vsftpd secure chroot directory exists
+      ansible.builtin.file:
+        path: /var/run/vsftpd/empty
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Set SELinux file context on upload directory (allows vsftpd write access)
+      # public_content_rw_t is the designated type for FTP-writable directories.
+      # This is targeted: only the upload dir gets FTP access, not the whole system.
+      community.general.sefcontext:
+        target: "{{ ftp_camera_upload_dir }}(/.*)?"
+        setype: public_content_rw_t
+        state: present
+
+    - name: Apply SELinux file context to upload directory
+      ansible.builtin.command:
+        cmd: "restorecon -R {{ ftp_camera_upload_dir }}"
+      changed_when: true
+
+    - name: Disable vsftpd auto-start (managed manually via ftp-camera script)
+      ansible.builtin.systemd:
+        name: vsftpd
+        enabled: false
+        state: stopped
+      failed_when: false  # FAIL-FAST-OK: vsftpd may not be running on first install
+
+    - name: Install ftp-camera wrapper script
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/ftp-camera"
+        dest: "/home/{{ user_login }}/.local/bin/ftp-camera"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+
+    - name: Display installation summary
+      ansible.builtin.debug:
+        msg: |
+          ============================================================
+          Camera FTP Server Installed
+          ============================================================
+
+          Upload directory:  {{ ftp_camera_upload_dir }}
+          FTP user:          camera  (password set in vault)
+
+          Start the server:
+            ftp-camera
+
+          The script will print your PC's IP address and the exact
+          camera menu path when it starts.
+
+          Sony A7V camera setup (one-time, manual):
+            Menu → Network → FTP Transfer Func. → Server Settings
+              Server:           <shown by ftp-camera on start>
+              Port:             21
+              User:             camera
+              Passive Mode:     On
+              Destination:      /
+
+          Note: camera and PC must be on the same Wi-Fi network.
+          Note: log out and back in for group membership to take effect.
+          ============================================================
+
+  handlers:
+    - name: Restart vsftpd if running
+      ansible.builtin.systemd:
+        name: vsftpd
+        state: restarted
+      failed_when: false  # FAIL-FAST-OK: vsftpd is intentionally stopped; only restart if it was already up
