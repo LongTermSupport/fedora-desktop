@@ -120,12 +120,33 @@
     # Rootful setup — system daemon + docker group
     # (docker group membership is root-equivalent; see CLAUDE/ContainerEngines.md)
     # ────────────────────────────────────────────────────────────────
+    - name: Ensure docker group exists
+      become: true
+      ansible.builtin.group:
+        name: docker
+        state: present
+        system: true
+
     - name: Add {{ user_login }} to docker group
       become: true
       ansible.builtin.user:
         name: "{{ user_login }}"
         groups: docker
         append: true
+
+    - name: Query {{ user_login }}'s group membership
+      ansible.builtin.command: id -nG {{ user_login }}
+      register: user_group_list
+      changed_when: false
+
+    - name: Assert {{ user_login }} is in docker group
+      ansible.builtin.assert:
+        that:
+          - "'docker' in user_group_list.stdout.split()"
+        fail_msg: |
+          {{ user_login }} was not added to the docker group.
+          Current groups: {{ user_group_list.stdout }}
+          Docker will not work without sudo until this is fixed.
 
     - name: Enable and start docker.socket (socket activation)
       become: true
