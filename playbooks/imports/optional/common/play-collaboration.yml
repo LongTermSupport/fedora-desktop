@@ -2,24 +2,27 @@
 ---
 # Collaboration tools — terminal sharing, pair programming, remote debugging
 #
-# tmate: shares your terminal session with a unique SSH URL.
-# Wrapper scripts default to read-only sharing for security.
-# @see https://tmate.io/
+# One play for all collaboration tooling. Add new tools as their own
+# clearly-marked section below (── tool-name ──) so related tools stay
+# together instead of proliferating separate playbooks.
 - hosts: desktop
   name: Collaboration Tools
   become: true
   vars:
     root_dir: "{{ inventory_dir }}/../../"
   tasks:
-    # ── Packages ───────────────────────────────────────────────────────────────
+    # ── tmate ──────────────────────────────────────────────────────────────────
+    # Instant terminal sharing via SSH URL. Wrapper scripts default to
+    # read-only sharing for security.
+    # @see https://tmate.io/
 
     - name: Install tmate
       ansible.builtin.dnf:
         name:
           - tmate
         state: present
-
-    # ── Wrapper Scripts ────────────────────────────────────────────────────────
+      tags:
+        - tmate
 
     - name: Deploy tmate wrapper scripts
       ansible.builtin.copy:
@@ -31,6 +34,13 @@
       loop:
         - tmate-share
         - tmate-full
+      tags:
+        - tmate
+
+    # ── add more collaboration tools below ─────────────────────────────────────
+    # Example candidates: rustdesk, asciinema, vs-code-live-share helpers,
+    # sunshine/moonlight, waypipe. Give each its own section with a tag
+    # matching the tool name so it can be run in isolation.
 
     # ── Post-Install Info ──────────────────────────────────────────────────────
 
@@ -40,13 +50,13 @@
           - ""
           - "Collaboration tools installed!"
           - ""
-          - "  Share terminal (read-only URLs only — secure default):"
+          - "  tmate — share terminal (read-only URLs only, secure default):"
           - "    tmate-share"
           - ""
-          - "  Share terminal (all URLs including read-write):"
+          - "  tmate — share terminal (all URLs including read-write):"
           - "    tmate-full"
           - ""
-          - "  Raw tmate (no wrapper):"
+          - "  tmate — raw (no wrapper):"
           - "    tmate"
           - ""
           - "  @see https://tmate.io/"
