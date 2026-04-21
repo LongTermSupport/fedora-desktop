@@ -5,14 +5,17 @@ Complete guide to the Fedora Desktop Configuration Manager.
 ## New Here? Start Here
 
 **First time setup:**
+
 1. Read [Installation Guide](installation.md) - Get up and running
 2. Browse [Playbooks Reference](playbooks.md) - See what optional features you can add
 3. Check [Configuration Guide](configuration.md) - Learn how to customize
 
 **Quick answers:**
+
 - "How do I install this?" → [One-command installation](installation.md#quick-install)
 - "What does it install?" → [Core playbooks](playbooks.md#core-playbooks-automatically-run)
 - "How do I add Docker?" → [Optional playbooks](playbooks.md#optional-playbooks)
+- "How do I set up DDEV?" → [DDEV Guide](ddev.md)
 - "What's the difference between LXC, Docker, and Distrobox?" → [Containerization Guide](containerization.md#overview-comparison)
 
 ## Documentation by Purpose
@@ -22,6 +25,7 @@ Complete guide to the Fedora Desktop Configuration Manager.
 **[Installation Guide](installation.md)**
 
 Everything you need to get started:
+
 - Prerequisites and system requirements
 - One-command installation walkthrough
 - What happens during installation
@@ -37,6 +41,7 @@ Everything you need to get started:
 **[Playbooks Reference](playbooks.md)**
 
 Complete catalog of available features:
+
 - Core features (automatic)
 - Development tools (Docker, Python, Go, VS Code)
 - Container platforms (LXC, Docker, Distrobox)
@@ -54,6 +59,7 @@ Complete catalog of available features:
 **[Containerization Guide](containerization.md)**
 
 Comprehensive comparison and usage guide:
+
 - LXC vs Docker vs Distrobox comparison table
 - When to use each technology
 - Installation and configuration
@@ -70,6 +76,7 @@ Comprehensive comparison and usage guide:
 **[Configuration Guide](configuration.md)**
 
 Learn how to make it yours:
+
 - User configuration (name, email, vault)
 - System configuration (DNF, bash, SSH, Git)
 - Optional feature configuration
@@ -86,6 +93,7 @@ Learn how to make it yours:
 **[Architecture Overview](architecture.md)**
 
 Deep dive into project structure:
+
 - Directory structure and organization
 - Execution flow (bootstrap → main → optional)
 - Configuration management patterns
@@ -102,6 +110,7 @@ Deep dive into project structure:
 **[Development Guide](development.md)**
 
 Everything for contributors:
+
 - Development environment setup
 - Branching strategy (version-specific branches)
 - Ansible style guide and patterns
@@ -115,6 +124,7 @@ Everything for contributors:
 ## Common Tasks Quick Reference
 
 ### Installation & Setup
+
 ```bash
 # One-command install (fresh Fedora)
 (source <(curl -sS https://raw.githubusercontent.com/LongTermSupport/fedora-desktop/HEAD/run.bash?$(date +%s)))
@@ -128,6 +138,7 @@ ansible desktop -m setup | grep ansible_distribution
 ```
 
 ### Adding Optional Features
+
 ```bash
 cd ~/Projects/fedora-desktop
 
@@ -142,9 +153,13 @@ ansible-playbook playbooks/imports/optional/common/play-python.yml
 
 # Add VS Code
 ansible-playbook playbooks/imports/optional/common/play-vscode.yml
+
+# Install DDEV (local PHP/CMS development)
+ansible-playbook playbooks/imports/optional/common/play-ddev.yml
 ```
 
 ### Configuration Management
+
 ```bash
 # View encrypted settings
 ansible-vault view environment/localhost/host_vars/localhost.yml
@@ -160,6 +175,7 @@ ansible-playbook playbook.yml --check
 ```
 
 ### Containerization
+
 ```bash
 # LXC: Create container
 sudo lxc-create -n mycontainer -t download -- -d ubuntu -r jammy -a amd64
@@ -215,12 +231,14 @@ distrobox enter dev
 ## Documentation Topics A-Z
 
 **Architecture & Design**
+
 - [Directory structure](architecture.md#directory-structure)
 - [Execution flow](architecture.md#execution-flow)
 - [Security model](architecture.md#security-model)
 - [Variable hierarchy](architecture.md#configuration-management)
 
 **Configuration & Customization**
+
 - [User variables](configuration.md#user-configuration)
 - [Vault encryption](configuration.md#vault-configuration)
 - [Custom playbooks](configuration.md#adding-custom-configurations)
@@ -228,13 +246,22 @@ distrobox enter dev
 - [Git configuration](configuration.md#git-configuration)
 
 **Containerization**
+
 - [Technology comparison](containerization.md#overview-comparison)
 - [LXC setup](containerization.md#lxc-linux-containers)
 - [Docker rootless](containerization.md#docker)
 - [Distrobox integration](containerization.md#distrobox)
 - [Docker-in-LXC](containerization.md#advanced-docker-in-lxc)
 
+**DDEV**
+
+- [Installation and setup](ddev.md#installation)
+- [Getting an EC project running](ddev.md#getting-an-ec-project-running-locally)
+- [Common commands](ddev.md#common-commands)
+- [Troubleshooting](ddev.md#troubleshooting)
+
 **Development & Contributing**
+
 - [Development setup](development.md#development-environment)
 - [Branching strategy](development.md#branching-strategy)
 - [Ansible style guide](development.md#ansible-style-guide)
@@ -242,12 +269,15 @@ distrobox enter dev
 - [Pull request process](development.md#contributing)
 
 **GitHub**
+
 - [Multi-account management](github-multi-account.md) — Setup, commands, adding/removing accounts
 
 **Networking**
+
 - [UniFi Setup Guide](UnifiSetupGuide.md) — Controller deployment, mesh AP adoption, troubleshooting
 
 **Installation & Setup**
+
 - [Prerequisites](installation.md#prerequisites)
 - [Quick install](installation.md#quick-install)
 - [Manual installation](installation.md#manual-installation)
@@ -255,6 +285,7 @@ distrobox enter dev
 - [Troubleshooting](installation.md#troubleshooting)
 
 **Playbooks & Features**
+
 - [Core playbooks](playbooks.md#core-playbooks-automatically-run)
 - [Optional features](playbooks.md#optional-playbooks)
 - [Running playbooks](playbooks.md#running-optional-playbooks)
@@ -282,12 +313,14 @@ distrobox enter dev
 This documentation matches the configuration in this branch. Other Fedora versions have separate branches with version-specific changes.
 
 Check your installed version:
+
 ```bash
 cat /etc/fedora-release                    # Your system version
 cat ~/Projects/fedora-desktop/vars/fedora-version.yml  # Target version
 ```
 
 If versions don't match, checkout the appropriate branch:
+
 ```bash
 cd ~/Projects/fedora-desktop
 git fetch origin

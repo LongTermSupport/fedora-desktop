@@ -54,7 +54,7 @@ Use these Unicode icons in plan documents:
 
 ## Completed Plans
 
-- None yet
+- [033-ddev-installation](Completed/033-ddev-installation/) - Install DDEV on rootful Docker (Approach C); rootless Podman remains default engine, LXC unchanged. End-to-end host run verified (`ddev v1.25.1` + `docker 29.4.0`).
 
 ## Cancelled Plans
 

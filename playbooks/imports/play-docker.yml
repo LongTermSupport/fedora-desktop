@@ -1,10 +1,83 @@
 #!/usr/bin/env ansible-playbook
 ---
+# Docker (rootful) — compatibility engine for DDEV.
+# See CLAUDE/ContainerEngines.md for the "Podman first, Docker only for
+# compatibility" policy. Rootless Podman remains the default; this playbook
+# installs Docker as a parallel rootful engine.
 - hosts: desktop
+  name: Docker Rootful (compatibility engine for DDEV)
   become: false
   vars:
     root_dir: "{{ inventory_dir }}/../../"
   tasks:
+
+    # ────────────────────────────────────────────────────────────────
+    # Legacy cleanup — remove rootless user-scope setup left by older
+    # versions of this playbook (PR #18 v1/v2). No-op on fresh hosts.
+    # ────────────────────────────────────────────────────────────────
+    - name: Check for legacy rootless Docker service file
+      ansible.builtin.stat:
+        path: "/home/{{ user_login }}/.config/systemd/user/docker.service"
+      register: legacy_rootless
+
+    - name: Probe user D-Bus session (required for legacy cleanup)
+      ansible.builtin.command: systemctl --user status
+      become: true
+      become_user: "{{ user_login }}"
+      register: dbus_probe
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — explicit fail task below if cleanup needed
+      when: legacy_rootless.stat.exists
+
+    - name: Fail if legacy cleanup needed but D-Bus session unavailable
+      ansible.builtin.fail:
+        msg: |
+          Legacy rootless Docker state detected at
+          /home/{{ user_login }}/.config/systemd/user/docker.service
+          but {{ user_login }} has no active D-Bus session.
+
+          Either log in as {{ user_login }} interactively (graphical session),
+          or enable lingering: `sudo loginctl enable-linger {{ user_login }}`
+          then re-run this playbook.
+      when:
+        - legacy_rootless.stat.exists
+        - dbus_probe.rc is defined
+        - dbus_probe.rc != 0
+
+    - name: Stop legacy rootless Docker user service
+      ansible.builtin.systemd:
+        name: docker
+        state: stopped
+        enabled: false
+        scope: user
+      become: true
+      become_user: "{{ user_login }}"
+      when:
+        - legacy_rootless.stat.exists
+        - dbus_probe.rc | default(1) == 0
+
+    - name: Uninstall legacy rootless Docker via dockerd-rootless-setuptool.sh
+      ansible.builtin.command: dockerd-rootless-setuptool.sh uninstall -f
+      become: true
+      become_user: "{{ user_login }}"
+      register: rootless_uninstall
+      changed_when: true
+      when:
+        - legacy_rootless.stat.exists
+        - dbus_probe.rc | default(1) == 0
+
+    - name: Verify legacy rootless service file removed
+      ansible.builtin.stat:
+        path: "/home/{{ user_login }}/.config/systemd/user/docker.service"
+      register: post_cleanup
+      failed_when:
+        - post_cleanup.stat is defined
+        - post_cleanup.stat.exists
+      when: legacy_rootless.stat.exists
+
+    # ────────────────────────────────────────────────────────────────
+    # Docker CE install
+    # ────────────────────────────────────────────────────────────────
     - name: Install DNF Plugins
       become: true
       ansible.builtin.dnf:
@@ -28,38 +101,106 @@
           - docker-buildx-plugin
           - docker-compose-plugin
 
-    - name: Setup ID Maps
+    # ────────────────────────────────────────────────────────────────
+    # Clean up subuid/subgid entries written by earlier versions of this
+    # playbook. Rootful Docker does not use subuid/subgid at all, and
+    # Fedora's shadow-utils auto-allocates a range for every user at
+    # creation time (see /etc/login.defs SUB_UID_COUNT) — which is what
+    # rootless Podman and distrobox actually use. The hand-managed
+    # 100000:65536 block overlapped Fedora's auto-allocated range, so
+    # we remove both marker variants and leave only Fedora's default.
+    # ────────────────────────────────────────────────────────────────
+    - name: Remove legacy subuid/subgid block (original default marker)
       become: true
       ansible.builtin.blockinfile:
         path: "{{ item }}"
-        block: |
-          {{user_login}}:100000:65536
+        marker: "# {mark} ANSIBLE MANAGED BLOCK"
+        state: absent
       loop:
         - /etc/subuid
         - /etc/subgid
 
-    - name: Check if user D-Bus session is available
-      ansible.builtin.command: systemctl --user status
+    - name: Remove legacy subuid/subgid block (custom marker from earlier v3)
       become: true
-      become_user: "{{ user_login }}"
-      register: dbus_session_check
+      ansible.builtin.blockinfile:
+        path: "{{ item }}"
+        marker: "# {mark} ANSIBLE MANAGED: subuid/subgid for rootless containers"
+        state: absent
+      loop:
+        - /etc/subuid
+        - /etc/subgid
+
+    # ────────────────────────────────────────────────────────────────
+    # Rootful setup — system daemon + docker group
+    # (docker group membership is root-equivalent; see CLAUDE/ContainerEngines.md)
+    # ────────────────────────────────────────────────────────────────
+    - name: Ensure docker group exists
+      become: true
+      ansible.builtin.group:
+        name: docker
+        state: present
+        system: true
+
+    - name: Add {{ user_login }} to docker group
+      become: true
+      ansible.builtin.user:
+        name: "{{ user_login }}"
+        groups: docker
+        append: true
+
+    - name: Query {{ user_login }}'s group membership
+      ansible.builtin.command: id -nG {{ user_login }}
+      register: user_group_list
       changed_when: false
-      failed_when: false  # FAIL-FAST-OK: probe — D-Bus session may not exist yet
 
-    - name: Run Rootless Setup
-      ansible.builtin.command: dockerd-rootless-setuptool.sh install
+    - name: Assert {{ user_login }} is in docker group
+      ansible.builtin.assert:
+        that:
+          - "'docker' in user_group_list.stdout.split()"
+        fail_msg: |
+          {{ user_login }} was not added to the docker group.
+          Current groups: {{ user_group_list.stdout }}
+          Docker will not work without sudo until this is fixed.
+
+    - name: Enable and start docker.socket (socket activation)
       become: true
-      become_user: "{{ user_login }}"
-      args:
-        creates: /home/{{user_login}}/.config/systemd/user/docker.service
-      when: dbus_session_check.rc == 0
+      ansible.builtin.systemd:
+        name: docker.socket
+        state: started
+        enabled: true
 
-    - name: Enable and Start User Rootless Docker Systemd Service
+    - name: Enable and start docker.service
+      become: true
       ansible.builtin.systemd:
         name: docker
         state: started
         enabled: true
-        scope: user
+
+    # ────────────────────────────────────────────────────────────────
+    # Reset docker context — legacy hosts may be pinned to the rootless
+    # context from dockerd-rootless-setuptool.sh. Idempotent on fresh hosts.
+    # ────────────────────────────────────────────────────────────────
+    - name: Reset {{ user_login }}'s docker context to default
+      ansible.builtin.command: docker context use default
       become: true
       become_user: "{{ user_login }}"
-      when: dbus_session_check.rc == 0
+      register: ctx_reset
+      changed_when: "'Current context is now' in (ctx_reset.stdout | default(''))"
+
+    # ────────────────────────────────────────────────────────────────
+    # Verify — via sudo so the check works on first deploy before the
+    # user re-logs for new docker group membership to take effect.
+    # ────────────────────────────────────────────────────────────────
+    - name: Verify Docker daemon reachable
+      become: true
+      ansible.builtin.command: docker info
+      register: docker_info
+      changed_when: false
+
+    - name: Show post-install reminder
+      ansible.builtin.debug:
+        msg: |
+          Docker (rootful) is installed and running.
+          If {{ user_login }} was just added to the 'docker' group, they must
+          log out and back in (or run `newgrp docker`) before the `docker`
+          CLI works without sudo.
