@@ -1,327 +1,326 @@
-# Plan 033: DDEV on Rootless Podman
+# Plan 033: DDEV on Rootful Docker
 
-**Status**: In Progress (Pivoting — v2)
+**Status**: In Progress (v3 — approved approach)
 **Created**: 2026-04-17
-**Revised**: 2026-04-21
+**Revised**: 2026-04-21 (v3)
 **Owner**: Claude
 **Priority**: Medium
 
 ## Overview
 
-Add an Ansible playbook to install [DDEV](https://ddev.com/) — a container-based local development environment for PHP/CMS projects — configured to use the **rootless Podman** stack this repo already provides, not Docker.
+Add an Ansible playbook to install [DDEV](https://ddev.com/) — a container-based local development environment for PHP/CMS projects — configured against **rootful Docker**. This is a deliberate, scoped compatibility exception to the repo's Podman-first default.
 
-The v1 draft of this plan wired DDEV to rootless Docker (installed by `playbooks/imports/play-docker.yml`). PR feedback from @ballidev on [#18](https://github.com/LongTermSupport/fedora-desktop/pull/18) redirected the work:
+### Evolution of this plan
 
-> please pivot to podman rootless — ie standard podman set up with this repo
-> https://ddev.com/blog/podman-and-docker-rootless/
-> be VERY CAREFUL you don't bugger up the normal podman stuff
+- **v1** (branch `ddev`, PR #18 commits `d031de8..f1871a6`): DDEV on rootless Docker (what `play-docker.yml` currently deploys). Committed and pushed, then paused for review.
+- **v2** (commit `126aac5`): DDEV on rootless Podman via `docker context` indirection. Rejected in favour of v3 because it made DDEV run on DDEV's own "experimental" engine, added sysctl + fuse-overlayfs + context plumbing, and carried the fuse-overlayfs→`podman system reset` risk to CCY.
+- **v3** (this revision): DDEV on rootful Docker. Aligns with DDEV upstream's "Docker for Linux: recommended, best performance and stability" guidance. Simpler than both prior approaches. Zero risk to the Podman stack CCY runs on. Formalises the repo's three-engine role split.
 
-This revision delivers that pivot, while deliberately avoiding changes that would destabilise the existing rootless Podman state used by CCY (`claude-yolo`).
+Decision-gate analysis: [container-engine-strategy.md](container-engine-strategy.md). User approved Approach C on 2026-04-21.
 
 ## Goals
 
-- Install DDEV and configure it to run against the **existing** rootless Podman stack
-- Add only the Podman-side configuration DDEV actually needs (sysctl port-start, `docker context`, fuse-overlayfs storage) — nothing else
-- Keep the DDEV playbook self-contained: it may read state installed by `play-podman.yml` but must not silently mutate it
-- Preserve coexistence with: Docker (still installed by default), CCY's Podman usage, LXC
+- Install DDEV against **rootful Docker** — DDEV's upstream happy path
+- Convert `playbooks/imports/play-docker.yml` from rootless to rootful (group-based, system-wide `docker.service` with socket activation)
+- Formalise the three-engine role split in top-level docs (`CLAUDE/ContainerEngines.md`) and `CLAUDE.md` Critical Rules
+- Leave Podman and LXC setup completely untouched — CCY keeps working
 - Fail-fast with actionable messages when prerequisites are missing
 
 ## Non-Goals
 
-- Removing Docker from the repo (`play-docker.yml` stays in `playbook-main.yml`; users who want Docker still have it)
-- Switching the repo default away from `container_engine: podman` — it's already podman
-- Migrating CCY's container storage — it uses whatever `podman system info` says and must not be disturbed
-- Supporting Podman < 5.0 (Fedora 42/43 ship 5.x — no back-compat needed)
-- Supporting DDEV on macOS/Windows (Linux-only repo)
-- Configuring specific DDEV projects (project-level `.ddev/config.yaml` is out of scope)
+- Removing Docker entirely — keep it installed, just flip the mode
+- Removing rootless Docker artefacts from already-deployed hosts (document cleanup in release notes; out of scope for this plan)
+- Supporting rootless Docker as an alternative mode — we commit to rootful
+- Per-project `.ddev/config.yaml` tuning — user responsibility
+- macOS/Windows DDEV support — Linux-only repo
 
 ## Context & Background
 
-### Repo already has most of what DDEV needs
+### The architectural message
 
-| Requirement (from DDEV Podman blog) | Status in repo | Evidence |
-| ------------------------------------ | -------------- | -------- |
-| Podman ≥ 5.0 installed | ✅ Fedora 42/43 ship podman 5.x; `play-podman.yml` installs it | `playbooks/imports/play-podman.yml:9-14` |
-| `podman.socket` enabled user-scope | ✅ Already enabled (D-Bus probe guarded) | `playbooks/imports/play-podman.yml:22-34` |
-| podman-compose installed | ✅ pip `--user` install | `playbooks/imports/play-podman.yml:16-20` |
-| subuid/subgid range for user | ⚠️ Set by `play-docker.yml` (100000:65536) — same range DDEV wants, but ownership is Docker's, not Podman's | `playbooks/imports/play-docker.yml:31-39` |
-| `user.max_user_namespaces` ≥ 28633 | ✅ Fedora default is 28633 | kernel default |
-| `net.ipv4.ip_unprivileged_port_start=0` | ❌ **Missing** — Fedora default is 1024; ddev-router needs 80/443 | — |
-| `fuse-overlayfs` + `storage.conf` | ❌ **Missing** — perf optimisation; CCY currently uses default driver | — |
-| `docker` CLI binary | ✅ Installed by `play-docker.yml` (docker-ce-cli) | `playbooks/imports/play-docker.yml:21-29` |
-| `docker context` → podman socket | ❌ **Missing** — DDEV talks to podman via `unix://$XDG_RUNTIME_DIR/podman/podman.sock` through the docker CLI | — |
-| systemd-oomd tuned for containers | ✅ Already done repo-wide | `playbooks/imports/play-systemd-user-tweaks.yml:95-106` |
-| mkcert installed + CA trusted | ✅ In current v1 playbook (keep) | `playbooks/imports/optional/common/play-ddev.yml:22-33` |
+Top-level rule, now in `CLAUDE/ContainerEngines.md` and echoed in `CLAUDE.md` Critical Rules:
 
-**Three things are missing**: a sysctl for privileged ports, an optional fuse-overlayfs storage driver, and a `docker context` pointing at the podman socket.
+> **Use Podman wherever possible — it is the better system. Reach for Docker only when a tool genuinely needs it for compatibility or legacy reasons, and understand that Docker is significantly less secure than Podman.**
 
-### Why DDEV still needs the `docker` CLI
+DDEV is the first concrete "Docker for compatibility" case. It's exactly what that rule is for.
 
-DDEV is written to shell out to `docker` / `docker compose` commands. It does not link against libpodman or have a podman-native code path. On Linux the supported integration (per the DDEV blog post) is:
+### Why rootful, not rootless
 
-1. Keep `docker` CLI installed (already true — `docker-ce-cli` ships with `play-docker.yml`)
-2. Create a docker context called `podman-rootless` whose endpoint is `unix://$XDG_RUNTIME_DIR/podman/podman.sock`
-3. Set that context as the active one for the user: `docker context use podman-rootless`
-4. DDEV discovers the active context and talks to podman's socket — no DDEV-side config flags needed
+Per the DDEV blog post and upstream `docker-installation.md` (fetched from `github.com/ddev/ddev/main`):
 
-This is why we **don't** need `podman-docker` (the alias shim). We also do **not** need `--no-bind-mounts`: that flag is for Docker Rootless only — Podman handles bind-mount UID mapping via `--userns=keep-id`, so bind mounts work.
+> "Docker for Linux: Recommended, free, open-source, best performance and stability."
 
-### CCY coexistence — the hard constraint
+Rootless Docker would require `--no-bind-mounts`, Mutagen, sysctl tweaks, and a loopback override — friction for every user, for every project. Rootful Docker needs: install, enable, add to `docker` group. Done.
 
-CCY uses podman directly (`podman build`, `podman run`, `podman inspect` — see `files/var/local/claude-yolo/lib/docker-health.bash`). It does **not** use the docker CLI or docker context. Changing the `docker context` setting therefore has zero effect on CCY.
+### What's already in the repo we're using
 
-The one way to break CCY is `podman system reset` (wipes containers, images, volumes). DDEV's blog says reset is required when switching storage drivers to fuse-overlayfs. That means fuse-overlayfs configuration is **only safe** when there's no existing Podman state. We handle this by making fuse-overlayfs opt-in and guarded (see Decision 3).
+| Capability | Source | Changes |
+| ---------- | ------ | ------- |
+| `docker-ce` + `docker-ce-cli` + `containerd.io` + compose plugin | `play-docker.yml:21-29` | unchanged |
+| `/etc/subuid` + `/etc/subgid` for user | `play-docker.yml:31-39` | retained — harmless in rootful mode, other tools may use |
+| `docker.service` / `docker.socket` system units | ships with `docker-ce` | **newly enabled** (replaces rootless user-service) |
+| `docker` group | ships with `docker-ce` | **user newly added** to this group |
+| Rootless user-service via `dockerd-rootless-setuptool.sh` | `play-docker.yml:49-65` | **removed** from fresh deploys; existing deploys untouched |
+| Podman + `podman.socket` | `play-podman.yml` | **completely untouched** |
+| LXC | `play-lxc-install-config.yml` | **completely untouched** |
+| `container_engine: podman` default | `vars/container-defaults.yml:10` | **unchanged** — Podman remains the repo default |
+| CCY using Podman directly | `files/var/local/claude-yolo/` | **unchanged** — CCY never sees Docker |
 
-### LXC coexistence
+### Security note
 
-`play-lxc-install-config.yml` sets up an `lxcbr0` bridge on `10.0.x.x` in the trusted firewall zone. Podman rootless uses pasta/slirp4netns networking inside the user namespace — no bridge on `lxcbr0` and no firewalld zone overlap. The iptables kernel modules loaded by `play-lxc-install-config.yml` (`ip_tables`, `iptable_nat`, etc. — lines 142-154) are also what rootless Podman networking uses, so LXC's setup incidentally helps Podman.
-
-### What v1 got right and we're keeping
-
-- mkcert via `dnf install mkcert` + `mkcert -install` as user (idempotent via `creates:`)
-- DDEV via yum repo at `pkg.ddev.com/yum/` + `dnf install ddev`
-- Playbook is executable with `#!/usr/bin/env ansible-playbook` shebang
-- Standard header: `hosts: desktop`, `become: false` by default with per-task `become: true` where needed
+User in `docker` group can escape containers trivially via `docker run -v /:/host …`. This is accepted for single-user developer workstations where the user already has passwordless sudo (`CLAUDE/SecurityRules.md`). Documented prominently in `CLAUDE/ContainerEngines.md`. Not acceptable on shared or production systems — this repo is not for those.
 
 ## Tasks
 
-Legend: ✅ done (v1), 🔄 in progress, ⬜ not started, ♻️ replace/refactor v1 task.
+Legend: ✅ done, 🔄 in progress, ⬜ not started, ♻️ replace/refactor v1 task, 🗑️ delete v2 work (superseded).
 
-### Phase 1: v1 scaffolding (already complete — retain)
+### Phase 1: Scaffolding from v1 (retain)
 
-- [x] ✅ **Task 1.1**: Initial playbook created with shebang, header, mkcert, DDEV yum repo, `ddev version` verification — `playbooks/imports/optional/common/play-ddev.yml`
-- [x] ✅ **Task 1.2**: User documentation created — `docs/ddev.md`
-- [x] ✅ **Task 1.3**: `./scripts/qa-all.bash` passed for v1
+- [x] ✅ **Task 1.1**: Playbook scaffolded with shebang, header, mkcert, DDEV yum repo, version verification
+- [x] ✅ **Task 1.2**: `docs/ddev.md` user documentation created
+- [x] ✅ **Task 1.3**: v1 `./scripts/qa-all.bash` pass
 
-### Phase 2: Pivot playbook from Docker to Podman
+### Phase 2: Strategy & top-level docs (Approach C groundwork)
 
-- [ ] ♻️ **Task 2.1**: Replace Docker dependency check with Podman check
-  - [ ] ⬜ Probe `podman --version` (fail-fast with pointer to `playbooks/imports/play-podman.yml` if missing)
-  - [ ] ⬜ Probe `systemctl --user is-active podman.socket` (fail-fast if not running — but only when a user D-Bus session exists; use the same D-Bus probe pattern as `play-podman.yml:22-26`)
-  - [ ] ⬜ Probe `docker --version` (fail-fast with pointer to `play-docker.yml` — needed for the `docker context` shim)
-  - [ ] ⬜ Remove the v1 `docker --version` check and its fail task
-- [ ] ⬜ **Task 2.2**: Ensure Podman version ≥ 5.0 — parse `podman --version` and fail if < 5.0 (Fedora 42/43 always pass, but the check documents the requirement)
-- [ ] ⬜ **Task 2.3**: Apply sysctl `net.ipv4.ip_unprivileged_port_start=0`
-  - [ ] ⬜ Write to `/etc/sysctl.d/60-rootless-ports.conf` via `blockinfile` with ANSIBLE MANAGED marker
-  - [ ] ⬜ Reload with `sysctl --system` via handler
-  - [ ] ⬜ Document: required for ddev-router to bind 80/443 as rootless user
-- [ ] ⬜ **Task 2.4**: Create `docker context` for podman socket
-  - [ ] ⬜ Compute `XDG_RUNTIME_DIR` for `{{ user_login }}` (`/run/user/{{ user_uid }}`) — look up `user_uid` via `getent passwd`
-  - [ ] ⬜ Run `docker context create podman-rootless --description "Podman (rootless)" --docker host="unix:///run/user/{{ user_uid }}/podman/podman.sock"` via `ansible.builtin.command` with `creates:` pointing at `~/.docker/contexts/meta/…` OR register-check-then-create (probe pattern)
-  - [ ] ⬜ Run `docker context use podman-rootless` (idempotent — rerunning with same value is a no-op)
-  - [ ] ⬜ Verify: `docker context show` → `podman-rootless`
-- [ ] ⬜ **Task 2.5**: Keep mkcert steps from v1 unchanged — they're engine-agnostic
-- [ ] ⬜ **Task 2.6**: Keep DDEV yum repo + dnf install from v1 unchanged
-- [ ] ⬜ **Task 2.7**: Post-install smoke test
-  - [ ] ⬜ Run `ddev version` and show stdout
-  - [ ] ⬜ Run `docker context show` and assert stdout == `podman-rootless`
-  - [ ] ⬜ Run `docker info --format '{{.Host.RemoteSocket.Path | default .Name}}'` — expect output referencing podman socket (document the expected substring, not an exact match)
+- [x] ✅ **Task 2.1**: Write `CLAUDE/Plan/033-ddev-installation/container-engine-strategy.md` decision doc
+- [x] ✅ **Task 2.2**: Write `CLAUDE/ContainerEngines.md` — top-level role-split doc with Podman-first rule
+- [x] ✅ **Task 2.3**: Add "Container Engines: Podman First" section to CLAUDE.md Critical Rules
+- [x] ✅ **Task 2.4**: Add `@CLAUDE/ContainerEngines.md` row to CLAUDE.md Topic Files Index
 
-### Phase 3: Optional fuse-overlayfs performance config (GUARDED)
+### Phase 3: Convert `play-docker.yml` rootless → rootful
 
-**Risk**: switching storage driver on a host with existing Podman state needs `podman system reset`, which destroys CCY's container image. Must be guarded.
+- [ ] ⬜ **Task 3.1**: Replace rootless setup block (lines 41-65 of current `play-docker.yml`) with rootful:
+  - [ ] ⬜ Add `{{ user_login }}` to `docker` group (`user` module, `append: true`)
+  - [ ] ⬜ Enable and start system `docker.service`
+  - [ ] ⬜ Enable and start system `docker.socket` (socket activation — reduces idle daemon footprint)
+- [ ] ⬜ **Task 3.2**: Remove the D-Bus probe (no longer needed without rootless user-service)
+- [ ] ⬜ **Task 3.3**: Remove `dockerd-rootless-setuptool.sh install` task
+- [ ] ⬜ **Task 3.4**: Remove user-scope `systemd` enable of `docker`
+- [ ] ⬜ **Task 3.5**: Retain subuid/subgid block (harmless; other tools may depend)
+- [ ] ⬜ **Task 3.6**: Add verification task: `docker info` (confirms user can talk to daemon; requires `newgrp docker` on first run — document)
+- [ ] ⬜ **Task 3.7**: Update any references in `playbooks/imports/optional/experimental/play-docker-overlay2-migration.yml` that assume user-scope Docker (lines 114, 120, 256-297) — either mark experimental playbook as incompatible with rootful (add preflight assertion) OR migrate it
 
-- [ ] ⬜ **Task 3.1**: Probe for existing Podman state
-  - [ ] ⬜ Check if `/home/{{ user_login }}/.local/share/containers/storage/` exists and is non-empty
-  - [ ] ⬜ If non-empty: **skip** fuse-overlayfs config, print a debug message telling the user that it's a manual opt-in (see Task 3.3)
-- [ ] ⬜ **Task 3.2**: If no existing state: install `fuse-overlayfs` + write `~/.config/containers/storage.conf`
-  - [ ] ⬜ `dnf install fuse-overlayfs`
-  - [ ] ⬜ `copy:` `~/.config/containers/storage.conf` with overlay + `mount_program = /usr/bin/fuse-overlayfs`
-- [ ] ⬜ **Task 3.3**: Document the manual opt-in path in `docs/ddev.md` — how to rebuild storage with fuse-overlayfs after the fact, including the explicit warning that it destroys existing containers/images (CCY included) and requires re-running the CCY image build
+### Phase 4: Simplify `play-ddev.yml` (🗑️ drop v2 tasks)
 
-### Phase 4: Update docs/ddev.md
+- [ ] 🗑️ **v2 Task 2.3**: sysctl `ip_unprivileged_port_start=0` — **not needed** (rootful Docker binds 80/443 natively)
+- [ ] 🗑️ **v2 Task 2.4**: `docker context create podman-rootless` — **not needed** (default context talks to the rootful socket at `/var/run/docker.sock`, which DDEV auto-discovers)
+- [ ] 🗑️ **v2 Phase 3**: fuse-overlayfs install + guard + `storage.conf` — **not needed** (rootful Docker uses `/var/lib/docker`, not Podman storage)
+- [ ] ⬜ **Task 4.1**: Replace v1 Docker-check with a simple daemon reachability probe:
+  - [ ] ⬜ `docker info` — fail if non-zero with message "docker daemon not running or user not in docker group; run `play-docker.yml`"
+  - [ ] ⬜ No need to probe `podman` — DDEV does not use it
+- [ ] ⬜ **Task 4.2**: Retain mkcert install + `mkcert -install` as user (unchanged from v1)
+- [ ] ⬜ **Task 4.3**: Retain DDEV yum repo + `dnf install ddev` (unchanged from v1)
+- [ ] ⬜ **Task 4.4**: Retain `ddev version` smoke test (unchanged from v1)
 
-- [ ] ⬜ **Task 4.1**: Replace "Prerequisite: Docker" with "Prerequisite: rootless Podman (installed by `play-podman.yml`) + `docker` CLI (installed by `play-docker.yml`)"
-- [ ] ⬜ **Task 4.2**: Update Troubleshooting section
-  - [ ] ⬜ Replace `systemctl --user status docker` with `systemctl --user status podman.socket`
-  - [ ] ⬜ Add: how to verify `docker context show` reports `podman-rootless`
-  - [ ] ⬜ Add: how to roll back (`docker context use default`) if something goes wrong
-  - [ ] ⬜ Add: `podman ps` to see DDEV containers (not `docker ps` — both work, but `podman ps` is authoritative)
-- [ ] ⬜ **Task 4.3**: Add a "How DDEV finds Podman" sub-section explaining the `docker context` → podman.sock indirection (one short paragraph)
-- [ ] ⬜ **Task 4.4**: Add a coexistence note: CCY and DDEV share the same Podman daemon-per-user; running both simultaneously is fine; `podman ps -a` shows containers from both
+### Phase 5: Update `docs/ddev.md`
 
-### Phase 5: QA and commit
+- [ ] ⬜ **Task 5.1**: Replace "Prerequisite: Docker" with "Prerequisite: rootful Docker installed via `play-docker.yml` (user must be in `docker` group)"
+- [ ] ⬜ **Task 5.2**: Replace "systemctl --user status docker" troubleshooting with system-scope equivalent (`sudo systemctl status docker --no-pager -l`)
+- [ ] ⬜ **Task 5.3**: Add one-paragraph "Why Docker, not Podman?" cross-referencing `CLAUDE/ContainerEngines.md` (user-facing version of the rule)
+- [ ] ⬜ **Task 5.4**: Document the one-time "log out and back in (or `newgrp docker`)" step after first deploy
 
-- [ ] ⬜ **Task 5.1**: `./scripts/qa-all.bash` must pass
-- [ ] ⬜ **Task 5.2**: `chmod +x` preserved on the playbook; `head -n1` is still the shebang
-- [ ] ⬜ **Task 5.3**: Ansible style review against `CLAUDE/AnsibleStyle.md`
-  - [ ] ⬜ `blockinfile` for sysctl, with `# {mark} ANSIBLE MANAGED:` marker
-  - [ ] ⬜ Probe-then-check pattern (`failed_when: false # FAIL-FAST-OK:`) only on the read-only probes
-  - [ ] ⬜ No `ignore_errors`; no silent failures
-- [ ] ⬜ **Task 5.4**: Commit plan + playbook + docs together (plan-code locked-step per CLAUDE.md Plan Commit Rule)
-- [ ] ⬜ **Task 5.5**: Update PR #18 description with a "What changed in v2" summary and push
+### Phase 6: QA, commit, PR update
 
-### Phase 6: User deployment verification (on host, not in CCY)
+- [ ] ⬜ **Task 6.1**: `./scripts/qa-all.bash` passes on the modified Ansible playbooks
+- [ ] ⬜ **Task 6.2**: `chmod +x` preserved on `play-ddev.yml`; shebang intact
+- [ ] ⬜ **Task 6.3**: Style review against `CLAUDE/AnsibleStyle.md`
+- [ ] ⬜ **Task 6.4**: Commit Phase 3 + 4 + 5 code changes **together** with PLAN.md v3 status updates (per CLAUDE.md Plan Commit Rule)
+- [ ] ⬜ **Task 6.5**: Push and update PR #18 description to reflect Approach C (replace the Docker rootless narrative)
 
-- [ ] ⬜ **Task 6.1**: User runs `ansible-playbook playbooks/imports/optional/common/play-ddev.yml` on their host
-- [ ] ⬜ **Task 6.2**: `docker context show` → `podman-rootless`
-- [ ] ⬜ **Task 6.3**: `ddev version` succeeds
-- [ ] ⬜ **Task 6.4**: In a PHP project, `ddev start` succeeds; `podman ps` shows `ddev-*` containers
-- [ ] ⬜ **Task 6.5**: `ddev-router` binds 80/443 (check `ss -tlnp`)
-- [ ] ⬜ **Task 6.6**: CCY regression check — `claude-yolo` still starts; its container image is unchanged (`podman image inspect claude-yolo:latest` still works)
-- [ ] ⬜ **Task 6.7**: Idempotency — second run of the playbook produces zero changes
+### Phase 7: Host deployment verification
+
+- [ ] ⬜ **Task 7.1**: On fresh Fedora 43 host: run `playbook-main.yml` (picks up modified `play-docker.yml`)
+- [ ] ⬜ **Task 7.2**: Log out + back in (picks up new `docker` group membership)
+- [ ] ⬜ **Task 7.3**: `sudo systemctl status docker --no-pager -l` → active; `docker info` → reports rootful daemon
+- [ ] ⬜ **Task 7.4**: Run `ansible-playbook playbooks/imports/optional/common/play-ddev.yml`
+- [ ] ⬜ **Task 7.5**: `ddev version` succeeds; `mkcert -version` succeeds
+- [ ] ⬜ **Task 7.6**: In a test project: `ddev start` → all containers `Running`; `docker ps` shows `ddev-*`
+- [ ] ⬜ **Task 7.7**: Regression — `claude-yolo` still starts; `podman image inspect claude-yolo:latest` unchanged
+- [ ] ⬜ **Task 7.8**: Regression — LXC still works (`lxc-ls`, `systemctl is-active lxc`)
+- [ ] ⬜ **Task 7.9**: Idempotency — second run of both playbooks reports zero changes
+- [ ] ⬜ **Task 7.10**: On a host previously deployed with rootless Docker: verify system `docker.service` takes over cleanly, user is in `docker` group, `docker info` works. Document what happens to orphaned user service (expected: still exists but unused).
+
+### Phase 8: Mark plan complete
+
+- [ ] ⬜ **Task 8.1**: User confirms deployment success on at least one host
+- [ ] ⬜ **Task 8.2**: Mark plan Status: **Complete**, add completion date to "Notes & Updates"
+- [ ] ⬜ **Task 8.3**: Merge PR #18
 
 ## Technical Decisions
 
-### Decision 1 (v2): `docker context` vs `DOCKER_HOST` env var vs `podman-docker`
+### Decision 1 (v3): Rootful Docker chosen over rootless Docker (A) and rootless Podman (B)
 
-**Context**: DDEV shells out to the `docker` CLI. We need to get its calls to hit the podman socket.
+**Context**: Three viable approaches for DDEV:
 
-**Options considered**:
+- **A — rootless Docker**: v1 approach. Needs `--no-bind-mounts`, Mutagen, sysctl, loopback override. DDEV upstream rates as "rougher than rootful."
+- **B — rootless Podman**: v2 approach. Requires `docker context` indirection, `ip_unprivileged_port_start=0` sysctl, and fuse-overlayfs config (which risks destroying CCY's image via `podman system reset`).
+- **C — rootful Docker**: this approach. DDEV upstream's explicit recommendation. Install, enable, add to `docker` group. No sysctl changes. No storage-driver gymnastics. Zero risk to CCY.
 
-1. **`docker context create podman-rootless`** + `docker context use podman-rootless`
-   - Pro: officially documented by DDEV upstream ([podman-and-docker-rootless](https://ddev.com/blog/podman-and-docker-rootless/))
-   - Pro: per-user, persistent, survives reboot
-   - Pro: easy to roll back — `docker context use default`
-   - Con: needs docker CLI (we have it via `play-docker.yml`)
-2. **`DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock` in user's `.bashrc`**
-   - Pro: no docker-context state
-   - Con: affects every `docker` invocation globally — can break user's expectation of docker-ce usage
-   - Con: env var injection into interactive shells is fragile (GNOME desktop launches don't always source `.bashrc`)
-3. **`podman-docker` package** (installs `/usr/bin/docker` → `/usr/bin/podman` symlink)
-   - Pro: zero-config
-   - Con: **conflicts with `docker-ce-cli` installed by `play-docker.yml`** — dnf would refuse to install alongside
-   - Con: all docker usage on the system goes to podman — too aggressive
+**Decision**: Approach C.
 
-**Decision**: Option 1 (docker context). It's scoped to DDEV's use case (via active context), officially recommended, and trivially reversible. Option 3 is off the table because of the CLI conflict.
+**Rationale**:
 
-**Date**: 2026-04-21
+1. Aligns with DDEV upstream's "Docker for Linux: recommended, best performance and stability" guidance
+2. Strictly less invasive than B — fewer files change, fewer sysctl tweaks, no CCY risk
+3. Formalises the repo's three-engine role split in a way that pays dividends beyond DDEV
+4. `docker` group = root-equivalent is an accepted trade-off on single-user dev workstations (already true via passwordless sudo)
 
-### Decision 2 (v2): Require both `play-docker.yml` and `play-podman.yml`, don't remove Docker
+**Date**: 2026-04-21 (user approved)
 
-**Context**: `playbook-main.yml` currently runs both `play-docker.yml` (line 18) and `play-podman.yml` (line 19) by default. We could remove Docker to go podman-only.
+### Decision 2 (v3): Use `docker.socket` activation, not always-on `docker.service` alone
 
-**Decision**: Keep the current `playbook-main.yml` intact. The DDEV playbook will require `docker` CLI (from `docker-ce-cli`) and active rootless Podman. Removing Docker is a separate, bigger decision outside this plan's scope, and the user's guidance was to pivot DDEV, not the whole repo.
+**Options**:
 
-**Side effect**: both docker-ce rootless daemon and podman user daemon are installed. They don't conflict because DDEV's `docker` calls go through the `podman-rootless` context to podman's socket, not to docker-ce's daemon. Users who want pure podman can stop docker-ce with `systemctl --user stop docker`, but that's their call.
+1. Enable `docker.service` only — daemon always running
+2. Enable `docker.socket` only — daemon starts on first socket access
+3. Enable **both** — daemon starts at boot AND socket activation triggers restart if daemon dies
+
+**Decision**: Option 3 (both). Matches Fedora's default for docker-ce. Socket activation gives a low-cost recovery path if the daemon crashes. `docker.service` enabled guarantees DDEV works immediately after boot without requiring a client call to warm the socket.
 
 **Date**: 2026-04-21
 
-### Decision 3 (v2): fuse-overlayfs is optional and guarded
+### Decision 3 (v3): No active cleanup of rootless Docker artefacts on already-deployed hosts
 
-**Context**: DDEV's blog recommends `fuse-overlayfs` for performance. Applying it requires writing `~/.config/containers/storage.conf`. If existing Podman containers/images already exist in the default storage driver, switching requires `podman system reset`, which wipes **everything** — including CCY's container image (`claude-yolo:latest`) that takes minutes to rebuild.
+**Context**: Users who ran the previous `play-docker.yml` have:
 
-**Options considered**:
+- `~/.config/systemd/user/docker.service` (from `dockerd-rootless-setuptool.sh install`)
+- `~/.local/share/docker` storage
 
-1. Always apply fuse-overlayfs config and run `podman system reset`
-   - ❌ Destroys CCY state — violates "don't bugger up the normal podman stuff"
-2. Never apply fuse-overlayfs, accept the performance hit
-   - Safe, but leaves ~20-30% DDEV performance on the table per the blog
-3. **Apply only if `~/.local/share/containers/storage/` is empty; otherwise skip and document manual opt-in**
-   - Safe on fresh installs
-   - Existing users keep their CCY state
-   - Manual opt-in path documented for users who want perf and are willing to rebuild CCY
+**Options**:
 
-**Decision**: Option 3. The probe is simple (`stat` on the directory), the failure mode is clear (skip + debug message), and the manual opt-in is a one-paragraph doc section.
+1. Leave orphaned — document in release notes; users can run `dockerd-rootless-setuptool.sh uninstall` if they care
+2. Add a cleanup task in `play-docker.yml` that runs `uninstall` on re-deploy
+3. Spin off a separate cleanup plan
 
-**Date**: 2026-04-21
+**Decision**: Option 1. Orphaned state is harmless — different socket, no contention with the system daemon. Users who want to free the disk space can run the uninstall tool manually. Adding a cleanup task risks interfering with a user who deliberately kept rootless Docker around for something else.
 
-### Decision 4 (v2): subuid/subgid — don't duplicate what `play-docker.yml` already does
-
-**Context**: Both Docker rootless and Podman rootless need `/etc/subuid` and `/etc/subgid` entries for the user. `play-docker.yml:31-39` already writes `{{ user_login }}:100000:65536` to both. The DDEV blog's Podman setup also writes `100000:165535` (same range, different notation).
-
-**Decision**: Do not duplicate the subuid/subgid task in `play-ddev.yml`. Instead, probe the mappings (`getent subuid {{ user_login }}`) in the prereq phase; fail-fast with a pointer to `play-docker.yml` or `play-podman.yml` if missing. This avoids the risk of conflicting blockinfile markers and keeps responsibility where it lives.
-
-**Follow-up (not in this plan)**: consider moving the subuid/subgid task out of `play-docker.yml` into a new `play-container-subids.yml` that both `play-docker.yml` and `play-podman.yml` import. That's a repo-wide refactor — separate plan.
+**Follow-up**: brief release note in PR #18 description.
 
 **Date**: 2026-04-21
 
-### Decision 5 (v2): No DDEV `--no-bind-mounts`, no Mutagen
+### Decision 4 (v3): Keep subuid/subgid block in `play-docker.yml`
 
-**Context**: DDEV's Docker Rootless path needs `ddev config global --no-bind-mounts=true` because Docker Rootless maps bind mounts to root. Podman Rootless uses `--userns=keep-id` which maps the host user to a matching UID inside the container — bind mounts work correctly.
+**Context**: `play-docker.yml:31-39` writes `{{ user_login }}:100000:65536` to `/etc/subuid` and `/etc/subgid`. Needed for rootless Docker (obsolete in Approach C) but also useful for other user-namespace-using tools.
 
-**Decision**: Don't set `--no-bind-mounts`. Don't enable Mutagen. DDEV defaults are correct for Podman rootless on Linux.
+**Decision**: Keep the block. Benign; removing it is a separate cleanup that isn't this plan's scope. Tools that may want it: rootless Podman (already configured), distrobox (installed), future user-namespace experiments.
 
 **Date**: 2026-04-21
 
-### Decision 6 (v2): DDEV yum repo stays unsigned for now
+### Decision 5 (v3): `play-docker-overlay2-migration.yml` — mark experimental rootless-only OR migrate
 
-Unchanged from v1. DDEV repo is `gpgcheck=0`; upstream plans to sign. Accept for this plan.
+**Context**: `playbooks/imports/optional/experimental/play-docker-overlay2-migration.yml` uses user-scope Docker commands (`systemctl --user …`). These stop working after Approach C flips the user to rootful.
 
-**Date**: 2026-04-17 (unchanged)
+**Decision**: Add a preflight assertion at the top of that experimental playbook: "this targets rootless Docker; not compatible with the rootful setup installed by the current `play-docker.yml`. If you need this, restore rootless Docker manually." Do **not** rewrite it — it's experimental and unused by the main playbook flow.
 
-## Playbook Sketch (v2)
+**Date**: 2026-04-21
 
-Annotated: **keep** = unchanged from v1, **new** = added, **replace** = refactored.
+### Decision 6 (v3): Decisions 1, 2, 6 from PLAN.md v2 are superseded
+
+- v2 Decision 1 (`docker context` vs `DOCKER_HOST` vs `podman-docker`): N/A — we don't use `docker context` in v3
+- v2 Decision 2 (keep both Docker and Podman installed, don't remove Docker): still holds, but now Docker is the rootful kind
+- v2 Decision 3 (fuse-overlayfs guarded opt-in): N/A — no fuse-overlayfs in v3
+- v2 Decision 4 (don't duplicate subuid/subgid): still holds, and Decision 4 above complements it
+- v2 Decision 5 (no `--no-bind-mounts`): still holds — rootful Docker needs no such flag
+- v2 Decision 6 (DDEV repo unsigned): unchanged
+
+## Playbook Sketches
+
+### `playbooks/imports/play-docker.yml` (rewritten rootless → rootful)
 
 ```yaml
 #!/usr/bin/env ansible-playbook
 ---
 - hosts: desktop
-  name: DDEV on Rootless Podman
   become: false
   vars:
     root_dir: "{{ inventory_dir }}/../../"
   tasks:
+    - name: Install DNF Plugins
+      become: true
+      ansible.builtin.dnf:
+        name: dnf-plugins-core
 
-    # ── REPLACE: Prereq checks (Podman, podman.socket, docker CLI, subuid) ──
-    - name: "Prereq — podman installed"
-      ansible.builtin.command: podman --version
-      register: podman_check
-      changed_when: false
-      failed_when: false  # FAIL-FAST-OK: probe
-    - name: "Prereq — fail if podman missing"
-      ansible.builtin.fail:
-        msg: "Podman required. Run: ansible-playbook playbooks/imports/play-podman.yml"
-      when: podman_check.rc != 0
+    - name: Add Docker Repo
+      become: true
+      ansible.builtin.shell: |
+        dnf config-manager addrepo \
+          --from-repofile=https://download.docker.com/linux/fedora/docker-ce.repo
+      args:
+        creates: /etc/yum.repos.d/docker-ce.repo
 
-    - name: "Prereq — parse podman version"
-      ansible.builtin.set_fact:
-        podman_version: "{{ podman_check.stdout | regex_search('([0-9]+\\.[0-9]+\\.[0-9]+)', '\\1') | first }}"
-    - name: "Prereq — fail if podman < 5.0"
-      ansible.builtin.fail:
-        msg: "Podman >= 5.0 required (DDEV requirement). Found: {{ podman_version }}"
-      when: podman_version is version('5.0.0', '<')
+    - name: Install Docker
+      become: true
+      ansible.builtin.dnf:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
 
-    - name: "Prereq — docker CLI (needed for docker context)"
-      ansible.builtin.command: docker --version
-      register: docker_cli_check
-      changed_when: false
-      failed_when: false  # FAIL-FAST-OK: probe
-    - name: "Prereq — fail if docker CLI missing"
-      ansible.builtin.fail:
-        msg: "docker CLI required (for docker context pointing at podman.sock). Run: ansible-playbook playbooks/imports/play-docker.yml"
-      when: docker_cli_check.rc != 0
-
-    - name: "Prereq — D-Bus user session"
-      ansible.builtin.command: systemctl --user status
-      register: dbus_check
-      changed_when: false
-      failed_when: false  # FAIL-FAST-OK: probe
-    - name: "Prereq — podman.socket active"
-      ansible.builtin.command: systemctl --user is-active podman.socket
-      register: podman_socket_check
-      changed_when: false
-      failed_when: false  # FAIL-FAST-OK: probe
-      when: dbus_check.rc == 0
-    - name: "Prereq — fail if podman.socket not active"
-      ansible.builtin.fail:
-        msg: "podman.socket not running. Run: ansible-playbook playbooks/imports/play-podman.yml"
-      when: dbus_check.rc == 0 and podman_socket_check.stdout != 'active'
-
-    - name: "Prereq — subuid mapping exists for {{ user_login }}"
-      ansible.builtin.command: "getent subuid {{ user_login }}"
-      register: subuid_check
-      changed_when: false
-      failed_when: false  # FAIL-FAST-OK: probe
-    - name: "Prereq — fail if subuid missing"
-      ansible.builtin.fail:
-        msg: "subuid mapping missing for {{ user_login }}. Run: ansible-playbook playbooks/imports/play-docker.yml (which sets it)"
-      when: subuid_check.rc != 0
-
-    # ── NEW: sysctl for privileged ports ──
-    - name: "sysctl — allow unprivileged port binding from 0"
+    - name: Setup ID Maps (kept for rootless tools like distrobox)
       become: true
       ansible.builtin.blockinfile:
-        path: /etc/sysctl.d/60-rootless-ports.conf
-        create: true
-        marker: "# {mark} ANSIBLE MANAGED: DDEV ddev-router ports 80/443 (rootless)"
-        mode: "0644"
+        path: "{{ item }}"
+        marker: "# {mark} ANSIBLE MANAGED: subuid/subgid for rootless containers"
         block: |
-          net.ipv4.ip_unprivileged_port_start=0
-      notify: sysctl reload
+          {{ user_login }}:100000:65536
+      loop:
+        - /etc/subuid
+        - /etc/subgid
 
-    # ── KEEP: mkcert ──
+    - name: Add {{ user_login }} to docker group
+      become: true
+      ansible.builtin.user:
+        name: "{{ user_login }}"
+        groups: docker
+        append: true
+
+    - name: Enable and start docker.socket (system-wide, socket activation)
+      become: true
+      ansible.builtin.systemd:
+        name: docker.socket
+        state: started
+        enabled: true
+
+    - name: Enable and start docker.service (system-wide)
+      become: true
+      ansible.builtin.systemd:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Verify Docker Install (probe; requires user to re-log for group — document)
+      ansible.builtin.command: docker info
+      register: docker_info
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — fails harmlessly on first deploy before user re-logs
+```
+
+### `playbooks/imports/optional/common/play-ddev.yml` (simplified)
+
+```yaml
+#!/usr/bin/env ansible-playbook
+---
+- hosts: desktop
+  name: DDEV on Rootful Docker
+  become: false
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  tasks:
+    - name: "Prereq — docker daemon reachable"
+      ansible.builtin.command: docker info
+      register: docker_info
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe
+    - name: "Prereq — fail with actionable message if docker unavailable"
+      ansible.builtin.fail:
+        msg: >
+          Docker daemon not reachable. Run:
+            ansible-playbook playbooks/imports/play-docker.yml
+          Then log out and back in (or run `newgrp docker`) to pick up group membership.
+      when: docker_info.rc != 0
+
     - name: Install mkcert
       become: true
       ansible.builtin.dnf:
@@ -335,40 +334,6 @@ Annotated: **keep** = unchanged from v1, **new** = added, **replace** = refactor
       args:
         creates: "/home/{{ user_login }}/.local/share/mkcert/rootCA.pem"
 
-    # ── NEW: docker context → podman socket ──
-    - name: "Look up uid for {{ user_login }}"
-      ansible.builtin.getent:
-        database: passwd
-        key: "{{ user_login }}"
-    - name: "Set user_uid fact"
-      ansible.builtin.set_fact:
-        user_uid: "{{ getent_passwd[user_login][1] }}"
-
-    - name: "docker context — check if podman-rootless exists"
-      ansible.builtin.command: docker context inspect podman-rootless
-      become: true
-      become_user: "{{ user_login }}"
-      register: context_check
-      changed_when: false
-      failed_when: false  # FAIL-FAST-OK: probe
-
-    - name: "docker context — create podman-rootless"
-      ansible.builtin.command: >
-        docker context create podman-rootless
-        --description "Podman (rootless) for DDEV"
-        --docker host=unix:///run/user/{{ user_uid }}/podman/podman.sock
-      become: true
-      become_user: "{{ user_login }}"
-      when: context_check.rc != 0
-
-    - name: "docker context — use podman-rootless"
-      ansible.builtin.command: docker context use podman-rootless
-      become: true
-      become_user: "{{ user_login }}"
-      register: context_use
-      changed_when: "'podman-rootless' not in context_use.stdout"
-
-    # ── KEEP: DDEV repo + install ──
     - name: Add DDEV Yum Repository
       become: true
       ansible.builtin.copy:
@@ -388,100 +353,59 @@ Annotated: **keep** = unchanged from v1, **new** = added, **replace** = refactor
         state: present
         update_cache: true
 
-    # ── NEW: optional fuse-overlayfs (guarded) ──
-    - name: "fuse-overlayfs — detect existing podman storage"
-      ansible.builtin.stat:
-        path: "/home/{{ user_login }}/.local/share/containers/storage"
-      register: podman_storage_stat
-
-    - name: "fuse-overlayfs — skip if existing podman state present"
-      ansible.builtin.debug:
-        msg: >
-          Existing Podman storage detected at ~/.local/share/containers/storage —
-          skipping fuse-overlayfs config to preserve CCY state.
-          See docs/ddev.md for manual opt-in (requires podman system reset).
-      when: podman_storage_stat.stat.exists
-
-    - name: "fuse-overlayfs — install package"
-      become: true
-      ansible.builtin.dnf:
-        name: fuse-overlayfs
-        state: present
-      when: not podman_storage_stat.stat.exists
-
-    - name: "fuse-overlayfs — write storage.conf"
-      become: true
-      become_user: "{{ user_login }}"
-      ansible.builtin.copy:
-        dest: "/home/{{ user_login }}/.config/containers/storage.conf"
-        mode: "0644"
-        content: |
-          [storage]
-          driver = "overlay"
-          [storage.options.overlay]
-          mount_program = "/usr/bin/fuse-overlayfs"
-      when: not podman_storage_stat.stat.exists
-
-    # ── Verification ──
-    - name: "Verify — ddev version"
+    - name: Verify DDEV Installation
       ansible.builtin.command: ddev version
       register: ddev_version
       changed_when: false
 
-    - name: "Show DDEV version"
+    - name: Show DDEV Version
       ansible.builtin.debug:
         var: ddev_version.stdout_lines
-
-    - name: "Verify — active docker context is podman-rootless"
-      become: true
-      become_user: "{{ user_login }}"
-      ansible.builtin.command: docker context show
-      register: ctx_show
-      changed_when: false
-      failed_when: ctx_show.stdout != 'podman-rootless'
-
-  handlers:
-    - name: sysctl reload
-      become: true
-      ansible.builtin.command: sysctl --system
 ```
+
+Compare to PLAN.md v2's sketch — ~100 lines of sysctl / context / fuse-overlayfs logic deleted.
 
 ## Success Criteria
 
-- [ ] Playbook installs DDEV against rootless Podman with no manual post-steps
-- [ ] `docker context show` reports `podman-rootless` after the playbook runs
-- [ ] `ddev start` on a PHP project brings up containers visible in `podman ps`
-- [ ] CCY (`claude-yolo`) still launches and its container image is untouched
+- [ ] `play-docker.yml` installs rootful Docker with socket activation; user is in `docker` group
+- [ ] `play-ddev.yml` probes the Docker daemon (not Podman, not rootless), installs mkcert + DDEV, verifies
+- [ ] `CLAUDE/ContainerEngines.md` exists and is linked from `CLAUDE.md` Critical Rules and Topic Files Index
+- [ ] `docs/ddev.md` reflects rootful Docker prereqs and references the role-split doc
+- [ ] All three engines coexist — Podman, Docker, LXC — no regressions
+- [ ] `ddev start` on a PHP project succeeds; `docker ps` shows the DDEV containers
+- [ ] CCY continues to work — its container image and runtime are untouched
 - [ ] `./scripts/qa-all.bash` passes
-- [ ] Playbook is idempotent — second run reports zero changes
-- [ ] Fail-fast errors point users at the correct prereq playbook (podman, docker)
-- [ ] `docs/ddev.md` reflects the Podman-first setup
+- [ ] PR #18 updated to reflect Approach C
+- [ ] Both playbooks idempotent — second run reports zero changes
 
 ## Risks & Mitigations
 
 | Risk | Impact | Probability | Mitigation |
 | ---- | ------ | ----------- | ---------- |
-| **`podman system reset` destroys CCY image** | 🔴 High | Low (guarded) | fuse-overlayfs is opt-in only on empty storage; existing-state probe + skip; documented manual opt-in with warning |
-| docker-ce rootless daemon conflicts with DDEV using podman socket | Medium | Low | `docker context` isolation — DDEV's docker calls hit podman.sock, docker-ce stays available on `default` context |
-| `net.ipv4.ip_unprivileged_port_start=0` is a security-sensitive kernel setting | Low | Med | Standard for dev desktops (matches DDEV blog guidance); scoped to sysctl.d file with ANSIBLE MANAGED marker so it's auditable/reversible |
-| Podman < 5.0 on host | Low | Very Low | Fedora 42/43 ship 5.x; explicit version probe in playbook fails fast with the requirement |
-| `docker context create` not idempotent on re-run | Low | Med | Probe-then-create pattern using `docker context inspect` rc as the condition |
-| User's XDG_RUNTIME_DIR path differs | Low | Low | Computed from `getent passwd` uid, not `$XDG_RUNTIME_DIR` — survives sudo/become |
-| DDEV yum repo unsigned | Low | High | Accepted from v1; upstream plans signing |
-| Plan 033 merging out of order w.r.t. other branches | Low | Low | v2 is a pure refactor of the same three files the PR already touches — no new files, no reordering of `playbook-main.yml` |
+| User hits `docker info` fail on first deploy because group membership hasn't taken effect | Low | High | Documented in `docs/ddev.md` and in playbook fail message: log out + back in, or `newgrp docker` |
+| Orphaned rootless Docker state on already-deployed hosts wastes disk / confuses users | Low | Med | Decision 3: document cleanup in release notes; `dockerd-rootless-setuptool.sh uninstall` is the one-command recovery |
+| `play-docker-overlay2-migration.yml` (experimental) breaks because it assumes user-scope Docker | Very Low | Low | Decision 5: add preflight assertion flagging incompatibility |
+| `docker` group = root-equivalent raises security concerns | Med | Low | Already documented prominently in `CLAUDE/ContainerEngines.md`; threat model unchanged (passwordless sudo already exists) |
+| Rootful Docker daemon always running — idle resource use | Very Low | High | Socket-activation (Decision 2) minimises idle footprint |
+| CCY Podman state impacted | Critical | Zero | No changes to Podman, no `podman system reset`, no storage-driver changes. CCY is never touched. |
+| LXC regressions | Critical | Zero | No changes to LXC playbook or its dependencies |
+| User on rootless Docker already has `--no-bind-mounts=true` set in DDEV global config | Very Low | Low | One-line note in `docs/ddev.md`: `ddev config global --no-bind-mounts=false` to reset |
 
 ## Notes & Updates
 
 ### 2026-04-17 (v1)
 
-- Original plan created; Docker-based DDEV playbook committed to `ddev` branch; PR #18 opened.
+- Plan created; Docker-based DDEV playbook committed to `ddev` branch; PR #18 opened.
 
-### 2026-04-21 (v2 — this revision)
+### 2026-04-21 (v2)
 
-- @ballidev feedback on PR #18 requested pivot to rootless Podman.
-- Researched: `play-podman.yml`, `play-docker.yml`, `play-lxc-install-config.yml`, `vars/container-defaults.yml`, CCY's `files/var/local/claude-yolo/` (Dockerfile, wrapper, docker-health.bash).
-- Fetched DDEV docker-installation.md from upstream (redirects to blog) and the podman-and-docker-rootless blog post for the exact Podman setup steps.
-- Discovered the repo already has most Podman prerequisites; only three concrete additions needed (sysctl, docker context, optional fuse-overlayfs).
-- Identified the CCY storage-driver risk and designed the Phase 3 guard.
-- Identified no-op on LXC coexistence (different network stack) and on CCY (uses podman CLI directly, unaffected by docker context).
-- Rewrote plan: phases, decisions 1–6, risks table, playbook sketch.
+- PR #18 feedback from @ballidev requested pivot to rootless Podman
+- Rewrote plan for rootless Podman via `docker context` — PLAN.md v2 committed in `126aac5`
+
+### 2026-04-21 (v3 — this revision)
+
+- Raised third option during review: rootful Docker for DDEV specifically, keeping Podman as default and LXC for VM-like use
+- Wrote [container-engine-strategy.md](container-engine-strategy.md) comparing all three approaches
+- User approved Approach C (rootful Docker for DDEV, with explicit top-level rule: "use Podman wherever possible; Docker for compat/legacy only; understand it is less secure")
+- Phase 2 (strategy + top-level docs) completed: `CLAUDE/ContainerEngines.md` written; `CLAUDE.md` Critical Rules + Topic Files Index updated
+- PLAN.md rewritten as v3 — Phases 3-8 remain to implement
