@@ -107,24 +107,22 @@ Legend: ✅ done, 🔄 in progress, ⬜ not started, ♻️ replace/refactor v1 
   - [x] ✅ Post-cleanup stat verifies the service file is gone (fails loudly otherwise)
   - [x] ✅ `docker context use default` runs unconditionally to normalise any rootless context pin
 
-### Phase 4: Simplify `play-ddev.yml` (🗑️ drop v2 tasks)
+### Phase 4: Simplify `play-ddev.yml` (✅ complete)
 
-- [ ] 🗑️ **v2 Task 2.3**: sysctl `ip_unprivileged_port_start=0` — **not needed** (rootful Docker binds 80/443 natively)
-- [ ] 🗑️ **v2 Task 2.4**: `docker context create podman-rootless` — **not needed** (default context talks to the rootful socket at `/var/run/docker.sock`, which DDEV auto-discovers)
-- [ ] 🗑️ **v2 Phase 3**: fuse-overlayfs install + guard + `storage.conf` — **not needed** (rootful Docker uses `/var/lib/docker`, not Podman storage)
-- [ ] ⬜ **Task 4.1**: Replace v1 Docker-check with a simple daemon reachability probe:
-  - [ ] ⬜ `docker info` — fail if non-zero with message "docker daemon not running or user not in docker group; run `play-docker.yml`"
-  - [ ] ⬜ No need to probe `podman` — DDEV does not use it
-- [ ] ⬜ **Task 4.2**: Retain mkcert install + `mkcert -install` as user (unchanged from v1)
-- [ ] ⬜ **Task 4.3**: Retain DDEV yum repo + `dnf install ddev` (unchanged from v1)
-- [ ] ⬜ **Task 4.4**: Retain `ddev version` smoke test (unchanged from v1)
+- [x] 🗑️ **v2 Task 2.3**: sysctl `ip_unprivileged_port_start=0` — dropped (rootful Docker binds 80/443 natively)
+- [x] 🗑️ **v2 Task 2.4**: `docker context create podman-rootless` — dropped (default context talks to the rootful socket at `/var/run/docker.sock`)
+- [x] 🗑️ **v2 Phase 3**: fuse-overlayfs install + guard + `storage.conf` — dropped (rootful Docker uses `/var/lib/docker`)
+- [x] ✅ **Task 4.1**: Replaced v1 `docker --version` binary check with `docker info` daemon-reachability probe; fail message enumerates the three likely causes (play-docker.yml not run, user not in docker group for this session, docker.service not running)
+- [x] ✅ **Task 4.2**: Retained mkcert install + `mkcert -install` as user (unchanged from v1)
+- [x] ✅ **Task 4.3**: Retained DDEV yum repo + `dnf install ddev` (unchanged from v1)
+- [x] ✅ **Task 4.4**: Retained `ddev version` smoke test (unchanged from v1)
 
-### Phase 5: Update `docs/ddev.md`
+### Phase 5: Update `docs/ddev.md` (✅ complete)
 
-- [ ] ⬜ **Task 5.1**: Replace "Prerequisite: Docker" with "Prerequisite: rootful Docker installed via `play-docker.yml` (user must be in `docker` group)"
-- [ ] ⬜ **Task 5.2**: Replace "systemctl --user status docker" troubleshooting with system-scope equivalent (`sudo systemctl status docker --no-pager -l`)
-- [ ] ⬜ **Task 5.3**: Add one-paragraph "Why Docker, not Podman?" cross-referencing `CLAUDE/ContainerEngines.md` (user-facing version of the rule)
-- [ ] ⬜ **Task 5.4**: Document the one-time "log out and back in (or `newgrp docker`)" step after first deploy
+- [x] ✅ **Task 5.1**: Prerequisite section updated — calls out rootful Docker + docker group membership + need to re-log after first install
+- [x] ✅ **Task 5.2**: Troubleshooting "Docker Not Running" rewritten for system-scope daemon (`sudo systemctl status docker --no-pager -l`), plus an added `newgrp docker` fix for the group-not-active case
+- [x] ✅ **Task 5.3**: Added "Why Docker, not Podman?" section cross-referencing `CLAUDE/ContainerEngines.md`
+- [x] ✅ **Task 5.4**: One-time "log out and back in (or `newgrp docker`)" step now in the prerequisite section
 
 ### Phase 6: QA, commit, PR update
 

@@ -13,11 +13,17 @@ This installs:
 - **mkcert** — local HTTPS certificate authority (from Fedora repos)
 - **DDEV** — via the official yum repository at `pkg.ddev.com`
 
-**Prerequisite:** Docker must be installed first:
+**Prerequisite:** Rootful Docker must be installed first:
 
 ```bash
 ansible-playbook playbooks/imports/play-docker.yml
 ```
+
+This installs Docker CE as a system-wide daemon and adds your user to the `docker` group. After the first run you must **log out and back in** (or run `newgrp docker` in your shell) before `docker` commands work without `sudo`.
+
+## Why Docker, not Podman?
+
+This repo's default container engine is rootless Podman (CCY, devtools, ad-hoc containers). DDEV is the one compatibility exception: upstream DDEV explicitly recommends rootful Docker on Linux as the best-performance, best-stability path, and the rootless Podman workarounds (storage driver switch, bind-mount quirks, `--no-bind-mounts` flag) were judged too invasive — particularly because they risked the CCY image. See `CLAUDE/ContainerEngines.md` for the full role split and security trade-offs (notably: `docker` group membership is root-equivalent).
 
 ## Verify Installation
 
@@ -143,11 +149,15 @@ Follow the prompts to set project type, PHP version, and docroot. This creates t
 ### Docker Not Running
 
 ```bash
-# Check Docker status
-systemctl --user status docker --no-pager -l
+# Check Docker status (system-wide daemon)
+sudo systemctl status docker --no-pager -l
 
-# Start rootless Docker
-systemctl --user start docker
+# Start Docker
+sudo systemctl start docker
+
+# If `docker info` fails with "permission denied" but the daemon is running,
+# your shell is missing the `docker` group. Either log out and back in, or:
+newgrp docker
 ```
 
 ### Port Conflicts

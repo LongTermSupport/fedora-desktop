@@ -6,18 +6,27 @@
   vars:
     root_dir: "{{ inventory_dir }}/../../"
   tasks:
-    - name: Check if Docker is Installed
-      ansible.builtin.command: docker --version
-      register: docker_check
-      failed_when: false  # FAIL-FAST-OK: probe check
+    - name: Probe Docker Daemon Reachability
+      ansible.builtin.command: docker info
+      register: docker_info
+      failed_when: false  # FAIL-FAST-OK: probe — explicit fail-fast task below
       changed_when: false
 
-    - name: Fail if Docker is Not Available
+    - name: Fail if Docker Daemon Not Reachable
       ansible.builtin.fail:
-        msg: >
-          Docker is required for DDEV.
-          Run: ansible-playbook playbooks/imports/play-docker.yml
-      when: docker_check.rc != 0
+        msg: |
+          DDEV requires a reachable rootful Docker daemon.
+          `docker info` exited {{ docker_info.rc }}.
+
+          Likely causes:
+            1. play-docker.yml has not been run yet.
+               Fix: ansible-playbook playbooks/imports/play-docker.yml
+            2. {{ user_login }} is not yet in the `docker` group for this login session
+               (was just added; group membership requires a new session).
+               Fix: log out and back in, or run `newgrp docker` in this shell.
+            3. docker.service is not running.
+               Fix: sudo systemctl status docker --no-pager -l
+      when: docker_info.rc != 0
 
     - name: Install mkcert
       become: true
