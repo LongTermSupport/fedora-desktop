@@ -54,17 +54,17 @@ Rootless Docker would require `--no-bind-mounts`, Mutagen, sysctl tweaks, and a 
 
 ### What's already in the repo we're using
 
-| Capability | Source | Changes |
-| ---------- | ------ | ------- |
-| `docker-ce` + `docker-ce-cli` + `containerd.io` + compose plugin | `play-docker.yml:21-29` | unchanged |
-| `/etc/subuid` + `/etc/subgid` for user | `play-docker.yml:31-39` | retained — harmless in rootful mode, other tools may use |
-| `docker.service` / `docker.socket` system units | ships with `docker-ce` | **newly enabled** (replaces rootless user-service) |
-| `docker` group | ships with `docker-ce` | **user newly added** to this group |
-| Rootless user-service via `dockerd-rootless-setuptool.sh` | `play-docker.yml:49-65` | **removed** from fresh deploys; existing deploys untouched |
-| Podman + `podman.socket` | `play-podman.yml` | **completely untouched** |
-| LXC | `play-lxc-install-config.yml` | **completely untouched** |
-| `container_engine: podman` default | `vars/container-defaults.yml:10` | **unchanged** — Podman remains the repo default |
-| CCY using Podman directly | `files/var/local/claude-yolo/` | **unchanged** — CCY never sees Docker |
+| Capability                                                       | Source                           | Changes                                                                                                                    |
+| ---------------------------------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `docker-ce` + `docker-ce-cli` + `containerd.io` + compose plugin | `play-docker.yml:21-29`          | unchanged                                                                                                                  |
+| `/etc/subuid` + `/etc/subgid` for user                           | `play-docker.yml:31-39`          | retained — harmless in rootful mode, other tools may use                                                                   |
+| `docker.service` / `docker.socket` system units                  | ships with `docker-ce`           | **newly enabled** (replaces rootless user-service)                                                                         |
+| `docker` group                                                   | ships with `docker-ce`           | **user newly added** to this group                                                                                         |
+| Rootless user-service via `dockerd-rootless-setuptool.sh`        | `play-docker.yml:49-65`          | **removed** from fresh deploys; **actively uninstalled** on legacy hosts (stat-gated cleanup block at top of new playbook) |
+| Podman + `podman.socket`                                         | `play-podman.yml`                | **completely untouched**                                                                                                   |
+| LXC                                                              | `play-lxc-install-config.yml`    | **completely untouched**                                                                                                   |
+| `container_engine: podman` default                               | `vars/container-defaults.yml:10` | **unchanged** — Podman remains the repo default                                                                            |
+| CCY using Podman directly                                        | `files/var/local/claude-yolo/`   | **unchanged** — CCY never sees Docker                                                                                      |
 
 ### Security note
 
@@ -87,18 +87,25 @@ Legend: ✅ done, 🔄 in progress, ⬜ not started, ♻️ replace/refactor v1 
 - [x] ✅ **Task 2.3**: Add "Container Engines: Podman First" section to CLAUDE.md Critical Rules
 - [x] ✅ **Task 2.4**: Add `@CLAUDE/ContainerEngines.md` row to CLAUDE.md Topic Files Index
 
-### Phase 3: Convert `play-docker.yml` rootless → rootful
+### Phase 3: Convert `play-docker.yml` rootless → rootful (✅ complete)
 
-- [ ] ⬜ **Task 3.1**: Replace rootless setup block (lines 41-65 of current `play-docker.yml`) with rootful:
-  - [ ] ⬜ Add `{{ user_login }}` to `docker` group (`user` module, `append: true`)
-  - [ ] ⬜ Enable and start system `docker.service`
-  - [ ] ⬜ Enable and start system `docker.socket` (socket activation — reduces idle daemon footprint)
-- [ ] ⬜ **Task 3.2**: Remove the D-Bus probe (no longer needed without rootless user-service)
-- [ ] ⬜ **Task 3.3**: Remove `dockerd-rootless-setuptool.sh install` task
-- [ ] ⬜ **Task 3.4**: Remove user-scope `systemd` enable of `docker`
-- [ ] ⬜ **Task 3.5**: Retain subuid/subgid block (harmless; other tools may depend)
-- [ ] ⬜ **Task 3.6**: Add verification task: `docker info` (confirms user can talk to daemon; requires `newgrp docker` on first run — document)
-- [ ] ⬜ **Task 3.7**: Update any references in `playbooks/imports/optional/experimental/play-docker-overlay2-migration.yml` that assume user-scope Docker (lines 114, 120, 256-297) — either mark experimental playbook as incompatible with rootful (add preflight assertion) OR migrate it
+- [x] ✅ **Task 3.1**: Added rootful setup block:
+  - [x] ✅ Add `{{ user_login }}` to `docker` group (`user` module, `append: true`)
+  - [x] ✅ Enable and start system `docker.service`
+  - [x] ✅ Enable and start system `docker.socket` (socket activation — reduces idle daemon footprint)
+- [x] ✅ **Task 3.2**: D-Bus probe retained but scoped to the legacy-cleanup block only (guarded by `when: legacy_rootless.stat.exists`); drops through as no-op on fresh hosts
+- [x] ✅ **Task 3.3**: Removed `dockerd-rootless-setuptool.sh install` task from fresh-install path
+- [x] ✅ **Task 3.4**: Removed user-scope `systemd` enable of `docker` from fresh-install path
+- [x] ✅ **Task 3.5**: Retained subuid/subgid block (other user-namespace tools still depend)
+- [x] ✅ **Task 3.6**: Added `docker info` verification task (runs via `become: true` so it works on first deploy before the user re-logs for new group membership)
+- [x] ✅ **Task 3.7**: N/A — `play-docker-overlay2-migration.yml` is already hard-disabled (lines 46+ force `ansible.builtin.fail`); no additional preflight needed. Decision 5 superseded.
+- [x] ✅ **Task 3.8 (new)**: Active legacy-rootless cleanup added (supersedes Decision 3):
+  - [x] ✅ Stat check for `/home/{{ user_login }}/.config/systemd/user/docker.service`
+  - [x] ✅ D-Bus probe with explicit fail-fast if session missing and cleanup needed
+  - [x] ✅ Stop legacy user `docker.service`
+  - [x] ✅ Run `dockerd-rootless-setuptool.sh uninstall -f`
+  - [x] ✅ Post-cleanup stat verifies the service file is gone (fails loudly otherwise)
+  - [x] ✅ `docker context use default` runs unconditionally to normalise any rootless context pin
 
 ### Phase 4: Simplify `play-ddev.yml` (🗑️ drop v2 tasks)
 
@@ -179,24 +186,25 @@ Legend: ✅ done, 🔄 in progress, ⬜ not started, ♻️ replace/refactor v1 
 
 **Date**: 2026-04-21
 
-### Decision 3 (v3): No active cleanup of rootless Docker artefacts on already-deployed hosts
+### Decision 3 (v3): Active cleanup of rootless Docker on already-deployed hosts (SUPERSEDED by 3-revised)
 
 **Context**: Users who ran the previous `play-docker.yml` have:
 
 - `~/.config/systemd/user/docker.service` (from `dockerd-rootless-setuptool.sh install`)
 - `~/.local/share/docker` storage
+- Possibly a user-scope `rootless` docker context pinned in `~/.docker/config.json`
 
-**Options**:
+**Original decision (2026-04-21)**: Leave orphaned — harmless, different socket, no contention. Users can run uninstall manually.
 
-1. Leave orphaned — document in release notes; users can run `dockerd-rootless-setuptool.sh uninstall` if they care
-2. Add a cleanup task in `play-docker.yml` that runs `uninstall` on re-deploy
-3. Spin off a separate cleanup plan
+**Revised decision (2026-04-21, same day, user override)**: `play-docker.yml` now actively cleans up legacy rootless state on any host where it detects the user-scope `docker.service` file. Reasons for the flip:
 
-**Decision**: Option 1. Orphaned state is harmless — different socket, no contention with the system daemon. Users who want to free the disk space can run the uninstall tool manually. Adding a cleanup task risks interfering with a user who deliberately kept rootless Docker around for something else.
+- Orphaned user service can auto-start on login and compete for docker CLI affinity via the rootless context pin
+- "Leave it alone" shifts cognitive load to the user; active cleanup is consistent with the IaC rule that the playbook is the source of truth
+- The cleanup is cheap, idempotent, and gated behind a stat check — fresh hosts skip it entirely
 
-**Follow-up**: brief release note in PR #18 description.
+**Implementation**: see Phase 3 Task 3.8. Cleanup runs `dockerd-rootless-setuptool.sh uninstall -f` then stat-verifies the user service file is gone. Fails fast if the D-Bus session is unavailable on a host that needs cleanup (with guidance to enable lingering).
 
-**Date**: 2026-04-21
+**What is NOT cleaned**: `~/.local/share/docker` storage. This can contain user images — deliberately preserved. Users can `rm -rf` manually once satisfied nothing is needed.
 
 ### Decision 4 (v3): Keep subuid/subgid block in `play-docker.yml`
 
@@ -206,11 +214,13 @@ Legend: ✅ done, 🔄 in progress, ⬜ not started, ♻️ replace/refactor v1 
 
 **Date**: 2026-04-21
 
-### Decision 5 (v3): `play-docker-overlay2-migration.yml` — mark experimental rootless-only OR migrate
+### Decision 5 (v3): `play-docker-overlay2-migration.yml` (SUPERSEDED — no action needed)
 
 **Context**: `playbooks/imports/optional/experimental/play-docker-overlay2-migration.yml` uses user-scope Docker commands (`systemctl --user …`). These stop working after Approach C flips the user to rootful.
 
-**Decision**: Add a preflight assertion at the top of that experimental playbook: "this targets rootless Docker; not compatible with the rootful setup installed by the current `play-docker.yml`. If you need this, restore rootless Docker manually." Do **not** rewrite it — it's experimental and unused by the main playbook flow.
+**Original decision**: Add a preflight assertion to the playbook.
+
+**Revised (2026-04-21, on re-inspection)**: No action needed. The playbook is **already hard-disabled** at line 46 — the first task is an `ansible.builtin.fail` that prevents execution regardless of the host's Docker configuration. Adding a rootful/rootless preflight is redundant.
 
 **Date**: 2026-04-21
 
@@ -225,77 +235,21 @@ Legend: ✅ done, 🔄 in progress, ⬜ not started, ♻️ replace/refactor v1 
 
 ## Playbook Sketches
 
-### `playbooks/imports/play-docker.yml` (rewritten rootless → rootful)
+### `playbooks/imports/play-docker.yml` (implemented — source of truth is the file itself)
 
-```yaml
-#!/usr/bin/env ansible-playbook
----
-- hosts: desktop
-  become: false
-  vars:
-    root_dir: "{{ inventory_dir }}/../../"
-  tasks:
-    - name: Install DNF Plugins
-      become: true
-      ansible.builtin.dnf:
-        name: dnf-plugins-core
+The playbook is structured in five blocks:
 
-    - name: Add Docker Repo
-      become: true
-      ansible.builtin.shell: |
-        dnf config-manager addrepo \
-          --from-repofile=https://download.docker.com/linux/fedora/docker-ce.repo
-      args:
-        creates: /etc/yum.repos.d/docker-ce.repo
+1. **Legacy cleanup** (stat-gated on `~/.config/systemd/user/docker.service`):
+   - D-Bus probe with explicit fail-fast if cleanup is needed but session is missing
+   - Stop legacy rootless `docker.service` (user scope)
+   - `dockerd-rootless-setuptool.sh uninstall -f`
+   - Post-cleanup stat verifies the service file is gone (fails loudly otherwise)
+2. **Docker CE install**: DNF plugins, docker-ce repo, package install (unchanged from v1)
+3. **subuid/subgid**: retained for distrobox and rootless Podman
+4. **Rootful setup**: add user to `docker` group, enable+start `docker.socket` and `docker.service`
+5. **Context reset + verify**: `docker context use default` (normalises legacy rootless pin), then `docker info` via `become: true` so first-run verification works before the user re-logs for new group membership
 
-    - name: Install Docker
-      become: true
-      ansible.builtin.dnf:
-        name:
-          - docker-ce
-          - docker-ce-cli
-          - containerd.io
-          - docker-buildx-plugin
-          - docker-compose-plugin
-
-    - name: Setup ID Maps (kept for rootless tools like distrobox)
-      become: true
-      ansible.builtin.blockinfile:
-        path: "{{ item }}"
-        marker: "# {mark} ANSIBLE MANAGED: subuid/subgid for rootless containers"
-        block: |
-          {{ user_login }}:100000:65536
-      loop:
-        - /etc/subuid
-        - /etc/subgid
-
-    - name: Add {{ user_login }} to docker group
-      become: true
-      ansible.builtin.user:
-        name: "{{ user_login }}"
-        groups: docker
-        append: true
-
-    - name: Enable and start docker.socket (system-wide, socket activation)
-      become: true
-      ansible.builtin.systemd:
-        name: docker.socket
-        state: started
-        enabled: true
-
-    - name: Enable and start docker.service (system-wide)
-      become: true
-      ansible.builtin.systemd:
-        name: docker
-        state: started
-        enabled: true
-
-    - name: Verify Docker Install (probe; requires user to re-log for group — document)
-      ansible.builtin.command: docker info
-      register: docker_info
-      changed_when: false
-      failed_when: false  # FAIL-FAST-OK: probe — fails harmlessly on first deploy before user re-logs
-```
+No `failed_when: false` shortcuts on the verify path — `docker info` via sudo must succeed, or the playbook fails. The one `failed_when: false` in the file is on the D-Bus probe and is annotated `# FAIL-FAST-OK:` with an explicit guard task immediately after.
 
 ### `playbooks/imports/optional/common/play-ddev.yml` (simplified)
 
@@ -380,16 +334,16 @@ Compare to PLAN.md v2's sketch — ~100 lines of sysctl / context / fuse-overlay
 
 ## Risks & Mitigations
 
-| Risk | Impact | Probability | Mitigation |
-| ---- | ------ | ----------- | ---------- |
-| User hits `docker info` fail on first deploy because group membership hasn't taken effect | Low | High | Documented in `docs/ddev.md` and in playbook fail message: log out + back in, or `newgrp docker` |
-| Orphaned rootless Docker state on already-deployed hosts wastes disk / confuses users | Low | Med | Decision 3: document cleanup in release notes; `dockerd-rootless-setuptool.sh uninstall` is the one-command recovery |
-| `play-docker-overlay2-migration.yml` (experimental) breaks because it assumes user-scope Docker | Very Low | Low | Decision 5: add preflight assertion flagging incompatibility |
-| `docker` group = root-equivalent raises security concerns | Med | Low | Already documented prominently in `CLAUDE/ContainerEngines.md`; threat model unchanged (passwordless sudo already exists) |
-| Rootful Docker daemon always running — idle resource use | Very Low | High | Socket-activation (Decision 2) minimises idle footprint |
-| CCY Podman state impacted | Critical | Zero | No changes to Podman, no `podman system reset`, no storage-driver changes. CCY is never touched. |
-| LXC regressions | Critical | Zero | No changes to LXC playbook or its dependencies |
-| User on rootless Docker already has `--no-bind-mounts=true` set in DDEV global config | Very Low | Low | One-line note in `docs/ddev.md`: `ddev config global --no-bind-mounts=false` to reset |
+| Risk                                                                                            | Impact   | Probability | Mitigation                                                                                                                |
+| ----------------------------------------------------------------------------------------------- | -------- | ----------- | ------------------------------------------------------------------------------------------------------------------------- |
+| User hits `docker info` fail on first deploy because group membership hasn't taken effect       | Low      | High        | Documented in `docs/ddev.md` and in playbook fail message: log out + back in, or `newgrp docker`                          |
+| Orphaned rootless Docker state on already-deployed hosts wastes disk / confuses users           | Low      | Med         | Decision 3: document cleanup in release notes; `dockerd-rootless-setuptool.sh uninstall` is the one-command recovery      |
+| `play-docker-overlay2-migration.yml` (experimental) breaks because it assumes user-scope Docker | Very Low | Low         | Decision 5: add preflight assertion flagging incompatibility                                                              |
+| `docker` group = root-equivalent raises security concerns                                       | Med      | Low         | Already documented prominently in `CLAUDE/ContainerEngines.md`; threat model unchanged (passwordless sudo already exists) |
+| Rootful Docker daemon always running — idle resource use                                        | Very Low | High        | Socket-activation (Decision 2) minimises idle footprint                                                                   |
+| CCY Podman state impacted                                                                       | Critical | Zero        | No changes to Podman, no `podman system reset`, no storage-driver changes. CCY is never touched.                          |
+| LXC regressions                                                                                 | Critical | Zero        | No changes to LXC playbook or its dependencies                                                                            |
+| User on rootless Docker already has `--no-bind-mounts=true` set in DDEV global config           | Very Low | Low         | One-line note in `docs/ddev.md`: `ddev config global --no-bind-mounts=false` to reset                                     |
 
 ## Notes & Updates
 
