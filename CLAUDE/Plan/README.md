@@ -51,11 +51,10 @@ Use these Unicode icons in plan documents:
 - [030-phpantom-lsp](030-phpantom-lsp/) - Research PHPantom (Rust-based PHP LSP) as replacement for Intelephense; decision gate before implementation
 - [031-reliable-screen-sharing](031-reliable-screen-sharing/) - Find reliable screen-sharing alternatives for WFH devs on Fedora 43 Wayland (complements Plan 028); 4 parallel research tracks: self-hosted platforms, native Linux tools, current SaaS, unconventional approaches
 - [032-compression-helpers](032-compression-helpers/) - `compress` / `uncompress` CLI wrappers around `ouch`: xz by default, `--zip` flag, auto-detect on decompress, always-extract-into-folder (tarbomb protection)
-- [033-ddev-installation](033-ddev-installation/) - Install DDEV (Docker-based local dev environment) via yum repo + mkcert for local HTTPS
 
 ## Completed Plans
 
-- None yet
+- [033-ddev-installation](Completed/033-ddev-installation/) - Install DDEV on rootful Docker (Approach C); rootless Podman remains default engine, LXC unchanged. End-to-end host run verified (`ddev v1.25.1` + `docker 29.4.0`).
 
 ## Cancelled Plans
 

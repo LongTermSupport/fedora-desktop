@@ -1,6 +1,6 @@
 # Plan 033: DDEV on Rootful Docker
 
-**Status**: In Progress (v3 — approved approach)
+**Status**: Complete (v3 — rootful Docker for DDEV, verified on host)
 **Created**: 2026-04-17
 **Revised**: 2026-04-21 (v3)
 **Owner**: Claude
@@ -376,4 +376,8 @@ Issues surfaced while running the v3 playbook end-to-end on the host, each fixed
 - **Docker group lag** — added explicit `group: docker, state: present` + `id -nG` assertion in `play-docker.yml` (commit `3e75b78`).
 - **subuid/subgid investigation** — user challenged "why does rootful Docker need `100000:65536`?". Found Fedora's shadow-utils auto-allocates (typically `524288:65536`) for every user at creation time, which rootless Podman/distrobox consume. The playbook's hand-managed block overlapped Fedora's range. Decision 4 superseded: block stripped entirely via two `blockinfile … state: absent` tasks (one per marker variant) (commit `c4efd88`).
 - **Rootless-daemon detection gap in play-ddev.yml** — `docker info` alone could not distinguish a rootful daemon from a rootless one reached via `DOCKER_HOST` or a pinned context. Added `docker info --format '{{.SecurityOptions}}'` check for `name=rootless` + explicit `id -nG`/docker group assertion (commit `e5e008d`).
-- **DDEV/mkcert file conflict** — `ddev-1.25.1` RPM ships `/usr/bin/mkcert` itself, conflicting file-for-file with Fedora's `mkcert-1.4.4` package. The playbook was installing Fedora's mkcert *first*, then failing on `dnf install ddev`. Fix: replace `mkcert` install with `mkcert` removal (legacy cleanup), reorder so DDEV installs first and `mkcert -install` runs against DDEV's bundled binary.
+- **DDEV/mkcert file conflict** — `ddev-1.25.1` RPM ships `/usr/bin/mkcert` itself, conflicting file-for-file with Fedora's `mkcert-1.4.4` package. The playbook was installing Fedora's mkcert *first*, then failing on `dnf install ddev`. Fix: replace `mkcert` install with `mkcert` removal (legacy cleanup), reorder so DDEV installs first and `mkcert -install` runs against DDEV's bundled binary (commit `f20e81c`).
+
+### 2026-04-21 — verified & complete
+
+End-to-end `ansible-playbook play-ddev.yml` run on the host completed cleanly: `ok=10 changed=2 failed=0`. `ddev version` reports `DDEV v1.25.1` on top of `docker 29.4.0`. Plan status flipped to Complete.
