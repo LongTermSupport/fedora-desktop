@@ -118,6 +118,14 @@
         cmd: "restorecon -R {{ ftp_camera_upload_dir }}"
       changed_when: true
 
+    - name: Enable SELinux boolean for vsftpd passive mode
+      # Without this, SELinux blocks vsftpd from binding to passive data ports
+      # (30000-30100), causing camera connections to fail after authentication
+      ansible.posix.seboolean:
+        name: ftpd_use_passive_mode
+        state: true
+        persistent: true
+
     - name: Disable vsftpd auto-start (managed manually via ftp-camera script)
       ansible.builtin.systemd:
         name: vsftpd
