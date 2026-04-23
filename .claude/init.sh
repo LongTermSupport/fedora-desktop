@@ -226,8 +226,55 @@ if [[ -d "$PROJECT_PATH/.git" ]]; then
     fi
 fi
 
-# Venv Python (only needed for daemon startup, NOT for hot path)
-PYTHON_CMD="$HOOKS_DAEMON_ROOT_DIR/untracked/venv/bin/python"
+# Venv Python (only needed for daemon startup, NOT for hot path).
+#
+# Plan 00099: venv is keyed by Python-environment fingerprint so that
+# concurrent containers from the same image share one venv while distinct
+# Pythons (pyenv vs distro, different minor versions, cross-arch) are kept
+# apart. The fingerprint computation invokes Python, so it is deferred to
+# `_resolve_python_cmd()` which is called only from `start_daemon()` /
+# `validate_venv()` — never on the hot path.
+#
+# Precedence (highest first):
+#   1. $HOOKS_DAEMON_VENV_PATH (explicit override)
+#   2. $HOOKS_DAEMON_ROOT_DIR/untracked/venv-{fingerprint}/ (fingerprint-keyed)
+#   3. $HOOKS_DAEMON_ROOT_DIR/untracked/venv/ (legacy fallback — pre-v3.7.0)
+PYTHON_CMD=""  # populated lazily by _resolve_python_cmd
+
+_resolve_python_cmd() {
+    if [ -n "${HOOKS_DAEMON_VENV_PATH:-}" ]; then
+        PYTHON_CMD="$HOOKS_DAEMON_VENV_PATH/bin/python"
+        return 0
+    fi
+
+    # Locate the bash fingerprint helper (shipped in scripts/install/)
+    local fp_helper=""
+    for candidate in \
+        "$HOOKS_DAEMON_ROOT_DIR/scripts/install/python_fingerprint.sh" \
+        "$PROJECT_PATH/scripts/install/python_fingerprint.sh"; do
+        if [ -f "$candidate" ]; then
+            fp_helper="$candidate"
+            break
+        fi
+    done
+
+    if [ -n "$fp_helper" ]; then
+        # shellcheck disable=SC1090
+        source "$fp_helper"
+        local fingerprint=""
+        local python_bin="${HOOKS_DAEMON_PYTHON:-python3}"
+        if fingerprint=$(python_venv_fingerprint "$python_bin" 2>/dev/null); then
+            local keyed_venv="$HOOKS_DAEMON_ROOT_DIR/untracked/venv-$fingerprint"
+            if [ -x "$keyed_venv/bin/python" ]; then
+                PYTHON_CMD="$keyed_venv/bin/python"
+                return 0
+            fi
+        fi
+    fi
+
+    # Legacy fallback (pre-v3.7.0 installs without fingerprint keying)
+    PYTHON_CMD="$HOOKS_DAEMON_ROOT_DIR/untracked/venv/bin/python"
+}
 
 #
 # _get_hostname_suffix() - Get hostname-based suffix for runtime files
@@ -324,6 +371,12 @@ export PROJECT_PATH
 #
 validate_venv() {
     VENV_ERROR=""
+
+    # Plan 00099: lazy fingerprint-keyed venv resolution (paid only on daemon
+    # startup, never on hot path). No-op on subsequent calls.
+    if [ -z "$PYTHON_CMD" ]; then
+        _resolve_python_cmd
+    fi
 
     # Check venv Python binary exists
     if [[ ! -f "$PYTHON_CMD" ]]; then
