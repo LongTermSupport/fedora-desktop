@@ -13,6 +13,7 @@ if [ -z "$UPLOAD_DIR" ]; then
 fi
 
 MONITOR_PID=""
+START_MARKER=$(mktemp)
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 BOLD='\033[1m'
@@ -47,6 +48,10 @@ cleanup() {
         sudo systemctl stop vsftpd
     fi
 
+    # Remove systemd override and runtime config (all in /run/ tmpfs)
+    sudo rm -rf /run/systemd/system/vsftpd.service.d /run/vsftpd-camera.conf
+    sudo systemctl daemon-reload
+
     # Remove firewall rules only if they were added (probe-then-act)
     if sudo firewall-cmd --query-service=ftp --quiet; then
         sudo firewall-cmd --remove-service=ftp --quiet
@@ -58,23 +63,27 @@ cleanup() {
     echo -e "${GREEN}FTP server stopped.${NC}"
     echo ""
 
-    # Summary statistics
-    if [ -d "$UPLOAD_DIR" ] && [ "$(ls -A "$UPLOAD_DIR")" ]; then
+    # Summary: only files uploaded during this session (newer than start marker)
+    if [ -d "$UPLOAD_DIR" ] && [ -f "$START_MARKER" ]; then
         local file_count total_bytes total_human
-        file_count=$(find "$UPLOAD_DIR" -type f | wc -l)
-        total_bytes=$(find "$UPLOAD_DIR" -type f -printf '%s\n' | awk '{s+=$1} END {print s+0}')
-        total_human=$(numfmt --to=iec-i --suffix=B "$total_bytes")
-        echo -e "${BOLD}Upload summary:${NC}"
-        echo -e "  Files: ${CYAN}${file_count}${NC}"
-        echo -e "  Total: ${CYAN}${total_human}${NC}"
-        echo -e "  Path:  ${CYAN}${UPLOAD_DIR}${NC}"
-        echo ""
-        find "$UPLOAD_DIR" -type f -printf '  %h/%f  %s\n' \
-            | awk '{size=$NF; $NF=""; cmd="numfmt --to=iec-i --suffix=B " size; cmd | getline h; close(cmd); printf "%s %s\n", $0, h}'
-    else
-        echo -e "${BOLD}Upload summary:${NC}"
-        echo "  (no files received)"
+        file_count=$(find "$UPLOAD_DIR" -type f -newer "$START_MARKER" | wc -l)
+        if [ "$file_count" -gt 0 ]; then
+            total_bytes=$(find "$UPLOAD_DIR" -type f -newer "$START_MARKER" -printf '%s\n' \
+                | awk '{s+=$1} END {print s+0}')
+            total_human=$(numfmt --to=iec-i --suffix=B "$total_bytes")
+            echo -e "${BOLD}Upload summary:${NC}"
+            echo -e "  Files: ${CYAN}${file_count}${NC}"
+            echo -e "  Total: ${CYAN}${total_human}${NC}"
+            echo -e "  Path:  ${CYAN}${UPLOAD_DIR}${NC}"
+            echo ""
+            find "$UPLOAD_DIR" -type f -newer "$START_MARKER" -printf '  %h/%f  %s\n' \
+                | awk '{size=$NF; $NF=""; cmd="numfmt --to=iec-i --suffix=B " size; cmd | getline h; close(cmd); printf "%s %s\n", $0, h}'
+        else
+            echo -e "${BOLD}Upload summary:${NC}"
+            echo "  (no files received)"
+        fi
     fi
+    rm -f "$START_MARKER"
 }
 
 trap cleanup EXIT
@@ -85,6 +94,18 @@ trap 'exit 0' INT TERM
 LOCAL_IP=$(get_local_ip)
 
 echo -e "${BOLD}Starting camera FTP server...${NC}"
+
+# Runtime config: copy base config and add pasv_address so vsftpd advertises
+# the correct LAN IP to the camera for passive mode data connections
+sudo cp /etc/vsftpd/vsftpd.conf /run/vsftpd-camera.conf
+echo "pasv_address=${LOCAL_IP}" | sudo tee -a /run/vsftpd-camera.conf > /dev/null
+
+# Systemd override: use runtime config instead of /etc/vsftpd/vsftpd.conf
+sudo mkdir -p /run/systemd/system/vsftpd.service.d
+printf '[Service]\nExecStart=\nExecStart=/usr/sbin/vsftpd %s\n' "/run/vsftpd-camera.conf" \
+    | sudo tee /run/systemd/system/vsftpd.service.d/camera-ftp.conf > /dev/null
+sudo systemctl daemon-reload
+
 sudo systemctl start vsftpd
 sudo firewall-cmd --add-service=ftp --quiet
 sudo firewall-cmd --add-port=30000-30100/tcp --quiet

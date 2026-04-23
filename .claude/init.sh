@@ -272,6 +272,21 @@ _resolve_python_cmd() {
         fi
     fi
 
+    # Scan-fallback (v3.8.1+): the installer's Python and the resolver's
+    # python3 may produce different fingerprints (e.g. 3.13 vs 3.9), but
+    # the venv's bin/python symlinks the installer's interpreter so any
+    # existing untracked/venv-*/bin/python is usable. Matches the 4-step
+    # precedence in skills/hooks-daemon/scripts/_resolve-venv.sh.
+    if [ -d "$HOOKS_DAEMON_ROOT_DIR/untracked" ]; then
+        local candidate
+        for candidate in "$HOOKS_DAEMON_ROOT_DIR"/untracked/venv-*/bin/python; do
+            if [ -x "$candidate" ]; then
+                PYTHON_CMD="$candidate"
+                return 0
+            fi
+        done
+    fi
+
     # Legacy fallback (pre-v3.7.0 installs without fingerprint keying)
     PYTHON_CMD="$HOOKS_DAEMON_ROOT_DIR/untracked/venv/bin/python"
 }
