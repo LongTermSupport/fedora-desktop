@@ -3,7 +3,7 @@
 ## Setup
 ## !! BUMP THIS VERSION ON EVERY CHANGE TO THIS FILE — NO EXCEPTIONS !!
 ## !! If you forget, there is NO WAY to tell which version is running !!
-RUN_BASH_VERSION="1.0.12"  # Prefer gh-lts wrapper for LTS-org ops; drop unused read:project check
+RUN_BASH_VERSION="1.0.13"  # Fail fast on dirty working tree before git pull
 set -e
 set -u
 set -o pipefail
@@ -106,6 +106,25 @@ wait_for_network(){
     sleep 2
   done
   success "Network connectivity confirmed"
+}
+
+# Abort the script if the given repo has uncommitted changes. run.bash
+# does `git pull` at two points and a dirty working tree causes the pull
+# to fail with an unhelpful error. Fail fast with a clear remediation.
+assert_clean_worktree(){
+  local dir="$1"
+  local dirty
+  dirty="$(git -C "$dir" status --porcelain)"
+  if [[ -n "$dirty" ]]; then
+    error "Working tree at $dir has uncommitted changes"
+    echo -e "${YELLOW}${ARROW} run.bash needs a clean working tree before pulling updates.${NC}"
+    echo -e "${YELLOW}${ARROW} Inspect:${NC}   ${BOLD}cd $dir && git status${NC}"
+    echo -e "${YELLOW}${ARROW} Resolve by committing:${NC}"
+    echo -e "     ${BOLD}git add -p && git commit${NC}"
+    echo -e "${YELLOW}${ARROW} Or by temporarily stashing (remember to restore afterwards):${NC}"
+    echo -e "     ${BOLD}git stash push -m 'pre-run.bash' && ./run.bash && git stash pop${NC}"
+    exit 1
+  fi
 }
 
 confirm(){
@@ -585,6 +604,7 @@ if [[ ! -d ~/Projects/fedora-desktop ]]; then
   success "Repository cloned"
 else
   info "Pulling latest changes"
+  assert_clean_worktree ~/Projects/fedora-desktop
   git -C ~/Projects/fedora-desktop pull
   success "Repository updated"
 fi
@@ -881,6 +901,7 @@ completed
 
 title "Running Ansible Playbooks"
 info "Pulling latest changes before running playbooks"
+assert_clean_worktree ~/Projects/fedora-desktop
 git pull
 success "Repository up to date"
 
