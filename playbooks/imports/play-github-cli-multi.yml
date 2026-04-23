@@ -85,8 +85,8 @@
         fail_msg: |
           ERROR: github_ssh_passphrase not found in vault!
 
-          Add it to environment/localhost/host_vars/localhost.yml:
-          ansible-vault encrypt_string 'your-passphrase' --name 'github_ssh_passphrase' --vault-id localhost@vault-pass.secret
+          Add it using the vault helper:
+            ./vault.bash set github_ssh_passphrase
 
           This passphrase protects your GitHub SSH private keys.
           All github_* keys use the same passphrase.
