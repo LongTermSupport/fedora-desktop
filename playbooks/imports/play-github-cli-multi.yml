@@ -711,9 +711,15 @@
               # Smart git wrapper that auto-detects account from repository remote
 
               function git() {
-                  # Detect account from repository
-                  local detected_alias
-                  detected_alias=$(git-account-helper detect 2>/dev/null)
+                  # Detect account from repository.
+                  # git-account-helper exits non-zero when no alias matches the current
+                  # repo — that's the normal "no routing needed" case, not an error.
+                  # Handle it explicitly so this wrapper is safe to call from scripts
+                  # running under `set -e`.
+                  local detected_alias=""
+                  if ! detected_alias=$(git-account-helper detect 2>/dev/null); then
+                      detected_alias=""
+                  fi
 
                   if [[ -n "$detected_alias" ]]; then
                       # Run git with account-specific SSH key

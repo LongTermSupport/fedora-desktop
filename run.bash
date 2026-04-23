@@ -3,7 +3,7 @@
 ## Setup
 ## !! BUMP THIS VERSION ON EVERY CHANGE TO THIS FILE — NO EXCEPTIONS !!
 ## !! If you forget, there is NO WAY to tell which version is running !!
-RUN_BASH_VERSION="1.0.13"  # Fail fast on dirty working tree before git pull
+RUN_BASH_VERSION="1.0.14"  # Bypass git() wrapper with `command git` for pulls (set -e safety)
 set -e
 set -u
 set -o pipefail
@@ -605,7 +605,10 @@ if [[ ! -d ~/Projects/fedora-desktop ]]; then
 else
   info "Pulling latest changes"
   assert_clean_worktree ~/Projects/fedora-desktop
-  git -C ~/Projects/fedora-desktop pull
+  # Use `command git` to bypass any git() bash wrapper function (e.g. from
+  # gh-aliases.inc.bash). Wrappers that run subcommands and assign to vars
+  # can propagate non-zero exits under `set -e` even when they're benign.
+  command git -C ~/Projects/fedora-desktop pull
   success "Repository updated"
 fi
 cd ~/Projects/fedora-desktop
@@ -902,7 +905,8 @@ completed
 title "Running Ansible Playbooks"
 info "Pulling latest changes before running playbooks"
 assert_clean_worktree ~/Projects/fedora-desktop
-git pull
+# See note above on `command git` — bypass any sourced git() wrapper.
+command git pull
 success "Repository up to date"
 
 info "Installing Ansible requirements"
