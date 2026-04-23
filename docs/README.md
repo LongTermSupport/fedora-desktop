@@ -13,6 +13,7 @@ Complete guide to the Fedora Desktop Configuration Manager.
 **Quick answers:**
 
 - "How do I install this?" → [One-command installation](installation.md#quick-install)
+- "I just DNF-upgraded Fedora and things are broken" → [Post-Upgrade Repair Guide](post-upgrade.md)
 - "What does it install?" → [Core playbooks](playbooks.md#core-playbooks-automatically-run)
 - "How do I add Docker?" → [Optional playbooks](playbooks.md#optional-playbooks)
 - "How do I set up DDEV?" → [DDEV Guide](ddev.md)
@@ -282,6 +283,7 @@ distrobox enter dev
 - [Quick install](installation.md#quick-install)
 - [Manual installation](installation.md#manual-installation)
 - [Post-installation](installation.md#post-installation)
+- [Post-upgrade repair (after `dnf system-upgrade`)](post-upgrade.md)
 - [Troubleshooting](installation.md#troubleshooting)
 
 **Playbooks & Features**
@@ -308,7 +310,7 @@ distrobox enter dev
 
 ## Version Information
 
-**Current branch:** Fedora 42 (`F42`)
+**Current branch:** Fedora 43 (`F43`)
 
 This documentation matches the configuration in this branch. Other Fedora versions have separate branches with version-specific changes.
 
