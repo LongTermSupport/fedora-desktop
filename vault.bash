@@ -144,8 +144,11 @@ cmd_encrypt() {
     value=$(cat)
   fi
 
+  # Don't pass --vault-id here: ansible.cfg already registers one at
+  # vault-id "localhost". Passing it again makes ansible-core 2.20+ see
+  # two identities both named "localhost" and refuse to encrypt without
+  # --encrypt-vault-id disambiguation. Let ansible.cfg be the source.
   printf '%s' "$value" | ansible-vault encrypt_string \
-    --vault-id "${VAULT_ID}@${VAULT_PASS_FILE}" \
     --stdin-name "$varname"
 }
 
@@ -174,9 +177,11 @@ cmd_set() {
     value=$(cat)
   fi
 
+  # See note in cmd_encrypt: ansible.cfg registers vault-id "localhost"
+  # already; passing --vault-id here duplicates it and breaks on
+  # ansible-core 2.20+.
   local encrypted
   encrypted=$(printf '%s' "$value" | ansible-vault encrypt_string \
-    --vault-id "${VAULT_ID}@${VAULT_PASS_FILE}" \
     --stdin-name "$varname")
 
   echo "$encrypted" >> "$VAULT_FILE"
