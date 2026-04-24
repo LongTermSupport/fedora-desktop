@@ -194,17 +194,21 @@ trustworthy across all accounts, SSH keys become easy to manage and rotate.
 
 ### Phase 5: ccy diagnostics alignment
 
-- [ ] ⬜ **Apply the same SSH probe isolation** to
-  `files/var/local/claude-yolo/lib/ssh-handling.bash:112`. Without
-  this, ccy has the same false-positive risk as the playbook did.
-- [ ] ⬜ **Fix the misleading log line** at
-  `ssh-handling.bash:188` — "Retrieved token for GitHub account:
-  $GITHUB_USERNAME (via $token_func)" conflates the SSH-detected
-  user with the alias-mapped user; log both explicitly when they
-  differ, and fail-fast on the host side (not inside the container)
-  when they disagree.
-- [ ] ⬜ **Bump `CCY_VERSION`** per the CCY version-bump rule in
-  `CLAUDE/ContainerRules.md`.
+- [x] ✅ **Apply the same SSH probe isolation** to
+  `files/var/local/claude-yolo/lib/ssh-handling.bash:112`. Added
+  `-F /dev/null -o IdentityAgent=none` so the probe can't fall
+  through to `~/.ssh/id`. Committed.
+- [x] ✅ **Fix the misleading log line** at
+  `ssh-handling.bash:188` — now cross-checks `gh api user` against
+  the SSH-detected username and fails on the host with a specific
+  "mapping vs SSH key disagrees" error. Log line now shows both
+  identities explicitly. Committed.
+- [x] ✅ **Bump `CCY_VERSION`** to 3.12.2 with a description of
+  the SSH-probe fix. Committed.
+- [ ] ⬜ **Deploy to host** — user must run
+  `ansible-playbook playbooks/imports/play-claude-yolo-build.yml`
+  (or equivalent) to rebuild the CCY image so the new
+  ssh-handling.bash ships inside the container.
 
 ### Phase 6: Signed commits research
 
@@ -345,3 +349,18 @@ touch different files.)
   Claude runs on the host (since the project lives under `/home/`).
   This was a separate blocker during today's session. Daemon
   restarted to pick it up.
+
+### 2026-04-24 — Phase 5 (ccy fix) implemented
+
+- `files/var/local/claude-yolo/lib/ssh-handling.bash:112` now uses
+  `-F /dev/null -o IdentityAgent=none -o IdentitiesOnly=yes` so the
+  probe is fully isolated from `~/.ssh/config` and ssh-agent.
+- Host-side cross-check added: after `$token_func` returns a token,
+  we call `gh api user --jq .login` and assert it equals
+  `GITHUB_USERNAME` from the SSH probe. Fails fast with actionable
+  wording instead of letting the container entrypoint surface the
+  mismatch post-image-build.
+- `CCY_VERSION` bumped to `3.12.2`.
+- Not yet deployed: user still needs to run the ansible build
+  playbook to push the new `ssh-handling.bash` into the CCY image
+  and rebuild the container cache.
