@@ -205,10 +205,9 @@ trustworthy across all accounts, SSH keys become easy to manage and rotate.
   identities explicitly. Committed.
 - [x] ✅ **Bump `CCY_VERSION`** to 3.12.2 with a description of
   the SSH-probe fix. Committed.
-- [ ] ⬜ **Deploy to host** — user must run
-  `ansible-playbook playbooks/imports/play-claude-yolo-build.yml`
-  (or equivalent) to rebuild the CCY image so the new
-  ssh-handling.bash ships inside the container.
+- [x] ✅ **Deploy to host** — user deployed via the CCY playbook,
+  restarted ccy, and confirmed the fix resolves the token-mismatch
+  error in multiple projects. Phase 5 is complete.
 
 ### Phase 6: Signed commits research
 
@@ -361,6 +360,11 @@ touch different files.)
   wording instead of letting the container entrypoint surface the
   mismatch post-image-build.
 - `CCY_VERSION` bumped to `3.12.2`.
-- Not yet deployed: user still needs to run the ansible build
-  playbook to push the new `ssh-handling.bash` into the CCY image
-  and rebuild the container cache.
+- **Deployed and verified**: user ran the CCY ansible playbook,
+  rebuilt the container, and confirmed ccy now launches cleanly
+  across projects (no more token-mismatch error). Phase 5 complete.
+- Phases 1-4 (playbook hardening, fresh-install reordering,
+  programmatic upload), 6 (signed-commits research), and 7 (docs)
+  remain for future work. Plan stays In Progress; will move to
+  Completed/ when all phases are done, or could split remaining
+  phases into 00037-onwards if priority dictates.
