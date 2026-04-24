@@ -52,6 +52,7 @@ Use these Unicode icons in plan documents:
 - [031-reliable-screen-sharing](031-reliable-screen-sharing/) - Find reliable screen-sharing alternatives for WFH devs on Fedora 43 Wayland (complements Plan 028); 4 parallel research tracks: self-hosted platforms, native Linux tools, current SaaS, unconventional approaches
 - [032-compression-helpers](032-compression-helpers/) - `compress` / `uncompress` CLI wrappers around `ouch`: xz by default, `--zip` flag, auto-detect on decompress, always-extract-into-folder (tarbomb protection)
 - [034-localhost-config-account](034-localhost-config-account/) - Track config-owning GitHub account in `localhost.yml` instead of relying on volatile `gh api user` (config repo lookup was driven by active gh default)
+- [00035-gh-multi-account-hardening](00035-gh-multi-account-hardening/) - Harden fresh-install flow (gh multi-account first, then SSH keys); fix SSH probe fallback bug in playbook and ccy; replace manual paste with `gh ssh-key add`; research signed commits
 
 ## Completed Plans
 
