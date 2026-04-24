@@ -414,6 +414,16 @@ MUST_STASH_BECAUSE="explain why"; git stash
 
 Configure via `handlers.pre_tool_use.git_stash.options.mode: warn` for advisory-only mode.
 
+## gh_pr_comments — always include --comments on gh pr view
+
+`gh pr view` without `--comments` is blocked. PR comments often contain review feedback, reviewer requests, and decisions not in the PR body.
+
+**Blocked**: `gh pr view 123`, `gh pr view 123 --repo owner/repo`
+
+**Allowed**: `gh pr view 123 --comments`, `gh pr view 123 --json title,body,comments`
+
+If using `--json`, include `comments` in the field list instead of adding `--comments`.
+
 ## system_paths — do not edit deployed system files directly
 
 Writing or editing files under system paths (/etc/, /var/, /usr/, /opt/, /root/, /home/) is blocked.
