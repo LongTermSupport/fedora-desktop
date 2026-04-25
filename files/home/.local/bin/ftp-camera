@@ -57,8 +57,8 @@ sort_uploads() {
 
     echo -e "${BOLD}Sorting uploads by EXIF date...${NC}"
 
-    # Process JPG and ARW files anywhere under the upload dir.
-    # Files already in a YY/MM/DD/ tree are skipped (dest == current location).
+    # Only process unsorted files in the upload root (where the camera drops them).
+    # Already-sorted files live in YY/MM/DD/ subdirs and are never revisited.
     local file
     while IFS= read -r -d '' file; do
         local ext="${file##*.}"
@@ -81,15 +81,11 @@ sort_uploads() {
         fi
 
         local dest_dir="$UPLOAD_DIR/$date_path/$type_dir"
-        # Skip if already in the correct location
-        if [ "$(dirname "$file")" = "$dest_dir" ]; then
-            continue
-        fi
         sudo mkdir -p "$dest_dir"
         sudo mv "$file" "$dest_dir/"
         echo -e "  ${GREEN}move${NC}  $(basename "$file")  → ${date_path}/${type_dir}/"
         moved=$((moved + 1))
-    done < <(find "$dir" -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.arw' \) -print0)
+    done < <(find "$dir" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.arw' \) -print0)
 
     # Clean up empty directories left behind by camera (e.g. DCIM/100MSDCF/)
     sudo find "$dir" -mindepth 1 -type d -empty -delete 2>/dev/null
