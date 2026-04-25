@@ -75,9 +75,11 @@ cleanup() {
             echo -e "  Files: ${CYAN}${file_count}${NC}"
             echo -e "  Total: ${CYAN}${total_human}${NC}"
             echo -e "  Path:  ${CYAN}${UPLOAD_DIR}${NC}"
-            echo ""
-            find "$UPLOAD_DIR" -type f -newer "$START_MARKER" -printf '  %h/%f  %s\n' \
-                | awk '{size=$NF; $NF=""; cmd="numfmt --to=iec-i --suffix=B " size; cmd | getline h; close(cmd); printf "%s %s\n", $0, h}'
+            if [ "$file_count" -le 20 ]; then
+                echo ""
+                find "$UPLOAD_DIR" -type f -newer "$START_MARKER" -printf '  %h/%f  %s\n' \
+                    | awk '{size=$NF; $NF=""; cmd="numfmt --to=iec-i --suffix=B " size; cmd | getline h; close(cmd); printf "%s %s\n", $0, h}'
+            fi
         else
             echo -e "${BOLD}Upload summary:${NC}"
             echo "  (no files received)"
