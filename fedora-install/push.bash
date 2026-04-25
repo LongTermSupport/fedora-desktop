@@ -313,8 +313,13 @@ push_config() {
 
             local tmp_enc
             tmp_enc=$(mktemp)
-            ansible-vault encrypt_string \
-                --vault-id "localhost@${vault_pass_file}" \
+            # Use ANSIBLE_CONFIG so vault_identity / vault_password_file are
+            # loaded from the project's ansible.cfg (push.bash runs from
+            # fedora-install/, not project root). Pass --encrypt-vault-id to
+            # select the loaded identity — avoids the "two identities named
+            # localhost" duplicate that ansible-core 2.20+ rejects.
+            ANSIBLE_CONFIG="${PROJECT_ROOT}/ansible.cfg" ansible-vault encrypt_string \
+                --encrypt-vault-id localhost \
                 "$plain_value" \
                 --name "$var_name" > "$tmp_enc"
 

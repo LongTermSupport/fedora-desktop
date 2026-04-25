@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.12.1"  # fix: version check grep pattern — claude --version output format changed, update detection was silently broken
+CCY_VERSION="3.12.2"  # fix(ssh-probe): isolate SSH probe in ssh-handling.bash (-F /dev/null -o IdentityAgent=none) so it can't fall through to ~/.ssh/id; cross-check gh token owner matches SSH-detected user on host before container hand-off
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

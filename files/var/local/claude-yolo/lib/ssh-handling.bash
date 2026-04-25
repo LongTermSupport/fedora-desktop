@@ -106,10 +106,23 @@ build_ssh_mounts_and_validate() {
         SSH_MOUNTS+=("-v" "${SSH_KEYS[$i]}:/root/.ssh/key_$i:ro")
         SSH_KEY_PATHS+=("/root/.ssh/key_$i")
 
-        # Extract GitHub username by testing SSH connection with the key
-        # This works for any SSH key (github_ or otherwise)
-        # ssh -T will respond with: "Hi <username>! You've successfully authenticated..."
-        GITHUB_USERNAME=$(ssh -T -i "${SSH_KEYS[$i]}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=no git@github.com 2>&1 | grep -oP "Hi \K[^!]+")
+        # Extract GitHub username by testing SSH connection with the key.
+        # CRITICAL isolation flags — without them the probe falls through to
+        # ~/.ssh/config's default `Host github.com` entry (which typically
+        # points IdentityFile at ~/.ssh/id) and/or ssh-agent, so GitHub
+        # returns "Hi <id-owner>!" regardless of which github_<alias> key
+        # was passed via -i. That false positive silently mis-maps aliases
+        # to accounts and fails downstream in the container's token check.
+        #   -F /dev/null        → ignore ~/.ssh/config
+        #   -o IdentityAgent=none → ignore ssh-agent
+        #   -o IdentitiesOnly=yes → only try the -i key
+        # ssh -T responds with: "Hi <username>! You've successfully authenticated..."
+        GITHUB_USERNAME=$(ssh -T -i "${SSH_KEYS[$i]}" \
+            -F /dev/null \
+            -o IdentitiesOnly=yes \
+            -o IdentityAgent=none \
+            -o StrictHostKeyChecking=no \
+            git@github.com 2>&1 | grep -oP "Hi \K[^!]+")
 
         if [ -z "$GITHUB_USERNAME" ]; then
             print_error "SSH key authentication to GitHub failed: ${SSH_KEYS[$i]}"
@@ -185,7 +198,31 @@ build_ssh_mounts_and_validate() {
                 return 1
             fi
 
-            echo "✓ Retrieved token for GitHub account: $GITHUB_USERNAME (via $token_func)"
+            # Cross-check: the token we just got should belong to the same
+            # account that the SSH key authenticates as. A mismatch means the
+            # github_accounts mapping (alias → username) is inconsistent with
+            # the SSH key registrations. Fail here on the host with a clear
+            # error rather than letting the container entrypoint surface it
+            # after image build, which is slower and less obvious.
+            local token_user
+            token_user=$(GH_TOKEN="$GH_TOKEN" gh api user --jq .login 2>/dev/null)
+            if [ -n "$token_user" ] && [ "$token_user" != "$GITHUB_USERNAME" ]; then
+                print_error "Token owner does not match SSH-detected account"
+                echo ""
+                echo "  SSH key ${SSH_KEYS[0]} authenticates as: $GITHUB_USERNAME"
+                echo "  But ${token_func} returned a token owned by: $token_user"
+                echo ""
+                echo "This means the github_accounts mapping for alias '$alias'"
+                echo "points at '$token_user', but the SSH key ~/.ssh/github_${alias}"
+                echo "is registered on GitHub as '$GITHUB_USERNAME'."
+                echo ""
+                echo "Fix one of:"
+                echo "  - update github_accounts[${alias}] in localhost.yml to match the SSH key, or"
+                echo "  - move the SSH key registration to match the alias mapping"
+                return 1
+            fi
+
+            echo "✓ SSH key → $GITHUB_USERNAME ✓ gh token → $token_user (via $token_func)"
         fi
     else
         # No GitHub username detected - fall back to default token

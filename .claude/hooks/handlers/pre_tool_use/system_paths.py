@@ -58,6 +58,19 @@ class SystemPathsHandler(Handler):
         if not file_path:
             return False
 
+        # Exempt the active Claude Code project directory. When Claude runs on
+        # the HOST (not inside a /workspace CCY container), the project itself
+        # lives under /home/<user>/..., and legitimately editing its own files
+        # must not be confused with editing deployed system files.
+        # Derive project root from this handler's own location — the daemon
+        # process does not receive CLAUDE_PROJECT_DIR as an env var, so
+        # os.environ is unreliable here. This file lives at:
+        #   <project_root>/.claude/hooks/handlers/pre_tool_use/system_paths.py
+        # so project_root is five parents up.
+        project_dir = str(Path(__file__).resolve().parents[4]) + "/"
+        if file_path.startswith(project_dir):
+            return False
+
         # Check if file_path starts with any blocked system path
         for blocked_path in self.BLOCKED_PATHS:
             if file_path.startswith(blocked_path):

@@ -21,15 +21,29 @@
         state: latest
 
     # @see https://developers.cloudflare.com/warp-client/get-started/linux/
+    # Probe-then-act: detect existing registration by exit code of
+    # `registration show` instead of grepping output for a specific string
+    # (Cloudflare changes the output format between releases, which silently
+    # broke the previous grep-based check).
+    - name: Probe existing Warp registration
+      ansible.builtin.command: warp-cli --accept-tos registration show
+      register: _warp_reg_show
+      failed_when: false  # FAIL-FAST-OK: probe-then-act — rc drives next task
+      changed_when: false
+      become: true
+      become_user: "{{ user_login }}"
+
+    - name: Delete existing Warp registration before re-creating
+      ansible.builtin.command: warp-cli --accept-tos registration delete
+      when: _warp_reg_show.rc == 0
+      become: true
+      become_user: "{{ user_login }}"
+
     - name: Configure
       become: true
       become_user: "{{ user_login }}"
       ansible.builtin.shell: |
         set -ex
-        # Delete existing registration if present before creating a new one
-        if warp-cli --accept-tos registration show 2>/dev/null | grep -q 'Registration ID'; then
-          warp-cli --accept-tos registration delete
-        fi
         yes | warp-cli --accept-tos registration new
         warp-cli --accept-tos connect
         warp-cli --accept-tos mode doh

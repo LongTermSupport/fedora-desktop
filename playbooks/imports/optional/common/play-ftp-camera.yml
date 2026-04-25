@@ -12,16 +12,24 @@
 
   tasks:
 
-    - name: Preflight — assert ftp_camera_password is set
-      ansible.builtin.assert:
-        that:
-          - ftp_camera_password is defined
-          - ftp_camera_password | length > 0
-        fail_msg: |
-          ftp_camera_password is not defined.
+    # Optional playbook: skip cleanly (no-op) when the FTP password hasn't
+    # been configured, instead of failing the whole optional run. Users who
+    # don't use the camera FTP feature shouldn't have to vault a dummy
+    # value just to let the --optional-only flow proceed.
+    - name: Skip if ftp_camera_password is not configured
+      when: (ftp_camera_password | default('') | length) == 0
+      block:
+        - name: Inform user the Camera FTP play was skipped
+          ansible.builtin.debug:
+            msg: |
+              Camera FTP Server skipped — ftp_camera_password is not set in vault.
 
-          Add it to environment/localhost/host_vars/localhost.yml and encrypt it:
-            ansible-vault encrypt_string 'yourpassword' --name 'ftp_camera_password'
+              To enable this feature, set the password and re-run:
+                ./vault.bash set ftp_camera_password
+                ./run.bash --optional-only
+
+        - name: End play (ftp_camera_password not configured)
+          ansible.builtin.meta: end_play
 
     - name: Install vsftpd and inotify-tools
       ansible.builtin.package:

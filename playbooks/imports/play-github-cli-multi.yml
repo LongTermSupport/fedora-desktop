@@ -85,8 +85,8 @@
         fail_msg: |
           ERROR: github_ssh_passphrase not found in vault!
 
-          Add it to environment/localhost/host_vars/localhost.yml:
-          ansible-vault encrypt_string 'your-passphrase' --name 'github_ssh_passphrase' --vault-id localhost@vault-pass.secret
+          Add it using the vault helper:
+            ./vault.bash set github_ssh_passphrase
 
           This passphrase protects your GitHub SSH private keys.
           All github_* keys use the same passphrase.
@@ -711,9 +711,15 @@
               # Smart git wrapper that auto-detects account from repository remote
 
               function git() {
-                  # Detect account from repository
-                  local detected_alias
-                  detected_alias=$(git-account-helper detect 2>/dev/null)
+                  # Detect account from repository.
+                  # git-account-helper exits non-zero when no alias matches the current
+                  # repo — that's the normal "no routing needed" case, not an error.
+                  # Handle it explicitly so this wrapper is safe to call from scripts
+                  # running under `set -e`.
+                  local detected_alias=""
+                  if ! detected_alias=$(git-account-helper detect 2>/dev/null); then
+                      detected_alias=""
+                  fi
 
                   if [[ -n "$detected_alias" ]]; then
                       # Run git with account-specific SSH key
