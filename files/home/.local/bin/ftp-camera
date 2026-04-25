@@ -14,6 +14,12 @@ fi
 
 MONITOR_PID=""
 START_MARKER=$(mktemp)
+SORT_ONLY=false
+
+# ── Args ─────────────────────────────────────────────────────────────────────
+if [ "${1:-}" = "--sort" ]; then
+    SORT_ONLY=true
+fi
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 BOLD='\033[1m'
@@ -32,6 +38,64 @@ get_local_ip() {
         exit 1
     fi
     ip -4 addr show dev "$iface" | awk '/inet / {print $2; exit}' | cut -d/ -f1
+}
+
+# Sort uploaded files into YY/MM/DD/(JPG|RAW)/ based on EXIF DateTimeOriginal
+sort_uploads() {
+    local dir="${1:-$UPLOAD_DIR}"
+    local moved=0 skipped=0
+
+    if [ ! -d "$dir" ]; then
+        echo "ERROR: Upload directory not found: $dir" >&2
+        return 1
+    fi
+
+    if ! command -v exiftool > /dev/null; then
+        echo "ERROR: exiftool not found — run play-photography.yml first" >&2
+        return 1
+    fi
+
+    echo -e "${BOLD}Sorting uploads by EXIF date...${NC}"
+
+    # Process JPG and ARW files anywhere under the upload dir.
+    # Files already in a YY/MM/DD/ tree are skipped (dest == current location).
+    local file
+    while IFS= read -r -d '' file; do
+        local ext="${file##*.}"
+        local ext_upper="${ext^^}"
+
+        # Determine subfolder: ARW → RAW, everything else keeps its extension name
+        local type_dir="$ext_upper"
+        if [ "$ext_upper" = "ARW" ]; then
+            type_dir="RAW"
+        fi
+
+        # Extract EXIF date as YY/MM/DD
+        local date_path
+        date_path=$(exiftool -DateTimeOriginal -s3 -d '%y/%m/%d' "$file" 2>/dev/null)
+
+        if [ -z "$date_path" ]; then
+            echo -e "  ${YELLOW}skip${NC}  $(basename "$file")  (no EXIF date)"
+            skipped=$((skipped + 1))
+            continue
+        fi
+
+        local dest_dir="$UPLOAD_DIR/$date_path/$type_dir"
+        # Skip if already in the correct location
+        if [ "$(dirname "$file")" = "$dest_dir" ]; then
+            continue
+        fi
+        mkdir -p "$dest_dir"
+        mv "$file" "$dest_dir/"
+        echo -e "  ${GREEN}move${NC}  $(basename "$file")  → ${date_path}/${type_dir}/"
+        moved=$((moved + 1))
+    done < <(find "$dir" -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.arw' \) -print0)
+
+    # Clean up empty directories left behind by camera (e.g. DCIM/100MSDCF/)
+    find "$dir" -mindepth 1 -type d -empty -delete 2>/dev/null
+
+    echo ""
+    echo -e "${BOLD}Sort complete:${NC} ${CYAN}${moved}${NC} moved, ${CYAN}${skipped}${NC} skipped"
 }
 
 # ── Cleanup ────────────────────────────────────────────────────────────────────
@@ -86,10 +150,20 @@ cleanup() {
         fi
     fi
     rm -f "$START_MARKER"
+
+    sort_uploads
 }
 
 trap cleanup EXIT
 trap 'exit 0' INT TERM
+
+# ── Sort-only mode ────────────────────────────────────────────────────────────
+if [ "$SORT_ONLY" = true ]; then
+    # No FTP server — just sort existing files and exit
+    trap - EXIT INT TERM
+    sort_uploads
+    exit 0
+fi
 
 # ── Main ───────────────────────────────────────────────────────────────────────
 
