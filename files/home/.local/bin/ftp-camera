@@ -70,9 +70,9 @@ sort_uploads() {
             type_dir="RAW"
         fi
 
-        # Extract EXIF date as YY/MM/DD
+        # Extract EXIF date as YY/MM/DD (|| true: exiftool exits non-zero when tag is missing)
         local date_path
-        date_path=$(exiftool -DateTimeOriginal -s3 -d '%y/%m/%d' "$file" 2>/dev/null)
+        date_path=$(exiftool -DateTimeOriginal -s3 -d '%y/%m/%d' "$file" 2>/dev/null) || true
 
         if [ -z "$date_path" ]; then
             echo -e "  ${YELLOW}skip${NC}  $(basename "$file")  (no EXIF date)"
@@ -85,14 +85,14 @@ sort_uploads() {
         if [ "$(dirname "$file")" = "$dest_dir" ]; then
             continue
         fi
-        mkdir -p "$dest_dir"
-        mv "$file" "$dest_dir/"
+        sudo mkdir -p "$dest_dir"
+        sudo mv "$file" "$dest_dir/"
         echo -e "  ${GREEN}move${NC}  $(basename "$file")  → ${date_path}/${type_dir}/"
         moved=$((moved + 1))
     done < <(find "$dir" -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.arw' \) -print0)
 
     # Clean up empty directories left behind by camera (e.g. DCIM/100MSDCF/)
-    find "$dir" -mindepth 1 -type d -empty -delete 2>/dev/null
+    sudo find "$dir" -mindepth 1 -type d -empty -delete 2>/dev/null
 
     echo ""
     echo -e "${BOLD}Sort complete:${NC} ${CYAN}${moved}${NC} moved, ${CYAN}${skipped}${NC} skipped"
