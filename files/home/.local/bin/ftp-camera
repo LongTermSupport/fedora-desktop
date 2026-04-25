@@ -100,6 +100,10 @@ echo -e "${BOLD}Starting camera FTP server...${NC}"
 sudo cp /etc/vsftpd/vsftpd.conf /run/vsftpd-camera.conf
 echo "pasv_address=${LOCAL_IP}" | sudo tee -a /run/vsftpd-camera.conf > /dev/null
 
+# Ensure vsftpd's privsep chroot dir exists (wiped on reboot — /run is tmpfs)
+sudo mkdir -p /run/vsftpd/empty
+sudo chmod 0755 /run/vsftpd /run/vsftpd/empty
+
 # Systemd override: use runtime config instead of /etc/vsftpd/vsftpd.conf
 sudo mkdir -p /run/systemd/system/vsftpd.service.d
 printf '[Service]\nExecStart=\nExecStart=/usr/sbin/vsftpd %s\n' "/run/vsftpd-camera.conf" \

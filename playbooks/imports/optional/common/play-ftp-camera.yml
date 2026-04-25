@@ -105,13 +105,18 @@
         group: root
         mode: "0644"
 
-    - name: Ensure vsftpd secure chroot directory exists
-      ansible.builtin.file:
-        path: /var/run/vsftpd/empty
-        state: directory
+    - name: Deploy tmpfiles.d entry for vsftpd secure chroot dir (survives reboots)
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/etc/tmpfiles.d/vsftpd-camera.conf"
+        dest: /etc/tmpfiles.d/vsftpd-camera.conf
         owner: root
         group: root
-        mode: "0755"
+        mode: "0644"
+
+    - name: Create vsftpd secure chroot dir now (tmpfiles.d only fires at boot)
+      ansible.builtin.command:
+        cmd: systemd-tmpfiles --create /etc/tmpfiles.d/vsftpd-camera.conf
+      changed_when: true
 
     - name: Set SELinux file context on upload directory (allows vsftpd write access)
       # public_content_rw_t is the designated type for FTP-writable directories.
