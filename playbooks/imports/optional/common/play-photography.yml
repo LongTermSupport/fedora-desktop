@@ -7,10 +7,10 @@
     root_dir: "{{ inventory_dir }}/../../"
     # RapidRAW - hardcoded version for security and reproducibility
     # @see https://github.com/CyberTimon/RapidRAW/releases
-    rapidraw_version: "1.5.3"
+    rapidraw_version: "1.5.4"
     rapidraw_rpm: "03_RapidRAW_v{{ rapidraw_version }}_ubuntu-22.04_x86_64.rpm"
     rapidraw_url: "https://github.com/CyberTimon/RapidRAW/releases/download/v{{ rapidraw_version }}/{{ rapidraw_rpm }}"
-    rapidraw_sha256: "4efc732a38aa33a4ac806697b5b748fe3f99ecf9ab80880af8b85b339b972e33"
+    rapidraw_sha256: "32de744c485a214f87759ca3e989867100f2817a1156981169719584b13b7666"
     rapidraw_tmp: "/tmp/{{ rapidraw_rpm }}"
     # ART - hardcoded version for security and reproducibility
     # @see https://artraweditor.github.io/ | https://github.com/artraweditor/ART/releases
@@ -74,6 +74,28 @@
       when: rapidraw_installed_version.stdout != rapidraw_version
       tags: rapidraw
 
+    - name: Check for newer RapidRAW release on GitHub
+      ansible.builtin.uri:
+        url: "https://api.github.com/repos/CyberTimon/RapidRAW/releases/latest"
+        return_content: true
+        headers:
+          Accept: "application/vnd.github+json"
+      register: rapidraw_latest
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: network check is advisory, should not block install
+      tags: rapidraw
+
+    - name: Warn if newer RapidRAW version is available
+      ansible.builtin.debug:
+        msg: >-
+          RapidRAW update available: {{ rapidraw_latest.json.tag_name | regex_replace('^v', '') }}
+          (pinned: {{ rapidraw_version }}).
+          Update rapidraw_version and rapidraw_sha256 in play-photography.yml.
+      when:
+        - rapidraw_latest is succeeded
+        - (rapidraw_latest.json.tag_name | regex_replace('^v', '')) != rapidraw_version
+      tags: rapidraw
+
     # ART: Advanced RAW editor (ART fork of RawTherapee) with improved tone mapping
     # and masking. Installed as AppImage since no official RPM is available.
     - name: Check if ART is already installed at target version
@@ -120,6 +142,28 @@
           Type=Application
           Categories=Graphics;Photography;RasterGraphics;
           MimeType=image/x-nikon-nef;image/x-canon-cr2;image/x-canon-crw;image/x-adobe-dng;image/x-fuji-raf;image/tiff;image/jpeg;
+      tags: art
+
+    - name: Check for newer ART release on GitHub
+      ansible.builtin.uri:
+        url: "https://api.github.com/repos/artraweditor/ART/releases/latest"
+        return_content: true
+        headers:
+          Accept: "application/vnd.github+json"
+      register: art_latest
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: network check is advisory, should not block install
+      tags: art
+
+    - name: Warn if newer ART version is available
+      ansible.builtin.debug:
+        msg: >-
+          ART update available: {{ art_latest.json.tag_name }}
+          (pinned: {{ art_version }}).
+          Update art_version and art_sha256 in play-photography.yml.
+      when:
+        - art_latest is succeeded
+        - art_latest.json.tag_name != art_version
       tags: art
 
     - name: Display Installation Complete Message
