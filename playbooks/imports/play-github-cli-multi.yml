@@ -6,6 +6,21 @@
   vars:
     root_dir: "{{ inventory_dir }}/../../"
     vault_file: "{{ root_dir }}/environment/localhost/host_vars/localhost.yml"
+    # Single source of truth for OAuth scopes every gh token must carry.
+    # admin:public_key  — programmatic SSH pubkey upload (gh ssh-key add)
+    # gist              — gh gist commands
+    # project, read:project — GitHub Projects v2 (boards, issue project membership)
+    # read:org          — read org membership / list teams
+    # repo              — full repo access (clone, push, PRs, issues)
+    # user:email        — read user.email for git config
+    github_required_scopes:
+      - admin:public_key
+      - gist
+      - project
+      - read:org
+      - read:project
+      - repo
+      - user:email
   tasks:
     - name: Check gh version for multi-account support
       ansible.builtin.shell: gh --version | grep -oP '\d+\.\d+\.\d+' | head -1
@@ -75,6 +90,86 @@
           Account '{{ item.item.key }}' ({{ item.item.value }}): {{ 'Already authenticated ✓' if item.stdout == 'authenticated' else 'Needs authentication' }}
       loop: "{{ account_auth_status.results | default([]) }}"
       when: github_accounts_configured
+
+    # PER-ACCOUNT OAUTH SCOPE AUDIT
+    # Every gh token must carry the scopes in github_required_scopes (defined in vars).
+    # We loop each authenticated account, switch to it, read its scopes, and record
+    # any missing. After the audit we restore the originally-active account, then
+    # fail-fast with a remediation command if any account is short on scopes.
+    - name: Capture currently active GitHub account (to restore after scope audit)
+      ansible.builtin.shell: |
+        gh auth status --json hosts 2>/dev/null | \
+          jq -r '.hosts["github.com"][] | select(.active == true) | .login // empty'
+      register: original_active_account
+      changed_when: false
+      when: github_accounts_configured
+
+    - name: Audit OAuth scopes for each authenticated GitHub account
+      ansible.builtin.shell: |
+        set -e
+        if ! gh auth switch --hostname github.com --user "{{ item.value }}" 2>/dev/null; then
+          echo "NOT_AUTHENTICATED"
+          exit 0
+        fi
+        scopes_raw=$(gh auth status --json hosts 2>/dev/null | jq -r '.hosts["github.com"][] | select(.active == true) | .scopes')
+        if [ -z "$scopes_raw" ] || [ "$scopes_raw" = "null" ]; then
+          echo "ERR_NO_SCOPES"
+          exit 0
+        fi
+        current=$(echo "$scopes_raw" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sort -u | tr '\n' ',')
+        missing=""
+        {% for scope in github_required_scopes %}
+        if ! echo ",${current}" | grep -q ",{{ scope }},"; then
+          missing="${missing:+$missing,}{{ scope }}"
+        fi
+        {% endfor %}
+        if [ -z "$missing" ]; then
+          echo "OK"
+        else
+          echo "MISSING:$missing"
+        fi
+      args:
+        executable: /bin/bash
+      register: scope_audit
+      loop: "{{ github_accounts | default({}) | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+      changed_when: false
+      when: github_accounts_configured
+
+    - name: Display scope audit results per account
+      ansible.builtin.debug:
+        msg: "{{ item.item.key }} ({{ item.item.value }}): {{ item.stdout }}"
+      loop: "{{ scope_audit.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item.key }}"
+      when: github_accounts_configured
+
+    - name: Restore originally-active GitHub account after audit
+      ansible.builtin.shell: |
+        gh auth switch --hostname github.com --user "{{ original_active_account.stdout }}" 2>/dev/null
+      changed_when: false
+      when:
+        - github_accounts_configured
+        - original_active_account.stdout | default('') | length > 0
+
+    - name: Fail-fast if any account is missing required OAuth scopes
+      ansible.builtin.fail:
+        msg: |
+          One or more GitHub accounts are missing required OAuth scopes.
+          Run these commands ON THIS MACHINE (interactive — opens a browser),
+          then re-run the playbook:
+
+          {% for r in scope_audit.results %}
+          {% if r.stdout is defined and r.stdout.startswith('MISSING:') %}
+          gh auth switch --hostname github.com --user {{ r.item.value }} && \
+            gh auth refresh --hostname github.com --scopes {{ r.stdout | regex_replace('^MISSING:', '') }}
+
+          {% endif %}
+          {% endfor %}
+      when:
+        - github_accounts_configured
+        - scope_audit.results | default([]) | selectattr('stdout', 'defined') | selectattr('stdout', 'match', '^MISSING:') | list | length > 0
 
     # SSH KEY GENERATION AND SETUP
     - name: Assert github_ssh_passphrase is set in vault
@@ -625,8 +720,9 @@
                       tr '\n' ',' | \
                       sed 's/,$//')
 
-                  # Required scopes for PhpStorm
-                  local required_scopes=("gist" "read:org" "repo" "user:email")
+                  # Required scopes — sourced from playbook var github_required_scopes
+                  # so all gh tokens (PhpStorm, IDE, scripts) share one canonical list.
+                  local required_scopes=({% for s in github_required_scopes %}"{{ s }}" {% endfor %})
 
                   # Check if all required scopes are present
                   local missing_scopes=()
@@ -640,7 +736,7 @@
                   if [ {{ '${#' }}missing_scopes[@]} -gt 0 ]; then
                       echo "Current token scopes: $(echo "$current_scopes" | tr ',' ', ')"
                       echo ""
-                      echo "Missing PhpStorm-required scopes:"
+                      echo "Missing required scopes:"
                       for scope in "${missing_scopes[@]}"; do
                           echo "  - $scope"
                       done
@@ -664,7 +760,7 @@
                       echo ""
                       echo "✓ Token refreshed successfully!"
                   else
-                      echo "✓ Token already has all required PhpStorm scopes"
+                      echo "✓ Token already has all required scopes"
                       echo "  Current scopes: $(echo "$current_scopes" | tr ',' ', ')"
                   fi
 

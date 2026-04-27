@@ -133,9 +133,14 @@ trustworthy across all accounts, SSH keys become easy to manage and rotate.
   `play-github-cli-multi.yml`, (b) F42→F43 home-dir migration,
   (c) a step in `run.bash` or an imported script that runs before
   line 892. Document the finding in this plan's Notes section.
-- [ ] ⬜ **Decide scope list** — enumerate the scopes each account needs.
-  Known so far: `admin:public_key`, `repo`, `read:org`, `gist`,
-  `user:email`. Possibly `admin:org` for primary accounts. Document.
+- [x] ✅ **Decide scope list** — canonical required scopes for every gh
+  token, codified as `github_required_scopes` at the top of
+  `playbooks/imports/play-github-cli-multi.yml`:
+  `admin:public_key`, `gist`, `project`, `read:org`, `read:project`,
+  `repo`, `user:email`. `admin:org` deferred — not needed for current
+  flows; can be added per-account later if a future use case demands it.
+  The PhpStorm token function now reads from the same list, so it stays
+  in sync automatically.
 - [ ] ⬜ **Decide fresh-install ordering** — write out the new step
   sequence from `run.bash` entry through playbook completion. Must
   ensure gh multi-account auth is complete before any SSH key
@@ -152,10 +157,13 @@ trustworthy across all accounts, SSH keys become easy to manage and rotate.
   block that runs AFTER `github_accounts` is known (currently after
   line 740) and BEFORE `play-github-cli-multi.yml` runs, iterating
   each account and calling `gh auth login --hostname github.com --user <X>` for any not yet authenticated.
-- [ ] ⬜ **Per-account scope audit** — for each account, query
-  `gh auth status --json hosts` and check for the required scope list.
-  If any scope is missing, prompt the user to run
-  `gh auth switch --user <X> && gh auth refresh --hostname github.com --scopes <missing>` before the install continues.
+- [x] ✅ **Per-account scope audit** — implemented in
+  `play-github-cli-multi.yml` (not `run.bash` as originally scoped — see
+  2026-04-27 note). Loops `github_accounts`, switches to each, reads
+  active scopes via `gh auth status --json hosts`, and fail-fasts with
+  the exact `gh auth switch && gh auth refresh --scopes <missing>`
+  command per account. Uses the canonical `github_required_scopes` list.
+  Originally-active account is restored before the fail step.
 - [ ] ⬜ **Idempotency test** — re-running the block with everything
   already in place must be a no-op with success logs, not redundant
   prompts.
@@ -180,12 +188,10 @@ trustworthy across all accounts, SSH keys become easy to manage and rotate.
 
 ### Phase 4: Programmatic pubkey upload
 
-- [ ] ⬜ **Scope preflight in playbook** — for each account in
-  `ssh_keys_to_add`, verify `admin:public_key` is present. If not,
-  fail the playbook with the exact `gh auth refresh` command needed.
-  Phase 2 should eliminate this path in normal fresh installs, but
-  the playbook must still fail-loud if someone's setup got out of
-  sync.
+- [x] ✅ **Scope preflight in playbook** — superseded by the broader
+  Phase 2 per-account scope audit, which runs BEFORE the SSH key block
+  and fail-fasts on any missing scope (not just `admin:public_key`).
+  Implemented in `play-github-cli-multi.yml`.
 - [ ] ⬜ **Replace the manual `pause:` prompt** at lines 237-262 with
   a task that loops over `ssh_keys_to_add` and runs
   `gh auth switch --user <expected> && gh ssh-key add <pubkey> --title "<hostname>-<alias>-<date>" --type authentication` per key.
@@ -368,3 +374,31 @@ touch different files.)
   remain for future work. Plan stays In Progress; will move to
   Completed/ when all phases are done, or could split remaining
   phases into 00037-onwards if priority dictates.
+
+### 2026-04-27 — scope list decided + per-account audit landed
+
+- Scope list finalised as `github_required_scopes` (top of
+  `playbooks/imports/play-github-cli-multi.yml`):
+  `admin:public_key, gist, project, read:org, read:project, repo, user:email`.
+  `project` and `read:project` added to enable GitHub Projects v2 access
+  from gh tokens (needed for IDE Projects integration and `gh project`
+  CLI). Marked Phase 1 "Decide scope list" ✅.
+- Design change vs. original plan: the per-account scope audit lives in
+  the playbook, not `run.bash`. Reasons: (a) the playbook is the place
+  that already iterates `github_accounts`, (b) it runs on every deploy
+  so it catches drift if a scope gets revoked or a new scope is added
+  to the canonical list, (c) `run.bash` already invokes the playbook —
+  putting it in both is duplication. The audit task switches to each
+  account, reads its scopes, restores the originally-active account,
+  and fail-fasts with the exact `gh auth switch && gh auth refresh --scopes <missing>` command per account. Marked Phase 2 "Per-account
+  scope audit" ✅ and Phase 4 "Scope preflight in playbook" ✅
+  (latter superseded by the broader Phase 2 audit).
+- The `gh-{alias}-token-phpstorm` bash function now templates its
+  `required_scopes` array from `github_required_scopes` so there's a
+  single source of truth — adding a scope to the var propagates to
+  both the deploy-time audit and the runtime PhpStorm helper.
+- `run.bash` `admin:public_key` check at line 568 left in place for
+  now: gives the primary account fast feedback before the playbook
+  runs. Could be removed once Phase 2's run.bash split lands and the
+  playbook becomes the canonical source — not removing yet to keep
+  the change focused.
