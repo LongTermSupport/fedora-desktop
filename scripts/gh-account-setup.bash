@@ -233,7 +233,11 @@ BROWSEREOF
     echo -e ""
     # GH_BROWSER=browser_helper displays the URL instead of opening a browser.
     # --skip-ssh-key because we upload keys ourselves.
-    if ! GH_BROWSER="$browser_helper" gh auth login --hostname github.com --git-protocol ssh --web --skip-ssh-key; then
+    # --scopes requests all required scopes upfront so a second device-code flow is not needed.
+    local scope_csv
+    scope_csv=$(printf '%s,' "${REQUIRED_SCOPES[@]}")
+    scope_csv="${scope_csv%,}"
+    if ! GH_BROWSER="$browser_helper" gh auth login --hostname github.com --git-protocol ssh --web --skip-ssh-key --scopes "$scope_csv"; then
       error "Authentication failed for ${username}"
       exit 1
     fi
