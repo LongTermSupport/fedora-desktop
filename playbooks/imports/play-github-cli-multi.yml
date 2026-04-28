@@ -7,9 +7,11 @@
     root_dir: "{{ inventory_dir }}/../../"
     vault_file: "{{ root_dir }}/environment/localhost/host_vars/localhost.yml"
     # Single source of truth for OAuth scopes every gh token must carry.
+    # Parent scopes imply their read: children (project → read:project),
+    # so only the top-level grant is listed.
     # admin:public_key  — programmatic SSH pubkey upload (gh ssh-key add)
     # gist              — gh gist commands
-    # project, read:project — GitHub Projects v2 (boards, issue project membership)
+    # project           — GitHub Projects v2 (implies read:project)
     # read:org          — read org membership / list teams
     # repo              — full repo access (clone, push, PRs, issues)
     # user:email        — read user.email for git config
@@ -18,7 +20,6 @@
       - gist
       - project
       - read:org
-      - read:project
       - repo
       - user:email
   tasks:

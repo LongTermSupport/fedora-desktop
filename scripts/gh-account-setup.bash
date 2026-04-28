@@ -20,9 +20,13 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LOCALHOST_YML="${LOCALHOST_YML:-$REPO_ROOT/environment/localhost/host_vars/localhost.yml}"
 VAULT_PASS_FILE="${VAULT_PASS_FILE:-$REPO_ROOT/vault-pass.secret}"
 
-# Required OAuth scopes — must mirror playbook's github_required_scopes
+# Required OAuth scopes — must mirror playbook's github_required_scopes.
+# Note: parent scopes imply their read: children in GitHub's hierarchy,
+# so we list only the top-level grant needed:
+#   project    → implies read:project (don't list both)
+#   admin:public_key → implies read:public_key
 # @see playbooks/imports/play-github-cli-multi.yml
-REQUIRED_SCOPES=(admin:public_key gist project read:org read:project repo user:email)
+REQUIRED_SCOPES=(admin:public_key gist project read:org repo user:email)
 
 # ─── Formatting ────────────────────────────────────────────────────────────────
 RED='\033[0;31m'
@@ -245,10 +249,12 @@ setup_account() {
   missing_scopes=$(get_missing_scopes)
   if [[ -n "$missing_scopes" ]]; then
     warning "Missing scopes: $(echo "$missing_scopes" | tr '\n' ' ')"
-    info "Requesting scopes (browser may open)..."
+    echo -e ""
+    echo -e "   Open ${BOLD}https://github.com/login/device${NC} in the browser profile for ${BOLD}${username}${NC}"
+    echo -e ""
     local scope_csv
     scope_csv=$(echo "$missing_scopes" | tr '\n' ',' | sed 's/,$//')
-    if ! gh auth refresh --hostname github.com --scopes "$scope_csv"; then
+    if ! GH_BROWSER=true gh auth refresh --hostname github.com --scopes "$scope_csv"; then
       error "Failed to update scopes for ${username}"
       exit 1
     fi
