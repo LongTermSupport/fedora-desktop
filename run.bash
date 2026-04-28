@@ -3,7 +3,7 @@
 ## Setup
 ## !! BUMP THIS VERSION ON EVERY CHANGE TO THIS FILE — NO EXCEPTIONS !!
 ## !! If you forget, there is NO WAY to tell which version is running !!
-RUN_BASH_VERSION="1.3.0"  # Selective config import, --help flag, extracted github accounts prompt
+RUN_BASH_VERSION="1.4.0"  # Extract config merge/selective logic to TDD-tested Python module
 set -e
 set -u
 set -o pipefail
@@ -197,84 +197,18 @@ backup_config(){
 selective_config_import(){
   local raw_b64="$1"
   local output_file="$2"
-  local temp_config temp_script temp_excluded
+  local temp_config
+  local temp_excluded
   temp_config=$(mktemp)
-  temp_script=$(mktemp --suffix=.py)
   temp_excluded=$(mktemp)
   printf '%s' "$raw_b64" | base64 -d > "$temp_config"
 
-  cat > "$temp_script" << 'PYEOF'
-"""Split YAML into top-level key blocks and let user exclude some."""
-import sys
-
-def split_blocks(content):
-    blocks, key, lines = [], None, []
-    for line in content.splitlines(True):
-        s = line.rstrip("\n")
-        if s and not s[0].isspace() and ":" in s and not s.startswith("#") and s != "---":
-            if key is not None:
-                blocks.append((key, "".join(lines)))
-            key = s.split(":")[0].strip()
-            lines = [line]
-        else:
-            lines.append(line)
-    if key is not None:
-        blocks.append((key, "".join(lines)))
-    return blocks
-
-def preview(text):
-    if "!vault" in text:
-        return "[vault-encrypted]"
-    lines = text.strip().splitlines()
-    if len(lines) == 1:
-        val = lines[0].split(":", 1)[1].strip()
-        return val if len(val) < 50 else val[:47] + "..."
-    sub = [l.rstrip() for l in lines[1:] if l.strip()][:5]
-    return "\n" + "\n".join(f"       {l}" for l in sub)
-
-config_file, output_file, excluded_file = sys.argv[1], sys.argv[2], sys.argv[3]
-with open(config_file) as f:
-    blocks = split_blocks(f.read())
-
-print("\n  Keys in your saved config:\n")
-for i, (key, text) in enumerate(blocks, 1):
-    print(f"    {i}) {key}: {preview(text)}")
-print()
-
-exclude_input = input("  Enter numbers to EXCLUDE (space/comma separated, Enter to keep all): ").strip()
-exclude_nums = set()
-if exclude_input:
-    for part in exclude_input.replace(",", " ").split():
-        try:
-            n = int(part)
-            if 1 <= n <= len(blocks):
-                exclude_nums.add(n)
-        except ValueError:
-            pass
-
-excluded_keys = [blocks[n - 1][0] for n in sorted(exclude_nums)]
-kept = [(k, t) for i, (k, t) in enumerate(blocks, 1) if i not in exclude_nums]
-
-with open(output_file, "w") as f:
-    for _, text in kept:
-        f.write(text)
-        if not text.endswith("\n"):
-            f.write("\n")
-
-with open(excluded_file, "w") as f:
-    f.write(",".join(excluded_keys))
-
-if excluded_keys:
-    print(f"\n  Excluded: {', '.join(excluded_keys)}")
-print(f"  Imported: {', '.join(k for k, _ in kept)}")
-PYEOF
-
-  python3 "$temp_script" "$temp_config" "$output_file" "$temp_excluded"
+  python3 scripts/config_merge.py selective "$temp_config" "$output_file" "$temp_excluded"
   _excluded_keys=""
   if [[ -s "$temp_excluded" ]]; then
     _excluded_keys=$(cat "$temp_excluded")
   fi
-  rm -f "$temp_config" "$temp_script" "$temp_excluded"
+  rm -f "$temp_config" "$temp_excluded"
 }
 
 # Merge remote config into local config interactively.
@@ -283,115 +217,12 @@ PYEOF
 merge_config_import(){
   local raw_b64="$1"
   local local_file="$2"
-  local temp_remote temp_script
+  local temp_remote
   temp_remote=$(mktemp)
-  temp_script=$(mktemp --suffix=.py)
   printf '%s' "$raw_b64" | base64 -d > "$temp_remote"
 
-  cat > "$temp_script" << 'PYEOF'
-"""Merge remote config into local config with per-key interactive choices."""
-import sys
-
-def split_blocks(content):
-    blocks = []
-    key, lines = None, []
-    for line in content.splitlines(True):
-        s = line.rstrip("\n")
-        if s and not s[0].isspace() and ":" in s and not s.startswith("#") and s != "---":
-            if key is not None:
-                blocks.append((key, "".join(lines)))
-            key = s.split(":")[0].strip()
-            lines = [line]
-        else:
-            lines.append(line)
-    if key is not None:
-        blocks.append((key, "".join(lines)))
-    return blocks
-
-def to_dict(blocks):
-    return {k: v for k, v in blocks}
-
-def preview(text):
-    if "!vault" in text:
-        return "[vault-encrypted]"
-    lines = text.strip().splitlines()
-    if len(lines) == 1:
-        val = lines[0].split(":", 1)[1].strip()
-        return val if len(val) < 50 else val[:47] + "..."
-    sub = [l.rstrip() for l in lines[1:] if l.strip()][:5]
-    return "\n" + "\n".join(f"       {l}" for l in sub)
-
-local_file, remote_file, output_file = sys.argv[1], sys.argv[2], sys.argv[3]
-
-with open(local_file) as f:
-    local_blocks = split_blocks(f.read())
-with open(remote_file) as f:
-    remote_blocks = split_blocks(f.read())
-
-local_dict = to_dict(local_blocks)
-remote_dict = to_dict(remote_blocks)
-local_keys = [k for k, _ in local_blocks]
-remote_keys = [k for k, _ in remote_blocks]
-
-merged = {}
-stats = {"unchanged": 0, "added": 0, "kept_local": 0, "updated": 0}
-
-print("\n  Merging remote config into local...\n")
-
-# Process local keys first (preserves local ordering)
-for key in local_keys:
-    if key in remote_dict:
-        if local_dict[key].strip() == remote_dict[key].strip():
-            print(f"    \u2713 {key}: unchanged")
-            merged[key] = local_dict[key]
-            stats["unchanged"] += 1
-        else:
-            print(f"\n    CHANGED: {key}")
-            print(f"      Local:  {preview(local_dict[key])}")
-            print(f"      Remote: {preview(remote_dict[key])}")
-            while True:
-                choice = input("      [L]ocal / [R]emote? ").strip().lower()
-                if choice in ("l", "r"):
-                    break
-                print("      Please enter L or R")
-            if choice == "r":
-                merged[key] = remote_dict[key]
-                stats["updated"] += 1
-            else:
-                merged[key] = local_dict[key]
-                stats["kept_local"] += 1
-    else:
-        print(f"    \u2022 {key}: local-only (keeping)")
-        merged[key] = local_dict[key]
-        stats["kept_local"] += 1
-
-# Process remote-only keys (new keys to potentially add)
-for key in remote_keys:
-    if key not in local_dict:
-        print(f"\n    NEW: {key}: {preview(remote_dict[key])}")
-        while True:
-            choice = input("      [A]dd / [S]kip? ").strip().lower()
-            if choice in ("a", "s"):
-                break
-            print("      Please enter A or S")
-        if choice == "a":
-            merged[key] = remote_dict[key]
-            stats["added"] += 1
-
-# Write merged output
-with open(output_file, "w") as f:
-    for key in merged:
-        text = merged[key]
-        f.write(text)
-        if not text.endswith("\n"):
-            f.write("\n")
-
-print(f"\n  Merge complete: {stats['unchanged']} unchanged, {stats['added']} added, "
-      f"{stats['updated']} updated from remote, {stats['kept_local']} kept local")
-PYEOF
-
-  python3 "$temp_script" "$local_file" "$temp_remote" "$local_file"
-  rm -f "$temp_remote" "$temp_script"
+  python3 scripts/config_merge.py merge "$local_file" "$temp_remote" "$local_file"
+  rm -f "$temp_remote"
 }
 
 # Prompt for GitHub username(s) and write github_accounts YAML block to stdout.

@@ -1,6 +1,7 @@
 environment/localhost/host_vars/localhost.yml
 environment/localhost/host_vars/localhost.yml.backup.*
 *.secret
+.venv/
 .idea
 roles/vendor/*
 
