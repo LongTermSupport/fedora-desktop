@@ -203,17 +203,24 @@ setup_account() {
 
   echo -e "\n${BOLD}━━━ ${alias} (${username}) ━━━${NC}"
 
-  # 1. gh auth — --skip-ssh-key prevents the confusing key upload prompt
-  #    (we handle key upload ourselves via gh ssh-key add later)
+  # 1. gh auth — --skip-ssh-key prevents the key upload prompt, GH_BROWSER=true
+  #    suppresses auto-opening the browser (user pastes URL into correct profile)
   if is_gh_authed "$username"; then
     success "Authenticated: ${username}"
   else
     info "Authenticating ${username}..."
     echo -e ""
-    echo -e "   ${YELLOW}${BOLD}IMPORTANT: Use the browser profile logged into GitHub as '${username}'${NC}"
-    echo -e "   ${YELLOW}➜${NC} If the wrong profile opens, close it and re-run this command"
+    echo -e "   ${YELLOW}${BOLD}DO NOT press Enter to open the browser — it may use the wrong profile${NC}"
     echo -e ""
-    if ! gh auth login --hostname github.com --git-protocol ssh --web --skip-ssh-key; then
+    echo -e "   Instead:"
+    echo -e "   1. Copy the one-time code shown below"
+    echo -e "   2. Open ${BOLD}https://github.com/login/device${NC} in the browser profile for ${BOLD}${username}${NC}"
+    echo -e "   3. Paste the code and authorise"
+    echo -e "   4. Then press Enter here to continue"
+    echo -e ""
+    # GH_BROWSER=true suppresses the auto-open — user pastes URL into the correct
+    # Firefox/Chrome profile manually. --skip-ssh-key because we upload keys ourselves.
+    if ! GH_BROWSER=true gh auth login --hostname github.com --git-protocol ssh --web --skip-ssh-key; then
       error "Authentication failed for ${username}"
       exit 1
     fi
