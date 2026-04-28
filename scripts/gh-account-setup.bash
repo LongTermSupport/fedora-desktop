@@ -207,24 +207,33 @@ setup_account() {
 
   echo -e "\n${BOLD}━━━ ${alias} (${username}) ━━━${NC}"
 
-  # 1. gh auth — --skip-ssh-key prevents the key upload prompt, GH_BROWSER=true
-  #    suppresses auto-opening the browser (user pastes URL into correct profile)
+  # Browser helper: instead of opening a browser (which may use the wrong profile),
+  # display the URL for the user to copy into the correct browser profile.
+  local browser_helper
+  browser_helper=$(mktemp /tmp/gh-browser-XXXXXX.bash)
+  cat > "$browser_helper" << BROWSEREOF
+#!/bin/bash
+echo ""
+echo "   → \$1"
+echo "     Open this URL in the browser profile for ${username}"
+echo ""
+BROWSEREOF
+  chmod +x "$browser_helper"
+
+  # 1. gh auth — --skip-ssh-key prevents the confusing key upload prompt
   if is_gh_authed "$username"; then
     success "Authenticated: ${username}"
   else
     info "Authenticating ${username}..."
     echo -e ""
-    echo -e "   ${YELLOW}${BOLD}DO NOT press Enter to open the browser — it may use the wrong profile${NC}"
+    echo -e "   ${BOLD}1.${NC} Copy the one-time code shown below"
+    echo -e "   ${BOLD}2.${NC} Press Enter when prompted — the URL will be displayed (browser will NOT open)"
+    echo -e "   ${BOLD}3.${NC} Open the URL in the browser profile logged into ${BOLD}${username}${NC}"
+    echo -e "   ${BOLD}4.${NC} Paste the code and authorise"
     echo -e ""
-    echo -e "   Instead:"
-    echo -e "   1. Copy the one-time code shown below"
-    echo -e "   2. Open ${BOLD}https://github.com/login/device${NC} in the browser profile for ${BOLD}${username}${NC}"
-    echo -e "   3. Paste the code and authorise"
-    echo -e "   4. Then press Enter here to continue"
-    echo -e ""
-    # GH_BROWSER=true suppresses the auto-open — user pastes URL into the correct
-    # Firefox/Chrome profile manually. --skip-ssh-key because we upload keys ourselves.
-    if ! GH_BROWSER=true gh auth login --hostname github.com --git-protocol ssh --web --skip-ssh-key; then
+    # GH_BROWSER=browser_helper displays the URL instead of opening a browser.
+    # --skip-ssh-key because we upload keys ourselves.
+    if ! GH_BROWSER="$browser_helper" gh auth login --hostname github.com --git-protocol ssh --web --skip-ssh-key; then
       error "Authentication failed for ${username}"
       exit 1
     fi
@@ -250,11 +259,12 @@ setup_account() {
   if [[ -n "$missing_scopes" ]]; then
     warning "Missing scopes: $(echo "$missing_scopes" | tr '\n' ' ')"
     echo -e ""
-    echo -e "   Open ${BOLD}https://github.com/login/device${NC} in the browser profile for ${BOLD}${username}${NC}"
+    echo -e "   Press Enter when prompted — the URL will be displayed (browser will NOT open)"
+    echo -e "   Open the URL in the browser profile for ${BOLD}${username}${NC}"
     echo -e ""
     local scope_csv
     scope_csv=$(echo "$missing_scopes" | tr '\n' ',' | sed 's/,$//')
-    if ! GH_BROWSER=true gh auth refresh --hostname github.com --scopes "$scope_csv"; then
+    if ! GH_BROWSER="$browser_helper" gh auth refresh --hostname github.com --scopes "$scope_csv"; then
       error "Failed to update scopes for ${username}"
       exit 1
     fi
@@ -297,9 +307,11 @@ setup_account() {
   local rc=0
   verify_ssh "$alias" "$username" "$passphrase" || rc=$?
   if [[ $rc -eq 1 ]]; then
+    rm -f "$browser_helper"
     # Wrong account — hard failure
     exit 1
   fi
+  rm -f "$browser_helper"
   # rc=0 (verified) or rc=2 (inconclusive) — continue
 }
 
