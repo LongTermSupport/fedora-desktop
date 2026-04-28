@@ -203,15 +203,30 @@ setup_account() {
 
   echo -e "\n${BOLD}━━━ ${alias} (${username}) ━━━${NC}"
 
-  # 1. gh auth — use --web to skip the confusing SSH key upload prompt
+  # 1. gh auth — --skip-ssh-key prevents the confusing key upload prompt
+  #    (we handle key upload ourselves via gh ssh-key add later)
   if is_gh_authed "$username"; then
     success "Authenticated: ${username}"
   else
     info "Authenticating ${username}..."
-    echo -e "   ${YELLOW}➜${NC} Browser will open — log in as ${BOLD}${username}${NC}"
-    if ! gh auth login --hostname github.com --git-protocol ssh --web; then
+    echo -e ""
+    echo -e "   ${YELLOW}${BOLD}IMPORTANT: Use the browser profile logged into GitHub as '${username}'${NC}"
+    echo -e "   ${YELLOW}➜${NC} If the wrong profile opens, close it and re-run this command"
+    echo -e ""
+    if ! gh auth login --hostname github.com --git-protocol ssh --web --skip-ssh-key; then
       error "Authentication failed for ${username}"
       exit 1
+    fi
+    # Verify we authenticated as the expected user — catches wrong browser profile
+    local authed_user
+    if authed_user=$(gh api user --jq '.login' 2>&1); then
+      if [[ "${authed_user,,}" != "${username,,}" ]]; then
+        error "Authenticated as '${authed_user}' but expected '${username}'"
+        echo -e "   ${YELLOW}➜${NC} You used the wrong browser profile" >&2
+        echo -e "   ${YELLOW}➜${NC} Run: gh auth logout --hostname github.com --user ${authed_user}" >&2
+        echo -e "   ${YELLOW}➜${NC} Then re-run this script using the browser profile for '${username}'" >&2
+        exit 1
+      fi
     fi
     success "Authenticated: ${username}"
   fi
