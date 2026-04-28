@@ -50,6 +50,27 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 RUN wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 \
     && chmod +x /usr/local/bin/yq
 
+# Install ImageMagick 7 (Debian 12 ships only IM6).
+# Production target is Fedora 43 which ships IM7 natively; this is for
+# prototyping recipes against the same major version the script will call.
+# AppImage is extracted (no FUSE in the container); a thin wrapper at
+# /usr/local/bin/magick fronts the bundled binary with the right
+# LD_LIBRARY_PATH and MAGICK_CONFIGURE_PATH.
+RUN wget -qO /tmp/magick.AppImage https://imagemagick.org/archive/binaries/magick \
+    && chmod +x /tmp/magick.AppImage \
+    && cd /opt \
+    && /tmp/magick.AppImage --appimage-extract > /dev/null \
+    && mv squashfs-root imagemagick7 \
+    && rm /tmp/magick.AppImage \
+    && printf '%s\n' \
+        '#!/bin/bash' \
+        'export LD_LIBRARY_PATH="/opt/imagemagick7/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"' \
+        'export MAGICK_CONFIGURE_PATH="/opt/imagemagick7/usr/etc/ImageMagick-7:/opt/imagemagick7/usr/share/ImageMagick-7"' \
+        'exec /opt/imagemagick7/usr/bin/magick "$@"' \
+        > /usr/local/bin/magick \
+    && chmod 755 /usr/local/bin/magick \
+    && magick --version | head -n1
+
 # Install Ansible collections required by the project
 RUN ansible-galaxy collection install community.general ansible.posix
 
@@ -64,4 +85,5 @@ RUN ansible --version && \
     ansible-lint --version && \
     gh --version && \
     yq --version && \
-    rg --version
+    rg --version && \
+    magick --version
