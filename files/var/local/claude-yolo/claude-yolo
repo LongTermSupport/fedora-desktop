@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.13.0"  # feat(build): auto-recover from stale rootless buildah cache (/var/tmp/buildah-cache-<uid>/) — detect "permission denied" signature in build log, purge via `podman unshare rm -rf`, retry build once before falling through to diagnostic mode
+CCY_VERSION="3.14.0"  # feat(args): fail-fast unknown-flag validation — validate `--<flag>` args against ccy's set + dynamic `claude --help` (host binary preferred, container fallback) before SSH/gh/token/container work. Adds `--` separator for raw pass-through
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -149,8 +149,11 @@ Options:
   --top                  Container manager: list/stop all CCY containers
   --prevent              Disable CCY for this project folder (writes 'never' to .claude/ccy/allowed-hostnames)
   --help, -h             Show this help message
+  --                     End of ccy options; everything after is forwarded raw to claude
 
-All other arguments are passed directly to Claude Code with --dangerously-skip-permissions
+Unrecognised --flag args are validated against claude's own --help. Unknown
+flags fail fast with did-you-mean suggestions. Use `--` to forward a flag
+raw without validation.
 
 Features:
   • Runs in isolated container with git/gh/ssh configured
@@ -408,9 +411,16 @@ NETWORK_FROM_CONFIG=false
 NO_NETWORK_MODE=false
 HEADLESS_MODE=false
 PROMPT_TEXT=""
+SAW_DOUBLE_DASH=false
 
 for arg in "$@"; do
-    if [ "$NEXT_IS_ENGINE" = true ]; then
+    if [ "$SAW_DOUBLE_DASH" = true ]; then
+        # Everything after `--` is forwarded raw to claude without ccy parsing
+        CLAUDE_ARGS+=("$arg")
+    elif [ "$arg" = "--" ]; then
+        # POSIX-style separator: end of ccy options, rest is for claude
+        SAW_DOUBLE_DASH=true
+    elif [ "$NEXT_IS_ENGINE" = true ]; then
         # Validate engine choice
         if [[ "$arg" != "docker" ]] && [[ "$arg" != "podman" ]]; then
             print_error "Invalid container engine: $arg"
@@ -514,6 +524,77 @@ for arg in "$@"; do
         CLAUDE_ARGS+=("$arg")
     fi
 done
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Fail-fast flag validation
+# ─────────────────────────────────────────────────────────────────────────────
+# Anything `--<flag>`-shaped that fell through to CLAUDE_ARGS *before* a `--`
+# separator is a candidate claude flag. Validate against `claude --help` from
+# the base image so we error out *now*, before SSH/gh/token/container work.
+# Args after `--` are forwarded raw and skipped.
+# ─────────────────────────────────────────────────────────────────────────────
+suspect_flags=()
+for a in "${CLAUDE_ARGS[@]}"; do
+    [[ "$a" == --* ]] || continue
+    suspect_flags+=("${a%%=*}")
+done
+
+if [ ${#suspect_flags[@]} -gt 0 ]; then
+    # Source `claude --help`. Prefer host binary (instant); fall back to running
+    # claude inside the base image if the host doesn't have it. If neither is
+    # available, skip validation (claude itself will reject bogus flags later).
+    claude_help=""
+    if command -v claude &>/dev/null; then
+        claude_help=$(claude --help 2>&1) || claude_help=""
+    fi
+    if [ -z "$claude_help" ] && container_cmd image inspect "$IMAGE_NAME" &>/dev/null; then
+        if ! claude_help=$(container_cmd run --rm --entrypoint claude "$IMAGE_NAME" --help 2>&1); then
+            print_error "Could not run 'claude --help' in $IMAGE_NAME to validate flags"
+            echo "$claude_help" >&2
+            exit 1
+        fi
+    fi
+
+    if [ -z "$claude_help" ]; then
+        # No way to validate. Skip and let claude itself reject later.
+        :
+    else
+
+        unknown=()
+        for f in "${suspect_flags[@]}"; do
+            if ! grep -qE -- "(^|[[:space:],])${f}([[:space:],=]|$)" <<< "$claude_help"; then
+                unknown+=("$f")
+            fi
+        done
+
+        if [ ${#unknown[@]} -gt 0 ]; then
+            ccy_flags=(
+                --rebuild --disable-custom-docker --no-ssh --no-network --headless
+                --prompt --debug --engine --ssh-key --token --create-token
+                --update-token --list-tokens --export-token --network --connect
+                --custom --custom-docker --top --prevent --help
+            )
+            claude_known=$(grep -oE -- '--[a-zA-Z][a-zA-Z0-9-]*' <<< "$claude_help" | sort -u)
+
+            print_error "Unknown flag(s): ${unknown[*]}"
+            echo "" >&2
+            echo "Neither ccy nor claude recognises these flags." >&2
+            echo "" >&2
+            for u in "${unknown[@]}"; do
+                stem="${u#--}"
+                echo "  $u" >&2
+                ccy_match=$(printf '%s\n' "${ccy_flags[@]}" | grep -i -- "$stem" | head -3 | tr '\n' ' ')
+                [ -n "$ccy_match" ] && echo "    Did you mean (ccy)?    $ccy_match" >&2
+                claude_match=$(grep -i -- "$stem" <<< "$claude_known" | head -3 | tr '\n' ' ')
+                [ -n "$claude_match" ] && echo "    Did you mean (claude)? $claude_match" >&2
+            done
+            echo "" >&2
+            echo "To forward unrecognised flags raw to claude, use a -- separator:" >&2
+            echo "  ccy [ccy-options] -- ${unknown[*]}" >&2
+            exit 1
+        fi
+    fi
+fi
 
 # Handle debug layer selection
 if [ "$SHOW_DEBUG_CHOOSER" = true ]; then
