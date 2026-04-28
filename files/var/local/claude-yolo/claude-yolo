@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.12.2"  # fix(ssh-probe): isolate SSH probe in ssh-handling.bash (-F /dev/null -o IdentityAgent=none) so it can't fall through to ~/.ssh/id; cross-check gh token owner matches SSH-detected user on host before container hand-off
+CCY_VERSION="3.13.0"  # feat(build): auto-recover from stale rootless buildah cache (/var/tmp/buildah-cache-<uid>/) — detect "permission denied" signature in build log, purge via `podman unshare rm -rf`, retry build once before falling through to diagnostic mode
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1309,12 +1309,41 @@ if [ -f "$PROJECT_DOCKERFILE" ] && [ "$DISABLE_CUSTOM_DOCKER" = false ]; then
         # Use buildkit for cache mounts and pass Dockerfile hash
         # Capture output to temp file for error reporting while still displaying live
         build_log=$(mktemp /tmp/ccy-build-XXXXXX.log)
-        if (set -o pipefail; DOCKER_BUILDKIT=1 container_cmd build \
-            --build-arg BUILDKIT_INLINE_CACHE=1 \
-            --build-arg DOCKERFILE_HASH="$project_dockerfile_hash" \
-            -t "$PROJECT_IMAGE_NAME" \
-            -f "$PROJECT_DOCKERFILE" \
-            . 2>&1 | tee "$build_log"); then
+
+        # Defined inline so $project_dockerfile_hash, $PROJECT_IMAGE_NAME, etc. stay in scope.
+        # Re-invoked once after a rootless-buildah-cache recovery; see below.
+        run_project_build() {
+            set -o pipefail
+            DOCKER_BUILDKIT=1 container_cmd build \
+                --build-arg BUILDKIT_INLINE_CACHE=1 \
+                --build-arg DOCKERFILE_HASH="$project_dockerfile_hash" \
+                -t "$PROJECT_IMAGE_NAME" \
+                -f "$PROJECT_DOCKERFILE" \
+                . 2>&1 | tee "$build_log"
+        }
+
+        build_succeeded=false
+        if run_project_build; then
+            build_succeeded=true
+        elif is_buildah_cache_permission_failure "$build_log"; then
+            # Stale rootless buildah cache (userns ownership drift). Not a Dockerfile
+            # bug — purge the per-uid cache dir and retry the build once before
+            # falling through to interactive diagnostic mode.
+            echo ""
+            echo "⚠ Detected stale rootless buildah cache (permission failure)"
+            echo "  This is not a Dockerfile bug. Auto-recovering and retrying once..."
+            echo ""
+            if purge_stale_buildah_cache; then
+                : > "$build_log"
+                if run_project_build; then
+                    build_succeeded=true
+                    echo ""
+                    echo "✓ Build succeeded after cache recovery"
+                fi
+            fi
+        fi
+
+        if [ "$build_succeeded" = true ]; then
 
             # Save hashes and versions to track changes
             echo "$current_project_hash" > "$PROJECT_DOCKERFILE_HASH_FILE"
