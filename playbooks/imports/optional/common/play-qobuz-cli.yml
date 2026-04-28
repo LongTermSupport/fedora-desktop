@@ -1,6 +1,5 @@
 #!/usr/bin/env ansible-playbook
 ---
-#!/usr/bin/env ansible-playbook
 - hosts: desktop
   name: Qobuz CLI Apps - Gapless HD Audio Streaming from Qobuz
   vars:
@@ -134,6 +133,72 @@
 
     # Needs Last FM API Account
     # Visit https://www.last.fm/api/account/create
+    - name: Prompt for Last.fm API credentials (one-time setup)
+      when: lastfm_api_key is not defined or lastfm_api_secret is not defined
+      block:
+        - name: Display Last.fm API instructions
+          ansible.builtin.pause:
+            prompt: |2
+
+              ============================================
+              LAST.FM API CREDENTIALS REQUIRED
+              ============================================
+
+              Rescrobbled needs Last.fm API credentials.
+
+              1. Go to https://www.last.fm/api/account/create
+              2. Create an API application (any name/description)
+              3. Copy the API Key and Shared Secret
+
+              Press ENTER when you have your credentials ready...
+
+        - name: Prompt for Last.fm API Key
+          ansible.builtin.pause:
+            prompt: "Enter your Last.fm API Key"
+          register: lastfm_key_prompt
+
+        - name: Fail if API Key is empty
+          ansible.builtin.fail:
+            msg: "Last.fm API Key cannot be empty. Re-run this playbook when you have your credentials."
+          when: lastfm_key_prompt.user_input | length == 0
+
+        - name: Prompt for Last.fm API Secret
+          ansible.builtin.pause:
+            prompt: "Enter your Last.fm Shared Secret"
+          register: lastfm_secret_prompt
+
+        - name: Fail if API Secret is empty
+          ansible.builtin.fail:
+            msg: "Last.fm API Secret cannot be empty. Re-run this playbook when you have your credentials."
+          when: lastfm_secret_prompt.user_input | length == 0
+
+        - name: Set credentials as facts for this run
+          ansible.builtin.set_fact:
+            lastfm_api_key: "{{ lastfm_key_prompt.user_input }}"
+            lastfm_api_secret: "{{ lastfm_secret_prompt.user_input }}"
+
+        - name: Vault-encrypt and save Last.fm API Key to localhost.yml
+          ansible.builtin.shell: |
+            printf '%s' '{{ lastfm_key_prompt.user_input }}' | \
+              ansible-vault encrypt_string --stdin-name 'lastfm_api_key' \
+              >> {{ root_dir }}/environment/localhost/host_vars/localhost.yml
+          args:
+            executable: /bin/bash
+          no_log: true
+
+        - name: Vault-encrypt and save Last.fm API Secret to localhost.yml
+          ansible.builtin.shell: |
+            printf '%s' '{{ lastfm_secret_prompt.user_input }}' | \
+              ansible-vault encrypt_string --stdin-name 'lastfm_api_secret' \
+              >> {{ root_dir }}/environment/localhost/host_vars/localhost.yml
+          args:
+            executable: /bin/bash
+          no_log: true
+
+        - name: Confirm credentials saved
+          ansible.builtin.debug:
+            msg: "Last.fm credentials saved to localhost.yml (vault-encrypted). Future runs will use them automatically."
+
     - name: Configure Rescrobbled
       ansible.builtin.copy:
         content: |

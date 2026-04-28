@@ -3,7 +3,7 @@
 ## Setup
 ## !! BUMP THIS VERSION ON EVERY CHANGE TO THIS FILE — NO EXCEPTIONS !!
 ## !! If you forget, there is NO WAY to tell which version is running !!
-RUN_BASH_VERSION="1.1.0"  # Multi-account gh setup via scripts/gh-account-setup.bash
+RUN_BASH_VERSION="1.3.0"  # Selective config import, --help flag, extracted github accounts prompt
 set -e
 set -u
 set -o pipefail
@@ -15,9 +15,41 @@ trap 'rm -f /tmp/.github_ssh_pp' EXIT
 # Flags
 OPTIONAL_ONLY=false
 for _arg in "$@"; do
-  if [[ "$_arg" == "--optional-only" ]]; then
-    OPTIONAL_ONLY=true
-  fi
+  case "$_arg" in
+    --help|-h)
+      cat <<'USAGE'
+Usage: ./run.bash [OPTIONS]
+
+Fedora Desktop Configuration Installer
+
+Options:
+  --optional-only   Skip core setup, jump straight to optional playbook menu
+  -h, --help        Show this help message
+
+First run:
+  ./run.bash                Full install (system deps, SSH, GitHub, Ansible,
+                            main playbook, then optional playbooks menu)
+
+Subsequent runs:
+  ./run.bash --optional-only  Re-run only the optional playbooks menu
+                              (useful for adding components after initial setup)
+
+Requirements:
+  - Fedora Linux (version must match the branch)
+  - Network connectivity (GitHub, DNF repos)
+  - Must NOT be run as root (uses sudo internally)
+USAGE
+      exit 0
+      ;;
+    --optional-only)
+      OPTIONAL_ONLY=true
+      ;;
+    *)
+      echo "Unknown option: $_arg" >&2
+      echo "Run './run.bash --help' for usage" >&2
+      exit 1
+      ;;
+  esac
 done
 
 ## Colors and formatting
@@ -145,6 +177,280 @@ confirm(){
       echo -e "${RED}${CROSS} Invalid input. Please press 'y' or 'n'${NC}"
     fi
   done
+}
+
+# Back up a config file with timestamp. No-op if file doesn't exist.
+backup_config(){
+  local config_file="$1"
+  if [[ ! -f "$config_file" ]]; then
+    return 0
+  fi
+  local backup_file
+  backup_file="${config_file}.backup.$(date +%Y%m%d-%H%M%S)"
+  cp "$config_file" "$backup_file"
+  success "Config backed up to $(basename "$backup_file")"
+}
+
+# Selective config import: decode saved config, show top-level YAML keys,
+# let user exclude some, write filtered result to output file.
+# Sets _excluded_keys (comma-separated) for the caller to check.
+selective_config_import(){
+  local raw_b64="$1"
+  local output_file="$2"
+  local temp_config temp_script temp_excluded
+  temp_config=$(mktemp)
+  temp_script=$(mktemp --suffix=.py)
+  temp_excluded=$(mktemp)
+  printf '%s' "$raw_b64" | base64 -d > "$temp_config"
+
+  cat > "$temp_script" << 'PYEOF'
+"""Split YAML into top-level key blocks and let user exclude some."""
+import sys
+
+def split_blocks(content):
+    blocks, key, lines = [], None, []
+    for line in content.splitlines(True):
+        s = line.rstrip("\n")
+        if s and not s[0].isspace() and ":" in s and not s.startswith("#") and s != "---":
+            if key is not None:
+                blocks.append((key, "".join(lines)))
+            key = s.split(":")[0].strip()
+            lines = [line]
+        else:
+            lines.append(line)
+    if key is not None:
+        blocks.append((key, "".join(lines)))
+    return blocks
+
+def preview(text):
+    if "!vault" in text:
+        return "[vault-encrypted]"
+    lines = text.strip().splitlines()
+    if len(lines) == 1:
+        val = lines[0].split(":", 1)[1].strip()
+        return val if len(val) < 50 else val[:47] + "..."
+    sub = [l.rstrip() for l in lines[1:] if l.strip()][:5]
+    return "\n" + "\n".join(f"       {l}" for l in sub)
+
+config_file, output_file, excluded_file = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(config_file) as f:
+    blocks = split_blocks(f.read())
+
+print("\n  Keys in your saved config:\n")
+for i, (key, text) in enumerate(blocks, 1):
+    print(f"    {i}) {key}: {preview(text)}")
+print()
+
+exclude_input = input("  Enter numbers to EXCLUDE (space/comma separated, Enter to keep all): ").strip()
+exclude_nums = set()
+if exclude_input:
+    for part in exclude_input.replace(",", " ").split():
+        try:
+            n = int(part)
+            if 1 <= n <= len(blocks):
+                exclude_nums.add(n)
+        except ValueError:
+            pass
+
+excluded_keys = [blocks[n - 1][0] for n in sorted(exclude_nums)]
+kept = [(k, t) for i, (k, t) in enumerate(blocks, 1) if i not in exclude_nums]
+
+with open(output_file, "w") as f:
+    for _, text in kept:
+        f.write(text)
+        if not text.endswith("\n"):
+            f.write("\n")
+
+with open(excluded_file, "w") as f:
+    f.write(",".join(excluded_keys))
+
+if excluded_keys:
+    print(f"\n  Excluded: {', '.join(excluded_keys)}")
+print(f"  Imported: {', '.join(k for k, _ in kept)}")
+PYEOF
+
+  python3 "$temp_script" "$temp_config" "$output_file" "$temp_excluded"
+  _excluded_keys=""
+  if [[ -s "$temp_excluded" ]]; then
+    _excluded_keys=$(cat "$temp_excluded")
+  fi
+  rm -f "$temp_config" "$temp_script" "$temp_excluded"
+}
+
+# Merge remote config into local config interactively.
+# Shows per-key diff: unchanged keys auto-keep, changed keys prompt L/R,
+# new remote keys prompt A/S. Local-only keys always kept.
+merge_config_import(){
+  local raw_b64="$1"
+  local local_file="$2"
+  local temp_remote temp_script
+  temp_remote=$(mktemp)
+  temp_script=$(mktemp --suffix=.py)
+  printf '%s' "$raw_b64" | base64 -d > "$temp_remote"
+
+  cat > "$temp_script" << 'PYEOF'
+"""Merge remote config into local config with per-key interactive choices."""
+import sys
+
+def split_blocks(content):
+    blocks = []
+    key, lines = None, []
+    for line in content.splitlines(True):
+        s = line.rstrip("\n")
+        if s and not s[0].isspace() and ":" in s and not s.startswith("#") and s != "---":
+            if key is not None:
+                blocks.append((key, "".join(lines)))
+            key = s.split(":")[0].strip()
+            lines = [line]
+        else:
+            lines.append(line)
+    if key is not None:
+        blocks.append((key, "".join(lines)))
+    return blocks
+
+def to_dict(blocks):
+    return {k: v for k, v in blocks}
+
+def preview(text):
+    if "!vault" in text:
+        return "[vault-encrypted]"
+    lines = text.strip().splitlines()
+    if len(lines) == 1:
+        val = lines[0].split(":", 1)[1].strip()
+        return val if len(val) < 50 else val[:47] + "..."
+    sub = [l.rstrip() for l in lines[1:] if l.strip()][:5]
+    return "\n" + "\n".join(f"       {l}" for l in sub)
+
+local_file, remote_file, output_file = sys.argv[1], sys.argv[2], sys.argv[3]
+
+with open(local_file) as f:
+    local_blocks = split_blocks(f.read())
+with open(remote_file) as f:
+    remote_blocks = split_blocks(f.read())
+
+local_dict = to_dict(local_blocks)
+remote_dict = to_dict(remote_blocks)
+local_keys = [k for k, _ in local_blocks]
+remote_keys = [k for k, _ in remote_blocks]
+
+merged = {}
+stats = {"unchanged": 0, "added": 0, "kept_local": 0, "updated": 0}
+
+print("\n  Merging remote config into local...\n")
+
+# Process local keys first (preserves local ordering)
+for key in local_keys:
+    if key in remote_dict:
+        if local_dict[key].strip() == remote_dict[key].strip():
+            print(f"    \u2713 {key}: unchanged")
+            merged[key] = local_dict[key]
+            stats["unchanged"] += 1
+        else:
+            print(f"\n    CHANGED: {key}")
+            print(f"      Local:  {preview(local_dict[key])}")
+            print(f"      Remote: {preview(remote_dict[key])}")
+            while True:
+                choice = input("      [L]ocal / [R]emote? ").strip().lower()
+                if choice in ("l", "r"):
+                    break
+                print("      Please enter L or R")
+            if choice == "r":
+                merged[key] = remote_dict[key]
+                stats["updated"] += 1
+            else:
+                merged[key] = local_dict[key]
+                stats["kept_local"] += 1
+    else:
+        print(f"    \u2022 {key}: local-only (keeping)")
+        merged[key] = local_dict[key]
+        stats["kept_local"] += 1
+
+# Process remote-only keys (new keys to potentially add)
+for key in remote_keys:
+    if key not in local_dict:
+        print(f"\n    NEW: {key}: {preview(remote_dict[key])}")
+        while True:
+            choice = input("      [A]dd / [S]kip? ").strip().lower()
+            if choice in ("a", "s"):
+                break
+            print("      Please enter A or S")
+        if choice == "a":
+            merged[key] = remote_dict[key]
+            stats["added"] += 1
+
+# Write merged output
+with open(output_file, "w") as f:
+    for key in merged:
+        text = merged[key]
+        f.write(text)
+        if not text.endswith("\n"):
+            f.write("\n")
+
+print(f"\n  Merge complete: {stats['unchanged']} unchanged, {stats['added']} added, "
+      f"{stats['updated']} updated from remote, {stats['kept_local']} kept local")
+PYEOF
+
+  python3 "$temp_script" "$local_file" "$temp_remote" "$local_file"
+  rm -f "$temp_remote" "$temp_script"
+}
+
+# Prompt for GitHub username(s) and write github_accounts YAML block to stdout.
+# All user-facing prompts go to stderr so stdout is clean YAML for redirection.
+prompt_github_accounts_yaml(){
+  echo -e "\n${CYAN}${ARROW}${NC} Enter your GitHub username(s)" 1>&2
+  echo -e "   These are the usernames you log into github.com with." 1>&2
+  echo -e "   For multiple accounts, prefix each with a short alias and colon." 1>&2
+  echo -e "" 1>&2
+  echo -e "   ${BOLD}One account:${NC}      johndoe" 1>&2
+  echo -e "   ${BOLD}Multiple accounts:${NC} personal:johndoe,work:johndoe-corp" 1>&2
+  local github_accounts_raw _account_count _has_unaliased _alias
+  github_accounts_raw="$(promptForValue 'GitHub username(s), comma separated')"
+
+  _account_count=$(printf '%s' "$github_accounts_raw" | tr ',' '\n' | grep -c '[^[:space:]]')
+  _has_unaliased=false
+  while IFS= read -r pair; do
+    pair="${pair// /}"
+    [[ -z "$pair" ]] && continue
+    if [[ "$pair" != *":"* ]]; then
+      _has_unaliased=true
+    fi
+  done < <(printf '%s\n' "$github_accounts_raw" | tr ',' '\n')
+
+  if [[ "$_has_unaliased" == "true" ]] && [[ "$_account_count" -gt 1 ]]; then
+    error "Multiple accounts require aliases. Use format: alias:username,alias:username" 1>&2
+    echo -e "   You entered: ${BOLD}${github_accounts_raw}${NC}" 1>&2
+    echo -e "   Example:     ${BOLD}personal:user1,work:user2${NC}" 1>&2
+    exit 1
+  fi
+
+  declare -A _seen_aliases=()
+  while IFS= read -r pair; do
+    pair="${pair// /}"
+    if [[ "$pair" == *":"* ]]; then
+      _alias="${pair%%:*}"
+    elif [[ -n "$pair" ]]; then
+      _alias="personal"
+    else
+      continue
+    fi
+    if [[ -n "${_seen_aliases[$_alias]:-}" ]]; then
+      error "Duplicate alias '${_alias}' — each account needs a unique alias" 1>&2
+      exit 1
+    fi
+    _seen_aliases[$_alias]=1
+  done < <(printf '%s\n' "$github_accounts_raw" | tr ',' '\n')
+
+  # Output clean YAML to stdout
+  printf '# GitHub CLI accounts — to add more later: scripts/gh-account-setup.bash --add=alias:username\n'
+  printf 'github_accounts:\n'
+  while IFS= read -r pair; do
+    pair="${pair// /}"
+    if [[ "$pair" == *":"* ]]; then
+      printf '  %s: "%s"\n' "${pair%%:*}" "${pair##*:}"
+    elif [[ -n "$pair" ]]; then
+      printf '  personal: "%s"\n' "$pair"
+    fi
+  done < <(printf '%s\n' "$github_accounts_raw" | tr ',' '\n')
 }
 
 # Function to sanitize sensitive data from error logs
@@ -648,8 +954,16 @@ fi
 echo -e "\n${CYAN}${ARROW}${NC} How would you like to configure this system?"
 _option=1
 if [[ "$has_config_repo" == "true" ]]; then
-  echo -e "   ${_option}) Pull saved configuration from config repo (recommended)"
+  echo -e "   ${_option}) Pull full saved configuration from config repo"
   _opt_pull=$_option
+  (( _option++ ))
+  echo -e "   ${_option}) Selective import from config repo (choose what to keep)"
+  _opt_selective=$_option
+  (( _option++ ))
+fi
+if [[ "$has_config_repo" == "true" ]] && [[ -f "$localhost_yml" ]] && grep -qE '(!vault|github_accounts)' "$localhost_yml"; then
+  echo -e "   ${_option}) Merge remote config into local (diff/merge per key)"
+  _opt_merge=$_option
   (( _option++ ))
 fi
 if [[ -f "$localhost_yml" ]] && grep -qE '(!vault|github_accounts)' "$localhost_yml"; then
@@ -663,10 +977,49 @@ _opt_fresh=$_option
 read -rp "   Choice [1-${_option}]: " _config_choice
 
 if [[ "$has_config_repo" == "true" ]] && [[ "${_config_choice}" == "${_opt_pull}" ]]; then
+  backup_config "$localhost_yml"
   printf '%s' "$raw_content" | base64 -d > "$localhost_yml"
   success "Configuration pulled from github.com/${config_repo}"
+
+elif [[ "$has_config_repo" == "true" ]] && [[ "${_config_choice}" == "${_opt_selective:-}" ]]; then
+  backup_config "$localhost_yml"
+  selective_config_import "$raw_content" "$localhost_yml"
+  success "Selective import from github.com/${config_repo}"
+
+  # Prompt for essential keys that were excluded
+  if ! grep -q '^user_login:' "$localhost_yml"; then
+    info "user_login was excluded — entering identity details"
+    echo ""
+    read -rp "   User login [$(whoami)]: " user_login
+    user_login="${user_login:-$(whoami)}"
+    if [[ ${#user_login} -lt 3 ]]; then
+      error "User login must be at least 3 characters"
+      exit 1
+    fi
+    read -rp "   Full name [${user_login}]: " user_name
+    user_name="${user_name:-$user_login}"
+    user_email="$(promptForValue 'email address' email)"
+    {
+      printf 'user_login: "%s"\n' "$user_login"
+      printf 'user_name: "%s"\n' "$user_name"
+      printf 'user_email: "%s"\n' "$user_email"
+    } >> "$localhost_yml"
+    success "Identity added to configuration"
+  fi
+  if ! grep -q '^github_accounts:' "$localhost_yml"; then
+    info "github_accounts was excluded — entering GitHub accounts"
+    prompt_github_accounts_yaml >> "$localhost_yml"
+    success "GitHub accounts added to configuration"
+  fi
+
+elif [[ -n "${_opt_merge:-}" ]] && [[ "${_config_choice}" == "${_opt_merge}" ]]; then
+  backup_config "$localhost_yml"
+  merge_config_import "$raw_content" "$localhost_yml"
+  success "Merge complete"
+
 elif [[ -n "${_opt_keep:-}" ]] && [[ "${_config_choice}" == "${_opt_keep}" ]]; then
   success "Keeping existing localhost.yml"
+
 elif [[ "${_config_choice}" == "${_opt_fresh}" ]]; then
   echo ""
   read -rp "   User login [$(whoami)]: " user_login
@@ -679,64 +1032,11 @@ elif [[ "${_config_choice}" == "${_opt_fresh}" ]]; then
   user_name="${user_name:-$user_login}"
   user_email="$(promptForValue 'email address' email)"
 
-  echo -e "\n${CYAN}${ARROW}${NC} Enter your GitHub username(s)"
-  echo -e "   These are the usernames you log into github.com with."
-  echo -e "   For multiple accounts, prefix each with a short alias and colon."
-  echo -e ""
-  echo -e "   ${BOLD}One account:${NC}      johndoe"
-  echo -e "   ${BOLD}Multiple accounts:${NC} personal:johndoe,work:johndoe-corp"
-  github_accounts_raw="$(promptForValue 'GitHub username(s), comma separated')"
-
-  # Count entries and validate format
-  _account_count=$(printf '%s' "$github_accounts_raw" | tr ',' '\n' | grep -c '[^[:space:]]')
-  _has_unaliased=false
-  while IFS= read -r pair; do
-    pair="${pair// /}"
-    [[ -z "$pair" ]] && continue
-    if [[ "$pair" != *":"* ]]; then
-      _has_unaliased=true
-    fi
-  done < <(printf '%s\n' "$github_accounts_raw" | tr ',' '\n')
-
-  if [[ "$_has_unaliased" == "true" ]] && [[ "$_account_count" -gt 1 ]]; then
-    error "Multiple accounts require aliases. Use format: alias:username,alias:username"
-    echo -e "   You entered: ${BOLD}${github_accounts_raw}${NC}"
-    echo -e "   Example:     ${BOLD}personal:user1,work:user2${NC}"
-    exit 1
-  fi
-
-  # Validate: no duplicate aliases
-  declare -A _seen_aliases=()
-  while IFS= read -r pair; do
-    pair="${pair// /}"
-    if [[ "$pair" == *":"* ]]; then
-      _alias="${pair%%:*}"
-    elif [[ -n "$pair" ]]; then
-      _alias="personal"
-    else
-      continue
-    fi
-    if [[ -n "${_seen_aliases[$_alias]:-}" ]]; then
-      error "Duplicate alias '${_alias}' — each account needs a unique alias"
-      exit 1
-    fi
-    _seen_aliases[$_alias]=1
-  done < <(printf '%s\n' "$github_accounts_raw" | tr ',' '\n')
-
   {
     printf 'user_login: "%s"\n' "$user_login"
     printf 'user_name: "%s"\n' "$user_name"
     printf 'user_email: "%s"\n' "$user_email"
-    printf '# GitHub CLI accounts — to add more later: scripts/gh-account-setup.bash --add=alias:username\n'
-    printf 'github_accounts:\n'
-    while IFS= read -r pair; do
-      pair="${pair// /}"
-      if [[ "$pair" == *":"* ]]; then
-        printf '  %s: "%s"\n' "${pair%%:*}" "${pair##*:}"
-      elif [[ -n "$pair" ]]; then
-        printf '  personal: "%s"\n' "$pair"
-      fi
-    done < <(printf '%s\n' "$github_accounts_raw" | tr ',' '\n')
+    prompt_github_accounts_yaml
   } > "$localhost_yml"
 
   success "Configuration written"
