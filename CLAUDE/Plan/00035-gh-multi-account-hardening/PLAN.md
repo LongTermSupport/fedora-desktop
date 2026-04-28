@@ -1,6 +1,6 @@
 # Plan 00035: GitHub Multi-Account Hardening (gh + SSH Keys + Signed Commits)
 
-**Status**: Not Started
+**Status**: In Progress
 **Created**: 2026-04-24
 **Owner**: joseph
 **Priority**: High
@@ -150,13 +150,29 @@ trustworthy across all accounts, SSH keys become easy to manage and rotate.
   in `run.bash` that runs once per account missing the scope, with a
   clear "log into github.com as <X> in your browser first" message.
 
-### Phase 2: Fresh-install multi-account gh setup (run.bash)
+### Phase 2: Standalone `gh-account-setup.bash` script (Decision 3)
 
-- [ ] ⬜ **Split single-account auth from multi-account auth** — the
-  current `run.bash:522-545` block handles only the primary. Add a new
-  block that runs AFTER `github_accounts` is known (currently after
-  line 740) and BEFORE `play-github-cli-multi.yml` runs, iterating
-  each account and calling `gh auth login --hostname github.com --user <X>` for any not yet authenticated.
+- [x] ✅ **Create `scripts/gh-account-setup.bash`** — standalone script
+  that handles the full per-account GitHub setup flow:
+  - `--add=alias:username` — add and fully configure a single account
+  - `--setup-all` — iterate all accounts from `localhost.yml`, set up
+    any that aren't fully configured (used by `run.bash`)
+  - `--check` — verify all accounts are healthy (auth + SSH + scopes)
+  - Per-account flow: (1) `gh auth login --hostname github.com --git-protocol ssh --web` if not authenticated (skips confusing SSH
+    key upload prompt), (2) scope audit + `gh auth refresh` if missing,
+    (3) SSH key generation if missing, (4) `gh ssh-key add` if not
+    registered, (5) isolated SSH test to verify correct account
+  - Idempotent: re-running with everything in place is a no-op with
+    success logs, no redundant prompts or browser opens
+  - For `--add`: also appends the new alias:username to `localhost.yml`
+    under `github_accounts` so user doesn't need to edit YAML manually
+- [x] ✅ **Update `run.bash`** — replaced the inline SSH key generation
+  block (lines 835-903) with a call to
+  `scripts/gh-account-setup.bash --setup-all`. Primary auth block
+  (lines 522-545) stays as-is — it runs before `localhost.yml` exists
+  and is needed to clone the config repo. Added comment to
+  `github_accounts` config block hinting at `--add` usage. Bumped
+  `RUN_BASH_VERSION` to 1.1.0.
 - [x] ✅ **Per-account scope audit** — implemented in
   `play-github-cli-multi.yml` (not `run.bash` as originally scoped — see
   2026-04-27 note). Loops `github_accounts`, switches to each, reads
@@ -164,11 +180,11 @@ trustworthy across all accounts, SSH keys become easy to manage and rotate.
   the exact `gh auth switch && gh auth refresh --scopes <missing>`
   command per account. Uses the canonical `github_required_scopes` list.
   Originally-active account is restored before the fail step.
-- [ ] ⬜ **Idempotency test** — re-running the block with everything
+- [ ] ⬜ **Idempotency test** — re-running the script with everything
   already in place must be a no-op with success logs, not redundant
-  prompts.
-- [ ] ⬜ **Bump `RUN_BASH_VERSION`** with a message describing the new
-  multi-account auth step.
+  prompts. Requires testing on the host with real gh accounts.
+- [x] ✅ **Bump `RUN_BASH_VERSION`** — bumped to 1.1.0 with message
+  describing the multi-account gh setup change.
 
 ### Phase 3: Harden play-github-cli-multi.yml SSH probe
 
@@ -186,15 +202,18 @@ trustworthy across all accounts, SSH keys become easy to manage and rotate.
   `('Hi ' + expected + '!') in item.stdout`. Failure message names
   both expected and actual users.
 
-### Phase 4: Programmatic pubkey upload
+### Phase 4: Programmatic pubkey upload (now in script)
 
 - [x] ✅ **Scope preflight in playbook** — superseded by the broader
   Phase 2 per-account scope audit, which runs BEFORE the SSH key block
   and fail-fasts on any missing scope (not just `admin:public_key`).
   Implemented in `play-github-cli-multi.yml`.
-- [ ] ⬜ **Replace the manual `pause:` prompt** at lines 237-262 with
-  a task that loops over `ssh_keys_to_add` and runs
-  `gh auth switch --user <expected> && gh ssh-key add <pubkey> --title "<hostname>-<alias>-<date>" --type authentication` per key.
+- [ ] ⬜ **Move pubkey upload into `gh-account-setup.bash`** — the
+  script handles `gh ssh-key add` per account (see Phase 2). The
+  playbook's manual `pause:` prompt (lines 334-357) and the
+  "Instructions for adding SSH keys to GitHub" block are removed
+  entirely. The playbook's SSH probe block stays as a verification
+  step but no longer drives uploads.
 - [ ] ⬜ **Verify post-upload** — the re-probe block already exists;
   it just needs the isolation fix from Phase 3 to work correctly.
 
@@ -292,6 +311,33 @@ Aligns with the user's stated preference: "gh working first, then SSH
 keys become easy".
 
 **Date**: 2026-04-24
+
+### Decision 3: Standalone `gh-account-setup.bash` script
+
+**Context**: Adding a new GitHub account requires the user to know 3
+separate manual steps in the right order: (1) run `gh auth login` (which
+shows a confusing SSH key upload prompt), (2) edit `localhost.yml`, (3)
+run the playbook (which pauses for manual SSH key paste). The user wants
+a single command: add the account to config, run one script, done.
+
+**Options**:
+
+1. Keep auth/keygen/upload split across `run.bash` + playbook — fix the
+   UX within those files.
+2. Extract a standalone `scripts/gh-account-setup.bash` that handles the
+   full per-account flow (gh auth, keygen, `gh ssh-key add`, SSH test),
+   callable from `run.bash` AND standalone via `--add=alias:username`.
+
+**Decision**: Option 2. A standalone script:
+
+- Gives users a single command for adding accounts post-install
+- Lets `run.bash` delegate instead of inline SSH key logic
+- Lets the playbook stay declarative (deploy config/aliases only)
+- Uses `gh auth login --hostname github.com --git-protocol ssh --web`
+  which skips the confusing SSH key upload prompt entirely
+- Consolidates Phases 2 + 4 into one coherent flow
+
+**Date**: 2026-04-28
 
 ## Success Criteria
 
@@ -402,3 +448,41 @@ touch different files.)
   runs. Could be removed once Phase 2's run.bash split lands and the
   playbook becomes the canonical source — not removing yet to keep
   the change focused.
+
+### 2026-04-28 — Decision 3: standalone `gh-account-setup.bash`
+
+- User tried to add a new GitHub account and hit the confusing
+  `gh auth login` SSH key upload prompt. Feedback: "this process is
+  not smooth, the gh stuff should be handled by play or run.bash or
+  maybe a sub script that run.bash calls and I can call. All I should
+  have to do is add the key to the env config."
+- Decided on a standalone `scripts/gh-account-setup.bash` (Decision 3)
+  that consolidates Phases 2 + 4 into one script. Supports
+  `--add=alias:username` for post-install use and `--setup-all` for
+  `run.bash` to call during fresh install.
+- Key UX improvement: `gh auth login --hostname github.com --git-protocol ssh --web` skips the confusing "Upload your SSH public
+  key?" prompt — just opens the browser for OAuth.
+- Playbook's manual `pause:` SSH key paste prompt will be removed;
+  the script handles `gh ssh-key add` programmatically before the
+  playbook ever runs.
+- Updated Phase 2 and Phase 4 task lists to reflect the new design.
+  Plan status changed to In Progress.
+
+### 2026-04-28 — Phase 2 script and run.bash integration implemented
+
+- Created `scripts/gh-account-setup.bash` with three modes:
+  - `--add=alias:username` — add new account to config + full setup
+  - `--setup-all` — set up all accounts from `localhost.yml`
+  - `--check` — read-only health verification
+- Per-account flow: (1) `gh auth login --web` (skips confusing SSH key
+  upload prompt), (2) scope audit via `X-Oauth-Scopes` header + `gh auth refresh` if missing, (3) SSH key generation if missing, (4) `gh ssh-key add` if not registered on GitHub, (5) isolated SSH test
+  (`-F /dev/null -o IdentityAgent=none`) to verify correct account.
+- Replaced run.bash inline SSH key generation block (was ~70 lines of
+  Python+bash) with a single call to the script. Passphrase passed via
+  `GITHUB_SSH_PASSPHRASE` env var if already in memory, otherwise the
+  script decrypts from vault itself.
+- Added config comment: `# GitHub CLI accounts — to add more later: scripts/gh-account-setup.bash --add=alias:username`
+- Bumped `RUN_BASH_VERSION` to 1.1.0.
+- QA passed (`./scripts/qa-all.bash`), shellcheck clean on new script.
+- Remaining: idempotency test on host, playbook `pause:` removal
+  (Phase 4), SSH probe hardening (Phase 3).

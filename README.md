@@ -7,6 +7,7 @@ Transform your fresh Fedora installation into a fully-configured development pow
 An Ansible-based automation project that eliminates the tedious manual setup of a new Fedora workstation. Run one command, grab a coffee, and come back to a system ready for serious development work.
 
 **Perfect for:**
+
 - Developers who want consistent environments across machines
 - System administrators managing multiple Fedora workstations
 - Anyone who's tired of manually reinstalling tools after a fresh OS install
@@ -15,6 +16,7 @@ An Ansible-based automation project that eliminates the tedious manual setup of 
 ## Why Use This?
 
 Instead of spending hours:
+
 - Installing packages one by one
 - Configuring Git, SSH, and development tools
 - Setting up Docker, LXC, and container environments
@@ -22,6 +24,7 @@ Instead of spending hours:
 - Installing fonts, codecs, and system utilities
 
 You run a single command and get:
+
 - A reproducible, version-controlled system configuration
 - Automatic dependency management
 - Secure vault-encrypted secrets
@@ -39,6 +42,7 @@ On a fresh Fedora installation, run this as your regular user:
 ```
 
 That's it. The script will:
+
 1. Verify your Fedora version matches this branch
 2. Install Ansible and dependencies
 3. Configure GitHub CLI and SSH keys
@@ -50,6 +54,7 @@ That's it. The script will:
 ### Before You Run It
 
 Make sure you have:
+
 - [ ] A fresh Fedora installation (check version compatibility below)
 - [ ] Enabled third-party repositories during Fedora installation
 - [ ] Logged in as your regular user (not root)
@@ -57,11 +62,32 @@ Make sure you have:
 
 Need more details? See the full [Installation Guide](docs/installation.md).
 
+### Adding GitHub Accounts
+
+To add a new GitHub account after initial setup:
+
+```bash
+./scripts/gh-account-setup.bash --add=alias:username
+```
+
+This handles everything: GitHub CLI authentication, OAuth scope setup, SSH key generation, key upload, and verification. Then deploy the SSH config:
+
+```bash
+ansible-playbook playbooks/imports/play-github-cli-multi.yml
+```
+
+To check all configured accounts are healthy:
+
+```bash
+./scripts/gh-account-setup.bash --check
+```
+
 ## Version Compatibility
 
 **Current branch targets: Fedora 42**
 
 This project uses version-specific branches:
+
 - `F42` - Fedora 42 (current)
 - `F43` - Fedora 43 (future)
 - Each branch is maintained separately
@@ -75,12 +101,14 @@ The bootstrap script automatically verifies your Fedora version matches the bran
 The main playbook configures these essentials without any interaction:
 
 **System Foundations**
+
 - Optimized DNF configuration (10 parallel downloads, fastest mirror)
 - Essential packages (vim, wget, htop, bash-completion, ripgrep)
 - Microsoft fonts for document compatibility
 - RPM Fusion repositories (free and non-free)
 
 **Development Environment**
+
 - Git with bash-git-prompt (Solarized theme)
 - GitHub CLI (gh) for repository management
 - Node.js 20 via NVM
@@ -88,11 +116,13 @@ The main playbook configures these essentials without any interaction:
 - JetBrains Toolbox
 
 **Container Platform**
+
 - LXC with networking configured
 - SSH keys for container access
 - Firewall rules for container networking
 
 **Shell Experience**
+
 - Custom bash prompt with error state indicators
 - Enhanced history (20K lines)
 - Docker helper functions
@@ -103,28 +133,33 @@ The main playbook configures these essentials without any interaction:
 Choose what you need from these curated playbooks:
 
 **Containerization** ([learn more](docs/containerization.md))
+
 - Docker (rootless) for application containers
 - Distrobox for seamless development environments
 - Docker-in-LXC for isolated project testing
 - [Playwright testing environment](docs/containerization.md#playwright-distrobox-automated) (automated browser setup)
 
 **Programming Languages**
+
 - Python with pyenv, PDM, Hugging Face tools
 - Go compiler and tools
 - Rust toolchain
 
 **IDEs & Editors**
+
 - VS Code with Microsoft repository
 - PyCharm Community (via Toolbox)
 - Enhanced Vim configuration (already included)
 
 **Hardware Support**
+
 - NVIDIA proprietary drivers
 - DisplayLink dock support
 - HD audio configuration (192kHz, LDAC, aptX HD)
 - TLP battery optimization (laptops)
 
 **Productivity Tools**
+
 - Flatpak applications (Slack, etc.)
 - Firefox with profile switcher
 - LastPass CLI
@@ -144,6 +179,7 @@ Comprehensive guides are available in the [docs/](docs/) directory:
 - **[Development Guide](docs/development.md)** - Contributing and development workflow
 
 **Quick links:**
+
 - Stuck? Check [Troubleshooting](docs/installation.md#troubleshooting)
 - Want to add features? See [Configuration Guide](docs/configuration.md#adding-custom-configurations)
 - Running optional playbooks? See [Playbooks Reference](docs/playbooks.md#running-optional-playbooks)
@@ -163,6 +199,7 @@ Read more about these principles in [CLAUDE.md](CLAUDE.md) if you're contributin
 ## Contributing
 
 Contributions are welcome! See the [Development Guide](docs/development.md) for:
+
 - Setting up a development environment
 - Project structure and Ansible patterns
 - Creating new playbooks
@@ -170,6 +207,7 @@ Contributions are welcome! See the [Development Guide](docs/development.md) for:
 - Pull request guidelines
 
 **Quick contribution checklist:**
+
 - [ ] Test on fresh Fedora installation
 - [ ] Verify idempotency (run twice, no changes second time)
 - [ ] Follow the Ansible style guide

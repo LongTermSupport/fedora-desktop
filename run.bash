@@ -3,7 +3,7 @@
 ## Setup
 ## !! BUMP THIS VERSION ON EVERY CHANGE TO THIS FILE — NO EXCEPTIONS !!
 ## !! If you forget, there is NO WAY to tell which version is running !!
-RUN_BASH_VERSION="1.0.14"  # Bypass git() wrapper with `command git` for pulls (set -e safety)
+RUN_BASH_VERSION="1.1.0"  # Multi-account gh setup via scripts/gh-account-setup.bash
 set -e
 set -u
 set -o pipefail
@@ -727,7 +727,7 @@ elif [[ "${_config_choice}" == "${_opt_fresh}" ]]; then
     printf 'user_login: "%s"\n' "$user_login"
     printf 'user_name: "%s"\n' "$user_name"
     printf 'user_email: "%s"\n' "$user_email"
-    printf '# GitHub CLI accounts\n'
+    printf '# GitHub CLI accounts — to add more later: scripts/gh-account-setup.bash --add=alias:username\n'
     printf 'github_accounts:\n'
     while IFS= read -r pair; do
       pair="${pair// /}"
@@ -832,71 +832,16 @@ else
 fi
 completed
 
-title "Preparing SSH Keys for GitHub Accounts"
+title "Setting Up GitHub Multi-Account Access"
 if grep -q 'github_accounts' "$localhost_yml" 2>/dev/null; then
-  info "Generating any missing per-account SSH keys"
-  # Parse github_accounts from localhost.yml — use Python to ignore !vault tags
-  mapfile -t _gh_account_pairs < <(python3 - "$localhost_yml" <<'PYEOF'
-import sys, yaml
-
-def _ignore_vault(loader, tag_suffix, node):
-    return None
-
-_loader = yaml.SafeLoader
-yaml.add_multi_constructor('', _ignore_vault, Loader=_loader)
-
-with open(sys.argv[1]) as f:
-    data = yaml.load(f, Loader=_loader)
-
-for alias, username in (data.get('github_accounts') or {}).items():
-    print(f"{alias}:{username}")
-PYEOF
-  )
-
-  if [[ ${#_gh_account_pairs[@]} -eq 0 ]]; then
-    warning "No github_accounts entries parsed — skipping"
-  else
-    # If any key needs generating and passphrase isn't in memory (e.g. pulled from config
-    # repo), prompt once before the loop rather than letting ssh-keygen use empty passphrase
-    _any_key_missing=false
-    for _pair in "${_gh_account_pairs[@]}"; do
-      _alias="${_pair%%:*}"
-      [[ ! -f "$HOME/.ssh/github_${_alias}" ]] && { _any_key_missing=true; break; }
-    done
-
-    if [[ "$_any_key_missing" == "true" ]] && [[ -z "$_github_ssh_passphrase" ]]; then
-      # Passphrase exists in vault (from config repo) — decrypt it rather than
-      # asking the user to re-type it, which risks a mismatch
-      info "Decrypting github_ssh_passphrase from vault..."
-      # Force minimal callback to get predictable JSON output regardless of ansible.cfg
-      _github_ssh_passphrase=$(ANSIBLE_STDOUT_CALLBACK=ansible.builtin.minimal \
-        ansible localhost -c local \
-        -e "@$localhost_yml" \
-        -m debug -a "msg={{ github_ssh_passphrase }}" \
-        --vault-id "localhost@$vault_pass_file" 2>/dev/null \
-        | python3 -c "import sys,json,re;raw=sys.stdin.read();m=re.search(r'=>\s*(\{.*\})',raw,re.DOTALL);print(json.loads(m.group(1))['msg'],end='')" 2>/dev/null)
-      if [[ -z "$_github_ssh_passphrase" ]]; then
-        error "Failed to decrypt github_ssh_passphrase from vault"
-        echo -e "   ${YELLOW}${ARROW}${NC} Check that vault-pass.secret is correct"
-        exit 1
-      fi
-      success "Passphrase decrypted from vault"
-    fi
-
-    for _pair in "${_gh_account_pairs[@]}"; do
-      _alias="${_pair%%:*}"
-      _username="${_pair##*:}"
-
-      # Ensure per-account SSH key exists — playbook will handle GitHub upload
-      _key_private="$HOME/.ssh/github_${_alias}"
-      if [[ ! -f "$_key_private" ]]; then
-        info "Generating SSH key for $_alias ($_username)"
-        ssh-keygen -t ed25519 -C "${_username}@github" -f "$_key_private" -N "${_github_ssh_passphrase:-}"
-      fi
-
-      success "SSH key ready: $_alias ($_username)"
-    done
-  fi
+  # gh-account-setup.bash handles: per-account gh auth, OAuth scope audit,
+  # SSH key generation, programmatic key upload (gh ssh-key add), and
+  # isolated SSH verification. Pass passphrase via env if already in memory
+  # (fresh-install path); otherwise the script decrypts from vault itself.
+  GITHUB_SSH_PASSPHRASE="${_github_ssh_passphrase:-}" \
+  LOCALHOST_YML="$localhost_yml" \
+  VAULT_PASS_FILE="$vault_pass_file" \
+    ./scripts/gh-account-setup.bash --setup-all
 else
   success "Single account setup — no additional accounts to authenticate"
 fi
