@@ -202,35 +202,35 @@ client projects on the desktop". The chosen surface:
 
 ### Phase 2: Core script — `watermark` CLI
 
-- [ ] ⬜ **Task 2.1**: Write `files/usr/local/bin/watermark` (bash,
+- [x] ✅ **Task 2.1**: Write `files/usr/local/bin/watermark` (bash,
   `set -euo pipefail`, modeled on `files/usr/local/bin/compress`)
-  - [ ] ⬜ Argument parser: `--text`, `--logo`, `--copyright`,
-    `--artist`, `--licence-url`, `--licence-summary`, `--profile NAME`,
+  - [x] ✅ Argument parser: `--text`, `--copyright`, `--artist`,
+    `--licence-url`, `--licence-summary`, `--profile NAME`,
     `--config FILE`, `--output PATH`, `--force`, `--dry-run`,
-    `--verbose`, `--no-tile`, `--no-corner`, `-h|--help`
-  - [ ] ⬜ Config precedence chain: load `/etc/watermark/defaults.conf`,
+    `--verbose`, `--no-tile`, `--no-corner`, `--show-config`, `-h|--help`
+  - [x] ✅ Config precedence chain: load `/etc/watermark/defaults.conf`,
     then `~/.config/watermark/defaults.conf`, then `--config FILE`,
     then apply CLI overrides; resolve `--profile` against the merged config
-  - [ ] ⬜ Validate: input file exists, is JPEG or PNG (by extension AND
+  - [x] ✅ Validate: input file exists, is JPEG or PNG (by extension AND
     `file --mime-type`), copyright/artist/licence-url are non-empty
-  - [ ] ⬜ Idempotency probe: read `XMP-wm:Applied` via exiftool (with
+  - [x] ✅ Idempotency probe: read `XMP-wm:Applied` via exiftool (with
     `-config /etc/watermark/exiftool.config`); if `True` and no
     `--force`, print "already watermarked" + path, exit 3
-  - [ ] ⬜ Filename suffix probe: if input matches `*.watermarked.jpg`
+  - [x] ✅ Filename suffix probe: if input matches `*.watermarked.jpg`
     and no `--force`, exit 3
-  - [ ] ⬜ Compose visible watermark: single `magick` invocation,
-    aspect-ratio-aware gravity for corner, diagonal tile layer,
-    sizes as `%[fx:w*N]` percentages
-  - [ ] ⬜ Write metadata: single `exiftool -overwrite_original`
+  - [x] ✅ Compose visible watermark: single `magick` invocation,
+    diagonal tile (mpr:tile + draw fill-reset) + southeast-gravity
+    corner annotate, sizes as `%[fx:w*N]` percentages
+  - [x] ✅ Write metadata: single `exiftool -overwrite_original`
     invocation setting all licence fields plus the three sentinel tags
-  - [ ] ⬜ Output filename: `${input%.*}.watermarked.${ext}` by default,
+  - [x] ✅ Output filename: `${input%.*}.watermarked.${ext}` by default,
     `--output PATH` override; refuse to overwrite existing output unless
     `--force`
-  - [ ] ⬜ Print absolute path of output file to stdout on success;
+  - [x] ✅ Print absolute path of output file to stdout on success;
     errors to stderr; exit codes documented in `--help`
-  - [ ] ⬜ `--dry-run` prints the magick + exiftool commands it would run,
+  - [x] ✅ `--dry-run` prints the magick + exiftool commands it would run,
     then exits 0
-  - [ ] ⬜ Shellcheck-clean
+  - [x] ✅ Shellcheck-clean
 - [ ] ⬜ **Task 2.2**: Write a small test fixture: a generated test image
   (`magick -size 1920x1080 plasma: /tmp/wm-test.jpg`) plus a script that
   exercises the golden path, the idempotency-skip path, the `--force`
@@ -243,7 +243,7 @@ client projects on the desktop". The chosen surface:
 
 ### Phase 3: Config and composition surface
 
-- [ ] ⬜ **Task 3.1**: Define the config-file format (decision below) and
+- [x] ✅ **Task 3.1**: Define the config-file format (decision below) and
   write `files/etc/watermark/defaults.conf.example` with commented-out
   keys and one example `[blog]` profile
 - [ ] ⬜ **Task 3.2**: Document the wrapping pattern for client projects
@@ -259,30 +259,30 @@ client projects on the desktop". The chosen surface:
 
 ### Phase 4: Ansible playbook
 
-- [ ] ⬜ **Task 4.1**: Create
+- [x] ✅ **Task 4.1**: Create
   `playbooks/imports/optional/common/play-image-watermarking.yml`
-  - [ ] ⬜ Standard playbook header (`#!/usr/bin/env ansible-playbook`,
+  - [x] ✅ Standard playbook header (`#!/usr/bin/env ansible-playbook`,
     `hosts: desktop`, `become: true`, `root_dir: ...`)
-  - [ ] ⬜ Install packages: `ImageMagick`, `perl-Image-ExifTool`,
+  - [x] ✅ Install packages: `ImageMagick`, `perl-Image-ExifTool`,
     `dejavu-sans-fonts` (idempotent — exiftool already present from
     `play-photography.yml`, will no-op)
-  - [ ] ⬜ Preflight assert: `magick --version` runs and reports
+  - [x] ✅ Preflight assert: `magick --version` runs and reports
     ImageMagick 7.x; if not, fail with actionable message
-  - [ ] ⬜ Deploy `files/usr/local/bin/watermark` to `/usr/local/bin/`,
+  - [x] ✅ Deploy `files/usr/local/bin/watermark` to `/usr/local/bin/`,
     mode `0755`, owner/group `root`
-  - [ ] ⬜ Deploy `files/etc/watermark/exiftool.config` to
+  - [x] ✅ Deploy `files/etc/watermark/exiftool.config` to
     `/etc/watermark/exiftool.config`, mode `0644`, owner/group `root`
     (registers the `XMP-wm:` namespace; script hardcodes `-config` to
     this path; missing file → script fails fast)
-  - [ ] ⬜ Deploy `files/etc/watermark/defaults.conf.example` to
+  - [x] ✅ Deploy `files/etc/watermark/defaults.conf.example` to
     `/etc/watermark/defaults.conf.example`, mode `0644`,
     owner/group `root` (NOT to user home; user copies to
     `~/.config/watermark/defaults.conf` themselves with their data)
-  - [ ] ⬜ Create `/etc/watermark/` directory with mode `0755`
-  - [ ] ⬜ Display message at end: pointer to
+  - [x] ✅ Create `/etc/watermark/` directory with mode `0755`
+  - [x] ✅ Display message at end: pointer to
     `/etc/watermark/defaults.conf.example`, instruction to copy and edit,
     `watermark --help` reference
-  - [ ] ⬜ Make playbook executable (`chmod +x`)
+  - [x] ✅ Make playbook executable (`chmod +x`)
 - [ ] ⬜ **Task 4.2**: Verify playbook is fully idempotent
   (`--check --diff` clean on second run)
 
@@ -537,3 +537,41 @@ trade-off in `--help`.
   alongside the binary, and the script must hardcode
   `-config /etc/watermark/exiftool.config` for every exiftool call
   (with a fail-fast preflight check that the file exists).
+
+### 2026-04-28 (Phase 2 + 3 + 4 — script, configs, playbook)
+
+- **Task 2.1 (watermark script)** ✅ Wrote `files/usr/local/bin/watermark`
+  (~340 lines, bash, `set -euo pipefail`, shellcheck-clean). Implements
+  full CLI surface: `--text/--artist/--copyright/--licence-url/--licence-summary`
+  for semantic data, `--profile/--config` for layered config, `--output/--force/--dry-run/--show-config/--no-tile/--no-corner/-v` for
+  control. Config precedence chain: built-in → `/etc/watermark/defaults.conf` →
+  `~/.config/watermark/defaults.conf` → `--profile NAME` (resolves to
+  `~/.config/watermark/profiles/<name>.conf`) → `--config FILE` → CLI
+  overrides. NIL sentinel pattern distinguishes "user passed empty"
+  from "user did not pass". Exit codes: 0=ok, 2=arg/validation error,
+  3=idempotency-skip, 4=magick failure, 5=exiftool failure.
+- **Task 3.1 (defaults.conf.example)** ✅ Wrote
+  `files/etc/watermark/defaults.conf.example`. Documented sourceable bash
+  format with semantic keys (artist, copyright, licence_url,
+  licence_summary, text) and presentation tuning (font, opacity_corner,
+  opacity_tile, tile_angle, size_pct_corner, size_pct_tile, quality).
+  Per-profile pattern: `~/.config/watermark/profiles/<name>.conf`
+  selected via `--profile <name>`.
+- **exiftool config** ✅ Wrote `files/etc/watermark/exiftool.config`
+  registering the `XMP-wm:` namespace (URL
+  `https://example.com/ns/watermark/1.0/`, generic placeholder).
+- **Task 4.1 (playbook)** ✅ Wrote
+  `playbooks/imports/optional/common/play-image-watermarking.yml`,
+  executable, follows the `play-compression-helpers.yml` pattern.
+  Installs `ImageMagick`, `perl-Image-ExifTool`, `dejavu-sans-fonts`;
+  preflight asserts IM7.x via `magick --version` stdout; deploys all
+  three files (`watermark` binary, exiftool config, defaults example);
+  creates `/etc/watermark/` with mode 0755; ends with installation
+  summary debug message.
+- **Smoke testing in container**: golden path, filename-suffix
+  idempotency, XMP-sentinel idempotency on renamed file,
+  fail-fast on missing required arg, `--dry-run`, `--show-config`,
+  `--force` overwrite, `--config` file values used, CLI override of
+  `--config` values — all PASS. shellcheck clean. `./scripts/qa-all.bash`
+  PASS (249 files). The container side of Phase 2/3/4 is complete; host
+  deploy + smoke test (Phase 5) is next, on the user's host.

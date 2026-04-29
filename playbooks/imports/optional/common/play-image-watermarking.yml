@@ -1,0 +1,80 @@
+#!/usr/bin/env ansible-playbook
+---
+- hosts: desktop
+  name: Image Watermarking - installs `watermark` command (IM7 + exiftool)
+  become: true
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  tasks:
+    - name: Install ImageMagick 7, exiftool, and DejaVu Sans font
+      ansible.builtin.package:
+        name:
+          - ImageMagick           # provides /usr/bin/magick (IM7 on Fedora 43+)
+          - perl-Image-ExifTool   # provides /usr/bin/exiftool
+          - dejavu-sans-fonts     # font referenced by default profile
+        state: present
+
+    - name: Probe ImageMagick version
+      ansible.builtin.command: magick --version
+      register: magick_version
+      changed_when: false
+
+    - name: Assert ImageMagick is version 7.x (watermark script requires `magick`, not legacy `convert`)
+      ansible.builtin.assert:
+        that:
+          - "'ImageMagick 7.' in magick_version.stdout"
+        fail_msg: |
+          watermark requires ImageMagick 7. Detected:
+            {{ magick_version.stdout_lines[0] | default('(no output)') }}
+
+    - name: Create /etc/watermark/ directory
+      ansible.builtin.file:
+        path: /etc/watermark
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Deploy watermark script
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/usr/local/bin/watermark"
+        dest: /usr/local/bin/watermark
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Deploy exiftool config (registers XMP-wm namespace for idempotency sentinel)
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/etc/watermark/exiftool.config"
+        dest: /etc/watermark/exiftool.config
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Deploy example defaults config
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/etc/watermark/defaults.conf.example"
+        dest: /etc/watermark/defaults.conf.example
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Display installation summary
+      ansible.builtin.debug:
+        msg:
+          - "============================================"
+          - "Image Watermarking Installed"
+          - "============================================"
+          - "watermark        -> /usr/local/bin/watermark"
+          - "exiftool config  -> /etc/watermark/exiftool.config"
+          - "example config   -> /etc/watermark/defaults.conf.example"
+          - ""
+          - "Next steps:"
+          - "  mkdir -p ~/.config/watermark"
+          - "  cp /etc/watermark/defaults.conf.example ~/.config/watermark/defaults.conf"
+          - "  $EDITOR ~/.config/watermark/defaults.conf   # set artist, copyright, licence"
+          - ""
+          - "Usage:"
+          - "  watermark --help"
+          - "  watermark photo.jpg                     # writes photo.watermarked.jpg"
+          - "  watermark --profile blog photo.jpg      # uses ~/.config/watermark/profiles/blog.conf"
