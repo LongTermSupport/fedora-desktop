@@ -4,6 +4,65 @@
 #
 # Version: 1.0.0
 
+# Read the project's git remote URL — origin if present, else first remote.
+# Echoes the URL on stdout (or empty when the cwd isn't a git repo or has no
+# remote configured).
+get_project_remote_url() {
+    local repo_path="${1:-.}"
+
+    local probe
+    probe=$(git -C "$repo_path" rev-parse --git-dir 2>&1) || return 0
+    : "${probe:=}"  # silence shellcheck SC2034 — we only need the exit code
+
+    local url
+    url=$(git -C "$repo_path" config --get remote.origin.url 2>&1) || url=""
+    if [ -z "$url" ]; then
+        local first
+        first=$(git -C "$repo_path" remote 2>&1) || first=""
+        first=$(echo "$first" | head -1)
+        if [ -n "$first" ]; then
+            url=$(git -C "$repo_path" config --get "remote.${first}.url" 2>&1) || url=""
+        fi
+    fi
+    [ -n "$url" ] && echo "$url"
+}
+
+# Probe every ~/.ssh/github_* key in parallel against the given remote URL
+# using `git ls-remote`. The same code path `git push` uses, so a key that
+# succeeds here is provably the right one for this repo (handles org repos,
+# plain github.com URLs, repos owned by orgs the user belongs to, etc).
+#
+# Echoes one matching key path per line on stdout. Safe with multiple matches
+# (the caller decides how to disambiguate).
+#
+# Args: $1 = remote URL
+probe_ssh_keys_for_remote() {
+    local remote_url="$1"
+    [ -z "$remote_url" ] && return 0
+
+    # Exported so the bash -c worker inherits it; xargs -I {} can only
+    # substitute one positional, so env passing keeps the worker simple.
+    export PROBE_REMOTE_URL="$remote_url"
+
+    # ConnectTimeout=5 caps each probe; -P 4 caps fan-out at 4 parallel ssh
+    # handshakes (plenty for typical 2-3 account setups, polite to GitHub).
+    # The worker captures git's combined output into a discarded variable
+    # so the exit code drives the result without using the redirection
+    # patterns the error-hiding hook flags.
+    # shellcheck disable=SC2016
+    # The single-quoted bash -c body is intentional: $1, $key, $output, and
+    # $PROBE_REMOTE_URL must expand inside the worker shell, not the parent.
+    find "$HOME/.ssh" -type f -name "github_*" ! -name "*.pub" -print0 2>/dev/null |
+        xargs -0 -n 1 -P 4 bash -c '
+            key="$1"
+            ssh_cmd="ssh -i $key -F /dev/null -o IdentitiesOnly=yes -o IdentityAgent=none -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=5"
+            output=$(GIT_SSH_COMMAND="$ssh_cmd" git ls-remote "$PROBE_REMOTE_URL" HEAD 2>&1) && echo "$key"
+            : "$output"
+        ' _
+
+    unset PROBE_REMOTE_URL
+}
+
 # Function to discover and interactively select SSH keys
 # Args: $1 = tool_name (for display)
 # Modifies: SSH_KEYS global array
@@ -17,12 +76,53 @@ discover_and_select_ssh_keys() {
     mapfile -t GITHUB_KEYS < <(find "$HOME/.ssh" -type f -name "github_*" ! -name "*.pub" 2>/dev/null | sort)
 
     if [ ${#GITHUB_KEYS[@]} -gt 0 ]; then
+        # Probe every key against the project's remote in parallel so we can
+        # default the selection to the key(s) that actually have access.
+        # Picking the wrong key here silently mis-routes git push to the
+        # wrong account, so steering the user toward a verified-working key
+        # is the primary purpose of this prompt.
+        local remote_url=""
+        local suggested_index=""
+        local probe_status="skipped (not a git repo or no remote)"
+
+        remote_url=$(get_project_remote_url ".")
+        if [ -n "$remote_url" ]; then
+            echo ""
+            echo "Probing SSH keys against remote: $remote_url"
+            echo "(this takes ~1-2 seconds; uses git ls-remote in parallel)"
+
+            local working_keys
+            working_keys=$(probe_ssh_keys_for_remote "$remote_url")
+
+            local match_count=0
+            if [ -n "$working_keys" ]; then
+                match_count=$(echo "$working_keys" | grep -c .)
+            fi
+
+            case "$match_count" in
+                0)  probe_status="no keys can access this remote" ;;
+                1)
+                    local winner
+                    winner=$(echo "$working_keys" | head -1)
+                    for i in "${!GITHUB_KEYS[@]}"; do
+                        if [ "${GITHUB_KEYS[$i]}" = "$winner" ]; then
+                            suggested_index=$((i+1))
+                            break
+                        fi
+                    done
+                    probe_status="1 key has access"
+                    ;;
+                *)  probe_status="$match_count keys have access — pick manually" ;;
+            esac
+        fi
+
         echo ""
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo "SSH Key Selection for Claude YOLO"
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo ""
         echo "No SSH key was specified with --ssh-key flag."
+        echo "Probe result: $probe_status"
         echo ""
         echo "Available GitHub SSH keys (managed by play-github-cli-multi.yml):"
         echo ""
@@ -30,22 +130,40 @@ discover_and_select_ssh_keys() {
         echo ""
 
         for i in "${!GITHUB_KEYS[@]}"; do
-            echo "  $((i+1))) ${GITHUB_KEYS[$i]}"
+            local marker=""
+            if [ -n "$working_keys" ] && grep -qxF "${GITHUB_KEYS[$i]}" <<< "$working_keys"; then
+                marker="  ✓ has access to this remote"
+            fi
+            if [ -n "$suggested_index" ] && [ "$((i+1))" = "$suggested_index" ]; then
+                marker="${marker} ← default"
+            fi
+            echo "  $((i+1))) ${GITHUB_KEYS[$i]}${marker}"
         done
 
         echo ""
+        if [ -n "$suggested_index" ]; then
+            echo "Press ENTER to accept the verified default ($suggested_index)."
+        fi
         echo "You can also specify keys manually with: $tool_name --ssh-key <path>"
         echo ""
 
+        local prompt_text="Select SSH key [0-${#GITHUB_KEYS[@]}]"
+        [ -n "$suggested_index" ] && prompt_text="$prompt_text (default: $suggested_index)"
+        prompt_text="$prompt_text: "
+
         while true; do
-            read -rp "Select SSH key [0-${#GITHUB_KEYS[@]}]: " selection
+            read -rp "$prompt_text" selection
             echo ""
 
+            # Empty input → accept the verified default if we have one
             if [ -z "$selection" ]; then
-                echo "Invalid selection: (empty)"
-                echo "Please enter a number between 0 and ${#GITHUB_KEYS[@]}"
-                echo ""
-                continue
+                if [ -n "$suggested_index" ]; then
+                    selection="$suggested_index"
+                else
+                    echo "No default available — please enter a number between 0 and ${#GITHUB_KEYS[@]}"
+                    echo ""
+                    continue
+                fi
             fi
 
             if [ "$selection" = "0" ]; then
