@@ -1,6 +1,6 @@
 # Plan 00037: Image Watermarking Toolkit
 
-**Status**: Not Started
+**Status**: 🔄 In Progress
 **Created**: 2026-04-28
 **Owner**: joseph
 **Priority**: Medium
@@ -21,7 +21,7 @@ mark for normal viewing, plus a faint diagonal tile across the whole image
 that survives crop-and-go theft and is annoying to clone-stamp out. The
 metadata layer embeds full IPTC/XMP rights information (artist, copyright,
 licence URL, usage terms) and a custom sentinel
-(`XMP:WatermarkApplied=true`) used for idempotency. Re-running the tool on
+(`XMP-wm:Applied=true`) used for idempotency. Re-running the tool on
 an already-watermarked file is a no-op unless `--force` is passed; the
 filename suffix `.watermarked.jpg` provides the same signal at the
 filesystem level for humans and shell-loop callers.
@@ -45,7 +45,7 @@ and documents the wrapping pattern; downstream wrappers are out of scope.
   `XMP-xmpRights:Marked=True`, `XMP-xmpRights:UsageTerms`,
   `XMP-xmpRights:WebStatement`, `XMP-cc:License`
 - Idempotent: re-running on `*.watermarked.jpg` or on any file with the
-  `XMP:WatermarkApplied=true` sentinel is a no-op (`--force` to override)
+  `XMP-wm:Applied=true` sentinel is a no-op (`--force` to override)
 - Composable: every parameter exposed as both CLI flag and config-file key,
   with deterministic precedence (CLI > `--config FILE` > `~/.config/watermark/defaults.conf` > `/etc/watermark/defaults.conf` > built-in defaults)
 - Profiles: named preset bundles (`--profile portfolio`, `--profile blog`)
@@ -106,17 +106,19 @@ exiftool can write all of these in a single invocation:
 | `XMP-cc:License`             | Creative Commons licence URL (when applicable)         |
 | `XMP-plus:LicensorURL`       | PLUS-spec licensor URL (commercial extension)          |
 
-**Custom sentinel** (idempotency):
+**Custom sentinel** (idempotency) — written under the `XMP-wm:` custom
+namespace registered via a deployed exiftool config file (Decision 3):
 
-| Field                    | Value                                   |
-| ------------------------ | --------------------------------------- |
-| `XMP:WatermarkApplied`   | `True`                                  |
-| `XMP:WatermarkAppliedAt` | ISO 8601 UTC timestamp                  |
-| `XMP:WatermarkAppliedBy` | `watermark/<version>` (tool identifier) |
+| Field              | Value                                                     |
+| ------------------ | --------------------------------------------------------- |
+| `XMP-wm:Applied`   | `True`                                                    |
+| `XMP-wm:AppliedAt` | UTC timestamp in exiftool format (`YYYY:mm:dd HH:MM:SSZ`) |
+| `XMP-wm:AppliedBy` | `watermark/<version>` (tool identifier)                   |
 
-These three custom XMP tags need either a custom XMP namespace or use of
-`XMP-x:` (already-present generic XMP namespace exiftool exposes). Decision
-2 below.
+The `XMP-wm` namespace is defined by `files/etc/watermark/exiftool.config`
+(deployed by the playbook), with namespace URL
+`https://example.com/ns/watermark/1.0/`. See Decision 3 below for why a
+custom namespace is required (Option 1, reusing `XMP-x:`, was disproven).
 
 ### Two-layer visible watermark technique (research)
 
@@ -141,7 +143,7 @@ lands; the diagonal tile is orientation-agnostic.
 | Signal                    | Channel        | Survives                             | Used for                              |
 | ------------------------- | -------------- | ------------------------------------ | ------------------------------------- |
 | `.watermarked.jpg` suffix | filename       | rename (no), move (yes)              | shell-loop skip, human visibility     |
-| `XMP:WatermarkApplied`    | metadata (XMP) | rename (yes), move (yes), copy (yes) | tool-level skip, authoritative source |
+| `XMP-wm:Applied`          | metadata (XMP) | rename (yes), move (yes), copy (yes) | tool-level skip, authoritative source |
 
 Both are checked; a positive on either skips re-watermarking. The metadata
 wins on disagreement (e.g., a renamed file keeps its mark even if the
@@ -190,9 +192,13 @@ client projects on the desktop". The chosen surface:
 - [ ] ⬜ **Task 1.3**: Resolve open decisions (see Technical Decisions
   section): config file format, sentinel namespace, stdin batch mode,
   output naming when `--output` is passed
-- [ ] ⬜ **Task 1.4**: Write a one-liner reference test: a single
+- [x] ✅ **Task 1.4**: Write a one-liner reference test: a single
   `magick` + `exiftool` chain that produces the desired result on one
-  test image — lock the recipe before scripting
+  test image — lock the recipe before scripting. **Done** on
+  2026-04-28 in `/tmp/wm-test/`. Two-layer visible watermark composes
+  correctly with `magick` (mpr:tile + corner annotate); exiftool writes
+  all 12 tags including custom `XMP-wm:` namespace and round-trips on
+  read. See Notes & Updates.
 
 ### Phase 2: Core script — `watermark` CLI
 
@@ -207,9 +213,9 @@ client projects on the desktop". The chosen surface:
     then apply CLI overrides; resolve `--profile` against the merged config
   - [ ] ⬜ Validate: input file exists, is JPEG or PNG (by extension AND
     `file --mime-type`), copyright/artist/licence-url are non-empty
-  - [ ] ⬜ Idempotency probe: read `XMP:WatermarkApplied` via exiftool;
-    if `True` and no `--force`, print "already watermarked" + path,
-    exit 3
+  - [ ] ⬜ Idempotency probe: read `XMP-wm:Applied` via exiftool (with
+    `-config /etc/watermark/exiftool.config`); if `True` and no
+    `--force`, print "already watermarked" + path, exit 3
   - [ ] ⬜ Filename suffix probe: if input matches `*.watermarked.jpg`
     and no `--force`, exit 3
   - [ ] ⬜ Compose visible watermark: single `magick` invocation,
@@ -264,6 +270,10 @@ client projects on the desktop". The chosen surface:
     ImageMagick 7.x; if not, fail with actionable message
   - [ ] ⬜ Deploy `files/usr/local/bin/watermark` to `/usr/local/bin/`,
     mode `0755`, owner/group `root`
+  - [ ] ⬜ Deploy `files/etc/watermark/exiftool.config` to
+    `/etc/watermark/exiftool.config`, mode `0644`, owner/group `root`
+    (registers the `XMP-wm:` namespace; script hardcodes `-config` to
+    this path; missing file → script fails fast)
   - [ ] ⬜ Deploy `files/etc/watermark/defaults.conf.example` to
     `/etc/watermark/defaults.conf.example`, mode `0644`,
     owner/group `root` (NOT to user home; user copies to
@@ -345,22 +355,32 @@ no INI tooling support (e.g., editors highlighting INI sections), accepted.
 
 ### Decision 3: Sentinel XMP namespace
 
-**Context**: The custom sentinel tags (`WatermarkApplied`,
-`WatermarkAppliedAt`, `WatermarkAppliedBy`) need a namespace.
+**Context**: The custom sentinel tags (`Applied`, `AppliedAt`, `AppliedBy`)
+need a namespace.
 
 **Options**:
 
 1. Reuse `XMP-x:` (generic XMP, exiftool writes it freely without config)
-2. Define a custom namespace (e.g., `XMP-watermark:`) — requires an
+2. Define a custom namespace (e.g., `XMP-wm:`) — requires an
    exiftool config file deployed alongside the binary
 3. Stash everything in `XMP-dc:Description` as a parseable string
 
-**Decision**: **Option 1 — `XMP-x:`** for v1. It's the lowest-friction
-path; exiftool writes to it without configuration. If a later use case
-needs cleaner namespacing, migrate to a deployed exiftool config (Option 2)
-in a follow-up. Tags written: `XMP-x:WatermarkApplied`,
-`XMP-x:WatermarkAppliedAt`, `XMP-x:WatermarkAppliedBy`.
-**Date**: 2026-04-28
+**Decision**: **Option 2 — custom `XMP-wm:` namespace via deployed
+exiftool config file.** Original choice (Option 1) was disproven during
+Phase 1 Task 1.4 prototyping: exiftool does NOT accept arbitrary user tag
+names under `XMP-x:` — it warns `Tag 'XMP-x:WatermarkApplied' is not defined`
+and silently drops them. Option 2 works cleanly with a `-config FILE` arg
+defining a `wm` namespace (URL `https://example.com/ns/watermark/1.0/`).
+Cost is one extra deployed config file (~20 lines of Perl) and one extra
+flag to every exiftool invocation. Tags written: `XMP-wm:Applied`,
+`XMP-wm:AppliedAt`, `XMP-wm:AppliedBy`.
+
+**Implementation note**: exiftool date values must use the format
+`YYYY:mm:dd HH:MM:SS[.ss][+/-HH:MM|Z]` (colons in the date portion). ISO
+8601 dashes (`YYYY-MM-DD`) are rejected. Use
+`date -u +'%Y:%m:%d %H:%M:%SZ'` in the script.
+
+**Date**: 2026-04-28 (revised after prototype)
 
 ### Decision 4: stdin batch mode
 
@@ -426,8 +446,8 @@ trade-off in `--help`.
   visible layers and full licence metadata, in one invocation
 - [ ] All required EXIF/IPTC/XMP fields present in output, verified via
   `exiftool -G1 -a image.watermarked.jpg`
-- [ ] Custom sentinel tags (`XMP-x:WatermarkApplied`, `…AppliedAt`,
-  `…AppliedBy`) present
+- [ ] Custom sentinel tags (`XMP-wm:Applied`, `XMP-wm:AppliedAt`,
+  `XMP-wm:AppliedBy`) present and round-trip correctly
 - [ ] Re-running `watermark` on a watermarked file exits 3 and prints a
   clear skip message
 - [ ] `--force` re-watermarks (new sentinel timestamp)
@@ -444,16 +464,16 @@ trade-off in `--help`.
 
 ## Risks & Mitigations
 
-| Risk                                                                                                 | Impact | Probability | Mitigation                                                                                                                              |
-| ---------------------------------------------------------------------------------------------------- | ------ | ----------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| ImageMagick `policy.xml` blocks JPEG read/write under default Fedora policy                          | High   | Low         | Phase 1 Task 1.1 verifies; if blocked, document the fix (relax `coder` policy for JPEG/PNG only) but do not auto-modify system file     |
-| Visible watermark looks bad on edge cases (very dark images, very small images, mostly-white images) | Med    | Med         | Phase 2 Task 2.3 inspects a varied set; add a `--invert` flag if light/dark contrast becomes an issue                                   |
-| Re-encoding JPEG for the watermark loses noticeable quality                                          | Med    | Med         | Hardcode `-quality 95` (config override available); document that the watermarked file is for distribution, originals are preserved     |
-| ImageMagick 7 vs 6 syntax drift (`magick` vs `convert`) breaks on hosts with old IM6                 | High   | Very Low    | Preflight assert in playbook; Fedora 43 ships IM7                                                                                       |
-| User loses originals because they pointed `--output` at the input path                               | High   | Low         | Refuse if `--output` resolves to the same realpath as input; covered in Phase 2 arg validation                                          |
-| Config file precedence becomes confusing                                                             | Low    | Med         | Document precedence in `--help`; add `--show-config` flag (Phase 2 sub-task) that prints the resolved merged config and exits 0         |
-| `--stdin0` partial-failure behaviour ambiguous (one file fails, do remaining proceed?)               | Med    | Med         | Define explicit policy: continue on per-file failure, print summary at end (`N succeeded, M skipped, K failed`), exit non-zero if K > 0 |
-| `XMP-x:` sentinel namespace collides with another tool                                               | Low    | Very Low    | Use distinctive tag names (`WatermarkApplied`, etc.); migrate to custom namespace if collision is ever observed                         |
+| Risk                                                                                                          | Impact | Probability | Mitigation                                                                                                                                              |
+| ------------------------------------------------------------------------------------------------------------- | ------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ImageMagick `policy.xml` blocks JPEG read/write under default Fedora policy                                   | High   | Low         | Phase 1 Task 1.1 verifies; if blocked, document the fix (relax `coder` policy for JPEG/PNG only) but do not auto-modify system file                     |
+| Visible watermark looks bad on edge cases (very dark images, very small images, mostly-white images)          | Med    | Med         | Phase 2 Task 2.3 inspects a varied set; add a `--invert` flag if light/dark contrast becomes an issue                                                   |
+| Re-encoding JPEG for the watermark loses noticeable quality                                                   | Med    | Med         | Hardcode `-quality 95` (config override available); document that the watermarked file is for distribution, originals are preserved                     |
+| ImageMagick 7 vs 6 syntax drift (`magick` vs `convert`) breaks on hosts with old IM6                          | High   | Very Low    | Preflight assert in playbook; Fedora 43 ships IM7                                                                                                       |
+| User loses originals because they pointed `--output` at the input path                                        | High   | Low         | Refuse if `--output` resolves to the same realpath as input; covered in Phase 2 arg validation                                                          |
+| Config file precedence becomes confusing                                                                      | Low    | Med         | Document precedence in `--help`; add `--show-config` flag (Phase 2 sub-task) that prints the resolved merged config and exits 0                         |
+| `--stdin0` partial-failure behaviour ambiguous (one file fails, do remaining proceed?)                        | Med    | Med         | Define explicit policy: continue on per-file failure, print summary at end (`N succeeded, M skipped, K failed`), exit non-zero if K > 0                 |
+| Custom `XMP-wm:` namespace requires `-config FILE` on every exiftool call; missing config silently drops tags | High   | Med         | Script must hardcode `-config /etc/watermark/exiftool.config`; fail fast if file missing; covered in Phase 4 (playbook deploys config alongside binary) |
 
 ## Timeline
 
@@ -466,15 +486,54 @@ trade-off in `--help`.
 
 ## Notes & Updates
 
-### 2026-04-28
+### 2026-04-28 (plan creation)
 
 - Plan created. Research confirms ImageMagick + exiftool are the right
   tools and both are in Fedora repos; exiftool already present via
   `play-photography.yml`. Visible-watermark approach is two-layer
   (corner + faint diagonal tile) to balance aesthetics vs
   removal-resistance. Idempotency uses dual signal: `.watermarked.jpg`
-  filename suffix (human-visible) and `XMP-x:WatermarkApplied=true`
-  metadata sentinel (authoritative). Composability surface: CLI-first
-  with config precedence chain and named profiles via per-profile
-  config files. Steganographic / DCT-domain invisible watermarking is
-  parked as Phase 6 decision gate, deliberately out of v1 scope.
+  filename suffix (human-visible) and an XMP metadata sentinel
+  (authoritative). Composability surface: CLI-first with config
+  precedence chain and named profiles via per-profile config files.
+  Steganographic / DCT-domain invisible watermarking is parked as Phase
+  6 decision gate, deliberately out of v1 scope.
+
+### 2026-04-28 (Phase 1 Task 1.4 — recipe lock)
+
+- Status → 🔄 In Progress.
+- Installed ImageMagick 7.1.2-21 in the dev container (Debian 12 ships
+  IM6 only). Used the upstream AppImage, extracted (no FUSE in
+  container), placed at `/opt/imagemagick7/`, wrapper at
+  `/usr/local/bin/magick` exporting `LD_LIBRARY_PATH` and
+  `MAGICK_CONFIGURE_PATH`. Container-only — production target (Fedora
+  43\) ships IM7 natively, so no playbook change needed for the engine.
+- **Recipe locked end-to-end with `magick` (IM7).** Two-layer
+  visible watermark composes cleanly: a 400×400 `mpr:tile` register
+  holding the rotated faint text, drawn across the canvas with
+  `-fill mpr:tile -draw 'color 0,0 reset'`, then a high-contrast
+  southeast-gravity corner annotate. Quality 95 JPEG output.
+- **Decision 3 revised** (see above). Original choice — `XMP-x:`
+  generic namespace — was disproven during prototyping: exiftool warns
+  `Tag 'XMP-x:WatermarkApplied' is not defined` and silently drops
+  unknown user tags under `XMP-x:`. Switched to a custom `XMP-wm:`
+  namespace defined via a `-config FILE` Perl config. The config file
+  must be deployed by the playbook and referenced by every exiftool
+  invocation in the script.
+- **exiftool date-format gotcha**: writes reject ISO 8601 dashes
+  (`2026-04-28T15:39:39Z`) with `Warning: Invalid date/time (use YYYY:mm:dd HH:MM:SS[.ss][+/-HH:MM|Z])`. Use
+  `date -u +'%Y:%m:%d %H:%M:%SZ'` (colons in date portion) instead.
+- All 12 metadata tags round-trip cleanly: `EXIF:Artist`,
+  `EXIF:Copyright`, `IPTC:By-line`, `IPTC:CopyrightNotice`,
+  `XMP-dc:Creator`, `XMP-dc:Rights`, `XMP-xmpRights:Marked`,
+  `XMP-xmpRights:UsageTerms`, `XMP-xmpRights:WebStatement`,
+  `XMP-wm:Applied`, `XMP-wm:AppliedAt`, `XMP-wm:AppliedBy`. Verified
+  with `exiftool -G1 -s` readout.
+- Custom namespace URL set to `https://example.com/ns/watermark/1.0/`
+  (generic placeholder — public repo, no personal domain). The URL
+  doesn't need to resolve; it's just an opaque identifier for the
+  namespace. Final config will live at `files/etc/watermark/exiftool.config`.
+- **Phase 4 task added**: deploy `files/etc/watermark/exiftool.config`
+  alongside the binary, and the script must hardcode
+  `-config /etc/watermark/exiftool.config` for every exiftool call
+  (with a fail-fast preflight check that the file exists).
