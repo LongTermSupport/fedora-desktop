@@ -3,7 +3,7 @@
 ## Setup
 ## !! BUMP THIS VERSION ON EVERY CHANGE TO THIS FILE — NO EXCEPTIONS !!
 ## !! If you forget, there is NO WAY to tell which version is running !!
-RUN_BASH_VERSION="1.5.0"  # Per-host config storage, push to config repo, host-aware pull
+RUN_BASH_VERSION="1.5.1"  # Cross-host config selection when no config for current host
 set -e
 set -u
 set -o pipefail
@@ -816,17 +816,51 @@ config_source_label=""
 if gh api "repos/${config_repo}" --jq '.name' > /dev/null 2>/dev/null; then
   has_config_repo=true
 
-  # Try host-specific config first, fall back to legacy localhost.yml
+  # Try host-specific config first
   if raw_content=$(gh api "repos/${config_repo}/contents/${config_host_path}" --jq '.content' 2>/dev/null); then
     has_remote_config=true
     config_source_label="${config_hostname}"
     info "Config found for this host (${config_hostname})"
-  elif raw_content=$(gh api "repos/${config_repo}/contents/localhost.yml" --jq '.content' 2>/dev/null); then
-    has_remote_config=true
-    config_source_label="localhost.yml (legacy)"
-    info "Using legacy config — no host-specific config for ${config_hostname} yet"
   else
-    info "Config repo exists but no saved config for ${config_hostname}"
+    # No config for this host — list available hosts and legacy file
+    info "No saved config for ${config_hostname}"
+    declare -a _available_sources=()
+    declare -a _available_labels=()
+
+    # Collect host-specific configs
+    _host_list=$(gh api "repos/${config_repo}/contents/hosts" --jq '.[].name' 2>/dev/null) || _host_list=""
+    if [[ -n "$_host_list" ]]; then
+      while IFS= read -r _hfile; do
+        _hname="${_hfile%.yml}"
+        _available_sources+=("hosts/${_hfile}")
+        _available_labels+=("${_hname}")
+      done <<< "$_host_list"
+    fi
+
+    # Check for legacy localhost.yml
+    if gh api "repos/${config_repo}/contents/localhost.yml" --jq '.sha' > /dev/null 2>/dev/null; then
+      _available_sources+=("localhost.yml")
+      _available_labels+=("localhost.yml (legacy)")
+    fi
+
+    if [[ ${#_available_sources[@]} -gt 0 ]]; then
+      echo -e "\n   Available configs in repo:"
+      for _i in "${!_available_labels[@]}"; do
+        echo -e "     $(( _i + 1 ))) ${_available_labels[$_i]}"
+      done
+      read -rp "   Choose a config to use (number, or Enter to skip): " _src_choice
+      if [[ -n "$_src_choice" ]] && [[ "$_src_choice" =~ ^[0-9]+$ ]]; then
+        _src_idx=$(( _src_choice - 1 ))
+        if [[ $_src_idx -ge 0 ]] && [[ $_src_idx -lt ${#_available_sources[@]} ]]; then
+          _chosen_path="${_available_sources[$_src_idx]}"
+          if raw_content=$(gh api "repos/${config_repo}/contents/${_chosen_path}" --jq '.content' 2>/dev/null); then
+            has_remote_config=true
+            config_source_label="${_available_labels[$_src_idx]}"
+            info "Using config from ${config_source_label}"
+          fi
+        fi
+      fi
+    fi
   fi
 else
   info "No config repo found at github.com/${config_repo}"
