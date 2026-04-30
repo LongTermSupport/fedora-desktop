@@ -238,8 +238,9 @@
             ftp-camera           start FTP server (default)
             ftp-camera --pass    print FTP password (for camera setup)
             ftp-camera --sort    sort already-uploaded files by EXIF date
-            ftp-camera --push    copy sorted uploads to rclone remote
-                                 (requires ftp_camera_rclone_remote)
+            ftp-camera --push    direct push to rclone remote (synchronous)
+            ftp-camera --copy    copy via mount + verify (caches locally)
+                                 (both require ftp_camera_rclone_remote)
 
           Optional rclone push: set ftp_camera_rclone_remote in host_vars
           (e.g. "LTS-G-Drive:" or "LTS-G-Drive:Photos") to enable --push.

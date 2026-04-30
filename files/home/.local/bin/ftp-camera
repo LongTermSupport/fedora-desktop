@@ -18,6 +18,7 @@ START_MARKER=$(mktemp)
 SORT_ONLY=false
 PASS_ONLY=false
 PUSH_ONLY=false
+COPY_ONLY=false
 
 # Records repo path for --pass helper (deployed by play-ftp-camera.yml).
 readonly CONFIG_FILE="/etc/ftp-camera/config"
@@ -35,6 +36,9 @@ case "${1:-}" in
     --push)
         PUSH_ONLY=true
         ;;
+    --copy)
+        COPY_ONLY=true
+        ;;
     -h|--help)
         cat <<'EOF'
 Usage: ftp-camera [OPTION]
@@ -43,7 +47,8 @@ Start the camera FTP server, or:
 
   --sort      Sort already-uploaded files by EXIF date and exit
   --pass      Print the camera FTP password to stdout and exit
-  --push      Copy sorted uploads to the configured rclone remote and exit
+  --push      Direct push to rclone remote (reliable, synchronous)
+  --copy      Copy via rclone mount (caches locally) then verify on remote
   -h, --help  Show this help
 
 When run without options, starts vsftpd, prints camera setup instructions,
@@ -51,7 +56,9 @@ and monitors uploads. Press Ctrl+C to stop and auto-sort uploaded files.
 
 Typical workflow:
   1. ftp-camera           # receive uploads from camera (Ctrl+C to stop, auto-sorts)
-  2. ftp-camera --push    # copy sorted files to rclone remote (synchronous)
+  2. ftp-camera --copy    # copy via mount + verify (files cached for instant browse)
+     OR
+  2. ftp-camera --push    # direct push (prints rclone-cache-warm hint after)
 EOF
         exit 0
         ;;
@@ -182,6 +189,170 @@ push_uploads() {
     echo -e "${GREEN}Push complete.${NC}"
     echo -e "${YELLOW}Local copy retained at:${NC} ${CYAN}${UPLOAD_DIR}${NC}"
     echo -e "${YELLOW}Verify on the remote, then remove locally when ready.${NC}"
+
+    # Hint: warm VFS cache so mount browsing doesn't re-download
+    local mount_path
+    if mount_path=$(find_mount_path 2>/dev/null); then
+        echo ""
+        echo -e "${BOLD}To browse via mount without re-downloading:${NC}"
+        echo -e "  rclone-cache-warm ${CYAN}${mount_path}${NC}"
+    fi
+}
+
+# Resolve the local mount path corresponding to RCLONE_REMOTE.
+# e.g. RCLONE_REMOTE=lts-photo:/PHOTO/LIBRARY/photos with mount lts-photo:/ at ~/mnt/lts-photo
+# → returns ~/mnt/lts-photo/PHOTO/LIBRARY/photos
+find_mount_path() {
+    local remote_name="${RCLONE_REMOTE%%:*}"
+    local remote_path="${RCLONE_REMOTE#*:}"
+
+    local mount_target
+    mount_target=$(findmnt -n -o TARGET -t fuse.rclone 2>/dev/null \
+        | while IFS= read -r mnt; do
+            src=$(findmnt -n -o SOURCE "$mnt" 2>/dev/null)
+            case "$src" in "${remote_name}:"*) echo "$mnt"; break;; esac
+        done)
+
+    if [ -z "$mount_target" ]; then
+        echo "ERROR: No rclone mount found for remote '${remote_name}'" >&2
+        echo "  Is rclone-${remote_name}.service running?" >&2
+        echo "  Start it: systemctl --user start rclone-${remote_name}" >&2
+        return 1
+    fi
+
+    # Get the mount's source path to calculate the offset under the mount
+    local mount_source mount_src_path
+    mount_source=$(findmnt -n -o SOURCE "$mount_target" 2>/dev/null)
+    mount_src_path="${mount_source#*:}"
+
+    # Strip mount source prefix from remote path
+    local rel="${remote_path#"$mount_src_path"}"
+    rel="${rel#/}"
+
+    if [ -n "$rel" ]; then
+        echo "${mount_target}/${rel}"
+    else
+        echo "$mount_target"
+    fi
+}
+
+# Copy sorted uploads to the rclone mount (populates VFS cache for instant
+# browsing), wait for async uploads to complete, then verify files reached
+# the remote via rclone check. On failure, prints exactly what's missing
+# and suggests --push as a fallback.
+copy_to_mount() {
+    if [ ! -f "$CONFIG_FILE" ]; then
+        echo "ERROR: $CONFIG_FILE not found — run play-ftp-camera.yml first" >&2
+        return 1
+    fi
+
+    # shellcheck source=/dev/null
+    . "$CONFIG_FILE"
+
+    if [ -z "${RCLONE_REMOTE:-}" ]; then
+        echo "ERROR: RCLONE_REMOTE not set in $CONFIG_FILE" >&2
+        echo "  Set ftp_camera_rclone_remote in host_vars/localhost.yml and re-run play-ftp-camera.yml" >&2
+        return 1
+    fi
+
+    if ! command -v rclone > /dev/null; then
+        echo "ERROR: rclone not found — run play-rclone.yml first" >&2
+        return 1
+    fi
+
+    if [ ! -d "$UPLOAD_DIR" ]; then
+        echo "ERROR: Upload directory not found: $UPLOAD_DIR" >&2
+        return 1
+    fi
+
+    local dest_path
+    dest_path=$(find_mount_path)
+
+    if [ ! -d "$dest_path" ]; then
+        echo "ERROR: Mount destination not found: $dest_path" >&2
+        echo "  Is the rclone mount active?" >&2
+        return 1
+    fi
+
+    local rc_addr="localhost:${RCLONE_RC_PORT:-5572}"
+
+    # Verify RC endpoint is reachable before starting the copy
+    if ! rclone rc --url="http://${rc_addr}" core/pid > /dev/null 2>&1; then
+        echo "ERROR: rclone remote control not responding at ${rc_addr}" >&2
+        echo "  Mount may not have --rc enabled — re-run play-rclone.yml" >&2
+        return 1
+    fi
+
+    local file_count
+    file_count=$(find "$UPLOAD_DIR" -type f | wc -l)
+
+    echo -e "${BOLD}Copying to rclone mount:${NC}"
+    echo -e "  Source: ${CYAN}${UPLOAD_DIR}${NC}"
+    echo -e "  Dest:   ${CYAN}${dest_path}${NC}"
+    echo -e "  Files:  ${CYAN}${file_count}${NC}"
+    echo ""
+
+    # Copy files through mount — lands in VFS cache and triggers async upload
+    if ! cp -r "$UPLOAD_DIR"/. "$dest_path"/; then
+        echo "ERROR: Failed to copy files to mount" >&2
+        return 1
+    fi
+    echo -e "  ${GREEN}${file_count} files copied to mount.${NC}"
+
+    echo ""
+    echo -e "${BOLD}Waiting for uploads to complete...${NC}"
+
+    # Poll RC API until no active transfers remain
+    local wait_start=$SECONDS
+    local timeout=1800  # 30 minutes
+    while true; do
+        local stats transferring
+        stats=$(rclone rc --url="http://${rc_addr}" core/stats 2>/dev/null) || {
+            echo "ERROR: Lost connection to rclone RC at ${rc_addr}" >&2
+            return 1
+        }
+        transferring=$(python3 -c "
+import json, sys
+d = json.loads(sys.stdin.read())
+t = d.get('transferring')
+print(len(t) if t else 0)
+" <<<"$stats")
+
+        if [ "$transferring" -eq 0 ]; then
+            break
+        fi
+
+        local elapsed=$(( SECONDS - wait_start ))
+        if [ "$elapsed" -ge "$timeout" ]; then
+            echo "ERROR: Timed out after $(( timeout / 60 )) minutes waiting for uploads" >&2
+            echo "  Run 'ftp-camera --push' to push remaining files directly." >&2
+            return 1
+        fi
+
+        echo -e "  ${CYAN}${transferring}${NC} upload(s) in progress... ($(( elapsed / 60 ))m elapsed)"
+        sleep 5
+    done
+
+    echo -e "  ${GREEN}Uploads complete.${NC}"
+    echo ""
+
+    # Verify every local file exists on the remote with matching checksum
+    echo -e "${BOLD}Verifying files on Drive...${NC}"
+    local check_output
+    if check_output=$(rclone check "$UPLOAD_DIR" "$RCLONE_REMOTE" --one-way 2>&1); then
+        echo -e "${GREEN}All ${file_count} files verified on Drive.${NC}"
+        echo -e "Files are cached locally — browsing the mount will be instant."
+        echo ""
+        echo -e "${YELLOW}Local copy retained at:${NC} ${CYAN}${UPLOAD_DIR}${NC}"
+        echo -e "${YELLOW}Verify on the remote, then remove locally when ready.${NC}"
+    else
+        echo -e "${RED}Verification failed:${NC}" >&2
+        echo "$check_output" >&2
+        echo "" >&2
+        echo -e "${YELLOW}Some files may not have reached Drive.${NC}" >&2
+        echo -e "Run ${CYAN}ftp-camera --push${NC} to push remaining files directly." >&2
+        return 1
+    fi
 }
 
 # ── Cleanup ────────────────────────────────────────────────────────────────────
@@ -286,6 +457,14 @@ if [ "$PUSH_ONLY" = true ]; then
     # No FTP server — just push sorted uploads to rclone remote and exit
     trap - EXIT INT TERM
     push_uploads
+    exit 0
+fi
+
+# ── Copy-via-mount mode ──────────────────────────────────────────────────────
+if [ "$COPY_ONLY" = true ]; then
+    # No FTP server — copy to mount, wait for upload, verify on remote
+    trap - EXIT INT TERM
+    copy_to_mount
     exit 0
 fi
 
