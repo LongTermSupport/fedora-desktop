@@ -27,40 +27,102 @@ get_project_remote_url() {
     [ -n "$url" ] && echo "$url"
 }
 
-# Probe every ~/.ssh/github_* key in parallel against the given remote URL
-# using `git ls-remote`. The same code path `git push` uses, so a key that
-# succeeds here is provably the right one for this repo (handles org repos,
-# plain github.com URLs, repos owned by orgs the user belongs to, etc).
+# Parse owner/repo from a GitHub remote URL. Handles ssh, https, and the
+# alias form (git@github.com-<alias>:owner/repo).
 #
-# Echoes one matching key path per line on stdout. Safe with multiple matches
-# (the caller decides how to disambiguate).
+# Args: $1 = URL
+# Echoes "owner/repo" on stdout, or empty if not a recognised GitHub URL.
+parse_github_owner_repo() {
+    local url="$1"
+    url="${url%.git}"
+    if [[ "$url" =~ ^git@github\.com(-[^:]+)?:(.+)$ ]]; then
+        echo "${BASH_REMATCH[2]}"
+        return 0
+    fi
+    if [[ "$url" =~ ^https?://github\.com/(.+)$ ]]; then
+        echo "${BASH_REMATCH[1]}"
+        return 0
+    fi
+    if [[ "$url" =~ ^ssh://git@github\.com(:[0-9]+)?/(.+)$ ]]; then
+        echo "${BASH_REMATCH[2]}"
+        return 0
+    fi
+    return 1
+}
+
+# Probe each ~/.ssh/github_<alias> key by checking whether the matching
+# `gh-token-<alias>` token (from play-github-cli-multi.yml) can read the
+# remote repo via `gh api repos/owner/repo`.
+#
+# This avoids two SSH-probe pitfalls:
+#   1. Passphrase-protected keys + ssh-agent isolation = false negatives
+#   2. SSH handshake latency (gh API is faster)
+#
+# IMPORTANT: SEQUENTIAL by design. `gh-token-<alias>` calls `gh auth switch`
+# which mutates the global gh active-account state. Running these in
+# parallel would race on shared state and corrupt the user's session.
+#
+# Restores the originally-active account when done so the user's shell
+# state is unchanged.
+#
+# Echoes one matching key path per line on stdout (sorted by key name).
+# Sets PROBE_LOG_DIR for diagnostics on 0-match outcome.
 #
 # Args: $1 = remote URL
-probe_ssh_keys_for_remote() {
+probe_gh_keys_for_remote() {
     local remote_url="$1"
     [ -z "$remote_url" ] && return 0
 
-    # Exported so the bash -c worker inherits it; xargs -I {} can only
-    # substitute one positional, so env passing keeps the worker simple.
-    export PROBE_REMOTE_URL="$remote_url"
+    local owner_repo
+    owner_repo=$(parse_github_owner_repo "$remote_url") || return 0
+    [ -z "$owner_repo" ] && return 0
 
-    # ConnectTimeout=5 caps each probe; -P 4 caps fan-out at 4 parallel ssh
-    # handshakes (plenty for typical 2-3 account setups, polite to GitHub).
-    # The worker captures git's combined output into a discarded variable
-    # so the exit code drives the result without using the redirection
-    # patterns the error-hiding hook flags.
-    # shellcheck disable=SC2016
-    # The single-quoted bash -c body is intentional: $1, $key, $output, and
-    # $PROBE_REMOTE_URL must expand inside the worker shell, not the parent.
-    find "$HOME/.ssh" -type f -name "github_*" ! -name "*.pub" -print0 2>/dev/null |
-        xargs -0 -n 1 -P 4 bash -c '
-            key="$1"
-            ssh_cmd="ssh -i $key -F /dev/null -o IdentitiesOnly=yes -o IdentityAgent=none -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=5"
-            output=$(GIT_SSH_COMMAND="$ssh_cmd" git ls-remote "$PROBE_REMOTE_URL" HEAD 2>&1) && echo "$key"
-            : "$output"
-        ' _
+    # Source the gh aliases file — required because this lib runs in a
+    # subshell that doesn't inherit interactive bash function definitions.
+    if [ -f "$HOME/.bashrc-includes/gh-aliases.inc.bash" ]; then
+        # shellcheck source=/dev/null
+        source "$HOME/.bashrc-includes/gh-aliases.inc.bash"
+    fi
 
-    unset PROBE_REMOTE_URL
+    # Per-probe logs for diagnosing a 0-match outcome.
+    export PROBE_LOG_DIR="/tmp/ccy-gh-probe-$$"
+    mkdir -p "$PROBE_LOG_DIR"
+
+    # Capture the originally-active gh account so we can restore it after
+    # probing (each gh-token-<alias> call switches the active account).
+    local original_active=""
+    original_active=$(gh api user --jq .login 2>"$PROBE_LOG_DIR/original.err")
+
+    local key_path key_basename alias token_func token api_out type_check
+    while IFS= read -r key_path; do
+        [ -z "$key_path" ] && continue
+        key_basename=$(basename "$key_path")
+        if [[ "$key_basename" =~ ^github_(.+)$ ]]; then
+            alias="${BASH_REMATCH[1]}"
+            token_func="gh-token-${alias}"
+            type_check=$(type -t "$token_func" 2>"$PROBE_LOG_DIR/${alias}.type.err")
+            if [ "$type_check" = "function" ]; then
+                token=$("$token_func" 2>"$PROBE_LOG_DIR/${alias}.token.err")
+                if [ -n "$token" ]; then
+                    api_out=$(GH_TOKEN="$token" gh api "repos/$owner_repo" 2>&1) \
+                        && echo "$key_path"
+                    printf "%s\n" "$api_out" > "$PROBE_LOG_DIR/${alias}.api.log"
+                fi
+            else
+                echo "no gh-token-${alias} function" > "$PROBE_LOG_DIR/${alias}.token.err"
+            fi
+        fi
+    done < <(find "$HOME/.ssh" -type f -name "github_*" ! -name "*.pub" 2>/dev/null | sort)
+
+    # Restore the original active account so the user's shell state is
+    # unaffected. Failure here goes to the log dir but does not fail the
+    # function — the caller cannot do anything useful about it.
+    if [ -n "$original_active" ]; then
+        local restore_out
+        restore_out=$(gh auth switch --hostname github.com --user "$original_active" 2>&1)
+        printf "%s\n" "$restore_out" > "$PROBE_LOG_DIR/restore.log"
+    fi
+    return 0
 }
 
 # Function to discover and interactively select SSH keys
@@ -88,11 +150,11 @@ discover_and_select_ssh_keys() {
         remote_url=$(get_project_remote_url ".")
         if [ -n "$remote_url" ]; then
             echo ""
-            echo "Probing SSH keys against remote: $remote_url"
-            echo "(this takes ~1-2 seconds; uses git ls-remote in parallel)"
+            echo "Probing GitHub accounts against remote: $remote_url"
+            echo "(uses gh-token-<alias> + gh api — sequential, ~1-3 seconds)"
 
             local working_keys
-            working_keys=$(probe_ssh_keys_for_remote "$remote_url")
+            working_keys=$(probe_gh_keys_for_remote "$remote_url")
 
             local match_count=0
             if [ -n "$working_keys" ]; then
@@ -100,7 +162,7 @@ discover_and_select_ssh_keys() {
             fi
 
             case "$match_count" in
-                0)  probe_status="no keys can access this remote" ;;
+                0)  probe_status="no keys can access this remote (logs: $PROBE_LOG_DIR/)" ;;
                 1)
                     local winner
                     winner=$(echo "$working_keys" | head -1)
