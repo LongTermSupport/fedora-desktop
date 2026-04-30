@@ -23,6 +23,9 @@
 #       # cache_max_age: 8760h   # evict files not accessed within (default: 8760h = 1 year)
 #       # log_level: INFO        # ERROR | NOTICE | INFO | DEBUG   (default: INFO)
 #       # read_only: true        # default false — set true for browse-only mounts
+#       # rc_port: 5572          # remote control API port (default: 5572)
+#       #                        # enables: rclone-cache-warm --fast, rclone rc vfs/refresh
+#       #                        # set different ports if running multiple mounts
 #     - name: photos-archive
 #       remote: "s3:mybucket/photos"
 #       mountpoint: "/home/{{ user_login }}/mnt/photos-archive"
@@ -245,7 +248,7 @@
 
           [Service]
           Type=notify
-          ExecStart=/usr/bin/rclone mount --config=%h/.config/rclone/rclone.conf --vfs-cache-mode {{ item.cache_mode | default('full') }} --vfs-cache-max-size {{ item.cache_max_size | default('10G') }} --vfs-cache-max-age {{ item.cache_max_age | default('8760h') }} --log-level {{ item.log_level | default('INFO') }}{{ ' --read-only' if item.read_only | default(false) else '' }} --allow-other {{ item.remote }} {{ item.mountpoint }}
+          ExecStart=/usr/bin/rclone mount --config=%h/.config/rclone/rclone.conf --vfs-cache-mode {{ item.cache_mode | default('full') }} --vfs-cache-max-size {{ item.cache_max_size | default('10G') }} --vfs-cache-max-age {{ item.cache_max_age | default('8760h') }} --log-level {{ item.log_level | default('INFO') }}{{ ' --read-only' if item.read_only | default(false) else '' }} --rc --rc-addr=localhost:{{ item.rc_port | default('5572') }} --allow-other {{ item.remote }} {{ item.mountpoint }}
           ExecStop=/bin/fusermount3 -u {{ item.mountpoint }}
           Restart=on-failure
           RestartSec=10
