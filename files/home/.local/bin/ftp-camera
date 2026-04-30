@@ -17,6 +17,7 @@ VSFTPD_LOG_PID=""
 START_MARKER=$(mktemp)
 SORT_ONLY=false
 PASS_ONLY=false
+PUSH_ONLY=false
 
 # Records repo path for --pass helper (deployed by play-ftp-camera.yml).
 readonly CONFIG_FILE="/etc/ftp-camera/config"
@@ -31,6 +32,9 @@ case "${1:-}" in
     --pass)
         PASS_ONLY=true
         ;;
+    --push)
+        PUSH_ONLY=true
+        ;;
     -h|--help)
         cat <<'EOF'
 Usage: ftp-camera [OPTION]
@@ -39,10 +43,15 @@ Start the camera FTP server, or:
 
   --sort      Sort already-uploaded files by EXIF date and exit
   --pass      Print the camera FTP password to stdout and exit
+  --push      Copy sorted uploads to the configured rclone remote and exit
   -h, --help  Show this help
 
 When run without options, starts vsftpd, prints camera setup instructions,
 and monitors uploads. Press Ctrl+C to stop and auto-sort uploaded files.
+
+Typical workflow:
+  1. ftp-camera           # receive uploads from camera (Ctrl+C to stop, auto-sorts)
+  2. ftp-camera --push    # copy sorted files to rclone remote (synchronous)
 EOF
         exit 0
         ;;
@@ -73,7 +82,7 @@ get_local_ip() {
     ip -4 addr show dev "$iface" | awk '/inet / {print $2; exit}' | cut -d/ -f1
 }
 
-# Sort uploaded files into YY/MM/DD/(JPG|RAW)/ based on EXIF DateTimeOriginal
+# Sort uploaded files into YYYY/MM/DD/(JPG|RAW)/ based on EXIF DateTimeOriginal
 sort_uploads() {
     local dir="${1:-$UPLOAD_DIR}"
     local moved=0 skipped=0
@@ -91,7 +100,7 @@ sort_uploads() {
     echo -e "${BOLD}Sorting uploads by EXIF date...${NC}"
 
     # Only process unsorted files in the upload root (where the camera drops them).
-    # Already-sorted files live in YY/MM/DD/ subdirs and are never revisited.
+    # Already-sorted files live in YYYY/MM/DD/ subdirs and are never revisited.
     local file
     while IFS= read -r -d '' file; do
         local ext="${file##*.}"
@@ -103,9 +112,9 @@ sort_uploads() {
             type_dir="RAW"
         fi
 
-        # Extract EXIF date as YY/MM/DD (|| true: exiftool exits non-zero when tag is missing)
+        # Extract EXIF date as YYYY/MM/DD (|| true: exiftool exits non-zero when tag is missing)
         local date_path
-        date_path=$(exiftool -DateTimeOriginal -s3 -d '%y/%m/%d' "$file" 2>/dev/null) || true
+        date_path=$(exiftool -DateTimeOriginal -s3 -d '%Y/%m/%d' "$file" 2>/dev/null) || true
 
         if [ -z "$date_path" ]; then
             echo -e "  ${YELLOW}skip${NC}  $(basename "$file")  (no EXIF date)"
@@ -125,6 +134,54 @@ sort_uploads() {
 
     echo ""
     echo -e "${BOLD}Sort complete:${NC} ${CYAN}${moved}${NC} moved, ${CYAN}${skipped}${NC} skipped"
+}
+
+# Push the entire sorted upload tree to a configured rclone remote.
+# Uses `rclone copy` directly — synchronous, returns a real exit code,
+# never goes through a mount's VFS cache. Local copy is preserved; user
+# can clean up manually after verifying the remote.
+push_uploads() {
+    if [ ! -f "$CONFIG_FILE" ]; then
+        echo "ERROR: $CONFIG_FILE not found — run play-ftp-camera.yml first" >&2
+        return 1
+    fi
+
+    # shellcheck source=/dev/null
+    . "$CONFIG_FILE"
+
+    if [ -z "${RCLONE_REMOTE:-}" ]; then
+        echo "ERROR: RCLONE_REMOTE not set in $CONFIG_FILE" >&2
+        echo "  Set ftp_camera_rclone_remote in host_vars/localhost.yml and re-run play-ftp-camera.yml" >&2
+        return 1
+    fi
+
+    if ! command -v rclone > /dev/null; then
+        echo "ERROR: rclone not found — run play-rclone.yml first" >&2
+        return 1
+    fi
+
+    if [ ! -d "$UPLOAD_DIR" ]; then
+        echo "ERROR: Upload directory not found: $UPLOAD_DIR" >&2
+        return 1
+    fi
+
+    echo -e "${BOLD}Pushing sorted uploads:${NC}"
+    echo -e "  Source: ${CYAN}${UPLOAD_DIR}${NC}"
+    echo -e "  Dest:   ${CYAN}${RCLONE_REMOTE}${NC}"
+    echo ""
+
+    # --update: skip files that already exist with same size/mtime (re-runnable)
+    # --transfers/--checkers: parallelism for Drive's per-file overhead
+    rclone copy "$UPLOAD_DIR" "$RCLONE_REMOTE" \
+        --progress \
+        --transfers 4 \
+        --checkers 8 \
+        --update
+
+    echo ""
+    echo -e "${GREEN}Push complete.${NC}"
+    echo -e "${YELLOW}Local copy retained at:${NC} ${CYAN}${UPLOAD_DIR}${NC}"
+    echo -e "${YELLOW}Verify on the remote, then remove locally when ready.${NC}"
 }
 
 # ── Cleanup ────────────────────────────────────────────────────────────────────
@@ -221,6 +278,14 @@ if [ "$SORT_ONLY" = true ]; then
     # No FTP server — just sort existing files and exit
     trap - EXIT INT TERM
     sort_uploads
+    exit 0
+fi
+
+# ── Push-only mode ────────────────────────────────────────────────────────────
+if [ "$PUSH_ONLY" = true ]; then
+    # No FTP server — just push sorted uploads to rclone remote and exit
+    trap - EXIT INT TERM
+    push_uploads
     exit 0
 fi
 
