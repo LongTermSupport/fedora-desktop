@@ -3,7 +3,7 @@
 ## Setup
 ## !! BUMP THIS VERSION ON EVERY CHANGE TO THIS FILE — NO EXCEPTIONS !!
 ## !! If you forget, there is NO WAY to tell which version is running !!
-RUN_BASH_VERSION="1.4.0"  # Extract config merge/selective logic to TDD-tested Python module
+RUN_BASH_VERSION="1.5.0"  # Per-host config storage, push to config repo, host-aware pull
 set -e
 set -u
 set -o pipefail
@@ -223,6 +223,37 @@ merge_config_import(){
 
   python3 scripts/config_merge.py merge "$local_file" "$temp_remote" "$local_file"
   rm -f "$temp_remote"
+}
+
+# Push local config to the per-host path in the config repo.
+# Uses GitHub Contents API (create or update).
+push_config_to_repo(){
+  local config_file="$1"
+  local repo="$2"
+  local path="$3"
+  local host_label="$4"
+
+  local content_b64
+  content_b64=$(base64 -w0 "$config_file")
+
+  # Get existing file SHA if updating (not needed for first create)
+  local existing_sha=""
+  if existing_sha=$(gh api "repos/${repo}/contents/${path}" --jq '.sha' 2>/dev/null); then
+    :  # SHA retrieved for update
+  else
+    existing_sha=""  # File doesn't exist yet — will create
+  fi
+
+  local -a api_args=(
+    --method PUT
+    --field "message=Update config from ${host_label}"
+    --field "content=${content_b64}"
+  )
+  if [[ -n "$existing_sha" ]]; then
+    api_args+=(--field "sha=${existing_sha}")
+  fi
+
+  gh api "repos/${repo}/contents/${path}" "${api_args[@]}" --silent
 }
 
 # Prompt for GitHub username(s) and write github_accounts YAML block to stdout.
@@ -771,12 +802,32 @@ completed
 title "Loading Personal Configuration"
 localhost_yml=~/Projects/fedora-desktop/environment/localhost/host_vars/localhost.yml
 config_repo="${primary_gh_username}/fedora-desktop-config"
+config_hostname=$(hostname)
+config_host_path="hosts/${config_hostname}.yml"
 
-# Check if config repo exists
+# Discover config repo and find best available config for this host.
+# gh api returns non-zero when a resource doesn't exist — that's expected
+# for probe-then-act checks, not an error to propagate.
 has_config_repo=false
-if raw_content=$(gh api "repos/${config_repo}/contents/localhost.yml" --jq '.content' 2>/dev/null); then
+has_remote_config=false
+raw_content=""
+config_source_label=""
+
+if gh api "repos/${config_repo}" --jq '.name' > /dev/null 2>/dev/null; then
   has_config_repo=true
-  info "Config repo found: github.com/${config_repo}"
+
+  # Try host-specific config first, fall back to legacy localhost.yml
+  if raw_content=$(gh api "repos/${config_repo}/contents/${config_host_path}" --jq '.content' 2>/dev/null); then
+    has_remote_config=true
+    config_source_label="${config_hostname}"
+    info "Config found for this host (${config_hostname})"
+  elif raw_content=$(gh api "repos/${config_repo}/contents/localhost.yml" --jq '.content' 2>/dev/null); then
+    has_remote_config=true
+    config_source_label="localhost.yml (legacy)"
+    info "Using legacy config — no host-specific config for ${config_hostname} yet"
+  else
+    info "Config repo exists but no saved config for ${config_hostname}"
+  fi
 else
   info "No config repo found at github.com/${config_repo}"
 fi
@@ -784,15 +835,15 @@ fi
 # Present configuration source choice
 echo -e "\n${CYAN}${ARROW}${NC} How would you like to configure this system?"
 _option=1
-if [[ "$has_config_repo" == "true" ]]; then
-  echo -e "   ${_option}) Pull full saved configuration from config repo"
+if [[ "$has_remote_config" == "true" ]]; then
+  echo -e "   ${_option}) Pull full saved configuration (${config_source_label})"
   _opt_pull=$_option
   (( _option++ ))
-  echo -e "   ${_option}) Selective import from config repo (choose what to keep)"
+  echo -e "   ${_option}) Selective import (choose what to keep) (${config_source_label})"
   _opt_selective=$_option
   (( _option++ ))
 fi
-if [[ "$has_config_repo" == "true" ]] && [[ -f "$localhost_yml" ]] && grep -qE '(!vault|github_accounts)' "$localhost_yml"; then
+if [[ "$has_remote_config" == "true" ]] && [[ -f "$localhost_yml" ]] && grep -qE '(!vault|github_accounts)' "$localhost_yml"; then
   echo -e "   ${_option}) Merge remote config into local (diff/merge per key)"
   _opt_merge=$_option
   (( _option++ ))
@@ -802,20 +853,25 @@ if [[ -f "$localhost_yml" ]] && grep -qE '(!vault|github_accounts)' "$localhost_
   _opt_keep=$_option
   (( _option++ ))
 fi
+if [[ "$has_config_repo" == "true" ]] && [[ -f "$localhost_yml" ]] && grep -qE '(!vault|github_accounts)' "$localhost_yml"; then
+  echo -e "   ${_option}) Save local config to repo (as ${config_hostname})"
+  _opt_push=$_option
+  (( _option++ ))
+fi
 echo -e "   ${_option}) Configure fresh (enter details manually)"
 _opt_fresh=$_option
 
 read -rp "   Choice [1-${_option}]: " _config_choice
 
-if [[ "$has_config_repo" == "true" ]] && [[ "${_config_choice}" == "${_opt_pull}" ]]; then
+if [[ "$has_remote_config" == "true" ]] && [[ "${_config_choice}" == "${_opt_pull}" ]]; then
   backup_config "$localhost_yml"
   printf '%s' "$raw_content" | base64 -d > "$localhost_yml"
-  success "Configuration pulled from github.com/${config_repo}"
+  success "Configuration pulled (${config_source_label})"
 
-elif [[ "$has_config_repo" == "true" ]] && [[ "${_config_choice}" == "${_opt_selective:-}" ]]; then
+elif [[ "$has_remote_config" == "true" ]] && [[ "${_config_choice}" == "${_opt_selective:-}" ]]; then
   backup_config "$localhost_yml"
   selective_config_import "$raw_content" "$localhost_yml"
-  success "Selective import from github.com/${config_repo}"
+  success "Selective import (${config_source_label})"
 
   # Prompt for essential keys that were excluded
   if ! grep -q '^user_login:' "$localhost_yml"; then
@@ -850,6 +906,10 @@ elif [[ -n "${_opt_merge:-}" ]] && [[ "${_config_choice}" == "${_opt_merge}" ]];
 
 elif [[ -n "${_opt_keep:-}" ]] && [[ "${_config_choice}" == "${_opt_keep}" ]]; then
   success "Keeping existing localhost.yml"
+
+elif [[ -n "${_opt_push:-}" ]] && [[ "${_config_choice}" == "${_opt_push}" ]]; then
+  push_config_to_repo "$localhost_yml" "$config_repo" "$config_host_path" "$config_hostname"
+  success "Configuration saved to github.com/${config_repo} (hosts/${config_hostname}.yml)"
 
 elif [[ "${_config_choice}" == "${_opt_fresh}" ]]; then
   echo ""
