@@ -51,8 +51,11 @@ parse_github_owner_repo() {
 }
 
 # Probe each ~/.ssh/github_<alias> key by checking whether the matching
-# `gh-token-<alias>` token (from play-github-cli-multi.yml) can read the
-# remote repo via `gh api repos/owner/repo`.
+# `gh-token-<alias>` token (from play-github-cli-multi.yml) has PUSH
+# permission on the remote repo. We check `.permissions.push` from
+# `gh api repos/owner/repo` — read access is meaningless for public
+# repos because every authenticated token can read them, which would
+# mark every key as a match and defeat the auto-default.
 #
 # This avoids two SSH-probe pitfalls:
 #   1. Passphrase-protected keys + ssh-agent isolation = false negatives
@@ -93,7 +96,7 @@ probe_gh_keys_for_remote() {
     local original_active=""
     original_active=$(gh api user --jq .login 2>"$PROBE_LOG_DIR/original.err")
 
-    local key_path key_basename alias token_func token api_out type_check
+    local key_path key_basename alias token_func token api_out api_rc type_check
     while IFS= read -r key_path; do
         [ -z "$key_path" ] && continue
         key_basename=$(basename "$key_path")
@@ -104,9 +107,12 @@ probe_gh_keys_for_remote() {
             if [ "$type_check" = "function" ]; then
                 token=$("$token_func" 2>"$PROBE_LOG_DIR/${alias}.token.err")
                 if [ -n "$token" ]; then
-                    api_out=$(GH_TOKEN="$token" gh api "repos/$owner_repo" 2>&1) \
-                        && echo "$key_path"
-                    printf "%s\n" "$api_out" > "$PROBE_LOG_DIR/${alias}.api.log"
+                    api_out=$(GH_TOKEN="$token" gh api "repos/$owner_repo" --jq '.permissions.push' 2>&1)
+                    api_rc=$?
+                    if [ "$api_rc" -eq 0 ] && [ "$api_out" = "true" ]; then
+                        echo "$key_path"
+                    fi
+                    printf "rc=%s push=%s\n" "$api_rc" "$api_out" > "$PROBE_LOG_DIR/${alias}.api.log"
                 fi
             else
                 echo "no gh-token-${alias} function" > "$PROBE_LOG_DIR/${alias}.token.err"
@@ -151,7 +157,7 @@ discover_and_select_ssh_keys() {
         if [ -n "$remote_url" ]; then
             echo ""
             echo "Probing GitHub accounts against remote: $remote_url"
-            echo "(uses gh-token-<alias> + gh api — sequential, ~1-3 seconds)"
+            echo "(checks .permissions.push via gh-token-<alias> — sequential, ~1-3 seconds)"
 
             local working_keys
             working_keys=$(probe_gh_keys_for_remote "$remote_url")
@@ -162,7 +168,7 @@ discover_and_select_ssh_keys() {
             fi
 
             case "$match_count" in
-                0)  probe_status="no keys can access this remote (logs: $PROBE_LOG_DIR/)" ;;
+                0)  probe_status="no keys have push access to this remote (logs: $PROBE_LOG_DIR/)" ;;
                 1)
                     local winner
                     winner=$(echo "$working_keys" | head -1)
@@ -172,9 +178,9 @@ discover_and_select_ssh_keys() {
                             break
                         fi
                     done
-                    probe_status="1 key has access"
+                    probe_status="1 key has push access"
                     ;;
-                *)  probe_status="$match_count keys have access — pick manually" ;;
+                *)  probe_status="$match_count keys have push access — pick manually" ;;
             esac
         fi
 
@@ -194,7 +200,7 @@ discover_and_select_ssh_keys() {
         for i in "${!GITHUB_KEYS[@]}"; do
             local marker=""
             if [ -n "$working_keys" ] && grep -qxF "${GITHUB_KEYS[$i]}" <<< "$working_keys"; then
-                marker="  ✓ has access to this remote"
+                marker="  ✓ has push access to this remote"
             fi
             if [ -n "$suggested_index" ] && [ "$((i+1))" = "$suggested_index" ]; then
                 marker="${marker} ← default"
