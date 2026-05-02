@@ -270,20 +270,6 @@ Using `Grep` or `Bash` (grep/rg) to find class definitions, function signatures,
 
 Default mode (`block_once`): the first symbol-lookup grep in a session is denied with guidance; subsequent retries are allowed.
 
-## markdown_organization — markdown files must go in allowed locations
-
-Writing a new `.md` file to an unrecognised location is blocked. Markdown files must be placed in project-configured allowed paths.
-
-**Common allowed locations**: `CLAUDE/`, `docs/`, `RELEASES/`, `CLAUDE/Plan/`, root-level `README.md`, or any path matching the `allowed_markdown_paths` config.
-
-**Dependency directories**: `vendor/` (PHP) and `node_modules/` (JS) are treated as implicit monorepos — each package is a sub-project where normal markdown rules apply (e.g. `vendor/acme/lib/docs/guide.md` is allowed, `vendor/acme/lib/random/notes.md` is blocked).
-
-**Plan file redirection**: when `track_plans_in_project` is enabled, Claude Code planning mode writes are automatically redirected to the project's `CLAUDE/Plan/` directory. Plan folders must follow the `NNNN-description/` naming convention.
-
-If you need a markdown file in a new location, add a pattern to `allowed_markdown_paths` in `.claude/hooks-daemon.yaml`.
-
-If your project has sub-projects with their own `docs/`, `CLAUDE/`, etc., configure `monorepo_subproject_patterns` in `.claude/hooks-daemon.yaml` so normal rules apply within each sub-project.
-
 ## npm_command — use llm: prefixed npm commands
 
 Direct `npm run` and `npx` commands are blocked or advised against. Projects with `llm:` prefixed scripts in `package.json` should use those instead.
@@ -424,6 +410,62 @@ MUST_STASH_BECAUSE="explain why"; git stash
 
 Configure via `handlers.pre_tool_use.git_stash.options.mode: warn` for advisory-only mode.
 
+## daemon_location_guard — do not cd into .claude/hooks-daemon/
+
+Bash commands that change directory into `.claude/hooks-daemon/` (or `cd` into a daemon-internal subdirectory and then run something) are blocked. The daemon is an upstream dependency that must remain untouched in client repos.
+
+**Run daemon CLI from the project root instead** — it always works regardless of cwd:
+
+```
+$PYTHON -m claude_code_hooks_daemon.daemon.cli status
+$PYTHON -m claude_code_hooks_daemon.daemon.cli restart
+$PYTHON -m claude_code_hooks_daemon.daemon.cli logs
+```
+
+If you need to inspect daemon source for debugging, use `Read` from the project root with the absolute path — never `cd` in. Do NOT edit anything inside `.claude/hooks-daemon/`; changes will be overwritten on the next upgrade.
+
+## markdown_organization — markdown files must go in allowed locations
+
+Writing a new `.md` file to an unrecognised location is blocked. Markdown files must be placed in project-configured allowed paths.
+
+**Common allowed locations**: `CLAUDE/`, `docs/`, `RELEASES/`, `CLAUDE/Plan/`, root-level `README.md`, or any path matching the `allowed_markdown_paths` config.
+
+**Dependency directories**: `vendor/` (PHP) and `node_modules/` (JS) are treated as implicit monorepos — each package is a sub-project where normal markdown rules apply (e.g. `vendor/acme/lib/docs/guide.md` is allowed, `vendor/acme/lib/random/notes.md` is blocked).
+
+**Plan file redirection**: when `track_plans_in_project` is enabled, Claude Code planning mode writes are automatically redirected to the project's `CLAUDE/Plan/` directory. Plan folders must follow the `NNNN-description/` naming convention.
+
+If you need a markdown file in a new location, add a pattern to `allowed_markdown_paths` in `.claude/hooks-daemon.yaml`.
+
+If your project has sub-projects with their own `docs/`, `CLAUDE/`, etc., configure `monorepo_subproject_patterns` in `.claude/hooks-daemon.yaml` so normal rules apply within each sub-project.
+
+## pip_break_system — --break-system-packages is blocked
+
+`pip install --break-system-packages` (and the `pip3` / `python -m pip` / `python3 -m pip` variants) is blocked. The flag bypasses PEP 668 system-package protection and corrupts the system Python environment in containers and on modern Linux distros.
+
+**Use a virtualenv or `--user` install instead**:
+
+```
+python3 -m venv /tmp/venv && /tmp/venv/bin/pip install <package>
+# or
+pip install --user <package>
+```
+
+If a tool's installer insists on `--break-system-packages` (some quick-start scripts do), download it first, inspect, and run it inside a venv — do not shortcut by adding the flag.
+
+## sudo_pip — sudo pip install is blocked
+
+`sudo pip install` (and the `sudo pip3` / `sudo python -m pip` / `sudo python3 -m pip` variants) is blocked. Installing as root corrupts the system Python managed by the OS package manager and creates permission/ownership issues that are painful to recover from.
+
+**Use a virtualenv or `--user` install instead**:
+
+```
+python3 -m venv /tmp/venv && /tmp/venv/bin/pip install <package>
+# or
+pip install --user <package>
+```
+
+Even in a container running as root, `sudo` adds nothing — drop it and use a venv.
+
 ## system_paths — do not edit deployed system files directly
 
 Writing or editing files under system paths (/etc/, /var/, /usr/, /opt/, /root/, /home/) is blocked.
@@ -503,5 +545,17 @@ STOPPING BECAUSE: all tasks complete, QA passes, daemon restart verified.
 - Tautological/rhetorical questions with obvious answers ("Should I continue?", "Would you like me to proceed?") — do NOT ask, just do it
 - Errors with a clear next step ("The test failed, should I fix it?") — do NOT ask, just fix it
 - Genuine choice questions where all options are valid ("Which of A, B, or C should we use?") — these deserve a response. Use `STOPPING BECAUSE: need user input` and ask your question
+
+## dismissive_language_detector — do not deflect or prematurely halt
+
+Stop-time advisory that fires on language patterns signalling avoidance of work. The handler does NOT block the stop, but injects context for the next turn so the agent self-corrects.
+
+**Avoid**:
+
+- Dismissing issues as `pre-existing`, `out of scope`, `not our problem`,   or `not relevant` to deflect work that is in fact yours.
+- Premature-halt phrasing like `natural checkpoint`, `ready to continue on your   cue`, `pausing here` mid-plan when there is more to do — finish the task   rather than dressing up a halt.
+- Speculative `should be fine` or `probably works` when verification is   cheap (run the test, read the file).
+
+**Do**: acknowledge the issue, fix it, or — if it genuinely is out of scope — say so once with the specific reason and continue with the in-scope work.
 
 </hooksdaemon>
