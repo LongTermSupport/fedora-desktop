@@ -299,6 +299,10 @@ copy_to_mount() {
     echo -e "  Files:  ${CYAN}${file_count}${NC}"
     echo ""
 
+    # Reset rclone counters so the displayed bytes/transfers/ETA reflect
+    # only this copy, not whatever the mount accumulated since boot.
+    rclone rc --url="http://${rc_addr}" core/stats-reset > /dev/null 2>&1 || true
+
     # Copy files through mount — lands in VFS cache and triggers async upload
     if ! cp -r "$UPLOAD_DIR"/. "$dest_path"/; then
         echo "ERROR: Failed to copy files to mount" >&2
@@ -307,40 +311,107 @@ copy_to_mount() {
     echo -e "  ${GREEN}${file_count} files copied to mount.${NC}"
 
     echo ""
-    echo -e "${BOLD}Waiting for uploads to complete...${NC}"
+    echo -e "${BOLD}Waiting for uploads to complete (Ctrl+C to abort)...${NC}"
 
-    # Poll RC API until no active transfers remain
+    # Give VFS a beat to ingest the freshly-copied files before polling —
+    # otherwise the first check can see an empty queue and exit before the
+    # writeback has even started.
+    sleep 3
+
+    # Poll vfs/stats and core/stats until VFS reports no in-flight or
+    # queued uploads for two consecutive checks. No wall-clock timeout —
+    # the user can Ctrl+C if they want to bail.
     local wait_start=$SECONDS
-    local timeout=1800  # 30 minutes
+    local empty_streak=0
+    local prev_bytes=0
+    local prev_time=$wait_start
+
     while true; do
-        local stats transferring
-        stats=$(rclone rc --url="http://${rc_addr}" core/stats 2>/dev/null) || {
+        local vfs_json core_json
+        vfs_json=$(rclone rc --url="http://${rc_addr}" vfs/stats 2>/dev/null) || {
             echo "ERROR: Lost connection to rclone RC at ${rc_addr}" >&2
             return 1
         }
-        transferring=$(python3 -c "
-import json, sys
-d = json.loads(sys.stdin.read())
-t = d.get('transferring')
-print(len(t) if t else 0)
-" <<<"$stats")
-
-        if [ "$transferring" -eq 0 ]; then
-            break
-        fi
-
-        local elapsed=$(( SECONDS - wait_start ))
-        if [ "$elapsed" -ge "$timeout" ]; then
-            echo "ERROR: Timed out after $(( timeout / 60 )) minutes waiting for uploads" >&2
-            echo "  Run 'ftp-camera --push' to push remaining files directly." >&2
+        core_json=$(rclone rc --url="http://${rc_addr}" core/stats 2>/dev/null) || {
+            echo "ERROR: Lost connection to rclone RC at ${rc_addr}" >&2
             return 1
+        }
+
+        # Extract: VFS uploadsInProgress/uploadsQueued/erroredFiles (the
+        # authoritative signal for completion when copying through a mount),
+        # and core bytes/totalBytes/transfers/totalTransfers/eta for display.
+        local metrics
+        metrics=$(python3 - "$vfs_json" "$core_json" <<'PY'
+import json, sys
+vfs = json.loads(sys.argv[1])
+core = json.loads(sys.argv[2])
+
+dc = (vfs.get("diskCache") or {})
+in_progress = int(dc.get("uploadsInProgress", 0))
+queued = int(dc.get("uploadsQueued", 0))
+errored = int(dc.get("erroredFiles", 0))
+
+bytes_done = int(core.get("bytes", 0) or 0)
+total_bytes = int(core.get("totalBytes", 0) or 0)
+done_count = int(core.get("transfers", 0) or 0)
+total_count = int(core.get("totalTransfers", 0) or 0)
+eta = core.get("eta")
+eta_s = "" if eta is None else str(int(eta))
+
+print(f"{in_progress}|{queued}|{errored}|{bytes_done}|{total_bytes}|{done_count}|{total_count}|{eta_s}")
+PY
+        ) || {
+            echo "ERROR: Failed to parse rclone stats" >&2
+            return 1
+        }
+
+        local in_progress queued errored bytes_done total_bytes done_count total_count eta
+        IFS='|' read -r in_progress queued errored bytes_done total_bytes done_count total_count eta <<<"$metrics"
+
+        local now=$SECONDS
+        local elapsed=$(( now - wait_start ))
+        local elapsed_human
+        elapsed_human=$(printf '%dm%02ds' $((elapsed / 60)) $((elapsed % 60)))
+
+        # Completion: 2 consecutive empty checks (avoids exiting during a
+        # transient gap between cp finishing and writeback dequeuing).
+        if [ "$in_progress" -eq 0 ] && [ "$queued" -eq 0 ]; then
+            empty_streak=$(( empty_streak + 1 ))
+            if [ "$empty_streak" -ge 2 ]; then
+                echo -e "  [${CYAN}${elapsed_human}${NC}] ${GREEN}all uploads complete${NC}"
+                if [ "$errored" -gt 0 ]; then
+                    echo -e "  ${RED}${errored} file(s) errored during upload — see rclone log${NC}" >&2
+                fi
+                break
+            fi
+        else
+            empty_streak=0
         fi
 
-        echo -e "  ${CYAN}${transferring}${NC} upload(s) in progress... ($(( elapsed / 60 ))m elapsed)"
+        # Instantaneous rate from the bytes delta between this poll and the
+        # last one — more useful than core/stats' lifetime average.
+        local delta_t=$(( now - prev_time ))
+        local rate_bps=0
+        if [ "$delta_t" -gt 0 ] && [ "$bytes_done" -ge "$prev_bytes" ]; then
+            rate_bps=$(( (bytes_done - prev_bytes) / delta_t ))
+        fi
+        prev_bytes=$bytes_done
+        prev_time=$now
+
+        local rate_human bytes_human total_bytes_human eta_human
+        rate_human=$(numfmt --to=iec --suffix=B/s "$rate_bps" 2>/dev/null || echo "—")
+        bytes_human=$(numfmt --to=iec --suffix=B "$bytes_done" 2>/dev/null || echo "?")
+        total_bytes_human=$(numfmt --to=iec --suffix=B "$total_bytes" 2>/dev/null || echo "?")
+        if [ -n "$eta" ] && [ "$eta" != "0" ]; then
+            eta_human=$(printf '%dm%02ds' $((eta / 60)) $((eta % 60)))
+        else
+            eta_human="—"
+        fi
+
+        echo -e "  [${CYAN}${elapsed_human}${NC}] queued: ${CYAN}${queued}${NC} · active: ${CYAN}${in_progress}${NC} · done: ${CYAN}${done_count}/${total_count}${NC} (${bytes_human}/${total_bytes_human}) · ${GREEN}${rate_human}${NC} · ETA ${YELLOW}${eta_human}${NC}"
         sleep 5
     done
 
-    echo -e "  ${GREEN}Uploads complete.${NC}"
     echo ""
 
     # Verify every local file exists on the remote with matching checksum
