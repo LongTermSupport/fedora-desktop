@@ -19,6 +19,7 @@ SORT_ONLY=false
 PASS_ONLY=false
 PUSH_ONLY=false
 COPY_ONLY=false
+PRUNE_ONLY=false
 
 # Records repo path for --pass helper (deployed by play-ftp-camera.yml).
 readonly CONFIG_FILE="/etc/ftp-camera/config"
@@ -39,6 +40,9 @@ case "${1:-}" in
     --copy)
         COPY_ONLY=true
         ;;
+    --prune)
+        PRUNE_ONLY=true
+        ;;
     -h|--help)
         cat <<'EOF'
 Usage: ftp-camera [OPTION]
@@ -49,6 +53,7 @@ Start the camera FTP server, or:
   --pass      Print the camera FTP password to stdout and exit
   --push      Direct push to rclone remote (reliable, synchronous)
   --copy      Copy via rclone mount (caches locally) then verify on remote
+  --prune     Remove RAW files whose corresponding JPG has been deleted
   -h, --help  Show this help
 
 When run without options, starts vsftpd, prints camera setup instructions,
@@ -59,6 +64,8 @@ Typical workflow:
   2. ftp-camera --copy    # copy via mount + verify (files cached for instant browse)
      OR
   2. ftp-camera --push    # direct push (prints rclone-cache-warm hint after)
+  3. (manually delete unwanted JPGs from the upload tree)
+  4. ftp-camera --prune   # delete RAW files orphaned by JPG removal
 EOF
         exit 0
         ;;
@@ -355,6 +362,93 @@ print(len(t) if t else 0)
     fi
 }
 
+# Remove RAW files whose corresponding JPG has been deleted by the user.
+# An "orphan" is a RAW file in YYYY/MM/DD/RAW/ whose stem (basename without
+# extension) has no matching .jpg/.jpeg in the sibling YYYY/MM/DD/JPG/ (or
+# JPEG/) directory. Lists candidates, prompts for confirmation, then deletes.
+prune_orphan_raws() {
+    local dir="${1:-$UPLOAD_DIR}"
+
+    if [ ! -d "$dir" ]; then
+        echo "ERROR: Upload directory not found: $dir" >&2
+        return 1
+    fi
+
+    echo -e "${BOLD}Scanning for orphan RAW files...${NC}"
+
+    local orphans=()
+    local raw_dir
+    while IFS= read -r -d '' raw_dir; do
+        local date_dir="${raw_dir%/RAW}"
+        local raw_file
+        while IFS= read -r -d '' raw_file; do
+            local stem
+            stem=$(basename "$raw_file")
+            stem="${stem%.*}"
+
+            local found=false
+            local sibling
+            for sibling in "${date_dir}/JPG" "${date_dir}/JPEG"; do
+                [ -d "$sibling" ] || continue
+                if find "$sibling" -maxdepth 1 -type f \
+                    \( -iname "${stem}.jpg" -o -iname "${stem}.jpeg" \) \
+                    -print -quit 2>/dev/null | grep -q .; then
+                    found=true
+                    break
+                fi
+            done
+
+            if [ "$found" = false ]; then
+                orphans+=("$raw_file")
+            fi
+        done < <(find "$raw_dir" -maxdepth 1 -type f -iname '*.arw' -print0)
+    done < <(find "$dir" -type d -name 'RAW' -print0)
+
+    local count=${#orphans[@]}
+    if [ "$count" -eq 0 ]; then
+        echo -e "${GREEN}No orphan RAW files found.${NC}"
+        return 0
+    fi
+
+    local total_bytes=0
+    local f sz
+    for f in "${orphans[@]}"; do
+        sz=$(stat -c %s "$f")
+        total_bytes=$((total_bytes + sz))
+    done
+    local total_human
+    total_human=$(numfmt --to=iec-i --suffix=B "$total_bytes")
+
+    echo ""
+    echo -e "${BOLD}Found ${CYAN}${count}${NC}${BOLD} orphan RAW file(s) (${CYAN}${total_human}${BOLD} total):${NC}"
+    for f in "${orphans[@]}"; do
+        echo -e "  ${YELLOW}${f#"$UPLOAD_DIR"/}${NC}"
+    done
+
+    echo ""
+    local reply=""
+    read -r -p "Delete these files? [y/N] " reply || true
+    if [[ ! "$reply" =~ ^[Yy]$ ]]; then
+        echo -e "${YELLOW}Aborted — no files removed.${NC}"
+        return 0
+    fi
+
+    local removed=0
+    for f in "${orphans[@]}"; do
+        if sudo rm -f "$f"; then
+            removed=$((removed + 1))
+        else
+            echo -e "  ${RED}failed${NC}  ${f#"$UPLOAD_DIR"/}" >&2
+        fi
+    done
+
+    # Remove any directories left empty by the prune (RAW/ folders, date dirs)
+    sudo find "$dir" -mindepth 1 -type d -empty -delete 2>/dev/null
+
+    echo ""
+    echo -e "${BOLD}Prune complete:${NC} ${CYAN}${removed}${NC} of ${CYAN}${count}${NC} files removed (${CYAN}${total_human}${NC} freed)"
+}
+
 # ── Cleanup ────────────────────────────────────────────────────────────────────
 
 cleanup() {
@@ -465,6 +559,14 @@ if [ "$COPY_ONLY" = true ]; then
     # No FTP server — copy to mount, wait for upload, verify on remote
     trap - EXIT INT TERM
     copy_to_mount
+    exit 0
+fi
+
+# ── Prune-orphan-RAWs mode ───────────────────────────────────────────────────
+if [ "$PRUNE_ONLY" = true ]; then
+    # No FTP server — find RAWs whose JPG has been deleted, prompt, remove
+    trap - EXIT INT TERM
+    prune_orphan_raws
     exit 0
 fi
 

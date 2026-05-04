@@ -241,6 +241,7 @@
             ftp-camera --push    direct push to rclone remote (synchronous)
             ftp-camera --copy    copy via mount + verify (caches locally)
                                  (both require ftp_camera_rclone_remote)
+            ftp-camera --prune   remove RAW files whose JPG has been deleted
 
           Optional rclone push: set ftp_camera_rclone_remote in host_vars
           (e.g. "LTS-G-Drive:" or "LTS-G-Drive:Photos") to enable --push.
