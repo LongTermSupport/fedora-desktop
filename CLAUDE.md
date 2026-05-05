@@ -232,6 +232,29 @@ Writing code that silently swallows errors is blocked. All errors must be handle
 
 **Required action**: Handle errors explicitly — log them, return them to the caller, or propagate them. Silent error suppression masks bugs and makes debugging impossible.
 
+## gh_issue_comments — always include --comments on gh issue view
+
+`gh issue view` without `--comments` is blocked. Issue comments often contain critical context, clarifications, and updates not in the issue body.
+
+**Blocked**: `gh issue view 123`, `gh issue view 123 --repo owner/repo`
+
+**Allowed**: `gh issue view 123 --comments`, `gh issue view 123 --json title,body,comments`
+
+If using `--json`, include `comments` in the field list instead of adding `--comments`.
+
+## lock_file_edit_blocker — never directly edit lock files
+
+Direct `Write` or `Edit` to package manager lock files is blocked. Lock files are generated artifacts; manual edits create checksum mismatches and broken dependency graphs.
+
+**Blocked files**: `composer.lock`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `Gemfile.lock`, `Cargo.lock`, `go.sum`, `Package.resolved`, `Pipfile.lock`, and others.
+
+**Use package manager commands instead**:
+- PHP: `composer install` / `composer require package`
+- Node: `npm install` / `yarn add package`
+- Ruby: `bundle install` / `bundle add gem`
+- Rust: `cargo add crate`
+- Go: `go get module`
+
 ## lsp_enforcement — use LSP tools for code symbol lookups
 
 Using `Grep` or `Bash` (grep/rg) to find class definitions, function signatures, or symbol references is blocked or redirected to LSP tools, which are faster and semantically accurate.
@@ -246,6 +269,50 @@ Using `Grep` or `Bash` (grep/rg) to find class definitions, function signatures,
 **Grep/Bash grep is still appropriate for**: text patterns in content, log searching, finding strings in config files.
 
 Default mode (`block_once`): the first symbol-lookup grep in a session is denied with guidance; subsequent retries are allowed.
+
+## npm_command — use llm: prefixed npm commands
+
+Direct `npm run` and `npx` commands are blocked or advised against. Projects with `llm:` prefixed scripts in `package.json` should use those instead.
+
+**Why**: `llm:` commands are configured for LLM-friendly output (no spinners, no colour codes, structured results).
+
+**Example**: Use `npm run llm:build` instead of `npm run build`.
+
+If no `llm:` commands exist in `package.json`, the handler operates in advisory mode (warns but does not block).
+
+### Pipe Blocker
+
+Commands piped to `tail` or `head` are **blocked** — piping truncates output and causes information loss.
+
+**Use a temp file instead:**
+
+```bash
+# WRONG — blocked:
+pytest tests/ 2>&1 | tail -20
+
+# RIGHT — redirect to temp file:
+pytest tests/ > /tmp/pytest_out.txt 2>&1
+# Then read selectively if needed
+```
+
+**Allowed** (whitelisted): `grep`, `rg`, `awk`, `sed`, `jq`, `ls`, `cat`, `git log`, `git tag`, `git branch`, and other cheap filtering commands.
+
+**Add to whitelist** (if safe to pipe): set `extra_whitelist` in `.claude/hooks-daemon.yaml` under `pipe_blocker`.
+
+## qa_suppression — QA suppression annotations are blocked
+
+Writing QA suppression directives into source files is blocked across all supported languages. Fix the underlying code issue instead.
+
+**Blocked annotation types (by language)**:
+- Python: `noqa` directives, `type: ignore` annotations
+- JavaScript/TypeScript: `eslint-disable` inline directives
+- Go: `nolint` directives (golangci-lint)
+- PHP: `phpstan-ignore`, `psalm-suppress` annotations
+- Java/Kotlin: `@SuppressWarnings`, `@Suppress` annotations
+- C#: `pragma warning disable` directives
+- Rust: `allow(clippy::...)` attributes on type-level items
+
+**Required action**: Fix the code so QA passes without suppression. If a suppression is genuinely necessary, ask the user to add it manually — this signals a conscious decision rather than a shortcut.
 
 ## security_antipattern — OWASP security antipatterns are blocked
 
@@ -320,72 +387,42 @@ Worktrees are isolated branches. Cross-copying corrupts that isolation and can s
 
 **Allowed**: operations within the same worktree branch. **To merge changes**: use `git merge` or `git cherry-pick` instead.
 
-## gh_issue_comments — always include --comments on gh issue view
+## gh_pr_comments — always include --comments on gh pr view
 
-`gh issue view` without `--comments` is blocked. Issue comments often contain critical context, clarifications, and updates not in the issue body.
+`gh pr view` without `--comments` is blocked. PR comments often contain review feedback, reviewer requests, and decisions not in the PR body.
 
-**Blocked**: `gh issue view 123`, `gh issue view 123 --repo owner/repo`
+**Blocked**: `gh pr view 123`, `gh pr view 123 --repo owner/repo`
 
-**Allowed**: `gh issue view 123 --comments`, `gh issue view 123 --json title,body,comments`
+**Allowed**: `gh pr view 123 --comments`, `gh pr view 123 --json title,body,comments`
 
 If using `--json`, include `comments` in the field list instead of adding `--comments`.
 
-## lock_file_edit_blocker — never directly edit lock files
+## git_stash — git stash is blocked by default
 
-Direct `Write` or `Edit` to package manager lock files is blocked. Lock files are generated artifacts; manual edits create checksum mismatches and broken dependency graphs.
+`git stash`, `git stash push`, and `git stash save` are blocked. `git stash pop`, `git stash apply`, `git stash list`, and `git stash show` are always allowed.
 
-**Blocked files**: `composer.lock`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `Gemfile.lock`, `Cargo.lock`, `go.sum`, `Package.resolved`, `Pipfile.lock`, and others.
+**Why**: stashes get forgotten, lost, and block `git pull`. Use `git commit -m 'WIP: ...'` instead — WIP commits are acceptable.
 
-**Use package manager commands instead**:
-- PHP: `composer install` / `composer require package`
-- Node: `npm install` / `yarn add package`
-- Ruby: `bundle install` / `bundle add gem`
-- Rust: `cargo add crate`
-- Go: `go get module`
-
-## npm_command — use llm: prefixed npm commands
-
-Direct `npm run` and `npx` commands are blocked or advised against. Projects with `llm:` prefixed scripts in `package.json` should use those instead.
-
-**Why**: `llm:` commands are configured for LLM-friendly output (no spinners, no colour codes, structured results).
-
-**Example**: Use `npm run llm:build` instead of `npm run build`.
-
-If no `llm:` commands exist in `package.json`, the handler operates in advisory mode (warns but does not block).
-
-### Pipe Blocker
-
-Commands piped to `tail` or `head` are **blocked** — piping truncates output and causes information loss.
-
-**Use a temp file instead:**
-
-```bash
-# WRONG — blocked:
-pytest tests/ 2>&1 | tail -20
-
-# RIGHT — redirect to temp file:
-pytest tests/ > /tmp/pytest_out.txt 2>&1
-# Then read selectively if needed
+**Escape hatch** (when commit truly won't work):
+```
+MUST_STASH_BECAUSE="explain why"; git stash
 ```
 
-**Allowed** (whitelisted): `grep`, `rg`, `awk`, `sed`, `jq`, `ls`, `cat`, `git log`, `git tag`, `git branch`, and other cheap filtering commands.
+Configure via `handlers.pre_tool_use.git_stash.options.mode: warn` for advisory-only mode.
 
-**Add to whitelist** (if safe to pipe): set `extra_whitelist` in `.claude/hooks-daemon.yaml` under `pipe_blocker`.
+## daemon_location_guard — do not cd into .claude/hooks-daemon/
 
-## qa_suppression — QA suppression annotations are blocked
+Bash commands that change directory into `.claude/hooks-daemon/` (or `cd` into a daemon-internal subdirectory and then run something) are blocked. The daemon is an upstream dependency that must remain untouched in client repos.
 
-Writing QA suppression directives into source files is blocked across all supported languages. Fix the underlying code issue instead.
+**Run daemon CLI from the project root instead** — it always works regardless of cwd:
 
-**Blocked annotation types (by language)**:
-- Python: `noqa` directives, `type: ignore` annotations
-- JavaScript/TypeScript: `eslint-disable` inline directives
-- Go: `nolint` directives (golangci-lint)
-- PHP: `phpstan-ignore`, `psalm-suppress` annotations
-- Java/Kotlin: `@SuppressWarnings`, `@Suppress` annotations
-- C#: `pragma warning disable` directives
-- Rust: `allow(clippy::...)` attributes on type-level items
+```
+$PYTHON -m claude_code_hooks_daemon.daemon.cli status
+$PYTHON -m claude_code_hooks_daemon.daemon.cli restart
+$PYTHON -m claude_code_hooks_daemon.daemon.cli logs
+```
 
-**Required action**: Fix the code so QA passes without suppression. If a suppression is genuinely necessary, ask the user to add it manually — this signals a conscious decision rather than a shortcut.
+If you need to inspect daemon source for debugging, use `Read` from the project root with the absolute path — never `cd` in. Do NOT edit anything inside `.claude/hooks-daemon/`; changes will be overwritten on the next upgrade.
 
 ## markdown_organization — markdown files must go in allowed locations
 
@@ -401,28 +438,33 @@ If you need a markdown file in a new location, add a pattern to `allowed_markdow
 
 If your project has sub-projects with their own `docs/`, `CLAUDE/`, etc., configure `monorepo_subproject_patterns` in `.claude/hooks-daemon.yaml` so normal rules apply within each sub-project.
 
-## git_stash — git stash is blocked by default
+## pip_break_system — --break-system-packages is blocked
 
-`git stash`, `git stash push`, and `git stash save` are blocked. `git stash pop`, `git stash apply`, `git stash list`, and `git stash show` are always allowed.
+`pip install --break-system-packages` (and the `pip3` / `python -m pip` / `python3 -m pip` variants) is blocked. The flag bypasses PEP 668 system-package protection and corrupts the system Python environment in containers and on modern Linux distros.
 
-**Why**: stashes get forgotten, lost, and block `git pull`. Use `git commit -m 'WIP: ...'` instead — WIP commits are acceptable.
+**Use a virtualenv or `--user` install instead**:
 
-**Escape hatch** (when commit truly won't work):
 ```
-MUST_STASH_BECAUSE="explain why"; git stash
+python3 -m venv /tmp/venv && /tmp/venv/bin/pip install <package>
+# or
+pip install --user <package>
 ```
 
-Configure via `handlers.pre_tool_use.git_stash.options.mode: warn` for advisory-only mode.
+If a tool's installer insists on `--break-system-packages` (some quick-start scripts do), download it first, inspect, and run it inside a venv — do not shortcut by adding the flag.
 
-## gh_pr_comments — always include --comments on gh pr view
+## sudo_pip — sudo pip install is blocked
 
-`gh pr view` without `--comments` is blocked. PR comments often contain review feedback, reviewer requests, and decisions not in the PR body.
+`sudo pip install` (and the `sudo pip3` / `sudo python -m pip` / `sudo python3 -m pip` variants) is blocked. Installing as root corrupts the system Python managed by the OS package manager and creates permission/ownership issues that are painful to recover from.
 
-**Blocked**: `gh pr view 123`, `gh pr view 123 --repo owner/repo`
+**Use a virtualenv or `--user` install instead**:
 
-**Allowed**: `gh pr view 123 --comments`, `gh pr view 123 --json title,body,comments`
+```
+python3 -m venv /tmp/venv && /tmp/venv/bin/pip install <package>
+# or
+pip install --user <package>
+```
 
-If using `--json`, include `comments` in the field list instead of adding `--comments`.
+Even in a container running as root, `sudo` adds nothing — drop it and use a venv.
 
 ## system_paths — do not edit deployed system files directly
 
@@ -503,5 +545,17 @@ STOPPING BECAUSE: all tasks complete, QA passes, daemon restart verified.
 - Tautological/rhetorical questions with obvious answers ("Should I continue?", "Would you like me to proceed?") — do NOT ask, just do it
 - Errors with a clear next step ("The test failed, should I fix it?") — do NOT ask, just fix it
 - Genuine choice questions where all options are valid ("Which of A, B, or C should we use?") — these deserve a response. Use `STOPPING BECAUSE: need user input` and ask your question
+
+## dismissive_language_detector — do not deflect or prematurely halt
+
+Stop-time advisory that fires on language patterns signalling avoidance of work. The handler does NOT block the stop, but injects context for the next turn so the agent self-corrects.
+
+**Avoid**:
+
+- Dismissing issues as `pre-existing`, `out of scope`, `not our problem`,   or `not relevant` to deflect work that is in fact yours.
+- Premature-halt phrasing like `natural checkpoint`, `ready to continue on your   cue`, `pausing here` mid-plan when there is more to do — finish the task   rather than dressing up a halt.
+- Speculative `should be fine` or `probably works` when verification is   cheap (run the test, read the file).
+
+**Do**: acknowledge the issue, fix it, or — if it genuinely is out of scope — say so once with the specific reason and continue with the in-scope work.
 
 </hooksdaemon>
