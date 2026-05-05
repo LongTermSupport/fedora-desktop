@@ -74,6 +74,21 @@
       when: rapidraw_installed_version.stdout != rapidraw_version
       tags: rapidraw
 
+    # /usr/local/bin precedes /usr/bin in PATH, so this shim is transparently
+    # picked up by the desktop entry's `Exec=RapidRAW` and CLI invocation
+    # without conflicting with the RPM-owned /usr/bin/RapidRAW. The shim forces
+    # wgpu to use a hardware Vulkan ICD instead of Lavapipe/Dozen, which can
+    # otherwise be auto-selected and cause severe sluggishness.
+    # @see files/usr/local/bin/RapidRAW for the rationale.
+    - name: Deploy RapidRAW Vulkan ICD Selector Shim
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/usr/local/bin/RapidRAW"
+        dest: /usr/local/bin/RapidRAW
+        owner: root
+        group: root
+        mode: "0755"
+      tags: rapidraw
+
     - name: Check for newer RapidRAW release on GitHub
       ansible.builtin.uri:
         url: "https://api.github.com/repos/CyberTimon/RapidRAW/releases/latest"
