@@ -232,29 +232,6 @@ Writing code that silently swallows errors is blocked. All errors must be handle
 
 **Required action**: Handle errors explicitly — log them, return them to the caller, or propagate them. Silent error suppression masks bugs and makes debugging impossible.
 
-## gh_issue_comments — always include --comments on gh issue view
-
-`gh issue view` without `--comments` is blocked. Issue comments often contain critical context, clarifications, and updates not in the issue body.
-
-**Blocked**: `gh issue view 123`, `gh issue view 123 --repo owner/repo`
-
-**Allowed**: `gh issue view 123 --comments`, `gh issue view 123 --json title,body,comments`
-
-If using `--json`, include `comments` in the field list instead of adding `--comments`.
-
-## lock_file_edit_blocker — never directly edit lock files
-
-Direct `Write` or `Edit` to package manager lock files is blocked. Lock files are generated artifacts; manual edits create checksum mismatches and broken dependency graphs.
-
-**Blocked files**: `composer.lock`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `Gemfile.lock`, `Cargo.lock`, `go.sum`, `Package.resolved`, `Pipfile.lock`, and others.
-
-**Use package manager commands instead**:
-- PHP: `composer install` / `composer require package`
-- Node: `npm install` / `yarn add package`
-- Ruby: `bundle install` / `bundle add gem`
-- Rust: `cargo add crate`
-- Go: `go get module`
-
 ## lsp_enforcement — use LSP tools for code symbol lookups
 
 Using `Grep` or `Bash` (grep/rg) to find class definitions, function signatures, or symbol references is blocked or redirected to LSP tools, which are faster and semantically accurate.
@@ -269,50 +246,6 @@ Using `Grep` or `Bash` (grep/rg) to find class definitions, function signatures,
 **Grep/Bash grep is still appropriate for**: text patterns in content, log searching, finding strings in config files.
 
 Default mode (`block_once`): the first symbol-lookup grep in a session is denied with guidance; subsequent retries are allowed.
-
-## npm_command — use llm: prefixed npm commands
-
-Direct `npm run` and `npx` commands are blocked or advised against. Projects with `llm:` prefixed scripts in `package.json` should use those instead.
-
-**Why**: `llm:` commands are configured for LLM-friendly output (no spinners, no colour codes, structured results).
-
-**Example**: Use `npm run llm:build` instead of `npm run build`.
-
-If no `llm:` commands exist in `package.json`, the handler operates in advisory mode (warns but does not block).
-
-### Pipe Blocker
-
-Commands piped to `tail` or `head` are **blocked** — piping truncates output and causes information loss.
-
-**Use a temp file instead:**
-
-```bash
-# WRONG — blocked:
-pytest tests/ 2>&1 | tail -20
-
-# RIGHT — redirect to temp file:
-pytest tests/ > /tmp/pytest_out.txt 2>&1
-# Then read selectively if needed
-```
-
-**Allowed** (whitelisted): `grep`, `rg`, `awk`, `sed`, `jq`, `ls`, `cat`, `git log`, `git tag`, `git branch`, and other cheap filtering commands.
-
-**Add to whitelist** (if safe to pipe): set `extra_whitelist` in `.claude/hooks-daemon.yaml` under `pipe_blocker`.
-
-## qa_suppression — QA suppression annotations are blocked
-
-Writing QA suppression directives into source files is blocked across all supported languages. Fix the underlying code issue instead.
-
-**Blocked annotation types (by language)**:
-- Python: `noqa` directives, `type: ignore` annotations
-- JavaScript/TypeScript: `eslint-disable` inline directives
-- Go: `nolint` directives (golangci-lint)
-- PHP: `phpstan-ignore`, `psalm-suppress` annotations
-- Java/Kotlin: `@SuppressWarnings`, `@Suppress` annotations
-- C#: `pragma warning disable` directives
-- Rust: `allow(clippy::...)` attributes on type-level items
-
-**Required action**: Fix the code so QA passes without suppression. If a suppression is genuinely necessary, ask the user to add it manually — this signals a conscious decision rather than a shortcut.
 
 ## security_antipattern — OWASP security antipatterns are blocked
 
@@ -387,15 +320,72 @@ Worktrees are isolated branches. Cross-copying corrupts that isolation and can s
 
 **Allowed**: operations within the same worktree branch. **To merge changes**: use `git merge` or `git cherry-pick` instead.
 
-## gh_pr_comments — always include --comments on gh pr view
+## gh_issue_comments — always include --comments on gh issue view
 
-`gh pr view` without `--comments` is blocked. PR comments often contain review feedback, reviewer requests, and decisions not in the PR body.
+`gh issue view` without `--comments` is blocked. Issue comments often contain critical context, clarifications, and updates not in the issue body.
 
-**Blocked**: `gh pr view 123`, `gh pr view 123 --repo owner/repo`
+**Blocked**: `gh issue view 123`, `gh issue view 123 --repo owner/repo`
 
-**Allowed**: `gh pr view 123 --comments`, `gh pr view 123 --json title,body,comments`
+**Allowed**: `gh issue view 123 --comments`, `gh issue view 123 --json title,body,comments`
 
 If using `--json`, include `comments` in the field list instead of adding `--comments`.
+
+## lock_file_edit_blocker — never directly edit lock files
+
+Direct `Write` or `Edit` to package manager lock files is blocked. Lock files are generated artifacts; manual edits create checksum mismatches and broken dependency graphs.
+
+**Blocked files**: `composer.lock`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `Gemfile.lock`, `Cargo.lock`, `go.sum`, `Package.resolved`, `Pipfile.lock`, and others.
+
+**Use package manager commands instead**:
+- PHP: `composer install` / `composer require package`
+- Node: `npm install` / `yarn add package`
+- Ruby: `bundle install` / `bundle add gem`
+- Rust: `cargo add crate`
+- Go: `go get module`
+
+## npm_command — use llm: prefixed npm commands
+
+Direct `npm run` and `npx` commands are blocked or advised against. Projects with `llm:` prefixed scripts in `package.json` should use those instead.
+
+**Why**: `llm:` commands are configured for LLM-friendly output (no spinners, no colour codes, structured results).
+
+**Example**: Use `npm run llm:build` instead of `npm run build`.
+
+If no `llm:` commands exist in `package.json`, the handler operates in advisory mode (warns but does not block).
+
+### Pipe Blocker
+
+Commands piped to `tail` or `head` are **blocked** — piping truncates output and causes information loss.
+
+**Use a temp file instead:**
+
+```bash
+# WRONG — blocked:
+pytest tests/ 2>&1 | tail -20
+
+# RIGHT — redirect to temp file:
+pytest tests/ > /tmp/pytest_out.txt 2>&1
+# Then read selectively if needed
+```
+
+**Allowed** (whitelisted): `grep`, `rg`, `awk`, `sed`, `jq`, `ls`, `cat`, `git log`, `git tag`, `git branch`, and other cheap filtering commands.
+
+**Add to whitelist** (if safe to pipe): set `extra_whitelist` in `.claude/hooks-daemon.yaml` under `pipe_blocker`.
+
+## qa_suppression — QA suppression annotations are blocked
+
+Writing QA suppression directives into source files is blocked across all supported languages. Fix the underlying code issue instead.
+
+**Blocked annotation types (by language)**:
+- Python: `noqa` directives, `type: ignore` annotations
+- JavaScript/TypeScript: `eslint-disable` inline directives
+- Go: `nolint` directives (golangci-lint)
+- PHP: `phpstan-ignore`, `psalm-suppress` annotations
+- Java/Kotlin: `@SuppressWarnings`, `@Suppress` annotations
+- C#: `pragma warning disable` directives
+- Rust: `allow(clippy::...)` attributes on type-level items
+
+**Required action**: Fix the code so QA passes without suppression. If a suppression is genuinely necessary, ask the user to add it manually — this signals a conscious decision rather than a shortcut.
 
 ## git_stash — git stash is blocked by default
 
@@ -409,6 +399,16 @@ MUST_STASH_BECAUSE="explain why"; git stash
 ```
 
 Configure via `handlers.pre_tool_use.git_stash.options.mode: warn` for advisory-only mode.
+
+## gh_pr_comments — always include --comments on gh pr view
+
+`gh pr view` without `--comments` is blocked. PR comments often contain review feedback, reviewer requests, and decisions not in the PR body.
+
+**Blocked**: `gh pr view 123`, `gh pr view 123 --repo owner/repo`
+
+**Allowed**: `gh pr view 123 --comments`, `gh pr view 123 --json title,body,comments`
+
+If using `--json`, include `comments` in the field list instead of adding `--comments`.
 
 ## daemon_location_guard — do not cd into .claude/hooks-daemon/
 
