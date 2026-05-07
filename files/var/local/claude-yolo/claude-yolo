@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.14.0"  # feat(args): fail-fast unknown-flag validation — validate `--<flag>` args against ccy's set + dynamic `claude --help` (host binary preferred, container fallback) before SSH/gh/token/container work. Adds `--` separator for raw pass-through
+CCY_VERSION="3.15.0"  # feat(token-expiry): show coloured token expiry at startup — green (>14d), yellow (≤14d), red (expired). Surfaces expiry next to token name on --token, interactive selection, AND quick-launch (previous-session) paths; threshold rebanded from 5d/30d (red/orange) to 14d (yellow) per user request.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -767,7 +767,16 @@ if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo ""
         echo "Found previous launch configuration (${LAST_LAUNCH_DATE:-unknown}):"
-        echo "  Token:   ${LAST_TOKEN:-none}"
+        if [[ -n "$LAST_TOKEN" ]]; then
+            last_token_files=("$TOKEN_DIR/${LAST_TOKEN}".*.token)
+            if [ -f "${last_token_files[0]}" ] && [[ "$(basename "${last_token_files[0]}")" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2})\.token$ ]]; then
+                echo -e "  Token:   ${LAST_TOKEN} (expires: $(colorize_expiry "${BASH_REMATCH[1]}"))"
+            else
+                echo "  Token:   ${LAST_TOKEN} (file missing)"
+            fi
+        else
+            echo "  Token:   none"
+        fi
         echo "  SSH Key: ${LAST_SSH_KEYS:-none}"
         echo "  Network: ${LAST_NETWORK:-none}"
         echo ""
@@ -893,7 +902,11 @@ if [ -n "$SPECIFIED_TOKEN" ]; then
 
     filename=$(basename "$SELECTED_TOKEN")
     token_name="${filename%.*.token}"
-    echo "✓ Using token: $token_name"
+    if [[ "$filename" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2})\.token$ ]]; then
+        echo -e "✓ Using token: $token_name (expires: $(colorize_expiry "${BASH_REMATCH[1]}"))"
+    else
+        echo "✓ Using token: $token_name"
+    fi
 else
     # No token specified, check if tokens exist
     if [ ! -d "$TOKEN_DIR" ] || [ -z "$(ls -A "$TOKEN_DIR"/*.token 2>/dev/null)" ]; then

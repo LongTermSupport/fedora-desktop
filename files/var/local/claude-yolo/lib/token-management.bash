@@ -2,31 +2,31 @@
 # Token Management Library
 # Token operations for claude-yolo (ccy)
 #
-# Version: 1.5.0 - Color-code expiry dates (green >30d, orange ≤30d, red ≤5d)
+# Version: 1.6.0 - Expiry colour bands: red (expired), yellow (≤14d), green (>14d)
 
 # Returns expiry_date string wrapped in ANSI color based on days remaining
+# Bands: red if expired (past), yellow within two weeks, green otherwise
 # Args: $1 = expiry_date (YYYY-MM-DD)
-# Outputs: colored string (or plain if terminal doesn't support colors)
+# Outputs: colored string (or plain on date-parse failure)
 colorize_expiry() {
     local expiry_date="$1"
     local today
     today=$(date +%Y-%m-%d)
 
-    # Calculate days remaining
     local expiry_epoch today_epoch days_remaining
     expiry_epoch=$(date -d "$expiry_date" +%s 2>/dev/null) || { echo "$expiry_date"; return; }
     today_epoch=$(date -d "$today" +%s)
     days_remaining=$(( (expiry_epoch - today_epoch) / 86400 ))
 
     local RED='\033[31m'
-    local ORANGE='\033[38;5;208m'
+    local YELLOW='\033[33m'
     local GREEN='\033[32m'
     local RESET='\033[0m'
 
-    if [ "$days_remaining" -le 5 ]; then
+    if [ "$days_remaining" -lt 0 ]; then
         printf "${RED}%s${RESET}" "$expiry_date"
-    elif [ "$days_remaining" -le 30 ]; then
-        printf "${ORANGE}%s${RESET}" "$expiry_date"
+    elif [ "$days_remaining" -le 14 ]; then
+        printf "${YELLOW}%s${RESET}" "$expiry_date"
     else
         printf "${GREEN}%s${RESET}" "$expiry_date"
     fi
@@ -570,7 +570,11 @@ select_token() {
             filename=$(basename "$SELECTED_TOKEN")
             local token_name="${filename%.*.token}"
 
-            echo "✓ Selected token: $token_name"
+            if [[ "$filename" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2})\.token$ ]]; then
+                echo -e "✓ Selected token: $token_name (expires: $(colorize_expiry "${BASH_REMATCH[1]}"))"
+            else
+                echo "✓ Selected token: $token_name"
+            fi
             echo ""
             echo "════════════════════════════════════════════════════════════════════════════════"
             echo ""
