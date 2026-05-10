@@ -59,13 +59,24 @@ Start the camera FTP server, or:
 When run without options, starts vsftpd, prints camera setup instructions,
 and monitors uploads. Press Ctrl+C to stop and auto-sort uploaded files.
 
+Sort layout (mirrors the photo library):
+  photos/YYYY/MM/DD/JPG/<name>.jpg
+  photos/YYYY/MM/DD/RAW/<name>.arw
+  videos/YYYY/MM/DD/MP4/<name>.mp4
+  videos/YYYY/MM/DD/MOV/<name>.mov
+
+ftp_camera_rclone_remote must point at the LIBRARY ROOT (the parent of
+photos/ and videos/), not at a media subfolder. Push and copy ship the
+whole local tree in one rclone call so each subtree lands in the matching
+remote folder automatically.
+
 Typical workflow:
   1. ftp-camera           # receive uploads from camera (Ctrl+C to stop, auto-sorts)
   2. ftp-camera --copy    # copy via mount + verify (files cached for instant browse)
      OR
   2. ftp-camera --push    # direct push (prints rclone-cache-warm hint after)
   3. (manually delete unwanted JPGs from the upload tree)
-  4. ftp-camera --prune   # delete RAW files orphaned by JPG removal
+  4. ftp-camera --prune   # delete RAW files orphaned by JPG removal (photos/ only)
 EOF
         exit 0
         ;;
@@ -84,7 +95,71 @@ CYAN='\033[0;36m'
 RED='\033[0;31m'
 NC='\033[0m'
 
+# ── Media taxonomy ────────────────────────────────────────────────────────────
+# Mirrors the photo library layout: top-level photos/ and videos/ siblings.
+# Sort routes files into the matching subtree based on extension; push/copy
+# then ship the whole local tree to the library root in one rclone call,
+# landing each subtree in the correctly-named remote folder automatically.
+readonly PHOTO_DIR_NAME="photos"
+readonly VIDEO_DIR_NAME="videos"
+readonly -a PHOTO_EXTS=(jpg jpeg arw)
+readonly -a VIDEO_EXTS=(mp4 mov)
+
 # ── Helpers ────────────────────────────────────────────────────────────────────
+
+# Classify a file by extension. Echoes "photo", "video", or "" (unknown).
+classify_ext() {
+    local ext_lower="${1,,}"
+    local e
+    for e in "${PHOTO_EXTS[@]}"; do
+        if [ "$e" = "$ext_lower" ]; then
+            echo photo
+            return
+        fi
+    done
+    for e in "${VIDEO_EXTS[@]}"; do
+        if [ "$e" = "$ext_lower" ]; then
+            echo video
+            return
+        fi
+    done
+}
+
+# Read EXIF capture date as YYYY/MM/DD. Photos prefer DateTimeOriginal (the
+# shutter-press time), videos prefer CreateDate (the recording-start time).
+# Each falls back to the other class's tag in case of unusual files.
+get_exif_date() {
+    local file="$1" class="$2"
+    local -a tags
+    if [ "$class" = "photo" ]; then
+        tags=(-DateTimeOriginal -CreateDate)
+    else
+        tags=(-CreateDate -MediaCreateDate)
+    fi
+    # `|| true`: exiftool exits non-zero when none of the requested tags exist.
+    exiftool -s3 -d '%Y/%m/%d' "${tags[@]}" "$file" 2>/dev/null \
+        | awk 'NF{print; exit}' || true
+}
+
+# Refuse a RCLONE_REMOTE that points at a media subfolder rather than the
+# library root. The local sort places files into photos/ and videos/ subtrees
+# so a single rclone copy must target the library root for both to land
+# correctly. Pointing at .../photos would dump videos/ alongside photos at
+# the wrong level — block it with a clear fix.
+validate_library_remote() {
+    local stripped="${RCLONE_REMOTE%/}"
+    case "${stripped,,}" in
+        */photos | */photo | */videos | */video)
+            echo "ERROR: ftp_camera_rclone_remote must point at the library root," >&2
+            echo "  not a photos/videos subdirectory. Got: ${RCLONE_REMOTE}" >&2
+            echo "  The local sort places files into ${PHOTO_DIR_NAME}/ and ${VIDEO_DIR_NAME}/" >&2
+            echo "  subtrees that mirror the library layout. Update host_vars/localhost.yml:" >&2
+            echo "    ftp_camera_rclone_remote: \"${stripped%/*}\"" >&2
+            echo "  then re-run play-ftp-camera.yml." >&2
+            return 1
+            ;;
+    esac
+}
 
 get_local_ip() {
     local iface
@@ -113,22 +188,49 @@ sort_uploads() {
 
     echo -e "${BOLD}Sorting uploads by EXIF date...${NC}"
 
+    # Build find -iname args from the taxonomy so adding extensions in one
+    # place picks them up in both the scan and the routing.
+    local -a find_args=()
+    local ext
+    for ext in "${PHOTO_EXTS[@]}" "${VIDEO_EXTS[@]}"; do
+        if [ ${#find_args[@]} -eq 0 ]; then
+            find_args+=(-iname "*.$ext")
+        else
+            find_args+=(-o -iname "*.$ext")
+        fi
+    done
+
     # Only process unsorted files in the upload root (where the camera drops them).
-    # Already-sorted files live in YYYY/MM/DD/ subdirs and are never revisited.
+    # Already-sorted files live in <class>/YYYY/MM/DD/ subdirs and are never revisited.
     local file
     while IFS= read -r -d '' file; do
-        local ext="${file##*.}"
-        local ext_upper="${ext^^}"
+        local file_ext="${file##*.}"
+        local ext_lower="${file_ext,,}"
+        local ext_upper="${file_ext^^}"
 
-        # Determine subfolder: ARW → RAW, everything else keeps its extension name
+        local class
+        class=$(classify_ext "$ext_lower")
+        if [ -z "$class" ]; then
+            echo -e "  ${YELLOW}skip${NC}  $(basename "$file")  (unsupported type)"
+            skipped=$((skipped + 1))
+            continue
+        fi
+
+        # ARW → RAW; everything else keeps its uppercased extension as the type dir
         local type_dir="$ext_upper"
         if [ "$ext_upper" = "ARW" ]; then
             type_dir="RAW"
         fi
 
-        # Extract EXIF date as YYYY/MM/DD (|| true: exiftool exits non-zero when tag is missing)
+        local class_dir
+        if [ "$class" = "photo" ]; then
+            class_dir="$PHOTO_DIR_NAME"
+        else
+            class_dir="$VIDEO_DIR_NAME"
+        fi
+
         local date_path
-        date_path=$(exiftool -DateTimeOriginal -s3 -d '%Y/%m/%d' "$file" 2>/dev/null) || true
+        date_path=$(get_exif_date "$file" "$class")
 
         if [ -z "$date_path" ]; then
             echo -e "  ${YELLOW}skip${NC}  $(basename "$file")  (no EXIF date)"
@@ -136,12 +238,12 @@ sort_uploads() {
             continue
         fi
 
-        local dest_dir="$UPLOAD_DIR/$date_path/$type_dir"
+        local dest_dir="$UPLOAD_DIR/$class_dir/$date_path/$type_dir"
         sudo mkdir -p "$dest_dir"
         sudo mv "$file" "$dest_dir/"
-        echo -e "  ${GREEN}move${NC}  $(basename "$file")  → ${date_path}/${type_dir}/"
+        echo -e "  ${GREEN}move${NC}  $(basename "$file")  → ${class_dir}/${date_path}/${type_dir}/"
         moved=$((moved + 1))
-    done < <(find "$dir" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.arw' \) -print0)
+    done < <(find "$dir" -maxdepth 1 -type f \( "${find_args[@]}" \) -print0)
 
     # Clean up empty directories left behind by camera (e.g. DCIM/100MSDCF/)
     sudo find "$dir" -mindepth 1 -type d -empty -delete 2>/dev/null
@@ -168,6 +270,8 @@ push_uploads() {
         echo "  Set ftp_camera_rclone_remote in host_vars/localhost.yml and re-run play-ftp-camera.yml" >&2
         return 1
     fi
+
+    validate_library_remote || return 1
 
     if ! command -v rclone > /dev/null; then
         echo "ERROR: rclone not found — run play-rclone.yml first" >&2
@@ -261,6 +365,8 @@ copy_to_mount() {
         echo "  Set ftp_camera_rclone_remote in host_vars/localhost.yml and re-run play-ftp-camera.yml" >&2
         return 1
     fi
+
+    validate_library_remote || return 1
 
     if ! command -v rclone > /dev/null; then
         echo "ERROR: rclone not found — run play-rclone.yml first" >&2
@@ -434,15 +540,22 @@ PY
 }
 
 # Remove RAW files whose corresponding JPG has been deleted by the user.
-# An "orphan" is a RAW file in YYYY/MM/DD/RAW/ whose stem (basename without
-# extension) has no matching .jpg/.jpeg in the sibling YYYY/MM/DD/JPG/ (or
-# JPEG/) directory. Lists candidates, prompts for confirmation, then deletes.
+# An "orphan" is a RAW file in photos/YYYY/MM/DD/RAW/ whose stem (basename
+# without extension) has no matching .jpg/.jpeg in the sibling JPG/ (or
+# JPEG/) directory. Videos have no RAW counterparts so the videos/ subtree
+# is skipped. Lists candidates, prompts for confirmation, then deletes.
 prune_orphan_raws() {
     local dir="${1:-$UPLOAD_DIR}"
+    local photos_root="$dir/$PHOTO_DIR_NAME"
 
     if [ ! -d "$dir" ]; then
         echo "ERROR: Upload directory not found: $dir" >&2
         return 1
+    fi
+
+    if [ ! -d "$photos_root" ]; then
+        echo -e "${GREEN}No ${PHOTO_DIR_NAME}/ subtree — nothing to prune.${NC}"
+        return 0
     fi
 
     echo -e "${BOLD}Scanning for orphan RAW files...${NC}"
@@ -473,7 +586,7 @@ prune_orphan_raws() {
                 orphans+=("$raw_file")
             fi
         done < <(find "$raw_dir" -maxdepth 1 -type f -iname '*.arw' -print0)
-    done < <(find "$dir" -type d -name 'RAW' -print0)
+    done < <(find "$photos_root" -type d -name 'RAW' -print0)
 
     local count=${#orphans[@]}
     if [ "$count" -eq 0 ]; then

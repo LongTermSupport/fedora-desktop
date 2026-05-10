@@ -18,7 +18,10 @@
     # a default here would silently override the user's host_vars setting.
     # The variable is consumed via `| default('')` at the use sites below.
     # Set it in environment/localhost/host_vars/localhost.yml, e.g.:
-    #   ftp_camera_rclone_remote: "LTS-G-Drive:Photos"
+    #   ftp_camera_rclone_remote: "LTS-G-Drive:/PHOTO/LIBRARY"
+    # MUST point at the library ROOT (the parent of photos/ and videos/),
+    # not at a media subfolder — ftp-camera --push/--copy ships the whole
+    # local tree (photos/ and videos/ siblings) in one call.
 
   tasks:
 
@@ -244,8 +247,13 @@
             ftp-camera --prune   remove RAW files whose JPG has been deleted
 
           Optional rclone push: set ftp_camera_rclone_remote in host_vars
-          (e.g. "LTS-G-Drive:" or "LTS-G-Drive:Photos") to enable --push.
+          to enable --push and --copy. Must point at the library ROOT
+          (the parent of photos/ and videos/), e.g. "LTS-G-Drive:/PHOTO/LIBRARY".
           Currently configured: {{ ftp_camera_rclone_remote | default('(unset)') }}
+
+          Sort layout (mirrors library):
+            photos/YYYY/MM/DD/{JPG,RAW}/<file>
+            videos/YYYY/MM/DD/{MP4,MOV}/<file>
 
           The script will print your PC's IP address and the exact
           camera menu path when it starts.
