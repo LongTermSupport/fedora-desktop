@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# raw-prune — find RAW files in CWD (recursive) with no corresponding JPG
+# and delete them after confirmation. Matching is by filename stem only,
+# so JPGs and RAWs may live in different folders.
+#
+# Deployed by: playbooks/imports/optional/common/play-photography.yml
+
+# ── Colours ───────────────────────────────────────────────────────────────────
+BOLD='\033[1m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+# ── Args ──────────────────────────────────────────────────────────────────────
+DRY_RUN=false
+YES=false
+SEARCH_DIR="."
+
+usage() {
+    cat <<'EOF'
+Usage: raw-prune [OPTION]... [DIR]
+
+Recursively find RAW files in DIR (default: current directory) whose
+filename stem has no matching .jpg/.jpeg anywhere under DIR. Lists the
+orphans with sizes and prompts for confirmation before deleting.
+
+Filename matching is case-insensitive and ignores directory — a JPG
+in any subfolder counts as a match for a RAW with the same stem.
+
+Options:
+  -n, --dry-run   List orphans only, never delete (no prompt)
+  -y, --yes       Skip the confirmation prompt and delete immediately
+  -h, --help      Show this help
+
+Recognised RAW extensions:
+  arw cr2 cr3 crw dng nef nrw orf pef raf rw2 srw x3f
+EOF
+}
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -n|--dry-run) DRY_RUN=true ;;
+        -y|--yes)     YES=true ;;
+        -h|--help)    usage; exit 0 ;;
+        --)           shift; SEARCH_DIR="${1:-.}"; break ;;
+        -*)
+            echo "ERROR: unknown option: $1" >&2
+            echo "Run 'raw-prune --help' for usage" >&2
+            exit 2
+            ;;
+        *)            SEARCH_DIR="$1" ;;
+    esac
+    shift
+done
+
+if [ ! -d "$SEARCH_DIR" ]; then
+    echo "ERROR: not a directory: $SEARCH_DIR" >&2
+    exit 1
+fi
+
+# ── Scan ──────────────────────────────────────────────────────────────────────
+echo -e "${BOLD}Scanning ${CYAN}${SEARCH_DIR}${NC}${BOLD} for RAW files without matching JPG...${NC}"
+
+# Build a set of JPG filename stems (lowercased, no extension, no path).
+# Using an associative array gives O(1) lookup per RAW file.
+declare -A jpg_stems
+while IFS= read -r -d '' jpg; do
+    stem=$(basename "$jpg")
+    stem="${stem%.*}"
+    jpg_stems["${stem,,}"]=1
+done < <(find "$SEARCH_DIR" -type f \( -iname '*.jpg' -o -iname '*.jpeg' \) -print0)
+
+# Walk RAW files; collect ones whose stem is missing from the JPG set.
+orphans=()
+while IFS= read -r -d '' raw; do
+    stem=$(basename "$raw")
+    stem="${stem%.*}"
+    if [ -z "${jpg_stems[${stem,,}]:-}" ]; then
+        orphans+=("$raw")
+    fi
+done < <(find "$SEARCH_DIR" -type f \( \
+    -iname '*.arw' -o \
+    -iname '*.cr2' -o \
+    -iname '*.cr3' -o \
+    -iname '*.crw' -o \
+    -iname '*.dng' -o \
+    -iname '*.nef' -o \
+    -iname '*.nrw' -o \
+    -iname '*.orf' -o \
+    -iname '*.pef' -o \
+    -iname '*.raf' -o \
+    -iname '*.rw2' -o \
+    -iname '*.srw' -o \
+    -iname '*.x3f' \
+    \) -print0)
+
+count=${#orphans[@]}
+if [ "$count" -eq 0 ]; then
+    echo -e "${GREEN}No orphan RAW files found.${NC}"
+    exit 0
+fi
+
+# ── Report ────────────────────────────────────────────────────────────────────
+total_bytes=0
+for f in "${orphans[@]}"; do
+    sz=$(stat -c %s "$f")
+    total_bytes=$((total_bytes + sz))
+done
+total_human=$(numfmt --to=iec-i --suffix=B "$total_bytes")
+
+echo ""
+echo -e "${BOLD}Found ${CYAN}${count}${NC}${BOLD} orphan RAW file(s) (${CYAN}${total_human}${BOLD} total):${NC}"
+for f in "${orphans[@]}"; do
+    echo -e "  ${YELLOW}${f}${NC}"
+done
+echo ""
+
+if [ "$DRY_RUN" = true ]; then
+    echo -e "${CYAN}Dry run — no files removed.${NC}"
+    exit 0
+fi
+
+# ── Confirm ───────────────────────────────────────────────────────────────────
+if [ "$YES" != true ]; then
+    reply=""
+    read -r -p "Delete these files? [y/N] " reply || true
+    if [[ ! "$reply" =~ ^[Yy]$ ]]; then
+        echo -e "${YELLOW}Aborted — no files removed.${NC}"
+        exit 0
+    fi
+fi
+
+# ── Delete ────────────────────────────────────────────────────────────────────
+removed=0
+for f in "${orphans[@]}"; do
+    if rm -f "$f"; then
+        removed=$((removed + 1))
+    else
+        echo -e "  ${RED}failed${NC}  $f" >&2
+    fi
+done
+
+# Tidy up directories that became empty after the prune.
+find "$SEARCH_DIR" -mindepth 1 -type d -empty -delete 2>/dev/null || true
+
+echo ""
+echo -e "${BOLD}Prune complete:${NC} ${CYAN}${removed}${NC} of ${CYAN}${count}${NC} files removed (${CYAN}${total_human}${NC} freed)"
