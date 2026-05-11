@@ -14,6 +14,7 @@
 - import_playbook: imports/play-lxc-install-config.yml
 - import_playbook: imports/play-ms-fonts.yml
 - import_playbook: imports/play-rpm-fusion.yml
+- import_playbook: imports/play-browsers.yml
 - import_playbook: imports/play-toolbox-install.yml
 - import_playbook: imports/play-docker.yml
 - import_playbook: imports/play-podman.yml

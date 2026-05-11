@@ -1,0 +1,90 @@
+#!/usr/bin/env ansible-playbook
+---
+# Browsers — install Chromium-family browsers with full capabilities
+# (Widevine DRM, proprietary codecs, hardware acceleration).
+#
+# Firefox is handled separately by play-firefox.yml.
+#
+# The Fedora Flatpak Chromium (org.chromium.Chromium from the "fedora"
+# remote) is intentionally NOT installed here. Fedora's Flatpak build
+# ships without Widevine and without proprietary codec support — Netflix,
+# Spotify Web, Disney+, Prime Video, and many H.264/HEVC videos break
+# inside it. If present from a previous install, remove it with:
+#   flatpak remove org.chromium.Chromium
+#
+# Pure open-source Chromium is intentionally excluded: even with system
+# codecs from RPM Fusion, it has no Widevine, so DRM-protected streaming
+# stays broken. Brave covers the "privacy-respecting Chromium" niche
+# with full DRM + codecs included.
+- hosts: desktop
+  name: Browsers
+  become: true
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  tasks:
+    # Google Chrome
+    # -------------
+    # The reference Chromium build. Ships with everything proprietary
+    # working out of the box: Widevine DRM (Netflix, Spotify, Disney+,
+    # Prime Video), full codec support (H.264, HEVC, AAC), and a
+    # Google-signed update channel. This is the "it just works" browser
+    # and the site-compatibility baseline — keep it installed so that
+    # when a site fails in another browser, you can isolate whether the
+    # site is broken or your browser is.
+    #
+    # The .rpm's post-install scriptlet drops
+    # /etc/yum.repos.d/google-chrome.repo automatically, so future
+    # `dnf update` keeps it current. The signing key must be imported
+    # first — installing directly from a URL doesn't bring one with it.
+    - name: Import Google Chrome Signing Key
+      ansible.builtin.rpm_key:
+        key: https://dl.google.com/linux/linux_signing_key.pub
+        state: present
+
+    - name: Install Google Chrome
+      ansible.builtin.dnf:
+        name: https://dl.google.com/linux/direct/google-chrome-stable_current_x86_64.rpm
+        state: present
+        disable_gpg_check: false
+
+    # Brave
+    # -----
+    # Chromium fork with privacy as the default rather than the
+    # exception. Includes Widevine and full codecs (so streaming works),
+    # ships ad/tracker blocking (Brave Shields), fingerprint
+    # randomisation, HTTPS upgrades, and a built-in Tor mode for private
+    # windows. Use this as the day-to-day browser when you want
+    # Chrome-grade compatibility without sending telemetry to Google.
+    - name: Add Brave Browser Repository
+      ansible.builtin.shell: |
+        set -x
+        dnf -y config-manager addrepo --overwrite --from-repofile=https://brave-browser-rpm-release.s3.brave.com/brave-browser.repo
+      args:
+        executable: /bin/bash
+        creates: /etc/yum.repos.d/brave-browser.repo
+
+    - name: Install Brave Browser
+      ansible.builtin.package:
+        name: brave-browser
+        state: present
+
+    # Vivaldi
+    # -------
+    # Chromium-based browser aimed at power users: tab stacking, tab
+    # tiling, workspaces, keyboard-driven UI, command palette, and
+    # built-in mail/feed/calendar clients. Ships with Widevine and full
+    # codecs. Worth having if you want a heavy daily-driver that can
+    # replace several tools, or prefer keyboard-first workflows over the
+    # bare-bones Chrome UI.
+    - name: Add Vivaldi Repository
+      ansible.builtin.shell: |
+        set -x
+        dnf -y config-manager addrepo --overwrite --from-repofile=https://repo.vivaldi.com/stable/vivaldi-fedora.repo
+      args:
+        executable: /bin/bash
+        creates: /etc/yum.repos.d/vivaldi-fedora.repo
+
+    - name: Install Vivaldi
+      ansible.builtin.package:
+        name: vivaldi-stable
+        state: present
