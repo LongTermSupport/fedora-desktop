@@ -238,16 +238,20 @@
           FTP user:          camera  (password set in vault)
 
           Commands:
-            ftp-camera           start FTP server (default)
-            ftp-camera --pass    print FTP password (for camera setup)
-            ftp-camera --sort    sort already-uploaded files by EXIF date
-            ftp-camera --push    direct push to rclone remote (synchronous)
-            ftp-camera --copy    copy via mount + verify (caches locally)
-                                 (both require ftp_camera_rclone_remote)
-            ftp-camera --prune   remove RAW files whose JPG has been deleted
+            ftp-camera                start FTP server (default)
+            ftp-camera --pass         print FTP password (for camera setup)
+            ftp-camera --sort         sort already-uploaded files by EXIF date
+            ftp-camera --push         direct push to rclone remote (synchronous)
+            ftp-camera --copy         copy via mount + verify (caches locally)
+                                      (--push and --copy require ftp_camera_rclone_remote)
+            ftp-camera --prune        remove RAW files whose JPG has been deleted
+            ftp-camera --async        sort each upload by EXIF the moment it arrives
+            ftp-camera --async-copy   sort + copy each upload into the local rclone
+                                      mount (VFS uploads to remote in background;
+                                      requires ftp_camera_rclone_remote)
 
           Optional rclone push: set ftp_camera_rclone_remote in host_vars
-          to enable --push and --copy. Must point at the library ROOT
+          to enable --push, --copy, and --async-copy. Must point at the library ROOT
           (the parent of photos/ and videos/), e.g. "LTS-G-Drive:/PHOTO/LIBRARY".
           Currently configured: {{ ftp_camera_rclone_remote | default('(unset)') }}
 
