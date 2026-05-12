@@ -118,10 +118,9 @@
           exit 0
         fi
         current=",$(echo "$scopes_raw" | tr -d ' \r' | tr '\n' ','),"
-        # Honours GitHub's OAuth scope hierarchy: admin:* implies write:* implies
-        # read:*, and `user` implies user:email/read:user/user:follow. Without
-        # this, a token granted admin:org would falsely register as missing
-        # read:org (see Plan 00035 / commit history for the original bug).
+        # Honours the GitHub OAuth scope hierarchy: admin:* implies write:*
+        # implies read:*, and user implies user:email / read:user / user:follow.
+        # A token granted admin:org therefore satisfies a read:org requirement.
         scope_satisfied() {
           local required="$1"
           local satisfiers=("$required")
@@ -145,11 +144,16 @@
           return 1
         }
         missing=""
-        {% for scope in github_required_scopes %}
-        if ! scope_satisfied "{{ scope }}"; then
-          missing="${missing:+$missing,}{{ scope }}"
-        fi
-        {% endfor %}
+        required_scopes=({{ github_required_scopes | join(' ') }})
+        for scope in "${required_scopes[@]}"; do
+          if ! scope_satisfied "$scope"; then
+            if [ -z "$missing" ]; then
+              missing="$scope"
+            else
+              missing="$missing,$scope"
+            fi
+          fi
+        done
         if [ -z "$missing" ]; then
           echo "OK"
         else
