@@ -680,20 +680,22 @@ function ghCheckTokenPermission(){
     | sed 's/^[^:]*: //' \
     | tr -d ' \r' \
     | tr '\n' ','),"
-  local satisfiers="$permission"
+  # Array, not space-separated string: this file sets IFS=$'\n\t' at the top
+  # so unquoted $string would not word-split on spaces.
+  local satisfiers=("$permission")
   case "$permission" in
-    read:org)         satisfiers="$permission write:org admin:org" ;;
-    write:org)        satisfiers="$permission admin:org" ;;
-    read:public_key)  satisfiers="$permission write:public_key admin:public_key" ;;
-    write:public_key) satisfiers="$permission admin:public_key" ;;
-    read:repo_hook)   satisfiers="$permission write:repo_hook admin:repo_hook" ;;
-    write:repo_hook)  satisfiers="$permission admin:repo_hook" ;;
-    read:gpg_key)     satisfiers="$permission write:gpg_key admin:gpg_key" ;;
-    write:gpg_key)    satisfiers="$permission admin:gpg_key" ;;
-    read:user|user:email|user:follow) satisfiers="$permission user" ;;
+    read:org)         satisfiers=("$permission" write:org admin:org) ;;
+    write:org)        satisfiers=("$permission" admin:org) ;;
+    read:public_key)  satisfiers=("$permission" write:public_key admin:public_key) ;;
+    write:public_key) satisfiers=("$permission" admin:public_key) ;;
+    read:repo_hook)   satisfiers=("$permission" write:repo_hook admin:repo_hook) ;;
+    write:repo_hook)  satisfiers=("$permission" admin:repo_hook) ;;
+    read:gpg_key)     satisfiers=("$permission" write:gpg_key admin:gpg_key) ;;
+    write:gpg_key)    satisfiers=("$permission" admin:gpg_key) ;;
+    read:user|user:email|user:follow) satisfiers=("$permission" user) ;;
   esac
   local s
-  for s in $satisfiers; do
+  for s in "${satisfiers[@]}"; do
     if [[ "$scopes_csv" == *",${s},"* ]]; then
       echo " - found $permission permission"
       return 0

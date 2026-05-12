@@ -141,20 +141,22 @@ _scope_satisfied() {
   local required="$1"
   local current
   current=",$(echo "$2" | tr -d ' \r' | tr '\n' ','),"
-  local satisfiers="$required"
+  # Array, not space-separated string: this file sets IFS=$'\n\t' at the top
+  # so unquoted $string would not word-split on spaces.
+  local satisfiers=("$required")
   case "$required" in
-    read:org)         satisfiers="$required write:org admin:org" ;;
-    write:org)        satisfiers="$required admin:org" ;;
-    read:public_key)  satisfiers="$required write:public_key admin:public_key" ;;
-    write:public_key) satisfiers="$required admin:public_key" ;;
-    read:repo_hook)   satisfiers="$required write:repo_hook admin:repo_hook" ;;
-    write:repo_hook)  satisfiers="$required admin:repo_hook" ;;
-    read:gpg_key)     satisfiers="$required write:gpg_key admin:gpg_key" ;;
-    write:gpg_key)    satisfiers="$required admin:gpg_key" ;;
-    read:user|user:email|user:follow) satisfiers="$required user" ;;
+    read:org)         satisfiers=("$required" write:org admin:org) ;;
+    write:org)        satisfiers=("$required" admin:org) ;;
+    read:public_key)  satisfiers=("$required" write:public_key admin:public_key) ;;
+    write:public_key) satisfiers=("$required" admin:public_key) ;;
+    read:repo_hook)   satisfiers=("$required" write:repo_hook admin:repo_hook) ;;
+    write:repo_hook)  satisfiers=("$required" admin:repo_hook) ;;
+    read:gpg_key)     satisfiers=("$required" write:gpg_key admin:gpg_key) ;;
+    write:gpg_key)    satisfiers=("$required" admin:gpg_key) ;;
+    read:user|user:email|user:follow) satisfiers=("$required" user) ;;
   esac
   local s
-  for s in $satisfiers; do
+  for s in "${satisfiers[@]}"; do
     case "$current" in
       *",${s},"*) return 0 ;;
     esac
