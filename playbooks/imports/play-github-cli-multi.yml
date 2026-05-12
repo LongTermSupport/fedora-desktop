@@ -302,7 +302,7 @@
             chmod 600 "$tmp_key"
             # Strip passphrase from temp copy — reads from file, never in Ansible output
             ssh-keygen -p -P "$(cat /tmp/.github_ssh_pp)" -N "" -f "$tmp_key" >/dev/null 2>&1
-            timeout 15 ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -i "$tmp_key" -T git@github.com 2>&1
+            timeout 15 ssh -F /dev/null -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -i "$tmp_key" -T git@github.com 2>&1
           args:
             executable: /bin/bash
           timeout: 30
@@ -311,6 +311,59 @@
           # rc 0/1 = GitHub responded, 124 = timeout, 255 = SSH error — only fail on unexpected codes
           failed_when: ssh_test.rc not in [0, 1, 124, 255]
           loop: "{{ github_accounts | default({}) | dict2items }}"
+
+        # IDENTITY AUDIT — catch the case where a key file is mislabelled
+        # (e.g. ~/.ssh/github_joseph actually contains the LTSCommerce private
+        # key). The previous "successfully authenticated" check passes in that
+        # situation because SSH does authenticate — just as the wrong user.
+        # GitHub's response always starts with "Hi <username>!" — we assert
+        # that <username> equals the configured value for this alias.
+        - name: Display SSH key identity audit
+          ansible.builtin.debug:
+            msg: >
+              github_{{ item.item.key }} (expects {{ item.item.value }}) →
+              {{ item.stdout | regex_search('Hi [^!]+!') | default('(no auth — pubkey not yet on GitHub for this account)', true) }}
+          loop: "{{ ssh_test.results }}"
+          loop_control:
+            label: "{{ item.item.key }}"
+
+        - name: Assert each authenticated SSH key matches its configured GitHub account
+          ansible.builtin.assert:
+            that:
+              - ('Hi ' + item.item.value + '!') in item.stdout
+            fail_msg: |
+              SSH key IDENTITY MISMATCH
+
+              File:                ~/.ssh/github_{{ item.item.key }}
+              Expected GitHub user: {{ item.item.value }}
+              GitHub responded:    {{ item.stdout | regex_search('Hi [^!]+!') | default('(no Hi response)', true) }}
+
+              The private key in this file authenticates as a DIFFERENT GitHub
+              user than the alias name implies. Either the file was created
+              with the wrong key, or github_accounts in localhost.yml has the
+              wrong alias→username mapping.
+
+              To diagnose (on host):
+                for k in ~/.ssh/github_*.pub; do
+                  printf '%-30s ' "$k"; ssh-keygen -lf "$k"
+                done
+                # Then compare fingerprints at https://github.com/settings/keys
+                # (log in as each account) to find which key belongs where.
+
+              To fix (option A — rename the file to match its real owner):
+                # Rename ~/.ssh/github_{{ item.item.key }} (and .pub) to the
+                # alias whose username matches the "Hi X!" response above.
+
+              To fix (option B — wipe and regenerate fresh key for this account):
+                rm ~/.ssh/github_{{ item.item.key }} ~/.ssh/github_{{ item.item.key }}.pub
+                # Re-run this playbook. A fresh key will be generated and you
+                # will be prompted to add its pubkey to GitHub as
+                # {{ item.item.value }}.
+            success_msg: "✓ github_{{ item.item.key }} authenticates as {{ item.item.value }}"
+          when: "'successfully authenticated' in item.stdout"
+          loop: "{{ ssh_test.results }}"
+          loop_control:
+            label: "{{ item.item.key }}"
 
         - name: Check which SSH keys need to be added
           ansible.builtin.set_fact:
@@ -366,7 +419,7 @@
                 cp "/home/{{ user_login }}/.ssh/github_{{ item.key }}" "$tmp_key"
                 chmod 600 "$tmp_key"
                 ssh-keygen -p -P "$(cat /tmp/.github_ssh_pp)" -N "" -f "$tmp_key" >/dev/null 2>&1
-                timeout 15 ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -i "$tmp_key" -T git@github.com 2>&1
+                timeout 15 ssh -F /dev/null -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -i "$tmp_key" -T git@github.com 2>&1
               args:
                 executable: /bin/bash
               timeout: 30
@@ -378,17 +431,23 @@
 
             - name: Display SSH test results
               ansible.builtin.debug:
-                msg: "{{ item.item.key }}: {{ 'Connected ✓' if 'successfully authenticated' in item.stdout else 'FAILED — key not recognised by GitHub' }}"
+                msg: >
+                  {{ item.item.key }} (expects {{ item.item.value }}):
+                  {{ item.stdout | regex_search('Hi [^!]+!') | default('FAILED — key not recognised by GitHub', true) }}
               loop: "{{ ssh_retest.results }}"
 
-            - name: Assert SSH access works for all accounts
+            - name: Assert SSH access AND identity match for all accounts
               ansible.builtin.assert:
-                that: "'successfully authenticated' in item.stdout"
-                fail_msg: >
-                  SSH access failed for '{{ item.item.key }}' ({{ item.item.value }}).
-                  Add ~/.ssh/github_{{ item.item.key }}.pub to GitHub:
-                  https://github.com/settings/keys
-                success_msg: "SSH access confirmed: {{ item.item.key }} ({{ item.item.value }}) ✓"
+                that:
+                  - "'successfully authenticated' in item.stdout"
+                  - ('Hi ' + item.item.value + '!') in item.stdout
+                fail_msg: |
+                  SSH check failed for alias '{{ item.item.key }}' (expected user {{ item.item.value }}).
+                  GitHub responded: {{ item.stdout | regex_search('Hi [^!]+!') | default('(no auth — add ~/.ssh/github_' + item.item.key + '.pub to GitHub: https://github.com/settings/keys)', true) }}
+
+                  If the response is "Hi <other-user>!", the key file belongs to a
+                  different account — see the IDENTITY MISMATCH diagnosis above.
+                success_msg: "SSH access + identity confirmed: {{ item.item.key }} → {{ item.item.value }} ✓"
               loop: "{{ ssh_retest.results }}"
           when: ssh_keys_to_add | length > 0
       always:
@@ -590,7 +649,7 @@
 
                   # Switch to the right account and clone
                   gh auth switch --hostname github.com --user "{{ username }}" 2>/dev/null
-                  gh repo clone "$repo_path" -- --config core.sshCommand="ssh -i ~/.ssh/github_{{ alias }} -o IdentitiesOnly=yes"
+                  gh repo clone "$repo_path" -- --config core.sshCommand="ssh -F /dev/null -i ~/.ssh/github_{{ alias }} -o IdentitiesOnly=yes"
                   local exit_code=$?
 
                   # Set the remote to use the specific SSH key
@@ -819,18 +878,26 @@
                   fi
 
                   if [[ -n "$detected_alias" ]]; then
-                      # Run git with account-specific SSH key
-                      command git -c "core.sshCommand=ssh -i ~/.ssh/github_${detected_alias} -o IdentitiesOnly=yes" "$@"
+                      # -F /dev/null prevents ssh from also reading ~/.ssh/config
+                      # which would otherwise pick up the default "Host github.com"
+                      # block and offer ~/.ssh/id alongside the per-account key —
+                      # GitHub then accepts whichever matched first, leading to
+                      # commits being attributed to the wrong account.
+                      command git -c "core.sshCommand=ssh -F /dev/null -i ~/.ssh/github_${detected_alias} -o IdentitiesOnly=yes" "$@"
                   else
                       # No account detected, use standard git
                       command git "$@"
                   fi
               }
 
-              # Account-specific git commands (force specific account)
+              # Account-specific git commands (force specific account).
+              # -F /dev/null isolates from ~/.ssh/config: prevents the default
+              # "Host github.com" block from injecting ~/.ssh/id as a second
+              # identity, which otherwise causes commits to attribute to the
+              # wrong GitHub account.
               {% for alias in github_accounts.keys() %}
               function git-{{ alias }}() {
-                  command git -c "core.sshCommand=ssh -i ~/.ssh/github_{{ alias }} -o IdentitiesOnly=yes" "$@"
+                  command git -c "core.sshCommand=ssh -F /dev/null -i ~/.ssh/github_{{ alias }} -o IdentitiesOnly=yes" "$@"
               }
               {% endfor %}
 

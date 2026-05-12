@@ -20,6 +20,16 @@ PASS_ONLY=false
 PUSH_ONLY=false
 COPY_ONLY=false
 PRUNE_ONLY=false
+ASYNC_MODE=false
+ASYNC_COPY_MODE=false
+# Async stats are tracked in a temp file (append-only — atomic for small
+# writes) so the background monitor and cleanup() see a consistent view.
+ASYNC_STATS_FILE=""
+ASYNC_COPY_FAILED_FILE=""
+# Local rclone mount path resolved at --async-copy startup. Files are
+# copied here (fast, local) and the rclone VFS handles async upload to
+# the remote — the same write-through path --copy uses, but per-file.
+ASYNC_MOUNT_PATH=""
 
 # Records repo path for --pass helper (deployed by play-ftp-camera.yml).
 readonly CONFIG_FILE="/etc/ftp-camera/config"
@@ -43,21 +53,54 @@ case "${1:-}" in
     --prune)
         PRUNE_ONLY=true
         ;;
+    --async)
+        ASYNC_MODE=true
+        ;;
+    --async-copy)
+        ASYNC_MODE=true
+        ASYNC_COPY_MODE=true
+        ;;
     -h|--help)
         cat <<'EOF'
 Usage: ftp-camera [OPTION]
 
 Start the camera FTP server, or:
 
-  --sort      Sort already-uploaded files by EXIF date and exit
-  --pass      Print the camera FTP password to stdout and exit
-  --push      Direct push to rclone remote (reliable, synchronous)
-  --copy      Copy via rclone mount (caches locally) then verify on remote
-  --prune     Remove RAW files whose corresponding JPG has been deleted
-  -h, --help  Show this help
+  --sort        Sort already-uploaded files by EXIF date and exit
+  --pass        Print the camera FTP password to stdout and exit
+  --push        Direct push to rclone remote (reliable, synchronous)
+  --copy        Copy via rclone mount (caches locally) then verify on remote
+  --prune       Remove RAW files whose corresponding JPG has been deleted
+  --async       Run FTP server, sorting each file the moment it arrives
+  --async-copy  Run FTP server with instant sort AND per-file copy into
+                the local rclone mount (VFS uploads to the remote in the
+                background; requires ftp_camera_rclone_remote)
+  -h, --help    Show this help
 
 When run without options, starts vsftpd, prints camera setup instructions,
 and monitors uploads. Press Ctrl+C to stop and auto-sort uploaded files.
+
+Async modes do the same EXIF-based sort the closing pass does, but as soon
+as each upload completes — no end-of-session bulk move. Triggering is
+gated on vsftpd's "OK UPLOAD" log entry, so partial/aborted transfers
+are NEVER sorted or copied; they sit in the upload root for inspection.
+--async-copy then copies each sorted file into the local rclone mount
+(same write-through path --copy uses) via a tmp-then-rename so a crash
+mid-copy can't leave a truncated file masquerading as complete; the VFS
+uploads to the remote in the background, so losing rclone progress mid-
+session never costs you data — the file lives in the upload tree, the
+mount cache, and (eventually) the remote. Crash recovery: rerun
+`ftp-camera --push` to ship anything still missing on the remote.
+
+Sort layout (mirrors the photo library):
+  photos/YYYY/MM/DD/JPG/<name>.jpg
+  photos/YYYY/MM/DD/RAW/<name>.arw
+  videos/YYYY/MM/DD/MP4/<name>.mp4
+  videos/YYYY/MM/DD/MOV/<name>.mov
+
+ftp_camera_rclone_remote must point at the LIBRARY ROOT (the parent of
+photos/ and videos/), not at a media subfolder. Push, copy, and
+async-copy ship into the matching subtree on the remote automatically.
 
 Typical workflow:
   1. ftp-camera           # receive uploads from camera (Ctrl+C to stop, auto-sorts)
@@ -65,7 +108,12 @@ Typical workflow:
      OR
   2. ftp-camera --push    # direct push (prints rclone-cache-warm hint after)
   3. (manually delete unwanted JPGs from the upload tree)
-  4. ftp-camera --prune   # delete RAW files orphaned by JPG removal
+  4. ftp-camera --prune   # delete RAW files orphaned by JPG removal (photos/ only)
+
+Async workflow (drop step 2 entirely):
+  1. ftp-camera --async-copy   # sort + push each file as it arrives
+  2. (manually delete unwanted JPGs from the upload tree)
+  3. ftp-camera --prune        # delete RAW files orphaned by JPG removal
 EOF
         exit 0
         ;;
@@ -84,7 +132,71 @@ CYAN='\033[0;36m'
 RED='\033[0;31m'
 NC='\033[0m'
 
+# ── Media taxonomy ────────────────────────────────────────────────────────────
+# Mirrors the photo library layout: top-level photos/ and videos/ siblings.
+# Sort routes files into the matching subtree based on extension; push/copy
+# then ship the whole local tree to the library root in one rclone call,
+# landing each subtree in the correctly-named remote folder automatically.
+readonly PHOTO_DIR_NAME="photos"
+readonly VIDEO_DIR_NAME="videos"
+readonly -a PHOTO_EXTS=(jpg jpeg arw)
+readonly -a VIDEO_EXTS=(mp4 mov)
+
 # ── Helpers ────────────────────────────────────────────────────────────────────
+
+# Classify a file by extension. Echoes "photo", "video", or "" (unknown).
+classify_ext() {
+    local ext_lower="${1,,}"
+    local e
+    for e in "${PHOTO_EXTS[@]}"; do
+        if [ "$e" = "$ext_lower" ]; then
+            echo photo
+            return
+        fi
+    done
+    for e in "${VIDEO_EXTS[@]}"; do
+        if [ "$e" = "$ext_lower" ]; then
+            echo video
+            return
+        fi
+    done
+}
+
+# Read EXIF capture date as YYYY/MM/DD. Photos prefer DateTimeOriginal (the
+# shutter-press time), videos prefer CreateDate (the recording-start time).
+# Each falls back to the other class's tag in case of unusual files.
+get_exif_date() {
+    local file="$1" class="$2"
+    local -a tags
+    if [ "$class" = "photo" ]; then
+        tags=(-DateTimeOriginal -CreateDate)
+    else
+        tags=(-CreateDate -MediaCreateDate)
+    fi
+    # `|| true`: exiftool exits non-zero when none of the requested tags exist.
+    exiftool -s3 -d '%Y/%m/%d' "${tags[@]}" "$file" 2>/dev/null \
+        | awk 'NF{print; exit}' || true
+}
+
+# Refuse a RCLONE_REMOTE that points at a media subfolder rather than the
+# library root. The local sort places files into photos/ and videos/ subtrees
+# so a single rclone copy must target the library root for both to land
+# correctly. Pointing at .../photos would dump videos/ alongside photos at
+# the wrong level — block it with a clear fix.
+validate_library_remote() {
+    local stripped="${RCLONE_REMOTE%/}"
+    case "${stripped,,}" in
+        */photos | */photo | */videos | */video)
+            echo "ERROR: ftp_camera_rclone_remote must point at the library root," >&2
+            echo "  not a photos/videos subdirectory. Got: ${RCLONE_REMOTE}" >&2
+            echo "  The local sort places files into ${PHOTO_DIR_NAME}/ and ${VIDEO_DIR_NAME}/" >&2
+            echo "  subtrees that mirror the library layout. Update host_vars/localhost.yml:" >&2
+            echo "    ftp_camera_rclone_remote: \"${stripped%/*}\"" >&2
+            echo "  then re-run play-ftp-camera.yml." >&2
+            return 1
+            ;;
+    esac
+}
 
 get_local_ip() {
     local iface
@@ -113,22 +225,49 @@ sort_uploads() {
 
     echo -e "${BOLD}Sorting uploads by EXIF date...${NC}"
 
+    # Build find -iname args from the taxonomy so adding extensions in one
+    # place picks them up in both the scan and the routing.
+    local -a find_args=()
+    local ext
+    for ext in "${PHOTO_EXTS[@]}" "${VIDEO_EXTS[@]}"; do
+        if [ ${#find_args[@]} -eq 0 ]; then
+            find_args+=(-iname "*.$ext")
+        else
+            find_args+=(-o -iname "*.$ext")
+        fi
+    done
+
     # Only process unsorted files in the upload root (where the camera drops them).
-    # Already-sorted files live in YYYY/MM/DD/ subdirs and are never revisited.
+    # Already-sorted files live in <class>/YYYY/MM/DD/ subdirs and are never revisited.
     local file
     while IFS= read -r -d '' file; do
-        local ext="${file##*.}"
-        local ext_upper="${ext^^}"
+        local file_ext="${file##*.}"
+        local ext_lower="${file_ext,,}"
+        local ext_upper="${file_ext^^}"
 
-        # Determine subfolder: ARW → RAW, everything else keeps its extension name
+        local class
+        class=$(classify_ext "$ext_lower")
+        if [ -z "$class" ]; then
+            echo -e "  ${YELLOW}skip${NC}  $(basename "$file")  (unsupported type)"
+            skipped=$((skipped + 1))
+            continue
+        fi
+
+        # ARW → RAW; everything else keeps its uppercased extension as the type dir
         local type_dir="$ext_upper"
         if [ "$ext_upper" = "ARW" ]; then
             type_dir="RAW"
         fi
 
-        # Extract EXIF date as YYYY/MM/DD (|| true: exiftool exits non-zero when tag is missing)
+        local class_dir
+        if [ "$class" = "photo" ]; then
+            class_dir="$PHOTO_DIR_NAME"
+        else
+            class_dir="$VIDEO_DIR_NAME"
+        fi
+
         local date_path
-        date_path=$(exiftool -DateTimeOriginal -s3 -d '%Y/%m/%d' "$file" 2>/dev/null) || true
+        date_path=$(get_exif_date "$file" "$class")
 
         if [ -z "$date_path" ]; then
             echo -e "  ${YELLOW}skip${NC}  $(basename "$file")  (no EXIF date)"
@@ -136,12 +275,12 @@ sort_uploads() {
             continue
         fi
 
-        local dest_dir="$UPLOAD_DIR/$date_path/$type_dir"
+        local dest_dir="$UPLOAD_DIR/$class_dir/$date_path/$type_dir"
         sudo mkdir -p "$dest_dir"
         sudo mv "$file" "$dest_dir/"
-        echo -e "  ${GREEN}move${NC}  $(basename "$file")  → ${date_path}/${type_dir}/"
+        echo -e "  ${GREEN}move${NC}  $(basename "$file")  → ${class_dir}/${date_path}/${type_dir}/"
         moved=$((moved + 1))
-    done < <(find "$dir" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.arw' \) -print0)
+    done < <(find "$dir" -maxdepth 1 -type f \( "${find_args[@]}" \) -print0)
 
     # Clean up empty directories left behind by camera (e.g. DCIM/100MSDCF/)
     sudo find "$dir" -mindepth 1 -type d -empty -delete 2>/dev/null
@@ -168,6 +307,8 @@ push_uploads() {
         echo "  Set ftp_camera_rclone_remote in host_vars/localhost.yml and re-run play-ftp-camera.yml" >&2
         return 1
     fi
+
+    validate_library_remote || return 1
 
     if ! command -v rclone > /dev/null; then
         echo "ERROR: rclone not found — run play-rclone.yml first" >&2
@@ -261,6 +402,8 @@ copy_to_mount() {
         echo "  Set ftp_camera_rclone_remote in host_vars/localhost.yml and re-run play-ftp-camera.yml" >&2
         return 1
     fi
+
+    validate_library_remote || return 1
 
     if ! command -v rclone > /dev/null; then
         echo "ERROR: rclone not found — run play-rclone.yml first" >&2
@@ -434,15 +577,22 @@ PY
 }
 
 # Remove RAW files whose corresponding JPG has been deleted by the user.
-# An "orphan" is a RAW file in YYYY/MM/DD/RAW/ whose stem (basename without
-# extension) has no matching .jpg/.jpeg in the sibling YYYY/MM/DD/JPG/ (or
-# JPEG/) directory. Lists candidates, prompts for confirmation, then deletes.
+# An "orphan" is a RAW file in photos/YYYY/MM/DD/RAW/ whose stem (basename
+# without extension) has no matching .jpg/.jpeg in the sibling JPG/ (or
+# JPEG/) directory. Videos have no RAW counterparts so the videos/ subtree
+# is skipped. Lists candidates, prompts for confirmation, then deletes.
 prune_orphan_raws() {
     local dir="${1:-$UPLOAD_DIR}"
+    local photos_root="$dir/$PHOTO_DIR_NAME"
 
     if [ ! -d "$dir" ]; then
         echo "ERROR: Upload directory not found: $dir" >&2
         return 1
+    fi
+
+    if [ ! -d "$photos_root" ]; then
+        echo -e "${GREEN}No ${PHOTO_DIR_NAME}/ subtree — nothing to prune.${NC}"
+        return 0
     fi
 
     echo -e "${BOLD}Scanning for orphan RAW files...${NC}"
@@ -473,7 +623,7 @@ prune_orphan_raws() {
                 orphans+=("$raw_file")
             fi
         done < <(find "$raw_dir" -maxdepth 1 -type f -iname '*.arw' -print0)
-    done < <(find "$dir" -type d -name 'RAW' -print0)
+    done < <(find "$photos_root" -type d -name 'RAW' -print0)
 
     local count=${#orphans[@]}
     if [ "$count" -eq 0 ]; then
@@ -520,14 +670,263 @@ prune_orphan_raws() {
     echo -e "${BOLD}Prune complete:${NC} ${CYAN}${removed}${NC} of ${CYAN}${count}${NC} files removed (${CYAN}${total_human}${NC} freed)"
 }
 
+# ── Async helpers ─────────────────────────────────────────────────────────────
+# Source /etc/ftp-camera/config and confirm rclone is usable. Used by the
+# async-copy startup path to fail fast before vsftpd is even started.
+load_rclone_config() {
+    if [ ! -f "$CONFIG_FILE" ]; then
+        echo "ERROR: $CONFIG_FILE not found — run play-ftp-camera.yml first" >&2
+        return 1
+    fi
+
+    # shellcheck source=/dev/null
+    . "$CONFIG_FILE"
+
+    if [ -z "${RCLONE_REMOTE:-}" ]; then
+        echo "ERROR: RCLONE_REMOTE not set in $CONFIG_FILE" >&2
+        echo "  Set ftp_camera_rclone_remote in host_vars/localhost.yml and re-run play-ftp-camera.yml" >&2
+        return 1
+    fi
+
+    validate_library_remote || return 1
+
+    if ! command -v rclone > /dev/null; then
+        echo "ERROR: rclone not found — run play-rclone.yml first" >&2
+        return 1
+    fi
+}
+
+# Sort a single file into UPLOAD_DIR/<class>/YYYY/MM/DD/<TYPE>/. Echoes the
+# new absolute path on success. Exit codes are meaningful so callers can
+# distinguish "skip, retry later" from "give up":
+#   0 — moved (new path on stdout)
+#   1 — unsupported extension (file unchanged)
+#   2 — EXIF date unreadable (file unchanged; a later pass may succeed)
+#   3 — filesystem error (file unchanged)
+#   4 — file vanished between event fire and handler run (no-op; benign)
+sort_one_file() {
+    local file="$1"
+
+    # Vanished is its own code: it happens legitimately when the camera
+    # retries an upload (the first event's file was already moved by the
+    # second event's handler) and isn't an error worth logging loudly.
+    [ -f "$file" ] || return 4
+
+    local file_ext="${file##*.}"
+    local ext_lower="${file_ext,,}"
+    local ext_upper="${file_ext^^}"
+
+    local class
+    class=$(classify_ext "$ext_lower")
+    [ -n "$class" ] || return 1
+
+    local type_dir="$ext_upper"
+    if [ "$ext_upper" = "ARW" ]; then
+        type_dir="RAW"
+    fi
+
+    local class_dir
+    if [ "$class" = "photo" ]; then
+        class_dir="$PHOTO_DIR_NAME"
+    else
+        class_dir="$VIDEO_DIR_NAME"
+    fi
+
+    local date_path
+    date_path=$(get_exif_date "$file" "$class")
+    [ -n "$date_path" ] || return 2
+
+    local dest_dir="$UPLOAD_DIR/$class_dir/$date_path/$type_dir"
+    sudo mkdir -p "$dest_dir" || return 3
+    sudo mv "$file" "$dest_dir/" || return 3
+
+    echo "$dest_dir/$(basename "$file")"
+}
+
+# Copy one already-sorted file into the rclone mount so the VFS cache picks
+# it up and async-uploads to the remote. This is the same write-through path
+# `--copy` uses, just per-file:
+#   - `cp` is fast and local — the script never blocks on network speed.
+#   - The file lives in three places (upload tree, VFS cache, eventually
+#     remote), so no single failure loses data.
+#   - The mount keeps running as a systemd user service after ftp-camera
+#     exits, so any cached writes still drain to the remote in the background.
+#
+# Crash safety: we cp into a `.ftp-camera.tmp.NAME` sibling first, then mv
+# to the real name. If the cp is interrupted (Ctrl+C, kill, power loss),
+# the partial file is parked under a tmp name that rclone may upload
+# verbatim but which never shadows or masquerades as the real file —
+# `--push --update` later still sees the real name as missing and re-ships
+# it cleanly. Without this, an interrupted cp would leave a truncated
+# `foo.jpg` in cache; rclone would upload it; `--push --update` would
+# compare size+mtime against that truncated upload and skip the re-ship.
+copy_one_file_to_mount() {
+    local sorted_file="$1"
+    local rel="${sorted_file#"$UPLOAD_DIR"/}"
+    local rel_dir
+    rel_dir=$(dirname "$rel")
+    local basename
+    basename=$(basename "$sorted_file")
+
+    local dest_dir="${ASYNC_MOUNT_PATH%/}/${rel_dir}"
+    local tmp_path="${dest_dir}/.ftp-camera.tmp.${basename}"
+    local final_path="${dest_dir}/${basename}"
+
+    # Mount-disappearance guard. If the rclone FUSE service stops mid-
+    # session, the mount path becomes a regular directory on the underlying
+    # filesystem; `cp` would succeed but those bytes would never reach the
+    # remote. We use `findmnt -T` (which finds the mount CONTAINING the
+    # given path, not just exact mount-points — important because
+    # ASYNC_MOUNT_PATH is typically a subdirectory inside the mount root,
+    # not the mount root itself) filtered to `fuse.rclone`. Match = path
+    # is still served by an rclone mount; no match = it isn't.
+    if ! findmnt -T "$ASYNC_MOUNT_PATH" -t fuse.rclone --noheadings > /dev/null 2>&1; then
+        echo "ERROR: $ASYNC_MOUNT_PATH is no longer served by an rclone mount" >&2
+        return 1
+    fi
+
+    mkdir -p "$dest_dir" || return 1
+    # Plain `cp` (no -p) — rclone FUSE mounts targeting cloud backends like
+    # Google Drive cannot represent POSIX mode/ownership, so `cp -p` exits
+    # non-zero with "Operation not supported" after the bytes have already
+    # streamed through. The original file in the upload tree is untouched.
+    if ! cp "$sorted_file" "$tmp_path"; then
+        rm -f "$tmp_path"
+        return 1
+    fi
+    if ! mv "$tmp_path" "$final_path"; then
+        rm -f "$tmp_path"
+        return 1
+    fi
+}
+
+# Record one outcome in the async stats file. Each call appends a single
+# short key — `echo >>` is atomic for writes under PIPE_BUF (4096) so
+# concurrent monitors couldn't tear a record, even though today we only
+# have one.
+_async_stat_inc() {
+    [ -n "$ASYNC_STATS_FILE" ] || return 0
+    echo "$1" >> "$ASYNC_STATS_FILE"
+}
+
+# Handle one inotify close_write event: sort the file and, in --async-copy,
+# push the sorted result to the remote. Always returns 0 so a single bad
+# file never kills the monitoring loop.
+process_async_upload() {
+    local filepath="$1"
+    local basename
+    basename=$(basename "$filepath")
+
+    # Files inside our managed subtrees can't legitimately receive new
+    # close_write events from the camera (vsftpd writes to the upload
+    # root). Skip defensively in case future inotify behaviour or a
+    # different uploader changes that assumption.
+    local rel="${filepath#"$UPLOAD_DIR"/}"
+    case "$rel" in
+        "$PHOTO_DIR_NAME"/* | "$VIDEO_DIR_NAME"/*) return 0 ;;
+    esac
+
+    local ts
+    ts=$(date '+%H:%M:%S')
+
+    local sorted_path sort_rc=0
+    sorted_path=$(sort_one_file "$filepath") || sort_rc=$?
+
+    case $sort_rc in
+        0)
+            local rel_sorted="${sorted_path#"$UPLOAD_DIR"/}"
+            echo -e "  [${CYAN}${ts}${NC}] ${GREEN}sort${NC}  ${basename}  → ${rel_sorted%/*}/"
+            _async_stat_inc moved
+            ;;
+        1)
+            echo -e "  [${CYAN}${ts}${NC}] ${YELLOW}skip${NC}  ${basename}  (unsupported type, left in place)"
+            _async_stat_inc skipped
+            return 0
+            ;;
+        2)
+            echo -e "  [${CYAN}${ts}${NC}] ${YELLOW}skip${NC}  ${basename}  (no EXIF date, left in place)"
+            _async_stat_inc skipped
+            return 0
+            ;;
+        4)
+            # File was already moved (camera retry, manual mv, etc.). Quiet
+            # no-op — the handler that moved it accounted for it.
+            return 0
+            ;;
+        *)
+            echo -e "  [${CYAN}${ts}${NC}] ${RED}fail${NC}  ${basename}  (sort error, left in place)" >&2
+            _async_stat_inc errored
+            return 0
+            ;;
+    esac
+
+    [ "$ASYNC_COPY_MODE" = true ] || return 0
+
+    local copy_log copy_rc=0
+    copy_log=$(copy_one_file_to_mount "$sorted_path" 2>&1) || copy_rc=$?
+    local ts2
+    ts2=$(date '+%H:%M:%S')
+
+    if [ "$copy_rc" -eq 0 ]; then
+        echo -e "  [${CYAN}${ts2}${NC}] ${GREEN}copy${NC}  ${basename}  → mount cache (VFS will upload)"
+        _async_stat_inc copied
+    else
+        echo -e "  [${CYAN}${ts2}${NC}] ${RED}copy fail${NC}  ${basename}  (rc=${copy_rc}; sorted locally, rerun ftp-camera --push)" >&2
+        if [ -n "$copy_log" ]; then
+            printf '%s\n' "$copy_log" | sed 's/^/    /' >&2
+        fi
+        _async_stat_inc copy_errored
+        if [ -n "$ASYNC_COPY_FAILED_FILE" ]; then
+            echo "$sorted_path" >> "$ASYNC_COPY_FAILED_FILE"
+        fi
+    fi
+    return 0
+}
+
+# Background loop driven by vsftpd's transfer log. We deliberately do NOT
+# use inotify close_write here: close_write fires on every file close —
+# including aborted/partial uploads where the camera disconnected mid-
+# transfer. vsftpd only writes "OK UPLOAD" after a STOR completes cleanly,
+# so triggering from the log guarantees we only sort and copy whole files.
+# Failed transfers leave a partial file in the upload root for the user
+# to inspect — never sorted, never sent to the remote.
+async_monitor_loop() {
+    sudo tail -F -n 0 --pid=$$ /var/log/vsftpd.log 2>/dev/null \
+        | awk -F'"' '/OK UPLOAD: Client/ {print $4; fflush()}' \
+        | while IFS= read -r fname; do
+            [ -n "$fname" ] || continue
+            # vsftpd logs paths relative to the camera user's chroot, which
+            # is the upload dir. Prepend so the absolute path matches what
+            # the rest of the script expects.
+            process_async_upload "${UPLOAD_DIR}/${fname#/}"
+          done
+}
+
 # ── Cleanup ────────────────────────────────────────────────────────────────────
 
 cleanup() {
+    # Re-entrancy guard: a second Ctrl+C arriving while cleanup is running
+    # (e.g. during `systemctl stop`) would otherwise fire the EXIT trap
+    # again, racing the systemctl/firewall-cmd ops below.
+    if [ -n "${_CLEANED:-}" ]; then
+        return 0
+    fi
+    _CLEANED=1
+
     echo ""
     echo -e "${BOLD}Stopping FTP server...${NC}"
 
     if [ -n "$MONITOR_PID" ] && ps -p "$MONITOR_PID" > /dev/null; then
+        # In async mode MONITOR_PID is a subshell wrapping a tail|awk|while
+        # pipeline; kill its children first so the upstream tail and awk
+        # can't keep writing to a stats file we're about to read. In
+        # default mode this is a no-op (inotifywait has no children).
+        pkill -P "$MONITOR_PID" 2>/dev/null
         kill "$MONITOR_PID"
+        # `|| true`: wait returns non-zero for signal-killed processes,
+        # which is the normal path here. Required so the final
+        # _async_stat_inc write lands before we awk the stats file below.
+        wait "$MONITOR_PID" 2>/dev/null || true
     fi
 
     if [ -n "$VSFTPD_LOG_PID" ] && ps -p "$VSFTPD_LOG_PID" > /dev/null; then
@@ -577,7 +976,68 @@ cleanup() {
     fi
     rm -f "$START_MARKER"
 
-    sort_uploads
+    # Async-mode summary: counts come from the append-only stats file written
+    # by process_async_upload. The monitor was killed above, so writes are
+    # finished and the read is consistent.
+    if [ "$ASYNC_MODE" = true ] && [ -n "$ASYNC_STATS_FILE" ] && [ -f "$ASYNC_STATS_FILE" ]; then
+        local a_moved a_skipped a_errored a_copied a_copy_errored
+        a_moved=$(awk '/^moved$/{c++} END{print c+0}' "$ASYNC_STATS_FILE")
+        a_skipped=$(awk '/^skipped$/{c++} END{print c+0}' "$ASYNC_STATS_FILE")
+        a_errored=$(awk '/^errored$/{c++} END{print c+0}' "$ASYNC_STATS_FILE")
+        a_copied=$(awk '/^copied$/{c++} END{print c+0}' "$ASYNC_STATS_FILE")
+        a_copy_errored=$(awk '/^copy_errored$/{c++} END{print c+0}' "$ASYNC_STATS_FILE")
+
+        echo ""
+        echo -e "${BOLD}Async summary:${NC}"
+        echo -e "  Sorted: ${CYAN}${a_moved}${NC}  Skipped: ${CYAN}${a_skipped}${NC}  Sort errors: ${CYAN}${a_errored}${NC}"
+        if [ "$ASYNC_COPY_MODE" = true ]; then
+            echo -e "  Copied: ${CYAN}${a_copied}${NC}  Copy errors: ${CYAN}${a_copy_errored}${NC}"
+            if [ "$a_copy_errored" -gt 0 ]; then
+                echo -e "${YELLOW}Some files were sorted locally but did not reach the remote.${NC}"
+                # Print the failed-copy list before deleting it so the user
+                # can audit exactly what `ftp-camera --push` will re-ship.
+                if [ -n "$ASYNC_COPY_FAILED_FILE" ] && [ -f "$ASYNC_COPY_FAILED_FILE" ]; then
+                    while IFS= read -r f; do
+                        echo -e "  ${RED}${f#"$UPLOAD_DIR"/}${NC}"
+                    done < "$ASYNC_COPY_FAILED_FILE"
+                fi
+                echo -e "${YELLOW}Run:${NC} ${CYAN}ftp-camera --push${NC} ${YELLOW}to ship them.${NC}"
+            fi
+
+            # The rclone mount keeps draining VFS cache → remote after we
+            # exit, so the upload is almost always still in flight here.
+            # `rclone-tail` (deployed by play-rclone.yml) discovers the
+            # mount automatically and formats queue/rate/ETA the same way
+            # this toolchain uses elsewhere — much friendlier than raw
+            # `rclone rc` JSON.
+            local _remote_name="${RCLONE_REMOTE%%:*}"
+            echo ""
+            echo -e "${BOLD}Background uploads (rclone mount continues after exit):${NC}"
+            if command -v rclone-tail > /dev/null; then
+                # One-shot snapshot; `|| true`: rclone-tail exits non-zero
+                # if no matching mount or RC unreachable, which we don't
+                # want to abort the rest of cleanup.
+                rclone-tail --once "$_remote_name" || true
+                echo -e "  Watch live:            ${CYAN}rclone-tail ${_remote_name}${NC}"
+            else
+                echo -e "  ${YELLOW}rclone-tail not installed — re-run play-rclone.yml to get it${NC}"
+            fi
+            echo -e "  Verify/retry on remote:${CYAN} ftp-camera --push${NC} ${YELLOW}(--update skips files already uploaded)${NC}"
+        fi
+        rm -f "$ASYNC_STATS_FILE"
+        [ -n "$ASYNC_COPY_FAILED_FILE" ] && rm -f "$ASYNC_COPY_FAILED_FILE"
+    fi
+
+    # Default mode runs sort_uploads here as the *only* sort pass, so it
+    # must run unconditionally there. In async mode we deliberately skip
+    # it: the OK UPLOAD log trigger already processed every clean upload,
+    # and anything still in the upload root is a partial/failed transfer
+    # we do NOT want to silently sort into the dated tree.
+    # `|| true`: a single bad EXIF read shouldn't blow up the rest of
+    # cleanup (firewall + systemd state still need to come down).
+    if [ "$ASYNC_MODE" != true ]; then
+        sort_uploads || true
+    fi
 }
 
 trap cleanup EXIT
@@ -643,6 +1103,30 @@ fi
 
 # ── Main ───────────────────────────────────────────────────────────────────────
 
+# Validate async-copy prerequisites BEFORE starting vsftpd so a misconfigured
+# rclone setup doesn't expose the FTP port and then fail on the first upload.
+# --async (sort only) has no extra prerequisites beyond the default path.
+if [ "$ASYNC_COPY_MODE" = true ]; then
+    load_rclone_config || exit 1
+
+    # Resolve the local mount path the VFS exposes for this remote and
+    # confirm it exists. Per-file copies land here, not on the remote URL,
+    # so we don't depend on network reachability during FTP transfer.
+    ASYNC_MOUNT_PATH=$(find_mount_path) || exit 1
+    if [ ! -d "$ASYNC_MOUNT_PATH" ]; then
+        echo "ERROR: rclone mount path not found: $ASYNC_MOUNT_PATH" >&2
+        echo "  Is rclone-${RCLONE_REMOTE%%:*}.service running?" >&2
+        exit 1
+    fi
+fi
+
+if [ "$ASYNC_MODE" = true ]; then
+    ASYNC_STATS_FILE=$(mktemp)
+    if [ "$ASYNC_COPY_MODE" = true ]; then
+        ASYNC_COPY_FAILED_FILE=$(mktemp)
+    fi
+fi
+
 LOCAL_IP=$(get_local_ip)
 
 echo -e "${BOLD}Starting camera FTP server...${NC}"
@@ -682,6 +1166,13 @@ echo ""
 echo -e "  ${BOLD}Upload directory:${NC}  ${CYAN}${UPLOAD_DIR}${NC}"
 echo ""
 echo -e "${YELLOW}Monitoring for uploads — press Ctrl+C to stop${NC}"
+if [ "$ASYNC_COPY_MODE" = true ]; then
+    echo -e "${BOLD}Async-copy mode:${NC} each upload is sorted by EXIF and copied into the rclone mount"
+    echo -e "  Mount:  ${CYAN}${ASYNC_MOUNT_PATH}${NC}"
+    echo -e "  Remote: ${CYAN}${RCLONE_REMOTE}${NC} ${YELLOW}(VFS uploads from cache in the background)${NC}"
+elif [ "$ASYNC_MODE" = true ]; then
+    echo -e "${BOLD}Async mode:${NC} each upload is sorted by EXIF the moment it lands"
+fi
 echo ""
 
 # Stream vsftpd auth/connection events alongside upload notifications.
@@ -698,13 +1189,21 @@ sudo tail -F -n 0 --pid=$$ /var/log/vsftpd.log 2>/dev/null \
     ' &
 VSFTPD_LOG_PID=$!
 
-# Monitor upload directory and print files as they arrive
-# Runs in background so INT trap fires correctly on Ctrl+C
-inotifywait -m -r -q \
-    -e close_write,moved_to \
-    --format "  [%T] %e  %w%f" \
-    --timefmt "%H:%M:%S" \
-    "$UPLOAD_DIR" &
-MONITOR_PID=$!
+# Monitor upload directory. The default mode just pretty-prints events
+# (the closing pass handles the actual sorting). Async modes route every
+# close_write through process_async_upload, which sorts and optionally
+# pushes to the remote in real time. Both run in background so the INT
+# trap fires correctly on Ctrl+C.
+if [ "$ASYNC_MODE" = true ]; then
+    async_monitor_loop &
+    MONITOR_PID=$!
+else
+    inotifywait -m -r -q \
+        -e close_write,moved_to \
+        --format "  [%T] %e  %w%f" \
+        --timefmt "%H:%M:%S" \
+        "$UPLOAD_DIR" &
+    MONITOR_PID=$!
+fi
 
 wait "$MONITOR_PID"

@@ -1,0 +1,124 @@
+#!/usr/bin/env ansible-playbook
+---
+# Clean Paste — Ctrl+Alt+V one-action clean-and-paste for terminals.
+#
+# Primary use case: paste copied terminal output BACK INTO a terminal without
+# trailing whitespace or stray blank lines mangling the commands.
+#
+# Workflow for the user:
+#   1. Copy something (often messy terminal output with trailing spaces /
+#      wrap artifacts) — Ctrl+C or Ctrl+Shift+C.
+#   2. Press Ctrl+Alt+V in the destination terminal — the clipboard is
+#      sanitised AND Ctrl+Shift+V is synthesised into the focused window
+#      via wtype. One action.
+#
+# Dependencies installed by this playbook:
+#   - wl-clipboard (wl-paste, wl-copy) — read/write the Wayland clipboard
+#   - wtype                            — synthesise the Ctrl+Shift+V paste
+- hosts: desktop
+  name: Clean Paste — Ctrl+Alt+V clipboard sanitiser
+  become: true
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+    clean_paste_binary: "/home/{{ user_login }}/.local/bin/clean-paste"
+    clean_paste_lib_dir: "/home/{{ user_login }}/.local/lib/clean-paste"
+    clean_paste_registrar: "/home/{{ user_login }}/.local/lib/clean-paste/register-shortcut.py"
+    clean_paste_shortcut_name: "Clean Paste"
+    clean_paste_shortcut_binding: "<Primary><Alt>v"
+    media_keys_schema: "org.gnome.settings-daemon.plugins.media-keys"
+    custom_keybindings_base: "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings"
+  tasks:
+
+    # =========================================================================
+    # Packages: wl-clipboard (wl-paste/wl-copy) + wtype (Ctrl+Shift+V injector)
+    # =========================================================================
+
+    - name: Install clean-paste Dependencies
+      ansible.builtin.dnf:
+        name:
+          - wl-clipboard
+          - wtype
+        state: present
+      tags:
+        - packages
+        - clean-paste
+
+    # =========================================================================
+    # Helper script: deploy to ~/.local/bin/clean-paste
+    # =========================================================================
+
+    - name: Ensure clean-paste Directories Exist
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+      loop:
+        - "/home/{{ user_login }}/.local/bin"
+        - "{{ clean_paste_lib_dir }}"
+      tags:
+        - clean-paste
+
+    - name: Deploy clean-paste Helper Script
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/clean-paste"
+        dest: "{{ clean_paste_binary }}"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+      tags:
+        - clean-paste
+
+    - name: Deploy clean-paste GNOME Shortcut Registrar
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/lib/clean-paste/register-shortcut.py"
+        dest: "{{ clean_paste_registrar }}"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+      tags:
+        - clean-paste
+
+    # =========================================================================
+    # GNOME keybinding: register Ctrl+Alt+V → clean-paste
+    # =========================================================================
+    #
+    # GNOME stores custom shortcuts as a list of dconf paths under
+    # org.gnome.settings-daemon.plugins.media-keys custom-keybindings.
+    # Each path (e.g. /…/custom-keybindings/custom0/) carries three keys:
+    #   name, command, binding.
+    #
+    # All of the dconf reconciliation is done in a single Python script so
+    # we never have to template Python source through Jinja's string parser.
+    # Parameters are passed via environment variables — see the env: block.
+
+    - name: Reconcile GNOME Custom Keybinding for clean-paste
+      become: true
+      become_user: "{{ user_login }}"
+      environment:
+        CP_BINARY: "{{ clean_paste_binary }}"
+        CP_NAME: "{{ clean_paste_shortcut_name }}"
+        CP_BINDING: "{{ clean_paste_shortcut_binding }}"
+        CP_SCHEMA: "{{ media_keys_schema }}"
+        CP_BASE: "{{ custom_keybindings_base }}"
+      ansible.builtin.command:
+        argv:
+          - dbus-run-session
+          - --
+          - python3
+          - "{{ clean_paste_registrar }}"
+      register: keybinding_reconcile
+      changed_when: "'CHANGED' in keybinding_reconcile.stdout"
+      tags:
+        - clean-paste
+        - keybinding
+
+    - name: Clean Paste Ready
+      ansible.builtin.debug:
+        msg: >-
+          ✓ Clean Paste deployed.
+          Ctrl+Alt+V in any terminal now cleans the clipboard and pastes in one action.
+          {{ keybinding_reconcile.stdout }}
+      tags:
+        - clean-paste

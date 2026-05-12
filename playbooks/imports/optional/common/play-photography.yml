@@ -74,6 +74,21 @@
       when: rapidraw_installed_version.stdout != rapidraw_version
       tags: rapidraw
 
+    # /usr/local/bin precedes /usr/bin in PATH, so this shim is transparently
+    # picked up by the desktop entry's `Exec=RapidRAW` and CLI invocation
+    # without conflicting with the RPM-owned /usr/bin/RapidRAW. The shim forces
+    # wgpu to use a hardware Vulkan ICD instead of Lavapipe/Dozen, which can
+    # otherwise be auto-selected and cause severe sluggishness.
+    # @see files/usr/local/bin/RapidRAW for the rationale.
+    - name: Deploy RapidRAW Vulkan ICD Selector Shim
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/usr/local/bin/RapidRAW"
+        dest: /usr/local/bin/RapidRAW
+        owner: root
+        group: root
+        mode: "0755"
+      tags: rapidraw
+
     - name: Check for newer RapidRAW release on GitHub
       ansible.builtin.uri:
         url: "https://api.github.com/repos/CyberTimon/RapidRAW/releases/latest"
@@ -166,6 +181,18 @@
         - art_latest.json.tag_name != art_version
       tags: art
 
+    # Generic CWD-recursive RAW pruner. Same matching rules as
+    # `ftp-camera --prune` but works in any directory and pairs RAW↔JPG
+    # by filename stem alone, so JPGs and RAWs can live in different folders.
+    - name: Install raw-prune helper script
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/raw-prune"
+        dest: "/home/{{ user_login }}/.local/bin/raw-prune"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+      tags: raw-prune
+
     - name: Display Installation Complete Message
       ansible.builtin.debug:
         msg: |
@@ -182,6 +209,8 @@
                                    on first launch for full GPU performance
             ART                  - Advanced RAW editor (ART fork of RawTherapee)
                                    with improved tone mapping, masking, and local edits
+            raw-prune            - Recursively delete RAWs in CWD with no matching JPG
+                                   (run with --help for usage and --dry-run to preview)
 
           Launch from the applications menu, or on the command line:
             rawtherapee
@@ -193,3 +222,4 @@
             exiftool <file>
             rapidraw
             ART
+            raw-prune --help
