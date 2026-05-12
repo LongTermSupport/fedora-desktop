@@ -324,162 +324,121 @@
                   IdentityFile ~/.ssh/id
                   IdentitiesOnly yes
 
-        - name: Test SSH connections
+        # Audit GitHub-installed keys directly via the API, not via an SSH
+        # roundtrip. For each account: switch, fetch installed pubkey list,
+        # compute fingerprint of each, and compare with the local pubkey
+        # fingerprint. Replaces the older SSH-test-based detection that gave
+        # false negatives whenever the local SSH test failed for unrelated
+        # reasons (passphrase strip, ssh-agent shadowing, etc).
+        - name: Audit local SSH pubkey vs keys installed on GitHub
+          ansible.builtin.shell: |
+            set -e
+            gh auth switch --hostname github.com --user "{{ item.value }}" 2>/dev/null
+            local_fp=$(ssh-keygen -lf "/home/{{ user_login }}/.ssh/github_{{ item.key }}.pub" | awk '{print $2}')
+            installed_fps=$(gh api user/keys --jq '.[].key' | while IFS= read -r pubkey; do
+              printf '%s\n' "$pubkey" | ssh-keygen -lf - 2>/dev/null | awk '{print $2}'
+            done)
+            if printf '%s\n' "$installed_fps" | grep -qFx "$local_fp"; then
+              echo "PRESENT:$local_fp"
+            else
+              echo "MISSING:$local_fp"
+            fi
+          args:
+            executable: /bin/bash
+          register: github_key_audit
+          changed_when: false
+          loop: "{{ github_accounts | default({}) | dict2items }}"
+          loop_control:
+            label: "{{ item.key }}"
+
+        - name: Display SSH key audit results
+          ansible.builtin.debug:
+            msg: >
+              github_{{ item.item.key }} ({{ item.item.value }}): {{ item.stdout }}
+          loop: "{{ github_key_audit.results | default([]) }}"
+          loop_control:
+            label: "{{ item.item.key }}"
+
+        - name: Upload missing SSH pubkeys via gh ssh-key add
+          ansible.builtin.shell: |
+            set -e
+            gh auth switch --hostname github.com --user "{{ item.item.value }}" 2>/dev/null
+            gh ssh-key add "/home/{{ user_login }}/.ssh/github_{{ item.item.key }}.pub" \
+              --title "{{ ansible_facts['hostname'] }}-{{ item.item.key }}"
+          args:
+            executable: /bin/bash
+          when: item.stdout is defined and item.stdout.startswith('MISSING:')
+          loop: "{{ github_key_audit.results | default([]) }}"
+          loop_control:
+            label: "{{ item.item.key }}"
+
+        # Final SSH verification. By this point each account has its pubkey
+        # confirmed installed on GitHub, so authentication should succeed. If
+        # the test fails despite the audit passing, the cause is almost
+        # always passphrase-related. The strip step tries the vault
+        # passphrase first then an empty passphrase as a fallback so old
+        # unencrypted keys keep working.
+        - name: Verify SSH access and identity for all accounts
           ansible.builtin.shell: |
             tmp_key=$(mktemp)
             trap 'rm -f "$tmp_key"' EXIT
             cp "/home/{{ user_login }}/.ssh/github_{{ item.key }}" "$tmp_key"
             chmod 600 "$tmp_key"
-            # Strip passphrase from temp copy — reads from file, never in Ansible output
-            ssh-keygen -p -P "$(cat /tmp/.github_ssh_pp)" -N "" -f "$tmp_key" >/dev/null 2>&1
-            timeout 15 ssh -F /dev/null -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -i "$tmp_key" -T git@github.com 2>&1
+            if ! ssh-keygen -p -P "$(cat /tmp/.github_ssh_pp)" -N "" -f "$tmp_key" >/dev/null 2>&1; then
+              ssh-keygen -p -P "" -N "" -f "$tmp_key" >/dev/null 2>&1 || true
+            fi
+            timeout 15 ssh -F /dev/null -o BatchMode=yes -o ConnectTimeout=10 \
+              -o StrictHostKeyChecking=accept-new -i "$tmp_key" -T git@github.com 2>&1
           args:
             executable: /bin/bash
           timeout: 30
           register: ssh_test
           changed_when: false
-          # rc 0/1 = GitHub responded, 124 = timeout, 255 = SSH error — only fail on unexpected codes
           failed_when: ssh_test.rc not in [0, 1, 124, 255]
           loop: "{{ github_accounts | default({}) | dict2items }}"
+          loop_control:
+            label: "{{ item.key }}"
 
-        # IDENTITY AUDIT — catch the case where a key file is mislabelled
-        # (e.g. ~/.ssh/github_joseph actually contains the LTSCommerce private
-        # key). The previous "successfully authenticated" check passes in that
-        # situation because SSH does authenticate — just as the wrong user.
-        # GitHub's response always starts with "Hi <username>!" — we assert
-        # that <username> equals the configured value for this alias.
-        - name: Display SSH key identity audit
+        - name: Display SSH access test results
           ansible.builtin.debug:
             msg: >
-              github_{{ item.item.key }} (expects {{ item.item.value }}) →
-              {{ item.stdout | regex_search('Hi [^!]+!') | default('(no auth — pubkey not yet on GitHub for this account)', true) }}
+              github_{{ item.item.key }} (expects {{ item.item.value }}):
+              {{ item.stdout | regex_search('Hi [^!]+!') | default('NOT AUTHENTICATED', true) }}
           loop: "{{ ssh_test.results }}"
           loop_control:
             label: "{{ item.item.key }}"
 
-        - name: Assert each authenticated SSH key matches its configured GitHub account
+        - name: Assert SSH access and identity match for all accounts
           ansible.builtin.assert:
             that:
+              - "'successfully authenticated' in item.stdout"
               - ('Hi ' + item.item.value + '!') in item.stdout
             fail_msg: |
-              SSH key IDENTITY MISMATCH
+              SSH verification FAILED for alias {{ item.item.key }} (expected user {{ item.item.value }}).
+              GitHub responded: {{ item.stdout | regex_search('Hi [^!]+!') | default('(no Hi response)', true) }}
 
-              File:                ~/.ssh/github_{{ item.item.key }}
-              Expected GitHub user: {{ item.item.value }}
-              GitHub responded:    {{ item.stdout | regex_search('Hi [^!]+!') | default('(no Hi response)', true) }}
+              The audit confirmed the local pubkey is installed on GitHub for
+              this account, so failure here is most likely passphrase-related.
 
-              The private key in this file authenticates as a DIFFERENT GitHub
-              user than the alias name implies. Either the file was created
-              with the wrong key, or github_accounts in localhost.yml has the
-              wrong alias→username mapping.
+              Diagnose:
+                ssh-keygen -y -P "$(cat /tmp/.github_ssh_pp)" -f ~/.ssh/github_{{ item.item.key }}
 
-              To diagnose (on host):
-                for k in ~/.ssh/github_*.pub; do
-                  printf '%-30s ' "$k"; ssh-keygen -lf "$k"
-                done
-                # Then compare fingerprints at https://github.com/settings/keys
-                # (log in as each account) to find which key belongs where.
-
-              To fix (option A — rename the file to match its real owner):
-                # Rename ~/.ssh/github_{{ item.item.key }} (and .pub) to the
-                # alias whose username matches the "Hi X!" response above.
-
-              To fix (option B — wipe and regenerate fresh key for this account):
+              If that fails, the key has a passphrase that differs from the
+              one in the vault. Either update the vault passphrase or delete
+              and regenerate the key:
                 rm ~/.ssh/github_{{ item.item.key }} ~/.ssh/github_{{ item.item.key }}.pub
-                # Re-run this playbook. A fresh key will be generated and you
-                # will be prompted to add its pubkey to GitHub as
-                # {{ item.item.value }}.
-            success_msg: "✓ github_{{ item.item.key }} authenticates as {{ item.item.value }}"
-          when: "'successfully authenticated' in item.stdout"
+                # then re-run this playbook
+            success_msg: "{{ item.item.key }} -> {{ item.item.value }} OK"
           loop: "{{ ssh_test.results }}"
           loop_control:
             label: "{{ item.item.key }}"
 
-        - name: Check which SSH keys need to be added
-          ansible.builtin.set_fact:
-            ssh_keys_to_add: |
-              {% set keys = [] %}
-              {% for item in ssh_test.results %}
-              {%   if 'successfully authenticated' not in item.stdout %}
-              {%     set _ = keys.append(item) %}
-              {%   endif %}
-              {% endfor %}
-              {{ keys }}
-
-        - name: Display SSH public keys for accounts that need setup
-          ansible.builtin.shell: cat "/home/{{ user_login }}/.ssh/github_{{ item.item.key }}.pub"
-          register: ssh_public_keys
+        - name: Restore originally-active GitHub account after SSH key audit
+          ansible.builtin.shell: |
+            gh auth switch --hostname github.com --user "{{ original_active_account.stdout }}" 2>/dev/null
           changed_when: false
-          loop: "{{ ssh_keys_to_add }}"
-          when: ssh_keys_to_add | length > 0
+          when: original_active_account.stdout | default('') | length > 0
 
-        - name: Instructions for adding SSH keys to GitHub
-          ansible.builtin.pause:
-            prompt: |2
-
-              ========================================================================
-              ADD SSH KEYS TO GITHUB
-              ========================================================================
-
-              The following accounts need SSH keys added to GitHub:
-
-              {% for item in ssh_public_keys.results %}
-              Account: {{ item.item.item.key }} ({{ item.item.item.value }})
-              ----------------------------------------
-              1. Go to: https://github.com/settings/keys
-              2. Log in as: {{ item.item.item.value }}
-              3. Click "New SSH key"
-              4. Title: "{{ ansible_facts['hostname'] }}-{{ item.item.item.key }}"
-              5. Paste this key:
-
-              {{ item.stdout }}
-
-              {% endfor %}
-              ========================================================================
-
-              Press Enter after adding all keys to GitHub
-          when: ssh_keys_to_add | length > 0
-
-        - name: Re-test and verify SSH connections after adding keys
-          block:
-            - name: Re-test SSH connections
-              ansible.builtin.shell: |
-                tmp_key=$(mktemp)
-                trap 'rm -f "$tmp_key"' EXIT
-                cp "/home/{{ user_login }}/.ssh/github_{{ item.key }}" "$tmp_key"
-                chmod 600 "$tmp_key"
-                ssh-keygen -p -P "$(cat /tmp/.github_ssh_pp)" -N "" -f "$tmp_key" >/dev/null 2>&1
-                timeout 15 ssh -F /dev/null -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -i "$tmp_key" -T git@github.com 2>&1
-              args:
-                executable: /bin/bash
-              timeout: 30
-              register: ssh_retest
-              changed_when: false
-              # rc 0/1 = GitHub responded, 124 = timeout, 255 = SSH error — only fail on unexpected codes
-              failed_when: ssh_retest.rc not in [0, 1, 124, 255]
-              loop: "{{ github_accounts | default({}) | dict2items }}"
-
-            - name: Display SSH test results
-              ansible.builtin.debug:
-                msg: >
-                  {{ item.item.key }} (expects {{ item.item.value }}):
-                  {{ item.stdout | regex_search('Hi [^!]+!') | default('FAILED — key not recognised by GitHub', true) }}
-              loop: "{{ ssh_retest.results }}"
-
-            - name: Assert SSH access AND identity match for all accounts
-              ansible.builtin.assert:
-                that:
-                  - "'successfully authenticated' in item.stdout"
-                  - ('Hi ' + item.item.value + '!') in item.stdout
-                fail_msg: |
-                  SSH check failed for alias '{{ item.item.key }}' (expected user {{ item.item.value }}).
-                  GitHub responded: {{ item.stdout | regex_search('Hi [^!]+!') | default('(no auth — add ~/.ssh/github_' + item.item.key + '.pub to GitHub: https://github.com/settings/keys)', true) }}
-
-                  If the response is "Hi <other-user>!", the key file belongs to a
-                  different account — see the IDENTITY MISMATCH diagnosis above.
-                success_msg: "SSH access + identity confirmed: {{ item.item.key }} → {{ item.item.value }} ✓"
-              loop: "{{ ssh_retest.results }}"
-          when: ssh_keys_to_add | length > 0
       always:
         - name: Clean up SSH askpass helper (always runs, even on failure)
           ansible.builtin.file:
