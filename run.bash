@@ -664,27 +664,48 @@ if ! grep -q 'export GH_HOST="github.com"' ~/.bashrc; then
   echo 'export GH_HOST="github.com"' >> ~/.bashrc
 fi
 
-# When setting up the github token, some required permissions might be missed out
-# This function allows us to check for the required permissions
+# Check the active gh token carries a required OAuth scope.
+# Honours GitHub's scope hierarchy: admin:* implies write:* implies read:*,
+# and `user` implies user:email/read:user/user:follow. A token granted
+# admin:org therefore satisfies a read:org requirement.
+# Anchored grep on '^X-Oauth-Scopes:' avoids matching the unrelated
+# Access-Control-Expose-Headers line whose value lists the header name.
 function ghCheckTokenPermission(){
   local permission="$1"
   local failSilent="${2:-false}"
   local gh_cmd="${GH_REPO:-gh}"
-  local scopes
-  scopes="$($gh_cmd api -i user | grep 'X-Oauth-Scopes')"
-  if [[ "$scopes" == *"$permission"* ]]; then
-    echo " - found $permission permission"
-    return 0
-  else
-    if [[ "$failSilent" == "true" ]]; then
-      return 1
+  local scopes_csv
+  scopes_csv=",$($gh_cmd api -i user 2>/dev/null \
+    | grep -i '^X-Oauth-Scopes:' \
+    | sed 's/^[^:]*: //' \
+    | tr -d ' \r' \
+    | tr '\n' ','),"
+  local satisfiers="$permission"
+  case "$permission" in
+    read:org)         satisfiers="$permission write:org admin:org" ;;
+    write:org)        satisfiers="$permission admin:org" ;;
+    read:public_key)  satisfiers="$permission write:public_key admin:public_key" ;;
+    write:public_key) satisfiers="$permission admin:public_key" ;;
+    read:repo_hook)   satisfiers="$permission write:repo_hook admin:repo_hook" ;;
+    write:repo_hook)  satisfiers="$permission admin:repo_hook" ;;
+    read:gpg_key)     satisfiers="$permission write:gpg_key admin:gpg_key" ;;
+    write:gpg_key)    satisfiers="$permission admin:gpg_key" ;;
+    read:user|user:email|user:follow) satisfiers="$permission user" ;;
+  esac
+  local s
+  for s in $satisfiers; do
+    if [[ "$scopes_csv" == *",${s},"* ]]; then
+      echo " - found $permission permission"
+      return 0
     fi
-    echo " - missing $permission permission"
-    echo "Please run this command ON THE MACHINE ITSELF, NOT REMOTELY
-    $gh_cmd auth refresh -h github.com -s '$permission'
-    "
+  done
+  if [[ "$failSilent" == "true" ]]; then
     return 1
   fi
+  echo " - missing $permission permission"
+  echo "Please run this command ON THE MACHINE ITSELF, NOT REMOTELY"
+  echo "    $gh_cmd auth refresh -h github.com -s '$permission'"
+  return 1
 }
 
 if ! gh auth status > /dev/null 2>&1; then

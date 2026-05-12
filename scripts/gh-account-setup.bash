@@ -134,11 +134,13 @@ switch_to_account() {
 # Honours GitHub's OAuth scope hierarchy: admin:* implies write:* implies read:*,
 # and `user` implies its `user:email` / `read:user` / `user:follow` children.
 # A token granted `admin:org` therefore satisfies a `read:org` requirement.
-# $1 = required scope; $2 = comma-separated granted scopes (whitespace tolerated).
+# $1 = required scope; $2 = comma-separated granted scopes. Whitespace (spaces,
+# CR, LF) is normalised and any embedded newlines are converted to commas so
+# multi-line HTTP header captures don't break comma-bounded matching.
 _scope_satisfied() {
   local required="$1"
   local current
-  current=",$(echo "$2" | tr -d ' '),"
+  current=",$(echo "$2" | tr -d ' \r' | tr '\n' ','),"
   local satisfiers="$required"
   case "$required" in
     read:org)         satisfiers="$required write:org admin:org" ;;
@@ -164,7 +166,10 @@ _scope_satisfied() {
 get_missing_scopes() {
   local api_output scopes_header=""
   if api_output=$(gh api -i user 2>&1); then
-    scopes_header=$(echo "$api_output" | grep -i 'X-Oauth-Scopes' | sed 's/^[^:]*: //') || scopes_header=""
+    # Anchor on '^X-Oauth-Scopes:' so we only match the real response header,
+    # not the Access-Control-Expose-Headers line whose value happens to list
+    # 'X-OAuth-Scopes' as one of the exposed header names.
+    scopes_header=$(echo "$api_output" | grep -i '^X-Oauth-Scopes:' | sed 's/^[^:]*: //') || scopes_header=""
   else
     warning "Could not query API for scope check"
   fi

@@ -117,7 +117,7 @@
           echo "ERR_NO_SCOPES"
           exit 0
         fi
-        current=",$(echo "$scopes_raw" | tr -d ' '),"
+        current=",$(echo "$scopes_raw" | tr -d ' \r' | tr '\n' ','),"
         # Honours GitHub's OAuth scope hierarchy: admin:* implies write:* implies
         # read:*, and `user` implies user:email/read:user/user:follow. Without
         # this, a token granted admin:org would falsely register as missing
