@@ -67,9 +67,12 @@
 
     # Default Space Bar behaviour is: first click opens Overview, second click
     # selects the workspace. We want a single click to switch directly.
+    # Use dconf write (not gsettings set) because the Space Bar schema is
+    # installed under the extension dir, not the system schema path — gsettings
+    # would refuse with "No such schema" inside a fresh dbus-run-session.
     - name: Configure Space Bar - Single Click Switches Workspace
       become: true
       become_user: "{{ user_login }}"
-      ansible.builtin.shell: "dbus-run-session -- {{ item }}"
-      loop:
-        - gsettings set org.gnome.shell.extensions.space-bar.behavior toggle-overview false
+      ansible.builtin.command:
+        cmd: dbus-run-session -- dconf write /org/gnome/shell/extensions/space-bar/behavior/toggle-overview false
+      changed_when: false
