@@ -71,6 +71,14 @@ class SystemPathsHandler(Handler):
         if file_path.startswith(project_dir):
             return False
 
+        # Exempt the Claude Code agent's own runtime directory. This holds
+        # the agent's memory, session state, todos and plans — it is not
+        # deployed system config. The path is /root/.claude/projects/ when
+        # the agent runs as root inside CCY, or /home/<user>/.claude/projects/
+        # when running on host, so match the subpath rather than a prefix.
+        if "/.claude/projects/" in file_path:
+            return False
+
         # Check if file_path starts with any blocked system path
         for blocked_path in self.BLOCKED_PATHS:
             if file_path.startswith(blocked_path):
