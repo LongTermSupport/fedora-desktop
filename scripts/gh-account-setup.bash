@@ -130,6 +130,36 @@ switch_to_account() {
   fi
 }
 
+# ─── Check if a required scope is satisfied by a granted scope set ────────────
+# Honours GitHub's OAuth scope hierarchy: admin:* implies write:* implies read:*,
+# and `user` implies its `user:email` / `read:user` / `user:follow` children.
+# A token granted `admin:org` therefore satisfies a `read:org` requirement.
+# $1 = required scope; $2 = comma-separated granted scopes (whitespace tolerated).
+_scope_satisfied() {
+  local required="$1"
+  local current
+  current=",$(echo "$2" | tr -d ' '),"
+  local satisfiers="$required"
+  case "$required" in
+    read:org)         satisfiers="$required write:org admin:org" ;;
+    write:org)        satisfiers="$required admin:org" ;;
+    read:public_key)  satisfiers="$required write:public_key admin:public_key" ;;
+    write:public_key) satisfiers="$required admin:public_key" ;;
+    read:repo_hook)   satisfiers="$required write:repo_hook admin:repo_hook" ;;
+    write:repo_hook)  satisfiers="$required admin:repo_hook" ;;
+    read:gpg_key)     satisfiers="$required write:gpg_key admin:gpg_key" ;;
+    write:gpg_key)    satisfiers="$required admin:gpg_key" ;;
+    read:user|user:email|user:follow) satisfiers="$required user" ;;
+  esac
+  local s
+  for s in $satisfiers; do
+    case "$current" in
+      *",${s},"*) return 0 ;;
+    esac
+  done
+  return 1
+}
+
 # ─── Get missing OAuth scopes for the currently-active gh account ─────────────
 get_missing_scopes() {
   local api_output scopes_header=""
@@ -140,7 +170,7 @@ get_missing_scopes() {
   fi
   local missing=()
   for scope in "${REQUIRED_SCOPES[@]}"; do
-    if ! echo "$scopes_header" | grep -qi "$scope"; then
+    if ! _scope_satisfied "$scope" "$scopes_header"; then
       missing+=("$scope")
     fi
   done

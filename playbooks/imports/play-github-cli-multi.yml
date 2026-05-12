@@ -117,10 +117,36 @@
           echo "ERR_NO_SCOPES"
           exit 0
         fi
-        current=$(echo "$scopes_raw" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sort -u | tr '\n' ',')
+        current=",$(echo "$scopes_raw" | tr -d ' '),"
+        # Honours GitHub's OAuth scope hierarchy: admin:* implies write:* implies
+        # read:*, and `user` implies user:email/read:user/user:follow. Without
+        # this, a token granted admin:org would falsely register as missing
+        # read:org (see Plan 00035 / commit history for the original bug).
+        scope_satisfied() {
+          local required="$1"
+          local satisfiers="$required"
+          case "$required" in
+            read:org)         satisfiers="$required write:org admin:org" ;;
+            write:org)        satisfiers="$required admin:org" ;;
+            read:public_key)  satisfiers="$required write:public_key admin:public_key" ;;
+            write:public_key) satisfiers="$required admin:public_key" ;;
+            read:repo_hook)   satisfiers="$required write:repo_hook admin:repo_hook" ;;
+            write:repo_hook)  satisfiers="$required admin:repo_hook" ;;
+            read:gpg_key)     satisfiers="$required write:gpg_key admin:gpg_key" ;;
+            write:gpg_key)    satisfiers="$required admin:gpg_key" ;;
+            read:user|user:email|user:follow) satisfiers="$required user" ;;
+          esac
+          local s
+          for s in $satisfiers; do
+            case "$current" in
+              *",${s},"*) return 0 ;;
+            esac
+          done
+          return 1
+        }
         missing=""
         {% for scope in github_required_scopes %}
-        if ! echo ",${current}" | grep -q ",{{ scope }},"; then
+        if ! scope_satisfied "{{ scope }}"; then
           missing="${missing:+$missing,}{{ scope }}"
         fi
         {% endfor %}
