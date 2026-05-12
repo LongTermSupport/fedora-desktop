@@ -387,7 +387,12 @@
             if ! ssh-keygen -p -P "$(cat /tmp/.github_ssh_pp)" -N "" -f "$tmp_key" >/dev/null 2>&1; then
               ssh-keygen -p -P "" -N "" -f "$tmp_key" >/dev/null 2>&1 || true
             fi
-            timeout 15 ssh -F /dev/null -o BatchMode=yes -o ConnectTimeout=10 \
+            # IdentityAgent=none + IdentitiesOnly=yes force ssh to use ONLY the
+            # specified key. Without these, ssh also offers every key in the
+            # running ssh-agent — GitHub rate-limits after ~5 failed attempts
+            # and ssh hangs until the outer timeout fires (rc=124, no output).
+            timeout 15 ssh -F /dev/null -o IdentityAgent=none -o IdentitiesOnly=yes \
+              -o BatchMode=yes -o ConnectTimeout=10 \
               -o StrictHostKeyChecking=accept-new -i "$tmp_key" -T git@github.com 2>&1
           args:
             executable: /bin/bash
