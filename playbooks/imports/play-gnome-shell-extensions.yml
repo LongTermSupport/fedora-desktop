@@ -64,3 +64,12 @@
           gnome-extensions enable workspace-names-overview@fedora-desktop
       changed_when: false
       failed_when: false  # FAIL-FAST-OK: GNOME session may not be active during playbook run
+
+    # Default Space Bar behaviour is: first click opens Overview, second click
+    # selects the workspace. We want a single click to switch directly.
+    - name: Configure Space Bar - Single Click Switches Workspace
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.shell: "dbus-run-session -- {{ item }}"
+      loop:
+        - gsettings set org.gnome.shell.extensions.space-bar.behavior toggle-overview false
