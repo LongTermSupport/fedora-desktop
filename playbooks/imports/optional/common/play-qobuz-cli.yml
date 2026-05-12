@@ -37,10 +37,12 @@
       ansible.builtin.set_fact:
         hifiRsUrl: "https://github.com/iamdb/hifi.rs/releases/download/v{{ hifiRsVersionFinal }}/hifi-rs-x86_64-unknown-linux-gnu.tar.gz"
 
-    # Version detection for qobuz-player
+    # qobuz-player moved from SofusA/qobuz-player to SofusA/qobine in 2026-05.
+    # The old repo was wiped of releases; the binary now ships from qobine.
+    # Tag scheme is date-based (e.g. v2026-05-11), not semver.
     - name: Get latest qobuz-player version
       ansible.builtin.shell: |
-        curl -s https://api.github.com/repos/SofusA/qobuz-player/releases/latest |
+        curl -s https://api.github.com/repos/SofusA/qobine/releases/latest |
         jq -r '.tag_name' | sed 's/^v//'
       register: qobuzPlayerLatestVersion
       when: qobuzPlayerVersion == "latest"
@@ -56,7 +58,7 @@
 
     - name: Set qobuz-player URL
       ansible.builtin.set_fact:
-        qobuzPlayerUrl: "https://github.com/SofusA/qobuz-player/releases/download/v{{ qobuzPlayerVersionFinal }}/qobuz-player-x86_64-unknown-linux-gnu.tar.gz"
+        qobuzPlayerUrl: "https://github.com/SofusA/qobine/releases/download/v{{ qobuzPlayerVersionFinal }}/qobuz-player-x86_64-unknown-linux-gnu.tar.gz"
       tags:
         - qobuz-player
 
@@ -85,11 +87,11 @@
       ansible.builtin.shell: |
         set -ex
         if [[ -f {{ qobuzPlayerPath }} ]]; then
-          installedVersion="$(qobuz-player --version 2>/dev/null | grep -Po '[0-9.-]+' || echo '')"
+          # Parse version from first line, last whitespace-separated token.
+          # Previous regex matched stray hyphens in multi-line output.
+          installedVersion="$(qobuz-player --version 2>/dev/null | head -n1 | awk '{print $NF}' || true)"
           desiredVersion="{{ qobuzPlayerVersionFinal }}"
-          # Strip any pre-release suffix from desired version for comparison (e.g., 0.3.2-3 -> 0.3.2)
-          desiredVersionBase="${desiredVersion%%-*}"
-          if [[ "$installedVersion" == "$desiredVersion" ]] || [[ "$installedVersion" == "$desiredVersionBase" ]]; then
+          if [[ "$installedVersion" == "$desiredVersion" ]]; then
             echo "installed version $installedVersion matches desired version $desiredVersion"
             exit 0
           fi
