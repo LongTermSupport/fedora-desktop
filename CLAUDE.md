@@ -424,20 +424,6 @@ $PYTHON -m claude_code_hooks_daemon.daemon.cli logs
 
 If you need to inspect daemon source for debugging, use `Read` from the project root with the absolute path — never `cd` in. Do NOT edit anything inside `.claude/hooks-daemon/`; changes will be overwritten on the next upgrade.
 
-## markdown_organization — markdown files must go in allowed locations
-
-Writing a new `.md` file to an unrecognised location is blocked. Markdown files must be placed in project-configured allowed paths.
-
-**Common allowed locations**: `CLAUDE/`, `docs/`, `RELEASES/`, `CLAUDE/Plan/`, root-level `README.md`, or any path matching the `allowed_markdown_paths` config.
-
-**Dependency directories**: `vendor/` (PHP) and `node_modules/` (JS) are treated as implicit monorepos — each package is a sub-project where normal markdown rules apply (e.g. `vendor/acme/lib/docs/guide.md` is allowed, `vendor/acme/lib/random/notes.md` is blocked).
-
-**Plan file redirection**: when `track_plans_in_project` is enabled, Claude Code planning mode writes are automatically redirected to the project's `CLAUDE/Plan/` directory. Plan folders must follow the `NNNN-description/` naming convention.
-
-If you need a markdown file in a new location, add a pattern to `allowed_markdown_paths` in `.claude/hooks-daemon.yaml`.
-
-If your project has sub-projects with their own `docs/`, `CLAUDE/`, etc., configure `monorepo_subproject_patterns` in `.claude/hooks-daemon.yaml` so normal rules apply within each sub-project.
-
 ## pip_break_system — --break-system-packages is blocked
 
 `pip install --break-system-packages` (and the `pip3` / `python -m pip` / `python3 -m pip` variants) is blocked. The flag bypasses PEP 668 system-package protection and corrupts the system Python environment in containers and on modern Linux distros.
@@ -465,6 +451,20 @@ pip install --user <package>
 ```
 
 Even in a container running as root, `sudo` adds nothing — drop it and use a venv.
+
+## markdown_organization — markdown files must go in allowed locations
+
+Writing a new `.md` file to an unrecognised location is blocked. Markdown files must be placed in project-configured allowed paths.
+
+**Common allowed locations**: `CLAUDE/`, `docs/`, `RELEASES/`, `CLAUDE/Plan/`, root-level `README.md`, or any path matching the `allowed_markdown_paths` config.
+
+**Dependency directories**: `vendor/` (PHP) and `node_modules/` (JS) are treated as implicit monorepos — each package is a sub-project where normal markdown rules apply (e.g. `vendor/acme/lib/docs/guide.md` is allowed, `vendor/acme/lib/random/notes.md` is blocked).
+
+**Plan file redirection**: when `track_plans_in_project` is enabled, Claude Code planning mode writes are automatically redirected to the project's `CLAUDE/Plan/` directory. Plan folders must follow the `NNNN-description/` naming convention.
+
+If you need a markdown file in a new location, add a pattern to `allowed_markdown_paths` in `.claude/hooks-daemon.yaml`.
+
+If your project has sub-projects with their own `docs/`, `CLAUDE/`, etc., configure `monorepo_subproject_patterns` in `.claude/hooks-daemon.yaml` so normal rules apply within each sub-project.
 
 ## system_paths — do not edit deployed system files directly
 
@@ -522,6 +522,26 @@ On every new session this handler audits hook configuration across `.claude/sett
 - **Missing hooks**: the daemon's installer writes the full set. If any are missing, re-run `install.py` or manually add the missing `{event_name}` entry pointing at `"$CLAUDE_PROJECT_DIR"/.claude/hooks/{bash-key}`.
 - **Duplicate hooks**: a hook registered in both files fires twice. Keep the `settings.json` entry, delete from `settings.local.json`.
 
+## auto_approve_reads — gated on bypassPermissions mode
+
+Read-only tool permission requests (`Read`, `Glob`, `Grep`) are auto-approved **only** when Claude Code reports `permission_mode == "bypassPermissions"` (YOLO mode).
+
+In every other mode (`default`, `plan`, `acceptEdits`, `dontAsk`) the handler defers and Claude Code's normal approval prompt is shown — the user has not opted out of per-tool approvals, so the daemon must not silently approve on their behalf.
+
+If a permission prompt for `Read` appears in `default` mode, that is correct behaviour — approve it via Claude Code's UI.
+
+## dismissive_language_detector — do not deflect or prematurely halt
+
+Stop-time advisory that fires on language patterns signalling avoidance of work. The handler does NOT block the stop, but injects context for the next turn so the agent self-corrects.
+
+**Avoid**:
+
+- Dismissing issues as `pre-existing`, `out of scope`, `not our problem`,   or `not relevant` to deflect work that is in fact yours.
+- Premature-halt phrasing like `natural checkpoint`, `ready to continue on your   cue`, `pausing here` mid-plan when there is more to do — finish the task   rather than dressing up a halt.
+- Speculative `should be fine` or `probably works` when verification is   cheap (run the test, read the file).
+
+**Do**: acknowledge the issue, fix it, or — if it genuinely is out of scope — say so once with the specific reason and continue with the in-scope work.
+
 ### Stop Explanation Required
 
 Before stopping, **prefix your final message** with `STOPPING BECAUSE:` followed by a clear reason:
@@ -546,16 +566,15 @@ STOPPING BECAUSE: all tasks complete, QA passes, daemon restart verified.
 - Errors with a clear next step ("The test failed, should I fix it?") — do NOT ask, just fix it
 - Genuine choice questions where all options are valid ("Which of A, B, or C should we use?") — these deserve a response. Use `STOPPING BECAUSE: need user input` and ask your question
 
-## dismissive_language_detector — do not deflect or prematurely halt
+**Recovering from a `tool_use_error` — do NOT stop silently**:
 
-Stop-time advisory that fires on language patterns signalling avoidance of work. The handler does NOT block the stop, but injects context for the next turn so the agent self-corrects.
+Some tool errors require an explicit recovery action, not a halt. The most common shape:
+- You call `Edit` or `Write` on a file you have not yet read.
+- Claude Code returns a `tool_use_error` (e.g. "File has not been read yet").
+- The correct recovery is **Read the file, then retry Edit/Write** — **do not stop**. Stopping silently after a tool error triggers a Stop-hook re-entry loop and wastes a turn.
 
-**Avoid**:
+**Rule: Read before Edit/Write.** If you must edit a file you have not read, Read it first in the same turn. The daemon's Stop handler will detect a `tool_use_error` followed by a silent stop and re-fire to force recovery.
 
-- Dismissing issues as `pre-existing`, `out of scope`, `not our problem`,   or `not relevant` to deflect work that is in fact yours.
-- Premature-halt phrasing like `natural checkpoint`, `ready to continue on your   cue`, `pausing here` mid-plan when there is more to do — finish the task   rather than dressing up a halt.
-- Speculative `should be fine` or `probably works` when verification is   cheap (run the test, read the file).
-
-**Do**: acknowledge the issue, fix it, or — if it genuinely is out of scope — say so once with the specific reason and continue with the in-scope work.
+**On Stop hook re-entry (the hook fires again after a prior block)**: your next response is treated like any other — it must either prefix with `STOPPING BECAUSE:` or continue the work. Re-entry does not exempt you from the explanation rule.
 
 </hooksdaemon>
