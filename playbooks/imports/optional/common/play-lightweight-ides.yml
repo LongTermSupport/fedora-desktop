@@ -27,5 +27,5 @@
           Launch from applications menu or command line:
             geany
 
-          Note: CodeLite removed - no Fedora 42 package available yet.
+          Note: CodeLite removed - no Fedora package available yet.
           For C/C++ development, consider VS Code or CLion as alternatives.

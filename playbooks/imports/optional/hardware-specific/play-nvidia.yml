@@ -1,7 +1,7 @@
 #!/usr/bin/env ansible-playbook
 ---
 #!/usr/bin/env ansible-playbook
-# Install NVIDIA drivers using RPM Fusion (recommended method for Fedora 42)
+# Install NVIDIA drivers using RPM Fusion (recommended method for Fedora 43)
 # For RTX 500 Ada Generation and other modern NVIDIA GPUs
 #
 # Vulkan support is installed by default (required for modern gaming, AI apps, GPU compute)
@@ -35,7 +35,7 @@
           - xorg-x11-drv-nvidia-cuda # For CUDA/NVDEC/NVENC support
           - xorg-x11-drv-nvidia-cuda-libs
           - xorg-x11-drv-nvidia-power
-          - nvidia-vaapi-driver # For hardware video acceleration
+          - libva-nvidia-driver # For hardware video acceleration (F43 rename of nvidia-vaapi-driver)
           - libva-utils # For vainfo testing tool
           - mesa-demos # For glxinfo testing tool
         state: present

@@ -24,7 +24,7 @@
       become: false
       ansible.builtin.command: gnome-shell-extension-installer --yes --restart-shell {{ item.id }}
       loop:
-        # All verified compatible with GNOME Shell 48 (Fedora 42)
+        # Verified compatibility status checked against GNOME Shell 49 (Fedora 43)
         - name: Blur my Shell
           id: 3193
           # https://extensions.gnome.org/extension/3193/blur-my-shell/

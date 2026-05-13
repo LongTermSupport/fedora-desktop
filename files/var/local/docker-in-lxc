@@ -14,7 +14,7 @@ set -e
 
 CCY_TOKEN_DIR="$HOME/.claude-tokens/ccy/tokens"
 LXC_BASE_NAME_PREFIX="docker-lxc"
-FEDORA_VERSION="42"  # Should match vars/fedora-version.yml
+FEDORA_VERSION="43"  # Should match vars/fedora-version.yml
 
 # ==============================================================================
 # Helper Functions
@@ -52,7 +52,7 @@ Container Setup:
   When you run --create, the system will:
     1. Verify host configuration (kernel modules, sysctl, LXC)
     2. Check for docker-compose.yml or Dockerfile
-    3. Create Fedora 42 LXC container (unprivileged)
+    3. Create Fedora 43 LXC container (unprivileged)
     4. Mount your project directory at /mnt/project
     5. Install Docker CE inside the container
     6. Install Claude Code and create ccy alias
@@ -92,7 +92,7 @@ Example Projects:
   • Any project with Dockerfile or docker-compose.yml
 
 Architecture:
-  Desktop (Fedora 42)
+  Desktop (Fedora 43)
   └── LXC Container (unprivileged, one per project)
       ├── Docker Daemon (privileged in container)
       ├── Claude Code (ccy command)
