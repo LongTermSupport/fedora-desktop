@@ -220,12 +220,29 @@ render_tick() {
     done <<<"$mounts"
 }
 
-trap 'echo ""; exit 0' INT TERM
+# Snapshot the VFS cache, scoped to the same mount filter as the monitor.
+cache_status() {
+    if [[ -n "$FILTER" ]]; then
+        rclone-cache-status "$FILTER"
+    else
+        rclone-cache-status
+    fi
+}
+
+on_exit() {
+    echo ""
+    cache_status
+    exit 0
+}
+trap on_exit INT TERM
 
 if [[ "$ONCE" == true ]]; then
     render_tick
     exit 0
 fi
+
+cache_status
+echo ""
 
 while true; do
     render_tick || exit 1

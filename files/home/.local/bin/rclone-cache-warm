@@ -55,11 +55,15 @@ fi
 
 RCLONE_SOURCE=$(awk '{print $1}' <<<"$MOUNT_LINE")
 MOUNT_POINT=$(awk '{print $2}' <<<"$MOUNT_LINE")
+MOUNT_NAME="${RCLONE_SOURCE%%:*}"
 REL_PATH=$(realpath --relative-to="$MOUNT_POINT" "$TARGET")
 [[ "$REL_PATH" == "." ]] && REL_PATH=""
 
 echo "Mount:  $RCLONE_SOURCE → $MOUNT_POINT"
 echo "Target: $TARGET"
+echo ""
+rclone-cache-status --label before "$MOUNT_NAME"
+echo ""
 
 if [[ "$FAST" == true ]]; then
     echo "Refreshing directory cache (fast mode)..."
@@ -79,3 +83,6 @@ else
     echo ""
     echo "Done. $FILE_COUNT files cached."
 fi
+
+echo ""
+rclone-cache-status --label after "$MOUNT_NAME"

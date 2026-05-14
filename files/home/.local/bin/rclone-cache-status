@@ -1,0 +1,195 @@
+#!/bin/bash
+# rclone-cache-status - show VFS cache usage for rclone mounts
+#
+# Usage: rclone-cache-status [--label TEXT] [MOUNT_NAME]
+#   MOUNT_NAME      show only this remote (e.g. 'lts-g-drive'); default: all
+#   --label, -l     prefix the heading with TEXT (e.g. 'before', 'after')
+#   --help, -h      show this help
+#
+# Queries each mount's --rc endpoint for vfs/stats and prints cache size used
+# vs the configured max, cached file count, the cache max-age, and any pending
+# upload counts. Mounts started without --rc are listed as '(no --rc)' — they
+# cannot be queried.
+#
+# Used standalone, and called by rclone-cache-warm (start/end) and rclone-tail
+# (start/exit) to bracket their runs with a cache snapshot.
+
+set -euo pipefail
+
+LABEL=""
+FILTER=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -l | --label)
+            LABEL="${2:-}"
+            shift 2
+            ;;
+        -h | --help)
+            sed -n '2,/^$/p' "$0" | sed 's/^# \?//'
+            exit 0
+            ;;
+        -*)
+            echo "ERROR: unknown option: $1" >&2
+            exit 2
+            ;;
+        *)
+            if [[ -n "$FILTER" ]]; then
+                echo "ERROR: only one mount name can be specified" >&2
+                exit 2
+            fi
+            FILTER="$1"
+            shift
+            ;;
+    esac
+done
+
+if ! command -v rclone > /dev/null; then
+    echo "ERROR: rclone not found — run play-rclone.yml first" >&2
+    exit 1
+fi
+
+if [ -t 1 ]; then
+    BOLD='\033[1m'
+    DIM='\033[2m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
+    CYAN='\033[0;36m'
+    RED='\033[0;31m'
+    NC='\033[0m'
+else
+    BOLD=''
+    DIM=''
+    GREEN=''
+    YELLOW=''
+    CYAN=''
+    RED=''
+    NC=''
+fi
+
+# Emit one line per discovered rclone mount: NAME|RC_ADDR|REMOTE|MOUNTPOINT
+# RC_ADDR is empty when the mount was started without --rc.
+discover_mounts() {
+    local source target name pid cmdline rc_addr
+    findmnt -n -o SOURCE,TARGET -t fuse.rclone 2>/dev/null | while read -r source target; do
+        name="${source%%:*}"
+        if [[ -n "$FILTER" && "$name" != "$FILTER" ]]; then
+            continue
+        fi
+
+        rc_addr=""
+        # Match the rclone PID whose cmdline carries this mountpoint as a token.
+        for pid in $(pgrep -f 'rclone mount' 2>/dev/null || true); do
+            if ! cmdline=$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null); then
+                continue
+            fi
+            case "$cmdline" in
+                *" $target "* | *" $target")
+                    rc_addr=$(grep -oE -- '--rc-addr=[^ ]+' <<< "$cmdline" \
+                        | head -n1 | cut -d= -f2)
+                    break
+                    ;;
+            esac
+        done
+
+        echo "${name}|${rc_addr}|${source}|${target}"
+    done
+}
+
+# Args: rc_addr
+# Stdout (success): OK|used|max|files|queued|in_progress|errored|out_of_space|max_age_s
+# Stdout (failure): ERR|<reason>
+query_cache() {
+    local rc_addr="$1"
+    local vfs_json
+    if ! vfs_json=$(rclone rc --url="http://${rc_addr}" vfs/stats 2>/dev/null); then
+        echo "ERR|rc unreachable"
+        return
+    fi
+    if ! python3 - "$vfs_json" << 'PY' 2>/dev/null
+import json, sys
+vfs = json.loads(sys.argv[1])
+dc = vfs.get("diskCache") or {}
+opt = vfs.get("opt") or {}
+used = int(dc.get("bytesUsed", 0) or 0)
+files = int(dc.get("files", 0) or 0)
+queued = int(dc.get("uploadsQueued", 0) or 0)
+in_progress = int(dc.get("uploadsInProgress", 0) or 0)
+errored = int(dc.get("erroredFiles", 0) or 0)
+oos = 1 if dc.get("outOfSpace") else 0
+max_size = int(opt.get("CacheMaxSize", 0) or 0)
+max_age_s = int(opt.get("CacheMaxAge", 0) or 0) // 1_000_000_000
+print(f"OK|{used}|{max_size}|{files}|{queued}|{in_progress}|{errored}|{oos}|{max_age_s}")
+PY
+    then
+        echo "ERR|parse failed"
+    fi
+}
+
+fmt_bytes() {
+    numfmt --to=iec --suffix=B "$1" 2>/dev/null || echo "?"
+}
+
+# seconds → coarse human duration (cache max-age is set in hours/years)
+fmt_age() {
+    local s="$1"
+    if [[ "$s" -le 0 ]]; then
+        echo "off"
+    elif [[ "$s" -ge 86400 ]]; then
+        echo "$((s / 86400))d"
+    elif [[ "$s" -ge 3600 ]]; then
+        echo "$((s / 3600))h"
+    else
+        echo "${s}s"
+    fi
+}
+
+heading="rclone cache status"
+[[ -n "$LABEL" ]] && heading="$heading ($LABEL)"
+echo -e "${BOLD}=== ${heading} ===${NC}"
+
+mounts=$(discover_mounts)
+if [[ -z "$mounts" ]]; then
+    if [[ -n "$FILTER" ]]; then
+        echo -e "  ${YELLOW}No rclone mount matching '${FILTER}' found.${NC}"
+    else
+        echo -e "  ${YELLOW}No rclone mounts found.${NC}"
+    fi
+    exit 0
+fi
+
+while IFS='|' read -r name rc_addr _ target; do
+    if [[ -z "$rc_addr" ]]; then
+        echo -e "  ${CYAN}${name}${NC}  ${DIM}(no --rc; cannot query)${NC}"
+        continue
+    fi
+
+    result=$(query_cache "$rc_addr")
+    if [[ "${result%%|*}" == "ERR" ]]; then
+        echo -e "  ${CYAN}${name}${NC}  ${RED}error: ${result#*|}${NC}"
+        continue
+    fi
+
+    IFS='|' read -r _ used max files queued in_progress errored oos max_age_s <<< "$result"
+
+    used_h=$(fmt_bytes "$used")
+    if [[ "$max" -gt 0 ]]; then
+        max_h=$(fmt_bytes "$max")
+        pct=$((used * 100 / max))
+        pct_color="$GREEN"
+        [[ "$pct" -ge 80 ]] && pct_color="$YELLOW"
+        [[ "$pct" -ge 95 ]] && pct_color="$RED"
+        usage="${used_h} / ${max_h} ${pct_color}(${pct}%)${NC}"
+    else
+        usage="${used_h} / ∞"
+    fi
+
+    line="  ${CYAN}${name}${NC}  cache: ${usage} · ${files} files · max-age ${DIM}$(fmt_age "$max_age_s")${NC}"
+
+    [[ "$queued" -gt 0 ]] && line="$line · queued: ${queued}"
+    [[ "$in_progress" -gt 0 ]] && line="$line · uploading: ${in_progress}"
+    [[ "$errored" -gt 0 ]] && line="$line · ${RED}${errored} errored${NC}"
+    [[ "$oos" -eq 1 ]] && line="$line · ${RED}OUT OF SPACE${NC}"
+
+    echo -e "$line"
+done <<< "$mounts"
