@@ -2,7 +2,7 @@
 # SSH Handling Library
 # Shared SSH key operations for claude-yolo (ccy)
 #
-# Version: 1.0.0
+# Version: 1.0.1
 
 # Read the project's git remote URL — origin if present, else first remote.
 # Echoes the URL on stdout (or empty when the cwd isn't a git repo or has no
@@ -24,7 +24,13 @@ get_project_remote_url() {
             url=$(git -C "$repo_path" config --get "remote.${first}.url" 2>&1) || url=""
         fi
     fi
-    [ -n "$url" ] && echo "$url"
+    # An empty URL is a valid outcome (no remote configured), not an error.
+    # Must return 0 explicitly — callers assign via `var=$(...)` under `set -e`,
+    # where a non-zero command substitution would abort the whole script.
+    if [ -n "$url" ]; then
+        echo "$url"
+    fi
+    return 0
 }
 
 # Parse owner/repo from a GitHub remote URL. Handles ssh, https, and the
