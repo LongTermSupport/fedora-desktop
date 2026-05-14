@@ -895,6 +895,64 @@
               }
               {% endfor %}
 
+              # ==================== GIT BRANCH/CHECKOUT HELPERS ====================
+              # git-branch-default     — print the repo's default branch name
+              # git-checkout-default   — check out that branch
+              # Per-account variants (git-<alias>-branch-default / -checkout-default)
+              # route through the per-account git wrapper so the alias's SSH key
+              # is used for any remote operation (e.g. the ls-remote probe).
+              # The shared implementation lives in _git_branch_default_impl so the
+              # detection logic isn't duplicated across N aliases × 2 commands.
+
+              # Resolves the default branch using a cheapest-first cascade:
+              #   1. refs/remotes/origin/HEAD if previously cached locally  — no network
+              #   2. ls-remote --symref origin HEAD                          — one round-trip
+              #   3. init.defaultBranch (or "main")                          — offline fallback
+              function _git_branch_default_impl() {
+                  local -a gcmd=("$@")
+                  local ref
+
+                  if "${gcmd[@]}" symbolic-ref --quiet refs/remotes/origin/HEAD >/dev/null; then
+                      ref=$("${gcmd[@]}" symbolic-ref --short refs/remotes/origin/HEAD)
+                      echo "${ref#origin/}"
+                      return 0
+                  fi
+
+                  # stderr suppression here is the probe-then-check pattern: "no
+                  # remote" is a valid path handled by the fallback below, not an
+                  # error we want to print to the user.
+                  ref=$("${gcmd[@]}" ls-remote --symref origin HEAD 2>/dev/null \
+                        | awk '/^ref:/ {sub("refs/heads/", "", $2); print $2; exit}')
+                  if [[ -n "$ref" ]]; then
+                      echo "$ref"
+                      return 0
+                  fi
+
+                  "${gcmd[@]}" config --get --default main init.defaultBranch
+              }
+
+              function git-branch-default() {
+                  _git_branch_default_impl git
+              }
+
+              function git-checkout-default() {
+                  local branch
+                  branch=$(git-branch-default) || return $?
+                  git checkout "$branch"
+              }
+
+              {% for alias in github_accounts.keys() %}
+              function git-{{ alias }}-branch-default() {
+                  _git_branch_default_impl git-{{ alias }}
+              }
+
+              function git-{{ alias }}-checkout-default() {
+                  local branch
+                  branch=$(git-{{ alias }}-branch-default) || return $?
+                  git-{{ alias }} checkout "$branch"
+              }
+              {% endfor %}
+
               # Show which account would be used for current repository
               function git-which-account() {
                   local repo_path="${1:-.}"
@@ -1009,8 +1067,12 @@
                 git <command>           - Auto-detects account from repository remote
                 git-which-account       - Show which account will be used
                 git-accounts            - List all configured accounts
+                git-branch-default      - Print the repo's default branch (origin HEAD)
+                git-checkout-default    - Checkout the repo's default branch
               {% for alias in github_accounts.keys() %}
-                git-{{ alias }} <command>    - Force {{ alias }} account for git command
+                git-{{ alias }} <command>             - Force {{ alias }} account for git command
+                git-{{ alias }}-branch-default        - Print default branch via {{ alias }} account
+                git-{{ alias }}-checkout-default      - Checkout default branch via {{ alias }} account
               {% endfor %}
                 git-init-with-account   - Initialize repo with specific account
 
