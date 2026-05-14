@@ -307,6 +307,7 @@
                   User git
                   IdentityFile ~/.ssh/github_{{ item.key }}
                   IdentitiesOnly yes
+                  AddKeysToAgent yes
           loop: "{{ github_accounts | default({}) | dict2items }}"
 
         - name: Add default Host github.com SSH config entry
@@ -323,6 +324,7 @@
                   User git
                   IdentityFile ~/.ssh/id
                   IdentitiesOnly yes
+                  AddKeysToAgent yes
 
         # Audit GitHub-installed keys directly via the API, not via an SSH
         # roundtrip. For each account: switch, fetch installed pubkey list,
@@ -643,7 +645,7 @@
 
                   # Switch to the right account and clone
                   gh auth switch --hostname github.com --user "{{ username }}" 2>/dev/null
-                  gh repo clone "$repo_path" -- --config core.sshCommand="ssh -F /dev/null -i ~/.ssh/github_{{ alias }} -o IdentitiesOnly=yes"
+                  gh repo clone "$repo_path" -- --config core.sshCommand="ssh -F /dev/null -i ~/.ssh/github_{{ alias }} -o IdentitiesOnly=yes -o AddKeysToAgent=yes"
                   local exit_code=$?
 
                   # Set the remote to use the specific SSH key
@@ -877,7 +879,7 @@
                       # block and offer ~/.ssh/id alongside the per-account key —
                       # GitHub then accepts whichever matched first, leading to
                       # commits being attributed to the wrong account.
-                      command git -c "core.sshCommand=ssh -F /dev/null -i ~/.ssh/github_${detected_alias} -o IdentitiesOnly=yes" "$@"
+                      command git -c "core.sshCommand=ssh -F /dev/null -i ~/.ssh/github_${detected_alias} -o IdentitiesOnly=yes -o AddKeysToAgent=yes" "$@"
                   else
                       # No account detected, use standard git
                       command git "$@"
@@ -891,7 +893,7 @@
               # wrong GitHub account.
               {% for alias in github_accounts.keys() %}
               function git-{{ alias }}() {
-                  command git -c "core.sshCommand=ssh -F /dev/null -i ~/.ssh/github_{{ alias }} -o IdentitiesOnly=yes" "$@"
+                  command git -c "core.sshCommand=ssh -F /dev/null -i ~/.ssh/github_{{ alias }} -o IdentitiesOnly=yes -o AddKeysToAgent=yes" "$@"
               }
               {% endfor %}
 
