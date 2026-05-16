@@ -124,6 +124,29 @@ EOF
         ;;
 esac
 
+# ── Inhibit suspend during transfers ──────────────────────────────────────────
+# Long-running modes (FTP server, --async*, --push, --copy) must keep the
+# laptop awake — on battery the session would otherwise idle-suspend and
+# break the upload mid-flight. Self-re-exec under systemd-inhibit so logind
+# holds an idle+sleep lock for the whole run; GNOME honours both, covering
+# idle-timeout AND programmatic suspend. Cheap/interactive modes skip the
+# wrap. The guard env var prevents an exec loop on re-entry.
+case "${1:-}" in
+    --pass | --sort | --prune | -h | --help)
+        ;;
+    *)
+        if [ -z "${_FTP_CAMERA_INHIBITED:-}" ] && command -v systemd-inhibit > /dev/null; then
+            export _FTP_CAMERA_INHIBITED=1
+            exec systemd-inhibit \
+                --what=idle:sleep \
+                --who="ftp-camera" \
+                --why="Camera FTP transfer in progress" \
+                --mode=block \
+                -- "$0" "$@"
+        fi
+        ;;
+esac
+
 # ── Colours ───────────────────────────────────────────────────────────────────
 BOLD='\033[1m'
 GREEN='\033[0;32m'
@@ -921,7 +944,11 @@ cleanup() {
         # pipeline; kill its children first so the upstream tail and awk
         # can't keep writing to a stats file we're about to read. In
         # default mode this is a no-op (inotifywait has no children).
-        pkill -P "$MONITOR_PID" 2>/dev/null
+        # `|| true`: pkill -P returns 1 when no children exist (the default-
+        # mode case), which would trip `set -e` and abort cleanup before
+        # vsftpd/firewall teardown — that's the bug that left the FTP
+        # server running and the prompt showing "General error" after Ctrl+C.
+        pkill -P "$MONITOR_PID" 2>/dev/null || true
         kill "$MONITOR_PID"
         # `|| true`: wait returns non-zero for signal-killed processes,
         # which is the normal path here. Required so the final
