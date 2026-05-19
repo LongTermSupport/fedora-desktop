@@ -119,7 +119,7 @@
             state: present
           become: true
 
-        - name: Add user to mock group (effective on next login or via `become_flags: -i`)
+        - name: Add user to mock group (effective on next login or via login-shell become)
           ansible.builtin.user:
             name: "{{ user_login }}"
             groups: mock
