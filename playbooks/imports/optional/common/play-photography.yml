@@ -19,6 +19,13 @@
     art_url: "https://github.com/artraweditor/ART/releases/download/{{ art_version }}/{{ art_appimage }}"
     art_sha256: "6c072495b39bb30219bc71d656b6f7557830259e2f34b9f17d3d6ece3355eede"
     art_install_path: "/opt/{{ art_appimage }}"
+    # Sony A7V (ILCE-7M5) rawspeed cameras.xml override — pinned to rawspeed develop HEAD.
+    # @see Sony A7V bodge block in tasks: section below for full rationale and retirement steps.
+    rawspeed_commit: "aa9028af9c563ebd4d8e6c5b74f05b0db1233d14"
+    rawspeed_cameras_xml_url: "https://raw.githubusercontent.com/darktable-org/rawspeed/{{ rawspeed_commit }}/data/cameras.xml"
+    rawspeed_cameras_xml_sha256: "d3d4d97f368c24da587350d68f51fe11fedfb307c6b2c960a5b6aa441c648d57"
+    darktable_cameras_xml_path: "/usr/share/darktable/rawspeed/cameras.xml"
+    darktable_cameras_xml_backup: "/usr/share/darktable/rawspeed/cameras.xml.dist"
 
   tasks:
     - name: Install Photography Packages
@@ -39,6 +46,93 @@
           - perl-Image-ExifTool  # CLI tool for reading/writing EXIF/IPTC/XMP metadata
         state: present
       tags: photography
+
+    # ---------------------------------------------------------------------------
+    # Sony A7V (ILCE-7M5) RAW format bodge
+    #
+    # Darktable in current Fedora releases lacks native Sony A7V (ILCE-7M5) ARW
+    # support. The cameras.xml decoder + colour matrix entries landed in rawspeed
+    # develop but have not yet shipped in a darktable release. Until that
+    # happens we override the system cameras.xml with a pinned snapshot from
+    # rawspeed develop.
+    #
+    # RETIREMENT: When Fedora ships a darktable RPM that includes A7V natively,
+    # the final task in this block ("Notify if Stock Darktable Already Supports
+    # Sony A7V") prints a notice on the next playbook run. At that point:
+    #   1. Verify A7V .ARW files open in stock darktable (restore stock with
+    #      `sudo mv {{ darktable_cameras_xml_backup }} {{ darktable_cameras_xml_path }}`
+    #      and confirm)
+    #   2. Delete this entire darktable-a7v block AND the rawspeed_*, darktable_cameras_xml_*
+    #      vars from the vars: section above
+    #
+    # BUMPING the pin (if a newer rawspeed develop commit fixes more cases):
+    #   1. curl -fsSL https://api.github.com/repos/darktable-org/rawspeed/commits/develop | jq -r .sha
+    #   2. curl -fsSL https://raw.githubusercontent.com/darktable-org/rawspeed/<sha>/data/cameras.xml | sha256sum
+    #   3. Update rawspeed_commit and rawspeed_cameras_xml_sha256 above
+    #   4. Verify the new cameras.xml still contains a real ILCE-7M5 Camera entry
+    #      with a non-placeholder ColorMatrix (NOT the 7460 -2365 -588 placeholder
+    #      pasted in github issue #19917 comments)
+    #
+    # @see https://github.com/darktable-org/darktable/issues/19917
+    # ---------------------------------------------------------------------------
+    - name: Inspect Current Darktable Cameras.xml State
+      ansible.builtin.stat:
+        path: "{{ darktable_cameras_xml_path }}"
+        checksum_algorithm: sha256
+        get_checksum: true
+      register: dt_cameras_state
+      tags: darktable-a7v
+
+    - name: Probe Pre-Patch Cameras.xml for Sony A7V Entry
+      ansible.builtin.command:
+        cmd: grep -q '<Camera make="SONY" model="ILCE-7M5">' {{ darktable_cameras_xml_path }}
+      register: dt_a7v_grep
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe; rc 1 == "no match" is a valid state we branch on below
+      when: dt_cameras_state.stat.exists
+      tags: darktable-a7v
+
+    - name: Back Up Stock Darktable Cameras.xml Before First Patch
+      ansible.builtin.copy:
+        src: "{{ darktable_cameras_xml_path }}"
+        dest: "{{ darktable_cameras_xml_backup }}"
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0644"
+        force: false  # Preserve the very first stock copy so dnf upgrades can be diffed against it
+      when: dt_cameras_state.stat.exists
+      tags: darktable-a7v
+
+    - name: Patch Darktable Rawspeed Cameras.xml with Sony A7V Support
+      ansible.builtin.get_url:
+        url: "{{ rawspeed_cameras_xml_url }}"
+        dest: "{{ darktable_cameras_xml_path }}"
+        checksum: "sha256:{{ rawspeed_cameras_xml_sha256 }}"
+        owner: root
+        group: root
+        mode: "0644"
+      when: dt_cameras_state.stat.exists
+      tags: darktable-a7v
+
+    - name: Notify if Stock Darktable Already Supports Sony A7V (Retire Bodge)
+      ansible.builtin.debug:
+        msg: |
+          The Fedora-shipped darktable cameras.xml ALREADY contained an
+          ILCE-7M5 entry BEFORE this patch was applied, AND its sha256
+          does not match our pinned snapshot. Fedora has likely caught
+          up — this bodge is no longer needed.
+
+          Action:
+            1. Restore stock: sudo mv {{ darktable_cameras_xml_backup }} {{ darktable_cameras_xml_path }}
+            2. Verify your A7V .ARW files open correctly in stock darktable
+            3. Delete the darktable-a7v task block AND the rawspeed_* /
+               darktable_cameras_xml_* vars from play-photography.yml
+      when:
+        - dt_cameras_state.stat.exists
+        - dt_a7v_grep.rc == 0
+        - dt_cameras_state.stat.checksum != rawspeed_cameras_xml_sha256
+      tags: darktable-a7v
 
     # RapidRAW: GPU-accelerated RAW editor (wgpu/Vulkan). Installed as native RPM
     # rather than Flatpak to avoid NVIDIA DMA-buf blank window bug and Vulkan
@@ -211,6 +305,11 @@
                                    with improved tone mapping, masking, and local edits
             raw-prune            - Recursively delete RAWs in CWD with no matching JPG
                                    (run with --help for usage and --dry-run to preview)
+
+          Sony A7V (ILCE-7M5) support: patched into darktable rawspeed cameras.xml
+          (bodge — pinned to rawspeed develop {{ rawspeed_commit[:7] }}). Stock file backed up at
+          {{ darktable_cameras_xml_backup }}. See the darktable-a7v task block above for
+          retirement procedure when Fedora ships native A7V support.
 
           Launch from the applications menu, or on the command line:
             rawtherapee
