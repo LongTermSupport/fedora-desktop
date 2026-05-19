@@ -1,6 +1,6 @@
 # Plan 00039: Darktable AI Features
 
-**Status**: Research Complete — Awaiting Decision Gate
+**Status**: Phase 2 In Progress — local source-built RPM playbook drafted; pending host deploy + overlay retirement
 **Created**: 2026-05-19
 **Owner**: joseph
 **Priority**: Medium
@@ -91,7 +91,7 @@ picking this plan up cold.
 
 User-input questions that must be resolved before writing any playbook:
 
-- [ ] ⬜ **D1**: Implementation path for the AI-enabled darktable binary?
+- [x] ✅ **D1**: Implementation path for the AI-enabled darktable binary?
   - **Option A — Local source RPM** (recommended): fork the Fedora spec,
     add `-DUSE_AI=ON`, apply the A7V cameras.xml as a build-time patch,
     build via `mock` (idempotent) or `rpmbuild`, install as the standard
@@ -101,25 +101,22 @@ User-input questions that must be resolved before writing any playbook:
     `Darktable-5.4.1-x86_64.AppImage` as `darktable-ai` alongside the
     Fedora RPM. No build cost; cannot patch A7V into AppImage's bundled
     rawspeed → A7V users keep using the RPM for non-AI work.
-  - **Recommendation**: **Option A**. The build is trivial (cmake
-    auto-downloads ONNX Runtime); ongoing cost is ~15 min per darktable
-    release; A7V support is preserved without an overlay.
-- [ ] ⬜ **D2** (only if D1=A): build host strategy?
+  - **Decision**: **Option A — local source-built RPM**.
+- [x] ✅ **D2** (only if D1=A): build host strategy?
   - **Option A1 — `mock`**: Fedora's standard tool for isolated RPM builds.
     Installed via Ansible, reproducible. Slower first run (downloads
     chroot), fast subsequent runs.
   - **Option A2 — direct `rpmbuild` on host**: simpler, faster, no chroot
     isolation. Risk: BuildRequires installed on host become permanent.
-  - **Recommendation**: **mock**. The repo already values reproducibility;
-    isolation prevents `*-devel` packages cluttering the host.
-- [ ] ⬜ **D3**: Enable GPU acceleration phase (Phase 3) in this plan, or
+  - **Decision**: **Option A1 — mock**.
+- [x] ✅ **D3**: Enable GPU acceleration phase (Phase 3) in this plan, or
   ship CPU-only AI first and add GPU as a follow-up plan?
   - Both laptops need to be handled. Laptop A (current) has NVIDIA; laptop B
     does not. The GPU playbook MUST detect hardware and no-op cleanly on
     non-NVIDIA machines.
-  - **Recommendation**: **CPU-only first** (Phase 2 only), then Phase 3 in
-    a second pass after Phase 2 is verified on both machines. Splitting
-    the work makes regressions easier to attribute.
+  - **Decision**: **CPU-only first** — Phase 2 only this round; Phase 3
+    deferred to a follow-up session after Phase 2 is verified on both
+    laptops.
 
 ### Phase 2: Source-Built `darktable` RPM with AI (primary path, gated on D1=A)
 
@@ -132,43 +129,55 @@ Structure: new playbook
 existing `play-photography.yml` is left alone except to drop its A7V
 overlay tasks (now redundant) and update its success message.
 
-- [ ] ⬜ **T2.1**: Install build tooling (host, idempotent):
-  - `mock` (D2=A1) or `rpm-build` + `rpmdevtools` (D2=A2)
-  - Add `{{ user_login }}` to the `mock` group (D2=A1) — requires log-out
-    or `newgrp mock`
-- [ ] ⬜ **T2.2**: Fetch the upstream Fedora rawhide darktable spec at
-  playbook run time:
-  `https://src.fedoraproject.org/rpms/darktable/raw/rawhide/f/darktable.spec`
-  to `/tmp/darktable.spec`. Pin a known-good commit hash (fetched
-  fresh once per darktable release) for reproducibility — store the
-  hash in a vars file alongside the version number.
-- [ ] ⬜ **T2.3**: Apply spec mutations via `ansible.builtin.replace` /
+- [x] ✅ **T2.1**: Install build tooling (host, idempotent):
+  - `mock` (D2=A1)
+  - Add `{{ user_login }}` to the `mock` group — playbook handles this and
+    uses `become_flags: -i` on the mock step so login-shell re-reads
+    groups (no logout required).
+- [x] ✅ **T2.2**: Clone Fedora dist-git for darktable at a pinned f43 commit
+  (`f35a6d085e8f130f6eaa10976b353333602c2bbd`) for spec + Patch0 +
+  `sources` file. SHA-512 for the source tarball pinned in playbook vars
+  from the dist-git `sources` lookaside entry.
+- [x] ✅ **T2.3**: Apply spec mutations via `ansible.builtin.replace` /
   `lineinfile`:
-  - Add `-DUSE_AI=ON` to the `%cmake` invocation
-  - Bump `Release:` tag with a local suffix (e.g. `5.4.1-1.ai.fc43`) so
-    `dnf` prefers it over the official one
-  - Add the A7V `cameras.xml` patch as `Patch5:` and the corresponding
-    `%autosetup` apply
-- [ ] ⬜ **T2.4**: Drop the A7V cameras.xml override file into `~/rpmbuild/ SOURCES/` (or mock's source dir). Source: the same pinned rawspeed
-  commit currently used by `play-photography.yml`. The patch should
-  modify `src/external/rawspeed/data/cameras.xml` in the darktable
-  source tree.
-- [ ] ⬜ **T2.5**: Build the SRPM (`rpmbuild -bs darktable.spec`) and the
-  binary RPMs (D2=A1: `mock --rebuild`; D2=A2: `rpmbuild -bb`). Use
-  `args: creates:` so a re-run with the same version is a no-op.
-- [ ] ⬜ **T2.6**: Install the resulting RPMs via `dnf`:
-  - `darktable-5.4.1-1.ai.fc43.x86_64.rpm`
-  - `darktable-tools-noise-*.rpm`
-  - `darktable-tools-basecurve-*.rpm`
-- [ ] ⬜ **T2.7**: Drop the now-obsolete A7V overlay tasks from
-  `play-photography.yml` (the entire `darktable-a7v` block) — replaced
-  by the build-time patch in T2.4. Update the playbook's final
-  Description Block to mention that A7V support is now built-in via the
-  custom AI-enabled build.
-- [ ] ⬜ **T2.8**: `uri:` check against the upstream darktable releases API
+  - Add `-DUSE_AI=ON` to the Fedora-branch `%cmake` invocation (regex
+    anchors on `-DRAWSPEED_ENABLE_LTO=ON\n%endif` which only matches the
+    Fedora arm, not the RHEL/8 arm).
+  - Replace `Release: %autorelease` with `Release: 100.ai%{?dist}` —
+    the `100.` prefix ensures our build sorts above stock Fedora
+    releases (single-digit `%autorelease`) so `dnf upgrade` will not
+    silently downgrade to stock.
+  - Replace `%autochangelog` with a static entry (no rpkg-macros dependency).
+  - Add A7V `cameras.xml` overlay — see T2.4 note for Patch5 →
+    Source5+cp deviation.
+  - `grep -qE` verification task confirms each of the four mutations
+    landed before the build runs.
+- [x] ✅ **T2.4**: A7V `cameras.xml` overlay — implemented as `Source5:` +
+  a `cp %{SOURCE5} src/external/rawspeed/data/cameras.xml` line injected
+  after `%autosetup -p1`. **Deviation from original plan**: the original
+  task called for `Patch5:`, but a unified diff would have to be
+  generated at run time from both the stock cameras.xml (inside the
+  tarball) and the rawspeed-develop replacement — brittle and adds a
+  diff-generation step with no functional benefit. Source5+cp produces
+  the same in-tree state (the rawspeed cameras.xml replaces the stock
+  one before `%build`) with far less complexity.
+- [x] ✅ **T2.5**: Build SRPM (`rpmbuild -bs --define '_topdir ...'`) then
+  binary RPMs via `mock --rebuild --enable-network`. Both tasks use
+  `creates:` guards so re-runs at the same VR are no-ops.
+- [x] ✅ **T2.6**: Install the resulting RPMs via `ansible.builtin.dnf`:
+  - `darktable-5.4.1-100.ai.fc43.x86_64.rpm`
+  - `darktable-tools-noise-5.4.1-100.ai.fc43.x86_64.rpm`
+  - `darktable-tools-basecurve-5.4.1-100.ai.fc43.x86_64.rpm`
+- [x] ✅ **T2.7**: Dropped the entire `darktable-a7v` task block and the
+  `rawspeed_*` / `darktable_cameras_xml_*` vars from
+  `play-photography.yml`. Replaced the Sony A7V paragraph in the success
+  message with a pointer to `play-darktable-ai-build.yml`. Added a brief
+  comment in the tasks block (where the overlay used to live) explaining
+  the migration and where A7V support now comes from.
+- [x] ✅ **T2.8**: `uri:` check against the upstream darktable releases API
   to warn if a newer version exists (pin update reminder, same pattern as
   ART/RapidRAW).
-- [ ] ⬜ **T2.9**: Success message: explicit step-by-step Preferences →
+- [x] ✅ **T2.9**: Success message: explicit step-by-step Preferences →
   AI tab → enable → Download models for denoise / upscale / segmentation.
 
 ### Phase 2-alt: AppImage Install (fallback, gated on D1=B)
@@ -421,6 +430,29 @@ within one or two sessions. Phase 3 may slip to a separate session.
 - GPU ORT install is fully Ansible-replicable from
   `tools/ai/install-ort-gpu.sh`. Manifest at `data/ort_gpu.json`.
 - Awaiting Phase 1 decision gate before any code/playbook changes.
+
+### 2026-05-19 — Phase 2 implementation
+
+- Decision gate closed: D1=A (source-built RPM), D2=A1 (mock), D3=defer
+  Phase 3 to a follow-up session.
+- New playbook drafted at
+  `playbooks/imports/optional/common/play-darktable-ai-build.yml`.
+- Pinned `darktable_distgit_commit: f35a6d085e8f130f6eaa10976b353333602c2bbd` (current HEAD of Fedora
+  `f43` branch) and `darktable_tarball_sha512` from the f43 `sources`
+  lookaside file.
+- Release tag bumped from the original plan's `1.ai.fc43` to
+  `100.ai.fc43`. RPM version-compare on `1.ai.fc43` vs Fedora's
+  `2.fc43` would have ranked our build LOWER (numeric `1` < `2`),
+  causing `dnf upgrade` to silently downgrade to stock. The
+  `100.ai.fc43` prefix sorts higher than any plausible single- or
+  double-digit `%autorelease` from Fedora.
+- T2.4 implemented as `Source5:` + `cp` line rather than `Patch5:`
+  (deviation rationale captured in the task entry above).
+- `play-photography.yml` overlay deletion (T2.7) is pending user
+  confirmation before commit — per the execution prompt
+  "Confirm before deleting the overlay block."
+- Phase 3 (`play-darktable-ai-gpu.yml`) remains untouched in this
+  session.
 
 ### 2026-05-19 — revision after user prompt
 
