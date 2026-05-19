@@ -6,8 +6,13 @@
 # CRITICAL: Pipes JSON directly - NEVER store in shell variables.
 # CRITICAL: All errors output valid JSON to stdout for agent visibility.
 #
+# Plan 00101 Phase 9: forward_stop_event in init.sh translates the daemon's
+# JSON decision=block response into the exit-code-2 + stderr contract that
+# Claude Code v2.1.114 honours for hard re-entry. The daemon CANNOT set
+# this process's exit code from its own Python — the bash wrapper must.
+#
 
-set -euo pipefail
+set -uo pipefail  # not -e: forward_stop_event returns 2 on block (desired)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../init.sh"
@@ -19,6 +24,5 @@ if ! ensure_daemon; then
     exit 0  # Exit 0 so Claude processes the JSON response
 fi
 
-# Pipe directly from stdin through jq to daemon - no shell variable storage
-# send_request_stdin handles socket errors internally and outputs JSON on failure
-jq -c '{event: "Stop", hook_input: .}' | send_request_stdin
+forward_stop_event "Stop"
+exit $?  # propagate 0 (allow) or 2 (block / hard re-entry)
