@@ -12,6 +12,11 @@
     # Legacy upload dir from before the ftp-camera/ftp-camera naming alignment.
     # Used by the migration task below to move existing data into the new path.
     ftp_camera_upload_dir_legacy: "/srv/camera-ftp"
+    # Name of the NetworkManager connection profile to tune for hotspot
+    # mode. GNOME's WiFi-Hotspot quick-settings toggle creates a profile
+    # called "Hotspot" by default — that's what this assumes. Override in
+    # host_vars/localhost.yml if you've renamed it.
+    ftp_camera_hotspot_connection: "Hotspot"
 
     # NOTE: ftp_camera_rclone_remote is intentionally NOT defined here.
     # Play `vars:` have HIGHER precedence than inventory host_vars, so setting
@@ -228,6 +233,56 @@
         group: root
         mode: "0644"
 
+    # Hotspot tuning: bump the NetworkManager AP profile to 2.4GHz channel 6
+    # at 40MHz width — the only legal 40MHz configuration in the GB regdomain
+    # for 2.4GHz APs, doubling theoretical PHY rate over the GNOME default
+    # of channel 1 / 20MHz. 5GHz AP is blocked on Intel CNVi cards by the
+    # IR-CONCURRENT regdomain flag (no concurrent client+AP), so 40MHz on
+    # ch6 is the best we can do on this hardware class.
+    #
+    # The block is a no-op when no NM profile by that name exists — typical
+    # for a fresh machine that hasn't toggled the hotspot in GNOME yet. In
+    # that case we just print a one-liner pointing the user at the toggle.
+    - name: Tune hotspot connection for max 2.4GHz throughput
+      block:
+        - name: Check whether the NetworkManager hotspot profile exists
+          ansible.builtin.command:
+            cmd: "nmcli -t -f NAME connection show"
+          register: ftp_camera_nm_conns
+          changed_when: false
+          check_mode: false
+
+        - name: Apply band=bg, channel=6, channel-width=40MHz to the hotspot profile
+          ansible.builtin.command:
+            cmd: >-
+              nmcli connection modify "{{ ftp_camera_hotspot_connection }}"
+              802-11-wireless.band bg
+              802-11-wireless.channel 6
+              802-11-wireless.channel-width 40
+          when: ftp_camera_hotspot_connection in ftp_camera_nm_conns.stdout_lines
+          # nmcli modify writes to disk unconditionally; no idempotency check
+          # short of reading every field back, which isn't worth it.
+          changed_when: true
+
+        - name: Note when no hotspot profile is present yet
+          ansible.builtin.debug:
+            msg: |
+              NetworkManager profile '{{ ftp_camera_hotspot_connection }}' not found.
+              To create it, toggle WiFi Hotspot in GNOME Settings → Wi-Fi
+              (or run: nmcli device wifi hotspot ssid <name> password <pw>),
+              then re-run this playbook to tune it for channel 6 / 40MHz.
+          when: ftp_camera_hotspot_connection not in ftp_camera_nm_conns.stdout_lines
+
+        - name: Note that the tune takes effect on next hotspot activation
+          ansible.builtin.debug:
+            msg: |
+              Hotspot tuned: band=bg channel=6 channel-width=40MHz.
+              Bounce the connection to apply if it's currently up:
+                nmcli connection down "{{ ftp_camera_hotspot_connection }}"
+                nmcli connection up   "{{ ftp_camera_hotspot_connection }}"
+              Or toggle the hotspot off-and-on via GNOME quick settings.
+          when: ftp_camera_hotspot_connection in ftp_camera_nm_conns.stdout_lines
+
     - name: Display installation summary
       ansible.builtin.debug:
         msg: |
@@ -281,6 +336,16 @@
 
           Note: camera and PC must be on the same Wi-Fi network.
           Note: log out and back in for group membership to take effect.
+
+          Hotspot mode (security + speed on untrusted networks):
+            Toggle GNOME Settings → Wi-Fi → Hotspot ON. The camera then
+            connects directly to the laptop's AP, bypassing any public
+            WiFi. ftp-camera detects the hotspot and binds the right IP
+            automatically (it also opens FTP in the nm-shared firewall
+            zone, which is otherwise restrictive).
+            This playbook tunes the hotspot connection for 40MHz on
+            channel 6 (~2x throughput vs the GNOME 20MHz default) when
+            the profile '{{ ftp_camera_hotspot_connection }}' exists.
           ============================================================
 
   handlers:
