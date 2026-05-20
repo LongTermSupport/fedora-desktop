@@ -132,22 +132,27 @@ EOF
 run_launcher_tui() {
     local picker="$1"  # "gum" or "fzf"
 
+    # Server modes (default / async / async-copy) are tagged "[+viewer]"
+    # to advertise that picking one of them surfaces the optional viewer
+    # picker in step 2. Non-server modes exit immediately and have nothing
+    # to view, so they're listed without the tag.
     local mode_lines=(
-        "default      Start FTP server, sort at end on Ctrl+C"
-        "async        Sort each upload as it arrives"
-        "async-copy   Sort + per-file rclone copy as uploads arrive"
-        "sort         Sort already-uploaded files and exit"
-        "push         Direct rclone push of the sort tree and exit"
-        "copy         Mount-write-through copy with verify and exit"
-        "prune        Delete orphan RAW files (interactive) and exit"
-        "pass         Print FTP password and exit"
+        "default      [+viewer]  Start FTP server, sort at end on Ctrl+C"
+        "async        [+viewer]  Sort each upload as it arrives"
+        "async-copy   [+viewer]  Sort + per-file rclone copy as uploads arrive"
+        "sort                    Sort already-uploaded files and exit"
+        "push                    Direct rclone push of the sort tree and exit"
+        "copy                    Mount-write-through copy with verify and exit"
+        "prune                   Delete orphan RAW files (interactive) and exit"
+        "pass                    Print FTP password and exit"
     )
+    local mode_header="Step 1/2 — pick a primary mode  (viewer offered next for [+viewer] modes)"
 
     local mode_choice
     if [ "$picker" = gum ]; then
         # gum choose returns 130 on Esc/Ctrl-C; the `if !` captures that
         # so we can exit cleanly without a stack trace.
-        if ! mode_choice=$(gum choose --header "ftp-camera: pick a mode" \
+        if ! mode_choice=$(gum choose --header "$mode_header" \
                                       "${mode_lines[@]}"); then
             echo "Cancelled." >&2
             exit 130
@@ -155,7 +160,7 @@ run_launcher_tui() {
     else
         if ! mode_choice=$(printf '%s\n' "${mode_lines[@]}" \
                 | fzf --height 40% --no-info --no-sort \
-                      --header "ftp-camera: pick a mode"); then
+                      --header "$mode_header"); then
             echo "Cancelled." >&2
             exit 130
         fi
@@ -179,10 +184,11 @@ run_launcher_tui() {
                 "view RAW"
                 "view JPG"
             )
+            local viewer_header="Step 2/2 — viewer?  (rare; usually leave 'no viewer')"
             local viewer_choice
             if [ "$picker" = gum ]; then
                 if ! viewer_choice=$(gum choose \
-                        --header "Viewer? (rare — usually none)" \
+                        --header "$viewer_header" \
                         --selected "no viewer" \
                         "${viewer_lines[@]}"); then
                     echo "Cancelled." >&2
@@ -193,7 +199,7 @@ run_launcher_tui() {
                 # is line 1, so it's the default-highlighted choice.
                 if ! viewer_choice=$(printf '%s\n' "${viewer_lines[@]}" \
                         | fzf --height 20% --no-info --no-sort \
-                              --header "Viewer? (rare — usually none)"); then
+                              --header "$viewer_header"); then
                     echo "Cancelled." >&2
                     exit 130
                 fi
