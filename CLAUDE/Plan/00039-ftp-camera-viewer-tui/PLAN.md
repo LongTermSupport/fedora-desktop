@@ -629,3 +629,35 @@ Material changes from the previous revision:
 
 Decisions added: 5 (orthogonal modifier), 6 (banner format).
 Decision 2 (class filter) and 4 (pre-warm) rewritten.
+
+### 2026-05-20 (geeqie refresh bug + fix)
+
+Live testing (3-frame ARW burst over the laptop hotspot) confirmed the
+viewer hook fires correctly — the `view DSC03XXX.ARW → geeqie` log line
+prints on every arrival — but the geeqie window does NOT switch to the
+new image. It stays stuck on the first frame (or the pre-warmed folder).
+
+Research (see [geeqie-refresh-research.md](geeqie-refresh-research.md))
+identified the root cause: geeqie 2.x's single-instance behaviour is
+GApplication / session-D-Bus based. The bare `geeqie "$file" &` form,
+when launched from inside an `inotifywait` / `tail|awk|while` pipeline,
+is vulnerable to stale or missing `DBUS_SESSION_BUS_ADDRESS` inheritance
+— `g_application_register()` then falls back to non-unique mode and the
+new invocation silently spawns its own primary instead of routing to the
+user-visible window.
+
+Fix applied to `display_in_viewer()` in `files/home/.local/bin/ftp-camera`:
+
+- Switched from positional path to `geeqie --file=PATH` — the documented
+  remote-control entry point (calls `layout_set_path` + `gtk_window_present`
+  on the existing primary).
+- Wrapped in `setsid -f` to fully detach into its own session/PGID, removing
+  the pipeline-attachment failure mode.
+- Defensive `GQ_NEW_INSTANCE=` env scrub so an accidentally inherited value
+  cannot force G_APPLICATION_NON_UNIQUE.
+- No `|| true` needed: `setsid -f` returns 0 from the parent once the fork
+  completes, regardless of the child geeqie process outcome.
+
+No playbook change required — geeqie is already installed via
+`play-photography.yml`. Fallback to `imv` (Wayland-native, real Unix-socket
+IPC) documented in the research doc if this fix still misfires in live use.

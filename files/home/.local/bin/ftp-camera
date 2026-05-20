@@ -1183,12 +1183,28 @@ viewer_class_matches() {
 # Prints a visible "view" event line on the user's terminal so the
 # user can see the hook firing; geeqie's stdout/stderr stays muted to
 # avoid GTK warning spam in the upload stream.
+# Open one file in geeqie. Uses --file=, which is geeqie 2.x's documented
+# remote-control entry point: layout_set_path() + gtk_window_present() on the
+# existing primary (geeqie is single-instance via GApplication / session D-Bus).
+#
+# Why `setsid -f` instead of `&`:
+#   The naive `geeqie "$file" &` form is called from inside a tail|awk|while
+#   pipeline (default mode) or an inotifywait subshell (async modes). When the
+#   backgrounded invocation inherits a stale or missing DBUS_SESSION_BUS_ADDRESS
+#   it falls back to G_APPLICATION_NON_UNIQUE and silently spawns a new primary
+#   instead of routing to the user-visible window — manifesting as "view log
+#   line fires but the window never switches". `setsid -f` fully detaches into
+#   its own session/PGID, removing the pipeline-attachment failure mode, and
+#   returns 0 from the parent once the fork completes.
+#
+# `GQ_NEW_INSTANCE=` defensively clears the env var geeqie reads to force
+# non-unique mode; an accidental inheritance breaks single-instance routing.
 display_in_viewer() {
     local file="$1"
     local ts
     ts=$(date '+%H:%M:%S')
     echo -e "  [${CYAN}${ts}${NC}] ${GREEN}view${NC}  $(basename "$file")  → geeqie"
-    geeqie "$file" > /dev/null 2>&1 &
+    GQ_NEW_INSTANCE= setsid -f geeqie --file="$file" > /dev/null 2>&1
 }
 
 # Background loop for the viewer in default (non-sort) mode. Tails the
