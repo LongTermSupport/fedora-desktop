@@ -1,15 +1,13 @@
 # Plan 00039: Darktable AI Features
 
-**Status**: BLOCKED on the darktable 5.6.0 release — the AI premise was wrong.
-The Phase 2 build succeeded *mechanically* and installed
-`darktable-5.4.1-100.ai.fc43` with the Sony A7V camera fix baked in, but
-**darktable 5.4.1 has no AI features at all** — AI ships in darktable **5.6.0**,
-which is **not released yet** (expected ~June 2026). `-DUSE_AI=ON` is a no-op on
-5.4.1. The A7V source-build work is genuine and complete; the AI goal cannot be
-met until 5.6.0 exists. See
-[research-ai-version-correction.md](research-ai-version-correction.md). Awaiting
-a user decision on the AI path (wait for 5.6.0 / build from master-nightly /
-nightly AppImage).
+**Status**: AI path delivered (Phase 2-alt). Per decision **D4**, the AI build
+is the upstream darktable **nightly**, installed as a separate `darktable-ai`
+app alongside the stable A7V darktable RPM. `play-darktable-ai-appimage.yml`
+extracts the nightly AppImage, overlays the working Sony A7V `cameras.xml`, and
+the result is verified decoding real A7V `.ARW` files (2026-05-20). The AI
+subsystem is compiled in (`AI -> ENABLED`). Remaining: **Phase 3** — NVIDIA GPU
+acceleration for the AI models. See
+[research-ai-version-correction.md](research-ai-version-correction.md).
 **Created**: 2026-05-19
 **Owner**: joseph
 **Priority**: Medium
@@ -223,7 +221,16 @@ overlay tasks (now redundant) and update its success message.
 - [x] ✅ **T2.9**: Success message: explicit step-by-step Preferences →
   AI tab → enable → Download models for denoise / upscale / segmentation.
 
-### Phase 2-alt: AppImage Install (fallback, gated on D1=B)
+### Phase 2-alt: AppImage Install — ✅ DONE (the AI delivery path, per D4)
+
+> **2026-05-20**: this phase became the actual AI delivery path. The task
+> list below is **superseded** — it was written for a *pinned release*
+> AppImage and to live inside `play-photography.yml`. The real implementation
+> is a standalone playbook, `play-darktable-ai-appimage.yml`, targeting the
+> rolling **nightly** (the release AppImage has no AI). It extracts the
+> AppImage to a stable AppDir and overlays the working A7V `cameras.xml`.
+> See the 2026-05-20 D4 implementation note at the end of this file. Original
+> task list kept for history.
 
 If D1=B is chosen instead, this replaces Phase 2 above. Mirror the existing
 ART AppImage install block. Tag: `darktable-ai-appimage`.
@@ -754,3 +761,53 @@ value of Phase 3 (GPU acceleration), since SAM2.1 is heavy on CPU.
 
 **Playbook naming**: `play-darktable-ai-build.yml` currently builds a
 non-AI darktable. Rename / re-scope deferred until D4 is decided.
+
+### 2026-05-20 — D4 decided: coexist (A7V RPM + AI nightly), AI path shipped
+
+**Decision D4** (user): install **both** — keep the stable, A7V-enabled
+darktable RPM, *and* add an AI-capable darktable alongside it. Try the AI
+even though it is a development build. Proceed with the GPU phase too.
+
+**Implementation — `play-darktable-ai-appimage.yml`** (new playbook):
+
+- Installs the upstream darktable **nightly** as a separate `darktable-ai`
+  app. The nightly is built from `master` with `-DUSE_AI=ON`; verified
+  `AI -> ENABLED` in its compile options. The stable darktable RPM is
+  untouched at `/usr/bin/darktable`.
+- The nightly is a rolling release (asset filename embeds a git-describe
+  string), so the playbook discovers the current asset from the GitHub
+  `releases/tags/nightly` API at run time. A marker file inside the AppDir
+  records which build is extracted, so re-runs are no-ops until upstream
+  publishes a newer nightly.
+- **Sony A7V**: the nightly's bundled rawspeed `cameras.xml` carries the
+  A7V (ILCE-7M5) only as a non-functional stub
+  (`supported="unknown-no-samples"`, no sensor data). darktable has **no
+  user-level `cameras.xml` override** — confirmed from source
+  (`imageio_rawspeed.cc` reads only `{datadir}/rawspeed/cameras.xml`). So
+  the playbook **extracts the AppImage to a stable AppDir**
+  (`/opt/darktable-ai/AppDir`) and overlays the working A7V `cameras.xml`
+  — the same pinned rawspeed file (`aa9028af`) the RPM build uses. No
+  `cameras.xsd` needed (runtime does not validate).
+- **Verified**: `darktable-rs-identify` on a real A7V `.ARW` from the
+  user's photo library returns rc=0 with full decode — model ILCE-7M5,
+  7032×4688, black/white levels, Bayer CFA. A7V genuinely works.
+- **Coexistence safety**: `darktable-ai` is a wrapper
+  (`files/usr/local/bin/darktable-ai`) that runs the AppDir with an
+  **isolated** `--configdir`/`--cachedir` (`~/.config/darktable-ai`), so
+  the nightly cannot upgrade — and thereby corrupt — the library database
+  used by the stable RPM. The AI build starts with its own empty library.
+
+**Phase 2-alt status**: ✅ done (superseded task list T2alt.1–T2alt.8; see
+the banner under that heading).
+
+**Still open**:
+
+- **Phase 3 — NVIDIA GPU acceleration** (user explicitly wants it). The AI
+  models, especially the SAM2.1 object-mask tool, are heavy on CPU. The
+  nightly bundles a CPU-only ONNX Runtime; GPU needs a separate
+  GPU-enabled ORT (`~/.local/lib/onnxruntime-cuda/`), CUDA Toolkit 12.x/
+  13.x, and cuDNN 9.x, with darktable pointed at it via `DT_ORT_LIBRARY`.
+  See research.md §4 (sourced from `master`, still valid).
+- Phase 5 docs/cleanup; `play-darktable-ai-build.yml` rename (it builds the
+  A7V RPM, not an AI build — a `play-darktable-a7v-rpm.yml` rename is the
+  tidy end state, deferred to avoid churn).
