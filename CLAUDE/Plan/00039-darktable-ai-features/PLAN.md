@@ -1,6 +1,15 @@
 # Plan 00039: Darktable AI Features
 
-**Status**: Phase 2 COMPLETE — the AI-enabled `darktable-5.4.1-100.ai.fc43` RPM is built and installed on the host (verified 2026-05-20). Remaining: Phase 4 GUI verification (V4.3–V4.6, user-driven — enable the AI tab, download a model) and Phase 3 (NVIDIA GPU acceleration, deferred per D3).
+**Status**: BLOCKED on the darktable 5.6.0 release — the AI premise was wrong.
+The Phase 2 build succeeded *mechanically* and installed
+`darktable-5.4.1-100.ai.fc43` with the Sony A7V camera fix baked in, but
+**darktable 5.4.1 has no AI features at all** — AI ships in darktable **5.6.0**,
+which is **not released yet** (expected ~June 2026). `-DUSE_AI=ON` is a no-op on
+5.4.1. The A7V source-build work is genuine and complete; the AI goal cannot be
+met until 5.6.0 exists. See
+[research-ai-version-correction.md](research-ai-version-correction.md). Awaiting
+a user decision on the AI path (wait for 5.6.0 / build from master-nightly /
+nightly AppImage).
 **Created**: 2026-05-19
 **Owner**: joseph
 **Priority**: Medium
@@ -8,40 +17,43 @@
 
 ## Overview
 
-Darktable 5.x ships optional AI-powered features (object masks, denoise, upscale)
-backed by ONNX Runtime. These require:
+> **⚠️ 2026-05-20 CORRECTION — read this first.** The premise below (that
+> darktable 5.4.1 has AI behind a build flag) is **wrong**. darktable's AI
+> features ship in **darktable 5.6.0**, which is **not released yet**
+> (~June 2026). darktable 5.4.1 — the version this plan pinned and built —
+> contains **no AI/ONNX code at all**, so `-DUSE_AI=ON` is silently ignored.
+> The original research conflated the `master` branch with the
+> `release-5.4.1` tag. Full corrected evidence:
+> [research-ai-version-correction.md](research-ai-version-correction.md).
+> The Sony A7V build-time fix (Phase 2) is unaffected and genuinely done.
+> The text below is kept for history; treat it as superseded.
 
-1. A darktable binary compiled with `-DUSE_AI=ON` (off by default)
+Darktable's AI subsystem (object masks, denoise, upscale) is backed by ONNX
+Runtime. It requires:
+
+1. A darktable binary compiled with `-DUSE_AI=ON` (off by default) —
+   **only meaningful on darktable ≥ 5.6.0; the flag does nothing on 5.4.1**
 2. AI features enabled in user preferences (off by default)
 3. Models downloaded from the AI preferences tab (none bundled)
 4. *(Optional)* A GPU-enabled ONNX Runtime library installed separately
 
-**Research finding**: the Fedora-shipped `darktable` RPM is **not** compiled
-with `-DUSE_AI=ON`. Neither is the Flathub Flatpak. The only Linux
-distribution channel with AI compiled in is the **official upstream
-AppImage** (`Darktable-5.4.1-x86_64.AppImage`), which is built with
-`--enable-ai` and bundles a CPU-only ONNX Runtime via dlopen.
+**What the AI subsystem delivers** (per darktable 5.6.0 `RELEASE_NOTES.md`):
 
-**Follow-up research finding**: building from source is **much simpler than
-it first appeared**. The darktable cmake module `FindONNXRuntime.cmake`
-auto-downloads ONNX Runtime if not found on the system — no extra build-time
-packaging required. The Fedora spec is a 259-line file we can fork into a
-local `darktable-ai.spec` (or COPR) with a one-line cmake change
-(`-DUSE_AI=ON`). This is the cleanest path because:
+- **Interactive AI object-mask tool** — SAM2.1 + SegNext models. Point at a
+  subject/sky/object and the model generates a selection mask. *(This is the
+  user's headline priority.)*
+- **Neural restore module** — raw denoise, image denoise, upscale (NIND UNet,
+  NAFNet, RawNIND UtNet2; BSRGAN 2x/4x).
 
-- It is a single RPM — `darktable-ai` does not coexist with `darktable`, it
-  *replaces* it
-- The existing Sony A7V `rawspeed/cameras.xml` patch becomes a build-time
-  patch in the same spec, eliminating the current post-install overlay
-- Standard `dnf upgrade` workflow; no AppImage filesystem quirks
-- Cost: ~10–20 min build per darktable release (currently 4×/year)
+**Original (superseded) plan thesis**: fork the Fedora `darktable` spec, add
+`-DUSE_AI=ON`, build a local RPM that replaces stock `darktable` with the A7V
+fix baked in. The build mechanism works and is done — but on 5.4.1 it yields
+a darktable with no AI. The same mechanism re-pinned to 5.6.0 (once released)
+*would* produce AI; that is the cleanest forward path.
 
-This plan now offers **two implementation paths** at the Phase 1 decision
-gate — local source-built RPM (recommended) or upstream AppImage
-(fallback). Either path enables CPU AI; both have the same downstream
-GPU acceleration phase.
-
-See [research.md](research.md) for the full evidence trail.
+See [research-ai-version-correction.md](research-ai-version-correction.md) for
+the corrected evidence trail, and [research.md](research.md) for the original
+(partly-wrong) research pass.
 
 ## Goals
 
@@ -427,15 +439,20 @@ across more playbooks.
 
 ## Success Criteria
 
-- [ ] `darktable-ai` launches from CLI and from GNOME activities
-- [ ] `Preferences → AI` tab is visible
-- [ ] At least one AI model downloads successfully and applies to a RAW image
-- [ ] *(If Phase 3 done)* `darktable-ai -d ai` reports CUDA provider active
-- [ ] *(If Phase 3 done)* `nvidia-smi` shows GPU usage during AI denoise/upscale
-- [ ] No regression in the existing `darktable` RPM workflow (A7V still opens)
-- [ ] `./scripts/qa-all.bash` passes on all playbook changes
-- [ ] Plan committed alongside playbook changes per the
-  "Plan Commit Rule" in CLAUDE.md
+A7V source-build criteria — **met**:
+
+- [x] ✅ Source-built `darktable` RPM installs and replaces stock (A7V baked in)
+- [x] ✅ No regression in the `darktable` RPM workflow (A7V still opens)
+- [x] ✅ Plan committed alongside playbook changes per the "Plan Commit Rule"
+
+AI criteria — **blocked on the darktable 5.6.0 release** (not achievable on
+5.4.1; revisit once the AI path decision is made):
+
+- [ ] 🚫 `darktable` launches with an **AI** tab in Preferences
+- [ ] 🚫 Interactive AI object-mask tool (SAM2.1/SegNext) works on a RAW
+- [ ] 🚫 At least one AI model downloads successfully and applies to a RAW
+- [ ] 🚫 *(If Phase 3 done)* `darktable -d ai` reports CUDA provider active
+- [ ] 🚫 *(If Phase 3 done)* `nvidia-smi` shows GPU usage during AI denoise/upscale
 
 ## Risks & Mitigations
 
@@ -687,3 +704,53 @@ Phase 2 (T2.1–T2.9) is complete. Remaining work:
 - **Phase 3** (NVIDIA GPU acceleration): deferred per decision D3, to a
   follow-up session.
 - **Phase 5** (docs + cleanup): D5.1/D5.2/D5.3 still open.
+
+> **Note (corrected below)**: the "USE_AI=ON confirmed" claim in this
+> entry is wrong — see the 2026-05-20 AI-premise entry. The grep only
+> matched the literal flag on the cmake command line; cmake actually
+> listed `USE_AI` as an unused variable.
+
+### 2026-05-20 — AI premise wrong: 5.4.1 has no AI; AI is a 5.6.0 feature
+
+The user launched the installed build and found **no AI tab** in
+Preferences. Investigation (documented in full in
+[research-ai-version-correction.md](research-ai-version-correction.md)):
+
+- darktable **5.4.1 has no AI/ONNX code at all** — verified by inspecting
+  the `release-5.4.1` source tarball (no `FindONNXRuntime.cmake`, no
+  `tools/ai/`, no `USE_AI` option, zero genuine `onnx` references).
+- `build.log` confirms it: cmake listed `USE_AI` under "Manually-specified
+  variables were not used by the project". cmake silently ignores unknown
+  `-D` flags — `-DUSE_AI=ON` was a no-op.
+- darktable's AI subsystem ships in **darktable 5.6.0**, per the upstream
+  `RELEASE_NOTES.md`. 5.6.0 is **not released** — the GitHub releases API
+  shows latest stable = `release-5.4.1`; only a `nightly` prerelease (from
+  `master`) has AI. 5.6.0 is expected ~June 2026.
+- Root cause of the plan error: `research.md` sourced its AI evidence from
+  the `master` branch but attributed it to the `release-5.4.1` tag.
+
+**What is genuinely done**: the Phase 2 build mechanism — mock chroot
+build, spec mutation, the A7V `cameras.xml`+`cameras.xsd` build-time
+overlay — works, and `darktable-5.4.1-100.ai.fc43` is installed with Sony
+A7V support baked in. That value stands. The "AI" in the build is absent
+because there is no AI in 5.4.1 to enable.
+
+**The AI goal is blocked on the darktable 5.6.0 release.** Open decision
+on how to proceed (a new decision gate, call it **D4**):
+
+- **D4-A — Wait for 5.6.0** (~June 2026). Re-pin `darktable_version` to
+  5.6.0; `-DUSE_AI=ON` then genuinely works. The mock build infra and the
+  A7V overlay carry over unchanged (add a `libarchive-devel` BuildRequires
+  per the upstream AI build notes). Stable, lowest-risk.
+- **D4-B — Build from `master`/nightly now.** AI works immediately, but
+  it is an unstable development snapshot; the spec needs rework (no Fedora
+  dist-git spec tracks `master`).
+- **D4-C — Install the upstream `nightly` AppImage.** No build; quickest
+  way to try AI today; dev snapshot, separate binary, no A7V baked in.
+
+The user's headline priority is the **AI object-mask tool** (SAM2.1 /
+SegNext) — confirmed to be one of the 5.6.0 AI features. That raises the
+value of Phase 3 (GPU acceleration), since SAM2.1 is heavy on CPU.
+
+**Playbook naming**: `play-darktable-ai-build.yml` currently builds a
+non-AI darktable. Rename / re-scope deferred until D4 is decided.

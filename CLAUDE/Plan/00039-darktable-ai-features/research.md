@@ -1,5 +1,16 @@
 # Research — Darktable AI Features on Fedora 43
 
+> **⚠️ SUPERSEDED ON THE VERSION QUESTION (2026-05-20).** This document
+> conflates the darktable `master` branch with the `release-5.4.1` tag. Its
+> central claim — that darktable 5.4.1 has AI behind a build flag, and that
+> `Darktable-5.4.1-x86_64.AppImage` is built with `--enable-ai` — is **wrong**.
+> darktable 5.4.1 has **no AI code**; AI ships in **darktable 5.6.0**
+> (unreleased, ~June 2026). The `FindONNXRuntime.cmake` / `--enable-ai` /
+> `tools/ai/` evidence cited here all comes from `master`, not 5.4.1. See
+> [research-ai-version-correction.md](research-ai-version-correction.md) for
+> the corrected findings. The GPU-path detail in §4 was always sourced from
+> `master` and remains broadly valid for a future 5.6.0 build.
+
 **Date**: 2026-05-19
 **Source of truth**: <https://github.com/darktable-org/darktable> @ master, release-5.4.1
 
