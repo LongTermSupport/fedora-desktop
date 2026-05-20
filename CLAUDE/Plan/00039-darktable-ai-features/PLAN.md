@@ -1,6 +1,6 @@
 # Plan 00039: Darktable AI Features
 
-**Status**: Phase 2 IN PROGRESS — the mock build failure was root-caused (rawspeed `cameras.xml` fails XSD validation against the older bundled schema) and fixed in the playbook on 2026-05-20. Awaiting a host re-deploy to confirm T2.5/T2.6.
+**Status**: Phase 2 COMPLETE — the AI-enabled `darktable-5.4.1-100.ai.fc43` RPM is built and installed on the host (verified 2026-05-20). Remaining: Phase 4 GUI verification (V4.3–V4.6, user-driven — enable the AI tab, download a model) and Phase 3 (NVIDIA GPU acceleration, deferred per D3).
 **Created**: 2026-05-19
 **Owner**: joseph
 **Priority**: Medium
@@ -161,8 +161,11 @@ overlay tasks (now redundant) and update its success message.
   diff-generation step with no functional benefit. Source5+cp produces
   the same in-tree state (the rawspeed cameras.xml replaces the stock
   one before `%build`) with far less complexity.
-- [ ] 🔄 **T2.5**: Build SRPM (`rpmbuild -bs`) then binary RPMs via
-  `mock --rebuild --enable-network`.
+- [x] ✅ **T2.5**: Build SRPM (`rpmbuild -bs`) then binary RPMs via
+  `mock --rebuild --enable-network`. **Succeeds as of the 2026-05-20
+  re-deploy** — `validate-cameras.xml` now reports `cameras.xml validates`, `USE_AI=ON` is confirmed in the cmake configure step, and
+  all eight RPMs (3 installed + tools + debuginfo/debugsource) are in
+  `/var/lib/mock/fedora-43-x86_64/result/`.
   - **Root cause of the 2026-05-19 mock failure — FOUND & FIXED
     2026-05-20.** The build reached 4–18%, then failed at rawspeed's
     `validate-cameras.xml` target
@@ -191,13 +194,11 @@ overlay tasks (now redundant) and update its success message.
     would rebuild the *old* SRPM. `rpmbuild -bs` is cheap (~seconds);
     mock keeps its own `creates:` guard and the block is gated on
     `dt_build_needed`.
-  - **Pending**: host re-deploy to confirm the build completes and
-    produces the three binary RPMs.
-- [ ] ⬜ **T2.6**: Install the resulting RPMs via `ansible.builtin.dnf`:
-  - `darktable-5.4.1-100.ai.fc43.x86_64.rpm`
-  - `darktable-tools-noise-5.4.1-100.ai.fc43.x86_64.rpm`
-  - `darktable-tools-basecurve-5.4.1-100.ai.fc43.x86_64.rpm`
-  - **Blocked**: T2.5 must succeed first.
+- [x] ✅ **T2.6**: Install the resulting RPMs via `ansible.builtin.dnf`.
+  Confirmed installed on the host after the 2026-05-20 re-deploy:
+  - `darktable-5.4.1-100.ai.fc43.x86_64`
+  - `darktable-tools-noise-5.4.1-100.ai.fc43.x86_64`
+  - `darktable-tools-basecurve-5.4.1-100.ai.fc43.x86_64`
 - [x] ✅ **T2.7**: Dropped the entire `darktable-a7v` task block and the
   `rawspeed_*` / `darktable_cameras_xml_*` vars from
   `play-photography.yml`. Replaced the Sony A7V paragraph in the success
@@ -294,9 +295,20 @@ no-op cleanly with a single informational `debug:` message.
 
 (On host, not in CCY container — `pass-through` step.)
 
-- [ ] ⬜ **V4.1**: Run `./scripts/qa-all.bash` against the playbook changes
-- [ ] ⬜ **V4.2**: Deploy on host: `ansible-playbook playbooks/imports/optional/common/play-photography.yml`
-- [ ] ⬜ **V4.3**: Confirm `darktable-ai` launches, AI tab present in preferences
+- [x] ✅ **V4.1**: Ran `./scripts/qa-all.bash` — bash (193 files) and python
+  (8 files) checks pass. The cameras.xsd fix is a YAML-only playbook edit;
+  `ansible-playbook --syntax-check` passes. (`qa-all.bash` overall exit was
+  non-zero only because `semgrep` is not installed on this host and there
+  are pre-existing shellcheck findings in unrelated bash files — neither
+  introduced by this change.)
+- [x] ✅ **V4.2**: Deployed on host via
+  `ansible-playbook playbooks/imports/optional/common/play-darktable-ai-build.yml`
+  (2026-05-20, `PLAY RECAP … failed=0`). Note: the verification playbook
+  is `play-darktable-ai-build.yml`, not `play-photography.yml` — the
+  earlier reference predated the D1=A decision.
+- [ ] ⬜ **V4.3**: Confirm `darktable` launches (the AI RPM *replaces* the
+  stock `darktable` binary — there is no separate `darktable-ai` command on
+  the D1=A path) and the **AI** tab is present in Preferences. *User-driven.*
 - [ ] ⬜ **V4.4**: Download one model (denoise is smallest), confirm it works
   on a real RAW file
 - [ ] ⬜ **V4.5**: *(If Phase 3 done)* Deploy `play-darktable-ai-gpu.yml`,
@@ -652,3 +664,26 @@ spec is re-staged and re-mutated every run, the SRPM is now always
 rebuilt, and mock's binary-RPM `creates:` guard sees no RPM so it
 re-runs. `mock --scrub=all` is not needed (BuildRequires unchanged,
 chroot cache is fine).
+
+### 2026-05-20 — Phase 2 complete: build succeeds, RPM installed
+
+Re-ran `play-darktable-ai-build.yml` on the host after the cameras.xsd
+fix. `PLAY RECAP: ok=25 changed=11 failed=0`. Verified:
+
+- `validate-cameras.xml` build step now reports `cameras.xml validates`
+  (the exact target that failed before).
+- `USE_AI=ON` confirmed in the cmake configure step of `build.log`.
+- All eight RPMs produced in `/var/lib/mock/fedora-43-x86_64/result/`.
+- Installed on the host: `darktable-5.4.1-100.ai.fc43`,
+  `darktable-tools-noise-5.4.1-100.ai.fc43`,
+  `darktable-tools-basecurve-5.4.1-100.ai.fc43`.
+
+Phase 2 (T2.1–T2.9) is complete. Remaining work:
+
+- **V4.3–V4.6** (user-driven GUI): launch `darktable`, open Preferences
+  → AI tab, enable AI features, download a model (denoise is smallest),
+  confirm it applies to a RAW. The AI RPM *replaces* the stock
+  `darktable` — there is no separate `darktable-ai` binary on this path.
+- **Phase 3** (NVIDIA GPU acceleration): deferred per decision D3, to a
+  follow-up session.
+- **Phase 5** (docs + cleanup): D5.1/D5.2/D5.3 still open.
