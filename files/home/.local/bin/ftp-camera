@@ -14,6 +14,7 @@ fi
 
 MONITOR_PID=""
 VSFTPD_LOG_PID=""
+VIEWER_MONITOR_PID=""
 START_MARKER=$(mktemp)
 SORT_ONLY=false
 PASS_ONLY=false
@@ -22,6 +23,11 @@ COPY_ONLY=false
 PRUNE_ONLY=false
 ASYNC_MODE=false
 ASYNC_COPY_MODE=false
+# Viewer modifier: optional live preview of each completed upload in a
+# single geeqie window. Composes with default / --async / --async-copy.
+# Set by --view (RAW) or --view-jpg (JPG); mutually exclusive.
+VIEWER_MODE=false
+VIEWER_CLASS=""   # RAW or JPG once set
 # Async stats are tracked in a temp file (append-only — atomic for small
 # writes) so the background monitor and cleanup() see a consistent view.
 ASYNC_STATS_FILE=""
@@ -34,51 +40,44 @@ ASYNC_MOUNT_PATH=""
 # Records repo path for --pass helper (deployed by play-ftp-camera.yml).
 readonly CONFIG_FILE="/etc/ftp-camera/config"
 
-# ── Args ─────────────────────────────────────────────────────────────────────
-case "${1:-}" in
-    "")
-        ;;
-    --sort)
-        SORT_ONLY=true
-        ;;
-    --pass)
-        PASS_ONLY=true
-        ;;
-    --push)
-        PUSH_ONLY=true
-        ;;
-    --copy)
-        COPY_ONLY=true
-        ;;
-    --prune)
-        PRUNE_ONLY=true
-        ;;
-    --async)
-        ASYNC_MODE=true
-        ;;
-    --async-copy)
-        ASYNC_MODE=true
-        ASYNC_COPY_MODE=true
-        ;;
-    -h|--help)
-        cat <<'EOF'
-Usage: ftp-camera [OPTION]
+# ── Help text ────────────────────────────────────────────────────────────────
+show_help() {
+    cat <<'EOF'
+Usage: ftp-camera [PRIMARY-MODE] [MODIFIER]
 
-Start the camera FTP server, or:
-
+Primary modes (pick at most one; default = full FTP server):
+  (none)        Start FTP server, sort at end on Ctrl+C
+  --async       Run FTP server, sorting each file the moment it arrives
+  --async-copy  Run FTP server with instant sort AND per-file copy into
+                the local rclone mount (VFS uploads to the remote in the
+                background; requires ftp_camera_rclone_remote)
   --sort        Sort already-uploaded files by EXIF date and exit
   --pass        Print the camera FTP password to stdout and exit
   --push        Direct push to rclone remote (reliable, synchronous)
   --copy        Copy via rclone mount (caches locally) then verify on remote
   --prune       Remove RAW files whose corresponding JPG has been deleted
-  --async       Run FTP server, sorting each file the moment it arrives
-  --async-copy  Run FTP server with instant sort AND per-file copy into
-                the local rclone mount (VFS uploads to the remote in the
-                background; requires ftp_camera_rclone_remote)
+
+Modifiers (apply to FTP-server modes only; mutually exclusive with each other):
+  --view        Live single-window preview of each ARW arrival via geeqie
+                (geeqie's implicit single-instance handles window-reuse —
+                second invocation routes the new file into the running window,
+                no IPC).
+  --view-jpg    Same, but preview JPG arrivals instead of ARW.
+
+Launcher:
+  Invoked with no arguments, ftp-camera opens a two-step TUI (gum or fzf) to
+  pick the primary mode and the viewer option. Pass --no-tui to suppress the
+  launcher and run in default FTP-server mode.
+
   -h, --help    Show this help
 
-When run without options, starts vsftpd, prints camera setup instructions,
-and monitors uploads. Press Ctrl+C to stop and auto-sort uploaded files.
+When run with --view / --view-jpg the source folder watched depends on the
+primary mode:
+  --async / --async-copy → photos/$(date +%Y/%m/%d)/{RAW,JPG}/  (sorted tree)
+  default (no sort)      → upload root, filtered by extension
+The viewer always loads from the LOCAL ftp tree — never the rclone mount
+destination. Pre-warm runs only in async modes (default mode may have stale
+files in the root we don't want to surface).
 
 Async modes do the same EXIF-based sort the closing pass does, but as soon
 as each upload completes — no end-of-session bulk move. Triggering is
@@ -114,38 +113,232 @@ Async workflow (drop step 2 entirely):
   1. ftp-camera --async-copy   # sort + push each file as it arrives
   2. (manually delete unwanted JPGs from the upload tree)
   3. ftp-camera --prune        # delete RAW files orphaned by JPG removal
+
+Async + live preview:
+  ftp-camera --async-copy --view   # rare; only when you want to spot-check
+                                   # ARW exposure live as the camera shoots
 EOF
-        exit 0
-        ;;
-    *)
-        echo "ERROR: unknown argument: $1" >&2
-        echo "Run 'ftp-camera --help' for usage" >&2
-        exit 2
-        ;;
-esac
+}
+
+# ── Launcher TUI ─────────────────────────────────────────────────────────────
+# Two-step `gum choose` (or `fzf` fallback) for argument-free invocation.
+# Picks primary mode then viewer modifier, then exec-replaces this script
+# with the chosen flags. The viewer step is skipped for non-server modes
+# (sort/push/copy/prune/pass) which have nothing to view. Default viewer
+# selection is "no viewer" — preview is the rare case.
+#
+# When neither gum nor fzf is installed, the caller skips this function
+# and falls through to default FTP-server mode with an info note.
+run_launcher_tui() {
+    local picker="$1"  # "gum" or "fzf"
+
+    local mode_lines=(
+        "default      Start FTP server, sort at end on Ctrl+C"
+        "async        Sort each upload as it arrives"
+        "async-copy   Sort + per-file rclone copy as uploads arrive"
+        "sort         Sort already-uploaded files and exit"
+        "push         Direct rclone push of the sort tree and exit"
+        "copy         Mount-write-through copy with verify and exit"
+        "prune        Delete orphan RAW files (interactive) and exit"
+        "pass         Print FTP password and exit"
+    )
+
+    local mode_choice
+    if [ "$picker" = gum ]; then
+        # gum choose returns 130 on Esc/Ctrl-C; the `if !` captures that
+        # so we can exit cleanly without a stack trace.
+        if ! mode_choice=$(gum choose --header "ftp-camera: pick a mode" \
+                                      "${mode_lines[@]}"); then
+            echo "Cancelled." >&2
+            exit 130
+        fi
+    else
+        if ! mode_choice=$(printf '%s\n' "${mode_lines[@]}" \
+                | fzf --height 40% --no-info --no-sort \
+                      --header "ftp-camera: pick a mode"); then
+            echo "Cancelled." >&2
+            exit 130
+        fi
+    fi
+
+    # First whitespace-separated token is the canonical mode keyword.
+    local mode_keyword
+    mode_keyword=$(echo "$mode_choice" | awk '{print $1}')
+
+    local exec_args=()
+    case "$mode_keyword" in
+        default)  ;;                                # no flag → default mode
+        *)        exec_args+=("--${mode_keyword}") ;;
+    esac
+
+    # Step 2 — viewer picker, only for FTP-server modes.
+    case "$mode_keyword" in
+        default | async | async-copy)
+            local viewer_lines=(
+                "no viewer"
+                "view RAW"
+                "view JPG"
+            )
+            local viewer_choice
+            if [ "$picker" = gum ]; then
+                if ! viewer_choice=$(gum choose \
+                        --header "Viewer? (rare — usually none)" \
+                        --selected "no viewer" \
+                        "${viewer_lines[@]}"); then
+                    echo "Cancelled." >&2
+                    exit 130
+                fi
+            else
+                # fzf highlights the first match by default; "no viewer"
+                # is line 1, so it's the default-highlighted choice.
+                if ! viewer_choice=$(printf '%s\n' "${viewer_lines[@]}" \
+                        | fzf --height 20% --no-info --no-sort \
+                              --header "Viewer? (rare — usually none)"); then
+                    echo "Cancelled." >&2
+                    exit 130
+                fi
+            fi
+            case "$viewer_choice" in
+                "view RAW")  exec_args+=(--view) ;;
+                "view JPG")  exec_args+=(--view-jpg) ;;
+                # "no viewer" — no flag added
+            esac
+            ;;
+    esac
+
+    # If the user picked default + no viewer, exec_args is empty — passing
+    # nothing would re-trigger the launcher on entry. --no-tui is a silent
+    # opt-out that means "you already went through the picker".
+    if [ "${#exec_args[@]}" -eq 0 ]; then
+        exec_args=(--no-tui)
+    fi
+
+    exec "$0" "${exec_args[@]}"
+}
+
+# ── Args ─────────────────────────────────────────────────────────────────────
+# At most one primary mode + at most one viewer modifier. Flags compose in
+# any order. Invocation with no arguments routes to the launcher TUI.
+
+# Capture "was the script called with zero args" BEFORE the loop consumes
+# them. The launcher fires only when the user typed `ftp-camera` bare;
+# the launcher exec-replaces, so by the time we re-enter we have args.
+NO_ARGS=false
+if [ "$#" -eq 0 ]; then
+    NO_ARGS=true
+fi
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --sort)        SORT_ONLY=true ;;
+        --pass)        PASS_ONLY=true ;;
+        --push)        PUSH_ONLY=true ;;
+        --copy)        COPY_ONLY=true ;;
+        --prune)       PRUNE_ONLY=true ;;
+        --async)       ASYNC_MODE=true ;;
+        --async-copy)  ASYNC_MODE=true; ASYNC_COPY_MODE=true ;;
+        --view)
+            if [ "$VIEWER_MODE" = true ]; then
+                echo "ERROR: --view and --view-jpg are mutually exclusive" >&2
+                exit 2
+            fi
+            VIEWER_MODE=true
+            VIEWER_CLASS=RAW
+            ;;
+        --view-jpg)
+            if [ "$VIEWER_MODE" = true ]; then
+                echo "ERROR: --view and --view-jpg are mutually exclusive" >&2
+                exit 2
+            fi
+            VIEWER_MODE=true
+            VIEWER_CLASS=JPG
+            ;;
+        --no-tui)
+            # Silent: the script entry-point check below uses NO_ARGS to
+            # decide whether to route to the launcher; --no-tui presence
+            # means $# > 0 so the launcher path is skipped anyway.
+            ;;
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        *)
+            echo "ERROR: unknown argument: $1" >&2
+            echo "Run 'ftp-camera --help' for usage" >&2
+            exit 2
+            ;;
+    esac
+    shift
+done
+
+# Reject multiple primary modes — those used to be impossible because the
+# old parser only looked at $1; the new while loop accepts arbitrary
+# combinations so we validate explicitly.
+mode_count=0
+for _mode in SORT_ONLY PASS_ONLY PUSH_ONLY COPY_ONLY PRUNE_ONLY ASYNC_MODE; do
+    if [ "${!_mode}" = true ]; then
+        mode_count=$((mode_count + 1))
+    fi
+done
+if [ "$mode_count" -gt 1 ]; then
+    echo "ERROR: only one primary mode at a time" >&2
+    echo "  Pick one of: --sort --pass --push --copy --prune --async --async-copy" >&2
+    exit 2
+fi
+
+# Reject viewer with non-server modes — those exit immediately and have
+# nothing to view.
+if [ "$VIEWER_MODE" = true ]; then
+    for _mode in SORT_ONLY PASS_ONLY PUSH_ONLY COPY_ONLY PRUNE_ONLY; do
+        if [ "${!_mode}" = true ]; then
+            echo "ERROR: --view / --view-jpg requires an FTP-server mode" >&2
+            echo "  (default, --async, or --async-copy). The mode you picked" >&2
+            echo "  exits before any uploads arrive, so there's nothing to view." >&2
+            exit 2
+        fi
+    done
+fi
+
+# ── Launcher fallback ────────────────────────────────────────────────────────
+# Bare `ftp-camera` invocation: open the TUI to pick mode + viewer. The
+# launcher exec-replaces this script, so on return we are guaranteed to
+# have flags. If neither TUI tool is installed, print a one-line note and
+# proceed with default mode (the safest fallback).
+if [ "$NO_ARGS" = true ]; then
+    if command -v gum > /dev/null; then
+        run_launcher_tui gum
+    elif command -v fzf > /dev/null; then
+        run_launcher_tui fzf
+    else
+        echo "Note: neither 'gum' nor 'fzf' is installed — TUI unavailable." >&2
+        echo "  Starting default FTP-server mode. Run 'ftp-camera --help'" >&2
+        echo "  for the full flag list, or install gum/fzf to get the picker." >&2
+    fi
+fi
 
 # ── Inhibit suspend during transfers ──────────────────────────────────────────
 # Long-running modes (FTP server, --async*, --push, --copy) must keep the
 # laptop awake — on battery the session would otherwise idle-suspend and
 # break the upload mid-flight. Self-re-exec under systemd-inhibit so logind
 # holds an idle+sleep lock for the whole run; GNOME honours both, covering
-# idle-timeout AND programmatic suspend. Cheap/interactive modes skip the
-# wrap. The guard env var prevents an exec loop on re-entry.
-case "${1:-}" in
-    --pass | --sort | --prune | -h | --help)
-        ;;
-    *)
-        if [ -z "${_FTP_CAMERA_INHIBITED:-}" ] && command -v systemd-inhibit > /dev/null; then
-            export _FTP_CAMERA_INHIBITED=1
-            exec systemd-inhibit \
-                --what=idle:sleep \
-                --who="ftp-camera" \
-                --why="Camera FTP transfer in progress" \
-                --mode=block \
-                -- "$0" "$@"
-        fi
-        ;;
-esac
+# idle-timeout AND programmatic suspend. Cheap/interactive modes (anything
+# that exits in seconds) skip the wrap. The guard env var prevents an exec
+# loop on re-entry.
+_skip_inhibit=false
+if [ "$PASS_ONLY" = true ] || [ "$SORT_ONLY" = true ] || [ "$PRUNE_ONLY" = true ]; then
+    _skip_inhibit=true
+fi
+if [ "$_skip_inhibit" = false ] \
+        && [ -z "${_FTP_CAMERA_INHIBITED:-}" ] \
+        && command -v systemd-inhibit > /dev/null; then
+    export _FTP_CAMERA_INHIBITED=1
+    exec systemd-inhibit \
+        --what=idle:sleep \
+        --who="ftp-camera" \
+        --why="Camera FTP transfer in progress" \
+        --mode=block \
+        -- "$0" "$@"
+fi
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 BOLD='\033[1m'
@@ -832,6 +1025,112 @@ _async_stat_inc() {
     echo "$1" >> "$ASYNC_STATS_FILE"
 }
 
+# ── Viewer helpers ───────────────────────────────────────────────────────────
+
+# Return 0 if the file's extension matches the configured VIEWER_CLASS.
+# RAW = .arw; JPG = .jpg or .jpeg. Anything else → 1. Used to gate the
+# viewer hook so JPG arrivals don't fire when watching RAW (and vice versa).
+viewer_class_matches() {
+    local file="$1"
+    local ext="${file##*.}"
+    ext="${ext,,}"
+    case "$VIEWER_CLASS" in
+        RAW) [ "$ext" = arw ] ;;
+        JPG) [ "$ext" = jpg ] || [ "$ext" = jpeg ] ;;
+        *)   return 1 ;;
+    esac
+}
+
+# Open one file in geeqie. Geeqie 2.x is implicitly single-instance via
+# its plain CLI — a second invocation routes the file path into the
+# already-running window without any --remote flag or socket plumbing.
+# Backgrounded so the existing-instance handshake doesn't block the
+# vsftpd-log monitor loop on its way to handling the next upload.
+display_in_viewer() {
+    local file="$1"
+    geeqie "$file" > /dev/null 2>&1 &
+}
+
+# Background loop for the viewer in default (non-sort) mode. Tails the
+# vsftpd OK UPLOAD log (same authoritative signal --async modes use, so
+# partial transfers never fire the viewer), filters on VIEWER_CLASS, and
+# pushes each matching file's absolute path through display_in_viewer.
+# Runs ALONGSIDE the existing default-mode inotifywait pretty-printer —
+# the inotify loop is for human-readable upload notifications, this
+# loop is for the geeqie hook.
+viewer_monitor_loop() {
+    sudo tail -F -n 0 --pid=$$ /var/log/vsftpd.log 2>/dev/null \
+        | awk -F'"' '/OK UPLOAD: Client/ {print $4; fflush()}' \
+        | while IFS= read -r fname; do
+            [ -n "$fname" ] || continue
+            local abs="${UPLOAD_DIR}/${fname#/}"
+            if viewer_class_matches "$abs"; then
+                display_in_viewer "$abs"
+            fi
+          done
+}
+
+# Structured human-friendly summary of the runtime configuration. Printed
+# once just before the script enters its monitor loop, so the user can
+# verify at a glance which combination of flags is actually active —
+# important now that --view / --view-jpg compose with three different
+# primary modes and the watched folder / pre-warm behaviour depends on
+# the combination. Field set is conditional: rclone/mount rows only
+# appear when async-copy is configured; viewer/watching/pre-warm rows
+# only appear when VIEWER_MODE=true.
+print_startup_banner() {
+    local mode_desc watch_path prewarm_desc
+
+    if [ "$ASYNC_COPY_MODE" = true ]; then
+        mode_desc="async-copy (sort + per-file rclone copy)"
+    elif [ "$ASYNC_MODE" = true ]; then
+        mode_desc="async (sort each upload on arrival)"
+    else
+        mode_desc="default (collect now; sort at Ctrl+C)"
+    fi
+
+    if [ "$VIEWER_MODE" = true ]; then
+        if [ "$ASYNC_MODE" = true ]; then
+            watch_path="${UPLOAD_DIR}/${PHOTO_DIR_NAME}/$(date +%Y/%m/%d)/${VIEWER_CLASS}/"
+            prewarm_desc="yes (geeqie opened against the watch folder)"
+        else
+            watch_path="${UPLOAD_DIR}/  (upload root; ${VIEWER_CLASS} arrivals only)"
+            prewarm_desc="no (default mode — root may contain stale files)"
+        fi
+    fi
+
+    local hr="══════════════════════════════════════════════════════════"
+    echo -e "${BOLD}${GREEN}${hr}${NC}"
+    echo -e "  ${BOLD}ftp-camera ready${NC}"
+    echo -e "${BOLD}${GREEN}──────────────────────────────────────────────────────────${NC}"
+    printf '  %-13s %s\n' "Mode:"      "$mode_desc"
+    if [ "$VIEWER_MODE" = true ]; then
+        printf '  %-13s on  (class filter: %s)\n' "Viewer:"   "$VIEWER_CLASS"
+        printf '  %-13s %s\n' "Watching:"  "$watch_path"
+        printf '  %-13s %s\n' "Pre-warm:"  "$prewarm_desc"
+    else
+        printf '  %-13s off\n'                "Viewer:"
+    fi
+    if [ "$ASYNC_COPY_MODE" = true ]; then
+        printf '  %-13s %s\n' "Rclone:"    "${RCLONE_REMOTE:-(unset)}"
+        printf '  %-13s %s\n' "Mount:"     "${ASYNC_MOUNT_PATH:-(unset)}"
+    fi
+    printf '  %-13s %s\n' "Upload dir:"    "$UPLOAD_DIR"
+    printf '  %-13s ftp://camera@%s/\n' "FTP URL:" "$LOCAL_IP"
+    echo -e "${BOLD}${GREEN}${hr}${NC}"
+    echo ""
+    echo -e "  ${BOLD}Sony A7V camera settings${NC} (Menu → Network → FTP Transfer Func.):"
+    echo -e "    Server:      ${CYAN}${LOCAL_IP}${NC}"
+    echo -e "    Port:        ${CYAN}21${NC}"
+    echo -e "    User:        ${CYAN}camera${NC}"
+    echo -e "    Password:    ${CYAN}run 'ftp-camera --pass' to view${NC}"
+    echo -e "    Passive:     ${CYAN}On${NC}"
+    echo -e "    Destination: ${CYAN}/${NC}"
+    echo ""
+    echo -e "${YELLOW}Monitoring for uploads — press Ctrl+C to stop${NC}"
+    echo ""
+}
+
 # Handle one inotify close_write event: sort the file and, in --async-copy,
 # push the sorted result to the remote. Always returns 0 so a single bad
 # file never kills the monitoring loop.
@@ -860,6 +1159,13 @@ process_async_upload() {
             local rel_sorted="${sorted_path#"$UPLOAD_DIR"/}"
             echo -e "  [${CYAN}${ts}${NC}] ${GREEN}sort${NC}  ${basename}  → ${rel_sorted%/*}/"
             _async_stat_inc moved
+            # Viewer hook — fires immediately after a successful sort,
+            # before the optional mount copy. Network/remote status is
+            # irrelevant to a local preview; latency to first pixel
+            # shouldn't be gated on the cp into the rclone mount.
+            if [ "$VIEWER_MODE" = true ] && viewer_class_matches "$sorted_path"; then
+                display_in_viewer "$sorted_path"
+            fi
             ;;
         1)
             echo -e "  [${CYAN}${ts}${NC}] ${YELLOW}skip${NC}  ${basename}  (unsupported type, left in place)"
@@ -958,6 +1264,14 @@ cleanup() {
 
     if [ -n "$VSFTPD_LOG_PID" ] && ps -p "$VSFTPD_LOG_PID" > /dev/null; then
         kill "$VSFTPD_LOG_PID"
+    fi
+
+    # Stop the viewer monitor (only set in default-mode + --view/--view-jpg).
+    # The tail process inside has --pid=$$ so it would self-terminate at
+    # script exit, but killing here closes the subshell cleanly so the
+    # cleanup banner doesn't race with a late "viewer fired" log line.
+    if [ -n "$VIEWER_MONITOR_PID" ] && ps -p "$VIEWER_MONITOR_PID" > /dev/null; then
+        kill "$VIEWER_MONITOR_PID"
     fi
 
     if systemctl is-active --quiet vsftpd; then
@@ -1154,6 +1468,23 @@ if [ "$ASYNC_MODE" = true ]; then
     fi
 fi
 
+# Validate viewer prerequisites BEFORE starting vsftpd so a viewer-mode run
+# with no geeqie or no display server doesn't expose the FTP port and then
+# fail on the first upload. Same fail-fast pattern the async-copy block uses.
+if [ "$VIEWER_MODE" = true ]; then
+    if ! command -v geeqie > /dev/null; then
+        echo "ERROR: --view / --view-jpg requires geeqie, not found in PATH" >&2
+        echo "  Install via play-photography.yml, or drop the viewer flag." >&2
+        exit 1
+    fi
+    if [ -z "${WAYLAND_DISPLAY:-}" ] && [ -z "${DISPLAY:-}" ]; then
+        echo "ERROR: --view / --view-jpg has nothing to display — no GUI session" >&2
+        echo "  Both WAYLAND_DISPLAY and DISPLAY are unset. You may be running" >&2
+        echo "  over ssh without forwarding. Drop the viewer flag and re-run." >&2
+        exit 1
+    fi
+fi
+
 LOCAL_IP=$(get_local_ip)
 
 echo -e "${BOLD}Starting camera FTP server...${NC}"
@@ -1178,29 +1509,23 @@ sudo firewall-cmd --add-service=ftp --quiet
 sudo firewall-cmd --add-port=30000-30100/tcp --quiet
 
 echo ""
-echo -e "${GREEN}${BOLD}FTP server ready${NC}"
-echo ""
-echo -e "  ${BOLD}Sony A7V camera settings:${NC}"
-echo -e "    Menu → Network → FTP Transfer Func. → Server Settings"
-echo ""
-echo -e "    Server (Hostname):  ${CYAN}${LOCAL_IP}${NC}"
-echo -e "    Port:               ${CYAN}21${NC}"
-echo -e "    User:               ${CYAN}camera${NC}"
-echo -e "    Password:           ${CYAN}run 'ftp-camera --pass' to view${NC}"
-echo -e "    Passive Mode:       ${CYAN}On${NC}"
-echo -e "    Destination Folder: ${CYAN}/${NC}"
-echo ""
-echo -e "  ${BOLD}Upload directory:${NC}  ${CYAN}${UPLOAD_DIR}${NC}"
-echo ""
-echo -e "${YELLOW}Monitoring for uploads — press Ctrl+C to stop${NC}"
-if [ "$ASYNC_COPY_MODE" = true ]; then
-    echo -e "${BOLD}Async-copy mode:${NC} each upload is sorted by EXIF and copied into the rclone mount"
-    echo -e "  Mount:  ${CYAN}${ASYNC_MOUNT_PATH}${NC}"
-    echo -e "  Remote: ${CYAN}${RCLONE_REMOTE}${NC} ${YELLOW}(VFS uploads from cache in the background)${NC}"
-elif [ "$ASYNC_MODE" = true ]; then
-    echo -e "${BOLD}Async mode:${NC} each upload is sorted by EXIF the moment it lands"
+print_startup_banner
+
+# ── Viewer pre-warm (async modes only) ───────────────────────────────────────
+# Open geeqie against today's class subfolder before any uploads arrive so
+# the first burst frame doesn't pay GTK init latency, AND so geeqie's
+# arrow-key history list is already focused on the date directory new
+# uploads will land in. Subsequent display_in_viewer calls route into the
+# same window via geeqie's implicit single-instance.
+#
+# Skipped in default mode: the upload root may contain stale or mixed-class
+# files from previous sessions; we don't want to surface those. Default
+# mode cold-starts geeqie on the first matching arrival instead.
+if [ "$VIEWER_MODE" = true ] && [ "$ASYNC_MODE" = true ]; then
+    TODAY_VIEWER_DIR="$UPLOAD_DIR/$PHOTO_DIR_NAME/$(date +%Y/%m/%d)/$VIEWER_CLASS"
+    sudo mkdir -p "$TODAY_VIEWER_DIR"
+    display_in_viewer "$TODAY_VIEWER_DIR"
 fi
-echo ""
 
 # Stream vsftpd auth/connection events alongside upload notifications.
 # --pid=$$ makes tail self-terminate when this script exits, so the
@@ -1224,6 +1549,9 @@ VSFTPD_LOG_PID=$!
 if [ "$ASYNC_MODE" = true ]; then
     async_monitor_loop &
     MONITOR_PID=$!
+    # In async modes the viewer hook lives INSIDE process_async_upload
+    # (fires after each successful sort, gated on VIEWER_CLASS). No
+    # separate monitor process needed here.
 else
     inotifywait -m -r -q \
         -e close_write,moved_to \
@@ -1231,6 +1559,14 @@ else
         --timefmt "%H:%M:%S" \
         "$UPLOAD_DIR" &
     MONITOR_PID=$!
+    # Default mode: there's no process_async_upload codepath to hook
+    # into, so the viewer needs its own log-tail loop alongside
+    # inotifywait. inotify handles the human-readable event stream;
+    # viewer_monitor_loop drives geeqie on completed (OK UPLOAD) arrivals.
+    if [ "$VIEWER_MODE" = true ]; then
+        viewer_monitor_loop &
+        VIEWER_MONITOR_PID=$!
+    fi
 fi
 
 wait "$MONITOR_PID"

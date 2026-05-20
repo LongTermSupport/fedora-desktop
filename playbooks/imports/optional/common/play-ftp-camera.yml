@@ -78,11 +78,12 @@
             state: absent
           failed_when: false  # FAIL-FAST-OK: legacy context may already be removed
 
-    - name: Install vsftpd and inotify-tools
+    - name: Install vsftpd, inotify-tools, and gum (TUI launcher)
       ansible.builtin.package:
         name:
           - vsftpd         # FTP server
           - inotify-tools  # File system event monitoring (used by ftp-camera wrapper)
+          - gum            # Two-step launcher TUI for argument-free `ftp-camera` invocation
         state: present
       tags: packages
 
@@ -238,7 +239,9 @@
           FTP user:          camera  (password set in vault)
 
           Commands:
-            ftp-camera                start FTP server (default)
+            ftp-camera                open the two-step launcher TUI (gum) to
+                                      pick a primary mode + viewer option
+            ftp-camera --no-tui       start default FTP-server mode, skip the TUI
             ftp-camera --pass         print FTP password (for camera setup)
             ftp-camera --sort         sort already-uploaded files by EXIF date
             ftp-camera --push         direct push to rclone remote (synchronous)
@@ -249,6 +252,12 @@
             ftp-camera --async-copy   sort + copy each upload into the local rclone
                                       mount (VFS uploads to remote in background;
                                       requires ftp_camera_rclone_remote)
+
+          Viewer modifiers (compose with default / --async / --async-copy;
+          rare — usually leave off):
+            --view       Live single-window geeqie preview of each ARW arrival
+            --view-jpg   Same, but preview JPG arrivals instead of ARW
+          Example: ftp-camera --async-copy --view
 
           Optional rclone push: set ftp_camera_rclone_remote in host_vars
           to enable --push, --copy, and --async-copy. Must point at the library ROOT
