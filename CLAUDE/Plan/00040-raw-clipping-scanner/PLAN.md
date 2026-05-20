@@ -505,3 +505,15 @@ Reverted:
 - PLAN.md: Decision 9 marked REVERTED with postmortem; decision-gate question struck-through; Phase 5 / Phase 8 catalog tasks removed; Risks-table row removed; subagent-#5 summary marked reverted
 
 Lesson banked for next subagent review: state the deploy target's actual environment ("Fedora desktop, no Lightroom installed") in the prompt so the reviewer doesn't add controls for tools that don't run there.
+
+### 2026-05-20 (sixth iteration — real-shoot calibration: progress + black-cutoff fix)
+
+First real run against a 347-frame A7V cRAW shoot surfaced two issues:
+
+1. **Silent compute** — `ProcessPoolExecutor.map` batched all futures and emitted nothing to stderr until the whole batch finished. From the user's POV the tool looked hung. Fixed by switching to `submit` + `as_completed` so each group's result prints to stderr the moment it lands. Also added a one-line header before workers start ("clip-scan: 347 group(s), 694 file(s), 8 workers…") and a `-q/--quiet` flag for scripted use.
+
+2. **Black-cutoff over-flagged** — every frame scored 10–15% bclip with the default `--black-cutoff 1.05`. Cause: the 1.05 ramp covers `[black_level, 1.05 × black_level]` = `[512, 537]` on the A7V, which is exactly where the noise-floor pixel distribution sits on any normally-exposed frame. The score wasn't measuring "crushed to black", it was measuring "camera read noise". Tightened the default to `--black-cutoff 1.01` so the ramp is `[512, 517]` — only pixels within 5 counts of the pedestal contribute. On the user's data the genuinely-crushed shots (silhouettes scoring 47–77%) stay flagged; normal shots drop well below the 5.0 threshold.
+
+The white side was correctly calibrated already (most frames score 0%, sunsets/bright scenes pop to 2–20%). No change there.
+
+Test `TestCLI.test_defaults` updated to match the new black-cutoff default. PLAN.md research.md §3 "Why the cutoff defaults moved from Section 2's 0.98 / 1.03 to 0.95 / 1.05" is now out of date — the black-side justification needs revisiting once we have more shoots' worth of data. Deferred.

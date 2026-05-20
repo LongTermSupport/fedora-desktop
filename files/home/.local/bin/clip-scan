@@ -41,10 +41,14 @@ ALL_EXTENSIONS = RAW_EXTENSIONS | JPG_EXTENSIONS
 # this is bogus metadata, not a real reading.
 RAW_14BIT_MAX = 16383
 
-# Defaults (locked in per Plan 00040 final design).
+# Defaults (recalibrated against a real 347-frame A7V shoot — see PLAN.md
+# iteration-6 notes). The black ramp was originally 1.05 × black_level
+# but that captured the noise-floor distribution and false-flagged
+# virtually every frame; 1.01 limits the ramp to pixels within ~1% of
+# the pedestal, which is what "actually clipped to black" means.
 DEFAULT_WHITE_CUTOFF = 0.95
 DEFAULT_WHITE_SCORE = 2.0
-DEFAULT_BLACK_CUTOFF = 1.05
+DEFAULT_BLACK_CUTOFF = 1.01
 DEFAULT_BLACK_SCORE = 5.0
 DEFAULT_GAMMA = 1.0
 
@@ -774,6 +778,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Show per-channel scores per file",
     )
     parser.add_argument(
+        "-q", "--quiet",
+        action="store_true",
+        help="Suppress per-group progress on stderr",
+    )
+    parser.add_argument(
         "--no-follow-symlinks",
         action="store_true",
         help="Don't follow symlinks when scanning",
@@ -796,20 +805,71 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     files = scan_files(args.path, follow_symlinks=follow_symlinks)
     if not files:
-        print(f"{YELLOW}No raw/JPG/HIF files found under {args.path}{NC}")
+        print(
+            f"{YELLOW}No raw/JPG/HIF files found under {args.path}{NC}",
+            file=sys.stderr,
+        )
         return 0
 
     groups = group_by_stem(files)
     payloads = [(stem, members, args) for stem, members in groups.items()]
+    total = len(payloads)
+
+    progress_on = not args.quiet and not args.json
+    if progress_on:
+        worker_label = (
+            f"{args.jobs} workers" if args.jobs > 1 and total > 1 else "single process"
+        )
+        print(
+            f"{BOLD}clip-scan{NC}: {total} group(s), {len(files)} file(s), "
+            f"{worker_label}...",
+            file=sys.stderr,
+            flush=True,
+        )
+
+    def _emit_progress(done: int, stem: str, batch: list[FileResult]) -> None:
+        if not progress_on:
+            return
+        rep = next((r for r in batch if r.analysis), None)
+        if rep and rep.analysis is not None:
+            marker_parts = []
+            if rep.verdict_wclip:
+                marker_parts.append(f"{YELLOW}wclip{NC}")
+            if rep.verdict_bclip:
+                marker_parts.append(f"{YELLOW}bclip{NC}")
+            marker = f"  [{','.join(marker_parts)}]" if marker_parts else ""
+            score_part = (
+                f"w={rep.analysis.white_score:.2f}% "
+                f"b={rep.analysis.black_score:.2f}%"
+            )
+            print(
+                f"  [{done}/{total}] {stem}  {score_part}{marker}",
+                file=sys.stderr, flush=True,
+            )
+        else:
+            err = batch[0].error if batch else "no result"
+            print(
+                f"  [{done}/{total}] {stem}  {RED}ERROR{NC}: {err}",
+                file=sys.stderr, flush=True,
+            )
 
     all_results: list[FileResult] = []
-    if args.jobs > 1 and len(payloads) > 1:
+    if args.jobs > 1 and total > 1:
         with concurrent.futures.ProcessPoolExecutor(max_workers=args.jobs) as pool:
-            for batch in pool.map(_process_one_group_payload, payloads):
+            futures = {
+                pool.submit(_process_one_group_payload, p): p[0] for p in payloads
+            }
+            done = 0
+            for future in concurrent.futures.as_completed(futures):
+                batch = future.result()
                 all_results.extend(batch)
+                done += 1
+                _emit_progress(done, futures[future], batch)
     else:
-        for payload in payloads:
-            all_results.extend(_process_one_group_payload(payload))
+        for i, payload in enumerate(payloads, 1):
+            batch = _process_one_group_payload(payload)
+            all_results.extend(batch)
+            _emit_progress(i, payload[0], batch)
 
     if args.apply:
         execute_renames(all_results, follow_symlinks=follow_symlinks)

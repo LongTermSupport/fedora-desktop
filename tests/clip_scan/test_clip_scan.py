@@ -444,7 +444,9 @@ class TestCLI:
         args = clip_scan.build_parser().parse_args([])
         assert args.white_cutoff == pytest.approx(0.95)
         assert args.white_score == pytest.approx(2.0)
-        assert args.black_cutoff == pytest.approx(1.05)
+        # Black cutoff is 1.01 (tight, ~1% above pedestal) — recalibrated
+        # after real-shoot data showed 1.05 swept up the noise floor.
+        assert args.black_cutoff == pytest.approx(1.01)
         assert args.black_score == pytest.approx(5.0)
         assert args.gamma == pytest.approx(1.0)
         assert args.apply is False  # dry-run by default
