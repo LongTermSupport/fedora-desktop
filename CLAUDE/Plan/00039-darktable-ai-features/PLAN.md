@@ -1,6 +1,6 @@
 # Plan 00039: Darktable AI Features
 
-**Status**: Phase 2 In Progress — local source-built RPM playbook drafted; pending host deploy + overlay retirement
+**Status**: Phase 2 BLOCKED — playbook committed; first host deploy fails in mock at the rpmbuild stage. Awaiting build.log inspection (handed off to a desktop-level agent on 2026-05-20).
 **Created**: 2026-05-19
 **Owner**: joseph
 **Priority**: Medium
@@ -161,13 +161,47 @@ overlay tasks (now redundant) and update its success message.
   diff-generation step with no functional benefit. Source5+cp produces
   the same in-tree state (the rawspeed cameras.xml replaces the stock
   one before `%build`) with far less complexity.
-- [x] ✅ **T2.5**: Build SRPM (`rpmbuild -bs --define '_topdir ...'`) then
+- [ ] 🔄 **T2.5**: Build SRPM (`rpmbuild -bs --define '_topdir ...'`) then
   binary RPMs via `mock --rebuild --enable-network`. Both tasks use
   `creates:` guards so re-runs at the same VR are no-ops.
-- [x] ✅ **T2.6**: Install the resulting RPMs via `ansible.builtin.dnf`:
+  - **SRPM step**: succeeds on host (the `.src.rpm` is produced at
+    `/var/tmp/darktable-ai-build/rpmbuild/SRPMS/darktable-5.4.1-100.ai.fc43.src.rpm`).
+  - **Mock step**: FAILS on first host deploy, 2026-05-19. Bootstrap
+    chroot init succeeds, minimal buildroot installs, then mock invokes
+    `/usr/bin/rpmbuild -bb --noclean --target x86_64 --nodeps /builddir/build/SPECS/darktable.spec` inside the chroot and that
+    command exits non-zero after ~100 s. Mock's stderr does NOT contain
+    the rpmbuild output — that lives in
+    `/var/lib/mock/fedora-43-x86_64/result/build.log` and has not yet
+    been read.
+  - Suspect list (in order of likelihood):
+    1. **Spec mutation broke the cmake invocation.** The
+       `-DUSE_AI=ON \` insertion regex anchors on
+       `(\s+-DBUILD_CURVE_TOOLS=ON \\\n)(\s+-DRAWSPEED_ENABLE_LTO=ON\n%endif)`.
+       If something is off by one whitespace char on the host, the
+       cmake call could end up malformed (e.g. continuation backslash
+       missing). Read `/var/tmp/darktable-ai-build/rpmbuild/SPECS/darktable.spec`
+       and check the `%cmake` block visually.
+    2. **`--resolv-conf=off` on the systemd-nspawn invocation defeats
+       DNS for ONNX Runtime download.** Mock's stderr from the host
+       run shows the nspawn command had `--resolv-conf=off` even
+       though we passed `--enable-network`. cmake's
+       `FindONNXRuntime.cmake` does an HTTP fetch from
+       `https://github.com/microsoft/onnxruntime/releases/...` which
+       fails without DNS. If build.log shows a cmake "could not
+       resolve" or "FindONNXRuntime: download failed" error, this is
+       the cause. Fix: add `--config-opts=use_host_resolv=True` or
+       `--bind=/etc/resolv.conf` to the mock invocation, or set
+       `config_opts['use_host_resolv'] = True` in
+       `/etc/mock/site-defaults.cfg`.
+    3. **A BuildRequires can't be satisfied on f43** — e.g.
+       `cmake(libavif) >= 0.9.3` if f43's libavif-devel doesn't
+       expose the cmake module. Look in `root.log` for any "no
+       providing package found" lines.
+- [ ] ⬜ **T2.6**: Install the resulting RPMs via `ansible.builtin.dnf`:
   - `darktable-5.4.1-100.ai.fc43.x86_64.rpm`
   - `darktable-tools-noise-5.4.1-100.ai.fc43.x86_64.rpm`
   - `darktable-tools-basecurve-5.4.1-100.ai.fc43.x86_64.rpm`
+  - **Blocked**: T2.5 must succeed first.
 - [x] ✅ **T2.7**: Dropped the entire `darktable-a7v` task block and the
   `rawspeed_*` / `darktable_cameras_xml_*` vars from
   `play-photography.yml`. Replaced the Sony A7V paragraph in the success
@@ -482,3 +516,97 @@ Plan revisions made:
 - Phase 3 task T3.0 added at the top: hardware gate via `lspci`, every
   subsequent task gated by `when: has_nvidia_gpu`, plus a leading
   `debug:` task for the no-op case on non-NVIDIA machines.
+
+### 2026-05-20 — Phase 2 deploy failed, debug handoff to desktop-level agent
+
+First host deploy of `play-darktable-ai-build.yml` failed in the mock
+step (T2.5). A separate Ansible 2.19 YAML parse error in the task name
+was fixed first (commit `1e74bdb`, working-tree clean now) — the
+remaining failure is real.
+
+**What works on host (verified by user's deploy attempt):**
+
+- Preflight, install build tooling, mock-group add — all green
+- Workspace tree creation — green
+- Fedora f43 dist-git clone (commit `f35a6d0…`) — green
+- Spec copy + Patch0 stage + tarball download (SHA-512 verified) +
+  A7V cameras.xml download (SHA-256 verified) — green
+- All four spec mutations + grep verification — green (the verify task
+  passed, which means each of `Release: 100.ai%{?dist}`, `Source5: cameras.xml.a7v`, the cp line, and `-DUSE_AI=ON \` all landed in the
+  spec)
+- `rpmbuild -bs` SRPM build — green (the `.src.rpm` exists at
+  `/var/tmp/darktable-ai-build/rpmbuild/SRPMS/darktable-5.4.1-100.ai.fc43.src.rpm`)
+
+**What fails:**
+
+- `mock --rebuild --root fedora-43-x86_64 --resultdir /var/lib/mock/fedora-43-x86_64/result --enable-network <srpm>` exits
+  non-zero (rc=1) after ~100 s.
+- Bootstrap chroot succeeds, minimal buildroot installs, then mock
+  invokes `rpmbuild -bb --noclean --target x86_64 --nodeps /builddir/build/SPECS/darktable.spec` inside the chroot — that
+  command is the one that fails.
+- Mock's stderr to Ansible doesn't include the rpmbuild output. The
+  actual failure reason is in:
+  - `/var/lib/mock/fedora-43-x86_64/result/build.log` (rpmbuild
+    stdout/stderr — %prep, %build, %install)
+  - `/var/lib/mock/fedora-43-x86_64/result/root.log` (chroot population
+    - BuildRequires resolution)
+
+**Top suspect — DNS in chroot is off despite `--enable-network`:**
+
+Mock's stderr from the host run shows the systemd-nspawn invocation
+included `--resolv-conf=off`. That means cmake's `FindONNXRuntime.cmake`,
+which fetches `https://github.com/microsoft/onnxruntime/releases/...`
+during the build, gets no DNS and the build fails before it produces a
+darktable binary.
+
+If build.log shows "Could not resolve host" or "FindONNXRuntime: download
+failed", the fix is one of:
+
+1. Add `--config-opts=use_host_resolv=True` to the mock invocation in
+   the playbook, OR
+2. Add `--bind=/etc/resolv.conf` to the mock invocation, OR
+3. Set `config_opts['use_host_resolv'] = True` in
+   `/etc/mock/site-defaults.cfg` (system-wide change, prefer playbook
+   options).
+
+**Second suspect — spec mutation off-by-one on whitespace:**
+
+The cmake-flag insertion regex anchors on the exact whitespace pattern
+in the f43 spec. If something shifted, the resulting `%cmake \` block
+could be missing a line-continuation backslash. The verify task only
+checks four substrings exist, not that they are in the right cmake
+block. Read
+`/var/tmp/darktable-ai-build/rpmbuild/SPECS/darktable.spec` and inspect
+the `%build` section's `%cmake \` block visually — every line except
+the last should end with ` \` and the last should be
+`-DRAWSPEED_ENABLE_LTO=ON` (no trailing backslash). Our `-DUSE_AI=ON \`
+should sit BETWEEN `-DBUILD_CURVE_TOOLS=ON \` and
+`-DRAWSPEED_ENABLE_LTO=ON`.
+
+**Third suspect — BuildRequires unsatisfiable on f43:**
+
+The spec lists `cmake(libavif) >= 0.9.3`, `libheif-devel >= 1.13.0`,
+`libjxl-devel >= 0.7.0` etc. If f43 ships a version too old, root.log
+will show "no providing package found" for that BuildRequires line.
+
+**For the next agent picking this up:**
+
+1. `cat /var/lib/mock/fedora-43-x86_64/result/build.log` — paste the
+   last ~100 lines, this almost certainly identifies the failure.
+2. If DNS, patch the mock invocation in
+   `playbooks/imports/optional/common/play-darktable-ai-build.yml`
+   (task "Build binary RPMs via mock") — add the appropriate flag.
+3. If spec mutation, dump the rendered spec and fix the regex.
+4. If BuildRequires, bump the pinned `darktable_distgit_commit` or
+   amend the spec via another mutation task to soften the version
+   constraint.
+
+After fix: re-run the playbook. The SRPM is already built so that
+step `creates:`-skips; only mock re-runs. To force a fresh mock
+attempt after fixing config, run `mock --scrub=all --root fedora-43-x86_64` first (clears the chroot cache) — but this is rarely
+needed unless you suspect chroot corruption.
+
+The plan's Phase 2-alt (AppImage fallback) remains a viable retreat
+path if the source build proves more trouble than it's worth — single
+file install, no chroot, no BuildRequires, ~140 MB. Lose A7V baked in;
+keep ART-style separate-binary install pattern.
