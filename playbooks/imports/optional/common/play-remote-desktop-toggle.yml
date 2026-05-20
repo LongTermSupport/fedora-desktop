@@ -1,0 +1,153 @@
+#!/usr/bin/env ansible-playbook
+---
+# Remote Desktop Quick Toggle
+#
+# Installs gnome-remote-desktop, deploys the `rdt` toggle CLI, the LAN CIDR
+# allow-list, and a GNOME Shell quick-settings extension that wraps the CLI.
+#
+# This playbook does NOT:
+#   - Enable gnome-remote-desktop persistently (deliberate: off by default).
+#   - Open the firewall persistently (the `rdt` script does this transiently).
+#   - Configure RDP credentials (user sets these once via Settings UI;
+#     they live in GNOME Keyring, not the repo).
+#   - Change power / lid-close policy (user opts in via Settings → Power
+#     if they want lid-close-as-privacy — see Plan 00041 Decision 3).
+#
+# Plan: CLAUDE/Plan/00041-remote-desktop-quick-toggle/PLAN.md
+- hosts: desktop
+  name: Remote Desktop Quick Toggle
+  become: true
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+    extension_name: remote-desktop-toggle@fedora-desktop
+    extension_src: "{{ root_dir }}/extensions/{{ extension_name }}"
+    extension_dest: "/home/{{ user_login }}/.local/share/gnome-shell/extensions/{{ extension_name }}"
+  tasks:
+    # =========================================================================
+    # System Package
+    # =========================================================================
+
+    - name: Install gnome-remote-desktop Package
+      ansible.builtin.package:
+        name: gnome-remote-desktop
+        state: present
+      tags: [packages]
+
+    # =========================================================================
+    # LAN CIDR Allow-list Config
+    # =========================================================================
+
+    - name: Ensure /etc/rdt Directory Exists
+      ansible.builtin.file:
+        path: /etc/rdt
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Deploy rdt LAN CIDR Configuration
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/etc/rdt/rdt.conf"
+        dest: /etc/rdt/rdt.conf
+        owner: root
+        group: root
+        mode: '0644'
+
+    # =========================================================================
+    # Toggle CLI
+    # =========================================================================
+
+    - name: Ensure User ~/.local/bin Exists
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.local/bin"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+
+    - name: Deploy rdt Toggle Script
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/rdt"
+        dest: "/home/{{ user_login }}/.local/bin/rdt"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+
+    # =========================================================================
+    # GNOME Shell Quick-Settings Extension
+    # =========================================================================
+
+    - name: Ensure Extension Directory Exists
+      ansible.builtin.file:
+        path: "{{ extension_dest }}"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+
+    - name: Copy Extension Files
+      ansible.builtin.copy:
+        src: "{{ extension_src }}/{{ item }}"
+        dest: "{{ extension_dest }}/{{ item }}"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0644'
+      loop:
+        - extension.js
+        - metadata.json
+
+    # =========================================================================
+    # Extension Reload (best-effort — Wayland needs a re-login for code to load)
+    # =========================================================================
+
+    - name: Check if Extension is Currently Enabled
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.shell:
+        cmd: gnome-extensions list --enabled | grep -q "{{ extension_name }}"
+      register: extension_enabled
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — extension may not yet be enabled
+
+    - name: Disable Extension to Force Reload
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        cmd: gnome-extensions disable {{ extension_name }}
+      when: extension_enabled.rc == 0
+      register: disable_result
+      changed_when: disable_result.rc == 0
+      failed_when: false  # FAIL-FAST-OK: disable may fail if no active GNOME session
+
+    - name: Wait Briefly for Extension to Unload
+      ansible.builtin.pause:
+        seconds: 2
+      when: extension_enabled.rc == 0
+
+    - name: Enable Extension
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        cmd: gnome-extensions enable {{ extension_name }}
+      register: enable_result
+      changed_when: enable_result.rc == 0
+      failed_when: false  # FAIL-FAST-OK: enable may fail if no active GNOME session
+
+    - name: Print Post-Install Reminder
+      ansible.builtin.debug:
+        msg: |
+          Remote Desktop Quick Toggle deployed.
+
+          One-time manual setup remaining:
+            1. Settings → System → Remote Desktop → enable "Desktop Sharing" and
+               "Remote Control"; set RDP username + password (stored in GNOME Keyring).
+            2. If toggle does not appear in quick settings, log out / restart GNOME
+               Shell — Wayland cannot hot-reload extension code.
+            3. Optional: narrow ALLOWED_CIDRS in /etc/rdt/rdt.conf to your actual LAN.
+            4. Optional (lid-close privacy): Settings → Power → set both
+               "When the Power Button is pressed" / lid-close actions to "Do nothing"
+               so closing the lid hides the screen without locking the session.
+
+          Connect from another LAN host with:
+            xfreerdp3 /u:<rdp-user> /v:<this-host-ip>
+            (or GNOME Connections / Remmina)
