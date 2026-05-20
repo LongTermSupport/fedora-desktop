@@ -28,6 +28,16 @@ ASYNC_COPY_MODE=false
 # Set by --view (RAW) or --view-jpg (JPG); mutually exclusive.
 VIEWER_MODE=false
 VIEWER_CLASS=""   # RAW or JPG once set
+
+# Hotspot state — populated by detect_hotspot() once at startup. The
+# script then uses these globals to decide which interface IP to
+# advertise (get_local_ip), which firewall zone to open the FTP ports
+# in, and what to print in the startup banner. All defaults are "no
+# hotspot active" so non-hotspot invocations behave exactly as before.
+HOTSPOT_ACTIVE=false
+HOTSPOT_DEV=""
+HOTSPOT_IP=""
+HOTSPOT_SSID=""
 # Async stats are tracked in a temp file (append-only — atomic for small
 # writes) so the background monitor and cleanup() see a consistent view.
 ASYNC_STATS_FILE=""
@@ -430,37 +440,52 @@ validate_library_remote() {
     esac
 }
 
+# Probe NetworkManager for an active connection with ipv4.method=shared
+# (a hotspot). When found, populate the HOTSPOT_* globals so subsequent
+# code (get_local_ip, firewall-zone handling, banner) can refer to them
+# without re-querying nmcli. Call once at script entry; idempotent.
+detect_hotspot() {
+    command -v nmcli > /dev/null || return 0
+
+    local conn
+    conn=$(nmcli -t -f NAME connection show --active 2>/dev/null \
+        | while IFS= read -r n; do
+              [ -n "$n" ] || continue
+              if [ "$(nmcli -g ipv4.method connection show "$n" 2>/dev/null)" = shared ]; then
+                  printf '%s' "$n"
+                  break
+              fi
+          done)
+    [ -n "$conn" ] || return 0
+
+    local dev ip ssid
+    dev=$(nmcli -g GENERAL.DEVICES connection show "$conn" 2>/dev/null)
+    [ -n "$dev" ] || return 0
+    ip=$(ip -4 addr show dev "$dev" | awk '/inet / {print $2; exit}' | cut -d/ -f1)
+    [ -n "$ip" ] || return 0
+    # SSID is wireless-only; non-wireless shared connections (rare) leave
+    # this empty, which the banner prints as a dash.
+    ssid=$(nmcli -g 802-11-wireless.ssid connection show "$conn" 2>/dev/null)
+
+    HOTSPOT_ACTIVE=true
+    HOTSPOT_DEV="$dev"
+    HOTSPOT_IP="$ip"
+    HOTSPOT_SSID="$ssid"
+}
+
 get_local_ip() {
-    # First preference: a NetworkManager connection in shared (hotspot) mode.
-    # When the laptop is its own AP for the camera, the hotspot interface
-    # owns a 10.42.0.x address (NM's `ipv4.method=shared` default subnet)
-    # and the default route may be absent entirely — Intel cards in
-    # particular drop client connectivity when entering AP mode. The FTP
-    # server must advertise the hotspot-side IP for the camera to reach it.
-    if command -v nmcli > /dev/null; then
-        local hotspot_conn hotspot_dev hotspot_ip
-        hotspot_conn=$(nmcli -t -f NAME connection show --active 2>/dev/null \
-            | while IFS= read -r n; do
-                  [ -n "$n" ] || continue
-                  if [ "$(nmcli -g ipv4.method connection show "$n" 2>/dev/null)" = shared ]; then
-                      printf '%s' "$n"
-                      break
-                  fi
-              done)
-        if [ -n "$hotspot_conn" ]; then
-            hotspot_dev=$(nmcli -g GENERAL.DEVICES connection show "$hotspot_conn" 2>/dev/null)
-            if [ -n "$hotspot_dev" ]; then
-                hotspot_ip=$(ip -4 addr show dev "$hotspot_dev" \
-                    | awk '/inet / {print $2; exit}' | cut -d/ -f1)
-                if [ -n "$hotspot_ip" ]; then
-                    printf '%s\n' "$hotspot_ip"
-                    return 0
-                fi
-            fi
-        fi
+    # When a hotspot is active, the laptop's WiFi card is in AP mode and
+    # the default route is typically absent (Intel cards can't do
+    # concurrent client+AP). Advertise the hotspot IP so the camera —
+    # which is on the same 10.x.x.x subnet — can actually reach the FTP
+    # server.
+    if [ "$HOTSPOT_ACTIVE" = true ]; then
+        printf '%s\n' "$HOTSPOT_IP"
+        return 0
     fi
 
-    # Fall back to the default-route interface (the original behaviour).
+    # Otherwise fall back to the default-route interface (the original
+    # behaviour for normal LAN/Wi-Fi connectivity).
     local iface
     iface=$(ip -4 route show default | awk '{print $5; exit}')
     if [ -z "$iface" ]; then
@@ -1152,6 +1177,12 @@ print_startup_banner() {
     echo -e "  ${BOLD}ftp-camera ready${NC}"
     echo -e "${BOLD}${GREEN}──────────────────────────────────────────────────────────${NC}"
     printf '  %-13s %s\n' "Mode:"      "$mode_desc"
+    if [ "$HOTSPOT_ACTIVE" = true ]; then
+        printf '  %-13s on   (SSID: %s, IP: %s, dev: %s)\n' \
+            "Hotspot:" "${HOTSPOT_SSID:--}" "$HOTSPOT_IP" "$HOTSPOT_DEV"
+    else
+        printf '  %-13s off\n' "Hotspot:"
+    fi
     if [ "$VIEWER_MODE" = true ]; then
         printf '  %-13s on  (class filter: %s)\n' "Viewer:"   "$VIEWER_CLASS"
         printf '  %-13s %s\n' "Watching:"  "$watch_path"
@@ -1336,6 +1367,19 @@ cleanup() {
     fi
     if sudo firewall-cmd --query-port=30000-30100/tcp --quiet; then
         sudo firewall-cmd --remove-port=30000-30100/tcp --quiet
+    fi
+
+    # The hotspot zone is created on demand by firewalld+NetworkManager;
+    # it disappears if the user closes the hotspot mid-session. Probe its
+    # existence before trying to remove rules from it — `--query` against
+    # a non-existent zone errors out, but the zone presence check is cheap.
+    if sudo firewall-cmd --get-zones | grep -qw nm-shared; then
+        if sudo firewall-cmd --zone=nm-shared --query-service=ftp --quiet; then
+            sudo firewall-cmd --zone=nm-shared --remove-service=ftp --quiet
+        fi
+        if sudo firewall-cmd --zone=nm-shared --query-port=30000-30100/tcp --quiet; then
+            sudo firewall-cmd --zone=nm-shared --remove-port=30000-30100/tcp --quiet
+        fi
     fi
 
     echo -e "${GREEN}FTP server stopped.${NC}"
@@ -1533,6 +1577,10 @@ if [ "$VIEWER_MODE" = true ]; then
     fi
 fi
 
+# Probe NetworkManager once for an active hotspot so subsequent
+# get_local_ip / firewall / banner steps share consistent state.
+detect_hotspot
+
 LOCAL_IP=$(get_local_ip)
 
 echo -e "${BOLD}Starting camera FTP server...${NC}"
@@ -1555,6 +1603,18 @@ sudo systemctl daemon-reload
 sudo systemctl start vsftpd
 sudo firewall-cmd --add-service=ftp --quiet
 sudo firewall-cmd --add-port=30000-30100/tcp --quiet
+
+# When a NetworkManager shared connection (hotspot) is active, firewalld
+# auto-assigns its interface to the `nm-shared` zone — a restrictive zone
+# that allows DHCP and SSH but NOT FTP. Without these explicit
+# nm-shared-zone additions, the camera's STOR connections from
+# 10.x.x.x would be silently dropped despite the FTP server listening.
+# The rules are runtime-only (no --permanent) so they evaporate on
+# firewalld reload — exactly matching the runtime nature of the session.
+if [ "$HOTSPOT_ACTIVE" = true ]; then
+    sudo firewall-cmd --zone=nm-shared --add-service=ftp --quiet
+    sudo firewall-cmd --zone=nm-shared --add-port=30000-30100/tcp --quiet
+fi
 
 echo ""
 print_startup_banner
