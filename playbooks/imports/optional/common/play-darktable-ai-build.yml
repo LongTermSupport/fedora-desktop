@@ -12,9 +12,10 @@
 #
 # WORKFLOW: clone Fedora's f43 dist-git at a pinned commit, mutate the spec
 # (Release tag bumped to .ai for clarity, autorelease/autochangelog replaced
-# with static entries, Source5+cp injected for A7V, -DUSE_AI=ON added to the
-# Fedora %cmake invocation), build SRPM with rpmbuild, build binary RPMs in an
-# isolated chroot with mock, install with dnf.
+# with static entries, Source5+Source6+cp injected for the A7V cameras.xml and
+# its matching cameras.xsd, -DUSE_AI=ON added to the Fedora %cmake invocation),
+# build SRPM with rpmbuild, build binary RPMs in an isolated chroot with mock,
+# install with dnf.
 #
 # RELEASE TAG: we use "100.ai" so the local build always sorts above Fedora's
 # stock release tags (which are single-digit). This prevents dnf upgrade from
@@ -53,11 +54,19 @@
     darktable_release_full: "{{ darktable_release_local }}.fc{{ fedora_version }}"
     darktable_target_vr: "{{ darktable_version }}-{{ darktable_release_full }}"
 
-    # A7V cameras.xml from rawspeed develop - same pinning as the (now-retired)
+    # A7V camera support from rawspeed develop - same pinning as the (now-retired)
     # post-install overlay in play-photography.yml. See PLAN.md Decision 2.
+    #
+    # Both cameras.xml AND cameras.xsd are overlaid from the SAME rawspeed commit.
+    # The darktable build runs a validate-cameras.xml step (xmllint --schema): the
+    # newer develop cameras.xml only validates against its matching newer
+    # cameras.xsd. The older schema bundled in the darktable 5.4.1 tarball rejects
+    # newer entries (e.g. make 'Phase One', short aliases) and fails the build.
     rawspeed_commit: "aa9028af9c563ebd4d8e6c5b74f05b0db1233d14"
     rawspeed_cameras_xml_url: "https://raw.githubusercontent.com/darktable-org/rawspeed/{{ rawspeed_commit }}/data/cameras.xml"
     rawspeed_cameras_xml_sha256: "d3d4d97f368c24da587350d68f51fe11fedfb307c6b2c960a5b6aa441c648d57"
+    rawspeed_cameras_xsd_url: "https://raw.githubusercontent.com/darktable-org/rawspeed/{{ rawspeed_commit }}/data/cameras.xsd"
+    rawspeed_cameras_xsd_sha256: "a5ce338576710addbc806351bf723eb7180ccbf91f393e6150e52766e48de5df"
 
     # Build workspace (under /var/tmp so it survives reboots but is clearly tmp)
     build_root: "/var/tmp/darktable-ai-build"
@@ -198,6 +207,17 @@
           become: true
           become_user: "{{ user_login }}"
 
+        - name: Download A7V cameras.xsd (matching schema for build-time validation)
+          ansible.builtin.get_url:
+            url: "{{ rawspeed_cameras_xsd_url }}"
+            dest: "{{ rpm_topdir }}/SOURCES/cameras.xsd.a7v"
+            checksum: "sha256:{{ rawspeed_cameras_xsd_sha256 }}"
+            owner: "{{ user_login }}"
+            group: "{{ user_login }}"
+            mode: "0644"
+          become: true
+          become_user: "{{ user_login }}"
+
         # ----- Spec mutations (idempotent: spec is freshly copied above each run) -----
 
         - name: Spec mutation - replace %autorelease with our local release tag
@@ -229,11 +249,20 @@
           become: true
           become_user: "{{ user_login }}"
 
-        - name: Spec mutation - overlay A7V cameras.xml into source tree after %autosetup
+        - name: Spec mutation - declare Source6 (A7V cameras.xsd) after Source5
+          ansible.builtin.lineinfile:
+            path: "{{ rpm_topdir }}/SPECS/darktable.spec"
+            line: "Source6: cameras.xsd.a7v"
+            insertafter: '^Source5: cameras\.xml\.a7v$'
+            firstmatch: true
+          become: true
+          become_user: "{{ user_login }}"
+
+        - name: Spec mutation - overlay A7V cameras.xml + cameras.xsd into source tree after %autosetup
           ansible.builtin.replace:
             path: "{{ rpm_topdir }}/SPECS/darktable.spec"
             regexp: '^(%autosetup -p1)$'
-            replace: "\\1\n\n# Sony A7V cameras.xml overlay (build-time; replaces post-install patch from play-photography.yml)\ncp %{SOURCE5} src/external/rawspeed/data/cameras.xml"
+            replace: "\\1\n\n# Sony A7V rawspeed overlay (build-time; replaces post-install patch from play-photography.yml).\n# cameras.xsd is overlaid alongside cameras.xml so the newer develop cameras.xml\n# passes the build's validate-cameras.xml step against its matching schema.\ncp %{SOURCE5} src/external/rawspeed/data/cameras.xml\ncp %{SOURCE6} src/external/rawspeed/data/cameras.xsd"
           become: true
           become_user: "{{ user_login }}"
 
@@ -254,7 +283,9 @@
           loop:
             - '^Release: 100\.ai%\{\?dist\}$'
             - '^Source5: cameras\.xml\.a7v$'
+            - '^Source6: cameras\.xsd\.a7v$'
             - '^cp %\{SOURCE5\} src/external/rawspeed/data/cameras\.xml$'
+            - '^cp %\{SOURCE6\} src/external/rawspeed/data/cameras\.xsd$'
             - '^        -DUSE_AI=ON \\$'
           changed_when: false
           become: true
@@ -262,10 +293,16 @@
 
         # ----- Build SRPM, then binary RPMs in chroot -----
 
+        # No `creates:` guard: the SRPM must always be rebuilt from the freshly
+        # staged-and-mutated spec. A spec change that does not bump the
+        # version-release (e.g. fixing the A7V overlay) would otherwise be
+        # masked by a stale SRPM. rpmbuild -bs is cheap (~seconds); the
+        # expensive mock step below keeps its own `creates:` guard for
+        # idempotency, and the whole block is already gated on dt_build_needed.
         - name: Build SRPM (rpmbuild -bs)
           ansible.builtin.command:
             cmd: "rpmbuild -bs --define '_topdir {{ rpm_topdir }}' {{ rpm_topdir }}/SPECS/darktable.spec"
-            creates: "{{ rpm_topdir }}/SRPMS/darktable-{{ darktable_target_vr }}.src.rpm"
+          changed_when: true
           become: true
           become_user: "{{ user_login }}"
 

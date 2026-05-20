@@ -1,6 +1,6 @@
 # Plan 00039: Darktable AI Features
 
-**Status**: Phase 2 BLOCKED — playbook committed; first host deploy fails in mock at the rpmbuild stage. Awaiting build.log inspection (handed off to a desktop-level agent on 2026-05-20).
+**Status**: Phase 2 IN PROGRESS — the mock build failure was root-caused (rawspeed `cameras.xml` fails XSD validation against the older bundled schema) and fixed in the playbook on 2026-05-20. Awaiting a host re-deploy to confirm T2.5/T2.6.
 **Created**: 2026-05-19
 **Owner**: joseph
 **Priority**: Medium
@@ -161,42 +161,38 @@ overlay tasks (now redundant) and update its success message.
   diff-generation step with no functional benefit. Source5+cp produces
   the same in-tree state (the rawspeed cameras.xml replaces the stock
   one before `%build`) with far less complexity.
-- [ ] 🔄 **T2.5**: Build SRPM (`rpmbuild -bs --define '_topdir ...'`) then
-  binary RPMs via `mock --rebuild --enable-network`. Both tasks use
-  `creates:` guards so re-runs at the same VR are no-ops.
-  - **SRPM step**: succeeds on host (the `.src.rpm` is produced at
-    `/var/tmp/darktable-ai-build/rpmbuild/SRPMS/darktable-5.4.1-100.ai.fc43.src.rpm`).
-  - **Mock step**: FAILS on first host deploy, 2026-05-19. Bootstrap
-    chroot init succeeds, minimal buildroot installs, then mock invokes
-    `/usr/bin/rpmbuild -bb --noclean --target x86_64 --nodeps /builddir/build/SPECS/darktable.spec` inside the chroot and that
-    command exits non-zero after ~100 s. Mock's stderr does NOT contain
-    the rpmbuild output — that lives in
-    `/var/lib/mock/fedora-43-x86_64/result/build.log` and has not yet
-    been read.
-  - Suspect list (in order of likelihood):
-    1. **Spec mutation broke the cmake invocation.** The
-       `-DUSE_AI=ON \` insertion regex anchors on
-       `(\s+-DBUILD_CURVE_TOOLS=ON \\\n)(\s+-DRAWSPEED_ENABLE_LTO=ON\n%endif)`.
-       If something is off by one whitespace char on the host, the
-       cmake call could end up malformed (e.g. continuation backslash
-       missing). Read `/var/tmp/darktable-ai-build/rpmbuild/SPECS/darktable.spec`
-       and check the `%cmake` block visually.
-    2. **`--resolv-conf=off` on the systemd-nspawn invocation defeats
-       DNS for ONNX Runtime download.** Mock's stderr from the host
-       run shows the nspawn command had `--resolv-conf=off` even
-       though we passed `--enable-network`. cmake's
-       `FindONNXRuntime.cmake` does an HTTP fetch from
-       `https://github.com/microsoft/onnxruntime/releases/...` which
-       fails without DNS. If build.log shows a cmake "could not
-       resolve" or "FindONNXRuntime: download failed" error, this is
-       the cause. Fix: add `--config-opts=use_host_resolv=True` or
-       `--bind=/etc/resolv.conf` to the mock invocation, or set
-       `config_opts['use_host_resolv'] = True` in
-       `/etc/mock/site-defaults.cfg`.
-    3. **A BuildRequires can't be satisfied on f43** — e.g.
-       `cmake(libavif) >= 0.9.3` if f43's libavif-devel doesn't
-       expose the cmake module. Look in `root.log` for any "no
-       providing package found" lines.
+- [ ] 🔄 **T2.5**: Build SRPM (`rpmbuild -bs`) then binary RPMs via
+  `mock --rebuild --enable-network`.
+  - **Root cause of the 2026-05-19 mock failure — FOUND & FIXED
+    2026-05-20.** The build reached 4–18%, then failed at rawspeed's
+    `validate-cameras.xml` target
+    (`gmake[2]: *** [...validate-cameras.xml...] Error 3`). The A7V
+    overlay `cp`s the rawspeed-*develop* `cameras.xml` over the source
+    tree; the build then runs `xmllint --schema cameras.xsd cameras.xml`,
+    and the *older* `cameras.xsd` bundled in the darktable 5.4.1 tarball
+    rejects the newer xml — `cameras.xml:17491` make `Phase One` is not
+    in the schema enum set (it has `Phase One A/S`), and
+    `cameras.xml:1345` alias `EOS Hi` is shorter than the schema's
+    minLength 7. **None of the three handoff suspects applied**: cmake
+    configured cleanly, ONNX Runtime downloaded fine over the network,
+    every BuildRequires resolved. The validation failure was the *only*
+    error in `build.log`.
+  - **Fix**: overlay the matching `cameras.xsd` from the same pinned
+    rawspeed commit alongside `cameras.xml` — `Source6:` declaration +
+    a second `cp` line in `%prep`. Verified locally with `xmllint`: the
+    develop `cameras.xml` validates cleanly against the develop
+    `cameras.xsd` (sha256 `a5ce338…`). The xsd is build-validation-only
+    (not compiled, not used at runtime), so there is zero runtime risk;
+    the develop `cameras.xml` itself is already runtime-proven against
+    darktable 5.4.1 by the now-retired post-install overlay.
+  - **Also fixed**: the SRPM step's `creates:` guard was removed. It
+    keyed on the version-release, so a spec fix that does not bump the
+    VR (exactly this case) would be masked by the stale SRPM and mock
+    would rebuild the *old* SRPM. `rpmbuild -bs` is cheap (~seconds);
+    mock keeps its own `creates:` guard and the block is gated on
+    `dt_build_needed`.
+  - **Pending**: host re-deploy to confirm the build completes and
+    produces the three binary RPMs.
 - [ ] ⬜ **T2.6**: Install the resulting RPMs via `ansible.builtin.dnf`:
   - `darktable-5.4.1-100.ai.fc43.x86_64.rpm`
   - `darktable-tools-noise-5.4.1-100.ai.fc43.x86_64.rpm`
@@ -610,3 +606,49 @@ The plan's Phase 2-alt (AppImage fallback) remains a viable retreat
 path if the source build proves more trouble than it's worth — single
 file install, no chroot, no BuildRequires, ~140 MB. Lose A7V baked in;
 keep ART-style separate-binary install pattern.
+
+### 2026-05-20 — mock failure root-caused and fixed
+
+Read `/var/lib/mock/fedora-43-x86_64/result/build.log`. The build
+reached 4–18% and then failed at a single target — rawspeed's
+`validate-cameras.xml`:
+
+```
+src/external/rawspeed/data/cameras.xml:1345: Alias id 'EOS Hi' underruns minimum length 7
+src/external/rawspeed/data/cameras.xml:17491: Camera make 'Phase One' not in enumeration set
+src/external/rawspeed/data/cameras.xml fails to validate
+gmake[2]: *** [...validate-cameras.xml...] Error 3
+```
+
+**The handoff's three suspects were all wrong.** cmake configured
+fine (compilation got to 18%), ONNX Runtime downloaded fine over the
+network, every BuildRequires resolved. The mock `--resolv-conf=off`
+red herring was just nspawn's default — `--enable-network` worked.
+
+**Actual cause**: T2.4's A7V overlay `cp`s the rawspeed-*develop*
+`cameras.xml` over the source tree, but the build's
+`validate-cameras.xml` step runs `xmllint --schema cameras.xsd cameras.xml` against the *older* `cameras.xsd` bundled in the
+darktable 5.4.1 tarball. The newer xml has entries the older schema
+rejects. The retired post-install overlay never hit this because it
+ran after the build (no validation at install time).
+
+**Fix applied to `play-darktable-ai-build.yml`:**
+
+1. Overlay the matching `cameras.xsd` from the same pinned rawspeed
+   commit (`rawspeed_cameras_xsd_*` vars, a `Source6:` declaration,
+   and a second `cp` line in `%prep`). Confirmed locally with
+   `xmllint` that develop `cameras.xml` validates against develop
+   `cameras.xsd`. The xsd is build-validation-only — not compiled,
+   not used at runtime — so no runtime risk.
+2. Removed the SRPM step's `creates:` guard. It keyed on the
+   version-release, so this very fix (a spec change with no VR bump)
+   would have been masked by the stale SRPM, and mock would have
+   rebuilt the *old* SRPM. `rpmbuild -bs` is cheap; mock retains its
+   own guard.
+
+**Next**: re-run `play-darktable-ai-build.yml` on the host. The stale
+SRPM and the failed mock result dir do not need manual cleanup — the
+spec is re-staged and re-mutated every run, the SRPM is now always
+rebuilt, and mock's binary-RPM `creates:` guard sees no RPM so it
+re-runs. `mock --scrub=all` is not needed (BuildRequires unchanged,
+chroot cache is fine).
