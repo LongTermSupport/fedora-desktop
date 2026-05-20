@@ -267,11 +267,14 @@ class TestScoreBlack:
         score = clip_scan.score_black(values, self.BLACK_LEVEL, self.CUTOFF)
         assert score == pytest.approx(100.0)
 
-    def test_all_at_cutoff_gives_zero(self):
-        cutoff_value = int(self.BLACK_LEVEL * self.CUTOFF)
-        values = np.full(1000, cutoff_value, dtype=np.uint16)
+    def test_just_above_cutoff_gives_zero(self):
+        # 512 * 1.05 = 537.6 (float). uint16 can't hold a fractional
+        # cutoff, so use the first integer strictly above it (538) to
+        # ensure we land outside the ramp.
+        cutoff_value_above = int(self.BLACK_LEVEL * self.CUTOFF) + 1
+        values = np.full(1000, cutoff_value_above, dtype=np.uint16)
         score = clip_scan.score_black(values, self.BLACK_LEVEL, self.CUTOFF)
-        assert score == pytest.approx(0.0, abs=1e-9)
+        assert score == 0.0
 
     def test_all_above_cutoff_gives_exact_zero(self):
         cutoff_value = int(self.BLACK_LEVEL * self.CUTOFF)
@@ -282,6 +285,23 @@ class TestScoreBlack:
     def test_2pct_at_black_gives_score_2(self):
         values = np.full(10000, self.BLACK_LEVEL + 200, dtype=np.uint16)
         values[:200] = self.BLACK_LEVEL  # 2% at exact black
+        score = clip_scan.score_black(values, self.BLACK_LEVEL, self.CUTOFF)
+        assert score == pytest.approx(2.0, abs=0.01)
+
+    def test_pixels_below_black_level_do_not_contribute(self):
+        # Sony ARWs include ~10% of pixels at literal value 0 (masked /
+        # optical-black artefact) — these MUST NOT count as "clipped to
+        # black", they are not real photometric pixels.
+        values = np.zeros(10000, dtype=np.uint16)  # all at 0, all below black
+        score = clip_scan.score_black(values, self.BLACK_LEVEL, self.CUTOFF)
+        assert score == 0.0
+
+    def test_mix_of_zeros_and_at_black(self):
+        # Half at 0 (artefact), 2% at exact black. Only the at-black 2%
+        # should count toward the score.
+        values = np.full(10000, self.BLACK_LEVEL + 500, dtype=np.uint16)
+        values[:1000] = 0  # 10% format artefact
+        values[1000:1200] = self.BLACK_LEVEL  # 2% genuinely at pedestal
         score = clip_scan.score_black(values, self.BLACK_LEVEL, self.CUTOFF)
         assert score == pytest.approx(2.0, abs=0.01)
 

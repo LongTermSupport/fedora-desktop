@@ -517,3 +517,31 @@ First real run against a 347-frame A7V cRAW shoot surfaced two issues:
 The white side was correctly calibrated already (most frames score 0%, sunsets/bright scenes pop to 2–20%). No change there.
 
 Test `TestCLI.test_defaults` updated to match the new black-cutoff default. PLAN.md research.md §3 "Why the cutoff defaults moved from Section 2's 0.98 / 1.03 to 0.95 / 1.05" is now out of date — the black-side justification needs revisiting once we have more shoots' worth of data. Deferred.
+
+### 2026-05-20 (seventh iteration — actual bug fix: Sony's value-0 artefact)
+
+User reported the 1.01 recalibration didn't help — still flagging every image. Pulled the actual ARWs into the container, installed rawpy in a `/tmp` venv, and ran a per-channel pixel-value histogram. Found the real bug:
+
+**Every Sony A7V ARW has ~10.07% of pixels at literal value 0** — and this is structural, present even on the brightest sunlit sunset frames. Almost certainly rawpy's `raw_image_visible` is including masked / optical-black border pixels that LibRaw stores as zero.
+
+In `score_black`, the old logic was `below = values <= cutoff_value` (i.e. include everything below the cutoff in the ramp), then `np.clip(ramp, 0.0, 1.0)`. A pixel at v=0 with black_level=512 and cutoff_value=537.6 computes `ramp = (537.6 - 0) / 25.6 = 21.0`, which the clip pins to 1.0 — full clipping weight. So 10% of every frame contributed full bclip weight regardless of scene content. That's the 10% baseline.
+
+**Fix**: `in_ramp = (values >= black_level) & (values <= cutoff_value)`. Pixels below black_level are excluded entirely — they're not photometric measurements, they're format padding. The np.clip is no longer needed (denied input pixels can't produce out-of-range ramp values).
+
+Verified against the user's 347-frame shoot inside the container (rawpy in venv at `/tmp/clipscan-venv/`, NOT installed on host — host install is via the playbook). After the fix:
+
+- Baseline normal frames: b=0.00–0.10% (was 10.15%)
+- Bright sunlit frames: b=0.00% (was 10.07%)
+- Mildly-dark scenes: b=2–6% (was 12–30%)
+- Genuinely crushed silhouettes: b=12–28% (was 47–77%)
+- Total flagged: 33 unique frames out of 347 (~10%), down from 347/347
+
+Also addressed in the same commit:
+
+- **Summary moved below the listing** (user asked) so it stays on screen after the long table scrolls past.
+- Added two new tests against the artefact: `test_pixels_below_black_level_do_not_contribute` and `test_mix_of_zeros_and_at_black`.
+- Fixed `test_just_above_cutoff_gives_zero` (was `test_all_at_cutoff_gives_zero`) — the old test was checking `value == int(cutoff_value)` but `512 × 1.05 = 537.6` is float, `int(537.6) = 537` is *just below* the float cutoff, so the value was in-ramp with a tiny non-zero weight (2.34%). New test uses `+1` to land strictly above.
+- Removed `tests/clip_scan/__init__.py` — its presence made pytest treat the directory as a package, which collided with `sys.modules["clip_scan"]` registered by conftest for the script (pytest tried to import `clip_scan.test_clip_scan` and failed). Without the marker, pytest discovers tests by directory traversal which is the right shape.
+- `conftest.py` switched from `spec_from_file_location` to `SourceFileLoader` because the no-extension script can't be auto-loaded by extension.
+
+All 45 tests pass under `/tmp/clipscan-venv/bin/pytest`.

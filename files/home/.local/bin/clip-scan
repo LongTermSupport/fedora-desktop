@@ -191,7 +191,13 @@ def score_black(
 
     Linear ramp from cutoff_ratio * black_level DOWN to black_level. Pixels
     at black_level contribute weight 1.0; pixels at the cutoff contribute
-    0.0; pixels above the cutoff contribute exactly 0.0.
+    0.0; pixels above the cutoff or below black_level contribute exactly
+    0.0.
+
+    Pixels with v < black_level are Sony's masked / optical-black artefact
+    (raw_image_visible includes ~10% of every frame at literal value 0,
+    even on the brightest sunsets) and MUST be excluded from the ramp —
+    they are not "crushed to black", they are format padding.
     """
     _validate_black(black_level)
     cutoff_value = cutoff_ratio * black_level
@@ -201,12 +207,11 @@ def score_black(
             f"Invalid cutoff_ratio {cutoff_ratio}: cutoff_value ({cutoff_value}) "
             f"<= black_level ({black_level})"
         )
-    below = values <= cutoff_value
-    if not below.any():
+    in_ramp = (values >= black_level) & (values <= cutoff_value)
+    if not in_ramp.any():
         return 0.0
-    v_in_ramp = values[below].astype(np.float64)
+    v_in_ramp = values[in_ramp].astype(np.float64)
     ramp = (cutoff_value - v_in_ramp) / denom
-    np.clip(ramp, 0.0, 1.0, out=ramp)
     if gamma != 1.0:
         ramp = np.power(ramp, gamma)
     return float(100.0 * ramp.sum() / values.size)
@@ -593,24 +598,6 @@ def _format_human_table(
     for r in results:
         by_group.setdefault(r.canonical_stem, []).append(r)
 
-    mode_label = "APPLY" if applied else "DRY-RUN"
-    lines.append(f"{BOLD}clip-scan {mode_label}{NC}")
-    lines.append(
-        f"  thresholds: white-score>{args.white_score} (cutoff {args.white_cutoff}), "
-        f"black-score>{args.black_score} (cutoff {args.black_cutoff}), "
-        f"gamma={args.gamma}"
-    )
-    lines.append(
-        f"  scanned: {len(by_group)} groups, {len(results)} files; "
-        f"flagged: {len(flagged)}; errors: {len(errors)}; "
-        f"collisions: {len(collisions)}"
-    )
-    lines.append("")
-
-    if not flagged and not errors:
-        lines.append(f"{GREEN}No files require renaming.{NC}")
-        return "\n".join(lines)
-
     if flagged:
         lines.append(f"{BOLD}Renames:{NC}")
         for r in flagged:
@@ -651,8 +638,24 @@ def _format_human_table(
             lines.append(f"  {r.path.name} → {r.new_name}: {r.error}")
         lines.append("")
 
-    if not applied:
-        lines.append(f"{CYAN}Dry run — re-run with --apply to commit renames.{NC}")
+    # Summary trails the listing so it stays on screen after the long
+    # rename table has scrolled past.
+    mode_label = "APPLY" if applied else "DRY-RUN"
+    lines.append(f"{BOLD}clip-scan {mode_label} — summary{NC}")
+    lines.append(
+        f"  thresholds: white-score>{args.white_score} (cutoff {args.white_cutoff}), "
+        f"black-score>{args.black_score} (cutoff {args.black_cutoff}), "
+        f"gamma={args.gamma}"
+    )
+    lines.append(
+        f"  scanned: {len(by_group)} groups, {len(results)} files; "
+        f"flagged: {len(flagged)}; errors: {len(errors)}; "
+        f"collisions: {len(collisions)}"
+    )
+    if not flagged and not errors:
+        lines.append(f"  {GREEN}No files require renaming.{NC}")
+    elif not applied:
+        lines.append(f"  {CYAN}Dry run — re-run with --apply to commit renames.{NC}")
     return "\n".join(lines)
 
 
