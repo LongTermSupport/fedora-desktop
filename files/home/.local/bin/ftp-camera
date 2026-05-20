@@ -234,6 +234,13 @@ if [ "$#" -eq 0 ]; then
     NO_ARGS=true
 fi
 
+# Snapshot of the original args so the systemd-inhibit re-exec further
+# below can replay them. The arg loop shifts each one as it consumes them,
+# leaving "$@" empty by the end — the old single-case parser never
+# shifted so the inhibit wrap could just pass "$@" verbatim; we have to
+# preserve them explicitly now.
+ORIG_ARGS=("$@")
+
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --sort)        SORT_ONLY=true ;;
@@ -338,12 +345,15 @@ if [ "$_skip_inhibit" = false ] \
         && [ -z "${_FTP_CAMERA_INHIBITED:-}" ] \
         && command -v systemd-inhibit > /dev/null; then
     export _FTP_CAMERA_INHIBITED=1
+    # Replay ORIG_ARGS, not "$@": the while-loop above shifted "$@" empty
+    # while parsing. Passing empty would re-trigger NO_ARGS on the inhibit
+    # re-entry and reopen the launcher (the "TUI fires twice" symptom).
     exec systemd-inhibit \
         --what=idle:sleep \
         --who="ftp-camera" \
         --why="Camera FTP transfer in progress" \
         --mode=block \
-        -- "$0" "$@"
+        -- "$0" "${ORIG_ARGS[@]}"
 fi
 
 # ── Colours ───────────────────────────────────────────────────────────────────
