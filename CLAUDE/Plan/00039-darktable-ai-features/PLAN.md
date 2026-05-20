@@ -811,3 +811,46 @@ the banner under that heading).
 - Phase 5 docs/cleanup; `play-darktable-ai-build.yml` rename (it builds the
   A7V RPM, not an AI build — a `play-darktable-a7v-rpm.yml` rename is the
   tidy end state, deferred to avoid churn).
+
+### 2026-05-20 — Phase 3 (GPU) research; CUDA/cuDNN sourcing is a decision gate
+
+**Repo baseline (source of truth — `play-nvidia.yml`)**: installs the RPM
+Fusion NVIDIA driver (`akmod-nvidia`) plus `xorg-x11-drv-nvidia-cuda` and
+`xorg-x11-drv-nvidia-cuda-libs`. Those give the driver and the
+driver-bundled CUDA libraries, but **not** the CUDA Toolkit runtime
+(`libcudart`/`libcublas`/`libcufft`) and **not** cuDNN. Phase 3 must add
+those two — and must do so **holistically**: without disturbing the RPM
+Fusion driver `play-nvidia.yml` owns.
+
+**GPU ONNX Runtime** (darktable `data/ort_gpu.json` + `tools/ai/install-ort-gpu.sh`):
+
+- ORT **1.25.1**. CUDA 12.x → `onnxruntime-linux-x64-gpu-1.25.1.tgz`
+  (sha256 `ddfc4ca4ccc9cd5345d3820edab710ee84e749569d052eed92c42693d3b448a8`,
+  ~250 MB). CUDA 13.x → `onnxruntime-linux-x64-gpu_cuda13-1.25.1.tgz`
+  (sha256 `ebc14e1290db2a30a7bb415bd1c3e1390a7816bb4db87677dc36d071ed22833c`,
+  ~200 MB). URLs under `github.com/microsoft/onnxruntime/releases/`.
+- Installs `libonnxruntime*.so*` to `~/.local/lib/onnxruntime-cuda/`.
+- CUDA version detection cascade: `nvcc` → `/usr/local/cuda/version.json`
+  → `version.txt` → `ldconfig -p | grep libcudart`.
+- Needs the `PT_GNU_STACK` RWE→clear fix on the `.so` files (`execstack -c`,
+  else an ELF `p_flags` patch clearing `PF_X`).
+- darktable finds the lib via the `DT_ORT_LIBRARY` env var (or Preferences
+  → AI → "detect"). The GPU playbook will export it in `/etc/profile.d/`.
+
+**Decision gate D5 — how to source CUDA Toolkit runtime + cuDNN 9 on
+Fedora 43 without breaking the RPM Fusion driver:**
+
+- **negativo17** (`fedora-nvidia.repo`) — self-sustained, has `cuda` +
+  `cudnn` RPMs, *but* it also ships its own NVIDIA driver that conflicts
+  with the RPM Fusion `akmod-nvidia` already installed. Usable only if the
+  driver packages are excluded — fragile, not cleanly holistic.
+- **NVIDIA official CUDA repo** — installing the `cuda-toolkit` /
+  `cudnn` meta-packages (NOT the umbrella `cuda` package) leaves the
+  distro driver alone. Cleanest *if* NVIDIA publishes a `fedora43` repo
+  (NVIDIA's repos lag Fedora releases — needs checking).
+- **RPM Fusion** — does not package the full CUDA Toolkit or cuDNN
+  (cuDNN's EULA precludes it), so RPM Fusion alone cannot supply Phase 3.
+
+This is a genuine gate: a CUDA repo that pulls a second NVIDIA driver
+would destabilise the display driver (plan Risk table: High impact).
+Resolve D5 before writing `play-darktable-ai-gpu.yml`.
