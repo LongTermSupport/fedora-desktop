@@ -431,10 +431,42 @@ validate_library_remote() {
 }
 
 get_local_ip() {
+    # First preference: a NetworkManager connection in shared (hotspot) mode.
+    # When the laptop is its own AP for the camera, the hotspot interface
+    # owns a 10.42.0.x address (NM's `ipv4.method=shared` default subnet)
+    # and the default route may be absent entirely — Intel cards in
+    # particular drop client connectivity when entering AP mode. The FTP
+    # server must advertise the hotspot-side IP for the camera to reach it.
+    if command -v nmcli > /dev/null; then
+        local hotspot_conn hotspot_dev hotspot_ip
+        hotspot_conn=$(nmcli -t -f NAME connection show --active 2>/dev/null \
+            | while IFS= read -r n; do
+                  [ -n "$n" ] || continue
+                  if [ "$(nmcli -g ipv4.method connection show "$n" 2>/dev/null)" = shared ]; then
+                      printf '%s' "$n"
+                      break
+                  fi
+              done)
+        if [ -n "$hotspot_conn" ]; then
+            hotspot_dev=$(nmcli -g GENERAL.DEVICES connection show "$hotspot_conn" 2>/dev/null)
+            if [ -n "$hotspot_dev" ]; then
+                hotspot_ip=$(ip -4 addr show dev "$hotspot_dev" \
+                    | awk '/inet / {print $2; exit}' | cut -d/ -f1)
+                if [ -n "$hotspot_ip" ]; then
+                    printf '%s\n' "$hotspot_ip"
+                    return 0
+                fi
+            fi
+        fi
+    fi
+
+    # Fall back to the default-route interface (the original behaviour).
     local iface
     iface=$(ip -4 route show default | awk '{print $5; exit}')
     if [ -z "$iface" ]; then
-        echo "ERROR: No default network interface found — is the network connected?" >&2
+        echo "ERROR: No default network interface found AND no hotspot active." >&2
+        echo "  Either connect to a network OR turn on a hotspot in GNOME quick" >&2
+        echo "  settings (or via 'nmcli device wifi hotspot') and try again." >&2
         exit 1
     fi
     ip -4 addr show dev "$iface" | awk '/inet / {print $2; exit}' | cut -d/ -f1
