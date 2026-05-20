@@ -1,0 +1,892 @@
+#!/usr/bin/env python3
+"""clip-scan — bulk-flag raw photographs whose weighted clipping score
+exceeds configurable thresholds, by renaming files with .wclip / .bclip
+sub-extensions.
+
+Pre-Lightroom-import preprocess for Sony ARW (and other raw formats
+LibRaw can decode). See CLAUDE/Plan/00040-raw-clipping-scanner/ for
+the full design rationale.
+
+Deployed by playbooks/imports/optional/common/play-photography.yml.
+"""
+
+from __future__ import annotations
+
+import argparse
+import concurrent.futures
+import dataclasses
+import json
+import os
+import pathlib
+import sys
+import traceback
+from typing import Optional
+
+import numpy as np
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Constants
+# ─────────────────────────────────────────────────────────────────────────────
+
+CLIP_TOKENS = frozenset({"wclip", "bclip"})
+
+# Source priority for pair analysis: lowest index = highest priority.
+PRIORITY_ORDER = ("arw", "dng", "hif", "jpg", "jpeg")
+RAW_EXTENSIONS = frozenset({"arw", "dng"})
+JPG_EXTENSIONS = frozenset({"hif", "jpg", "jpeg"})
+ALL_EXTENSIONS = RAW_EXTENSIONS | JPG_EXTENSIONS
+
+# Sentinel for the 14-bit raw maximum — any reported black_level at or above
+# this is bogus metadata, not a real reading.
+RAW_14BIT_MAX = 16383
+
+# Defaults (locked in per Plan 00040 final design).
+DEFAULT_WHITE_CUTOFF = 0.95
+DEFAULT_WHITE_SCORE = 2.0
+DEFAULT_BLACK_CUTOFF = 1.05
+DEFAULT_BLACK_SCORE = 5.0
+DEFAULT_GAMMA = 1.0
+
+# JPG-fallback defaults. JPG is 0-255 post-tone-curve; the raw cutoffs do not
+# translate directly, so JPG analysis uses absolute cutoffs against 255.
+DEFAULT_JPG_WHITE_CUTOFF = 0.95
+DEFAULT_JPG_BLACK_CUTOFF = 0.05
+JPG_MAX = 255
+JPG_BLACK = 0
+
+# JSON schema version — bump if the output format breaks consumers.
+JSON_SCHEMA_VERSION = 1
+
+# Terminal colours (matched to raw-prune for visual consistency).
+BOLD = "\033[1m"
+GREEN = "\033[0;32m"
+YELLOW = "\033[1;33m"
+CYAN = "\033[0;36m"
+RED = "\033[0;31m"
+NC = "\033[0m"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Filename canonicalisation
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def parse_clip_flags(filename: str) -> tuple[str, str, bool, bool]:
+    """Parse filename. Returns (canonical_stem, extension, has_wclip, has_bclip).
+
+    Strips ONLY the trailing wclip/bclip tokens immediately before the
+    extension. Tokens elsewhere in the stem belong to the user.
+    """
+    parts = filename.split(".")
+    if len(parts) < 2:
+        return filename, "", False, False
+    ext = parts[-1]
+    stem_parts = parts[:-1]
+    has_w = False
+    has_b = False
+    while stem_parts:
+        token = stem_parts[-1].lower()
+        if token == "wclip":
+            has_w = True
+            stem_parts.pop()
+        elif token == "bclip":
+            has_b = True
+            stem_parts.pop()
+        else:
+            break
+    return ".".join(stem_parts), ext, has_w, has_b
+
+
+def rebuild_name(stem: str, ext: str, wclip: bool, bclip: bool) -> str:
+    """Rebuild filename. wclip ALWAYS before bclip when both present."""
+    parts = [stem]
+    if wclip:
+        parts.append("wclip")
+    if bclip:
+        parts.append("bclip")
+    parts.append(ext)
+    return ".".join(parts)
+
+
+def group_by_stem(
+    paths: list[pathlib.Path],
+) -> dict[str, list[pathlib.Path]]:
+    """Group paths by canonical stem (case-insensitive merge; first-seen
+    spelling wins as the dict key)."""
+    groups: dict[str, list[pathlib.Path]] = {}
+    for p in paths:
+        stem, _, _, _ = parse_clip_flags(p.name)
+        lower_key = stem.lower()
+        existing = next((k for k in groups if k.lower() == lower_key), None)
+        if existing is None:
+            groups[stem] = [p]
+        else:
+            groups[existing].append(p)
+    return groups
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Weighted-score math
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _validate_white(white_level: int) -> None:
+    if white_level <= 0:
+        raise ValueError(f"white_level must be positive, got {white_level}")
+
+
+def _validate_black(black_level: int) -> None:
+    if black_level < 0:
+        raise ValueError(f"black_level must be non-negative, got {black_level}")
+    if black_level >= RAW_14BIT_MAX:
+        raise ValueError(
+            f"black_level {black_level} is at or above the 14-bit raw maximum "
+            f"({RAW_14BIT_MAX}); metadata is bogus"
+        )
+
+
+def score_white(
+    values: np.ndarray,
+    white_level: int,
+    cutoff_ratio: float,
+    gamma: float = 1.0,
+) -> float:
+    """Weighted white-clip score as a percentage (0-100).
+
+    Linear ramp from cutoff_ratio * white_level to white_level. Pixels at
+    saturation contribute weight 1.0; pixels at the cutoff contribute 0.0;
+    pixels below the cutoff contribute exactly 0.0.
+    """
+    _validate_white(white_level)
+    cutoff_value = cutoff_ratio * white_level
+    denom = white_level - cutoff_value
+    if denom <= 0:
+        raise ValueError(
+            f"Invalid cutoff_ratio {cutoff_ratio}: cutoff_value ({cutoff_value}) "
+            f">= white_level ({white_level})"
+        )
+    above = values >= cutoff_value
+    if not above.any():
+        return 0.0
+    v_in_ramp = values[above].astype(np.float64)
+    ramp = (v_in_ramp - cutoff_value) / denom
+    np.clip(ramp, 0.0, 1.0, out=ramp)
+    if gamma != 1.0:
+        ramp = np.power(ramp, gamma)
+    return float(100.0 * ramp.sum() / values.size)
+
+
+def score_black(
+    values: np.ndarray,
+    black_level: int,
+    cutoff_ratio: float,
+    gamma: float = 1.0,
+) -> float:
+    """Weighted black-clip score as a percentage (0-100).
+
+    Linear ramp from cutoff_ratio * black_level DOWN to black_level. Pixels
+    at black_level contribute weight 1.0; pixels at the cutoff contribute
+    0.0; pixels above the cutoff contribute exactly 0.0.
+    """
+    _validate_black(black_level)
+    cutoff_value = cutoff_ratio * black_level
+    denom = cutoff_value - black_level
+    if denom <= 0:
+        raise ValueError(
+            f"Invalid cutoff_ratio {cutoff_ratio}: cutoff_value ({cutoff_value}) "
+            f"<= black_level ({black_level})"
+        )
+    below = values <= cutoff_value
+    if not below.any():
+        return 0.0
+    v_in_ramp = values[below].astype(np.float64)
+    ramp = (cutoff_value - v_in_ramp) / denom
+    np.clip(ramp, 0.0, 1.0, out=ramp)
+    if gamma != 1.0:
+        ramp = np.power(ramp, gamma)
+    return float(100.0 * ramp.sum() / values.size)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Bayer / CFA extraction
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@dataclasses.dataclass
+class ChannelPools:
+    """Per-channel pixel pools extracted from a Bayer mosaic.
+
+    Indices follow the LibRaw color_desc convention 'RGBG':
+      0 = R, 1 = G1, 2 = B, 3 = G2
+    """
+
+    r: np.ndarray
+    g1: np.ndarray
+    b: np.ndarray
+    g2: np.ndarray
+
+
+def extract_channel_pools(
+    raw_image: np.ndarray,
+    raw_colors: np.ndarray,
+) -> ChannelPools:
+    """Extract per-channel pixel pools from a Bayer mosaic via index masks."""
+    if raw_image.shape != raw_colors.shape:
+        raise ValueError(
+            f"raw_image shape {raw_image.shape} != raw_colors shape "
+            f"{raw_colors.shape}"
+        )
+    return ChannelPools(
+        r=raw_image[raw_colors == 0],
+        g1=raw_image[raw_colors == 1],
+        b=raw_image[raw_colors == 2],
+        g2=raw_image[raw_colors == 3],
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Per-frame analysis
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@dataclasses.dataclass
+class AnalysisResult:
+    """Output of weighted-score analysis. Scores are percentages 0-100."""
+
+    white_score: float
+    black_score: float
+    per_channel_white: tuple[float, float, float, float]
+    per_channel_black: tuple[float, float, float, float]
+    white_level: int
+    black_level_per_channel: tuple[int, int, int, int]
+    analysis_source: str  # "raw" or "jpg"
+
+
+def analyse_array(
+    raw_image: np.ndarray,
+    raw_colors: np.ndarray,
+    white_level: int,
+    black_level_per_channel: tuple[int, int, int, int],
+    white_cutoff: float,
+    black_cutoff: float,
+    gamma: float = 1.0,
+) -> AnalysisResult:
+    """Run weighted-score analysis on a Bayer mosaic. Per-channel black
+    levels are honoured — each channel pool is scored against its own
+    pedestal value."""
+    pools = extract_channel_pools(raw_image, raw_colors)
+    channel_arrays = (pools.r, pools.g1, pools.b, pools.g2)
+    per_white = tuple(
+        score_white(arr, white_level, white_cutoff, gamma) for arr in channel_arrays
+    )
+    per_black = tuple(
+        score_black(arr, black, black_cutoff, gamma)
+        for arr, black in zip(channel_arrays, black_level_per_channel)
+    )
+    return AnalysisResult(
+        white_score=max(per_white),
+        black_score=max(per_black),
+        per_channel_white=per_white,
+        per_channel_black=per_black,
+        white_level=white_level,
+        black_level_per_channel=tuple(black_level_per_channel),
+        analysis_source="raw",
+    )
+
+
+def analyse_raw(
+    path: pathlib.Path,
+    white_cutoff: float,
+    black_cutoff: float,
+    gamma: float = 1.0,
+) -> AnalysisResult:
+    """Open a raw file via rawpy and run weighted-score analysis."""
+    import rawpy
+
+    with rawpy.imread(str(path)) as r:
+        raw_image = r.raw_image_visible.copy()
+        raw_colors = r.raw_colors_visible.copy()
+        white_level = int(r.white_level)
+        black_tuple = tuple(int(x) for x in r.black_level_per_channel)
+    while len(black_tuple) < 4:
+        black_tuple = black_tuple + (black_tuple[-1],)
+    return analyse_array(
+        raw_image,
+        raw_colors,
+        white_level=white_level,
+        black_level_per_channel=black_tuple[:4],
+        white_cutoff=white_cutoff,
+        black_cutoff=black_cutoff,
+        gamma=gamma,
+    )
+
+
+def _score_black_absolute(
+    values: np.ndarray, cutoff_abs: float, gamma: float
+) -> float:
+    """Black-side score with an ABSOLUTE cutoff (used for JPG where black
+    is at 0 and the multiplicative ramp would be degenerate)."""
+    if cutoff_abs <= 0:
+        return 0.0
+    below = values <= cutoff_abs
+    if not below.any():
+        return 0.0
+    v_in_ramp = values[below].astype(np.float64)
+    ramp = (cutoff_abs - v_in_ramp) / cutoff_abs
+    np.clip(ramp, 0.0, 1.0, out=ramp)
+    if gamma != 1.0:
+        ramp = np.power(ramp, gamma)
+    return float(100.0 * ramp.sum() / values.size)
+
+
+def analyse_jpg(
+    path: pathlib.Path,
+    jpg_white_cutoff: float,
+    jpg_black_cutoff: float,
+    gamma: float = 1.0,
+) -> AnalysisResult:
+    """Best-effort JPG analysis via Pillow. Scores are NOT directly
+    comparable to raw scores because the tone curve compresses near-
+    saturation values; reported with analysis_source='jpg' so downstream
+    tooling can interpret accordingly."""
+    from PIL import Image
+
+    with Image.open(path) as img:
+        pixels = np.array(img.convert("RGB"))
+    r_arr = pixels[..., 0].ravel()
+    g_arr = pixels[..., 1].ravel()
+    b_arr = pixels[..., 2].ravel()
+
+    per_white_rgb = tuple(
+        score_white(arr, JPG_MAX, jpg_white_cutoff, gamma)
+        for arr in (r_arr, g_arr, b_arr)
+    )
+    cutoff_abs = jpg_black_cutoff * JPG_MAX
+    per_black_rgb = tuple(
+        _score_black_absolute(arr, cutoff_abs, gamma) for arr in (r_arr, g_arr, b_arr)
+    )
+    # Pad RGB → 4-tuple to match the raw result schema; G2 duplicates G.
+    per_white_4 = per_white_rgb + (per_white_rgb[1],)
+    per_black_4 = per_black_rgb + (per_black_rgb[1],)
+    return AnalysisResult(
+        white_score=max(per_white_rgb),
+        black_score=max(per_black_rgb),
+        per_channel_white=per_white_4,
+        per_channel_black=per_black_4,
+        white_level=JPG_MAX,
+        black_level_per_channel=(JPG_BLACK,) * 4,
+        analysis_source="jpg",
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Lightroom catalog safety rail
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def find_lightroom_catalog(target: pathlib.Path) -> Optional[pathlib.Path]:
+    """Walk target dir and its parents up to filesystem root looking for a
+    .lrcat file. Returns the first match or None.
+
+    If a catalog is found, applying renames would create catalog-missing-
+    files state in Lightroom — refuse and require --force-on-catalog."""
+    target = target.resolve()
+    cursor = target if target.is_dir() else target.parent
+    while True:
+        if cursor.is_dir():
+            try:
+                for entry in cursor.iterdir():
+                    if entry.is_file() and entry.suffix.lower() == ".lrcat":
+                        return entry
+            except PermissionError:
+                pass
+        if cursor == cursor.parent:
+            return None
+        cursor = cursor.parent
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# File scanning + group analysis
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def scan_files(
+    path: pathlib.Path, follow_symlinks: bool = True
+) -> list[pathlib.Path]:
+    """Enumerate candidate files under path. Accepts either a directory
+    (recursive) or a single file."""
+    if path.is_file():
+        ext = path.suffix.lower().lstrip(".")
+        if ext in ALL_EXTENSIONS:
+            return [path]
+        return []
+    results: list[pathlib.Path] = []
+    for root, dirs, files in os.walk(path, followlinks=follow_symlinks):
+        for name in files:
+            ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+            if ext in ALL_EXTENSIONS:
+                results.append(pathlib.Path(root) / name)
+    return results
+
+
+def _ext_priority(p: pathlib.Path) -> int:
+    ext = p.suffix.lower().lstrip(".")
+    try:
+        return PRIORITY_ORDER.index(ext)
+    except ValueError:
+        return len(PRIORITY_ORDER)
+
+
+def pick_source(group: list[pathlib.Path]) -> pathlib.Path:
+    """Pick the highest-priority file in a group for analysis."""
+    return min(group, key=_ext_priority)
+
+
+@dataclasses.dataclass
+class FileResult:
+    """Per-file outcome record. Populated for every file in every group;
+    consumed by both human and JSON output."""
+
+    path: pathlib.Path
+    canonical_stem: str
+    extension: str
+    siblings: list[str]
+    analysis: Optional[AnalysisResult]
+    verdict_wclip: bool
+    verdict_bclip: bool
+    action: str  # "no-change" | "rename" | "skip-collision" | "error"
+    new_name: Optional[str]
+    error: Optional[str]
+
+
+def _analyse_group(
+    group: list[pathlib.Path], args: argparse.Namespace
+) -> tuple[Optional[AnalysisResult], Optional[str]]:
+    """Try sources in priority order; on rawpy failure fall back to a JPG
+    sibling if present. Returns (result, error_message)."""
+    sorted_group = sorted(group, key=_ext_priority)
+    last_error: Optional[str] = None
+    for source in sorted_group:
+        ext = source.suffix.lower().lstrip(".")
+        try:
+            if ext in RAW_EXTENSIONS:
+                return (
+                    analyse_raw(source, args.white_cutoff, args.black_cutoff, args.gamma),
+                    None,
+                )
+            if ext in JPG_EXTENSIONS:
+                return (
+                    analyse_jpg(
+                        source,
+                        args.jpg_white_cutoff,
+                        args.jpg_black_cutoff,
+                        args.gamma,
+                    ),
+                    None,
+                )
+        except Exception as e:
+            last_error = f"{type(e).__name__}: {e}"
+            continue
+    return None, last_error or "no source could be analysed"
+
+
+def compute_verdict(
+    analysis: AnalysisResult,
+    white_threshold: float,
+    black_threshold: float,
+) -> tuple[bool, bool]:
+    return (
+        analysis.white_score > white_threshold,
+        analysis.black_score > black_threshold,
+    )
+
+
+def plan_rename_order(group: list[pathlib.Path]) -> list[pathlib.Path]:
+    """Order files for rename: lower-priority siblings (JPG, HIF) first,
+    raw sources last. So a process kill mid-batch leaves a state that
+    canonical-stems together for a clean retry."""
+    return sorted(group, key=_ext_priority, reverse=True)
+
+
+def _process_one_group(
+    stem: str,
+    group: list[pathlib.Path],
+    args: argparse.Namespace,
+) -> list[FileResult]:
+    """Analyse the source, compute verdict, build per-file FileResult
+    records (no filesystem mutation here)."""
+    analysis, err = _analyse_group(group, args)
+    results: list[FileResult] = []
+    if analysis is None:
+        for p in group:
+            results.append(
+                FileResult(
+                    path=p,
+                    canonical_stem=stem,
+                    extension=p.suffix.lstrip("."),
+                    siblings=[s.name for s in group if s != p],
+                    analysis=None,
+                    verdict_wclip=False,
+                    verdict_bclip=False,
+                    action="error",
+                    new_name=None,
+                    error=err,
+                )
+            )
+        return results
+    w, b = compute_verdict(analysis, args.white_score, args.black_score)
+    for p in group:
+        _, ext, _, _ = parse_clip_flags(p.name)
+        target_name = rebuild_name(stem, ext, w, b)
+        action = "rename" if target_name != p.name else "no-change"
+        results.append(
+            FileResult(
+                path=p,
+                canonical_stem=stem,
+                extension=ext,
+                siblings=[s.name for s in group if s != p],
+                analysis=analysis,
+                verdict_wclip=w,
+                verdict_bclip=b,
+                action=action,
+                new_name=target_name,
+                error=None,
+            )
+        )
+    return results
+
+
+def _process_one_group_payload(payload):
+    """Worker-pool entry point. Re-builds args namespace from the tuple
+    payload so it survives pickling cleanly."""
+    stem, group, args = payload
+    return _process_one_group(stem, group, args)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Apply / dry-run
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def execute_renames(
+    results: list[FileResult],
+    follow_symlinks: bool,
+) -> None:
+    """Apply renames in sibling-first order per group, in-place on the
+    FileResult records. Records are mutated to reflect the actual outcome
+    (collision → action='skip-collision', etc.)."""
+    by_group: dict[str, list[FileResult]] = {}
+    for r in results:
+        by_group.setdefault(r.canonical_stem, []).append(r)
+    for group_results in by_group.values():
+        group_results.sort(
+            key=lambda r: _ext_priority(r.path), reverse=True
+        )
+        for r in group_results:
+            if r.action != "rename" or r.new_name is None:
+                continue
+            new_path = r.path.with_name(r.new_name)
+            if new_path.exists() and new_path != r.path:
+                r.action = "skip-collision"
+                r.error = f"target name already exists: {new_path}"
+                continue
+            try:
+                r.path.rename(new_path)
+                r.path = new_path
+            except OSError as e:
+                r.action = "error"
+                r.error = f"rename failed: {e}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Output formatting
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _format_human_table(
+    results: list[FileResult], args: argparse.Namespace, applied: bool
+) -> str:
+    lines: list[str] = []
+    flagged = [r for r in results if r.verdict_wclip or r.verdict_bclip]
+    errors = [r for r in results if r.action == "error"]
+    collisions = [r for r in results if r.action == "skip-collision"]
+    by_group: dict[str, list[FileResult]] = {}
+    for r in results:
+        by_group.setdefault(r.canonical_stem, []).append(r)
+
+    mode_label = "APPLY" if applied else "DRY-RUN"
+    lines.append(f"{BOLD}clip-scan {mode_label}{NC}")
+    lines.append(
+        f"  thresholds: white-score>{args.white_score} (cutoff {args.white_cutoff}), "
+        f"black-score>{args.black_score} (cutoff {args.black_cutoff}), "
+        f"gamma={args.gamma}"
+    )
+    lines.append(
+        f"  scanned: {len(by_group)} groups, {len(results)} files; "
+        f"flagged: {len(flagged)}; errors: {len(errors)}; "
+        f"collisions: {len(collisions)}"
+    )
+    lines.append("")
+
+    if not flagged and not errors:
+        lines.append(f"{GREEN}No files require renaming.{NC}")
+        return "\n".join(lines)
+
+    if flagged:
+        lines.append(f"{BOLD}Renames:{NC}")
+        for r in flagged:
+            if not r.analysis:
+                continue
+            colour = YELLOW if r.action == "rename" else GREEN
+            tag_parts = []
+            if r.verdict_wclip:
+                tag_parts.append("wclip")
+            if r.verdict_bclip:
+                tag_parts.append("bclip")
+            tag = ",".join(tag_parts)
+            verdict_marker = f"{colour}[{tag}]{NC}"
+            score_part = (
+                f"w={r.analysis.white_score:.2f}% b={r.analysis.black_score:.2f}%"
+            )
+            arrow = "→" if r.action == "rename" else "="
+            lines.append(
+                f"  {verdict_marker} {r.path.name} {arrow} {r.new_name}  "
+                f"({score_part}, src={r.analysis.analysis_source})"
+            )
+            if args.verbose:
+                pcw = ", ".join(f"{v:.2f}" for v in r.analysis.per_channel_white)
+                pcb = ", ".join(f"{v:.2f}" for v in r.analysis.per_channel_black)
+                lines.append(f"        per-channel-white: [{pcw}]")
+                lines.append(f"        per-channel-black: [{pcb}]")
+        lines.append("")
+
+    if errors:
+        lines.append(f"{RED}Errors:{NC}")
+        for r in errors:
+            lines.append(f"  {r.path}: {r.error}")
+        lines.append("")
+
+    if collisions:
+        lines.append(f"{RED}Collisions (skipped):{NC}")
+        for r in collisions:
+            lines.append(f"  {r.path.name} → {r.new_name}: {r.error}")
+        lines.append("")
+
+    if not applied:
+        lines.append(f"{CYAN}Dry run — re-run with --apply to commit renames.{NC}")
+    return "\n".join(lines)
+
+
+def _format_json(
+    results: list[FileResult], args: argparse.Namespace
+) -> str:
+    out = {
+        "version": JSON_SCHEMA_VERSION,
+        "config": {
+            "white_cutoff": args.white_cutoff,
+            "white_score": args.white_score,
+            "black_cutoff": args.black_cutoff,
+            "black_score": args.black_score,
+            "gamma": args.gamma,
+            "jpg_white_cutoff": args.jpg_white_cutoff,
+            "jpg_black_cutoff": args.jpg_black_cutoff,
+        },
+        "results": [],
+    }
+    for r in results:
+        item = {
+            "path": str(r.path.resolve()),
+            "canonical_stem": r.canonical_stem,
+            "extension": r.extension,
+            "siblings": r.siblings,
+            "white_score": r.analysis.white_score if r.analysis else None,
+            "black_score": r.analysis.black_score if r.analysis else None,
+            "per_channel_white": list(r.analysis.per_channel_white)
+            if r.analysis
+            else None,
+            "per_channel_black": list(r.analysis.per_channel_black)
+            if r.analysis
+            else None,
+            "white_level": r.analysis.white_level if r.analysis else None,
+            "black_level_per_channel": list(r.analysis.black_level_per_channel)
+            if r.analysis
+            else None,
+            "analysis_source": r.analysis.analysis_source if r.analysis else None,
+            "verdict_wclip": r.verdict_wclip,
+            "verdict_bclip": r.verdict_bclip,
+            "action": r.action,
+            "new_name": r.new_name if r.action == "rename" else None,
+            "error": r.error,
+        }
+        out["results"].append(item)
+    return json.dumps(out, indent=2)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CLI
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="clip-scan",
+        description=(
+            "Pre-Lightroom-import bulk-flag raw photographs whose weighted "
+            "clipping score exceeds thresholds. Renames files with .wclip / "
+            ".bclip sub-extensions; dry-run by default."
+        ),
+        epilog=(
+            "WARNING: --apply is intended for pre-Lightroom-import use. "
+            "If a .lrcat file is found in the target tree, --apply refuses "
+            "to run without --force-on-catalog (renames would create "
+            "catalog-missing-files state in Lightroom)."
+        ),
+    )
+    parser.add_argument(
+        "path",
+        nargs="?",
+        default=pathlib.Path("."),
+        type=pathlib.Path,
+        help="Directory to scan recursively, or a single file. Default: CWD",
+    )
+    parser.add_argument(
+        "-w", "--white-score",
+        type=float, default=DEFAULT_WHITE_SCORE,
+        help=f"Flag .wclip when weighted score exceeds PCT (default: {DEFAULT_WHITE_SCORE})",
+    )
+    parser.add_argument(
+        "--white-cutoff",
+        type=float, default=DEFAULT_WHITE_CUTOFF,
+        help=f"Linear ramp starts at RATIO × white_level (default: {DEFAULT_WHITE_CUTOFF})",
+    )
+    parser.add_argument(
+        "-b", "--black-score",
+        type=float, default=DEFAULT_BLACK_SCORE,
+        help=f"Flag .bclip when weighted score exceeds PCT (default: {DEFAULT_BLACK_SCORE})",
+    )
+    parser.add_argument(
+        "--black-cutoff",
+        type=float, default=DEFAULT_BLACK_CUTOFF,
+        help=f"Linear ramp starts at RATIO × black_level (default: {DEFAULT_BLACK_CUTOFF})",
+    )
+    parser.add_argument(
+        "--gamma",
+        type=float, default=DEFAULT_GAMMA,
+        help=f"Ramp gamma; 1.0=linear, >1=punishes near-max more (default: {DEFAULT_GAMMA})",
+    )
+    parser.add_argument(
+        "--jpg-white-cutoff",
+        type=float, default=DEFAULT_JPG_WHITE_CUTOFF,
+        help=f"JPG fallback white cutoff (default: {DEFAULT_JPG_WHITE_CUTOFF})",
+    )
+    parser.add_argument(
+        "--jpg-black-cutoff",
+        type=float, default=DEFAULT_JPG_BLACK_CUTOFF,
+        help=f"JPG fallback black cutoff (default: {DEFAULT_JPG_BLACK_CUTOFF})",
+    )
+    parser.add_argument(
+        "-n", "--dry-run",
+        action="store_true",
+        help="List proposed renames, don't apply (the default)",
+    )
+    parser.add_argument(
+        "-a", "--apply",
+        action="store_true",
+        help="Perform renames (overrides --dry-run if both are passed)",
+    )
+    parser.add_argument(
+        "-j", "--jobs",
+        type=int, default=os.cpu_count() or 1,
+        help="Parallel workers (default: nproc)",
+    )
+    parser.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        help="Show per-channel scores per file",
+    )
+    parser.add_argument(
+        "--no-follow-symlinks",
+        action="store_true",
+        help="Don't follow symlinks when scanning",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit machine-readable JSON output",
+    )
+    parser.add_argument(
+        "--force-on-catalog",
+        action="store_true",
+        help="Override the Lightroom .lrcat safety rail (USE WITH CARE)",
+    )
+    return parser
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    args = build_parser().parse_args(argv)
+    follow_symlinks = not args.no_follow_symlinks
+
+    if not args.path.exists():
+        print(f"{RED}ERROR: path does not exist: {args.path}{NC}", file=sys.stderr)
+        return 2
+
+    # Safety rail: scan for a Lightroom catalog before any rename happens.
+    if args.apply and not args.force_on_catalog:
+        catalog = find_lightroom_catalog(args.path)
+        if catalog is not None:
+            print(
+                f"{RED}ERROR: Lightroom catalog found at {catalog}{NC}",
+                file=sys.stderr,
+            )
+            print(
+                f"{RED}Renaming files inside a tree under a .lrcat would "
+                f"create catalog-missing-files state in Lightroom.{NC}",
+                file=sys.stderr,
+            )
+            print(
+                f"{RED}If you really mean it, re-run with "
+                f"--force-on-catalog.{NC}",
+                file=sys.stderr,
+            )
+            return 3
+
+    files = scan_files(args.path, follow_symlinks=follow_symlinks)
+    if not files:
+        print(f"{YELLOW}No raw/JPG/HIF files found under {args.path}{NC}")
+        return 0
+
+    groups = group_by_stem(files)
+    payloads = [(stem, members, args) for stem, members in groups.items()]
+
+    all_results: list[FileResult] = []
+    if args.jobs > 1 and len(payloads) > 1:
+        with concurrent.futures.ProcessPoolExecutor(max_workers=args.jobs) as pool:
+            for batch in pool.map(_process_one_group_payload, payloads):
+                all_results.extend(batch)
+    else:
+        for payload in payloads:
+            all_results.extend(_process_one_group_payload(payload))
+
+    if args.apply:
+        execute_renames(all_results, follow_symlinks=follow_symlinks)
+
+    if args.json:
+        print(_format_json(all_results, args))
+    else:
+        print(_format_human_table(all_results, args, applied=args.apply))
+
+    has_errors = any(r.action == "error" for r in all_results)
+    return 1 if has_errors else 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        print(f"\n{YELLOW}Interrupted.{NC}", file=sys.stderr)
+        sys.exit(130)
+    except Exception as exc:
+        traceback.print_exc(file=sys.stderr)
+        print(f"{RED}ERROR: {exc}{NC}", file=sys.stderr)
+        sys.exit(1)

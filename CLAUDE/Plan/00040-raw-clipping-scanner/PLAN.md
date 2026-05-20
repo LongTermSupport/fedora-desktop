@@ -1,6 +1,6 @@
 # Plan 00040: `clip-scan` — Raw Clipping Pre-Lightroom Scanner
 
-**Status**: Not Started (research complete, awaiting decision gate)
+**Status**: 🔄 In Progress — Phases 3-7 code landed in-container; Phase 2 host probes + Phase 8 manual tests deferred to host
 **Created**: 2026-05-20
 **Owner**: joseph
 **Priority**: Medium
@@ -479,3 +479,20 @@ Plan agent ran a critique-only review of PLAN.md + research.md + references/. Fo
 - §9 ftp-camera integration: long-lived daemon mode note added for per-file invocation overhead (per L5)
 
 ### Status: PLAN.md + research.md fully updated with all subagent findings. Decision Gate awaiting user confirmation. Once confirmed, code execution may begin from Phase 2.
+
+### 2026-05-20 (fourth iteration — initial execution landing)
+
+User directive: `execute`. Decision Gate questions implicitly accepted with the proposed defaults documented in the plan. Code work in the CCY container:
+
+- ✅ Phase 3: TDD test suite landed at `/workspace/tests/clip_scan/test_clip_scan.py` (Decision 7 path). Conftest at `/workspace/tests/clip_scan/conftest.py` loads the deployable script via `importlib` so functions are importable without packaging. Covers all Phase 3 test cases: filename canonicalisation (trailing-only strip per H3, case-insensitive flags, dots-in-stem preserved, non-trailing tokens not stripped), rebuild canonical ordering, idempotency, pair grouping (case-insensitive), weighted-score math (saturation→100, cutoff→0, midpoint→50%, 2% boundary, equivalence 1%-at-sat ≡ 2%-at-midpoint, exact-zero below cutoff, gamma=1.0/2.0 midpoint check), per-channel max across R/G1/B/G2, per-channel black-level honoured (H1), CFA pool extraction (H2), argparse defaults + override behaviour, Lightroom catalog parent-walk.
+- ✅ Phase 3: implementation landed at `/workspace/files/home/.local/bin/clip-scan`. Module-level functions: `parse_clip_flags`, `rebuild_name`, `group_by_stem`, `score_white`, `score_black`, `extract_channel_pools`, `analyse_array`, `analyse_raw`, `analyse_jpg`, `find_lightroom_catalog`, `scan_files`, `pick_source`, `compute_verdict`, `plan_rename_order`, `execute_renames`, `build_parser`, `main`.
+- ✅ Phase 4: rawpy integration via lazy import inside `analyse_raw`; LibRaw decode errors propagate up `_analyse_group` which falls back to a sibling JPG when available. Pillow lazy-imported inside `analyse_jpg`. Per-channel `black_level_per_channel` is honoured (4-tuple, not collapsed). JPG path uses separate `_score_black_absolute` so the multiplicative black ramp doesn't degenerate at `black_level=0`.
+- ✅ Phase 5: CLI surface complete. Flags wired: `-w/--white-score`, `--white-cutoff`, `-b/--black-score`, `--black-cutoff`, `--gamma`, `--jpg-white-cutoff`, `--jpg-black-cutoff`, `-n/--dry-run`, `-a/--apply`, `-j/--jobs`, `-v/--verbose`, `--no-follow-symlinks`, `--json`, `--force-on-catalog`. `--apply` overrides `--dry-run` when both passed. Catalog safety rail walks parents up to filesystem root looking for `.lrcat`. Sibling-first rename order implemented (raw renamed last so a mid-batch kill leaves siblings still canonical-stem-grouping). Collision handling logs and skips. JSON output to the schema documented in PLAN.md Phase 5.
+- ✅ Phase 6: `ProcessPoolExecutor` parallelism wired with `--jobs` (default `nproc`); single-process fallback for `--jobs 1` or single-group batches.
+- ✅ Phase 7: `playbooks/imports/optional/common/play-photography.yml` updated. Block `tags: clip-scan` probes `dnf info python3-rawpy`, installs via system package if available, else `pip --user rawpy`. `python3-pillow` installed via system package. Script copied to `~/.local/bin/clip-scan` (0755). Installation summary `debug` extended with the `clip-scan` line.
+- ⬜ Phase 2: host probes deferred — must be run on the host (CCY container has no real `dnf info` resolution against Fedora repos and no representative ARW sample). User to run the probe commands listed in PLAN.md Phase 2 and feed findings back into research.md "host findings" section.
+- ⬜ Phase 8: QA + manual tests + performance benchmark + defaults calibration — host-only. Once Phase 2 confirms rawpy + LibRaw versions, run `./scripts/qa-all.bash` and the manual test plan.
+
+XMP sidecars deferred to v2 per Decision Gate question L1 — `scan_files` excludes them.
+
+Next user-side actions (host): (1) run Phase 2 probes; (2) deploy via `ansible-playbook playbooks/imports/optional/common/play-photography.yml`; (3) run Phase 8 manual tests; (4) feed back any default calibration adjustments.

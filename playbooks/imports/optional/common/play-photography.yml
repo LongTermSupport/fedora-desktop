@@ -287,6 +287,53 @@
         mode: "0755"
       tags: raw-prune
 
+    # clip-scan — pre-Lightroom-import bulk-flag of raw frames with excessive
+    # highlight / shadow clipping. Decodes Sony ARW via LibRaw (rawpy);
+    # falls back to Pillow for JPG-only files. See
+    # CLAUDE/Plan/00040-raw-clipping-scanner/ for the full design.
+    #
+    # rawpy install strategy: Fedora has no python3-rawpy package as of F43,
+    # so we go straight to pip --user. Pillow IS in Fedora repos, but we
+    # install it the same way for symmetry and to avoid an extra system task.
+    - name: Probe python3-rawpy Availability in Fedora Repos
+      ansible.builtin.command:
+        cmd: dnf info python3-rawpy
+      register: rawpy_dnf_probe
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe; rc != 0 == "package not in repos", a valid state we branch on
+      tags: clip-scan
+
+    - name: Install rawpy via System Package
+      ansible.builtin.package:
+        name: python3-rawpy
+        state: present
+      when: rawpy_dnf_probe.rc == 0
+      tags: clip-scan
+
+    - name: Install rawpy via pip --user (Fallback)
+      ansible.builtin.pip:
+        name: rawpy
+        extra_args: --user
+      become: true
+      become_user: "{{ user_login }}"
+      when: rawpy_dnf_probe.rc != 0
+      tags: clip-scan
+
+    - name: Install Pillow via System Package
+      ansible.builtin.package:
+        name: python3-pillow
+        state: present
+      tags: clip-scan
+
+    - name: Install clip-scan Helper Script
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/clip-scan"
+        dest: "/home/{{ user_login }}/.local/bin/clip-scan"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+      tags: clip-scan
+
     - name: Display Installation Complete Message
       ansible.builtin.debug:
         msg: |
@@ -305,6 +352,10 @@
                                    with improved tone mapping, masking, and local edits
             raw-prune            - Recursively delete RAWs in CWD with no matching JPG
                                    (run with --help for usage and --dry-run to preview)
+            clip-scan            - Pre-Lightroom-import bulk-flag of raw frames with
+                                   excessive highlight/shadow clipping; renames matches
+                                   with .wclip / .bclip sub-extensions. Dry-run by
+                                   default — use --apply to commit. See --help.
 
           Sony A7V (ILCE-7M5) support: patched into darktable rawspeed cameras.xml
           (bodge — pinned to rawspeed develop {{ rawspeed_commit[:7] }}). Stock file backed up at
@@ -322,3 +373,4 @@
             rapidraw
             ART
             raw-prune --help
+            clip-scan --help
