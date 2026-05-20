@@ -38,6 +38,13 @@ HOTSPOT_ACTIVE=false
 HOTSPOT_DEV=""
 HOTSPOT_IP=""
 HOTSPOT_SSID=""
+# Hotspot-modifier flag: when --hotspot is passed, ftp-camera activates
+# the NetworkManager profile named ${HOTSPOT_CONNECTION:-Hotspot} at
+# startup and deactivates it on exit. HOTSPOT_OWNED_BY_US tracks whether
+# we activated it (so cleanup only tears down what we brought up — a
+# pre-existing hotspot the user toggled by hand is left alone).
+HOTSPOT_FLAG=false
+HOTSPOT_OWNED_BY_US=false
 # Async stats are tracked in a temp file (append-only — atomic for small
 # writes) so the background monitor and cleanup() see a consistent view.
 ASYNC_STATS_FILE=""
@@ -67,12 +74,20 @@ Primary modes (pick at most one; default = full FTP server):
   --copy        Copy via rclone mount (caches locally) then verify on remote
   --prune       Remove RAW files whose corresponding JPG has been deleted
 
-Modifiers (apply to FTP-server modes only; mutually exclusive with each other):
+Modifiers (apply to FTP-server modes only; combinable):
   --view        Live single-window preview of each ARW arrival via geeqie
                 (geeqie's implicit single-instance handles window-reuse —
                 second invocation routes the new file into the running window,
                 no IPC).
   --view-jpg    Same, but preview JPG arrivals instead of ARW.
+                (--view and --view-jpg are mutually exclusive.)
+  --hotspot     Bring up the NetworkManager 'Hotspot' profile (or whichever
+                profile HOTSPOT_CONNECTION points to in /etc/ftp-camera/config)
+                at start, tear it down on exit. Camera connects directly to
+                the laptop — bypasses any public WiFi. Fail-fast if the named
+                profile doesn't exist (create one via GNOME Settings → Wi-Fi).
+                If the hotspot is already up when ftp-camera starts, the flag
+                uses it as-is and leaves it alone on exit.
 
 Launcher:
   Invoked with no arguments, ftp-camera opens a two-step TUI (gum or fzf) to
@@ -156,7 +171,7 @@ run_launcher_tui() {
         "prune                   Delete orphan RAW files (interactive) and exit"
         "pass                    Print FTP password and exit"
     )
-    local mode_header="Step 1/2 — pick a primary mode  (viewer offered next for [+viewer] modes)"
+    local mode_header="Step 1/3 — pick a primary mode  (viewer + hotspot offered next for server modes)"
 
     local mode_choice
     if [ "$picker" = gum ]; then
@@ -194,7 +209,7 @@ run_launcher_tui() {
                 "view RAW"
                 "view JPG"
             )
-            local viewer_header="Step 2/2 — viewer?  (rare; usually leave 'no viewer')"
+            local viewer_header="Step 2/3 — viewer?  (rare; usually leave 'no viewer')"
             local viewer_choice
             if [ "$picker" = gum ]; then
                 if ! viewer_choice=$(gum choose \
@@ -219,12 +234,40 @@ run_launcher_tui() {
                 "view JPG")  exec_args+=(--view-jpg) ;;
                 # "no viewer" — no flag added
             esac
+
+            # Step 3 — hotspot picker (only for server modes; same predicate
+            # as step 2). Default is "no hotspot" because the typical
+            # workflow is home-network testing where the hotspot would
+            # disconnect the laptop from its existing WiFi unnecessarily.
+            local hotspot_lines=("no hotspot" "use hotspot")
+            local hotspot_header="Step 3/3 — hotspot?  (skips public WiFi; rare unless on an untrusted network)"
+            local hotspot_choice
+            if [ "$picker" = gum ]; then
+                if ! hotspot_choice=$(gum choose \
+                        --header "$hotspot_header" \
+                        --selected "no hotspot" \
+                        "${hotspot_lines[@]}"); then
+                    echo "Cancelled." >&2
+                    exit 130
+                fi
+            else
+                if ! hotspot_choice=$(printf '%s\n' "${hotspot_lines[@]}" \
+                        | fzf --height 20% --no-info --no-sort \
+                              --header "$hotspot_header"); then
+                    echo "Cancelled." >&2
+                    exit 130
+                fi
+            fi
+            case "$hotspot_choice" in
+                "use hotspot") exec_args+=(--hotspot) ;;
+            esac
             ;;
     esac
 
-    # If the user picked default + no viewer, exec_args is empty — passing
-    # nothing would re-trigger the launcher on entry. --no-tui is a silent
-    # opt-out that means "you already went through the picker".
+    # If the user picked default + no viewer + no hotspot, exec_args is
+    # empty — passing nothing would re-trigger the launcher on entry.
+    # --no-tui is a silent opt-out that means "you already went through
+    # the picker".
     if [ "${#exec_args[@]}" -eq 0 ]; then
         exec_args=(--no-tui)
     fi
@@ -276,6 +319,9 @@ while [ "$#" -gt 0 ]; do
             VIEWER_MODE=true
             VIEWER_CLASS=JPG
             ;;
+        --hotspot)
+            HOTSPOT_FLAG=true
+            ;;
         --no-tui)
             # Silent: the script entry-point check below uses NO_ARGS to
             # decide whether to route to the launcher; --no-tui presence
@@ -317,6 +363,20 @@ if [ "$VIEWER_MODE" = true ]; then
             echo "ERROR: --view / --view-jpg requires an FTP-server mode" >&2
             echo "  (default, --async, or --async-copy). The mode you picked" >&2
             echo "  exits before any uploads arrive, so there's nothing to view." >&2
+            exit 2
+        fi
+    done
+fi
+
+# Same rejection for --hotspot: a hotspot is only useful while the FTP
+# server is up to receive uploads. Tear-down modes (sort/push/copy/...)
+# would just bring the hotspot up and immediately back down.
+if [ "$HOTSPOT_FLAG" = true ]; then
+    for _mode in SORT_ONLY PASS_ONLY PUSH_ONLY COPY_ONLY PRUNE_ONLY; do
+        if [ "${!_mode}" = true ]; then
+            echo "ERROR: --hotspot requires an FTP-server mode" >&2
+            echo "  (default, --async, or --async-copy). The mode you picked" >&2
+            echo "  exits without running the FTP server." >&2
             exit 2
         fi
     done
@@ -1119,8 +1179,15 @@ viewer_class_matches() {
 # already-running window without any --remote flag or socket plumbing.
 # Backgrounded so the existing-instance handshake doesn't block the
 # vsftpd-log monitor loop on its way to handling the next upload.
+#
+# Prints a visible "view" event line on the user's terminal so the
+# user can see the hook firing; geeqie's stdout/stderr stays muted to
+# avoid GTK warning spam in the upload stream.
 display_in_viewer() {
     local file="$1"
+    local ts
+    ts=$(date '+%H:%M:%S')
+    echo -e "  [${CYAN}${ts}${NC}] ${GREEN}view${NC}  $(basename "$file")  → geeqie"
     geeqie "$file" > /dev/null 2>&1 &
 }
 
@@ -1178,8 +1245,15 @@ print_startup_banner() {
     echo -e "${BOLD}${GREEN}──────────────────────────────────────────────────────────${NC}"
     printf '  %-13s %s\n' "Mode:"      "$mode_desc"
     if [ "$HOTSPOT_ACTIVE" = true ]; then
+        local _own
+        if [ "$HOTSPOT_OWNED_BY_US" = true ]; then
+            _own="managed by ftp-camera, will close on exit"
+        else
+            _own="pre-existing, left alone on exit"
+        fi
         printf '  %-13s on   (SSID: %s, IP: %s, dev: %s)\n' \
             "Hotspot:" "${HOTSPOT_SSID:--}" "$HOTSPOT_IP" "$HOTSPOT_DEV"
+        printf '  %-13s      (%s)\n' "" "$_own"
     else
         printf '  %-13s off\n' "Hotspot:"
     fi
@@ -1382,6 +1456,16 @@ cleanup() {
         fi
     fi
 
+    # Hotspot teardown — only if WE activated it (--hotspot was passed
+    # and the profile wasn't already up when we started). A pre-existing
+    # user-toggled hotspot is left alone so their session continues.
+    if [ "$HOTSPOT_OWNED_BY_US" = true ]; then
+        if nmcli -t -f NAME connection show --active | grep -qxF "$HOTSPOT_CONNECTION"; then
+            echo -e "${BOLD}Deactivating hotspot '${HOTSPOT_CONNECTION}'...${NC}"
+            sudo nmcli connection down "$HOTSPOT_CONNECTION"
+        fi
+    fi
+
     echo -e "${GREEN}FTP server stopped.${NC}"
     echo ""
 
@@ -1574,6 +1658,50 @@ if [ "$VIEWER_MODE" = true ]; then
         echo "  Both WAYLAND_DISPLAY and DISPLAY are unset. You may be running" >&2
         echo "  over ssh without forwarding. Drop the viewer flag and re-run." >&2
         exit 1
+    fi
+fi
+
+# Bring up the user-managed hotspot if requested via --hotspot. The
+# named profile must already exist (typically created once via GNOME
+# Settings → Wi-Fi → Hotspot, then optionally tuned by
+# play-ftp-camera.yml for 40MHz / channel 6). We fail-fast if the
+# profile is missing so the user doesn't accidentally expose FTP on
+# the wrong network.
+#
+# HOTSPOT_OWNED_BY_US tracks whether we activated it. If the hotspot
+# was already up when ftp-camera started (user toggled in GNOME), we
+# use it but don't tear it down — their session continues unchanged
+# on exit.
+if [ "$HOTSPOT_FLAG" = true ]; then
+    if [ -f "$CONFIG_FILE" ]; then
+        # shellcheck source=/dev/null
+        . "$CONFIG_FILE"
+    fi
+    HOTSPOT_CONNECTION="${HOTSPOT_CONNECTION:-Hotspot}"
+
+    if ! command -v nmcli > /dev/null; then
+        echo "ERROR: --hotspot needs nmcli (NetworkManager CLI)" >&2
+        exit 1
+    fi
+    if ! nmcli -t -f NAME connection show | grep -qxF "$HOTSPOT_CONNECTION"; then
+        echo "ERROR: NetworkManager connection '$HOTSPOT_CONNECTION' not found" >&2
+        echo "  Create it once via GNOME Settings → Wi-Fi → Hotspot, then" >&2
+        echo "  re-run play-ftp-camera.yml to tune it for 40MHz/channel 6." >&2
+        echo "  (Override the connection name via ftp_camera_hotspot_connection" >&2
+        echo "  in host_vars/localhost.yml if you've renamed it.)" >&2
+        exit 1
+    fi
+
+    if nmcli -t -f NAME connection show --active | grep -qxF "$HOTSPOT_CONNECTION"; then
+        echo -e "${YELLOW}Hotspot '${HOTSPOT_CONNECTION}' already active — using as-is, will not tear down on exit.${NC}"
+    else
+        echo -e "${BOLD}Activating hotspot '${HOTSPOT_CONNECTION}'...${NC}"
+        sudo nmcli connection up "$HOTSPOT_CONNECTION"
+        HOTSPOT_OWNED_BY_US=true
+        # NM activation is async; give the AP a moment to bind and the
+        # interface to acquire its 10.x.x.x address before detect_hotspot
+        # runs. Without the sleep the first probe can miss the IP.
+        sleep 2
     fi
 fi
 
