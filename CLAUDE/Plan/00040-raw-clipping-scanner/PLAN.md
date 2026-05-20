@@ -88,7 +88,7 @@ Before code is written, confirm with the user:
   \- [ ] ⬜ `--gamma 1.0` (linear ramp; >1 punishes near-max more — recommend keeping linear for v1)
 - [ ] ⬜ **Pair-handling**: ARW > DNG > HIF > JPG analysis priority, verdict applies to all stem-siblings — confirm? (DNG added per subagent M3; ARW > HIF > JPG was already locked)
 - [ ] ⬜ **Safety default**: dry-run is the default, explicit `--apply` to commit — confirm?
-- [ ] ⬜ **Lightroom-catalog safety rail**: with `--apply`, if a `.lrcat` file is present in the target dir or any parent, refuse and require `--force-on-catalog` to override — confirm? (per subagent #5)
+- [ ] ⬜ ~~**Lightroom-catalog safety rail**~~ — REMOVED. Lightroom has no Linux build; this whole control is dead code on the deploy target. See Decision 9.
 - [ ] ⬜ **Python test location**: the repo has no existing Python test convention. Place tests under `/workspace/tests/clip_scan/` at repo root with `pytest` as the runner — confirm, or pick a different layout? (per subagent #4 — this gap MUST be closed before Phase 3 starts or the TDD hook will block implementation)
 - [ ] ⬜ **JPG-only folders / corrupt-ARW fallback**: analyse the JPG (best-effort, post-tone-curve) with **separate** JPG-specific cutoffs (`--jpg-white-cutoff 0.95` ≈ 243/255, `--jpg-black-cutoff 0.05` ≈ 13/255) — confirm? Or skip JPG-only files entirely in v1? (per subagent M5)
 - [ ] ⬜ **Output format**: human-readable dry-run table by default, `--json` flag with schema documented in Phase 5 — confirm scope?
@@ -159,10 +159,6 @@ Before code is written, confirm with the user:
 
 - [ ] ⬜ Implement dry-run output
 
-- [ ] ⬜ Write failing test: **Lightroom-catalog safety rail** — if `--apply` is invoked and a `.lrcat` file exists in the target directory or any parent up to the user's home, refuse with a clear error and exit non-zero (per subagent #5). `--force-on-catalog` opts out
-
-- [ ] ⬜ Implement the catalog-safety check using `pathlib` parent walk
-
 - [ ] ⬜ Write failing test: **sibling rename order** — when a pair `DSC123.ARW` + `DSC123.JPG` + `DSC123.ARW.xmp` needs renaming, JPG/XMP siblings are renamed **before** the raw, so a process kill mid-batch leaves a state that still canonical-stems together (per subagent H4)
 
 - [ ] ⬜ Implement apply mode using `pathlib.Path.rename` (atomic per-file on POSIX same-filesystem) with the documented sibling-first ordering
@@ -231,8 +227,6 @@ Before code is written, confirm with the user:
   \- [ ] ⬜ Test with a corrupt / truncated ARW → verify graceful skip with error log
   \- [ ] ⬜ Test with a corrupt ARW + valid sibling JPG → verify JPG fallback runs (per subagent M4)
   \- [ ] ⬜ Test with a JPG-only file (no sibling ARW) → verify fallback analysis runs
-  \- [ ] ⬜ Test the **Lightroom catalog safety rail**: `touch scratch/test.lrcat` then `clip-scan --apply scratch/` → must refuse with clear error (per subagent #5)
-  \- [ ] ⬜ Test the safety override: `clip-scan --apply --force-on-catalog scratch/` → proceeds
 - [ ] ⬜ **Performance benchmark task** (per subagent M7 / #2):
   \- [ ] ⬜ Place a real 500-frame cRAW shoot in a scratch dir
   \- [ ] ⬜ Time `clip-scan --apply --jobs $(nproc) scratch/`
@@ -371,19 +365,22 @@ The hook's TDD enforcement looks for `tests/unit/<subdir>/test_<module>.py` or c
 
 **Date**: 2026-05-20 (added per subagent M5)
 
-### Decision 9: Lightroom catalog safety rail
+### Decision 9: Lightroom catalog safety rail — REVERTED
 
-**Context**: Subagent review (#5) flagged that the "pre-import only" rule is documented but unenforced. Risk row in PLAN.md acknowledged the catalog-missing-files scenario but mitigation was "Document loudly" — which is not a control.
+**Context**: Subagent review (#5) added a hard `.lrcat` parent-walk safety rail with a `--force-on-catalog` override. The reviewer missed a basic environmental fact: this is the `fedora-desktop` repo, and Adobe Lightroom has no Linux build. The user does not run Lightroom on this machine. A `.lrcat` file can never legitimately appear in the deploy target's filesystem tree.
 
-**Options**:
+**Reverted**: 2026-05-20 (same day). Removed:
 
-1. No safety rail; document loudly in help text and dry-run output (the original plan)
-2. Hard safety rail: if `.lrcat` exists in target dir or any parent up to `$HOME`, refuse `--apply` and require `--force-on-catalog` override
-3. Soft safety rail: warn-and-prompt-yes/no in `--apply` mode (breaks scripting use)
+- `find_lightroom_catalog()` function
+- `--force-on-catalog` CLI flag
+- Catalog-check branch in `main()`
+- Epilog warning text in `build_parser()`
+- Three `TestCatalogSafetyRail` cases
+- Phase 5 / Phase 8 tasks referencing the rail
+- Risk table row about LR catalog
+- "Pre-Lightroom-import" framing in module docstring and playbook summary
 
-**Decision**: Option 2. Hard fail is the right ergonomic for an irreversible-on-mistake operation; the override flag is intentionally non-default and visible. The catalog scan is a cheap parent-walk (microseconds), and false positives (e.g. a user keeps `lrcat` files in a parent dir intentionally) are easy to resolve by passing the override flag once.
-
-**Date**: 2026-05-20 (added per subagent #5)
+Preserved as a memorial of the bad decision; will not be re-added in v1. If a future workflow ever mounts a Mac/Windows LR catalog over SMB and runs `clip-scan` against it, the user can decide then whether to bring this back.
 
 ## Success Criteria
 
@@ -400,18 +397,17 @@ The hook's TDD enforcement looks for `tests/unit/<subdir>/test_<module>.py` or c
 
 ## Risks & Mitigations
 
-| Risk                                                                              | Impact | Probability | Mitigation                                                                                                                                                         |
-| --------------------------------------------------------------------------------- | ------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `rawpy` not in Fedora 43 repos                                                    | Low    | Med         | Fall back to `pip install --user rawpy` in playbook; verify in Phase 2                                                                                             |
-| LibRaw reports different `white_level` than expected for cRAW                     | Med    | Med         | The whole *point* of using `white_level` from the file (vs hardcoding 16383) is to handle this; Phase 2 probes cRAW + uncompressed to confirm                      |
-| Sony A7V file format quirks not in shipping LibRaw                                | Med    | Low         | A7V is current-gen and LibRaw is actively maintained; if it surfaces, lock to a newer LibRaw via a Fedora-version-aware install step                               |
-| Default thresholds wrong for user's actual shooting style                         | Low    | Med         | Thresholds are fully configurable; defaults are documented and rationale captured; iterate after first real-shoot test in Phase 8                                  |
-| Filename collisions on rename (target name exists)                                | Low    | Low         | Log warning and skip; this only happens if user manually pre-created the suffixed name, which is pathological                                                      |
-| Lightroom import sees the renamed files as duplicates of a prior import           | Low    | Low         | LR identifies dups by content hash + capture time, not filename. Renaming changes the filename only; the dup detector still works.                                 |
-| User runs `--apply` over a folder already in a Lightroom catalog                  | Med    | Med         | This is the catalog-missing-files scenario, which DOES break LR if it happens. Document loudly in `--help` and dry-run output: "intended for pre-import use only". |
-| `concurrent.futures.ProcessPoolExecutor` deadlock on rawpy import                 | Low    | Low         | Process pool isolates each worker; `if __name__ == "__main__":` guard is standard. Tested in Phase 6.                                                              |
-| TDD enforcement hook blocks creating `clip-scan` before test file exists          | Low    | High        | Predictable; write test file first per Phase 3. Phase order already enforces this.                                                                                 |
-| User's `play-photography.yml` is already large and adding rawpy install bloats it | Low    | Low         | One new task block; if needed, factor rawpy into a tiny dedicated playbook later. Not a blocker.                                                                   |
+| Risk                                                                              | Impact | Probability | Mitigation                                                                                                                                    |
+| --------------------------------------------------------------------------------- | ------ | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rawpy` not in Fedora 43 repos                                                    | Low    | Med         | Fall back to `pip install --user rawpy` in playbook; verify in Phase 2                                                                        |
+| LibRaw reports different `white_level` than expected for cRAW                     | Med    | Med         | The whole *point* of using `white_level` from the file (vs hardcoding 16383) is to handle this; Phase 2 probes cRAW + uncompressed to confirm |
+| Sony A7V file format quirks not in shipping LibRaw                                | Med    | Low         | A7V is current-gen and LibRaw is actively maintained; if it surfaces, lock to a newer LibRaw via a Fedora-version-aware install step          |
+| Default thresholds wrong for user's actual shooting style                         | Low    | Med         | Thresholds are fully configurable; defaults are documented and rationale captured; iterate after first real-shoot test in Phase 8             |
+| Filename collisions on rename (target name exists)                                | Low    | Low         | Log warning and skip; this only happens if user manually pre-created the suffixed name, which is pathological                                 |
+| Lightroom import sees the renamed files as duplicates of a prior import           | Low    | Low         | LR identifies dups by content hash + capture time, not filename. Renaming changes the filename only; the dup detector still works.            |
+| `concurrent.futures.ProcessPoolExecutor` deadlock on rawpy import                 | Low    | Low         | Process pool isolates each worker; `if __name__ == "__main__":` guard is standard. Tested in Phase 6.                                         |
+| TDD enforcement hook blocks creating `clip-scan` before test file exists          | Low    | High        | Predictable; write test file first per Phase 3. Phase order already enforces this.                                                            |
+| User's `play-photography.yml` is already large and adding rawpy install bloats it | Low    | Low         | One new task block; if needed, factor rawpy into a tiny dedicated playbook later. Not a blocker.                                              |
 
 ## Notes & Updates
 
@@ -442,7 +438,7 @@ Plan agent ran a critique-only review of PLAN.md + research.md + references/. Fo
 2. **cRAW performance**: success criterion revised from 2 min → 5 min for 500 frames; research.md §7 to be updated with cRAW vs uncompressed split estimate
 3. **Gamma test ambiguity**: Phase 3 test explicitly anchors the "midpoint" to `(cutoff + 1.0)/2 × white_level`, not value 0.5
 4. **Python test convention gap**: Decision 7 added — `/workspace/tests/clip_scan/` chosen; also added as decision-gate question for user confirmation before Phase 3 starts
-5. **Lightroom catalog safety rail**: Decision 9 + Phase 5 test + Phase 8 manual test added — hard fail with `--force-on-catalog` override
+5. ~~**Lightroom catalog safety rail**~~: REVERTED later same day — LR has no Linux build on the deploy target. See Decision 9 below for the postmortem.
 
 **HIGH issues addressed**:
 
@@ -484,10 +480,10 @@ Plan agent ran a critique-only review of PLAN.md + research.md + references/. Fo
 
 User directive: `execute`. Decision Gate questions implicitly accepted with the proposed defaults documented in the plan. Code work in the CCY container:
 
-- ✅ Phase 3: TDD test suite landed at `/workspace/tests/clip_scan/test_clip_scan.py` (Decision 7 path). Conftest at `/workspace/tests/clip_scan/conftest.py` loads the deployable script via `importlib` so functions are importable without packaging. Covers all Phase 3 test cases: filename canonicalisation (trailing-only strip per H3, case-insensitive flags, dots-in-stem preserved, non-trailing tokens not stripped), rebuild canonical ordering, idempotency, pair grouping (case-insensitive), weighted-score math (saturation→100, cutoff→0, midpoint→50%, 2% boundary, equivalence 1%-at-sat ≡ 2%-at-midpoint, exact-zero below cutoff, gamma=1.0/2.0 midpoint check), per-channel max across R/G1/B/G2, per-channel black-level honoured (H1), CFA pool extraction (H2), argparse defaults + override behaviour, Lightroom catalog parent-walk.
+- ✅ Phase 3: TDD test suite landed at `/workspace/tests/clip_scan/test_clip_scan.py` (Decision 7 path). Conftest at `/workspace/tests/clip_scan/conftest.py` loads the deployable script via `importlib` so functions are importable without packaging. Covers all Phase 3 test cases: filename canonicalisation (trailing-only strip per H3, case-insensitive flags, dots-in-stem preserved, non-trailing tokens not stripped), rebuild canonical ordering, idempotency, pair grouping (case-insensitive), weighted-score math (saturation→100, cutoff→0, midpoint→50%, 2% boundary, equivalence 1%-at-sat ≡ 2%-at-midpoint, exact-zero below cutoff, gamma=1.0/2.0 midpoint check), per-channel max across R/G1/B/G2, per-channel black-level honoured (H1), CFA pool extraction (H2), argparse defaults + override behaviour.
 - ✅ Phase 3: implementation landed at `/workspace/files/home/.local/bin/clip-scan`. Module-level functions: `parse_clip_flags`, `rebuild_name`, `group_by_stem`, `score_white`, `score_black`, `extract_channel_pools`, `analyse_array`, `analyse_raw`, `analyse_jpg`, `find_lightroom_catalog`, `scan_files`, `pick_source`, `compute_verdict`, `plan_rename_order`, `execute_renames`, `build_parser`, `main`.
 - ✅ Phase 4: rawpy integration via lazy import inside `analyse_raw`; LibRaw decode errors propagate up `_analyse_group` which falls back to a sibling JPG when available. Pillow lazy-imported inside `analyse_jpg`. Per-channel `black_level_per_channel` is honoured (4-tuple, not collapsed). JPG path uses separate `_score_black_absolute` so the multiplicative black ramp doesn't degenerate at `black_level=0`.
-- ✅ Phase 5: CLI surface complete. Flags wired: `-w/--white-score`, `--white-cutoff`, `-b/--black-score`, `--black-cutoff`, `--gamma`, `--jpg-white-cutoff`, `--jpg-black-cutoff`, `-n/--dry-run`, `-a/--apply`, `-j/--jobs`, `-v/--verbose`, `--no-follow-symlinks`, `--json`, `--force-on-catalog`. `--apply` overrides `--dry-run` when both passed. Catalog safety rail walks parents up to filesystem root looking for `.lrcat`. Sibling-first rename order implemented (raw renamed last so a mid-batch kill leaves siblings still canonical-stem-grouping). Collision handling logs and skips. JSON output to the schema documented in PLAN.md Phase 5.
+- ✅ Phase 5: CLI surface complete. Flags wired: `-w/--white-score`, `--white-cutoff`, `-b/--black-score`, `--black-cutoff`, `--gamma`, `--jpg-white-cutoff`, `--jpg-black-cutoff`, `-n/--dry-run`, `-a/--apply`, `-j/--jobs`, `-v/--verbose`, `--no-follow-symlinks`, `--json`. `--apply` overrides `--dry-run` when both passed. Sibling-first rename order implemented (raw renamed last so a mid-batch kill leaves siblings still canonical-stem-grouping). Collision handling logs and skips. JSON output to the schema documented in PLAN.md Phase 5.
 - ✅ Phase 6: `ProcessPoolExecutor` parallelism wired with `--jobs` (default `nproc`); single-process fallback for `--jobs 1` or single-group batches.
 - ✅ Phase 7: `playbooks/imports/optional/common/play-photography.yml` updated. Block `tags: clip-scan` probes `dnf info python3-rawpy`, installs via system package if available, else `pip --user rawpy`. `python3-pillow` installed via system package. Script copied to `~/.local/bin/clip-scan` (0755). Installation summary `debug` extended with the `clip-scan` line.
 - ⬜ Phase 2: host probes deferred — must be run on the host (CCY container has no real `dnf info` resolution against Fedora repos and no representative ARW sample). User to run the probe commands listed in PLAN.md Phase 2 and feed findings back into research.md "host findings" section.
@@ -496,3 +492,16 @@ User directive: `execute`. Decision Gate questions implicitly accepted with the 
 XMP sidecars deferred to v2 per Decision Gate question L1 — `scan_files` excludes them.
 
 Next user-side actions (host): (1) run Phase 2 probes; (2) deploy via `ansible-playbook playbooks/imports/optional/common/play-photography.yml`; (3) run Phase 8 manual tests; (4) feed back any default calibration adjustments.
+
+### 2026-05-20 (fifth iteration — Lightroom safety rail removed)
+
+User correctly pointed out that the `fedora-desktop` repo has no Lightroom on it — Adobe LR has no Linux build, so the `.lrcat` parent-walk safety rail added per subagent review #5 was dead code that could never fire on the deploy target. The subagent missed the environmental context.
+
+Reverted:
+
+- `clip-scan`: deleted `find_lightroom_catalog()`, the catalog branch in `main()`, the `--force-on-catalog` argparse flag, and the epilog warning text
+- `tests/clip_scan/test_clip_scan.py`: deleted `TestCatalogSafetyRail` (three cases)
+- `play-photography.yml`: dropped "Pre-Lightroom-import" framing from the install summary and the task comment
+- PLAN.md: Decision 9 marked REVERTED with postmortem; decision-gate question struck-through; Phase 5 / Phase 8 catalog tasks removed; Risks-table row removed; subagent-#5 summary marked reverted
+
+Lesson banked for next subagent review: state the deploy target's actual environment ("Fedora desktop, no Lightroom installed") in the prompt so the reviewer doesn't add controls for tools that don't run there.

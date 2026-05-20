@@ -3,9 +3,9 @@
 exceeds configurable thresholds, by renaming files with .wclip / .bclip
 sub-extensions.
 
-Pre-Lightroom-import preprocess for Sony ARW (and other raw formats
-LibRaw can decode). See CLAUDE/Plan/00040-raw-clipping-scanner/ for
-the full design rationale.
+Decodes Sony ARW (and any raw format LibRaw supports) via rawpy; falls
+back to Pillow for JPG/HIF. See CLAUDE/Plan/00040-raw-clipping-scanner/
+for the full design rationale.
 
 Deployed by playbooks/imports/optional/common/play-photography.yml.
 """
@@ -381,32 +381,6 @@ def analyse_jpg(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Lightroom catalog safety rail
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-def find_lightroom_catalog(target: pathlib.Path) -> Optional[pathlib.Path]:
-    """Walk target dir and its parents up to filesystem root looking for a
-    .lrcat file. Returns the first match or None.
-
-    If a catalog is found, applying renames would create catalog-missing-
-    files state in Lightroom — refuse and require --force-on-catalog."""
-    target = target.resolve()
-    cursor = target if target.is_dir() else target.parent
-    while True:
-        if cursor.is_dir():
-            try:
-                for entry in cursor.iterdir():
-                    if entry.is_file() and entry.suffix.lower() == ".lrcat":
-                        return entry
-            except PermissionError:
-                pass
-        if cursor == cursor.parent:
-            return None
-        cursor = cursor.parent
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 # File scanning + group analysis
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -732,15 +706,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="clip-scan",
         description=(
-            "Pre-Lightroom-import bulk-flag raw photographs whose weighted "
-            "clipping score exceeds thresholds. Renames files with .wclip / "
-            ".bclip sub-extensions; dry-run by default."
-        ),
-        epilog=(
-            "WARNING: --apply is intended for pre-Lightroom-import use. "
-            "If a .lrcat file is found in the target tree, --apply refuses "
-            "to run without --force-on-catalog (renames would create "
-            "catalog-missing-files state in Lightroom)."
+            "Bulk-flag raw photographs whose weighted clipping score exceeds "
+            "thresholds by renaming files with .wclip / .bclip sub-extensions. "
+            "Dry-run by default; --apply to commit."
         ),
     )
     parser.add_argument(
@@ -815,11 +783,6 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Emit machine-readable JSON output",
     )
-    parser.add_argument(
-        "--force-on-catalog",
-        action="store_true",
-        help="Override the Lightroom .lrcat safety rail (USE WITH CARE)",
-    )
     return parser
 
 
@@ -830,26 +793,6 @@ def main(argv: Optional[list[str]] = None) -> int:
     if not args.path.exists():
         print(f"{RED}ERROR: path does not exist: {args.path}{NC}", file=sys.stderr)
         return 2
-
-    # Safety rail: scan for a Lightroom catalog before any rename happens.
-    if args.apply and not args.force_on_catalog:
-        catalog = find_lightroom_catalog(args.path)
-        if catalog is not None:
-            print(
-                f"{RED}ERROR: Lightroom catalog found at {catalog}{NC}",
-                file=sys.stderr,
-            )
-            print(
-                f"{RED}Renaming files inside a tree under a .lrcat would "
-                f"create catalog-missing-files state in Lightroom.{NC}",
-                file=sys.stderr,
-            )
-            print(
-                f"{RED}If you really mean it, re-run with "
-                f"--force-on-catalog.{NC}",
-                file=sys.stderr,
-            )
-            return 3
 
     files = scan_files(args.path, follow_symlinks=follow_symlinks)
     if not files:

@@ -287,10 +287,11 @@
         mode: "0755"
       tags: raw-prune
 
-    # clip-scan — pre-Lightroom-import bulk-flag of raw frames with excessive
-    # highlight / shadow clipping. Decodes Sony ARW via LibRaw (rawpy);
-    # falls back to Pillow for JPG-only files. See
-    # CLAUDE/Plan/00040-raw-clipping-scanner/ for the full design.
+    # clip-scan — bulk-flag raw frames with excessive highlight / shadow
+    # clipping by renaming with .wclip / .bclip sub-extensions. Decodes
+    # Sony ARW via LibRaw (rawpy); falls back to Pillow for JPG-only
+    # files. See CLAUDE/Plan/00040-raw-clipping-scanner/ for the full
+    # design.
     #
     # rawpy install strategy: Fedora has no python3-rawpy package as of F43,
     # so we go straight to pip --user. Pillow IS in Fedora repos, but we
@@ -352,10 +353,10 @@
                                    with improved tone mapping, masking, and local edits
             raw-prune            - Recursively delete RAWs in CWD with no matching JPG
                                    (run with --help for usage and --dry-run to preview)
-            clip-scan            - Pre-Lightroom-import bulk-flag of raw frames with
-                                   excessive highlight/shadow clipping; renames matches
-                                   with .wclip / .bclip sub-extensions. Dry-run by
-                                   default — use --apply to commit. See --help.
+            clip-scan            - Bulk-flag raw frames with excessive highlight/shadow
+                                   clipping; renames matches with .wclip / .bclip
+                                   sub-extensions. Dry-run by default — use --apply
+                                   to commit. See --help.
 
           Sony A7V (ILCE-7M5) support: patched into darktable rawspeed cameras.xml
           (bodge — pinned to rawspeed develop {{ rawspeed_commit[:7] }}). Stock file backed up at

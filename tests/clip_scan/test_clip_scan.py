@@ -455,28 +455,3 @@ class TestCLI:
         assert args.apply is True
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Lightroom catalog safety rail
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-class TestCatalogSafetyRail:
-    def test_no_lrcat_in_tree_allows_apply(self, tmp_path):
-        # No .lrcat anywhere → safe.
-        target = tmp_path / "shoot"
-        target.mkdir()
-        assert clip_scan.find_lightroom_catalog(target) is None
-
-    def test_lrcat_in_target_dir_is_detected(self, tmp_path):
-        target = tmp_path / "shoot"
-        target.mkdir()
-        (target / "MyCatalog.lrcat").touch()
-        assert clip_scan.find_lightroom_catalog(target) is not None
-
-    def test_lrcat_in_parent_is_detected(self, tmp_path):
-        parent = tmp_path / "Photos"
-        parent.mkdir()
-        (parent / "MyCatalog.lrcat").touch()
-        target = parent / "shoot"
-        target.mkdir()
-        assert clip_scan.find_lightroom_catalog(target) is not None
