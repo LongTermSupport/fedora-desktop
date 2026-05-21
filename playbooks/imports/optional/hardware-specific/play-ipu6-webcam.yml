@@ -1,0 +1,173 @@
+#!/usr/bin/env ansible-playbook
+---
+# Intel IPU6 webcam (MIPI) — ThinkPad X1 Carbon Gen 11 and similar.
+#
+# Background: laptops with Intel IPU6 cameras (sensor ov2740 et al.) do NOT
+# present a standard UVC /dev/video* node. Apps (Firefox, Chrome, OBS, Zoom,
+# GNOME Cheese) cannot use the camera until a userspace bridge is in place.
+#
+# Symptoms we are fixing:
+#   - lsmod shows intel_ipu6_isys + ov2740 loaded
+#   - /dev/video0..N exist but are IPU6 subdevices (no capture node)
+#   - lsusb shows no camera (it is MIPI, not USB)
+#   - wireplumber loads libcamera but enumerates zero cameras
+#   - Fedora's /usr/share/libcamera/ipa/ has ipu3/simple/vimc only — no ipu6
+#
+# Fix: install the Intel IPU6 HAL stack from RPM Fusion (firmware + HAL +
+# GStreamer icamerasrc) plus v4l2-relayd, which exposes a real /dev/video
+# node that browsers and Wayland apps can use.
+#
+# Reference: RPM Fusion intel-ipu6 packages (nonfree)
+- hosts: desktop
+  name: Install Intel IPU6 webcam userspace stack
+  become: true
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  vars_files:
+    - "{{ root_dir }}/vars/fedora-version.yml"
+  tasks:
+    - name: Detect IPU6 platform (kernel module loaded)
+      ansible.builtin.shell: lsmod
+      register: lsmod_output
+      changed_when: false
+
+    - name: Assert IPU6 hardware is present
+      ansible.builtin.assert:
+        that:
+          - "'intel_ipu6' in lsmod_output.stdout"
+        fail_msg: |
+          intel_ipu6 kernel module is not loaded.
+
+          This playbook is for laptops with Intel IPU6 MIPI cameras
+          (e.g. ThinkPad X1 Carbon Gen 11, recent Dell XPS, etc.).
+
+          If you have a USB (UVC) webcam, you do not need this playbook —
+          UVC cameras work out of the box on Fedora.
+        success_msg: "IPU6 kernel module detected — proceeding."
+
+    - name: Check Secure Boot state
+      ansible.builtin.command: mokutil --sb-state
+      register: secure_boot_state
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — mokutil may not be installed yet
+
+    - name: Validate MOK password is in vault when Secure Boot is on
+      ansible.builtin.assert:
+        that:
+          - mok_password is defined
+        fail_msg: |
+          ERROR: Secure Boot is enabled but mok_password is not in your vault.
+
+          akmod-intel-ipu6 builds an out-of-tree kernel module that must be
+          signed with a MOK key for Secure Boot to load it.
+
+          Add to your vault:
+            ansible-vault edit environment/localhost/host_vars/localhost.yml
+          Then add:
+            mok_password: "your-password"
+
+          This password is used once during MOK enrollment on next boot.
+      when: "'SecureBoot enabled' in (secure_boot_state.stdout | default(''))"
+
+    - name: Install IPU6 userspace stack from RPM Fusion (nonfree)
+      ansible.builtin.dnf:
+        name:
+          # akmod handles Secure Boot signing via DKMS-style MOK
+          - akmod-intel-ipu6
+          # Intel proprietary firmware blobs + HAL
+          - ipu6-camera-bins
+          - ipu6-camera-hal
+          # GStreamer source element that talks to the HAL
+          - gstreamer1-plugins-icamerasrc
+          # Bridges icamerasrc → /dev/video so V4L2 apps (browsers) see it
+          - v4l2-relayd
+          # Useful diagnostics: cam, v4l2-ctl
+          - libcamera-tools
+          - v4l-utils
+          # Needed for akmod to build against current kernel
+          - kernel-devel
+          - kernel-headers
+          - mokutil
+        state: present
+
+    # MOK enrollment block — mirrors the pattern in play-displaylink.yml
+    - name: Check if DKMS MOK key exists
+      ansible.builtin.stat:
+        path: /var/lib/dkms/mok.pub
+      register: mok_key
+
+    - name: Check if MOK is already enrolled
+      ansible.builtin.command: mokutil --test-key /var/lib/dkms/mok.pub
+      register: mok_enrolled
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — exit code indicates enrollment state
+      when:
+        - "'SecureBoot enabled' in (secure_boot_state.stdout | default(''))"
+        - mok_key.stat.exists
+
+    - name: Import MOK key for enrollment
+      ansible.builtin.shell: |
+        expect -c "
+        spawn mokutil --import /var/lib/dkms/mok.pub
+        expect \"input password:\"
+        send \"{{ mok_password }}\r\"
+        expect \"input password again:\"
+        send \"{{ mok_password }}\r\"
+        expect eof
+        "
+      when:
+        - "'SecureBoot enabled' in (secure_boot_state.stdout | default(''))"
+        - mok_key.stat.exists
+        - "'is not enrolled' in (mok_enrolled.stdout | default(''))"
+      register: mok_import
+
+    - name: Run DKMS / akmods autoinstall so the module is built and signed now
+      ansible.builtin.command: akmods --force
+      changed_when: true
+
+    - name: Enable v4l2-relayd service
+      ansible.builtin.systemd:
+        name: v4l2-relayd
+        enabled: true
+        state: started
+
+    - name: Final instructions
+      ansible.builtin.pause:
+        prompt: |2
+
+          ========================================================================
+          Intel IPU6 webcam installation — next steps
+          ========================================================================
+
+          {% if 'SecureBoot enabled' in (secure_boot_state.stdout | default('')) and mok_import is changed %}
+          ACTION REQUIRED: SECURE BOOT MOK ENROLLMENT
+
+          Your MOK enrollment password is: {{ mok_password }}
+
+          1. Reboot now
+          2. The blue MOK Manager screen will appear
+          3. Select "Enroll MOK" → "Continue" → "Yes"
+          4. Enter the password above
+          5. Select "Reboot"
+
+          The webcam will work after that one-time enrollment.
+          {% else %}
+          ✅ Packages installed.
+
+          To make the camera visible to apps RIGHT NOW (no reboot):
+
+            systemctl --user restart wireplumber pipewire
+
+          Then test with:
+
+            cam -l                          # libcamera should now list the camera
+            v4l2-ctl --list-devices         # v4l2-relayd device should appear
+            gnome-camera   (or Cheese, Firefox getUserMedia, etc.)
+
+          If the camera still does not show up, a reboot is the most reliable
+          way to ensure the IPU6 module + v4l2-relayd + pipewire come up
+          in the correct order.
+          {% endif %}
+
+          Press ENTER to continue...
+          ========================================================================
