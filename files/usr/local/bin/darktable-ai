@@ -22,12 +22,16 @@
 # nightly therefore starts with its own (empty) library — the safe,
 # intended behaviour for an experimental build.
 #
+# GPU ACCELERATION (self-detecting):
+# If the GPU-enabled ONNX Runtime has been installed
+# (play-darktable-ai-gpu.yml → ~/.local/lib/onnxruntime-cuda/), this
+# launcher points darktable at it via DT_ORT_LIBRARY. If it is absent,
+# darktable uses its bundled CPU-only ONNX Runtime. No GPU install simply
+# means CPU inference — no error, nothing to configure.
+#
 # Deployed by:
 #   playbooks/imports/optional/common/play-darktable-ai-appimage.yml
-#
-# GPU: when the darktable AI GPU playbook is run it exports DT_ORT_LIBRARY
-# system-wide (/etc/profile.d), which this build picks up automatically —
-# no change needed here.
+#   playbooks/imports/optional/hardware-specific/play-darktable-ai-gpu.yml
 
 set -euo pipefail
 
@@ -38,6 +42,15 @@ if [[ ! -x "${apprun}" ]]; then
     echo "darktable-ai: deploy it with" >&2
     echo "  ansible-playbook playbooks/imports/optional/common/play-darktable-ai-appimage.yml" >&2
     exit 1
+fi
+
+# Use the GPU ONNX Runtime if it has been installed; otherwise fall through
+# to darktable's bundled CPU runtime.
+gpu_ort_dir="${HOME}/.local/lib/onnxruntime-cuda"
+gpu_ort_lib="${gpu_ort_dir}/libonnxruntime.so"
+if [[ -e "${gpu_ort_lib}" ]]; then
+    export DT_ORT_LIBRARY="${gpu_ort_lib}"
+    export LD_LIBRARY_PATH="${gpu_ort_dir}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 fi
 
 exec "${apprun}" \

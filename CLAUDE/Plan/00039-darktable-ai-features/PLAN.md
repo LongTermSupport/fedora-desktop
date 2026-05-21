@@ -1,12 +1,12 @@
 # Plan 00039: Darktable AI Features
 
-**Status**: AI path delivered (Phase 2-alt). Per decision **D4**, the AI build
-is the upstream darktable **nightly**, installed as a separate `darktable-ai`
-app alongside the stable A7V darktable RPM. `play-darktable-ai-appimage.yml`
-extracts the nightly AppImage, overlays the working Sony A7V `cameras.xml`, and
-the result is verified decoding real A7V `.ARW` files (2026-05-20). The AI
-subsystem is compiled in (`AI -> ENABLED`). Remaining: **Phase 3** — NVIDIA GPU
-acceleration for the AI models. See
+**Status**: AI path delivered (Phase 2-alt) and Phase 3 (GPU) implemented.
+Per **D4**, `darktable-ai` (the AI nightly, A7V verified) is installed
+alongside the stable A7V darktable RPM. Phase 3 adds NVIDIA GPU
+acceleration: `play-nvidia.yml` now installs the CUDA Toolkit + cuDNN
+system-wide, and `play-darktable-ai-gpu.yml` installs the GPU ONNX Runtime.
+All three playbooks pass QA + syntax-check (2026-05-21); pending host
+deploy + `darktable-ai -d ai` CUDA-provider verification. See
 [research-ai-version-correction.md](research-ai-version-correction.md).
 **Created**: 2026-05-19
 **Owner**: joseph
@@ -854,3 +854,51 @@ Fedora 43 without breaking the RPM Fusion driver:**
 This is a genuine gate: a CUDA repo that pulls a second NVIDIA driver
 would destabilise the display driver (plan Risk table: High impact).
 Resolve D5 before writing `play-darktable-ai-gpu.yml`.
+
+### 2026-05-21 — Phase 3 implemented (GPU acceleration)
+
+**D5 resolved.** CUDA Toolkit from NVIDIA's official Fedora 43 repo
+(verified to exist); cuDNN 9 from NVIDIA's official `nvidia-cudnn-cu13`
+wheel (Fedora has no NVIDIA cuDNN dnf repo). Both NVIDIA sources; neither
+pulls a competing driver. negativo17 rejected (ships its own driver).
+
+Per user direction — "the nvidia play should handle nvidia; don't assume
+darktable is the only thing that needs CUDA; do it properly" — CUDA is
+installed as a **system capability** in `play-nvidia.yml`, not bundled
+per-app.
+
+**Part A — `play-nvidia.yml`** (gated by new var `nvidia_install_cuda`,
+default `true`, mirroring `nvidia_install_vulkan`):
+
+- Configures the NVIDIA CUDA Fedora repo via `yum_repository` with an
+  `exclude` of every driver/kmod package — it can never replace the RPM
+  Fusion `akmod-nvidia` driver. A post-install task asserts the RPM
+  Fusion driver survived.
+- Installs `cuda-toolkit` (the driverless toolkit meta-package).
+- Installs cuDNN 9 from NVIDIA's official wheel (pinned 9.22.0.52 +
+  sha256) into `/opt/cudnn`.
+- Writes `/etc/ld.so.conf.d/nvidia-cuda.conf` and runs `ldconfig`.
+
+**Part B — `play-darktable-ai-gpu.yml`** (new,
+`hardware-specific/`): hardware-gated on PCI vendor `10de` (no-ops on the
+non-NVIDIA laptop). Preflights CUDA/cuDNN/darktable-ai; fetches darktable's
+`ort_gpu.json` at run time; selects the NVIDIA/linux entry matching the
+detected CUDA major; downloads + SHA256-verifies the GPU ORT tarball;
+installs the libs to `~/.local/lib/onnxruntime-cuda/`; clears the
+`PT_GNU_STACK` RWE flag with `execstack`. Idempotent via a versioned-`.so`
+guard.
+
+**Part C — `files/usr/local/bin/darktable-ai`**: the launcher now
+self-detects `~/.local/lib/onnxruntime-cuda/libonnxruntime.so` and exports
+`DT_ORT_LIBRARY` + `LD_LIBRARY_PATH` when present; CPU fallback otherwise.
+No `/etc/profile.d` global env change — GPU wiring stays scoped to
+`darktable-ai`.
+
+All three playbooks pass `ansible-playbook --syntax-check` and
+`./scripts/qa-all.bash` (bash + python). **Pending**: host deploy of
+`play-nvidia.yml` then `play-darktable-ai-gpu.yml`, and the
+`darktable-ai -d ai` CUDA-provider check (V4.5/V4.6).
+
+This supersedes the original Phase 3 task list T3.0–T3.12 above (which
+predated the D5 resolution); the three-part design here is the
+as-built record.
