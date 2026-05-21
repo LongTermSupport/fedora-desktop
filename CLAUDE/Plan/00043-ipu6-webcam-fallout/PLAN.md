@@ -7,7 +7,7 @@
 
 ## Overview
 
-The IPU6 webcam playbook (`play-ipu6-webcam.yml`, commit `e5d0e33`) caused major boot instability on the X1 Carbon Gen 11:
+The IPU6 webcam playbook (`play-ipu6-webcam.yml`, commit `e5d0e33`) caused major boot instability on the X1 Carbon Gen 10 (i7-1260P, Alder Lake-P — confirmed via DMI in Plan 00044 audit):
 
 - Kernel **7.0.9-104** (newest): no WiFi, no Bluetooth — all radios dead.
 - Kernel **7.0.4-100**: WiFi works, GNOME login then **hard freeze**.
