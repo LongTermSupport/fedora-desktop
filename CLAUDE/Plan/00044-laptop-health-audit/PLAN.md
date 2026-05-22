@@ -49,7 +49,7 @@ The audit also corrected hardware identification used in Plan 00043: this is a *
 ### 🔴 High Impact (do soon)
 
 1. **Apply Critical security updates** — 🟢 real. Firefox 151, nss/nspr 3.123.1 bundle, yelp 49.1, evince 48.1 are all Critical-severity Fedora advisories. **Already solved by `playbooks/imports/play-AB-dnf-upgrade.yml`** (commit `cfea82d`); run that play rather than ad-hoc `dnf upgrade`.
-2. **Switch `tuned` profile from `balanced` to `balanced-battery`** — 🟢 real. Confirmed no repo policy on `tuned` (TLP was archived 2025-08-29 with a note to use "Fedora defaults"). Setting a deliberate profile via new playbook is a clean gap-fill. Single coordinated change to EPP, governor bounds, ASPM policy + ACPI platform_profile.
+2. ~~**Switch `tuned` profile from `balanced` to `balanced-battery`**~~ — 🟡 **BUSYWORK — dropped**. `tuned-ppd` already auto-switches `balanced` ↔ `balanced-battery` based on AC/battery state, and GNOME's quick-toggle drives it. Codifying a static profile in Ansible would fight that machinery and break the UX. Verified on this host: while on battery, `tuned-adm active` already reports `balanced-battery`; EPP is `balance_power`. Working as designed — no action.
 3. **Resolve Plan 00043 partial-kernel-7.0.9 install** — ✅ done (Plan 00043 closed).
 4. **Mask `thermald.service`** — 🟢 real. No repo policy on `thermald`. Enabled state came from package default. Masking doesn't fight any IaC.
 5. **Apply remaining ~124 pending updates** — 🟢 real. **Same playbook as Action 1** (`play-AB-dnf-upgrade.yml` does `dnf "*" state: latest`). Collapses into a single run.
@@ -66,7 +66,7 @@ The audit also corrected hardware identification used in Plan 00043: this is a *
 
 ### ⚪ Low Priority (cosmetic or watch-only)
 
-11. **Disable `copr:phracek/PyCharm` COPR** — 🟢 real. No playbook references `phracek` or PyCharm; the only repo-managed COPR is `pgdev/ghostty` (`play-terminal-emulators.yml:31`). The PyCharm COPR is orphaned state drift from a removed playbook or historical manual step. Clean removal.
+11. ✅ **Disable `copr:phracek/PyCharm` COPR** — DONE 2026-05-22. New play `playbooks/imports/play-ZZ-repo-cleanup.yml` wired into `playbook-main.yml` (sorts last so it runs after any other play that legitimately adds COPRs). Ran on host: COPR removed, host now shows only the two wanted COPRs (`ganto:lxc4`, `pgdev:ghostty`). Play is idempotent (`removes:` guard) and is the canonical home for any future orphan-repo cleanups.
 12. **Blacklist `mtk_t7xx` 5G modem** — 🟢 real (if WWAN unused). No repo policy on modprobe blacklists (`files/etc/modprobe.d/` doesn't exist). Clean addition once the policy decision is made.
 13. **NetworkManager SIGABRT from 2026-05-21 11:55** — 🟢 real, watch-only. Observational, no IaC change implied.
 14. **Test NVMe `power/control=auto`** — 🟢 real. No repo policy; correctly framed as test-first.
@@ -103,13 +103,13 @@ The audit also corrected hardware identification used in Plan 00043: this is a *
 
 Create / update playbooks for the durable system changes:
 
-- ⬜ **`play-laptop-power-tuning.yml`** (new) — set `tuned` active profile to `balanced-battery` AND mask `thermald.service` (Actions 2 + 4 — both clean gaps, single playbook covers both). Verify with `tuned-adm active`. Tag: `power`.
+- ⬜ **`play-laptop-power-tuning.yml`** (new) — mask `thermald.service` (Action 4 — clean gap). *Originally bundled Action 2 (tuned profile) but that's been dropped as busywork — tuned-ppd already handles it dynamically via GNOME's power-toggle.* Tag: `power`.
 - ⬜ **Update rclone playbook**:
   - 7a. In `rclone_mounts` config (likely `host_vars/localhost.yml`), set `log_level: NOTICE` for the photos mount — uses the existing per-mount override in `play-rclone.yml:271`. Do NOT touch the template default.
   - 7b. In the user-unit template in `play-rclone.yml` (around lines 255-277), add `MemoryHigh=` and `MemoryMax=` directives. Generic improvement.
 - ⬜ **Reduce `NetworkManager-wait-online`** (Action 8) — drop-in or extend existing NM playbook; set `NM_ONLINE_TIMEOUT=5`.
 - ⬜ **Add `lm_sensors`** (Action 10) to a base packages play.
-- ⬜ **Disable `copr:phracek/PyCharm`** (Action 11) — extend the repos / cleanup play with a `community.general.dnf_copr` task (`state: disabled`).
+- ✅ ~~**Disable `copr:phracek/PyCharm`**~~ — done via new `play-ZZ-repo-cleanup.yml`.
 - ⬜ *(Conditional)* **`play-warp-quiet.yml`** (Action 6) — only after confirming the warp-svc log-config surface is stable across upgrades. Otherwise defer.
 
 ### Phase 4: Watch-only items ⬜
@@ -201,3 +201,5 @@ After Phase 3:
   - Action 9 (versionlock) is busywork — deliberate previous-minor fallback policy. Downgraded to "confirm" only.
   - Action 6 (warp-svc) marked unclear pending verification of the log-config surface stability.
 - Plan 00043 closed (kernel recovery verified on 7.0.9-105). Phase 2 of this plan no longer needs coordination with Plan 00043.
+- **Action 2 (`tuned` profile) dropped as busywork** — `tuned-ppd` already auto-switches between `balanced` and `balanced-battery` based on AC/battery state, and GNOME's quick-toggle in the system tray drives it. Verified on this host: currently on battery → `tuned-adm active` reports `balanced-battery` and EPP is `balance_power`. Codifying a static profile in Ansible would fight the existing stack and break the GNOME UX.
+- **Action 11 (PyCharm COPR) done** — confirmed via exhaustive grep + git history that no current playbook in the repo enables `phracek/PyCharm`. The COPR was orphaned host drift from a since-deleted playbook. New play `playbooks/imports/play-ZZ-repo-cleanup.yml` added (wired into `playbook-main.yml`, sorts last) which asserts the COPR is removed; will idempotently clean any future orphans listed there. Host state verified clean — only `ganto:lxc4` and `pgdev:ghostty` COPRs remain.

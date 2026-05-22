@@ -30,3 +30,4 @@
 - import_playbook: imports/play-vscode.yml
 - import_playbook: imports/play-vpn.yml
 - import_playbook: imports/play-gsettings.yml
+- import_playbook: imports/play-ZZ-repo-cleanup.yml
