@@ -42,32 +42,35 @@ The audit also corrected hardware identification used in Plan 00043: this is a *
   - `research-04-power-thermal.md` — power, thermal, suspend
 - All research used read-only commands; no system state was modified.
 - Power agent confirmed: Fedora's `tuned` + `tuned-ppd` is the modern blessed path (replacing TLP and the older `power-profiles-daemon` package). The current active profile is `balanced` — the desktop default, not laptop-optimised.
+- **IaC cross-check** (`00-iac-cross-check.md`): each prioritised action was re-evaluated against the playbooks in this repo to filter real gaps from busywork. Headline: 11 real issues, 1 repo-policy "fight" (Action 9), 1 partial conflict (Action 7 log-level), 1 unclear (Action 6). Findings have been folded into the action notes below.
 
 ## Prioritised Findings
 
 ### 🔴 High Impact (do soon)
 
-1. **Apply Critical security updates** — Firefox 151, nss/nspr 3.123.1 bundle, yelp 49.1, evince 48.1 are all Critical-severity Fedora advisories. Doable independently of Plan 00043 recovery via `dnf upgrade --exclude='kernel*'`. *(45 advisory rows total: 3 Critical, 5 Important, 1 Moderate, 1 Low, 1 None.)*
-2. **Switch `tuned` profile from `balanced` to `balanced-battery`** — single coordinated change to EPP, governor bounds, ASPM policy + ACPI platform_profile. Current `balanced` is the desktop default. Ansible playbook target.
-3. **Resolve Plan 00043 partial-kernel-7.0.9 install** — cross-referenced; tracked separately.
-4. **Mask `thermald.service`** — enabled but exits at every boot after detecting `dytc_lapmode`. Lenovo DYTC handles thermal at firmware level. Misleading "enabled" state. Ansible target.
-5. **Apply remaining ~124 pending updates** *(after the security batch and kernel decision is made)* — clears `kernel-headers` drift (stuck at 6.19.6 while running 6.19.14), bulk of which is KF6 6.26.0 (36 pkgs) + LibreOffice 25.8.7.3 (19 pkgs).
+1. **Apply Critical security updates** — 🟢 real. Firefox 151, nss/nspr 3.123.1 bundle, yelp 49.1, evince 48.1 are all Critical-severity Fedora advisories. **Already solved by `playbooks/imports/play-AB-dnf-upgrade.yml`** (commit `cfea82d`); run that play rather than ad-hoc `dnf upgrade`.
+2. **Switch `tuned` profile from `balanced` to `balanced-battery`** — 🟢 real. Confirmed no repo policy on `tuned` (TLP was archived 2025-08-29 with a note to use "Fedora defaults"). Setting a deliberate profile via new playbook is a clean gap-fill. Single coordinated change to EPP, governor bounds, ASPM policy + ACPI platform_profile.
+3. **Resolve Plan 00043 partial-kernel-7.0.9 install** — ✅ done (Plan 00043 closed).
+4. **Mask `thermald.service`** — 🟢 real. No repo policy on `thermald`. Enabled state came from package default. Masking doesn't fight any IaC.
+5. **Apply remaining ~124 pending updates** — 🟢 real. **Same playbook as Action 1** (`play-AB-dnf-upgrade.yml` does `dnf "*" state: latest`). Collapses into a single run.
 
 ### 🟡 Medium Impact (polish, do when convenient)
 
-06. **Lower `warp-svc` log verbosity** — 504 DEBUG + 7 ERROR + 37 WARN lines per boot; startup chatter is a known WARP-on-Linux NM race. Drop to `INFO` or lower.
-07. **Tame `rclone-lts-photo` user-mount** — 4 873 log lines per 24 min and 17.1 GiB RSS. Drop `--log-level INFO` → `NOTICE` once photo backfill is done; add `MemoryHigh=`/`MemoryMax=` to the user unit.
-08. **Reduce `NetworkManager-wait-online.service` (5.79 s boot stall)** — set `NM_ONLINE_TIMEOUT=5`, or unhook units from `network-online.target` that don't actually need DHCP completion.
-09. **Decide on the `kernel` versionlock** — the system is reportedly version-locked at `kernel-6.19.14-200`, silently deferring all kernel security updates and blocking the natural path to fix Plan 00043. Worth a deliberate decision: keep, raise, or remove. *(Needs verification — check `dnf versionlock list`.)*
-10. **Install `lm_sensors`** so `sensors` is available for future audits. One-line package add.
+06. **Lower `warp-svc` log verbosity** — ⚪ unclear. `play-cloudflare-warp.yml` configures warp-cli but does not touch warp-svc log level. **Verify first** that the log-config surface is a Cloudflare-supported stable interface (not auto-rewritten on package upgrade) before codifying. If unstable, defer.
+07. **Tame `rclone-lts-photo` user-mount** — split into two subtasks per IaC cross-check:
+    - 7a. 🟠 **Log level**: per `play-rclone.yml:271`, the unit template hard-codes `--log-level INFO` deliberately (header explains: "leaves a real exit code and log trail"). **Do NOT change the template default.** Instead set `log_level: NOTICE` for the photos mount specifically via the `rclone_mounts` per-mount override the template already supports.
+    - 7b. 🟢 **Memory limits**: real gap. The unit template has no `MemoryHigh`/`MemoryMax`. Add them to the template — this is a generic improvement, no policy conflict. (17.1 GiB RSS observed on the photos mount.)
+08. **Reduce `NetworkManager-wait-online.service` (5.79 s boot stall)** — 🟢 real. No repo policy on this unit. Set `NM_ONLINE_TIMEOUT=5`, or unhook units from `network-online.target` that don't actually need DHCP completion.
+09. ~~**Decide on the `kernel` versionlock**~~ — 🟡 **REPO POLICY — busywork to revisit.** The lock on `kernel = 6.19.14-200` is set by `play-advanced-kernel-management.yml` as the previous-minor hardware-compat fallback. Plan 00043 explains the same intent. **Action**: confirm the lock is in place (it is); do not "decide" anything else.
+10. **Install `lm_sensors`** — 🟢 real. No repo reference. One-line addition to a base packages play.
 
 ### ⚪ Low Priority (cosmetic or watch-only)
 
-11. **Disable `copr:phracek/PyCharm` COPR** — no `pycharm-*` RPM installed (Toolbox-managed). Zero-risk removal.
-12. **Blacklist `mtk_t7xx` 5G modem** if WWAN is genuinely unused — silences "Port AT is not opened, drop packets" boot chatter. The radio is already rfkill-blocked, so this is purely cosmetic.
-13. **NetworkManager SIGABRT from 2026-05-21 11:55** — single event. Fedora's `10-timeout-abort.conf` drop-in turns slow-stopping services into coredumps. Likely a suspend/resume teardown race. Correlate with suspend logs before tuning; no action if it doesn't recur.
-14. **Test NVMe `power/control=auto`** — only suspendable PCIe device still on `on`. Test manually, watch for Samsung PM9A1 I/O regressions, only then add to Ansible.
-15. **ELAN touchpad `i2c_hid_acpi` incomplete-report at boot** — harmless. Watch for recurrence after suspend/resume; if so, the known ELAN i2c-hid post-wake bug fix (small systemd unit) applies.
+11. **Disable `copr:phracek/PyCharm` COPR** — 🟢 real. No playbook references `phracek` or PyCharm; the only repo-managed COPR is `pgdev/ghostty` (`play-terminal-emulators.yml:31`). The PyCharm COPR is orphaned state drift from a removed playbook or historical manual step. Clean removal.
+12. **Blacklist `mtk_t7xx` 5G modem** — 🟢 real (if WWAN unused). No repo policy on modprobe blacklists (`files/etc/modprobe.d/` doesn't exist). Clean addition once the policy decision is made.
+13. **NetworkManager SIGABRT from 2026-05-21 11:55** — 🟢 real, watch-only. Observational, no IaC change implied.
+14. **Test NVMe `power/control=auto`** — 🟢 real. No repo policy; correctly framed as test-first.
+15. **ELAN touchpad `i2c_hid_acpi` incomplete-report at boot** — 🟢 real, watch-only. Observational.
 
 ### ⚪ Confirmed non-issues (recorded so we don't re-investigate)
 
@@ -91,21 +94,23 @@ The audit also corrected hardware identification used in Plan 00043: this is a *
 - ✅ Corrected hardware identification (Gen 10 / i7-1260P, not Gen 11).
 - ✅ Prioritised findings into ranked list above.
 
-### Phase 2: Quick wins (no Ansible required) ⬜
+### Phase 2: Apply updates via existing playbook ⬜
 
-- ⬜ `dnf upgrade --refresh --exclude='kernel*'` — pulls Critical security updates without touching the partial-7.0.9 trap. Coordinate with Plan 00043 — do **not** run until Plan 00043 Phase 3 recovery has been decided. Otherwise, dnf may try to "fix" the partial 7.0.9 install in an unpredictable way.
-- ⬜ Verify `dnf versionlock list` to confirm whether kernel is locked and decide policy.
+- ⬜ **Run `playbooks/imports/play-AB-dnf-upgrade.yml`** — IaC-native answer to Actions 1 + 5 (Critical security updates + remaining ~124 pending). Existing play, no edit needed. Plan 00043 already complete so the kernel-trap coordination concern is resolved.
+- ✅ ~~Verify versionlock~~ — confirmed: `kernel = 6.19.14-200` is the deliberate previous-minor fallback set by `play-advanced-kernel-management.yml`. No further action.
 
 ### Phase 3: Ansible playbook changes ⬜
 
 Create / update playbooks for the durable system changes:
 
-- ⬜ **`play-laptop-power-tuning.yml`** (or extend an existing power play) — set `tuned` active profile to `balanced-battery` on AC and battery via `tuned-adm profile balanced-battery` made idempotent. Verify with `tuned-adm active`. Tag: `power`.
-- ⬜ **Mask `thermald.service`** — extend an existing laptop playbook or add to power tuning play. Use `ansible.builtin.systemd` with `masked: true`.
-- ⬜ **`play-warp-quiet.yml`** *(optional)* — drop warp-svc log level. Single config-file edit.
-- ⬜ **Update rclone user-unit template** — log level `NOTICE`, `MemoryHigh`/`MemoryMax`. Locate the existing rclone playbook before adding.
-- ⬜ **Add `lm_sensors` to a base packages play** so `sensors` is universally available.
-- ⬜ **Disable stale COPR**: extend the repos play (or relevant copr-add play) to remove `phracek/PyCharm`.
+- ⬜ **`play-laptop-power-tuning.yml`** (new) — set `tuned` active profile to `balanced-battery` AND mask `thermald.service` (Actions 2 + 4 — both clean gaps, single playbook covers both). Verify with `tuned-adm active`. Tag: `power`.
+- ⬜ **Update rclone playbook**:
+  - 7a. In `rclone_mounts` config (likely `host_vars/localhost.yml`), set `log_level: NOTICE` for the photos mount — uses the existing per-mount override in `play-rclone.yml:271`. Do NOT touch the template default.
+  - 7b. In the user-unit template in `play-rclone.yml` (around lines 255-277), add `MemoryHigh=` and `MemoryMax=` directives. Generic improvement.
+- ⬜ **Reduce `NetworkManager-wait-online`** (Action 8) — drop-in or extend existing NM playbook; set `NM_ONLINE_TIMEOUT=5`.
+- ⬜ **Add `lm_sensors`** (Action 10) to a base packages play.
+- ⬜ **Disable `copr:phracek/PyCharm`** (Action 11) — extend the repos / cleanup play with a `community.general.dnf_copr` task (`state: disabled`).
+- ⬜ *(Conditional)* **`play-warp-quiet.yml`** (Action 6) — only after confirming the warp-svc log-config surface is stable across upgrades. Otherwise defer.
 
 ### Phase 4: Watch-only items ⬜
 
@@ -187,3 +192,12 @@ After Phase 3:
 - Cross-cutting finding: this laptop is genuinely well-set-up already. No emergencies, mostly polish.
 - Awaiting user backup confirmation before any Phase 2 / Phase 3 work — per user instruction "no further system changes until I confirm I have backed up important stuff".
 - Hardware-ID correction (Gen 10 / i7-1260P) will be propagated to Plan 00043 as a small follow-up.
+
+### 2026-05-22
+
+- IaC cross-check performed (sub-agent), output in `00-iac-cross-check.md`. Headline: most actions are real, but several need reframing:
+  - Actions 1 + 5 collapse into "run `play-AB-dnf-upgrade.yml`" (already exists, IaC-native).
+  - Action 7 split: log level half FIGHTS the repo's deliberate INFO default — must be done via per-mount override, not template change. Memory limits half is a real gap.
+  - Action 9 (versionlock) is busywork — deliberate previous-minor fallback policy. Downgraded to "confirm" only.
+  - Action 6 (warp-svc) marked unclear pending verification of the log-config surface stability.
+- Plan 00043 closed (kernel recovery verified on 7.0.9-105). Phase 2 of this plan no longer needs coordination with Plan 00043.
