@@ -1,6 +1,6 @@
 # Plan 00043: IPU6 Webcam Playbook Fallout
 
-**Status**: In Progress
+**Status**: Mostly Complete — pending post-reboot verification
 **Created**: 2026-05-21
 **Owner**: joseph (with Claude assistance)
 **Priority**: High
@@ -67,29 +67,29 @@ The 7.0.4 freeze appears unrelated — no fingerprint in logs (no oops, no locku
 - ✅ Verify playbook syntax (`ansible-playbook --syntax-check`).
 - ✅ QA pass (`./scripts/qa-all.bash`; bash + python green; semgrep unavailable locally — environmental).
 
-### Phase 3: Host Recovery 🚫
+### Phase 3: Host Recovery ✅
 
-**BLOCKED** on user backing up important data before any system changes.
+Recovery was performed via a new durable Ansible play `playbooks/imports/play-AB-dnf-upgrade.yml` (slotted into `playbook-main.yml` right after `play-AA-preflight-sanity.yml`), NOT via the original surgical commands. Rationale: a `dnf upgrade` playbook is something the project wanted anyway for fresh-install workflows, and it doubles as the recovery mechanism here. The new play:
 
-Recommended approach — Path A from `05-recovery-plan.md` (least destructive):
+1. Refreshes dnf metadata.
+2. Runs `dnf upgrade *` (respects existing versionlocks — the `kernel = 6.19.14-200` lock on the previous-minor fallback stays intact).
+3. Auto-detects half-installed kernels (kernel-core without matching kernel-modules) and cleans them up, including dependent akmod-built kmods (e.g. `kmod-intel-ipu6-<v>`, `kmod-v4l2loopback-<v>`) which embed the kernel version in their RPM name.
+4. Prompts for reboot if the kernel package set changed.
 
-- 🚫 Run `sudo dnf install kernel-7.0.9-104.fc43 kernel-modules-7.0.9-104.fc43 kernel-modules-extra-7.0.9-104.fc43` to repair the half-installed 7.0.9.
-- 🚫 Regenerate initramfs: `sudo dracut -f --kver 7.0.9-104.fc43.x86_64`.
-- 🚫 Regenerate grub: `sudo grub2-mkconfig -o /boot/efi/EFI/fedora/grub.cfg` (or `/boot/grub2/grub.cfg`).
-- 🚫 Reboot to 7.0.9, verify `nmcli device status` shows wifi, `bluetoothctl list` shows controller, `wpctl status` shows "Built-in Front Camera".
+- ✅ Wrote `playbooks/imports/play-AB-dnf-upgrade.yml` with kernel-pre/post reporting, idempotent half-install cleanup, and reboot prompt.
+- ✅ Wired into `playbooks/playbook-main.yml` after preflight-sanity (runs early on fresh installs).
+- ✅ Ran the play. Result: kernel-core 7.0.9-105 installed full set (incl. `iwlwifi.ko.xz` + `btusb.ko.xz`); 7.0.4-100 trimmed by `installonly_limit=3` (acceptable — 6.19.14 is the locked fallback); 7.0.9-104 half-install and its dependent kmods removed cleanly.
+- ✅ Verified `grubby --default-kernel` = `/boot/vmlinuz-7.0.9-105.fc43.x86_64`. `/boot` clean: only 6.19.14, 7.0.9-105, rescue. No 7.0.9-104 trace in `rpm -qa`.
+- ⬜ Reboot to load 7.0.9-105 and verify radios + camera *(user action)*.
 
-**Alternative — full `dnf upgrade`**: also acceptable. Will refresh all packages; if a newer kernel (≥ 7.0.10) is in repos, it'll be pulled with the full module set, sidelining the broken 7.0.9. Won't *repair* 7.0.9 in place though — the half-install stays as cruft unless explicitly removed.
+### Phase 4: Verification
 
-**Alternative — Path B from `05-recovery-plan.md`**: rip out `akmod-intel-ipu6` and `kmod-intel-ipu6-7.0.9` entirely; optionally remove the partial 7.0.9. More invasive; only worth it if depmod warnings or future akmod misbuilds become a real problem.
-
-### Phase 4: Verification 🚫
-
-Blocked on Phase 3. Once recovery is run:
-
-- 🚫 Confirm radios work on 7.0.9.
-- 🚫 Confirm camera still works on whichever kernel is current (`wpctl status` shows pipewire video source).
-- 🚫 Confirm `dnf history info` for any subsequent transaction does not pull `kernel-devel-matched`.
-- 🚫 Smoke-test the updated playbook on a clean run (idempotent, exits cleanly, mask survives).
+- ✅ `kernel-modules-7.0.9-105` and `kernel-modules-extra-7.0.9-105` present on disk; `iwlwifi.ko.xz` and `btusb.ko.xz` exist for the new kernel.
+- ✅ `rpm -qa | grep 7.0.9-104` returns empty.
+- ✅ `dnf versionlock list` shows `kernel = 6.19.14-200` lock preserved (policy intact).
+- ⬜ Confirm radios work on 7.0.9-105 *(post-reboot)*.
+- ⬜ Confirm camera (`wpctl status` shows "Built-in Front Camera") *(post-reboot)*.
+- ⬜ Smoke-test fresh-install behaviour of `play-AB-dnf-upgrade.yml` next time it runs in `playbook-main.yml` end-to-end *(future)*.
 
 ## Dependencies
 
@@ -144,3 +144,10 @@ Blocked on Phase 3. Once recovery is run:
 - Phases 1 + 2 complete.
 - Phase 3 + 4 blocked on user backup. User explicitly instructed: "no further system changes until I confirm I have backed up important stuff."
 - Sub-agent reports preserved verbatim under `02-*` / `03-*` / `04-*` for future-maintainer context.
+
+### 2026-05-22
+
+- Found the *cause* of the half-install: a versionlock on `kernel = 6.19.14-200` (set by `play-advanced-kernel-management.yml` as the previous-minor fallback) silently filtered the `kernel` metapackage out of the akmod transaction's depsolve. The sub-packages (`kernel-core`, `kernel-modules-core`) — which aren't locked — got installed individually, but `kernel-modules` and `kernel-modules-extra` (pulled by the missing `kernel` metapackage) did not. Hence the half-install.
+- Recovery executed via new durable `play-AB-dnf-upgrade.yml`. End state matches Decision 1: full `kernel-7.0.9-105` set installed, `6.19.14-200` locked fallback intact, broken 7.0.9-104 cleaned up entirely.
+- `kmod-intel-ipu6-7.0.9-105` was NOT auto-rebuilt by akmods (only `kmod-v4l2loopback-7.0.9-105` was). Not blocking — mainline IPU6 driver in `kernel-modules-7.0.9-105` covers it. May want to follow up if akmod overlay is desired post-reboot, or to action Decision 2 (remove `akmod-intel-ipu6` entirely since mainline supersedes it).
+- Plan 00043 substantively complete. Awaiting reboot to verify radios + camera on 7.0.9-105.

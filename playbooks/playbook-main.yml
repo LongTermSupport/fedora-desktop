@@ -3,6 +3,7 @@
 # NOTE: Everything imported here runs by default and is NOT optional.
 # Do not store playbooks imported here under imports/optional/ — move them to imports/.
 - import_playbook: imports/play-AA-preflight-sanity.yml
+- import_playbook: imports/play-AB-dnf-upgrade.yml
 - import_playbook: imports/play-basic-configs.yml
 - import_playbook: imports/play-prevent-ssh-suspend.yml
 - import_playbook: imports/play-systemd-user-tweaks.yml
