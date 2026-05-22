@@ -1,6 +1,6 @@
 # Plan 00043: IPU6 Webcam Playbook Fallout
 
-**Status**: Mostly Complete — pending post-reboot verification
+**Status**: Complete
 **Created**: 2026-05-21
 **Owner**: joseph (with Claude assistance)
 **Priority**: High
@@ -82,14 +82,16 @@ Recovery was performed via a new durable Ansible play `playbooks/imports/play-AB
 - ✅ Verified `grubby --default-kernel` = `/boot/vmlinuz-7.0.9-105.fc43.x86_64`. `/boot` clean: only 6.19.14, 7.0.9-105, rescue. No 7.0.9-104 trace in `rpm -qa`.
 - ⬜ Reboot to load 7.0.9-105 and verify radios + camera *(user action)*.
 
-### Phase 4: Verification
+### Phase 4: Verification ✅
 
 - ✅ `kernel-modules-7.0.9-105` and `kernel-modules-extra-7.0.9-105` present on disk; `iwlwifi.ko.xz` and `btusb.ko.xz` exist for the new kernel.
 - ✅ `rpm -qa | grep 7.0.9-104` returns empty.
 - ✅ `dnf versionlock list` shows `kernel = 6.19.14-200` lock preserved (policy intact).
-- ⬜ Confirm radios work on 7.0.9-105 *(post-reboot)*.
-- ⬜ Confirm camera (`wpctl status` shows "Built-in Front Camera") *(post-reboot)*.
-- ⬜ Smoke-test fresh-install behaviour of `play-AB-dnf-upgrade.yml` next time it runs in `playbook-main.yml` end-to-end *(future)*.
+- ✅ Booted into 7.0.9-105 on 2026-05-22 11:40. `uname -r` = `7.0.9-105.fc43.x86_64`.
+- ✅ WiFi: `nmcli device status` shows `wlp0s20f3` connected. iwlwifi loaded firmware `89.735b75a4.0`. No firmware loader failures.
+- ✅ Bluetooth: `bluetoothctl list` shows controller `74:04:F1:43:C3:3E`. `btusb`, `btintel`, `btbcm`, `btmtk`, `btrtl` modules all loaded. rfkill clean.
+- ✅ Camera: `cam -l` finds `Internal front camera (\_SB_.PC00.LNK1)`; `wpctl status` shows `* 191. Intel MIPI Camera (V4L2)` as default video source plus a libcamera-managed `Intel MIPI Camera` device.
+- ⬜ Smoke-test fresh-install behaviour of `play-AB-dnf-upgrade.yml` next time it runs in `playbook-main.yml` end-to-end *(future work — not blocking)*.
 
 ## Dependencies
 
@@ -151,3 +153,5 @@ Recovery was performed via a new durable Ansible play `playbooks/imports/play-AB
 - Recovery executed via new durable `play-AB-dnf-upgrade.yml`. End state matches Decision 1: full `kernel-7.0.9-105` set installed, `6.19.14-200` locked fallback intact, broken 7.0.9-104 cleaned up entirely.
 - `kmod-intel-ipu6-7.0.9-105` was NOT auto-rebuilt by akmods (only `kmod-v4l2loopback-7.0.9-105` was). Not blocking — mainline IPU6 driver in `kernel-modules-7.0.9-105` covers it. May want to follow up if akmod overlay is desired post-reboot, or to action Decision 2 (remove `akmod-intel-ipu6` entirely since mainline supersedes it).
 - Plan 00043 substantively complete. Awaiting reboot to verify radios + camera on 7.0.9-105.
+- **Post-reboot (11:40 BST)**: all green. Booted to 7.0.9-105 cleanly, WiFi connected to home AP, Bluetooth controller online, IPU6 camera enumerated by both V4L2 (Intel MIPI Camera) and libcamera (simple pipeline with uncalibrated.yaml fallback — same cosmetic warnings as the original successful Plan 00043 run, no functional impact).
+- Plan 00043 **closed**.
