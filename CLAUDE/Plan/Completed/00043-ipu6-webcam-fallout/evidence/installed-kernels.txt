@@ -1,0 +1,94 @@
+=== rpm -qa kernel* ===
+kernel-6.19.14-200.fc43.x86_64
+kernel-7.0.4-100.fc43.x86_64
+kernel-core-6.19.14-200.fc43.x86_64
+kernel-core-7.0.4-100.fc43.x86_64
+kernel-core-7.0.9-104.fc43.x86_64
+kernel-devel-7.0.9-104.fc43.x86_64
+kernel-devel-matched-7.0.9-104.fc43.x86_64
+kernel-headers-6.19.6-200.fc43.x86_64
+kernel-modules-6.19.14-200.fc43.x86_64
+kernel-modules-7.0.4-100.fc43.x86_64
+kernel-modules-core-6.19.14-200.fc43.x86_64
+kernel-modules-core-7.0.4-100.fc43.x86_64
+kernel-modules-core-7.0.9-104.fc43.x86_64
+kernel-modules-extra-6.19.14-200.fc43.x86_64
+kernel-modules-extra-7.0.4-100.fc43.x86_64
+kernel-srpm-macros-1.0-27.fc43.noarch
+kernel-tools-7.0.4-100.fc43.x86_64
+kernel-tools-libs-7.0.4-100.fc43.x86_64
+
+=== rpm -qa | grep -iE 'ipu6|libcamera|v4l|akmod' ===
+akmod-intel-ipu6-0.0-24.20250909git4bb5b4d.fc43.x86_64
+akmods-0.6.2-9.fc43.noarch
+akmod-v4l2loopback-0.15.3-1.fc43.x86_64
+ipu6-camera-bins-0.0-19.20250627git30e8766.fc43.x86_64
+ipu6-camera-hal-0.0-27.20250627gitc933525.fc43.x86_64
+kmod-intel-ipu6-7.0.9-104.fc43.x86_64-0.0-24.20250909git4bb5b4d.fc43.x86_64
+kmod-v4l2loopback-7.0.9-104.fc43.x86_64-0.15.3-1.fc43.x86_64
+libcamera-0.5.2-5.fc43.x86_64
+libcamera-ipa-0.5.2-5.fc43.x86_64
+libcamera-tools-0.5.2-5.fc43.x86_64
+libv4l-1.32.0-1.fc43.x86_64
+pipewire-plugin-libcamera-1.4.11-1.fc43.x86_64
+v4l2loopback-0.15.3-1.fc43.x86_64
+v4l2-relayd-0.2.0-1.20251028gitd6ec36a.fc43.x86_64
+v4l-utils-1.32.0-1.fc43.x86_64
+
+=== ls /lib/modules ===
+6.19.14-200.fc43.x86_64
+7.0.4-100.fc43.x86_64
+7.0.9-104.fc43.x86_64
+
+=== 7.0.9 iwlwifi dir (should be near-empty) ===
+dvm
+mld
+mvm
+tests
+
+=== 7.0.9 bluetooth dir (should be missing) ===
+
+=== 7.0.4 iwlwifi dir (control — has iwlwifi.ko.xz) ===
+dvm
+iwlwifi.ko.xz
+mld
+mvm
+tests
+
+=== journalctl --list-boots ===
+IDX BOOT ID                          FIRST ENTRY                 LAST ENTRY
+-34 053796b404f742bfb1bd7d988a3bf1ed Wed 2026-04-01 14:11:52 BST Fri 2026-04-03 22:40:10 BST
+-33 8c4dcf3d66b2443a8131c327ab759dcc Sun 2026-04-19 08:15:40 BST Sun 2026-04-19 20:57:22 BST
+-32 bf7302a08eac44f88e935d0ebf52419e Sun 2026-04-19 21:21:23 BST Sun 2026-04-19 23:13:35 BST
+-31 7518b931625346879183b0e559ff7a6b Mon 2026-04-20 17:58:19 BST Mon 2026-04-20 18:09:57 BST
+-30 a6c8bb2ff6634d23b4c58c73d43a2c6e Wed 2026-04-22 15:46:06 BST Wed 2026-04-22 16:43:13 BST
+-29 f430848993b647819390e27991c76e43 Wed 2026-04-22 22:25:00 BST Wed 2026-04-22 23:55:52 BST
+-28 4f72b93b133a4465b6c5a92cab93163c Thu 2026-04-23 21:54:50 BST Thu 2026-04-23 23:09:52 BST
+-27 97fd606c3fd3478b9118b64396f6c75d Fri 2026-04-24 19:24:17 BST Fri 2026-04-24 20:11:41 BST
+-26 2236adbc29464abc9a79af32923f5b8f Sat 2026-04-25 19:52:26 BST Sun 2026-04-26 01:46:45 BST
+-25 45d8a064194c4ca9b2300967bd566155 Sun 2026-04-26 10:39:35 BST Sun 2026-04-26 15:09:05 BST
+-24 dee73da6a3f442fbbe3335ead66af7bb Tue 2026-04-28 06:34:05 BST Fri 2026-05-01 08:14:59 BST
+-23 f4a0665b15344f99974fd979c9984e36 Fri 2026-05-01 23:45:40 BST Sat 2026-05-02 00:07:29 BST
+-22 819f45ebab7f4423aeaadb73ada66d7e Sat 2026-05-02 09:44:22 BST Sat 2026-05-02 09:44:42 BST
+-21 001ac27f54554289a4360ac5d4ae2000 Sat 2026-05-02 09:47:27 BST Sat 2026-05-02 19:05:57 BST
+-20 69d7a34ce0164d1eb87e332da80ee399 Sat 2026-05-02 23:25:30 BST Mon 2026-05-04 23:32:28 BST
+-19 7800f0a7b8a4440380c5fd822dd4a135 Tue 2026-05-05 20:57:48 BST Tue 2026-05-05 23:06:13 BST
+-18 c83af804aacf4eeb8f5ee17a8a1df1aa Wed 2026-05-06 21:36:32 BST Wed 2026-05-06 23:24:53 BST
+-17 d03b02f93cf0443a99c477179b0e78ea Sun 2026-05-10 17:05:48 BST Sun 2026-05-10 22:59:36 BST
+-16 1571e459937a4eb18bbf8d1e17cb6540 Mon 2026-05-11 06:20:56 BST Mon 2026-05-11 08:53:37 BST
+-15 33bc2a8822f54ef49daf4f592b10b498 Mon 2026-05-11 21:04:28 BST Mon 2026-05-11 23:22:52 BST
+-14 ecb6b706563e4f82a31b85a7689e1438 Tue 2026-05-12 05:25:04 BST Fri 2026-05-15 22:54:36 BST
+-13 ca99caecd97846bcab5ea472074c98b7 Sat 2026-05-16 21:41:53 BST Sat 2026-05-16 22:38:59 BST
+-12 11540484ddb542e4902310e4c789713e Sat 2026-05-16 23:14:58 BST Sat 2026-05-16 23:53:22 BST
+-11 7899b7314d9146a3a61e8d93927731af Sun 2026-05-17 09:31:00 BST Sun 2026-05-17 11:21:30 BST
+-10 e7a8c18c5c3f443cad43d90c2d5585c5 Sun 2026-05-17 15:00:43 BST Sun 2026-05-17 16:02:00 BST
+ -9 22295a60d0014ec4a0195cfe9e44c922 Mon 2026-05-18 18:34:51 BST Mon 2026-05-18 20:11:04 BST
+ -8 b3cbe347f39d4e5091a81760fd37d905 Tue 2026-05-19 19:51:12 BST Tue 2026-05-19 20:01:45 BST
+ -7 2f6113ca2c26444eaa4570cf972b041f Tue 2026-05-19 21:41:04 BST Tue 2026-05-19 22:01:33 BST
+ -6 a891d3d465064a69b3356cfe1e2477a1 Wed 2026-05-20 08:23:31 BST Wed 2026-05-20 18:07:12 BST
+ -5 06391d88dc3b4a00aa82592c95ef49d7 Thu 2026-05-21 11:55:20 BST Thu 2026-05-21 14:18:55 BST
+ -4 3e5071efeeed4a55b93cf9c30eadd995 Thu 2026-05-21 19:05:28 BST Thu 2026-05-21 20:49:36 BST
+ -3 e0061583e5bf4f399155f84186bf9ee4 Thu 2026-05-21 21:16:19 BST Thu 2026-05-21 21:22:41 BST
+ -2 909148f27c194449aa8f55a9b211439d Thu 2026-05-21 21:23:00 BST Thu 2026-05-21 21:44:58 BST
+ -1 d181aa56fa444297ac59f37ec14cedbd Thu 2026-05-21 21:45:24 BST Thu 2026-05-21 21:47:11 BST
+  0 174d04ff5a954d3e90d64efa98f56906 Thu 2026-05-21 21:48:42 BST Thu 2026-05-21 21:59:31 BST

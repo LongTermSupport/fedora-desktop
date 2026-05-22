@@ -1,15 +1,26 @@
 #!/bin/bash
 # rclone-cache-status - show VFS cache usage for rclone mounts
 #
-# Usage: rclone-cache-status [--label TEXT] [MOUNT_NAME]
-#   MOUNT_NAME      show only this remote (e.g. 'lts-g-drive'); default: all
+# Usage: rclone-cache-status [--label TEXT] [--no-dir] [TARGET]
+#   TARGET          one of:
+#                     - a mount name (e.g. 'gdrive') → filter summary to that mount
+#                     - a directory path inside a mount → analyse THAT dir's cache
+#                     (omitted) → if PWD is inside a mount, auto-analyse PWD;
+#                                 otherwise show summary for all mounts
+#   --no-dir        skip the per-directory analysis even when PWD is in a mount
 #   --label, -l     prefix the heading with TEXT (e.g. 'before', 'after')
 #   --help, -h      show this help
 #
-# Queries each mount's --rc endpoint for vfs/stats and prints cache size used
-# vs the configured max, cached file count, the cache max-age, and any pending
-# upload counts. Mounts started without --rc are listed as '(no --rc)' — they
-# cannot be queried.
+# The per-mount summary queries each mount's --rc endpoint for vfs/stats and
+# prints cache size used vs the configured max, cached file count, max-age,
+# and any pending uploads. Mounts started without --rc are listed as
+# '(no --rc)' — the global summary cannot be queried but the per-directory
+# analysis still works (it walks the cache dir on disk directly).
+#
+# When a target directory is given (or PWD is inside a mount), an extra
+# section reports cache coverage for THAT directory: total files, % cached,
+# size cached vs not, and the top 5 largest uncached files — useful for
+# picking warming targets.
 #
 # Used standalone, and called by rclone-cache-warm (start/end) and rclone-tail
 # (start/exit) to bracket their runs with a cache snapshot.
@@ -17,13 +28,18 @@
 set -euo pipefail
 
 LABEL=""
-FILTER=""
+POSITIONAL=""
+NO_DIR=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -l | --label)
             LABEL="${2:-}"
             shift 2
+            ;;
+        --no-dir)
+            NO_DIR=true
+            shift
             ;;
         -h | --help)
             sed -n '2,/^$/p' "$0" | sed 's/^# \?//'
@@ -34,11 +50,11 @@ while [[ $# -gt 0 ]]; do
             exit 2
             ;;
         *)
-            if [[ -n "$FILTER" ]]; then
-                echo "ERROR: only one mount name can be specified" >&2
+            if [[ -n "$POSITIONAL" ]]; then
+                echo "ERROR: only one target argument can be specified" >&2
                 exit 2
             fi
-            FILTER="$1"
+            POSITIONAL="$1"
             shift
             ;;
     esac
@@ -67,18 +83,62 @@ else
     NC=''
 fi
 
-# Emit one line per discovered rclone mount: NAME|RC_ADDR|REMOTE|MOUNTPOINT
+# Resolve POSITIONAL into either a path-to-analyse or a mount-name filter.
+# An existing directory is unambiguous: treat as path. Otherwise it's a name.
+QUERY_PATH=""
+FILTER=""
+if [[ -n "$POSITIONAL" ]]; then
+    if [[ -d "$POSITIONAL" ]]; then
+        QUERY_PATH=$(readlink -f "$POSITIONAL")
+    else
+        FILTER="$POSITIONAL"
+    fi
+fi
+
+# Auto-detect: no positional given, no --no-dir, and PWD is inside a mount.
+if [[ -z "$QUERY_PATH" && -z "$FILTER" && "$NO_DIR" != "true" ]]; then
+    pwd_resolved=$(readlink -f "$PWD")
+    while IFS= read -r mp; do
+        case "$pwd_resolved/" in
+            "$mp"/*) QUERY_PATH="$pwd_resolved"; break ;;
+        esac
+    done < <(findmnt -n -o TARGET -t fuse.rclone 2>/dev/null || true)
+fi
+
+# If we have a query path, find which mount contains it so we can both
+# (a) auto-filter the summary to just that mount and (b) build the cache
+# path for the per-dir walk.
+QUERY_MOUNT=""
+if [[ -n "$QUERY_PATH" ]]; then
+    while IFS= read -r mp; do
+        case "$QUERY_PATH/" in
+            "$mp"/*) QUERY_MOUNT="$mp"; break ;;
+        esac
+    done < <(findmnt -n -o TARGET -t fuse.rclone 2>/dev/null || true)
+    if [[ -z "$QUERY_MOUNT" ]]; then
+        echo "ERROR: $QUERY_PATH is not inside any rclone mount" >&2
+        exit 1
+    fi
+fi
+
+# Emit one line per discovered rclone mount:
+#   NAME|RC_ADDR|REMOTE|MOUNTPOINT|CACHE_DIR
 # RC_ADDR is empty when the mount was started without --rc.
+# CACHE_DIR is whatever --cache-dir was set to, or ~/.cache/rclone by default.
 discover_mounts() {
-    local source target name pid cmdline rc_addr
+    local source target name pid cmdline rc_addr cache_dir
     findmnt -n -o SOURCE,TARGET -t fuse.rclone 2>/dev/null | while read -r source target; do
         name="${source%%:*}"
         if [[ -n "$FILTER" && "$name" != "$FILTER" ]]; then
             continue
         fi
+        if [[ -n "$QUERY_MOUNT" && "$target" != "$QUERY_MOUNT" ]]; then
+            continue
+        fi
 
         rc_addr=""
-        # Match the rclone PID whose cmdline carries this mountpoint as a token.
+        cache_dir=""
+        # Find the rclone PID whose cmdline carries this mountpoint as a token.
         for pid in $(pgrep -f 'rclone mount' 2>/dev/null || true); do
             if ! cmdline=$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null); then
                 continue
@@ -87,12 +147,16 @@ discover_mounts() {
                 *" $target "* | *" $target")
                     rc_addr=$(grep -oE -- '--rc-addr=[^ ]+' <<< "$cmdline" \
                         | head -n1 | cut -d= -f2)
+                    cache_dir=$(grep -oE -- '--cache-dir=[^ ]+' <<< "$cmdline" \
+                        | head -n1 | sed 's/^--cache-dir=//')
                     break
                     ;;
             esac
         done
 
-        echo "${name}|${rc_addr}|${source}|${target}"
+        [[ -z "$cache_dir" ]] && cache_dir="$HOME/.cache/rclone"
+
+        echo "${name}|${rc_addr}|${source}|${target}|${cache_dir}"
     done
 }
 
@@ -126,6 +190,103 @@ PY
     fi
 }
 
+# Walk a directory inside a mount and aggregate cache-coverage stats.
+# Args: cache_dir_for_query, query_path
+# Stdout: TSV-ish key/value lines, with one "uncached" line per top file.
+#   total_files\t<n>
+#   cached_files\t<n>
+#   total_size\t<bytes>
+#   cached_size\t<bytes>
+#   uncached\t<bytes>\t<absolute path>
+# Tabs are used so paths containing colons or other punctuation parse cleanly.
+analyze_directory() {
+    local cache_dir_for_query="$1" query_path="$2"
+    python3 - "$query_path" "$cache_dir_for_query" << 'PY'
+import os, sys
+query, cache_dir = sys.argv[1], sys.argv[2]
+total_files = cached_files = total_size = cached_size = 0
+largest_uncached = []  # list of (size, abs_path)
+for root, dirs, files in os.walk(query, followlinks=False):
+    rel = os.path.relpath(root, query)
+    crot = cache_dir if rel == "." else os.path.join(cache_dir, rel)
+    for f in files:
+        full = os.path.join(root, f)
+        try:
+            sz = os.lstat(full).st_size
+        except OSError:
+            continue
+        total_files += 1
+        total_size += sz
+        cf = os.path.join(crot, f)
+        if os.path.exists(cf):
+            cached_files += 1
+            try:
+                cached_size += os.lstat(cf).st_size
+            except OSError:
+                pass
+        else:
+            largest_uncached.append((sz, full))
+print(f"total_files\t{total_files}")
+print(f"cached_files\t{cached_files}")
+print(f"total_size\t{total_size}")
+print(f"cached_size\t{cached_size}")
+largest_uncached.sort(reverse=True)
+for sz, p in largest_uncached[:5]:
+    print(f"uncached\t{sz}\t{p}")
+PY
+}
+
+# Pretty-print the analyze_directory output.
+# Args: mountpoint, query_path, raw_output
+print_dir_analysis() {
+    local mountpoint="$1" query_path="$2" raw="$3"
+    local total_files=0 cached_files=0 total_size=0 cached_size=0
+    local -a uncached_lines=()
+
+    while IFS=$'\t' read -r key v1 v2; do
+        case "$key" in
+            total_files)  total_files="$v1" ;;
+            cached_files) cached_files="$v1" ;;
+            total_size)   total_size="$v1" ;;
+            cached_size)  cached_size="$v1" ;;
+            uncached)     uncached_lines+=("${v1}"$'\t'"${v2}") ;;
+        esac
+    done <<< "$raw"
+
+    local uncached_files=$((total_files - cached_files))
+    local uncached_size=$((total_size - cached_size))
+
+    local file_pct=0
+    [[ "$total_files" -gt 0 ]] && file_pct=$((cached_files * 100 / total_files))
+    local size_pct=0
+    [[ "$total_size" -gt 0 ]] && size_pct=$((cached_size * 100 / total_size))
+
+    local total_h cached_h uncached_h
+    total_h=$(fmt_bytes "$total_size")
+    cached_h=$(fmt_bytes "$cached_size")
+    uncached_h=$(fmt_bytes "$uncached_size")
+
+    echo -e "    ${DIM}└─ in ${query_path}${NC}"
+    if [[ "$total_files" -eq 0 ]]; then
+        echo -e "       ${DIM}(no files)${NC}"
+        return
+    fi
+    printf "       %d files · %s total\n" "$total_files" "$total_h"
+    echo -e "       ${GREEN}cached${NC}:   ${cached_files} files (${file_pct}%)  ·  ${cached_h} (${size_pct}%)"
+    echo -e "       ${YELLOW}uncached${NC}: ${uncached_files} files ($((100 - file_pct))%)  ·  ${uncached_h} ($((100 - size_pct))%)"
+
+    if [[ "${#uncached_lines[@]}" -gt 0 ]]; then
+        echo -e "       ${DIM}top uncached:${NC}"
+        local entry sz path relpath
+        for entry in "${uncached_lines[@]}"; do
+            sz="${entry%%$'\t'*}"
+            path="${entry#*$'\t'}"
+            relpath="${path#"$mountpoint"/}"
+            printf "         %8s  %s\n" "$(fmt_bytes "$sz")" "$relpath"
+        done
+    fi
+}
+
 fmt_bytes() {
     numfmt --to=iec --suffix=B "$1" 2>/dev/null || echo "?"
 }
@@ -152,44 +313,68 @@ mounts=$(discover_mounts)
 if [[ -z "$mounts" ]]; then
     if [[ -n "$FILTER" ]]; then
         echo -e "  ${YELLOW}No rclone mount matching '${FILTER}' found.${NC}"
+    elif [[ -n "$QUERY_MOUNT" ]]; then
+        echo -e "  ${YELLOW}No rclone mount serving ${QUERY_PATH} found.${NC}"
     else
         echo -e "  ${YELLOW}No rclone mounts found.${NC}"
     fi
     exit 0
 fi
 
-while IFS='|' read -r name rc_addr _ target; do
+while IFS='|' read -r name rc_addr source target cache_dir; do
     if [[ -z "$rc_addr" ]]; then
         echo -e "  ${CYAN}${name}${NC}  ${DIM}(no --rc; cannot query)${NC}"
-        continue
-    fi
-
-    result=$(query_cache "$rc_addr")
-    if [[ "${result%%|*}" == "ERR" ]]; then
-        echo -e "  ${CYAN}${name}${NC}  ${RED}error: ${result#*|}${NC}"
-        continue
-    fi
-
-    IFS='|' read -r _ used max files queued in_progress errored oos max_age_s <<< "$result"
-
-    used_h=$(fmt_bytes "$used")
-    if [[ "$max" -gt 0 ]]; then
-        max_h=$(fmt_bytes "$max")
-        pct=$((used * 100 / max))
-        pct_color="$GREEN"
-        [[ "$pct" -ge 80 ]] && pct_color="$YELLOW"
-        [[ "$pct" -ge 95 ]] && pct_color="$RED"
-        usage="${used_h} / ${max_h} ${pct_color}(${pct}%)${NC}"
     else
-        usage="${used_h} / ∞"
+        result=$(query_cache "$rc_addr")
+        if [[ "${result%%|*}" == "ERR" ]]; then
+            echo -e "  ${CYAN}${name}${NC}  ${RED}error: ${result#*|}${NC}"
+        else
+            IFS='|' read -r _ used max files queued in_progress errored oos max_age_s <<< "$result"
+
+            used_h=$(fmt_bytes "$used")
+            if [[ "$max" -gt 0 ]]; then
+                max_h=$(fmt_bytes "$max")
+                pct=$((used * 100 / max))
+                pct_color="$GREEN"
+                [[ "$pct" -ge 80 ]] && pct_color="$YELLOW"
+                [[ "$pct" -ge 95 ]] && pct_color="$RED"
+                usage="${used_h} / ${max_h} ${pct_color}(${pct}%)${NC}"
+            else
+                usage="${used_h} / ∞"
+            fi
+
+            line="  ${CYAN}${name}${NC}  cache: ${usage} · ${files} files · max-age ${DIM}$(fmt_age "$max_age_s")${NC}"
+
+            [[ "$queued" -gt 0 ]] && line="$line · queued: ${queued}"
+            [[ "$in_progress" -gt 0 ]] && line="$line · uploading: ${in_progress}"
+            [[ "$errored" -gt 0 ]] && line="$line · ${RED}${errored} errored${NC}"
+            [[ "$oos" -eq 1 ]] && line="$line · ${RED}OUT OF SPACE${NC}"
+
+            echo -e "$line"
+        fi
     fi
 
-    line="  ${CYAN}${name}${NC}  cache: ${usage} · ${files} files · max-age ${DIM}$(fmt_age "$max_age_s")${NC}"
+    # Per-directory analysis when this mount serves the requested path.
+    # Cache layout: <cache_dir>/vfs/<remote_name>/<remote_path>/... mirrors the
+    # remote tree, so we build that prefix and walk in parallel with the mount.
+    if [[ -n "$QUERY_MOUNT" && "$target" == "$QUERY_MOUNT" ]]; then
+        remote_name="${source%%:*}"
+        remote_path="${source#*:}"
+        remote_path="${remote_path#/}"
+        cache_base="${cache_dir}/vfs/${remote_name}"
+        [[ -n "$remote_path" ]] && cache_base="${cache_base}/${remote_path}"
 
-    [[ "$queued" -gt 0 ]] && line="$line · queued: ${queued}"
-    [[ "$in_progress" -gt 0 ]] && line="$line · uploading: ${in_progress}"
-    [[ "$errored" -gt 0 ]] && line="$line · ${RED}${errored} errored${NC}"
-    [[ "$oos" -eq 1 ]] && line="$line · ${RED}OUT OF SPACE${NC}"
+        # rel = path inside the mount; cache_dir_for_query joins that onto base.
+        rel="${QUERY_PATH#"$target"}"
+        rel="${rel#/}"
+        if [[ -z "$rel" ]]; then
+            cache_dir_for_query="$cache_base"
+        else
+            cache_dir_for_query="$cache_base/$rel"
+        fi
 
-    echo -e "$line"
+        echo -e "    ${DIM}└─ scanning ${QUERY_PATH} ...${NC}"
+        raw=$(analyze_directory "$cache_dir_for_query" "$QUERY_PATH")
+        print_dir_analysis "$target" "$QUERY_PATH" "$raw"
+    fi
 done <<< "$mounts"
