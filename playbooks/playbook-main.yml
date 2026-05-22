@@ -6,6 +6,7 @@
 - import_playbook: imports/play-AB-dnf-upgrade.yml
 - import_playbook: imports/play-basic-configs.yml
 - import_playbook: imports/play-prevent-ssh-suspend.yml
+- import_playbook: imports/play-network-wait-tuning.yml
 - import_playbook: imports/play-systemd-user-tweaks.yml
 - import_playbook: imports/play-nvm-install.yml
 - import_playbook: imports/play-git-configure-and-tools.yml

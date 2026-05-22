@@ -1,6 +1,6 @@
 # Plan 00044: Laptop Health Audit & Tuning
 
-**Status**: In Progress — Phase 1 complete
+**Status**: Mostly Complete — all actionable items resolved; only ⚪ watch-only items remain (13/14/15)
 **Created**: 2026-05-21
 **Owner**: joseph (with Claude assistance)
 **Priority**: Medium
@@ -51,18 +51,18 @@ The audit also corrected hardware identification used in Plan 00043: this is a *
 1. **Apply Critical security updates** — 🟢 real. Firefox 151, nss/nspr 3.123.1 bundle, yelp 49.1, evince 48.1 are all Critical-severity Fedora advisories. **Already solved by `playbooks/imports/play-AB-dnf-upgrade.yml`** (commit `cfea82d`); run that play rather than ad-hoc `dnf upgrade`.
 2. ~~**Switch `tuned` profile from `balanced` to `balanced-battery`**~~ — 🟡 **BUSYWORK — dropped**. `tuned-ppd` already auto-switches `balanced` ↔ `balanced-battery` based on AC/battery state, and GNOME's quick-toggle drives it. Codifying a static profile in Ansible would fight that machinery and break the UX. Verified on this host: while on battery, `tuned-adm active` already reports `balanced-battery`; EPP is `balance_power`. Working as designed — no action.
 3. **Resolve Plan 00043 partial-kernel-7.0.9 install** — ✅ done (Plan 00043 closed).
-4. **Mask `thermald.service`** — 🟢 real. No repo policy on `thermald`. Enabled state came from package default. Masking doesn't fight any IaC.
+4. ✅ **Mask `thermald.service`** — DONE 2026-05-22 via `playbooks/imports/optional/hardware-specific/play-laptop-thermal-diagnostics.yml` (new). Bundles with `lm_sensors` install (Action 10). Verified: `systemctl is-enabled thermald` returns `masked`.
 5. **Apply remaining ~124 pending updates** — 🟢 real. **Same playbook as Action 1** (`play-AB-dnf-upgrade.yml` does `dnf "*" state: latest`). Collapses into a single run.
 
 ### 🟡 Medium Impact (polish, do when convenient)
 
-06. **Lower `warp-svc` log verbosity** — ⚪ unclear. `play-cloudflare-warp.yml` configures warp-cli but does not touch warp-svc log level. **Verify first** that the log-config surface is a Cloudflare-supported stable interface (not auto-rewritten on package upgrade) before codifying. If unstable, defer.
-07. **Tame `rclone-lts-photo` user-mount** — split into two subtasks per IaC cross-check:
-    - 7a. 🟠 **Log level**: per `play-rclone.yml:271`, the unit template hard-codes `--log-level INFO` deliberately (header explains: "leaves a real exit code and log trail"). **Do NOT change the template default.** Instead set `log_level: NOTICE` for the photos mount specifically via the `rclone_mounts` per-mount override the template already supports.
-    - 7b. 🟢 **Memory limits**: real gap. The unit template has no `MemoryHigh`/`MemoryMax`. Add them to the template — this is a generic improvement, no policy conflict. (17.1 GiB RSS observed on the photos mount.)
-08. **Reduce `NetworkManager-wait-online.service` (5.79 s boot stall)** — 🟢 real. No repo policy on this unit. Set `NM_ONLINE_TIMEOUT=5`, or unhook units from `network-online.target` that don't actually need DHCP completion.
+06. ~~**Lower `warp-svc` log verbosity**~~ — 🟡 **NOT ACTIONABLE — dropped**. Verified 2026-05-22: warp-svc has no user-configurable log-level surface. `warp-svc --help` panics on permissions (no documented stable flags). `warp-cli debug` offers introspection only, no `log set`. `/var/lib/cloudflare-warp/settings.json` and `conf.json` are state files, not log config. No `/etc/default/warp` env file. The DEBUG verbosity is compiled-in; any journald-side filter would fight upstream and rot on package upgrade. Cosmetic-only journal noise — accept it.
+07. ✅ **Tame `rclone-lts-photo` user-mount** — DONE 2026-05-22.
+    - 7a. ✅ Set `log_level: NOTICE` on the lts-photo mount in `host_vars/localhost.yml` (uses the existing per-mount template override; template default of `INFO` preserved for other mounts).
+    - 7b. ✅ Added optional `MemoryHigh=` / `MemoryMax=` to the systemd unit template in `play-rclone.yml` via `item.memory_high` / `item.memory_max` per-mount opt-in. Set `memory_high: 8G`, `memory_max: 12G` for lts-photo. Verified: `systemctl --user show rclone-lts-photo.service -p MemoryHigh,MemoryMax` returns `8589934592` / `12884901888`.
+08. ✅ **Reduce `NetworkManager-wait-online.service` (5.79 s boot stall)** — DONE 2026-05-22 via `playbooks/imports/play-network-wait-tuning.yml` (new, wired into `playbook-main.yml`). Drops in `/etc/systemd/system/NetworkManager-wait-online.service.d/timeout.conf` with `Environment=NM_ONLINE_TIMEOUT=5`. Takes effect on next boot. Verified: `systemctl show NetworkManager-wait-online -p Environment` shows the drop-in is applied.
 09. ~~**Decide on the `kernel` versionlock**~~ — 🟡 **REPO POLICY — busywork to revisit.** The lock on `kernel = 6.19.14-200` is set by `play-advanced-kernel-management.yml` as the previous-minor hardware-compat fallback. Plan 00043 explains the same intent. **Action**: confirm the lock is in place (it is); do not "decide" anything else.
-10. **Install `lm_sensors`** — 🟢 real. No repo reference. One-line addition to a base packages play.
+10. ✅ **Install `lm_sensors`** — DONE 2026-05-22, bundled into `play-laptop-thermal-diagnostics.yml`. Verified: `which sensors` → `/usr/bin/sensors`; sensible output (CPU at 38-41°C).
 
 ### ⚪ Low Priority (cosmetic or watch-only)
 
@@ -204,3 +204,6 @@ After Phase 3:
 - **Action 2 (`tuned` profile) dropped as busywork** — `tuned-ppd` already auto-switches between `balanced` and `balanced-battery` based on AC/battery state, and GNOME's quick-toggle in the system tray drives it. Verified on this host: currently on battery → `tuned-adm active` reports `balanced-battery` and EPP is `balance_power`. Codifying a static profile in Ansible would fight the existing stack and break the GNOME UX.
 - **Action 11 (PyCharm COPR) done** — confirmed via exhaustive grep + git history that no current playbook in the repo enables `phracek/PyCharm`. The COPR was orphaned host drift from a since-deleted playbook. New play `playbooks/imports/play-ZZ-repo-cleanup.yml` added (wired into `playbook-main.yml`, sorts last) which asserts the COPR is removed; will idempotently clean any future orphans listed there. Host state verified clean — only `ganto:lxc4` and `pgdev:ghostty` COPRs remain.
 - **Action 12 (WWAN blacklist) dropped as busywork** — same principle as the tuned drop: work WITH the GNOME stack, not against it. GNOME Settings → Mobile Network = OFF is the user-facing disable. A kernel-level modprobe blacklist would create a hidden second layer that fights the GNOME toggle. The boot chatter is the correct cost of letting GNOME stay authoritative. Principle saved to memory for future audits.
+- **Actions 4, 7, 8, 10 done** — three new playbooks (`play-laptop-thermal-diagnostics.yml`, `play-network-wait-tuning.yml`) plus extension of `play-rclone.yml` with `MemoryHigh`/`MemoryMax` per-mount opt-in. Local `host_vars/localhost.yml` updated with `log_level: NOTICE` and memory limits for the lts-photo mount (gitignored — host-specific policy, not committed to repo).
+- **Action 6 (warp-svc verbosity) dropped** — verified no user-configurable log-level surface exists in warp-svc; DEBUG verbosity is compiled-in. Any journald-side filter would fight upstream and rot on package upgrade. Cosmetic noise accepted.
+- Plan 00044 substantively complete. ⚪ watch-only items (NM coredump frequency, ELAN touchpad post-resume, NVMe `power/control=auto` test) remain by design.
