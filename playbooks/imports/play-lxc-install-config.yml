@@ -153,6 +153,97 @@
         # Note: IPv6 modules are typically auto-loaded by firewalld
       tags: [kernel_modules, lxc_docker]
 
+    # Ensure any pending handlers (e.g. restart lxc-net) finish before we read
+    # lxcbr0 state and reconcile iptables.
+    - name: Flush handlers before iptables reconciliation
+      ansible.builtin.meta: flush_handlers
+
+    # ── Reconcile iptables for outbound connectivity (Docker coexistence) ──────
+    # On a Docker host, Docker sets FORWARD policy to DROP and inserts the
+    # DOCKER-USER chain at the top of FORWARD. lxc-net's per-bridge ACCEPT
+    # rules live in FORWARD but never execute because DOCKER-USER short-circuits
+    # first. In addition, the MASQUERADE rule for the LXC subnet can disappear
+    # during a bridge-recovery sequence (stop containers → stop lxc-net →
+    # ip link delete lxcbr0 → start lxc-net). Net result: containers boot, get
+    # IPs, accept SSH, but have zero outbound TCP connectivity (curl exit 28).
+    #
+    # These tasks reconcile three rules idempotently:
+    #   1. ACCEPT container → internet on the bridge
+    #   2. ACCEPT reply (internet → container) on the bridge
+    #   3. MASQUERADE outbound from the LXC subnet
+    #
+    # Chain choice: DOCKER-USER when present (survives docker daemon restarts
+    # which flush DOCKER-USER), otherwise FORWARD. The LXC subnet is derived
+    # from the live lxcbr0 interface so a customised LXC_NETWORK still works.
+    #
+    # Caveat: these rules are runtime-only — they vanish on host reboot or on
+    # a Docker daemon restart. Re-running this playbook restores them.
+    - name: Probe whether DOCKER-USER iptables chain exists
+      ansible.builtin.command: iptables -n -L DOCKER-USER
+      register: docker_user_chain_check
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe-then-act — rc explicitly checked below
+      tags: [lxc_iptables]
+
+    - name: Select iptables chain (DOCKER-USER if present, else FORWARD)
+      ansible.builtin.set_fact:
+        lxc_iptables_chain: "{{ 'DOCKER-USER' if docker_user_chain_check.rc == 0 else 'FORWARD' }}"
+      tags: [lxc_iptables]
+
+    - name: Derive LXC subnet CIDR from live lxcbr0 interface
+      ansible.builtin.shell: |
+        set -o pipefail
+        ip -o -4 route show dev lxcbr0 proto kernel | awk '{print $1}' | head -n1
+      args:
+        executable: /bin/bash
+      register: lxc_subnet_cidr
+      changed_when: false
+      tags: [lxc_iptables]
+
+    - name: Assert LXC subnet CIDR was derived
+      ansible.builtin.assert:
+        that:
+          - lxc_subnet_cidr.stdout | length > 0
+          - "'/' in lxc_subnet_cidr.stdout"
+        fail_msg: "Could not derive lxcbr0 subnet from `ip route show dev lxcbr0 proto kernel`. Is lxc-net running and lxcbr0 up?"
+      tags: [lxc_iptables]
+
+    - name: Probe iptables ACCEPT rule (container → internet) in {{ lxc_iptables_chain }}
+      ansible.builtin.command: "iptables -C {{ lxc_iptables_chain }} -i lxcbr0 -j ACCEPT"
+      register: iptables_accept_out
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe-then-act — rc explicitly checked below
+      tags: [lxc_iptables]
+
+    - name: Insert iptables ACCEPT rule (container → internet)
+      ansible.builtin.command: "iptables -I {{ lxc_iptables_chain }} -i lxcbr0 -j ACCEPT"
+      when: iptables_accept_out.rc != 0
+      tags: [lxc_iptables]
+
+    - name: Probe iptables ACCEPT rule (internet → container) in {{ lxc_iptables_chain }}
+      ansible.builtin.command: "iptables -C {{ lxc_iptables_chain }} -o lxcbr0 -j ACCEPT"
+      register: iptables_accept_in
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe-then-act — rc explicitly checked below
+      tags: [lxc_iptables]
+
+    - name: Insert iptables ACCEPT rule (internet → container)
+      ansible.builtin.command: "iptables -I {{ lxc_iptables_chain }} -o lxcbr0 -j ACCEPT"
+      when: iptables_accept_in.rc != 0
+      tags: [lxc_iptables]
+
+    - name: Probe iptables MASQUERADE rule for LXC subnet
+      ansible.builtin.command: "iptables -t nat -C POSTROUTING -s {{ lxc_subnet_cidr.stdout }} ! -o lxcbr0 -j MASQUERADE"
+      register: iptables_masquerade
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe-then-act — rc explicitly checked below
+      tags: [lxc_iptables]
+
+    - name: Insert iptables MASQUERADE rule for LXC subnet
+      ansible.builtin.command: "iptables -t nat -I POSTROUTING -s {{ lxc_subnet_cidr.stdout }} ! -o lxcbr0 -j MASQUERADE"
+      when: iptables_masquerade.rc != 0
+      tags: [lxc_iptables]
+
     # ── Sanity Checks ──────────────────────────────────────────────────────────
     - name: Sanity — lxc service is active
       ansible.builtin.command: systemctl is-active lxc
