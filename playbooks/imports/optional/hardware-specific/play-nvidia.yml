@@ -1,7 +1,7 @@
 #!/usr/bin/env ansible-playbook
 ---
 #!/usr/bin/env ansible-playbook
-# Install NVIDIA drivers using RPM Fusion (recommended method for Fedora 42)
+# Install NVIDIA drivers using RPM Fusion (recommended method for Fedora 43)
 # For RTX 500 Ada Generation and other modern NVIDIA GPUs
 #
 # Vulkan support is installed by default (required for modern gaming, AI apps, GPU compute)
@@ -10,6 +10,12 @@
   become: true
   vars:
     root_dir: "{{ inventory_dir }}/../../"
+    # cuDNN 9 — installed from NVIDIA's official wheel; there is no NVIDIA
+    # cuDNN dnf repo for Fedora. Bump version + URL + sha256 together (the
+    # pythonhosted URL path is content-addressed and changes per release).
+    cudnn_version: "9.22.0.52"
+    cudnn_wheel_url: "https://files.pythonhosted.org/packages/57/96/ce2cb84b5e8bb94dd55f554e3454b91e9ecd6708aa27d4a7b12f287613bc/nvidia_cudnn_cu13-9.22.0.52-py3-none-manylinux_2_27_x86_64.whl"
+    cudnn_sha256: "7b24277af8cd2e4e5be731f5cf910255105d4b92481999771b99dbffee75d03e"
   pre_tasks:
     - name: Load Fedora version config
       ansible.builtin.include_vars:
@@ -35,7 +41,7 @@
           - xorg-x11-drv-nvidia-cuda # For CUDA/NVDEC/NVENC support
           - xorg-x11-drv-nvidia-cuda-libs
           - xorg-x11-drv-nvidia-power
-          - nvidia-vaapi-driver # For hardware video acceleration
+          - libva-nvidia-driver # For hardware video acceleration (F43 rename of nvidia-vaapi-driver)
           - libva-utils # For vainfo testing tool
           - mesa-demos # For glxinfo testing tool
         state: present
@@ -51,6 +57,99 @@
           - nvidia-gpu-firmware
         state: present
       when: nvidia_install_vulkan | default(true) | bool
+
+    # =========================================================================
+    # CUDA Toolkit + cuDNN — NVIDIA compute/AI capability (system-wide)
+    # =========================================================================
+    # CUDA is a general system capability (AI/ML tooling, GPU compute,
+    # darktable's AI features) — not specific to any one application. It is
+    # installed from NVIDIA's official Fedora repo.
+    #
+    # HOLISTIC SAFETY: only `cuda-toolkit` (NVIDIA's driverless toolkit
+    # meta-package) is installed, and the repo is configured to EXCLUDE every
+    # driver/kmod package — so it can never replace the RPM Fusion
+    # akmod-nvidia driver installed above. cuDNN 9 has no NVIDIA dnf repo for
+    # Fedora, so it is deployed from NVIDIA's official cuDNN wheel (a zip of
+    # NVIDIA-built .so files) into /opt/cudnn and put on the linker path.
+    #
+    # Disable with: nvidia_install_cuda: false  (in host_vars/localhost.yml)
+    # @see CLAUDE/Plan/00042-darktable-ai-features/ Phase 3
+
+    - name: Configure NVIDIA CUDA repository (driver/kmod packages excluded)
+      ansible.builtin.yum_repository:
+        name: "cuda-fedora{{ fedora_version }}-x86_64"
+        description: "NVIDIA CUDA Fedora {{ fedora_version }} x86_64"
+        baseurl: "https://developer.download.nvidia.com/compute/cuda/repos/fedora{{ fedora_version }}/x86_64"
+        gpgcheck: true
+        gpgkey: "https://developer.download.nvidia.com/compute/cuda/repos/fedora{{ fedora_version }}/x86_64/1940C73E.pub"
+        # This repo must NEVER replace the RPM Fusion akmod-nvidia driver.
+        exclude: "nvidia-driver* cuda-drivers* kmod-nvidia* nvidia-kmod* xorg-x11-nvidia* nvidia-open* nvidia-modprobe nvidia-persistenced nvidia-settings nvidia-xconfig"
+      when: nvidia_install_cuda | default(true) | bool
+
+    - name: Install CUDA Toolkit (driverless meta-package)
+      ansible.builtin.dnf:
+        name: cuda-toolkit
+        state: present
+      when: nvidia_install_cuda | default(true) | bool
+
+    - name: Assert the RPM Fusion NVIDIA driver survived the CUDA install
+      ansible.builtin.command: rpm -q akmod-nvidia
+      register: nvidia_cuda_driver_check
+      changed_when: false
+      when: nvidia_install_cuda | default(true) | bool
+
+    - name: Download NVIDIA cuDNN wheel ({{ cudnn_version }})
+      ansible.builtin.get_url:
+        url: "{{ cudnn_wheel_url }}"
+        dest: "/var/tmp/nvidia-cudnn-cu13-{{ cudnn_version }}.zip"
+        checksum: "sha256:{{ cudnn_sha256 }}"
+        owner: root
+        group: root
+        mode: "0644"
+      when: nvidia_install_cuda | default(true) | bool
+
+    - name: Create the cuDNN install directory
+      ansible.builtin.file:
+        path: /opt/cudnn
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      when: nvidia_install_cuda | default(true) | bool
+
+    - name: Extract the cuDNN wheel into /opt/cudnn
+      ansible.builtin.unarchive:
+        src: "/var/tmp/nvidia-cudnn-cu13-{{ cudnn_version }}.zip"
+        dest: /opt/cudnn
+        remote_src: true
+        creates: "/opt/cudnn/nvidia/cudnn/lib"
+      when: nvidia_install_cuda | default(true) | bool
+
+    - name: Remove the downloaded cuDNN wheel archive
+      ansible.builtin.file:
+        path: "/var/tmp/nvidia-cudnn-cu13-{{ cudnn_version }}.zip"
+        state: absent
+      when: nvidia_install_cuda | default(true) | bool
+
+    - name: Register CUDA + cuDNN libraries with the dynamic linker
+      ansible.builtin.copy:
+        dest: /etc/ld.so.conf.d/nvidia-cuda.conf
+        content: |
+          # NVIDIA CUDA Toolkit + cuDNN — managed by play-nvidia.yml
+          /usr/local/cuda/lib64
+          /opt/cudnn/nvidia/cudnn/lib
+        owner: root
+        group: root
+        mode: "0644"
+      register: nvidia_ldsoconf
+      when: nvidia_install_cuda | default(true) | bool
+
+    - name: Refresh the dynamic linker cache
+      ansible.builtin.command: ldconfig
+      changed_when: true
+      when:
+        - nvidia_install_cuda | default(true) | bool
+        - nvidia_ldsoconf is changed
 
     # =========================================================================
     # Secure Boot MOK Signing Support
@@ -151,105 +250,117 @@
         - mok_import is changed
 
     # =========================================================================
-    # Kernel Module Build
+    # Kernel Module Build & Verification
     # =========================================================================
+    # akmods builds the nvidia kernel module asynchronously via RPM scriptlet
+    # on install/upgrade. We poll for the built .ko on disk (up to 5 minutes),
+    # fall back to `akmods --force` on timeout, then report three version
+    # states so the operator can tell at a glance whether a reboot is required:
+    #   package  — what RPM is installed (target version)
+    #   built    — what's on disk in /lib/modules/$(uname -r)/extra/nvidia/
+    #   loaded   — what the running kernel currently has
+    # If built != loaded, a reboot is required; otherwise the driver is live.
 
-    - name: Wait for kernel module to build
+    - name: Get installed akmod-nvidia package version
+      ansible.builtin.shell: rpm -q --qf '%{VERSION}\n' akmod-nvidia
+      register: nvidia_pkg
+      changed_when: false
+
+    - name: Wait for akmods to build nvidia kernel module on disk (up to 5 min)
+      ansible.builtin.shell: |
+        set -e
+        KMOD="/lib/modules/$(uname -r)/extra/nvidia/nvidia.ko.xz"
+        [ -f "$KMOD" ] || KMOD="/lib/modules/$(uname -r)/extra/nvidia/nvidia.ko"
+        for i in $(seq 1 60); do
+          if [ -f "$KMOD" ]; then
+            modinfo -F version "$KMOD"
+            exit 0
+          fi
+          sleep 5
+        done
+        exit 1
+      register: nvidia_kmod_poll
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — retried below with akmods --force; that retry has no failed_when override and will halt the playbook if the build still fails
+
+    - name: Force akmods rebuild if initial poll timed out
+      # No failed_when override: if force-rebuild also fails, playbook halts.
+      # Operator diagnostics:
+      #   systemctl status akmods --no-pager -l
+      #   journalctl -u akmods --no-pager --since "20 minutes ago"
+      #   ls -la /lib/modules/$(uname -r)/extra/nvidia/
+      ansible.builtin.shell: |
+        set -e
+        akmods --force
+        dracut --force
+        KMOD="/lib/modules/$(uname -r)/extra/nvidia/nvidia.ko.xz"
+        [ -f "$KMOD" ] || KMOD="/lib/modules/$(uname -r)/extra/nvidia/nvidia.ko"
+        modinfo -F version "$KMOD"
+      register: nvidia_kmod_force
+      when: nvidia_kmod_poll.rc != 0
+      changed_when: true
+
+    - name: Read built NVIDIA module version (on disk)
+      ansible.builtin.shell: |
+        KMOD="/lib/modules/$(uname -r)/extra/nvidia/nvidia.ko.xz"
+        [ -f "$KMOD" ] || KMOD="/lib/modules/$(uname -r)/extra/nvidia/nvidia.ko"
+        modinfo -F version "$KMOD" 2>/dev/null || echo NONE
+      register: nvidia_built
+      changed_when: false
+
+    - name: Read loaded NVIDIA module version (running kernel)
+      ansible.builtin.shell: |
+        if [ -e /proc/driver/nvidia/version ]; then
+          grep -oE '[0-9]+\.[0-9]+\.[0-9]+' /proc/driver/nvidia/version | head -1
+        else
+          echo NOT_LOADED
+        fi
+      register: nvidia_loaded
+      changed_when: false
+
+    - name: Display NVIDIA driver status
+      ansible.builtin.debug:
+        msg: |
+          ========================================
+          NVIDIA driver status
+          ========================================
+          Package (akmod-nvidia): {{ nvidia_pkg.stdout }}
+          Built on disk:          {{ nvidia_built.stdout }}
+          Loaded in kernel:       {{ nvidia_loaded.stdout }}
+          {% if nvidia_loaded.stdout == nvidia_built.stdout %}
+
+          Status: OK — built version is already loaded. No reboot required.
+          {% elif nvidia_loaded.stdout == 'NOT_LOADED' %}
+
+          Status: FRESH INSTALL — REBOOT REQUIRED to load driver {{ nvidia_built.stdout }}.
+          {% else %}
+
+          Status: UPGRADE — REBOOT REQUIRED to switch from {{ nvidia_loaded.stdout }} to {{ nvidia_built.stdout }}.
+          {% endif %}
+          ========================================
+
+    - name: Reboot reminder (only when built != loaded)
       ansible.builtin.pause:
         prompt: |2
 
-          ============================================
-          NVIDIA KERNEL MODULE BUILDING
-          ============================================
-
-          The NVIDIA kernel module is now building.
-          This can take up to 5 minutes.
-
-          To check if it's complete, run in another terminal:
-          modinfo -F version nvidia
-
-          This should output the driver version (e.g., 580.76)
-          If you see "Module nvidia not found", wait longer.
-
-          Press ENTER when the module is built...
-
-    - name: Force rebuild kernel modules if needed
-      ansible.builtin.shell: |
-        akmods --force
-        dracut --force
-      register: rebuild_result
-      changed_when: rebuild_result.rc == 0
-
-    - name: Important post-installation instructions
-      ansible.builtin.pause:
-        prompt: |2-
-
           ========================================================================
-          NVIDIA DRIVER INSTALLATION COMPLETE
+          REBOOT REQUIRED — NVIDIA driver {{ nvidia_built.stdout }} is built but not loaded
           ========================================================================
-
           {% if 'SecureBoot enabled' in secure_boot_state.stdout and mok_import is changed %}
-          ⚠️  ACTION REQUIRED: MOK ENROLLMENT
 
-          1. Reboot your system now: sudo reboot
-          2. Enroll the MOK key using the password you memorized ({{ mok_password }})
-          3. After successful enrollment, NVIDIA drivers will work automatically
-
-          After reboot and MOK enrollment, verify with:
-          - nvidia-smi                              # Check driver/GPU status
-          - lsmod | grep nvidia                     # Check kernel module
-          {% if nvidia_install_vulkan | default(true) | bool %}
-          - vulkaninfo | grep -i 'device name'     # Check Vulkan GPU
-          - vulkaninfo --summary                    # Vulkan devices list
+          ALSO: complete MOK enrollment at boot (password shown earlier in this run).
           {% endif %}
-
-          {% elif 'SecureBoot enabled' in secure_boot_state.stdout and 'is already enrolled' in mok_enrolled.stdout | default('') %}
-          ✅ MOK key is already enrolled. NVIDIA drivers are configured.
-
-          REBOOT REQUIRED to load new drivers!
 
           After reboot, verify with:
-          - nvidia-smi                              # Check driver/GPU status
-          - lsmod | grep nvidia                     # Check kernel module
+            nvidia-smi                                  # driver/GPU status
+            cat /proc/driver/nvidia/version             # loaded driver version
+            lsmod | grep nvidia                         # kernel module presence
           {% if nvidia_install_vulkan | default(true) | bool %}
-          - vulkaninfo | grep -i 'device name'     # Check Vulkan GPU
-          - vulkaninfo --summary                    # Vulkan devices list
+            vulkaninfo | grep -i 'device name'         # Vulkan GPU
+            vulkaninfo --summary                        # Vulkan devices list
           {% endif %}
+            ./scripts/nvidia-status.bash                # full diagnostics
 
-          {% else %}
-          ✅ Secure Boot is disabled. NVIDIA drivers are configured.
-
-          IMPORTANT: You must REBOOT for drivers to load!
-
-          After reboot, verify with:
-          - nvidia-smi                              # Check driver/GPU status
-          - lsmod | grep nvidia                     # Check kernel module
-          {% if nvidia_install_vulkan | default(true) | bool %}
-          - vulkaninfo | grep -i 'device name'     # Check Vulkan GPU
-          - vulkaninfo --summary                    # Vulkan devices list
-          {% endif %}
-          {% endif %}
-
-          Packages installed:
-          - NVIDIA proprietary drivers (akmod-nvidia)
-          - CUDA/NVENC/NVDEC support
-          - VA-API hardware video acceleration
-          {% if nvidia_install_vulkan | default(true) | bool %}
-          - Vulkan GPU compute/graphics support
-          {% else %}
-          - Vulkan support: SKIPPED (nvidia_install_vulkan: false)
-          {% endif %}
-          {% if 'SecureBoot enabled' in secure_boot_state.stdout %}
-          - Secure Boot MOK signing configured
-          {% endif %}
-
-          Configuration options:
-          - To disable Vulkan: nvidia_install_vulkan: false (in host_vars/localhost.yml)
-          - Secure Boot status: mokutil --sb-state
-
-          Verification script:
-          - Run: ./scripts/nvidia-status.bash
-          - Full diagnostics of driver, Vulkan, OpenGL, and hardware acceleration
-
-          Press ENTER to acknowledge...
+          Press ENTER to acknowledge.
           ========================================================================
+      when: nvidia_loaded.stdout != nvidia_built.stdout

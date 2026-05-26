@@ -3,8 +3,10 @@
 # NOTE: Everything imported here runs by default and is NOT optional.
 # Do not store playbooks imported here under imports/optional/ — move them to imports/.
 - import_playbook: imports/play-AA-preflight-sanity.yml
+- import_playbook: imports/play-AB-dnf-upgrade.yml
 - import_playbook: imports/play-basic-configs.yml
 - import_playbook: imports/play-prevent-ssh-suspend.yml
+- import_playbook: imports/play-network-wait-tuning.yml
 - import_playbook: imports/play-systemd-user-tweaks.yml
 - import_playbook: imports/play-nvm-install.yml
 - import_playbook: imports/play-git-configure-and-tools.yml
@@ -14,6 +16,7 @@
 - import_playbook: imports/play-lxc-install-config.yml
 - import_playbook: imports/play-ms-fonts.yml
 - import_playbook: imports/play-rpm-fusion.yml
+- import_playbook: imports/play-browsers.yml
 - import_playbook: imports/play-toolbox-install.yml
 - import_playbook: imports/play-docker.yml
 - import_playbook: imports/play-podman.yml
@@ -28,3 +31,4 @@
 - import_playbook: imports/play-vscode.yml
 - import_playbook: imports/play-vpn.yml
 - import_playbook: imports/play-gsettings.yml
+- import_playbook: imports/play-ZZ-repo-cleanup.yml

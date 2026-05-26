@@ -3,7 +3,7 @@
 ## Setup
 ## !! BUMP THIS VERSION ON EVERY CHANGE TO THIS FILE — NO EXCEPTIONS !!
 ## !! If you forget, there is NO WAY to tell which version is running !!
-RUN_BASH_VERSION="1.0.11"
+RUN_BASH_VERSION="1.5.1"  # Cross-host config selection when no config for current host
 set -e
 set -u
 set -o pipefail
@@ -15,9 +15,41 @@ trap 'rm -f /tmp/.github_ssh_pp' EXIT
 # Flags
 OPTIONAL_ONLY=false
 for _arg in "$@"; do
-  if [[ "$_arg" == "--optional-only" ]]; then
-    OPTIONAL_ONLY=true
-  fi
+  case "$_arg" in
+    --help|-h)
+      cat <<'USAGE'
+Usage: ./run.bash [OPTIONS]
+
+Fedora Desktop Configuration Installer
+
+Options:
+  --optional-only   Skip core setup, jump straight to optional playbook menu
+  -h, --help        Show this help message
+
+First run:
+  ./run.bash                Full install (system deps, SSH, GitHub, Ansible,
+                            main playbook, then optional playbooks menu)
+
+Subsequent runs:
+  ./run.bash --optional-only  Re-run only the optional playbooks menu
+                              (useful for adding components after initial setup)
+
+Requirements:
+  - Fedora Linux (version must match the branch)
+  - Network connectivity (GitHub, DNF repos)
+  - Must NOT be run as root (uses sudo internally)
+USAGE
+      exit 0
+      ;;
+    --optional-only)
+      OPTIONAL_ONLY=true
+      ;;
+    *)
+      echo "Unknown option: $_arg" >&2
+      echo "Run './run.bash --help' for usage" >&2
+      exit 1
+      ;;
+  esac
 done
 
 ## Colors and formatting
@@ -108,6 +140,25 @@ wait_for_network(){
   success "Network connectivity confirmed"
 }
 
+# Abort the script if the given repo has uncommitted changes. run.bash
+# does `git pull` at two points and a dirty working tree causes the pull
+# to fail with an unhelpful error. Fail fast with a clear remediation.
+assert_clean_worktree(){
+  local dir="$1"
+  local dirty
+  dirty="$(git -C "$dir" status --porcelain)"
+  if [[ -n "$dirty" ]]; then
+    error "Working tree at $dir has uncommitted changes"
+    echo -e "${YELLOW}${ARROW} run.bash needs a clean working tree before pulling updates.${NC}"
+    echo -e "${YELLOW}${ARROW} Inspect:${NC}   ${BOLD}cd $dir && git status${NC}"
+    echo -e "${YELLOW}${ARROW} Resolve by committing:${NC}"
+    echo -e "     ${BOLD}git add -p && git commit${NC}"
+    echo -e "${YELLOW}${ARROW} Or by temporarily stashing (remember to restore afterwards):${NC}"
+    echo -e "     ${BOLD}git stash push -m 'pre-run.bash' && ./run.bash && git stash pop${NC}"
+    exit 1
+  fi
+}
+
 confirm(){
   local msg="$1"
   local yn=""
@@ -126,6 +177,142 @@ confirm(){
       echo -e "${RED}${CROSS} Invalid input. Please press 'y' or 'n'${NC}"
     fi
   done
+}
+
+# Back up a config file with timestamp. No-op if file doesn't exist.
+backup_config(){
+  local config_file="$1"
+  if [[ ! -f "$config_file" ]]; then
+    return 0
+  fi
+  local backup_file
+  backup_file="${config_file}.backup.$(date +%Y%m%d-%H%M%S)"
+  cp "$config_file" "$backup_file"
+  success "Config backed up to $(basename "$backup_file")"
+}
+
+# Selective config import: decode saved config, show top-level YAML keys,
+# let user exclude some, write filtered result to output file.
+# Sets _excluded_keys (comma-separated) for the caller to check.
+selective_config_import(){
+  local raw_b64="$1"
+  local output_file="$2"
+  local temp_config
+  local temp_excluded
+  temp_config=$(mktemp)
+  temp_excluded=$(mktemp)
+  printf '%s' "$raw_b64" | base64 -d > "$temp_config"
+
+  python3 scripts/config_merge.py selective "$temp_config" "$output_file" "$temp_excluded"
+  _excluded_keys=""
+  if [[ -s "$temp_excluded" ]]; then
+    _excluded_keys=$(cat "$temp_excluded")
+  fi
+  rm -f "$temp_config" "$temp_excluded"
+}
+
+# Merge remote config into local config interactively.
+# Shows per-key diff: unchanged keys auto-keep, changed keys prompt L/R,
+# new remote keys prompt A/S. Local-only keys always kept.
+merge_config_import(){
+  local raw_b64="$1"
+  local local_file="$2"
+  local temp_remote
+  temp_remote=$(mktemp)
+  printf '%s' "$raw_b64" | base64 -d > "$temp_remote"
+
+  python3 scripts/config_merge.py merge "$local_file" "$temp_remote" "$local_file"
+  rm -f "$temp_remote"
+}
+
+# Push local config to the per-host path in the config repo.
+# Uses GitHub Contents API (create or update).
+push_config_to_repo(){
+  local config_file="$1"
+  local repo="$2"
+  local path="$3"
+  local host_label="$4"
+
+  local content_b64
+  content_b64=$(base64 -w0 "$config_file")
+
+  # Get existing file SHA if updating (not needed for first create)
+  local existing_sha=""
+  if existing_sha=$(gh api "repos/${repo}/contents/${path}" --jq '.sha' 2>/dev/null); then
+    :  # SHA retrieved for update
+  else
+    existing_sha=""  # File doesn't exist yet — will create
+  fi
+
+  local -a api_args=(
+    --method PUT
+    --field "message=Update config from ${host_label}"
+    --field "content=${content_b64}"
+  )
+  if [[ -n "$existing_sha" ]]; then
+    api_args+=(--field "sha=${existing_sha}")
+  fi
+
+  gh api "repos/${repo}/contents/${path}" "${api_args[@]}" --silent
+}
+
+# Prompt for GitHub username(s) and write github_accounts YAML block to stdout.
+# All user-facing prompts go to stderr so stdout is clean YAML for redirection.
+prompt_github_accounts_yaml(){
+  echo -e "\n${CYAN}${ARROW}${NC} Enter your GitHub username(s)" 1>&2
+  echo -e "   These are the usernames you log into github.com with." 1>&2
+  echo -e "   For multiple accounts, prefix each with a short alias and colon." 1>&2
+  echo -e "" 1>&2
+  echo -e "   ${BOLD}One account:${NC}      johndoe" 1>&2
+  echo -e "   ${BOLD}Multiple accounts:${NC} personal:johndoe,work:johndoe-corp" 1>&2
+  local github_accounts_raw _account_count _has_unaliased _alias
+  github_accounts_raw="$(promptForValue 'GitHub username(s), comma separated')"
+
+  _account_count=$(printf '%s' "$github_accounts_raw" | tr ',' '\n' | grep -c '[^[:space:]]')
+  _has_unaliased=false
+  while IFS= read -r pair; do
+    pair="${pair// /}"
+    [[ -z "$pair" ]] && continue
+    if [[ "$pair" != *":"* ]]; then
+      _has_unaliased=true
+    fi
+  done < <(printf '%s\n' "$github_accounts_raw" | tr ',' '\n')
+
+  if [[ "$_has_unaliased" == "true" ]] && [[ "$_account_count" -gt 1 ]]; then
+    error "Multiple accounts require aliases. Use format: alias:username,alias:username" 1>&2
+    echo -e "   You entered: ${BOLD}${github_accounts_raw}${NC}" 1>&2
+    echo -e "   Example:     ${BOLD}personal:user1,work:user2${NC}" 1>&2
+    exit 1
+  fi
+
+  declare -A _seen_aliases=()
+  while IFS= read -r pair; do
+    pair="${pair// /}"
+    if [[ "$pair" == *":"* ]]; then
+      _alias="${pair%%:*}"
+    elif [[ -n "$pair" ]]; then
+      _alias="personal"
+    else
+      continue
+    fi
+    if [[ -n "${_seen_aliases[$_alias]:-}" ]]; then
+      error "Duplicate alias '${_alias}' — each account needs a unique alias" 1>&2
+      exit 1
+    fi
+    _seen_aliases[$_alias]=1
+  done < <(printf '%s\n' "$github_accounts_raw" | tr ',' '\n')
+
+  # Output clean YAML to stdout
+  printf '# GitHub CLI accounts — to add more later: scripts/gh-account-setup.bash --add=alias:username\n'
+  printf 'github_accounts:\n'
+  while IFS= read -r pair; do
+    pair="${pair// /}"
+    if [[ "$pair" == *":"* ]]; then
+      printf '  %s: "%s"\n' "${pair%%:*}" "${pair##*:}"
+    elif [[ -n "$pair" ]]; then
+      printf '  personal: "%s"\n' "$pair"
+    fi
+  done < <(printf '%s\n' "$github_accounts_raw" | tr ',' '\n')
 }
 
 # Function to sanitize sensitive data from error logs
@@ -289,7 +476,7 @@ _Generated by fedora-desktop automated error reporting_"
     
     # Create the issue
     local issue_url
-    if issue_url=$(gh issue create \
+    if issue_url=$(${GH_REPO:-gh} issue create \
       --title "$issue_title" \
       --body "$issue_body" \
       --label "bug" \
@@ -477,26 +664,50 @@ if ! grep -q 'export GH_HOST="github.com"' ~/.bashrc; then
   echo 'export GH_HOST="github.com"' >> ~/.bashrc
 fi
 
-# When setting up the github token, some required permissions might be missed out
-# This function allows us to check for the required permissions
+# Check the active gh token carries a required OAuth scope.
+# Honours GitHub's scope hierarchy: admin:* implies write:* implies read:*,
+# and `user` implies user:email/read:user/user:follow. A token granted
+# admin:org therefore satisfies a read:org requirement.
+# Anchored grep on '^X-Oauth-Scopes:' avoids matching the unrelated
+# Access-Control-Expose-Headers line whose value lists the header name.
 function ghCheckTokenPermission(){
   local permission="$1"
   local failSilent="${2:-false}"
-  local scopes
-  scopes="$(gh api -i user | grep 'X-Oauth-Scopes')"
-  if [[ "$scopes" == *"$permission"* ]]; then
-    echo " - found $permission permission"
-    return 0
-  else
-    if [[ "$failSilent" == "true" ]]; then
-      return 1
+  local gh_cmd="${GH_REPO:-gh}"
+  local scopes_csv
+  scopes_csv=",$($gh_cmd api -i user 2>/dev/null \
+    | grep -i '^X-Oauth-Scopes:' \
+    | sed 's/^[^:]*: //' \
+    | tr -d ' \r' \
+    | tr '\n' ','),"
+  # Array, not space-separated string: this file sets IFS=$'\n\t' at the top
+  # so unquoted $string would not word-split on spaces.
+  local satisfiers=("$permission")
+  case "$permission" in
+    read:org)         satisfiers=("$permission" write:org admin:org) ;;
+    write:org)        satisfiers=("$permission" admin:org) ;;
+    read:public_key)  satisfiers=("$permission" write:public_key admin:public_key) ;;
+    write:public_key) satisfiers=("$permission" admin:public_key) ;;
+    read:repo_hook)   satisfiers=("$permission" write:repo_hook admin:repo_hook) ;;
+    write:repo_hook)  satisfiers=("$permission" admin:repo_hook) ;;
+    read:gpg_key)     satisfiers=("$permission" write:gpg_key admin:gpg_key) ;;
+    write:gpg_key)    satisfiers=("$permission" admin:gpg_key) ;;
+    read:user|user:email|user:follow) satisfiers=("$permission" user) ;;
+  esac
+  local s
+  for s in "${satisfiers[@]}"; do
+    if [[ "$scopes_csv" == *",${s},"* ]]; then
+      echo " - found $permission permission"
+      return 0
     fi
-    echo " - missing $permission permission"
-    echo "Please run this command ON THE MACHINE ITSELF, NOT REMOTELY
-    gh auth refresh -h github.com -s '$permission'
-    "
+  done
+  if [[ "$failSilent" == "true" ]]; then
     return 1
   fi
+  echo " - missing $permission permission"
+  echo "Please run this command ON THE MACHINE ITSELF, NOT REMOTELY"
+  echo "    $gh_cmd auth refresh -h github.com -s '$permission'"
+  return 1
 }
 
 if ! gh auth status > /dev/null 2>&1; then
@@ -525,27 +736,41 @@ primary_gh_username="$(gh api user --jq '.login')"
 success "Primary GitHub account: $primary_gh_username"
 completed
 
+# This repo lives in the LongTermSupport org. If a previous install set up
+# multi-account wrappers (play-github-cli-multi.yml generates gh-<alias> bash
+# functions), prefer gh-lts for operations that act on this repo — so we talk
+# to GitHub as the LTS account even when a different account is the active
+# default. Falls back to plain gh on fresh installs where the wrappers don't
+# yet exist.
+GH_REPO="gh"
+_gh_aliases_file="$HOME/.bashrc-includes/gh-aliases.inc.bash"
+if [[ -f "$_gh_aliases_file" ]]; then
+  # shellcheck source=/dev/null
+  source "$_gh_aliases_file"
+  if declare -F gh-lts >/dev/null; then
+    GH_REPO="gh-lts"
+    info "Using gh-lts wrapper for LTS-org operations"
+  fi
+fi
+export GH_REPO
+
 title "Configuring GitHub SSH Access"
 # Check if we have the required permission
 if ! ghCheckTokenPermission "admin:public_key" > /dev/null 2>&1; then
   warning "Missing admin:public_key permission - requesting it now"
-  gh auth refresh -h github.com -s admin:public_key
-fi
-if ! ghCheckTokenPermission "read:project" "true"; then
-  warning "Missing read:project permission - requesting it now"
-  gh auth refresh -h github.com -s read:project
+  $GH_REPO auth refresh -h github.com -s admin:public_key
 fi
 
 ssh_key_fingerprint=$(ssh-keygen -lf ~/.ssh/id.pub | awk '{print $2}')
 # Use gh api to check for SSH keys without triggering signing key scope warning
-if ! gh api user/keys 2>/dev/null | grep -q "$ssh_key_fingerprint"; then
+if ! $GH_REPO api user/keys 2>/dev/null | grep -q "$ssh_key_fingerprint"; then
   # Add SSH key for authentication only (not signing)
-  if gh ssh-key add ~/.ssh/id.pub --title="$(hostname) Added by fedora-desktop setup script on $(date +%Y-%m-%d)" --type=authentication 2>&1; then
+  if $GH_REPO ssh-key add ~/.ssh/id.pub --title="$(hostname) Added by fedora-desktop setup script on $(date +%Y-%m-%d)" --type=authentication 2>&1; then
     success "SSH authentication key added to GitHub"
   else
     error "Failed to add SSH key to GitHub"
     echo -e "${YELLOW}${ARROW} Try manually adding your SSH key:${NC}"
-    echo -e "   cat ~/.ssh/id.pub | gh ssh-key add --title='$(hostname)' --type=authentication"
+    echo -e "   cat ~/.ssh/id.pub | $GH_REPO ssh-key add --title='$(hostname)' --type=authentication"
     exit 1
   fi
 else
@@ -570,7 +795,11 @@ if [[ ! -d ~/Projects/fedora-desktop ]]; then
   success "Repository cloned"
 else
   info "Pulling latest changes"
-  git -C ~/Projects/fedora-desktop pull
+  assert_clean_worktree ~/Projects/fedora-desktop
+  # Use `command git` to bypass any git() bash wrapper function (e.g. from
+  # gh-aliases.inc.bash). Wrappers that run subcommands and assign to vars
+  # can propagate non-zero exits under `set -e` even when they're benign.
+  command git -C ~/Projects/fedora-desktop pull
   success "Repository updated"
 fi
 cd ~/Projects/fedora-desktop
@@ -596,12 +825,66 @@ completed
 title "Loading Personal Configuration"
 localhost_yml=~/Projects/fedora-desktop/environment/localhost/host_vars/localhost.yml
 config_repo="${primary_gh_username}/fedora-desktop-config"
+config_hostname=$(hostname)
+config_host_path="hosts/${config_hostname}.yml"
 
-# Check if config repo exists
+# Discover config repo and find best available config for this host.
+# gh api returns non-zero when a resource doesn't exist — that's expected
+# for probe-then-act checks, not an error to propagate.
 has_config_repo=false
-if raw_content=$(gh api "repos/${config_repo}/contents/localhost.yml" --jq '.content' 2>/dev/null); then
+has_remote_config=false
+raw_content=""
+config_source_label=""
+
+if gh api "repos/${config_repo}" --jq '.name' > /dev/null 2>/dev/null; then
   has_config_repo=true
-  info "Config repo found: github.com/${config_repo}"
+
+  # Try host-specific config first
+  if raw_content=$(gh api "repos/${config_repo}/contents/${config_host_path}" --jq '.content' 2>/dev/null); then
+    has_remote_config=true
+    config_source_label="${config_hostname}"
+    info "Config found for this host (${config_hostname})"
+  else
+    # No config for this host — list available hosts and legacy file
+    info "No saved config for ${config_hostname}"
+    declare -a _available_sources=()
+    declare -a _available_labels=()
+
+    # Collect host-specific configs
+    _host_list=$(gh api "repos/${config_repo}/contents/hosts" --jq '.[].name' 2>/dev/null) || _host_list=""
+    if [[ -n "$_host_list" ]]; then
+      while IFS= read -r _hfile; do
+        _hname="${_hfile%.yml}"
+        _available_sources+=("hosts/${_hfile}")
+        _available_labels+=("${_hname}")
+      done <<< "$_host_list"
+    fi
+
+    # Check for legacy localhost.yml
+    if gh api "repos/${config_repo}/contents/localhost.yml" --jq '.sha' > /dev/null 2>/dev/null; then
+      _available_sources+=("localhost.yml")
+      _available_labels+=("localhost.yml (legacy)")
+    fi
+
+    if [[ ${#_available_sources[@]} -gt 0 ]]; then
+      echo -e "\n   Available configs in repo:"
+      for _i in "${!_available_labels[@]}"; do
+        echo -e "     $(( _i + 1 ))) ${_available_labels[$_i]}"
+      done
+      read -rp "   Choose a config to use (number, or Enter to skip): " _src_choice
+      if [[ -n "$_src_choice" ]] && [[ "$_src_choice" =~ ^[0-9]+$ ]]; then
+        _src_idx=$(( _src_choice - 1 ))
+        if [[ $_src_idx -ge 0 ]] && [[ $_src_idx -lt ${#_available_sources[@]} ]]; then
+          _chosen_path="${_available_sources[$_src_idx]}"
+          if raw_content=$(gh api "repos/${config_repo}/contents/${_chosen_path}" --jq '.content' 2>/dev/null); then
+            has_remote_config=true
+            config_source_label="${_available_labels[$_src_idx]}"
+            info "Using config from ${config_source_label}"
+          fi
+        fi
+      fi
+    fi
+  fi
 else
   info "No config repo found at github.com/${config_repo}"
 fi
@@ -609,9 +892,17 @@ fi
 # Present configuration source choice
 echo -e "\n${CYAN}${ARROW}${NC} How would you like to configure this system?"
 _option=1
-if [[ "$has_config_repo" == "true" ]]; then
-  echo -e "   ${_option}) Pull saved configuration from config repo (recommended)"
+if [[ "$has_remote_config" == "true" ]]; then
+  echo -e "   ${_option}) Pull full saved configuration (${config_source_label})"
   _opt_pull=$_option
+  (( _option++ ))
+  echo -e "   ${_option}) Selective import (choose what to keep) (${config_source_label})"
+  _opt_selective=$_option
+  (( _option++ ))
+fi
+if [[ "$has_remote_config" == "true" ]] && [[ -f "$localhost_yml" ]] && grep -qE '(!vault|github_accounts)' "$localhost_yml"; then
+  echo -e "   ${_option}) Merge remote config into local (diff/merge per key)"
+  _opt_merge=$_option
   (( _option++ ))
 fi
 if [[ -f "$localhost_yml" ]] && grep -qE '(!vault|github_accounts)' "$localhost_yml"; then
@@ -619,16 +910,64 @@ if [[ -f "$localhost_yml" ]] && grep -qE '(!vault|github_accounts)' "$localhost_
   _opt_keep=$_option
   (( _option++ ))
 fi
+if [[ "$has_config_repo" == "true" ]] && [[ -f "$localhost_yml" ]] && grep -qE '(!vault|github_accounts)' "$localhost_yml"; then
+  echo -e "   ${_option}) Save local config to repo (as ${config_hostname})"
+  _opt_push=$_option
+  (( _option++ ))
+fi
 echo -e "   ${_option}) Configure fresh (enter details manually)"
 _opt_fresh=$_option
 
 read -rp "   Choice [1-${_option}]: " _config_choice
 
-if [[ "$has_config_repo" == "true" ]] && [[ "${_config_choice}" == "${_opt_pull}" ]]; then
+if [[ "$has_remote_config" == "true" ]] && [[ "${_config_choice}" == "${_opt_pull}" ]]; then
+  backup_config "$localhost_yml"
   printf '%s' "$raw_content" | base64 -d > "$localhost_yml"
-  success "Configuration pulled from github.com/${config_repo}"
+  success "Configuration pulled (${config_source_label})"
+
+elif [[ "$has_remote_config" == "true" ]] && [[ "${_config_choice}" == "${_opt_selective:-}" ]]; then
+  backup_config "$localhost_yml"
+  selective_config_import "$raw_content" "$localhost_yml"
+  success "Selective import (${config_source_label})"
+
+  # Prompt for essential keys that were excluded
+  if ! grep -q '^user_login:' "$localhost_yml"; then
+    info "user_login was excluded — entering identity details"
+    echo ""
+    read -rp "   User login [$(whoami)]: " user_login
+    user_login="${user_login:-$(whoami)}"
+    if [[ ${#user_login} -lt 3 ]]; then
+      error "User login must be at least 3 characters"
+      exit 1
+    fi
+    read -rp "   Full name [${user_login}]: " user_name
+    user_name="${user_name:-$user_login}"
+    user_email="$(promptForValue 'email address' email)"
+    {
+      printf 'user_login: "%s"\n' "$user_login"
+      printf 'user_name: "%s"\n' "$user_name"
+      printf 'user_email: "%s"\n' "$user_email"
+    } >> "$localhost_yml"
+    success "Identity added to configuration"
+  fi
+  if ! grep -q '^github_accounts:' "$localhost_yml"; then
+    info "github_accounts was excluded — entering GitHub accounts"
+    prompt_github_accounts_yaml >> "$localhost_yml"
+    success "GitHub accounts added to configuration"
+  fi
+
+elif [[ -n "${_opt_merge:-}" ]] && [[ "${_config_choice}" == "${_opt_merge}" ]]; then
+  backup_config "$localhost_yml"
+  merge_config_import "$raw_content" "$localhost_yml"
+  success "Merge complete"
+
 elif [[ -n "${_opt_keep:-}" ]] && [[ "${_config_choice}" == "${_opt_keep}" ]]; then
   success "Keeping existing localhost.yml"
+
+elif [[ -n "${_opt_push:-}" ]] && [[ "${_config_choice}" == "${_opt_push}" ]]; then
+  push_config_to_repo "$localhost_yml" "$config_repo" "$config_host_path" "$config_hostname"
+  success "Configuration saved to github.com/${config_repo} (hosts/${config_hostname}.yml)"
+
 elif [[ "${_config_choice}" == "${_opt_fresh}" ]]; then
   echo ""
   read -rp "   User login [$(whoami)]: " user_login
@@ -641,64 +980,11 @@ elif [[ "${_config_choice}" == "${_opt_fresh}" ]]; then
   user_name="${user_name:-$user_login}"
   user_email="$(promptForValue 'email address' email)"
 
-  echo -e "\n${CYAN}${ARROW}${NC} Enter your GitHub username(s)"
-  echo -e "   These are the usernames you log into github.com with."
-  echo -e "   For multiple accounts, prefix each with a short alias and colon."
-  echo -e ""
-  echo -e "   ${BOLD}One account:${NC}      johndoe"
-  echo -e "   ${BOLD}Multiple accounts:${NC} personal:johndoe,work:johndoe-corp"
-  github_accounts_raw="$(promptForValue 'GitHub username(s), comma separated')"
-
-  # Count entries and validate format
-  _account_count=$(printf '%s' "$github_accounts_raw" | tr ',' '\n' | grep -c '[^[:space:]]')
-  _has_unaliased=false
-  while IFS= read -r pair; do
-    pair="${pair// /}"
-    [[ -z "$pair" ]] && continue
-    if [[ "$pair" != *":"* ]]; then
-      _has_unaliased=true
-    fi
-  done < <(printf '%s\n' "$github_accounts_raw" | tr ',' '\n')
-
-  if [[ "$_has_unaliased" == "true" ]] && [[ "$_account_count" -gt 1 ]]; then
-    error "Multiple accounts require aliases. Use format: alias:username,alias:username"
-    echo -e "   You entered: ${BOLD}${github_accounts_raw}${NC}"
-    echo -e "   Example:     ${BOLD}personal:user1,work:user2${NC}"
-    exit 1
-  fi
-
-  # Validate: no duplicate aliases
-  declare -A _seen_aliases=()
-  while IFS= read -r pair; do
-    pair="${pair// /}"
-    if [[ "$pair" == *":"* ]]; then
-      _alias="${pair%%:*}"
-    elif [[ -n "$pair" ]]; then
-      _alias="personal"
-    else
-      continue
-    fi
-    if [[ -n "${_seen_aliases[$_alias]:-}" ]]; then
-      error "Duplicate alias '${_alias}' — each account needs a unique alias"
-      exit 1
-    fi
-    _seen_aliases[$_alias]=1
-  done < <(printf '%s\n' "$github_accounts_raw" | tr ',' '\n')
-
   {
     printf 'user_login: "%s"\n' "$user_login"
     printf 'user_name: "%s"\n' "$user_name"
     printf 'user_email: "%s"\n' "$user_email"
-    printf '# GitHub CLI accounts\n'
-    printf 'github_accounts:\n'
-    while IFS= read -r pair; do
-      pair="${pair// /}"
-      if [[ "$pair" == *":"* ]]; then
-        printf '  %s: "%s"\n' "${pair%%:*}" "${pair##*:}"
-      elif [[ -n "$pair" ]]; then
-        printf '  personal: "%s"\n' "$pair"
-      fi
-    done < <(printf '%s\n' "$github_accounts_raw" | tr ',' '\n')
+    prompt_github_accounts_yaml
   } > "$localhost_yml"
 
   success "Configuration written"
@@ -794,71 +1080,16 @@ else
 fi
 completed
 
-title "Preparing SSH Keys for GitHub Accounts"
+title "Setting Up GitHub Multi-Account Access"
 if grep -q 'github_accounts' "$localhost_yml" 2>/dev/null; then
-  info "Generating any missing per-account SSH keys"
-  # Parse github_accounts from localhost.yml — use Python to ignore !vault tags
-  mapfile -t _gh_account_pairs < <(python3 - "$localhost_yml" <<'PYEOF'
-import sys, yaml
-
-def _ignore_vault(loader, tag_suffix, node):
-    return None
-
-_loader = yaml.SafeLoader
-yaml.add_multi_constructor('', _ignore_vault, Loader=_loader)
-
-with open(sys.argv[1]) as f:
-    data = yaml.load(f, Loader=_loader)
-
-for alias, username in (data.get('github_accounts') or {}).items():
-    print(f"{alias}:{username}")
-PYEOF
-  )
-
-  if [[ ${#_gh_account_pairs[@]} -eq 0 ]]; then
-    warning "No github_accounts entries parsed — skipping"
-  else
-    # If any key needs generating and passphrase isn't in memory (e.g. pulled from config
-    # repo), prompt once before the loop rather than letting ssh-keygen use empty passphrase
-    _any_key_missing=false
-    for _pair in "${_gh_account_pairs[@]}"; do
-      _alias="${_pair%%:*}"
-      [[ ! -f "$HOME/.ssh/github_${_alias}" ]] && { _any_key_missing=true; break; }
-    done
-
-    if [[ "$_any_key_missing" == "true" ]] && [[ -z "$_github_ssh_passphrase" ]]; then
-      # Passphrase exists in vault (from config repo) — decrypt it rather than
-      # asking the user to re-type it, which risks a mismatch
-      info "Decrypting github_ssh_passphrase from vault..."
-      # Force minimal callback to get predictable JSON output regardless of ansible.cfg
-      _github_ssh_passphrase=$(ANSIBLE_STDOUT_CALLBACK=ansible.builtin.minimal \
-        ansible localhost -c local \
-        -e "@$localhost_yml" \
-        -m debug -a "msg={{ github_ssh_passphrase }}" \
-        --vault-id "localhost@$vault_pass_file" 2>/dev/null \
-        | python3 -c "import sys,json,re;raw=sys.stdin.read();m=re.search(r'=>\s*(\{.*\})',raw,re.DOTALL);print(json.loads(m.group(1))['msg'],end='')" 2>/dev/null)
-      if [[ -z "$_github_ssh_passphrase" ]]; then
-        error "Failed to decrypt github_ssh_passphrase from vault"
-        echo -e "   ${YELLOW}${ARROW}${NC} Check that vault-pass.secret is correct"
-        exit 1
-      fi
-      success "Passphrase decrypted from vault"
-    fi
-
-    for _pair in "${_gh_account_pairs[@]}"; do
-      _alias="${_pair%%:*}"
-      _username="${_pair##*:}"
-
-      # Ensure per-account SSH key exists — playbook will handle GitHub upload
-      _key_private="$HOME/.ssh/github_${_alias}"
-      if [[ ! -f "$_key_private" ]]; then
-        info "Generating SSH key for $_alias ($_username)"
-        ssh-keygen -t ed25519 -C "${_username}@github" -f "$_key_private" -N "${_github_ssh_passphrase:-}"
-      fi
-
-      success "SSH key ready: $_alias ($_username)"
-    done
-  fi
+  # gh-account-setup.bash handles: per-account gh auth, OAuth scope audit,
+  # SSH key generation, programmatic key upload (gh ssh-key add), and
+  # isolated SSH verification. Pass passphrase via env if already in memory
+  # (fresh-install path); otherwise the script decrypts from vault itself.
+  GITHUB_SSH_PASSPHRASE="${_github_ssh_passphrase:-}" \
+  LOCALHOST_YML="$localhost_yml" \
+  VAULT_PASS_FILE="$vault_pass_file" \
+    ./scripts/gh-account-setup.bash --setup-all
 else
   success "Single account setup — no additional accounts to authenticate"
 fi
@@ -866,7 +1097,9 @@ completed
 
 title "Running Ansible Playbooks"
 info "Pulling latest changes before running playbooks"
-git pull
+assert_clean_worktree ~/Projects/fedora-desktop
+# See note above on `command git` — bypass any sourced git() wrapper.
+command git pull
 success "Repository up to date"
 
 info "Installing Ansible requirements"

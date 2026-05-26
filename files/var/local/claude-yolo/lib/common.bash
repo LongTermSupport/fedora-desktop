@@ -50,6 +50,59 @@ print_error() {
     echo -e "${COLOR_RED}ERROR:${COLOR_RESET} $*" >&2
 }
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# Rootless buildah cache recovery
+# ═══════════════════════════════════════════════════════════════════════════════
+# Rootless podman/buildah backs `--mount=type=cache` with /var/tmp/buildah-cache-<uid>/.
+# Files inside are created by builds running in a userns and end up owned by mapped
+# subuids (e.g. 100000+). When the host user's userns mapping shifts — typically
+# after a podman upgrade, a sub{u,g}id range change, or an interrupted build leaving
+# partial files owned by an old mapping — subsequent builds fail with:
+#
+#   open /var/tmp/buildah-cache-<uid>/<hash>/archives/partial: permission denied
+#
+# Recovery requires deleting the cache dir from inside the userns (`podman unshare`)
+# because the host user cannot remove files owned by mapped subuids directly.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Returns 0 if the build log contains the buildah-cache permission-denied signature.
+is_buildah_cache_permission_failure() {
+    local log_path="$1"
+    [ -f "$log_path" ] || return 1
+    grep -qE 'buildah-cache-[0-9]+/.*: permission denied' "$log_path"
+}
+
+# Purges the per-uid buildah cache directory. Tries direct rm first (works only if
+# files happen to be owned by the host user), then falls back to `podman unshare`
+# which runs in the userns and can remove subuid-owned files. Only meaningful for
+# podman; for docker rootful, this whole failure mode does not apply.
+purge_stale_buildah_cache() {
+    local uid cache_dir
+    uid=$(id -u)
+    cache_dir="/var/tmp/buildah-cache-${uid}"
+
+    [ -d "$cache_dir" ] || return 0
+
+    echo "Purging stale rootless buildah cache: $cache_dir"
+
+    if rm -rf "$cache_dir" 2>/dev/null; then
+        return 0
+    fi
+
+    if [ "$CONTAINER_ENGINE" = "podman" ]; then
+        if podman unshare rm -rf "$cache_dir"; then
+            return 0
+        fi
+    fi
+
+    print_error "Could not purge $cache_dir — userns ownership conflict"
+    echo "  Resolve manually: podman unshare rm -rf $cache_dir" >&2
+    return 1
+}
+
+export -f is_buildah_cache_permission_failure
+export -f purge_stale_buildah_cache
+
 # Git repository detection
 is_git_repo() {
     [ -d .git ]

@@ -7,7 +7,9 @@
 # - Installing lightweight PCManFM as alternative file manager
 # - Configuring xdg-desktop-portal to use faster GTK file chooser
 # - Applying GSK_RENDERER=ngl fix for Fedora 41/42 performance
-# - Optionally disabling GNOME Tracker indexing
+# - Disabling GNOME's recently-used file history (a huge ~/.local/share/recently-used.xbel
+#   makes Nautilus stat hundreds of paths on startup; on network-backed mounts
+#   this stalls it for seconds)
 # - Optionally disabling thumbnail generation
 #
 # Background:
@@ -23,10 +25,8 @@
   vars:
     # Performance optimization options (can be overridden in host_vars)
     # Set these in environment/localhost/host_vars/localhost.yml:
-    #   fast_file_manager_disable_tracker: false
     #   fast_file_manager_disable_thumbnails: true
     #   fast_file_manager_apply_gsk_fix: false
-    disable_tracker: "{{ fast_file_manager_disable_tracker | default(true) }}"
     disable_thumbnails: "{{ fast_file_manager_disable_thumbnails | default(false) }}"
     apply_gsk_fix: "{{ fast_file_manager_apply_gsk_fix | default(true) }}"
 
@@ -114,33 +114,38 @@
         - gsk-fix
 
     # ============================================================================
-    # Optional: Disable GNOME Tracker (Indexing Service)
+    # Disable Recently-Used File History
     # ============================================================================
-    # GNOME Tracker constantly indexes files and can significantly slow down
-    # Nautilus and file operations. Disabling it improves performance but
-    # disables GNOME Activities search for file contents.
+    # ~/.local/share/recently-used.xbel grows unboundedly across all GTK apps
+    # and Nautilus stat()s every entry on startup. When entries point at
+    # FUSE-backed remote mounts (rclone, sshfs, gvfs) the cumulative stat
+    # cost adds multi-second startup delays to Nautilus.
+    #
+    # remember-recent-files=false is the GNOME-native toggle (Settings →
+    # Privacy → File History). Disabling it stops GTK apps writing to
+    # recently-used.xbel and hides the Recent tab from Nautilus.
+    #
+    # We also delete the existing file as a one-shot — disabling the toggle
+    # alone doesn't truncate the existing 100s of KB of historical entries.
 
-    - name: Disable GNOME Tracker Indexing Services
+    - name: Disable GNOME Recently-Used File History
       become: true
       become_user: "{{ user_login }}"
-      systemd:
-        name: "{{ item }}"
-        state: stopped
-        enabled: false
-        masked: true
-        scope: user
-      loop:
-        - tracker-extract-3.service
-        - tracker-miner-fs-3.service
-        - tracker-miner-rss-3.service
-        - tracker-writeback-3.service
-        - tracker-xdg-portal-3.service
-        - tracker-miner-fs-control-3.service
-      when: disable_tracker
-      failed_when: false  # FAIL-FAST-OK: services vary across Fedora versions (e.g. tracker-miner-rss-3 removed); also user D-Bus session may not exist during headless/SSH runs
+      community.general.dconf:
+        key: /org/gnome/desktop/privacy/remember-recent-files
+        value: 'false'
+        state: present
       tags:
         - performance
-        - tracker
+        - recent-files
+
+    - name: Remove existing recently-used.xbel (one-shot cleanup)
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.local/share/recently-used.xbel"
+        state: absent
+      tags:
+        - performance
+        - recent-files
 
     # ============================================================================
     # Optional: Disable Thumbnail Generation
@@ -173,7 +178,7 @@
           - "  ✓ PCManFM installed as lightweight file manager"
           - "  ✓ XDG portal configured to use GTK file chooser"
           - "  ✓ GSK_RENDERER=ngl applied (if enabled)"
-          - "  ✓ GNOME Tracker disabled (if enabled)"
+          - "  ✓ Recently-used file history disabled (recently-used.xbel removed)"
           - "  ✓ Thumbnails disabled (if enabled)"
           - ""
           - "IMPORTANT: To activate all changes:"

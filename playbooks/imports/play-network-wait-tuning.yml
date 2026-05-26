@@ -1,0 +1,58 @@
+#!/usr/bin/env ansible-playbook
+---
+# Cap NetworkManager-wait-online.service timeout so a slow DHCP / VPN /
+# probe handshake doesn't stall boot for the full 30-second default.
+#
+# Why this exists:
+#   Fedora's NetworkManager-wait-online.service blocks the
+#   network-online.target until the network is "really up" or the
+#   default 30s timeout fires. On laptops this often stalls boot for
+#   several seconds while waiting for DHCP / DNS / portal detection
+#   that nothing on the desktop actually needs synchronously. Audit on
+#   the X1 Carbon Gen 10 (Plan 00044) saw a 5.79s stall.
+#
+#   Setting NM_ONLINE_TIMEOUT=5 caps the stall at 5 seconds. Units
+#   that genuinely require online network (none in this repo's main
+#   workflow) will still wait the 5s; if they need longer they can
+#   add their own Wants/After + retry.
+#
+# Reversal: `sudo rm /etc/systemd/system/NetworkManager-wait-online.service.d/timeout.conf`
+# and `systemctl daemon-reload`.
+- hosts: desktop
+  name: Cap NetworkManager-wait-online timeout to 5s
+  become: true
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  vars_files:
+    - "{{ root_dir }}/vars/fedora-version.yml"
+  tasks:
+    - name: Create NetworkManager-wait-online drop-in directory
+      ansible.builtin.file:
+        path: /etc/systemd/system/NetworkManager-wait-online.service.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      tags:
+        - systemd
+        - network
+
+    - name: Write timeout drop-in
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/NetworkManager-wait-online.service.d/timeout.conf
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          # ANSIBLE MANAGED: play-network-wait-tuning.yml — Plan 00044
+          [Service]
+          Environment=NM_ONLINE_TIMEOUT=5
+      notify: reload-systemd
+      tags:
+        - systemd
+        - network
+
+  handlers:
+    - name: reload-systemd
+      ansible.builtin.systemd:
+        daemon_reload: true

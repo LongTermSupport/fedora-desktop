@@ -1,0 +1,402 @@
+#!/usr/bin/env bash
+# watermark — apply visible watermark + licence metadata to a single image.
+#
+# Two-layer visible mark:
+#   1. corner annotation (bottom-right, large, high-contrast) — readable
+#   2. faint diagonal tile across the whole canvas — defeats crop-and-go
+# Plus full EXIF/IPTC/XMP commercial-licence metadata.
+#
+# Idempotency: re-running on a file that already carries the
+# XMP-wm:Applied=True sentinel exits 3 (skip). Filename suffix
+# .watermarked.<ext> is treated identically.
+#
+# Plan: CLAUDE/Plan/00037-image-watermarking-toolkit/PLAN.md
+
+set -euo pipefail
+
+VERSION="0.1.0"
+TOOL_ID="watermark/${VERSION}"
+# Default path is the playbook-deployed system location. Tests and
+# bench-prototypes can point elsewhere via WATERMARK_EXIFTOOL_CONFIG.
+EXIFTOOL_CONFIG="${WATERMARK_EXIFTOOL_CONFIG:-/etc/watermark/exiftool.config}"
+
+# --- presentation defaults (config-only per Decision 5) ---
+opacity_corner="0.85"
+opacity_tile="0.10"
+tile_angle="-30"
+size_pct_corner="0.030"
+size_pct_tile="0.018"
+quality="95"
+font="DejaVu-Sans-Bold"
+
+# --- semantic defaults (must be supplied via config or CLI) ---
+artist=""
+copyright=""
+licence_url=""
+licence_summary=""
+text=""
+
+# --- sentinel value for CLI overrides; lets us distinguish "user set empty" from "user did not set" ---
+NIL="__nil_$$__"
+
+cli_text="$NIL"
+cli_artist="$NIL"
+cli_copyright="$NIL"
+cli_licence_url="$NIL"
+cli_licence_summary="$NIL"
+
+# --- behaviour flags ---
+output=""
+profile=""
+config_file=""
+force=0
+dry_run=0
+verbose=0
+no_tile=0
+no_corner=0
+show_config=0
+
+# --- helpers ---
+
+die() {
+    local msg="$1"
+    local code="${2:-2}"
+    printf 'watermark: %s\n' "$msg" >&2
+    exit "$code"
+}
+
+log() {
+    if [[ "$verbose" -eq 1 ]]; then
+        printf 'watermark: %s\n' "$*" >&2
+    fi
+}
+
+usage() {
+    cat <<'EOF'
+Usage:
+  watermark [OPTIONS] IMAGE
+
+Apply visible watermark + commercial-licence metadata to a single image.
+Produces IMAGE.watermarked.EXT alongside the input by default.
+
+Required (from CLI, --config, profile, ~/.config/watermark/defaults.conf,
+or /etc/watermark/defaults.conf — leftmost wins):
+  --artist NAME            EXIF:Artist / IPTC:By-line / XMP-dc:Creator
+  --copyright TEXT         Copyright notice (used for both metadata and
+                           default visible-mark text if --text not given)
+  --licence-url URL        XMP-xmpRights:WebStatement (full licence terms)
+  --licence-summary TEXT   XMP-xmpRights:UsageTerms (one-line human summary)
+
+Optional:
+  --text TEXT              Visible mark text (defaults to --copyright)
+  --profile NAME           Load ~/.config/watermark/profiles/NAME.conf
+  --config FILE            Load FILE (overrides user/system config)
+  -o, --output PATH        Output file path (default: INPUT.watermarked.EXT)
+  --force                  Overwrite output and bypass idempotency probes
+  --no-tile                Skip the faint diagonal tile layer
+  --no-corner              Skip the bottom-right corner mark
+  --dry-run                Print the magick + exiftool commands and exit 0
+  --show-config            Print the resolved merged config and exit 0
+  -v, --verbose            Verbose progress to stderr
+  -h, --help               This help
+
+Exit codes:
+  0  success
+  2  argument or validation error
+  3  idempotency skip (already watermarked; pass --force to override)
+  4  magick (visible watermark) failed
+  5  exiftool (metadata write) failed
+
+Examples:
+  watermark photo.jpg
+  watermark --profile blog photo.jpg
+  watermark --force --output out.jpg --text 'custom mark' photo.jpg
+
+Config files (sourceable bash, KEY=VALUE):
+  /etc/watermark/defaults.conf
+  ~/.config/watermark/defaults.conf
+  ~/.config/watermark/profiles/<name>.conf  (selected by --profile)
+  <path-passed-to-config-flag>  (highest config-layer precedence)
+
+Plan: CLAUDE/Plan/00037-image-watermarking-toolkit/PLAN.md
+EOF
+}
+
+load_config_file() {
+    local file="$1"
+    [[ -f "$file" ]] || return 0
+    log "loading config: $file"
+    # shellcheck source=/dev/null
+    source "$file"
+}
+
+require_nonempty() {
+    local name="$1"
+    local value="$2"
+    if [[ -z "$value" ]]; then
+        die "missing required value for '$name' (set via --$name or in a config file)"
+    fi
+}
+
+resolve_realpath() {
+    # GNU coreutils realpath (-m: do not require existence)
+    realpath -m -- "$1"
+}
+
+# --- arg parse (CLI parsed first; values applied AFTER config load) ---
+
+declare -a positional=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --text)
+            [[ $# -ge 2 ]] || die "--text requires a value"
+            cli_text="$2"; shift 2 ;;
+        --artist)
+            [[ $# -ge 2 ]] || die "--artist requires a value"
+            cli_artist="$2"; shift 2 ;;
+        --copyright)
+            [[ $# -ge 2 ]] || die "--copyright requires a value"
+            cli_copyright="$2"; shift 2 ;;
+        --licence-url)
+            [[ $# -ge 2 ]] || die "--licence-url requires a value"
+            cli_licence_url="$2"; shift 2 ;;
+        --licence-summary)
+            [[ $# -ge 2 ]] || die "--licence-summary requires a value"
+            cli_licence_summary="$2"; shift 2 ;;
+        --profile)
+            [[ $# -ge 2 ]] || die "--profile requires a value"
+            profile="$2"; shift 2 ;;
+        --config)
+            [[ $# -ge 2 ]] || die "--config requires a value"
+            config_file="$2"; shift 2 ;;
+        -o|--output)
+            [[ $# -ge 2 ]] || die "--output requires a value"
+            output="$2"; shift 2 ;;
+        --force)    force=1; shift ;;
+        --dry-run)  dry_run=1; shift ;;
+        -v|--verbose) verbose=1; shift ;;
+        --no-tile)  no_tile=1; shift ;;
+        --no-corner) no_corner=1; shift ;;
+        --show-config) show_config=1; shift ;;
+        -h|--help)  usage; exit 0 ;;
+        --)         shift; break ;;
+        -*)         die "unknown option: $1 (try --help)" ;;
+        *)          positional+=("$1"); shift ;;
+    esac
+done
+# Anything after `--` is treated as positional
+while [[ $# -gt 0 ]]; do
+    positional+=("$1"); shift
+done
+
+# --- config precedence chain ---
+# system → user → profile → --config
+load_config_file "/etc/watermark/defaults.conf"
+load_config_file "${HOME}/.config/watermark/defaults.conf"
+if [[ -n "$profile" ]]; then
+    profile_path="${HOME}/.config/watermark/profiles/${profile}.conf"
+    [[ -f "$profile_path" ]] || die "--profile '$profile' not found at $profile_path"
+    load_config_file "$profile_path"
+fi
+if [[ -n "$config_file" ]]; then
+    [[ -f "$config_file" ]] || die "--config file not found: $config_file"
+    load_config_file "$config_file"
+fi
+
+# --- CLI overrides ---
+[[ "$cli_text"            != "$NIL" ]] && text="$cli_text"
+[[ "$cli_artist"          != "$NIL" ]] && artist="$cli_artist"
+[[ "$cli_copyright"       != "$NIL" ]] && copyright="$cli_copyright"
+[[ "$cli_licence_url"     != "$NIL" ]] && licence_url="$cli_licence_url"
+[[ "$cli_licence_summary" != "$NIL" ]] && licence_summary="$cli_licence_summary"
+
+# --text defaults to --copyright if still empty
+if [[ -z "$text" ]]; then
+    text="$copyright"
+fi
+
+# --- --show-config short-circuit (after config load, before validation) ---
+if [[ "$show_config" -eq 1 ]]; then
+    cat <<EOF
+# resolved config (post-precedence-chain)
+artist=$(printf '%q' "$artist")
+copyright=$(printf '%q' "$copyright")
+licence_url=$(printf '%q' "$licence_url")
+licence_summary=$(printf '%q' "$licence_summary")
+text=$(printf '%q' "$text")
+font=$(printf '%q' "$font")
+opacity_corner=$opacity_corner
+opacity_tile=$opacity_tile
+tile_angle=$tile_angle
+size_pct_corner=$size_pct_corner
+size_pct_tile=$size_pct_tile
+quality=$quality
+output=$(printf '%q' "$output")
+profile=$(printf '%q' "$profile")
+config_file=$(printf '%q' "$config_file")
+no_tile=$no_tile
+no_corner=$no_corner
+EOF
+    exit 0
+fi
+
+# --- positional args ---
+if [[ "${#positional[@]}" -eq 0 ]]; then
+    usage >&2
+    exit 2
+fi
+if [[ "${#positional[@]}" -gt 1 ]]; then
+    die "this version processes ONE image at a time; got ${#positional[@]} (use 'find … -exec watermark {} \\;' for batch)"
+fi
+input="${positional[0]}"
+
+# --- backend availability ---
+command -v magick   >/dev/null 2>&1 || die "missing tool: magick (ImageMagick 7) — see Plan 00037" 4
+command -v exiftool >/dev/null 2>&1 || die "missing tool: exiftool (perl-Image-ExifTool)" 5
+command -v file     >/dev/null 2>&1 || die "missing tool: file (BSD/GNU file(1))"
+[[ -f "$EXIFTOOL_CONFIG" ]] || die "missing exiftool config: $EXIFTOOL_CONFIG (deploy via play-image-watermarking.yml)" 5
+
+# --- both-layers-disabled is a contradiction ---
+if [[ "$no_tile" -eq 1 && "$no_corner" -eq 1 ]]; then
+    die "--no-tile and --no-corner together leaves no visible watermark"
+fi
+
+# --- validate semantic config ---
+require_nonempty artist          "$artist"
+require_nonempty copyright       "$copyright"
+require_nonempty licence-url     "$licence_url"
+require_nonempty licence-summary "$licence_summary"
+require_nonempty text            "$text"
+
+# --- validate input ---
+[[ -f "$input" ]] || die "no such file: $input"
+input_realpath="$(resolve_realpath "$input")"
+input_lower="${input,,}"
+case "$input_lower" in
+    *.jpg|*.jpeg|*.png) : ;;
+    *) die "unsupported extension (JPEG and PNG only): $input" ;;
+esac
+input_mime="$(file --mime-type -b -- "$input" 2>/dev/null || true)"
+case "$input_mime" in
+    image/jpeg|image/png) : ;;
+    *) die "input mime type '$input_mime' is not image/jpeg or image/png: $input" ;;
+esac
+
+# --- idempotency probes ---
+case "$input_lower" in
+    *.watermarked.jpg|*.watermarked.jpeg|*.watermarked.png)
+        if [[ "$force" -eq 0 ]]; then
+            printf 'watermark: skip (filename suffix .watermarked.*): %s\n' "$input_realpath" >&2
+            printf '%s\n' "$input_realpath"
+            exit 3
+        fi
+        ;;
+esac
+
+applied="$(exiftool -config "$EXIFTOOL_CONFIG" -s3 -XMP-wm:Applied -- "$input" 2>/dev/null || true)"
+if [[ "$applied" == "True" && "$force" -eq 0 ]]; then
+    printf 'watermark: skip (XMP-wm:Applied=True): %s\n' "$input_realpath" >&2
+    printf '%s\n' "$input_realpath"
+    exit 3
+fi
+
+# --- compute output path ---
+if [[ -z "$output" ]]; then
+    input_dir="$(dirname -- "$input")"
+    input_base="$(basename -- "$input")"
+    case "$input_lower" in
+        *.jpeg) ext="jpeg" ;;
+        *.jpg)  ext="jpg"  ;;
+        *.png)  ext="png"  ;;
+        *)      die "internal error: unhandled extension for $input" ;;
+    esac
+    stem="${input_base%.*}"
+    output="${input_dir}/${stem}.watermarked.${ext}"
+fi
+output_realpath="$(resolve_realpath "$output")"
+
+if [[ "$output_realpath" == "$input_realpath" ]]; then
+    die "--output resolves to the same path as input ($input_realpath); refusing to overwrite source"
+fi
+
+if [[ -e "$output" ]]; then
+    if [[ "$force" -eq 0 ]]; then
+        die "output already exists: $output (pass --force to overwrite)"
+    fi
+    log "overwriting existing output: $output"
+fi
+
+# --- compose magick command (built as an array for safe quoting) ---
+
+declare -a magick_cmd=(magick "$input")
+
+# Diagonal tile layer
+if [[ "$no_tile" -eq 0 ]]; then
+    magick_cmd+=(
+        \(
+            -size 400x400 xc:none
+            -font "$font"
+            -pointsize "%[fx:w*${size_pct_tile}]"
+            -fill "rgba(255,255,255,${opacity_tile})"
+            -stroke "rgba(0,0,0,${opacity_tile})" -strokewidth 1
+            -gravity center -annotate "$tile_angle" "$text"
+            -write mpr:tile +delete
+        \)
+        \(
+            +clone -fill "mpr:tile" -draw "color 0,0 reset"
+        \)
+        -compose over -composite
+    )
+fi
+
+# Corner mark
+if [[ "$no_corner" -eq 0 ]]; then
+    magick_cmd+=(
+        -font "$font"
+        -pointsize "%[fx:w*${size_pct_corner}]"
+        -fill "rgba(255,255,255,${opacity_corner})"
+        -stroke "rgba(0,0,0,${opacity_corner})" -strokewidth 2
+        -gravity southeast -annotate +30+30 "$text"
+    )
+fi
+
+magick_cmd+=(-quality "$quality" "$output")
+
+# --- compose exiftool command ---
+applied_at="$(date -u +'%Y:%m:%d %H:%M:%SZ')"
+
+declare -a exiftool_cmd=(
+    exiftool -config "$EXIFTOOL_CONFIG" -overwrite_original
+    -EXIF:Artist="$artist"
+    -EXIF:Copyright="$copyright"
+    -IPTC:By-line="$artist"
+    -IPTC:CopyrightNotice="$copyright"
+    -XMP-dc:Creator="$artist"
+    -XMP-dc:Rights="$copyright"
+    -XMP-xmpRights:Marked=True
+    -XMP-xmpRights:UsageTerms="$licence_summary"
+    -XMP-xmpRights:WebStatement="$licence_url"
+    -XMP-wm:Applied=True
+    -XMP-wm:AppliedAt="$applied_at"
+    -XMP-wm:AppliedBy="$TOOL_ID"
+    "$output"
+)
+
+# --- dry-run short-circuit ---
+if [[ "$dry_run" -eq 1 ]]; then
+    printf '# magick:\n'
+    printf '%q ' "${magick_cmd[@]}"; printf '\n'
+    printf '# exiftool:\n'
+    printf '%q ' "${exiftool_cmd[@]}"; printf '\n'
+    exit 0
+fi
+
+# --- execute ---
+log "compose visible watermark → $output"
+"${magick_cmd[@]}" || die "magick failed (visible watermark)" 4
+
+log "write metadata (EXIF/IPTC/XMP + XMP-wm sentinel)"
+"${exiftool_cmd[@]}" || die "exiftool failed (metadata write)" 5
+
+# --- success: print absolute output path on stdout ---
+printf '%s\n' "$output_realpath"

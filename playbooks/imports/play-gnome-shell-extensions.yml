@@ -24,7 +24,7 @@
       become: false
       ansible.builtin.command: gnome-shell-extension-installer --yes --restart-shell {{ item.id }}
       loop:
-        # All verified compatible with GNOME Shell 48 (Fedora 42)
+        # Verified compatibility status checked against GNOME Shell 49 (Fedora 43)
         - name: Blur my Shell
           id: 3193
           # https://extensions.gnome.org/extension/3193/blur-my-shell/
@@ -64,3 +64,15 @@
           gnome-extensions enable workspace-names-overview@fedora-desktop
       changed_when: false
       failed_when: false  # FAIL-FAST-OK: GNOME session may not be active during playbook run
+
+    # Default Space Bar behaviour is: first click opens Overview, second click
+    # selects the workspace. We want a single click to switch directly.
+    # Use dconf write (not gsettings set) because the Space Bar schema is
+    # installed under the extension dir, not the system schema path — gsettings
+    # would refuse with "No such schema" inside a fresh dbus-run-session.
+    - name: Configure Space Bar - Single Click Switches Workspace
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        cmd: dbus-run-session -- dconf write /org/gnome/shell/extensions/space-bar/behavior/toggle-overview false
+      changed_when: false

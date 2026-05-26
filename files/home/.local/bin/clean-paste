@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# clean-paste — sanitise the Wayland clipboard in place AND synthesise a paste.
+#
+# Primary use case: paste copied terminal output BACK INTO a terminal where
+# trailing whitespace and stray blank lines would otherwise corrupt commands
+# (e.g. paste a script into bash and watch it execute partial lines).
+#
+# What it does:
+#   1. Reads the current clipboard via `wl-paste`
+#   2. Strips trailing whitespace from every line
+#   3. Collapses runs of consecutive blank lines down to a single blank line
+#   4. Writes the cleaned text back to the clipboard via `wl-copy`
+#   5. Synthesises Ctrl+Shift+V into the focused window via `wtype` so the
+#      user gets a single-action clean-and-paste from Ctrl+Alt+V.
+#
+# Why Ctrl+Shift+V: terminals (GNOME Terminal, Kitty, Alacritty, Konsole,
+# xterm, …) accept Ctrl+Shift+V as paste. Most GUI apps (browsers, gedit,
+# Slack, Discord) also accept it as "paste without formatting". A handful of
+# IDEs do bind it to other actions (VS Code → markdown preview, JetBrains →
+# paste history) — in those, use the IDE's normal paste after Ctrl+Alt+V
+# instead, since the clipboard has already been cleaned.
+#
+# Deployed by: playbooks/imports/optional/common/play-clean-paste.yml
+
+# ── Preconditions ─────────────────────────────────────────────────────────────
+if ! command -v wl-paste >/dev/null 2>&1 || ! command -v wl-copy >/dev/null 2>&1; then
+    echo "clean-paste: wl-clipboard not installed (need wl-paste and wl-copy)" >&2
+    exit 1
+fi
+if ! command -v wtype >/dev/null 2>&1; then
+    echo "clean-paste: wtype not installed (needed to synthesise Ctrl+V)" >&2
+    exit 1
+fi
+
+# ── Read clipboard ────────────────────────────────────────────────────────────
+# `wl-paste --no-newline` strips the trailing newline wl-paste otherwise appends.
+# We tolerate an empty clipboard: bail out quietly so the keybind is a no-op
+# rather than an error popup.
+clipboard_content="$(wl-paste --no-newline 2>/dev/null || true)"
+
+if [[ -z "${clipboard_content}" ]]; then
+    exit 0
+fi
+
+# ── Clean ─────────────────────────────────────────────────────────────────────
+# Pipeline (read-only — does not modify any file, so this use of sed/awk is fine):
+#   1. sed: strip trailing whitespace on every line
+#   2. awk: collapse runs of blank lines to a single blank line
+cleaned="$(printf '%s\n' "${clipboard_content}" \
+    | sed 's/[[:space:]]*$//' \
+    | awk 'BEGIN{blank=0} /^$/{blank++; if (blank<=1) print; next} {blank=0; print}')"
+
+# ── Write back ────────────────────────────────────────────────────────────────
+# `wl-copy` without a trailing newline keeps the clipboard tidy.
+printf '%s' "${cleaned}" | wl-copy
+
+# ── Synthesise paste ──────────────────────────────────────────────────────────
+# Brief delay lets the user release the Ctrl+Alt held during the shortcut
+# before wtype presses its own modifier combo — otherwise the still-held Alt
+# would mangle the injected Ctrl+Shift+V into Ctrl+Alt+Shift+V or re-trigger
+# this script.
+sleep 0.15
+wtype -M ctrl -M shift v -m shift -m ctrl

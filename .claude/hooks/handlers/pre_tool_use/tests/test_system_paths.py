@@ -155,6 +155,28 @@ class TestSystemPathsHandler:
         }
         assert handler.matches(hook_input) is False
 
+    def test_matches_write_to_root_claude_projects_returns_false(self, handler):
+        """Should NOT match Write under /root/.claude/projects/ (agent runtime memory)."""
+        hook_input = {
+            "tool_name": "Write",
+            "tool_input": {
+                "file_path": "/root/.claude/projects/-workspace/memory/feedback_x.md",
+                "content": "---\nname: x\n---\nbody",
+            },
+        }
+        assert handler.matches(hook_input) is False
+
+    def test_matches_write_to_home_claude_projects_returns_false(self, handler):
+        """Should NOT match Write under /home/<user>/.claude/projects/ (agent runtime when on host)."""
+        hook_input = {
+            "tool_name": "Write",
+            "tool_input": {
+                "file_path": "/home/u/.claude/projects/-Projects-foo/memory/MEMORY.md",
+                "content": "- [x](x.md)",
+            },
+        }
+        assert handler.matches(hook_input) is False
+
     def test_matches_read_tool_returns_false(self, handler):
         """Should NOT match Read tool (reading system files is allowed)."""
         hook_input = {"tool_name": "Read", "tool_input": {"file_path": "/etc/fstab"}}

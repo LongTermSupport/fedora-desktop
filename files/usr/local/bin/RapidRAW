@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# RapidRAW Vulkan ICD selector wrapper.
+#
+# Why: wgpu (RapidRAW's GPU backend) enumerates every Vulkan ICD registered in
+# /usr/share/vulkan/icd.d/ and may auto-select a software/non-native adapter
+# when multiple are present. On Fedora the lvp_icd.*.json (Lavapipe software
+# rasterizer) and dzn_icd.*.json (Dozen, D3D12-on-Vulkan, useless on Linux)
+# entries are installed by mesa-vulkan-drivers and can be picked over the real
+# hardware ICD, producing severe sluggishness in the editor.
+#
+# Fix: build VK_ICD_FILENAMES from hardware ICDs only (intel/radeon/amd/nouveau/
+# nvidia), letting wgpu pick the right one for the host. If no hardware ICD is
+# present we leave the env unset and let the loader's default search apply.
+
+icd_dir="/usr/share/vulkan/icd.d"
+hw_icds=()
+
+if [[ -d "$icd_dir" ]]; then
+  shopt -s nullglob
+  for icd in "$icd_dir"/intel_icd.*.json \
+             "$icd_dir"/intel_hasvk_icd.*.json \
+             "$icd_dir"/radeon_icd.*.json \
+             "$icd_dir"/amd_icd.*.json \
+             "$icd_dir"/nouveau_icd.*.json \
+             "$icd_dir"/nvidia_icd.*.json; do
+    hw_icds+=("$icd")
+  done
+  shopt -u nullglob
+fi
+
+if [[ ${#hw_icds[@]} -gt 0 ]]; then
+  joined=$(IFS=:; printf '%s' "${hw_icds[*]}")
+  export VK_ICD_FILENAMES="$joined"
+fi
+
+exec /usr/bin/RapidRAW "$@"

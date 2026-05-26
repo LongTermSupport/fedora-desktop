@@ -1,0 +1,61 @@
+# /etc/watermark/defaults.conf.example — example config for `watermark`.
+#
+# To use:
+#   1. mkdir -p ~/.config/watermark
+#   2. cp /etc/watermark/defaults.conf.example ~/.config/watermark/defaults.conf
+#   3. Edit with your real artist / copyright / licence details.
+#
+# Each profile lives in its own file:
+#   ~/.config/watermark/profiles/<name>.conf
+# selected with `watermark --profile <name> IMAGE`.
+#
+# This file is sourced as bash (`KEY=VALUE`). Comments start with #.
+# Quoting: use double quotes for values containing spaces or special chars.
+#
+# Plan: CLAUDE/Plan/00037-image-watermarking-toolkit/PLAN.md
+
+# --- semantic (must be supplied) ---
+
+# Artist / creator name. Goes into EXIF:Artist, IPTC:By-line, XMP-dc:Creator.
+artist=""
+
+# Copyright notice. Goes into EXIF:Copyright, IPTC:CopyrightNotice,
+# XMP-dc:Rights. Also used as the visible watermark text if `text` below
+# is left empty.
+copyright=""
+
+# Licence URL — XMP-xmpRights:WebStatement. Should resolve to your full
+# licence terms (a webpage on your site, a Creative Commons URL, etc.).
+licence_url=""
+
+# Short, human-readable licence summary — XMP-xmpRights:UsageTerms.
+licence_summary=""
+
+# Visible watermark text. Defaults to the value of `copyright` if left blank.
+text=""
+
+# --- presentation tuning (good defaults; override per profile if needed) ---
+
+# Font name (resolved by fontconfig). On Fedora and Debian, "DejaVu-Sans-Bold"
+# resolves to the bundled DejaVu Sans Bold. To use a different font, install
+# it system-wide and use its fontconfig family name (`fc-list` to discover).
+font="DejaVu-Sans-Bold"
+
+# Corner mark: 0.0 = invisible, 1.0 = opaque.
+opacity_corner="0.85"
+
+# Diagonal tile: keep this low (0.05–0.15) so it's almost invisible at
+# viewing distance but defeats crop-and-go.
+opacity_tile="0.10"
+
+# Tile rotation in degrees (negative = anticlockwise).
+tile_angle="-30"
+
+# Corner mark size, as a fraction of image width. 0.030 ≈ 60px on a 1920px image.
+size_pct_corner="0.030"
+
+# Tile text size, as a fraction of image width. Smaller than the corner.
+size_pct_tile="0.018"
+
+# JPEG output quality (1–100). 95 is a good balance of size vs quality.
+quality="95"

@@ -1,0 +1,392 @@
+#!/usr/bin/env ansible-playbook
+---
+# Build and install darktable as a local RPM compiled with -DUSE_AI=ON, and
+# with the Sony A7V (ILCE-7M5) rawspeed cameras.xml baked in at build time
+# rather than overlaid post-install.
+#
+# WHY: Fedora's stock darktable RPM is built without -DUSE_AI=ON, which means
+# the AI tab in Preferences is hidden and the object-mask / denoise / upscale
+# features are unavailable. The cmake module FindONNXRuntime.cmake auto-
+# downloads ONNX Runtime during the build, so the only delta from the Fedora
+# spec is the cmake flag plus the A7V overlay we currently apply at runtime.
+#
+# WORKFLOW: clone Fedora's f43 dist-git at a pinned commit, mutate the spec
+# (Release tag bumped to .ai for clarity, autorelease/autochangelog replaced
+# with static entries, Source5+Source6+cp injected for the A7V cameras.xml and
+# its matching cameras.xsd, -DUSE_AI=ON added to the Fedora %cmake invocation),
+# build SRPM with rpmbuild, build binary RPMs in an isolated chroot with mock,
+# install with dnf.
+#
+# RELEASE TAG: we use "100.ai" so the local build always sorts above Fedora's
+# stock release tags (which are single-digit). This prevents dnf upgrade from
+# silently downgrading our build away when Fedora ships a new stock revision.
+#
+# IDEMPOTENCY: the SRPM and binary RPM steps both use `creates:` guards, so
+# re-running the playbook with the same darktable_version is a no-op once
+# install has succeeded. Bumping darktable_version (along with the tarball
+# SHA-512 and Fedora distgit commit) triggers a fresh rebuild.
+#
+# COVERAGE: see CLAUDE/Plan/00042-darktable-ai-features/ for the decision-gate
+# rationale and Phase 3 (NVIDIA GPU acceleration) follow-up plan.
+
+- hosts: desktop
+  name: Build and Install Darktable RPM with AI Features (USE_AI=ON)
+  become: false
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+
+    # darktable upstream release - bump these together
+    darktable_version: "5.4.1"
+    darktable_tarball: "darktable-{{ darktable_version }}.tar.xz"
+    darktable_tarball_url: "https://github.com/darktable-org/darktable/releases/download/release-{{ darktable_version }}/{{ darktable_tarball }}"
+    # SHA-512 sourced from Fedora dist-git `sources` file at the pinned commit below.
+    darktable_tarball_sha512: "d956fdac2d7a1782a242c8e0839a6d26fb3a2a7d90716978227b1c884f4acf0f51e599a72b0919f7b7f2ea2b5df40fecd56dfa8e7c813587ef469ff6e42ffe7b"
+
+    # Fedora dist-git pinned to a known-good f43 commit for reproducibility.
+    # @see https://src.fedoraproject.org/rpms/darktable/commits/f43
+    darktable_distgit_url: "https://src.fedoraproject.org/rpms/darktable.git"
+    darktable_distgit_commit: "f35a6d085e8f130f6eaa10976b353333602c2bbd"
+
+    # Local release tag - the "100." prefix ensures our build sorts ABOVE stock
+    # Fedora releases (which use single-digit %autorelease tags) so dnf upgrade
+    # never picks the stock RPM over ours. %{?dist} expands to ".fc43".
+    darktable_release_local: "100.ai"
+    darktable_release_full: "{{ darktable_release_local }}.fc{{ fedora_version }}"
+    darktable_target_vr: "{{ darktable_version }}-{{ darktable_release_full }}"
+
+    # A7V camera support from rawspeed develop - same pinning as the (now-retired)
+    # post-install overlay in play-photography.yml. See PLAN.md Decision 2.
+    #
+    # Both cameras.xml AND cameras.xsd are overlaid from the SAME rawspeed commit.
+    # The darktable build runs a validate-cameras.xml step (xmllint --schema): the
+    # newer develop cameras.xml only validates against its matching newer
+    # cameras.xsd. The older schema bundled in the darktable 5.4.1 tarball rejects
+    # newer entries (e.g. make 'Phase One', short aliases) and fails the build.
+    rawspeed_commit: "aa9028af9c563ebd4d8e6c5b74f05b0db1233d14"
+    rawspeed_cameras_xml_url: "https://raw.githubusercontent.com/darktable-org/rawspeed/{{ rawspeed_commit }}/data/cameras.xml"
+    rawspeed_cameras_xml_sha256: "d3d4d97f368c24da587350d68f51fe11fedfb307c6b2c960a5b6aa441c648d57"
+    rawspeed_cameras_xsd_url: "https://raw.githubusercontent.com/darktable-org/rawspeed/{{ rawspeed_commit }}/data/cameras.xsd"
+    rawspeed_cameras_xsd_sha256: "a5ce338576710addbc806351bf723eb7180ccbf91f393e6150e52766e48de5df"
+
+    # Build workspace (under /var/tmp so it survives reboots but is clearly tmp)
+    build_root: "/var/tmp/darktable-ai-build"
+    distgit_dir: "{{ build_root }}/distgit"
+    rpm_topdir: "{{ build_root }}/rpmbuild"
+    mock_chroot: "fedora-{{ fedora_version }}-x86_64"
+    mock_result_dir: "/var/lib/mock/{{ mock_chroot }}/result"
+
+    # Patch files shipped in dist-git that we stage into SOURCES (matches Fedora f43 spec Patch0).
+    # When bumping darktable_distgit_commit, verify this list still matches `grep '^Patch' darktable.spec`.
+    darktable_distgit_patches:
+      - "0001-Add-5.4.1-in-appdata.patch"
+
+  vars_files:
+    - "{{ root_dir }}/vars/fedora-version.yml"
+
+  tasks:
+    - name: Preflight - Assert Fedora target distribution and version
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == 'Fedora'
+          - ansible_distribution_major_version == fedora_version | string
+        fail_msg: >-
+          This playbook builds darktable for Fedora {{ fedora_version }} only.
+          Detected: {{ ansible_distribution }} {{ ansible_distribution_major_version }}.
+      tags: darktable-ai-build
+
+    - name: Check installed darktable version-release (if any)
+      ansible.builtin.command: rpm -q --queryformat '%{VERSION}-%{RELEASE}' darktable
+      register: dt_installed
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe; rc != 0 means "not installed", a valid state we branch on below
+      tags: darktable-ai-build
+
+    - name: Determine whether the AI-enabled build needs to run
+      ansible.builtin.set_fact:
+        dt_build_needed: "{{ (dt_installed.rc != 0) or (dt_installed.stdout != darktable_target_vr) }}"
+      tags: darktable-ai-build
+
+    - name: Report build status
+      ansible.builtin.debug:
+        msg: |
+          Installed darktable VR : {{ dt_installed.stdout if dt_installed.rc == 0 else 'not installed' }}
+          Target darktable VR    : {{ darktable_target_vr }}
+          Build needed           : {{ dt_build_needed }}
+      tags: darktable-ai-build
+
+    - name: Build and install darktable AI-enabled RPM
+      when: dt_build_needed
+      tags: darktable-ai-build
+      block:
+        - name: Install RPM build tooling
+          ansible.builtin.package:
+            name:
+              - mock
+              - rpm-build
+              - rpmdevtools
+              - git
+            state: present
+          become: true
+
+        - name: Add user to mock group (effective on next login or via login-shell become)
+          ansible.builtin.user:
+            name: "{{ user_login }}"
+            groups: mock
+            append: true
+          become: true
+
+        - name: Create build workspace directory tree
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: directory
+            owner: "{{ user_login }}"
+            group: "{{ user_login }}"
+            mode: "0755"
+          loop:
+            - "{{ build_root }}"
+            - "{{ rpm_topdir }}"
+            - "{{ rpm_topdir }}/SPECS"
+            - "{{ rpm_topdir }}/SOURCES"
+            - "{{ rpm_topdir }}/SRPMS"
+            - "{{ rpm_topdir }}/BUILD"
+            - "{{ rpm_topdir }}/BUILDROOT"
+            - "{{ rpm_topdir }}/RPMS"
+          become: true
+
+        - name: Clone Fedora dist-git for darktable (pinned to f43 commit)
+          ansible.builtin.git:
+            repo: "{{ darktable_distgit_url }}"
+            dest: "{{ distgit_dir }}"
+            version: "{{ darktable_distgit_commit }}"
+            force: true
+          become: true
+          become_user: "{{ user_login }}"
+
+        - name: Stage upstream spec into rpmbuild/SPECS (overwrites any prior mutation)
+          ansible.builtin.copy:
+            src: "{{ distgit_dir }}/darktable.spec"
+            dest: "{{ rpm_topdir }}/SPECS/darktable.spec"
+            remote_src: true
+            owner: "{{ user_login }}"
+            group: "{{ user_login }}"
+            mode: "0644"
+          become: true
+          become_user: "{{ user_login }}"
+
+        - name: Stage dist-git patches into rpmbuild/SOURCES
+          ansible.builtin.copy:
+            src: "{{ distgit_dir }}/{{ item }}"
+            dest: "{{ rpm_topdir }}/SOURCES/{{ item }}"
+            remote_src: true
+            owner: "{{ user_login }}"
+            group: "{{ user_login }}"
+            mode: "0644"
+          loop: "{{ darktable_distgit_patches }}"
+          become: true
+          become_user: "{{ user_login }}"
+
+        - name: Download darktable upstream source tarball
+          ansible.builtin.get_url:
+            url: "{{ darktable_tarball_url }}"
+            dest: "{{ rpm_topdir }}/SOURCES/{{ darktable_tarball }}"
+            checksum: "sha512:{{ darktable_tarball_sha512 }}"
+            owner: "{{ user_login }}"
+            group: "{{ user_login }}"
+            mode: "0644"
+          become: true
+          become_user: "{{ user_login }}"
+
+        - name: Download A7V cameras.xml override for build-time overlay
+          ansible.builtin.get_url:
+            url: "{{ rawspeed_cameras_xml_url }}"
+            dest: "{{ rpm_topdir }}/SOURCES/cameras.xml.a7v"
+            checksum: "sha256:{{ rawspeed_cameras_xml_sha256 }}"
+            owner: "{{ user_login }}"
+            group: "{{ user_login }}"
+            mode: "0644"
+          become: true
+          become_user: "{{ user_login }}"
+
+        - name: Download A7V cameras.xsd (matching schema for build-time validation)
+          ansible.builtin.get_url:
+            url: "{{ rawspeed_cameras_xsd_url }}"
+            dest: "{{ rpm_topdir }}/SOURCES/cameras.xsd.a7v"
+            checksum: "sha256:{{ rawspeed_cameras_xsd_sha256 }}"
+            owner: "{{ user_login }}"
+            group: "{{ user_login }}"
+            mode: "0644"
+          become: true
+          become_user: "{{ user_login }}"
+
+        # ----- Spec mutations (idempotent: spec is freshly copied above each run) -----
+
+        - name: Spec mutation - replace %autorelease with our local release tag
+          ansible.builtin.replace:
+            path: "{{ rpm_topdir }}/SPECS/darktable.spec"
+            regexp: '^Release: %autorelease$'
+            replace: 'Release: {{ darktable_release_local }}%{?dist}'
+          become: true
+          become_user: "{{ user_login }}"
+
+        - name: Spec mutation - replace %autochangelog with a static entry
+          vars:
+            rpm_changelog_date: "{{ lookup('pipe', 'date \"+%a %b %d %Y\"') }}"
+          ansible.builtin.replace:
+            path: "{{ rpm_topdir }}/SPECS/darktable.spec"
+            regexp: '^%autochangelog$'
+            replace: |-
+              * {{ rpm_changelog_date }} Local Build <local@example.com> - {{ darktable_target_vr }}
+              - Local AI-enabled build (USE_AI=ON) with Sony A7V cameras.xml overlay
+          become: true
+          become_user: "{{ user_login }}"
+
+        - name: Spec mutation - declare Source5 (A7V cameras.xml) before the BuildRequires block
+          ansible.builtin.lineinfile:
+            path: "{{ rpm_topdir }}/SPECS/darktable.spec"
+            line: "Source5: cameras.xml.a7v"
+            insertbefore: '^BuildRequires: cairo-devel$'
+            firstmatch: true
+          become: true
+          become_user: "{{ user_login }}"
+
+        - name: Spec mutation - declare Source6 (A7V cameras.xsd) after Source5
+          ansible.builtin.lineinfile:
+            path: "{{ rpm_topdir }}/SPECS/darktable.spec"
+            line: "Source6: cameras.xsd.a7v"
+            insertafter: '^Source5: cameras\.xml\.a7v$'
+            firstmatch: true
+          become: true
+          become_user: "{{ user_login }}"
+
+        - name: Spec mutation - overlay A7V cameras.xml + cameras.xsd into source tree after %autosetup
+          ansible.builtin.replace:
+            path: "{{ rpm_topdir }}/SPECS/darktable.spec"
+            regexp: '^(%autosetup -p1)$'
+            replace: "\\1\n\n# Sony A7V rawspeed overlay (build-time; replaces post-install patch from play-photography.yml).\n# cameras.xsd is overlaid alongside cameras.xml so the newer develop cameras.xml\n# passes the build's validate-cameras.xml step against its matching schema.\ncp %{SOURCE5} src/external/rawspeed/data/cameras.xml\ncp %{SOURCE6} src/external/rawspeed/data/cameras.xsd"
+          become: true
+          become_user: "{{ user_login }}"
+
+        - name: Spec mutation - add -DUSE_AI=ON to the Fedora %cmake invocation
+          ansible.builtin.replace:
+            # Regex anchors on the Fedora-branch cmake closing pattern
+            # (-DRAWSPEED_ENABLE_LTO=ON without trailing backslash, followed by %endif).
+            # The RHEL-branch cmake ends with `..\n%else`, so this only matches the Fedora arm.
+            path: "{{ rpm_topdir }}/SPECS/darktable.spec"
+            regexp: '(?P<before>^        -DBUILD_CURVE_TOOLS=ON \\\n)(?P<after>        -DRAWSPEED_ENABLE_LTO=ON\n%endif)'
+            replace: '\g<before>        -DUSE_AI=ON \\\n\g<after>'
+          become: true
+          become_user: "{{ user_login }}"
+
+        - name: Verify all spec mutations applied
+          ansible.builtin.command:
+            cmd: "grep -qE -- {{ item | quote }} {{ rpm_topdir }}/SPECS/darktable.spec"
+          loop:
+            - '^Release: 100\.ai%\{\?dist\}$'
+            - '^Source5: cameras\.xml\.a7v$'
+            - '^Source6: cameras\.xsd\.a7v$'
+            - '^cp %\{SOURCE5\} src/external/rawspeed/data/cameras\.xml$'
+            - '^cp %\{SOURCE6\} src/external/rawspeed/data/cameras\.xsd$'
+            - '^        -DUSE_AI=ON \\$'
+          changed_when: false
+          become: true
+          become_user: "{{ user_login }}"
+
+        # ----- Build SRPM, then binary RPMs in chroot -----
+
+        # No `creates:` guard: the SRPM must always be rebuilt from the freshly
+        # staged-and-mutated spec. A spec change that does not bump the
+        # version-release (e.g. fixing the A7V overlay) would otherwise be
+        # masked by a stale SRPM. rpmbuild -bs is cheap (~seconds); the
+        # expensive mock step below keeps its own `creates:` guard for
+        # idempotency, and the whole block is already gated on dt_build_needed.
+        - name: Build SRPM (rpmbuild -bs)
+          ansible.builtin.command:
+            cmd: "rpmbuild -bs --define '_topdir {{ rpm_topdir }}' {{ rpm_topdir }}/SPECS/darktable.spec"
+          changed_when: true
+          become: true
+          become_user: "{{ user_login }}"
+
+        - name: Build binary RPMs via mock (cmake auto-downloads ONNX Runtime; allow ~10-30 min)
+          ansible.builtin.command:
+            cmd: >-
+              mock --rebuild
+              --root {{ mock_chroot }}
+              --resultdir {{ mock_result_dir }}
+              --enable-network
+              {{ rpm_topdir }}/SRPMS/darktable-{{ darktable_target_vr }}.src.rpm
+            creates: "{{ mock_result_dir }}/darktable-{{ darktable_target_vr }}.x86_64.rpm"
+          become: true
+          become_user: "{{ user_login }}"
+          # Login shell forces re-evaluation of supplementary groups so the
+          # mock-group membership added above is picked up without logout.
+          become_flags: "-i"
+
+        - name: Install built darktable RPMs
+          ansible.builtin.dnf:
+            name:
+              - "{{ mock_result_dir }}/darktable-{{ darktable_target_vr }}.x86_64.rpm"
+              - "{{ mock_result_dir }}/darktable-tools-noise-{{ darktable_target_vr }}.x86_64.rpm"
+              - "{{ mock_result_dir }}/darktable-tools-basecurve-{{ darktable_target_vr }}.x86_64.rpm"
+            state: present
+            disable_gpg_check: true
+            allow_downgrade: false
+          become: true
+
+    - name: Check upstream darktable release on GitHub (advisory pin-update reminder)
+      ansible.builtin.uri:
+        url: "https://api.github.com/repos/darktable-org/darktable/releases/latest"
+        return_content: true
+        headers:
+          Accept: "application/vnd.github+json"
+      register: dt_upstream
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: GitHub API check is advisory; should not block install
+      tags: darktable-ai-build
+
+    - name: Warn if a newer darktable release is available upstream
+      ansible.builtin.debug:
+        msg: >-
+          darktable upstream release available:
+          {{ dt_upstream.json.tag_name | regex_replace('^release-', '') }}
+          (pinned in this playbook: {{ darktable_version }}).
+          To bump: update darktable_version, darktable_tarball_sha512, and
+          darktable_distgit_commit in play-darktable-ai-build.yml together.
+      when:
+        - dt_upstream is succeeded
+        - dt_upstream.json is defined
+        - (dt_upstream.json.tag_name | regex_replace('^release-', '')) != darktable_version
+      tags: darktable-ai-build
+
+    - name: Display installation complete message
+      ansible.builtin.debug:
+        msg: |
+          darktable AI-enabled build installed:
+            Version-Release: {{ darktable_target_vr }}
+            Built from:      Fedora f43 spec @ {{ darktable_distgit_commit[:7] }}
+                             + USE_AI=ON cmake flag
+                             + Sony A7V cameras.xml (rawspeed {{ rawspeed_commit[:7] }})
+            Build artefacts: {{ mock_result_dir }}/
+
+          Sony A7V (ILCE-7M5) support is now baked into the binary; the post-install
+          cameras.xml overlay in play-photography.yml has been retired (see plan
+          CLAUDE/Plan/00042-darktable-ai-features/ Decision 2).
+
+          NEXT STEPS to enable AI features (one-time, per-user, GUI):
+            1. Launch darktable
+            2. Top-right gear icon -> Preferences -> "AI" tab
+            3. Toggle "Enable AI features" on
+            4. Click "Download" next to each model you want:
+               - denoise        - AI denoising in darkroom (smallest; try first)
+               - upscale        - AI upscaling
+               - segmentation   - object-aware masks
+            5. Restart darktable
+
+          Models live in ~/.config/darktable/ai/ per-user.
+
+          AI features run on CPU by default. For NVIDIA GPU acceleration, see
+          plan 00042 Phase 3 (play-darktable-ai-gpu.yml, follow-up work).
+
+          REBUILDS: this playbook is idempotent. Bump darktable_version +
+          darktable_tarball_sha512 + darktable_distgit_commit together and
+          re-run; previously-built versions are detected and skipped.
+      tags: darktable-ai-build

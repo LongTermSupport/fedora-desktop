@@ -1,0 +1,120 @@
+#!/usr/bin/env ansible-playbook
+---
+# Intel IPU6 webcam (MIPI) — ThinkPad X1 Carbon Gen 11 and similar.
+#
+# Background: laptops with Intel IPU6 cameras (sensor ov2740 et al.) do NOT
+# present a standard UVC /dev/video* node. Apps (Firefox, Chrome, OBS, Zoom,
+# GNOME Cheese) cannot use the camera until a userspace bridge is in place.
+#
+# Symptoms we are fixing:
+#   - lsmod shows intel_ipu6_isys + ov2740 loaded
+#   - /dev/video0..N exist but are IPU6 subdevices (no capture node)
+#   - lsusb shows no camera (it is MIPI, not USB)
+#   - wireplumber loads libcamera but enumerates zero cameras
+#   - Fedora's /usr/share/libcamera/ipa/ has ipu3/simple/vimc only — no ipu6
+#
+# Fix: install the Intel IPU6 userspace stack from RPM Fusion (firmware +
+# HAL + GStreamer icamerasrc) plus v4l2-relayd. On Fedora 43+ kernel ≥ 6.19,
+# pipewire-libcamera picks up the in-tree intel_ipu6_isys driver and exposes
+# the camera to apps automatically once userspace is installed.
+#
+# IMPORTANT — do NOT install akmod-intel-ipu6 on Fedora 43+:
+#   - Mainline kernel ships intel-ipu6 / intel-ipu6-isys / intel-ipu6-psys
+#     in-tree under /lib/modules/<kernel>/kernel/drivers/media/pci/intel/ipu6/.
+#   - The RPM Fusion akmod adds a redundant /extra/intel-ipu6/.../psys/
+#     overlay that emits ~210 depmod symbol-mismatch warnings on modern
+#     kernels and adds no functional value.
+#   - Worse, akmod-intel-ipu6 pulls kernel-devel-matched which can leave the
+#     system with a partially-installed newer kernel (kernel-core only, no
+#     kernel-modules) — observed 2026-05-21 on F43 with kernel 7.0.9:
+#     iwlwifi.ko, btusb.ko etc. silently absent, all radios dead on next boot.
+#     See untracked/2026-05-21-ipu6-fallout/ for the full incident report.
+#
+# Reference: RPM Fusion intel-ipu6 userspace packages (nonfree)
+- hosts: desktop
+  name: Install Intel IPU6 webcam userspace stack
+  become: true
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  vars_files:
+    - "{{ root_dir }}/vars/fedora-version.yml"
+  tasks:
+    - name: Detect IPU6 platform (kernel module loaded)
+      ansible.builtin.shell: lsmod
+      register: lsmod_output
+      changed_when: false
+
+    - name: Assert IPU6 hardware is present
+      ansible.builtin.assert:
+        that:
+          - "'intel_ipu6' in lsmod_output.stdout"
+        fail_msg: |
+          intel_ipu6 kernel module is not loaded.
+
+          This playbook is for laptops with Intel IPU6 MIPI cameras
+          (e.g. ThinkPad X1 Carbon Gen 11, recent Dell XPS, etc.).
+
+          If you have a USB (UVC) webcam, you do not need this playbook —
+          UVC cameras work out of the box on Fedora.
+        success_msg: "IPU6 kernel module detected — proceeding."
+
+    - name: Install IPU6 userspace stack from RPM Fusion (nonfree)
+      ansible.builtin.dnf:
+        name:
+          # Intel proprietary firmware blobs + HAL
+          - ipu6-camera-bins
+          - ipu6-camera-hal
+          # GStreamer source element that talks to the HAL
+          - gstreamer1-plugins-icamerasrc
+          # Stub v4l2-relayd; harmless on its own. The @icamerasrc template
+          # instance is broken on Fedora (missing SPLASHSRC env / setup.cfg)
+          # and is masked below to silence its crash-loop.
+          - v4l2-relayd
+          # Diagnostics: cam (libcamera), v4l2-ctl
+          - libcamera-tools
+          - v4l-utils
+        state: present
+
+    - name: Mask broken v4l2-relayd@icamerasrc template instance
+      # This systemd template instance crash-loops on missing SPLASHSRC env
+      # var because Fedora ships v4l2-relayd without a setup.cfg. Masking
+      # silences the 5x start-limit loop on every boot. The base
+      # v4l2-relayd.service is a stub (ExecStart=/bin/true) and stays enabled
+      # in case a future setup.cfg is added.
+      ansible.builtin.systemd:
+        name: v4l2-relayd@icamerasrc.service
+        masked: true
+
+    - name: Ensure base v4l2-relayd service is enabled (harmless stub)
+      ansible.builtin.systemd:
+        name: v4l2-relayd
+        enabled: true
+        state: started
+
+    - name: Final instructions
+      ansible.builtin.pause:
+        prompt: |2
+
+          ========================================================================
+          Intel IPU6 webcam — userspace stack installed
+          ========================================================================
+
+          To make the camera visible to apps RIGHT NOW (no reboot):
+
+            systemctl --user restart wireplumber pipewire
+
+          Then verify:
+
+            cam -l                  # libcamera should list the camera
+            wpctl status            # pipewire should show "Built-in Front Camera"
+                                    # as a Source under Video
+
+          Apps that use pipewire (Firefox, Chrome, GNOME Cheese, OBS) will
+          pick up the camera via pipewire-libcamera automatically.
+
+          If the camera does not show up, a reboot is the most reliable
+          way to ensure the mainline IPU6 modules + pipewire come up in
+          the correct order.
+
+          Press ENTER to continue...
+          ========================================================================

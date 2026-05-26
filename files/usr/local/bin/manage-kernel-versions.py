@@ -131,9 +131,15 @@ class KernelManager:
 
     def get_installed_kernels(self) -> list[KernelVersion]:
         """Get list of installed kernel versions."""
-        returncode, stdout, stderr = self.run_command([
-            "rpm", "-q", "kernel", "--queryformat", "%{VERSION}-%{RELEASE}\n",
-        ])
+        # Query kernel-core, not kernel. On Fedora (at least F41+) only
+        # kernel-core is guaranteed installed — the `kernel` meta-package
+        # is often absent, and `rpm -q kernel` then returns non-zero.
+        returncode, stdout, stderr = self.run_command(
+            [
+                "rpm", "-q", "kernel-core", "--queryformat", "%{VERSION}-%{RELEASE}\n",
+            ],
+            check=False,
+        )
 
         if returncode != 0:
             self.logger.error(f"Failed to query installed kernels: {stderr}")

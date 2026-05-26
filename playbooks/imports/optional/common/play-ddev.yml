@@ -6,7 +6,10 @@
   vars:
     root_dir: "{{ inventory_dir }}/../../"
   tasks:
+    # Run as root so the check tests daemon health, not session group membership.
+    # User-level docker group membership is verified separately below.
     - name: Probe Docker Daemon Reachability
+      become: true
       ansible.builtin.command: docker info
       register: docker_info
       failed_when: false  # FAIL-FAST-OK: probe — explicit fail-fast task below
@@ -21,14 +24,12 @@
           Likely causes:
             1. play-docker.yml has not been run yet.
                Fix: ansible-playbook playbooks/imports/play-docker.yml
-            2. {{ user_login }} is not yet in the `docker` group for this login session
-               (was just added; group membership requires a new session).
-               Fix: log out and back in, or run `newgrp docker` in this shell.
-            3. docker.service is not running.
+            2. docker.service is not running.
                Fix: sudo systemctl status docker --no-pager -l
       when: docker_info.rc != 0
 
     - name: Probe Docker daemon security options (detects rootless)
+      become: true
       ansible.builtin.command: docker info --format '{% raw %}{{.SecurityOptions}}{% endraw %}'
       register: docker_security
       changed_when: false
@@ -104,8 +105,10 @@
       args:
         creates: "/home/{{ user_login }}/.local/share/mkcert/rootCA.pem"
 
+    # ddev version probes Docker internally; sg activates the docker group
+    # without requiring a session restart.
     - name: Verify DDEV Installation
-      ansible.builtin.command: ddev version
+      ansible.builtin.shell: sg docker -c 'ddev version'
       register: ddev_version
       changed_when: false
 

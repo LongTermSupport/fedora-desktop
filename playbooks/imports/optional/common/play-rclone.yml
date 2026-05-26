@@ -17,13 +17,54 @@
 #     - name: gdrive                            # used for systemd service name
 #       remote: "gdrive:/"                      # rclone remote:path spec
 #       mountpoint: "/home/{{ user_login }}/mnt/gdrive"
-#       # Optional cache overrides (defaults shown):
+#       # Optional cache/log overrides (defaults shown):
 #       # cache_mode: full       # off | minimal | writes | full  (default: full)
-#       # cache_max_size: 10G    # max local cache size            (default: 10G)
-#       # cache_max_age: 48h     # evict files not accessed within (default: 48h)
-#     - name: photos-backup
+#       # cache_max_size: 100G   # max local cache size            (default: 100G)
+#       # cache_max_age: 8760h   # evict files not accessed within (default: 8760h = 1 year)
+#       # vfs_write_back: 5s     # delay before uploading writes   (default: 5s)
+#       #                        # longer values coalesce rapid rewrites of the
+#       #                        # same file (e.g. RapidRAW .rrdata sidecars) into
+#       #                        # a single upload. Trade-off: data only in the
+#       #                        # local cache during this window is lost on an
+#       #                        # abrupt host kill. Graceful unmount flushes.
+#       # log_level: INFO        # ERROR | NOTICE | INFO | DEBUG   (default: INFO)
+#       # memory_high: 8G        # systemd cgroup soft limit       (default: unset)
+#       #                        # kernel reclaims pages aggressively beyond this;
+#       #                        # set to prevent runaway VFS RSS during heavy uploads
+#       # memory_max: 12G        # systemd cgroup hard limit       (default: unset)
+#       #                        # OOM-kill if exceeded — set if you'd rather lose the
+#       #                        # mount than have it eat the session
+#       # read_only: true        # default false — set true for browse-only mounts
+#       # rc_port: 5572          # remote control API port (default: 5572)
+#       #                        # enables: rclone-cache-warm --fast, rclone rc vfs/refresh
+#       #                        # set different ports if running multiple mounts
+#     - name: photos-archive
 #       remote: "s3:mybucket/photos"
-#       mountpoint: "/home/{{ user_login }}/mnt/photos-backup"
+#       mountpoint: "/home/{{ user_login }}/mnt/photos-archive"
+#       read_only: true                         # browse-only — writes return EROFS
+#
+# WRITES THROUGH MOUNTS ARE FUNDAMENTALLY UNSAFE
+#   Writes through `rclone mount` go via the local VFS cache and upload
+#   asynchronously. Upload failures can be silent — the cached file stays
+#   on disk and looks "saved" while never reaching the remote. We hit this
+#   in April 2026 with the Drive mount: 10G of camera photos sat in the
+#   cache for hours while `rclone ls` showed an empty remote.
+#
+#   The safe path for important data is to bypass the mount: use
+#   `rclone copy` / `rclone move` / `rclone sync` direct to the remote —
+#   synchronous, returns a real exit code, leaves a log trail.
+#
+#   Mounts remain useful for browsing and for tools that need sidecar
+#   files next to originals (e.g. RAW editors). To accept that risk while
+#   keeping it visible, this playbook runs the mount at --log-level INFO
+#   and lets systemd capture stderr. Watch the journal during/after writes
+#   — silent failures will be loud there:
+#     journalctl --user -u rclone-<name>.service -f
+#
+#   read_only DEFAULTS TO FALSE because most use cases need writes.
+#   Set `read_only: true` per-mount for browse-only mounts where you want
+#   accidental writes to fail with EROFS rather than risk the silent
+#   upload-failure mode.
 #
 # WORKFLOW (first time):
 #   1. Run this playbook to install rclone
@@ -110,10 +151,87 @@
       when: rclone_mounts is defined
       tags: rclone, mounts
 
+    # `systemctl --user` from `become_user` needs XDG_RUNTIME_DIR pointing at
+    # the user's runtime dir so it can reach the user systemd manager via DBus.
+    # Without this, `state: restarted` fails with an empty "Unable to restart
+    # service" error. Resolve the UID via getent so this works for any user.
+    - name: Look up UID for systemd user session env
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ user_login }}"
+      when: rclone_mounts is defined
+      tags: rclone, mounts
+
     - name: Enable linger so user services survive logout and start at boot
       ansible.builtin.command:
         cmd: loginctl enable-linger {{ user_login }}
         creates: /var/lib/systemd/linger/{{ user_login }}
+      when: rclone_mounts is defined
+      tags: rclone, mounts
+
+    # =========================================================================
+    # Clean slate: stop any running mount services and force-unmount stale FUSE
+    # entries before reconfiguring. This is intentionally aggressive — every
+    # play run takes the mounts down briefly, then brings them back up at the
+    # end. We tolerate the disruption because:
+    #   1. The push helpers (<name>-push) bypass the mount, so the actual data
+    #      path is unaffected by the mount being momentarily down.
+    #   2. The play runs rarely (config changes only).
+    #   3. Trying to restart-only-on-config-change adds drift detection, DBus
+    #      env handling, and stale-mount edge cases that compound failure modes.
+    #      Stop-then-start is the simplest guaranteed-correct path.
+    # =========================================================================
+
+    - name: Check if rclone mount unit files already exist
+      ansible.builtin.stat:
+        path: "/home/{{ user_login }}/.config/systemd/user/rclone-{{ item.name }}.service"
+      loop: "{{ rclone_mounts }}"
+      loop_control:
+        label: "rclone-{{ item.name }}.service"
+      register: rclone_existing_units
+      when: rclone_mounts is defined
+      tags: rclone, mounts
+
+    - name: Stop existing rclone mount services for clean re-deploy
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.systemd:
+        name: "rclone-{{ item.item.name }}.service"
+        state: stopped
+        scope: user
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
+        DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}/bus"
+      loop: "{{ rclone_existing_units.results | default([]) }}"
+      loop_control:
+        label: "rclone-{{ item.item.name }}.service"
+      when:
+        - rclone_mounts is defined
+        - item.stat.exists | default(false)
+      tags: rclone, mounts
+
+    # Even after `systemctl stop`, the FUSE mount can remain in the kernel mount
+    # table if rclone crashed or its ExecStop=fusermount3 -u failed (busy). That
+    # leaves the mountpoint returning ENOTCONN, which makes ansible.builtin.file
+    # fail with [Errno 17] when re-creating the directory. Force-unmount any
+    # surviving entry now so the directory task always succeeds.
+    - name: Force-unmount any surviving FUSE entries at configured mountpoints
+      ansible.builtin.shell: |
+        set -uo pipefail
+        mp="{{ item.mountpoint }}"
+        if grep -qE "[[:space:]]${mp}[[:space:]]" /proc/self/mountinfo 2> /dev/null; then
+            echo "found in mount table — unmounting"
+            fusermount3 -uz "$mp" 2> /dev/null || umount -l "$mp"
+        else
+            echo "not in mount table"
+        fi
+      args:
+        executable: /bin/bash
+      loop: "{{ rclone_mounts }}"
+      loop_control:
+        label: "{{ item.mountpoint }}"
+      register: rclone_force_unmount
+      changed_when: "'unmounting' in (rclone_force_unmount.stdout | default(''))"
       when: rclone_mounts is defined
       tags: rclone, mounts
 
@@ -128,6 +246,12 @@
       when: rclone_mounts is defined
       tags: rclone, mounts
 
+    # --rc-no-auth is safe here because --rc-addr binds to localhost only:
+    # the RC API is reachable only from this host. Rclone (since v1.62)
+    # requires auth on the RC server by default and rejects every call
+    # (including core/pid and core/stats) with "authentication must be set
+    # up …" — which breaks ftp-camera --copy, rclone-cache-warm, and
+    # rclone-tail, all of which expect an unauthenticated loopback RC.
     - name: Create systemd user service for each rclone mount
       ansible.builtin.copy:
         dest: "/home/{{ user_login }}/.config/systemd/user/rclone-{{ item.name }}.service"
@@ -142,13 +266,17 @@
 
           [Service]
           Type=notify
-          ExecStart=/usr/bin/rclone mount \
-            --config=%h/.config/rclone/rclone.conf \
-            --vfs-cache-mode {{ item.cache_mode | default('full') }} \
-            --vfs-cache-max-size {{ item.cache_max_size | default('10G') }} \
-            --vfs-cache-max-age {{ item.cache_max_age | default('48h') }} \
-            --allow-other \
-            {{ item.remote }} {{ item.mountpoint }}
+          # rclone sends READY=1 only after the initial VFS cache scan
+          # completes. With --vfs-cache-mode full and a large populated
+          # cache (e.g. 400G with thousands of pending uploads), that
+          # scan can exceed systemd's default 45s start timeout, causing
+          # ansible-playbook to report "Unable to start service" while
+          # the restart loop eventually succeeds out-of-band. 5 minutes
+          # is generous headroom for any reasonably sized cache.
+          TimeoutStartSec=300
+          {% if item.memory_high is defined %}MemoryHigh={{ item.memory_high }}
+          {% endif %}{% if item.memory_max is defined %}MemoryMax={{ item.memory_max }}
+          {% endif %}ExecStart=/usr/bin/rclone mount --config=%h/.config/rclone/rclone.conf --vfs-cache-mode {{ item.cache_mode | default('full') }} --vfs-cache-max-size {{ item.cache_max_size | default('100G') }} --vfs-cache-max-age {{ item.cache_max_age | default('8760h') }} --vfs-write-back {{ item.vfs_write_back | default('5s') }} --log-level {{ item.log_level | default('INFO') }}{{ ' --read-only' if item.read_only | default(false) else '' }} --rc --rc-addr=localhost:{{ item.rc_port | default('5572') }} --rc-no-auth --allow-other {{ item.remote }} {{ item.mountpoint }}
           ExecStop=/bin/fusermount3 -u {{ item.mountpoint }}
           Restart=on-failure
           RestartSec=10
@@ -168,6 +296,9 @@
         state: started
         daemon_reload: true
         scope: user
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
+        DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}/bus"
       loop: "{{ rclone_mounts }}"
       when: rclone_mounts is defined
       tags: rclone, mounts
@@ -207,6 +338,15 @@
     # Utility scripts
     # =========================================================================
 
+    - name: Deploy rclone-cache-status utility script
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/rclone-cache-status"
+        dest: "/home/{{ user_login }}/.local/bin/rclone-cache-status"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+      tags: rclone
+
     - name: Deploy rclone-cache-warm utility script
       ansible.builtin.copy:
         src: "{{ root_dir }}/files/home/.local/bin/rclone-cache-warm"
@@ -215,6 +355,71 @@
         group: "{{ user_login }}"
         mode: '0755'
       tags: rclone
+
+    - name: Deploy rclone-tail activity monitor script
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/rclone-tail"
+        dest: "/home/{{ user_login }}/.local/bin/rclone-tail"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+      tags: rclone
+
+    # =========================================================================
+    # Per-mount push helpers — one <name>-push command per mount.
+    #
+    # Each helper wraps `rclone copy` to the mount's configured remote root,
+    # bypassing the FUSE mount entirely. This avoids the silent VFS-cache
+    # upload failures that mount-based writes are vulnerable to: rclone copy
+    # is synchronous, returns a real exit code, and logs to stdout.
+    #
+    # Usage (after deploy):
+    #   <name>-push <local-path>           # copy file or dir to remote root
+    #   <name>-push file.jpg               # → uploads to <remote>:file.jpg
+    #   <name>-push ./photos/              # → uploads dir contents to remote root
+    # =========================================================================
+
+    - name: Deploy per-mount rclone push helpers
+      ansible.builtin.copy:
+        dest: "/home/{{ user_login }}/.local/bin/{{ item.name }}-push"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+        content: |
+          #!/usr/bin/env bash
+          # Auto-generated by play-rclone.yml — do not edit manually.
+          # Edit playbooks/imports/optional/common/play-rclone.yml and re-deploy.
+          #
+          # Pushes a local path to the root of the {{ item.name }} rclone remote
+          # ({{ item.remote }}) using `rclone copy`. Synchronous, fail-loud.
+          set -e
+
+          if [ "$#" -lt 1 ]; then
+              echo "Usage: $(basename "$0") <local-path> [<local-path> ...]" >&2
+              echo "" >&2
+              echo "Copies each given path to the root of {{ item.remote }}" >&2
+              echo "using rclone copy (synchronous, bypasses the mount)." >&2
+              exit 2
+          fi
+
+          for src in "$@"; do
+              if [ ! -e "$src" ]; then
+                  echo "ERROR: not found: $src" >&2
+                  exit 1
+              fi
+              echo ">> rclone copy '$src' '{{ item.remote }}'"
+              rclone copy "$src" '{{ item.remote }}' \
+                  --progress \
+                  --transfers 4 \
+                  --checkers 8 \
+                  --update
+          done
+
+          echo ""
+          echo "Push complete. Local copies retained."
+      loop: "{{ rclone_mounts }}"
+      when: rclone_mounts is defined
+      tags: rclone, mounts, push
 
     # =========================================================================
     # Summary
@@ -243,6 +448,15 @@
           Services started and enabled (linger enabled — survive logout/reboot).
           To check status:
             systemctl --user status rclone-<name>.service
+
+          Mount logs go to the systemd journal (rclone --log-level INFO).
+          Tail one to spot upload failures in real time:
+            journalctl --user -u rclone-<name>.service -f
+
+          Per-mount push helpers deployed (bypass the mount):
+          {% for mount in rclone_mounts %}
+            {{ mount.name }}-push <path>   →  rclone copy <path> {{ mount.remote }}
+          {% endfor %}
 
           {% if rclone_gnome_bookmarks | default(true) %}
           GNOME Files bookmarks added for all mounts (~/.config/gtk-3.0/bookmarks).

@@ -1,6 +1,5 @@
 #!/usr/bin/env ansible-playbook
 ---
-#!/usr/bin/env ansible-playbook
 - hosts: desktop
   name: Qobuz CLI Apps - Gapless HD Audio Streaming from Qobuz
   vars:
@@ -38,10 +37,12 @@
       ansible.builtin.set_fact:
         hifiRsUrl: "https://github.com/iamdb/hifi.rs/releases/download/v{{ hifiRsVersionFinal }}/hifi-rs-x86_64-unknown-linux-gnu.tar.gz"
 
-    # Version detection for qobuz-player
+    # qobuz-player moved from SofusA/qobuz-player to SofusA/qobine in 2026-05.
+    # The old repo was wiped of releases; the binary now ships from qobine.
+    # Tag scheme is date-based (e.g. v2026-05-11), not semver.
     - name: Get latest qobuz-player version
       ansible.builtin.shell: |
-        curl -s https://api.github.com/repos/SofusA/qobuz-player/releases/latest |
+        curl -s https://api.github.com/repos/SofusA/qobine/releases/latest |
         jq -r '.tag_name' | sed 's/^v//'
       register: qobuzPlayerLatestVersion
       when: qobuzPlayerVersion == "latest"
@@ -57,7 +58,7 @@
 
     - name: Set qobuz-player URL
       ansible.builtin.set_fact:
-        qobuzPlayerUrl: "https://github.com/SofusA/qobuz-player/releases/download/v{{ qobuzPlayerVersionFinal }}/qobuz-player-x86_64-unknown-linux-gnu.tar.gz"
+        qobuzPlayerUrl: "https://github.com/SofusA/qobine/releases/download/v{{ qobuzPlayerVersionFinal }}/qobuz-player-x86_64-unknown-linux-gnu.tar.gz"
       tags:
         - qobuz-player
 
@@ -86,11 +87,11 @@
       ansible.builtin.shell: |
         set -ex
         if [[ -f {{ qobuzPlayerPath }} ]]; then
-          installedVersion="$(qobuz-player --version 2>/dev/null | grep -Po '[0-9.-]+' || echo '')"
+          # Parse version from first line, last whitespace-separated token.
+          # Previous regex matched stray hyphens in multi-line output.
+          installedVersion="$(qobuz-player --version 2>/dev/null | head -n1 | awk '{print $NF}' || true)"
           desiredVersion="{{ qobuzPlayerVersionFinal }}"
-          # Strip any pre-release suffix from desired version for comparison (e.g., 0.3.2-3 -> 0.3.2)
-          desiredVersionBase="${desiredVersion%%-*}"
-          if [[ "$installedVersion" == "$desiredVersion" ]] || [[ "$installedVersion" == "$desiredVersionBase" ]]; then
+          if [[ "$installedVersion" == "$desiredVersion" ]]; then
             echo "installed version $installedVersion matches desired version $desiredVersion"
             exit 0
           fi
@@ -134,6 +135,72 @@
 
     # Needs Last FM API Account
     # Visit https://www.last.fm/api/account/create
+    - name: Prompt for Last.fm API credentials (one-time setup)
+      when: lastfm_api_key is not defined or lastfm_api_secret is not defined
+      block:
+        - name: Display Last.fm API instructions
+          ansible.builtin.pause:
+            prompt: |2
+
+              ============================================
+              LAST.FM API CREDENTIALS REQUIRED
+              ============================================
+
+              Rescrobbled needs Last.fm API credentials.
+
+              1. Go to https://www.last.fm/api/account/create
+              2. Create an API application (any name/description)
+              3. Copy the API Key and Shared Secret
+
+              Press ENTER when you have your credentials ready...
+
+        - name: Prompt for Last.fm API Key
+          ansible.builtin.pause:
+            prompt: "Enter your Last.fm API Key"
+          register: lastfm_key_prompt
+
+        - name: Fail if API Key is empty
+          ansible.builtin.fail:
+            msg: "Last.fm API Key cannot be empty. Re-run this playbook when you have your credentials."
+          when: lastfm_key_prompt.user_input | length == 0
+
+        - name: Prompt for Last.fm API Secret
+          ansible.builtin.pause:
+            prompt: "Enter your Last.fm Shared Secret"
+          register: lastfm_secret_prompt
+
+        - name: Fail if API Secret is empty
+          ansible.builtin.fail:
+            msg: "Last.fm API Secret cannot be empty. Re-run this playbook when you have your credentials."
+          when: lastfm_secret_prompt.user_input | length == 0
+
+        - name: Set credentials as facts for this run
+          ansible.builtin.set_fact:
+            lastfm_api_key: "{{ lastfm_key_prompt.user_input }}"
+            lastfm_api_secret: "{{ lastfm_secret_prompt.user_input }}"
+
+        - name: Vault-encrypt and save Last.fm API Key to localhost.yml
+          ansible.builtin.shell: |
+            printf '%s' '{{ lastfm_key_prompt.user_input }}' | \
+              ansible-vault encrypt_string --stdin-name 'lastfm_api_key' \
+              >> {{ root_dir }}/environment/localhost/host_vars/localhost.yml
+          args:
+            executable: /bin/bash
+          no_log: true
+
+        - name: Vault-encrypt and save Last.fm API Secret to localhost.yml
+          ansible.builtin.shell: |
+            printf '%s' '{{ lastfm_secret_prompt.user_input }}' | \
+              ansible-vault encrypt_string --stdin-name 'lastfm_api_secret' \
+              >> {{ root_dir }}/environment/localhost/host_vars/localhost.yml
+          args:
+            executable: /bin/bash
+          no_log: true
+
+        - name: Confirm credentials saved
+          ansible.builtin.debug:
+            msg: "Last.fm credentials saved to localhost.yml (vault-encrypted). Future runs will use them automatically."
+
     - name: Configure Rescrobbled
       ansible.builtin.copy:
         content: |

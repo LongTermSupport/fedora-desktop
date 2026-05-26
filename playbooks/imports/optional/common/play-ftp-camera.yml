@@ -7,27 +7,88 @@
     root_dir: "{{ inventory_dir }}/../../"
     # Upload directory — override in environment/localhost/host_vars/localhost.yml
     # Uses /srv/ to avoid path traversal issues (home dirs are mode 700)
-    ftp_camera_upload_dir: "/srv/camera-ftp"
+    ftp_camera_upload_dir: "/srv/ftp-camera"
     ftp_camera_user: camera
+    # Legacy upload dir from before the ftp-camera/ftp-camera naming alignment.
+    # Used by the migration task below to move existing data into the new path.
+    ftp_camera_upload_dir_legacy: "/srv/camera-ftp"
+    # Name of the NetworkManager connection profile to tune for hotspot
+    # mode. GNOME's WiFi-Hotspot quick-settings toggle creates a profile
+    # called "Hotspot" by default — that's what this assumes. Override in
+    # host_vars/localhost.yml if you've renamed it.
+    ftp_camera_hotspot_connection: "Hotspot"
+
+    # NOTE: ftp_camera_rclone_remote is intentionally NOT defined here.
+    # Play `vars:` have HIGHER precedence than inventory host_vars, so setting
+    # a default here would silently override the user's host_vars setting.
+    # The variable is consumed via `| default('')` at the use sites below.
+    # Set it in environment/localhost/host_vars/localhost.yml, e.g.:
+    #   ftp_camera_rclone_remote: "LTS-G-Drive:/PHOTO/LIBRARY"
+    # MUST point at the library ROOT (the parent of photos/ and videos/),
+    # not at a media subfolder — ftp-camera --push/--copy ships the whole
+    # local tree (photos/ and videos/ siblings) in one call.
 
   tasks:
 
-    - name: Preflight — assert ftp_camera_password is set
-      ansible.builtin.assert:
-        that:
-          - ftp_camera_password is defined
-          - ftp_camera_password | length > 0
-        fail_msg: |
-          ftp_camera_password is not defined.
+    # Optional playbook: skip cleanly (no-op) when the FTP password hasn't
+    # been configured, instead of failing the whole optional run. Users who
+    # don't use the camera FTP feature shouldn't have to vault a dummy
+    # value just to let the --optional-only flow proceed.
+    - name: Skip if ftp_camera_password is not configured
+      when: (ftp_camera_password | default('') | length) == 0
+      block:
+        - name: Inform user the Camera FTP play was skipped
+          ansible.builtin.debug:
+            msg: |
+              Camera FTP Server skipped — ftp_camera_password is not set in vault.
 
-          Add it to environment/localhost/host_vars/localhost.yml and encrypt it:
-            ansible-vault encrypt_string 'yourpassword' --name 'ftp_camera_password'
+              To enable this feature, set the password and re-run:
+                ./vault.bash set ftp_camera_password
+                ./run.bash --optional-only
 
-    - name: Install vsftpd and inotify-tools
+        - name: End play (ftp_camera_password not configured)
+          ansible.builtin.meta: end_play
+
+    # Migration: align upload dir name with the rest of the toolchain
+    # (ftp-camera command, /etc/ftp-camera/, play-ftp-camera.yml).
+    # Runs only when the legacy default path (/srv/camera-ftp) exists and the
+    # new path (/srv/ftp-camera) does not. Skipped silently if the user
+    # overrode ftp_camera_upload_dir to a custom location.
+    - name: Migrate legacy upload directory (camera-ftp → ftp-camera)
+      when:
+        - ftp_camera_upload_dir == "/srv/ftp-camera"
+        - ftp_camera_upload_dir_legacy != ftp_camera_upload_dir
+      block:
+        - name: Stat legacy upload directory
+          ansible.builtin.stat:
+            path: "{{ ftp_camera_upload_dir_legacy }}"
+          register: legacy_upload_dir
+
+        - name: Stat new upload directory
+          ansible.builtin.stat:
+            path: "{{ ftp_camera_upload_dir }}"
+          register: new_upload_dir
+
+        - name: Rename legacy upload directory to new path
+          ansible.builtin.command:
+            cmd: mv "{{ ftp_camera_upload_dir_legacy }}" "{{ ftp_camera_upload_dir }}"
+          when:
+            - legacy_upload_dir.stat.exists
+            - not new_upload_dir.stat.exists
+
+        - name: Remove old SELinux file context for legacy path
+          community.general.sefcontext:
+            target: "{{ ftp_camera_upload_dir_legacy }}(/.*)?"
+            setype: public_content_rw_t
+            state: absent
+          failed_when: false  # FAIL-FAST-OK: legacy context may already be removed
+
+    - name: Install vsftpd, inotify-tools, and gum (TUI launcher)
       ansible.builtin.package:
         name:
           - vsftpd         # FTP server
           - inotify-tools  # File system event monitoring (used by ftp-camera wrapper)
+          - gum            # Two-step launcher TUI for argument-free `ftp-camera` invocation
         state: present
       tags: packages
 
@@ -97,13 +158,18 @@
         group: root
         mode: "0644"
 
-    - name: Ensure vsftpd secure chroot directory exists
-      ansible.builtin.file:
-        path: /var/run/vsftpd/empty
-        state: directory
+    - name: Deploy tmpfiles.d entry for vsftpd secure chroot dir (survives reboots)
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/etc/tmpfiles.d/vsftpd-camera.conf"
+        dest: /etc/tmpfiles.d/vsftpd-camera.conf
         owner: root
         group: root
-        mode: "0755"
+        mode: "0644"
+
+    - name: Create vsftpd secure chroot dir now (tmpfiles.d only fires at boot)
+      ansible.builtin.command:
+        cmd: systemd-tmpfiles --create /etc/tmpfiles.d/vsftpd-camera.conf
+      changed_when: true
 
     - name: Set SELinux file context on upload directory (allows vsftpd write access)
       # public_content_rw_t is the designated type for FTP-writable directories.
@@ -117,6 +183,14 @@
       ansible.builtin.command:
         cmd: "restorecon -R {{ ftp_camera_upload_dir }}"
       changed_when: true
+
+    - name: Enable SELinux boolean for vsftpd passive mode
+      # Without this, SELinux blocks vsftpd from binding to passive data ports
+      # (30000-30100), causing camera connections to fail after authentication
+      ansible.posix.seboolean:
+        name: ftpd_use_passive_mode
+        state: true
+        persistent: true
 
     - name: Disable vsftpd auto-start (managed manually via ftp-camera script)
       ansible.builtin.systemd:
@@ -133,6 +207,87 @@
         group: "{{ user_login }}"
         mode: "0755"
 
+    - name: Create /etc/ftp-camera config directory
+      ansible.builtin.file:
+        path: /etc/ftp-camera
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Deploy ftp-camera config (records repo path, rclone destination, hotspot profile)
+      # REPO_PATH lets `ftp-camera --pass` find vault.bash and decrypt
+      # ftp_camera_password from the user's clone of this repo without
+      # hardcoding the path in the script.
+      # RCLONE_REMOTE is consumed by `ftp-camera --push` to know where to
+      # upload sorted files. Empty value disables --push with a clear error.
+      # HOTSPOT_CONNECTION names the NetworkManager profile that --hotspot
+      # brings up/down. Default "Hotspot" matches GNOME quick-settings.
+      ansible.builtin.copy:
+        dest: /etc/ftp-camera/config
+        content: |
+          # Auto-generated by play-ftp-camera.yml — do not edit manually.
+          # Used by `ftp-camera --pass` to locate the vault helper, by
+          # `ftp-camera --push` to know which rclone remote to upload to,
+          # and by `ftp-camera --hotspot` to know which NM profile to
+          # activate/deactivate.
+          REPO_PATH={{ root_dir | realpath }}
+          RCLONE_REMOTE={{ ftp_camera_rclone_remote | default('') }}
+          HOTSPOT_CONNECTION={{ ftp_camera_hotspot_connection }}
+        owner: root
+        group: root
+        mode: "0644"
+
+    # Hotspot tuning: bump the NetworkManager AP profile to 2.4GHz channel 6
+    # at 40MHz width — the only legal 40MHz configuration in the GB regdomain
+    # for 2.4GHz APs, doubling theoretical PHY rate over the GNOME default
+    # of channel 1 / 20MHz. 5GHz AP is blocked on Intel CNVi cards by the
+    # IR-CONCURRENT regdomain flag (no concurrent client+AP), so 40MHz on
+    # ch6 is the best we can do on this hardware class.
+    #
+    # The block is a no-op when no NM profile by that name exists — typical
+    # for a fresh machine that hasn't toggled the hotspot in GNOME yet. In
+    # that case we just print a one-liner pointing the user at the toggle.
+    - name: Tune hotspot connection for max 2.4GHz throughput
+      block:
+        - name: Check whether the NetworkManager hotspot profile exists
+          ansible.builtin.command:
+            cmd: "nmcli -t -f NAME connection show"
+          register: ftp_camera_nm_conns
+          changed_when: false
+          check_mode: false
+
+        - name: Apply band=bg, channel=6, channel-width=40MHz to the hotspot profile
+          ansible.builtin.command:
+            cmd: >-
+              nmcli connection modify "{{ ftp_camera_hotspot_connection }}"
+              802-11-wireless.band bg
+              802-11-wireless.channel 6
+              802-11-wireless.channel-width 40
+          when: ftp_camera_hotspot_connection in ftp_camera_nm_conns.stdout_lines
+          # nmcli modify writes to disk unconditionally; no idempotency check
+          # short of reading every field back, which isn't worth it.
+          changed_when: true
+
+        - name: Note when no hotspot profile is present yet
+          ansible.builtin.debug:
+            msg: |
+              NetworkManager profile '{{ ftp_camera_hotspot_connection }}' not found.
+              To create it, toggle WiFi Hotspot in GNOME Settings → Wi-Fi
+              (or run: nmcli device wifi hotspot ssid <name> password <pw>),
+              then re-run this playbook to tune it for channel 6 / 40MHz.
+          when: ftp_camera_hotspot_connection not in ftp_camera_nm_conns.stdout_lines
+
+        - name: Note that the tune takes effect on next hotspot activation
+          ansible.builtin.debug:
+            msg: |
+              Hotspot tuned: band=bg channel=6 channel-width=40MHz.
+              Bounce the connection to apply if it's currently up:
+                nmcli connection down "{{ ftp_camera_hotspot_connection }}"
+                nmcli connection up   "{{ ftp_camera_hotspot_connection }}"
+              Or toggle the hotspot off-and-on via GNOME quick settings.
+          when: ftp_camera_hotspot_connection in ftp_camera_nm_conns.stdout_lines
+
     - name: Display installation summary
       ansible.builtin.debug:
         msg: |
@@ -143,8 +298,37 @@
           Upload directory:  {{ ftp_camera_upload_dir }}
           FTP user:          camera  (password set in vault)
 
-          Start the server:
-            ftp-camera
+          Commands:
+            ftp-camera                open the two-step launcher TUI (gum) to
+                                      pick a primary mode + viewer option
+            ftp-camera --no-tui       start default FTP-server mode, skip the TUI
+            ftp-camera --pass         print FTP password (for camera setup)
+            ftp-camera --sort         sort already-uploaded files by EXIF date
+            ftp-camera --push         direct push to rclone remote (synchronous)
+            ftp-camera --copy         copy via mount + verify (caches locally)
+                                      (--push and --copy require ftp_camera_rclone_remote)
+            ftp-camera --prune        remove RAW files whose JPG has been deleted
+            ftp-camera --async        sort each upload by EXIF the moment it arrives
+            ftp-camera --async-copy   sort + copy each upload into the local rclone
+                                      mount (VFS uploads to remote in background;
+                                      requires ftp_camera_rclone_remote)
+
+          Modifiers (compose with default / --async / --async-copy):
+            --view       Live single-window geeqie preview of each ARW arrival
+            --view-jpg   Same, but preview JPG arrivals instead of ARW
+            --hotspot    Bring up/down the NM '{{ ftp_camera_hotspot_connection }}'
+                         profile around the session (camera tethers directly
+                         to the laptop; bypasses public WiFi).
+          Example: ftp-camera --async-copy --view --hotspot
+
+          Optional rclone push: set ftp_camera_rclone_remote in host_vars
+          to enable --push, --copy, and --async-copy. Must point at the library ROOT
+          (the parent of photos/ and videos/), e.g. "LTS-G-Drive:/PHOTO/LIBRARY".
+          Currently configured: {{ ftp_camera_rclone_remote | default('(unset)') }}
+
+          Sort layout (mirrors library):
+            photos/YYYY/MM/DD/{JPG,RAW}/<file>
+            videos/YYYY/MM/DD/{MP4,MOV}/<file>
 
           The script will print your PC's IP address and the exact
           camera menu path when it starts.
@@ -159,6 +343,16 @@
 
           Note: camera and PC must be on the same Wi-Fi network.
           Note: log out and back in for group membership to take effect.
+
+          Hotspot mode (security + speed on untrusted networks):
+            Toggle GNOME Settings → Wi-Fi → Hotspot ON. The camera then
+            connects directly to the laptop's AP, bypassing any public
+            WiFi. ftp-camera detects the hotspot and binds the right IP
+            automatically (it also opens FTP in the nm-shared firewall
+            zone, which is otherwise restrictive).
+            This playbook tunes the hotspot connection for 40MHz on
+            channel 6 (~2x throughput vs the GNOME 20MHz default) when
+            the profile '{{ ftp_camera_hotspot_connection }}' exists.
           ============================================================
 
   handlers:

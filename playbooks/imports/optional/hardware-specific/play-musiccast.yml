@@ -1,0 +1,153 @@
+#!/usr/bin/env ansible-playbook
+---
+# EXPERIMENTAL: Yamaha MusicCast controllers for Linux.
+#
+# ymc was tried and removed - upstream is dormant since May 2023 and
+# panics on first input when the speaker list is empty (no SSDP guard).
+# @see https://github.com/atamanroman/ymc/blob/main/internal/tui/components.go
+#
+# Default run installs SSDP/UPnP discovery tooling (gssdp-discover) so
+# you can verify your receiver is reachable on the LAN before trying any
+# controller.
+#
+# Opt-in via `--tags gyrc` adds gyrc (GTK 3 GUI, Python). gyrc upstream
+# has been dormant since 2020 and depends on pymusiccast from PyPI - kept
+# isolated in a venv so any bitrot stays contained.
+#
+# Run examples:
+#   ./play-musiccast.yml                # diagnostics only (default)
+#   ./play-musiccast.yml --tags gyrc    # diagnostics + gyrc GUI
+- hosts: desktop
+  name: MusicCast Controllers (EXPERIMENTAL) - SSDP diagnostics + gyrc GUI
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+    local_bin: "/home/{{ user_login }}/.local/bin"
+
+    # gyrc - GTK 3 GUI for Yamaha network receivers (opt-in)
+    # @see https://github.com/balinbob/yrc
+    gyrc_repo: "https://github.com/balinbob/yrc.git"
+    gyrc_dir: "/home/{{ user_login }}/Projects/gyrc"
+    gyrc_venv: "/home/{{ user_login }}/Projects/gyrc/.venv"
+
+  tasks:
+    - name: Show experimental warning
+      ansible.builtin.debug:
+        msg: |
+          ============================================
+          EXPERIMENTAL: MusicCast controllers
+          ============================================
+          Default install: SSDP/UPnP discovery tooling only.
+          Opt-in (--tags gyrc): gyrc GTK 3 GUI (dormant upstream since 2020).
+
+          ymc has been removed - it panics on first input when no
+          MusicCast device is discovered (upstream dormant since 2023).
+
+          Discovery uses SSDP/UPnP on the LAN - your receiver must be
+          reachable on the same network as this machine.
+
+          SSDP diagnostics (installed by default):
+            gssdp-discover -t urn:schemas-upnp-org:device:MediaRenderer:1 --timeout=5
+            gssdp-discover --timeout=5    # any UPnP device
+
+    # ----------------------------------------------------------------
+    # SSDP discovery tooling (always installed - useful for debugging
+    # discovery failures regardless of which controller is used)
+    # ----------------------------------------------------------------
+    - name: Install SSDP/UPnP discovery tools (gssdp-discover)
+      become: true
+      ansible.builtin.dnf:
+        name:
+          - gupnp-tools
+        state: present
+
+    # ----------------------------------------------------------------
+    # gyrc - GTK 3 GUI controller (opt-in: --tags gyrc)
+    # tags 'never' means these tasks only run when 'gyrc' is explicitly selected
+    # ----------------------------------------------------------------
+    - name: Ensure ~/.local/bin exists (gyrc launcher target)
+      ansible.builtin.file:
+        path: "{{ local_bin }}"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+      tags:
+        - never
+        - gyrc
+
+    - name: Install gyrc system dependencies (GTK 3, PyGObject, git)
+      become: true
+      ansible.builtin.dnf:
+        name:
+          - git
+          - gtk3
+          - python3-gobject
+          - python3-pip
+          - python3-virtualenv
+        state: present
+      tags:
+        - never
+        - gyrc
+
+    - name: Clone gyrc repository
+      ansible.builtin.git:
+        repo: "{{ gyrc_repo }}"
+        dest: "{{ gyrc_dir }}"
+        update: true
+      become: true
+      become_user: "{{ user_login }}"
+      tags:
+        - never
+        - gyrc
+
+    - name: Create gyrc venv with system site-packages (PyGObject is dnf-only)
+      ansible.builtin.command:
+        cmd: "python3 -m venv --system-site-packages {{ gyrc_venv }}"
+        creates: "{{ gyrc_venv }}/bin/python3"
+      become: true
+      become_user: "{{ user_login }}"
+      tags:
+        - never
+        - gyrc
+
+    - name: Install gyrc Python deps into venv (pymusiccast, requests)
+      ansible.builtin.pip:
+        name:
+          - pymusiccast
+          - requests
+        virtualenv: "{{ gyrc_venv }}"
+      become: true
+      become_user: "{{ user_login }}"
+      tags:
+        - never
+        - gyrc
+
+    - name: Install gyrc launcher script (activates venv, runs ./gyrc)
+      ansible.builtin.copy:
+        content: |
+          #!/bin/bash
+          # gyrc launcher - Yamaha receiver GTK GUI (EXPERIMENTAL)
+          # Upstream dormant since 2020 - if it breaks, it breaks.
+          # @see https://github.com/balinbob/yrc
+          set -e
+          source "{{ gyrc_venv }}/bin/activate"
+          cd "{{ gyrc_dir }}"
+          exec ./gyrc "$@"
+        dest: "{{ local_bin }}/gyrc"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+      tags:
+        - never
+        - gyrc
+
+    - name: Show gyrc install summary
+      ansible.builtin.debug:
+        msg:
+          - "✓ gyrc cloned to {{ gyrc_dir }}"
+          - "✓ Launcher: {{ local_bin }}/gyrc"
+          - "Run: gyrc"
+          - "Note: upstream dormant since 2020 - report issues, don't expect fixes"
+      tags:
+        - never
+        - gyrc
