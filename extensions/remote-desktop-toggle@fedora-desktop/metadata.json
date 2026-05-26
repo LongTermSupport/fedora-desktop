@@ -1,0 +1,7 @@
+{
+    "uuid": "remote-desktop-toggle@fedora-desktop",
+    "name": "Remote Desktop Toggle",
+    "description": "Quick-settings toggle that starts/stops gnome-remote-desktop and opens a LAN-scoped firewall hole while ON. Off by default and off after reboot. Calls ~/.local/bin/rdt for all state changes.",
+    "shell-version": ["47", "48", "49"],
+    "version": 1
+}

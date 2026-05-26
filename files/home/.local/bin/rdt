@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+# rdt — Remote Desktop Toggle
+#
+# Starts/stops gnome-remote-desktop (existing-session RDP) and opens/closes a
+# LAN-scoped firewalld rich-rule for the RDP service. Designed to be off by
+# default, off after reboot (firewall rule is non-permanent, user service is
+# not enabled).
+#
+# Companion to: playbooks/imports/optional/common/play-remote-desktop-toggle.yml
+# Companion to: extensions/remote-desktop-toggle@fedora-desktop/
+
+set -euo pipefail
+
+readonly CONF=/etc/rdt/rdt.conf
+readonly SERVICE=gnome-remote-desktop.service
+
+# Required: set ALLOWED_CIDRS via $CONF before first use. No default baked in —
+# deliberate per-host configuration is enforced so we never open the firewall to
+# a range the user didn't actually intend.
+ALLOWED_CIDRS=""
+
+if [[ -r $CONF ]]; then
+    # shellcheck disable=SC1090
+    source "$CONF"
+fi
+
+require_cidrs() {
+    if [[ -z "${ALLOWED_CIDRS// /}" ]]; then
+        cat >&2 <<EOM
+rdt: ALLOWED_CIDRS is not configured.
+
+Edit $CONF and set ALLOWED_CIDRS to your LAN range, e.g.:
+    ALLOWED_CIDRS="<lan-network>/24"
+
+This is required so the firewall is only opened to a range you have
+explicitly approved.
+EOM
+        exit 2
+    fi
+}
+
+usage() {
+    cat >&2 <<USAGE
+Usage: rdt {on|off|toggle|status}
+
+  on      Start gnome-remote-desktop and open RDP to the configured LAN CIDRs
+  off     Stop the service and close all opened firewall rules
+  toggle  Flip the current state
+  status  Print 'ON' or 'OFF' (exit 0 if ON, 1 if OFF)
+
+Config: $CONF
+  ALLOWED_CIDRS  Space-separated list of IPv4 CIDRs allowed to connect.
+                 Current: ${ALLOWED_CIDRS:-(not configured — edit $CONF)}
+USAGE
+    exit 1
+}
+
+rule_for() {
+    printf 'rule family=ipv4 source address=%s service name=rdp accept' "$1"
+}
+
+is_on() {
+    systemctl --user is-active --quiet "$SERVICE"
+}
+
+turn_on() {
+    require_cidrs
+    if ! is_on; then
+        systemctl --user start "$SERVICE"
+    fi
+    for cidr in $ALLOWED_CIDRS; do
+        local rule
+        rule=$(rule_for "$cidr")
+        if ! sudo firewall-cmd --query-rich-rule="$rule" >/dev/null; then
+            sudo firewall-cmd --add-rich-rule="$rule" >/dev/null
+        fi
+    done
+    echo "Remote Desktop: ON"
+    echo "  Allowed CIDRs: $ALLOWED_CIDRS"
+    ip -4 -o addr show scope global | awk '{print "  Listen address: " $4}'
+}
+
+turn_off() {
+    for cidr in $ALLOWED_CIDRS; do
+        local rule
+        rule=$(rule_for "$cidr")
+        if sudo firewall-cmd --query-rich-rule="$rule" >/dev/null; then
+            sudo firewall-cmd --remove-rich-rule="$rule" >/dev/null
+        fi
+    done
+    if is_on; then
+        systemctl --user stop "$SERVICE"
+    fi
+    echo "Remote Desktop: OFF"
+}
+
+cmd=${1:-status}
+case "$cmd" in
+    on)     turn_on ;;
+    off)    turn_off ;;
+    toggle)
+        if is_on; then
+            turn_off
+        else
+            turn_on
+        fi
+        ;;
+    status)
+        if is_on; then
+            echo "ON"
+            exit 0
+        else
+            echo "OFF"
+            exit 1
+        fi
+        ;;
+    -h|--help|help) usage ;;
+    *) usage ;;
+esac

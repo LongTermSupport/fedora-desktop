@@ -19,7 +19,7 @@
 # upstream's CUDA/ORT version choices. The download is SHA256-verified
 # against the manifest entry.
 #
-# @see CLAUDE/Plan/00039-darktable-ai-features/ Phase 3
+# @see CLAUDE/Plan/00042-darktable-ai-features/ Phase 3
 
 - hosts: desktop
   name: Install GPU ONNX Runtime for darktable AI

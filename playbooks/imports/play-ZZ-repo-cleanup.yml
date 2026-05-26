@@ -1,0 +1,45 @@
+#!/usr/bin/env ansible-playbook
+---
+# Repository cleanup — assert that orphaned third-party repos / COPRs
+# are removed from the system.
+#
+# Why this play exists:
+#   A previous version of this repo enabled certain COPRs / third-party
+#   repos that have since been removed from the playbook set. The COPR
+#   files persist on the host as drift. Rather than rely on memory or
+#   the user spotting them, we list every "should-not-exist" repo here
+#   and the play converges the host to that state on every main run.
+#
+# Position in playbook-main.yml:
+#   This play has `ZZ` in the filename so it sorts last in `imports/`,
+#   guaranteeing it runs AFTER all the plays that legitimately add
+#   COPRs / repos (otherwise it could fight them).
+#
+# Adding a new orphan to clean up:
+#   - Append to the loop in "Remove orphaned COPRs".
+#   - Or for non-COPR .repo files, add a separate ansible.builtin.file
+#     task targeting the .repo path with state=absent.
+- hosts: desktop
+  name: Repository cleanup — remove orphaned third-party repos / COPRs
+  become: true
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  vars_files:
+    - "{{ root_dir }}/vars/fedora-version.yml"
+  tasks:
+    - name: Remove orphaned COPRs (idempotent via `removes:` guard)
+      # Each entry maps to a /etc/yum.repos.d/_copr:copr.fedorainfracloud.org:<owner>:<repo>.repo
+      # file. `removes:` makes the task a no-op when the file is gone.
+      ansible.builtin.command:
+        cmd: "dnf copr remove -y {{ item.copr }}"
+        removes: "/etc/yum.repos.d/_copr:copr.fedorainfracloud.org:{{ item.copr | replace('/', ':') }}.repo"
+      loop:
+        # phracek/PyCharm — was enabled by a since-deleted play.
+        # PyCharm is now JetBrains Toolbox-managed on this project; the
+        # COPR ships no required packages.
+        - copr: phracek/PyCharm
+      loop_control:
+        label: "{{ item.copr }}"
+      tags:
+        - repo-cleanup
+        - copr

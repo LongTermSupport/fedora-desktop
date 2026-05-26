@@ -26,7 +26,7 @@
 # install has succeeded. Bumping darktable_version (along with the tarball
 # SHA-512 and Fedora distgit commit) triggers a fresh rebuild.
 #
-# COVERAGE: see CLAUDE/Plan/00039-darktable-ai-features/ for the decision-gate
+# COVERAGE: see CLAUDE/Plan/00042-darktable-ai-features/ for the decision-gate
 # rationale and Phase 3 (NVIDIA GPU acceleration) follow-up plan.
 
 - hosts: desktop
@@ -369,7 +369,7 @@
 
           Sony A7V (ILCE-7M5) support is now baked into the binary; the post-install
           cameras.xml overlay in play-photography.yml has been retired (see plan
-          CLAUDE/Plan/00039-darktable-ai-features/ Decision 2).
+          CLAUDE/Plan/00042-darktable-ai-features/ Decision 2).
 
           NEXT STEPS to enable AI features (one-time, per-user, GUI):
             1. Launch darktable
@@ -384,7 +384,7 @@
           Models live in ~/.config/darktable/ai/ per-user.
 
           AI features run on CPU by default. For NVIDIA GPU acceleration, see
-          plan 00039 Phase 3 (play-darktable-ai-gpu.yml, follow-up work).
+          plan 00042 Phase 3 (play-darktable-ai-gpu.yml, follow-up work).
 
           REBUILDS: this playbook is idempotent. Bump darktable_version +
           darktable_tarball_sha512 + darktable_distgit_commit together and

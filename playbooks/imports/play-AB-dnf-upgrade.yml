@@ -1,0 +1,234 @@
+#!/usr/bin/env ansible-playbook
+---
+# DNF Upgrade — bring all packages to latest available versions.
+#
+# Runs early in playbook-main.yml (right after preflight-sanity) so a
+# fresh install OR a stale running system starts the rest of the
+# workflow with up-to-date packages and security patches. Idempotent:
+# a no-op if everything is already current.
+#
+# Respects existing versionlocks. See `play-advanced-kernel-management.yml`
+# which locks the highest patch of the PREVIOUS-minor kernel as a
+# hardware-compat fallback. The versionlock on the `kernel` metapackage
+# transitively protects all the sub-packages (kernel-core, kernel-modules,
+# kernel-modules-extra, kernel-modules-core) via Requires, so this play
+# can safely run `dnf upgrade *` without losing the fallback.
+#
+# History: created 2026-05-22 in response to Plan 00043 (IPU6 webcam
+# playbook fallout). The IPU6 play installed `akmod-intel-ipu6` which
+# dragged in `kernel-devel-matched`. That pulled `kernel-core-7.0.9-104`
+# + `kernel-modules-core-7.0.9-104` but NOT `kernel-modules` /
+# `kernel-modules-extra` for 7.0.9 (because the parent `kernel`
+# metapackage was versionlocked at the previous-minor 6.19.14, blocking
+# the full set). Result was a kernel with no iwlwifi.ko / btusb.ko on
+# disk. Running this play resolves that half-install state by upgrading
+# the sub-packages to the latest matching version, restoring radios.
+#
+# Tags: `upgrade`, `dnf`, `early`.
+- hosts: desktop
+  name: DNF Upgrade — refresh and upgrade all packages
+  become: true
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  vars_files:
+    - "{{ root_dir }}/vars/fedora-version.yml"
+  tasks:
+    - name: Refresh DNF metadata cache
+      ansible.builtin.dnf:
+        update_cache: true
+      tags:
+        - upgrade
+        - dnf
+
+    - name: Display current kernel and installed kernel-core versions
+      ansible.builtin.command: rpm -q kernel-core --queryformat '%{VERSION}-%{RELEASE}\n'
+      register: pre_upgrade_kernels
+      changed_when: false
+      tags:
+        - upgrade
+        - dnf
+
+    - name: Read running kernel from uname -r
+      # ansible_kernel / ansible_facts['kernel'] return stale or wrong data
+      # on some Ansible 2.20 + Fedora 43 combinations — always use uname.
+      ansible.builtin.command: uname -r
+      register: running_kernel
+      changed_when: false
+      tags:
+        - upgrade
+        - dnf
+
+    - name: Show pre-upgrade kernel state
+      ansible.builtin.debug:
+        msg:
+          - "Running kernel: {{ running_kernel.stdout }}"
+          - "Installed kernel-core versions:"
+          - "{{ pre_upgrade_kernels.stdout_lines }}"
+      tags:
+        - upgrade
+        - dnf
+
+    - name: Upgrade all packages to latest available
+      ansible.builtin.dnf:
+        name: "*"
+        state: latest
+        update_only: false
+      register: dnf_upgrade
+      tags:
+        - upgrade
+        - dnf
+
+    - name: Detect if kernel was changed during upgrade
+      ansible.builtin.command: rpm -q kernel-core --queryformat '%{VERSION}-%{RELEASE}\n'
+      register: post_upgrade_kernels
+      changed_when: false
+      tags:
+        - upgrade
+        - dnf
+
+    - name: Show post-upgrade kernel state
+      ansible.builtin.debug:
+        msg:
+          - "Installed kernel-core versions after upgrade:"
+          - "{{ post_upgrade_kernels.stdout_lines }}"
+          - ""
+          - "{{ 'KERNEL CHANGED — reboot to activate the new kernel.' if (pre_upgrade_kernels.stdout != post_upgrade_kernels.stdout) else 'Kernel unchanged.' }}"
+      tags:
+        - upgrade
+        - dnf
+
+    # Half-install cleanup — a kernel-core-X is considered half-installed if
+    # there is no matching kernel-modules-X. This pattern occurred 2026-05-21
+    # when akmod-intel-ipu6 dragged in kernel-core-7.0.9-104 + kernel-modules-
+    # core-7.0.9-104 without the kernel-modules / kernel-modules-extra subpkgs
+    # (because the parent `kernel` metapackage was versionlocked at the
+    # previous-minor). Result: a "kernel" with no iwlwifi.ko / btusb.ko etc.
+    # We detect and remove such half-installs so they don't clutter grub.
+    - name: Enumerate installed kernel-core versions
+      ansible.builtin.command: rpm -q kernel-core --queryformat '%{VERSION}-%{RELEASE} '
+      register: kc_versions
+      changed_when: false
+      tags:
+        - upgrade
+        - dnf
+
+    - name: Enumerate installed kernel-modules versions
+      ansible.builtin.command: rpm -q kernel-modules --queryformat '%{VERSION}-%{RELEASE} '
+      register: km_versions
+      changed_when: false
+      tags:
+        - upgrade
+        - dnf
+
+    - name: Identify half-installed kernels (kernel-core without matching kernel-modules)
+      ansible.builtin.set_fact:
+        half_installed_kernels: "{{ kc_versions.stdout.split() | difference(km_versions.stdout.split()) | list }}"
+      tags:
+        - upgrade
+        - dnf
+
+    - name: Report half-installed kernels (if any)
+      ansible.builtin.debug:
+        msg:
+          - "Half-installed kernel versions detected: {{ half_installed_kernels }}"
+          - "These have kernel-core but no kernel-modules — would boot but with no drivers."
+          - "Removing all related sub-packages."
+      when: half_installed_kernels | length > 0
+      tags:
+        - upgrade
+        - dnf
+
+    - name: Resolve ALL packages tied to each half-installed kernel version
+      # For each half-installed version <V>, gather:
+      #   1. Direct kernel sub-packages (kernel-core-<V>, kernel-modules-core-<V>,
+      #      kernel-devel-<V>, etc.) — these are the half-install itself.
+      #   2. RPM Fusion akmod-built kmods (kmod-<name>-<V>.x86_64-…) — these
+      #      embed <V> in the package NAME (NOT the version field), so they
+      #      must come out together with the kernel they bind to or dnf
+      #      depsolve refuses (kmod's Requires: kernel-uname-r = <V> would
+      #      become unsatisfiable). We match by NAME containing <V>.
+      ansible.builtin.shell: |
+        set -eo pipefail
+        v="{{ item }}"
+        v_escaped="${v//./\\.}"
+        # Direct kernel sub-packages at this version
+        rpm -qa --queryformat '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n' \
+          'kernel-core' 'kernel-modules-core' 'kernel-modules' 'kernel-modules-extra' \
+          'kernel-devel' 'kernel-devel-matched' 'kernel-tools' 'kernel-tools-libs' \
+          'python3-perf' 2>/dev/null \
+          | grep -E "\-${v_escaped}\." || true
+        # Akmod kmods — name pattern: kmod-<anything>-<v>.x86_64-<kmod_ver>
+        # rpm -qa with glob matches the package NAME, not NEVRA.
+        rpm -qa "kmod-*-${v}.x86_64" 2>/dev/null || true
+      loop: "{{ half_installed_kernels }}"
+      register: half_install_pkg_lookup
+      changed_when: false
+      when: half_installed_kernels | length > 0
+      tags:
+        - upgrade
+        - dnf
+
+    - name: Aggregate removal list (unique, non-empty)
+      ansible.builtin.set_fact:
+        half_install_remove_list: >-
+          {{ half_install_pkg_lookup.results
+             | default([])
+             | map(attribute='stdout_lines')
+             | flatten
+             | reject('equalto', '')
+             | unique
+             | list }}
+      when: half_installed_kernels | length > 0
+      tags:
+        - upgrade
+        - dnf
+
+    - name: Show packages that will be removed
+      ansible.builtin.debug:
+        msg: "{{ half_install_remove_list }}"
+      when:
+        - half_installed_kernels | length > 0
+        - half_install_remove_list | length > 0
+      tags:
+        - upgrade
+        - dnf
+
+    - name: Remove half-installed kernel sub-packages and dependent kmods
+      ansible.builtin.dnf:
+        name: "{{ half_install_remove_list }}"
+        state: absent
+        autoremove: false
+      when:
+        - half_installed_kernels | length > 0
+        - half_install_remove_list | length > 0
+      tags:
+        - upgrade
+        - dnf
+
+    - name: Notify if reboot is required for kernel
+      ansible.builtin.pause:
+        prompt: |2
+
+          ========================================================================
+          KERNEL CHANGE DETECTED — REBOOT REQUIRED
+          ========================================================================
+
+          The kernel package set changed during this upgrade. The currently
+          running kernel ({{ running_kernel.stdout }}) is no longer the
+          newest installed kernel.
+
+          Reboot when convenient to load the new kernel:
+
+            sudo reboot
+
+          Continuing the rest of playbook-main is safe — the playbooks
+          themselves don't require the new kernel. But device-specific
+          drivers (WiFi, Bluetooth, IPU6 camera, etc.) will not benefit
+          from the new kernel until reboot.
+
+          Press ENTER to continue with the rest of the workflow...
+          ========================================================================
+      when: pre_upgrade_kernels.stdout != post_upgrade_kernels.stdout
+      tags:
+        - upgrade
+        - dnf

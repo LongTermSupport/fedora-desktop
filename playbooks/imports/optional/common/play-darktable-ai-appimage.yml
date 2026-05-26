@@ -9,7 +9,7 @@
 # in darktable 5.6.0, which is NOT released yet (expected ~June 2026). No
 # stable release, RPM, or Flatpak has AI today. The only build with AI is the
 # upstream nightly AppImage, compiled from master with `-DUSE_AI=ON`. See
-# CLAUDE/Plan/00039-darktable-ai-features/ (decision D4) and
+# CLAUDE/Plan/00042-darktable-ai-features/ (decision D4) and
 # research-ai-version-correction.md.
 #
 # SONY A7V: the nightly AppImage's bundled rawspeed cameras.xml carries the
@@ -289,5 +289,5 @@
           This is a development snapshot built from darktable's master branch -
           expect rough edges. Re-run this playbook any time to pull a fresher
           nightly. AI features land in the stable darktable 5.6.0 release
-          (~June 2026); see CLAUDE/Plan/00039-darktable-ai-features/.
+          (~June 2026); see CLAUDE/Plan/00042-darktable-ai-features/.
       tags: darktable-ai-appimage

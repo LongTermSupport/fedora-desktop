@@ -19,7 +19,7 @@ broadly accurate because it was always sourced from `master`.
   (expected ~June 2026 on darktable's ~6-month cadence).
 - The build flag `-DUSE_AI=ON` (or `./build.sh --enable-ai`) is real — but
   only on the `master` branch / the upcoming 5.6.0, not on 5.4.1.
-- Plan 00039 pinned **5.4.1**, the latest *stable* release. The Phase 2 mock
+- Plan 00042 pinned **5.4.1**, the latest *stable* release. The Phase 2 mock
   build succeeded mechanically and produced a working darktable 5.4.1 with the
   Sony A7V fix — but `-DUSE_AI=ON` was silently ignored, so it has no AI.
 
@@ -138,7 +138,7 @@ wrong for 5.4.1 and correct only for `master` / a future 5.6.0 build.
 
 ---
 
-## Implications for Plan 00039
+## Implications for Plan 00042
 
 - **The Phase 2 playbook cannot deliver AI while pinned to 5.4.1.** The flag
   is a no-op there.

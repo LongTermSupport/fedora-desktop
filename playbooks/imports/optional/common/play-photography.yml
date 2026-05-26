@@ -43,7 +43,7 @@
     # Sony A7V (ILCE-7M5) RAW support: previously patched here via a post-install
     # cameras.xml overlay. Now baked into the binary by the AI-enabled darktable
     # build — see playbooks/imports/optional/common/play-darktable-ai-build.yml
-    # and CLAUDE/Plan/00039-darktable-ai-features/ Decision 2 for rationale.
+    # and CLAUDE/Plan/00042-darktable-ai-features/ Decision 2 for rationale.
     # Users who do NOT run the AI build playbook will not have A7V support in
     # the stock Fedora darktable RPM (no Fedora release ships A7V natively yet).
 
@@ -200,6 +200,54 @@
         mode: "0755"
       tags: raw-prune
 
+    # clip-scan — bulk-flag raw frames with excessive highlight / shadow
+    # clipping by renaming with .wclip / .bclip sub-extensions. Decodes
+    # Sony ARW via LibRaw (rawpy); falls back to Pillow for JPG-only
+    # files. See CLAUDE/Plan/00040-raw-clipping-scanner/ for the full
+    # design.
+    #
+    # rawpy install strategy: Fedora has no python3-rawpy package as of F43,
+    # so we go straight to pip --user. Pillow IS in Fedora repos, but we
+    # install it the same way for symmetry and to avoid an extra system task.
+    - name: Probe python3-rawpy Availability in Fedora Repos
+      ansible.builtin.command:
+        cmd: dnf info python3-rawpy
+      register: rawpy_dnf_probe
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe; rc != 0 == "package not in repos", a valid state we branch on
+      tags: clip-scan
+
+    - name: Install rawpy via System Package
+      ansible.builtin.package:
+        name: python3-rawpy
+        state: present
+      when: rawpy_dnf_probe.rc == 0
+      tags: clip-scan
+
+    - name: Install rawpy via pip --user (Fallback)
+      ansible.builtin.pip:
+        name: rawpy
+        extra_args: --user
+      become: true
+      become_user: "{{ user_login }}"
+      when: rawpy_dnf_probe.rc != 0
+      tags: clip-scan
+
+    - name: Install Pillow via System Package
+      ansible.builtin.package:
+        name: python3-pillow
+        state: present
+      tags: clip-scan
+
+    - name: Install clip-scan Helper Script
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/clip-scan"
+        dest: "/home/{{ user_login }}/.local/bin/clip-scan"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+      tags: clip-scan
+
     - name: Display Installation Complete Message
       ansible.builtin.debug:
         msg: |
@@ -218,6 +266,10 @@
                                    with improved tone mapping, masking, and local edits
             raw-prune            - Recursively delete RAWs in CWD with no matching JPG
                                    (run with --help for usage and --dry-run to preview)
+            clip-scan            - Bulk-flag raw frames with excessive highlight/shadow
+                                   clipping; renames matches with .wclip / .bclip
+                                   sub-extensions. Dry-run by default — use --apply
+                                   to commit. See --help.
 
           Sony A7V (ILCE-7M5) support: NOT included in this playbook anymore.
           A7V is baked into the AI-enabled darktable build — run
@@ -225,7 +277,7 @@
           to get a darktable RPM that includes both -DUSE_AI=ON and the A7V
           cameras.xml. Without that build, the stock Fedora darktable RPM
           does not decode A7V .ARW files (no Fedora release ships A7V
-          natively yet — see plan 00039 for the migration rationale).
+          natively yet — see plan 00042 for the migration rationale).
 
           Launch from the applications menu, or on the command line:
             rawtherapee
@@ -238,3 +290,4 @@
             rapidraw
             ART
             raw-prune --help
+            clip-scan --help

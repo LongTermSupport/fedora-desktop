@@ -1,0 +1,56 @@
+#!/usr/bin/env ansible-playbook
+---
+# Laptop thermal & diagnostics setup.
+#
+# Tasks here:
+#
+# 1. Mask `thermald.service`. On Lenovo laptops with DYTC (Dynamic
+#    Thermal Control) firmware — which includes the X1 Carbon Gen
+#    10/11/12 — thermald detects `dytc_lapmode` at startup and
+#    immediately exits, deferring all thermal management to firmware.
+#    The unit remains "enabled" though, which is misleading on
+#    `systemctl status` and wastes a few ms of boot time. Mask it so
+#    the systemd state matches reality.
+#
+#    Reversal: `sudo systemctl unmask thermald.service` and restart.
+#    Only needed if the firmware DYTC stops doing its job, which has
+#    never happened on a supported ThinkPad in the wild.
+#
+# 2. Install `lm_sensors` so `sensors` (and `sensors-detect`) are
+#    universally available for ad-hoc thermal / fan / voltage queries
+#    when debugging laptop hardware. No `sensors-detect` automation —
+#    on modern Lenovo ACPI-driven systems, lm_sensors auto-discovers
+#    via the kernel hwmon subsystem without scanning, and running
+#    `sensors-detect` interactively probes hardware which is not
+#    something Ansible should do unattended.
+#
+# Discovered via Plan 00044 (laptop health audit).
+- hosts: desktop
+  name: Laptop thermal management cleanup + diagnostic tools
+  become: true
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+  vars_files:
+    - "{{ root_dir }}/vars/fedora-version.yml"
+  tasks:
+    - name: Install lm_sensors for ad-hoc thermal / voltage diagnostics
+      ansible.builtin.dnf:
+        name:
+          - lm_sensors
+        state: present
+      tags:
+        - packages
+        - diagnostics
+
+    - name: Mask thermald.service — DYTC firmware handles thermals on Lenovo
+      # thermald exits at boot after detecting dytc_lapmode and adds no
+      # value; masking prevents systemd reporting it as "enabled" when
+      # it does nothing. See Plan 00044 research-04-power-thermal.md.
+      ansible.builtin.systemd:
+        name: thermald.service
+        masked: true
+        enabled: false
+        state: stopped
+      tags:
+        - systemd
+        - thermal

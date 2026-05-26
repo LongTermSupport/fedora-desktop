@@ -73,7 +73,7 @@
     # NVIDIA-built .so files) into /opt/cudnn and put on the linker path.
     #
     # Disable with: nvidia_install_cuda: false  (in host_vars/localhost.yml)
-    # @see CLAUDE/Plan/00039-darktable-ai-features/ Phase 3
+    # @see CLAUDE/Plan/00042-darktable-ai-features/ Phase 3
 
     - name: Configure NVIDIA CUDA repository (driver/kmod packages excluded)
       ansible.builtin.yum_repository:

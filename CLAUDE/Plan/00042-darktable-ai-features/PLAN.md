@@ -1,4 +1,4 @@
-# Plan 00039: Darktable AI Features
+# Plan 00042: Darktable AI Features
 
 **Status**: AI path delivered (Phase 2-alt) and Phase 3 (GPU) implemented.
 Per **D4**, `darktable-ai` (the AI nightly, A7V verified) is installed
