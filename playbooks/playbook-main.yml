@@ -19,6 +19,7 @@
 - import_playbook: imports/play-browsers.yml
 - import_playbook: imports/play-toolbox-install.yml
 - import_playbook: imports/play-docker.yml
+- import_playbook: imports/play-lxc-docker-iptables.yml
 - import_playbook: imports/play-podman.yml
 - import_playbook: imports/play-python.yml
 - import_playbook: imports/play-claude-code.yml
