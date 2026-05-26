@@ -1,11 +1,49 @@
 #!/usr/bin/env ansible-playbook
 ---
+# LXC install + config.
+#
+# IaC ORDERING: this play MUST run AFTER play-docker.yml. See playbook-main.yml
+# for the canonical order. The "Reconcile iptables" block near the end of this
+# file inserts rules into Docker's DOCKER-USER chain to keep LXC outbound
+# connectivity working on Docker hosts; that chain only exists once Docker is
+# installed and its daemon has run. The first two tasks below fail-fast with a
+# clear error if Docker is missing.
+#
+# Rootless Podman (play-podman.yml) does NOT need to come before LXC — it
+# uses slirp4netns/pasta for networking and does not touch host iptables.
 - hosts: desktop
   name: LXC Install Config
   become: true
   vars:
     root_dir: "{{ inventory_dir }}/../../"
   tasks:
+    # ── IaC Ordering Guard ─────────────────────────────────────────────────────
+    - name: Check whether Docker is installed
+      ansible.builtin.stat:
+        path: /usr/bin/docker
+      register: docker_binary_check
+
+    - name: Assert Docker is installed before LXC (IaC ordering)
+      ansible.builtin.assert:
+        that:
+          - docker_binary_check.stat.exists
+        fail_msg: |
+          Docker is not installed but this play expects Docker to have been
+          installed first.
+
+          ORDERING REQUIREMENT: play-docker.yml must run before
+          play-lxc-install-config.yml in playbook-main.yml. The LXC play
+          reconciles iptables rules in Docker's DOCKER-USER chain (see the
+          "Reconcile iptables" block later in this file); that chain only
+          exists once Docker is installed.
+
+          To run standalone, install Docker first:
+            ansible-playbook playbooks/imports/play-docker.yml
+            ansible-playbook playbooks/imports/play-lxc-install-config.yml
+
+          Rootless Podman does NOT need to precede LXC — it uses
+          slirp4netns/pasta and does not touch host iptables.
+
     - name: Enable LXD Copr Repository
       community.general.copr:
         name: "ganto/lxc4"
@@ -152,6 +190,88 @@
         - iptable_mangle # Packet modification (TTL, TOS, etc)
         # Note: IPv6 modules are typically auto-loaded by firewalld
       tags: [kernel_modules, lxc_docker]
+
+    # Ensure any pending handlers (e.g. restart lxc-net, sysctl) finish before
+    # we read lxcbr0 state and reconcile iptables.
+    - name: Flush handlers before iptables reconciliation
+      ansible.builtin.meta: flush_handlers
+
+    # ── Reconcile iptables for outbound connectivity (Docker coexistence) ──────
+    # Docker sets FORWARD policy to DROP and inserts the DOCKER-USER chain at
+    # the top of FORWARD. lxc-net's per-bridge ACCEPT rules live in FORWARD but
+    # never execute because DOCKER-USER short-circuits first. The MASQUERADE
+    # rule for the LXC subnet can also disappear during a bridge-recovery
+    # sequence (stop containers → stop lxc-net → ip link delete lxcbr0 →
+    # start lxc-net). Net result: containers boot, get IPs, accept SSH, but
+    # have zero outbound TCP connectivity (curl exit 28).
+    #
+    # IaC ordering: playbook-main.yml runs this play AFTER play-docker.yml,
+    # so DOCKER-USER is guaranteed to exist. We assert it (fail-fast) rather
+    # than probing for a runtime fallback — Docker IS installed because the
+    # IaC says so. The LXC subnet is derived from the live lxcbr0 interface
+    # so a customised LXC_NETWORK still works.
+    #
+    # Caveat: these rules are runtime-only — they vanish on host reboot or on
+    # a Docker daemon restart (which flushes DOCKER-USER). Re-running this
+    # playbook restores them.
+    - name: Assert DOCKER-USER iptables chain exists (Docker must run before LXC)
+      ansible.builtin.command: iptables -n -L DOCKER-USER
+      changed_when: false
+      tags: [lxc_iptables]
+
+    - name: Derive LXC subnet CIDR from live lxcbr0 interface
+      ansible.builtin.shell: |
+        set -o pipefail
+        ip -o -4 route show dev lxcbr0 proto kernel | awk '{print $1}' | head -n1
+      args:
+        executable: /bin/bash
+      register: lxc_subnet_cidr
+      changed_when: false
+      tags: [lxc_iptables]
+
+    - name: Validate LXC subnet CIDR was derived
+      ansible.builtin.assert:
+        that:
+          - lxc_subnet_cidr.stdout | length > 0
+          - "'/' in lxc_subnet_cidr.stdout"
+        fail_msg: "Could not derive lxcbr0 subnet from `ip route show dev lxcbr0 proto kernel`. Is lxc-net running and lxcbr0 up?"
+      tags: [lxc_iptables]
+
+    - name: Probe iptables ACCEPT rule (container → internet) in DOCKER-USER
+      ansible.builtin.command: "iptables -C DOCKER-USER -i lxcbr0 -j ACCEPT"
+      register: iptables_accept_out
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe-then-act — rc explicitly checked below
+      tags: [lxc_iptables]
+
+    - name: Insert iptables ACCEPT rule (container → internet)
+      ansible.builtin.command: "iptables -I DOCKER-USER -i lxcbr0 -j ACCEPT"
+      when: iptables_accept_out.rc != 0
+      tags: [lxc_iptables]
+
+    - name: Probe iptables ACCEPT rule (internet → container) in DOCKER-USER
+      ansible.builtin.command: "iptables -C DOCKER-USER -o lxcbr0 -j ACCEPT"
+      register: iptables_accept_in
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe-then-act — rc explicitly checked below
+      tags: [lxc_iptables]
+
+    - name: Insert iptables ACCEPT rule (internet → container)
+      ansible.builtin.command: "iptables -I DOCKER-USER -o lxcbr0 -j ACCEPT"
+      when: iptables_accept_in.rc != 0
+      tags: [lxc_iptables]
+
+    - name: Probe iptables MASQUERADE rule for LXC subnet
+      ansible.builtin.command: "iptables -t nat -C POSTROUTING -s {{ lxc_subnet_cidr.stdout }} ! -o lxcbr0 -j MASQUERADE"
+      register: iptables_masquerade
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe-then-act — rc explicitly checked below
+      tags: [lxc_iptables]
+
+    - name: Insert iptables MASQUERADE rule for LXC subnet
+      ansible.builtin.command: "iptables -t nat -I POSTROUTING -s {{ lxc_subnet_cidr.stdout }} ! -o lxcbr0 -j MASQUERADE"
+      when: iptables_masquerade.rc != 0
+      tags: [lxc_iptables]
 
     # ── Sanity Checks ──────────────────────────────────────────────────────────
     - name: Sanity — lxc service is active

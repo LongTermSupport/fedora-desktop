@@ -13,13 +13,18 @@
 - import_playbook: imports/play-git-hooks-security.yml
 - import_playbook: imports/play-firefox.yml
 - import_playbook: imports/play-github-cli-multi.yml
-- import_playbook: imports/play-lxc-install-config.yml
 - import_playbook: imports/play-ms-fonts.yml
 - import_playbook: imports/play-rpm-fusion.yml
 - import_playbook: imports/play-browsers.yml
 - import_playbook: imports/play-toolbox-install.yml
 - import_playbook: imports/play-docker.yml
-- import_playbook: imports/play-lxc-docker-iptables.yml
+# LXC runs AFTER Docker so DOCKER-USER chain exists when LXC reconciles
+# iptables for outbound connectivity (Docker coexistence). See the
+# "Reconcile iptables" block in play-lxc-install-config.yml.
+#
+# LXC does NOT need to come after Podman — play-podman.yml installs rootless
+# Podman (slirp4netns/pasta networking), which does not touch host iptables.
+- import_playbook: imports/play-lxc-install-config.yml
 - import_playbook: imports/play-podman.yml
 - import_playbook: imports/play-python.yml
 - import_playbook: imports/play-claude-code.yml
