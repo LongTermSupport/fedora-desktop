@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+#
+# darktable-ai — launcher for the darktable nightly build (compiled from
+# darktable's master branch with the AI subsystem: neural restore + the
+# interactive AI object-mask tool).
+#
+# WHY AN EXTRACTED AppDir, NOT THE RAW AppImage:
+# The upstream nightly AppImage ships a rawspeed cameras.xml in which the
+# Sony A7V (ILCE-7M5) is only a non-functional stub (supported="unknown-no-
+# samples", no sensor data) — it cannot decode A7V .ARW files. darktable
+# has no user-level cameras.xml override; it only reads the copy in its
+# data directory. So the playbook extracts the AppImage to a stable AppDir
+# and overlays the working A7V cameras.xml there. This launcher runs that
+# extracted AppDir.
+#
+# WHY A WRAPPER, NOT A BARE SYMLINK:
+# This nightly coexists with the stable darktable RPM. darktable migrates
+# its library/settings database schema forward on launch; if the nightly
+# and the RPM shared ~/.config/darktable the newer nightly would upgrade
+# the database and the older RPM could then fail to open it. So this
+# launcher pins the nightly to a SEPARATE config + cache directory. The
+# nightly therefore starts with its own (empty) library — the safe,
+# intended behaviour for an experimental build.
+#
+# GPU ACCELERATION (self-detecting):
+# If the GPU-enabled ONNX Runtime has been installed
+# (play-darktable-ai-gpu.yml → ~/.local/lib/onnxruntime-cuda/), this
+# launcher points darktable at it via DT_ORT_LIBRARY. If it is absent,
+# darktable uses its bundled CPU-only ONNX Runtime. No GPU install simply
+# means CPU inference — no error, nothing to configure.
+#
+# Deployed by:
+#   playbooks/imports/optional/common/play-darktable-ai-appimage.yml
+#   playbooks/imports/optional/hardware-specific/play-darktable-ai-gpu.yml
+
+set -euo pipefail
+
+apprun="/opt/darktable-ai/AppDir/AppRun"
+
+if [[ ! -x "${apprun}" ]]; then
+    echo "darktable-ai: extracted AppDir not found at ${apprun}" >&2
+    echo "darktable-ai: deploy it with" >&2
+    echo "  ansible-playbook playbooks/imports/optional/common/play-darktable-ai-appimage.yml" >&2
+    exit 1
+fi
+
+# Use the GPU ONNX Runtime if it has been installed; otherwise fall through
+# to darktable's bundled CPU runtime.
+gpu_ort_dir="${HOME}/.local/lib/onnxruntime-cuda"
+gpu_ort_lib="${gpu_ort_dir}/libonnxruntime.so"
+if [[ -e "${gpu_ort_lib}" ]]; then
+    export DT_ORT_LIBRARY="${gpu_ort_lib}"
+    export LD_LIBRARY_PATH="${gpu_ort_dir}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+fi
+
+exec "${apprun}" \
+    --configdir "${HOME}/.config/darktable-ai" \
+    --cachedir "${HOME}/.cache/darktable-ai" \
+    "$@"

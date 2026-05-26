@@ -1,0 +1,293 @@
+#!/usr/bin/env ansible-playbook
+---
+# Install the darktable nightly build as a SEPARATE `darktable-ai` app,
+# coexisting with the stable, A7V-enabled darktable RPM built by
+# play-darktable-ai-build.yml.
+#
+# WHY: darktable's AI subsystem — the neural-restore module (raw/image denoise,
+# upscale) and the interactive AI object-mask tool (SAM2.1 / SegNext) — ships
+# in darktable 5.6.0, which is NOT released yet (expected ~June 2026). No
+# stable release, RPM, or Flatpak has AI today. The only build with AI is the
+# upstream nightly AppImage, compiled from master with `-DUSE_AI=ON`. See
+# CLAUDE/Plan/00042-darktable-ai-features/ (decision D4) and
+# research-ai-version-correction.md.
+#
+# SONY A7V: the nightly AppImage's bundled rawspeed cameras.xml carries the
+# Sony A7V (ILCE-7M5) only as a non-functional stub (supported="unknown-no-
+# samples", no sensor data), so it cannot decode A7V .ARW files. darktable has
+# no user-level cameras.xml override — it only reads {datadir}/rawspeed/
+# cameras.xml. Therefore this playbook EXTRACTS the AppImage to a stable AppDir
+# and overlays the working A7V cameras.xml (the same pinned rawspeed file the
+# RPM build uses) into it. The launcher runs the extracted AppDir.
+#
+# ROLLING RELEASE: the nightly is published under a single `nightly` git tag,
+# and the AppImage filename embeds a git-describe string that changes every
+# build. So this playbook discovers the current asset from the GitHub releases
+# API at run time rather than pinning a version + checksum. A marker file
+# (.source-appimage inside the AppDir) records which nightly is extracted, so
+# re-runs are a no-op until upstream publishes a newer build.
+#
+# COEXISTENCE: the stable darktable RPM stays at /usr/bin/darktable. This
+# nightly installs to /opt/darktable-ai/AppDir and is launched via the wrapper
+# /usr/local/bin/darktable-ai, which pins it to an isolated config + cache
+# directory (~/.config/darktable-ai) so the two darktable versions cannot
+# corrupt each other's library database. See files/usr/local/bin/darktable-ai.
+
+- hosts: desktop
+  name: Install darktable AI Nightly (darktable-ai, with Sony A7V)
+  become: true
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+
+    # GitHub releases API for the rolling `nightly` tag.
+    dt_ai_release_api: "https://api.github.com/repos/darktable-org/darktable/releases/tags/nightly"
+
+    dt_ai_install_dir: "/opt/darktable-ai"
+    dt_ai_appdir: "{{ dt_ai_install_dir }}/AppDir"
+    dt_ai_marker: "{{ dt_ai_appdir }}/.source-appimage"
+    dt_ai_bin: "/usr/local/bin/darktable-ai"
+    dt_ai_download_tmp: "/var/tmp/darktable-ai-download"
+
+    # Working Sony A7V cameras.xml — the SAME pinned rawspeed file the RPM
+    # build (play-darktable-ai-build.yml) uses. Overlaid into the AppDir's
+    # data directory at runtime; no cameras.xsd needed (the build-time
+    # validate-cameras.xml step does not run for a pre-built AppImage).
+    rawspeed_commit: "aa9028af9c563ebd4d8e6c5b74f05b0db1233d14"
+    rawspeed_cameras_xml_url: "https://raw.githubusercontent.com/darktable-org/rawspeed/{{ rawspeed_commit }}/data/cameras.xml"
+    rawspeed_cameras_xml_sha256: "d3d4d97f368c24da587350d68f51fe11fedfb307c6b2c960a5b6aa441c648d57"
+
+  tasks:
+    - name: Preflight - assert Fedora target distribution
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == 'Fedora'
+        fail_msg: "This playbook targets Fedora. Detected: {{ ansible_distribution }}."
+      tags: darktable-ai-appimage
+
+    - name: Query darktable nightly release metadata from GitHub
+      ansible.builtin.uri:
+        url: "{{ dt_ai_release_api }}"
+        return_content: true
+        headers:
+          Accept: "application/vnd.github+json"
+      register: dt_ai_release
+      changed_when: false
+      tags: darktable-ai-appimage
+
+    - name: Find the x86_64 AppImage asset in the nightly release
+      ansible.builtin.set_fact:
+        # `.zsync` siblings are excluded by anchoring the match on the end of
+        # the name.
+        dt_ai_appimage_assets: >-
+          {{ dt_ai_release.json.assets
+             | selectattr('name', 'search', '-x86_64[.]AppImage$')
+             | list }}
+      tags: darktable-ai-appimage
+
+    - name: Assert exactly one x86_64 AppImage asset was found
+      ansible.builtin.assert:
+        that:
+          - dt_ai_appimage_assets | length == 1
+        fail_msg: >-
+          Expected exactly one x86_64 AppImage in the darktable nightly
+          release assets; found {{ dt_ai_appimage_assets | length }}.
+          The upstream asset naming may have changed - review
+          {{ dt_ai_release_api }}.
+      tags: darktable-ai-appimage
+
+    - name: Record the selected nightly AppImage asset
+      ansible.builtin.set_fact:
+        dt_ai_asset_name: "{{ dt_ai_appimage_assets[0].name }}"
+        dt_ai_asset_url: "{{ dt_ai_appimage_assets[0].browser_download_url }}"
+        # GitHub exposes a `sha256:...` digest on recent assets; absent on
+        # older ones, in which case get_url falls back to no checksum (the
+        # download is still HTTPS from the official darktable repo).
+        dt_ai_asset_digest: "{{ dt_ai_appimage_assets[0].digest | default('') }}"
+      tags: darktable-ai-appimage
+
+    - name: Check for the AppDir build marker
+      ansible.builtin.stat:
+        path: "{{ dt_ai_marker }}"
+      register: dt_ai_marker_stat
+      changed_when: false
+      tags: darktable-ai-appimage
+
+    - name: Read the AppDir build marker
+      ansible.builtin.slurp:
+        src: "{{ dt_ai_marker }}"
+      register: dt_ai_marker_content
+      when: dt_ai_marker_stat.stat.exists
+      changed_when: false
+      tags: darktable-ai-appimage
+
+    - name: Decide whether the AppDir already matches the current nightly
+      ansible.builtin.set_fact:
+        # Short-circuits: dt_ai_marker_content is only referenced when the
+        # marker file exists.
+        dt_ai_appdir_current: >-
+          {{ dt_ai_marker_stat.stat.exists
+             and (dt_ai_marker_content.content | b64decode | trim) == dt_ai_asset_name }}
+      tags: darktable-ai-appimage
+
+    - name: Report install status
+      ansible.builtin.debug:
+        msg: >-
+          darktable nightly: {{ dt_ai_asset_name }} -
+          {{ 'already extracted, no rebuild needed' if dt_ai_appdir_current
+             else 'will download and extract' }}
+      tags: darktable-ai-appimage
+
+    - name: Download, extract and patch the darktable nightly
+      when: not dt_ai_appdir_current
+      tags: darktable-ai-appimage
+      block:
+        - name: Create the download staging directory
+          ansible.builtin.file:
+            path: "{{ dt_ai_download_tmp }}"
+            state: directory
+            owner: root
+            group: root
+            mode: "0755"
+
+        - name: Download the darktable nightly AppImage (~180 MB)
+          ansible.builtin.get_url:
+            url: "{{ dt_ai_asset_url }}"
+            dest: "{{ dt_ai_download_tmp }}/{{ dt_ai_asset_name }}"
+            checksum: "{{ dt_ai_asset_digest if dt_ai_asset_digest else omit }}"
+            owner: root
+            group: root
+            mode: "0755"
+
+        - name: Extract the AppImage into a stable AppDir
+          ansible.builtin.shell:
+            cmd: |
+              set -euo pipefail
+              cd "{{ dt_ai_download_tmp }}"
+              rm -rf squashfs-root
+              "./{{ dt_ai_asset_name }}" --appimage-extract
+              rm -rf "{{ dt_ai_appdir }}"
+              mv squashfs-root "{{ dt_ai_appdir }}"
+          changed_when: true
+
+        - name: Overlay the working Sony A7V cameras.xml into the AppDir
+          ansible.builtin.get_url:
+            url: "{{ rawspeed_cameras_xml_url }}"
+            dest: "{{ dt_ai_appdir }}/usr/share/darktable/rawspeed/cameras.xml"
+            checksum: "sha256:{{ rawspeed_cameras_xml_sha256 }}"
+            owner: root
+            group: root
+            mode: "0644"
+
+        - name: Verify the A7V cameras.xml overlay landed and is functional
+          ansible.builtin.command:
+            cmd: >-
+              grep -qE '<Camera make="SONY" model="ILCE-7M5">'
+              {{ dt_ai_appdir }}/usr/share/darktable/rawspeed/cameras.xml
+          changed_when: false
+
+        - name: Write the AppDir build marker
+          ansible.builtin.copy:
+            dest: "{{ dt_ai_marker }}"
+            content: "{{ dt_ai_asset_name }}\n"
+            owner: root
+            group: root
+            mode: "0644"
+
+        - name: Remove the downloaded AppImage (the extracted AppDir is what runs)
+          ansible.builtin.file:
+            path: "{{ dt_ai_download_tmp }}/{{ dt_ai_asset_name }}"
+            state: absent
+
+    - name: Remove the legacy bare-AppImage install (pre-AppDir layout)
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ dt_ai_install_dir }}/darktable-ai.AppImage"
+      tags: darktable-ai-appimage
+
+    - name: Find leftover bare nightly AppImages from the pre-AppDir layout
+      ansible.builtin.find:
+        paths: "{{ dt_ai_install_dir }}"
+        patterns: "Darktable-*-x86_64.AppImage"
+        file_type: file
+      register: dt_ai_legacy_appimages
+      tags: darktable-ai-appimage
+
+    - name: Remove leftover bare nightly AppImages
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ dt_ai_legacy_appimages.files }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+      tags: darktable-ai-appimage
+
+    - name: Deploy the darktable-ai launcher wrapper
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/usr/local/bin/darktable-ai"
+        dest: "{{ dt_ai_bin }}"
+        owner: root
+        group: root
+        mode: "0755"
+      tags: darktable-ai-appimage
+
+    - name: Create the darktable-ai desktop entry
+      ansible.builtin.copy:
+        dest: /usr/share/applications/darktable-ai.desktop
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Desktop Entry]
+          Name=darktable (AI nightly)
+          GenericName=Photo Workflow (AI build)
+          Comment=darktable nightly with AI features - neural restore and AI object masks
+          Exec={{ dt_ai_bin }} %F
+          Icon=darktable
+          Terminal=false
+          Type=Application
+          Categories=Graphics;Photography;RasterGraphics;
+          MimeType=image/x-adobe-dng;image/x-dcraw;image/x-sony-arw;image/tiff;image/jpeg;
+      tags: darktable-ai-appimage
+
+    - name: Display installation complete message
+      ansible.builtin.debug:
+        msg: |
+          darktable AI nightly installed as a SEPARATE app:
+
+            Build      : {{ dt_ai_asset_name }}
+            Runs from  : {{ dt_ai_appdir }}  (extracted, A7V cameras.xml overlaid)
+            Launch     : darktable-ai   (CLI)  or  "darktable (AI nightly)" (menu)
+            Stable RPM : darktable      - untouched, still your main editor
+
+          Sony A7V (ILCE-7M5): the upstream nightly ships only a non-functional
+          A7V stub; this playbook overlays the working cameras.xml (pinned
+          rawspeed {{ rawspeed_commit[:7] }}) so darktable-ai decodes A7V .ARW
+          files - the same camera support as the stable darktable RPM.
+
+          The two darktable installs are isolated on purpose. darktable-ai keeps
+          its own library and settings in ~/.config/darktable-ai, so this
+          experimental nightly cannot read or corrupt your main darktable
+          catalogue. It starts with an empty library - import photos into it,
+          or open RAW files directly.
+
+          ENABLE AI (one-time, per-user, GUI):
+            1. Run:  darktable-ai
+            2. Preferences (gear icon, top-right) -> "AI" tab
+            3. Toggle "Enable AI features" on
+            4. Download the models you want:
+               - segmentation - the interactive AI object-mask tool (SAM2.1)
+               - denoise      - AI denoising
+               - upscale      - AI upscaling
+            5. Restart darktable-ai
+
+          AI runs on CPU by default (slow for the object-mask model). For
+          NVIDIA GPU acceleration, run next:
+            ansible-playbook playbooks/imports/optional/hardware-specific/play-darktable-ai-gpu.yml
+
+          This is a development snapshot built from darktable's master branch -
+          expect rough edges. Re-run this playbook any time to pull a fresher
+          nightly. AI features land in the stable darktable 5.6.0 release
+          (~June 2026); see CLAUDE/Plan/00042-darktable-ai-features/.
+      tags: darktable-ai-appimage

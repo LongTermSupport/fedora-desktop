@@ -1,0 +1,216 @@
+#!/usr/bin/env ansible-playbook
+---
+# Install a GPU-enabled ONNX Runtime so darktable-ai runs its AI models
+# (the neural-restore denoisers and the SAM2.1 interactive object-mask tool)
+# on the NVIDIA GPU instead of the CPU.
+#
+# darktable-ai (installed by play-darktable-ai-appimage.yml) bundles a
+# CPU-only ONNX Runtime. This playbook installs the GPU build into
+# ~/.local/lib/onnxruntime-cuda/; the darktable-ai launcher wrapper
+# auto-detects it and exports DT_ORT_LIBRARY. The CUDA Toolkit and cuDNN it
+# depends on are installed system-wide by play-nvidia.yml.
+#
+# HARDWARE-GATED: detects an NVIDIA GPU by PCI vendor ID 10de. Safe to run —
+# or to include in playbook-main.yml — on machines without an NVIDIA GPU; it
+# no-ops cleanly with a single informational message.
+#
+# The GPU ORT package is selected at run time from darktable's upstream
+# manifest (data/ort_gpu.json) rather than pinned here, so it tracks
+# upstream's CUDA/ORT version choices. The download is SHA256-verified
+# against the manifest entry.
+#
+# @see CLAUDE/Plan/00042-darktable-ai-features/ Phase 3
+
+- hosts: desktop
+  name: Install GPU ONNX Runtime for darktable AI
+  become: false
+  vars:
+    root_dir: "{{ inventory_dir }}/../../"
+    dt_ai_ort_manifest_url: "https://raw.githubusercontent.com/darktable-org/darktable/refs/heads/master/data/ort_gpu.json"
+    dt_ai_ort_dir: "{{ ansible_env.HOME }}/.local/lib/onnxruntime-cuda"
+    dt_ai_gpu_tmp: "/var/tmp/darktable-ai-gpu"
+
+  tasks:
+    - name: Detect NVIDIA GPU via PCI vendor ID
+      ansible.builtin.command: lspci -nn
+      register: dt_ai_lspci
+      changed_when: false
+
+    - name: Set NVIDIA GPU presence fact
+      ansible.builtin.set_fact:
+        has_nvidia_gpu: "{{ '10de:' in (dt_ai_lspci.stdout | lower) }}"
+
+    - name: Report no-op when no NVIDIA GPU is present
+      ansible.builtin.debug:
+        msg: >-
+          No NVIDIA GPU detected (PCI vendor 10de) — skipping the GPU ONNX
+          Runtime install. darktable-ai continues to run AI on the CPU.
+      when: not has_nvidia_gpu
+
+    - name: Install the GPU ONNX Runtime for darktable AI
+      when: has_nvidia_gpu
+      tags: darktable-ai-gpu
+      block:
+        - name: Preflight - darktable-ai must be installed
+          ansible.builtin.stat:
+            path: /opt/darktable-ai/AppDir/AppRun
+          register: dt_ai_apprun
+          changed_when: false
+          failed_when: not dt_ai_apprun.stat.exists
+          # FAIL-FAST: run play-darktable-ai-appimage.yml first.
+
+        - name: Preflight - CUDA Toolkit must be installed (play-nvidia.yml)
+          ansible.builtin.stat:
+            path: /usr/local/cuda/bin/nvcc
+          register: dt_ai_nvcc
+          changed_when: false
+          failed_when: not dt_ai_nvcc.stat.exists
+          # FAIL-FAST: run play-nvidia.yml (installs cuda-toolkit).
+
+        - name: Preflight - cuDNN must be installed (play-nvidia.yml)
+          ansible.builtin.stat:
+            path: /opt/cudnn/nvidia/cudnn/lib
+          register: dt_ai_cudnn
+          changed_when: false
+          failed_when: not dt_ai_cudnn.stat.exists
+          # FAIL-FAST: run play-nvidia.yml (installs cuDNN).
+
+        - name: Detect the installed CUDA major version
+          ansible.builtin.command: /usr/local/cuda/bin/nvcc --version
+          register: dt_ai_nvcc_out
+          changed_when: false
+
+        - name: Set the CUDA major version fact
+          ansible.builtin.set_fact:
+            dt_ai_cuda_major: "{{ (dt_ai_nvcc_out.stdout | regex_search('release ([0-9]+)', '\\1')) | first }}"
+
+        - name: Install execstack (clears RWE GNU_STACK on ORT libs for glibc 2.41+)
+          ansible.builtin.dnf:
+            name: execstack
+            state: present
+          become: true
+
+        - name: Fetch darktable's GPU ONNX Runtime manifest
+          ansible.builtin.uri:
+            url: "{{ dt_ai_ort_manifest_url }}"
+            return_content: true
+          register: dt_ai_manifest
+          changed_when: false
+
+        - name: Select the NVIDIA/linux/x86_64 ORT package matching the installed CUDA
+          ansible.builtin.set_fact:
+            dt_ai_ort_matches: >-
+              {{ dt_ai_manifest.json.packages
+                 | selectattr('vendor', 'eq', 'nvidia')
+                 | selectattr('platform', 'eq', 'linux')
+                 | selectattr('arch', 'eq', 'x86_64')
+                 | selectattr('cuda_min', 'match', dt_ai_cuda_major ~ '[.]')
+                 | list }}
+
+        - name: Assert exactly one ORT package matches the installed CUDA
+          ansible.builtin.assert:
+            that:
+              - dt_ai_ort_matches | length == 1
+            fail_msg: >-
+              ort_gpu.json has {{ dt_ai_ort_matches | length }} NVIDIA/linux/
+              x86_64 packages for CUDA {{ dt_ai_cuda_major }}.x (expected 1).
+
+        - name: Record the selected ORT package
+          ansible.builtin.set_fact:
+            dt_ai_ort: "{{ dt_ai_ort_matches[0] }}"
+            dt_ai_ort_extracted: "{{ dt_ai_gpu_tmp }}/{{ (dt_ai_ort_matches[0].url | basename) | regex_replace('[.]tgz$', '') }}"
+
+        - name: Create the GPU ORT install directory
+          ansible.builtin.file:
+            path: "{{ dt_ai_ort_dir }}"
+            state: directory
+            mode: "0755"
+
+        - name: Check whether the target ORT version is already installed
+          ansible.builtin.stat:
+            path: "{{ dt_ai_ort_dir }}/libonnxruntime.so.{{ dt_ai_ort.ort_version }}"
+          register: dt_ai_ort_present
+          changed_when: false
+
+        - name: Download, extract and install the GPU ONNX Runtime
+          when: not dt_ai_ort_present.stat.exists
+          block:
+            - name: Create the download staging directory
+              ansible.builtin.file:
+                path: "{{ dt_ai_gpu_tmp }}"
+                state: directory
+                mode: "0755"
+
+            - name: Download the GPU ONNX Runtime tarball (ORT {{ dt_ai_ort.ort_version }}, ~{{ dt_ai_ort.size_mb }} MB)
+              ansible.builtin.get_url:
+                url: "{{ dt_ai_ort.url }}"
+                dest: "{{ dt_ai_gpu_tmp }}/{{ dt_ai_ort.url | basename }}"
+                checksum: "sha256:{{ dt_ai_ort.sha256 }}"
+                mode: "0644"
+
+            - name: Extract the GPU ONNX Runtime tarball
+              ansible.builtin.unarchive:
+                src: "{{ dt_ai_gpu_tmp }}/{{ dt_ai_ort.url | basename }}"
+                dest: "{{ dt_ai_gpu_tmp }}"
+                remote_src: true
+                creates: "{{ dt_ai_ort_extracted }}/lib"
+
+            - name: Install the GPU ORT libraries into ~/.local/lib/onnxruntime-cuda
+              ansible.builtin.command:
+                cmd: "cp -a {{ dt_ai_ort_extracted }}/lib/. {{ dt_ai_ort_dir }}/"
+              changed_when: true
+
+            - name: Clear the executable-stack flag on ORT libraries where set
+              # glibc 2.41+ refuses to dlopen libraries with an RWE PT_GNU_STACK.
+              # Probe with readelf; clear only the libraries that actually have it.
+              ansible.builtin.shell:
+                cmd: |
+                  set -euo pipefail
+                  fixed=0
+                  for f in "{{ dt_ai_ort_dir }}"/lib*.so*; do
+                    [ -f "$f" ] || continue
+                    if readelf -lW "$f" 2>/dev/null | grep -qE 'GNU_STACK.+RWE'; then
+                      execstack -c "$f"
+                      fixed=$((fixed + 1))
+                    fi
+                  done
+                  echo "execstack_fixed=${fixed}"
+              register: dt_ai_execstack
+              changed_when: "'execstack_fixed=0' not in dt_ai_execstack.stdout"
+
+            - name: Remove the GPU ORT download staging directory
+              ansible.builtin.file:
+                path: "{{ dt_ai_gpu_tmp }}"
+                state: absent
+
+        - name: Assert the ORT shared library is in place
+          ansible.builtin.stat:
+            path: "{{ dt_ai_ort_dir }}/libonnxruntime.so"
+          register: dt_ai_ort_so
+          changed_when: false
+          failed_when: not dt_ai_ort_so.stat.exists
+
+        - name: Redeploy the darktable-ai launcher (GPU-aware; self-detects the ORT)
+          ansible.builtin.copy:
+            src: "{{ root_dir }}/files/usr/local/bin/darktable-ai"
+            dest: /usr/local/bin/darktable-ai
+            owner: root
+            group: root
+            mode: "0755"
+          become: true
+
+        - name: Display GPU acceleration complete message
+          ansible.builtin.debug:
+            msg: |
+              GPU ONNX Runtime installed for darktable AI:
+                ORT version  : {{ dt_ai_ort.ort_version }}  (CUDA {{ dt_ai_cuda_major }}.x build)
+                Libraries    : {{ dt_ai_ort_dir }}/
+                darktable-ai : auto-uses it via DT_ORT_LIBRARY (launcher wrapper)
+
+              VERIFY (run darktable-ai once so it picks up the GPU runtime):
+                darktable-ai -d ai 2>&1 | grep -E "execution provider|CUDA"
+              Expect the CUDA execution provider to be reported. In darktable-ai,
+              Preferences -> AI shows the ONNX Runtime library that was detected.
+
+              If any GPU step fails at run time, darktable falls back to the CPU
+              ONNX Runtime automatically — no error, just slower.
