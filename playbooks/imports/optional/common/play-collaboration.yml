@@ -24,6 +24,16 @@
       tags:
         - tmate
 
+    - name: Ensure ~/.local/bin Exists
+      ansible.builtin.file:
+        path: /home/{{ user_login }}/.local/bin
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+      tags:
+        - tmate
+
     - name: Deploy tmate wrapper scripts
       ansible.builtin.copy:
         src: "{{ root_dir }}/files/home/.local/bin/{{ item }}"

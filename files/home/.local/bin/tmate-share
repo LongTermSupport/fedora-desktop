@@ -10,18 +10,32 @@ set -e
 tmate -F &
 TMATE_PID=$!
 
-# Wait for tmate to establish the session and generate URLs
+# Wait for tmate to establish the session and generate URLs.
+# Probe-style 2>/dev/null is intentional here: tmate may not have written
+# messages yet during the first few iterations. The loop fails fast below
+# if the read-only URL never appears.
+ready=0
 for _ in $(seq 1 30); do
     if tmate show-messages 2>/dev/null | grep -q "read only"; then
+        ready=1
         break
     fi
     sleep 0.5
 done
 
+if [ "$ready" -ne 1 ]; then
+    echo "ERROR: tmate did not produce a read-only URL within 15s." >&2
+    echo "Check 'tmate show-messages' output and your network connection." >&2
+    if kill -0 "$TMATE_PID" 2>/dev/null; then
+        kill "$TMATE_PID"
+    fi
+    exit 1
+fi
+
 echo ""
 echo "=== Read-Only Session URLs ==="
 echo ""
-tmate show-messages 2>/dev/null | grep "read only"
+tmate show-messages | grep "read only"
 echo ""
 echo "(for read-write access, use tmate-full)"
 echo ""
