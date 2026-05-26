@@ -93,106 +93,193 @@ maintains by hand.
 
 ## Tasks
 
-### Phase 1: Research existing handler conventions
+### Phase 1: Research existing handler conventions ✅
 
-- [ ] ⬜ **Read `system_paths.py` and `ansible_enforcement.py`** —
-  understand the exact handler API: priority field semantics,
-  `matches()` / `handle()` signatures, terminal flag, return
-  shape (`HookResult` or similar)
-- [ ] ⬜ **Read `example_handler.py.example`** — confirm the
-  scaffold pattern for new project handlers
-- [ ] ⬜ **Read at least one existing test file** under
-  `.claude/hooks/handlers/pre_tool_use/tests/` — confirm the
-  pytest fixtures, mock conventions, and how `hook_input` is
-  constructed in tests
-- [ ] ⬜ **Confirm where to register the handler** — daemon may
-  auto-discover from the handlers dir, or may require a registry
-  entry. Document either way.
+Research-only phase already complete (general-purpose research agent
+2026-05-26). Key findings recorded here so the implementation phase
+does not have to redo the work:
+
+- [x] ✅ **Handler location confirmed**: `.claude/hooks/handlers/pre_tool_use/<snake_name>.py` (this project uses legacy
+  explicit-registration style, NOT the `.claude/project-handlers/`
+  auto-discovery dir from upstream docs)
+
+- [x] ✅ **Test location confirmed**: `.claude/hooks/handlers/pre_tool_use/tests/test_<snake_name>.py`, pytest
+  framework
+
+- [x] ✅ **Base class & imports confirmed** (matches
+  `system_paths.py:7-14`):
+
+  ```python
+  import sys
+  from pathlib import Path
+  sys.path.insert(0, str(Path(__file__).parent.parent.parent / "hooks-daemon/src"))
+
+  from claude_code_hooks_daemon.core import Decision, Handler, HookResult
+  from claude_code_hooks_daemon.core.acceptance_test import AcceptanceTest, TestType
+  from claude_code_hooks_daemon.core.utils import get_file_path, get_bash_command
+  ```
+
+- [x] ✅ **Four abstract methods are mandatory** (per
+  `hooks-daemon/src/claude_code_hooks_daemon/core/handler.py:62-205`):
+  `matches`, `handle`, `get_claude_md`, `get_acceptance_tests`. The
+  acceptance tests list must have ≥1 entry or the daemon refuses to
+  load the handler.
+
+- [x] ✅ **Class naming convention**: filename `<snake>.py` →
+  class `<PascalSnake>Handler` (loader.py:101-113 tries both
+  PascalSnake and PascalSnakeHandler suffixes).
+
+- [x] ✅ **Registration is explicit** in
+  `.claude/hooks-daemon.yaml` under `plugins.plugins[]` (this
+  project does not auto-discover; append a YAML stanza per new
+  handler).
+
+- [x] ✅ **Constructor signature**: `super().__init__(name=…, priority=…, terminal=…)`. Priority bands: 0-19 safety,
+  20-39 quality, 40-59 workflow, 60-79 advisory.
 
 ### Phase 2: TDD — failing tests first
 
+Test fixtures use **placeholder strings throughout** — no private
+identifiers in test data, ever. Example fixture YAML:
+`github_accounts: {<alias-a>: "<gh-username-a>", joseph: "joseph-uk"}`.
+Tests use these placeholders as the "private tokens" to be blocked
+and `joseph`/`joseph-uk` as the "allowlisted public tokens".
+
 - [ ] ⬜ **Create `tests/test_localhost_yml_leak_guard.py`** with
   failing tests for:
-  - **Positive — gh issue create with private alias**: command
-    is `gh issue create --body "...balli..."`, `localhost.yml`
-    has `github_accounts: {balli: ballidev, …}`, handler must
-    BLOCK with token name in the message
-  - **Positive — gh pr create with username**: command body
-    contains `ballidev`, same `localhost.yml` → BLOCK
-  - **Positive — curl POST with private token**: `curl -X POST -d "...balli..."` → BLOCK
-  - **Positive — heredoc body**: command uses `<<EOF` heredoc
-    containing a private token → BLOCK
-  - **Positive — --body-file**: command uses `--body-file /tmp/foo.txt`
-    where the file contains a private token → BLOCK
-  - **Negative — only public tokens**: command body contains only
-    `joseph` / `LongTermSupport` (in allowlist) → ALLOW
-  - **Negative — unrelated command**: command is `gh repo view`
-    (no posting) → ALLOW
-  - **Negative — encrypted vault value**: `localhost.yml` value
-    is `!vault | …`, command body happens to contain a substring
-    of the encrypted blob → ALLOW (vault values not in deny-list)
-  - **Negative — short token**: deny-list filters out values
-    shorter than 4 chars to avoid false positives on `et`, `id`,
-    etc. → ALLOW commands that match only short fragments
-  - **Edge — missing localhost.yml**: handler must not crash; log
-    a warning and ALLOW (don't block on its own absence)
-  - **Edge — missing allowlist**: same — log warning, treat as
-    empty allowlist (most conservative)
+  - **Positive — gh issue create with private alias** in body →
+    BLOCK with token name + YAML source path in the message
+  - **Positive — gh pr create with private username** in body →
+    BLOCK
+  - **Positive — gh gist create with private token** in body →
+    BLOCK
+  - **Positive — curl POST with private token in `-d` arg** →
+    BLOCK
+  - **Positive — `curl -X POST` with private token in heredoc
+    body** → BLOCK
+  - **Positive — `--body-file` reads file containing private
+    token** → BLOCK (handler must inspect the file contents
+    when the path argument is a literal string)
+  - **Negative — only allowlisted tokens** (`joseph`,
+    `LongTermSupport`) → ALLOW
+  - **Negative — non-posting command** (`gh repo view`,
+    `gh issue list`) → ALLOW (matches() must return False)
+  - **Negative — vault-encrypted value substring**: `localhost.yml`
+    value is `!vault | …`, command body contains a substring of
+    the ciphertext → ALLOW (vault values excluded from deny-list)
+  - **Negative — short token** (deny-list filters values \<4 chars
+    → no false positive on `et`, `id`, etc.)
+  - **Edge — missing `localhost.yml`**: handler logs a warning,
+    matches() returns False, ALLOW (fail-soft)
+  - **Edge — missing allowlist file**: handler logs a warning,
+    treats as empty allowlist (most conservative; deny-list
+    not subtracted)
+  - **Edge — `--body-file` with shell-substituted path** (e.g.
+    `--body-file "$(mktemp).txt"`): handler logs that inspection
+    was skipped, ALLOW (defence-in-depth is best-effort here)
+  - **Tests for `get_claude_md()`**: returns a non-empty markdown
+    string describing the handler's guidance
+  - **Tests for `get_acceptance_tests()`**: returns a non-empty
+    list of `AcceptanceTest` objects covering both a BLOCK case
+    and an ALLOW case
 
 ### Phase 3: Implement the handler
 
 - [ ] ⬜ **Create `.claude/hooks/handlers/pre_tool_use/localhost_yml_leak_guard.py`**
-  implementing `LocalhostYmlLeakGuardHandler`:
+  implementing `LocalhostYmlLeakGuardHandler(Handler)` with the
+  full four-abstract-method contract:
 
-  - `name = "localhost_yml_leak_guard"`
-  - `priority` chosen to run before logging/audit handlers but
-    after critical syntax blockers — research Phase 1's findings
-    will set the exact number
-  - `terminal = True` (block immediately on detection; no other
-    handler needs to also process)
-  - `matches(hook_input)`: tool name is `Bash`, command matches
-    one of the known external-posting patterns (regex list:
-    `gh\s+(issue|pr|gist)\s+(create|edit|comment)`,
-    `curl\s+.*(-d|--data|-X\s+(POST|PUT|PATCH))`,
-    `wget\s+.*--post-`)
-  - `handle(hook_input)`:
-    1. Load `localhost.yml` (relative to project root; fail-soft
-       on absence — log + ALLOW)
-    2. Walk the parsed YAML, collect every non-vault string
-       value of length ≥4 into a candidate deny-list
-    3. Load `.claude/public-token-allowlist.yml` (list of
-       strings); subtract from deny-list
-    4. Extract the command body — inline `--body "…"` arg, or
-       contents of `--body-file <path>`, or contents of heredoc
-       blocks within the command string
-    5. For each deny-token, search the body (case-sensitive,
-       word-boundary or substring per token type)
-    6. If any match: return BLOCK with message naming the token,
-       its source (e.g. `localhost.yml:github_accounts.<alias-a>`),
-       and the recommended generic placeholder
+  - `__init__`: `super().__init__(name="localhost_yml_leak_guard", priority=15, terminal=True)` — priority 15 sits in the safety
+    band (0-19), runs before quality/workflow handlers, after
+    critical syntax blockers.
+  - `matches(hook_input) -> bool`: tool name is `Bash`, command
+    matches one of the known external-posting regexes:
+    - `\bgh\s+(issue|pr|gist)\s+(create|edit|comment)\b`
+    - `\bcurl\b.*(\s-d\s|\s--data\b|\s-X\s+(POST|PUT|PATCH)\b)`
+    - `\bwget\b.*\s--post-`
+  - `handle(hook_input) -> HookResult`:
+    1. Load `localhost.yml` (project root); fail-soft on absence
+       — return ALLOW.
+    2. Walk the parsed YAML recursively, collect every non-vault
+       string scalar of length ≥4 (skip `!vault` tagged nodes by
+       custom YAML loader or post-parse type check).
+    3. Load `.claude/public-token-allowlist.yml` (top-level
+       `public_tokens:` list); subtract from deny-list. Fail-soft
+       on missing file — treat as empty allowlist.
+    4. Extract the command body from: inline `--body "…"` /
+       `-d "…"`, `--body-file <literal-path>` (read the file if
+       path is a literal), heredoc blocks (`<<EOF ... EOF`).
+       Shell-substituted body paths → log + skip inspection.
+    5. For each deny-token, search the body (case-sensitive
+       substring match — tokens are usernames/aliases that are
+       case-significant).
+    6. On match: return `HookResult` with `Decision.BLOCK` and a
+       message naming the matched token, its YAML source path
+       (e.g. `localhost.yml:github_accounts.<alias-a>`), and the
+       recommended generic placeholder (`<alias-a>` etc.) or the
+       allowlist-entry remediation.
+    7. No match → ALLOW.
+  - `get_claude_md() -> str | None`: returns a markdown block
+    explaining the handler's purpose and how to remediate a
+    block (use placeholder, or add to allowlist if truly
+    public). This appears in `CLAUDE.md`'s auto-generated
+    hooksdaemon section after daemon restart.
+  - `get_acceptance_tests() -> list[AcceptanceTest]`: returns at
+    least one BLOCK case (gh issue create with a placeholder
+    `<alias-a>` from a test fixture) and one ALLOW case
+    (`gh repo view`). Per the daemon's contract, must be ≥1
+    entry or load fails.
 
 - [ ] ⬜ **Create `.claude/public-token-allowlist.yml`** seeded
   with the known public identifiers: `joseph`, `joseph-uk`,
-  `LongTermSupport`, `LTSCommerce`. Comment block explains
-  the allowlist purpose and rules for adding new entries.
+  `LongTermSupport`, `LTSCommerce`. Top-level key
+  `public_tokens:`, list of strings. Header comment explains
+  the allowlist purpose and rules for adding new entries (only
+  add a token here if it is *intentionally* public — i.e.
+  appears in public commits, public docs, or the public org
+  identity).
 
-- [ ] ⬜ **Run the test suite, get all tests green**.
+- [ ] ⬜ **Register the handler in `.claude/hooks-daemon.yaml`**
+  by appending under `plugins.plugins`:
 
-### Phase 4: Integration & live verification
+  ```yaml
+      - path: ".claude/hooks/handlers/pre_tool_use/localhost_yml_leak_guard.py"
+        event_type: "pre_tool_use"
+        handlers: ["LocalhostYmlLeakGuardHandler"]
+        enabled: true
+  ```
 
-- [ ] ⬜ **Restart the hooks daemon** via the `hooks-daemon`
-  skill (`Skill(skill="hooks-daemon", args="restart")`)
-- [ ] ⬜ **Live test — should BLOCK**: attempt a `gh issue create --title test --body "test <private-token-from-localhost.yml>"`
-  and confirm the handler blocks with a clear message naming the
-  token
-- [ ] ⬜ **Live test — should ALLOW**: attempt
-  `gh issue create --title test --body "joseph hello"` and confirm
-  it passes (public token, in allowlist)
-- [ ] ⬜ **Live test — should ALLOW (unrelated)**: attempt
-  `gh repo view` and confirm no block (matcher correctly scopes
-  to posting commands only)
-- [ ] ⬜ **Live test — heredoc**: attempt a `gh issue edit … --body "$(cat <<'EOF' ... <private-token> ... EOF)"` and
-  confirm BLOCK
+- [ ] ⬜ **Run the test suite, get all tests green** —
+  `pytest /workspace/.claude/hooks/handlers/pre_tool_use/tests/test_localhost_yml_leak_guard.py -v`.
+
+- [ ] ⬜ **Run `./scripts/qa-all.bash`** — must pass.
+
+### Phase 4: Integration & live verification (user does this on host)
+
+CCY container restriction: the daemon cannot be restarted from
+inside the container. These steps must be run by the user on the
+host after the implementation phase commits land.
+
+- [ ] ⬜ **Restart the hooks daemon** (host):
+  `$PYTHON -m claude_code_hooks_daemon.daemon.cli restart`
+- [ ] ⬜ **Confirm daemon is RUNNING and the new handler loaded** (host):
+  - `$PYTHON -m claude_code_hooks_daemon.daemon.cli status` → expect
+    `RUNNING`
+  - `$PYTHON -m claude_code_hooks_daemon.daemon.cli logs 2>&1 | grep -i localhost_yml_leak_guard` → expect to see the
+    handler being registered during startup
+  - If the daemon refuses to start, the handler's
+    `get_acceptance_tests()` is the most common culprit — must
+    return ≥1 entry, all tests must pass.
+- [ ] ⬜ **Live test — should BLOCK**: attempt
+  `gh issue create --title test --body "test <real-private-token>"`
+  on the host and confirm the handler blocks with a clear message
+  naming the token + its YAML source path.
+- [ ] ⬜ **Live test — should ALLOW**:
+  `gh issue create --title test --body "joseph LongTermSupport hello"`
+  → passes (only allowlisted public tokens).
+- [ ] ⬜ **Live test — should ALLOW (unrelated)**: `gh repo view`
+  → no block (matcher correctly scopes to posting commands only).
+- [ ] ⬜ **Live test — heredoc**: a `gh issue edit … --body "$(cat <<'EOF' ... <real-private-token> ... EOF)"` → BLOCK.
 
 ### Phase 5: Docs
 
