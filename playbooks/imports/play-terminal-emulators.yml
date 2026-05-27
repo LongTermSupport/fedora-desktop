@@ -85,6 +85,12 @@
           map ctrl+shift+t      new_tab_with_cwd
           map ctrl+shift+enter  new_window_with_cwd
 
+          # Now that CC runs in its classic in-band renderer (alt-screen
+          # disabled in CCY), the whole conversation lives in kitty's native
+          # scrollback. kitty's default of 2000 lines is the hard ceiling on
+          # how far back you can wheel through a session, so raise it.
+          scrollback_lines 10000
+
           # Tab bar appearance — top edge, slanted edges so it reads as proper
           # GUI tabs rather than a status-strip. `tab_bar_min_tabs 1` makes the
           # bar visible even with a single tab, so the UI feels stable as you
