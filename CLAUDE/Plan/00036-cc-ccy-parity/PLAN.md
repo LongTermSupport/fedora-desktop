@@ -324,14 +324,14 @@ single playbook file.
 
 ## Risks & Mitigations
 
-| Risk                                                                                                               | Impact | Probability | Mitigation                                                                                                                                     |
-| ------------------------------------------------------------------------------------------------------------------ | ------ | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CLAUDE_CODE_NO_FLICKER` interacts badly with some terminals (alternate screen buffer issues on certain emulators) | Med    | Low         | User can `chmod -r ~/.bashrc-includes/claude-code-env.inc.bash` to disable without re-running Ansible; include file is a single point to tweak |
-| `CLAUDE_CODE_DISABLE_MOUSE=1` removes mouse interactivity that a user might rely on (scrollwheel in some widgets)  | Low    | Low         | Documented in include-file top comment; same behaviour `ccy` already has, user already tolerates there                                         |
-| Converting `cc` from alias to function breaks muscle-memory tooling (e.g. scripts that rely on `alias cc`)         | Low    | Very Low    | `cc` is interactive-only in practice; no scripts source it                                                                                     |
-| Include sourced twice (user already has it exported, include re-exports)                                           | Nil    | n/a         | Pure `export` is idempotent                                                                                                                    |
-| Future Claude Code release changes the env var names                                                               | Low    | Low         | Include file is one place to update; monitor Anthropic docs                                                                                    |
-| `type cc` output becomes less glanceable after function conversion                                                 | Low    | Med         | Keep function body to ~6 lines with a clear comment                                                                                            |
+| Risk                                                                                                               | Impact | Probability | Mitigation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------------------------------------------------------------------------------------------------------------ | ------ | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CLAUDE_CODE_NO_FLICKER` interacts badly with some terminals (alternate screen buffer issues on certain emulators) | Med    | Low         | User can `chmod -r ~/.bashrc-includes/claude-code-env.inc.bash` to disable without re-running Ansible; include file is a single point to tweak                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `CLAUDE_CODE_DISABLE_MOUSE=1` causes the **mouse-wheel-clobbers-history bug** in CC's fullscreen mode (Plan 00047) | High   | **High**    | Plan 00047 is the canonical fix — auto-configures kitty/ghostty/alacritty/wezterm to remap wheel→PageUp on alt-screen, and adds a pre-flight banner+abort prompt in `claude-yolo` when the user is on VTE-based terminals. **Before shipping this plan**, factor Plan 00047's `detect_terminal()` helper into a sourceable script and have `cc` (or the include file) call it on first activation — otherwise host `cc` inherits the bug verbatim. See `CLAUDE/Plan/00047-claude-code-mouse-wheel-pageup/DECISION.md` "Cross-reference to Plan 00036" section. |
+| Converting `cc` from alias to function breaks muscle-memory tooling (e.g. scripts that rely on `alias cc`)         | Low    | Very Low    | `cc` is interactive-only in practice; no scripts source it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Include sourced twice (user already has it exported, include re-exports)                                           | Nil    | n/a         | Pure `export` is idempotent                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Future Claude Code release changes the env var names                                                               | Low    | Low         | Include file is one place to update; monitor Anthropic docs                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `type cc` output becomes less glanceable after function conversion                                                 | Low    | Med         | Keep function body to ~6 lines with a clear comment                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 ## Timeline
 
@@ -354,3 +354,32 @@ single playbook file.
   `play-basic-configs.yml:143-156`. Parity audit table in Context
   section tracks the full behavioural delta — only two rows (the
   terminal UX vars) are in scope for this plan.
+
+### 2026-05-27 — Dependency added: Plan 00047 (mouse-wheel-PageUp)
+
+- **Blocker discovered before implementation starts.** Plan 00047 has
+  documented that `CLAUDE_CODE_DISABLE_MOUSE=1` is what causes Claude
+  Code's fullscreen mode to inherit the mouse-wheel-clobbers-history
+  bug. Inside CCY this is being fixed by (a) Ansible-deploying
+  wheel→PageUp config to kitty/ghostty/alacritty/wezterm and (b) a
+  pre-flight terminal-detection banner in `claude-yolo` that
+  hard-warns when the user is on a VTE-based terminal (gnome-terminal,
+  Ptyxis) where no emulator-level fix exists.
+- **Implication for THIS plan**: shipping the bashrc include in its
+  current shape would propagate the same bug to every interactive
+  shell on the host, with NO pre-flight check — every `cc` invocation
+  in gnome-terminal would clobber input on wheel scroll. The risk
+  table has been upgraded from "Low/Low" to "High/High" to reflect
+  this.
+- **Required sequencing**: Plan 00047 ships first (in CCY only). When
+  this plan resumes, factor 00047's `detect_terminal()` helper into a
+  sourceable script (`/var/local/claude-yolo/lib/detect-terminal.sh`
+  or similar) and have either the bashrc include or the `cc` function
+  itself invoke it before activating `CLAUDE_CODE_DISABLE_MOUSE=1`. On
+  unsupported terminals, the include should either skip the export
+  entirely (preferred — host shells stay usable) or print the same
+  abort banner; user decision pending.
+- See:
+  `CLAUDE/Plan/00047-claude-code-mouse-wheel-pageup/DECISION.md` —
+  the "Cross-reference to Plan 00036" section captures the same point
+  from the 00047 side.

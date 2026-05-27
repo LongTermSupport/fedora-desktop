@@ -245,6 +245,17 @@
         - scripts
         - library
 
+    # Clean up the per-host install of the obsolete terminal-detection.bash
+    # lib (Plan 00047 pre-flight, removed in the pivot away from Path C+).
+    - name: Remove Obsolete terminal-detection.bash Lib From Host
+      become: true
+      ansible.builtin.file:
+        path: /var/local/claude-yolo/lib/terminal-detection.bash
+        state: absent
+      tags:
+        - scripts
+        - cleanup
+
     # Remove old symlinks and dead files (cleanup from previous versions)
     - name: Remove Old Symlink in /usr/local/bin
       become: true

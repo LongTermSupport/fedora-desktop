@@ -45,6 +45,103 @@
         state: present
       tags: foot
 
+    # =========================================================================
+    # Kitty UX defaults (Plan 00047)
+    # =========================================================================
+    # Shell integration + new-tab/new-window inherit cwd. Originally this
+    # block also contained a wheel→PageUp remap (mouse_map b4/b5 send_text
+    # \x1b[5~) intended to fix the CC-in-fullscreen wheel-clobbers-history
+    # bug — that approach was empirically proven unreachable on Wayland (see
+    # CLAUDE/Plan/00047/DECISION.md "FINAL ANSWER"). The proper fix was
+    # dropping CLAUDE_CODE_NO_FLICKER from CCY's entrypoint.sh so CC uses
+    # its classic in-band renderer; kitty's native scrollback then IS the
+    # conversation and the wheel works without any emulator-side config.
+
+    - name: Ensure Kitty Config Directory Exists
+      become_user: "{{ user_login }}"
+      ansible.builtin.file:
+        path: /home/{{ user_login }}/.config/kitty
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+      tags: kitty
+
+    - name: Configure Kitty UX Defaults
+      become_user: "{{ user_login }}"
+      ansible.builtin.blockinfile:
+        path: /home/{{ user_login }}/.config/kitty/kitty.conf
+        create: true
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0644"
+        marker: "# {mark} ANSIBLE MANAGED: kitty UX defaults (Plan 00047)"
+        block: |
+          # Shell integration emits OSC 7 (cwd reporting) on each prompt, so
+          # new tabs/windows can inherit the cwd of the spawning one. It is the
+          # default in recent kitty, but make it explicit so behaviour is
+          # deterministic across upgrades.
+          shell_integration enabled
+          map ctrl+shift+t      new_tab_with_cwd
+          map ctrl+shift+enter  new_window_with_cwd
+
+          # Now that CC runs in its classic in-band renderer (alt-screen
+          # disabled in CCY), the whole conversation lives in kitty's native
+          # scrollback. kitty's default of 2000 lines is the hard ceiling on
+          # how far back you can wheel through a session, so raise it.
+          # scrollback_pager_history_size lets the pager (Ctrl+Shift+H, opens
+          # the buffer in less for / search) see further back than the live
+          # on-screen buffer by keeping extra history on disk.
+          scrollback_lines 10000
+          scrollback_pager_history_size 10
+
+          # Tab bar appearance — top edge, slanted edges so it reads as proper
+          # GUI tabs rather than a status-strip. `tab_bar_min_tabs 1` makes the
+          # bar visible even with a single tab, so the UI feels stable as you
+          # open/close tabs (default 2 hides the bar until a second tab opens).
+          tab_bar_edge     top
+          tab_bar_style    slant
+          tab_bar_min_tabs 1
+          # Prefix each tab with its index so tabs are identifiable at a
+          # glance and quick to reason about; {title} reflects the running
+          # command or cwd via shell integration.
+          tab_title_template "{index}: {title}"
+
+          # Window / bell behaviour.
+          # confirm_os_window_close 0: Ctrl+Shift+Q (and the window close
+          # button) quit immediately with no are-you-sure prompt, even with
+          # several tabs open.
+          confirm_os_window_close 0
+          # enable_audio_bell no: silence the beep. CC rings the terminal
+          # bell when a long task finishes; the visual tab bell-symbol and
+          # window alert stay on (kitty defaults), so you still see which
+          # background tab just finished without the audible nag.
+          enable_audio_bell no
+          # A little breathing room around the text grid.
+          window_padding_width 4
+      tags: kitty
+
+    # Remove the previous wheel-to-PageUp blocks if present — they were
+    # deployed by a prior version of this playbook and do nothing useful
+    # now that CC no longer uses fullscreen rendering. This task is
+    # idempotent: blockinfile state=absent is a no-op if the marker
+    # block isn't present.
+    - name: Drop Obsolete CC Wheel-to-PageUp Block from kitty.conf
+      become_user: "{{ user_login }}"
+      ansible.builtin.blockinfile:
+        path: /home/{{ user_login }}/.config/kitty/kitty.conf
+        marker: "# {mark} ANSIBLE MANAGED: CC wheel to PageUp (Plan 00047)"
+        state: absent
+      tags: kitty
+
+    - name: Drop Obsolete CC Wheel-to-PageUp Block from alacritty.toml
+      become_user: "{{ user_login }}"
+      ansible.builtin.blockinfile:
+        path: /home/{{ user_login }}/.config/alacritty/alacritty.toml
+        marker: "# {mark} ANSIBLE MANAGED: CC wheel to PageUp (Plan 00047)"
+        state: absent
+      tags: alacritty
+
     - name: Display Installation Complete Message
       ansible.builtin.debug:
         msg: |
@@ -85,7 +182,9 @@
           ✓ Low input latency
 
           Configuration files:
-          • Alacritty: ~/.config/alacritty/alacritty.yml
+          • Alacritty: ~/.config/alacritty/alacritty.toml
           • Kitty: ~/.config/kitty/kitty.conf
           • Ghostty: ~/.config/ghostty/config
           • Foot: ~/.config/foot/foot.ini
+
+          Plan 00047: kitty shell-integration + new-tab/window cwd bindings.
