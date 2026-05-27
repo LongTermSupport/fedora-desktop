@@ -1,6 +1,6 @@
 # Plan 00047: Claude Code Safe Scroll — Mouse Wheel → PageUp/PageDown
 
-**Status**: 🔄 In Progress — Phase 3 Implementation
+**Status**: 🔄 Reworking on PR branch — Path C+ proven dead, pivoting to "drop fullscreen rendering" (Path D)
 **Created**: 2026-05-27
 **Owner**: joseph
 **Priority**: Medium
@@ -114,3 +114,6 @@ The research phase below must clarify these mechanics before we pick an implemen
 - **Ghostty correction**: original DECISION.md named ghostty as "best for CC" — verified incorrect via direct upstream fetch (ghostty has no mouse-binding config in v1.x; open feature request #4169). Recommendation pivoted to **kitty**. Ghostty moved to detected-but-unsupported bucket alongside VTE/foot/konsole.
 - Phase 3 implementation: new lib `files/var/local/claude-yolo/lib/terminal-detection.bash`, `CCY_VERSION` bumped 3.14.0 → 3.15.0, kitty + alacritty wheel→PageUp blocks added to `play-terminal-emulators.yml`, gum added as a host dependency in `play-claude-yolo.yml`.
 - Remaining: QA, commit, host deployment, live verification.
+- **PIVOT** (same day, after host testing): Path C+ proven empirically dead. `kitty --debug-input` showed kitty bypasses `mouse_map` entirely in `NO_TRACKING` mode (the mode CCY's `CLAUDE_CODE_DISABLE_MOUSE=1` enforces). Smooth scroll-axis events on Wayland never synthesise into `b4`/`b5` button presses; they go to kitty's own scrollback handler. DECSET 1007's wheel→arrow translation (what CC was seeing) also bypasses `mouse_map`. No emulator-side fix is reachable while CCY keeps mouse tracking off and fullscreen mode on.
+- **New direction (Path D)**: drop `CLAUDE_CODE_NO_FLICKER=1` from `entrypoint.sh` — CC reverts to classic in-band rendering, kitty's native scrollback IS the conversation, wheel/selection/search all work natively. The thing fullscreen mode was buying (flat memory, no flicker) turns out not to be worth its cost on a GPU-accelerated emulator. See `DECISION.md` → "FINAL ANSWER".
+- All today's work has been moved to PR branch `plan/00047-wheel-pageup-rework`; F43 will be reset to before these commits and the PR merged once Path D is live-verified.

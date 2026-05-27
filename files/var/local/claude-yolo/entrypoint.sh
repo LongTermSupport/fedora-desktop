@@ -102,10 +102,17 @@ export IS_SANDBOX=1
 # Without this, ctrl+z sends unblockable SIGSTOP to the process - unrecoverable in a container.
 export CCY_DISABLE_SUSPEND=1
 
-# Enable fullscreen rendering (alternate screen buffer, no flicker, flat memory usage).
-# Disable mouse capture so native terminal selection works (especially over SSH/tmux).
+# Disable mouse capture so native terminal selection works.
+# NOTE: CLAUDE_CODE_NO_FLICKER (fullscreen / alt-screen rendering) was previously
+# set here but has been REMOVED — see CLAUDE/Plan/00047/DECISION.md. The short
+# version: fullscreen mode uses the terminal's alt-screen buffer, which on
+# Wayland (kitty, GNOME-Terminal, etc.) breaks mouse-wheel scroll because the
+# wheel-to-PageUp emulator remap is impossible without re-enabling mouse
+# tracking (which in turn would break native click-drag selection). Reverting
+# to the classic in-band renderer means kitty's native scrollback IS the
+# conversation; wheel/touchpad scroll, click-drag selection, and Ctrl+F search
+# all work natively. Trade-off: minor flicker on big re-renders.
 # See: https://docs.anthropic.com/en/docs/claude-code/fullscreen
-export CLAUDE_CODE_NO_FLICKER=1
 export CLAUDE_CODE_DISABLE_MOUSE=1
 
 # Symlink /root/.claude to /workspace/.claude/ccy for project-local session storage

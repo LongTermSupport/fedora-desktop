@@ -1,7 +1,41 @@
 # Plan 00047 — Decision Gate
 
-**Status**: 👁️ Awaiting user input
+**Status**: ✅ Resolved — pivoted to "drop fullscreen rendering" after empirical Path C+ failure
 **Date**: 2026-05-27
+
+---
+
+## FINAL ANSWER (read this first)
+
+**The fix is to drop `CLAUDE_CODE_NO_FLICKER=1` from CCY's `entrypoint.sh`** so Claude Code uses its classic in-band renderer instead of the fullscreen / alt-screen one. Once CC renders in the main screen buffer, the entire problem class disappears:
+
+- Wheel / touchpad scroll → kitty's native scrollback (which IS the conversation now)
+- Click-drag text selection → kitty native, no Shift bypass
+- `Ctrl+F` search → kitty native
+- `Ctrl+Shift+Up/Down/PageUp/PageDown` → kitty native scrollback movement
+
+The thing fullscreen mode was buying us — flat memory and "no flicker" — turns out not to be worth its cost on Wayland with a modern GPU-accelerated emulator. Kitty re-renders large diffs cleanly; memory grows with the conversation but kitty's scrollback is capped and old lines drop off.
+
+Everything below this section is the investigation that *eventually* arrived here — preserved for future-us, who might be tempted to re-attempt the emulator-side remap and lose another half-day to it.
+
+## Why the originally-chosen Path C+ doesn't work (empirically verified)
+
+The thinking in the rest of this document assumed kitty's `mouse_map` directive could intercept wheel events and emit PageUp. **It can't, under the conditions CCY creates.** Live debug via `kitty --debug-input` showed:
+
+1. The token `wheel_up` is not a valid mouse_map button — kitty 0.43 logs `Mouse button: wheel_up not recognized, ignoring` at startup. Switching to `b4` / `b5` (the X11-convention numbers) passed the parser.
+2. But `mouse_map b4 press` still never fired, because **on Wayland kitty doesn't synthesise discrete button-press events from the smooth scroll-axis stream when the inner app has mouse tracking off**. Per `kitty/mouse.c`: `scroll_event()` checks `screen->modes.mouse_tracking_mode`; when it is `NO_TRACKING` (which is what `CLAUDE_CODE_DISABLE_MOUSE=1` enforces), kitty bypasses `mouse_map` entirely and calls `screen_history_scroll()` instead — it scrolls its OWN scrollback, never consults the user's binding, never emits a keystroke to the app.
+3. Why does CC then see arrow-keys? Because fullscreen mode also enables DECSET 1007 (`?1007h`), and *that* codepath in kitty does emit cursor up/down for wheel-on-alt-screen. It also bypasses `mouse_map`. There's no kitty config to turn that off when the app has requested it.
+
+Net: with mouse tracking off (CCY's choice for selection) AND fullscreen on (CCY's choice for flicker), kitty has two separate codepaths that handle the wheel and neither of them touches `mouse_map`. Path C is unreachable.
+
+## The right answer was always Path D — never enable fullscreen in the first place
+
+We considered Path A (drop `CLAUDE_CODE_DISABLE_MOUSE=1`, accept Shift-drag for selection), Path B (tmux), and Path C (per-emulator wheel remap, scoped to alt-screen). We never asked "what if we just don't use the alt-screen?" The fullscreen-rendering feature was treated as load-bearing for the CCY experience; in fact it was the *cause* of the problem. Removing it removes the problem.
+
+This was a critical-thinking miss in the original decision gate. Documented here so the lesson sticks.
+
+---
+
 **Inputs**: `research-01-claude-code-safe-scroll.md`, `research-02-terminal-emulators.md`, `research-03-tmux-mouse-bindings.md`, `research-04-prior-art-recipes.md`
 
 ## What the research actually showed
