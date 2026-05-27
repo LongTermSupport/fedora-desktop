@@ -112,8 +112,18 @@ export CCY_DISABLE_SUSPEND=1
 # to the classic in-band renderer means kitty's native scrollback IS the
 # conversation; wheel/touchpad scroll, click-drag selection, and Ctrl+F search
 # all work natively. Trade-off: minor flicker on big re-renders.
+#
+# CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN is the kill-switch that forces the
+# classic in-band renderer regardless of any persisted "tui": "fullscreen"
+# setting in ~/.claude/settings.json (which CCY symlinks to
+# /workspace/.claude/ccy/settings.json). Just unsetting CLAUDE_CODE_NO_FLICKER
+# is NOT sufficient — if anyone ever ran `/tui fullscreen` in a prior CC
+# session, that setting is sticky and the env-var absence does not override
+# it. Setting DISABLE_ALTERNATE_SCREEN makes the result independent of
+# persisted state.
 # See: https://docs.anthropic.com/en/docs/claude-code/fullscreen
 export CLAUDE_CODE_DISABLE_MOUSE=1
+export CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1
 
 # Symlink /root/.claude to /workspace/.claude/ccy for project-local session storage
 # This keeps containers ephemeral while persisting sessions in the project directory
