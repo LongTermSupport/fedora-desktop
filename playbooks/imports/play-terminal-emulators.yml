@@ -84,6 +84,14 @@
           shell_integration enabled
           map ctrl+shift+t      new_tab_with_cwd
           map ctrl+shift+enter  new_window_with_cwd
+
+          # Tab bar appearance — top edge, slanted edges so it reads as proper
+          # GUI tabs rather than a status-strip. `tab_bar_min_tabs 1` makes the
+          # bar visible even with a single tab, so the UI feels stable as you
+          # open/close tabs (default 2 hides the bar until a second tab opens).
+          tab_bar_edge     top
+          tab_bar_style    slant
+          tab_bar_min_tabs 1
       tags: kitty
 
     # Remove the previous wheel-to-PageUp blocks if present — they were
