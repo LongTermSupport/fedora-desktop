@@ -71,7 +71,7 @@
         mode: "0755"
       tags: kitty
 
-    - name: Configure Kitty Wheel To PageUp on Alt-Screen
+    - name: Configure Kitty (Wheel-to-PageUp + New-Tab-CWD)
       become_user: "{{ user_login }}"
       ansible.builtin.blockinfile:
         path: /home/{{ user_login }}/.config/kitty/kitty.conf
@@ -81,11 +81,25 @@
         mode: "0644"
         marker: "# {mark} ANSIBLE MANAGED: CC wheel to PageUp (Plan 00047)"
         block: |
+          # ───── Wheel → PageUp/PageDown for alt-screen apps (Plan 00047) ─────
           # Remap wheel to PageUp/PageDown for ungrabbed apps (e.g. Claude Code
           # in fullscreen rendering with mouse capture off). Mouse-grabbing
           # TUIs (htop, btop, lazygit) keep raw wheel events via `grabbed`.
-          mouse_map wheel_up   press ungrabbed send_key Page_Up
-          mouse_map wheel_down press ungrabbed send_key Page_Down
+          # `send_text` is the kitty-canonical action for emitting raw byte
+          # sequences from a mouse event; `send_key Page_Up` was tried first
+          # but is not a valid mouse_map action in kitty 0.43 (silently no-ops).
+          # `\x1b[5~` is PageUp, `\x1b[6~` is PageDown.
+          mouse_map wheel_up   press ungrabbed send_text all \x1b[5~
+          mouse_map wheel_down press ungrabbed send_text all \x1b[6~
+
+          # ───── Shell integration + new-tab/window inherit cwd ─────
+          # Shell integration emits OSC 7 (cwd reporting) on each prompt, so
+          # new tabs/windows can inherit the cwd of the spawning one. It is the
+          # default in recent kitty, but make it explicit so behaviour is
+          # deterministic across upgrades.
+          shell_integration enabled
+          map ctrl+shift+t      new_tab_with_cwd
+          map ctrl+shift+enter  new_window_with_cwd
       tags: kitty
 
     - name: Ensure Alacritty Config Directory Exists
