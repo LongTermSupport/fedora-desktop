@@ -85,12 +85,17 @@
           # Remap wheel to PageUp/PageDown for ungrabbed apps (e.g. Claude Code
           # in fullscreen rendering with mouse capture off). Mouse-grabbing
           # TUIs (htop, btop, lazygit) keep raw wheel events via `grabbed`.
-          # `send_text` is the kitty-canonical action for emitting raw byte
-          # sequences from a mouse event; `send_key Page_Up` was tried first
-          # but is not a valid mouse_map action in kitty 0.43 (silently no-ops).
-          # `\x1b[5~` is PageUp, `\x1b[6~` is PageDown.
-          mouse_map wheel_up   press ungrabbed send_text all \x1b[5~
-          mouse_map wheel_down press ungrabbed send_text all \x1b[6~
+          #
+          # kitty's mouse_map button vocabulary is: left, middle, right, b1..b8.
+          # `wheel_up` / `wheel_down` ARE NOT VALID TOKENS — kitty 0.43 silently
+          # rejects them with "Mouse button: wheel_up not recognized, ignoring".
+          # Per X11 button numbering: b4 = wheel up, b5 = wheel down. On Wayland
+          # kitty synthesises b4/b5 press events from high-resolution scroll-
+          # axis events once the accumulated delta crosses a threshold.
+          #
+          # `send_text` is the action; `\x1b[5~` is PageUp, `\x1b[6~` is PageDown.
+          mouse_map b4 press ungrabbed send_text all \x1b[5~
+          mouse_map b5 press ungrabbed send_text all \x1b[6~
 
           # ───── Shell integration + new-tab/window inherit cwd ─────
           # Shell integration emits OSC 7 (cwd reporting) on each prompt, so
