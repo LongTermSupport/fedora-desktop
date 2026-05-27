@@ -89,7 +89,11 @@
           # disabled in CCY), the whole conversation lives in kitty's native
           # scrollback. kitty's default of 2000 lines is the hard ceiling on
           # how far back you can wheel through a session, so raise it.
+          # scrollback_pager_history_size lets the pager (Ctrl+Shift+H, opens
+          # the buffer in less for / search) see further back than the live
+          # on-screen buffer by keeping extra history on disk.
           scrollback_lines 10000
+          scrollback_pager_history_size 10
 
           # Tab bar appearance — top edge, slanted edges so it reads as proper
           # GUI tabs rather than a status-strip. `tab_bar_min_tabs 1` makes the
@@ -98,6 +102,23 @@
           tab_bar_edge     top
           tab_bar_style    slant
           tab_bar_min_tabs 1
+          # Prefix each tab with its index so tabs are identifiable at a
+          # glance and quick to reason about; {title} reflects the running
+          # command or cwd via shell integration.
+          tab_title_template "{index}: {title}"
+
+          # Window / bell behaviour.
+          # confirm_os_window_close 0: Ctrl+Shift+Q (and the window close
+          # button) quit immediately with no are-you-sure prompt, even with
+          # several tabs open.
+          confirm_os_window_close 0
+          # enable_audio_bell no: silence the beep. CC rings the terminal
+          # bell when a long task finishes; the visual tab bell-symbol and
+          # window alert stay on (kitty defaults), so you still see which
+          # background tab just finished without the audible nag.
+          enable_audio_bell no
+          # A little breathing room around the text grid.
+          window_padding_width 4
       tags: kitty
 
     # Remove the previous wheel-to-PageUp blocks if present — they were
