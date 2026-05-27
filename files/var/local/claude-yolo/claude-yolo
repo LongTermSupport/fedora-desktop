@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.14.0"  # feat(args): fail-fast unknown-flag validation — validate `--<flag>` args against ccy's set + dynamic `claude --help` (host binary preferred, container fallback) before SSH/gh/token/container work. Adds `--` separator for raw pass-through
+CCY_VERSION="3.15.0"  # feat(terminal): pre-flight host terminal detection — gate CCY launch on whether the user's terminal emulator supports wheel→PageUp remap (kitty/alacritty/wezterm). Unsupported terminals (ghostty/VTE/foot/konsole) get a banner + abort prompt with CCY_ACCEPT_UNSUPPORTED_TERM=1 escape hatch. See CLAUDE/Plan/00047. Adds lib/terminal-detection.bash.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,7 +22,7 @@ else
 fi
 
 # Load specialized libraries
-for lib in token-management ssh-handling network-management dockerfile-custom docker-health; do
+for lib in token-management ssh-handling network-management dockerfile-custom docker-health terminal-detection; do
     if [ -f "$SCRIPT_DIR/lib/$lib.bash" ]; then
         source "$SCRIPT_DIR/lib/$lib.bash"
     else
@@ -60,6 +60,12 @@ check_ccy_gitignore_safety || exit 1
 
 # Hostname restriction: prevent running Desktop CCY on projects locked to a specific host
 check_allowed_hostname || exit 1
+
+# Terminal pre-flight: warn loudly if the host terminal cannot remap wheel→PageUp.
+# Supported emulators (kitty/alacritty/wezterm) silently proceed. Unsupported
+# emulators (ghostty/VTE/konsole/foot) get a banner + abort prompt.
+# Escape hatch: export CCY_ACCEPT_UNSUPPORTED_TERM=1. See CLAUDE/Plan/00047.
+terminal_preflight_check || exit 1
 
 # Migration: detect and offer to remove old session directories (v2.x -> v3.x)
 if [ -d ".claude/ccy/sessions" ]; then

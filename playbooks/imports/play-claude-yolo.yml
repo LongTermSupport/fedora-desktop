@@ -64,6 +64,18 @@
           {% endif %}
       when: container_service_check.rc != 0
 
+    # gum is used by lib/terminal-detection.bash for the pre-flight banner.
+    # The library degrades gracefully to plain printf if gum is missing, but the
+    # styled banner is much clearer — install it as a CCY host dependency.
+    - name: Install gum (TUI styling for CCY pre-flight banner)
+      become: true
+      ansible.builtin.package:
+        name: gum
+        state: present
+      tags:
+        - gum
+        - dependencies
+
     - name: Create Claude YOLO Base Directory
       become: true
       ansible.builtin.file:
@@ -241,6 +253,7 @@
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/network-management.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/dockerfile-custom.bash"
         - "{{ root_dir }}/files/var/local/claude-yolo/lib/docker-health.bash"
+        - "{{ root_dir }}/files/var/local/claude-yolo/lib/terminal-detection.bash"
       tags:
         - scripts
         - library

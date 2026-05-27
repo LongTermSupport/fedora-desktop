@@ -45,6 +45,84 @@
         state: present
       tags: foot
 
+    # =========================================================================
+    # Claude Code wheel→PageUp remap for supported emulators (Plan 00047)
+    # =========================================================================
+    # The fullscreen alt-screen rendering Claude Code uses, combined with CCY's
+    # CLAUDE_CODE_DISABLE_MOUSE=1 (to keep native text selection working),
+    # leaves the terminal's DECSET-1007 fallback in charge of the wheel — it
+    # emits arrow-up/down on the alt screen, which the CC prompt reads as
+    # history recall and clobbers in-progress input. Per-emulator config below
+    # remaps the wheel to PageUp/PageDown SCOPED to alt-screen with no mouse
+    # grab, so primary-screen scrolling (bash, less without -X, etc.) and
+    # mouse-grabbing TUIs (htop, btop, lazygit) are unaffected.
+    #
+    # Ghostty has no mouse-binding config in v1.x (open feature request
+    # #4169) — skipped here. Foot has no send-key action — also skipped.
+    # See CLAUDE/Plan/00047/DECISION.md and lib/terminal-detection.bash.
+
+    - name: Ensure Kitty Config Directory Exists
+      become_user: "{{ user_login }}"
+      ansible.builtin.file:
+        path: /home/{{ user_login }}/.config/kitty
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+      tags: kitty
+
+    - name: Configure Kitty Wheel To PageUp on Alt-Screen
+      become_user: "{{ user_login }}"
+      ansible.builtin.blockinfile:
+        path: /home/{{ user_login }}/.config/kitty/kitty.conf
+        create: true
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0644"
+        marker: "# {mark} ANSIBLE MANAGED: CC wheel to PageUp (Plan 00047)"
+        block: |
+          # Remap wheel to PageUp/PageDown for ungrabbed apps (e.g. Claude Code
+          # in fullscreen rendering with mouse capture off). Mouse-grabbing
+          # TUIs (htop, btop, lazygit) keep raw wheel events via `grabbed`.
+          mouse_map wheel_up   press ungrabbed send_key Page_Up
+          mouse_map wheel_down press ungrabbed send_key Page_Down
+      tags: kitty
+
+    - name: Ensure Alacritty Config Directory Exists
+      become_user: "{{ user_login }}"
+      ansible.builtin.file:
+        path: /home/{{ user_login }}/.config/alacritty
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+      tags: alacritty
+
+    - name: Configure Alacritty Wheel To PageUp on Alt-Screen
+      become_user: "{{ user_login }}"
+      ansible.builtin.blockinfile:
+        path: /home/{{ user_login }}/.config/alacritty/alacritty.toml
+        create: true
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0644"
+        marker: "# {mark} ANSIBLE MANAGED: CC wheel to PageUp (Plan 00047)"
+        block: |
+          # Remap wheel to PageUp/PageDown only in alt-screen mode (mode = "Alt"),
+          # so primary-screen scrolling in bash/less/cat is unaffected.
+          # \u001B is the TOML escape for the ESC byte; the full ANSI sequences
+          # are ESC[5~ (PageUp) and ESC[6~ (PageDown).
+          [[mouse.bindings]]
+          mouse = "WheelUp"
+          chars = "\u001B[5~"
+          mode = "Alt"
+
+          [[mouse.bindings]]
+          mouse = "WheelDown"
+          chars = "\u001B[6~"
+          mode = "Alt"
+      tags: alacritty
+
     - name: Display Installation Complete Message
       ansible.builtin.debug:
         msg: |
@@ -85,7 +163,10 @@
           ✓ Low input latency
 
           Configuration files:
-          • Alacritty: ~/.config/alacritty/alacritty.yml
+          • Alacritty: ~/.config/alacritty/alacritty.toml
           • Kitty: ~/.config/kitty/kitty.conf
           • Ghostty: ~/.config/ghostty/config
           • Foot: ~/.config/foot/foot.ini
+
+          Plan 00047: wheel→PageUp remap deployed for kitty + alacritty.
+          Ghostty + foot are skipped (no emulator-level wheel remap available).
