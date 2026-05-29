@@ -48,44 +48,79 @@ non-secret metadata (account IDs, display names) lives in
 ## Goals
 
 - Single source of truth for multi-account identity declarations
-  (`project_personas` in `localhost.yml`)
-- New tool support is **additive**: declare a tool field per persona,
-  run the per-tool playbook, get the same `tool-<alias>` UX shape as
-  `gh-<alias>` provides today
-- First new tool wired up: **wrangler** (Cloudflare Workers CLI),
-  with `wrangler-<alias>` bash functions mirroring the `gh-<alias>`
-  pattern
+  (`project_personas` in `localhost.yml`) — flat platform-keyed
+  schema using full platform names (`github`, `cloudflare`,
+  `amazon_web_services`, …), no `tools:` wrapper, no CLI-binary
+  abbreviations
+- New platform support is **additive**: declare a platform key per
+  persona, run the per-platform playbook, get the same
+  `<cli>-<alias>` UX shape as `gh-<alias>` provides today
+- **Six platforms wired up in this plan**:
+  - **github** (existing — migrated from `github_accounts`)
+  - **cloudflare** (new — `wrangler-<alias>`)
+  - **fly_io** (new — `flyctl-<alias>`)
+  - **supabase** (new — `supabase-<alias>`)
+  - **amazon_web_services** (new — `aws-<alias>` via `AWS_PROFILE`)
+  - **google_cloud_platform** (new — `gcloud-<alias>` via
+    `CLOUDSDK_ACTIVE_CONFIG_NAME`)
+- **Smart top-level `git` and `gh`** auto-route to the correct
+  `<cli>-<alias>` based on the cwd git remote's org, looked up
+  against each persona's `github.use_for_orgs` declaration.
+  Per-alias wrappers stay as escape hatches; smart wrappers are
+  the daily-driver path. GitHub-only for now (other platforms have
+  no equivalent of "remote URL implies persona" signal).
 - `play-github-cli-multi.yml` consumes `project_personas`
   directly; users on the legacy `github_accounts` schema get a
   **fail-fast error with the exact YAML to paste** to migrate.
   No silent shim, no two-source-of-truth confusion.
-- Secrets for tools that need per-invocation env-var injection
-  (wrangler, future API-token-based tools) are stored in the
-  **GNOME Keyring** via `secret-tool`. Not in `localhost.yml`,
-  not in plaintext on disk, not in shell history.
-- Per-persona setup script (`scripts/persona-setup.bash` or
-  extend `gh-account-setup.bash`) handles the full add-a-persona
-  flow end-to-end: edit `localhost.yml` → auth each tool →
+- Secrets for platforms that need per-invocation env-var injection
+  (cloudflare, fly_io, supabase, future API-token platforms) are
+  stored in the **GNOME Keyring** via `secret-tool`. Not in
+  `localhost.yml`, not in plaintext on disk, not in shell history.
+- Platforms that use config-file profiles (`amazon_web_services`,
+  `google_cloud_platform`) get a thinner wrapper that sets the
+  active-profile env var per call (no keyring lookup needed —
+  credentials stay in the platform's native config file with its
+  own permissions model).
+- Per-persona setup script (`scripts/persona-setup.bash`) handles
+  the full add-a-persona flow end-to-end across all in-scope
+  platforms: edit `localhost.yml` → auth each declared platform →
   store any required secrets in keyring → verify
-- Pattern is documented well enough that adding a third tool
-  (e.g. npm) is a single new playbook + tool field, not an
-  architectural decision
+- Pattern is documented well enough that adding a **seventh**
+  platform (e.g. npm_registry, microsoft_azure, docker_hub) is a
+  single new playbook + platform field, not an architectural
+  decision
 
 ## Non-Goals
 
-- Not implementing npm / aws / gcloud / supabase / fly support in
-  this plan — only **gh (compat)** and **wrangler (new)**. The
-  pattern is the deliverable; further tools come in follow-up plans
+- **Not implementing the following platforms in this plan**
+  (deferred to follow-up plans that reuse this plan's architecture):
+  - `npm_registry` — the publish-auth use case adds `.npmrc`
+    per-scope handling that doesn't fit the env-var-per-call
+    template cleanly. Easy add later.
+  - `microsoft_azure` — only worth doing if the user actively uses
+    Azure; the env-var pattern works but the playbook is non-trivial
+    (multiple env var combos depending on auth mode).
+  - `docker_hub` — single-active `~/.docker/config.json` is fiddly;
+    either rewrite the config per call (race-condition-prone) or
+    `docker --config <per-alias-dir>` (verbose, breaks `docker compose`
+    UX). Worth its own design plan.
+- **Not implementing smart auto-routing for non-GitHub platforms.**
+  AWS/GCP/Cloudflare have no equivalent of "git remote URL → org",
+  so smart routing would need a per-directory marker (`.persona`
+  file, `direnv` `.envrc`, etc.). User has rejected the
+  custom-file approach. If per-directory env defaults become
+  desirable later, the right tool is `direnv` (already-installed
+  upstream project, no invention needed) — see Decision 7.
 - Not renaming or restructuring the existing
-  `play-github-cli-multi.yml` machinery — it stays put, reads its
-  data from `github_accounts` as today (which is derived from
-  `project_personas` during the rollout)
+  `play-github-cli-multi.yml` machinery — it stays put, the schema
+  detection at the top is the only change to its public contract.
 - Not changing the SSH key naming convention
   (`~/.ssh/github_<alias>`) — out of scope, would touch Plan 00035's
-  surface
-- Not building a GUI/wizard — CLI-only, consistent with `run.bash`
+  surface.
+- Not building a GUI/wizard — CLI-only, consistent with `run.bash`.
 - Not encrypting persona-level metadata beyond what's already
-  encrypted in `localhost.yml` (vault behaviour unchanged)
+  encrypted in `localhost.yml` (vault behaviour unchanged).
 
 ## Context & Background
 
@@ -161,38 +196,44 @@ personas:
     wrangler: true
 ```
 
-Refined to carry per-tool identity values:
+Refined schema (see 2026-05-29 update at bottom for the design decisions behind this shape):
 
 ```yaml
 project_personas:
-  joseph:
-    name: "Joseph Personal"
-    tools:
-      gh:
-        username: joseph-uk
-      wrangler:
-        account_id: "a1b2c3d4e5f6..."
-        account_name: "Joseph Personal"
   <alias-a>:
     name: "<Display Name A>"
-    tools:
-      gh:
-        username: <gh-username-a>
-      wrangler:
-        account_id: "0123456789ab..."
-        account_name: "<Display Name A>"
-  lts:
-    name: "Long Term Support"
-    tools:
-      gh:
-        username: LTSCommerce
-      # no wrangler entry — LTS has no Cloudflare account
+    github:
+      username: <gh-username-a>
+      use_for_orgs:
+        - <org-x>
+        - <org-y>
+    cloudflare:
+      account_id: "a1b2c3d4e5f6..."
+      account_name: "<Display Name A>"
+  <alias-b>:
+    name: "<Display Name B>"
+    github:
+      username: <gh-username-b>
+      use_for_orgs:
+        - <org-z>
+    cloudflare:
+      account_id: "0123456789ab..."
+      account_name: "<Display Name B>"
+  <alias-c>:
+    name: "<Display Name C>"
+    github:
+      username: <gh-username-c>
+      # no use_for_orgs — this persona owns no orgs, only its personal namespace
+    # no cloudflare key — this persona has no Cloudflare account
 ```
 
-Top-level key is the **alias** (matches existing
-`github_accounts` keys, so the SSH key path stays
-`~/.ssh/github_joseph`). The `tools` map declares which tools that
-persona is set up for, and carries each tool's identity value.
+**Shape rules:**
+
+- Top-level key is the **alias** (matches existing `github_accounts` keys, so the SSH key path stays `~/.ssh/github_<alias>`).
+- Each persona has a `name` field plus N **platform keys** at the persona top level — no `tools:` wrapper.
+- Platform keys use the **full platform name**, not the CLI binary (`github` not `gh`, `cloudflare` not `wrangler`, `amazon_web_services` not `aws`, `google_cloud_platform` not `gcp`). A few extra tokens buys vastly more clarity for humans and LLMs reading the YAML.
+- `github.use_for_orgs` (optional list of org names) declares which orgs this persona owns. Drives auto-routing in the smart `git` / `gh` wrappers (Decision 5). Absent or empty list → persona is reachable only via explicit `git-<alias>` / `gh-<alias>` or by personal-repo namespace match.
+- Per-CLI-shaped sub-fields are fine *inside* the platform block where genuinely needed (e.g. `cloudflare.api_token_keyring_key` is wrangler-shaped). The platform key itself stays platform-named.
 
 ### Relevant prior plans
 
@@ -220,16 +261,6 @@ persona is set up for, and carries each tool's identity value.
 
 ### Phase 1: Research & Decision Gate
 
-- [ ] ⬜ **Research wrangler native multi-account capabilities** —
-  read upstream wrangler docs and source. Confirm: (a) does
-  `wrangler login` support a per-config-dir model like gh
-  (probably no — wrangler stores OAuth in a single
-  `~/.config/.wrangler/config/default.toml`), (b) does
-  `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` set per
-  invocation fully override any active OAuth session, (c) what
-  scopes/permissions a per-persona API token needs for typical
-  Workers / Pages / KV / R2 / D1 use. Output: short notes file
-  in this plan dir.
 - [ ] ⬜ **Research GNOME Keyring + `secret-tool` for token
   storage** — confirm `secret-tool` is in F43 base or comes from
   a known package (libsecret), confirm it's already
@@ -237,26 +268,55 @@ persona is set up for, and carries each tool's identity value.
   works at shell function call time without an interactive
   unlock prompt (the keyring is unlocked at GNOME login on
   this machine). Output: notes for Decision 4.
-- [ ] ⬜ **Decide tool selection for this plan** — confirm
-  wrangler is the only new tool in scope. List candidate
-  follow-up tools (npm, aws, gcloud, supabase, fly) in Notes
-  section so future plans can pick them up without redoing
-  this analysis.
-- [ ] ⬜ **Decision gate** — present Phase 1 research + the
-  three open decisions (1: schema shape — already proposed; 3:
-  wrangler auth method; 4: secret storage mechanism) to user.
-  Block remaining phases on user approval. Update Tasks below
-  if research changes the plan shape.
+- [ ] ⬜ **Research env-var-per-call CLIs (cloudflare / fly_io /
+  supabase)** — confirm each supports a pure env-var auth mode
+  that overrides any active OAuth session:
+  - `wrangler`: `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID`
+  - `flyctl`: `FLY_API_TOKEN`
+  - `supabase`: `SUPABASE_ACCESS_TOKEN`
+    Capture minimum-scope token requirements per platform for use
+    in the per-persona setup prompts. Output: short notes file in
+    this plan dir.
+- [ ] ⬜ **Research named-profile CLIs (amazon_web_services /
+  google_cloud_platform)** — confirm the active-profile selection
+  env var works per call without mutating the config file:
+  - `aws`: `AWS_PROFILE=<alias>` selects a stanza from
+    `~/.aws/credentials` / `~/.aws/config`
+  - `gcloud`: `CLOUDSDK_ACTIVE_CONFIG_NAME=<alias>` selects a
+    config from `gcloud config configurations list`
+    Confirm both CLIs respect the env var even when the user has
+    run `aws configure` / `gcloud config set ...` interactively.
+    Output: notes file.
+- [ ] ⬜ **Confirm in-scope platform list with user** — proposed
+  set: `github`, `cloudflare`, `fly_io`, `supabase`,
+  `amazon_web_services`, `google_cloud_platform`. Confirmed
+  out-of-scope (deferred to follow-up plans): `npm_registry`,
+  `microsoft_azure`, `docker_hub`. User can adjust the cut list
+  before Phase 2 begins.
+- [ ] ⬜ **Decision gate** — present Phase 1 research + the open
+  decisions (Decision 1: schema shape — settled 2026-05-29;
+  Decision 3: wrangler auth method — settled; Decision 4: secret
+  storage — settled, awaiting `secret-tool` availability
+  confirmation; Decision 5: smart router scope — settled
+  github-only 2026-05-29; Decision 6: in-scope platform list;
+  Decision 7: direnv-as-future-possibility for non-GitHub smart
+  routing) to user. Block remaining phases on user approval.
 
-### Phase 2: Schema definition + gh playbook fail-fast detection
+### Phase 2: Schema definition + gh playbook fail-fast migration
 
 - [ ] ⬜ **Define `project_personas` schema** in a comment block
   at the top of `localhost.yml`. Documents required vs optional
-  keys per tool, with worked examples for `gh` and `wrangler`.
+  keys per platform with worked examples for all six in-scope
+  platforms. Explicitly states the three shape rules: flat
+  platform keys at persona top level, full platform names (no
+  CLI binaries / abbreviations), `github.use_for_orgs` for org
+  ownership.
 - [ ] ⬜ **Populate `project_personas`** in `localhost.yml` for
   the existing aliases currently in `localhost.yml`'s
-  `github_accounts`, initially with only the `gh` tool entry —
-  values mirror today's `github_accounts` exactly.
+  `github_accounts`, initially with only the `github` platform
+  entry — usernames mirror today's `github_accounts` exactly.
+  `use_for_orgs` populated based on which aliases own which orgs
+  (user decides — playbook can warn but cannot infer).
 - [ ] ⬜ **Remove the legacy `github_accounts` block** from
   `localhost.yml` once `project_personas` is populated. Single
   source of truth from the user's side — no two YAML blocks
@@ -264,7 +324,7 @@ persona is set up for, and carries each tool's identity value.
 - [ ] ⬜ **Update `play-github-cli-multi.yml` schema detection**
   — at the top of the play, add a preflight that:
   1. If `project_personas is defined and project_personas | length > 0` → derive a local `_gh_accounts` fact from it
-     (`{alias: tools.gh.username for alias, p in project_personas.items() if p.tools.gh is defined}`)
+     (`{alias: p.github.username for alias, p in project_personas.items() if p.github is defined}`)
      and use it throughout the rest of the play.
   2. Else if legacy `github_accounts is defined` → **fail
      fast** with a printable YAML snippet showing the exact
@@ -272,6 +332,12 @@ persona is set up for, and carries each tool's identity value.
      migrate, plus the one-line instruction to delete the
      `github_accounts` block.
   3. Else → existing "no accounts configured" skip path.
+- [ ] ⬜ **Add `use_for_orgs` collision check** to the gh
+  playbook preflight — iterate
+  `project_personas[*].github.use_for_orgs`, fail-fast at
+  playbook-time if any org appears under two personas.
+  Catches the misconfiguration before the smart router can act
+  on it.
 - [ ] ⬜ **Rename internal references** inside
   `play-github-cli-multi.yml` from `github_accounts` to the
   derived `_gh_accounts` fact — mechanical find-and-replace,
@@ -282,51 +348,77 @@ persona is set up for, and carries each tool's identity value.
   `project_personas` (not `github_accounts`) going forward.
 - [ ] ⬜ **Verify gh side end-to-end** on host — generated
   `gh-aliases.inc.bash` after the migration must be
-  byte-identical to before the migration for the same four
-  accounts. (`diff` the two outputs.)
+  byte-identical to before the migration for the same accounts.
+  (`diff` the two outputs.) `use_for_orgs` adds new content but
+  does not alter the existing `gh-<alias>` / `git-<alias>`
+  generation.
 
-### Phase 3: Wrangler base install
+### Phase 3: Platform CLI base installs
 
-- [ ] ⬜ **Create `playbooks/imports/optional/common/play-wrangler.yml`**
-  — installs wrangler globally via npm under the user's nvm
-  context (follows `play-nvm-install.yml` precedent). Pinned
-  version with `npm install -g wrangler@X.Y.Z` for
-  reproducibility.
-- [ ] ⬜ **Add wrangler to `playbook-main.yml`** as an opt-in
-  import (commented out by default — user uncomments after
-  confirming they want it; matches `play-ddev.yml` precedent).
-- [ ] ⬜ **Verify install** with `wrangler --version` on host.
+One install playbook per CLI binary, idempotent, pinned where
+versions matter for reproducibility. These are independent of the
+multi-account machinery — they just put the binary on `$PATH`.
 
-### Phase 4: Wrangler multi-account playbook + bash functions
+- [ ] ⬜ **`playbooks/imports/optional/common/play-wrangler.yml`** —
+  installs `wrangler` globally via npm under the user's nvm context
+  (follows `play-nvm-install.yml` precedent), pinned version.
+- [ ] ⬜ **`playbooks/imports/optional/common/play-flyctl.yml`** —
+  installs `flyctl` via the upstream installer script
+  (`curl -L https://fly.io/install.sh`) with `creates:` guard for
+  idempotency. Pinned version via the installer's
+  `FLYCTL_INSTALL_VERSION` env var.
+- [ ] ⬜ **`playbooks/imports/optional/common/play-supabase-cli.yml`** —
+  installs `supabase` CLI via the upstream tarball release
+  (follows `yq` precedent). Pinned version.
+- [ ] ⬜ **`playbooks/imports/optional/common/play-aws-cli.yml`** —
+  installs AWS CLI v2 via the upstream bundle (NOT pip — the bundle
+  is the upstream-recommended path on Linux). Pinned version.
+- [ ] ⬜ **`playbooks/imports/optional/common/play-gcloud.yml`** —
+  installs `gcloud` via the Google Cloud SDK repo + dnf (Fedora
+  package available since F39). Pinned version.
+- [ ] ⬜ **Add each new install playbook to `playbook-main.yml`** as
+  opt-in imports (commented out by default, matches `play-ddev.yml`
+  precedent — user uncomments per platform they actually use).
+- [ ] ⬜ **Verify installs** with `wrangler --version`,
+  `flyctl version`, `supabase --version`, `aws --version`,
+  `gcloud --version` on host.
 
-- [ ] ⬜ **Create `playbooks/imports/optional/common/play-wrangler-multi.yml`**
-  — mirrors `play-github-cli-multi.yml` shape:
+### Phase 4: Per-platform multi-account playbooks
 
-  - Preflight: assert `secret-tool` is on PATH (libsecret
-    installed); assert wrangler version meets minimum
-  - Read `project_personas`, filter to personas with
-    `tools.wrangler` declared
-  - Preflight: for each such persona, assert a token is
-    already stored in the keyring under the agreed attribute
-    scheme (`persona=<alias> tool=wrangler attr=api-token`).
-    Fail-fast with the exact `persona-setup.bash --set-token=<alias> wrangler` command if missing — playbook
-    must NOT prompt for tokens itself (separation of concerns:
-    setup script handles interactive secret entry; playbook
-    only deploys derived artifacts)
-  - Generate `~/.bashrc-includes/wrangler-aliases.inc.bash`
-    with per-alias bash functions (see next task)
+All six platforms share a common template shape — preflight, read
+`project_personas`, filter by platform key declared, generate a
+per-alias bash function include. The differences are confined to:
+(a) the env-var set the function exports, (b) the keyring
+attribute scheme, (c) the health-check API call.
 
-- [ ] ⬜ **Implement `wrangler-<alias>` function shape** —
-  every call explicitly exports the persona's credentials into
-  the subprocess env, so the function works regardless of any
-  prior `wrangler login` state. Function body:
+**4.0 — Common template extraction** (do first, then instantiate)
+
+- [ ] ⬜ **Extract a Jinja macro / include task** that takes
+  `(platform_name, cli_binary, env_var_map, keyring_attr, health_call)`
+  parameters and emits a per-alias bash function. Keeps the six
+  platform playbooks DRY. Lives in
+  `playbooks/imports/_shared/persona-bash-function-template.j2`
+  (or similar — exact path settled in implementation).
+
+**4.1 — `play-cloudflare-multi.yml`** (env-var-per-call, keyring-stored token)
+
+- [ ] ⬜ **Preflight**: `secret-tool` on PATH; wrangler installed.
+
+- [ ] ⬜ **Filter**: personas with `cloudflare` key declared.
+
+- [ ] ⬜ **Token presence check**: for each, assert
+  `secret-tool lookup persona <alias> platform cloudflare attr api_token`
+  resolves. Fail-fast with `persona-setup.bash --set-token=<alias> cloudflare` if missing.
+
+- [ ] ⬜ **Generate `~/.bashrc-includes/cloudflare-aliases.inc.bash`**
+  with per-alias `wrangler-<alias>` functions:
 
   ```bash
-  function wrangler-<alias-a>() {
+  function wrangler-<alias>() {
       local token
-      if ! token=$(secret-tool lookup persona <alias-a> tool wrangler attr api-token 2>/dev/null); then
-          echo "ERROR: no wrangler API token stored for persona '<alias-a>'." >&2
-          echo "Run: persona-setup.bash --set-token=<alias-a> wrangler" >&2
+      if ! token=$(secret-tool lookup persona <alias> platform cloudflare attr api_token 2>/dev/null); then
+          echo "ERROR: no cloudflare API token stored for persona '<alias>'." >&2
+          echo "Run: persona-setup.bash --set-token=<alias> cloudflare" >&2
           return 1
       fi
       CLOUDFLARE_API_TOKEN="$token" \
@@ -335,115 +427,250 @@ persona is set up for, and carries each tool's identity value.
   }
   ```
 
-  Key properties:
+- [ ] ⬜ **Helper functions** in the same include:
+  `cloudflare-list`, `cloudflare-whoami-<alias>`, `cloudflare-status`.
 
-  - Token never written to disk in plaintext after initial
-    `secret-tool store`
-  - Token never appears in process listings outside the
-    `wrangler` subprocess (env vars on `command wrangler` are
-    only visible to that process's `/proc/<pid>/environ`,
-    readable only by the same user/root — same threat surface
-    as today's gh tokens)
-  - No state leaks between calls (no global env vars set, no
-    `wrangler login` switch needed)
-  - Each per-alias function is a separate templated block, so
-    `wrangler-lts`, `wrangler-joseph` etc. share zero state
+- [ ] ⬜ **Per-account health audit**: `wrangler whoami` under each
+  persona's env vars. Fail-fast with exact remediation per persona.
 
-- [ ] ⬜ **Generate helper functions** in the same include:
+**4.2 — `play-fly-io-multi.yml`** (env-var-per-call, keyring-stored token)
 
-  - `wrangler-list` — lists personas with `tools.wrangler`
-    declared, shows account name + account ID (non-secret)
-  - `wrangler-whoami` — runs `wrangler whoami` under the
-    currently-active alias context (requires user to specify
-    which alias to query — there is no "currently active" in
-    this model since every call is per-alias-prefixed)
-  - `wrangler-status` — iterates all wrangler personas, makes
-    one read-only API call each (e.g. `wrangler whoami`),
-    reports pass/fail per persona
+- [ ] ⬜ Same shape as 4.1 but env vars are
+  `FLY_API_TOKEN="$token"` only (fly_io has no equivalent of
+  account-id). Per-alias function: `flyctl-<alias>`.
+- [ ] ⬜ Keyring scheme: `persona=<alias> platform=fly_io attr=api_token`.
+- [ ] ⬜ Health audit: `flyctl auth whoami`.
 
-- [ ] ⬜ **Per-account health audit** in the playbook — for
-  each persona with wrangler configured, verify the keyring
-  token works end-to-end via one read-only call (e.g.
-  `wrangler whoami` with the persona's env vars exported).
-  Fail-fast with the exact remediation command per persona,
-  same pattern as the gh scope audit.
+**4.3 — `play-supabase-multi.yml`** (env-var-per-call, keyring-stored token)
 
-### Phase 5: Per-persona setup script
+- [ ] ⬜ Same shape. Env var: `SUPABASE_ACCESS_TOKEN="$token"`.
+  Per-alias function: `supabase-<alias>`.
+- [ ] ⬜ Keyring scheme: `persona=<alias> platform=supabase attr=access_token`.
+- [ ] ⬜ Health audit: `supabase projects list` (or the cheapest
+  read-only call available — confirm in Phase 1 research).
 
-- [ ] ⬜ **Create `scripts/persona-setup.bash`** as the
-  top-level dispatcher (separate from the now-stable
-  `gh-account-setup.bash`, which it calls into for the gh
-  tool). Keeps each tool's setup logic isolated and avoids
-  growing one file into a god-script.
+**4.4 — `play-amazon-web-services-multi.yml`** (named-profile pattern, no keyring)
+
+- [ ] ⬜ **Preflight**: AWS CLI installed. NO `secret-tool` check
+  — this platform stores credentials in `~/.aws/credentials` per
+  the AWS-native model.
+
+- [ ] ⬜ **Filter**: personas with `amazon_web_services` declared.
+
+- [ ] ⬜ **Profile presence check**: for each, assert a stanza named
+  `[<alias>]` exists in `~/.aws/credentials` (or `~/.aws/config`
+  for SSO). Fail-fast with `persona-setup.bash --aws-configure=<alias>`
+  if missing — setup script delegates to interactive `aws configure --profile=<alias>`.
+
+- [ ] ⬜ **Generate `~/.bashrc-includes/amazon-web-services-aliases.inc.bash`**:
+
+  ```bash
+  function aws-<alias>() {
+      AWS_PROFILE=<alias> command aws "$@"
+  }
+  ```
+
+  No keyring lookup needed — `aws` itself reads the profile from
+  its native config. The wrapper just sets the active profile.
+
+- [ ] ⬜ **Helper functions**: `aws-list`, `aws-whoami-<alias>`
+  (`AWS_PROFILE=<alias> aws sts get-caller-identity`), `aws-status`.
+
+- [ ] ⬜ **Per-account health audit**: `aws sts get-caller-identity`
+  per profile.
+
+**4.5 — `play-google-cloud-platform-multi.yml`** (named-config pattern, no keyring)
+
+- [ ] ⬜ Same shape as 4.4 but using gcloud's
+  `gcloud config configurations` model. Env var:
+  `CLOUDSDK_ACTIVE_CONFIG_NAME=<alias>`. Per-alias function:
+  `gcloud-<alias>`.
+- [ ] ⬜ Preflight: gcloud CLI installed. Assert a configuration
+  named `<alias>` exists in `gcloud config configurations list`.
+  Fail-fast with `persona-setup.bash --gcloud-init=<alias>` if
+  missing.
+- [ ] ⬜ Health audit: `gcloud auth list --filter=status:ACTIVE`
+  under the persona's env var.
+
+### Phase 4.5: Smart top-level `git` and `gh` (GitHub only)
+
+- [ ] ⬜ **Add `_persona_extract_org_from_cwd_remote` helper bash
+  function** to a shared include
+  (`~/.bashrc-includes/persona-router.inc.bash`). Logic: run
+  `command git remote get-url origin 2>/dev/null` → extract the
+  GitHub owner with a single regex (handles both
+  `git@github.com:<owner>/<repo>.git` and
+  `https://github.com/<owner>/<repo>.git` formats) → print owner
+  or nothing.
+
+- [ ] ⬜ **Add `_persona_lookup_alias_for_org` helper** —
+  takes `(platform_name, org_name)`, reads a generated lookup
+  file written by `play-github-cli-multi.yml` (a simple
+  `<org>=<alias>` text file at
+  `~/.config/persona-router/github-orgs.map`), prints the
+  matching alias or nothing. Pure file I/O, no parsing on every
+  call.
+
+- [ ] ⬜ **Generate `github-orgs.map`** in
+  `play-github-cli-multi.yml`. Iterate
+  `project_personas[*].github.use_for_orgs`, emit one
+  `<org>=<alias>` line per entry. Fail-fast at playbook-time if
+  any org appears twice (the collision check from Phase 2).
+
+- [ ] ⬜ **Implement smart `git()` and `gh()` functions** in the
+  same include:
+
+  ```bash
+  function git() {
+      local org alias
+      org=$(_persona_extract_org_from_cwd_remote)
+      if [ -n "$org" ]; then
+          alias=$(_persona_lookup_alias_for_org github "$org")
+          if [ -n "$alias" ]; then
+              command git-"$alias" "$@"
+              return
+          fi
+      fi
+      command git "$@"
+  }
+  function gh() {
+      # detect org from cwd remote OR from `gh` argv positional
+      # (e.g. `gh repo view <org>/<repo>`, `gh issue list --repo <org>/<repo>`)
+      # → delegate to gh-<alias>
+      # No match → command gh "$@"
+  }
+  ```
+
+- [ ] ⬜ **Add `persona-here` diagnostic** to the same include —
+  prints which persona would be used for the cwd's remote.
+  Debugs "wrong user pushed".
+
+- [ ] ⬜ **Verify smart routing** on host with at least two
+  GitHub personas owning different orgs:
+
+  - `cd ~/Projects/<org-a>/repo && git remote -v` → smart `git`
+    delegates to `git-<alias-a>`
+  - `cd ~/Projects/<org-z>/repo && git remote -v` → smart `git`
+    delegates to `git-<alias-b>`
+  - `cd ~/Projects/unclaimed-org/repo && git remote -v` → smart
+    `git` passes through to default `command git`
+
+### Phase 5: Per-persona setup script (multi-platform dispatcher)
+
+- [ ] ⬜ **Create `scripts/persona-setup.bash`** as the top-level
+  dispatcher. Each platform's setup logic is a separate
+  sub-function (`_setup_github`, `_setup_cloudflare`,
+  `_setup_fly_io`, `_setup_supabase`, `_setup_amazon_web_services`,
+  `_setup_google_cloud_platform`) — avoids one god-script,
+  enforces consistent UX per platform.
 - [ ] ⬜ **Implement `--add=<alias>` mode** — interactive
-  walk-through: prompt for display name, prompt per supported
-  tool ("set up for gh? y/n", "set up for wrangler? y/n"),
-  delegate to the per-tool setup flow if yes, append the
-  persona block to `localhost.yml`.
-- [ ] ⬜ **Implement `--set-token=<alias> <tool>` mode** —
-  reads a token from stdin (or prompts with `read -s`),
-  validates it with one read-only API call, then stores it in
-  the GNOME Keyring via `secret-tool store --label="<tool> token for <alias>" persona <alias> tool <tool> attr api-token`.
-  Never echoes the token, never writes it to disk, never
-  passes it on the command line where another user could
-  see it in `ps`.
+  walk-through: prompt for display name, then for each in-scope
+  platform prompt "set up for <platform>? y/n", delegate to the
+  per-platform setup flow if yes, append the persona block to
+  `localhost.yml`.
+- [ ] ⬜ **Implement `--set-token=<alias> <platform>` mode** —
+  for keyring-stored platforms (`cloudflare`, `fly_io`,
+  `supabase`). Reads a token from stdin (or prompts with
+  `read -s`), validates with one read-only API call, stores via
+  `secret-tool store --label="<platform> token for <alias>" persona <alias> platform <platform> attr <attr-name>`.
+  Never echoes, never writes to disk, never accepts the token
+  as an argv parameter (rejects `$1` looking like a token).
+- [ ] ⬜ **Implement `--aws-configure=<alias>` mode** — delegates
+  to `aws configure --profile=<alias>` for the interactive AWS
+  credential entry (AWS native path; no keyring involved).
+- [ ] ⬜ **Implement `--gcloud-init=<alias>` mode** — delegates
+  to `gcloud config configurations create <alias>` followed by
+  the standard interactive init, producing a configuration named
+  `<alias>` in `gcloud config configurations list`.
 - [ ] ⬜ **Implement `--setup-all` mode** — iterates
-  `project_personas`, for each persona × tool combo runs the
-  tool's auth/keygen flow if not already complete (e.g. for
-  wrangler: check keyring for token; if missing, prompt
-  user to paste one and validate it). Idempotent — re-running
-  with everything in place is a no-op with success logs.
+  `project_personas`, for each persona × platform combo runs the
+  platform's setup flow if not already complete. Idempotent —
+  re-running with everything in place is a no-op with success
+  logs.
 - [ ] ⬜ **Implement `--check` mode** — read-only health
-  verification across all personas × tools. Reports a per-cell
-  status table (`<alias-a>/gh: OK`, `<alias-a>/wrangler: MISSING TOKEN`,
-  `lts/gh: SCOPES INCOMPLETE`, etc.). No prompts, no writes.
-- [ ] ⬜ **Hook into `run.bash`** — `persona-setup.bash --setup-all` runs as part of the fresh-install flow,
-  in the right ordering relative to the existing gh setup
-  (replaces the current `gh-account-setup.bash --setup-all`
-  call site).
+  verification across all personas × platforms. Reports a per-cell
+  status table (`<alias-a>/github: OK`,
+  `<alias-a>/cloudflare: MISSING TOKEN`,
+  `<alias-b>/amazon_web_services: PROFILE NOT FOUND`, etc.).
+  No prompts, no writes.
+- [ ] ⬜ **Hook into `run.bash`** — `persona-setup.bash --setup-all`
+  runs as part of the fresh-install flow, replacing the current
+  `gh-account-setup.bash --setup-all` call site. Pre-existing gh
+  setup logic is retained internally as `_setup_github`.
 
 ### Phase 6: Docs
 
-- [ ] ⬜ **Migration note** in `docs/` — short page covering:
-  the YAML shape change from `github_accounts` to
-  `project_personas`, the fail-fast message users will see on
-  first run after upgrade, and the keyring-based token storage
-  model for tools like wrangler.
+- [ ] ⬜ **New doc `docs/project-personas.md`** covering: the
+  schema (with worked examples for all six in-scope platforms),
+  the smart `git`/`gh` routing model with `use_for_orgs`, the
+  keyring-based token storage model, and the
+  named-profile-pattern (AWS/GCP) as the alternative auth shape.
+- [ ] ⬜ **Migration sub-section** within
+  `docs/project-personas.md`: the YAML shape change from
+  `github_accounts` to `project_personas`, the fail-fast message
+  users see on first run, the one-line YAML edit that resolves it.
 - [ ] ⬜ **Add to `docs/README.md` index** under a new
-  "Multi-account tooling" section.
-- [ ] ⬜ **Update `CLAUDE/AnsibleStyle.md`** if the
-  persona-reading pattern introduces a convention worth
-  codifying for future tool integrations (e.g. "playbooks that
-  consume `project_personas` must filter by `tools.<name>` and
-  fail-fast on legacy schema").
-- [ ] ⬜ **Document the "add a new tool" recipe** — a 5-step
-  checklist for the next contributor adding npm / aws / etc.,
-  covering: (1) per-tool fields in `project_personas`, (2) new
-  `play-<tool>-multi.yml`, (3) bash function template shape
-  with explicit env-var export if secret-bearing, (4) keyring
-  attribute scheme `persona=<alias> tool=<tool> attr=<…>`,
-  (5) `persona-setup.bash` dispatcher entry.
+  "Multi-account tooling" section linking to the new doc.
+- [ ] ⬜ **Update `CLAUDE/AnsibleStyle.md`** with the persona-reading
+  convention: "playbooks that consume `project_personas` must
+  filter by the platform key (e.g. `p.github is defined`), use
+  the full platform name (no CLI binaries), and fail-fast on
+  the legacy `github_accounts` schema".
+- [ ] ⬜ **Document the "add a seventh platform" recipe** — a
+  6-step checklist for the next contributor adding `npm_registry`
+  / `microsoft_azure` / `docker_hub` / etc., covering: (1) full
+  platform name conventions (e.g. `microsoft_azure` not `azure`),
+  (2) which template shape applies (env-var-per-call vs
+  named-profile vs single-active-config), (3) the new
+  `play-<platform>-multi.yml`, (4) bash function template
+  invocation, (5) keyring attribute scheme `persona=<alias> platform=<platform> attr=<…>`, (6) `persona-setup.bash`
+  sub-function entry.
+- [ ] ⬜ **Document direnv as the future option** for per-directory
+  smart routing on non-GitHub platforms (see Decision 7) — link
+  to upstream `direnv` docs, note this repo doesn't ship
+  `direnv` integration but the schema supports it cleanly
+  (users can write `.envrc` files that set
+  `CLOUDFLARE_API_TOKEN=$(secret-tool lookup ...)` etc.).
 
 ### Phase 7: QA & validation
 
 - [ ] ⬜ `./scripts/qa-all.bash` passes for all changed
-  bash/ansible files
+  bash/ansible files.
 - [ ] ⬜ `ansible-playbook --syntax-check` passes for all
-  new/modified playbooks
-- [ ] ⬜ Verify gh fail-fast path on host — temporarily restore
+  new/modified playbooks.
+- [ ] ⬜ **Verify gh fail-fast path** on host — temporarily restore
   the legacy `github_accounts` block, run the playbook, confirm
   the error message contains a copy-pasteable migration YAML
-- [ ] ⬜ Deploy on host post-migration, verify gh behaviour is
-  byte-identical to before (`diff` `gh-aliases.inc.bash` outputs)
-- [ ] ⬜ Deploy on host, verify wrangler `wrangler-<alias>`
-  functions work for at least two personas with real Cloudflare
-  accounts; confirm via `strace`/`/proc` that the token only
-  appears in the wrangler subprocess env, not in the parent shell
-- [ ] ⬜ Verify `--check` mode catches a deliberately broken
-  persona (e.g. revoke a token, expect clear failure)
-- [ ] ⬜ Verify keyring lookup latency is acceptable (one
-  `secret-tool lookup` per `wrangler-<alias>` call — should be
-  \<10ms; if not, cache for the shell session)
+  including `use_for_orgs` placeholders.
+- [ ] ⬜ **Verify `use_for_orgs` collision detection** — declare
+  the same org under two personas, run the playbook, expect
+  fail-fast naming the conflicting alias names.
+- [ ] ⬜ **Verify gh byte-identical output** — deploy on host
+  post-migration, `diff` `gh-aliases.inc.bash` against
+  pre-migration output for the same accounts.
+- [ ] ⬜ **Verify smart router** with at least two GitHub personas
+  on different orgs:
+  - `cd ~/Projects/<org-a>/repo && git remote -v` → smart `git`
+    delegates correctly; verify with `persona-here`.
+  - `gh repo view <org-a>/repo` → smart `gh` delegates correctly.
+  - `cd /tmp && git init && git config user.email` → smart `git`
+    passes through (no remote = no routing).
+- [ ] ⬜ **Verify env-var-per-call platforms** (cloudflare /
+  fly_io / supabase) work for at least two personas each with
+  real accounts; confirm via `strace`/`/proc/<pid>/environ` that
+  tokens only appear in the CLI subprocess env, never the parent
+  shell.
+- [ ] ⬜ **Verify named-profile platforms** (aws / gcloud) work
+  per-alias — `aws-<alias> sts get-caller-identity` and
+  `gcloud-<alias> auth list` return different identities for
+  different aliases.
+- [ ] ⬜ **Verify `--check` mode catches deliberately-broken
+  personas** — revoke a cloudflare token, expect clear failure;
+  delete an aws profile, expect clear failure; verify the table
+  output shows pass/fail per persona × platform cell.
+- [ ] ⬜ **Verify keyring lookup latency** is acceptable (one
+  `secret-tool lookup` per env-var-per-call invocation — should
+  be \<10ms; if not, cache for the shell session).
 
 ## Dependencies
 
@@ -463,22 +690,85 @@ persona is set up for, and carries each tool's identity value.
 
 ## Technical Decisions
 
-### Decision 1: Schema shape (top-level alias key vs nested under `tools`)
+### Decision 1: Schema shape — flat platform keys, full platform names
 
-**Context**: Two viable shapes for the persona map.
+**Context**: Three sub-decisions on the YAML shape, resolved together on 2026-05-29.
 
-**Options**:
+**1a. Alias-keyed vs tool-keyed top level**
 
-1. Alias-keyed map with `tools` sub-map per persona
-   (recommended above)
-2. Tool-keyed map, alias nested inside (`gh: {<alias-a>: {...}}, wrangler: {<alias-a>: {...}}`)
+Options:
 
-**Recommendation**: Option 1. Keeps each persona's full
-declaration in one place, easier to read at a glance, and
-mirrors how `github_accounts` is structured today (alias is
-the primary key).
+1. Alias-keyed map (`<alias>: { … per-platform … }`)
+2. Tool-keyed map (`github: { <alias>: … }, cloudflare: { <alias>: … }`)
 
-**Status**: Awaiting Phase 1 user approval.
+**Decided**: Option 1. Keeps each persona's full declaration in one place, mirrors how `github_accounts` is structured today (alias is primary key), reads naturally as "persona X owns these platform identities".
+
+**1b. With `tools:` wrapper vs flat platform keys**
+
+Options:
+
+1. `<alias>: { name, tools: { github: …, cloudflare: … } }`
+2. `<alias>: { name, github: …, cloudflare: … }` (flat)
+
+**Decided**: Option 2 (flat). The `tools:` wrapper is YAGNI nesting — platform names don't collide with metadata fields (`name`, future `email`, future `default`), so the playbook can enumerate platforms by treating any persona key not in a small known-metadata list as a platform. One fewer level of indirection in every YAML edit, every Jinja expression, and every diff hunk.
+
+**1c. Platform key naming — CLI binary vs platform name vs full platform name**
+
+Options:
+
+1. CLI binary name: `gh`, `wrangler`, `aws`, `gcloud`
+2. Short platform name: `github`, `cloudflare`, `aws`, `gcp`
+3. Full platform name: `github`, `cloudflare`, `amazon_web_services`, `google_cloud_platform`
+
+**Decided**: Option 3 (full platform name).
+
+- Option 1 fractures the identity: `gh` and `git` and `clone-<alias>` all use one identity but keying by `gh` makes it look CLI-specific.
+- Option 2 is jargon-y: `aws` reads as "AWS the platform / the CLI / a region / an account" depending on context. Same for `gcp`, `azure`.
+- Option 3 (`amazon_web_services`, `google_cloud_platform`, `microsoft_azure`) is unambiguous one-glance. Per the user (2026-05-29): *"a few tokens = much greater clarity for humans + LLMs"*.
+
+Examples of correct keys: `github`, `cloudflare`, `amazon_web_services`, `google_cloud_platform`, `microsoft_azure`, `npm_registry`, `docker_hub`, `fly_io`. `github` and `cloudflare` are already the platforms' full marketing/legal names, so no expansion needed.
+
+**Status**: ✅ Decided 2026-05-29.
+
+### Decision 5: Smart top-level `git` and `gh` with `use_for_orgs` auto-routing
+
+**Context**: Once `use_for_orgs` declares which persona owns which GitHub org, the per-alias wrappers (`git-<alias>`, `gh-<alias>`) can stop being the primary interface. The default `git` and `gh` commands the user types thousands of times a day become smart functions that auto-route to the correct sub-alias based on the cwd's git remote.
+
+**Decided**: Wrap `git` and `gh` as shell functions that:
+
+1. Detect the relevant org from context (cwd's `origin` remote URL for `git`; cwd remote OR `gh` argv positional like `gh repo view <org>/<repo>` for `gh`).
+2. Look up `project_personas[*].github.use_for_orgs` for a match.
+3. If a single match found → delegate to `git-<alias>` / `gh-<alias>`.
+4. If no match → pass through to the real `command git` / `command gh` (current default-active gh account; no surprise routing).
+5. If multiple matches → fail-fast at function-call time naming the collision; user fixes `use_for_orgs` lists.
+
+The per-alias wrappers (`git-<alias>`, `gh-<alias>`, `clone-<alias>`) stay as **escape hatches** for forcing a specific persona when smart routing would pick a different one (e.g. when intentionally operating across personas, or when in a directory outside any git repo).
+
+```bash
+function git() {
+    local org alias
+    org=$(_persona_extract_org_from_cwd_remote)
+    if [ -n "$org" ]; then
+        alias=$(_persona_lookup_alias_for_org github "$org")
+        if [ -n "$alias" ]; then
+            command git-"$alias" "$@"
+            return
+        fi
+    fi
+    command git "$@"
+}
+```
+
+**Why**: removes the cognitive load of "did I call `git-foo` or `git-bar`?" — the answer is determined declaratively by `use_for_orgs`. Misrouting incidents (commits as the wrong identity) become impossible for any org the user has declared. Repos in unclaimed orgs fall through to default behaviour, preserving the existing escape hatch.
+
+**Edge cases**:
+
+- **Personal repos** (`<gh-username>/*`): the persona's `github.username` already declares ownership of that namespace, no `use_for_orgs` entry needed. Smart router falls back to username matching after org matching.
+- **Org-list collisions**: two personas claiming the same org → fail-fast at **playbook deployment time** (preferred — catches the bug before it can misroute) AND at function-call time (defence in depth, in case `localhost.yml` is edited without re-running the playbook).
+- **No git remote in cwd**: smart `git` passes through unchanged (e.g. `git init`, `git config --global`).
+- **`gh` calls without a repo argument**: e.g. `gh auth status`, `gh api user`. Fall through to `command gh`.
+
+**Date**: 2026-05-29 (added after the parent decisions were settled — pure additive feature, doesn't change Phase 2-4 work, adds a new Phase 4.5 between wrangler and persona-setup script).
 
 ### Decision 2: KISS — fail-fast detection, no compat shim
 
@@ -570,51 +860,140 @@ SSH keys, acceptable for the daily-driver use case.
 **Date**: 2026-05-26 (subject to Phase 1 keyring-availability
 research)
 
+### Decision 6: In-scope platform set for this plan
+
+**Context**: Original plan covered only `github` + `cloudflare`. User asked (2026-05-29) to expand to "most common ones in one go" rather than fragmenting into N follow-up plans.
+
+**Considered platforms**, grouped by auth pattern:
+
+| Platform                | Pattern                        | Decision |
+| ----------------------- | ------------------------------ | -------- |
+| `github`                | OAuth + SSH (native multi)     | ✅ IN    |
+| `cloudflare`            | API token, env-var-per-call    | ✅ IN    |
+| `fly_io`                | API token, env-var-per-call    | ✅ IN    |
+| `supabase`              | Access token, env-var-per-call | ✅ IN    |
+| `amazon_web_services`   | Named profile + `AWS_PROFILE`  | ✅ IN    |
+| `google_cloud_platform` | Named config + env var         | ✅ IN    |
+| `npm_registry`          | `.npmrc` per-scope + token     | ⬜ DEFER |
+| `microsoft_azure`       | Multiple auth modes            | ⬜ DEFER |
+| `docker_hub`            | Single-active config file      | ⬜ DEFER |
+
+**Decided**: Six platforms in scope. The token-env-var-per-call platforms (cloudflare, fly_io, supabase) and named-profile platforms (AWS, GCP) all fit the Phase 4 template architecture without new design — adding them in this plan costs the platform-specific config plus one new playbook each, not architectural work.
+
+**Why defer the bottom three**:
+
+- `npm_registry`: publish auth lives in `.npmrc` files which can be project-scoped (`.npmrc` in project root) or registry-scoped (`@scope:registry=...`). The single env-var-per-call template doesn't fit cleanly. Easy to add later as a follow-up plan once the user actually needs it.
+- `microsoft_azure`: only worth doing if the user actually uses Azure. The `az` CLI supports multiple auth modes (device code, service principal, managed identity) and the env-var combos differ per mode. Non-trivial playbook.
+- `docker_hub`: `~/.docker/config.json` is single-active. Per-call switching requires either rewriting the config file (race-condition-prone with parallel `docker` invocations) or `docker --config <per-alias-dir>` (verbose, breaks `docker compose` UX). Worth its own design plan.
+
+**Migration friendliness**: all six in-scope platforms can be added to `localhost.yml` via the same fail-fast message format — the playbook prints copy-pasteable YAML for whichever platforms the user has aliases declared for in any deprecated `<platform>_accounts`-style legacy block (only `github_accounts` exists today; others are greenfield).
+
+**Date**: 2026-05-29
+
+### Decision 7: Smart routing scope — GitHub only; direnv as future option for other platforms
+
+**Context**: Decision 5 introduces smart top-level `git` / `gh` wrappers that auto-route based on `use_for_orgs`. Other platforms (cloudflare, fly_io, supabase, AWS, GCP) have no equivalent "cwd-implies-persona" signal — there's no `wrangler remote get-url` or "AWS account ID embedded in the cwd". User considered (2026-05-29) whether to invent a per-directory marker file (`.persona` or similar) and **rejected the custom-file approach**: *"no random files"*.
+
+**Decided**: Smart routing is **GitHub-only** in this plan. For non-GitHub platforms, the user explicitly invokes the per-alias wrapper (`wrangler-<alias>`, `aws-<alias>`, etc.) when working with that persona.
+
+**Future option (shelved, not implemented)**: if per-directory defaults become desirable for non-GitHub platforms later, the right tool is **`direnv`** (already a widely-used upstream project, no invention needed). Users would write `.envrc` files in project directories:
+
+```bash
+# Example .envrc in a Cloudflare Worker project directory
+export CLOUDFLARE_API_TOKEN=$(secret-tool lookup persona <alias> platform cloudflare attr api_token)
+export CLOUDFLARE_ACCOUNT_ID=<alias>-account-id
+```
+
+`direnv` auto-loads `.envrc` on cwd change (with user approval gate via `direnv allow`) and unloads on leaving. This gives the same per-cwd routing behaviour as smart `git`/`gh` but without us inventing a file format or shipping integration code.
+
+**Why direnv-shelf-not-implement**:
+
+- It's a real dependency to install, configure, and document.
+- It's not needed today — explicit per-alias wrappers are fine for cloudflare/fly/aws/gcp.
+- The `project_personas` schema is already compatible with direnv (just expose helpers users can call from their `.envrc`); we don't need to design the schema around direnv.
+
+**Date**: 2026-05-29
+
 ## Success Criteria
 
 - [ ] `project_personas` is the **only** identity map in
   `localhost.yml` after migration; the legacy `github_accounts`
-  block is removed
-- [ ] `play-github-cli-multi.yml` run before migration
-  fail-fasts with a copy-pasteable migration block; run after
-  migration produces byte-identical `gh-aliases.inc.bash`
-  to the pre-migration output (no regression in the gh UX)
-- [ ] `wrangler-<alias>` bash functions work for at least two
-  Cloudflare accounts on the host, with no manual `wrangler login` between commands, and with API tokens fetched from
-  the GNOME Keyring at call time (never read from disk)
+  block is removed.
+- [ ] Schema follows the three settled rules: flat platform keys
+  at persona top level (no `tools:` wrapper), full platform names
+  (`github`, `cloudflare`, `amazon_web_services` etc., never
+  `gh` / `wrangler` / `aws`), `github.use_for_orgs` declarations
+  for any persona that owns GitHub orgs.
+- [ ] `play-github-cli-multi.yml` run before migration fail-fasts
+  with a copy-pasteable migration block; run after migration
+  produces byte-identical `gh-aliases.inc.bash` to the
+  pre-migration output (no regression in the gh UX).
+- [ ] `use_for_orgs` collision check at playbook deploy time:
+  declaring the same org under two personas fail-fasts with both
+  alias names in the error message.
+- [ ] **Smart `git` / `gh`** auto-route to the correct
+  `git-<alias>` / `gh-<alias>` based on cwd remote-org or `gh`
+  argv positional, for any org declared in any persona's
+  `use_for_orgs`. Unclaimed orgs pass through to default
+  behaviour. Verified on host with at least two personas.
+- [ ] **`persona-here` diagnostic** prints the correct persona for
+  the cwd's remote (and "(default)" when no match).
+- [ ] **Env-var-per-call platforms** — `wrangler-<alias>`,
+  `flyctl-<alias>`, `supabase-<alias>` bash functions work for at
+  least two personas each with real accounts on the host, no
+  stateful logins required, tokens fetched from the GNOME Keyring
+  at call time (never read from disk in plaintext after
+  initial `secret-tool store`).
+- [ ] **Named-profile platforms** — `aws-<alias>` and
+  `gcloud-<alias>` correctly select the named profile/configuration
+  per call; `aws-<alias> sts get-caller-identity` and
+  `gcloud-<alias> auth list` return different identities for
+  different aliases.
 - [ ] `persona-setup.bash --check` produces a clear pass/fail
-  report for every persona × tool combination, and
-  `--set-token` correctly stores and validates a token
-  without ever writing it to disk in plaintext
-- [ ] Adding a third tool (in a follow-up plan) requires
-  only: a new `play-<tool>-multi.yml` + a new `tools.<tool>`
-  field per persona that needs it + (if secret-bearing) a
-  per-tool entry in `persona-setup.bash`'s setup dispatcher
-- [ ] `./scripts/qa-all.bash` passes
+  report for every persona × platform combination, and
+  `--set-token` correctly stores and validates a token without
+  ever writing it to disk in plaintext.
+- [ ] **Adding a seventh platform** (e.g. `npm_registry` in a
+  follow-up plan) requires only: a new `play-<platform>-multi.yml`
+  - a new `<platform>` key per persona that needs it + (if
+    secret-bearing) a per-platform sub-function in
+    `persona-setup.bash`. No architectural changes.
+- [ ] `./scripts/qa-all.bash` passes.
 
 ## Risks & Mitigations
 
-| Risk                                                                                                       | Impact                                                                                                                                                                     | Mitigation                                                                                                                                                                        |
-| ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Wrangler has no real per-account isolation — only one active OAuth at a time                               | High — confirms the API-token + env-var route                                                                                                                              | Phase 1 research confirms up front; API tokens with per-persona keyring entries is the chosen path, well-trodden by `gh` itself                                                   |
-| `secret-tool` / GNOME Keyring unavailable or locked at function call time                                  | High — `wrangler-<alias>` would fail at call time                                                                                                                          | Phase 1 confirms `secret-tool` is installed and the keyring is unlocked at GNOME login on the daily-driver; Decision 4 fallback to 0600 files if not viable                       |
-| Token leak via shell history if user accidentally pastes it on the command line                            | High                                                                                                                                                                       | `persona-setup.bash --set-token` reads from stdin (or `read -s`), never accepts the token as an argv parameter; documented in `--help` and refused if `$1` looks like a token     |
-| Token leak via env var visibility in `ps -e` / `/proc/<pid>/environ`                                       | Low — `/proc/<pid>/environ` is mode `0400` and owned by the process user, so only the same user or root can read it. This is the same threat surface as today's gh tokens. | Use `command wrangler` (not `env wrangler` or `KEY=val command`) so env vars live only on the wrangler subprocess, never exported into the parent shell                           |
-| Persona schema accretes per-tool flags ad-hoc, becomes a kitchen sink                                      | Medium long-term                                                                                                                                                           | Phase 6 "add a new tool" recipe enforces a consistent shape: each new tool gets a documented `tools.<name>` schema entry; reviewers reject ad-hoc fields without playbook support |
-| User on legacy `github_accounts` ignores the fail-fast message and downgrades the playbook to make it work | Low                                                                                                                                                                        | Fail-fast message includes the rationale ("two sources of truth would silently diverge"); migration is one block edit, not a refactor                                             |
-| User has only one Cloudflare account today; building multi-account is YAGNI                                | Low — the schema generalises regardless                                                                                                                                    | Even with one account, the abstraction lets npm/aws/etc. land cheaply later. Phase 1 user confirms before commit                                                                  |
+| Risk                                                                                                       | Impact                                                                                                                                                                     | Mitigation                                                                                                                                                                                                                                    |
+| ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Wrangler has no real per-account isolation — only one active OAuth at a time                               | High — confirms the API-token + env-var route                                                                                                                              | Phase 1 research confirms up front; API tokens with per-persona keyring entries is the chosen path, well-trodden by `gh` itself                                                                                                               |
+| `secret-tool` / GNOME Keyring unavailable or locked at function call time                                  | High — `wrangler-<alias>` would fail at call time                                                                                                                          | Phase 1 confirms `secret-tool` is installed and the keyring is unlocked at GNOME login on the daily-driver; Decision 4 fallback to 0600 files if not viable                                                                                   |
+| Token leak via shell history if user accidentally pastes it on the command line                            | High                                                                                                                                                                       | `persona-setup.bash --set-token` reads from stdin (or `read -s`), never accepts the token as an argv parameter; documented in `--help` and refused if `$1` looks like a token                                                                 |
+| Token leak via env var visibility in `ps -e` / `/proc/<pid>/environ`                                       | Low — `/proc/<pid>/environ` is mode `0400` and owned by the process user, so only the same user or root can read it. This is the same threat surface as today's gh tokens. | Use `command wrangler` (not `env wrangler` or `KEY=val command`) so env vars live only on the wrangler subprocess, never exported into the parent shell                                                                                       |
+| Persona schema accretes per-platform flags ad-hoc, becomes a kitchen sink                                  | Medium long-term                                                                                                                                                           | Phase 6 "add a seventh platform" recipe enforces a consistent shape: each new platform gets a documented `<platform>` schema entry (full platform name), template variant choice, and reviewers reject ad-hoc fields without playbook support |
+| User on legacy `github_accounts` ignores the fail-fast message and downgrades the playbook to make it work | Low                                                                                                                                                                        | Fail-fast message includes the rationale ("two sources of truth would silently diverge"); migration is one block edit, not a refactor                                                                                                         |
+| User has only one Cloudflare account today; building multi-account is YAGNI                                | Low — the schema generalises regardless                                                                                                                                    | Even with one account, the abstraction lets npm/aws/etc. land cheaply later. Phase 1 user confirms before commit                                                                                                                              |
 
 ## Timeline
 
-- Phase 1: Research & decision gate (foundational, blocks all
-  later phases)
-- Phase 2: Schema definition + gh playbook fail-fast detection
-  (must precede any per-tool playbook so the schema is settled)
-- Phase 3-4: Wrangler base install, then wrangler multi-account
-- Phase 5: Per-persona setup script (can start once Phases 2+4
-  shape is settled)
-- Phase 6: Docs (concurrent with Phase 5)
-- Phase 7: QA & validation (gates plan completion)
+- **Phase 1**: Research & decision gate (foundational, blocks all
+  later phases). Now spans six platforms — expect more research
+  hours than the original gh+wrangler scope but each is a quick
+  upstream-docs read.
+- **Phase 2**: Schema definition + gh playbook fail-fast migration
+  - `use_for_orgs` collision check (must precede any per-platform
+    playbook so the schema is settled).
+- **Phase 3**: Platform CLI base installs (wrangler, flyctl,
+  supabase, aws, gcloud). Six small playbooks, independent of the
+  multi-account machinery.
+- **Phase 4**: Per-platform multi-account playbooks. Common
+  template extraction first (4.0), then five platform
+  instantiations (4.1–4.5).
+- **Phase 4.5**: Smart top-level `git` / `gh` routing — depends
+  on Phase 2's `use_for_orgs` collision check + the
+  `github-orgs.map` lookup file generation.
+- **Phase 5**: Per-persona setup script. Multi-platform dispatcher;
+  can start once Phase 2 and Phase 4.0 (template) are settled.
+- **Phase 6**: Docs (concurrent with Phase 5).
+- **Phase 7**: QA & validation (gates plan completion).
 
 ## Notes & Updates
 
@@ -658,16 +1037,43 @@ research)
   the token to disk.
 - Updated tracking issue #22 to match the revised design.
 
-### Candidate follow-up tools (noted for future plans, not in scope here)
+### 2026-05-29 — schema + smart router refinements, scope expansion
 
-- **npm** — multi-account publish (organisation-scoped tokens
-  in `.npmrc`)
-- **aws** — profile-based (`~/.aws/credentials` named profiles,
-  `AWS_PROFILE` env var)
-- **gcloud** — `gcloud config configurations` per identity
-- **supabase** — per-project tokens in `~/.supabase`
-- **fly.io** — per-org tokens (`flyctl auth token`)
+Three rounds of refinement feedback from the user, settled in one session:
 
-Each of these has its own native multi-account mechanism; the
-persona-resolver pattern wraps over the top to give all of them
-the same `<tool>-<alias>` shell ergonomics.
+**1. Schema rules locked in (Decision 1 rewritten as 1a/1b/1c)**:
+
+- **Flat platform keys at persona top level** — the original draft nested platforms under `tools:`. User pointed out the `tools:` wrapper is YAGNI nesting: platform names don't collide with metadata fields. Removed.
+- **Platform-name keys, not CLI-binary keys** — the original draft used `tools.gh` and `tools.wrangler`. User pointed out these are CLI binaries, not platform identities. Renamed to `github` / `cloudflare`.
+- **Full platform names, not abbreviations** — user: *"a few tokens = much greater clarity for humans + LLMs"*. So `amazon_web_services` not `aws`, `google_cloud_platform` not `gcp`, `microsoft_azure` not `azure`. `github` and `cloudflare` are already full names.
+
+**2. `use_for_orgs` + smart top-level `git`/`gh` (Decisions 5 and 7)**:
+
+- New field `github.use_for_orgs: [<org>, …]` per persona declares org ownership.
+- Smart `git` and `gh` shell functions auto-route to `git-<alias>` / `gh-<alias>` based on cwd remote-org match. Per-alias wrappers stay as escape hatches.
+- User: *"agree stick to only git having smart capabilities as its cheap and fast to get remote + parse org"*. Smart routing is **GitHub-only** in this plan — other platforms have no cwd→persona signal.
+- User: *"no random files, we could explore direnv if we wanted per dev defaults"*. Custom per-directory marker files (`.persona`, etc.) rejected. **`direnv` shelved as the future option** if non-GitHub per-cwd routing becomes desirable. Documented in Decision 7 and the Phase 6 docs task.
+
+**3. Scope expansion (Decision 6)**:
+
+- User: *"if we're going to do this, lets wire in tools for common platforms like this, i guess we may as well do them all in one go? at least most common ones"*.
+- Original plan: `github` + `cloudflare` only. New scope: **six platforms** — `github`, `cloudflare`, `fly_io`, `supabase`, `amazon_web_services`, `google_cloud_platform`.
+- Token-env-var-per-call platforms (cloudflare, fly_io, supabase) all reuse the Phase 4 template architecture as-is.
+- Named-profile platforms (AWS, GCP) introduce a thinner variant of the template — no keyring, env var sets the active profile, credentials live in the CLI's native config file.
+- Phases 3 + 4 + 5 restructured around this: Phase 3 grows from 1 install to 5 installs; Phase 4 grows from 1 playbook to 6 (1 common template + 5 platform instantiations); Phase 5 grows the setup-script dispatcher to cover all platforms; Phase 7 QA expanded to verify every platform end-to-end.
+- Still deferred (each is its own follow-up plan when actually needed): `npm_registry` (`.npmrc`-per-scope quirk), `microsoft_azure` (multiple auth modes), `docker_hub` (single-active config awkwardness).
+
+**4. Issue + plan kept in sync**:
+
+- Updated tracking issue #22 with the de-nesting, full platform names, `use_for_orgs`, smart router, and scope expansion all in one comprehensive comment.
+- This plan rewritten to match: Phases 1, 2, 3, 4, 4.5 (new), 5, 6, 7 all reflect the expanded scope; Decisions 1, 5, 6, 7 added/rewritten; Success Criteria expanded to cover every platform + smart router.
+
+### Still-deferred platforms (for future plans, not in scope here)
+
+After Decision 6, only three platforms remain deferred — each with a specific reason that needs its own design work:
+
+- **`npm_registry`** — multi-account publish auth lives in `.npmrc` files, which can be project-scoped (`.npmrc` in project root) or registry-scoped (`@scope:registry=...`). The env-var-per-call template doesn't fit cleanly. Easy to add later as a follow-up plan that introduces a third template variant (file-template-per-cwd).
+- **`microsoft_azure`** — only worth doing if the user actively uses Azure. The `az` CLI supports multiple auth modes (device code, service principal, managed identity, federated credential) and the env-var combos differ per mode. Non-trivial playbook; defer until the user has a concrete use case.
+- **`docker_hub`** — `~/.docker/config.json` is single-active. Per-call switching requires either rewriting the config file per invocation (race-condition-prone with parallel `docker` invocations) or `docker --config <per-alias-dir>` (verbose, breaks `docker compose` UX). Worth its own design plan that wrestles with that trade-off.
+
+Each of these has its own native multi-account mechanism; the `project_personas` schema is forward-compatible — the user can add `npm_registry: { …fields… }` blocks today and the schema will accept them; the playbook just won't process them until a follow-up plan adds the per-platform handler.
