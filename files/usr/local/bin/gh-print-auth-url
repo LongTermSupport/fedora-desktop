@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# gh-print-auth-url — GH_BROWSER target that prints the device-code URL
+# instead of opening a browser.
+#
+# Why: `gh auth login` / `gh auth refresh` device-code flows invoke
+# xdg-open against the URL, which lands in whichever Firefox profile
+# happens to be the system default. With multiple GitHub identities on
+# the host that is rarely the correct profile, leading to silent
+# wrong-account auth. Printing the URL puts the user in control.
+#
+# Used by:
+#  - scripts/gh-account-setup.bash (sets GH_BROWSER directly to this path)
+#  - the gh() shell wrapper in /etc/profile.d/gh-multi-profile.sh
+#    (auto-sets GH_BROWSER for `gh auth login` / `gh auth refresh`)
+#
+# Deployed by: playbooks/imports/play-github-cli-multi.yml
+
+echo ""
+echo "   → $1"
+echo "     Open this URL in the correct browser profile."
+echo "     (Most terminals: Ctrl+click the URL to open it.)"
+echo ""

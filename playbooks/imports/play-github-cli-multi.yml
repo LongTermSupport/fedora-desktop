@@ -43,6 +43,40 @@
     - name: Ensure jq is available
       ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ensure-jq.yml"
 
+    # =========================================================================
+    # URL-printing helpers — deployed BEFORE the scope audit so that any
+    # remediation the user runs afterwards (script-based or per-account) has
+    # the deployed helper available. Both files are deployed unconditionally
+    # because they are inert until invoked.
+    #
+    # /usr/local/bin/gh-print-auth-url
+    #   GH_BROWSER target: prints the device-code URL instead of opening a
+    #   browser. Used by scripts/gh-account-setup.bash and the shell wrapper
+    #   below.
+    #
+    # /etc/profile.d/gh-multi-profile.sh
+    #   Defines a gh() shell function that auto-sets GH_BROWSER for
+    #   `gh auth login` / `gh auth refresh`. Sourced by interactive bash
+    #   shells via /etc/bashrc → /etc/profile.d/*.sh.
+    # =========================================================================
+    - name: Deploy gh-print-auth-url Helper (GH_BROWSER URL Printer)
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/usr/local/bin/gh-print-auth-url"
+        dest: /usr/local/bin/gh-print-auth-url
+        owner: root
+        group: root
+        mode: "0755"
+      become: true
+
+    - name: Deploy gh() Shell Wrapper for Multi-Profile Browser Handling
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/etc/profile.d/gh-multi-profile.sh"
+        dest: /etc/profile.d/gh-multi-profile.sh
+        owner: root
+        group: root
+        mode: "0644"
+      become: true
+
     - name: Check current gh authentication status
       ansible.builtin.shell: gh auth status 2>&1
       register: gh_auth_check
@@ -190,16 +224,27 @@
       ansible.builtin.fail:
         msg: |
           One or more GitHub accounts are missing required OAuth scopes.
-          Run these commands ON THIS MACHINE (interactive — opens a browser),
-          then re-run the playbook:
 
+          ── Option A (one-shot, works in this terminal) ─────────────────
+          Re-run setup. Idempotent: already-authed accounts and existing
+          SSH keys are skipped; only the missing-scope refresh actually runs.
+
+            bash {{ root_dir }}/scripts/gh-account-setup.bash --setup-all
+
+          ── Option B (per-account, requires a NEW terminal) ─────────────
+          Open a NEW terminal so /etc/profile.d/gh-multi-profile.sh is
+          sourced (defines a gh() wrapper that prints the device-code URL
+          via /usr/local/bin/gh-print-auth-url instead of opening a random
+          browser profile), then run:
           {% for r in scope_audit.results %}
           {% if r.stdout is defined and r.stdout.startswith('MISSING:') %}
-          gh auth switch --hostname github.com --user {{ r.item.value }} && \
-            gh auth refresh --hostname github.com --scopes {{ r.stdout | regex_replace('^MISSING:', '') }}
 
+            gh auth switch --user {{ r.item.value }} && \
+              gh auth refresh --scopes {{ r.stdout | regex_replace('^MISSING:', '') }}
           {% endif %}
           {% endfor %}
+
+          Then re-run this playbook.
       when:
         - github_accounts_configured
         - scope_audit.results | default([]) | selectattr('stdout', 'defined') | selectattr('stdout', 'match', '^MISSING:') | list | length > 0
