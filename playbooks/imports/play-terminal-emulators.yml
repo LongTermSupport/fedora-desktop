@@ -119,6 +119,23 @@
           enable_audio_bell no
           # A little breathing room around the text grid.
           window_padding_width 4
+
+          # Right-click → kitty's window context menu (kitty 0.42+).
+          # Gives a familiar GUI-style menu with Copy / Paste / New Window /
+          # New Tab / Open Link etc. depending on what's under the cursor.
+          # When right-clicking on a hovered URL the menu surfaces URL
+          # actions (Open / Copy) so URLs are reachable without precise
+          # drag-selection.
+          mouse_map right press ungrabbed show_window_context_menu
+
+          # Keyboard URL copy via the hints kitten: press Ctrl+Shift+U →
+          # kitty overlays a one/two-letter label on every URL currently
+          # visible on screen → press the letter and the URL is copied to
+          # the system clipboard (`--program @`). Works on URLs that wrap
+          # across lines, which mouse selection can't easily handle. The
+          # default Ctrl+Shift+P > U chord (opens URLs in browser) stays
+          # active alongside this.
+          map ctrl+shift+u kitten hints --type url --program @
       tags: kitty
 
     # Remove the previous wheel-to-PageUp blocks if present — they were

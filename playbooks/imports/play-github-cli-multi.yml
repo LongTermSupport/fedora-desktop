@@ -15,6 +15,7 @@
     # read:org          — read org membership / list teams
     # repo              — full repo access (clone, push, PRs, issues)
     # user:email        — read user.email for git config
+    # workflow          — push commits that modify .github/workflows/*.yml
     github_required_scopes:
       - admin:public_key
       - gist
@@ -22,6 +23,7 @@
       - read:org
       - repo
       - user:email
+      - workflow
   tasks:
     - name: Check gh version for multi-account support
       ansible.builtin.shell: gh --version | grep -oP '\d+\.\d+\.\d+' | head -1
