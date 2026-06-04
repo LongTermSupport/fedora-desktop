@@ -103,7 +103,6 @@ handlers:
   # SessionStart - Initialise environment
   session_start:
     yolo_container_detection: {enabled: true, priority: 40}       # Detect YOLO container environments
-    workflow_state_restoration: {enabled: true, priority: 50}     # Restore workflow state after compaction
     hook_registration_checker: {enabled: true, priority: 51}      # Validate hook registrations
     optimal_config_checker: {enabled: true, priority: 52}         # Check for optimal Claude Code settings
     git_filemode_checker: {enabled: true, priority: 53}           # Warn when git core.fileMode=false
@@ -129,7 +128,6 @@ handlers:
   # PreCompact - Before conversation compaction
   pre_compact:
     transcript_archiver: {enabled: true, priority: 10}         # Archive transcripts
-    workflow_state_pre_compact: {enabled: true, priority: 50}  # Save workflow state
 
   # StatusLine handlers
   status_line:
