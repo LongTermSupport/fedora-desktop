@@ -485,6 +485,35 @@ If you need a markdown file in a new location, add a pattern to `allowed_markdow
 
 If your project has sub-projects with their own `docs/`, `CLAUDE/`, etc., configure `monorepo_subproject_patterns` in `.claude/hooks-daemon.yaml` so normal rules apply within each sub-project.
 
+## plan_number_helper — the git counter is the source of truth for plan numbers
+
+The next plan number is authoritative in git config, NOT in the folder listing.
+
+**To get the next plan number:**
+
+```
+git config --local hooksdaemon.latestPlanNumber
+```
+
+Add 1 to that value — that is the next plan number (zero-pad to 5 digits, e.g. counter `117` → next plan `00118`). The daemon updates this counter automatically whenever a plan is created, so it stays correct across branches.
+
+**Do NOT** scan `CLAUDE/Plan/` with `ls`/`find`/glob pipelines to discover the next number. Folder scans miss plans in `Completed/` and other subdirectories, and disagree across branches. The folder scan is only a fallback used to bootstrap the counter when the git key is unset.
+
+If the counter key is missing (unset), it is safe to bootstrap once from the highest `NNNNN-` prefix under `CLAUDE/Plan/` (including `Completed/`); the daemon persists it back to git config for subsequent reads.
+
+## plan_time_estimates — plans describe WHAT, not WHEN
+
+Writing time estimates into a `CLAUDE/Plan/*.md` file is blocked. Plans capture the work to be done, not how long it will take.
+
+**Blocked in plan documents:**
+
+- Effort estimates — `**Estimated Effort**: 4 hours`, `Total Estimated Time: 2 days`
+- Per-phase durations — `Phase 1: ... (3 days)`, `takes 8-12 hours`
+- Target/completion dates — `**Target Completion**: 2026-06-30`, `Completion: 2026-06-30`
+- `ETA:`, `timeline:`, `deadline:`, `due date:` lines
+
+**Instead:** break work into concrete tasks and implementation steps, and let the user decide scheduling. Technical durations that describe a feature (cache TTL, session timeout, retention window) are allowed — only work/effort estimates are blocked.
+
 ## system_paths — do not edit deployed system files directly
 
 Writing or editing files under system paths (/etc/, /var/, /usr/, /opt/, /root/, /home/) is blocked.
