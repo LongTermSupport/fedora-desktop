@@ -28,9 +28,16 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.17"
+LABEL claude-yolo-version="2.18"
 LABEL claude-yolo-dockerfile-hash="${DOCKERFILE_HASH}"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
+
+# Disable apt's _apt sandbox download user. In rootless podman the chown of
+# cache dirs to _apt fails with EPERM, and the downloaded .deb files are then
+# unreadable to _apt, breaking apt-get install. Running apt downloads as root
+# inside the build container is safe and is the standard workaround for
+# rootless OCI builds on Debian-based base images.
+RUN echo 'APT::Sandbox::User "root";' > /etc/apt/apt.conf.d/no-sandbox
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \

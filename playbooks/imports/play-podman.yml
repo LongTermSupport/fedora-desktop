@@ -33,6 +33,91 @@
         scope: user
       when: dbus_session_check.rc == 0
 
+    # =========================================================================
+    # OPT-IN DESTRUCTIVE RECOVERY — wipe rootless podman storage.
+    # =========================================================================
+    #
+    # Skipped by default. Runs ONLY when invoked with:
+    #
+    #     ansible-playbook playbooks/imports/play-podman.yml \
+    #         -e podman_storage_reset=true
+    #
+    # Lives inside play-podman.yml (not as a standalone optional play) so the
+    # generic run.bash / main-playbook flow that offers "run all optional
+    # plays?" cannot ever surface it. Routine podman runs are unaffected.
+    #
+    # When to use:
+    #   - Rootless builds fail with EPERM on chmod/chown/unlink of files from
+    #     a base-image lower layer, even as namespace-root.
+    #   - The failure recurs after `podman system migrate` (the routine task
+    #     just below) has run successfully.
+    #   - chmod of a plain `root:root mode 0755` directory fails inside the
+    #     build — the smoking gun for idmapped-overlay corruption after a
+    #     kernel/podman/crun upgrade.
+    #
+    # Cost: deletes ALL rootless containers, images, volumes, pods, networks
+    # for this user. They can be rebuilt / re-pulled. Does not touch rootful
+    # docker, lxc, or anything outside ~/.local/share/containers and
+    # ~/.config/containers.
+    - name: DESTRUCTIVE — Reset Rootless Podman Storage (opt-in recovery)
+      when: podman_storage_reset | default(false) | bool
+      block:
+        - name: List Rootless Podman Containers
+          ansible.builtin.command: podman ps --all --format '{{ "{{" }}.ID{{ "}}" }}'
+          register: podman_container_list
+          changed_when: false
+
+        - name: Stop All Rootless Podman Containers
+          ansible.builtin.command: "podman stop --ignore --time 5 {{ podman_container_list.stdout_lines | join(' ') }}"
+          when: podman_container_list.stdout_lines | length > 0
+          changed_when: true
+
+        # Reset itself can fail on stale temp-dir files whose UIDs/attributes
+        # the user namespace cannot reach (active overlay mounts, sub-UIDs
+        # outside the current mapping, etc.). Host root can rm anything on
+        # the user's local disk regardless of namespace state.
+        - name: Force-Clean Stale Storage Temp Dirs Before Reset
+          become: true
+          ansible.builtin.file:
+            path: "/home/{{ user_login }}/.local/share/containers/storage/overlay/tempdirs"
+            state: absent
+
+        - name: Reset Rootless Podman Storage
+          ansible.builtin.command: podman system reset --force
+          changed_when: true
+
+        - name: Recovery Notice
+          ansible.builtin.debug:
+            msg: >-
+              Rootless podman storage reset. The 'Migrate Podman User
+              Namespace State' task below will reinitialise the namespace
+              cache. After this play finishes, rebuild downstream images
+              (e.g. ansible-playbook playbooks/imports/play-claude-yolo.yml).
+
+    # After podman / crun / runc / kernel upgrades, the user-namespace storage
+    # state can fall out of sync with the new binaries; symptoms are rootless
+    # builds failing with EPERM in overlay storage (chmod / unlink on lower
+    # layer files inside a build container). `podman system migrate` is the
+    # canonical, idempotent fix — it re-runs the namespace setup. Safe to call
+    # on every play run as long as no containers are currently running.
+    # See https://docs.podman.io/en/latest/markdown/podman-system-migrate.1.html
+    - name: Migrate Podman User Namespace State (post-upgrade fix)
+      ansible.builtin.command: podman system migrate
+      changed_when: false
+
+    # `podman info` walks overlay/tempdirs and fails (rc=125) if any stale
+    # build temp dirs contain files the user cannot unlink (e.g. files from
+    # a half-completed CCY build owned by sub-UIDs the namespace can no
+    # longer reach). The tempdirs/ tree is by definition transient build
+    # scratch — deleting it is safe and idempotent. `podman unshare rm` is
+    # NOT enough on some kernels (it fails when the file UID is outside the
+    # current namespace mapping), so we use host root via passwordless sudo.
+    - name: Clean Stale Rootless Build Temp Dirs (lets podman info succeed)
+      become: true
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.local/share/containers/storage/overlay/tempdirs"
+        state: absent
+
     - name: Verify Podman Install
       ansible.builtin.command: podman info
       changed_when: false
