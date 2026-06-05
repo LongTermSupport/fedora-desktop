@@ -244,18 +244,21 @@ setup_account() {
 
   echo -e "\n${BOLD}━━━ ${alias} (${username}) ━━━${NC}"
 
-  # Browser helper: instead of opening a browser (which may use the wrong profile),
-  # display the URL for the user to copy into the correct browser profile.
+  # Browser helper: prefer the deployed canonical script (managed by
+  # play-github-cli-multi.yml), fall back to the in-repo source file if the
+  # playbook hasn't been deployed yet (e.g. first run via run.bash). Both
+  # files are identical — files/usr/local/bin/gh-print-auth-url is the
+  # single source of truth.
   local browser_helper
-  browser_helper=$(mktemp /tmp/gh-browser-XXXXXX.bash)
-  cat > "$browser_helper" << BROWSEREOF
-#!/bin/bash
-echo ""
-echo "   → \$1"
-echo "     Open this URL in the browser profile for ${username}"
-echo ""
-BROWSEREOF
-  chmod +x "$browser_helper"
+  if [[ -x /usr/local/bin/gh-print-auth-url ]]; then
+    browser_helper=/usr/local/bin/gh-print-auth-url
+  elif [[ -x "$REPO_ROOT/files/usr/local/bin/gh-print-auth-url" ]]; then
+    browser_helper="$REPO_ROOT/files/usr/local/bin/gh-print-auth-url"
+  else
+    error "gh-print-auth-url helper not found at /usr/local/bin/ or in repo"
+    echo -e "   ${YELLOW}➜${NC} Expected: $REPO_ROOT/files/usr/local/bin/gh-print-auth-url" >&2
+    exit 1
+  fi
 
   # 1. gh auth — --skip-ssh-key prevents the confusing key upload prompt
   if is_gh_authed "$username"; then
@@ -345,14 +348,14 @@ BROWSEREOF
   fi
 
   # 5. SSH test (fully isolated — no config/agent fallback)
+  # No cleanup of $browser_helper needed — it points at a permanent file
+  # (/usr/local/bin/gh-print-auth-url or its in-repo source).
   local rc=0
   verify_ssh "$alias" "$username" "$passphrase" || rc=$?
   if [[ $rc -eq 1 ]]; then
-    rm -f "$browser_helper"
     # Wrong account — hard failure
     exit 1
   fi
-  rm -f "$browser_helper"
   # rc=0 (verified) or rc=2 (inconclusive) — continue
 }
 

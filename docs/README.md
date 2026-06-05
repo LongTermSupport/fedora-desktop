@@ -293,6 +293,10 @@ distrobox enter dev
 - [Running playbooks](playbooks.md#running-optional-playbooks)
 - [Creating playbooks](playbooks.md#creating-custom-playbooks)
 
+**Terminal**
+
+- [Kitty configuration & usage](kitty.md) — managed settings, keybindings, URL copy workflow
+
 ## Troubleshooting Quick Links
 
 - **Installation fails:** [Installation troubleshooting](installation.md#troubleshooting)
