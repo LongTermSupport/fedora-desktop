@@ -109,8 +109,6 @@ The hooks daemon enforces plan workflow standards:
 - ✅ `validate_plan_number` - Ensures correct numbering format
 - ✅ `plan_time_estimates` - Blocks time estimates in plans
 - ✅ `plan_workflow` - Provides guidance when creating plans
-- ✅ `workflow_state_pre_compact` - Saves workflow state before compaction
-- ✅ `workflow_state_restoration` - Restores state after compaction
 
 ## References
 
