@@ -57,6 +57,14 @@
         name: huggingface_hub
         state: latest
 
+    # Required by scripts/qa-patterns.bash (runs .semgrep/bash-conventions.yml rules
+    # against all bash files in the repo). qa-all.bash fails with rc=2 if missing —
+    # see CLAUDE.md "Missing Dependencies" rule (fix via IaC, never tolerate the gap).
+    - name: Semgrep (host-side QA pattern scanner)
+      community.general.pipx:
+        name: semgrep
+        state: latest
+
     - name: Pyenv Python Version Management
       ansible.builtin.shell: |
         curl -L https://github.com/pyenv/pyenv-installer/raw/master/bin/pyenv-installer | bash
