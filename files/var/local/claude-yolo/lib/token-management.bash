@@ -435,12 +435,34 @@ create_token() {
 
 # Function to select a token interactively
 # Args: $1 = token_dir
+#       $2 = mode: "container" (default, ccy) or "host" (cc)
 # Sets: SELECTED_TOKEN global variable
-# Returns: 0 if token selected, 1 if no valid tokens
+#       - container mode: path to chosen token file (or "" if create/renew picked)
+#       - host mode: path to chosen token file, OR "" if Desktop fallback picked
+# Returns: 0 on selection (or container-mode create/renew),
+#          1 in container mode if no valid tokens (no Desktop fallback there),
+#          0 in host mode if pool is empty (Desktop is automatic fallback)
+#
+# container mode menu: numbered valid tokens, r1..rN renew options, 0 create new
+# host mode menu: numbered valid tokens, d for Desktop (host ~/.claude/ OAuth);
+#                 no renew, no create — those require a container so cc cannot
+#                 perform them. Empty pool short-circuits to Desktop with a
+#                 one-shot instruction banner.
 select_token() {
     local token_dir="$1"
+    local mode="${2:-container}"
+
+    if [ "$mode" != "container" ] && [ "$mode" != "host" ]; then
+        echo "select_token: invalid mode '$mode' (expected 'container' or 'host')" >&2
+        return 1
+    fi
 
     if [ ! -d "$token_dir" ]; then
+        if [ "$mode" = "host" ]; then
+            _select_token_host_empty_pool_banner "$token_dir"
+            SELECTED_TOKEN=""
+            return 0
+        fi
         return 1
     fi
 
@@ -476,9 +498,20 @@ select_token() {
             fi
             expired_names+=("$token_name")
             expired_dates+=("$expiry_date")
-            echo "    $token_name (expired: ${expiry_date:-unknown})"
+            if [ "$mode" = "host" ]; then
+                echo "    $token_name (expired: ${expiry_date:-unknown}) — renew with: ccy --create-token"
+            else
+                echo "    $token_name (expired: ${expiry_date:-unknown})"
+            fi
         done
         echo ""
+    fi
+
+    # Host mode with empty pool: short-circuit to Desktop with instruction banner.
+    if [ "$mode" = "host" ] && [ ${#valid_tokens[@]} -eq 0 ]; then
+        _select_token_host_empty_pool_banner "$token_dir"
+        SELECTED_TOKEN=""
+        return 0
     fi
 
     if [ ${#valid_tokens[@]} -eq 0 ]; then
@@ -487,7 +520,11 @@ select_token() {
 
     echo ""
     echo "════════════════════════════════════════════════════════════════════════════════"
-    echo "Claude Code Token Selection for YOLO Mode"
+    if [ "$mode" = "host" ]; then
+        echo "Claude Code Token Selection for cc"
+    else
+        echo "Claude Code Token Selection for YOLO Mode"
+    fi
     echo "════════════════════════════════════════════════════════════════════════════════"
     echo ""
     echo "Available tokens:"
@@ -508,41 +545,61 @@ select_token() {
         fi
     done
 
-    # Show renew options for expired tokens
-    if [ ${#expired_names[@]} -gt 0 ]; then
+    if [ "$mode" = "container" ]; then
+        # Show renew options for expired tokens (container only — needs a container)
+        if [ ${#expired_names[@]} -gt 0 ]; then
+            echo ""
+            for i in "${!expired_names[@]}"; do
+                echo "  r$((i+1))) Renew: ${expired_names[$i]} (expired: ${expired_dates[$i]:-unknown})"
+            done
+        fi
         echo ""
-        for i in "${!expired_names[@]}"; do
-            echo "  r$((i+1))) Renew: ${expired_names[$i]} (expired: ${expired_dates[$i]:-unknown})"
-        done
+        echo "  0) Create new token"
+    else
+        echo ""
+        echo "  d) Desktop (use host ~/.claude/ OAuth — current cc default)"
     fi
-
-    echo ""
-    echo "  0) Create new token"
     echo ""
 
     # Build prompt hint
-    local renew_hint=""
-    if [ ${#expired_names[@]} -gt 0 ]; then
-        if [ ${#expired_names[@]} -eq 1 ]; then
-            renew_hint=", r1"
-        else
-            renew_hint=", r1-r${#expired_names[@]}"
+    local prompt_hint
+    if [ "$mode" = "host" ]; then
+        prompt_hint="1-${#valid_tokens[@]}, d"
+    else
+        local renew_hint=""
+        if [ ${#expired_names[@]} -gt 0 ]; then
+            if [ ${#expired_names[@]} -eq 1 ]; then
+                renew_hint=", r1"
+            else
+                renew_hint=", r1-r${#expired_names[@]}"
+            fi
         fi
+        prompt_hint="0-${#valid_tokens[@]}${renew_hint}"
     fi
 
     while true; do
-        read -r -p "Select token [0-${#valid_tokens[@]}${renew_hint}]: " selection
+        read -r -p "Select token [${prompt_hint}]: " selection
         echo ""
 
         if [ -z "$selection" ]; then
             echo "Invalid selection: (empty)"
-            echo "Please enter a number between 0 and ${#valid_tokens[@]}"
+            echo "Please enter one of: ${prompt_hint}"
             echo ""
             continue
         fi
 
-        # Handle renew selections (r1, r2, etc.)
-        if [[ "$selection" =~ ^r([0-9]+)$ ]]; then
+        # Host mode: Desktop fallback
+        if [ "$mode" = "host" ] && [ "$selection" = "d" ]; then
+            SELECTED_TOKEN=""
+            echo "✓ Using Desktop (host ~/.claude/ OAuth)"
+            echo ""
+            echo "════════════════════════════════════════════════════════════════════════════════"
+            echo ""
+            return 0
+        fi
+
+        # Container mode: renew selections (r1, r2, etc.)
+        if [ "$mode" = "container" ] && [[ "$selection" =~ ^r([0-9]+)$ ]]; then
             local renew_idx="${BASH_REMATCH[1]}"
             if [ "$renew_idx" -ge 1 ] && [ "$renew_idx" -le ${#expired_names[@]} ] 2>/dev/null; then
                 local renew_name="${expired_names[$((renew_idx-1))]}"
@@ -559,12 +616,16 @@ select_token() {
             fi
         fi
 
-        if [ "$selection" = "0" ]; then
+        # Container mode: create new token
+        if [ "$mode" = "container" ] && [ "$selection" = "0" ]; then
             # shellcheck disable=SC2153
             create_token "$token_dir" "$GH_TOKEN" "$IMAGE_NAME" "ccy"
             # shellcheck disable=SC2317
             return 0
-        elif [ "$selection" -ge 1 ] && [ "$selection" -le ${#valid_tokens[@]} ] 2>/dev/null; then
+        fi
+
+        # Numeric selection: pick a valid token
+        if [ "$selection" -ge 1 ] && [ "$selection" -le ${#valid_tokens[@]} ] 2>/dev/null; then
             SELECTED_TOKEN="${valid_tokens[$((selection-1))]}"
             local filename
             filename=$(basename "$SELECTED_TOKEN")
@@ -577,10 +638,30 @@ select_token() {
             return 0
         else
             echo "Invalid selection: $selection"
-            echo "Please enter a number between 0 and ${#valid_tokens[@]}"
+            echo "Please enter one of: ${prompt_hint}"
             echo ""
         fi
     done
+}
+
+# Empty-pool banner for host mode — prints once before Desktop fallback.
+# Args: $1 = token_dir (for display, may not exist yet)
+_select_token_host_empty_pool_banner() {
+    local token_dir="$1"
+    echo ""
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo "No tokens available — using Desktop (host ~/.claude/ OAuth)"
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
+    echo "  Token pool: $token_dir (empty or missing)"
+    echo ""
+    echo "  cc shares ccy's token pool. To enable the token chooser:"
+    echo "    ccy --create-token       # create one or more named tokens"
+    echo ""
+    echo "  After that, cc will offer them alongside the Desktop option."
+    echo ""
+    echo "════════════════════════════════════════════════════════════════════════════════"
+    echo ""
 }
 
 # Function to export a token as a self-contained import script

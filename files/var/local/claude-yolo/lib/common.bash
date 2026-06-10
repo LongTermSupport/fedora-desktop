@@ -2,11 +2,17 @@
 # Claude YOLO Common Library
 # Shared helpers for claude-yolo (ccy)
 #
-# Version: 1.4.0
+# Version: 1.5.0 - Factor host-safe helpers into common-pure.bash for cc
 
-# Color codes for consistent output
-readonly COLOR_RESET='\033[0m'
-readonly COLOR_RED='\033[0;31m'
+# Host-safe helpers (print_error, is_token_valid, COLOR_RED, COLOR_RESET).
+# MUST be sourced BEFORE the podman-check block below so that the cc wrapper
+# can share the same helpers without triggering the podman-check exit.
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=common-pure.bash
+source "$(dirname "${BASH_SOURCE[0]}")/common-pure.bash"
+
+# Color codes used only by functions defined in this file. RED/RESET come
+# from common-pure.bash; the rest live here to keep common-pure minimal.
 readonly COLOR_GREEN='\033[0;32m'
 readonly COLOR_YELLOW='\033[0;33m'
 readonly COLOR_BLUE='\033[0;34m'
@@ -45,10 +51,7 @@ container_cmd() {
 export CONTAINER_ENGINE
 export -f container_cmd
 
-# Output formatting helpers
-print_error() {
-    echo -e "${COLOR_RED}ERROR:${COLOR_RESET} $*" >&2
-}
+# print_error is provided by common-pure.bash (sourced at the top of this file).
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Rootless buildah cache recovery
@@ -432,36 +435,9 @@ command_exists() {
     command -v "$1" &> /dev/null
 }
 
-# CCY Token Management
-# These functions work with the ccy token directory structure
-
-# Check if a token is valid (not expired or expiring today)
-# Args: token_file_path
-# Returns: 0 (true) if valid, 1 (false) if expired/expiring
-is_token_valid() {
-    local token_file="$1"
-    local filename
-    filename=$(basename "$token_file")
-
-    # Extract expiry date from filename: NAME.YYYY-MM-DD.token
-    if [[ "$filename" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2})\.token$ ]]; then
-        local expiry_date="${BASH_REMATCH[1]}"
-        local today
-        today=$(date +%Y-%m-%d)
-
-        # Compare dates
-        if [[ "$expiry_date" < "$today" ]]; then
-            return 1  # Expired
-        elif [[ "$expiry_date" == "$today" ]]; then
-            return 1  # Expiring today
-        else
-            return 0  # Valid
-        fi
-    else
-        # Old format token without expiry date - treat as expired
-        return 1
-    fi
-}
+# CCY Token Management — is_token_valid is provided by common-pure.bash
+# (sourced at the top of this file) so that the cc wrapper can use the same
+# expiry check without dragging in container-engine helpers.
 
 # Container version validation and build helpers
 # These functions work with Docker/Podman container labels for version tracking
@@ -586,13 +562,12 @@ build_container_with_hash() {
         "$dockerfile_dir"
 }
 
-# Export functions for use in other scripts
-export -f print_error
+# Export functions for use in other scripts.
+# print_error and is_token_valid are exported by common-pure.bash.
 export -f is_git_repo
 export -f check_git_repo
 export -f get_project_name
 export -f command_exists
-export -f is_token_valid
 export -f check_ccy_gitignore_safety
 
 # Function to get next available container name for a project

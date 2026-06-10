@@ -1,0 +1,89 @@
+#!/bin/bash
+# shellcheck source-path=SCRIPTDIR
+# cc — Host Claude Code launcher with token-source parity with ccy
+#
+# Sources ccy's token-management library to present the same named-token
+# chooser experience for host Claude Code invocations. The chooser shows
+# every valid token in ~/.claude-tokens/ccy/tokens/ plus a "Desktop"
+# pseudo-option that falls through to the standard host ~/.claude/ OAuth
+# flow (i.e. the pre-Plan-00048 cc behaviour).
+#
+# Designed to be safe even when ccy has never been installed:
+#   - empty token pool → Desktop fallback with one-shot instruction banner
+#   - missing /var/local/claude-yolo/lib/ → plain `claude update && claude`
+#   - non-interactive shell → Desktop fallback (no `read -p` hang)
+#
+# See CLAUDE/Plan/00048-cc-token-source-parity/PLAN.md for full design notes.
+
+set -e
+
+# Defensive stubs: token-management.bash's container-mode renew/create paths
+# reference $GH_TOKEN and $IMAGE_NAME. We never trigger those paths in host
+# mode (mode="host" disables them), but pre-export empty stubs anyway so that
+# any future tightening to `set -u` would not crash the wrapper.
+: "${GH_TOKEN:=}" "${IMAGE_NAME:=}"
+
+CCY_LIB_DIR="/var/local/claude-yolo/lib"
+COMMON_PURE="$CCY_LIB_DIR/common-pure.bash"
+TOKEN_MGMT="$CCY_LIB_DIR/token-management.bash"
+
+CCY_ROOT="$HOME/.claude-tokens/ccy"
+TOKEN_DIR="$CCY_ROOT/tokens"
+
+# Graceful degrade: if ccy lib is missing entirely (user never ran
+# play-claude-yolo.yml), skip the chooser and fall through to plain claude.
+if [ ! -f "$COMMON_PURE" ] || [ ! -f "$TOKEN_MGMT" ]; then
+    echo "cc: ccy lib not installed ($CCY_LIB_DIR missing) — using host ~/.claude/ directly" >&2
+    claude update
+    exec claude "$@"
+fi
+
+# Non-interactive invocation (scripts, CI, piped stdin/stdout): skip chooser,
+# go straight to Desktop fallback so we never hang on `read -p`.
+if [ ! -t 0 ] || [ ! -t 1 ]; then
+    claude update
+    exec claude "$@"
+fi
+
+# shellcheck source=../claude-yolo/lib/common-pure.bash
+source "$COMMON_PURE"
+# shellcheck source=../claude-yolo/lib/token-management.bash
+source "$TOKEN_MGMT"
+
+# Host-mode chooser. Always sets SELECTED_TOKEN (path to token file, or ""
+# for Desktop). Returns 0 in normal operation; never falls through with an
+# unset SELECTED_TOKEN.
+SELECTED_TOKEN=""
+select_token "$TOKEN_DIR" "host"
+
+# IMPORTANT: run `claude update` BEFORE exporting the OAuth token so the
+# self-updater never sees the chosen token. Then export and exec claude.
+claude update
+
+if [ -n "$SELECTED_TOKEN" ]; then
+    TOKEN_CONTENT=$(cat "$SELECTED_TOKEN")
+
+    if ! [[ "$TOKEN_CONTENT" =~ ^sk-ant-oat01- ]]; then
+        print_error "Invalid token format in file: $SELECTED_TOKEN"
+        echo "Token must start with 'sk-ant-oat01-'" >&2
+        exit 1
+    fi
+
+    TOKEN_BYTES=${#TOKEN_CONTENT}
+    if [ "$TOKEN_BYTES" -lt 90 ] || [ "$TOKEN_BYTES" -gt 120 ]; then
+        print_error "Invalid token length in file: $SELECTED_TOKEN"
+        echo "Length: $TOKEN_BYTES bytes (expected: 90-120 bytes)" >&2
+        echo "Token appears truncated or corrupted. Recreate with: ccy --create-token" >&2
+        exit 1
+    fi
+
+    TOKEN_FILENAME=$(basename "$SELECTED_TOKEN")
+    TOKEN_NAME="${TOKEN_FILENAME%.*.token}"
+    echo "Token: $TOKEN_NAME"
+
+    export CLAUDE_CODE_OAUTH_TOKEN="$TOKEN_CONTENT"
+else
+    echo "Token: Desktop (host ~/.claude/)"
+fi
+
+exec claude "$@"

@@ -48,14 +48,38 @@
       ansible.builtin.debug:
         msg: "Claude Code installed successfully: {{ claude_code_version_check.stdout }}"
 
+    # cc wrapper script — token-source parity with ccy. Shares the ccy
+    # token pool at ~/.claude-tokens/ccy/tokens/ and presents the same
+    # named-token chooser with an added "Desktop" pseudo-option that
+    # preserves the pre-Plan-00048 cc behaviour (host ~/.claude/ OAuth).
+    # See CLAUDE/Plan/00048-cc-token-source-parity/PLAN.md.
+    - name: Create /var/local/claude-code Directory
+      become: true
+      ansible.builtin.file:
+        path: /var/local/claude-code
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install cc Wrapper Script
+      become: true
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/var/local/claude-code/cc"
+        dest: /var/local/claude-code/cc
+        owner: root
+        group: root
+        mode: "0755"
+
     - name: Configure Claude Code Shell Integration
       ansible.builtin.blockinfile:
         path: "/home/{{ user_login }}/.bashrc"
         marker: "# {mark} ANSIBLE MANAGED: Claude Code Integration"
         block: |
           # Claude Code CLI alias and PATH
+          # cc is a wrapper script — see /var/local/claude-code/cc
           export PATH="$HOME/.local/bin:$PATH"
-          alias cc='claude update && claude'
+          alias cc='/var/local/claude-code/cc'
         create: false
 
     - name: Final Claude Code Installation Verification

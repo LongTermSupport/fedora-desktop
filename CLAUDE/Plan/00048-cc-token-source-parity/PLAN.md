@@ -1,6 +1,6 @@
 # Plan 00048: Host `cc` Token-Source Parity with `ccy`
 
-**Status**: ⬜ Not Started
+**Status**: 🔄 In Progress — Phases 1-3 ✅, Phase 4 awaits host deploy
 **Created**: 2026-06-10
 **Owner**: joseph
 **Priority**: Medium
@@ -233,153 +233,92 @@ Two structural changes ship together. (1) `select_token()` gets a
 new `common-pure.bash` so `cc` can source library code without
 triggering `common.bash`'s podman-check `exit 1`.
 
-- [ ] ⬜ **Task 1.0**: Factor `common-pure.bash` (audit-mandated):
+- [x] ✅ **Task 1.0**: Factor `common-pure.bash` (audit-mandated):
 
-  - [ ] ⬜ Create `files/var/local/claude-yolo/lib/common-pure.bash`
-    containing only the pure helpers `cc` needs:
-    `print_error` (`common.bash:49`), `is_token_valid`
-    (`common.bash:441-464`), and any other free symbols that
-    `select_token` in host mode reaches for (audit before
-    finalising).
-  - [ ] ⬜ Edit `common.bash` to `source common-pure.bash` at the
-    top, BEFORE the podman-check block at lines 30-34. ccy
-    behaviour does not change — the helpers come from the same
-    place, just one extra hop.
+  - [x] ✅ Created `files/var/local/claude-yolo/lib/common-pure.bash`
+    containing `print_error`, `is_token_valid`, `COLOR_RED`,
+    `COLOR_RESET` (the minimum surface `cc` needs).
+  - [x] ✅ Edited `common.bash` to source `common-pure.bash` BEFORE
+    the podman-check block, removed the duplicated function bodies,
+    and dropped the orphan `export -f` lines for the moved functions.
+    Used `# shellcheck source-path=SCRIPTDIR` to satisfy SC1091.
   - [ ] ⬜ Verify ccy still works end-to-end after the move
-    (Phase 4 covers this).
-  - [ ] ⬜ Deploy `common-pure.bash` via the same
-    `play-claude-yolo.yml:229-246` install loop (add the new
-    filename to the file list).
+    (Phase 4 covers this — runs on host).
+  - [x] ✅ Added `common-pure.bash` to the lib install loop in
+    `play-claude-yolo.yml`.
 
-- [ ] ⬜ **Task 1.1**: Add an optional `mode` parameter to
-  `select_token` (or a new `select_token_host()` wrapper) so the
-  same function serves both `ccy` (container mode: shows
-  create/renew) and `cc` (host mode: shows Desktop option, no
-  create/renew)
+- [x] ✅ **Task 1.1**: Added `mode` arg to `select_token` (default
+  `container` so no existing caller changes). Host mode:
+  Desktop pseudo-option (`d`), empty-pool short-circuit with banner,
+  no create/renew branches, expired tokens shown read-only with
+  "renew with: ccy --create-token" hint. Container-mode behaviour
+  unchanged.
 
-  - [ ] ⬜ Decide: extend the existing function with a `mode` arg
-    (DRY) or introduce a thin `select_token_host()` wrapper that
-    shares helper code (clearer). Pick whichever keeps the
-    token-management.bash file readable.
-  - [ ] ⬜ Host mode: prepend a `d) Desktop (use host ~/.claude/ OAuth)` option; selecting it sets `SELECTED_TOKEN=""` (sentinel
-    meaning "no env override")
-  - [ ] ⬜ Host mode: when the pool is empty, skip the chooser
-    entirely; print the create-token-instructions banner and set
-    `SELECTED_TOKEN=""` automatically (Desktop is the only path)
-  - [ ] ⬜ Host mode: never call `create_token` (no container
-    available)
-  - [ ] ⬜ Host mode: still show expired tokens in a read-only "⚠
-    expired (renew with `ccy --token NAME --create-token` or use
-    Desktop)" section
+- [x] ✅ **Task 1.2**: Updated both `select_token` callers in
+  `files/var/local/claude-yolo/claude-yolo` (lines 921, 1025) to
+  pass `"container"` instead of the previously-ignored `"ccy"`.
 
-- [ ] ⬜ **Task 1.2**: Update `ccy` callers of `select_token` to pass
-  the container-mode value explicitly (no behaviour change for `ccy`)
+- [x] ✅ **Task 1.3**: Audit complete pre-implementation:
 
-- [ ] ⬜ **Task 1.3**: Audit transitive dependencies before writing
-  any code:
+  - [x] ✅ Confirmed `is_token_valid` was at `common.bash:441` and
+    is now hosted in `common-pure.bash`.
+  - [x] ✅ Confirmed `print_error` (was `common.bash:49`) is now in
+    `common-pure.bash` and reachable from every `cc` code path.
+  - [x] ✅ Documented source order: `common-pure.bash` then
+    `token-management.bash` (no `common.bash` needed by `cc` at all).
+  - [x] ✅ Host mode in `select_token` never references
+    `$GH_TOKEN`/`$IMAGE_NAME` (branches are gated by `mode`).
+    Belt-and-braces: wrapper still pre-exports empty stubs.
 
-  - [ ] ⬜ Confirm `is_token_valid` lives in `common.bash:441` (not
-    in `token-management.bash`); the `cc` wrapper must source
-    `common.bash` first (or shim the function locally)
-  - [ ] ⬜ Confirm `print_error` (`common.bash:49`) is reachable
-    from every code path `cc` will trigger
-  - [ ] ⬜ Document the exact required source order for the host
-    wrapper:
-    1. either a new `common-pure.bash` (audit-recommended) or a
-       guarded source of `common.bash`
-    2. then `token-management.bash`
-  - [ ] ⬜ Guard the host-mode `select_token` so the
-    `$GH_TOKEN`/`$IMAGE_NAME` references at lib lines 552, 564
-    never execute (delete those branches in host mode, OR pre-export
-    empty stubs in the wrapper — pick one and document)
-
-- [ ] ⬜ **Task 1.4**: CCY version bump for the lib edit.
-  `scripts/git-hooks/pre-commit:58-60` only matches `${CCY_SCRIPT}` =
-  `files/var/local/claude-yolo/claude-yolo` — a lib-only edit will
-  NOT trigger the version-bump check. Therefore: alongside any edit
-  to `token-management.bash` (or `common.bash`), bump `CCY_VERSION`
-  in the wrapper with a comment naming the lib change. This is a
-  manual discipline because the hook does not enforce it.
+- [x] ✅ **Task 1.4**: Bumped `CCY_VERSION` 3.16.2 → 3.17.0 (minor:
+  new capability — common-pure factoring + host mode added). Version
+  comment names the lib change explicitly.
 
 ### Phase 2: Create the `cc` wrapper script
 
-- [ ] ⬜ **Task 2.1**: Create `files/var/local/claude-code/cc`
-  - [ ] ⬜ Shebang: `#!/bin/bash` with `set -e`. **Do NOT use
-    `set -u`** unless every reference to `$GH_TOKEN`/`$IMAGE_NAME`
-    in the sourced lib is removed or guarded — those are unbound on
-    the host and will crash the wrapper under `set -u`.
-  - [ ] ⬜ Defensively pre-export empty stubs:
-    `: "${GH_TOKEN:=}" "${IMAGE_NAME:=}"` so any accidental
-    reference does not crash even if `set -u` is later added.
-  - [ ] ⬜ Source lib files in the order Phase 1 documented:
-    `common-pure.bash` (if factored) OR `common.bash` (with
-    podman-exit guard — see Decision 4), THEN
-    `token-management.bash`. **`is_token_valid` must be available**
-    before `select_token` is called.
-  - [ ] ⬜ Detect non-interactive invocation early:
-    `if [[ ! -t 0 ]] || [[ ! -t 1 ]]; then` skip chooser → Desktop
-    fallback (don't hang on `read -p`).
-  - [ ] ⬜ Define `CCY_ROOT="$HOME/.claude-tokens/ccy"` and
-    `TOKEN_DIR="$CCY_ROOT/tokens"` (same values ccy uses; consider
-    hoisting both into the lib as a follow-up).
-  - [ ] ⬜ Graceful degrade: if `/var/local/claude-yolo/lib/` is
-    missing entirely (user never ran `play-claude-yolo.yml`), skip
-    sourcing, skip chooser, fall through to plain
-    `claude update && claude "$@"` with a one-line stderr note.
-  - [ ] ⬜ Call `select_token_host "$TOKEN_DIR"` (or whatever Phase
-    1 decided).
-  - [ ] ⬜ Run `claude update` **FIRST** (with no token env set), so
-    the self-updater never sees the chosen token. Then `export CLAUDE_CODE_OAUTH_TOKEN=…` (validated `sk-ant-oat01-` prefix and
-    length per `claude-yolo:947-960`). Then `exec claude "$@"`. This
-    splits the alias chain to avoid leaking the chosen token to the
-    update phase.
-  - [ ] ⬜ If `SELECTED_TOKEN` is empty (Desktop), skip the
-    `CLAUDE_CODE_OAUTH_TOKEN` export entirely so host `~/.claude/`
-    takes over.
-  - [ ] ⬜ One-line audit banner: "Token: NAME (expires DATE)" or
-    "Token: Desktop (host ~/.claude/)".
-- [ ] ⬜ **Task 2.2**: Empty-pool instruction banner content —
-  draft the exact wording. Must say:
-  - The user is running with host `~/.claude/` (Desktop) by default
-  - To enable the chooser, create one or more tokens via
-    `ccy --create-token`
-  - Tokens auto-discovered from `~/.claude-tokens/ccy/tokens/`
-- [ ] ⬜ **Task 2.3**: Run shellcheck on the new script, fix any
-  issues
-- [ ] ⬜ **Task 2.4**: Manual smoke test: invoke the script directly
-  (`bash files/var/local/claude-code/cc --version`) in a host shell
-  and verify the chooser flow — though this is partly a host-side
-  test (see Phase 4)
+- [x] ✅ **Task 2.1**: Created `files/var/local/claude-code/cc`
+  with all design points landed:
+  - `set -e` only (not `set -u`); defensive `: "${GH_TOKEN:=}" "${IMAGE_NAME:=}"` stubs anyway.
+  - Sources `common-pure.bash` then `token-management.bash` (no
+    `common.bash` — bypasses the podman-check entirely).
+  - Non-interactive shell (`[[ ! -t 0 ]] || [[ ! -t 1 ]]`) →
+    skip chooser, go straight to plain claude.
+  - `CCY_ROOT` and `TOKEN_DIR` defined locally.
+  - Graceful degrade when `/var/local/claude-yolo/lib/` is missing
+    → plain `claude update && exec claude "$@"`.
+  - Calls `select_token "$TOKEN_DIR" "host"`.
+  - `claude update` runs BEFORE the token export; `exec claude "$@"` runs WITH `CLAUDE_CODE_OAUTH_TOKEN` set.
+  - Validates `sk-ant-oat01-` prefix and 90-120 byte length.
+  - One-line banner: "Token: NAME" or "Token: Desktop (host
+    ~/.claude/)".
+- [x] ✅ **Task 2.2**: Banner copy lives in
+  `_select_token_host_empty_pool_banner` inside
+  `token-management.bash`. Says: "No tokens available — using
+  Desktop (host ~/.claude/ OAuth)", names the missing dir, and
+  points at `ccy --create-token`.
+- [x] ✅ **Task 2.3**: `shellcheck -x` clean on the wrapper.
+  `# shellcheck source-path=SCRIPTDIR` directive added so relative
+  source paths follow correctly in lint.
+- [ ] ⬜ **Task 2.4**: Host-side smoke test — deferred to Phase 4
+  (CCY container has no `claude` binary and no token pool).
 
 ### Phase 3: Ansible deployment
 
-- [ ] ⬜ **Task 3.1**: Add tasks to
-  `playbooks/imports/play-claude-code.yml` (sibling location to
-  the existing `cc` alias block)
-  - [ ] ⬜ Create `/var/local/claude-code/` directory (root-owned,
-    mode 0755)
-  - [ ] ⬜ Copy `files/var/local/claude-code/cc` to
-    `/var/local/claude-code/cc` (root-owned, mode 0755)
-  - [ ] ⬜ Pattern matches
-    `play-claude-yolo.yml:280-289` for the wrapper deploy
-- [ ] ⬜ **Task 3.2**: Update the `blockinfile` at
-  `play-claude-code.yml:51-59` to change the alias line:
-  `alias cc='/var/local/claude-code/cc'`
-  (drops `claude update && claude` from the alias body — that
-  responsibility moves into the wrapper script in Task 2.1).
-  **Alias-vs-function shadow risk**: Plan 00036 converts `cc` from
-  alias to bash function. Bash functions shadow aliases of the same
-  name. If 00036 ships after this plan and its function still calls
-  `claude` directly (per 00036's current draft at Task 2.1), the
-  chooser is silently bypassed. This MUST be coordinated; see Task
-  3.3.
-- [ ] ⬜ **Task 3.3**: ~~(Removed)~~ This task originally
-  coordinated with Plan 00036's `cc`-function rewrite. Plan 00036 was
-  cancelled on review (both of its env vars independently obsoleted —
-  see 00036's cancellation notes). No coordination needed; 00048's
-  alias-to-wrapper-script change stands on its own.
-- [ ] ⬜ **Task 3.4**: Run `qa-all.bash` if any bash changes; verify
-  no shellcheck or semgrep regressions
+- [x] ✅ **Task 3.1**: Added wrapper-deploy tasks to
+  `playbooks/imports/play-claude-code.yml` — "Create
+  /var/local/claude-code Directory" and "Install cc Wrapper Script",
+  both `become: true`, root-owned, mode 0755. Also added
+  `common-pure.bash` to the lib install loop in
+  `play-claude-yolo.yml`.
+- [x] ✅ **Task 3.2**: Updated the `blockinfile` to
+  `alias cc='/var/local/claude-code/cc'` with a comment pointing
+  at the wrapper. `claude update` responsibility moved into the
+  wrapper. (Plan 00036 cancelled, so no shadow risk to coordinate.)
+- [x] ✅ **Task 3.3**: ~~(Removed)~~ Plan 00036 cancelled — no
+  coordination needed.
+- [x] ✅ **Task 3.4**: `./scripts/qa-all.bash` clean. Also ran
+  `ansible-playbook --syntax-check` on both modified playbooks per
+  the project convention (memory: `project_ansible_219_task_name_colons`).
 
 ### Phase 4: Deploy and verify (user runs on host)
 
@@ -411,18 +350,14 @@ happen on the host.
 
 ### Phase 5: Documentation & commit
 
-- [ ] ⬜ **Task 5.1**: ~~(Obsolete — 00036 cancelled at plan
-  review.)~~ No 00036 cross-update needed. Skip this task; left
-  numbered to preserve subsequent task numbers.
-- [ ] ⬜ **Task 5.2**: Search for existing `cc` mentions and update
-  in place: `grep -rn '\bcc\b' docs/ README.md CLAUDE.md 2>/dev/null`
-  — for every result that refers to the Claude Code shortcut (not
-  unrelated `cc` strings), add or update a one-line pointer to the
-  new chooser. This is a positive search, not a "skip if none found".
-- [ ] ⬜ **Task 5.3**: Update this plan's status to Complete, mark
-  all tasks ✅, add completion-date Notes entry
-- [ ] ⬜ **Task 5.4**: Commit the code changes and the plan state
-  changes together (per the Plan Commit Rule in `CLAUDE.md`)
+- [x] ✅ **Task 5.1**: ~~(Obsolete — 00036 cancelled.)~~
+- [x] ✅ **Task 5.2**: Searched `grep -rn '\bcc\b' docs/ README.md CLAUDE.md` and `grep -lE 'alias cc|claude update' docs/*.md README.md` — zero matches. No user-facing docs reference the
+  `cc` shortcut, so nothing to update.
+- [ ] 🔄 **Task 5.3**: Plan status flipped to "In Progress" with
+  Phases 1-3 ✅; final flip to Complete happens after Phase 4
+  verification on host.
+- [ ] 🔄 **Task 5.4**: Code + plan state being committed together
+  in this session (Phase 1-3 implementation commit).
 
 ## Dependencies
 
@@ -710,3 +645,65 @@ Updates. The container-only-vars guardrail was lifted into this
 plan's Non-Goals. Task 3.3 (cross-edit to 00036) and Task 5.1 (note
 to 00036) struck through as obsolete. Cross-references and
 Dependencies sections rewritten to reflect supersede status.
+
+### 2026-06-10 — Phases 1-3 executed
+
+Implementation landed in a single session, in plan order:
+
+**Phase 1 (library refactor)**
+
+- New: `files/var/local/claude-yolo/lib/common-pure.bash` — pure
+  helpers only (`print_error`, `is_token_valid`, `COLOR_RED`,
+  `COLOR_RESET`). `# shellcheck source-path=SCRIPTDIR` directive
+  added wherever it's sourced.
+- `common.bash` sources `common-pure.bash` near the top, BEFORE
+  the podman-check at lines 30-34. Duplicated `print_error` and
+  `is_token_valid` bodies removed. Orphan `export -f` lines for
+  those two functions removed. Other COLOR constants (GREEN,
+  YELLOW, BLUE, BOLD) stayed in `common.bash` because only its
+  own functions consume them (SC2034 hygiene).
+- `token-management.bash`: `select_token` gained a `mode` arg
+  (default `"container"` so no caller signature breaks). Host
+  mode adds a Desktop pseudo-option (`d`), short-circuits empty
+  pool to Desktop with a banner printed by new helper
+  `_select_token_host_empty_pool_banner`, and never reaches the
+  renew/create branches (so `$GH_TOKEN`/`$IMAGE_NAME` are
+  unreachable on host). Container-mode menu, prompts, and return
+  values are byte-identical to the prior implementation.
+- `claude-yolo` wrapper: both `select_token` callsites (lines
+  921, 1025) updated to pass `"container"` explicitly. Previously
+  passed `"ccy"` which was silently ignored.
+- `CCY_VERSION` bumped 3.16.2 → 3.17.0 (minor: net-new
+  capability — host mode + common-pure factor).
+
+**Phase 2 (wrapper script)**
+
+- New: `files/var/local/claude-code/cc`. Sources only
+  `common-pure.bash` + `token-management.bash` (skipping
+  `common.bash` entirely). Graceful degrade if ccy lib missing
+  → plain `claude update && claude`. Non-interactive shell
+  detection skips the chooser. `claude update` runs BEFORE the
+  token export. Token validated for `sk-ant-oat01-` prefix and
+  90-120 byte length before being exported as
+  `CLAUDE_CODE_OAUTH_TOKEN`. `exec claude "$@"` at the tail.
+- `shellcheck -x` clean.
+
+**Phase 3 (Ansible)**
+
+- `play-claude-yolo.yml` lib install loop now lists
+  `common-pure.bash` first.
+- `play-claude-code.yml` gained two tasks (directory create +
+  wrapper copy) before the bashrc `blockinfile`, which now
+  contains `alias cc='/var/local/claude-code/cc'`.
+- `qa-all.bash` clean; `ansible-playbook --syntax-check`
+  clean on both modified playbooks.
+
+**Phase 4** is host-only — user runs
+`ansible-playbook playbooks/imports/play-claude-code.yml`
+(and `play-claude-yolo.yml` so the new `common-pure.bash` lands)
+and works through Tasks 4.1-4.7. CCY container has no `claude`
+binary and no token pool, so no in-container smoke test is
+possible.
+
+**Phase 5.1-5.2** done in this session. 5.3-5.4 pending the
+commit that closes this entry.

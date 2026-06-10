@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.16.2"  # fix(build): bump REQUIRED_CONTAINER_VERSION 2.17 → 2.18 alongside Dockerfile change that disables apt's _apt sandbox download user (incompatible with rootless podman after recent host crun/podman upgrade — chown to _apt:root failed with EPERM, breaking all apt installs). Workaround drops apt's privilege-drop and runs downloads as root inside build container, which is safe and is the canonical fix for rootless OCI builds on Debian-based images.
+CCY_VERSION="3.17.0"  # feat(lib): factor common-pure.bash (host-safe helpers — print_error, is_token_valid, COLOR_RED, COLOR_RESET) so the new host /var/local/claude-code/cc wrapper can source the token chooser without triggering common.bash's podman-check exit. Adds a "host" mode to select_token (Desktop pseudo-option, empty-pool short-circuit, no create/renew); container mode unchanged. Callers in this wrapper updated to pass "container" explicitly. See Plan 00048.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -918,7 +918,7 @@ else
         exit 0
     else
         # Multiple tokens exist or single token - show selection
-        select_token "$TOKEN_DIR" "ccy" || {
+        select_token "$TOKEN_DIR" "container" || {
             echo ""
             echo "════════════════════════════════════════════════════════════════════════════════"
             echo "No Valid Tokens Available"
@@ -1022,7 +1022,7 @@ if [ "$TOKEN_VALIDATION_FAILED" = true ]; then
             2)
                 echo "Select a different token:"
                 echo ""
-                select_token "$TOKEN_DIR" "ccy" || {
+                select_token "$TOKEN_DIR" "container" || {
                     echo ""
                     echo "No other valid tokens available."
                     echo ""
