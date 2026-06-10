@@ -692,7 +692,7 @@
 
                   # Switch to the right account and clone
                   gh auth switch --hostname github.com --user "{{ username }}" 2>/dev/null
-                  gh repo clone "$repo_path" -- --config core.sshCommand="ssh -F /dev/null -i ~/.ssh/github_{{ alias }} -o IdentitiesOnly=yes -o AddKeysToAgent=yes"
+                  gh repo clone "$repo_path" -- --config core.sshCommand="ssh -F /dev/null -o HostName=github.com -i ~/.ssh/github_{{ alias }} -o IdentitiesOnly=yes -o AddKeysToAgent=yes"
                   local exit_code=$?
 
                   # Set the remote to use the specific SSH key
@@ -926,7 +926,15 @@
                       # block and offer ~/.ssh/id alongside the per-account key —
                       # GitHub then accepts whichever matched first, leading to
                       # commits being attributed to the wrong account.
-                      command git -c "core.sshCommand=ssh -F /dev/null -i ~/.ssh/github_${detected_alias} -o IdentitiesOnly=yes -o AddKeysToAgent=yes" "$@"
+                      #
+                      # -o HostName=github.com is REQUIRED alongside -F /dev/null:
+                      # remotes made by clone-<alias>/remote-<alias> use the
+                      # github.com-<alias> SSH host alias, whose HostName mapping
+                      # lives ONLY in ~/.ssh/config. With the config discarded ssh
+                      # would try to resolve the literal host "github.com-<alias>"
+                      # and fail ("Could not resolve hostname"). Forcing HostName
+                      # restores the real target while keeping the isolation.
+                      command git -c "core.sshCommand=ssh -F /dev/null -o HostName=github.com -i ~/.ssh/github_${detected_alias} -o IdentitiesOnly=yes -o AddKeysToAgent=yes" "$@"
                   else
                       # No account detected, use standard git
                       command git "$@"
@@ -937,10 +945,13 @@
               # -F /dev/null isolates from ~/.ssh/config: prevents the default
               # "Host github.com" block from injecting ~/.ssh/id as a second
               # identity, which otherwise causes commits to attribute to the
-              # wrong GitHub account.
+              # wrong GitHub account. -o HostName=github.com is required because
+              # -F /dev/null also discards the github.com-<alias> host alias, so
+              # ssh must be told the real host or it fails to resolve the literal
+              # "github.com-<alias>" used by clone-<alias>/remote-<alias> remotes.
               {% for alias in github_accounts.keys() %}
               function git-{{ alias }}() {
-                  command git -c "core.sshCommand=ssh -F /dev/null -i ~/.ssh/github_{{ alias }} -o IdentitiesOnly=yes -o AddKeysToAgent=yes" "$@"
+                  command git -c "core.sshCommand=ssh -F /dev/null -o HostName=github.com -i ~/.ssh/github_{{ alias }} -o IdentitiesOnly=yes -o AddKeysToAgent=yes" "$@"
               }
               {% endfor %}
 
