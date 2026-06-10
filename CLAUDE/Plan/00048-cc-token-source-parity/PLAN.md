@@ -707,3 +707,44 @@ possible.
 
 **Phase 5.1-5.2** done in this session. 5.3-5.4 pending the
 commit that closes this entry.
+
+### 2026-06-10 — Design pivot: hard-couple via fail-fast (no graceful degrade)
+
+User flagged that the soft-coupling-with-graceful-degrade approach
+violates KISS and the project's fail-fast HARD RULE. Rework lands
+the wrapper-only `cc` as a hard dependency on ccy:
+
+- **Removed from `cc` wrapper**: graceful-degrade for missing
+  `/var/local/claude-yolo/lib/` (used to fall through to plain
+  `claude update && claude`). If the lib is missing, bash's
+  `source` under `set -e` exits with an error — that is fail-fast.
+- **Removed from `cc` wrapper**: non-interactive `[[ ! -t 0 ]] || [[ ! -t 1 ]]` → Desktop fallback. Replaced with an explicit
+  exit 1 + message ("cc requires an interactive shell; call
+  `claude` directly for scripts"). No silent degrade, no chooser
+  hang, clear next step.
+- **Added preflight assert to `play-claude-code.yml`**: a `stat`
+  task with `failed_when: not ccy_lib_files.stat.exists` loops
+  over `common-pure.bash` and `token-management.bash`. Fails the
+  deploy immediately if the lib is missing, rather than at first
+  `cc` invocation.
+- **Flipped `playbook-main.yml` import order**: `play-claude-yolo`
+  now imports before `play-claude-code`, so the lib is on disk
+  before the preflight assert runs.
+
+Considered: merging `play-claude-code.yml` and `play-claude-yolo.yml`
+into a single play. Rejected — `play-claude-yolo.yml` is ~300 lines
+of container plumbing (podman config, image build trigger, bashrc
+includes); inlining it into the small upstream-CLI install play
+would entangle two distinct concerns and bloat the latter.
+Keeping them separate with a hard deploy-time assert + a
+documented import-order constraint is leaner.
+
+Risks-table row "Wrapper detects missing lib path, falls through
+to plain claude update && claude" is now obsolete — that
+behaviour was deleted. Left in the historical table as a marker
+of the rejected approach; superseded by the fail-fast checks.
+
+Decision 4's "verify playbook-main.yml imports both" verification
+step is now satisfied AND tightened: the import order is fixed,
+documented inline in playbook-main.yml, and protected by the
+preflight assert.

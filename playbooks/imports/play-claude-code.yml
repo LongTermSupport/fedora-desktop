@@ -7,6 +7,18 @@
     root_dir: "{{ inventory_dir }}/../../"
     claude_code_version: "stable"
   tasks:
+    # cc wrapper sources ccy's lib at runtime. play-claude-yolo MUST run
+    # first (see playbook-main.yml import order). Fail at deploy time
+    # rather than at first cc invocation if the lib is missing.
+    - name: Preflight — Assert ccy Lib Is Deployed
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      register: ccy_lib_files
+      failed_when: not ccy_lib_files.stat.exists
+      loop:
+        - /var/local/claude-yolo/lib/common-pure.bash
+        - /var/local/claude-yolo/lib/token-management.bash
+
     - name: Ensure jq is available
       ansible.builtin.include_tasks: "{{ root_dir }}/tasks/ensure-jq.yml"
 

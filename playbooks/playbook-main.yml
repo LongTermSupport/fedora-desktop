@@ -27,8 +27,12 @@
 - import_playbook: imports/play-lxc-install-config.yml
 - import_playbook: imports/play-podman.yml
 - import_playbook: imports/play-python.yml
-- import_playbook: imports/play-claude-code.yml
+# claude-yolo (ccy) MUST run before claude-code: play-claude-code's cc
+# wrapper sources /var/local/claude-yolo/lib/{common-pure,token-management}.bash
+# at runtime, and play-claude-code asserts the lib is present before
+# deploying the wrapper. See CLAUDE/Plan/00048-cc-token-source-parity.
 - import_playbook: imports/play-claude-yolo.yml
+- import_playbook: imports/play-claude-code.yml
 - import_playbook: imports/play-comms.yml
 - import_playbook: imports/play-gnome-shell.yml
 - import_playbook: imports/play-gnome-shell-extensions.yml
