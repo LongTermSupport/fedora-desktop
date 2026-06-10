@@ -1,6 +1,8 @@
 # Plan 00036: Host `cc` / Container `ccy` Functional Parity
 
-**Status**: Not Started
+**Status**: ❌ Cancelled (2026-06-10) — superseded; both env vars
+obsoleted by independent events. See Cancellation Notes at the
+bottom and Plan 00048 for the remaining cc/ccy parity work.
 **Created**: 2026-04-24
 **Owner**: joseph
 **Priority**: Medium
@@ -383,3 +385,44 @@ single playbook file.
   `CLAUDE/Plan/00047-claude-code-mouse-wheel-pageup/DECISION.md` —
   the "Cross-reference to Plan 00036" section captures the same point
   from the 00047 side.
+
+### 2026-06-10 — Cancelled, superseded by Plan 00048
+
+Both env vars this plan was built around have been independently
+obsoleted:
+
+- **`CLAUDE_CODE_NO_FLICKER=1`** — DROPPED from `ccy` entrypoint by
+  commit `a32c3d3` (Plan 00047 Path D: "drop CC fullscreen rendering
+  - kitty UX (wheel/selection fix)"). `entrypoint.sh:106` now carries
+    an explanatory NOTE confirming the var was removed. Nothing left
+    to export on the host.
+- **`CLAUDE_CODE_DISABLE_MOUSE=1`** — still exported by ccy at
+  `entrypoint.sh:125` but is the var that causes the wheel-history
+  bug. Plan 00047 is the canonical owner of how/where/whether this
+  gets used. Re-exporting it from a global bashrc include on every
+  host shell — which is what this plan proposed — would propagate
+  the bug to every interactive `claude` invocation across every
+  terminal, with no per-invocation control.
+
+What remains of value:
+
+- **The "container-only vars MUST NOT export on host" guardrail**
+  (`IS_SANDBOX`, `CCY_DISABLE_SUSPEND`) — preserved as a Non-Goal
+  in Plan 00048.
+- **The parity-audit framing** — historically interesting but
+  practically obsolete once the two vars in scope went away.
+
+Why this is cancellation, not absorption:
+
+- Plan 00048 owns the wrapper script `/var/local/claude-code/cc`.
+  If a future need arises to export an env var only when launching
+  claude (per-invocation, post-terminal-detection), the wrapper is
+  the right place — not a bashrc include that fires on every shell
+  start. Absorbing this plan's bashrc-include / sentinel pattern
+  would be dragging a defeated architecture into the active plan.
+- Grep confirms no script in this repo invokes `claude` outside the
+  `cc` path, so the bashrc-include approach has no real consumers
+  that the wrapper doesn't already cover.
+
+This plan's folder is retained for history. Future cc/ccy parity
+work tracks in Plan 00048.
