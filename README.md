@@ -64,17 +64,18 @@ Need more details? See the full [Installation Guide](docs/installation.md).
 
 ### Adding GitHub Accounts
 
+This project supports multiple GitHub identities on one machine, each with its own SSH key, `gh` authentication, and per-account `git-<alias>` / `gh-<alias>` shell helpers. **Read the full guide before adding an account: [GitHub Multi-Account Management](docs/github-multi-account.md).**
+
 To add a new GitHub account after initial setup:
 
 ```bash
 ./scripts/gh-account-setup.bash --add=alias:username
-```
-
-This handles everything: GitHub CLI authentication, OAuth scope setup, SSH key generation, key upload, and verification. Then deploy the SSH config:
-
-```bash
 ansible-playbook playbooks/imports/play-github-cli-multi.yml
 ```
+
+The setup script handles everything: GitHub CLI authentication **with the required OAuth scopes**, SSH key generation, key upload, and verification. The playbook then deploys the SSH config and regenerates the per-account shell helpers.
+
+> **Do not authenticate with a bare `gh auth login`** — it logs in without the required scopes and the playbook's scope audit will fail. Always use the setup script. See the [full guide](docs/github-multi-account.md#do-not-authenticate-with-a-bare-gh-auth-login).
 
 To check all configured accounts are healthy:
 
@@ -175,6 +176,7 @@ Comprehensive guides are available in the [docs/](docs/) directory:
 - **[Playbooks Reference](docs/playbooks.md)** - Complete list of what you can install
 - **[Configuration Guide](docs/configuration.md)** - Customize your setup
 - **[Containerization Guide](docs/containerization.md)** - LXC vs Docker vs Distrobox explained
+- **[GitHub Multi-Account Management](docs/github-multi-account.md)** - Multiple GitHub identities, SSH keys, and per-account helpers
 - **[Architecture Overview](docs/architecture.md)** - How the project is structured
 - **[Development Guide](docs/development.md)** - Contributing and development workflow
 

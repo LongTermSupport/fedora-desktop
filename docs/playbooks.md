@@ -9,6 +9,7 @@ Complete catalog of available features and how to use them.
 **Creating your own?** See [Creating Custom Playbooks](#creating-custom-playbooks) for templates.
 
 **Common tasks:**
+
 - [Install Docker](#play-dockeryml) - Rootless Docker setup
 - [Set up Distrobox](#play-distroboxyml) - Seamless dev environments
 - [Python development](#play-pythonyml) - pyenv and PDM
@@ -18,15 +19,19 @@ Complete catalog of available features and how to use them.
 These playbooks are executed automatically by `playbook-main.yml` during initial installation:
 
 ### play-AA-preflight-sanity.yml
-**Purpose**: Validates system requirements  
+
+**Purpose**: Validates system requirements\
 **Actions**:
+
 - Verifies Ansible version >= 2.9.9
 - Confirms Fedora distribution and version
 - Ensures system matches target in `vars/fedora-version.yml`
 
 ### play-basic-configs.yml
-**Purpose**: Essential system configuration  
+
+**Purpose**: Essential system configuration\
 **Actions**:
+
 - Installs basic packages (vim, wget, bash-completion, htop, etc.)
 - Configures passwordless sudo for user
 - Sets up Vim with Deus colorscheme
@@ -37,21 +42,27 @@ These playbooks are executed automatically by `playbook-main.yml` during initial
 - Configures hardware settings
 
 ### play-nvm-install.yml
-**Purpose**: Node.js environment setup  
+
+**Purpose**: Node.js environment setup\
 **Actions**:
+
 - Installs Node Version Manager (NVM)
 - Installs Node.js version 20
 - Sets up bash integration
 
 ### play-claude-code.yml
-**Purpose**: Claude Code CLI installation  
+
+**Purpose**: Claude Code CLI installation\
 **Actions**:
+
 - Downloads and installs Claude Code binary
 - Configures system-wide access
 
 ### play-git-configure-and-tools.yml
-**Purpose**: Git environment configuration  
+
+**Purpose**: Git environment configuration\
 **Actions**:
+
 - Configures git user name and email
 - Installs bash-git-prompt with Solarized theme
 - Sets up ripgrep for fast searching
@@ -60,28 +71,36 @@ These playbooks are executed automatically by `playbook-main.yml` during initial
 - Configures SSH for LXC containers
 
 ### play-lxc-install-config.yml
-**Purpose**: Container support  
+
+**Purpose**: Container support\
 **Actions**:
+
 - Installs LXC and LXD packages
 - Configures container networking
 - Sets up SSH configuration for containers
 - Configures firewall rules
 
 ### play-ms-fonts.yml
-**Purpose**: Microsoft fonts installation  
+
+**Purpose**: Microsoft fonts installation\
 **Actions**:
+
 - Installs Windows-compatible fonts
 - Configures font rendering
 
 ### play-rpm-fusion.yml
-**Purpose**: Third-party repository setup  
+
+**Purpose**: Third-party repository setup\
 **Actions**:
+
 - Enables RPM Fusion free and non-free repositories
 - Required for many multimedia codecs and proprietary software
 
 ### play-toolbox-install.yml
-**Purpose**: JetBrains Toolbox installation  
+
+**Purpose**: JetBrains Toolbox installation\
 **Actions**:
+
 - Downloads and installs JetBrains Toolbox
 - Configures desktop integration
 
@@ -90,6 +109,7 @@ These playbooks are executed automatically by `playbook-main.yml` during initial
 Run these manually as needed after the main installation completes.
 
 **General syntax:**
+
 ```bash
 cd ~/Projects/fedora-desktop
 ansible-playbook playbooks/imports/optional/<category>/<playbook>.yml
@@ -102,12 +122,16 @@ ansible-playbook playbooks/imports/optional/<category>/<playbook>.yml
 Popular add-ons for development work:
 
 #### play-comms.yml
+
 Installs communication applications:
+
 - Enables Flathub repository
 - Installs Slack
 
 #### play-docker.yml
+
 Docker container platform:
+
 - Adds Docker repository
 - Installs Docker CE and tools
 - Configures rootless Docker (user systemd service)
@@ -115,7 +139,9 @@ Docker container platform:
 - See [Containerization Guide](containerization.md) for details
 
 #### play-distrobox.yml
+
 Distrobox installation:
+
 - Installs distrobox package
 - Provides seamless container integration for development
 - Enables running GUI apps from other distros
@@ -123,7 +149,9 @@ Distrobox installation:
 - See [Containerization Guide](containerization.md) for comparison with LXC/Docker
 
 #### play-claude-yolo.yml
+
 Claude Code containerised environment (Docker/Podman-based):
+
 - **CCY (YOLO Mode)**: General-purpose development container with browser automation built in
 - Unified token management
 - Custom Dockerfile support per project
@@ -131,15 +159,18 @@ Claude Code containerised environment (Docker/Podman-based):
 - See [Containerisation Guide](containerization.md) for full details
 
 **What's installed:**
+
 - git, gh, ripgrep, jq, yq, vim, python, Node.js 20, Claude Code
 - **agent-browser CLI**: Token-efficient browser automation via Chromium (no Playwright needed)
 
 **Key features of agent-browser:**
+
 - 93% context reduction for multi-page flows vs traditional DOM inspection
 - Headed mode support (`--headed` flag) for visual debugging
 - Reference-based selection (`@e1`, `@e2`) from compact accessibility snapshots
 
 **Usage:**
+
 ```bash
 # Create a token
 ccy --create-token
@@ -157,12 +188,14 @@ agent-browser fill @e3 "test"     # Fill form fields
 ```
 
 **Token efficiency example:**
+
 ```bash
 # Traditional DOM inspection: 100,000+ tokens for 5-page flow
 # agent-browser: ~8,000 tokens for same flow (93% reduction!)
 ```
 
 **Custom Dockerfiles:**
+
 ```bash
 # AI-guided customisation (comprehensive planning)
 ccy --custom-docker
@@ -172,12 +205,15 @@ ccy --custom
 ```
 
 #### play-firefox.yml
+
 Firefox with enterprise policies:
+
 - Firefox browser from DNF
 - **Firefox Profile Switcher Connector** for multi-profile management
 - **Enterprise policies** via `/etc/firefox/policies/policies.json`
 
 **What policies control**:
+
 - Default homepage and search engine
 - Extension installation sources
 - Privacy and security settings
@@ -187,19 +223,25 @@ Firefox with enterprise policies:
 **Customizing policies**: Edit `files/etc/firefox/policies/policies.json` in repository, re-run playbook
 
 #### play-github-cli-multi.yml
+
 Multi-account GitHub CLI management:
+
 - **Multiple GitHub accounts** (work, personal, open-source, etc.)
 - **SSH keys per account** with account-specific configuration
 - **Bash helper functions** for seamless account switching
 - **Account-specific operations** (clone, remote setup, gh commands)
 
 **Setup process**:
-1. Run playbook (prompts for accounts in format: `alias:username`)
-2. SSH keys generated automatically per account
-3. Authenticate with `gh auth login` for each account
-4. Bash functions available immediately
+
+1. Authenticate each account **with the required scopes** via `./scripts/gh-account-setup.bash` (do **not** use a bare `gh auth login` — it misses the scopes the playbook audits for)
+2. Run the playbook to deploy SSH config and regenerate the bash helper functions
+3. SSH keys are generated and uploaded per account automatically
+4. Bash functions are available after `source ~/.bashrc`
+
+> Full workflow, commands, scopes, and troubleshooting: **[GitHub Multi-Account Management](github-multi-account.md)**.
 
 **Available functions**:
+
 ```bash
 gh-list                    # List all configured accounts
 gh-whoami                  # Show current active account
@@ -216,14 +258,16 @@ gh-work-make-default       # Set as default account
 ```
 
 **Configuration files**:
+
 - Account definitions: `environment/localhost/host_vars/localhost.yml`
 - SSH keys: `~/.ssh/github_<alias>` (per account)
 - SSH config: `~/.ssh/config` (separate host blocks)
 - Bash functions: `~/.bashrc-includes/gh-aliases.inc.bash`
 
-**Adding new accounts**: Edit `github_accounts` in host_vars, re-run playbook
+**Adding new accounts**: `./scripts/gh-account-setup.bash --add=alias:username` then re-run the playbook — see [GitHub Multi-Account Management](github-multi-account.md#adding-a-new-account-the-important-workflow)
 
 **Example workflow**:
+
 ```bash
 # Work on company project
 gh-switch work
@@ -239,12 +283,15 @@ gh-personal issue list
 ```
 
 #### play-gnome-shell.yml & play-gnome-shell-extensions.yml
+
 GNOME desktop customization and extensions:
 
 **System extensions**:
+
 - **dash-to-dock**: Application dock with customization
 
 **Third-party extensions** (via gnome-shell-extension-installer):
+
 - **Blur my Shell** (3193): Blur effects for panels and overview
 - **Vitals** (1460): System monitoring (CPU, memory, temperature)
 - **AppIndicator Support** (615): System tray icons
@@ -254,9 +301,11 @@ GNOME desktop customization and extensions:
 - **Space Bar** (5090): Workspace navigation enhancements
 
 **Custom extensions**:
+
 - **workspace-names-overview**: Show workspace names in overview
 
 **What you get**:
+
 - Enhanced window management (tiling)
 - System monitoring in top bar
 - Clipboard history access
@@ -264,11 +313,14 @@ GNOME desktop customization and extensions:
 - Better workspace navigation
 
 #### play-golang.yml
+
 Go programming language:
+
 - Golang compiler and standard tools from DNF repositories
 - Latest stable version for Fedora 42
 
 **What you get**:
+
 ```bash
 go version
 go build
@@ -277,7 +329,9 @@ go mod init
 ```
 
 #### play-rust-dev.yml
+
 Rust development environment:
+
 - **Rustup** toolchain manager for Rust version management
 - **Stable toolchain** with automatic updates
 - **Essential components**: rustfmt, clippy, rust-analyzer, rust-src, llvm-tools-preview
@@ -285,6 +339,7 @@ Rust development environment:
 - **20+ Cargo tools** for development workflow
 
 **Cargo tools installed**:
+
 - `cargo-watch` - Auto-rebuild on file changes
 - `cargo-edit` - Add/remove/upgrade dependencies from CLI
 - `cargo-audit` - Security vulnerability scanning
@@ -296,6 +351,7 @@ Rust development environment:
 - `cargo-tarpaulin` - Code coverage
 
 **What you get**:
+
 ```bash
 # Rust toolchain
 rustc --version
@@ -313,6 +369,7 @@ cargo nextest run           # Fast testing
 ```
 
 **Cargo configuration optimizations**:
+
 - Parallel jobs optimized for your CPU
 - Git fetch with shallow clones
 - Sparse registry for faster updates
@@ -320,11 +377,15 @@ cargo nextest run           # Fast testing
 **System dependencies included**: GCC, CMake, OpenSSL, SQLite, PostgreSQL, MySQL development libraries for common crate compilation
 
 #### play-gsettings.yml
+
 Desktop settings configuration:
+
 - Applies custom GNOME settings via gsettings
 
 #### play-hd-audio.yml
+
 High-fidelity audio system:
+
 - **HD sample rate support**: 44.1kHz, 48kHz, 88.2kHz, 96kHz, 176.4kHz, **192kHz**
 - **Dynamic rate switching**: Automatic based on active audio streams
 - **PipeWire optimization**: Quantum tuning (32-8192) for low latency
@@ -333,19 +394,23 @@ High-fidelity audio system:
 - **High-quality resampling**: Quality level 10
 
 **What you get**:
+
 - Studio-quality audio playback up to 192kHz/24-bit
 - LDAC codec for wireless headphones (990kbps)
 - Optimized latency for music production
 - Better Bluetooth headphone compatibility (controller mode: bredr)
 
 **For audiophiles**:
+
 - Works with external DACs
 - Supports high-resolution audio files (FLAC, DSD)
 - Professional music production capabilities
 - Low-latency monitoring
 
 #### play-python.yml
+
 Python development environment:
+
 - **pyenv** for Python version management
 - **Python versions**: 3.11.13 (LTS), 3.12.11 (stable), 3.13.1 (latest)
 - **PDM** (Python Dependency Manager) for modern dependency management
@@ -354,6 +419,7 @@ Python development environment:
 - Development dependencies: SDK headers, compression libs, cryptography support
 
 **What you get**:
+
 ```bash
 # Switch Python versions
 pyenv versions
@@ -370,22 +436,27 @@ pipx install ruff
 ```
 
 **Installed Python versions**:
+
 - 3.11.13 - Long-term support (recommended for production)
 - 3.12.11 - Current stable (best balance)
 - 3.13.1 - Latest features (experimental)
 
 **Package managers**:
+
 - pip - Standard (pre-installed with Python)
 - PDM - Modern, fast, PEP-compliant (recommended for new projects)
 - pipx - For installing CLI tools in isolation
 
 #### play-vscode.yml
+
 Visual Studio Code installation:
+
 - Adds Microsoft's official Fedora repository
 - Installs VS Code with GPG key verification
 - Latest stable version
 
 **Recommended extensions** (install via VS Code):
+
 - Python: ms-python.python
 - Rust: rust-lang.rust-analyzer
 - Go: golang.go
@@ -393,12 +464,15 @@ Visual Studio Code installation:
 - Claude Code: Anthropic's official extension
 
 #### play-vpn.yml
+
 VPN client setup:
+
 - **WireGuard** tools and NetworkManager integration
 - **OpenVPN** firewall rules
 - Network profile importing
 
 **Usage**:
+
 ```bash
 # Import WireGuard config
 nmcli connection import type wireguard file vpn-config.conf
@@ -411,29 +485,36 @@ nmcli connection down vpn-name
 ```
 
 #### play-cloudflare-warp.yml
+
 Cloudflare WARP zero-trust VPN:
+
 - Cloudflare WARP client from official repository
 - **DNS over HTTPS** with malware filtering
 - **systemd-resolved** integration
 - Automatic registration and connection
 
 **Features**:
+
 - Zero-trust network access
 - 1.1.1.1 DNS with privacy
 - Malware and tracking protection
 - Faster internet (optimized routing)
 
 #### play-lastpass.yml
+
 LastPass CLI password manager:
+
 - LastPass command-line interface
 - **Single or multi-account** support
 - Account-specific aliases (lpass-work, lpass-personal)
 
 **Setup** (prompted during playbook):
+
 - Single account: Simple setup
 - Multiple accounts: Define aliases (e.g., `work,personal`)
 
 **Usage**:
+
 ```bash
 # Single account
 lpass login user@example.com
@@ -447,13 +528,16 @@ lpass-status  # Check all accounts
 ```
 
 #### play-qobuz-cli.yml
+
 Qobuz high-fidelity music streaming:
+
 - **hifi-rs**: Rust-based Qobuz player
 - **qobuz-player**: Enhanced fork with web interface (default)
 - **rescrobbled**: Last.fm scrobbling systemd service
 - Configurable default player via environment variable
 
 **Shell functions**:
+
 ```bash
 play [album/track]    # Play with default player
 hplay [album/track]   # Force hifi-rs player
@@ -464,33 +548,39 @@ qobuz_status          # Show current player
 ```
 
 **Features**:
+
 - High-resolution audio streaming (up to 24-bit/192kHz)
 - Web interface for qobuz-player (http://localhost:port)
 - Last.fm scrobbling integration
 - Playlist support with shuffle
 
 #### play-terminal-emulators.yml
+
 Modern high-performance terminal emulators optimized for Claude Code:
+
 - **Alacritty**: GPU-accelerated, lowest input latency, OpenGL rendering
 - **Kitty**: Feature-rich with native tabs, image protocol, ligature support
 - **Ghostty**: New GTK4 terminal (v1.0 Dec 2025), zero config, hundreds of themes
 - **Foot**: Wayland-native minimalist, 21MB memory, CPU rendering, server/client mode
 
 **Comparison**:
-| Terminal | GPU | Latency | Features | Memory | Best For |
-|----------|-----|---------|----------|--------|----------|
-| Alacritty | ✅ | Lowest | Minimal | ~50MB | Speed, responsiveness |
-| Kitty | ✅ | Low | Rich | ~80MB | Power users, features |
-| Ghostty | ❌ | Low | Balanced | ~40MB | GTK integration, themes |
-| Foot | ❌ | Medium | Minimal | ~20MB | Wayland, efficiency |
+
+| Terminal  | GPU | Latency | Features | Memory | Best For                |
+| --------- | --- | ------- | -------- | ------ | ----------------------- |
+| Alacritty | ✅  | Lowest  | Minimal  | ~50MB  | Speed, responsiveness   |
+| Kitty     | ✅  | Low     | Rich     | ~80MB  | Power users, features   |
+| Ghostty   | ❌  | Low     | Balanced | ~40MB  | GTK integration, themes |
+| Foot      | ❌  | Medium  | Minimal  | ~20MB  | Wayland, efficiency     |
 
 All terminals support:
+
 - True colour (24-bit)
 - Fast rendering
 - Excellent Claude Code performance
 - Customizable via config files
 
 **Usage**:
+
 ```bash
 # Launch your preferred terminal
 alacritty
@@ -500,7 +590,9 @@ footclient  # or 'foot' for standalone
 ```
 
 #### play-speech-to-text.yml
+
 GPU-accelerated speech-to-text with AI enhancement:
+
 - **faster-whisper** with NVIDIA CUDA GPU acceleration
 - **RealtimeSTT** for real-time streaming transcription
 - **Model sizes**: tiny, base, small, medium, large-v3
@@ -509,6 +601,7 @@ GPU-accelerated speech-to-text with AI enhancement:
 - **Auto-paste**: Text types automatically at cursor
 
 **Keyboard shortcuts**:
+
 - **Insert**: Record and transcribe (raw)
 - **Ctrl+Insert**: Record with corporate AI processing 🤖
 - **Alt+Insert**: Record with natural AI processing 💬
@@ -520,12 +613,16 @@ GPU-accelerated speech-to-text with AI enhancement:
 ### Hardware-Specific
 
 #### play-nvidia.yml
+
 NVIDIA GPU drivers:
+
 - Installs proprietary NVIDIA drivers
 - Configures kernel modules
 
 #### play-displaylink.yml
+
 DisplayLink dock support:
+
 - Installs DisplayLink drivers
 - Creates suspend/resume service
 - Configures display management
@@ -533,7 +630,9 @@ DisplayLink dock support:
 ### Experimental
 
 #### play-docker-in-lxc-support.yml
+
 Docker-in-LXC support:
+
 - Configures host for Docker inside LXC containers
 - Loads kernel modules (overlay, br_netfilter)
 - Configures sysctl for IP forwarding
@@ -543,6 +642,7 @@ Docker-in-LXC support:
 - See [Containerization Guide](containerization.md) for advanced use cases
 
 **Usage**:
+
 ```bash
 cd ~/Projects/my-docker-project
 docker-in-lxc --create  # Create LXC for this project
@@ -551,11 +651,15 @@ docker-in-lxc --enter   # Enter the container
 ```
 
 #### play-lxde-install.yml
+
 Lightweight desktop environment:
+
 - Installs LXDE as alternative to GNOME
 
 #### play-virtualbox-windows.yml
+
 Windows virtualization:
+
 - Installs VirtualBox
 - Configures Windows VM support
 - Sets up ACPI tools
@@ -563,7 +667,9 @@ Windows virtualization:
 ### Archived
 
 #### play-tlp-battery-optimisation.yml
+
 Laptop power management (deprecated):
+
 - TLP battery optimization
 - Note: Conflicts with newer power-profiles-daemon
 
@@ -582,8 +688,8 @@ ansible-playbook playbooks/imports/optional/common/play-distrobox.yml
 # Install NVIDIA drivers
 ansible-playbook playbooks/imports/optional/hardware-specific/play-nvidia.yml
 
-# Configure multiple GitHub accounts
-ansible-playbook playbooks/imports/optional/common/play-github-cli-multi.yml
+# Configure multiple GitHub accounts (see docs/github-multi-account.md)
+ansible-playbook playbooks/imports/play-github-cli-multi.yml
 
 # Advanced: Docker-in-LXC support
 ansible-playbook playbooks/imports/optional/experimental/play-docker-in-lxc-support.yml
@@ -594,6 +700,7 @@ ansible-playbook playbooks/imports/optional/experimental/play-docker-in-lxc-supp
 Place custom playbooks in `playbooks/imports/optional/` following the naming convention `play-<feature>.yml`.
 
 Template:
+
 ```yaml
 - hosts: desktop
   name: Your Feature Name

@@ -1,81 +1,213 @@
 # GitHub Multi-Account Management
 
-**Playbook**: `playbooks/imports/optional/common/play-github-cli-multi.yml`
+**Playbook**: `playbooks/imports/play-github-cli-multi.yml`
+**Setup script**: `scripts/gh-account-setup.bash`
+**Account definitions**: `environment/localhost/host_vars/localhost.yml` → `github_accounts`
 
-The project supports multiple GitHub accounts with separate SSH keys and convenient shell functions.
+This project supports multiple GitHub accounts on one machine, each with its own
+SSH key, its own `gh` CLI authentication, an `~/.ssh/config` host alias, and a
+full set of convenience shell functions (`git-<alias>`, `gh-<alias>`,
+`clone-<alias>`, …). Commits, pushes, and `gh` commands are routed to the
+correct identity automatically per repository.
 
-## Initial Setup
+## How It Works (read this first)
 
-Run the playbook to configure accounts for the first time:
+There are two moving parts and they have **distinct jobs**. Understanding the
+split is the key to not getting confused:
+
+| Component                                     | Responsibility                                                                                                                                                                                                        |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `scripts/gh-account-setup.bash`               | **Authentication.** Logs each account into `gh` **with the required OAuth scopes**, generates the SSH key, uploads the public key to GitHub, and verifies SSH access.                                                 |
+| `playbooks/imports/play-github-cli-multi.yml` | **Deployment.** Audits scopes, ensures SSH keys exist, writes the `~/.ssh/config` host-alias blocks, and regenerates the `git-<alias>` / `gh-<alias>` / `clone-<alias>` shell helper functions from the account list. |
+
+The `github_accounts` dict in `localhost.yml` is the **single source of truth**.
+Everything — SSH key names, SSH config host aliases, and every generated shell
+function — derives from it.
+
+### Do NOT authenticate with a bare `gh auth login`
+
+⚠️ Running `gh auth login` by hand logs the account in **without the OAuth scopes
+this project requires** (`admin:public_key`, `repo`, `workflow`, and others). The
+playbook's scope audit will then **fail-fast** and send you back to the setup
+script anyway.
+
+**Always authenticate new accounts via `scripts/gh-account-setup.bash`** — it
+bakes the correct scopes into the login. See [Required OAuth Scopes](#required-oauth-scopes).
+
+## Initial Setup (first-time, all accounts)
+
+The bootstrap (`run.bash`) prompts for accounts and calls the setup script for
+you. To (re)run it manually for every account defined in `localhost.yml`:
+
 ```bash
-ansible-playbook ./playbooks/imports/optional/common/play-github-cli-multi.yml
+./scripts/gh-account-setup.bash --setup-all
+ansible-playbook playbooks/imports/play-github-cli-multi.yml
 ```
 
-The playbook will prompt you to enter accounts in format: `alias:username,alias:username`
-Example: `work:johndoe-work,personal:johndoe,oss:johndoe-oss`
+## Adding a New Account (the important workflow)
 
-## Adding a New Account to Existing Setup
+The playbook **does not** authenticate accounts — it only deploys keys, SSH
+config, and shell helpers. Authentication is the setup script's job. Adding an
+account is therefore a three-part flow (steps 1 and 2 can be collapsed — see the
+note):
 
-**IMPORTANT**: The playbook skips configuration prompts if accounts already exist. To add a new account:
+### 1. Add the account to the config
 
-1. **Edit the host vars file directly** (it's a regular YAML file, not encrypted):
-   ```bash
-   vim environment/localhost/host_vars/localhost.yml
-   ```
+Edit `environment/localhost/host_vars/localhost.yml` and add the alias under
+`github_accounts` (this is a regular YAML file — the account list is not
+encrypted):
 
-2. **Add the new account** to the `github_accounts` section:
-   ```yaml
-   # GitHub CLI accounts
-   github_accounts:
-     work: "johndoe-work"      # existing
-     personal: "johndoe"       # existing
-     oss: "johndoe-oss"        # <-- ADD NEW ACCOUNT HERE
-   ```
+```yaml
+# GitHub CLI accounts
+github_accounts:
+  personal: "your-personal-username"  # existing
+  work: "your-work-username"          # existing
+  oss: "your-oss-username"            # <-- new: alias is "oss", GitHub user is "your-oss-username"
+```
 
-3. **Re-run the playbook** to complete setup:
-   ```bash
-   ansible-playbook ./playbooks/imports/optional/common/play-github-cli-multi.yml
-   ```
+The **alias** (left) is your local short name; the **value** (right) is the real
+GitHub username.
 
-The playbook will:
-- Generate SSH key for the new account (`~/.ssh/github_oss`)
-- Add SSH config entry for `github.com-oss`
-- Regenerate bash aliases/functions with all accounts
-- Prompt for `gh auth login` for the new account
+### 2. Authenticate + generate the SSH key
+
+```bash
+./scripts/gh-account-setup.bash --add=oss:your-oss-username
+```
+
+This single command:
+
+- logs `your-oss-username` into `gh` **with the required scopes** (opens a browser /
+  prints a device-code URL),
+- generates `~/.ssh/github_oss`,
+- uploads the public key to GitHub (`gh ssh-key add`),
+- verifies SSH access in isolation.
+
+It is **idempotent with the config**: because you already added the alias in
+step 1, it detects the existing entry and skips the config rewrite. (You may
+skip step 1 entirely and let `--add` write the entry for you — either order
+works.)
+
+### 3. Deploy SSH config + shell helpers
+
+```bash
+ansible-playbook playbooks/imports/play-github-cli-multi.yml
+```
+
+This regenerates the per-account shell functions and writes the
+`Host github.com-oss` block into `~/.ssh/config`.
+
+### 4. Reload your shell
+
+```bash
+source ~/.bashrc
+```
+
+You now have `git-oss`, `gh-oss`, `clone-oss`,
+`remote-oss`, `gh-token-oss`, etc., and SSH remotes of the form
+`git@github.com-oss:owner/repo.git`.
+
+> **Passphrase**: all `github_*` SSH keys share the single
+> `github_ssh_passphrase` already stored in the vault. Adding an account needs
+> no vault change.
+
+## Required OAuth Scopes
+
+Every account's `gh` token must carry these scopes. The canonical list lives in
+a single source of truth — **`vars/github-required-scopes.yml`** — which both the
+playbook (`github_required_scopes`) and the setup script (`REQUIRED_SCOPES`) read,
+so the login/refresh and the audit can never request different scopes:
+
+| Scope              | Why                                                   |
+| ------------------ | ----------------------------------------------------- |
+| `admin:public_key` | Programmatic SSH public-key upload (`gh ssh-key add`) |
+| `gist`             | `gh gist` commands                                    |
+| `project`          | GitHub Projects v2 (implies `read:project`)           |
+| `read:org`         | Read org membership / list teams                      |
+| `repo`             | Full repo access (clone, push, PRs, issues)           |
+| `user:email`       | Read `user.email` for git config                      |
+| `workflow`         | Push commits that modify `.github/workflows/*.yml`    |
+
+The setup script grants these at login. The playbook audits them and
+**fail-fasts** with a remediation command if any account is short.
 
 ## Available Commands
 
-After setup, these functions are available in your shell:
+After setup (and `source ~/.bashrc`), these functions are available. Examples
+use the `oss` alias.
+
+### Account management
 
 ```bash
-# Account management
 gh-list                    # List all configured accounts
-gh-whoami                  # Show currently active account
-gh-status                  # Check authentication status for all accounts
-gh-switch work             # Switch to a specific account
-github-test-ssh            # Test SSH connections for all accounts
+gh-whoami                  # Show the currently active account
+gh-status                  # Auth status for all accounts
+gh-switch oss         # Switch the active gh account
+github-test-ssh            # Test SSH connectivity for every account
+git-accounts               # List configured git accounts + commands
+git-which-account          # Show which account the current repo will use
+```
 
-# Account-specific commands (using work account as example)
-gh-work pr list            # Run gh command as work account
-clone-work owner/repo      # Clone repo using work account
-remote-work owner/repo     # Set git remote for work account
-gh-token-work              # Get GitHub token for work account
-gh-work-make-default       # Set work as default account
+### Per-account git (forces a specific identity)
+
+```bash
+git-oss push                  # Run git as oss (correct SSH key)
+git-oss-branch-default        # Print the repo's default branch via oss
+git-oss-checkout-default      # Check out the default branch via oss
+```
+
+Inside a repo whose remote uses a `github.com-<alias>` host, a plain `git` auto-
+detects the account — no prefix needed.
+
+### Per-account gh / clone / remote
+
+```bash
+gh-oss pr list                # Run a gh command as oss
+clone-oss owner/repo          # Clone using the oss SSH key + remote
+remote-oss owner/repo         # Point the current repo's remote at oss
+gh-token-oss                  # Print a token for oss
+gh-oss-token-phpstorm         # Generate a PhpStorm token with required scopes
+git-init-with-account oss owner/repo   # git init with the oss remote
+```
+
+## Health Check
+
+Verify every configured account is authenticated, scoped, keyed, and reachable
+(read-only, makes no changes):
+
+```bash
+./scripts/gh-account-setup.bash --check
 ```
 
 ## Configuration Files
 
-- **Account definitions**: `environment/localhost/host_vars/localhost.yml` (under `github_accounts`)
-- **SSH keys**: `~/.ssh/github_<alias>` and `~/.ssh/github_<alias>.pub`
-- **SSH config**: `~/.ssh/config` (separate blocks per account)
-- **Bash functions**: `~/.bashrc-includes/gh-aliases.inc.bash` (regenerated on each run)
+| Purpose         | Path                                                                     |
+| --------------- | ------------------------------------------------------------------------ |
+| Account list    | `environment/localhost/host_vars/localhost.yml` → `github_accounts`      |
+| SSH private key | `~/.ssh/github_<alias>`                                                  |
+| SSH public key  | `~/.ssh/github_<alias>.pub`                                              |
+| SSH host alias  | `~/.ssh/config` (one `Host github.com-<alias>` block each)               |
+| Shell functions | `~/.bashrc-includes/gh-aliases.inc.bash` (regenerated each playbook run) |
+| Helper config   | `~/.config/git-account-helper/accounts.json`                             |
 
 ## Removing an Account
 
-1. Edit `environment/localhost/host_vars/localhost.yml` and remove the account from `github_accounts`
-2. Re-run the playbook — bash functions will be regenerated without that account
-3. Manually remove SSH keys and config if desired:
+1. Remove the alias from `github_accounts` in `localhost.yml`.
+2. Re-run the playbook — the shell functions regenerate without that account:
+   ```bash
+   ansible-playbook playbooks/imports/play-github-cli-multi.yml
+   ```
+3. Optionally remove the key material and SSH config block:
    ```bash
    rm ~/.ssh/github_<alias>*
-   # Edit ~/.ssh/config to remove the account's block
+   # then delete the "# ANSIBLE MANAGED: GitHub <alias>" block from ~/.ssh/config
    ```
+
+## Troubleshooting
+
+| Symptom                                              | Cause / Fix                                                                                                                                                           |
+| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Playbook fails: *"missing required OAuth scopes"*    | Account was logged in without the right scopes. Re-run `./scripts/gh-account-setup.bash --add=<alias>:<user>` (or `--setup-all`).                                     |
+| Playbook fails: *"vault passphrase does not unlock"* | The existing `~/.ssh/github_<alias>` has a different passphrase. Delete it and re-run: `rm ~/.ssh/github_<alias>*`.                                                   |
+| SSH verify fails despite key installed on GitHub     | Almost always passphrase-related. Diagnose: `ssh-keygen -y -P "$(cat /tmp/.github_ssh_pp)" -f ~/.ssh/github_<alias>`.                                                 |
+| Commits attributed to the wrong account              | Run `git-which-account` in the repo; use `git-<alias>` to force the right identity, or fix the remote to `git@github.com-<alias>:owner/repo.git`.                     |
+| `gh auth login` opened the wrong browser profile     | Open a **new** terminal (sources `/etc/profile.d/gh-multi-profile.sh`, which prints the device-code URL instead of guessing a browser), then re-run the setup script. |

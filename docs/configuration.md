@@ -5,6 +5,7 @@ Learn how to customize your Fedora desktop configuration.
 ## Quick Reference
 
 **Common tasks:**
+
 - [Change user settings](#user-configuration) - Name, email, vault password
 - [Customize bash prompt](#prompt-color-configuration) - Color preferences
 - [Manage secrets](#vault-configuration) - API keys and passwords
@@ -12,6 +13,7 @@ Learn how to customize your Fedora desktop configuration.
 - [Debug issues](#troubleshooting-configuration) - Configuration problems
 
 **Important files:**
+
 - `environment/localhost/host_vars/localhost.yml` - Your settings (encrypted)
 - `vault-pass.secret` - Vault password (gitignored)
 - `/etc/profile.d/zz_lts-fedora-desktop.bash` - Custom bash configs
@@ -32,8 +34,9 @@ user_email: "your.email@example.com"
 ### Prompt Color Configuration
 
 During installation, you'll be prompted to choose a PS1 color:
+
 - Red
-- Green  
+- Green
 - Yellow
 - Blue
 - Magenta
@@ -64,6 +67,7 @@ The vault password is stored in `vault-pass.secret` (gitignored).
 ### DNF Optimization
 
 Automatically configured in `/etc/dnf/dnf.conf`:
+
 ```ini
 fastestmirror=True
 max_parallel_downloads=10
@@ -73,22 +77,26 @@ deltarpm=True
 ### Bash Environment
 
 Custom configurations in `/etc/profile.d/zz_lts-fedora-desktop.bash`:
+
 - Enhanced history (20K file size, 10K memory)
 - Custom aliases
 - Docker helper functions
 - Error state prompt indicators
 
 User-specific includes in `~/.bashrc-includes/`:
+
 - Custom scripts and functions
 - Per-user overrides
 
 ### SSH Configuration
 
 Ed25519 keys generated at:
+
 - `~/.ssh/id` (private key)
 - `~/.ssh/id.pub` (public key)
 
 SSH config for LXC containers in `~/.ssh/config`:
+
 ```
 Host lxc-*
     StrictHostKeyChecking no
@@ -99,12 +107,14 @@ Host lxc-*
 ### Git Configuration
 
 Automatically configured from host variables:
+
 ```bash
 git config --global user.name "Your Name"
 git config --global user.email "your.email@example.com"
 ```
 
 Bash Git Prompt with Solarized theme in:
+
 - `~/.bash-git-prompt/`
 - Loaded in `.bashrc`
 
@@ -113,6 +123,7 @@ Bash Git Prompt with Solarized theme in:
 ### Docker
 
 After running `play-docker.yml`:
+
 - User added to docker group
 - Systemd service enabled
 - Docker compose installed
@@ -120,20 +131,27 @@ After running `play-docker.yml`:
 ### GitHub Multi-Account
 
 Configure in `host_vars/localhost.yml`:
+
 ```yaml
 github_accounts:
   personal: "your-personal-username"
   work: "your-work-username"
 ```
 
-Then run:
+To authenticate a new account (with the required OAuth scopes) and deploy:
+
 ```bash
-ansible-playbook playbooks/imports/optional/common/play-github-cli-multi.yml
+./scripts/gh-account-setup.bash --add=alias:username
+ansible-playbook playbooks/imports/play-github-cli-multi.yml
 ```
+
+See the full guide for the complete workflow, commands, and troubleshooting:
+[GitHub Multi-Account Management](github-multi-account.md).
 
 ### LastPass Accounts
 
 Configure in `host_vars/localhost.yml`:
+
 ```yaml
 lastpass_accounts:
   personal: "personal@email.com"
@@ -143,6 +161,7 @@ lastpass_accounts:
 ### Audio Configuration
 
 HD audio setup (`play-hd-audio.yml`) configures:
+
 - PipeWire sample rate: 192000 Hz
 - Bluetooth codecs: LDAC, aptX HD
 - Low latency settings
@@ -150,6 +169,7 @@ HD audio setup (`play-hd-audio.yml`) configures:
 ### GNOME Settings
 
 Custom settings via `play-gsettings.yml`:
+
 - Window management
 - Keyboard shortcuts
 - Desktop behavior
@@ -159,6 +179,7 @@ Custom settings via `play-gsettings.yml`:
 ### Custom Playbooks
 
 Create in `playbooks/imports/optional/custom/`:
+
 ```yaml
 - hosts: desktop
   name: My Custom Configuration
@@ -172,11 +193,13 @@ Create in `playbooks/imports/optional/custom/`:
 ### Custom Files
 
 Place static files in:
+
 - `files/etc/` for system configs
 - `files/home/` for user configs
 - `files/var/` for variable data
 
 Use in playbooks:
+
 ```yaml
 - name: Copy custom config
   copy:
@@ -190,6 +213,7 @@ Use in playbooks:
 ### Custom Variables
 
 Add to `environment/localhost/host_vars/localhost.yml`:
+
 ```yaml
 my_custom_var: "value"
 my_secret: !vault |
@@ -202,6 +226,7 @@ my_secret: !vault |
 ### File Modifications
 
 Preferred method using `blockinfile`:
+
 ```yaml
 - name: Update config file
   blockinfile:
@@ -252,6 +277,7 @@ ansible desktop -m package_facts
 ### Reset Configuration
 
 To reset a configuration managed by `blockinfile`:
+
 1. Remove the marked block from the file
 2. Re-run the playbook
 
