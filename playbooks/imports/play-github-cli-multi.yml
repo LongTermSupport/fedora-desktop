@@ -6,24 +6,10 @@
   vars:
     root_dir: "{{ inventory_dir }}/../../"
     vault_file: "{{ root_dir }}/environment/localhost/host_vars/localhost.yml"
-    # Single source of truth for OAuth scopes every gh token must carry.
-    # Parent scopes imply their read: children (project → read:project),
-    # so only the top-level grant is listed.
-    # admin:public_key  — programmatic SSH pubkey upload (gh ssh-key add)
-    # gist              — gh gist commands
-    # project           — GitHub Projects v2 (implies read:project)
-    # read:org          — read org membership / list teams
-    # repo              — full repo access (clone, push, PRs, issues)
-    # user:email        — read user.email for git config
-    # workflow          — push commits that modify .github/workflows/*.yml
-    github_required_scopes:
-      - admin:public_key
-      - gist
-      - project
-      - read:org
-      - repo
-      - user:email
-      - workflow
+  vars_files:
+    # Single source of truth for github_required_scopes — shared with
+    # scripts/gh-account-setup.bash so the two lists can never drift.
+    - "{{ root_dir }}/vars/github-required-scopes.yml"
   tasks:
     - name: Check gh version for multi-account support
       ansible.builtin.shell: gh --version | grep -oP '\d+\.\d+\.\d+' | head -1

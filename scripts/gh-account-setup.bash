@@ -20,13 +20,25 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LOCALHOST_YML="${LOCALHOST_YML:-$REPO_ROOT/environment/localhost/host_vars/localhost.yml}"
 VAULT_PASS_FILE="${VAULT_PASS_FILE:-$REPO_ROOT/vault-pass.secret}"
 
-# Required OAuth scopes — must mirror playbook's github_required_scopes.
-# Note: parent scopes imply their read: children in GitHub's hierarchy,
-# so we list only the top-level grant needed:
-#   project    → implies read:project (don't list both)
-#   admin:public_key → implies read:public_key
+# Required OAuth scopes — loaded from the single source of truth shared with
+# the playbook so the two consumers can never drift (the gap that previously
+# left tokens missing `workflow`).
+# @see vars/github-required-scopes.yml
 # @see playbooks/imports/play-github-cli-multi.yml
-REQUIRED_SCOPES=(admin:public_key gist project read:org repo user:email)
+SCOPES_FILE="${SCOPES_FILE:-$REPO_ROOT/vars/github-required-scopes.yml}"
+load_required_scopes() {
+  [[ -f "$SCOPES_FILE" ]] || { error "Scopes file not found: $SCOPES_FILE"; exit 1; }
+  mapfile -t REQUIRED_SCOPES < <(python3 - "$SCOPES_FILE" <<'PYEOF'
+import sys, yaml
+with open(sys.argv[1]) as f:
+    data = yaml.safe_load(f) or {}
+for scope in (data.get('github_required_scopes') or []):
+    print(scope)
+PYEOF
+  )
+  [[ ${#REQUIRED_SCOPES[@]} -gt 0 ]] || { error "No scopes loaded from $SCOPES_FILE"; exit 1; }
+}
+load_required_scopes
 
 # ─── Formatting ────────────────────────────────────────────────────────────────
 RED='\033[0;31m'

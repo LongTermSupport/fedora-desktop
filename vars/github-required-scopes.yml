@@ -1,0 +1,23 @@
+---
+# Single source of truth for the OAuth scopes every gh token must carry.
+#
+# Consumed by BOTH:
+#   - playbooks/imports/play-github-cli-multi.yml  (var: github_required_scopes)
+#   - scripts/gh-account-setup.bash                (array: REQUIRED_SCOPES)
+#
+# Keeping the list in one place means the playbook's scope audit and the setup
+# script's login/refresh can never request different scopes. Drift here was the
+# cause of tokens silently missing `workflow`: the script's hardcoded list had
+# fallen behind the playbook's.
+#
+# Parent scopes imply their read: children in GitHub's hierarchy, so only the
+# top-level grant is listed (project -> read:project, admin:public_key ->
+# read:public_key).
+github_required_scopes:
+  - admin:public_key  # programmatic SSH pubkey upload (gh ssh-key add)
+  - gist              # gh gist commands
+  - project           # GitHub Projects v2 (implies read:project)
+  - read:org          # read org membership / list teams
+  - repo              # full repo access (clone, push, PRs, issues)
+  - user:email        # read user.email for git config
+  - workflow          # push commits that modify .github/workflows/*.yml
