@@ -3,7 +3,7 @@
 ## Setup
 ## !! BUMP THIS VERSION ON EVERY CHANGE TO THIS FILE — NO EXCEPTIONS !!
 ## !! If you forget, there is NO WAY to tell which version is running !!
-RUN_BASH_VERSION="1.7.2"  # Fix: detect genuine NOPASSWD sudo with `sudo -k -n true` so password-sudo machines use --ask-become-pass (cached ticket no longer masks it -> no "premature end of stream waiting for become success")
+RUN_BASH_VERSION="1.7.3"  # Fix: the v1.7.2 sudo -k -n true change missed the MAIN playbook call (different indentation) — that unindented `sudo -n true` is what gated preflight, so become still failed. Now fixed on both call sites.
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -1516,10 +1516,16 @@ echo -e "${YELLOW}${INFO} This may take several minutes...${NC}\n"
 # failure is handled here instead of silently aborting.
 main_exit_code=0
 
-if sudo -n true 2>/dev/null; then
+# -k ignores any cached sudo timestamp, so this is true ONLY for genuine
+# passwordless (NOPASSWD) sudo. Without -k, an earlier `sudo` in this run
+# leaves a cached ticket that makes this pass, skipping --ask-become-pass —
+# but ansible become runs in its own tty (Fedora tty_tickets) and can't use
+# that cache, so it fails with "premature end of stream waiting for become
+# success". Detecting real NOPASSWD here routes password sudo to --ask-become-pass.
+if sudo -k -n true 2>/dev/null; then
   ./playbooks/playbook-main.yml || main_exit_code=$?
 else
-  echo -e "${YELLOW}${INFO} You will be prompted for your sudo password${NC}"
+  echo -e "${YELLOW}${INFO} sudo needs a password — Ansible will now prompt you for it (BECOME password)${NC}"
   ./playbooks/playbook-main.yml --ask-become-pass || main_exit_code=$?
 fi
 
