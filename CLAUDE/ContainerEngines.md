@@ -42,7 +42,7 @@ All three are installed by `playbook-main.yml`. They coexist cleanly — differe
 
 ## Docker — compatibility mode only
 
-**Docker is installed as rootful (system-level daemon).** Not rootless. This is a deliberate choice — see `CLAUDE/Plan/033-ddev-installation/container-engine-strategy.md` for the full analysis.
+**Docker is installed as rootful (system-level daemon).** Not rootless. This is a deliberate choice — see `CLAUDE/Plan/Completed/033-ddev-installation/container-engine-strategy.md` for the full analysis.
 
 ### Why Docker is rootful, not rootless
 
@@ -139,8 +139,8 @@ Yes — once, to pick up the new `docker` group membership. Log out and back in,
 
 ## See also
 
-- `CLAUDE/Plan/033-ddev-installation/PLAN.md` — DDEV-specific implementation plan
-- `CLAUDE/Plan/033-ddev-installation/container-engine-strategy.md` — the decision-gate analysis that led to this split
+- `CLAUDE/Plan/Completed/033-ddev-installation/PLAN.md` — DDEV-specific implementation plan
+- `CLAUDE/Plan/Completed/033-ddev-installation/container-engine-strategy.md` — the decision-gate analysis that led to this split
 - `vars/container-defaults.yml` — the `container_engine` default
 - `playbooks/imports/play-podman.yml` — Podman setup
 - `playbooks/imports/play-docker.yml` — Docker setup

@@ -7,9 +7,11 @@ Comprehensive guides for advanced features in the fedora-desktop project.
 ## Available Guides
 
 ### [Speech-to-Text](speech-to-text.md)
+
 GPU-accelerated voice typing for your entire desktop. Record speech with Insert key, transcribe with Whisper, optionally enhance with Claude Code AI.
 
 **Key features:**
+
 - GPU acceleration (NVIDIA CUDA)
 - Real-time streaming mode
 - AI enhancement (corporate/natural styles)
@@ -21,10 +23,12 @@ GPU-accelerated voice typing for your entire desktop. Record speech with Insert 
 ---
 
 ### [Claude DevTools (ccdt)](claude-devtools.md)
+
 Visualise full Claude Code session logs in a web UI. Restores the detailed tool-output visibility
 that recent Claude Code updates replaced with opaque summaries.
 
 **Key features:**
+
 - Auto-detects CCY project sessions vs host sessions
 - On-demand Podman container (zero idle resource usage)
 - Read-only mount (cannot modify session files)
@@ -34,13 +38,20 @@ that recent Claude Code updates replaced with opaque summaries.
 
 ---
 
+## Related Guides
+
+Feature documentation that lives outside this directory:
+
+- **[GitHub Multi-Account](../github-multi-account.md)**: Complete multi-account workflow guide — SSH keys, OAuth tokens, per-account git configuration
+- **[Nord VPN Manager](../nordvpn-installation.md)**: Interactive OpenVPN connection chooser via NetworkManager
+
+---
+
 ## Coming Soon
 
 Documentation for these features is planned:
 
-- **CCY (Claude Code YOLO)**: Containerised Claude Code with token management
-- **GitHub Multi-Account**: Complete multi-account workflow guide
-- **Nord VPN Manager**: Interactive OpenVPN connection chooser
+- **CCY (Claude Code YOLO)**: Containerised Claude Code with token management (interim notes in [Containerization Guide](../containerization.md#custom-dockerfiles-for-ccy))
 
 ---
 
@@ -54,6 +65,7 @@ Documentation for these features is planned:
 ---
 
 **Contributing**: When adding new feature documentation, please:
+
 1. Create a new markdown file in this directory
 2. Follow the structure in speech-to-text.md (Overview, Installation, Usage, Troubleshooting)
 3. Add entry to this README

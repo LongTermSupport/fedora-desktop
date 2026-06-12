@@ -22,7 +22,7 @@
  *
  * The patch is BEST-EFFORT: if both strategies fail, we warn but do NOT fail
  * the build (soft-fail). Ctrl+z may freeze the container in that case.
- * See CLAUDE.md "KNOWN FRAGILE PATCH" section for manual fix instructions.
+ * See CLAUDE/ContainerRules.md "Known Fragile Patch" section for manual fix instructions.
  */
 
 'use strict';

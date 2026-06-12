@@ -27,6 +27,7 @@ When creating a new playbook file, ALWAYS:
 ```
 
 Then make it executable:
+
 ```bash
 chmod +x playbooks/path/to/new-playbook.yml
 ```
@@ -34,11 +35,13 @@ chmod +x playbooks/path/to/new-playbook.yml
 ### Automated Script
 
 To add shebangs to all playbooks and make them executable, run:
+
 ```bash
 ./scripts/make-playbooks-executable.bash
 ```
 
 This script:
+
 - Scans all `.yml` files in `playbooks/` directory
 - Adds shebang if missing
 - Sets executable permission
@@ -54,14 +57,16 @@ This script:
 ### Verification
 
 Test that a playbook is properly executable:
+
 ```bash
 # Should show ansible-playbook version, not "permission denied"
-./playbooks/imports/optional/common/play-comms.yml --version
+./playbooks/imports/play-comms.yml --version
 ```
 
 ### Pre-commit Hook Recommendation
 
 Consider adding a pre-commit check to enforce this:
+
 ```bash
 # Check all .yml files in playbooks/ have shebang and are executable
 find playbooks -name "*.yml" -type f | while read file; do

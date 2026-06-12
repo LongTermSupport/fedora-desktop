@@ -143,17 +143,18 @@ ansible desktop -m setup | grep ansible_distribution
 ```bash
 cd ~/Projects/fedora-desktop
 
-# Install Docker (rootless)
-ansible-playbook playbooks/imports/optional/common/play-docker.yml
+# Docker is installed automatically by the main playbook (rootful, core)
+# To re-run it manually:
+ansible-playbook playbooks/imports/play-docker.yml
 
 # Install Distrobox
 ansible-playbook playbooks/imports/optional/common/play-distrobox.yml
 
-# Install Python environment
-ansible-playbook playbooks/imports/optional/common/play-python.yml
+# Install Python environment (core — also runs automatically via main playbook)
+ansible-playbook playbooks/imports/play-python.yml
 
-# Add VS Code
-ansible-playbook playbooks/imports/optional/common/play-vscode.yml
+# Add VS Code (core — also runs automatically via main playbook)
+ansible-playbook playbooks/imports/play-vscode.yml
 
 # Install DDEV (local PHP/CMS development)
 ansible-playbook playbooks/imports/optional/common/play-ddev.yml
@@ -162,11 +163,11 @@ ansible-playbook playbooks/imports/optional/common/play-ddev.yml
 ### Configuration Management
 
 ```bash
-# View encrypted settings
-ansible-vault view environment/localhost/host_vars/localhost.yml
+# Edit settings (plain YAML file — open in any normal editor)
+$EDITOR environment/localhost/host_vars/localhost.yml
 
-# Edit encrypted settings
-ansible-vault edit environment/localhost/host_vars/localhost.yml
+# Encrypt a new secret value to paste into localhost.yml
+ansible-vault encrypt_string 'sensitive-value' --name 'variable_name'
 
 # Check DNF optimization
 grep max_parallel /etc/dnf/dnf.conf
@@ -214,7 +215,7 @@ distrobox enter dev
 │
 ├── environment/localhost/         # Configuration
 │   ├── hosts.yml                  # Inventory (localhost)
-│   └── host_vars/localhost.yml    # User settings (encrypted)
+│   └── host_vars/localhost.yml    # User settings (plain YAML with !vault values)
 │
 ├── files/                         # Static files deployed to system
 │   ├── etc/                       # System configs
@@ -250,9 +251,10 @@ distrobox enter dev
 
 - [Technology comparison](containerization.md#overview-comparison)
 - [LXC setup](containerization.md#lxc-linux-containers)
-- [Docker rootless](containerization.md#docker)
+- [Docker (rootful)](containerization.md#docker)
 - [Distrobox integration](containerization.md#distrobox)
 - [Docker-in-LXC](containerization.md#advanced-docker-in-lxc)
+- [CCY debug mounts](ccy-debug-mounts.md) — Mounting host directories into CCY containers
 
 **DDEV**
 
@@ -268,6 +270,12 @@ distrobox enter dev
 - [Ansible style guide](development.md#ansible-style-guide)
 - [Testing procedures](development.md#testing)
 - [Pull request process](development.md#contributing)
+- [Ansible lint improvement plan](ansible-lint-improvement-plan.md) — Lint rule analysis and enforcement roadmap
+
+**Features**
+
+- [Speech-to-Text](features/speech-to-text.md) — Press-and-hold Insert key transcription with auto-paste
+- [Claude Devtools](features/claude-devtools.md) — `ccdt` helper for Claude Code development containers
 
 **GitHub**
 
@@ -292,6 +300,8 @@ distrobox enter dev
 - [Optional features](playbooks.md#optional-playbooks)
 - [Running playbooks](playbooks.md#running-optional-playbooks)
 - [Creating playbooks](playbooks.md#creating-custom-playbooks)
+- [Fast File Manager](fast-file-manager.md) — `lf`-based file manager setup and usage
+- [NordVPN Installation](nordvpn-installation.md) — OpenVPN-based NordVPN setup via NetworkManager
 
 **Terminal**
 

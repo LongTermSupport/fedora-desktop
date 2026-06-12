@@ -5,6 +5,7 @@ Contributing to the Fedora Desktop Configuration Manager.
 ## Welcome Contributors!
 
 This guide helps you:
+
 - Set up your development environment
 - Understand the branching strategy
 - Follow Ansible style guidelines
@@ -12,11 +13,13 @@ This guide helps you:
 - Submit pull requests
 
 **Essential reading for:**
+
 - First-time contributors
 - Anyone adding new playbooks
 - Maintainers creating version branches
 
 **Quick links:**
+
 - [Development setup](#development-environment) - Get started
 - [Ansible style guide](#ansible-style-guide) - Code standards
 - [Testing procedures](#testing) - Verify your changes
@@ -45,8 +48,8 @@ sudo dnf install -y ansible ansible-lint
 # Install Ansible Galaxy requirements
 ansible-galaxy install -r requirements.yml
 
-# Set up pre-commit hooks (if using)
-pre-commit install
+# Set up git security hooks (deployed automatically by play-git-hooks-security.yml)
+git config core.hooksPath scripts/git-hooks
 ```
 
 ## Branching Strategy
@@ -204,6 +207,28 @@ ansible desktop -m setup -a "filter=ansible_distribution*"
 ansible desktop -m setup --tree /tmp/facts
 ```
 
+### Run QA Before Committing
+
+**Required before every commit** that touches Bash, Python, or Ansible files:
+
+```bash
+./scripts/qa-all.bash
+```
+
+For GNOME Shell extension JavaScript, run ESLint directly:
+
+```bash
+cd /workspace/extensions && node_modules/.bin/eslint speech-to-text@fedora-desktop/extension.js
+```
+
+For changes to `files/var/local/claude-yolo/ccy-ctrl-z-patch.js`, run the dedicated patch QA:
+
+```bash
+./scripts/qa-ctrl-z-patch.bash
+```
+
+See `CLAUDE/QA.md` for full details on what each check covers.
+
 ## Contributing
 
 ### Before Submitting
@@ -225,6 +250,7 @@ ansible desktop -m setup --tree /tmp/facts
 ### Adding New Playbooks
 
 1. Create in appropriate directory:
+
    - `imports/` for core features
    - `imports/optional/common/` for general optional features
    - `imports/optional/hardware-specific/` for hardware support
@@ -233,6 +259,7 @@ ansible desktop -m setup --tree /tmp/facts
 2. Follow naming convention: `play-<feature-name>.yml`
 
 3. Include standard headers:
+
 ```yaml
 - hosts: desktop
   name: Feature Description
@@ -246,6 +273,7 @@ ansible desktop -m setup --tree /tmp/facts
 ### Commit Messages
 
 Use conventional format:
+
 ```
 type: description
 
@@ -256,6 +284,7 @@ Fixes #issue
 ```
 
 Types:
+
 - `feat`: New feature
 - `fix`: Bug fix
 - `docs`: Documentation

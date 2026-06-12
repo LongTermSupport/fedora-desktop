@@ -14,7 +14,7 @@ Learn how to customize your Fedora desktop configuration.
 
 **Important files:**
 
-- `environment/localhost/host_vars/localhost.yml` - Your settings (encrypted)
+- `environment/localhost/host_vars/localhost.yml` - Your settings (plain YAML with encrypted string values)
 - `vault-pass.secret` - Vault password (gitignored)
 - `/etc/profile.d/zz_lts-fedora-desktop.bash` - Custom bash configs
 - `~/.ssh/config` - SSH configuration
@@ -47,20 +47,20 @@ This is stored in `/var/local/ps1-prompt-colour` and used by the bash prompt sys
 
 ### Vault Configuration
 
-Sensitive data is encrypted using Ansible Vault:
+This project uses **variable-level** encryption, not file-level encryption.
+`environment/localhost/host_vars/localhost.yml` is a **plain YAML file** containing
+`!vault |` encrypted string values — `ansible-vault view/edit` will error on it.
+
+Edit the file in any normal text editor. To encrypt a new secret value:
 
 ```bash
-# View encrypted variables
-ansible-vault view environment/localhost/host_vars/localhost.yml
-
-# Edit encrypted variables
-ansible-vault edit environment/localhost/host_vars/localhost.yml
-
-# Encrypt new data
+# Encrypt a single value and print the !vault block to paste into localhost.yml
 ansible-vault encrypt_string 'sensitive-value' --name 'variable_name'
 ```
 
 The vault password is stored in `vault-pass.secret` (gitignored).
+
+See `CLAUDE/SecurityRules.md` ("Vault Management") for the full workflow.
 
 ## System Configuration
 
@@ -154,8 +154,8 @@ Configure in `host_vars/localhost.yml`:
 
 ```yaml
 lastpass_accounts:
-  personal: "personal@email.com"
-  work: "work@company.com"
+  personal: "you@example.com"
+  work: "work@example.com"
 ```
 
 ### Audio Configuration
@@ -178,7 +178,7 @@ Custom settings via `play-gsettings.yml`:
 
 ### Custom Playbooks
 
-Create in `playbooks/imports/optional/custom/`:
+Create in `playbooks/imports/optional/` under the appropriate category (`common/`, `hardware-specific/`, or `experimental/`):
 
 ```yaml
 - hosts: desktop
