@@ -76,11 +76,21 @@ CCY_SCRIPT="files/var/local/claude-yolo/claude-yolo"
 if echo "$STAGED_FILES" | grep -q "^${CCY_SCRIPT}$"; then
     echo "🔍 Checking CCY version bump requirement..."
 
-    # Extract current staged version
-    STAGED_VERSION=$(git show ":$CCY_SCRIPT" | { grep -m1 '^CCY_VERSION=' || true; } | cut -d'"' -f2)
+    # Extract current staged version. Capture the file content FIRST, then parse
+    # with awk. Piping a large `git show` straight into `grep -m1` lets grep exit
+    # early and SIGPIPE git; under `set -o pipefail` that aborts the whole hook
+    # with status 141 — raced intermittently once claude-yolo grew large enough,
+    # and silently blocked every commit that stages the CCY script. awk reading a
+    # here-string is a single process over a seekable temp file, so there is no
+    # pipe head left to SIGPIPE.
+    ccy_staged_src=$(git show ":$CCY_SCRIPT")
+    STAGED_VERSION=$(awk -F'"' '/^CCY_VERSION=/{print $2; exit}' <<<"$ccy_staged_src")
 
-    # Extract HEAD version (if file exists in HEAD)
-    HEAD_VERSION=$(git show "HEAD:$CCY_SCRIPT" 2>/dev/null | { grep -m1 '^CCY_VERSION=' || true; } | cut -d'"' -f2 || echo "")
+    # Extract HEAD version (empty if the file does not exist in HEAD).
+    HEAD_VERSION=""
+    if ccy_head_src=$(git show "HEAD:$CCY_SCRIPT" 2>/dev/null); then
+        HEAD_VERSION=$(awk -F'"' '/^CCY_VERSION=/{print $2; exit}' <<<"$ccy_head_src")
+    fi
 
     # If file exists in HEAD and version hasn't changed
     if [ -n "$HEAD_VERSION" ] && [ "$STAGED_VERSION" = "$HEAD_VERSION" ]; then
