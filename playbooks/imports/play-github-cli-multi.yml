@@ -121,8 +121,11 @@
     # fail-fast with a remediation command if any account is short on scopes.
     - name: Capture currently active GitHub account (to restore after scope audit)
       ansible.builtin.shell: |
+        set -euo pipefail
         gh auth status --json hosts 2>/dev/null | \
           jq -r '.hosts["github.com"][] | select(.active == true) | .login // empty'
+      args:
+        executable: /bin/bash
       register: original_active_account
       changed_when: false
       when: github_accounts_configured
@@ -307,6 +310,7 @@
 
         - name: Generate SSH keys for missing accounts
           ansible.builtin.shell: |
+            set -euo pipefail
             ssh-keygen -t ed25519 -C "{{ item.item.value }}@github" \
               -f "/home/{{ user_login }}/.ssh/github_{{ item.item.key }}" \
               -N "{{ github_ssh_passphrase }}" 2>&1

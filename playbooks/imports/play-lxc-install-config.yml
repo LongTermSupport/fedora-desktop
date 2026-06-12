@@ -71,8 +71,11 @@
       ansible.builtin.command: nmcli connection modify lxcbr0 connection.zone trusted
     - name: Firewalld trusted
       ansible.builtin.shell: |
+        set -euo pipefail
         firewall-cmd --zone=trusted --change-interface=lxcbr0 --permanent
         firewall-cmd --reload
+      args:
+        executable: /bin/bash
     - name: Create Insecure SSH Key for Connecting to Container
       become: true
       become_user: "{{ user_login }}"
@@ -118,6 +121,21 @@
     - name: Verify GitHub SSH access and clone LXC Bash
       become_user: "{{ user_login }}"
       block:
+        - name: Assert github_ssh_passphrase is set in vault
+          ansible.builtin.assert:
+            that:
+              - github_ssh_passphrase is defined
+              - github_ssh_passphrase | length > 0
+            fail_msg: |
+              ERROR: github_ssh_passphrase not found in vault!
+
+              This LXC play unlocks your GitHub SSH key to clone lxc-bash.
+              Add the passphrase to your vault, then re-run this playbook:
+                ./vault.bash set github_ssh_passphrase
+
+              Define it in environment/localhost/host_vars/localhost.yml.
+              All github_* keys use the same passphrase.
+
         - name: Create passphrase file for SSH operations
           ansible.builtin.copy:
             content: "{{ github_ssh_passphrase }}"
@@ -128,12 +146,15 @@
 
         - name: Verify GitHub SSH access
           ansible.builtin.shell: |
+            set -euo pipefail
             tmp_key=$(mktemp)
             trap 'rm -f "$tmp_key"' EXIT
             cp "/home/{{ user_login }}/.ssh/id" "$tmp_key"
             chmod 600 "$tmp_key"
             ssh-keygen -p -P "$(cat /tmp/.lxc_ssh_pp)" -N "" -f "$tmp_key" >/dev/null 2>&1
-            timeout 15 ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -i "$tmp_key" -T git@github.com 2>&1
+            # ssh -T to GitHub exits rc 1 even on success; failed_when below
+            # inspects stdout instead, so guard this line from set -e.
+            timeout 15 ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -i "$tmp_key" -T git@github.com 2>&1 || true  # FAIL-FAST-OK: ssh -T returns rc 1 on success; success is asserted via failed_when on stdout
           args:
             executable: /bin/bash
           register: github_ssh_check
@@ -143,6 +164,7 @@
 
         - name: Clone LXC Bash
           ansible.builtin.shell: |
+            set -euo pipefail
             tmp_key=$(mktemp)
             trap 'rm -f "$tmp_key"' EXIT
             cp "/home/{{ user_login }}/.ssh/id" "$tmp_key"
@@ -221,7 +243,7 @@
 
     - name: Derive LXC subnet CIDR from live lxcbr0 interface
       ansible.builtin.shell: |
-        set -o pipefail
+        set -euo pipefail
         ip -o -4 route show dev lxcbr0 proto kernel | awk '{print $1}' | head -n1
       args:
         executable: /bin/bash

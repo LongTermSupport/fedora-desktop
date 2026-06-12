@@ -303,19 +303,25 @@
 
     - name: Read built NVIDIA module version (on disk)
       ansible.builtin.shell: |
+        set -euo pipefail
         KMOD="/lib/modules/$(uname -r)/extra/nvidia/nvidia.ko.xz"
         [ -f "$KMOD" ] || KMOD="/lib/modules/$(uname -r)/extra/nvidia/nvidia.ko"
-        modinfo -F version "$KMOD" 2>/dev/null || echo NONE
+        modinfo -F version "$KMOD" 2>/dev/null || echo NONE  # FAIL-FAST-OK: probe — NONE sentinel used by Display task to report missing module
+      args:
+        executable: /bin/bash
       register: nvidia_built
       changed_when: false
 
     - name: Read loaded NVIDIA module version (running kernel)
       ansible.builtin.shell: |
+        set -euo pipefail
         if [ -e /proc/driver/nvidia/version ]; then
           grep -oE '[0-9]+\.[0-9]+\.[0-9]+' /proc/driver/nvidia/version | head -1
         else
           echo NOT_LOADED
         fi
+      args:
+        executable: /bin/bash
       register: nvidia_loaded
       changed_when: false
 

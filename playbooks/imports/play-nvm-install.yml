@@ -21,8 +21,10 @@
 
     - name: Download and Install NVM
       ansible.builtin.shell: |
+        set -eo pipefail
         curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v{{ nvm_version }}/install.sh | bash
       args:
+        executable: /bin/bash
         creates: "/home/{{ user_login }}/.nvm/nvm.sh"
         chdir: "/home/{{ user_login }}"
       environment:
@@ -58,12 +60,14 @@
 
     - name: Source NVM and Install Latest Node.js LTS
       ansible.builtin.shell: |
+        set -euo pipefail
         export NVM_DIR="$HOME/.nvm"
         [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
         nvm install {{ node_version }}
         nvm use {{ node_version }}
         nvm alias default {{ node_version }}
       args:
+        executable: /bin/bash
         creates: "/home/{{ user_login }}/.nvm/versions/node"
         chdir: "/home/{{ user_login }}"
       environment:
@@ -71,9 +75,13 @@
 
     - name: Verify Node.js Installation
       ansible.builtin.shell: |
+        set -euo pipefail
         export NVM_DIR="$HOME/.nvm"
         [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-        node --version && npm --version
+        node --version
+        npm --version
+      args:
+        executable: /bin/bash
       environment:
         HOME: "/home/{{ user_login }}"
       register: node_version_check

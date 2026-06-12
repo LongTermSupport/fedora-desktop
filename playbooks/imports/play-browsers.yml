@@ -57,6 +57,7 @@
     # Chrome-grade compatibility without sending telemetry to Google.
     - name: Add Brave Browser Repository
       ansible.builtin.shell: |
+        set -euo pipefail
         set -x
         dnf -y config-manager addrepo --overwrite --from-repofile=https://brave-browser-rpm-release.s3.brave.com/brave-browser.repo
       args:
@@ -78,6 +79,7 @@
     # bare-bones Chrome UI.
     - name: Add Vivaldi Repository
       ansible.builtin.shell: |
+        set -euo pipefail
         set -x
         dnf -y config-manager addrepo --overwrite --from-repofile=https://repo.vivaldi.com/stable/vivaldi-fedora.repo
       args:

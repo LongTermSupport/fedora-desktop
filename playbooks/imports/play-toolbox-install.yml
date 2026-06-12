@@ -60,6 +60,7 @@
 
         - name: Run JetBrains Toolbox installer
           ansible.builtin.shell: |
+            set -euo pipefail
             # The binary is always at jetbrains-toolbox-VERSION/bin/jetbrains-toolbox
             cd {{ jetbrains_toolbox_download_dir.path }}
             TOOLBOX_DIR=$(ls -d jetbrains-toolbox-* | head -1)
@@ -75,7 +76,7 @@
             "$TOOLBOX_BIN" --install
           args:
             executable: /bin/bash
-      when: st_jetbrains_toolbox.stat.exists == False and has_display
+      when: not st_jetbrains_toolbox.stat.exists and has_display
       always:
         - name: Delete temporary download directory
           ansible.builtin.file:
@@ -95,8 +96,9 @@
 
     - name: Launch JetBrains Toolbox to complete setup if integration missing
       ansible.builtin.shell: |
+        set -euo pipefail
         # Find the installed toolbox binary
-        TOOLBOX_BIN=$(find ~/.local/share/JetBrains/Toolbox -name "jetbrains-toolbox" -type f 2>/dev/null | head -1)
+        TOOLBOX_BIN=$(find ~/.local/share/JetBrains/Toolbox -name "jetbrains-toolbox" -type f 2>/dev/null | head -1)  # FAIL-FAST-OK: find exits 0 even when dir absent; result checked below
 
         if [ -n "$TOOLBOX_BIN" ] && [ -x "$TOOLBOX_BIN" ]; then
           echo "Launching JetBrains Toolbox to complete system integration at: $TOOLBOX_BIN"
@@ -106,11 +108,12 @@
           sleep 5
           echo "JetBrains Toolbox launched successfully"
         else
-          echo "WARNING: Could not find JetBrains Toolbox binary after installation"
+          echo "ERROR: Could not find JetBrains Toolbox binary after installation" >&2
+          exit 1
         fi
       args:
         executable: /bin/bash
       when:
-        - st_jetbrains_toolbox.stat.exists == True
+        - st_jetbrains_toolbox.stat.exists
         - has_display
-        - st_jetbrains_symlink.stat.exists == False or st_jetbrains_desktop.stat.exists == False
+        - not st_jetbrains_symlink.stat.exists or not st_jetbrains_desktop.stat.exists

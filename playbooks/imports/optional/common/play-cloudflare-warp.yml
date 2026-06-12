@@ -8,12 +8,12 @@
   tasks:
     # @see https://pkg.cloudflareclient.com/#rhel
     - name: Install Repo
-      ansible.builtin.shell: |
-        curl -fsSl https://pkg.cloudflareclient.com/cloudflare-warp-ascii.repo | sudo tee /etc/yum.repos.d/cloudflare-warp.repo
-        dnf update
-      args:
-        executable: /bin/bash
-        creates: /etc/yum.repos.d/cloudflare-warp.repo
+      ansible.builtin.get_url:
+        url: https://pkg.cloudflareclient.com/cloudflare-warp-ascii.repo
+        dest: /etc/yum.repos.d/cloudflare-warp.repo
+        owner: root
+        group: root
+        mode: "0644"
 
     - name: Install
       ansible.builtin.dnf:
@@ -33,35 +33,50 @@
       become: true
       become_user: "{{ user_login }}"
 
-    - name: Delete existing Warp registration before re-creating
-      ansible.builtin.command: warp-cli --accept-tos registration delete
-      when: _warp_reg_show.rc == 0
-      become: true
-      become_user: "{{ user_login }}"
-
-    - name: Configure
+    # Idempotent: only create a registration when the probe found none
+    # (rc != 0). Never delete an existing registration — re-registering on
+    # every run churns the device entry server-side and briefly drops Warp.
+    - name: Register Warp device
       become: true
       become_user: "{{ user_login }}"
       ansible.builtin.shell: |
-        set -ex
-        yes | warp-cli --accept-tos registration new
+        set -euo pipefail
+        # --accept-tos accepts the TOS non-interactively, so no `yes` pipe is
+        # needed (piping `yes` only created a spurious SIGPIPE that masked the
+        # real exit code). </dev/null guards against any unexpected prompt.
+        warp-cli --accept-tos registration new </dev/null
+      args:
+        executable: /bin/bash
+      when: _warp_reg_show.rc != 0
+
+    # connect/mode/dns are convergent settings — safe to apply every run.
+    - name: Configure Warp connection
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.shell: |
+        set -euo pipefail
         warp-cli --accept-tos connect
         warp-cli --accept-tos mode doh
         warp-cli --accept-tos dns families malware
       args:
         executable: /bin/bash
+      changed_when: false
+
     - name: Systemd Resolved Config
       ansible.builtin.copy:
-        dest: /etc/systemd/resolved.conf
+        dest: /etc/systemd/resolved.conf.d/cloudflare-warp.conf
+        owner: root
+        group: root
+        mode: "0644"
         content: |
           [Resolve]
           DNS=127.0.2.2 127.0.2.3
           ResolveUnicastSingleLabel=yes
-#      notify: resolved-reload
+      notify: resolved-reload
 
-#  handlers:
-#    - name: resolved-reload
-#      systemd:
-#        name: systemd-resolved
-#        state: reloaded
-#        enabled: yes
+  handlers:
+    - name: resolved-reload
+      ansible.builtin.systemd:
+        name: systemd-resolved
+        state: restarted
+        enabled: true

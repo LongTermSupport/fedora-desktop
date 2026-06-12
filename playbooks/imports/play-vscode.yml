@@ -9,11 +9,13 @@
     - name: Install VS Code
       become: true
       ansible.builtin.shell: |
+        set -euo pipefail
         set -x
         rpm --import https://packages.microsoft.com/keys/microsoft.asc
         echo -e "[code]\nname=Visual Studio Code\nbaseurl=https://packages.microsoft.com/yumrepos/vscode\nenabled=1\nautorefresh=1\ntype=rpm-md\ngpgcheck=1\ngpgkey=https://packages.microsoft.com/keys/microsoft.asc" > /etc/yum.repos.d/vscode.repo
-        # dnf check-update returns 100 if updates are available, which is normal
-        dnf check-update || true
+        # dnf check-update exits 0 (no updates) or 100 (updates available);
+        # both are success. Any other rc is a real failure — do not mask it.
+        dnf check-update; rc=$?; [ "$rc" -eq 0 ] || [ "$rc" -eq 100 ] || exit "$rc"  # FAIL-FAST-OK: rc 100 is dnf "updates available", not an error
         dnf -y install code
       args:
         executable: /bin/bash

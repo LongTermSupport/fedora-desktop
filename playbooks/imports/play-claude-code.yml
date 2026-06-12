@@ -42,15 +42,21 @@
 
     - name: Install Claude Code CLI via Official Installer
       ansible.builtin.shell: |
+        set -euo pipefail
         curl -fsSL https://claude.ai/install.sh | bash -s {{ claude_code_version }}
+      args:
+        executable: /bin/bash
       environment:
         HOME: "/home/{{ user_login }}"
       when: not claude_installed.stat.exists
 
     - name: Verify Claude Code Installation
       ansible.builtin.shell: |
+        set -euo pipefail
         export PATH="$HOME/.local/bin:$PATH"
         claude --version
+      args:
+        executable: /bin/bash
       environment:
         HOME: "/home/{{ user_login }}"
       register: claude_code_version_check
@@ -96,14 +102,23 @@
 
     - name: Final Claude Code Installation Verification
       ansible.builtin.shell: |
+        set -euo pipefail
         export PATH="$HOME/.local/bin:$PATH"
+        # Capture each value into a variable first so a failing probe trips
+        # set -e (command substitutions inline in echo do not fail the echo).
+        claude_version=$(claude --version)
+        claude_location=$(which claude)
+        ripgrep_version=$(rg --version | head -1)
+        jq_version=$(jq --version)
         echo "=== Claude Code Installation Summary ==="
-        echo "Claude Code Version: $(claude --version)"
-        echo "Claude Code Location: $(which claude)"
+        echo "Claude Code Version: ${claude_version}"
+        echo "Claude Code Location: ${claude_location}"
         echo "Dependencies Available:"
-        echo "  - ripgrep: $(rg --version | head -1)"
-        echo "  - jq: $(jq --version)"
+        echo "  - ripgrep: ${ripgrep_version}"
+        echo "  - jq: ${jq_version}"
         echo "Installation completed successfully!"
+      args:
+        executable: /bin/bash
       environment:
         HOME: "/home/{{ user_login }}"
       register: final_verification

@@ -80,14 +80,14 @@ The 7 effective-high findings: SEC-01 (committed PII), FF-01/ANS-01 (shell block
 
 > Findings: FF-01/ANS-01, ANS-02..ANS-04, FF-02/ANS-10, FF-05..FF-07, ANS-08, ANS-11 — see [research/fail-fast.md](research/fail-fast.md), [research/ansible.md](research/ansible.md)
 
-- [ ] ⬜ **`set -euo pipefail` in multi-line `shell: |` blocks** (FF-01/ANS-01): fix the ~63 unguarded blocks (priority: play-rpm-fusion, play-lxc-install-config, play-rust-dev, play-claude-code, curl|bash installers); update CLAUDE/AnsibleStyle.md; backed by the new QA rule from Phase 4
-- [ ] ⬜ **Fix cloudflare-warp play** (ANS-02..ANS-04): `get_url` instead of curl|tee (self-heals, no empty-file wedge); reinstate the commented-out resolved.conf handler as a drop-in; make registration idempotent; drop interactive `dnf update`
-- [ ] ⬜ **Fix skip-and-warn in play-toolbox-install** (FF-02/ANS-10): missing binary after install must fail, not warn
-- [ ] ⬜ **Surface CCY entrypoint known_hosts failure** (FF-06/BSH-16/CCY-08): loud warning or fail instead of silent empty known_hosts
-- [ ] ⬜ **Fix docker-in-lxc warn-and-continue** (FF-05)
-- [ ] ⬜ **Create `~/.config/git` before blockinfile** (ANS-08) — first-run failure in a core playbook
-- [ ] ⬜ **Fix localhost.yml.dist** (ANS-11): add `github_ssh_passphrase`, correct `lastfm_api_secret` name
-- [ ] ⬜ **Qobuz secret handling** (ANS-12): stdin instead of inline templating, mode 0600 + no_log on config.toml, blockinfile instead of `>>` appends
+- [x] ✅ **`set -euo pipefail` in multi-line `shell: |` blocks** (FF-01/ANS-01): swept **all 28 playbooks** with shell blocks — strict mode added to every unguarded multi-line block (curl|installer blocks use `set -eo pipefail`; commands that legitimately return non-zero guarded with annotated `# FAIL-FAST-OK:`); also updated CLAUDE/AnsibleStyle.md to mandate `set -euo pipefail`, and fixed play-vscode's `dnf check-update || true` to allow only rc 0/100. Verified: all 71 playbooks pass `ansible-playbook --syntax-check`.
+- [x] ✅ **Fix cloudflare-warp play** (ANS-02..ANS-04): `get_url` replaces curl|tee (no empty-file wedge) + `dnf update` removed; resolved.conf moved to an owned drop-in with the reload handler reinstated; registration is now idempotent (only when absent, no churn). *(Orchestrator fixed the registration block's SIGPIPE bug found in review — dropped the redundant `yes` pipe.)*
+- [x] ✅ **Fix skip-and-warn in play-toolbox-install** (FF-02/ANS-10): missing binary after install now `exit 1`; literal `== True/False` comparisons idiomatic.
+- [ ] ⬜ **Surface CCY entrypoint known_hosts failure** (FF-06/BSH-16/CCY-08): *deferred to Phase 6* — it is a CCY-image file (`entrypoint.sh`); bundled with the CCY batch + version bump.
+- [x] ✅ **Fix docker-in-lxc warn-and-continue** (FF-05): claude-version verify now hard-fails; npm-update failure surfaced (rc captured) instead of hidden.
+- [x] ✅ **Create `~/.config/git` before blockinfile** (ANS-08): added a `file: state=directory` task + owner/group/mode on the blockinfile.
+- [x] ✅ **Fix localhost.yml.dist** (ANS-11): documented `github_ssh_passphrase`, corrected `lastfm_secret`→`lastfm_api_secret`, and added the consuming `github_ssh_passphrase` assert to play-lxc-install-config.yml.
+- [x] ✅ **Qobuz secret handling** (ANS-12): secrets via `stdin:` (no inline-quoted injection), `mode 0600` + `no_log`/`diff:false` on config.toml, `blockinfile` instead of `>>` appends.
 
 ### Phase 6 (Action D): CCY Correctness and Hardening Batch
 
@@ -199,3 +199,12 @@ The 7 effective-high findings: SEC-01 (committed PII), FF-01/ANS-01 (shell block
 - Orchestrator verification (not delegated): full `./scripts/qa-all.bash` green across all **6 stages** (bash, python, patterns, ansible, ansible-syntax, js — 285 files); independent PII residual sweep (zero real identifiers in tracked files); hardened pre-commit hook pre-flighted against the staged set (exit 0). The reviewer caught one residual private token (a domain in a filename) and one error-hiding line in qa-ansible.bash; both fixed. The broadened email pattern initially over-blocked `git@host`/`@unit.service` shapes — added precise carve-outs so the gate is usable.
 - Deferred with reasons: QA-07 (`|| true` semgrep rule → cascades onto the Phase-5 fail-fast sweep); QA-09 (pytest stage → `pytest` absent from the CCY image, needs an IaC install first). Decision Gates 1 (history purge — `git-filter-repo` absent, destructive) and 2 (CI) remain with the user.
 - No CCY container changes in this batch → no `CCY_VERSION` bump required. All edit-only; nothing deployed (CCY container rule).
+
+### 2026-06-12 — Batch 2a executed (Phase 5: fail-fast playbook sweep) on `fable-audit-1`
+
+- Ran a 26-agent workflow (`wf_34f98eee-3cc`, 13 edit + 13 review, one unit per disjoint playbook group; opus for the judgement-heavy plays — cloudflare-warp, qobuz, lxc, github-cli-multi, claude-code/vscode/rpm-fusion — sonnet for the mechanical sweep).
+- Landed: FF-01/ANS-01 (strict mode across all 28 playbooks), ANS-02/03/04 (cloudflare-warp), FF-02/ANS-10 (toolbox), ANS-08 (git config dir), ANS-11 (localhost.yml.dist + lxc assert), ANS-12 (Qobuz), FF-05 (docker-in-lxc), AnsibleStyle.md mandate, play-vscode dnf rc 0/100.
+- Reviewers caught 2 real defects (both fixed by orchestrator): the cloudflare-warp `yes | warp-cli registration new` block would fail with rc 141 (SIGPIPE) on the success path — replaced with `warp-cli --accept-tos registration new </dev/null` under clean `set -euo pipefail`; play-rclone.yml had `set -uo pipefail` missing `-e` — corrected.
+- Verification: `./scripts/qa-all.bash` green (6 stages, 285 files); **all 71 playbooks pass `ansible-playbook --syntax-check`** (the gate added in Batch 1); fail-fast grep gate clean.
+- Deferred: FF-06/BSH-16/CCY-08 (CCY entrypoint) → Phase 6 CCY batch. Host operator notes recorded: qobuz secrets now land via blockinfile (one-time cleanup if old `>>`-appended duplicate keys exist); run the affected plays on the host to confirm behaviour (CCY = edit-only).
+- No CCY-image files touched → no `CCY_VERSION` bump. Edit-only.

@@ -86,10 +86,12 @@
     - name: Add Docker Repo
       become: true
       ansible.builtin.shell: |
+        set -euo pipefail
         dnf config-manager addrepo \
           --from-repofile=https://download.docker.com/linux/fedora/docker-ce.repo
       args:
         creates: /etc/yum.repos.d/docker-ce.repo
+        executable: /bin/bash
 
     - name: Install Docker
       become: true

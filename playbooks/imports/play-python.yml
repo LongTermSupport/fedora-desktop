@@ -67,6 +67,7 @@
 
     - name: Pyenv Python Version Management
       ansible.builtin.shell: |
+        set -eo pipefail
         curl -L https://github.com/pyenv/pyenv-installer/raw/master/bin/pyenv-installer | bash
       args:
         executable: /bin/bash
@@ -86,6 +87,7 @@
 
     - name: Install Pyenv Versions
       ansible.builtin.shell: |
+        set -euo pipefail
         source ~/.bash_profile
         pyenv install -s {{ item }}  # -s/--skip-existing skips if already installed
       args:
