@@ -174,7 +174,9 @@
             mkdir -p "$(dirname "$PROPERTIES")"
             # Container remaps UIDs — reclaim ownership so we can write
             # Inside podman's user namespace, UID 0 maps to the host user
-            podman unshare chown -R 0:0 "$COMPOSE_DIR/config/data/" 2>/dev/null || true
+            if ! podman unshare chown -R 0:0 "$COMPOSE_DIR/config/data/" 2>/dev/null; then
+              echo "WARNING: could not reclaim ownership of config/data; writes may fail" >&2
+            fi
             # Remove any existing system_ip line, then append current
             if [ -f "$PROPERTIES" ]; then
               grep -v '^system_ip=' "$PROPERTIES" > "$PROPERTIES.tmp"

@@ -95,7 +95,7 @@
         if [[ -f {{ qobuzPlayerPath }} ]]; then
           # Parse version from first line, last whitespace-separated token.
           # Previous regex matched stray hyphens in multi-line output.
-          installedVersion="$(qobuz-player --version 2>/dev/null | head -n1 | awk '{print $NF}' || true)"
+          installedVersion="$(qobuz-player --version 2>/dev/null | head -n1 | awk '{print $NF}')" || installedVersion=""
           desiredVersion="{{ qobuzPlayerVersionFinal }}"
           if [[ "$installedVersion" == "$desiredVersion" ]]; then
             echo "installed version $installedVersion matches desired version $desiredVersion"

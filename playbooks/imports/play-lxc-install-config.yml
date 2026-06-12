@@ -152,9 +152,9 @@
             cp "/home/{{ user_login }}/.ssh/id" "$tmp_key"
             chmod 600 "$tmp_key"
             ssh-keygen -p -P "$(cat /tmp/.lxc_ssh_pp)" -N "" -f "$tmp_key" >/dev/null 2>&1
-            # ssh -T to GitHub exits rc 1 even on success; failed_when below
-            # inspects stdout instead, so guard this line from set -e.
-            timeout 15 ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -i "$tmp_key" -T git@github.com 2>&1 || true  # FAIL-FAST-OK: ssh -T returns rc 1 on success; success is asserted via failed_when on stdout
+            # ssh -T to GitHub exits rc 1 even on success, so failed_when below
+            # inspects stdout to decide pass/fail (failed_when overrides the rc).
+            timeout 15 ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -i "$tmp_key" -T git@github.com 2>&1
           args:
             executable: /bin/bash
           register: github_ssh_check

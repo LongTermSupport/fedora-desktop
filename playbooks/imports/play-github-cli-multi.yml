@@ -424,7 +424,7 @@
             cp "/home/{{ user_login }}/.ssh/github_{{ item.key }}" "$tmp_key"
             chmod 600 "$tmp_key"
             if ! ssh-keygen -p -P "$(cat /tmp/.github_ssh_pp)" -N "" -f "$tmp_key" >/dev/null 2>&1; then
-              ssh-keygen -p -P "" -N "" -f "$tmp_key" >/dev/null 2>&1 || true
+              ssh-keygen -p -P "" -N "" -f "$tmp_key" >/dev/null 2>&1
             fi
             # IdentityAgent=none + IdentitiesOnly=yes force ssh to use ONLY the
             # specified key. Without these, ssh also offers every key in the

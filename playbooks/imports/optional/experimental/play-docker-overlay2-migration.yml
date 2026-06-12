@@ -248,7 +248,13 @@
     # ═══════════════════════════════════════════════════════════════════════
 
     - name: Stop Running Containers
-      ansible.builtin.shell: docker stop $(docker ps -q) 2>/dev/null || true
+      ansible.builtin.shell: |
+        set -euo pipefail
+        if ! docker stop $(docker ps -q) 2>/dev/null; then
+          echo "Note: some containers were already stopped" >&2
+        fi
+      args:
+        executable: /bin/bash
       when: container_count | int > 0
       changed_when: true
 
