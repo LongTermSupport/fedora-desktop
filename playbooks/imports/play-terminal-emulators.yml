@@ -152,12 +152,25 @@
         state: absent
       tags: kitty
 
+    # Unlike kitty.conf (created above with create:true), this playbook never
+    # writes an alacritty.toml — alacritty ships zero-config. blockinfile with
+    # state:absent and create:false hard-fails ("Path does not exist!") on a
+    # fresh machine, so probe first and only strip the block if the file is
+    # actually present. Nothing to remove when the file is absent == success.
+    - name: Check Whether Alacritty Config Exists
+      become_user: "{{ user_login }}"
+      ansible.builtin.stat:
+        path: /home/{{ user_login }}/.config/alacritty/alacritty.toml
+      register: alacritty_conf
+      tags: alacritty
+
     - name: Drop Obsolete CC Wheel-to-PageUp Block from alacritty.toml
       become_user: "{{ user_login }}"
       ansible.builtin.blockinfile:
         path: /home/{{ user_login }}/.config/alacritty/alacritty.toml
         marker: "# {mark} ANSIBLE MANAGED: CC wheel to PageUp (Plan 00047)"
         state: absent
+      when: alacritty_conf.stat.exists
       tags: alacritty
 
     - name: Display Installation Complete Message
