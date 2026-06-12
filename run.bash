@@ -3,7 +3,7 @@
 ## Setup
 ## !! BUMP THIS VERSION ON EVERY CHANGE TO THIS FILE — NO EXCEPTIONS !!
 ## !! If you forget, there is NO WAY to tell which version is running !!
-RUN_BASH_VERSION="1.5.3"  # Security hardening: drop hostname from public posts, fail-closed sanitiser, private config-repo gate, secret unset, full issue preview
+RUN_BASH_VERSION="1.5.4"  # UX: DRY retry-input helpers (promptChoice/promptSecretConfirmed/promptDefault); no prompt exits the run on invalid input
 set -e
 set -u
 set -o pipefail
@@ -265,42 +265,49 @@ prompt_github_accounts_yaml(){
   echo -e "" 1>&2
   echo -e "   ${BOLD}One account:${NC}      johndoe" 1>&2
   echo -e "   ${BOLD}Multiple accounts:${NC} personal:johndoe,work:johndoe-corp" 1>&2
-  local github_accounts_raw _account_count _has_unaliased _alias
-  github_accounts_raw="$(promptForValue 'GitHub username(s), comma separated')"
+  local github_accounts_raw _account_count _has_unaliased _alias _valid
+  # Re-prompt until the entry validates — a malformed accounts string must NOT
+  # kill the run (it used to `exit 1` on a missing alias or a duplicate alias).
+  while true; do
+    github_accounts_raw="$(promptForValue 'GitHub username(s), comma separated')"
 
-  _account_count=$(printf '%s' "$github_accounts_raw" | tr ',' '\n' | grep -c '[^[:space:]]')
-  _has_unaliased=false
-  while IFS= read -r pair; do
-    pair="${pair// /}"
-    [[ -z "$pair" ]] && continue
-    if [[ "$pair" != *":"* ]]; then
-      _has_unaliased=true
-    fi
-  done < <(printf '%s\n' "$github_accounts_raw" | tr ',' '\n')
+    _account_count=$(printf '%s' "$github_accounts_raw" | tr ',' '\n' | grep -c '[^[:space:]]')
+    _has_unaliased=false
+    while IFS= read -r pair; do
+      pair="${pair// /}"
+      [[ -z "$pair" ]] && continue
+      if [[ "$pair" != *":"* ]]; then
+        _has_unaliased=true
+      fi
+    done < <(printf '%s\n' "$github_accounts_raw" | tr ',' '\n')
 
-  if [[ "$_has_unaliased" == "true" ]] && [[ "$_account_count" -gt 1 ]]; then
-    error "Multiple accounts require aliases. Use format: alias:username,alias:username" 1>&2
-    echo -e "   You entered: ${BOLD}${github_accounts_raw}${NC}" 1>&2
-    echo -e "   Example:     ${BOLD}personal:user1,work:user2${NC}" 1>&2
-    exit 1
-  fi
-
-  declare -A _seen_aliases=()
-  while IFS= read -r pair; do
-    pair="${pair// /}"
-    if [[ "$pair" == *":"* ]]; then
-      _alias="${pair%%:*}"
-    elif [[ -n "$pair" ]]; then
-      _alias="personal"
-    else
+    if [[ "$_has_unaliased" == "true" ]] && [[ "$_account_count" -gt 1 ]]; then
+      error "Multiple accounts require aliases. Use format: alias:username,alias:username" 1>&2
+      echo -e "   You entered: ${BOLD}${github_accounts_raw}${NC}" 1>&2
+      echo -e "   Example:     ${BOLD}personal:user1,work:user2${NC}" 1>&2
       continue
     fi
-    if [[ -n "${_seen_aliases[$_alias]:-}" ]]; then
-      error "Duplicate alias '${_alias}' — each account needs a unique alias" 1>&2
-      exit 1
-    fi
-    _seen_aliases[$_alias]=1
-  done < <(printf '%s\n' "$github_accounts_raw" | tr ',' '\n')
+
+    _valid=true
+    declare -A _seen_aliases=()
+    while IFS= read -r pair; do
+      pair="${pair// /}"
+      if [[ "$pair" == *":"* ]]; then
+        _alias="${pair%%:*}"
+      elif [[ -n "$pair" ]]; then
+        _alias="personal"
+      else
+        continue
+      fi
+      if [[ -n "${_seen_aliases[$_alias]:-}" ]]; then
+        error "Duplicate alias '${_alias}' — each account needs a unique alias" 1>&2
+        _valid=false
+        break
+      fi
+      _seen_aliases[$_alias]=1
+    done < <(printf '%s\n' "$github_accounts_raw" | tr ',' '\n')
+    [[ "$_valid" == "true" ]] && break
+  done
 
   # Output clean YAML to stdout
   printf '# GitHub CLI accounts — to add more later: scripts/gh-account-setup.bash --add=alias:username\n'
@@ -577,6 +584,57 @@ promptForValue(){
   echo "$v"
 }
 
+# --- DRY interactive-input helpers --------------------------------------------
+# Every interactive prompt re-prompts on invalid input and NEVER exits the run on
+# a typo. Prompts/errors go to stderr; the chosen value is echoed to stdout so
+# callers capture it via $(...). Companions to confirm() (y/n) and
+# promptForValue() (validated free text with a confirm step).
+
+# promptChoice <prompt> <max> — echo a validated integer in 1..max.
+promptChoice(){
+  local prompt="$1" max="$2" choice
+  while true; do
+    read -rp "$prompt" choice
+    if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= max )); then
+      printf '%s' "$choice"
+      return 0
+    fi
+    echo -e "   ${RED}${CROSS}${NC} Invalid choice '${choice}'. Enter a number from 1 to ${max}." 1>&2
+  done
+}
+
+# promptSecretConfirmed <label> — read a hidden secret twice, re-prompting until
+# the two entries match; echo the agreed value. Empty is permitted (caller decides).
+promptSecretConfirmed(){
+  local label="$1" s1 s2
+  while true; do
+    read -rsp "   ${label}: " s1
+    echo 1>&2
+    read -rsp "   Confirm ${label}: " s2
+    echo 1>&2
+    if [[ "$s1" == "$s2" ]]; then
+      printf '%s' "$s1"
+      return 0
+    fi
+    echo -e "   ${RED}${CROSS}${NC} Do not match — try again." 1>&2
+  done
+}
+
+# promptDefault <prompt> <default> [minlen] — free text with a default (Enter
+# accepts it); re-prompts until the result is at least <minlen> characters.
+promptDefault(){
+  local prompt="$1" default="$2" minlen="${3:-0}" v
+  while true; do
+    read -rp "$prompt" v
+    v="${v:-$default}"
+    if (( ${#v} >= minlen )); then
+      printf '%s' "$v"
+      return 0
+    fi
+    echo -e "   ${RED}${CROSS}${NC} Must be at least ${minlen} character(s)." 1>&2
+  done
+}
+
 ## Process
 
 if [[ "$OPTIONAL_ONLY" != "true" ]]; then
@@ -644,14 +702,7 @@ completed
 _ssh_key_password=""  # saved here, offered as default for github_ SSH keys later
 title "Creating SSH Key Pair\n\nNOTE - you must set a password\n\nSuggest you use your login password"
 if [[ ! -f ~/.ssh/id ]]; then
-  while true; do
-    read -rsp "Password: " password
-    echo
-    read -rsp "Password (confirm): " password2
-    echo
-    [ "$password" = "$password2" ] && break
-    echo "Passwords not matched, please try again"
-  done
+  password=$(promptSecretConfirmed "Password")
   ssh-keygen -t ed25519 -f ~/.ssh/id -P "$password"
   _ssh_key_password="$password"
 else
@@ -662,8 +713,8 @@ completed
 title "Set Custom Hostname"
 if [[ "$(hostname)" == "fedora" ]]; then
   echo "found default hostname, please choose a new one"
-  echo "(your machine hostname, eg joseph-laptop, joseph-fedora etc)"
-  read -rp "Hostname: " hostname
+  echo "(your machine hostname, eg my-laptop, my-fedora etc)"
+  hostname=$(promptDefault "Hostname: " "" 1)
   sudo hostnamectl set-hostname "$hostname"
 fi
 
@@ -738,11 +789,13 @@ if ! gh auth status > /dev/null 2>&1; then
   echo -e "${YELLOW}${BOLD}│   PREFERRED PROTOCOL FOR GIT OPERATIONS        │${NC}"
   echo -e "${YELLOW}${BOLD}└─────────────────────────────────────────────────┘${NC}\n"
 
-  read -rp "Confirm you will choose SSH for GitHub authentication (Y/n): " confirm_ssh
-  if [[ "${confirm_ssh,,}" == "n" ]]; then
-    error "SSH is required - please re-run and choose SSH"
-    exit 1
-  fi
+  # Never kill the run on a fumbled answer — re-ask until SSH is acknowledged.
+  # Anything other than an explicit 'n' (including Enter / Y) proceeds.
+  while true; do
+    read -rp "Confirm you will choose SSH for GitHub authentication (Y/n): " confirm_ssh
+    [[ "${confirm_ssh,,}" != "n" ]] && break
+    echo -e "${YELLOW}${ARROW} SSH is required for this setup — let's confirm again.${NC}"
+  done
 
   if ! gh auth login; then
     error "Failed to login to GitHub"
@@ -906,18 +959,22 @@ if gh api "repos/${config_repo}" --jq '.name' > /dev/null 2>/dev/null; then
       for _i in "${!_available_labels[@]}"; do
         echo -e "     $(( _i + 1 ))) ${_available_labels[$_i]}"
       done
-      read -rp "   Choose a config to use (number, or Enter to skip): " _src_choice
-      if [[ -n "$_src_choice" ]] && [[ "$_src_choice" =~ ^[0-9]+$ ]]; then
-        _src_idx=$(( _src_choice - 1 ))
-        if [[ $_src_idx -ge 0 ]] && [[ $_src_idx -lt ${#_available_sources[@]} ]]; then
+      # Enter = skip; a valid number selects; an invalid entry re-prompts (never skips silently).
+      while true; do
+        read -rp "   Choose a config to use (number, or Enter to skip): " _src_choice
+        [[ -z "$_src_choice" ]] && break
+        if [[ "$_src_choice" =~ ^[0-9]+$ ]] && (( _src_choice >= 1 && _src_choice <= ${#_available_sources[@]} )); then
+          _src_idx=$(( _src_choice - 1 ))
           _chosen_path="${_available_sources[$_src_idx]}"
           if raw_content=$(gh api "repos/${config_repo}/contents/${_chosen_path}" --jq '.content' 2>/dev/null); then
             has_remote_config=true
             config_source_label="${_available_labels[$_src_idx]}"
             info "Using config from ${config_source_label}"
           fi
+          break
         fi
-      fi
+        echo -e "   ${RED}${CROSS}${NC} Invalid choice '${_src_choice}'. Enter 1 to ${#_available_sources[@]}, or press Enter to skip." 1>&2
+      done
     fi
   fi
 else
@@ -953,7 +1010,10 @@ fi
 echo -e "   ${_option}) Configure fresh (enter details manually)"
 _opt_fresh=$_option
 
-read -rp "   Choice [1-${_option}]: " _config_choice
+# A typo must NOT kill the run — promptChoice re-prompts until a valid option is
+# entered. Every printed option got a sequential number 1.._opt_fresh, so an
+# in-range integer always matches exactly one branch below.
+_config_choice=$(promptChoice "   Choice [1-${_opt_fresh}]: " "$_opt_fresh")
 
 if [[ "$has_remote_config" == "true" ]] && [[ "${_config_choice}" == "${_opt_pull}" ]]; then
   backup_config "$localhost_yml"
@@ -969,12 +1029,7 @@ elif [[ "$has_remote_config" == "true" ]] && [[ "${_config_choice}" == "${_opt_s
   if ! grep -q '^user_login:' "$localhost_yml"; then
     info "user_login was excluded — entering identity details"
     echo ""
-    read -rp "   User login [$(whoami)]: " user_login
-    user_login="${user_login:-$(whoami)}"
-    if [[ ${#user_login} -lt 3 ]]; then
-      error "User login must be at least 3 characters"
-      exit 1
-    fi
+    user_login=$(promptDefault "   User login [$(whoami)]: " "$(whoami)" 3)
     read -rp "   Full name [${user_login}]: " user_name
     user_name="${user_name:-$user_login}"
     user_email="$(promptForValue 'email address' email)"
@@ -1005,12 +1060,7 @@ elif [[ -n "${_opt_push:-}" ]] && [[ "${_config_choice}" == "${_opt_push}" ]]; t
 
 elif [[ "${_config_choice}" == "${_opt_fresh}" ]]; then
   echo ""
-  read -rp "   User login [$(whoami)]: " user_login
-  user_login="${user_login:-$(whoami)}"
-  if [[ ${#user_login} -lt 3 ]]; then
-    error "User login must be at least 3 characters"
-    exit 1
-  fi
+  user_login=$(promptDefault "   User login [$(whoami)]: " "$(whoami)" 3)
   read -rp "   Full name [${user_login}]: " user_name
   user_name="${user_name:-$user_login}"
   user_email="$(promptForValue 'email address' email)"
@@ -1101,14 +1151,7 @@ else
 
   if [[ -z "$_github_ssh_passphrase" ]]; then
     info "Hint: your login password is a convenient choice"
-    while true; do
-      read -rsp "   GitHub SSH keys passphrase: " _github_ssh_passphrase
-      echo
-      read -rsp "   Confirm passphrase: " _confirm_passphrase
-      echo
-      [[ "$_github_ssh_passphrase" == "$_confirm_passphrase" ]] && break
-      echo -e "${RED}${CROSS} Passphrases do not match — try again${NC}"
-    done
+    _github_ssh_passphrase=$(promptSecretConfirmed "GitHub SSH keys passphrase")
   fi
 
   info "Encrypting github_ssh_passphrase and saving to vault..."
