@@ -10,7 +10,8 @@
 # downloads ONNX Runtime during the build, so the only delta from the Fedora
 # spec is the cmake flag plus the A7V overlay we currently apply at runtime.
 #
-# WORKFLOW: clone Fedora's f43 dist-git at a pinned commit, mutate the spec
+# WORKFLOW: clone Fedora's dist-git at a pinned commit (still the f43 pin — see the
+# TODO F44 note on darktable_distgit_commit; re-verify the f44 commit on a real host), mutate the spec
 # (Release tag bumped to .ai for clarity, autorelease/autochangelog replaced
 # with static entries, Source5+Source6+cp injected for the A7V cameras.xml and
 # its matching cameras.xsd, -DUSE_AI=ON added to the Fedora %cmake invocation),
@@ -42,14 +43,15 @@
     # SHA-512 sourced from Fedora dist-git `sources` file at the pinned commit below.
     darktable_tarball_sha512: "d956fdac2d7a1782a242c8e0839a6d26fb3a2a7d90716978227b1c884f4acf0f51e599a72b0919f7b7f2ea2b5df40fecd56dfa8e7c813587ef469ff6e42ffe7b"
 
-    # Fedora dist-git pinned to a known-good f43 commit for reproducibility.
-    # @see https://src.fedoraproject.org/rpms/darktable/commits/f43
+    # Fedora dist-git pinned to a known-good commit for reproducibility.
+    # TODO F44: confirm this is a valid f44 dist-git commit (was f43: f35a6d085e8f130f6eaa10976b353333602c2bbd).
+    # @see https://src.fedoraproject.org/rpms/darktable/commits/f44
     darktable_distgit_url: "https://src.fedoraproject.org/rpms/darktable.git"
     darktable_distgit_commit: "f35a6d085e8f130f6eaa10976b353333602c2bbd"
 
     # Local release tag - the "100." prefix ensures our build sorts ABOVE stock
     # Fedora releases (which use single-digit %autorelease tags) so dnf upgrade
-    # never picks the stock RPM over ours. %{?dist} expands to ".fc43".
+    # never picks the stock RPM over ours. %{?dist} expands to ".fc44" on F44.
     darktable_release_local: "100.ai"
     darktable_release_full: "{{ darktable_release_local }}.fc{{ fedora_version }}"
     darktable_target_vr: "{{ darktable_version }}-{{ darktable_release_full }}"
@@ -75,7 +77,7 @@
     mock_chroot: "fedora-{{ fedora_version }}-x86_64"
     mock_result_dir: "/var/lib/mock/{{ mock_chroot }}/result"
 
-    # Patch files shipped in dist-git that we stage into SOURCES (matches Fedora f43 spec Patch0).
+    # Patch files shipped in dist-git that we stage into SOURCES (matches the pinned Fedora spec Patch0).
     # When bumping darktable_distgit_commit, verify this list still matches `grep '^Patch' darktable.spec`.
     darktable_distgit_patches:
       - "0001-Add-5.4.1-in-appdata.patch"
@@ -153,7 +155,7 @@
             - "{{ rpm_topdir }}/RPMS"
           become: true
 
-        - name: Clone Fedora dist-git for darktable (pinned to f43 commit)
+        - name: Clone Fedora dist-git for darktable (pinned commit — see darktable_distgit_commit var)
           ansible.builtin.git:
             repo: "{{ darktable_distgit_url }}"
             dest: "{{ distgit_dir }}"
@@ -362,7 +364,7 @@
         msg: |
           darktable AI-enabled build installed:
             Version-Release: {{ darktable_target_vr }}
-            Built from:      Fedora f43 spec @ {{ darktable_distgit_commit[:7] }}
+            Built from:      Fedora f{{ fedora_version }} spec @ {{ darktable_distgit_commit[:7] }}
                              + USE_AI=ON cmake flag
                              + Sony A7V cameras.xml (rawspeed {{ rawspeed_commit[:7] }})
             Build artefacts: {{ mock_result_dir }}/

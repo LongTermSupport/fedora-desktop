@@ -61,7 +61,7 @@ The Speech-to-Text extension adds system-wide voice input to Fedora. Press **Ins
 
 ### Required
 
-- **Fedora 42** (this branch)
+- **Fedora 44** (this branch)
 - **NVIDIA GPU** with CUDA support (GTX 10-series or newer recommended)
 - **NVIDIA drivers installed** via `play-nvidia.yml`
 - **Active internet** for initial model downloads (cached afterwards)

@@ -24,7 +24,7 @@
       ansible.builtin.shell: |
         set -euo pipefail
         set -x
-        dnf -y config-manager --enable fedora-cisco-openh264
+        dnf -y config-manager setopt fedora-cisco-openh264.enabled=1
         dnf -y group install multimedia --allowerasing --setopt="install_weak_deps=False" --exclude=PackageKit-gstreamer-plugin
         dnf -y install intel-media-driver
         touch /var/local/.rpmfusion-multimedia-configured

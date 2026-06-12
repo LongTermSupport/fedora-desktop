@@ -85,12 +85,12 @@ To check all configured accounts are healthy:
 
 ## Version Compatibility
 
-**Current branch targets: Fedora 42**
+**Current branch targets: Fedora 44**
 
 This project uses version-specific branches:
 
-- `F42` - Fedora 42 (current)
-- `F43` - Fedora 43 (future)
+- `F44` - Fedora 44 (current)
+- `F45` - Fedora 45 (future)
 - Each branch is maintained separately
 
 The bootstrap script automatically verifies your Fedora version matches the branch. If you're running a different version, checkout the appropriate branch or wait for it to be created after the next Fedora release.

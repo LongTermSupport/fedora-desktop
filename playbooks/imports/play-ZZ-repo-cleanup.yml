@@ -38,6 +38,9 @@
         # PyCharm is now JetBrains Toolbox-managed on this project; the
         # COPR ships no required packages.
         - copr: phracek/PyCharm
+        # pgdev/ghostty — replaced by alternateved/ghostty in play-terminal-emulators.yml
+        # (Plan 00050 PKG-02): pgdev has no Fedora 44 chroot; alternateved does.
+        - copr: pgdev/ghostty
       loop_control:
         label: "{{ item.copr }}"
       tags:

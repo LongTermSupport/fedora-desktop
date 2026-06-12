@@ -274,9 +274,12 @@ class KernelManager:
         self.logger.info("Starting kernel version management")
 
         # Check versionlock availability
+        # On Fedora 44+ (DNF5), versionlock is a dnf5 builtin — no plugin package needed.
+        # On older Fedora (DNF4), python3-dnf-plugin-versionlock was required, but that
+        # package is no longer installed by play-advanced-kernel-management.yml (PKG-08).
         returncode, _, _ = self.run_command(["dnf", "versionlock", "list"], check=False)
         if returncode != 0:
-            self.logger.error("DNF versionlock plugin not available. Install python3-dnf-plugin-versionlock")
+            self.logger.error("DNF versionlock is not available — ensure dnf5 is installed (Fedora 44+)")
             sys.exit(1)
 
         # Get installed kernels

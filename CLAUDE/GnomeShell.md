@@ -47,7 +47,7 @@ This copies extension files from `files/home/.local/share/gnome-shell/extensions
 
 **Requirements:**
 
-- GNOME Shell 3.36+ (Fedora 43 has 48.7 ✓)
+- GNOME Shell 3.36+ (Fedora 44 has GNOME Shell 50 ✓)
 - Wayland session
 - No logout/login required
 

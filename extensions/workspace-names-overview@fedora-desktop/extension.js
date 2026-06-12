@@ -2,9 +2,12 @@
  * Workspace Names in Overview Extension
  * Displays workspace names on workspace thumbnail previews in Overview.
  *
- * API paths verified against GNOME Shell 48.7 source:
+ * API paths last verified against GNOME Shell 48.7 source:
  * - Primary: controls._thumbnailsBox._thumbnails[]
  * - Secondary: controls._workspacesDisplay._workspacesViews[i]._thumbnails._thumbnails[]
+ * NOTE (F44/GNOME 50): metadata.json now lists shell-version 50, but these private
+ * `_`-prefixed API paths have NOT been re-verified against the GNOME Shell 50 source —
+ * confirm them on a real F44 box (re-extract via extensions/scripts/gnome-shell-extract-js.bash).
  */
 
 import St from 'gi://St';
@@ -16,7 +19,7 @@ const WM_PREFS_SCHEMA = 'org.gnome.desktop.wm.preferences';
 
 export default class WorkspaceNamesOverviewExtension extends Extension {
     enable() {
-        this._wmSettings = new Gio.Settings({schema: WM_PREFS_SCHEMA});
+        this._wmSettings = new Gio.Settings({schema_id: WM_PREFS_SCHEMA});
         this._labels = [];
 
         this._shownId = Main.overview.connect('shown', () => {

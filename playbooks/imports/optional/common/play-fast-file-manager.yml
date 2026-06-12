@@ -6,7 +6,8 @@
 # This playbook addresses slow GNOME file picker issues by:
 # - Installing lightweight PCManFM as alternative file manager
 # - Configuring xdg-desktop-portal to use faster GTK file chooser
-# - Applying GSK_RENDERER=ngl fix for Fedora 41/42 performance
+# - Applying GSK_RENDERER=ngl fix for the GTK4 app slow-load issue (F41/42-era;
+#   re-evaluate whether it is still needed on F44/GNOME 50 — see docs/fast-file-manager.md)
 # - Disabling GNOME's recently-used file history (a huge ~/.local/share/recently-used.xbel
 #   makes Nautilus stat hundreds of paths on startup; on network-backed mounts
 #   this stalls it for seconds)
@@ -98,7 +99,7 @@
     # including Nautilus. Setting GSK_RENDERER=ngl fixes this immediately.
     # @see https://community.frame.work/t/fix-fedora-41-apps-slow-to-load/60612
 
-    - name: Apply GSK_RENDERER=ngl Fix for Fedora 41/42 Performance
+    - name: Apply GSK_RENDERER=ngl Fix for GTK4 App Slow-Load Performance
       blockinfile:
         path: /etc/environment
         marker: "# {mark} ANSIBLE MANAGED: GSK Renderer Performance Fix"
