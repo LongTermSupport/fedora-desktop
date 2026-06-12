@@ -1,6 +1,6 @@
 # Plan 00050: Fedora 44 Migration Tracking
 
-**Status**: 🔄 In Progress (research complete; **execution underway on `feature/f44-migration`** — Phase 3 below)
+**Status**: ✅ Complete (research → execution → audit → **merged to `F44`**, which is now the repo **default branch**). Remaining work is the HOST-VERIFY set in Phase 3, which needs a running Fedora 44 machine.
 **Created**: 2026-06-12
 **Owner**: Claude (Fable 5 multi-agent workflow) / joseph
 **Priority**: Medium
@@ -130,3 +130,10 @@ The deliverable of this phase is **knowledge, not change**: a clear, evidence-ba
 - Five read-only reviewers re-verified the migration slice-by-slice against LIVE upstream (curl/git-ls-remote/PyPI), not the diff's own claims. **Verdict: migration sound.** Confirmed-correct with evidence: dnf5 `setopt` enable semantics, ghostty `alternateved` F44 build, CUDA key 73CD9B30 (200 vs 404), folded-scalar YAML, exclude-vs-cuda-toolkit safety, all 3 metadata.json valid, `schema_id` spelling, **EXT-05 fail-fast logic correct for all three cases (no-session/OUT_OF_DATE/active)**, no GNOME-50-removed APIs used, **zero LUKS/partition regression in ks.cfg** (numstat + word-diff + line-range proof), build-iso F44 ISO names, pyenv tags all real, zlib-ng-compat-devel on F44, scipy cp314 wheels real.
 - **7 fixes applied from the audit:** (1) **nvidia exclude** `nvidia-fs-dkms*` → `nvidia-fs*` — the fedora44 CUDA repo also ships a plain `nvidia-fs` kmod the narrower glob missed (it would compete with the akmod stack); verified no cuda-toolkit package starts with `nvidia-fs`. (2) root **README.md** "Version Compatibility" still said Fedora 42 → 44 (the doc sweep had missed it — the primary onboarding doc). (3) **CLAUDE/GnomeShell.md** "Fedora 43 has 48.7" → "Fedora 44 has GNOME Shell 50". (4) **workspace-names extension.js** header: noted the private API paths are NOT re-verified against Shell 50 (HOST-VERIFY). (5) **darktable** `.fc43` expansion comment → `.fc44`; workflow comment clarified the commit is still the f43 pin pending the TODO. (6) **play-fast-file-manager** GSK_RENDERER F41/42 labels → version-agnostic + re-evaluate note. (7) **play-nvidia** header "Fedora 43+" → "Fedora 44+".
 - Noted-not-fixed (correct as-is): EXT-05 `DISABLED`-state gap is pre-existing design, not a regression; the RealtimeSTT/scipy old-pin risk fails LOUDLY (correct fail-fast) and is a HOST-VERIFY. No fail-fast/error-hiding regressions anywhere in the diff. QA green after fixes (6 stages, 285 files); CI green on the feature branch.
+
+### 2026-06-12 — Merged to F44; F44 promoted to default branch
+
+- `feature/f44-migration` CI green (qa-all 6 stages + gitleaks) → merged into `F44` with a merge-commit (no squash, per project rule); `F44` pushed.
+- **`gh repo edit --default-branch F44`** — the repo default moved `F43` → `F44` (the branch-per-version model: each new Fedora release becomes default). Verified via `gh repo view`.
+- The full unattended chain is done: audit branch `fable-audit-1` → `F43` (Plan 00049) → `F44` branched + the Fedora 44 migration (Plan 00050) implemented, QA-passed, audited, merged → `F44` default.
+- **Outstanding (needs a real Fedora 44 host — cannot be done in the CCY container):** run the HOST-VERIFY items in Phase 3 (darktable f44 dist-git commit, speech-to-text streaming stack, GNOME 50 live extension API paths + state, kernel/akmod build window), then re-run the affected playbooks on the host to confirm a clean F44 deploy.
