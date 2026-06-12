@@ -48,14 +48,23 @@ jobs:
           semgrep --version
           ansible-playbook --version
 
-      # Collections are needed so `ansible-playbook --syntax-check` can resolve
-      # the community.general / ansible.posix modules used across the playbooks.
-      - name: Install Ansible collections
-        run: ansible-galaxy collection install community.general ansible.posix
+      # Install the project's pinned role + collections (requirements.yml) so
+      # `ansible-playbook --syntax-check` can resolve every module/role the
+      # playbooks reference.
+      - name: Install Ansible requirements
+        run: ansible-galaxy install -r requirements.yml
 
       - name: Install extension JS deps (for ESLint stage)
         working-directory: extensions
         run: npm ci
+
+      # ansible.cfg sets `vault_password_file = ./vault-pass.secret`, which is
+      # gitignored (a real secret) and absent on a clean checkout. `--syntax-check`
+      # is parse-only and never decrypts, but Ansible still needs the password
+      # file to EXIST at startup — provide a throwaway placeholder. It is gitignored
+      # so it can never be committed, and is never used to decrypt anything.
+      - name: Provide placeholder vault password (parse-only, never decrypts)
+        run: echo "ci-syntax-check-placeholder" > vault-pass.secret
 
       - name: Run full QA suite
         run: ./scripts/qa-all.bash
