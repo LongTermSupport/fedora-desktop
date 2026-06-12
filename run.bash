@@ -3,14 +3,57 @@
 ## Setup
 ## !! BUMP THIS VERSION ON EVERY CHANGE TO THIS FILE — NO EXCEPTIONS !!
 ## !! If you forget, there is NO WAY to tell which version is running !!
-RUN_BASH_VERSION="1.5.4"  # UX: DRY retry-input helpers (promptChoice/promptSecretConfirmed/promptDefault); no prompt exits the run on invalid input
-set -e
-set -u
-set -o pipefail
-IFS=$'\n\t'
+RUN_BASH_VERSION="1.7.1"  # GitHub-accounts input validation (empty alias/username + comma-only re-prompt, no crash/empty map) + EOF-safe show_menu reads + tty-guarded clear
 
-# Safety net: always clean up sensitive temp files on exit
-trap 'rm -f /tmp/.github_ssh_pp' EXIT
+# ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
+# The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
+# subshell (the parens). The parens are LOAD-BEARING: they contain set -e / IFS /
+# trap / exit so they never leak into or kill the user's interactive shell.
+#
+# The whole executable body is wrapped in main() (see end of file) and only runs
+# when main "$@" is called on the last line. main() runs everything in an explicit
+# subshell ( ... ) of its own, so set -e / IFS / trap / exit are contained there
+# regardless of how the file was loaded. That makes the bare-source case
+# (`source <(curl ...)` without the documented parens) safe too: nothing escapes
+# into the caller's interactive shell. The documented parenthesised path keeps
+# working unchanged. set -e / IFS / pipefail are therefore set INSIDE main(), not
+# at top level, so they never touch a sourcing shell.
+
+## Colors and formatting (constants — safe at top level even if sourced)
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+MAGENTA='\033[0;35m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m' # No Color
+
+## Unicode symbols
+CHECK="✓"
+CROSS="✗"
+ARROW="➜"
+INFO="ℹ"
+WARN="⚠"
+BUG="🐛"
+
+# ── main() — the entire executable body ──────────────────────────────────────
+# B5: wrapping everything in main() (and only calling it on the last line via
+# `( main "$@" )`) guarantees the WHOLE file is parsed before any command runs.
+# This matters when run.bash is executed as a real file (kickstart / dev): the
+# `git pull` steps below can rewrite run.bash on disk, and an un-wrapped script
+# is still being streamed byte-by-byte by bash, so a rewrite mid-run corrupts the
+# remaining offsets. With main(), bash has already read+parsed the whole file, so
+# a pull cannot affect the in-flight run. The call is wrapped in its own subshell
+# so set -e / IFS / trap / exit stay contained (H4 sourced-shell safety).
+main() {
+  set -e
+  set -u
+  set -o pipefail
+  IFS=$'\n\t'
+
+  # Safety net: always clean up sensitive temp files on exit
+  trap 'rm -f /tmp/.github_ssh_pp' EXIT
 
 # Flags
 OPTIONAL_ONLY=false
@@ -52,27 +95,30 @@ USAGE
   esac
 done
 
-## Colors and formatting
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-MAGENTA='\033[0;35m'
-CYAN='\033[0;36m'
-BOLD='\033[1m'
-NC='\033[0m' # No Color
-
-## Unicode symbols
-CHECK="✓"
-CROSS="✗"
-ARROW="➜"
-INFO="ℹ"
-WARN="⚠"
-BUG="🐛"
-
 ## Step counter
+# STEP_TOTAL is derived by counting the title() calls in this very script, so it
+# can never drift out of sync with the actual number of steps (the old hardcoded
+# 13 lagged the real 17 and produced "14/13"). When the script is streamed
+# (README install: `source <(curl ...)`), BASH_SOURCE is a consumed pipe that
+# cannot be re-read, so we fall back to the known count.
 STEP_CURRENT=0
-STEP_TOTAL=13
+STEP_TOTAL=17  # fallback for the streamed (curl) install path
+_run_bash_self="${BASH_SOURCE[0]:-}"
+if [[ -f "$_run_bash_self" && -r "$_run_bash_self" ]]; then
+  if _run_bash_steps=$(grep -cE '^[[:space:]]*title[[:space:]]+"' "$_run_bash_self"); then
+    if [[ "$_run_bash_steps" =~ ^[0-9]+$ ]] && (( _run_bash_steps > 0 )); then
+      STEP_TOTAL="$_run_bash_steps"
+    fi
+  fi
+  unset _run_bash_steps
+fi
+unset _run_bash_self
+
+# M4: under --optional-only only ONE title() is reachable ("System Reboot") — the
+# whole core-setup block (every other title) is skipped. Show [1/1], not [1/17].
+if [[ "${OPTIONAL_ONLY:-}" == "true" ]]; then
+  STEP_TOTAL=1
+fi
 
 ## Assertions
 if [[ "$(whoami)" == "root" ]];
@@ -84,7 +130,11 @@ then
 fi
 
 # Header
-clear
+# Defect 4: `clear` exits 1 ("TERM environment variable not set") in a
+# non-interactive context, which aborts the run under set -e. Only clear when
+# stdout is a real terminal — the [[ -t 1 ]] guard keeps fail-fast intact while
+# skipping the clear when there is no tty.
+[[ -t 1 ]] && clear
 echo -e "${BLUE}${BOLD}╔══════════════════════════════════════════════════════════════╗${NC}"
 echo -e "${BLUE}${BOLD}║          FEDORA DESKTOP CONFIGURATION INSTALLER             ║${NC}"
 echo -e "${BLUE}${BOLD}╚══════════════════════════════════════════════════════════════╝${NC}"
@@ -159,23 +209,41 @@ assert_clean_worktree(){
   fi
 }
 
+# confirm <msg> [default] — y/n confirmation with a visible safe default.
+#   default=y → prompt renders (Y/n), Enter accepts (returns 0).
+#   default=n → prompt renders (y/N), Enter declines (returns 1).
+#   default omitted → no Enter default; Enter re-prompts (back-compat for any
+#   caller that wants an explicit keypress).
+# Use default=y for benign continues and value confirmations; default=n for
+# destructive actions (reboot, posting a PUBLIC issue, running untested code).
+# Invalid keys re-prompt with what to press — confirm() never exits the run.
 confirm(){
   local msg="$1"
+  local default="${2:-}"
   local yn=""
+  local hint
+  case "$default" in
+    y) hint="(Y/n)" ;;
+    n) hint="(y/N)" ;;
+    *) hint="(y/n)" ;;
+  esac
   echo
-  echo -e "${YELLOW}${ARROW}${NC} $msg"
+  echo -e "${YELLOW}${ARROW}${NC} $msg ${BOLD}${hint}${NC}"
   while true; do
-    read -rsp "   Press 'y' to confirm, 'n' to skip: " -n 1 yn
-    echo
-    if [[ "$yn" == "y" ]]; then
-      echo -e "${GREEN}${CHECK} Confirmed${NC}\n"
-      return 0
-    elif [[ "$yn" == "n" ]]; then
-      echo -e "${YELLOW}${INFO} Skipped${NC}\n"
-      return 1
-    else
-      echo -e "${RED}${CROSS} Invalid input. Please press 'y' or 'n'${NC}"
+    read -rp "   Your choice: " yn
+    # Enter with a configured default takes that default.
+    if [[ -z "$yn" ]]; then
+      case "$default" in
+        y) echo -e "${GREEN}${CHECK} Confirmed${NC}\n"; return 0 ;;
+        n) echo -e "${YELLOW}${INFO} Skipped${NC}\n"; return 1 ;;
+        *) echo -e "   ${RED}${CROSS} Please press 'y' for yes or 'n' for no${NC}"; continue ;;
+      esac
     fi
+    case "${yn,,}" in
+      y|yes) echo -e "${GREEN}${CHECK} Confirmed${NC}\n"; return 0 ;;
+      n|no)  echo -e "${YELLOW}${INFO} Skipped${NC}\n"; return 1 ;;
+      *)     echo -e "   ${RED}${CROSS} Invalid input '${yn}'. Enter 'y' for yes or 'n' for no ${BOLD}${hint}${NC}" ;;
+    esac
   done
 }
 
@@ -265,13 +333,28 @@ prompt_github_accounts_yaml(){
   echo -e "" 1>&2
   echo -e "   ${BOLD}One account:${NC}      johndoe" 1>&2
   echo -e "   ${BOLD}Multiple accounts:${NC} personal:johndoe,work:johndoe-corp" 1>&2
-  local github_accounts_raw _account_count _has_unaliased _alias _valid
+  local github_accounts_raw _account_count _has_unaliased _alias _username _valid
   # Re-prompt until the entry validates — a malformed accounts string must NOT
   # kill the run (it used to `exit 1` on a missing alias or a duplicate alias).
   while true; do
     github_accounts_raw="$(promptForValue 'GitHub username(s), comma separated')"
 
-    _account_count=$(printf '%s' "$github_accounts_raw" | tr ',' '\n' | grep -c '[^[:space:]]')
+    # M3: grep -c exits 1 (and prints 0) when there are no non-blank lines, e.g.
+    # the user typed only commas/spaces. Under set -e + pipefail that non-zero
+    # would kill the installer. Capture without aborting so the validation below
+    # re-prompts instead.
+    if ! _account_count=$(printf '%s' "$github_accounts_raw" | tr ',' '\n' | grep -c '[^[:space:]]'); then
+      _account_count=0
+    fi
+    # Defect 2: comma/space-only input (e.g. ',' or ',,,') yields zero real
+    # entries. Without this guard it would pass validation and write a bare
+    # `github_accounts:` map with no entries, then gh-account-setup.bash would run
+    # against an empty mapping. Re-prompt for at least one real account.
+    if (( _account_count < 1 )); then
+      error "Enter at least one account as alias:username (or a bare username)" 1>&2
+      echo -e "   You entered: ${BOLD}${github_accounts_raw}${NC}" 1>&2
+      continue
+    fi
     _has_unaliased=false
     while IFS= read -r pair; do
       pair="${pair// /}"
@@ -294,10 +377,26 @@ prompt_github_accounts_yaml(){
       pair="${pair// /}"
       if [[ "$pair" == *":"* ]]; then
         _alias="${pair%%:*}"
+        _username="${pair##*:}"
       elif [[ -n "$pair" ]]; then
         _alias="personal"
+        _username="$pair"
       else
         continue
+      fi
+      # Defect 1: an empty alias (e.g. ':johndoe' or 'a,:b') would make
+      # ${_seen_aliases[$_alias]:-} a bash 5.2 'bad array subscript' FATAL error
+      # that kills the shell even inside this if. Reject and re-prompt instead.
+      if [[ -z "$_alias" ]]; then
+        error "Empty alias in '${pair}' — use the format alias:username" 1>&2
+        _valid=false
+        break
+      fi
+      # Defect 2 (username side): an entry like 'alias:' has no username. Reject.
+      if [[ -z "$_username" ]]; then
+        error "Empty username in '${pair}' — use the format alias:username" 1>&2
+        _valid=false
+        break
       fi
       if [[ -n "${_seen_aliases[$_alias]:-}" ]]; then
         error "Duplicate alias '${_alias}' — each account needs a unique alias" 1>&2
@@ -417,9 +516,11 @@ create_github_issue(){
 
     # Ask Claude to sanitize the log further. Capture exit status explicitly so a
     # failure is surfaced rather than hidden behind a fallback default.
-    local claude_sanitized claude_status
-    claude_sanitized=$(claude "Please remove any potentially sensitive information from this error log including passwords, API keys, tokens, personal data, private URLs, or system-specific paths that shouldn't be shared publicly. Return ONLY the sanitized version of the log, preserving the error messages and structure but with sensitive data replaced with placeholders like ***REDACTED***:\n\n$(cat "$temp_file")")
-    claude_status=$?
+    # M5: under set -e a failing `claude` aborts before `claude_status=$?` can
+    # capture it, so the fail-closed check below never runs. Seed 0 and capture
+    # the real status with `|| claude_status=$?` so the assignment always runs.
+    local claude_sanitized claude_status=0
+    claude_sanitized=$(claude "Please remove any potentially sensitive information from this error log including passwords, API keys, tokens, personal data, private URLs, or system-specific paths that shouldn't be shared publicly. Return ONLY the sanitized version of the log, preserving the error messages and structure but with sensitive data replaced with placeholders like ***REDACTED***:\n\n$(cat "$temp_file")") || claude_status=$?
     rm -f "$temp_file"
 
     if [[ "$claude_status" -ne 0 || -z "$claude_sanitized" ]]; then
@@ -499,7 +600,7 @@ _Generated by fedora-desktop automated error reporting_"
   echo -e "${INFO} Full body also saved for review at: $preview_file\n"
 
   # Ask for confirmation
-  if confirm "Do you want to create this GitHub issue?"; then
+  if confirm "Do you want to create this GitHub issue? (posts to the PUBLIC tracker)" n; then
     info "Creating GitHub issue..."
     
     # Create the issue
@@ -531,13 +632,17 @@ run_playbook_with_issue_option(){
   
   echo -e "\n${CYAN}${ARROW} Running: $name${NC}"
   
-  # Run playbook normally with full colors
+  # Run playbook normally with full colors.
+  # B2: callers run this under errexit, so a failing "$playbook" would abort the
+  # whole installer before exit_code=$? could capture it — bypassing the
+  # issue-reporting UX below. Seed 0 and capture with `|| exit_code=$?` so the
+  # failure is handled here instead of killing the run.
   if sudo -n true 2>/dev/null; then
-    "$playbook"
-    exit_code=$?
+    exit_code=0
+    "$playbook" || exit_code=$?
   else
-    "$playbook" --ask-become-pass
-    exit_code=$?
+    exit_code=0
+    "$playbook" --ask-become-pass || exit_code=$?
   fi
   
   if [[ $exit_code -eq 0 ]]; then
@@ -546,60 +651,132 @@ run_playbook_with_issue_option(){
   else
     error "Failed: $name (exit code: $exit_code)"
     
-    # Offer to create GitHub issue
-    if confirm "Would you like to create a GitHub issue for this failure?"; then
+    # Offer to create GitHub issue (posts to the PUBLIC tracker — default No)
+    if confirm "Would you like to create a GitHub issue for this failure? (posts to the PUBLIC tracker)" n; then
       create_github_issue "$playbook" "$exit_code"
     fi
-    
+
     return $exit_code
   fi
 }
 
+# promptForValue <item> [validate] [default] — validated free text with a
+# confirm step. <validate> is one of "", "email", "min3". When <default> is
+# given it is shown as [default]; pressing Enter at the entry takes it and
+# skips the confirm (no point confirming a value you didn't type).
+# At the "Is this correct?" step Enter or y/Y accepts; n/N re-opens the value
+# for editing (the previous entry is pre-filled-by-display so the user edits,
+# never re-types blind). Prompts go to stderr, the value to stdout via printf.
 promptForValue(){
-  local item v yn validate
+  local item v yn validate default prefill
   item="$1"
   validate="${2:-}"
+  default="${3:-}"
+  prefill=""
   while true; do
-    echo -e "\n${CYAN}${ARROW}${NC} Please enter your ${BOLD}$item${NC}:" 1>&2
-    read -rp "   " v
+    if [[ -n "$prefill" ]]; then
+      echo -e "\n${CYAN}${ARROW}${NC} Re-enter your ${BOLD}$item${NC} (previous: ${BOLD}${prefill}${NC}):" 1>&2
+    elif [[ -n "$default" ]]; then
+      echo -e "\n${CYAN}${ARROW}${NC} Please enter your ${BOLD}$item${NC} ${BOLD}[${default}]${NC} (Enter to accept):" 1>&2
+    else
+      echo -e "\n${CYAN}${ARROW}${NC} Please enter your ${BOLD}$item${NC}:" 1>&2
+    fi
+    # M1: a failed read (EOF / closed stdin) must abort cleanly, not spin forever
+    # on the empty-input branch. Mirror prompt_verified_vault_password.
+    if ! read -rp "   " v; then
+      echo -e "   ${RED}${CROSS} No input (stdin closed) — aborting.${NC}" 1>&2
+      return 1
+    fi
+    # Enter on a fresh prompt with a default takes the default and is done.
+    if [[ -z "$v" ]] && [[ -n "$default" ]] && [[ -z "$prefill" ]]; then
+      echo -e "   ${GREEN}${CHECK} Using ${BOLD}${default}${NC}" 1>&2
+      printf '%s' "$default"
+      return 0
+    fi
     # Basic validation: must not be empty
     if [[ -z "${v// /}" ]]; then
-      echo -e "   ${RED}${CROSS} Cannot be empty${NC}" 1>&2
+      echo -e "   ${RED}${CROSS} Cannot be empty. Type a value, then press Enter${NC}" 1>&2
       continue
     fi
     # Custom validation
     if [[ "$validate" == "email" ]] && [[ "$v" != *@*.* ]]; then
-      echo -e "   ${RED}${CROSS} Must be a valid email address${NC}" 1>&2
+      echo -e "   ${RED}${CROSS} '${v}' is not a valid email. Enter one like name@example.com${NC}" 1>&2
       continue
     fi
     if [[ "$validate" == "min3" ]] && [[ "${#v}" -lt 3 ]]; then
-      echo -e "   ${RED}${CROSS} Must be at least 3 characters${NC}" 1>&2
+      echo -e "   ${RED}${CROSS} '${v}' is too short. Enter at least 3 characters${NC}" 1>&2
       continue
     fi
     echo -e "\n   You entered: ${BOLD}$v${NC}" 1>&2
-    read -rsp "   Is this correct? (y/n): " -n 1 yn 1>&2
-    echo 1>&2
-    [[ "$yn" == "y" ]] && break
+    # read -p prints its prompt VERBATIM (no escape interpretation), so render the
+    # coloured prompt via echo -en to stderr first, then do a bare read.
+    echo -en "   Is this correct? ${BOLD}(Y/n)${NC} (Enter to accept): " 1>&2
+    read -r yn
+    case "${yn,,}" in
+      ""|y|yes)
+        echo -e "   ${GREEN}${CHECK} Recorded ${BOLD}${item}${NC}" 1>&2
+        break
+        ;;
+      n|no)
+        # Re-open for editing — show the prior entry so the user corrects it.
+        prefill="$v"
+        echo -e "   ${YELLOW}${INFO} Okay, let's edit it.${NC}" 1>&2
+        ;;
+      *)
+        echo -e "   ${RED}${CROSS} Invalid input '${yn}'. Press Enter or 'y' to accept, 'n' to edit${NC}" 1>&2
+        ;;
+    esac
   done
-  echo "$v"
+  printf '%s' "$v"
 }
 
 # --- DRY interactive-input helpers --------------------------------------------
-# Every interactive prompt re-prompts on invalid input and NEVER exits the run on
-# a typo. Prompts/errors go to stderr; the chosen value is echoed to stdout so
-# callers capture it via $(...). Companions to confirm() (y/n) and
-# promptForValue() (validated free text with a confirm step).
+# CONTRACT (shared by confirm, promptForValue, promptChoice, promptSecretConfirmed,
+# promptDefault):
+#   * Prompts and error text go to STDERR (1>&2). The accepted value goes to
+#     STDOUT via printf '%s' (no trailing newline), so callers capture it with
+#     v="$(promptX ...)". confirm() is the exception: it returns an exit status,
+#     not a value.
+#   * Every helper re-prompts forever on invalid input and NEVER exits the run on
+#     a user typo — a typo is not an error. (Real errors elsewhere still fail
+#     fast.)
+#   * Where a default exists it is rendered in the prompt as [default] and a
+#     "(Enter to accept)" hint is shown; pressing Enter takes the default.
+#   * Confirm polarity is visible in the casing: (Y/n) = Enter accepts (Yes),
+#     (y/N) = Enter declines (No). Use (y/N) only for destructive actions.
+#   * Re-prompt messages state what was wrong AND what to enter.
+#   * Prefer line reads (read -r) over read -n 1 so Enter is distinguishable and
+#     piped-stdin smoke tests work.
 
-# promptChoice <prompt> <max> — echo a validated integer in 1..max.
+# promptChoice <prompt> <max> [default] — echo a validated integer in 1..max.
+# When <default> (an in-range integer) is given it is shown as [default] and
+# Enter takes it.
 promptChoice(){
-  local prompt="$1" max="$2" choice
+  local prompt="$1" max="$2" default="${3:-}" choice
   while true; do
-    read -rp "$prompt" choice
+    # M1: a failed read (EOF) takes the default if one exists, else aborts rather
+    # than looping forever on the invalid-choice branch.
+    if ! read -rp "$prompt" choice; then
+      if [[ -n "$default" ]]; then
+        printf '%s' "$default"
+        return 0
+      fi
+      echo -e "   ${RED}${CROSS}${NC} No input (stdin closed) — aborting." 1>&2
+      return 1
+    fi
+    if [[ -z "$choice" ]] && [[ -n "$default" ]]; then
+      printf '%s' "$default"
+      return 0
+    fi
     if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= max )); then
       printf '%s' "$choice"
       return 0
     fi
-    echo -e "   ${RED}${CROSS}${NC} Invalid choice '${choice}'. Enter a number from 1 to ${max}." 1>&2
+    if [[ -n "$default" ]]; then
+      echo -e "   ${RED}${CROSS}${NC} Invalid choice '${choice}'. Enter a number from 1 to ${max}, or press Enter for [${default}]." 1>&2
+    else
+      echo -e "   ${RED}${CROSS}${NC} Invalid choice '${choice}'. Enter a number from 1 to ${max}." 1>&2
+    fi
   done
 }
 
@@ -608,9 +785,19 @@ promptChoice(){
 promptSecretConfirmed(){
   local label="$1" s1 s2
   while true; do
-    read -rsp "   ${label}: " s1
+    # M1: a failed read (EOF / closed stdin) must abort, not silently return an
+    # empty secret as if the user had confirmed a blank value twice.
+    if ! read -rsp "   ${label}: " s1; then
+      echo 1>&2
+      echo -e "   ${RED}${CROSS}${NC} No input (stdin closed) — aborting." 1>&2
+      return 1
+    fi
     echo 1>&2
-    read -rsp "   Confirm ${label}: " s2
+    if ! read -rsp "   Confirm ${label}: " s2; then
+      echo 1>&2
+      echo -e "   ${RED}${CROSS}${NC} No input (stdin closed) — aborting." 1>&2
+      return 1
+    fi
     echo 1>&2
     if [[ "$s1" == "$s2" ]]; then
       printf '%s' "$s1"
@@ -625,13 +812,73 @@ promptSecretConfirmed(){
 promptDefault(){
   local prompt="$1" default="$2" minlen="${3:-0}" v
   while true; do
-    read -rp "$prompt" v
+    # M1: a failed read (EOF) falls back to the default; if that still fails the
+    # minlen check, abort rather than loop forever on closed stdin.
+    if ! read -rp "$prompt" v; then
+      v="$default"
+      if (( ${#v} >= minlen )); then
+        printf '%s' "$v"
+        return 0
+      fi
+      echo -e "   ${RED}${CROSS}${NC} No input (stdin closed) — aborting." 1>&2
+      return 1
+    fi
     v="${v:-$default}"
     if (( ${#v} >= minlen )); then
       printf '%s' "$v"
       return 0
     fi
-    echo -e "   ${RED}${CROSS}${NC} Must be at least ${minlen} character(s)." 1>&2
+    echo -e "   ${RED}${CROSS}${NC} '${v}' is too short — enter at least ${minlen} character(s)." 1>&2
+  done
+}
+
+# verify_vault_password <candidate> <localhost_yml> — return 0 if <candidate>
+# decrypts the vault-encrypted values in <localhost_yml>. Reuses the same
+# `ansible localhost ... --vault-id` probe used for the on-disk password. The
+# candidate is fed via process substitution so it NEVER touches disk — a Ctrl+C
+# during the (multi-second) probe cannot leave the password in a /tmp file.
+verify_vault_password(){
+  local candidate="$1" yml="$2"
+  if ansible localhost -c local -e "@$yml" -m debug -a "msg=vault_ok" \
+     --vault-id "localhost@"<(printf '%s' "$candidate") 2>/dev/null | grep -q "vault_ok"; then
+    return 0
+  fi
+  return 1
+}
+
+# prompt_verified_vault_password <localhost_yml> — read a hidden vault password,
+# verify it decrypts <localhost_yml>, and re-prompt on failure. The user may type
+# 'abort' to give up; in that case the function prints loud remediation guidance
+# and returns 1 (the caller then fails fast). On success the verified password is
+# emitted to stdout via printf. Prompts/errors go to stderr.
+prompt_verified_vault_password(){
+  local yml="$1" vp
+  while true; do
+    # A failed read (EOF / closed stdin) must abort cleanly, not spin forever on
+    # the empty-input branch.
+    if ! read -rsp "   Vault password (or type 'abort' to give up): " vp; then
+      vp="abort"
+    fi
+    echo 1>&2
+    if [[ "$vp" == "abort" ]]; then
+      echo -e "   ${RED}${CROSS} Aborting at your request.${NC}" 1>&2
+      echo -e "   ${YELLOW}${ARROW}${NC} The vault password is the one you set when this machine (or its" 1>&2
+      echo -e "      config) was first provisioned. Look for it in your password manager." 1>&2
+      echo -e "   ${YELLOW}${ARROW}${NC} If it is truly lost you must reset the vault: re-encrypt the values" 1>&2
+      echo -e "      in localhost.yml with a new password (ansible-vault), then re-run." 1>&2
+      return 1
+    fi
+    if [[ -z "$vp" ]]; then
+      echo -e "   ${RED}${CROSS}${NC} Empty — type your vault password, or 'abort' to give up." 1>&2
+      continue
+    fi
+    if verify_vault_password "$vp" "$yml"; then
+      echo -e "   ${GREEN}${CHECK} Vault password verified${NC}" 1>&2
+      printf '%s' "$vp"
+      return 0
+    fi
+    echo -e "   ${RED}${CROSS}${NC} That password did not decrypt localhost.yml. Check your password" 1>&2
+    echo -e "      manager and try again, or type 'abort' to give up." 1>&2
   done
 }
 
@@ -645,7 +892,11 @@ wait_for_network
 
 echo -e "\n${YELLOW}${INFO} You will be asked for your sudo password${NC}\n"
 title "Installing System Dependencies"
-info "Installing: git, python3, python3-libdnf5, grubby, jq, openssl, pipx"
+# L1: list every package actually installed below (python3-pip was missing).
+info "Installing: git, python3, python3-pip, python3-libdnf5, grubby, jq, openssl, pipx"
+# H3: do NOT swallow dnf output. Under set -e a dnf failure here used to abort the
+# run in total silence (output went to /dev/null). Let dnf print so a failure has
+# a visible cause; set -e then stops the run with the error on screen.
 sudo dnf -y install \
   git \
   python3 \
@@ -654,7 +905,7 @@ sudo dnf -y install \
   grubby \
   jq \
   openssl \
-  pipx > /dev/null 2>&1
+  pipx
 completed
 
 title "Checking for Legacy Grub Configurations"
@@ -686,14 +937,19 @@ if [[ -d ~/.local ]] && [[ "$(stat -c%U ~/.local)" != "$(whoami)" ]]; then
 fi
 mkdir -p ~/.local/bin ~/.local/share ~/.local/state
 info "Installing Ansible and dependencies via pipx"
-if pipx list --short | grep -q "ansible"; then
+# M6: anchor on '^ansible ' so a prior `ansible-lint` install does NOT make this
+# match (which would skip the injects on a partial install). pipx list --short
+# prints one "<pkg> <version>" line per top-level package.
+if pipx list --short | grep -q '^ansible '; then
   success "Ansible already installed"
 else
   pipx install --include-deps ansible
-  pipx inject ansible jmespath
-  pipx inject ansible passlib
-  pipx inject ansible ansible-lint
 fi
+# Inject deps unconditionally — pipx inject is idempotent, so this also repairs a
+# partial prior install where ansible existed but a dependency was missing.
+pipx inject ansible jmespath
+pipx inject ansible passlib
+pipx inject ansible ansible-lint
 # Ensure ~/.local/bin exists, then force-create symlink
 mkdir -p ~/.local/bin
 ln -sf ~/.local/share/pipx/venvs/ansible/bin/ansible-lint ~/.local/bin/ansible-lint
@@ -702,9 +958,25 @@ completed
 _ssh_key_password=""  # saved here, offered as default for github_ SSH keys later
 title "Creating SSH Key Pair\n\nNOTE - you must set a password\n\nSuggest you use your login password"
 if [[ ! -f ~/.ssh/id ]]; then
-  password=$(promptSecretConfirmed "Password")
+  # B4: on a fresh machine ~/.ssh does not exist yet — ssh-keygen would fail.
+  # Create it with the correct 0700 perms before generating the key.
+  mkdir -p ~/.ssh && chmod 700 ~/.ssh
+  # M2: this key MUST be passphrase-protected (the title says so). Loop until the
+  # user provides a non-empty passphrase. (The vault call site allows empty =
+  # autogenerate; this one does not.)
+  password=""
+  while [[ -z "$password" ]]; do
+    password=$(promptSecretConfirmed "Password")
+    if [[ -z "$password" ]]; then
+      error "An empty passphrase is not allowed here — this is a login SSH key."
+      echo -e "${YELLOW}${ARROW} Enter a non-empty passphrase (your login password is a convenient choice).${NC}"
+    fi
+  done
   ssh-keygen -t ed25519 -f ~/.ssh/id -P "$password"
   _ssh_key_password="$password"
+  # L3: the passphrase now lives in _ssh_key_password (offered later as a default);
+  # drop the plaintext copy from this shell as soon as the key is created.
+  unset password
 else
   echo " - found existing key"
 fi
@@ -790,10 +1062,8 @@ if ! gh auth status > /dev/null 2>&1; then
   echo -e "${YELLOW}${BOLD}└─────────────────────────────────────────────────┘${NC}\n"
 
   # Never kill the run on a fumbled answer — re-ask until SSH is acknowledged.
-  # Anything other than an explicit 'n' (including Enter / Y) proceeds.
-  while true; do
-    read -rp "Confirm you will choose SSH for GitHub authentication (Y/n): " confirm_ssh
-    [[ "${confirm_ssh,,}" != "n" ]] && break
+  # Default Yes: pressing Enter proceeds (SSH is the only supported path here).
+  while ! confirm "Confirm you will choose SSH for GitHub authentication when prompted" y; do
     echo -e "${YELLOW}${ARROW} SSH is required for this setup — let's confirm again.${NC}"
   done
 
@@ -835,9 +1105,14 @@ if ! ghCheckTokenPermission "admin:public_key" > /dev/null 2>&1; then
   $GH_REPO auth refresh -h github.com -s admin:public_key
 fi
 
-ssh_key_fingerprint=$(ssh-keygen -lf ~/.ssh/id.pub | awk '{print $2}')
+# H1: idempotency must compare KEY MATERIAL, not a fingerprint. `gh api user/keys`
+# returns the raw key blob (the base64 body of the public key), never a SHA256
+# fingerprint — so the old fingerprint comparison never matched and a re-run kept
+# trying to re-upload the key, hitting a GitHub 422 and aborting. Extract the blob
+# (field 2 of the .pub line) and look for it literally in the keys listing.
+ssh_key_blob=$(awk '{print $2}' ~/.ssh/id.pub)
 # Use gh api to check for SSH keys without triggering signing key scope warning
-if ! $GH_REPO api user/keys 2>/dev/null | grep -q "$ssh_key_fingerprint"; then
+if ! $GH_REPO api user/keys 2>/dev/null | grep -qF "$ssh_key_blob"; then
   # Add SSH key for authentication only (not signing)
   if $GH_REPO ssh-key add ~/.ssh/id.pub --title="fedora-desktop setup $(date +%Y-%m-%d)" --type=authentication 2>&1; then
     success "SSH authentication key added to GitHub"
@@ -859,7 +1134,9 @@ if ! ssh-keygen -R github.com >/dev/null 2>/dev/null; then
   info "No existing github.com entry in known_hosts to remove"
 fi
 # Add fresh GitHub host keys
-curl -sL https://api.github.com/meta | jq -r '.ssh_keys | .[]' | sed -e 's/^/github.com /' >> ~/.ssh/known_hosts
+# L2: -f makes curl exit non-zero on an HTTP error (e.g. 5xx) instead of piping an
+# error page into jq; under set -e + pipefail a fetch failure then aborts loudly.
+curl -fsSL https://api.github.com/meta | jq -r '.ssh_keys | .[]' | sed -e 's/^/github.com /' >> ~/.ssh/known_hosts
 success "GitHub host keys updated"
 completed
 
@@ -878,7 +1155,7 @@ else
   command git -C ~/Projects/fedora-desktop pull
   success "Repository updated"
 fi
-cd ~/Projects/fedora-desktop
+cd ~/Projects/fedora-desktop || { error "Cannot cd into ~/Projects/fedora-desktop"; exit 1; }
 
 # Fail fast: verify Fedora version matches this branch
 version_file=~/Projects/fedora-desktop/vars/fedora-version.yml
@@ -919,7 +1196,11 @@ if gh api "repos/${config_repo}" --jq '.name' > /dev/null 2>/dev/null; then
   # never be read from or written to a PUBLIC repo. Confirm the repo is private
   # before any pull or push touches it. A non-private (or unreadable .private)
   # repo aborts the flow — there is no safe automatic downgrade here.
-  config_repo_private=$(${GH_REPO:-gh} api "repos/${config_repo}" --jq '.private' 2>/dev/null)
+  # H2: the config repo (${primary_gh_username}/fedora-desktop-config) is owned by
+  # the PRIMARY account, and every other read here uses plain `gh` (the primary).
+  # Using $GH_REPO (gh-lts) would query as the LTS account, which cannot see the
+  # primary's PRIVATE config repo, yielding a false "NOT private" abort. Use plain gh.
+  config_repo_private=$(gh api "repos/${config_repo}" --jq '.private' 2>/dev/null)
   if [[ "$config_repo_private" != "true" ]]; then
     error "Config repo github.com/${config_repo} is NOT private (.private='${config_repo_private:-unknown}')."
     error "localhost.yml contains PII and your Ansible vault and must never be synced to a public repo."
@@ -959,22 +1240,21 @@ if gh api "repos/${config_repo}" --jq '.name' > /dev/null 2>/dev/null; then
       for _i in "${!_available_labels[@]}"; do
         echo -e "     $(( _i + 1 ))) ${_available_labels[$_i]}"
       done
-      # Enter = skip; a valid number selects; an invalid entry re-prompts (never skips silently).
-      while true; do
-        read -rp "   Choose a config to use (number, or Enter to skip): " _src_choice
-        [[ -z "$_src_choice" ]] && break
-        if [[ "$_src_choice" =~ ^[0-9]+$ ]] && (( _src_choice >= 1 && _src_choice <= ${#_available_sources[@]} )); then
-          _src_idx=$(( _src_choice - 1 ))
-          _chosen_path="${_available_sources[$_src_idx]}"
-          if raw_content=$(gh api "repos/${config_repo}/contents/${_chosen_path}" --jq '.content' 2>/dev/null); then
-            has_remote_config=true
-            config_source_label="${_available_labels[$_src_idx]}"
-            info "Using config from ${config_source_label}"
-          fi
-          break
+      _skip_opt=$(( ${#_available_sources[@]} + 1 ))
+      echo -e "     ${_skip_opt}) Skip — none of these (configure manually later)"
+      # promptChoice never exits on a typo; default = the Skip option so Enter skips.
+      _src_choice=$(promptChoice "   Choose a config to use (number) [${_skip_opt}=skip] (Enter to skip): " "$_skip_opt" "$_skip_opt")
+      if (( _src_choice >= 1 && _src_choice <= ${#_available_sources[@]} )); then
+        _src_idx=$(( _src_choice - 1 ))
+        _chosen_path="${_available_sources[$_src_idx]}"
+        if raw_content=$(gh api "repos/${config_repo}/contents/${_chosen_path}" --jq '.content' 2>/dev/null); then
+          has_remote_config=true
+          config_source_label="${_available_labels[$_src_idx]}"
+          info "Using config from ${config_source_label}"
         fi
-        echo -e "   ${RED}${CROSS}${NC} Invalid choice '${_src_choice}'. Enter 1 to ${#_available_sources[@]}, or press Enter to skip." 1>&2
-      done
+      else
+        info "Skipping saved config — you can configure manually below"
+      fi
     fi
   fi
 else
@@ -1010,10 +1290,21 @@ fi
 echo -e "   ${_option}) Configure fresh (enter details manually)"
 _opt_fresh=$_option
 
+# Recommended default for Enter: pull the saved config when one exists, else
+# keep an existing local config, else configure fresh.
+if [[ "$has_remote_config" == "true" ]]; then
+  _config_default="${_opt_pull}"
+elif [[ -n "${_opt_keep:-}" ]]; then
+  _config_default="${_opt_keep}"
+else
+  _config_default="${_opt_fresh}"
+fi
+
 # A typo must NOT kill the run — promptChoice re-prompts until a valid option is
 # entered. Every printed option got a sequential number 1.._opt_fresh, so an
-# in-range integer always matches exactly one branch below.
-_config_choice=$(promptChoice "   Choice [1-${_opt_fresh}]: " "$_opt_fresh")
+# in-range integer always matches exactly one branch below. Enter takes the
+# recommended default shown in brackets.
+_config_choice=$(promptChoice "   Choice [1-${_opt_fresh}] (Enter for [${_config_default}]): " "$_opt_fresh" "$_config_default")
 
 if [[ "$has_remote_config" == "true" ]] && [[ "${_config_choice}" == "${_opt_pull}" ]]; then
   backup_config "$localhost_yml"
@@ -1029,9 +1320,8 @@ elif [[ "$has_remote_config" == "true" ]] && [[ "${_config_choice}" == "${_opt_s
   if ! grep -q '^user_login:' "$localhost_yml"; then
     info "user_login was excluded — entering identity details"
     echo ""
-    user_login=$(promptDefault "   User login [$(whoami)]: " "$(whoami)" 3)
-    read -rp "   Full name [${user_login}]: " user_name
-    user_name="${user_name:-$user_login}"
+    user_login=$(promptDefault "   User login [$(whoami)] (Enter to accept): " "$(whoami)" 3)
+    user_name=$(promptDefault "   Full name [${user_login}] (Enter to accept): " "$user_login" 1)
     user_email="$(promptForValue 'email address' email)"
     {
       printf 'user_login: "%s"\n' "$user_login"
@@ -1060,9 +1350,8 @@ elif [[ -n "${_opt_push:-}" ]] && [[ "${_config_choice}" == "${_opt_push}" ]]; t
 
 elif [[ "${_config_choice}" == "${_opt_fresh}" ]]; then
   echo ""
-  user_login=$(promptDefault "   User login [$(whoami)]: " "$(whoami)" 3)
-  read -rp "   Full name [${user_login}]: " user_name
-  user_name="${user_name:-$user_login}"
+  user_login=$(promptDefault "   User login [$(whoami)] (Enter to accept): " "$(whoami)" 3)
+  user_name=$(promptDefault "   Full name [${user_login}] (Enter to accept): " "$user_login" 1)
   user_email="$(promptForValue 'email address' email)"
 
   {
@@ -1091,9 +1380,12 @@ if grep -qF '!vault' "$localhost_yml" 2>/dev/null; then
     else
       error "Existing vault-pass.secret cannot decrypt localhost.yml"
       echo -e "   ${YELLOW}${ARROW}${NC} The file exists but the password is wrong."
-      echo -e "   Enter the correct vault password (from your password manager):"
-      read -rsp "   " vaultPass
-      echo
+      echo -e "   Enter the correct vault password (from your password manager)."
+      # Verify-before-write: re-prompt until the entry decrypts, or abort loudly.
+      if ! vaultPass=$(prompt_verified_vault_password "$localhost_yml"); then
+        error "No usable vault password — cannot continue."
+        exit 1
+      fi
       # printf avoids the trailing newline echo would add — the vault password must be exact
       printf '%s' "$vaultPass" > "$vault_pass_file"
       chmod 600 "$vault_pass_file"
@@ -1101,9 +1393,12 @@ if grep -qF '!vault' "$localhost_yml" 2>/dev/null; then
     fi
   else
     echo -e "\n${CYAN}${ARROW}${NC} Your localhost.yml has vault-encrypted values."
-    echo -e "   Enter your vault password (from your password manager):"
-    read -rsp "   " vaultPass
-    echo
+    echo -e "   Enter your vault password (from your password manager)."
+    # Verify-before-write: re-prompt until the entry decrypts, or abort loudly.
+    if ! vaultPass=$(prompt_verified_vault_password "$localhost_yml"); then
+      error "No usable vault password — cannot continue."
+      exit 1
+    fi
     # printf avoids the trailing newline echo would add — the vault password must be exact
     printf '%s' "$vaultPass" > "$vault_pass_file"
     chmod 600 "$vault_pass_file"
@@ -1113,9 +1408,12 @@ elif [[ -f "$vault_pass_file" ]]; then
   success "Existing vault password found"
 else
   info "Setting up Ansible vault"
-  echo -e "\n${CYAN}${ARROW}${NC} Enter vault password (or leave blank to auto-generate):"
-  read -rsp "   " vaultPass
-  echo
+  echo -e "\n${CYAN}${ARROW}${NC} Enter a new vault password (or leave blank to auto-generate a strong one)."
+  echo -e "   You will be asked to type it twice to catch typos."
+  # Brand-new password: nothing to verify against, so double-enter to catch typos.
+  # promptSecretConfirmed re-prompts until both entries match; empty is allowed
+  # here and means auto-generate.
+  vaultPass=$(promptSecretConfirmed "Vault password (blank = auto-generate)")
   if [[ "" == "$vaultPass" ]]; then
     vaultPass="$(openssl rand -base64 32)"
     success "Generated new vault password"
@@ -1124,6 +1422,7 @@ else
   fi
   # printf avoids the trailing newline echo would add — the vault password must be exact
   printf '%s' "$vaultPass" > "$vault_pass_file"
+  chmod 600 "$vault_pass_file"
 fi
 # Secret no longer needed in memory — the password now lives only in the 0600 file.
 unset vaultPass
@@ -1140,10 +1439,7 @@ else
   info "GitHub SSH keys require a passphrase (these are full account keys, not deploy keys)"
   echo
   if [[ -n "$_ssh_key_password" ]]; then
-    echo -e "${CYAN}${ARROW}${NC} Use the same password as your main SSH key (~/.ssh/id) for all GitHub keys?"
-    read -rsp "   Press 'y' to use same, 'n' to enter a different one: " -n 1 _yn
-    echo
-    if [[ "${_yn,,}" == "y" ]]; then
+    if confirm "Use the same password as your main SSH key (~/.ssh/id) for all GitHub keys?" y; then
       _github_ssh_passphrase="$_ssh_key_password"
       success "Using same password as ~/.ssh/id"
     fi
@@ -1162,7 +1458,9 @@ else
   success "github_ssh_passphrase saved to localhost.yml (vault-encrypted)"
 fi
 # The SSH-key password was only needed as a default offer above — drop it now.
-unset _ssh_key_password _confirm_passphrase _encrypted
+# L3: removed the dead `unset _confirm_passphrase` (that var was never set); the
+# plaintext `password` is already unset at its last use in the keygen step.
+unset _ssh_key_password _encrypted
 completed
 
 title "Setting Up GitHub Multi-Account Access"
@@ -1205,16 +1503,18 @@ success "Requirements installed"
 info "Executing main configuration playbook"
 echo -e "${YELLOW}${INFO} This may take several minutes...${NC}\n"
 
-# Run main playbook normally with full colors
+# Run main playbook normally with full colors.
+# B1: under set -e a failing playbook exits the run BEFORE `main_exit_code=$?` can
+# capture it, so the failure-handling UX below (issue report, continue-anyway
+# prompt) never runs. Seed 0 and capture with `|| main_exit_code=$?` so the
+# failure is handled here instead of silently aborting.
 main_exit_code=0
 
 if sudo -n true 2>/dev/null; then
-  ./playbooks/playbook-main.yml
-  main_exit_code=$?
+  ./playbooks/playbook-main.yml || main_exit_code=$?
 else
   echo -e "${YELLOW}${INFO} You will be prompted for your sudo password${NC}"
-  ./playbooks/playbook-main.yml --ask-become-pass
-  main_exit_code=$?
+  ./playbooks/playbook-main.yml --ask-become-pass || main_exit_code=$?
 fi
 
 if [[ $main_exit_code -eq 0 ]]; then
@@ -1222,13 +1522,13 @@ if [[ $main_exit_code -eq 0 ]]; then
 else
   error "Main playbook failed with exit code: $main_exit_code"
   
-  # Offer to create GitHub issue
-  if confirm "Would you like to create a GitHub issue for this failure?"; then
+  # Offer to create GitHub issue (posts to the PUBLIC tracker — default No)
+  if confirm "Would you like to create a GitHub issue for this failure? (posts to the PUBLIC tracker)" n; then
     create_github_issue "./playbooks/playbook-main.yml" "$main_exit_code"
   fi
-  
-  # Ask if user wants to continue despite failure
-  if ! confirm "Do you want to continue with optional playbooks despite the main playbook failure?"; then
+
+  # Ask if user wants to continue despite failure (benign continue — default Yes)
+  if ! confirm "Do you want to continue with optional playbooks despite the main playbook failure?" y; then
     error "Installation aborted due to main playbook failure"
     exit $main_exit_code
   fi
@@ -1239,7 +1539,7 @@ fi
 title "Restoring Projects"
 _pull_projects_script=~/Projects/fedora-desktop/fedora-install/pull-projects.bash
 if [[ -f "$_pull_projects_script" ]]; then
-  if confirm "Would you like to restore projects from your config repo manifest?"; then
+  if confirm "Would you like to restore projects from your config repo manifest?" y; then
     if ! "$_pull_projects_script" --account "$primary_gh_username"; then
       warning "Projects restore failed or no manifest found — continuing"
     fi
@@ -1256,9 +1556,21 @@ fi # end: OPTIONAL_ONLY skip block
 
 ## Optional Playbooks Menu System
 
-# Function to run a playbook (wrapper for backward compatibility)
+# Function to run a playbook (wrapper for backward compatibility).
+# The optional-menu call sites invoke this as a bare statement inside loops under
+# set -e. run_playbook_with_issue_option already surfaces any failure (error
+# message + offer to file an issue), so a non-zero return here must NOT abort the
+# whole optional menu — the user stays in control and can pick the next item.
+# Handle the failure explicitly (it is already reported) and return 0 so set -e
+# lets the menu continue. (B2: the issue-reporting UX runs AND the installer keeps
+# going instead of dying mid-menu.)
 run_playbook() {
-  run_playbook_with_issue_option "$1" "$2"
+  local _rc=0
+  run_playbook_with_issue_option "$1" "$2" || _rc=$?
+  if [[ $_rc -ne 0 ]]; then
+    warning "Continuing the optional menu after a failure in: $2 (exit $_rc)"
+  fi
+  return 0
 }
 
 # Parse a space/comma-separated list of numbers; print valid ones (one per line)
@@ -1303,7 +1615,13 @@ show_menu() {
     echo -e "  ${BOLD}Q)${NC} Quit optional installations"
 
     echo
-    read -rp "Enter your choice: " choice
+    # Defect 3: EOF (closed stdin, e.g. `--optional-only < /dev/null`) must not
+    # spin the menu loop forever. Return non-zero; the `if ! show_menu` call sites
+    # then cleanly skip the menu.
+    if ! read -rp "Enter your choice: " choice; then
+      info "No input (stdin closed) — skipping menu"
+      return 1
+    fi
 
     case "$choice" in
       [1-9]|[1-9][0-9])
@@ -1327,7 +1645,11 @@ show_menu() {
         break
         ;;
       [Ww])
-        read -rp "Enter numbers to run (space or comma separated): " _wl_input
+        # Defect 3: EOF on the sub-prompt must not spin — skip the menu cleanly.
+        if ! read -rp "Enter numbers to run (space or comma separated): " _wl_input; then
+          info "No input (stdin closed) — skipping menu"
+          return 1
+        fi
         mapfile -t _wl_nums < <(_parse_number_list "$_wl_input" "${#playbooks[@]}")
         if [[ ${#_wl_nums[@]} -eq 0 ]]; then
           warning "No valid numbers entered — try again"
@@ -1342,7 +1664,11 @@ show_menu() {
         fi
         ;;
       [Bb])
-        read -rp "Enter numbers to skip (space or comma separated, Enter to run all): " _bl_input
+        # Defect 3: EOF on the sub-prompt must not spin — skip the menu cleanly.
+        if ! read -rp "Enter numbers to skip (space or comma separated, Enter to run all): " _bl_input; then
+          info "No input (stdin closed) — skipping menu"
+          return 1
+        fi
         mapfile -t _bl_nums < <(_parse_number_list "$_bl_input" "${#playbooks[@]}")
         local _idx=1
         for pb in "${playbooks[@]}"; do
@@ -1418,8 +1744,16 @@ check_hardware() {
 echo -e "\n${MAGENTA}${BOLD}Optional Configurations${NC}"
 echo -e "${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
-if [[ "$OPTIONAL_ONLY" == "true" ]] || confirm "Would you like to install optional components?"; then
-  cd ~/Projects/fedora-desktop
+if [[ "$OPTIONAL_ONLY" == "true" ]] || confirm "Would you like to install optional components?" y; then
+  # L4: --optional-only with no prior install has no cloned repo. Fail with a
+  # clear "run the full install first" message rather than a terse cd error.
+  if [[ ! -d ~/Projects/fedora-desktop ]]; then
+    error "$HOME/Projects/fedora-desktop not found — the repo has not been cloned yet."
+    echo -e "${YELLOW}${ARROW} Run the full install first (./run.bash, no --optional-only),${NC}"
+    echo -e "${YELLOW}${ARROW} which clones the repo and performs core setup.${NC}"
+    exit 1
+  fi
+  cd ~/Projects/fedora-desktop || { error "Cannot cd into ~/Projects/fedora-desktop"; exit 1; }
 
   # Playbooks that always run without prompting (auto-run before the interactive menu)
   # NOTE: play-speech-to-text.yml removed pending GPU/CPU split — see issue #11
@@ -1492,8 +1826,13 @@ if [[ "$OPTIONAL_ONLY" == "true" ]] || confirm "Would you like to install option
 
       # Prompt for uncertain hardware playbooks
       if [[ ${#hw_prompt[@]} -gt 0 ]]; then
-        if confirm "Would you like to configure hardware-specific components that need manual checking?"; then
-          show_menu "Hardware-Specific" "${hw_prompt[@]}"
+        if confirm "Would you like to configure hardware-specific components that need manual checking?" y; then
+          # B3: show_menu returns 1 when the user presses Q; as a bare statement
+          # under set -e that would kill the installer. Guard it like the Common
+          # Optional call site does.
+          if ! show_menu "Hardware-Specific" "${hw_prompt[@]}"; then
+            info "Skipping remaining hardware-specific installations"
+          fi
         fi
       fi
     fi
@@ -1513,9 +1852,12 @@ if [[ "$OPTIONAL_ONLY" == "true" ]] || confirm "Would you like to install option
       done
       echo -e "\n${YELLOW}These require careful manual testing before use.${NC}"
       
-      if confirm "Would you like to attempt running untested playbooks? (NOT RECOMMENDED)"; then
+      if confirm "Would you like to attempt running untested playbooks? (NOT RECOMMENDED)" n; then
         echo -e "${RED}${BOLD}WARNING: These playbooks may fail or cause issues!${NC}"
-        show_menu "Untested (USE WITH CAUTION)" "${untested_playbooks[@]}"
+        # B3: guard the Q-returns-1 path so set -e does not abort the installer.
+        if ! show_menu "Untested (USE WITH CAUTION)" "${untested_playbooks[@]}"; then
+          info "Skipping remaining untested installations"
+        fi
       fi
     fi
   fi
@@ -1556,7 +1898,7 @@ touch ~/.local/state/fedora-desktop-setup-complete
 
 title "System Reboot"
 warning "A reboot is recommended to complete the configuration"
-if confirm "Ready to reboot now?"; then
+if confirm "Ready to reboot now?" n; then
   echo -e "${YELLOW}${INFO} Rebooting system...${NC}"
   sudo reboot now
 else
@@ -1564,3 +1906,10 @@ else
   echo -e "${YELLOW}${INFO} Remember to reboot your system when convenient${NC}"
   exit 0
 fi
+}  # end main()
+
+# Run the whole thing inside an explicit subshell so set -e / IFS / trap / exit
+# are contained and never leak into a sourcing shell (H4). By the time main runs,
+# bash has already parsed the entire file, so the `git pull` steps inside cannot
+# corrupt a still-streaming executed file (B5).
+( main "$@" )
