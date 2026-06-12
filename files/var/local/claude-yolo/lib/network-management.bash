@@ -100,15 +100,21 @@ connect_to_network() {
     local container_suffix="$2"
     local tool_name="${3:-ccy}"
     local project_name
-    project_name=$(basename "$PWD")
+    # BSH-14: derive the project name the SAME way container creation does
+    # (get_project_name prefixes a non-generic parent dir, e.g. acme-site_yolo).
+    # basename "$PWD" alone misses those, so `ccy --connect` found zero containers
+    # exactly when the collision-avoidance naming kicked in.
+    project_name=$(get_project_name)
     local base_name="${project_name}${container_suffix}"
     local container_name=""
 
-    # Find all running containers matching this project
+    # Find all running containers matching this project.
+    # grep exits 1 on no-match (expected — handled by the empty-array check
+    # below); a real grep error (exit >=2) still propagates.
     local matching_containers=()
     while IFS= read -r name; do
         matching_containers+=("$name")
-    done < <(container_cmd ps --format '{{.Names}}' | grep "^${base_name}" || true)
+    done < <(container_cmd ps --format '{{.Names}}' | grep "^${base_name}" || test $? -eq 1)
 
     # Check if any containers are running
     if [ ${#matching_containers[@]} -eq 0 ]; then

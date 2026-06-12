@@ -32,14 +32,11 @@ rules:
   # Line-anchored: catches the dominant trailing form. The write-time hook
   # additionally catches mid-line forms (e.g. inside $(...) or before `)`).
   #
-  # CCY wrapper (files/var/local/claude-yolo/**) is excluded pending Plan 00049
-  # Phase 6, which fixes its occurrences alongside the required CCY_VERSION bump.
+  # Applies repo-wide, including the CCY wrapper and libs (their occurrences were
+  # eliminated in Plan 00049 Phase 6, so the rule now gates them too).
   - id: bash-error-hiding-or-true
     patterns:
       - pattern-regex: '(?m)^.*\|\|[ \t]*(true|:)[ \t]*(#.*)?$'
-    paths:
-      exclude:
-        - 'files/var/local/claude-yolo/**'
     message: >
       Error hiding: trailing '|| true' / '|| :' swallows the command's failure.
       Handle it explicitly: 'if ! cmd; then echo "note: ..." >&2; fi' for

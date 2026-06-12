@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.17.0"  # feat(lib): factor common-pure.bash (host-safe helpers — print_error, is_token_valid, COLOR_RED, COLOR_RESET) so the new host /var/local/claude-code/cc wrapper can source the token chooser without triggering common.bash's podman-check exit. Adds a "host" mode to select_token (Desktop pseudo-option, empty-pool short-circuit, no create/renew); container mode unchanged. Callers in this wrapper updated to pass "container" explicitly. See Plan 00048.
+CCY_VERSION="3.18.0"  # Plan 00049 Phase 6 CCY hardening: narrow Wayland mount to the display socket only (SEC-03/CCY-02); pass OAuth/GH tokens by env NAME not in argv (BSH-09); mktemp for gitconfig staging + build-failure log (BSH-10); token create/renew now continues the launch or exits cleanly instead of crashing on cat "" (BSH-05); fix create_token PIPESTATUS so setup-token failures are diagnosed (BSH-04); ccy --connect uses get_project_name (BSH-14); fix dockerfile-custom heredoc corruption (CCY-01); ctrl+z patch sentinel surfaced at launch (CCY-07); byte-range message 90-120 (CCY-06); leak-free temp update container (CCY-09); eliminate all || true in the wrapper + libs (QA-07).
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -839,6 +839,19 @@ if [ "$UPDATE_TOKEN_MODE" = true ]; then
     exit $?
 fi
 
+# After an interactive token create/renew, exit the right way. create_token
+# (token-management.bash) sets CREATED_TOKEN_FILE on success and leaves it empty
+# when the user cancelled, so a successful creation no longer prints a
+# misleading "Cancelled" or crashes the caller on an empty token path (BSH-05).
+post_create_token_exit() {
+    if [ -n "${CREATED_TOKEN_FILE:-}" ]; then
+        echo "✓ Token created. Re-run 'ccy' to launch with it."
+        exit 0
+    fi
+    echo "Cancelled. Create a token with: ccy --create-token"
+    exit 1
+}
+
 # Token selection logic
 SELECTED_TOKEN=""
 CLAUDE_OAUTH_TOKEN=""
@@ -886,6 +899,7 @@ if [ -n "$SPECIFIED_TOKEN" ]; then
         read -rp "Create a new token now? (Y/n): " create_now
         if [ "$create_now" != "n" ] && [ "$create_now" != "N" ]; then
             create_token "$TOKEN_DIR" "$GH_TOKEN" "$IMAGE_NAME" "ccy" "$token_name"
+            post_create_token_exit
         fi
         echo "Cancelled. Create a token with: ccy --create-token"
         exit 1
@@ -915,7 +929,7 @@ else
 
         # Jump directly to token creation
         create_token "$TOKEN_DIR" "$GH_TOKEN" "$IMAGE_NAME" "ccy"
-        exit 0
+        post_create_token_exit
     else
         # Multiple tokens exist or single token - show selection
         select_token "$TOKEN_DIR" "container" || {
@@ -930,11 +944,20 @@ else
             read -rp "Create a token now? (Y/n): " create_now
             if [ "$create_now" != "n" ] && [ "$create_now" != "N" ]; then
                 create_token "$TOKEN_DIR" "$GH_TOKEN" "$IMAGE_NAME" "ccy"
+                post_create_token_exit
             fi
             echo "Cancelled. Create a token with: ccy --create-token"
             exit 1
         }
     fi
+fi
+
+# BSH-05: select_token's create/renew path returns success with SELECTED_TOKEN
+# set to the freshly created token (CREATED_TOKEN_FILE) — or empty if the user
+# cancelled the create. Empty here means there is nothing to launch with, so
+# exit with guidance rather than crashing on `cat ""`.
+if [ -z "$SELECTED_TOKEN" ]; then
+    post_create_token_exit
 fi
 
 # Load token content (it's just the token string)
@@ -950,7 +973,7 @@ if ! [[ "$CLAUDE_OAUTH_TOKEN" =~ ^sk-ant-oat01- ]]; then
     exit 1
 fi
 
-# Quick validation: Check token byte length (valid tokens are ~100-110 bytes)
+# Quick validation: Check token byte length (valid tokens are ~90-120 bytes)
 # This catches truncated/corrupted tokens before expensive API call
 TOKEN_BYTES=${#CLAUDE_OAUTH_TOKEN}
 TOKEN_VALIDATION_FAILED=false
@@ -984,7 +1007,7 @@ if [ "$TOKEN_VALIDATION_FAILED" = true ]; then
     echo "File: $SELECTED_TOKEN"
 
     if [ "$VALIDATION_FAILURE_REASON" = "length" ]; then
-        echo "Length: $TOKEN_BYTES bytes (expected: 100-110 bytes)"
+        echo "Length: $TOKEN_BYTES bytes (expected: 90-120 bytes)"
         echo ""
         echo "This token appears corrupted (truncated or has extra characters)."
     else
@@ -1017,7 +1040,7 @@ if [ "$TOKEN_VALIDATION_FAILED" = true ]; then
                 echo "Recreating token: $token_name"
                 echo ""
                 create_token "$TOKEN_DIR" "$GH_TOKEN" "$IMAGE_NAME" "ccy" "$token_name"
-                exit 0
+                post_create_token_exit
                 ;;
             2)
                 echo "Select a different token:"
@@ -1029,10 +1052,16 @@ if [ "$TOKEN_VALIDATION_FAILED" = true ]; then
                     read -rp "Create a new token? (Y/n): " create_now
                     if [ "$create_now" != "n" ] && [ "$create_now" != "N" ]; then
                         create_token "$TOKEN_DIR" "$GH_TOKEN" "$IMAGE_NAME" "ccy"
+                        post_create_token_exit
                     fi
                     echo "Cancelled. Create a token with: ccy --create-token"
                     exit 1
                 }
+                # BSH-05: a create/renew inside select_token may leave
+                # SELECTED_TOKEN empty (cancelled) — don't cat "".
+                if [ -z "$SELECTED_TOKEN" ]; then
+                    post_create_token_exit
+                fi
                 # Token selected via select_token, reload and validate
                 CLAUDE_OAUTH_TOKEN=$(cat "$SELECTED_TOKEN")
 
@@ -1201,6 +1230,15 @@ check_claude_code_updates() {
 # Ensure cache directory exists
 mkdir -p "$(dirname "$VERSION_CHECK_CACHE")"
 
+# Best-effort removal of a temporary container. A container that is already gone
+# is not an error here, so the failure is logged at debug level rather than
+# swallowed with `|| true` (QA-07).
+remove_temp_container() {
+    if ! container_cmd rm -f "$1" >/dev/null 2>/dev/null; then
+        debug "temp container $1 already removed or never created"
+    fi
+}
+
 # Fast in-place Claude Code update: run npm install in temp container then commit back
 update_claude_inplace() {
     local image_name="$1"
@@ -1211,15 +1249,22 @@ update_claude_inplace() {
         --entrypoint sh \
         "$image_name" \
         -c "npm install -g @anthropic-ai/claude-code@latest 2>&1"; then
-        container_cmd rm -f "$temp_name" 2>/dev/null || true
+        remove_temp_container "$temp_name"
         print_error "Failed to update Claude Code in $image_name"
         return 1
     fi
-    container_cmd commit \
+    # CCY-09: under set -e a failing commit would abort before the rm below and
+    # leak the stopped temp container (no --rm on create). Branch explicitly so
+    # the container is always cleaned up.
+    if ! container_cmd commit \
         --change 'ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]' \
         --change 'CMD ["claude", "--help"]' \
-        "$temp_name" "$image_name" >/dev/null
-    container_cmd rm "$temp_name" >/dev/null
+        "$temp_name" "$image_name" >/dev/null; then
+        remove_temp_container "$temp_name"
+        print_error "Failed to commit updated image $image_name"
+        return 1
+    fi
+    remove_temp_container "$temp_name"
     echo "  ✓ Updated $image_name"
 }
 
@@ -1437,7 +1482,9 @@ if [ -f "$PROJECT_DOCKERFILE" ] && [ "$DISABLE_CUSTOM_DOCKER" = false ]; then
             # Build failed — save full log and auto-start in diagnostic mode.
             # Rather than exiting, fall through to start CCY with the base image
             # and inject a diagnostic prompt so Claude can fix the Dockerfile interactively.
-            build_failure_log="/tmp/ccy-dockerfile-build-failure.log"
+            # BSH-10: mktemp so the diagnostic log can't collide across runs or
+            # be redirected through a pre-planted symlink at a fixed path.
+            build_failure_log=$(mktemp /tmp/ccy-dockerfile-build-failure-XXXXXX.log)
             cp "$build_log" "$build_failure_log"
             rm -f "$build_log"
 
@@ -1517,24 +1564,29 @@ debug "Config .claude.json will be created inside container by entrypoint"
 # - Clean, simple, reliable
 
 # Create temp directory ONLY for gitconfig (can't mount directly into container root)
-CONFIG_TEMP="/tmp/claude-yolo-$$"
-mkdir -p "$CONFIG_TEMP"
-chmod 755 "$CONFIG_TEMP"
+# BSH-10: mktemp -d (not a predictable /tmp/claude-yolo-$PID) so a hostile or
+# leftover directory cannot pre-seed the destination, and 0700/0600 modes keep
+# the gitconfig (which may carry credential-helper / signing config) private.
+CONFIG_TEMP=$(mktemp -d /tmp/claude-yolo-XXXXXX)
+chmod 700 "$CONFIG_TEMP"
 
 # Copy git config to temp location for entrypoint
 if [ -f "$HOME/.gitconfig" ]; then
     cp "$HOME/.gitconfig" "$CONFIG_TEMP/gitconfig"
-    chmod 644 "$CONFIG_TEMP/gitconfig"
+    chmod 600 "$CONFIG_TEMP/gitconfig"
 else
     touch "$CONFIG_TEMP/gitconfig"
-    chmod 644 "$CONFIG_TEMP/gitconfig"
+    chmod 600 "$CONFIG_TEMP/gitconfig"
 fi
 
 # Cleanup function
 cleanup() {
-    # Restore terminal suspend character if we disabled it before container launch
+    # Restore terminal suspend character if we disabled it before container launch.
+    # Best-effort: the TTY may already be gone at exit, which is not an error.
     if [[ -n "${_CCY_STTY_SAVED:-}" ]]; then
-        stty "$_CCY_STTY_SAVED" 2>/dev/null || true
+        if ! stty "$_CCY_STTY_SAVED" 2>/dev/null; then
+            debug "could not restore terminal suspend character (no TTY at exit)"
+        fi
     fi
 
     rm -rf "$CONFIG_TEMP"
@@ -1613,6 +1665,17 @@ DOCKER_MOUNTS=(
     -v "$PWD:/workspace"
     -v "$CONFIG_TEMP:/tmp/claude-config-import:ro"
 )
+
+# BSH-12: honour CCY_EXTRA_MOUNTS — a space-separated list of `-v src:dst:opts`
+# tokens exported by helper wrappers (e.g. scripts/desktop-symlinks) that want
+# extra read-only debug mounts. Previously this variable was advertised but never
+# read, so the promised mounts silently never appeared. Split on whitespace into
+# the mount array (mount paths therefore must not contain spaces).
+if [ -n "${CCY_EXTRA_MOUNTS:-}" ]; then
+    read -ra _extra_mounts <<< "$CCY_EXTRA_MOUNTS"
+    DOCKER_MOUNTS+=("${_extra_mounts[@]}")
+    debug "Added ${#_extra_mounts[@]} CCY_EXTRA_MOUNTS token(s) to DOCKER_MOUNTS"
+fi
 
 # Note: Session state (history, databases, todos) will be stored in /workspace/.claude/ccy/
 # This keeps everything project-local and gitignored, while maintaining ephe meral containers
@@ -1864,7 +1927,10 @@ if [[ "$CROSS_ENGINE_MISMATCH" = true ]]; then
                                     containers=$(docker network inspect "$net" --format '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null || echo "")
                                     if [[ -n "$containers" ]]; then
                                         echo "  Stopping containers on $net: $containers"
-                                        docker stop $containers 2>/dev/null || true
+                                        read -ra _ctrs <<< "$containers"
+                                        if ! docker stop "${_ctrs[@]}" >/dev/null 2>/dev/null; then
+                                            echo "    ⚠ Some containers could not be stopped (continuing)"
+                                        fi
                                     fi
                                     echo "  Removing network: $net"
                                     docker network rm "$net" 2>/dev/null && echo "    ✓ Removed" || echo "    ⚠ Could not remove (may still have containers)"
@@ -1873,7 +1939,9 @@ if [[ "$CROSS_ENGINE_MISMATCH" = true ]]; then
                                 ;;
                             b|B)
                                 echo "Stopping all Docker containers..."
-                                docker ps -q | xargs -r docker stop 2>/dev/null || true
+                                if ! docker ps -q | xargs -r docker stop >/dev/null 2>/dev/null; then
+                                    echo "  ⚠ Some containers could not be stopped (continuing)"
+                                fi
                                 echo "Pruning all unused Docker networks..."
                                 docker network prune -f
                                 echo "✓ Docker networks pruned"
@@ -2522,12 +2590,23 @@ fi
 # Detect Wayland or X11 and mount appropriate display socket
 GUI_MOUNTS=()
 if [ -n "$WAYLAND_DISPLAY" ]; then
-    GUI_MOUNTS+=(
-        "-v" "$XDG_RUNTIME_DIR:$XDG_RUNTIME_DIR"
-        "-e" "WAYLAND_DISPLAY=$WAYLAND_DISPLAY"
-        "-e" "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR"
-        "-e" "DISPLAY=:0"
-    )
+    # SEC-03/CCY-02: mount ONLY the Wayland display socket (read-only), never the
+    # whole $XDG_RUNTIME_DIR. That directory also holds the D-Bus session bus,
+    # PipeWire/Pulse, and gnome-keyring sockets — bind-mounting all of it would
+    # hand a --dangerously-skip-permissions agent the host session bus and
+    # keyring, defeating the isolation CCY exists to provide. Only the socket is
+    # needed to render browser windows.
+    _wayland_socket="$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"
+    if [ -S "$_wayland_socket" ]; then
+        GUI_MOUNTS+=(
+            "-v" "$_wayland_socket:$_wayland_socket:ro"
+            "-e" "WAYLAND_DISPLAY=$WAYLAND_DISPLAY"
+            "-e" "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR"
+            "-e" "DISPLAY=:0"
+        )
+    else
+        debug "Wayland socket not found at $_wayland_socket — skipping GUI mount"
+    fi
 elif [ -n "$DISPLAY" ]; then
     GUI_MOUNTS+=(
         "-v" "/tmp/.X11-unix:/tmp/.X11-unix:ro"
@@ -2557,6 +2636,13 @@ if container_cmd rm -f "$CONTAINER_NAME" 2>&1 | grep -q "$CONTAINER_NAME"; then
     echo "Removed leftover container: $CONTAINER_NAME"
 fi
 
+# BSH-09: pass the two secrets by env NAME (-e VAR, no '=value') so the token
+# values are taken from this process's environment and never appear in the
+# `podman run` argv (world-readable via /proc/<pid>/cmdline for the lifetime of
+# this long-lived interactive process). GITHUB_USERNAME is not a secret and stays
+# inline for clarity.
+export CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_OAUTH_TOKEN"
+export GH_TOKEN
 container_cmd run $DOCKER_FLAGS --rm \
     --name "$CONTAINER_NAME" \
     $NETWORK_FLAG \
@@ -2564,8 +2650,8 @@ container_cmd run $DOCKER_FLAGS --rm \
     "${DOCKER_MOUNTS[@]}" \
     "${SSH_MOUNTS[@]}" \
     "${GUI_MOUNTS[@]}" \
-    -e "CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_OAUTH_TOKEN" \
-    -e "GH_TOKEN=$GH_TOKEN" \
+    -e CLAUDE_CODE_OAUTH_TOKEN \
+    -e GH_TOKEN \
     -e "GITHUB_USERNAME=$GITHUB_USERNAME" \
     -e "DEBUG_MODE=$DEBUG_MODE" \
     -e "DEBUG_ENTRYPOINT=$DEBUG_ENTRYPOINT" \
@@ -2594,7 +2680,9 @@ if [[ "${CCY_COMPOSE_WAS_STARTED:-}" = "true" ]]; then
     echo ""
     if ! container_cmd stats --no-stream 2>/dev/null; then
         # Fallback if stats unavailable
-        container_cmd ps --format "  • {{.Names}} ({{.Image}})" 2>/dev/null || true
+        if ! container_cmd ps --format "  • {{.Names}} ({{.Image}})" 2>/dev/null; then
+            echo "  (could not list running containers)"
+        fi
     fi
     echo ""
     echo "Command: $CCY_COMPOSE_CMD down"

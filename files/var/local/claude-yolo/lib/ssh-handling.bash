@@ -94,8 +94,9 @@ probe_gh_keys_for_remote() {
     fi
 
     # Per-probe logs for diagnosing a 0-match outcome.
-    export PROBE_LOG_DIR="/tmp/ccy-gh-probe-$$"
-    mkdir -p "$PROBE_LOG_DIR"
+    # BSH-10: mktemp -d (0700) rather than a predictable /tmp/ccy-gh-probe-$PID.
+    PROBE_LOG_DIR=$(mktemp -d /tmp/ccy-gh-probe-XXXXXX)
+    export PROBE_LOG_DIR
 
     # Capture the originally-active gh account so we can restore it after
     # probing (each gh-token-<alias> call switches the active account).
@@ -294,6 +295,13 @@ build_ssh_mounts_and_validate() {
     SSH_KEY_PATHS=()
     GITHUB_USERNAME=""
 
+    # BSH-06: the PRIMARY key (index 0) defines the container identity — both
+    # GITHUB_USERNAME and the gh-token alias below are derived from it. Additional
+    # keys are still mounted and connectivity-verified, but they must NOT overwrite
+    # GITHUB_USERNAME: GH_TOKEN comes from key 0's alias, so letting a later key win
+    # would pair a key-0 token with a key-N username and the container entrypoint
+    # would hard-fail on a token/identity mismatch.
+    local primary_user=""
     for i in "${!SSH_KEYS[@]}"; do
         SSH_MOUNTS+=("-v" "${SSH_KEYS[$i]}:/root/.ssh/key_$i:ro")
         SSH_KEY_PATHS+=("/root/.ssh/key_$i")
@@ -309,14 +317,15 @@ build_ssh_mounts_and_validate() {
         #   -o IdentityAgent=none → ignore ssh-agent
         #   -o IdentitiesOnly=yes → only try the -i key
         # ssh -T responds with: "Hi <username>! You've successfully authenticated..."
-        GITHUB_USERNAME=$(ssh -T -i "${SSH_KEYS[$i]}" \
+        local detected_user
+        detected_user=$(ssh -T -i "${SSH_KEYS[$i]}" \
             -F /dev/null \
             -o IdentitiesOnly=yes \
             -o IdentityAgent=none \
             -o StrictHostKeyChecking=no \
             git@github.com 2>&1 | grep -oP "Hi \K[^!]+")
 
-        if [ -z "$GITHUB_USERNAME" ]; then
+        if [ -z "$detected_user" ]; then
             print_error "SSH key authentication to GitHub failed: ${SSH_KEYS[$i]}"
             echo ""
             echo "The selected SSH key is not registered with any GitHub account."
@@ -331,8 +340,20 @@ build_ssh_mounts_and_validate() {
             return 1
         fi
 
-        echo "✓ Detected GitHub account for SSH key: $GITHUB_USERNAME"
+        if [ "$i" -eq 0 ]; then
+            primary_user="$detected_user"
+            echo "✓ Primary GitHub account (key $(basename "${SSH_KEYS[0]}")): $detected_user"
+        else
+            echo "✓ Additional SSH key authenticates as: $detected_user"
+            if [ "$detected_user" != "$primary_user" ]; then
+                echo "  note: this key maps to a different account; the container"
+                echo "        will use the primary account ($primary_user)."
+            fi
+        fi
     done
+
+    # Identity is the primary key's account (see BSH-06 note above).
+    GITHUB_USERNAME="$primary_user"
 
     # Get GitHub token from gh CLI
     if ! command_exists gh; then

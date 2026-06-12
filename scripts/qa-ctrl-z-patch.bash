@@ -27,7 +27,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 QA_DIR="$SCRIPT_DIR/qa-ccy"
 NODE_MODULES="$QA_DIR/node_modules"
-CLI_JS="$NODE_MODULES/@anthropic-ai/claude-code/cli.js"
+CC_DIR="$NODE_MODULES/@anthropic-ai/claude-code"
 PATCH_SCRIPT="$REPO_ROOT/files/var/local/claude-yolo/ccy-ctrl-z-patch.js"
 JSON_OUT="${QA_JSON_OUT:-/tmp/qa-ctrl-z-patch-results.json}"
 SUSPEND_GUARD='&&!process.env.CCY_DISABLE_SUSPEND'
@@ -60,38 +60,70 @@ if [[ $UPDATE -eq 1 ]] || [[ ! -d "$NODE_MODULES" ]]; then
         || _fail "npm install failed" "See /tmp/qa-ccy-npm.log for details"
 fi
 
-# Sanity-check cli.js exists
-if [[ ! -f "$CLI_JS" ]]; then
-    _fail "cli.js not found after install" "Try: $0 --update"
+# Sanity-check the package is present
+if [[ ! -d "$CC_DIR" ]]; then
+    _fail "claude-code package not found after install" "Try: $0 --update"
+fi
+
+# CCY-03: detect which artifact npm produced and exercise the matching patch
+# path. Claude Code 2.1.x+ ships as a native SEA binary (bin/claude.exe); older
+# releases ship cli.js. Hardcoding cli.js meant the QA either hard-failed on
+# "cli.js not found" or validated an artifact production no longer uses.
+if [[ -f "$CC_DIR/cli.js" ]]; then
+    ARTIFACT="cli.js"
+elif [[ -f "$CC_DIR/bin/claude.exe" ]]; then
+    ARTIFACT="native"
+else
+    _fail "Neither cli.js nor bin/claude.exe present in installed package" \
+        "Claude Code packaging changed again — update qa-ctrl-z-patch.bash and ccy-ctrl-z-patch.js"
 fi
 
 # Get installed version for reporting
 CLAUDE_VERSION=$(node -e \
-    "process.stdout.write(require('$QA_DIR/node_modules/@anthropic-ai/claude-code/package.json').version)")
+    "process.stdout.write(require('$CC_DIR/package.json').version)")
 
-# Copy cli.js to a temp working copy — never touch the real install
-TMP_CLI=$(mktemp --suffix=.js)
-trap 'rm -f "$TMP_CLI"' EXIT
-cp "$CLI_JS" "$TMP_CLI"
+# Build an isolated package dir copy so we never mutate the real install. The
+# patch script resolves both artifacts from CCY_PKG_DIR, and writes its soft-fail
+# sentinel to CCY_PATCH_STATUS_PATH (CCY-07).
+TMP_PKG=$(mktemp -d)
+TMP_STATUS=$(mktemp)
+trap 'rm -rf "$TMP_PKG" "$TMP_STATUS"' EXIT
 
-# Run the patch script against the temp copy (CCY_CLI_PATH overrides the hardcoded path).
-# We check for success by inspecting the file, not the exit code (soft-fail exits 0).
-PATCH_RC=0
-PATCH_OUTPUT=$(CCY_CLI_PATH="$TMP_CLI" node "$PATCH_SCRIPT" 2>&1) || PATCH_RC=$?
-if [[ "$PATCH_RC" -ne 0 ]]; then
-    echo "  note: patch script exited $PATCH_RC; success is verified via file inspection below" >&2
-fi
-
-# Determine patch result
 PATCH_RESULT="not-applied"
 STATUS="fail"
-if grep -qF "$SUSPEND_GUARD" "$TMP_CLI" 2>/dev/null; then
-    STATUS="pass"
-    if echo "$PATCH_OUTPUT" | grep -q "known pattern"; then
-        PATCH_RESULT="applied-known"
-    else
-        PATCH_RESULT="applied-dynamic"
+PATCH_RC=0
+
+if [[ "$ARTIFACT" == "cli.js" ]]; then
+    cp "$CC_DIR/cli.js" "$TMP_PKG/cli.js"
+    PATCH_OUTPUT=$(CCY_PKG_DIR="$TMP_PKG" CCY_PATCH_STATUS_PATH="$TMP_STATUS" \
+        node "$PATCH_SCRIPT" 2>&1) || PATCH_RC=$?
+    # Success is verified by inspecting the file, not the exit code (soft-fail exits 0).
+    if grep -qF "$SUSPEND_GUARD" "$TMP_PKG/cli.js" 2>/dev/null; then
+        STATUS="pass"
+        if echo "$PATCH_OUTPUT" | grep -q "known pattern"; then
+            PATCH_RESULT="applied-known"
+        else
+            PATCH_RESULT="applied-dynamic"
+        fi
     fi
+else
+    mkdir -p "$TMP_PKG/bin"
+    cp "$CC_DIR/bin/claude.exe" "$TMP_PKG/bin/claude.exe"
+    PATCH_OUTPUT=$(CCY_PKG_DIR="$TMP_PKG" CCY_PATCH_STATUS_PATH="$TMP_STATUS" \
+        node "$PATCH_SCRIPT" 2>&1) || PATCH_RC=$?
+    # Native binary is patched by a same-length byte flip, so we cannot grep for
+    # the cli.js guard string. Success = the patch reported applying (or already
+    # applied) AND no soft-fail sentinel was written.
+    sentinel="$(cat "$TMP_STATUS" 2>/dev/null)" || sentinel=""
+    if [[ "$sentinel" != "failed" ]] && \
+       echo "$PATCH_OUTPUT" | grep -qE "applied to native binary|already applied"; then
+        STATUS="pass"
+        PATCH_RESULT="applied-native"
+    fi
+fi
+
+if [[ "$PATCH_RC" -ne 0 ]]; then
+    echo "  note: patch script exited $PATCH_RC; success is verified via inspection above" >&2
 fi
 
 # Terse output

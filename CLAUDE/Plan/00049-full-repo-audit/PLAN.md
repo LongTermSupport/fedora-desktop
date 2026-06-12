@@ -1,6 +1,6 @@
 # Plan 00049: Full Repository Audit
 
-**Status**: 🔄 In Progress (research complete; Batches 1 (Phases 3+4), 2a (Phase 5), 2b (QA-07) landed on branch `fable-audit-1`)
+**Status**: 🔄 In Progress (research complete; Batches 1 (Phases 3+4), 2a (Phase 5), 2b (QA-07), 3 (Phase 6 — full CCY hardening) landed on branch `fable-audit-1`)
 **Created**: 2026-06-12
 **Owner**: Claude (Fable 5 multi-agent workflow) / joseph
 **Priority**: High
@@ -83,7 +83,7 @@ The 7 effective-high findings: SEC-01 (committed PII), FF-01/ANS-01 (shell block
 - [x] ✅ **`set -euo pipefail` in multi-line `shell: |` blocks** (FF-01/ANS-01): swept **all 28 playbooks** with shell blocks — strict mode added to every unguarded multi-line block (curl|installer blocks use `set -eo pipefail`; commands that legitimately return non-zero guarded with annotated `# FAIL-FAST-OK:`); also updated CLAUDE/AnsibleStyle.md to mandate `set -euo pipefail`, and fixed play-vscode's `dnf check-update || true` to allow only rc 0/100. Verified: all 71 playbooks pass `ansible-playbook --syntax-check`.
 - [x] ✅ **Fix cloudflare-warp play** (ANS-02..ANS-04): `get_url` replaces curl|tee (no empty-file wedge) + `dnf update` removed; resolved.conf moved to an owned drop-in with the reload handler reinstated; registration is now idempotent (only when absent, no churn). *(Orchestrator fixed the registration block's SIGPIPE bug found in review — dropped the redundant `yes` pipe.)*
 - [x] ✅ **Fix skip-and-warn in play-toolbox-install** (FF-02/ANS-10): missing binary after install now `exit 1`; literal `== True/False` comparisons idiomatic.
-- [ ] ⬜ **Surface CCY entrypoint known_hosts failure** (FF-06/BSH-16/CCY-08): *deferred to Phase 6* — it is a CCY-image file (`entrypoint.sh`); bundled with the CCY batch + version bump.
+- [x] ✅ **Surface CCY entrypoint known_hosts failure** (FF-06/BSH-16/CCY-08): *done in Phase 6 (Batch 3)* — `entrypoint.sh` now captures the GitHub-meta fetch explicitly; on failure it falls back to `StrictHostKeyChecking=accept-new` (so in-container `git push` can't hang) and reports which path was taken.
 - [x] ✅ **Fix docker-in-lxc warn-and-continue** (FF-05): claude-version verify now hard-fails; npm-update failure surfaced (rc captured) instead of hidden.
 - [x] ✅ **Create `~/.config/git` before blockinfile** (ANS-08): added a `file: state=directory` task + owner/group/mode on the blockinfile.
 - [x] ✅ **Fix localhost.yml.dist** (ANS-11): documented `github_ssh_passphrase`, corrected `lastfm_secret`→`lastfm_api_secret`, and added the consuming `github_ssh_passphrase` assert to play-lxc-install-config.yml.
@@ -93,16 +93,19 @@ The 7 effective-high findings: SEC-01 (committed PII), FF-01/ANS-01 (shell block
 
 > Findings: SEC-03/CCY-02, BSH-04..BSH-06, BSH-09, BSH-10, BSH-14, CCY-01, CCY-03, CCY-06, CCY-07, BSH-12 — see [research/ccy.md](research/ccy.md), [research/bash.md](research/bash.md). One batch = one CCY_VERSION bump (minor).
 
-- [ ] ⬜ **Narrow the Wayland mount** (SEC-03/CCY-02): mount only `$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY` (read-only) instead of the whole runtime dir
-- [ ] ⬜ **Stop exposing tokens in argv** (BSH-09): name-only `-e CLAUDE_CODE_OAUTH_TOKEN -e GH_TOKEN` pass-through
-- [ ] ⬜ **mktemp for predictable /tmp paths** (BSH-10): CONFIG_TEMP gitconfig staging (0600), PROBE_LOG_DIR, fixed log files
-- [ ] ⬜ **Fix create_token pipeline status** (BSH-04): branch on `PIPESTATUS[0]` so the existing failure diagnostics become reachable
-- [ ] ⬜ **Fix select_token create/renew paths** (BSH-05): set SELECTED_TOKEN after creation instead of crashing on `cat ""`
-- [ ] ⬜ **Fix multi-SSH-key identity mismatch** (BSH-06): derive username and token alias from the same primary key
-- [ ] ⬜ **Fix `ccy --connect` project-name derivation** (BSH-14): use get_project_name() on both sides
-- [ ] ⬜ **Fix corrupted AI-Dockerfile heredocs** (CCY-01) + smoke test for stray PROMPT_EOF
-- [ ] ⬜ **ctrl+z patch: QA the native-binary path** (CCY-03) and surface soft-fail at launch via sentinel file (CCY-07); document native-binary mode in ContainerRules.md (DOC-18)
-- [ ] ⬜ **Token byte-range message consistency** (CCY-06); decide CCY_EXTRA_MOUNTS implement-or-delete (BSH-12)
+- [x] ✅ **Narrow the Wayland mount** (SEC-03/CCY-02): mount only `$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY` (`:ro`, gated on `[ -S ]`) instead of the whole runtime dir — keeps the D-Bus/keyring/PipeWire sockets out of the YOLO container
+- [x] ✅ **Stop exposing tokens in argv** (BSH-09): export + name-only `-e CLAUDE_CODE_OAUTH_TOKEN -e GH_TOKEN` at the final run and in `validate_token`/`create_token` (token-management.bash); `--version` suppression rewritten off `&>/dev/null`
+- [x] ✅ **mktemp for predictable /tmp paths** (BSH-10): `CONFIG_TEMP` via `mktemp -d` (0700 dir, gitconfig 0600), `PROBE_LOG_DIR` via `mktemp -d`, build-failure log via `mktemp`
+- [x] ✅ **Fix create_token pipeline status** (BSH-04): capture `PIPESTATUS[0]` and branch on it; the 125/126/127 diagnostics are now reachable (and the stale `docker_exit_code=$?` removed)
+- [x] ✅ **Fix select_token create/renew paths** (BSH-05): `create_token` publishes `CREATED_TOKEN_FILE`; `select_token` sets `SELECTED_TOKEN` from it; callers continue the launch with the new token or exit via `post_create_token_exit` instead of crashing on `cat ""` / printing a false "Cancelled"
+- [x] ✅ **Fix multi-SSH-key identity mismatch** (BSH-06): primary key (index 0) is authoritative for `GITHUB_USERNAME` + token alias; extra keys are mounted and connectivity-verified but never overwrite identity
+- [x] ✅ **Fix `ccy --connect` project-name derivation** (BSH-14): `connect_to_network` now calls `get_project_name` (matches container naming)
+- [x] ✅ **Fix corrupted AI-Dockerfile heredocs** (CCY-01): all 5 broken `PROMPT_EOF` interleaves fixed; **validated by executing both generators** — base image + paths render, zero stray markers; removed the now-unnecessary SC2034 suppression
+- [x] ✅ **ctrl+z patch: QA the native-binary path** (CCY-03 — `qa-ctrl-z-patch.bash` now auto-detects `cli.js` vs `bin/claude.exe` and exercises the matching path; verified green against cached CC 2.1.50) and surface soft-fail at launch via sentinel `/opt/claude-yolo/.ctrlz-patch-status` (CCY-07); document native-binary mode + sentinel in ContainerRules.md (DOC-18)
+- [x] ✅ **Token byte-range message consistency** (CCY-06: all three messages now say 90-120); **implement** `CCY_EXTRA_MOUNTS` consumption in claude-yolo (BSH-12 — the advertised debug mounts now actually apply; `desktop-symlinks` comment corrected)
+- [x] ✅ **Leak-free temp update container** (CCY-09): `update_claude_inplace` cleans up the temp container on commit failure via a shared `remove_temp_container` helper
+- [x] ✅ **CCY `|| true` elimination + gate** (QA-07 remainder): the 6 wrapper/lib occurrences refactored to explicit `if`/fallback forms; the `bash-error-hiding-or-true` semgrep `paths.exclude` for CCY removed so the rule now gates the wrapper + libs (qa-all green)
+- [x] ✅ **CCY_VERSION bump** 3.17.0 → 3.18.0 (single minor bump for the whole batch); lib headers bumped where touched (token-management 1.6.0, dockerfile-custom 1.3.0). No Dockerfile change → `REQUIRED_CONTAINER_VERSION` stays 2.18; `CCY_HASH` is self-computed at runtime.
 
 ### Phase 7 (Action E): Shipped Runtime Bug Fixes (small, immediate)
 
@@ -218,3 +221,11 @@ The 7 effective-high findings: SEC-01 (committed PII), FF-01/ANS-01 (shell block
 - **Ansible `shell:` blocks (follow-up commit, same batch):** eliminated all 6 — `play-AB-dnf-upgrade` (×2: grep probe → `|| test $? -eq 1`, rpm probe → drop), `play-github-cli-multi` (fallback ssh-keygen → drop, no `set -e` in block), `play-unifi-controller` (chown → explicit `if` + stderr warning), `play-qobuz-cli` (version probe → `var=$(…) || var=""`), `play-docker-overlay2-migration` (one-liner → reporting `if` block), `play-lxc-install-config` (`ssh -T` → drop; `failed_when` already governs, so the old "guard from set -e" annotation was incorrect — rc is overridden by `failed_when`). All 71 playbooks still `--syntax-check` clean.
 - **Deferred:** CCY wrapper `|| true` (`claude-yolo` ×5 + `lib/network-management.bash` ×1) → Phase 6 (needs `CCY_VERSION` bump + host rebuild + the wrapper's pre-existing shellcheck debt; rule `paths.exclude`s `files/var/local/claude-yolo/**` until then — the write-time hook still guards it).
 - Edit-only (no CCY-image files); `run.bash`/`docker-in-lxc` self-versions bumped per their own rules.
+
+### 2026-06-12 — Batch 3 executed (Phase 6: full CCY correctness + hardening) on `fable-audit-1`
+
+- **One batch, one `CCY_VERSION` bump (3.17.0 → 3.18.0)** per the user's choice (option A: fold the deferred CCY `|| true` into the full Phase 6 batch). Driven directly (not a fan-out workflow): the findings are concentrated in the single 2,600-line `claude-yolo` wrapper plus tightly-coupled libs, security-critical, and untestable in-container — so a file-partitioned parallel workflow was not warranted (agents would collide and the token-flow logic spans files).
+- **Landed (11 files):** SEC-03/CCY-02 (Wayland socket-only `:ro` mount), BSH-09 (tokens by env name, not argv — wrapper + `validate_token`/`create_token`), BSH-10 (mktemp for `CONFIG_TEMP`/`PROBE_LOG_DIR`/build-failure log), BSH-04 (`PIPESTATUS[0]` for setup-token), BSH-05 (`CREATED_TOKEN_FILE` contract + `post_create_token_exit` — no more `cat ""` crash / false "Cancelled"), BSH-06 (primary-key identity), BSH-14 (`get_project_name` in `--connect`), CCY-01 (heredoc terminators), CCY-03 (artifact-aware ctrl+z QA), CCY-06 (90-120 message), CCY-07 (soft-fail sentinel + launch warning), CCY-09 (leak-free temp container), CCY-08/BSH-16/FF-06 (entrypoint known_hosts → `accept-new` fallback), BSH-12 (`CCY_EXTRA_MOUNTS` now consumed), DOC-18 (ContainerRules native-binary + sentinel docs), and the 6 CCY `|| true` eliminated (semgrep `paths.exclude` for CCY removed — the rule now gates the wrapper + libs).
+- **Verification (static — CCY is edit-only, cannot run the container here):** `bash -n` + `node --check` clean on all 11 files; `shellcheck -S error -x` clean (zero error-level); `./scripts/qa-all.bash` green (6 stages, 285 files; semgrep now scans CCY with zero `|| true`); `semgrep --test` 2/2. Two findings **validated by live execution**: CCY-01 (ran both Dockerfile-prompt generators — base image + paths render, zero stray `PROMPT_EOF`) and CCY-03 (`./scripts/qa-ctrl-z-patch.bash` green against cached Claude Code 2.1.50, `applied-known`; native-binary path is in place for when a native-only release lands).
+- **Host operator notes:** deploy `play-claude-yolo.yml` on the HOST, then the next `ccy` launch will detect the new `CCY_VERSION`/`CCY_HASH` and re-run its config step (expected). The narrowed Wayland mount uses `:ro` on the socket — if a GUI/browser window fails to open on the host, the operator note is to drop `:ro` (the isolation win is the socket-only scoping, not the ro flag). No Dockerfile change, so no container rebuild is forced for the wrapper/lib/entrypoint changes beyond the normal deploy; the ctrl+z sentinel only materialises in a fresh image build.
+- **Smoke-test note (CCY-01):** the heredoc fix was verified by execution; a permanent bats/smoke harness for the prompt generators is the right home for an automated guard and remains tracked under the deferred OPP-03 (CCY bash test suite).

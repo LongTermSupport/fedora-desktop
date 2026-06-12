@@ -2,7 +2,10 @@
 # Custom Dockerfile Management Library
 # Custom Dockerfile workflow for claude-yolo (ccy)
 #
-# Version: 1.2.0
+# Version: 1.3.0 - CCY-01: fix heredoc terminators that never closed (PROMPT_EOF
+#                  was not alone on its line), which leaked literal echo/cat
+#                  fragments and dropped the $base_image / $dockerfile_path values
+#                  from the generated prompts.
 
 # Function to create/update custom Dockerfile for project
 # Args: $1 = script_path ($0), $2 = project_subdir (".claude/ccy"), $3 = tool_name (for display)
@@ -220,9 +223,9 @@ Create an optimized, project-specific Dockerfile through a collaborative plannin
 
 ### The Container Environment
 
-**Base Image: PROMPT_EOF
-    echo "$base_image"
-    cat << 'PROMPT_EOF'**
+PROMPT_EOF
+    echo "**Base Image: ${base_image}**"
+    cat << 'PROMPT_EOF'
 Pre-installed tools:
 - **System**: Debian slim, git, gh CLI, SSH, ripgrep, jq, yq, vim, tini
 - **Languages**: Node.js 20, npm, Python 3 (system version)
@@ -552,7 +555,6 @@ PROMPT_EOF
 get_dockerfile_improvement_prompt() {
     local project_subdir="$1"
     local tool_name="$2"
-    # shellcheck disable=SC2034
     local dockerfile_path="$project_subdir/Dockerfile"
     local rebuild_cmd="$tool_name --rebuild"
 
@@ -563,8 +565,8 @@ You are helping the user improve an existing custom Dockerfile for ccy.
 
 ## YOUR MISSION
 
-1. **Read the current Dockerfile** at PROMPT_EOF
-    echo "$dockerfile_path"
+PROMPT_EOF
+    echo "1. **Read the current Dockerfile** at ${dockerfile_path}"
     cat << 'PROMPT_EOF'
 2. **Investigate the project** to understand current and potential needs
 3. **Analyze the Dockerfile** for:
@@ -583,9 +585,9 @@ You are helping the user improve an existing custom Dockerfile for ccy.
 
 ### Step 1: Read and Analyze
 
-Read PROMPT_EOF
-    echo "$dockerfile_path"
-    cat << 'PROMPT_EOF' and understand:
+PROMPT_EOF
+    echo "Read ${dockerfile_path} and understand:"
+    cat << 'PROMPT_EOF'
 - What tools are currently installed?
 - What versions are specified?
 - Are cache mounts used?
@@ -654,8 +656,8 @@ After updating:
 
 ```
 ════════════════════════════════════════════════════════════════════════════════
-✓ Dockerfile updated: PROMPT_EOF
-    echo "$dockerfile_path"
+PROMPT_EOF
+    echo "✓ Dockerfile updated: ${dockerfile_path}"
     cat << 'PROMPT_EOF'
 ════════════════════════════════════════════════════════════════════════════════
 
@@ -667,11 +669,9 @@ CHANGES MADE:
 
 NEXT STEPS:
   1. Exit this session: /exit or Ctrl+D
-  2. Rebuild with changes: PROMPT_EOF
-    echo "$rebuild_cmd"
-    cat << 'PROMPT_EOF'
-  3. Test in container: PROMPT_EOF
-    echo "$tool_name"
+PROMPT_EOF
+    echo "  2. Rebuild with changes: ${rebuild_cmd}"
+    echo "  3. Test in container: ${tool_name}"
     cat << 'PROMPT_EOF'
 
 The rebuild will use cache mounts for faster builds (~30 seconds).

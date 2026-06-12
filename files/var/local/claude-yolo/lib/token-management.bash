@@ -2,7 +2,10 @@
 # Token Management Library
 # Token operations for claude-yolo (ccy)
 #
-# Version: 1.5.0 - Color-code expiry dates (green >30d, orange ≤30d, red ≤5d)
+# Version: 1.6.0 - BSH-04 (PIPESTATUS for setup-token), BSH-05 (CREATED_TOKEN_FILE
+#                  contract so create/renew flows continue or exit cleanly),
+#                  BSH-09 (tokens passed by env NAME, never in container argv),
+#                  CCY-06 (byte-range message matches the 90-120 accepted range)
 
 # Returns expiry_date string wrapped in ANSI color based on days remaining
 # Args: $1 = expiry_date (YYYY-MM-DD)
@@ -99,12 +102,19 @@ validate_token() {
     local image_name="$2"
 
     # Test the token by making a simple API call
-    # Claude Code with a valid token should be able to show version
+    # Claude Code with a valid token should be able to show version.
+    #
+    # BSH-09: pass the token by NAME (-e CLAUDE_CODE_OAUTH_TOKEN, no '=value') so
+    # the secret is taken from this process's environment and never appears in the
+    # container run's argv, which is world-readable via /proc/<pid>/cmdline. The
+    # variable is declared 'local' so the export is scoped to this function.
+    local CLAUDE_CODE_OAUTH_TOKEN="$token"
+    export CLAUDE_CODE_OAUTH_TOKEN
     if container_cmd run --rm \
-        -e "CLAUDE_CODE_OAUTH_TOKEN=$token" \
+        -e CLAUDE_CODE_OAUTH_TOKEN \
         --entrypoint claude \
         "$image_name" \
-        --version &>/dev/null; then
+        --version >/dev/null 2>/dev/null; then
         return 0  # Token works
     else
         return 1  # Token invalid
@@ -120,6 +130,11 @@ create_token() {
     local image_name="$3"
     local tool_name="${4:-ccy}"
     local preset_name="$5"
+
+    # BSH-05: callers and select_token read this to know whether a token was
+    # actually created (so they can continue to launch or exit cleanly) versus
+    # the user cancelling. Empty = no token created on this call.
+    CREATED_TOKEN_FILE=""
 
     # CRITICAL: GH_TOKEN must be set before calling this function
     # It's required for the container's git/gh functionality
@@ -230,11 +245,20 @@ create_token() {
     echo "Running: $CONTAINER_ENGINE run --rm --entrypoint claude \"$image_name\" setup-token"
     echo ""
 
-    if container_cmd run -it --rm \
+    # BSH-09: GH_TOKEN by name (not -e VAR=value) keeps it out of the run argv.
+    # BSH-04: without pipefail the 'if ... | tee' would test tee's status (always
+    # 0), so the failure diagnostics below were unreachable and a failed
+    # setup-token fell through to the success branch. Capture the container's own
+    # status via PIPESTATUS[0] and branch on that instead.
+    export GH_TOKEN="$gh_token"
+    container_cmd run -it --rm \
         --entrypoint claude \
-        -e "GH_TOKEN=$gh_token" \
+        -e GH_TOKEN \
         "$image_name" \
-        setup-token 2>&1 | tee "$tmp_output"; then
+        setup-token 2>&1 | tee "$tmp_output"
+    docker_exit_code="${PIPESTATUS[0]}"
+
+    if [ "$docker_exit_code" -eq 0 ]; then
 
         echo ""
         echo "════════════════════════════════════════════════════════════════════════════"
@@ -334,7 +358,7 @@ create_token() {
                 if [ "$token_bytes" -lt 90 ] || [ "$token_bytes" -gt 120 ]; then
                     echo ""
                     print_error "Invalid token length"
-                    echo "Length: $token_bytes bytes (expected: 100-110 bytes)"
+                    echo "Length: $token_bytes bytes (expected: 90-120 bytes)"
                     echo "Token appears truncated or has extra characters."
                     echo ""
                     read -r -p "Try again? (Y/n): " retry
@@ -393,19 +417,20 @@ create_token() {
             done
         fi
     else
-        docker_exit_code=$?
+        # docker_exit_code was captured from PIPESTATUS[0] above (the container's
+        # real status), so the 125/126/127 diagnostics below are now reachable.
         echo ""
         echo "════════════════════════════════════════════════════════════════════════════"
         print_error "Token Creation Failed"
         echo "════════════════════════════════════════════════════════════════════════════"
         echo ""
 
-        if [ $docker_exit_code -eq 125 ]; then
+        if [ "$docker_exit_code" -eq 125 ]; then
             echo "Docker container failed to start."
             echo "The container image may be corrupted."
             echo ""
             echo "Try rebuilding: $tool_name --rebuild"
-        elif [ $docker_exit_code -eq 126 ] || [ $docker_exit_code -eq 127 ]; then
+        elif [ "$docker_exit_code" -eq 126 ] || [ "$docker_exit_code" -eq 127 ]; then
             echo "Command not found in container."
             echo "Container image may be corrupted or incompatible."
             echo ""
@@ -429,6 +454,11 @@ create_token() {
 
     # Cleanup
     rm -f "$tmp_output"
+
+    # BSH-05: reached only after a token was saved and validated above. Publish
+    # the path so select_token / callers can launch with it instead of treating
+    # a successful creation as "Cancelled".
+    CREATED_TOKEN_FILE="$token_file"
 
     return 0
 }
@@ -607,6 +637,10 @@ select_token() {
                 echo ""
                 # shellcheck disable=SC2153
                 create_token "$token_dir" "$GH_TOKEN" "$IMAGE_NAME" "ccy" "$renew_name"
+                # BSH-05: hand the freshly created token back to the caller so the
+                # launch continues seamlessly. Empty when the user cancelled the
+                # renew — the caller detects that and exits with guidance.
+                SELECTED_TOKEN="$CREATED_TOKEN_FILE"
                 # shellcheck disable=SC2317
                 return 0
             else
@@ -620,6 +654,9 @@ select_token() {
         if [ "$mode" = "container" ] && [ "$selection" = "0" ]; then
             # shellcheck disable=SC2153
             create_token "$token_dir" "$GH_TOKEN" "$IMAGE_NAME" "ccy"
+            # BSH-05: see the renew branch above — propagate the new token path
+            # (or empty on cancel) so the caller can launch or exit cleanly.
+            SELECTED_TOKEN="$CREATED_TOKEN_FILE"
             # shellcheck disable=SC2317
             return 0
         fi
