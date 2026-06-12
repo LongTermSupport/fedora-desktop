@@ -197,8 +197,9 @@ export default class SpeechToTextPreferences extends ExtensionPreferences {
             const f = `${GLib.get_home_dir()}/.config/speech-to-text/${filename}`;
             try {
                 Gio.AppInfo.launch_default_for_uri(`file://${f}`, null);
-            } catch (_e) {
-                // No default text editor configured — ignore silently
+            } catch (e) {
+                // No default text editor configured (or launch failed) — log, don't swallow.
+                logError(e, 'STT prefs: opening prompt file');
             }
         });
         group.add(row);

@@ -1,6 +1,6 @@
 # Plan 00049: Full Repository Audit
 
-**Status**: 🔄 In Progress (research complete; Batches 1 (Phases 3+4), 2a (Phase 5), 2b (QA-07), 3 (Phase 6 — full CCY hardening) landed on branch `fable-audit-1`)
+**Status**: 🔄 In Progress (research complete; Batches 1 (Phases 3+4), 2a (Phase 5), 2b (QA-07), 3 (Phase 6 — full CCY hardening), 4 (Phase 7 — shipped runtime bug fixes) landed on branch `fable-audit-1`)
 **Created**: 2026-06-12
 **Owner**: Claude (Fable 5 multi-agent workflow) / joseph
 **Priority**: High
@@ -111,12 +111,12 @@ The 7 effective-high findings: SEC-01 (committed PII), FF-01/ANS-01 (shell block
 
 > Findings: BSH-07, BSH-08, BSH-17, EXT-02..EXT-04 — see [research/bash.md](research/bash.md), [research/extensions.md](research/extensions.md)
 
-- [ ] ⬜ **Fix `qp` cold-start crash** (BSH-07): `local pid=$!` outside a function
-- [ ] ⬜ **Define missing `warn` in setup.bash** (BSH-08): version-mismatch path currently crashes instead of prompting
-- [ ] ⬜ **Fix check-displaylink glob test** (BSH-17)
-- [ ] ⬜ **Sanitise the language setting in speech-to-text** (EXT-02): apply `_validateShellArg` to `_getWhisperLanguage()` (closes a command-execution path via dconf)
-- [ ] ⬜ **Debounce Insert-key start/stop race** (EXT-03) + PID-file liveness check in wsi
-- [ ] ⬜ **Replace silent empty catch blocks with logError** (EXT-04)
+- [x] ✅ **Fix `qp` cold-start crash** (BSH-07): *pulled forward in Batch 1* — `local pid=$!` SC2168 fixed when shellcheck became a gate
+- [x] ✅ **Define missing `warn` in setup.bash** (BSH-08): added a `warn()` helper (stderr) — the Fedora-version-mismatch path now prompts instead of dying with `warn: command not found` (rc 127) under `set -euo pipefail`
+- [x] ✅ **Fix check-displaylink glob test** (BSH-17): *pulled forward in Batch 1* — SC2144 fixed when shellcheck became a gate
+- [x] ✅ **Sanitise the language setting in speech-to-text** (EXT-02): all three launch methods now pass `_getWhisperLanguage()` through `_validateShellArg()` (metacharacter strip) before it is interpolated into the `bash -c` command — closes the dconf→command-execution path
+- [x] ✅ **Debounce Insert-key start/stop race** (EXT-03): added a `_launchPending` debounce (set on spawn, cleared on the first DBus `StateChanged` or a 10 s safety timeout) guarding all three launch methods + cleared on abort/disable; and a PID-file liveness check in `wsi` (refuses to start a second recorder when a live one holds the PID file — placed before the EXIT-cleanup trap and before `pw-record`, so it neither deletes the live PID file nor orphans a recorder)
+- [x] ✅ **Replace silent empty catch blocks with logError** (EXT-04): the six empty catches now `logError(e, '<context>')` (keybinding teardown, log-dir create, debug/auto-paste save, prefs prompt-open, workspace-names label cleanup); the file logger's own fail path falls back to the journal `log()` with a `FAIL-FAST-OK` justification
 
 ### Phase 8 (Action F): Performance and Idempotency Batch
 
@@ -229,3 +229,10 @@ The 7 effective-high findings: SEC-01 (committed PII), FF-01/ANS-01 (shell block
 - **Verification (static — CCY is edit-only, cannot run the container here):** `bash -n` + `node --check` clean on all 11 files; `shellcheck -S error -x` clean (zero error-level); `./scripts/qa-all.bash` green (6 stages, 285 files; semgrep now scans CCY with zero `|| true`); `semgrep --test` 2/2. Two findings **validated by live execution**: CCY-01 (ran both Dockerfile-prompt generators — base image + paths render, zero stray `PROMPT_EOF`) and CCY-03 (`./scripts/qa-ctrl-z-patch.bash` green against cached Claude Code 2.1.50, `applied-known`; native-binary path is in place for when a native-only release lands).
 - **Host operator notes:** deploy `play-claude-yolo.yml` on the HOST, then the next `ccy` launch will detect the new `CCY_VERSION`/`CCY_HASH` and re-run its config step (expected). The narrowed Wayland mount uses `:ro` on the socket — if a GUI/browser window fails to open on the host, the operator note is to drop `:ro` (the isolation win is the socket-only scoping, not the ro flag). No Dockerfile change, so no container rebuild is forced for the wrapper/lib/entrypoint changes beyond the normal deploy; the ctrl+z sentinel only materialises in a fresh image build.
 - **Smoke-test note (CCY-01):** the heredoc fix was verified by execution; a permanent bats/smoke harness for the prompt generators is the right home for an automated guard and remains tracked under the deferred OPP-03 (CCY bash test suite).
+
+### 2026-06-12 — Batch 4 executed (Phase 7: shipped runtime bug fixes) on `fable-audit-1`
+
+- **Driven directly** (small, surgical, three files) — no fan-out workflow warranted. BSH-07 and BSH-17 were already closed in Batch 1 (pulled forward when shellcheck became a gate); marked ✅ here for completeness.
+- **Landed (5 files):** BSH-08 (`scripts/setup.bash` — added the missing `warn()` helper; the version-mismatch branch now prompts instead of crashing with rc 127 under strict mode); EXT-02 (`speech-to-text/extension.js` — `language` now sanitised via `_validateShellArg()` in all three launch methods before `bash -c` interpolation); EXT-03 (same file — `_launchPending` debounce on all three launch paths, cleared on first DBus state / 10 s safety timeout / abort / disable; **plus** `files/home/.local/bin/wsi` — live-PID-file guard placed before the EXIT-cleanup trap and before `pw-record`, so a second press neither deletes the live PID file nor orphans a recorder); EXT-04 (`extension.js`, `prefs.js`, `workspace-names-overview/extension.js` — six empty `catch` blocks now `logError(e, …)`; the file logger's own fail path falls back to journal `log()` with a `FAIL-FAST-OK` note).
+- **Verification:** `node_modules/.bin/eslint` clean on all three changed JS files (the custom blocking-call rules pass); `bash -n` clean on `setup.bash` + `wsi`; `./scripts/qa-all.bash` green (6 stages, 285 files; zero error-level shellcheck — the 49 advisory items are pre-existing warning/info/style). No CCY-image files touched → no `CCY_VERSION` bump.
+- **Host operator notes:** `extension.js`/`prefs.js` changes need a **logout/login** to reload (Wayland); `wsi` and `setup.bash` take effect immediately on next invocation. Deploy `play-speech-to-text.yml` on the HOST to push the extension + `wsi`.
