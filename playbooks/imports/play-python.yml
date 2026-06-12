@@ -88,8 +88,13 @@
 
     - name: Install Pyenv Versions
       ansible.builtin.shell: |
-        set -euo pipefail
+        set -eo pipefail
+        # Source the login profile WITHOUT nounset: the Fedora /etc/bashrc guard tests
+        # an unset BASHRCSOURCED (line 12), so set -u here aborts with
+        # "BASHRCSOURCED: unbound variable" before pyenv is ever on PATH. System bash
+        # startup files are not nounset-safe — enable -u only for our own code below.
         source ~/.bash_profile
+        set -u
         pyenv install -s {{ item }}  # -s/--skip-existing skips if already installed
       args:
         executable: /bin/bash
