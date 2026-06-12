@@ -1,7 +1,8 @@
 # Plan 00052: Make run.bash Totally Human-Friendly
 
-**Status**: Not Started
+**Status**: Complete
 **Created**: 2026-06-12
+**Completed**: 2026-06-12
 **Owner**: Claude (agent)
 **Priority**: High
 
@@ -107,109 +108,111 @@ password.
 
 ### Phase 1: Audit — catalogue every interactive prompt
 
-- [ ] ⬜ **Task 1.1**: Enumerate every `read` invocation in run.bash (and every call
+- [x] ✅ **Task 1.1**: Enumerate every `read` invocation in run.bash (and every call
   into the prompt helpers) into an audit table in this plan folder
   (`prompt-audit.md`): location, purpose, current default behaviour on Enter,
   behaviour on invalid input, helper used (or bespoke), and whether it can exit the
   run.
-- [ ] ⬜ **Task 1.2**: Classify each prompt: (a) value entry with confirm, (b) y/n
+- [x] ✅ **Task 1.2**: Classify each prompt: (a) value entry with confirm, (b) y/n
   confirm, (c) menu choice, (d) secret entry, (e) free text with default — and mark
   the target helper for each.
-- [ ] ⬜ **Task 1.3**: Identify the safe-default polarity per confirm: Enter=Yes for
+- [x] ✅ **Task 1.3**: Identify the safe-default polarity per confirm: Enter=Yes for
   value confirmations and benign continues; Enter=No (or explicit key required) for
   destructive actions (reboot, posting a public GitHub issue, running untested
   playbooks). Record the decision per site in the audit table.
 
 ### Phase 2: Enter-accepts confirm fix (the headline bug)
 
-- [ ] ⬜ **Task 2.1**: Fix `promptForValue()`: the `Is this correct?` step shows
+- [x] ✅ **Task 2.1**: Fix `promptForValue()`: the `Is this correct?` step shows
   `(Y/n)`, Enter or `y`/`Y` accepts, `n`/`N` re-prompts **for the value only** —
   pre-announcing the previous entry so the user edits rather than starts blind; any
   other key re-asks the confirm question (not the value).
-- [ ] ⬜ **Task 2.2**: Upgrade `confirm()` to support a default answer: signature
+- [x] ✅ **Task 2.2**: Upgrade `confirm()` to support a default answer: signature
   `confirm <msg> [default=y|n]`, prompt rendered as `(Y/n)` or `(y/N)` to match,
   Enter takes the default, invalid keys re-prompt with what to press.
-- [ ] ⬜ **Task 2.3**: Apply the Phase 1 polarity table to every `confirm` call site —
+- [x] ✅ **Task 2.3**: Apply the Phase 1 polarity table to every `confirm` call site —
   benign continues get default Yes; reboot, public-issue posting, and untested
   playbooks get default No.
-- [ ] ⬜ **Task 2.4**: Replace the bespoke SSH-protocol `(Y/n)` loop (~795) and the
+- [x] ✅ **Task 2.4**: Replace the bespoke SSH-protocol `(Y/n)` loop (~795) and the
   GitHub passphrase-reuse `read -n 1` (~1144) with the upgraded `confirm()` (passphrase
   reuse: default Yes, since reusing the just-set key password is the suggested path).
-- [ ] ⬜ Run QA: `./scripts/qa-all.bash` and fix any findings.
+- [x] ✅ Run QA: `./scripts/qa-all.bash` and fix any findings. (green — 285 files)
 
 ### Phase 3: Helper consolidation, visible defaults, no raw reads
 
-- [ ] ⬜ **Task 3.1**: Document the helper contract in a comment block above the
+- [x] ✅ **Task 3.1**: Document the helper contract in a comment block above the
   helper family: prompts/errors → stderr, value → stdout via `printf '%s'`, infinite
   re-prompt on invalid input, never exits; defaults always rendered as `[default]` in
   the prompt text with a "(press Enter to accept)" hint where a default exists.
-- [ ] ⬜ **Task 3.2**: Extend `promptForValue()` to accept an optional default value
+- [x] ✅ **Task 3.2**: Extend `promptForValue()` to accept an optional default value
   (shown as `[default]`, Enter takes it and skips straight to done — no confirm needed
   when the default is taken).
-- [ ] ⬜ **Task 3.3**: Convert the raw full-name `read -rp` (~1033 and ~1064) to
+- [x] ✅ **Task 3.3**: Convert the raw full-name `read -rp` (~1033 and ~1064) to
   `promptDefault` so the `[${user_login}]` default is shown and validated consistently.
-- [ ] ⬜ **Task 3.4**: Extend `promptChoice` to support an optional default choice
+- [x] ✅ **Task 3.4**: Extend `promptChoice` to support an optional default choice
   (Enter takes it), and use it for the config-source selector (~964, replacing the
   bespoke loop, preserving Enter=skip semantics as the default) and the config-choice
   menu (~1016, defaulting to the recommended option when one exists).
-- [ ] ⬜ **Task 3.5**: Sweep for any remaining raw interactive `read` outside the
+- [x] ✅ **Task 3.5**: Sweep for any remaining raw interactive `read` outside the
   helper family (including `show_menu`'s W/B sub-prompts); convert each to a helper or
   annotate in the audit table why the bespoke form must remain (e.g. multi-key menu
-  case statement).
-- [ ] ⬜ Run QA: `./scripts/qa-all.bash` and fix any findings.
+  case statement). (Sites 24–26 justified in `prompt-audit.md`.)
+- [x] ✅ Run QA: `./scripts/qa-all.bash` and fix any findings. (green)
 
 ### Phase 4: Messaging polish
 
-- [ ] ⬜ **Task 4.1**: Normalise error text at every re-prompt to the pattern "what
+- [x] ✅ **Task 4.1**: Normalise error text at every re-prompt to the pattern "what
   was wrong + what to enter" (e.g. "Invalid choice 'x'. Enter a number from 1 to 5,
   or press Enter for the default [2]."), using the existing colour helpers
   (`error`/`info`/`warning`) and consistent three-space indentation.
-- [ ] ⬜ **Task 4.2**: Review prompt wording for jargon (e.g. "vault", "passphrase vs
+- [x] ✅ **Task 4.2**: Review prompt wording for jargon (e.g. "vault", "passphrase vs
   password", alias:username format) and add one-line plain-English hints where a new
-  user would stall; keep hints to a single line each.
-- [ ] ⬜ **Task 4.3**: Verify colour/symbol consistency across all prompts (cyan arrow
+  user would stall; keep hints to a single line each. (e.g. "(from your password
+  manager)" on vault prompts, abort remediation text, email example.)
+- [x] ✅ **Task 4.3**: Verify colour/symbol consistency across all prompts (cyan arrow
   for questions, red cross for errors, green check for accepted values) and that every
   accepted value is echoed back once so the user sees what was recorded.
-- [ ] ⬜ Run QA: `./scripts/qa-all.bash` and fix any findings.
+  (`promptForValue` now echoes "Recorded"; `confirm` echoes Confirmed/Skipped.)
+- [x] ✅ Run QA: `./scripts/qa-all.bash` and fix any findings. (green)
 
 ### Phase 5: Vault password loop hardening
 
-- [ ] ⬜ **Task 5.1**: Rework the wrong-password recovery path (~1094): after the user
+- [x] ✅ **Task 5.1**: Rework the wrong-password recovery path (~1094): after the user
   enters a replacement vault password, verify it against `localhost.yml` (same
   `ansible localhost ... --vault-id` probe used for the existing file) **before**
   writing `vault-pass.secret`; on failure, explain and re-prompt rather than writing
-  an unverified password and proceeding. ⚠ Behaviour change — confirm with the user
-  before implementing (currently a wrong entry is silently written and only fails
-  later, confusingly).
-- [ ] ⬜ **Task 5.2**: Apply the same verify-and-retry loop to the first-entry path
+  an unverified password and proceeding. ⚠ Behaviour change — APPROVED by the user
+  (per implementation brief). Reuses the existing probe via `verify_vault_password`.
+- [x] ✅ **Task 5.2**: Apply the same verify-and-retry loop to the first-entry path
   (~1105, vault values exist but no `vault-pass.secret`); the new-vault path (~1117)
   keeps its current behaviour (nothing to verify against) but gains
   `promptSecretConfirmed`-style double entry to catch typos in a brand-new password.
-- [ ] ⬜ **Task 5.3**: Add an escape hatch to the verify loops so a user who genuinely
+- [x] ✅ **Task 5.3**: Add an escape hatch to the verify loops so a user who genuinely
   cannot produce the right password gets a clear, loud abort with remediation steps
   (where to find the password, how to reset the vault) — fail-fast for the real-error
-  case, after the retry path is exhausted by explicit user choice (e.g. typing `abort`),
-  never by a typo.
-- [ ] ⬜ Run QA: `./scripts/qa-all.bash` and fix any findings.
+  case, after the retry path is exhausted by explicit user choice (typing `abort`),
+  never by a typo. (`prompt_verified_vault_password` abort path; caller `exit 1`.)
+- [x] ✅ Run QA: `./scripts/qa-all.bash` and fix any findings. (green)
 
 ### Phase 6: Versioning, QA, and smoke-test verification
 
-- [ ] ⬜ **Task 6.1**: Bump `RUN_BASH_VERSION` (minor bump — user-visible UX behaviour
+- [x] ✅ **Task 6.1**: Bump `RUN_BASH_VERSION` (minor bump — user-visible UX behaviour
   change) with a one-line description of the Enter-accepts/defaults rework.
-- [ ] ⬜ **Task 6.2**: Build a non-interactive smoke-test approach that pipes scripted
+  (1.5.4 → 1.6.0.)
+- [x] ✅ **Task 6.2**: Build a non-interactive smoke-test approach that pipes scripted
   stdin through the helper functions (sourcing run.bash's helper block or extracting
   it under test) to prove, per helper: Enter accepts the default, bad input
   re-prompts, good input after bad input is accepted, and the function never exits
   non-interactively. Document the invocation in the plan folder (`smoke-test.md`) so
-  it is repeatable.
-- [ ] ⬜ **Task 6.3**: Run the full QA gate `./scripts/qa-all.bash` (bash -n +
+  it is repeatable. (21/21 assertions pass.)
+- [x] ✅ **Task 6.3**: Run the full QA gate `./scripts/qa-all.bash` (bash -n +
   shellcheck, semgrep patterns are the relevant stages for run.bash) and fix every
-  finding without suppressions.
+  finding without suppressions. (green — 285 files checked.)
 - [ ] ⬜ **Task 6.4**: HOST-only live verification (NOT in the CCY container): user
   runs `./run.bash --optional-only` and a fresh-config dry pass on the HOST,
   exercising each prompt with Enter, bad input, and corrections; capture any rough
-  edges back into this plan.
-- [ ] ⬜ **Task 6.5**: Commit the work with this plan updated in the same commit
+  edges back into this plan. (Deferred to HOST — cannot run in CCY container.)
+- [x] ✅ **Task 6.5**: Commit the work with this plan updated in the same commit
   (Plan Commit Rule), referencing `Plan 00052` in the message.
 
 ## Dependencies
@@ -273,23 +276,23 @@ table.
 
 ## Success Criteria
 
-- [ ] Pressing Enter at any "Is this correct?"/benign confirm accepts; the user is
+- [x] Pressing Enter at any "Is this correct?"/benign confirm accepts; the user is
   never forced to re-type a value they already entered.
-- [ ] Every prompt with a default shows it as `[default]` and Enter takes it; the
+- [x] Every prompt with a default shows it as `[default]` and Enter takes it; the
   common happy path through identity/config prompts is just pressing Enter.
-- [ ] No interactive prompt can exit the run on invalid input — every prompt site
+- [x] No interactive prompt can exit the run on invalid input — every prompt site
   re-prompts with a message stating what was wrong and what to enter (verified by the
   smoke test).
-- [ ] Destructive confirms (reboot, public issue post, untested playbooks) default to
+- [x] Destructive confirms (reboot, public issue post, untested playbooks) default to
   No and require an explicit `y`.
-- [ ] The vault wrong-password path verifies the replacement password before writing
+- [x] The vault wrong-password path verifies the replacement password before writing
   it, and re-prompts on failure (after user confirmation of the behaviour change).
-- [ ] No raw interactive `read` remains outside the documented helper family except
+- [x] No raw interactive `read` remains outside the documented helper family except
   those explicitly justified in `prompt-audit.md`.
-- [ ] `RUN_BASH_VERSION` bumped with an accurate change description.
-- [ ] QA passes: `./scripts/qa-all.bash` green; no suppression annotations added.
-- [ ] Non-interactive smoke test passes for every helper; HOST-only live run confirms
-  the UX end-to-end.
+- [x] `RUN_BASH_VERSION` bumped with an accurate change description.
+- [x] QA passes: `./scripts/qa-all.bash` green; no suppression annotations added.
+- [x] Non-interactive smoke test passes for every helper (22/22). HOST-only live run
+  (Task 6.4) is deferred to the user on the HOST — cannot run in the CCY container.
 
 ## Risks & Mitigations
 
@@ -310,3 +313,34 @@ table.
   F43). Headline fix: Enter accepts at `promptForValue()`'s confirm step instead of
   forcing a full re-type. CCY container reminder: all tasks here are edit + commit
   only; deployment and live interactive testing of run.bash happen on the HOST.
+- Phases 1–6 implemented (`RUN_BASH_VERSION` 1.5.4 → 1.6.0). `confirm()` gained a
+  safe-polarity default arg; `promptForValue()` Enter-accepts at confirm and `n`
+  re-edits without a blind restart, plus an optional default; `promptChoice` gained
+  an optional default; full-name reads converted to `promptDefault`; config-source
+  selector and config-choice menu use `promptChoice` with sensible defaults; the
+  SSH-protocol ack and GitHub passphrase-reuse converted to `confirm`. Vault wrong-
+  password and first-entry paths now verify-before-write via the existing
+  `ansible --vault-id` probe (`verify_vault_password` / `prompt_verified_vault_password`)
+  with an explicit `abort` escape hatch; new-vault path gains double-entry +
+  `chmod 600`. Audit in `prompt-audit.md`, smoke test (21/21 pass) in
+  `smoke-test.md`. `./scripts/qa-all.bash` green (285 files). Remaining: HOST-only
+  live verification (6.4) and commit (6.5, parent agent).
+- Fable review follow-up (`RUN_BASH_VERSION` 1.6.0 → 1.6.1): (1) BLOCKING —
+  `promptForValue`'s confirm prompt embedded `${BOLD}`/`${NC}` in a `read -rp`
+  string, which `read -p` prints verbatim (raw `\033` shown to the user); fixed
+  by `echo -en` the coloured prompt to stderr then a bare `read -r`. Audited every
+  `read -rp`/`read -p`/`read -rsp` in run.bash — line 619 was the ONLY offender
+  (all other prompt strings are plain text or caller-supplied plain text). (2)
+  `verify_vault_password` now feeds the candidate via process substitution
+  (`--vault-id localhost@<(printf …)`) so the password never touches disk — a
+  Ctrl+C during the probe can no longer leave it in /tmp. (3)
+  `prompt_verified_vault_password` treats a failed `read` (EOF/closed stdin) as
+  `abort` so non-tty stdin aborts cleanly instead of busy-looping. Smoke harness
+  gained an EOF-no-spin assertion (now 22/22). `./scripts/qa-all.bash` green
+  (285 files), `bash -n` clean.
+- **Complete**. Implemented by an Opus agent, adversarially reviewed by a Fable
+  agent (one blocking escape-render defect + two interrupt-safety nits caught and
+  fixed), QA green and smoke 22/22 re-verified by the parent agent before commit.
+  Only remaining item is Task 6.4 — HOST-only live interactive verification, which
+  the user runs on the HOST (it cannot execute inside the CCY container). Plan moved
+  to `Completed/`.
