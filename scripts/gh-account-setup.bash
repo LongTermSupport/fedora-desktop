@@ -261,11 +261,14 @@ setup_account() {
   # playbook hasn't been deployed yet (e.g. first run via run.bash). Both
   # files are identical — files/usr/local/bin/gh-print-auth-url is the
   # single source of truth.
+  # Invoke via `bash <path>` so the script's exec bit is irrelevant — a fresh
+  # clone (or zip download) where the in-repo source lost its +x bit still works.
+  # GH_BROWSER is run as a command line, so "bash <path>" + the URL arg is valid.
   local browser_helper
-  if [[ -x /usr/local/bin/gh-print-auth-url ]]; then
-    browser_helper=/usr/local/bin/gh-print-auth-url
-  elif [[ -x "$REPO_ROOT/files/usr/local/bin/gh-print-auth-url" ]]; then
-    browser_helper="$REPO_ROOT/files/usr/local/bin/gh-print-auth-url"
+  if [[ -f /usr/local/bin/gh-print-auth-url ]]; then
+    browser_helper="bash /usr/local/bin/gh-print-auth-url"
+  elif [[ -f "$REPO_ROOT/files/usr/local/bin/gh-print-auth-url" ]]; then
+    browser_helper="bash $REPO_ROOT/files/usr/local/bin/gh-print-auth-url"
   else
     error "gh-print-auth-url helper not found at /usr/local/bin/ or in repo"
     echo -e "   ${YELLOW}➜${NC} Expected: $REPO_ROOT/files/usr/local/bin/gh-print-auth-url" >&2
