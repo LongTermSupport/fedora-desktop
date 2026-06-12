@@ -9,6 +9,13 @@
   become: true
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    # NVIDIA per-distro package-signing key ("Kitmaker (Fedora N)"). One key per
+    # repo signs both that repo metadata and its packages. The filename changed
+    # between fedora43 (1940C73E.pub, 404 on f44) and fedora44 (73CD9B30.pub) —
+    # verified 2026-06-12: 73CD9B30.pub HTTP 200, 1940C73E.pub HTTP 404 under
+    # fedora44/x86_64/. Defined once here and used by BOTH the rpm_key import and
+    # the yum_repository gpgkey below (DRY).
+    cuda_gpgkey_url: "https://developer.download.nvidia.com/compute/cuda/repos/fedora{{ fedora_version }}/x86_64/73CD9B30.pub"
     # cuDNN 9 — installed from NVIDIA's official wheel; there is no NVIDIA
     # cuDNN dnf repo for Fedora. Bump version + URL + sha256 together (the
     # pythonhosted URL path is content-addressed and changes per release).
@@ -74,15 +81,27 @@
     # Disable with: nvidia_install_cuda: false  (in host_vars/localhost.yml)
     # @see CLAUDE/Plan/00042-darktable-ai-features/ Phase 3
 
+    # dnf5 on F44 does NOT reliably auto-import a repo gpgkey= during a
+    # non-interactive (-y) transaction, so the cuda-toolkit install below aborts
+    # with "failed to validate gpg signatures" — the package signature is good,
+    # but the signing key was never placed in the rpm keyring. Import it
+    # explicitly first (the Ansible-native equivalent of NVIDIA's documented
+    # `rpm --import` step). gpgcheck stays true: we still verify every signature,
+    # we just make the legitimate key available to verify against. Idempotent.
+    - name: Import the NVIDIA CUDA package-signing GPG key into the rpm keyring
+      ansible.builtin.rpm_key:
+        key: "{{ cuda_gpgkey_url }}"
+        state: present
+      when: nvidia_install_cuda | default(true) | bool
+
     - name: Configure NVIDIA CUDA repository (driver/kmod packages excluded)
       ansible.builtin.yum_repository:
         name: "cuda-fedora{{ fedora_version }}-x86_64"
         description: "NVIDIA CUDA Fedora {{ fedora_version }} x86_64"
         baseurl: "https://developer.download.nvidia.com/compute/cuda/repos/fedora{{ fedora_version }}/x86_64"
         gpgcheck: true
-        # Key filename changed between fedora43 (1940C73E.pub, 404 on f44) and fedora44 (73CD9B30.pub).
-        # Verified 2026-06-12: 73CD9B30.pub → HTTP 200; 1940C73E.pub → HTTP 404 under fedora44/x86_64/.
-        gpgkey: "https://developer.download.nvidia.com/compute/cuda/repos/fedora{{ fedora_version }}/x86_64/73CD9B30.pub"
+        # Same key imported into the rpm keyring above (cuda_gpgkey_url var).
+        gpgkey: "{{ cuda_gpgkey_url }}"
         # This repo must NEVER replace the RPM Fusion akmod-nvidia driver.
         # Exclude list verified against the fedora44 repo index (2026-06-12, CUDA 13.3 / driver 610.43.02).
         # New 610-era additions vs prior list: nvidia-fabricmanager*, nvidia-fabric-manager-devel*,
