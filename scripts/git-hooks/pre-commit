@@ -4,34 +4,46 @@
 # This hook scans staged changes for patterns that might leak private information
 #
 
-set -e
+set -euo pipefail
 
 # ANSI color codes
 RED='\033[0;31m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+# Repository root (this hook runs from the repo root via core.hooksPath)
+REPO_ROOT=$(git rev-parse --show-toplevel)
+
 # Sensitive patterns to detect (using generic patterns, no actual sensitive data)
 # Each pattern has format: "pattern::description" (using :: to avoid conflicts with | in regex)
 declare -a SENSITIVE_PATTERNS=(
-    # Email domains that might be personal/company-specific (exclude common examples)
-    "@[a-z0-9-]+\\.(dev|internal|corp|local)::Private email domain"
+    # Any real email address. Obvious placeholders (example.com/.org/.net, or
+    # addresses inside <...>/{{...}}) are filtered out in the per-pattern logic below.
+    "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}::Email address"
 
     # Common username patterns with company/personal identifiers
     # Will exclude example_user, test_user, etc. in the script logic below
     "[a-z]{3,}_[a-z]{3,}\\.(token|key|credential)\\b::Specific username in credential filename"
 
+    # Private key material (PEM blocks of any key type)
+    "-----BEGIN [A-Z ]*PRIVATE KEY-----::Private key block"
+
     # SSH/API key patterns (actual keys, not references)
     "ssh-rsa [A-Za-z0-9+/=]{50,}::SSH public key"
     "ssh-ed25519 [A-Za-z0-9+/=]{50,}::SSH Ed25519 public key"
+    "sk-ant-oat01-[A-Za-z0-9_-]{20,}::Anthropic OAuth token"
     "sk-ant-[a-z0-9-]{50,}::Anthropic API token"
     "ghp_[A-Za-z0-9]{36,}::GitHub personal access token"
     "gho_[A-Za-z0-9]{36,}::GitHub OAuth token"
+    "ghs_[A-Za-z0-9]{36,}::GitHub server-to-server token"
+    "ghr_[A-Za-z0-9]{36,}::GitHub refresh token"
+    "github_pat_[A-Za-z0-9_]{20,}::GitHub fine-grained personal access token"
+    "glpat-[A-Za-z0-9_-]{20,}::GitLab personal access token"
 
     # AWS credentials
     "AKIA[0-9A-Z]{16}::AWS access key ID"
 
-    # Home directory paths (but allow {{ user_login }} and generic 'username')
+    # Home directory paths (but allow {{ user_login }} and generic placeholders)
     "/home/[a-z][a-z0-9_-]{2,}[^}]::Hardcoded username in path (use {{ user_login }})"
 
     # Private IP addresses (specific ones, not documentation)
@@ -41,13 +53,17 @@ declare -a SENSITIVE_PATTERNS=(
 
 echo "🔍 Scanning staged changes for sensitive information..."
 
-# Get list of staged files (exclude deletions)
-STAGED_FILES=$(git diff --cached --name-only --diff-filter=d 2>/dev/null || true)
+# Get list of staged files (exclude deletions). A failure of this listing must
+# fail the hook (this is a security gate), so no error suppression here.
+mapfile -t STAGED_FILE_LIST < <(git diff --cached --name-only --diff-filter=ACM)
 
-if [ -z "$STAGED_FILES" ]; then
+if [ ${#STAGED_FILE_LIST[@]} -eq 0 ]; then
     echo "✓ No files staged for commit"
     exit 0
 fi
+
+# Newline-joined view, used only for the cheap CCY-script membership grep below.
+STAGED_FILES=$(printf '%s\n' "${STAGED_FILE_LIST[@]}")
 
 # ============================================================================
 # CCY Version Bump Validation
@@ -61,18 +77,21 @@ if echo "$STAGED_FILES" | grep -q "^${CCY_SCRIPT}$"; then
     echo "🔍 Checking CCY version bump requirement..."
 
     # Extract current staged version
-    STAGED_VERSION=$(git show ":$CCY_SCRIPT" | grep -m1 '^CCY_VERSION=' | cut -d'"' -f2)
+    STAGED_VERSION=$(git show ":$CCY_SCRIPT" | { grep -m1 '^CCY_VERSION=' || true; } | cut -d'"' -f2)
 
     # Extract HEAD version (if file exists in HEAD)
-    HEAD_VERSION=$(git show "HEAD:$CCY_SCRIPT" 2>/dev/null | grep -m1 '^CCY_VERSION=' | cut -d'"' -f2 || echo "")
+    HEAD_VERSION=$(git show "HEAD:$CCY_SCRIPT" 2>/dev/null | { grep -m1 '^CCY_VERSION=' || true; } | cut -d'"' -f2 || echo "")
 
     # If file exists in HEAD and version hasn't changed
     if [ -n "$HEAD_VERSION" ] && [ "$STAGED_VERSION" = "$HEAD_VERSION" ]; then
-        # Check if actual content changed (not just comments/whitespace)
-        if ! git diff --cached HEAD -- "$CCY_SCRIPT" | grep -q "^[+-]" | grep -v "^[+-]#" | grep -v "^[+-]$"; then
-            # Only comments or whitespace changed - allow it
-            echo "✓ CCY script: only comments/whitespace changed (version OK)"
-        else
+        # Check if any REAL code line changed (added/removed), ignoring the
+        # +++/--- diff headers and lines that are only comments or blank.
+        # grep -q . succeeds (exit 0) iff at least one real code line remains.
+        if git diff --cached HEAD -- "$CCY_SCRIPT" \
+            | grep -E '^[+-]' \
+            | grep -vE '^[+-]{3}' \
+            | grep -vE '^[+-][[:space:]]*(#|$)' \
+            | grep -q .; then
             echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
             echo -e "${RED}COMMIT REJECTED: CCY version bump required${NC}"
             echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -106,9 +125,9 @@ fi
 FOUND_ISSUES=0
 
 # Check each staged file
-for FILE in $STAGED_FILES; do
-    # Skip binary files
-    if git diff --cached --numstat "$FILE" | grep -q '^-'; then
+for FILE in "${STAGED_FILE_LIST[@]}"; do
+    # Skip binary files (numstat reports '-' for added/removed lines on binaries)
+    if git diff --cached --numstat -- "$FILE" | grep -q '^-'; then
         continue
     fi
 
@@ -124,50 +143,206 @@ for FILE in $STAGED_FILES; do
         PATTERN="${PATTERN_DESC%%::*}"
         DESCRIPTION="${PATTERN_DESC##*::}"
 
-        # Search for pattern
-        if echo "$STAGED_CONTENT" | grep -qE "$PATTERN"; then
-            # Skip if it's a known-safe placeholder pattern
-            if echo "$PATTERN" | grep -q "credential" && \
-               echo "$STAGED_CONTENT" | grep -E "$PATTERN" | grep -qE "(example_|test_|sample_|demo_|user_name|company_name)"; then
-                continue
-            fi
-            # Skip Jinja2/Ansible method calls like github_accounts.keys()
-            if echo "$PATTERN" | grep -q "credential" && \
-               echo "$STAGED_CONTENT" | grep -E "$PATTERN" | grep -qE "\\.keys\\(\\)|\\.values\\(\\)|\\.items\\(\\)"; then
-                continue
-            fi
-            # Skip if it's the repository files/home/ directory structure (not system paths)
-            if echo "$PATTERN" | grep -q "/home/" && \
-               echo "$STAGED_CONTENT" | grep -E "$PATTERN" | grep -qE "files/home/(bashrc-includes|[a-z-]+)"; then
-                continue
-            fi
-            if [ $FOUND_ISSUES -eq 0 ]; then
-                echo ""
-                echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-                echo -e "${RED}⚠  SENSITIVE INFORMATION DETECTED${NC}"
-                echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-                echo ""
-                echo "This is a PUBLIC REPOSITORY. Never commit:"
-                echo "  • Personal information (names, emails, usernames)"
-                echo "  • Credentials (API keys, tokens, passwords)"
-                echo "  • Local paths with usernames"
-                echo "  • Company/infrastructure references"
-                echo ""
-            fi
+        # Collect every line matching this pattern (with line numbers), then
+        # remove whitelisted/placeholder lines PER LINE. A flag is raised only
+        # if real offending lines remain — one legitimate reference no longer
+        # whitelists a genuine leak elsewhere in the same file.
+        MATCH_LINES=$(echo "$STAGED_CONTENT" | grep -nE -e "$PATTERN" || true)
+        [ -z "$MATCH_LINES" ] && continue
 
-            echo -e "${YELLOW}File: $FILE${NC}"
-            echo -e "${YELLOW}Issue: $DESCRIPTION${NC}"
+        case "$PATTERN" in
+            *credential*)
+                # Drop known-safe placeholder usernames and Jinja2/Ansible method calls
+                MATCH_LINES=$(echo "$MATCH_LINES" \
+                    | grep -vE "(example_|test_|sample_|demo_|user_name|company_name)" \
+                    | grep -vE "\\.keys\\(\\)|\\.values\\(\\)|\\.items\\(\\)" || true)
+                ;;
+            *@*)
+                # Email pattern: drop obvious non-personal "user@host" shapes that
+                # pervade this repo and are NOT email addresses — placeholders
+                # (example.com/.org/.net, <...>, {{...}}), the SSH git remote user
+                # (git@github.com, git@gitlab.example.com, git@github.com-alias),
+                # and systemd unit names (foo@instance.service / .socket / .timer …).
+                # Real personal addresses (a gmail/company address) are still caught.
+                MATCH_LINES=$(echo "$MATCH_LINES" \
+                    | grep -viE "@example\\.(com|org|net)" \
+                    | grep -vE "<[^>]*@[^>]*>" \
+                    | grep -vE "\\{\\{[^}]*@[^}]*\\}\\}" \
+                    | grep -vE "(^|[^A-Za-z0-9._%+-])git@[A-Za-z0-9.-]+" \
+                    | grep -vE "@[A-Za-z0-9_.:-]+\\.(service|socket|timer|target|mount|path|slice|scope|device|swap|automount)\\b" || true)
+                ;;
+            */home/*)
+                # Drop the repository files/home/ directory structure (not system paths)
+                # and explicit placeholder home paths.
+                MATCH_LINES=$(echo "$MATCH_LINES" \
+                    | grep -vE "files/home/(bashrc-includes|[a-z-]+)" \
+                    | grep -vE "/home/(<user>|\\{\\{ ?user_login ?\\}\\}|\\\$USER|\\\$\\{USER\\}|ansible|runner|deploy|build|user)\\b" || true)
+                ;;
+        esac
 
-            # Show context (up to 3 matching lines)
-            echo "$STAGED_CONTENT" | grep -nE "$PATTERN" | head -3 | while IFS=: read -r LINE_NUM LINE_CONTENT; do
-                echo "  Line $LINE_NUM: ${LINE_CONTENT:0:100}"
-            done
+        [ -z "$MATCH_LINES" ] && continue
+
+        if [ $FOUND_ISSUES -eq 0 ]; then
             echo ""
-
-            FOUND_ISSUES=1
+            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo -e "${RED}⚠  SENSITIVE INFORMATION DETECTED${NC}"
+            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo ""
+            echo "This is a PUBLIC REPOSITORY. Never commit:"
+            echo "  • Personal information (names, emails, usernames)"
+            echo "  • Credentials (API keys, tokens, passwords)"
+            echo "  • Local paths with usernames"
+            echo "  • Company/infrastructure references"
+            echo ""
         fi
+
+        echo -e "${YELLOW}File: $FILE${NC}"
+        echo -e "${YELLOW}Issue: $DESCRIPTION${NC}"
+
+        # Show context (up to 3 matching lines)
+        echo "$MATCH_LINES" | head -3 | while IFS=: read -r LINE_NUM LINE_CONTENT; do
+            echo "  Line $LINE_NUM: ${LINE_CONTENT:0:100}"
+        done
+        echo ""
+
+        FOUND_ISSUES=1
     done
 done
+
+# ============================================================================
+# Dynamic private-identifier denylist (SEC-02)
+# ============================================================================
+# Build a denylist of PRIVATE identifiers from the gitignored localhost.yml
+# (identity fields only), subtract the public-by-design allowlist, and reject
+# the commit if any staged content contains one of them. localhost.yml is
+# optional in a fresh clone — if it is absent we skip ONLY this local-data
+# check (the static patterns above still ran). Private values are NEVER
+# printed; matches are reported by source-field name only.
+
+LOCALHOST_YML="$REPO_ROOT/environment/localhost/host_vars/localhost.yml"
+PUBLIC_ALLOWLIST="$REPO_ROOT/.claude/public-token-allowlist.yml"
+
+if [ ! -f "$LOCALHOST_YML" ]; then
+    echo "ℹ  localhost.yml not present — skipping optional private-identifier denylist check" >&2
+else
+    DENYLIST_FILE=$(mktemp)
+    trap 'rm -f "$DENYLIST_FILE"' EXIT
+
+    # Emit one "FIELD<TAB>TOKEN" line per private identifier to stdout.
+    # !vault-tagged values are skipped. Public allowlist tokens are subtracted.
+    if ! python3 - "$LOCALHOST_YML" "$PUBLIC_ALLOWLIST" > "$DENYLIST_FILE" <<'PYEOF'
+import sys
+import yaml
+
+
+class VaultTag:
+    """Marker so !vault-encrypted values can be skipped, never emitted."""
+
+
+def _vault(loader, node):
+    return VaultTag()
+
+
+yaml.SafeLoader.add_constructor("!vault", _vault)
+
+yml_path = sys.argv[1]
+allow_path = sys.argv[2]
+
+with open(yml_path) as fh:
+    data = yaml.safe_load(fh) or {}
+
+# Public-by-design allowlist (case-insensitive whole-token subtraction).
+allow = set()
+try:
+    with open(allow_path) as fh:
+        adoc = yaml.safe_load(fh) or {}
+    for tok in (adoc.get("public_tokens") or []):
+        if isinstance(tok, str):
+            allow.add(tok.strip().lower())
+except FileNotFoundError:
+    pass
+
+out = {}  # token -> source field name
+
+
+def add(field, value):
+    if isinstance(value, VaultTag) or value is None:
+        return
+    s = str(value).strip()
+    if len(s) < 4:
+        return
+    if s.lower() in allow:
+        return
+    out.setdefault(s, field)
+
+
+# Top-level identity scalars.
+for field in ("user_email", "user_name"):
+    if field in data:
+        add(field, data[field])
+
+
+def harvest_identity_map(field, mapping):
+    """Collect KEYS and string VALUES from an identity mapping."""
+    if not isinstance(mapping, dict):
+        return
+    for k, v in mapping.items():
+        add(field, k)
+        if isinstance(v, dict):
+            harvest_identity_map(field, v)
+        elif isinstance(v, list):
+            for item in v:
+                add(field, item)
+        else:
+            add(field, v)
+
+
+for field, value in data.items():
+    if field in ("github_accounts", "project_personas"):
+        harvest_identity_map(field, value)
+    elif field.endswith("_username") or field.endswith("_account"):
+        if isinstance(value, dict):
+            harvest_identity_map(field, value)
+        else:
+            add(field, value)
+
+for token, field in out.items():
+    sys.stdout.write(f"{field}\t{token}\n")
+PYEOF
+    then
+        echo -e "${RED}ERROR: failed to build private-identifier denylist from localhost.yml${NC}" >&2
+        exit 1
+    fi
+
+    if [ -s "$DENYLIST_FILE" ]; then
+        # Concatenate all staged text content once for scanning.
+        ALL_STAGED_CONTENT=""
+        for FILE in "${STAGED_FILE_LIST[@]}"; do
+            if git diff --cached --numstat -- "$FILE" | grep -q '^-'; then
+                continue
+            fi
+            FILE_CONTENT=$(git show ":$FILE" 2>/dev/null || true)
+            [ -z "$FILE_CONTENT" ] && continue
+            ALL_STAGED_CONTENT+="$FILE_CONTENT"$'\n'
+        done
+
+        while IFS=$'\t' read -r DENY_FIELD DENY_TOKEN; do
+            [ -z "$DENY_TOKEN" ] && continue
+            if printf '%s' "$ALL_STAGED_CONTENT" | grep -qF -- "$DENY_TOKEN"; then
+                if [ $FOUND_ISSUES -eq 0 ]; then
+                    echo ""
+                    echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                    echo -e "${RED}⚠  PRIVATE IDENTIFIER DETECTED (from localhost.yml)${NC}"
+                    echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                    echo ""
+                fi
+                # Report by source field name only — never print the value.
+                echo -e "${YELLOW}Private value from localhost.yml field '${DENY_FIELD}' appears in staged content${NC}"
+                FOUND_ISSUES=1
+            fi
+        done < "$DENYLIST_FILE"
+    fi
+fi
 
 if [ $FOUND_ISSUES -eq 1 ]; then
     echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"

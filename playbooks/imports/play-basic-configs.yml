@@ -9,9 +9,9 @@
     # Priority 1: per-hostname override in localhost.yml
     # Example in localhost.yml:
     #   hostname_overrides:
-    #     joseph-x1:
+    #     <hostname-a>:
     #       ps1_colour: green
-    #     joseph-p14:
+    #     <hostname-b>:
     #       ps1_colour: lightblueBold
     - name: Set PS1_Colour from hostname override
       ansible.builtin.set_fact:

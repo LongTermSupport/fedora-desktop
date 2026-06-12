@@ -50,7 +50,7 @@ graphical.target reached after 11.874s in userspace.
 | 676 ms   | `NetworkManager.service`             | Normal.                                                                                                                                                     |
 | 391 ms   | `upower.service`                     | Normal.                                                                                                                                                     |
 
-Critical chain bottoms out at `home-joseph-mnt-lts-photo.mount @11.033s` — the rclone-FUSE mount blocks `local-fs.target`, which in turn delays the rest of the chain. That mount is the path Plymouth waits on.
+Critical chain bottoms out at `home-<user>-mnt-lts-photo.mount @11.033s` — the rclone-FUSE mount blocks `local-fs.target`, which in turn delays the rest of the chain. That mount is the path Plymouth waits on.
 
 ### Device-level "blame" noise
 

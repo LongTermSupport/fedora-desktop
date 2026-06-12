@@ -19,7 +19,9 @@ TMP_BASH=$(mktemp)
 TMP_PYTHON=$(mktemp)
 TMP_PATTERNS=$(mktemp)
 TMP_ANSIBLE=$(mktemp)
-trap 'rm -f "$TMP_BASH" "$TMP_PYTHON" "$TMP_PATTERNS" "$TMP_ANSIBLE"' EXIT
+TMP_ANSIBLE_SYNTAX=$(mktemp)
+TMP_JS=$(mktemp)
+trap 'rm -f "$TMP_BASH" "$TMP_PYTHON" "$TMP_PATTERNS" "$TMP_ANSIBLE" "$TMP_ANSIBLE_SYNTAX" "$TMP_JS"' EXIT
 FAILED=0
 
 # Run sub-checks (each writes JSON to temp file, outputs terse to stdout)
@@ -51,10 +53,31 @@ elif [[ $rc -ne 0 ]]; then
     FAILED=$((FAILED + 1))
 fi
 
-# Ansible fail-fast check (no JSON output — standalone pass/fail)
+# Ansible checks (fail-fast patterns + playbook hygiene)
 rc=0
-"$SCRIPT_DIR/qa-ansible.bash" || rc=$?
-if [[ $rc -ne 0 ]]; then
+QA_JSON_OUT="$TMP_ANSIBLE" "$SCRIPT_DIR/qa-ansible.bash" || rc=$?
+if [[ $rc -eq 2 ]]; then
+    echo "ERROR: Missing required tools for ansible check. Install them and re-run." >&2
+    exit 2
+elif [[ $rc -ne 0 ]]; then
+    FAILED=$((FAILED + 1))
+fi
+
+rc=0
+QA_JSON_OUT="$TMP_ANSIBLE_SYNTAX" "$SCRIPT_DIR/qa-ansible-syntax.bash" || rc=$?
+if [[ $rc -eq 2 ]]; then
+    echo "ERROR: Missing required tools (ansible-playbook). Install them and re-run." >&2
+    exit 2
+elif [[ $rc -ne 0 ]]; then
+    FAILED=$((FAILED + 1))
+fi
+
+rc=0
+QA_JSON_OUT="$TMP_JS" "$SCRIPT_DIR/qa-js.bash" || rc=$?
+if [[ $rc -eq 2 ]]; then
+    echo "ERROR: Missing required tools (node / extensions node_modules). Install them and re-run." >&2
+    exit 2
+elif [[ $rc -ne 0 ]]; then
     FAILED=$((FAILED + 1))
 fi
 
@@ -73,11 +96,14 @@ jq -s \
         },
         "failures": [.[].failures[]],
         "checks": {
-            "bash":     .[0],
-            "python":   .[1],
-            "patterns": .[2]
+            "bash":            .[0],
+            "python":          .[1],
+            "patterns":        .[2],
+            "ansible":         .[3],
+            "ansible_syntax":  .[4],
+            "js":              .[5]
         }
-    }' "$TMP_BASH" "$TMP_PYTHON" "$TMP_PATTERNS" > "$JSON_OUT"
+    }' "$TMP_BASH" "$TMP_PYTHON" "$TMP_PATTERNS" "$TMP_ANSIBLE" "$TMP_ANSIBLE_SYNTAX" "$TMP_JS" > "$JSON_OUT"
 
 # Final terse summary
 TOTAL=$(jq '.summary.total' "$JSON_OUT")

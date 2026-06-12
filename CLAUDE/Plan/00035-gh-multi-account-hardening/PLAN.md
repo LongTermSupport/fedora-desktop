@@ -18,7 +18,7 @@ and it reproduces in any other project when the user picks a `github_<alias>`
 key whose alias ≠ the account `~/.ssh/id` is registered to.
 
 Root cause is structural, not a one-off: the manual-paste upload step plus a
-probe that can't tell "real auth as ballidev" from "fallback auth as
+probe that can't tell "real auth as <gh-username-a>" from "fallback auth as
 LTSCommerce" make the flow impossible to get right reliably. This plan
 replaces both with a programmatic flow that uses `gh` to register pubkeys
 against the correct accounts, with a per-account assertion that catches
@@ -75,11 +75,11 @@ trustworthy across all accounts, SSH keys become easy to manage and rotate.
    registered on GitHub at all.
 2. **Same bug in ccy** — `files/var/local/claude-yolo/lib/ssh-handling.bash:112`
    has an identical SSH command missing the same isolation flags. This
-   produced the `Expected: LTSCommerce / Got: edmondscommerce`
+   produced the `Expected: LTSCommerce / Got: <gh-username-b>`
    entrypoint mismatch observed today in an unrelated project (user
    picked `github_ec`; SSH probe fell through to `~/.ssh/id` → reported
-   LTSCommerce; alias-extracted `gh-token-ec` returned edmondscommerce's
-   token; container's `gh api user` returned edmondscommerce → mismatch).
+   LTSCommerce; alias-extracted `gh-token-ec` returned <gh-username-b>'s
+   token; container's `gh api user` returned <gh-username-b> → mismatch).
 3. **Weak assertion** — `play-github-cli-multi.yml:290` asserts only
    `'successfully authenticated' in item.stdout`. That is true when the
    probe falls through to `~/.ssh/id`, so the assertion rubber-stamps the
@@ -91,7 +91,7 @@ trustworthy across all accounts, SSH keys become easy to manage and rotate.
    due to the false positives.
 5. **Scope preconditions undocumented** — `gh ssh-key add` requires
    `admin:public_key` scope. Two of the four accounts in today's session
-   (`ballidev`, `joseph-uk`) didn't have it. Today's manual remediation
+   (`<gh-username-a>`, `joseph-uk`) didn't have it. Today's manual remediation
    ran `gh auth switch --user <X> && gh auth refresh --hostname github.com --scopes admin:public_key` for each. That work should be
    part of the baseline setup, not reactive.
 6. **Key regeneration trigger unknown** — `~/.ssh/github_*` keys all had
@@ -385,13 +385,13 @@ touch different files.)
   probe bug → manual registration of four pubkeys via `gh ssh-key add` as an immediate unblock.
 - Manual unblock done: `github_balli`, `github_lts`, `github_ec`,
   `github_joseph` now registered against their correct accounts.
-  `ballidev` and `joseph-uk` needed `gh auth refresh --scopes admin:public_key` first (interactive).
-- `ballidev` auth end-to-end verified working in live terminal.
+  `<gh-username-a>` and `joseph-uk` needed `gh auth refresh --scopes admin:public_key` first (interactive).
+- `<gh-username-a>` auth end-to-end verified working in live terminal.
   Post-auth SSH hang observed on `-i github_balli -o IdentitiesOnly=yes` probe — out of scope for this plan (suspected
   VPN/MTU), noted here so it doesn't get lost.
 - Reproduced the ccy side of the bug in a separate project (user
   picked `github_ec`; entrypoint reported "Expected: LTSCommerce /
-  Got: edmondscommerce") — confirms Phase 5 is a real blocker, not
+  Got: <gh-username-b>") — confirms Phase 5 is a real blocker, not
   just hypothetical.
 - Patched `.claude/hooks/handlers/pre_tool_use/system_paths.py` to
   exempt `$CLAUDE_PROJECT_DIR` (derived from handler's own

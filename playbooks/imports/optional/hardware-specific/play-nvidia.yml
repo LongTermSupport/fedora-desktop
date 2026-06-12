@@ -215,6 +215,7 @@
         send \"{{ mok_password }}\r\"
         expect eof
         "
+      no_log: true
       when:
         - "'SecureBoot enabled' in secure_boot_state.stdout"
         - akmods_mok_key.stat.exists

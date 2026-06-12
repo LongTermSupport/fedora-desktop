@@ -1,6 +1,6 @@
 # Plan 00049: Full Repository Audit
 
-**Status**: 🔄 In Progress (research complete — action phases awaiting approval/execution)
+**Status**: 🔄 In Progress (research complete; Batch 1 = Phases 3+4 landed on branch `fable-audit-1`)
 **Created**: 2026-06-12
 **Owner**: Claude (Fable 5 multi-agent workflow) / joseph
 **Priority**: High
@@ -53,26 +53,28 @@ The 7 effective-high findings: SEC-01 (committed PII), FF-01/ANS-01 (shell block
 
 > Findings: SEC-01, OPP-01, SEC-02, QA-13, SEC-04 — see [research/security.md](research/security.md)
 
-- [ ] ⬜ **Scrub PII from tracked plan docs** (SEC-01): replace real emails, account mappings, and hostnames with placeholders across `CLAUDE/Plan/**` and `playbooks/imports/play-basic-configs.yml` comments
-- [ ] ⬜ **Remove junk tracked files** (OPP-01): `git rm` the `localhost`, `loclahost`, and U+00A0-named files (the last leaks a home-directory listing)
-- [ ] ⬜ **Decision Gate 1 — history purge**: user decides whether to purge the U+00A0 file and PII from git history (`git filter-repo`/BFG, force-push, destructive) or accept the identifiers as burned
-- [ ] ⬜ **Harden secret-scan hooks** (SEC-02, QA-13): identifier denylist derived from `localhost.yml` with public-token allowlist (per Plan 00046 design); private-key-block and modern token patterns (`github_pat_`, `ghs_`, `glpat-`); per-line `/home` filtering instead of whole-file whitelist; reject whitespace-only filenames; fix the unquoted staged-file loop (BSH-15)
-- [ ] ⬜ **Add `no_log: true` to MOK expect tasks** (SEC-04) in play-nvidia.yml and play-displaylink.yml
-- [ ] ⬜ **Fix malformed `.gitignore` line** breaking the `!.env.dist` negation (coverage GAP-03)
+- [x] ✅ **Scrub PII from tracked plan docs** (SEC-01): real emails, the private account-mapping, hostnames, and `/home/<user>` paths replaced with placeholders across `CLAUDE/Plan/**` and `playbooks/imports/play-basic-configs.yml` comments; denylist derived deterministically from the gitignored `localhost.yml` minus the public allowlist. Verified zero residual private tokens in tracked files. *(Working-tree scrub only — history still holds them; see Decision Gate 1.)*
+- [x] ✅ **Remove junk tracked files** (OPP-01): `git rm`'d the `localhost`, `loclahost`, and U+00A0-named files (the last leaked a home-directory listing). *(Removed from HEAD; still in history — Decision Gate 1.)*
+- [ ] ⬜ **Decision Gate 1 — history purge** *(awaiting user)*: purge the U+00A0 file and PII from git history (`git filter-repo`/BFG, force-push, destructive) or accept the identifiers as burned. `git-filter-repo` is not installed in the container — needs host tooling.
+- [x] ✅ **Harden secret-scan hooks** (SEC-02, QA-13, BSH-15): broadened email + token + private-key patterns; per-line whitelist filtering (no more whole-file skip); dynamic identifier denylist from `localhost.yml` minus the new `.claude/public-token-allowlist.yml` (public-by-design tokens); merge-commit body scanning; quoted/`mapfile` staged-file loop; carve-outs for `git@host` SSH URLs and systemd `@unit.service` names so the gate is usable. Pre-flighted against the staged set (exit 0).
+- [x] ✅ **Add `no_log: true` to MOK expect tasks** (SEC-04) in play-nvidia.yml and play-displaylink.yml (intentional on-screen display kept).
+- [x] ✅ **Fix malformed `.gitignore` line** breaking the `!.env.dist` negation (coverage GAP-03).
 
 ### Phase 4 (Action B): Make the QA Gate Actually Gate
 
 > Findings: QA-01..QA-09, BSH-01..BSH-03, BSH-13, FF-03, FF-04, FF-10, PERF-01, EXT-01 — see [research/qa-gaps.md](research/qa-gaps.md)
 
-- [ ] ⬜ **Fix dead CCY version-bump check** (QA-01/BSH-01): the `grep -q` mid-pipeline bug makes the COMMIT REJECTED path unreachable; rewrite and regression-test both branches
-- [ ] ⬜ **Add Ansible syntax validation** (QA-02/OPP-02): `ansible-playbook --syntax-check` over playbook-main.yml and all imports in qa-all.bash — closes both recorded 2.19 incident classes; add ansible-core to the CCY image via IaC if QA must run in-container
-- [ ] ⬜ **Make shellcheck a real gate** (QA-04/BSH-02/FF-03): exit 2 when shellcheck missing; fail on error-level findings in repo-owned files; classify tool-crash vs findings
-- [ ] ⬜ **Stop swallowing analyser crashes** (QA-08/BSH-13/FF-04): ruff rc>=2 = hard fail; drop silent `--fix` mutation from the check path; same for the shellcheck|jq pipeline
-- [ ] ⬜ **Scope QA to first-party code** (QA-05/PERF-01): exclude `.claude/hooks-daemon`, `.claude/ccy`, `roles/vendor` from qa-bash/qa-patterns (also cuts qa-all.bash wall-clock from ~45s to ~15s)
-- [ ] ⬜ **Widen qa-ansible + semgrep coverage** (QA-06, QA-07, FF-10): scan `tasks/`/`vars/`/`environment/`, case-insensitive booleans, mktemp; add `|| true` / `|| :` semgrep rules with `# FAIL-FAST-OK:` escape; run `semgrep --test .semgrep/`
-- [ ] ⬜ **Add pytest stage** (QA-09): qa-pytest.bash running tests/clip_scan and scripts/test_config_merge.py, exit 2 if pytest absent (dependency via IaC)
-- [ ] ⬜ **Add ESLint stage** (EXT-01/QA-10): qa-js.bash (`node --check` on repo JS + `eslint .` in extensions/); add `llm:lint` script (OPP-13)
-- [ ] ⬜ **Decision Gate 2 — CI**: user decides on adding a GitHub Actions workflow (QA-03) running qa-all.bash + syntax-check + eslint + gitleaks on push/PR — the only non-bypassable layer
+- [x] ✅ **Fix dead CCY version-bump check** (QA-01/BSH-01): rewrote the always-false grep pipeline (strips `+++`/`---` headers + comment/blank lines); a real code change without a `CCY_VERSION` bump now REJECTS, comment/blank-only ALLOWS. Functionally verified in throwaway repos.
+- [x] ✅ **Add Ansible syntax validation** (QA-02): new `qa-ansible-syntax.bash` runs `ansible-playbook --syntax-check` over all playbooks with a top-level `- hosts:` (71 today; parse-only, CCY-safe), wired into qa-all.bash with mergeable JSON.
+- [x] ✅ **Make shellcheck a real gate** (QA-04/BSH-02/FF-03): error-level findings now fail QA; warning/info/style advisory. Pulled forward the two cited bug-fixes (BSH-07 `qp` SC2168, BSH-17 check-displaylink SC2144) so the gate is green (0 errors).
+- [x] ✅ **Stop swallowing analyser crashes** (QA-08/BSH-13/FF-04): ruff rc≥2 and shellcheck/jq rc≥2 now hard-fail via PIPESTATUS/explicit rc (stderr kept in temp files); removed the silent `ruff --fix` mutation from the check path.
+- [x] ✅ **Scope QA to first-party code** (QA-05/PERF-01): qa-bash excludes `.claude/hooks-daemon`, `.claude/ccy`, `.claude/skills`, `roles/vendor`; binaries skipped before shebang sniff (scan 196→64 files, null-byte noise gone).
+- [x] ✅ **Widen qa-ansible** (QA-06): scans `playbooks/ tasks/ vars/ environment/ roles/` (vendor excluded), `*.yml`+`*.yaml`, case-insensitive booleans, templated-`ignore_errors` flagging, mktemp, JSON output; **+ QA-14** playbook shebang/exec-bit hygiene check (70 playbooks pass).
+- [ ] ⬜ **Semgrep `|| true`/`|| :` rules** (QA-07, FF-10): *deferred to Phase 5* — the rule cascades onto ~55 existing occurrences the fail-fast sweep must annotate; landing them together keeps the gate green. (`semgrep --test .semgrep/` lands with it.)
+- [ ] ⬜ **Add pytest stage** (QA-09): *deferred — IaC gap* — `pytest` is missing from the CCY image; needs an IaC install (Dockerfile/playbook) before `qa-pytest.bash` can run green. First item of the next batch.
+- [x] ✅ **Add ESLint/JS stage** (EXT-01/QA-10): new `qa-js.bash` (`node --check` on repo JS + `eslint .` in extensions/, covering the previously-uncovered `ccy-ctrl-z-patch.js`), wired into qa-all.bash.
+- [x] ✅ **Realign CLAUDE/QA.md** (QA-11/DOC-08): documented the new 6-stage suite + shellcheck error-gating + crash-hard-fail (brought forward from Phase 9 to avoid shipping a stale canonical QA doc alongside the suite change).
+- [ ] ⬜ **Decision Gate 2 — CI** *(awaiting user)*: add a GitHub Actions workflow (QA-03) running qa-all.bash + syntax-check + eslint + gitleaks on push/PR — the only non-bypassable layer.
 
 ### Phase 5 (Action C): Fail-Fast Sweep in Playbooks and Deployed Scripts
 
@@ -189,3 +191,11 @@ The 7 effective-high findings: SEC-01 (committed PII), FF-01/ANS-01 (shell block
 - Audit workflow completed: 25 agents, 134 findings across 10 dimensions, 6 coverage gaps. All 14 originally-high findings CONFIRMED by adversarial verification (7 adjusted to medium); zero refuted.
 - Research docs, triage.md (all 134 findings, links validated), and this action plan written.
 - Awaiting user review of the action phases and the two decision gates (history purge, CI).
+
+### 2026-06-12 — Batch 1 executed (Phases 3 + 4) on branch `fable-audit-1`
+
+- Ran a dynamic multi-agent workflow (`wf_dee26ed1-3ea`, 14 agents: 7 edit + 7 review, partitioned by file to avoid write conflicts; opus for security/gate/integration units, sonnet for mechanical units — fable not warranted). Each unit was edited then independently reviewed.
+- Landed: SEC-01, OPP-01 (working-tree), SEC-02, QA-13, BSH-15, SEC-04, GAP-03 (Phase 3); QA-01/BSH-01, QA-02, QA-04, QA-08, QA-05, QA-06, QA-14, EXT-01/QA-10, QA-11/DOC-08, plus pulled-forward BSH-07 + BSH-17 (Phase 4).
+- Orchestrator verification (not delegated): full `./scripts/qa-all.bash` green across all **6 stages** (bash, python, patterns, ansible, ansible-syntax, js — 285 files); independent PII residual sweep (zero real identifiers in tracked files); hardened pre-commit hook pre-flighted against the staged set (exit 0). The reviewer caught one residual private token (a domain in a filename) and one error-hiding line in qa-ansible.bash; both fixed. The broadened email pattern initially over-blocked `git@host`/`@unit.service` shapes — added precise carve-outs so the gate is usable.
+- Deferred with reasons: QA-07 (`|| true` semgrep rule → cascades onto the Phase-5 fail-fast sweep); QA-09 (pytest stage → `pytest` absent from the CCY image, needs an IaC install first). Decision Gates 1 (history purge — `git-filter-repo` absent, destructive) and 2 (CI) remain with the user.
+- No CCY container changes in this batch → no `CCY_VERSION` bump required. All edit-only; nothing deployed (CCY container rule).

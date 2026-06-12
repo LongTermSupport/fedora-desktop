@@ -470,7 +470,7 @@ if $open_web; then
 
     # Completely detach from terminal using setsid
     setsid qobuz-player open --web </dev/null >/dev/null 2>&1 &
-    local pid=$!
+    pid=$!
     echo "$pid" > "$PID_FILE"
 
     echo -n "Waiting for qobuz-player to start"

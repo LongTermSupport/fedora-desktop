@@ -4,7 +4,7 @@
 # This hook scans the commit message for patterns that might leak private information
 #
 
-set -e
+set -euo pipefail
 
 # ANSI color codes
 RED='\033[0;31m'
@@ -21,10 +21,11 @@ fi
 # Read commit message
 COMMIT_MSG=$(cat "$COMMIT_MSG_FILE")
 
-# Skip merge commits (they often contain branch names with potential identifiers)
-if echo "$COMMIT_MSG" | grep -q "^Merge branch"; then
-    exit 0
-fi
+# Merge commits: do NOT skip wholesale. The auto-generated "Merge branch ..."
+# subject can carry branch names, but the human-authored subject/body of a
+# merge commit can still leak identifiers/tokens. We strip only the generated
+# "Merge branch"/"Merge remote-tracking branch" lines and scan the rest.
+SCAN_MSG=$(echo "$COMMIT_MSG" | grep -vE "^Merge (branch|remote-tracking branch|tag|commit) " || true)
 
 # Sensitive patterns specific to commit messages
 # Format: "pattern::description::suggested_fix" (using :: to avoid conflicts with | in regex)
@@ -33,8 +34,9 @@ declare -a MESSAGE_PATTERNS=(
     # Will exclude example_user, test_user, etc. in script logic below
     "[a-z]{3,}_[a-z]{3,}\\.(token|key|json)::Specific username in filename::Use: example_user.token"
 
-    # Email addresses (except generic examples and noreply)
-    "@.*\\.(dev|internal|corp|local)::Private email domain::Use: @example.com"
+    # Any real email address. Obvious placeholders (example.com/.org/.net, or
+    # addresses inside <...>/{{...}}) are filtered out in the per-pattern logic below.
+    "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}::Email address::Use: @example.com"
 
     # Real usernames in paths (not {{ variables }} or 'username')
     "/home/[a-z][a-z0-9_-]{2,}[^}]::Hardcoded username in path::Use: {{ user_login }} or generic placeholder"
@@ -43,9 +45,19 @@ declare -a MESSAGE_PATTERNS=(
     "192\\.168\\.[0-9]{1,3}\\.[0-9]{1,3}::Private IP address::Use: 192.168.x.x"
     "10\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}::Private IP address::Use: 10.x.x.x"
 
+    # Private key material (PEM blocks of any key type)
+    "-----BEGIN [A-Z ]*PRIVATE KEY-----::Private key block::Remove the key material entirely"
+
     # Real API tokens/keys (long enough to be real, not examples)
+    "sk-ant-oat01-[A-Za-z0-9_-]{20,}::Anthropic OAuth token::Remove or redact"
     "sk-ant-[a-z0-9-]{50,}::Anthropic API token::Remove or redact"
     "ghp_[A-Za-z0-9]{36,}::GitHub token::Remove or redact"
+    "gho_[A-Za-z0-9]{36,}::GitHub OAuth token::Remove or redact"
+    "ghs_[A-Za-z0-9]{36,}::GitHub server-to-server token::Remove or redact"
+    "ghr_[A-Za-z0-9]{36,}::GitHub refresh token::Remove or redact"
+    "github_pat_[A-Za-z0-9_]{20,}::GitHub fine-grained PAT::Remove or redact"
+    "glpat-[A-Za-z0-9_-]{20,}::GitLab personal access token::Remove or redact"
+    "AKIA[0-9A-Z]{16}::AWS access key ID::Remove or redact"
 )
 
 FOUND_ISSUES=0
@@ -57,38 +69,58 @@ for PATTERN_INFO in "${MESSAGE_PATTERNS[@]}"; do
     DESCRIPTION="${REMAINDER%%::*}"
     SUGGESTION="${REMAINDER#*::}"
 
-    if echo "$COMMIT_MSG" | grep -qE "$PATTERN"; then
-        # Skip if it's a known-safe placeholder pattern
-        if echo "$PATTERN" | grep -q "token|key|json" && \
-           echo "$COMMIT_MSG" | grep -E "$PATTERN" | grep -qE "(example_|test_|sample_|demo_|user_name|company_name)"; then
-            continue
-        fi
-        # Skip if it's the repository files/home/ directory structure (not system paths)
-        if echo "$PATTERN" | grep -q "/home/" && \
-           echo "$COMMIT_MSG" | grep -E "$PATTERN" | grep -qE "files/home/(bashrc-includes|[a-z-]+)"; then
-            continue
-        fi
-        if [ $FOUND_ISSUES -eq 0 ]; then
-            echo ""
-            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            echo -e "${RED}⚠  SENSITIVE INFORMATION IN COMMIT MESSAGE${NC}"
-            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            echo ""
-            echo "This commit message contains information that should NOT be in a public repository."
-            echo ""
-        fi
+    # Collect matching lines, then drop whitelisted/placeholder lines PER LINE
+    # so one legitimate reference cannot whitelist a real leak elsewhere.
+    MATCH_LINES=$(echo "$SCAN_MSG" | grep -nE -e "$PATTERN" || true)
+    [ -z "$MATCH_LINES" ] && continue
 
-        echo -e "${YELLOW}Issue: $DESCRIPTION${NC}"
-        echo -e "Suggestion: $SUGGESTION"
+    case "$PATTERN" in
+        *token*|*key*|*json*)
+            MATCH_LINES=$(echo "$MATCH_LINES" \
+                | grep -vE "(example_|test_|sample_|demo_|user_name|company_name)" || true)
+            ;;
+    esac
+    case "$PATTERN" in
+        *@*)
+            # Email pattern: drop obvious non-personal "user@host" shapes —
+            # placeholders, the SSH git remote user (git@github.com), and systemd
+            # unit names (foo@instance.service). Real personal addresses still match.
+            MATCH_LINES=$(echo "$MATCH_LINES" \
+                | grep -viE "@example\\.(com|org|net)" \
+                | grep -vE "<[^>]*@[^>]*>" \
+                | grep -vE "\\{\\{[^}]*@[^}]*\\}\\}" \
+                | grep -vE "(^|[^A-Za-z0-9._%+-])git@[A-Za-z0-9.-]+" \
+                | grep -vE "@[A-Za-z0-9_.:-]+\\.(service|socket|timer|target|mount|path|slice|scope|device|swap|automount)\\b" || true)
+            ;;
+        */home/*)
+            MATCH_LINES=$(echo "$MATCH_LINES" \
+                | grep -vE "files/home/(bashrc-includes|[a-z-]+)" \
+                | grep -vE "/home/(<user>|\\{\\{ ?user_login ?\\}\\}|\\\$USER|\\\$\\{USER\\}|ansible|runner|deploy|build|user)\\b" || true)
+            ;;
+    esac
 
-        # Show matching lines
-        echo "$COMMIT_MSG" | grep -nE "$PATTERN" | head -3 | while IFS=: read -r LINE_NUM LINE_CONTENT; do
-            echo "  Line $LINE_NUM: ${LINE_CONTENT:0:80}"
-        done
+    [ -z "$MATCH_LINES" ] && continue
+
+    if [ $FOUND_ISSUES -eq 0 ]; then
         echo ""
-
-        FOUND_ISSUES=1
+        echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${RED}⚠  SENSITIVE INFORMATION IN COMMIT MESSAGE${NC}"
+        echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo ""
+        echo "This commit message contains information that should NOT be in a public repository."
+        echo ""
     fi
+
+    echo -e "${YELLOW}Issue: $DESCRIPTION${NC}"
+    echo -e "Suggestion: $SUGGESTION"
+
+    # Show matching lines
+    echo "$MATCH_LINES" | head -3 | while IFS=: read -r LINE_NUM LINE_CONTENT; do
+        echo "  Line $LINE_NUM: ${LINE_CONTENT:0:80}"
+    done
+    echo ""
+
+    FOUND_ISSUES=1
 done
 
 if [ $FOUND_ISSUES -eq 1 ]; then

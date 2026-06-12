@@ -80,8 +80,9 @@ else
     print_status 1 "DisplayLink RPM: ${BOLD}Not installed${NC}"
 fi
 
-if [ -d /usr/src/evdi-* ]; then
-    EVDI_DIR=$(ls -d /usr/src/evdi-* 2>/dev/null | head -1)
+evdi_dirs=(/usr/src/evdi-*)
+if [ -d "${evdi_dirs[0]}" ]; then
+    EVDI_DIR="${evdi_dirs[0]}"
     print_status 0 "Driver source: ${BOLD}$EVDI_DIR${NC}"
 else
     print_status 1 "Driver source: ${BOLD}Not found${NC} in /usr/src/"

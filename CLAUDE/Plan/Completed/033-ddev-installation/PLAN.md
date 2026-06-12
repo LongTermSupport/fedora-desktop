@@ -358,7 +358,7 @@ Compare to PLAN.md v2's sketch — ~100 lines of sysctl / context / fuse-overlay
 
 ### 2026-04-21 (v2)
 
-- PR #18 feedback from @ballidev requested pivot to rootless Podman
+- PR #18 feedback from @<gh-username-a> requested pivot to rootless Podman
 - Rewrote plan for rootless Podman via `docker context` — PLAN.md v2 committed in `126aac5`
 
 ### 2026-04-21 (v3 — this revision)

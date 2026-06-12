@@ -46,7 +46,9 @@ scripts/qa-ccy/package-lock.json
 .env
 .env.*
 !.env.example
-!.env.dist# Security incident documentation - DO NOT COMMIT
+!.env.dist
+
+# Security incident documentation - DO NOT COMMIT
 SECURITY-INCIDENT-LOG.md
 FORCE-PUSH-REQUIRED.md
 *-incident*.md

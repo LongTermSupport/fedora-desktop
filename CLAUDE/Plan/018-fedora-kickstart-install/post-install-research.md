@@ -10,15 +10,15 @@ playbooks from git.
 
 ## Table of Contents
 
-1. [Kickstart %post: --nochroot vs chroot](#1-kickstart-post-nochroot-vs-chroot)
-2. [Running Ansible from %post](#2-running-ansible-from-post)
-3. [Firstboot / systemd Oneshot Services](#3-firstboot--systemd-oneshot-services)
-4. [GitHub SSH Keys and Repo Cloning in %post](#4-github-ssh-keys-and-repo-cloning-in-post)
-5. [Ansible Vault in Automated Installs](#5-ansible-vault-in-automated-installs)
-6. [User Session Setup](#6-user-session-setup)
-7. [Flatpak, RPM Fusion, Third-Party Repos in %post](#7-flatpak-rpm-fusion-third-party-repos-in-post)
-8. [Real-World Examples](#8-real-world-examples)
-9. [Recommended Architecture](#9-recommended-architecture)
+01. [Kickstart %post: --nochroot vs chroot](#1-kickstart-post-nochroot-vs-chroot)
+02. [Running Ansible from %post](#2-running-ansible-from-post)
+03. [Firstboot / systemd Oneshot Services](#3-firstboot--systemd-oneshot-services)
+04. [GitHub SSH Keys and Repo Cloning in %post](#4-github-ssh-keys-and-repo-cloning-in-post)
+05. [Ansible Vault in Automated Installs](#5-ansible-vault-in-automated-installs)
+06. [User Session Setup](#6-user-session-setup)
+07. [Flatpak, RPM Fusion, Third-Party Repos in %post](#7-flatpak-rpm-fusion-third-party-repos-in-post)
+08. [Real-World Examples](#8-real-world-examples)
+09. [Recommended Architecture](#9-recommended-architecture)
 10. [Complete Reference Kickstart File](#10-complete-reference-kickstart-file)
 
 ---
@@ -36,13 +36,13 @@ The installed system's root filesystem is accessible at `/mnt/sysimage`.
 
 ### Key Differences
 
-| Aspect | `%post` (chroot, default) | `%post --nochroot` |
-|--------|--------------------------|-------------------|
-| Root filesystem | `/` = installed system | `/` = installer env, installed system at `/mnt/sysimage` |
-| Package manager | `dnf` runs against installed system | Cannot run `dnf` for installed system |
-| Network | May need resolv.conf fix | Has installer network config |
-| File access | Only installed system files | Both installer media and installed system |
-| Use case | Install packages, configure system | Copy files from media, fix DNS |
+| Aspect          | `%post` (chroot, default)           | `%post --nochroot`                                       |
+| --------------- | ----------------------------------- | -------------------------------------------------------- |
+| Root filesystem | `/` = installed system              | `/` = installer env, installed system at `/mnt/sysimage` |
+| Package manager | `dnf` runs against installed system | Cannot run `dnf` for installed system                    |
+| Network         | May need resolv.conf fix            | Has installer network config                             |
+| File access     | Only installed system files         | Both installer media and installed system                |
+| Use case        | Install packages, configure system  | Copy files from media, fix DNS                           |
 
 ### Critical DNS Resolution Issue
 
@@ -85,12 +85,12 @@ systemctl enable my-firstboot.service
 
 ### Available Options
 
-| Option | Description |
-|--------|------------|
-| `--nochroot` | Run outside chroot (installer environment) |
+| Option                          | Description                                         |
+| ------------------------------- | --------------------------------------------------- |
+| `--nochroot`                    | Run outside chroot (installer environment)          |
 | `--interpreter=/path/to/interp` | Use specific interpreter (e.g., `/usr/bin/python3`) |
-| `--erroronfail` | Halt installation if script fails |
-| `--log=/path/to/log` | Log script output to file |
+| `--erroronfail`                 | Halt installation if script fails                   |
+| `--log=/path/to/log`            | Log script output to file                           |
 
 ### Best Practices for %post Logging and Error Handling
 
@@ -105,12 +105,14 @@ echo "Starting post-install configuration..."
 ```
 
 Using `set -euxo pipefail` provides:
+
 - `e`: Exit on error
 - `u`: Treat unset variables as errors
 - `x`: Print each command before execution (essential for debugging via the log)
 - `o pipefail`: Pipe failures are caught
 
 The `--log` path is relative to the chroot context:
+
 - With chroot (default): `--log=/root/ks-post.log` writes to installed system's `/root/`
 - With `--nochroot`: `--log=/mnt/sysimage/root/ks-nochroot.log` to write to installed system
 
@@ -178,6 +180,7 @@ ansible-playbook playbooks/playbook-main.yml --connection=local
 
 8. **Ansible collections from DNF**: On Fedora, collections can be installed via DNF
    as RPMs, which avoids Galaxy network issues:
+
    ```bash
    dnf -y install ansible-collection-community-general ansible-collection-ansible-posix
    ```
@@ -197,6 +200,7 @@ ansible-pull \
 ```
 
 Options:
+
 - `-U`: Repository URL (HTTPS for public repos, no SSH key needed)
 - `-C`: Branch/checkout (e.g., `F42` for Fedora 42)
 - `-d`: Directory to clone into
@@ -241,6 +245,7 @@ This avoids all the chroot limitations and runs in a real, fully booted system.
 ### Why Firstboot is Better Than %post for Complex Setup
 
 The %post environment is fundamentally limited:
+
 - No running systemd (PID 1 is Anaconda, not systemd)
 - No D-Bus (no session bus, no system bus in useful state)
 - No user sessions
@@ -375,6 +380,7 @@ echo "Completed at: $(date)"
 
 `ConditionFirstBoot=yes` checks whether `/etc/machine-id` was freshly initialized.
 This works correctly after Kickstart installations because:
+
 - Anaconda creates an empty or uninitialized `/etc/machine-id`
 - On first boot, systemd initializes it and considers it a "first boot"
 - After reboot, ConditionFirstBoot=yes no longer triggers
@@ -384,18 +390,18 @@ However, if the machine-id was already set during installation (e.g., in %post),
 
 ### Comparison: %post vs Firstboot Service
 
-| Aspect | %post | Firstboot Service |
-|--------|-------|-------------------|
-| systemd available | No | Yes |
-| D-Bus available | No | Yes |
-| Network reliability | Questionable (DNS issues) | Full network stack |
-| User sessions | No | Can run as user |
-| Service management | Can only enable, not start | Full start/stop/enable |
-| dconf/gsettings | Must use file-based approach | Full gsettings available |
-| Flatpak | May have D-Bus issues | Works fully |
-| Time to install | Adds to Anaconda install time | Adds to first boot time |
-| User visibility | Hidden during install | Can show progress on console |
-| Failure handling | May leave system in bad state | System is bootable, can retry |
+| Aspect              | %post                         | Firstboot Service             |
+| ------------------- | ----------------------------- | ----------------------------- |
+| systemd available   | No                            | Yes                           |
+| D-Bus available     | No                            | Yes                           |
+| Network reliability | Questionable (DNS issues)     | Full network stack            |
+| User sessions       | No                            | Can run as user               |
+| Service management  | Can only enable, not start    | Full start/stop/enable        |
+| dconf/gsettings     | Must use file-based approach  | Full gsettings available      |
+| Flatpak             | May have D-Bus issues         | Works fully                   |
+| Time to install     | Adds to Anaconda install time | Adds to first boot time       |
+| User visibility     | Hidden during install         | Can show progress on console  |
+| Failure handling    | May leave system in bad state | System is bootable, can retry |
 
 ### Sources
 
@@ -413,6 +419,7 @@ However, if the machine-id was already set during installation (e.g., in %post),
 
 The `fedora-desktop` project is currently cloned via SSH (`git@github.com:...`) in
 `run.bash`. SSH requires:
+
 1. An SSH key pair on the machine
 2. The public key registered with GitHub
 3. GitHub host keys in `known_hosts`
@@ -450,6 +457,7 @@ If the repo were private, options include:
 
 1. **GitHub Personal Access Token (PAT)**: Pass via kernel cmdline or embed in
    kickstart (not recommended for security).
+
    ```bash
    git clone https://<PAT>@github.com/LongTermSupport/fedora-desktop.git
    ```
@@ -503,6 +511,7 @@ vault_id_match=true
 The simplest approach: **do not use vault-encrypted data during automated setup**.
 
 Analysis of the vault-encrypted variables in `localhost.yml`:
+
 - `lastfm_api_key` / `lastfm_api_secret`: Not needed for core system setup
 - `user_login`, `user_name`, `user_email`: These are **not** encrypted
 
@@ -511,6 +520,7 @@ secrets. The vault-encrypted data is only needed for specific optional
 configurations.
 
 **Implementation**:
+
 1. Split playbooks into "vault-free" and "vault-required" groups
 2. Run vault-free playbooks in automated pipeline
 3. Run vault-required playbooks interactively after first login
@@ -612,6 +622,7 @@ echo "$ANSIBLE_VAULT_PASSWORD"
 ```
 
 Then in ansible.cfg:
+
 ```ini
 vault_password_file=/usr/local/bin/vault-pass-from-env.sh
 ```
@@ -639,6 +650,7 @@ vault_password_file=/usr/local/bin/vault-pass-from-env.sh
 ### The Problem
 
 Some Ansible tasks in `fedora-desktop` need to:
+
 - Run as a specific user (not root)
 - Set dconf/gsettings values (requires D-Bus session)
 - Configure user-level systemd services
@@ -764,10 +776,11 @@ cannot be enabled or started in %post. Options:
 
 2. **Create symlinks manually**: Instead of `systemctl --user enable service`,
    create the symlink directly:
+
    ```bash
-   mkdir -p /home/joseph/.config/systemd/user/default.target.wants
+   mkdir -p /home/<user>/.config/systemd/user/default.target.wants
    ln -s /usr/lib/systemd/user/service.service \
-       /home/joseph/.config/systemd/user/default.target.wants/service.service
+       /home/<user>/.config/systemd/user/default.target.wants/service.service
    ```
 
 3. **Defer to first login**: Use an autostart desktop entry or a script in
@@ -853,6 +866,7 @@ flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.f
 #### Installing Flatpak Applications (Problematic in %post)
 
 Flatpak application installation in %post has issues:
+
 - Requires D-Bus system bus for some operations
 - Large downloads (runtimes) significantly increase install time
 - May fail due to missing D-Bus or polkit sessions
@@ -890,15 +904,15 @@ dnf -y install gh docker-ce docker-ce-cli containerd.io
 
 ### Summary: What Works Where
 
-| Component | %post | Firstboot | Notes |
-|-----------|-------|-----------|-------|
-| RPM Fusion repos | Yes | Yes | URL-based RPM install works |
-| RPM Fusion packages | Mostly | Yes | Akmods (NVIDIA) better at firstboot |
-| Flathub remote | Yes | Yes | Simple remote-add works |
-| Flatpak apps | Risky | Yes | D-Bus issues in %post |
-| Third-party DNF repos | Yes | Yes | Works well in both |
-| Docker/Podman | Partial | Yes | Can install, cannot start in %post |
-| NVIDIA drivers | No | Yes | Needs running kernel for akmods |
+| Component             | %post   | Firstboot | Notes                               |
+| --------------------- | ------- | --------- | ----------------------------------- |
+| RPM Fusion repos      | Yes     | Yes       | URL-based RPM install works         |
+| RPM Fusion packages   | Mostly  | Yes       | Akmods (NVIDIA) better at firstboot |
+| Flathub remote        | Yes     | Yes       | Simple remote-add works             |
+| Flatpak apps          | Risky   | Yes       | D-Bus issues in %post               |
+| Third-party DNF repos | Yes     | Yes       | Works well in both                  |
+| Docker/Podman         | Partial | Yes       | Can install, cannot start in %post  |
+| NVIDIA drivers        | No      | Yes       | Needs running kernel for akmods     |
 
 ### Sources
 
@@ -919,6 +933,7 @@ followed by Ansible for configuration.
 **Repository**: https://github.com/dschier-wtd/fedora-homeserver
 
 **Approach**:
+
 - Kickstart handles: disk partitioning, base packages, user creation, network
 - Ansible handles: all post-install configuration (run separately after first boot)
 - Two kickstart files: `base_ks.cfg` (minimal) and `full_ks.cfg` (customized)
@@ -932,6 +947,7 @@ Ansible from within %post. Ansible is run manually after the machine boots.
 **Source**: https://calgaryrhce.ca/blog/2016/02/03/ansible-pull-and-kickstart-for-one-touch-server-provisioning/
 
 **Architecture**:
+
 1. Kickstart installs base OS
 2. %post creates a systemd service for first boot
 3. First boot service runs ansible-pull to configure the system
@@ -940,6 +956,7 @@ Ansible from within %post. Ansible is run manually after the machine boots.
 **Key components**:
 
 Kickstart %post section:
+
 ```bash
 %post
 # Install ansible
@@ -993,6 +1010,7 @@ first-boot scenarios too.
 
 Community discussion about combining Kickstart and Ansible for Fedora desktop
 automation. Key takeaways:
+
 - Kickstart for disk layout, boot config, and base packages
 - Ansible for everything else (run after first boot)
 - The community recommends against complex %post scripts
@@ -1043,6 +1061,7 @@ Phase 1: Kickstart           Phase 2: Firstboot              Phase 3: Interactiv
 **Goal**: Get the system bootable with the minimum needed for Phase 2.
 
 What to do in %post:
+
 1. Fix DNS (copy resolv.conf via --nochroot)
 2. Install: `git`, `ansible-core`, `python3-libdnf5`, `python3-pip`
 3. Install Ansible collections from Fedora repos (avoid Galaxy network dependency)
@@ -1051,6 +1070,7 @@ What to do in %post:
 6. Enable the firstboot service
 
 What NOT to do in %post:
+
 - Run Ansible playbooks
 - Install Flatpak apps
 - Configure dconf/gsettings via gsettings command
@@ -1064,6 +1084,7 @@ What NOT to do in %post:
 **Goal**: Run the core Ansible playbooks in a fully booted environment.
 
 The firstboot service should:
+
 1. Wait for network availability
 2. Clone the repo via HTTPS (as the target user)
 3. Generate a vault password file (if not provided)
@@ -1078,6 +1099,7 @@ The firstboot service should:
 **Goal**: Complete setup that requires user interaction.
 
 After the user's first login:
+
 1. SSH key generation (requires passphrase input)
 2. GitHub CLI authentication (requires browser)
 3. Vault secret entry (API keys, etc.)
@@ -1085,6 +1107,7 @@ After the user's first login:
 5. Hardware-specific configurations
 
 This can be triggered by:
+
 - A desktop notification prompting the user
 - An autostart script that checks for completion
 - The user manually running a setup script
@@ -1522,6 +1545,7 @@ inst.ks=https://example.com/ks.cfg ks.user=joseph ks.branch=F42
 ```
 
 Optional parameters:
+
 ```
 ks.repo=https://github.com/LongTermSupport/fedora-desktop.git
 ks.vault_pass=MySecretVaultPassword
@@ -1534,6 +1558,7 @@ To integrate this with the existing `fedora-desktop` project:
 1. **Add the kickstart file** to the repository (e.g., `kickstart/ks.cfg`)
 
 2. **Create a "headless-compatible" playbook** that skips tasks requiring:
+
    - SSH keys
    - GitHub authentication
    - Vault-encrypted variables
@@ -1543,6 +1568,7 @@ To integrate this with the existing `fedora-desktop` project:
    redundant steps (check for `/var/lib/fedora-desktop-setup-complete`)
 
 4. **Create a Phase 3 script** (e.g., `setup-interactive.bash`) that handles:
+
    - SSH key generation
    - `gh auth login`
    - Vault password entry and secret encryption
@@ -1609,24 +1635,24 @@ sed -e "s/%%USERNAME%%/joseph/g" \
 
 Tasks from the `fedora-desktop` playbooks and their compatibility with each phase:
 
-| Playbook | %post | Firstboot | Interactive | Notes |
-|----------|-------|-----------|-------------|-------|
-| play-AA-preflight-sanity | Yes | Yes | Yes | Version checks only |
-| play-basic-configs | Partial | Yes | Yes | sysctl works, service start needs systemd |
-| play-systemd-user-tweaks | No | Partial | Yes | Needs user session for --user scope |
-| play-nvm-install | No | Yes | Yes | Needs network, user env |
-| play-git-configure-and-tools | No | Partial | Yes | Git config works, SSH setup needs interaction |
-| play-github-cli-multi | No | No | Yes | Needs interactive auth |
-| play-git-hooks-security | No | Yes | Yes | File operations only |
-| play-lxc-install-config | No | Yes | Yes | Needs systemd for service |
-| play-ms-fonts | Partial | Yes | Yes | Package install works |
-| play-rpm-fusion | Yes | Yes | Yes | URL-based RPM install |
-| play-toolbox-install | No | Yes | Yes | Needs podman/systemd |
-| play-docker | No | Yes | Yes | Needs systemd for service |
-| play-python | No | Yes | Yes | Needs network, user env |
-| play-claude-code | No | Yes | Yes | Needs network |
-| play-podman | No | Yes | Yes | Needs systemd |
-| play-install-flatpaks | No | Partial | Yes | Flatpak install needs D-Bus |
+| Playbook                     | %post   | Firstboot | Interactive | Notes                                         |
+| ---------------------------- | ------- | --------- | ----------- | --------------------------------------------- |
+| play-AA-preflight-sanity     | Yes     | Yes       | Yes         | Version checks only                           |
+| play-basic-configs           | Partial | Yes       | Yes         | sysctl works, service start needs systemd     |
+| play-systemd-user-tweaks     | No      | Partial   | Yes         | Needs user session for --user scope           |
+| play-nvm-install             | No      | Yes       | Yes         | Needs network, user env                       |
+| play-git-configure-and-tools | No      | Partial   | Yes         | Git config works, SSH setup needs interaction |
+| play-github-cli-multi        | No      | No        | Yes         | Needs interactive auth                        |
+| play-git-hooks-security      | No      | Yes       | Yes         | File operations only                          |
+| play-lxc-install-config      | No      | Yes       | Yes         | Needs systemd for service                     |
+| play-ms-fonts                | Partial | Yes       | Yes         | Package install works                         |
+| play-rpm-fusion              | Yes     | Yes       | Yes         | URL-based RPM install                         |
+| play-toolbox-install         | No      | Yes       | Yes         | Needs podman/systemd                          |
+| play-docker                  | No      | Yes       | Yes         | Needs systemd for service                     |
+| play-python                  | No      | Yes       | Yes         | Needs network, user env                       |
+| play-claude-code             | No      | Yes       | Yes         | Needs network                                 |
+| play-podman                  | No      | Yes       | Yes         | Needs systemd                                 |
+| play-install-flatpaks        | No      | Partial   | Yes         | Flatpak install needs D-Bus                   |
 
 ---
 
