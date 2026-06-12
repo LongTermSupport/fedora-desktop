@@ -72,12 +72,23 @@ jobs:
     name: gitleaks secret scan
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout (full history)
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # The gitleaks GitHub Action requires a paid GITLEAKS_LICENSE for
+      # organisation-owned repos. The gitleaks BINARY is free/OSS, so we run it
+      # directly. We scan the working tree (`gitleaks dir`), not full history:
+      # the historical PII is a known, accepted state (see Decision Gate 1), so a
+      # history scan would red-fail every run; a tree scan still blocks any NEW
+      # secret from being merged.
+      - name: Install gitleaks
+        run: |
+          set -euo pipefail
+          VER=8.30.1
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${VER}/gitleaks_${VER}_linux_x64.tar.gz" -o /tmp/gitleaks.tgz
+          tar -xzf /tmp/gitleaks.tgz -C /tmp gitleaks
+          sudo install /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      - name: Scan working tree
+        run: gitleaks dir . --redact --no-banner --verbose

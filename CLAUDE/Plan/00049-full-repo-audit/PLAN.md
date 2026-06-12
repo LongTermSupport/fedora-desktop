@@ -284,3 +284,10 @@ The 7 effective-high findings: SEC-01 (committed PII), FF-01/ANS-01 (shell block
 - **Housekeeping:** DOC-17 lint plan moved to `CLAUDE/Plan/00051-…` (time/date content stripped); plans 020 + 024 moved to `Completed/`; indexes updated.
 - **Verification:** `./scripts/qa-all.bash` green (6 stages; file count now 284 after the GPL removal); all 71 playbooks `--syntax-check` clean; CI workflow YAML validated; no dangling reference to the removed GPL file; `bash -n` clean on run.bash + the fedora-install scripts. **The CI workflow itself will get its first real exercise when this branch is pushed / a PR is opened.**
 - **No CCY-image (`claude-yolo`) change → no `CCY_VERSION` bump.** `run.bash` self-version bumped per its own rule. Host actions outstanding: netinstall test of the `fedora-install/` changes; deploy `play-gnome-shell-extensions.yml` (now fetches via get_url); restart the hooks daemon for the Batch-8 handler fix.
+
+### 2026-06-12 — Batch 9b: CI first-run fixes (Gate 2 green)
+
+- The first CI run (push of Batch 9) surfaced two CI-config issues, both fixed:
+  - **`qa-ansible.bash` hard-failed on a clean checkout** — it grepped `$REPO_ROOT/roles/`, but `roles/` is an ansible-galaxy install target (`roles/vendor/*` gitignored, no tracked roles) and is absent on a fresh CI checkout, so grep returned rc 2 → stage exit 2. Fixed: the fail-fast grep now builds its search list from the dirs that actually exist (and still hard-fails if *none* of playbooks/tasks/vars/environment/roles exist). A real portability bug the CI correctly caught.
+  - **`gitleaks-action@v2` requires a paid `GITLEAKS_LICENSE`** for org-owned repos. Switched the gitleaks job to the free OSS binary (pinned v8.30.1), scanning the **working tree** (`gitleaks dir`) rather than full history — Gate 1 accepts the historical PII, so a history scan would red-fail every run; a tree scan still blocks any NEW secret.
+- Local `./scripts/qa-all.bash` still green (roles/ exists locally so behaviour is unchanged there); the fix matters only for clean checkouts / CI.

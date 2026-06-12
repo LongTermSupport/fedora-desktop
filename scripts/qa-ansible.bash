@@ -51,6 +51,20 @@ FF_PATTERN='failed_when:[[:space:]]+false|ignore_errors:[[:space:]]+(true|yes)|i
 
 FF_VIOLATIONS=()
 
+# Build the search list from directories that actually exist. roles/ is an
+# ansible-galaxy install target (roles/vendor is gitignored) and is legitimately
+# absent on a clean checkout or CI runner — its absence is not an error, whereas
+# grep over a non-existent path returns rc 2 and would wrongly fail the gate.
+FF_SEARCH_DIRS=()
+for _d in playbooks tasks vars environment roles; do
+    [[ -d "$REPO_ROOT/$_d" ]] && FF_SEARCH_DIRS+=("$REPO_ROOT/$_d")
+done
+
+if [[ ${#FF_SEARCH_DIRS[@]} -eq 0 ]]; then
+    echo "ERROR: none of the expected Ansible dirs (playbooks/ tasks/ vars/ environment/ roles/) exist under $REPO_ROOT" >&2
+    exit 2
+fi
+
 # grep rc=1 means no matches — that is success; rc=0 means matches found
 grep_rc=0
 grep -rni \
@@ -58,11 +72,7 @@ grep -rni \
     --include='*.yaml' \
     --exclude-dir=vendor \
     -E "$FF_PATTERN" \
-    "$REPO_ROOT/playbooks/" \
-    "$REPO_ROOT/tasks/" \
-    "$REPO_ROOT/vars/" \
-    "$REPO_ROOT/environment/" \
-    "$REPO_ROOT/roles/" \
+    "${FF_SEARCH_DIRS[@]}" \
     > "$TMP_MATCHES" 2>"$TMP_GREP_ERR" || grep_rc=$?
 
 # rc 0 = matches found, rc 1 = no matches (OK), rc 2+ = real error
