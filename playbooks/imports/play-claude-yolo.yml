@@ -4,7 +4,7 @@
   name: Claude Code YOLO/Browser Mode - Container-based Installation
   become: false
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
   pre_tasks:
     - name: Load container defaults
       ansible.builtin.include_vars:

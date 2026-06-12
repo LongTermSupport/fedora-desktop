@@ -8,7 +8,7 @@
   name: Docker Rootful (compatibility engine for DDEV)
   become: false
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
   tasks:
 
     # ────────────────────────────────────────────────────────────────

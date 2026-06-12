@@ -4,7 +4,7 @@
   name: Preflight Sanity
   become: true
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
   pre_tasks:
     - name: Load Fedora version config
       ansible.builtin.include_vars:

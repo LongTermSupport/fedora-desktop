@@ -4,7 +4,7 @@
   name: Image Watermarking - installs `watermark` command (IM7 + exiftool)
   become: true
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
   tasks:
     - name: Install ImageMagick 7, exiftool, and DejaVu Sans font
       ansible.builtin.package:

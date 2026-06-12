@@ -20,7 +20,7 @@
 - hosts: desktop
   name: MusicCast Controllers (EXPERIMENTAL) - SSDP diagnostics + gyrc GUI
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     local_bin: "/home/{{ user_login }}/.local/bin"
 
     # gyrc - GTK 3 GUI for Yamaha network receivers (opt-in)

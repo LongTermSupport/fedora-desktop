@@ -92,7 +92,7 @@
   name: Install and Configure rclone with Cloud Storage Mounts
   become: true
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
 
   tasks:
     # =========================================================================

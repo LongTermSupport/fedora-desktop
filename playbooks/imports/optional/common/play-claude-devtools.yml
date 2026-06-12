@@ -4,7 +4,7 @@
   name: Claude DevTools (ccdt) - On-Demand Session Viewer Installation
   become: false
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     ccdt_repo: "https://github.com/matt1398/claude-devtools"
     ccdt_src_dir: "/opt/claude-devtools"
     ccdt_image: "claude-devtools"

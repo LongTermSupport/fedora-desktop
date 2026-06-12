@@ -4,7 +4,7 @@
   name: NVM Installation and Node Setup
   become: false
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     nvm_version: "0.40.1"
     node_version: "lts/*"
   tasks:

@@ -8,7 +8,7 @@
   name: Install Modern Terminal Emulators
   become: true
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
   tasks:
     # Alacritty - Fastest terminal with lowest input latency
     - name: Install Alacritty Terminal Emulator

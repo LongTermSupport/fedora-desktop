@@ -4,7 +4,7 @@
   name: Deploy UniFi Network Controller for Seamless WiFi Roaming (Podman Compose)
   become: true
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     # UniFi controller data persists across container rebuilds
     unifi_data_dir: /home/{{ user_login }}/.local/share/unifi
     # @see https://hub.docker.com/r/linuxserver/unifi-network-application/tags

@@ -6,7 +6,7 @@
   name: Git Configure and Tools
   become: false
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
   tasks:
     # TODO: Consider adding GPG commit signing (commit.gpgsign true)
     # Needs investigation: gpg-agent forwarding to containers (similar to SSH agent forwarding)

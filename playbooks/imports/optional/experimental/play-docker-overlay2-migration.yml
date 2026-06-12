@@ -31,7 +31,7 @@
   name: Migrate Docker to Native overlay2
   become: false
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     min_kernel_version: "5.13.0"
     user_home: "/home/{{ user_login }}"
     docker_root: "/home/{{ user_login }}/.local/share/docker"

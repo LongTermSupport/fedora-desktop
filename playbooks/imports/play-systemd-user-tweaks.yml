@@ -4,7 +4,7 @@
   name: Systemd User Service Tweaks
   become: false
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
   tasks:
     # =========================================================================
     # SYSTEMD-OOMD MEMORY PRESSURE FIX
@@ -35,7 +35,7 @@
     #
     # KNOWN BUGS & ISSUES:
     # - Debian Bug #1118191: Killing processes with plenty of memory
-    #   http://www.mail-archive.com/pkg-systemd-maintainers@alioth-lists.debian.net/msg11313.html
+    #   https://bugs.debian.org/1118191
     #
     # - systemd PR #22965: Fixed memory calculation to use MemAvailable
     #   https://github.com/systemd/systemd/pull/22965

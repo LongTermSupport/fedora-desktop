@@ -4,7 +4,7 @@
 - hosts: desktop
   become: false
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     # Common Rust development tools
     cargo_tools:
       - cargo-watch # Automatically run commands when files change

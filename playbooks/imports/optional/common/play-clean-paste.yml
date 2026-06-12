@@ -19,7 +19,7 @@
   name: Clean Paste — Ctrl+Alt+V clipboard sanitiser
   become: true
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     clean_paste_binary: "/home/{{ user_login }}/.local/bin/clean-paste"
     clean_paste_lib_dir: "/home/{{ user_login }}/.local/lib/clean-paste"
     clean_paste_registrar: "/home/{{ user_login }}/.local/lib/clean-paste/register-shortcut.py"

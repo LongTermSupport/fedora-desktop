@@ -4,7 +4,7 @@
   name: Install Podman and podman-compose
   become: false
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
   tasks:
     - name: Install Podman
       become: true

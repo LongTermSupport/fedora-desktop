@@ -8,7 +8,7 @@
 - hosts: desktop
   become: true
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     # cuDNN 9 — installed from NVIDIA's official wheel; there is no NVIDIA
     # cuDNN dnf repo for Fedora. Bump version + URL + sha256 together (the
     # pythonhosted URL path is content-addressed and changes per release).

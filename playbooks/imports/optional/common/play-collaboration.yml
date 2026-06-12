@@ -9,7 +9,7 @@
   name: Collaboration Tools
   become: true
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
   tasks:
     # ── tmate ──────────────────────────────────────────────────────────────────
     # Instant terminal sharing via SSH URL. Wrapper scripts default to

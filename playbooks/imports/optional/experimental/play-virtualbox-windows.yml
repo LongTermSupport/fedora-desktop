@@ -3,7 +3,7 @@
 - hosts: desktop
   name: Install Virtualbox
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
 
   tasks:
     - name: Install Virtualbox Dependencies
@@ -44,7 +44,7 @@
 - hosts: desktop
   name: Setup Windows VMs
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
 
   tasks:
     - name: Get Embedded Windows Key

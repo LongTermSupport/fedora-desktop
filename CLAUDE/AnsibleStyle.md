@@ -16,7 +16,13 @@
   name: [Descriptive Name]
   become: [true/false]
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    # Project root, anchored on ansible.cfg's location (never moves from the repo root).
+    # Do NOT use "{{ inventory_dir }}/../../" — inventory_dir is a host-scoped magic var
+    # that is UNDEFINED during the early vars_files evaluation pass, so any
+    # `vars_files: - "{{ root_dir }}/..."` entry silently skips (the "skipping vars_files
+    # item due to an undefined variable" warning) before being re-evaluated. The config
+    # lookup is host-independent and resolves on the first pass — 0 warnings, no skip.
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
   vars_files:
     - "{{ root_dir }}/vars/fedora-version.yml"  # For version-dependent playbooks
   tasks: [...]
@@ -131,7 +137,7 @@ marker: "-- {mark} ANSIBLE MANAGED: [Purpose]"  # For Lua configs
 
 ```yaml
 vars:
-  root_dir: "{{ inventory_dir }}/../../"
+  root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
   pyenv_versions:
     - 3.11.9
     - 3.12.4

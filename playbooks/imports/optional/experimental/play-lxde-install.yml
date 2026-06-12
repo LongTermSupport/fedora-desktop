@@ -5,7 +5,7 @@
   name: LXDE Desktop (experimental)
   become: true
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
   tasks:
     # Use the dnf module with an @group name — idempotent and works non-interactively. The
     # bare `dnf group install` command (no -y) aborts in a non-TTY Ansible run (assumes no).

@@ -37,7 +37,7 @@
   name: Install darktable AI Nightly (darktable-ai, with Sony A7V)
   become: true
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
 
     # GitHub releases API for the rolling `nightly` tag.
     dt_ai_release_api: "https://api.github.com/repos/darktable-org/darktable/releases/tags/nightly"

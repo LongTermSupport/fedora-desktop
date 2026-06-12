@@ -4,7 +4,7 @@
   name: Claude Code Installation
   become: false
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     claude_code_version: "stable"
   tasks:
     # cc wrapper sources ccy's lib at runtime. play-claude-yolo MUST run

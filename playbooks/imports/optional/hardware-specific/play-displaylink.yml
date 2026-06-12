@@ -5,7 +5,7 @@
 - hosts: desktop
   become: true
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     # Version configuration
     displaylink_version: "v6.2.0-1"
     evdi_version: "1.14.16"

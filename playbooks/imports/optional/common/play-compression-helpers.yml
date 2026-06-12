@@ -4,7 +4,7 @@
   name: Compression Helpers - installs `compress` and `uncompress` commands
   become: true
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     # Pin ouch version for reproducibility. Update deliberately.
     # @see https://github.com/ouch-org/ouch/releases
     ouchVersion: "0.6.1"

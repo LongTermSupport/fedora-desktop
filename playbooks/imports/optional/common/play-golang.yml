@@ -3,7 +3,7 @@
 # This play installs things you need for Golang development
 - hosts: desktop
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
   tasks:
     - name: Install Golang
       become: true

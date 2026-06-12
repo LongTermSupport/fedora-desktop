@@ -3,7 +3,7 @@
 # This play installs things you need for Python and AI development
 - hosts: desktop
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     # Python versions to install - using latest stable patch releases
     # To update: pyenv install --list | grep -E "^\s*3\.(11|12|13)\.[0-9]+$" | tail -3
     # Last verified: 2026-06-12 via git ls-remote --tags https://github.com/python/cpython

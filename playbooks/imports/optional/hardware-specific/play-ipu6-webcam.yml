@@ -35,7 +35,7 @@
   name: Install Intel IPU6 webcam userspace stack
   become: true
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
   vars_files:
     - "{{ root_dir }}/vars/fedora-version.yml"
   tasks:

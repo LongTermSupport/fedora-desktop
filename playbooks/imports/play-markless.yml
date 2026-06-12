@@ -3,7 +3,7 @@
 - hosts: desktop
   name: Install Markless - Terminal-based Markdown Viewer
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     # Markless configuration
     # Hardcoded version for security and reproducibility
     marklessVersion: "0.9.6"

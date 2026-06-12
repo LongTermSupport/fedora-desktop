@@ -18,7 +18,7 @@
   name: Remote Desktop Quick Toggle
   become: true
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     extension_name: remote-desktop-toggle@fedora-desktop
     extension_src: "{{ root_dir }}/extensions/{{ extension_name }}"
     extension_dest: "/home/{{ user_login }}/.local/share/gnome-shell/extensions/{{ extension_name }}"

@@ -4,7 +4,7 @@
   name: Prevent Suspend During SSH Sessions
   become: true
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
   tasks:
     - name: Deploy ssh-suspend-guard script
       ansible.builtin.copy:

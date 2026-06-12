@@ -4,7 +4,7 @@
   name: DDEV Local Development Environment
   become: false
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
   tasks:
     # Run as root so the check tests daemon health, not session group membership.
     # User-level docker group membership is verified separately below.

@@ -3,7 +3,7 @@
 - hosts: desktop
   name: Qobuz CLI Apps - Gapless HD Audio Streaming from Qobuz
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     # hifi-rs configuration
     # Set to "latest" for automatic version detection or specify version like "0.3.8"
     hifiRsVersion: "latest"

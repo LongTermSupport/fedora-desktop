@@ -4,7 +4,7 @@
 - hosts: desktop
   name: GitHub CLI Multi-Account Configuration
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     vault_file: "{{ root_dir }}/environment/localhost/host_vars/localhost.yml"
   vars_files:
     # Single source of truth for github_required_scopes — shared with

@@ -34,7 +34,7 @@
   name: Build and Install Darktable RPM with AI Features (USE_AI=ON)
   become: false
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
 
     # darktable upstream release - bump these together
     darktable_version: "5.4.1"

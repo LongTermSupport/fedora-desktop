@@ -4,7 +4,7 @@
   name: Install Camera FTP Server (Sony A7V)
   become: true
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     # Upload directory — override in environment/localhost/host_vars/localhost.yml
     # Uses /srv/ to avoid path traversal issues (home dirs are mode 700)
     ftp_camera_upload_dir: "/srv/ftp-camera"

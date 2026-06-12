@@ -5,7 +5,7 @@
   name: Gnome Shell Extensions
   become: true
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
   tasks:
     # FUP-07: fetch from upstream at a pinned tag instead of tracking the GPL-2.0
     # script in this MIT repo. Checksum pins v1.7 — update both url and checksum

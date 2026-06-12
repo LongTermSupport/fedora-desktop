@@ -5,7 +5,7 @@
   name: Videography Tools
   become: false
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
   tasks:
     # ANS-07: align with play-comms — system-level (become: true / root) flatpak via the
     # idempotent native modules, instead of an unbecome remote-add + a become_user round-trip
