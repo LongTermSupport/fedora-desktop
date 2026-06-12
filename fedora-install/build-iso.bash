@@ -44,8 +44,7 @@ if [[ ! -f "$KS_FILE" ]]; then
 fi
 
 if ! command -v mkksiso &>/dev/null; then
-    echo "mkksiso not found. Installing lorax..."
-    dnf -y install lorax
+    die "mkksiso not found. Install it with: sudo dnf install lorax"
 fi
 
 # --- Build ISO ---

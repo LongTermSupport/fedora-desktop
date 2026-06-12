@@ -209,7 +209,10 @@ try_clone() {
     local url="$1"
     local dest="$2"
     local key_hint="${3:-}"
-    local _ssh_opts="IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=no"
+    # accept-new: trust a host key on first contact but refuse if a known key
+    # changes (the MITM case `no` silently ignored). Avoids the blanket
+    # "accept anything, always" of StrictHostKeyChecking=no.
+    local _ssh_opts="IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new"
     _tried_keys=()  # populated for caller to use in failure messages
 
     # Try hinted key first (set by push-projects)

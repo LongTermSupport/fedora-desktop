@@ -683,6 +683,100 @@ download_file() {
     fi
 }
 
+# Verify a downloaded ISO against Fedora's signed CHECKSUM file.
+#
+# Fedora publishes a GPG clearsigned "*-CHECKSUM" file next to each ISO. It
+# contains BSD-style lines: `SHA256 (<iso>) = <hex>`. We:
+#   1. download the CHECKSUM file from the same release directory,
+#   2. GPG-verify the clearsignature against the Fedora release keys shipped in
+#      the distribution-gpg-keys package (best-effort — if the keys are not
+#      installed we proceed to the hash check with a loud warning rather than
+#      failing the whole setup over a missing optional package),
+#   3. extract the expected SHA-256 for this ISO and compare it against the
+#      sha256sum of the file on disk (this step is mandatory — a mismatch dies).
+#
+# Args: <iso_path> <iso_url> <description>
+verify_iso() {
+    local iso_path="$1"
+    local iso_url="$2"
+    local description="$3"
+    local iso_name dir_url checksum_url checksum_file
+    iso_name="$(basename "$iso_path")"
+    dir_url="${iso_url%/*}/"
+
+    echo "Verifying ${description} checksum..."
+
+    # Find the CHECKSUM file in the release directory listing.
+    local checksum_name
+    checksum_name=$(curl -sfL --max-time 30 "$dir_url" 2>/dev/null \
+        | grep -oP '[A-Za-z0-9._-]+-CHECKSUM' \
+        | sort -u \
+        | head -1)
+    if [[ -z "$checksum_name" ]]; then
+        die "Cannot find a *-CHECKSUM file in ${dir_url} — refusing to use unverified ${description}"
+    fi
+
+    checksum_url="${dir_url}${checksum_name}"
+    checksum_file="${iso_path%/*}/${checksum_name}"
+    if ! curl -fL --max-time 60 --progress-bar -o "$checksum_file" "$checksum_url"; then
+        die "Failed to download CHECKSUM (${checksum_url}) — cannot verify ${description}"
+    fi
+
+    # GPG verification of the clearsigned CHECKSUM (best-effort on key presence).
+    local gpg_keydir="/usr/share/distribution-gpg-keys/fedora"
+    local gpg_bin=""
+    if command -v gpg2 >/dev/null; then
+        gpg_bin="$(command -v gpg2)"
+    elif command -v gpg >/dev/null; then
+        gpg_bin="$(command -v gpg)"
+    fi
+
+    if [[ -z "$gpg_bin" ]]; then
+        echo "  WARNING: gpg not available — skipping signature check, doing hash check only" >&2
+    elif [[ ! -d "$gpg_keydir" ]]; then
+        echo "  WARNING: ${gpg_keydir} not found (install 'distribution-gpg-keys' for signature verification) — doing hash check only" >&2
+    else
+        local gnupg_home
+        gnupg_home=$(mktemp -d)
+        chmod 700 "$gnupg_home"
+        local imported=0
+        local _key
+        for _key in "$gpg_keydir"/*.asc "$gpg_keydir"/RPM-GPG-KEY-fedora*; do
+            [[ -f "$_key" ]] || continue
+            if "$gpg_bin" --homedir "$gnupg_home" --import "$_key" >/dev/null 2>>"${gnupg_home}/import.log"; then
+                imported=$((imported + 1))
+            fi
+        done
+        if [[ "$imported" -eq 0 ]]; then
+            echo "  WARNING: no Fedora GPG keys could be imported from ${gpg_keydir} — skipping signature check, doing hash check only" >&2
+        elif "$gpg_bin" --homedir "$gnupg_home" --verify "$checksum_file" >/dev/null 2>"${gnupg_home}/verify.log"; then
+            echo "  GPG signature on CHECKSUM verified (${imported} Fedora key(s) imported)"
+        else
+            echo "  --- gpg --verify output ---" >&2
+            cat "${gnupg_home}/verify.log" >&2
+            rm -rf "$gnupg_home"
+            die "GPG signature verification FAILED for ${checksum_name} — possible tampering, refusing ${description}"
+        fi
+        rm -rf "$gnupg_home"
+    fi
+
+    # Mandatory hash check: extract the expected SHA-256 for this exact ISO from
+    # the (now signature-verified, where possible) CHECKSUM file and compare.
+    local expected actual
+    expected=$(grep -E "SHA256 \(${iso_name}\) = " "$checksum_file" 2>/dev/null \
+        | grep -oE '[0-9a-fA-F]{64}' \
+        | head -1)
+    if [[ -z "$expected" ]]; then
+        die "CHECKSUM file ${checksum_name} has no SHA256 entry for ${iso_name} — cannot verify"
+    fi
+    echo "  Computing SHA-256 of ${iso_name} (this can take a moment)..."
+    actual=$(sha256sum "$iso_path" | cut -d' ' -f1)
+    if [[ "${expected,,}" != "${actual,,}" ]]; then
+        die "SHA-256 MISMATCH for ${iso_name}: expected ${expected}, got ${actual} — refusing ${description}"
+    fi
+    echo "  SHA-256 verified for ${iso_name}"
+}
+
 extract_squashfs() {
     local workstation_iso="$1"
     local squashfs_dest="$2"
@@ -854,6 +948,7 @@ do_setup() {
         workstation_url=$(discover_workstation_url "$target_version")
         workstation_iso="${download_dir}/$(basename "$workstation_url")"
         download_file "$workstation_url" "$workstation_iso" "$MIN_ISO_SIZE" "Workstation Live ISO"
+        verify_iso "$workstation_iso" "$workstation_url" "Workstation Live ISO"
         extract_squashfs "$workstation_iso" "${FDINST_MOUNT}/${squashfs_name}"
     fi
 
@@ -861,6 +956,7 @@ do_setup() {
     local netinstall_url
     netinstall_url=$(discover_netinstall_url "$target_version")
     download_file "$netinstall_url" "${FDINST_MOUNT}/${netinstall_name}" "$MIN_ISO_SIZE" "netinstall ISO"
+    verify_iso "${FDINST_MOUNT}/${netinstall_name}" "$netinstall_url" "netinstall ISO"
 
     # Extract vmlinuz + initrd.img from netinstall ISO to /boot
     extract_boot_files "${FDINST_MOUNT}/${netinstall_name}"

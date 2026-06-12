@@ -270,7 +270,6 @@ distrobox enter dev
 - [Ansible style guide](development.md#ansible-style-guide)
 - [Testing procedures](development.md#testing)
 - [Pull request process](development.md#contributing)
-- [Ansible lint improvement plan](ansible-lint-improvement-plan.md) — Lint rule analysis and enforcement roadmap
 
 **Features**
 

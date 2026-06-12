@@ -302,6 +302,15 @@ push_config() {
         warning "${#plain_violations[@]} plain-text secret(s) found — encrypting in-place..."
         echo
 
+        # Back up the original before any rewrite so a mid-loop failure or a
+        # bad regex match is fully recoverable. Each per-variable rewrite below
+        # is also done atomically (temp file + os.replace) so the YAML is never
+        # left half-written.
+        local localhost_bak
+        localhost_bak="${LOCALHOST_YML}.bak-$(date +%Y%m%d-%H%M%S)"
+        cp -a "$LOCALHOST_YML" "$localhost_bak"
+        info "Backup of localhost.yml: ${BOLD}${localhost_bak}${NC}"
+
         for orig_line in "${plain_violations[@]}"; do
             # Extract variable name (strip leading whitespace, get key before colon, strip trailing whitespace)
             local trimmed="${orig_line#"${orig_line%%[! ]*}"}"
@@ -324,7 +333,10 @@ push_config() {
                 --name "$var_name" > "$tmp_enc"
 
             python3 - "$var_name" "$LOCALHOST_YML" "$tmp_enc" <<'PYEOF'
-import sys, re
+import os
+import re
+import sys
+import tempfile
 
 var_name = sys.argv[1]
 yaml_file = sys.argv[2]
@@ -347,8 +359,22 @@ if count == 0:
     print(f'ERROR: could not locate plain-text line for {var_name}', file=sys.stderr)
     sys.exit(1)
 
-with open(yaml_file, 'w') as f:
-    f.write(new_content)
+# Atomic write: render into a temp file in the same directory, fsync, then
+# os.replace over the original. os.replace is atomic on the same filesystem, so
+# the YAML is never observed half-written even if the process is killed mid-write.
+target_dir = os.path.dirname(os.path.abspath(yaml_file))
+fd, tmp_path = tempfile.mkstemp(dir=target_dir, prefix='.localhost.yml.', suffix='.tmp')
+try:
+    with os.fdopen(fd, 'w') as f:
+        f.write(new_content)
+        f.flush()
+        os.fsync(f.fileno())
+    os.chmod(tmp_path, 0o600)
+    os.replace(tmp_path, yaml_file)
+except BaseException:
+    if os.path.exists(tmp_path):
+        os.unlink(tmp_path)
+    raise
 PYEOF
 
             rm -f "$tmp_enc"

@@ -1,8 +1,9 @@
-# Ansible Lint Improvement Plan
+# Plan 00051: Ansible Lint Improvement
 
-**Date**: 2025-12-03
-**Status**: Planning Phase
-**Project**: fedora-desktop ansible automation
+**Status**: Not Started
+**Created**: 2025-12-03
+**Owner**: Agent
+**Priority**: Medium
 
 ## Overview
 
@@ -30,6 +31,7 @@ This plan outlines a systematic approach to improve ansible-lint compliance acro
 **Purpose**: Provide consistent linting interface with rich output
 
 **Features**:
+
 - Accept path argument (file, directory, or whole project)
 - Generate detailed JSON output to `./untracked/lint/{timestamp}-{sanitized-path}.json`
 - Auto-prune old JSON files (keep last 10)
@@ -40,6 +42,7 @@ This plan outlines a systematic approach to improve ansible-lint compliance acro
   - Provide example `jq` queries for analysis
 
 **Implementation**:
+
 ```bash
 #!/usr/bin/env bash
 # scripts/lint [path]
@@ -49,6 +52,7 @@ This plan outlines a systematic approach to improve ansible-lint compliance acro
 ```
 
 **Output Example**:
+
 ```
 Ansible Lint Summary
 ====================
@@ -70,6 +74,7 @@ Example queries:
 ```
 
 **Exit codes**:
+
 - 0: No violations
 - 1: Violations found
 - 2: Lint execution error
@@ -81,6 +86,7 @@ Example queries:
 **Hook file**: `.claude/hooks/on-edit.sh` (or appropriate hook type)
 
 **Behavior**:
+
 - Trigger: Any `.yml` file in `playbooks/` is edited
 - Action: Run `scripts/lint {edited-file}`
 - Output to agent:
@@ -88,11 +94,13 @@ Example queries:
   - If issues: Full summary + instruction to fix before proceeding
 
 **Implementation approach**:
+
 - Use Claude Code documentation to determine correct hook type
 - Research hook API and file patterns
 - Use Task agent with subagent_type=Explore to read Claude Code docs
 
 **Questions to resolve**:
+
 - What hook types does Claude Code support?
 - How to scope to only Ansible YAML files?
 - How to pass edited file path to hook script?
@@ -100,6 +108,7 @@ Example queries:
 ### 1.3 Update `.ansible-lint` Configuration
 
 **Changes**:
+
 - Remove `fqcn` from `skip_list` to enable FQCN checks
 - Keep cosmetic rules disabled (key-order, yaml formatting)
 - Document why each rule is skipped
@@ -111,6 +120,7 @@ Example queries:
 ### 2.1 Pre-fix Preparation
 
 **Before each rule fix**:
+
 1. Ensure clean git working tree: `git status`
 2. Create baseline: `scripts/lint playbooks/ > /tmp/baseline.txt`
 3. Identify scope: Count violations for specific rule
@@ -123,6 +133,7 @@ Example queries:
 **Scope estimate**: ~30-50 violations across 37 playbooks
 
 **Approach**:
+
 1. Run: `scripts/lint playbooks/` and filter for FQCN issues
 2. For each playbook with FQCN violations:
    - Read file
@@ -139,6 +150,7 @@ Example queries:
 4. Single commit: "refactor: adopt FQCN for all Ansible builtin modules"
 
 **Commit message**:
+
 ```
 refactor: adopt FQCN for all Ansible builtin modules
 
@@ -158,11 +170,13 @@ Fixes all fqcn[action-core] ansible-lint violations.
 ### 2.3 Fix Other High-Priority Issues
 
 **Target rules** (in order):
+
 1. `no-changed-when` - Add `changed_when: false` to check commands
 2. `risky-file-permissions` - Set explicit file permissions
 3. `var-naming` - Fix variable naming conventions (if any)
 
 **For each rule**:
+
 1. Clean repo check
 2. Identify all violations: `scripts/lint | jq 'select(.check_name == "rule-name")'`
 3. Fix all instances of that rule
@@ -175,6 +189,7 @@ Fixes all fqcn[action-core] ansible-lint violations.
 **Target**: `command-instead-of-module` warnings
 
 **Approach**:
+
 - Review each instance individually
 - Determine if module alternative exists and is appropriate
 - If raw command is necessary: Add explanatory comment + keep as-is
@@ -200,11 +215,13 @@ git log --oneline -10
 ### 3.2 Update Documentation
 
 **Files to update**:
+
 - `CLAUDE.md` - Add section on lint script usage
 - `docs/containerization.md` - May need updates if relevant
 - `README.md` - If it exists and references dev workflow
 
 **New section for CLAUDE.md**:
+
 ```markdown
 ## Code Quality - Ansible Lint
 
@@ -251,11 +268,13 @@ Names) are enforced for all Ansible builtin modules.
 **Concern**: Syntax changes might alter playbook behavior
 
 **Mitigation**:
+
 - FQCN changes are syntax-only, functionally equivalent
 - Run syntax checks after each file edit
 - Test critical playbooks in isolated environment before commit
 
 **Suggested test approach**:
+
 ```bash
 # Run main playbook in check mode
 ansible-playbook playbooks/playbook-main.yml --check
@@ -269,6 +288,7 @@ ansible-playbook playbooks/imports/play-basic-configs.yml --check
 **Concern**: 37 playbooks × multiple violations = large effort
 
 **Mitigation**:
+
 - Fix one rule at a time across all files
 - Use automation (sed, awk, Edit tool) for repetitive changes
 - Commit frequently to avoid losing progress
@@ -296,15 +316,6 @@ ansible-playbook playbooks/imports/play-basic-configs.yml --check
 - [ ] No syntax errors in any playbook
 - [ ] Clean git history with descriptive commit messages
 
-## Timeline Estimate
-
-- Phase 1 (Tooling): 30-60 minutes
-- Phase 2.2 (FQCN fixes): 60-90 minutes (37 files, mostly mechanical)
-- Phase 2.3 (Other fixes): 30-60 minutes (depends on violation count)
-- Phase 3 (Validation/docs): 15-30 minutes
-
-**Total**: 2.5-4 hours
-
 ## Execution Approach
 
 1. Commit this plan document first
@@ -320,9 +331,3 @@ ansible-playbook playbooks/imports/play-basic-configs.yml --check
 - Maintain Infrastructure as Code principles - no manual changes
 - Use ansible-lint --fix flag cautiously (may make unwanted changes)
 - Keep commits atomic and well-described
-
----
-
-**Plan Version**: 1.0
-**Last Updated**: 2025-12-03
-**Plan Status**: Ready for execution

@@ -1,0 +1,83 @@
+name: QA
+
+# Server-side quality gate. The local git hooks (scripts/git-hooks) are
+# bypassable with --no-verify and run only on the contributor's clone; this
+# workflow is the non-bypassable layer. It runs the same suite as
+# ./scripts/qa-all.bash plus a gitleaks secret scan over the full history.
+#
+# See CLAUDE/QA.md for what each stage checks.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qa-all:
+    name: qa-all.bash (6 stages)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # shellcheck is preinstalled on ubuntu-latest runners; the rest are not.
+      - name: Install QA tooling
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install ruff semgrep ansible
+          shellcheck --version
+          ruff --version
+          semgrep --version
+          ansible-playbook --version
+
+      # Collections are needed so `ansible-playbook --syntax-check` can resolve
+      # the community.general / ansible.posix modules used across the playbooks.
+      - name: Install Ansible collections
+        run: ansible-galaxy collection install community.general ansible.posix
+
+      - name: Install extension JS deps (for ESLint stage)
+        working-directory: extensions
+        run: npm ci
+
+      - name: Run full QA suite
+        run: ./scripts/qa-all.bash
+
+      - name: Upload QA results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-results
+          path: /tmp/qa-results.json
+          if-no-files-found: ignore
+
+  gitleaks:
+    name: gitleaks secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

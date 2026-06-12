@@ -7,11 +7,17 @@
   vars:
     root_dir: "{{ inventory_dir }}/../../"
   tasks:
+    # FUP-07: fetch from upstream at a pinned tag instead of tracking the GPL-2.0
+    # script in this MIT repo. Checksum pins v1.7 — update both url and checksum
+    # together if upgrading. Upstream: github.com/brunelli/gnome-shell-extension-installer
     - name: Install Gnome Shell Extension Installer
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/usr/bin/gnome-shell-extension-installer"
+      ansible.builtin.get_url:
+        url: "https://raw.githubusercontent.com/brunelli/gnome-shell-extension-installer/v1.7/gnome-shell-extension-installer"
         dest: /usr/bin/gnome-shell-extension-installer
+        checksum: "sha256:f1534d65ecb6c4851f59f4c3053dbd690faa00816fa3364adb9e455d6f403643"
         mode: "0755"
+        owner: root
+        group: root
 
     - name: Install DNF packages
       ansible.builtin.dnf:
