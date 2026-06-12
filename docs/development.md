@@ -67,18 +67,18 @@ When Fedora releases a new version:
 ```bash
 # 1. Update version in configuration
 vim vars/fedora-version.yml
-# Change: fedora_version: 43
+# Change: fedora_version: 44
 
 # 2. Commit the change
 git add vars/fedora-version.yml
-git commit -m "Update target Fedora version to 43"
+git commit -m "Update target Fedora version to 44"
 
 # 3. Create and push new branch
-git checkout -b F43
-git push -u origin F43
+git checkout -b F44
+git push -u origin F44
 
 # 4. Set as default branch on GitHub
-gh repo edit --default-branch F43
+gh repo edit --default-branch F44
 
 # 5. Update branch-specific changes
 # - Test all playbooks

@@ -1,6 +1,6 @@
 # Plan 00050: Fedora 44 Migration Tracking
 
-**Status**: 🔄 In Progress (research phase only — no action plan yet)
+**Status**: 🔄 In Progress (research complete; **execution underway on `feature/f44-migration`** — Phase 3 below)
 **Created**: 2026-06-12
 **Owner**: Claude (Fable 5 multi-agent workflow) / joseph
 **Priority**: Medium
@@ -66,10 +66,32 @@ The deliverable of this phase is **knowledge, not change**: a clear, evidence-ba
 - [x] ✅ **Write research docs**: one document per dimension under `research/`
 - [x] ✅ **Consolidate** findings into [triage.md](triage.md), ranked by severity with links
 
-### Phase 2: Decision Gate — plan the bump (awaiting user)
+### Phase 2: Decision Gate — plan the bump
 
-- [ ] ⬜ **Review research + triage** and decide scope/timing of the actual Fedora 44 bump
-- [ ] ⬜ **Convert triage into an execution action plan** (separate phase — not done here)
+- [x] ✅ **Review research + triage** — user approved execution ("get all the F44 problems fixed").
+- [x] ✅ **Convert triage into execution** — done as Phase 3 below, on `feature/f44-migration` (branched off F44, branched off F43 post-audit-merge).
+
+### Phase 3: Execution — implement the F44 fixes (on `feature/f44-migration`)
+
+> Executed as a review-gated fan-out of 7 file-disjoint agents (opus for `ks.cfg`); the orchestrator did the central bump + reviewed every diff and fixed an EXT-05 fail-fast bug. Upstream availability was curl-verified at implementation time. QA green (6 stages). Items needing a running F44 system are flagged HOST-VERIFY.
+
+- [x] ✅ **VER-01/BOOT-01** — `vars/fedora-version.yml: 44` (the linchpin; all gates read it).
+- [x] ✅ **VER-02** — already fixed on the audit branch (00049 BSH-08 `warn()`), carried in via the F43 merge.
+- [x] ✅ **PKG-01** — `play-rpm-fusion.yml`: dnf5 `config-manager setopt fedora-cisco-openh264.enabled=1`.
+- [x] ✅ **PKG-02** — `play-terminal-emulators.yml`: ghostty Copr `pgdev/ghostty` → `alternateved/ghostty` (curl-verified F44 build `ghostty-1.3.1…fc44`); old Copr added to `play-ZZ-repo-cleanup.yml` orphan-removal.
+- [x] ✅ **PKG-03/HW-03** — `play-nvidia.yml`: CUDA gpgkey `1940C73E.pub` → `73CD9B30.pub` (curl: 200 vs 404); exclude fence extended with the 610-era driver-coupled packages incl. the `nvidia-fs-dkms` kmod.
+- [x] ✅ **EXT-01** — `"50"` added to `shell-version` in all three extension manifests (speech-to-text, workspace-names-overview, remote-desktop-toggle).
+- [x] ✅ **EXT-04** — workspace-names-overview: deprecated `Gio.Settings({schema:…})` → `{schema_id:…}` (`node --check` clean).
+- [x] ✅ **EXT-05** — `play-gnome-shell-extensions.yml`: real OUT_OF_DATE/ERROR runtime verification (positive `failed_when` assertion; graceful no-session probe — orchestrator-corrected from the agent's stderr-based version which mis-handled no-session).
+- [x] ✅ **EXT-02/VER-07/EXT-08** — installer already derives the running shell version; stale GNOME-49 comment → 50; dash-to-dock `.fc44` note.
+- [x] ✅ **VER-03/BOOT-02/BOOT-06** — `ks.cfg`: `SETUP_BRANCH`/version marker F43→F44 (both sites), BOOT-06 Anaconda-network behaviour documented at the network fragment.
+- [x] ✅ **VER-04** — `docker-in-lxc`: `FEDORA_VERSION="44"`, `DIL_VERSION` bumped 1.0.1→1.0.2.
+- [x] ✅ **VER-05/06/BOOT-07/EXT-06(docs)** — docs version sweep 43→44 (installation, README, development, post-upgrade, playbooks, speech-to-text, fast-file-manager); build-iso.bash ISO example corrected.
+- [x] ✅ **VER-08/PKG-10** — `play-darktable-ai-build.yml`: chroot/dist tag already templated on `fedora_version`; stale f43 comments fixed; dist-git commit pin flagged `# TODO F44` (src.fedoraproject.org unreachable from the container — HOST-VERIFY the commit before first F44 build).
+- [x] ✅ **PY-01/PY-05** — `play-python.yml`: pyenv pins → 3.11.15/3.12.13/3.13.14 (cpython-tag-verified); `zlib-devel` → `zlib-ng-compat-devel` (F44).
+- [x] ✅ **PY-02** — `play-speech-to-text.yml`: removed the obsolete scipy 1.15.2 source-build scaffolding (scipy ≥1.16.1 ships cp314 wheels). HOST-VERIFY the streaming stack on F44.
+- [x] ✅ **PKG-08/HW-01** — dropped the inert dnf4 `python3-dnf-plugin-versionlock` install; `manage-kernel-versions.py` hint updated to dnf5; pre-upgrade versionlock-clear procedure documented at the kernel-management entry point.
+- [ ] ⬜ **HOST-VERIFY (cannot test in CCY)**: a real F44 install/run to validate — darktable dist-git commit (VER-08), speech-to-text streaming stack (PY-02), extension live state on GNOME 50 (EXT-03/05), kernel/akmod build window (HW-01/02/04/07), and the verify-only lows (PKG-04/05/06/07/09, BOOT-04/05/06).
 
 ## Severity Scale
 
@@ -95,3 +117,10 @@ The deliverable of this phase is **knowledge, not change**: a clear, evidence-ba
 ### 2026-06-12
 
 - Plan created. Research-only phase: a dynamic Fable workflow swept six version-sensitivity dimensions against the live Fedora 44 changeset. Results in `research/` and `triage.md`. No code changed; `fedora_version` remains 43. Execution deliberately deferred.
+
+### 2026-06-12 — Phase 3 executed (the F44 bump) on `feature/f44-migration`
+
+- User greenlit execution unattended. Branch topology: audit branch `fable-audit-1` → merged to `F43` (merge-commit, CI green) → `F44` branched off F43 and pushed (resolves BOOT-03) → `feature/f44-migration` branched off F44 for the work.
+- Implemented every code-change F44 finding (7 high, the actionable mediums, and the lows that need edits) via a 7-agent file-disjoint fan-out; upstream availability curl-verified (CUDA key, ghostty Copr, cpython tags, zlib-ng). The orchestrator did the central `fedora_version: 44` bump and reviewed all diffs, correcting an EXT-05 no-session fail-fast bug in the agent's first version.
+- 25 files changed; `./scripts/qa-all.bash` green (6 stages, 285 files); all 71 playbooks `--syntax-check` clean. Edit-only — a set of HOST-VERIFY items (listed in Phase 3) genuinely need a running F44 box and cannot be validated in the CCY container.
+- Next: QA (done) → independent audit round of the F44 diff → merge `feature/f44-migration` → `F44` → make `F44` the default branch.

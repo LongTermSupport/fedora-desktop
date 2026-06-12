@@ -31,6 +31,7 @@ ansible-playbook playbooks/imports/optional/common/play-fast-file-manager.yml
 ```
 
 This applies:
+
 - ✓ PCManFM installation
 - ✓ GTK portal configuration
 - ✓ GSK_RENDERER=ngl fix
@@ -52,11 +53,13 @@ fast_file_manager_apply_gsk_fix: true        # Usually leave enabled
 ```
 
 **Default values** (if not overridden in host_vars):
+
 - `disable_tracker: true` - Disabled by default (rarely used, slows file ops)
 - `disable_thumbnails: false` - Enabled by default (useful for images/videos)
 - `apply_gsk_fix: true` - Enabled by default (fixes Fedora 41/42 slowness)
 
 ⚠️ **Configuration trade-offs:**
+
 - `disable_tracker: false` - Keeps GNOME Activities file search, but slows file operations
 - `disable_thumbnails: true` - No image previews, but faster folder browsing
 
@@ -174,16 +177,19 @@ sudo vim /etc/environment
 ### File Picker Still Slow
 
 1. **Verify portal config:**
+
    ```bash
    cat ~/.config/xdg-desktop-portal/portals.conf
    ```
 
 2. **Check GTK portal is running:**
+
    ```bash
    systemctl --user status xdg-desktop-portal-gtk.service
    ```
 
 3. **Restart everything:**
+
    ```bash
    systemctl --user restart xdg-desktop-portal.service
    systemctl --user restart xdg-desktop-portal-gnome.service
@@ -226,8 +232,8 @@ sudo dnf install gnome-themes-extra
 
 ### After Optimization
 
-- File picker open: **Instant** (<100ms)
-- PCManFM startup: **Instant** (<100ms)
+- File picker open: **Instant** (\<100ms)
+- PCManFM startup: **Instant** (\<100ms)
 - Folder with 1000 images: **Instant** (if thumbnails disabled)
 
 ## Background and References
@@ -256,10 +262,11 @@ sudo dnf install gnome-themes-extra
 ## Future Improvements
 
 **GNOME 50** (expected mid-2026) will include:
+
 - **40% faster thumbnails** - New asynchronous loading
 - Better Nautilus performance overall
 
-If you're still on Fedora 42 when GNOME 50 releases, the native GNOME portal may become fast enough to switch back.
+With Fedora 44 shipping GNOME 50, the native GNOME portal may now be fast enough to switch back — re-test before keeping this workaround.
 
 ## Contributing
 

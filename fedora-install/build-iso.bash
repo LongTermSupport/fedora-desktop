@@ -27,8 +27,8 @@ if [[ $# -lt 1 ]]; then
     echo "Usage: sudo bash $0 <fedora-iso> [output-iso]"
     echo ""
     echo "Examples:"
-    echo "  sudo bash $0 ~/Downloads/Fedora-Everything-netinst-x86_64-43-1.1.iso"
-    echo "  sudo bash $0 ~/Downloads/Fedora-Workstation-Live-x86_64-43-1.1.iso custom.iso"
+    echo "  sudo bash $0 ~/Downloads/Fedora-Everything-netinst-x86_64-44-1.7.iso"
+    echo "  sudo bash $0 ~/Downloads/Fedora-Workstation-Live-44-1.7.x86_64.iso custom.iso"
     exit 1
 fi
 

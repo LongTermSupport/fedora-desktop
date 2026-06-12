@@ -610,7 +610,7 @@ Install GNOME Shell development tools:
 Go programming language:
 
 - Golang compiler and standard tools from DNF repositories
-- Latest stable version for Fedora 43
+- Latest stable version for Fedora 44
 
 **What you get**:
 

@@ -23,6 +23,8 @@
       ansible.builtin.dnf:
         name:
           - xprop
+          # EXT-08: DNF resolves the per-release build automatically (105-1.fc44 on Fedora 44).
+          # No version pin needed — the distro package always targets the bundled GNOME major.
           - gnome-shell-extension-dash-to-dock
           # Note: just-perfection is installed via ID below as DNF package may be outdated
 
@@ -36,7 +38,7 @@
       changed_when: "'Downloading extension' in gse_install.stdout"
       failed_when: gse_install.rc not in [0, 2]
       loop:
-        # Verified compatibility status checked against GNOME Shell 49 (Fedora 43)
+        # Verified compatibility status checked against GNOME Shell 50 (Fedora 44)
         - name: Blur my Shell
           id: 3193
           # https://extensions.gnome.org/extension/3193/blur-my-shell/
@@ -76,6 +78,36 @@
           gnome-extensions enable workspace-names-overview@fedora-desktop
       changed_when: false
       failed_when: false  # FAIL-FAST-OK: GNOME session may not be active during playbook run
+
+    # EXT-05: gnome-extensions enable only flips the gsettings list — it succeeds even when
+    # GNOME rejected the extension as OUT_OF_DATE (wrong shell-version) or ERROR.
+    # This task queries the actual runtime state and fails the play loudly if the extension
+    # is not ACTIVE, catching GNOME 50 version-validation failures before they silently pass.
+    - name: Verify Workspace Names in Overview Extension Is Active
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+          export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
+          # Probe inside an `if` so a no-session failure does NOT trip set -e (gnome-extensions
+          # exits non-zero when no GNOME session/D-Bus is present). The real verdict is made
+          # from the printed State by failed_when below — OUT OF DATE / ERROR fail the play.
+          if ! info=$(gnome-extensions info workspace-names-overview@fedora-desktop 2>&1); then
+            echo "STATE: NO_SESSION (gnome-extensions unavailable — skipping live check): ${info}"
+            exit 0
+          fi
+          printf '%s\n' "$info"
+      args:
+        executable: /bin/bash
+      register: gse_verify
+      changed_when: false
+      # Positive fail-fast assertion (not a suppression): a wrong shell-version shows as
+      # "State: OUT OF DATE" and a load failure as "State: ERROR" — either halts the play.
+      # The no-session probe above prints no State line, so this stays green off-session.
+      failed_when: >-
+        'State: OUT OF DATE' in gse_verify.stdout
+        or 'State: ERROR' in gse_verify.stdout
 
     # Default Space Bar behaviour is: first click opens Overview, second click
     # selects the workspace. We want a single click to switch directly.

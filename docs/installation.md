@@ -8,7 +8,7 @@ Get your Fedora system configured for development in 10-30 minutes.
 
 You need:
 
-- **Fresh Fedora installation** - Fedora 43 (check version: `cat /etc/fedora-release`)
+- **Fresh Fedora installation** - Fedora 44 (check version: `cat /etc/fedora-release`)
 - **Regular user account** - Do not run as root
 - **Internet connection** - Stable connection required for downloading packages
 - **Sudo privileges** - Your user must be in the `wheel` group
@@ -47,7 +47,7 @@ The bootstrap script (`run.bash`) performs these steps in order:
 
 **Phase 1: Validation** (30 seconds)
 
-- Checks Fedora version matches target (Fedora 43)
+- Checks Fedora version matches target (Fedora 44)
 - Verifies you're running as regular user (not root)
 - Checks internet connectivity
 
@@ -113,7 +113,7 @@ cd ~/Projects/fedora-desktop
 cat /etc/fedora-release
 
 # Checkout matching branch
-git checkout F43  # Replace with your version (F43, F44, etc.)
+git checkout F44  # Replace with your version (F44, F45, etc.)
 ```
 
 ### Step 4: Install Ansible Requirements
@@ -274,16 +274,16 @@ echo $PS1 | grep -q "01;3" && echo "Custom prompt configured"
 ```bash
 # 1. Check your Fedora version
 cat /etc/fedora-release
-# Output: Fedora release 43 (Forty Three)
+# Output: Fedora release 44 (Forty Four)
 
 # 2. Check target version for current branch
 cd ~/Projects/fedora-desktop
 cat vars/fedora-version.yml
-# Output: fedora_version: 43
+# Output: fedora_version: 44
 
 # 3. If versions don't match, checkout correct branch
 git fetch origin
-git checkout F43  # Replace with your version
+git checkout F44  # Replace with your version
 
 # 4. Re-run the playbook
 ansible-playbook playbooks/playbook-main.yml --ask-become-pass

@@ -1,6 +1,6 @@
 # Post-Upgrade Repair Guide
 
-After a major Fedora version upgrade (e.g. F42 → F43), use this checklist to repair and reconcile your system against the matching branch of this repo.
+After a major Fedora version upgrade (e.g. F43 → F44), use this checklist to repair and reconcile your system against the matching branch of this repo.
 
 ## Scope
 
@@ -52,7 +52,7 @@ The symlink should now point at the new Python (e.g. `python3.14`), and `ansible
 
 ### 3. Check out the matching branch for your new Fedora version
 
-This repo uses a branch per Fedora version (`F42`, `F43`, etc.). After a version upgrade, your working copy is on the **old** branch.
+This repo uses a branch per Fedora version (`F43`, `F44`, etc.). After a version upgrade, your working copy is on the **old** branch.
 
 ```bash
 cd ~/Projects/fedora-desktop
@@ -64,7 +64,7 @@ cat vars/fedora-version.yml
 
 # Fetch and switch to the matching branch
 git fetch origin
-git checkout F<NEW_VERSION>   # e.g. git checkout F43
+git checkout F<NEW_VERSION>   # e.g. git checkout F44
 git pull
 ```
 

@@ -8,13 +8,20 @@
     root_dir: "{{ inventory_dir }}/../../"
 
   tasks:
-    - name: Install DNF Versionlock Plugin
-      ansible.builtin.package:
-        name: python3-dnf-plugin-versionlock
-        state: present
-      tags:
-        - packages
-        - kernel-mgmt
+    # PKG-08 (F44): python3-dnf-plugin-versionlock install removed.
+    # On DNF5-complete Fedora 44, the dnf4 versionlock plugin (python3-dnf-plugin-versionlock)
+    # is inert — locks live in /etc/dnf/versionlock.toml and are managed by the dnf5
+    # builtin. Installing the dnf4 plugin buys nothing and old versionlock.list entries
+    # it may have written are silently ignored by dnf5.
+    # The `dnf versionlock` CLI calls below hit the dnf5 builtin and work without it.
+    #
+    # HW-01 (F44): BEFORE running `dnf system-upgrade` to F44, clear stale fc43 kernel
+    # versionlocks or they can cause a half-install of the fc44 kernel (kernel-core without
+    # kernel-modules — all radios dead on next boot; see play-AB-dnf-upgrade.yml incident log).
+    # Run on the host before upgrading:
+    #   dnf versionlock list               # inspect — look for kernel* with .fc43 release
+    #   dnf versionlock delete "kernel-0:<fc43-NEVRA>.x86_64"   # remove each fc43 lock
+    # Then re-run this play after first boot into F44 to re-establish locks with fc44 NEVRAs.
 
     - name: Configure DNF to Keep 3 Kernels
       ansible.builtin.blockinfile:

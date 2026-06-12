@@ -323,7 +323,7 @@ distrobox enter dev
 
 ## Version Information
 
-**Current branch:** Fedora 43 (`F43`)
+**Current branch:** Fedora 44 (`F44`)
 
 This documentation matches the configuration in this branch. Other Fedora versions have separate branches with version-specific changes.
 
@@ -339,5 +339,5 @@ If versions don't match, checkout the appropriate branch:
 ```bash
 cd ~/Projects/fedora-desktop
 git fetch origin
-git checkout F43  # or your version
+git checkout F44  # or your version
 ```

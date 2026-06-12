@@ -16,7 +16,7 @@ const WM_PREFS_SCHEMA = 'org.gnome.desktop.wm.preferences';
 
 export default class WorkspaceNamesOverviewExtension extends Extension {
     enable() {
-        this._wmSettings = new Gio.Settings({schema: WM_PREFS_SCHEMA});
+        this._wmSettings = new Gio.Settings({schema_id: WM_PREFS_SCHEMA});
         this._labels = [];
 
         this._shownId = Main.overview.connect('shown', () => {
