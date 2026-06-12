@@ -95,6 +95,8 @@ Use these Unicode icons in plan documents:
 
 - [00049-full-repo-audit](00049-full-repo-audit/) - Full repository audit via dynamic multi-agent workflow: 10 audit dimensions (security, fail-fast, Ansible, bash, CCY, extensions, performance, docs drift, opportunities, QA gaps) with adversarial verification of critical/high findings; research docs + triage.md + final action plan in the plan folder
 
+- [00050-fedora-44-tracking](00050-fedora-44-tracking/) - Fedora 43 → 44 migration tracking (research phase only — no fixes). Dynamic Fable workflow swept six version-sensitivity dimensions (version literals, packages/repos+DNF, Python, GNOME extensions, hardware/kernel, install/bootstrap) against the live F44 changeset. 55 findings (7 high, 14 medium, 25 low, 9 info) in research/ + triage.md. Confirmed F44 baseline: GNOME 50, kernel 7.0.x, Python stays 3.14, DNF5 complete. The bump's core is one line (`fedora_version: 44`) but seven highs gate it; execution deliberately deferred to a future decision gate.
+
 ## Completed Plans
 
 - [033-ddev-installation](Completed/033-ddev-installation/) - Install DDEV on rootful Docker (Approach C); rootless Podman remains default engine, LXC unchanged. End-to-end host run verified (`ddev v1.25.1` + `docker 29.4.0`).
