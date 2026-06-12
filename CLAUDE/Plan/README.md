@@ -95,6 +95,8 @@ Use these Unicode icons in plan documents:
 
 - [00051-ansible-lint-improvement](00051-ansible-lint-improvement/) - Systematic ansible-lint compliance improvement: `scripts/lint` tooling, FQCN enforcement, and per-rule violation fixes across all 37 playbooks - Fedora 43 → 44 migration tracking (research phase only — no fixes). Dynamic Fable workflow swept six version-sensitivity dimensions (version literals, packages/repos+DNF, Python, GNOME extensions, hardware/kernel, install/bootstrap) against the live F44 changeset. 55 findings (7 high, 14 medium, 25 low, 9 info) in research/ + triage.md. Confirmed F44 baseline: GNOME 50, kernel 7.0.x, Python stays 3.14, DNF5 complete. The bump's core is one line (`fedora_version: 44`) but seven highs gate it; execution deliberately deferred to a future decision gate.
 
+- [00052-run-bash-human-friendly](00052-run-bash-human-friendly/) - Make `run.bash` totally human-friendly: Enter accepts at every confirm (fixes the `promptForValue` "Is this correct? (y/n)" bug that forced a full re-type on Enter), visible `[default]` on every prompt, consistent non-fatal retry UX via the existing helper family, friendlier error messaging, and verify-and-retry hardening of the vault-password recovery path. Six phases (audit → confirm fix → helper consolidation → messaging → vault loop → QA/smoke-test). Builds on the v1.5.4 DRY retry helpers.
+
 ## Completed Plans
 
 - [020-semgrep-custom-bash-rules](Completed/020-semgrep-custom-bash-rules/) - Add Semgrep with custom bash convention rules (no error hiding, fail-fast enforcement) integrated into qa-all.bash. Semgrep 1.153.1 installed via pipx in CCY Dockerfile (v2.10); 0 violations in 44 bash files.
