@@ -10,7 +10,8 @@
 # downloads ONNX Runtime during the build, so the only delta from the Fedora
 # spec is the cmake flag plus the A7V overlay we currently apply at runtime.
 #
-# WORKFLOW: clone Fedora's f43 dist-git at a pinned commit, mutate the spec
+# WORKFLOW: clone Fedora's dist-git at a pinned commit (still the f43 pin — see the
+# TODO F44 note on darktable_distgit_commit; re-verify the f44 commit on a real host), mutate the spec
 # (Release tag bumped to .ai for clarity, autorelease/autochangelog replaced
 # with static entries, Source5+Source6+cp injected for the A7V cameras.xml and
 # its matching cameras.xsd, -DUSE_AI=ON added to the Fedora %cmake invocation),
@@ -50,7 +51,7 @@
 
     # Local release tag - the "100." prefix ensures our build sorts ABOVE stock
     # Fedora releases (which use single-digit %autorelease tags) so dnf upgrade
-    # never picks the stock RPM over ours. %{?dist} expands to ".fc43".
+    # never picks the stock RPM over ours. %{?dist} expands to ".fc44" on F44.
     darktable_release_local: "100.ai"
     darktable_release_full: "{{ darktable_release_local }}.fc{{ fedora_version }}"
     darktable_target_vr: "{{ darktable_version }}-{{ darktable_release_full }}"

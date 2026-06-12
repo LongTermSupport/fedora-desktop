@@ -1,6 +1,6 @@
 #!/usr/bin/env ansible-playbook
 ---
-# Install NVIDIA drivers using RPM Fusion (recommended method for Fedora 43+)
+# Install NVIDIA drivers using RPM Fusion (recommended method for Fedora 44+)
 # For RTX 500 Ada Generation and other modern NVIDIA GPUs
 #
 # Vulkan support is installed by default (required for modern gaming, AI apps, GPU compute)
@@ -86,13 +86,15 @@
         # This repo must NEVER replace the RPM Fusion akmod-nvidia driver.
         # Exclude list verified against the fedora44 repo index (2026-06-12, CUDA 13.3 / driver 610.43.02).
         # New 610-era additions vs prior list: nvidia-fabricmanager*, nvidia-fabric-manager-devel*,
-        # nvidia-imex*, nvidia-libXNVCtrl*, libnvidia-fbc*, libnvidia-nscq*, libnvsdm*, nvidia-fs-dkms*
-        # (nvidia-fs-dkms is a kmod — it must be excluded or it will compete with the akmod stack).
+        # nvidia-imex*, nvidia-libXNVCtrl*, libnvidia-fbc*, libnvidia-nscq*, libnvsdm*, nvidia-fs*
+        # (the fedora44 CUDA repo ships BOTH nvidia-fs-dkms AND a plain nvidia-fs kmod package —
+        # the `nvidia-fs*` glob fences both, so neither competes with the RPM Fusion akmod stack;
+        # no cuda-toolkit package starts with `nvidia-fs`, so the toolkit install is unaffected).
         exclude: >-
           nvidia-driver* cuda-drivers* kmod-nvidia* nvidia-kmod* xorg-x11-nvidia* nvidia-open*
           nvidia-modprobe nvidia-persistenced nvidia-settings nvidia-xconfig
           nvidia-fabricmanager* nvidia-fabric-manager-devel* nvidia-imex* nvidia-libXNVCtrl*
-          libnvidia-fbc* libnvidia-nscq* libnvsdm* nvidia-fs-dkms*
+          libnvidia-fbc* libnvidia-nscq* libnvsdm* nvidia-fs*
       when: nvidia_install_cuda | default(true) | bool
 
     - name: Install CUDA Toolkit (driverless meta-package)
