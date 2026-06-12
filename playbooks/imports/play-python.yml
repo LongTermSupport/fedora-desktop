@@ -49,9 +49,9 @@
       community.general.pipx:
         name: pdm
         state: latest
+      # PERF-06: no separate `pdm self update` task — `state: latest` already upgrades pdm
+      # on every run; the extra shell task was pure duplication and always reported changed.
 
-    - name: PDM Self Update
-      ansible.builtin.shell: pdm self update
     - name: Hugging Face CLI
       community.general.pipx:
         name: huggingface_hub
@@ -93,6 +93,10 @@
       args:
         executable: /bin/bash
       loop: "{{ pyenv_versions }}"
+      register: pyenv_install
+      # pyenv prints "Installed Python-..." (to stderr) only when it actually builds a
+      # version; with -s an already-present version is a silent no-op, so report unchanged.
+      changed_when: "'Installed' in pyenv_install.stderr or 'Installed' in pyenv_install.stdout"
       tags:
         - pyenv
         - pyenv_install_versions

@@ -75,6 +75,12 @@
         executable: /bin/bash
       become: true
       become_user: "{{ user_login }}"
+      register: rustup_update
+      # rustup prints "updated"/"installing" only on a real toolchain change; an up-to-date
+      # toolchain reports "unchanged", so report unchanged then (output goes to stderr).
+      changed_when: >-
+        'updated' in (rustup_update.stdout + rustup_update.stderr)
+        or 'installing' in (rustup_update.stdout + rustup_update.stderr)
 
     - name: Install Additional Rust Components
       ansible.builtin.shell: |
@@ -91,6 +97,10 @@
         - llvm-tools-preview # LLVM tools for coverage
       become: true
       become_user: "{{ user_login }}"
+      register: rustup_components
+      # "installing component" only appears when a component is actually added; an
+      # already-present component reports "is already installed".
+      changed_when: "'installing component' in (rustup_components.stdout + rustup_components.stderr)"
       tags:
         - rust-components
 
@@ -155,17 +165,8 @@
         mode: "0644"
       become: true
 
-    - name: Install rust-analyzer Binary for LSP Support
-      ansible.builtin.shell: |
-        set -euo pipefail
-        source ~/.cargo/env
-        rustup component add rust-analyzer
-      args:
-        executable: /bin/bash
-      become: true
-      become_user: "{{ user_login }}"
-      tags:
-        - rust-analyzer
+    # PERF-08: the dedicated "Install rust-analyzer" task was removed — rust-analyzer is
+    # already covered by the "Install Additional Rust Components" loop above.
 
     - name: Verify Rust Installation
       ansible.builtin.shell: |
@@ -177,6 +178,7 @@
       args:
         executable: /bin/bash
       register: rust_version_output
+      changed_when: false
       become: true
       become_user: "{{ user_login }}"
 

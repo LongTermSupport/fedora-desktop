@@ -122,12 +122,19 @@ The 7 effective-high findings: SEC-01 (committed PII), FF-01/ANS-01 (shell block
 
 > Findings: PERF-02..PERF-09, PERF-11, ANS-09, ANS-13..ANS-15 — see [research/performance.md](research/performance.md)
 
+**Part 1 (playbook idempotency) — landed:**
+
+- [x] ✅ **Make play-rpm-fusion idempotent** (PERF-03): release rpms via the `dnf` module (no-op when present); codec setup `creates`-guarded one-time; redundant `@core`/`@multimedia` updates dropped (AB-dnf-upgrade owns them)
+- [x] ✅ **Drop `fwupdmgr refresh --force`** (PERF-04): plain `refresh` (rc 2 tolerated) + output-derived `changed_when` so no-op runs report unchanged; **guard the recursive ~/.nvm chown** (PERF-05): registered install, `when: nvm_install is changed`; **delete redundant `pdm self update`** (PERF-06): covered by pipx `state: latest`; pyenv loop now has output-based `changed_when`
+- [x] ✅ **LXC `state: started`** (ANS-09): no longer bounces lxc.service every run; **partial PERF-07/ANS-13**: lxcbr0 firewalld bind via `ansible.posix.firewalld` (no blanket reload), nmcli zone via probe-then-modify, `dhcp.conf` touch with `preserve`
+- [x] ✅ **wsi-stream restart via handler** (PERF-11): the warm server is killed via a `restart wsi-stream-server` handler notified only when a streaming script changed — no more cold-start after every no-op run
+- [x] ✅ **changed_when sweep (PERF-08, PERF-09)**: play-rust-dev (removed duplicate rust-analyzer task; output-based `changed_when` on update/components; `changed_when: false` on verify); play-gnome-shell-extensions (`--update` short-circuits up-to-date extensions, `changed_when` on the download marker, rc 2 tolerated)
+
+**Part 2 (remaining) — pending:**
+
 - [ ] ⬜ **Move CCY Dockerfile LABELs to the end of the final stage** (PERF-02): stops full image rebuilds on any Dockerfile edit
-- [ ] ⬜ **Make play-rpm-fusion idempotent** (PERF-03): seven unguarded dnf transactions per run today
-- [ ] ⬜ **Drop `fwupdmgr refresh --force`** (PERF-04); **guard the recursive ~/.nvm chown** (PERF-05); **delete redundant `pdm self update`** (PERF-06)
-- [ ] ⬜ **Native modules for flatpak/firewalld/nmcli** (PERF-07, ANS-07); **LXC `state: started` + restart handler** (ANS-09)
-- [ ] ⬜ **wsi-stream restart via handler** (PERF-11): stop killing the warm speech server on every play run
-- [ ] ⬜ **Batch cleanups**: duplicate shebangs in 16 playbooks + fix make-playbooks-executable.bash (ANS-15); missing mode/owner/group on 15 file tasks (ANS-14); changed_when sweep (ANS-13, PERF-08, PERF-09)
+- [ ] ⬜ **Native modules for flatpak** (PERF-07/ANS-07 remainder): play-comms + play-videography → `community.general.flatpak*`; **gsettings→dconf, lxde→dnf** (ANS-13 remainder)
+- [ ] ⬜ **Batch cleanups**: duplicate shebangs in 16 playbooks + fix make-playbooks-executable.bash (ANS-15); missing mode/owner/group on 15 file tasks (ANS-14)
 
 ### Phase 9 (Action G): Documentation Realignment
 

@@ -29,7 +29,11 @@
         chdir: "/home/{{ user_login }}"
       environment:
         HOME: "/home/{{ user_login }}"
+      register: nvm_install
 
+    # Only fix ownership immediately after a fresh install. Everything under ~/.nvm is
+    # created by the user's own nvm thereafter, so a recursive walk of tens of thousands
+    # of node_modules files on every main run (PERF-05) is a guaranteed no-op.
     - name: Set NVM Directory Permissions
       ansible.builtin.file:
         path: "/home/{{ user_login }}/.nvm"
@@ -37,6 +41,7 @@
         group: "{{ user_login }}"
         recurse: true
         state: directory
+      when: nvm_install is changed
 
     - name: Check if NVM is already configured in bashrc
       ansible.builtin.shell: grep -q 'NVM_DIR' "/home/{{ user_login }}/.bashrc"

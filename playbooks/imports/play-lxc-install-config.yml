@@ -59,23 +59,34 @@
         policy: targeted
         state: permissive
 
+    # ANS-09: `state: started` (not `restarted`) so a main-playbook run does not bounce
+    # lxc.service — and the long-lived containers it autostarts — on every pass.
     - name: Setup LXC Service
       ansible.builtin.systemd:
-        name: "{{ item }}"
-        state: restarted
+        name: lxc
+        state: started
         enabled: true
-      with_items:
-        - lxc
+
+    # Probe-then-modify so changed-status is accurate and nmcli is not re-run every pass.
+    - name: Check lxcbr0 firewall zone
+      ansible.builtin.command: nmcli -g connection.zone connection show lxcbr0
+      register: _lxcbr0_zone
+      changed_when: false
 
     - name: Switch lxcbr0 to trusted firewall zone
       ansible.builtin.command: nmcli connection modify lxcbr0 connection.zone trusted
-    - name: Firewalld trusted
-      ansible.builtin.shell: |
-        set -euo pipefail
-        firewall-cmd --zone=trusted --change-interface=lxcbr0 --permanent
-        firewall-cmd --reload
-      args:
-        executable: /bin/bash
+      when: _lxcbr0_zone.stdout | trim != 'trusted'
+      changed_when: true
+
+    # PERF-07: the firewalld module applies permanent + runtime idempotently without the
+    # blanket `firewall-cmd --reload` that reprocessed every zone on every run.
+    - name: Bind lxcbr0 to the trusted firewall zone
+      ansible.posix.firewalld:
+        zone: trusted
+        interface: lxcbr0
+        permanent: true
+        immediate: true
+        state: enabled
     - name: Create Insecure SSH Key for Connecting to Container
       become: true
       become_user: "{{ user_login }}"
@@ -104,6 +115,9 @@
         owner: root
         group: root
         mode: "0644"
+        # preserve timestamps so an existing file is not reported changed on every run
+        access_time: preserve
+        modification_time: preserve
 
     - name: Enable DHPC on lxcbr0
       ansible.builtin.blockinfile:

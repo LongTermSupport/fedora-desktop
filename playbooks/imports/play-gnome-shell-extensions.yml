@@ -20,9 +20,15 @@
           - gnome-shell-extension-dash-to-dock
           # Note: just-perfection is installed via ID below as DNF package may be outdated
 
+    # PERF-09: --update makes the installer skip the re-download (and its restart) when the
+    # installed version is already current, instead of unconditionally re-fetching all seven
+    # every run. changed_when keys on the actual download marker; rc 2 == "already current".
     - name: Install Gnome Shell Extensions Not Included with DNF
       become: false
-      ansible.builtin.command: gnome-shell-extension-installer --yes --restart-shell {{ item.id }}
+      ansible.builtin.command: gnome-shell-extension-installer --yes --update --restart-shell {{ item.id }}
+      register: gse_install
+      changed_when: "'Downloading extension' in gse_install.stdout"
+      failed_when: gse_install.rc not in [0, 2]
       loop:
         # Verified compatibility status checked against GNOME Shell 49 (Fedora 43)
         - name: Blur my Shell
