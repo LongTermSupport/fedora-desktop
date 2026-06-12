@@ -38,7 +38,7 @@ class AnsibleEnforcementHandler(Handler):
         r'\bdnf\s+(install|remove|erase|update|upgrade|downgrade|reinstall)',
         r'\byum\s+(install|remove|erase|update|upgrade)',
         r'\brpm\s+(-[iUeFh]*[iUeF][iUeFh]*|--install|--upgrade|--erase|--freshen)',
-        r'\bpip3?\s+install(?!\s)',  # pip install (but not in venv context)
+        r'\bpip3?\s+install\b',  # pip install / pip3 install (system-level)
         r'\bnpm\s+install\s+-g',  # npm install -g (global)
         r'\bflatpak\s+(install|remove|uninstall|update)',
         r'\bsnap\s+(install|remove)',

@@ -152,13 +152,15 @@ The 7 effective-high findings: SEC-01 (committed PII), FF-01/ANS-01 (shell block
 
 ### Phase 10 (Action H): Follow-Up Research (from coverage gaps)
 
-> See [research/coverage-gaps.md](research/coverage-gaps.md)
+> See [research/coverage-gaps.md](research/coverage-gaps.md) (scope) and [research/followup-gaps.md](research/followup-gaps.md) (Batch 8 findings, FUP-01..29)
 
-- [ ] ⬜ **Audit fedora-install/ bootstrap** (GAP-01): ~2,770 lines of security-critical install code nobody covered
-- [ ] ⬜ **Review run.bash failure-report flow** (GAP-02): posts hostname and weakly-sanitised logs to the public issue tracker
-- [ ] ⬜ **Audit tracked .claude/ custom code** (GAP-04): two Python hook handlers and the second CCY Dockerfile
-- [ ] ⬜ **Pin galaxy dependencies** (GAP-05): requirements.yml tracks `master`, collections unversioned
-- [ ] ⬜ **Resolve GPL-2.0-in-MIT-repo licensing question** (GAP-06)
+- [x] ✅ **Research all five gaps** (Batch 8, 3 parallel subagents): findings written to [research/followup-gaps.md](research/followup-gaps.md) — 1 confirmed live defect (fixed), 11 fedora-install items, 11 run.bash items, 4 `.claude/` items, 2 pinning items, 1 licensing item; positives recorded; sequencing recommended.
+- [x] ✅ **Fix FUP-01** (GAP-04, high): `ansible_enforcement.py` pip-block regex `install(?!\s)` → `install\b` — the inverted lookahead silently allowed every real `pip install <pkg>`. Verified by direct regex evaluation against the two pre-existing (previously-failing, never-run) tests; both now match. *(Host: restart the daemon to load it; run pytest once QA-09 lands.)*
+- [ ] ⬜ **Audit fedora-install/ bootstrap** (GAP-01): ✅ researched (FUP-08..18) — **fixes deferred to a host-tested batch** (edits to disk-wiping/LUKS install media cannot be validated in the CCY container)
+- [ ] ⬜ **Harden run.bash failure-report + config-sync** (GAP-02): ✅ researched (FUP-19..29) — hostname in public issue, silent sanitiser fallback, untruncated-preview, private-repo gate; **UX behaviour changes — awaiting user sign-off on the new flow**
+- [ ] ⬜ **Remaining .claude/ items** (GAP-04): FUP-02/03 (system_paths robustness), FUP-04 (`.claude/ccy/Dockerfile` pinning) — quick wins, fold into next batch
+- [ ] ⬜ **Pin galaxy dependencies** (GAP-05, FUP-05/06): pin `lts.vault-scripts` to a SHA/tag, version-bound the collections — needs a network ref/version lookup (avoid guessing → don't break installs)
+- [ ] ⬜ **Resolve GPL-2.0-in-MIT-repo licensing** (GAP-06, FUP-07): prefer replacing the tracked `gnome-shell-extension-installer` with a pinned `get_url` at deploy time
 
 ## Deferred (explicitly not in the action plan)
 
@@ -261,3 +263,11 @@ The 7 effective-high findings: SEC-01 (committed PII), FF-01/ANS-01 (shell block
 - **Deferred:** DOC-18 `Dockerfile:170` comment cross-ref (one comment line not worth a forced container version bump + user image rebuild — fold into the next real Dockerfile change); plan-index triage OPP-04/05 and DOC-17 lint-plan relocate/close (the revive/cancel/move calls need user input).
 - **PII verdict delivered (separate from edits):** confirmed HEAD is already clean (no real emails, no U+00A0 leak file — all scrubbed in Batch 1); residual exposure is git-history-only, the worst of which (the email/alias leak) is already public off-repo in gh issue #22 and unreachable by `git-filter-repo`. Recommendation: skip the destructive history purge (Decision Gate 1); instead close/edit issue #22 and land the SEC-02 scanner-gap fix as the durable control.
 - No CCY-image files touched (the patch-script comment is not the `claude-yolo` wrapper) → no `CCY_VERSION` bump. Edit-only; markdown deploys with the repo, no host action needed beyond `git pull`.
+
+### 2026-06-12 — Batch 8 executed (Phase 10: follow-up research + 1 fix) on `fable-audit-1`
+
+- **Three parallel research subagents** (read-only, file-partitioned): fedora-install/ bootstrap (GAP-01), run.bash (GAP-02), and `.claude/` custom code + requirements.yml + licensing (GAP-04/05/06). Findings synthesised into [research/followup-gaps.md](research/followup-gaps.md) (FUP-01..29) with file:line evidence, positives, and a sequencing recommendation.
+- **One confirmed live defect, fixed:** FUP-01 — `.claude/hooks/handlers/pre_tool_use/ansible_enforcement.py:41` pip-block regex was `\bpip3?\s+install(?!\s)`; the negative lookahead inverted the intent so every real `pip install <pkg>` was **allowed** (and `pip installer-thing` wrongly blocked). Changed to `\bpip3?\s+install\b`. Verified empirically with `python3 -re` against the two pre-existing tests (`test_matches_pip_install_global`, `test_matches_pip3_install_global`) — both assert the real commands match and now do. (`sudo pip`/`--break-system-packages` were independently covered by the daemon's own handlers, so the live gap was a plain system `pip install`.)
+- **Verification:** `./scripts/qa-all.bash` green (6 stages, 285 files; `py_compile` clean on the handler). pytest cannot run in the CCY image (QA-09 IaC gap) — the regex fix was proven by direct evaluation instead. Host: restart the daemon (`hooks-daemon` skill) to load the corrected handler.
+- **Deliberately NOT edited this batch (documented + recommended instead):** the `fedora-install/` secret-lifecycle fixes (FUP-08..10 — LUKS passphrase/WiFi-password persistence) touch disk-wiping/LUKS install media that is untestable in the container → host-tested batch; the run.bash issue-reporting/config-sync changes (FUP-19..22 — drop hostname, fail-closed sanitisation, full-body preview, private-repo gate) are UX/behaviour changes to the primary entry point that warrant user sign-off; supply-chain pinning (FUP-05/06/11/23/24) and licensing (FUP-07) need network ref/version lookups (guessing a pin could break installs).
+- Edit-only (one `.claude/` handler + one research doc + plan). No CCY-image files, no `CCY_VERSION` bump.
