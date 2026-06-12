@@ -107,6 +107,9 @@
       ansible.builtin.copy:
         src: "{{ root_dir }}/files{{ item }}"
         dest: "{{ item }}"
+        owner: root
+        group: root
+        mode: "0644"
       loop:
         - /etc/profile.d/zz_lts-fedora-desktop.bash
         - /var/local/colours
@@ -116,6 +119,9 @@
       ansible.builtin.copy:
         content: "export PS1_COLOUR={{ PS1_Colour }}"
         dest: /var/local/ps1-prompt-colour
+        owner: root
+        group: root
+        mode: "0644"
 
     - name: Create .bashrc-includes directories
       ansible.builtin.file:

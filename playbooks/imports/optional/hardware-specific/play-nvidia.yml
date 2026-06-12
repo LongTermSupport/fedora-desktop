@@ -1,6 +1,5 @@
 #!/usr/bin/env ansible-playbook
 ---
-#!/usr/bin/env ansible-playbook
 # Install NVIDIA drivers using RPM Fusion (recommended method for Fedora 43)
 # For RTX 500 Ada Generation and other modern NVIDIA GPUs
 #

@@ -1,6 +1,5 @@
 #!/usr/bin/env ansible-playbook
 ---
-#!/usr/bin/env ansible-playbook
 # DisplayLink is used by USB Docks for Extra Monitors
 # Handles Secure Boot by enrolling MOK key for kernel module signing
 - hosts: desktop

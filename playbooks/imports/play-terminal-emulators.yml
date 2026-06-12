@@ -1,6 +1,5 @@
 #!/usr/bin/env ansible-playbook
 ---
-#!/usr/bin/env ansible-playbook
 # Install modern terminal emulators optimized for Claude Code
 # Provides Alacritty, Kitty, Ghostty, and Foot - all with excellent performance,
 # true color support, and great experience for AI-assisted development

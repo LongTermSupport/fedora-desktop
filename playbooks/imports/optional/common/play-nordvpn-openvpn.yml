@@ -1,6 +1,5 @@
 #!/usr/bin/env ansible-playbook
 ---
-#!/usr/bin/env ansible-playbook
 # NordVPN OpenVPN Manager
 #
 # Deploys a bash script (nord) to manage NordVPN OpenVPN connections via NetworkManager CLI.

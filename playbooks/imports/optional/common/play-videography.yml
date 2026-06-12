@@ -7,9 +7,18 @@
   vars:
     root_dir: "{{ inventory_dir }}/../../"
   tasks:
-    - name: Enable Flathub
-      ansible.builtin.command: flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+    # ANS-07: align with play-comms — system-level (become: true / root) flatpak via the
+    # idempotent native modules, instead of an unbecome remote-add + a become_user round-trip
+    # that both depend on a polkit grant on a fresh non-interactive run.
+    - name: Enable Flathub remote
+      become: true
+      community.general.flatpak_remote:
+        name: flathub
+        flatpakrepo_url: https://flathub.org/repo/flathub.flatpakrepo
+        state: present
     - name: Install Shotcut
       become: true
-      become_user: "{{ user_login }}"
-      ansible.builtin.command: flatpak install flathub org.shotcut.Shotcut -y
+      community.general.flatpak:
+        name: org.shotcut.Shotcut
+        remote: flathub
+        state: present
