@@ -1,10 +1,16 @@
 ---
 roles:
   # Vault Script
+  # version is master HEAD pinned to immutable SHA (repo has no tags).
+  # To refresh: git ls-remote https://github.com/LongTermSupport/ansible-role-vault-scripts master
   - src: https://github.com/LongTermSupport/ansible-role-vault-scripts
     scm: git
     name: lts.vault-scripts
-    version: master
+    version: 8c97a13d93f8fa5934c8d907322055727da4e986
 collections:
+  # Versions confirmed against Ansible Galaxy API 2026-06-12.
+  # Upper bound blocks surprise major bumps; raise intentionally when ready to upgrade.
   - name: community.general
+    version: ">=13.0.0,<14.0.0"
   - name: ansible.posix
+    version: ">=2.0.0,<3.0.0"

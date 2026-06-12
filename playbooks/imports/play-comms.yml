@@ -8,9 +8,16 @@
   vars:
     root_dir: "{{ inventory_dir }}/../../"
   tasks:
-    - name: Enable Flathub
+    # Native modules are idempotent (no per-run Flathub round-trip / spurious changed).
+    - name: Enable Flathub remote
       become: true
-      ansible.builtin.command: flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+      community.general.flatpak_remote:
+        name: flathub
+        flatpakrepo_url: https://flathub.org/repo/flathub.flatpakrepo
+        state: present
     - name: Install Slack
       become: true
-      ansible.builtin.command: flatpak install flathub com.slack.Slack -y
+      community.general.flatpak:
+        name: com.slack.Slack
+        remote: flathub
+        state: present

@@ -1,14 +1,19 @@
 #!/usr/bin/env ansible-playbook
 ---
-#!/usr/bin/env ansible-playbook
-# Install LXDE - THIS IS NOT TESTED - i just wnated to include installing dunst somewhere so that notifications owork
+# Install LXDE - THIS IS NOT TESTED - included to get dunst installed so notifications work
 - hosts: desktop
+  name: LXDE Desktop (experimental)
   become: true
   vars:
     root_dir: "{{ inventory_dir }}/../../"
   tasks:
-    - name: Install LXDE
-      ansible.builtin.command: dnf group install lxde-desktop
+    # Use the dnf module with an @group name — idempotent and works non-interactively. The
+    # bare `dnf group install` command (no -y) aborts in a non-TTY Ansible run (assumes no).
+    - name: Install LXDE desktop group
+      ansible.builtin.dnf:
+        name: '@lxde-desktop'
+        state: present
     - name: Install Dunst for notifications
       ansible.builtin.dnf:
         name: dunst
+        state: present

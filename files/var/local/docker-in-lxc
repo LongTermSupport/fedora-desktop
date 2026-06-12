@@ -4,7 +4,7 @@
 #
 # Version: 1.0.0
 #
-DIL_VERSION="1.0.0"
+DIL_VERSION="1.0.1"
 
 set -e
 
@@ -431,7 +431,10 @@ provision_container_direct() {
         npm install -g @anthropic-ai/claude-code
 
         echo "Claude Code installed successfully"
-        claude --version || echo "Claude Code version check failed (may still work)"
+        if ! claude --version; then
+            echo "ERROR: Claude Code install verification failed" >&2
+            exit 1
+        fi
     '
 
     success "Claude Code installed"
@@ -462,7 +465,14 @@ fi
 
 # Update Claude Code
 echo "Checking for Claude Code updates..."
-npm update -g @anthropic-ai/claude-code 2>&1 | grep -v "npm WARN" || true
+# FAIL-FAST-OK: update is best-effort inside the container (stale Claude Code still works);
+# capture the npm exit status explicitly so a real failure is surfaced as a warning rather
+# than silently hidden by the grep-v pipeline exit code.
+_npm_out=$(npm update -g @anthropic-ai/claude-code 2>&1) || {
+    echo "WARN: Claude Code update failed (will use installed version): $_npm_out" >&2
+}
+# awk prints non-WARN lines and exits 0 even when none match (no error to suppress)
+echo "$_npm_out" | awk '!/npm WARN/'
 
 # Run Claude Code with full permissions
 exec claude --dangerously-skip-permissions "$@"
@@ -705,7 +715,9 @@ destroy_container() {
     # Stop if running
     if container_is_running "$name"; then
         info "Stopping container..."
-        sudo lxc-stop -n "$name" -k || true
+        if ! sudo lxc-stop -n "$name" -k; then
+            info "lxc-stop reported an error; continuing to destroy"
+        fi
         sleep 2
     fi
 

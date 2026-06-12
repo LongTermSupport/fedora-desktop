@@ -17,6 +17,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # ---------------------------------------------------------------------------
 die()    { echo ""; echo "  ✗ FATAL: $*" >&2; echo ""; exit 1; }
+warn()   { echo "  ⚠ $*" >&2; }
 ok()     { echo "  ✓ $*"; }
 header() { echo ""; echo "━━━ $* ━━━"; echo ""; }
 check()  { echo -n "  Checking $1 ... "; }

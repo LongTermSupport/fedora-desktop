@@ -26,6 +26,7 @@ Transform speech into text anywhere on your system with a single keystroke. This
 The Speech-to-Text extension adds system-wide voice input to Fedora. Press **Insert** to start recording, speak naturally, and your words appear as text automatically.
 
 **What makes this special:**
+
 - **GPU Acceleration**: Uses CUDA for fast transcription (falls back to CPU if needed)
 - **Real-time Streaming**: Optional instant transcription while you speak
 - **AI Enhancement**: Optional Claude Code post-processing for professional formatting
@@ -37,6 +38,7 @@ The Speech-to-Text extension adds system-wide voice input to Fedora. Press **Ins
 ## Features
 
 ### Core Capabilities
+
 - ⚡ **GPU-accelerated transcription** with faster-whisper (NVIDIA CUDA)
 - 🎯 **Two transcription modes**:
   - **Batch mode** (default): Fast, accurate transcription after you stop speaking
@@ -48,6 +50,7 @@ The Speech-to-Text extension adds system-wide voice input to Fedora. Press **Ins
 - 🔔 **Visual feedback**: Status icons and desktop notifications
 
 ### Processing Modes
+
 1. **Raw transcription** (default): Direct Whisper output
 2. **Corporate mode** 🤖: Professional formatting via Claude Code
 3. **Natural mode** 💬: Casual cleanup via Claude Code
@@ -57,17 +60,20 @@ The Speech-to-Text extension adds system-wide voice input to Fedora. Press **Ins
 ## Prerequisites
 
 ### Required
+
 - **Fedora 42** (this branch)
 - **NVIDIA GPU** with CUDA support (GTX 10-series or newer recommended)
 - **NVIDIA drivers installed** via `play-nvidia.yml`
 - **Active internet** for initial model downloads (cached afterwards)
 
 ### Hardware Recommendations
+
 - **Minimum**: GTX 1050 Ti (2GB VRAM) - use tiny/base models
 - **Recommended**: RTX 2060 (6GB VRAM) - use small/medium models
 - **Optimal**: RTX 3060+ (12GB VRAM) - use large models
 
 ### Disk Space
+
 - Model cache: 40MB (tiny) to 2.9GB (large-v3)
 - RealtimeSTT dependencies: ~2GB on first install (PyTorch, etc.)
 - Temporary audio files: ~10MB per recording
@@ -93,12 +99,14 @@ ansible-playbook playbooks/imports/optional/common/play-speech-to-text.yml
 ```
 
 **Installation time**: 5-15 minutes on first run
+
 - System packages: ~1 minute
 - faster-whisper + CUDA libraries: ~2 minutes
 - RealtimeSTT (streaming mode): **5-15 minutes** (large PyTorch download)
 - Extension deployment: ~10 seconds
 
 **What gets installed:**
+
 - System packages: sox, ydotool, wl-clipboard, zenity, wev
 - Python packages: faster-whisper, RealtimeSTT, nvidia-cublas-cu12, nvidia-cudnn-cu12
 - GNOME extension: `~/.local/share/gnome-shell/extensions/speech-to-text@fedora-desktop/`
@@ -114,6 +122,7 @@ gnome-extensions enable speech-to-text@fedora-desktop
 ```
 
 Verify it's running:
+
 ```bash
 gnome-extensions list --enabled | grep speech-to-text
 ```
@@ -138,15 +147,16 @@ stt_language: en  # Default
 
 **Model comparison:**
 
-| Model | Size | VRAM | Speed | Accuracy | Use Case |
-|-------|------|------|-------|----------|----------|
-| tiny | 40MB | 1GB | Very fast | Good | Quick notes, commands |
-| base | 150MB | 1GB | Fast | Better | General use |
-| small | 500MB | 2GB | Medium | Good | **Recommended default** |
-| medium | 1.5GB | 5GB | Slower | Very good | Professional work |
-| large-v3 | 2.9GB | 10GB | Slow | Excellent | Transcription accuracy critical |
+| Model    | Size  | VRAM | Speed     | Accuracy  | Use Case                        |
+| -------- | ----- | ---- | --------- | --------- | ------------------------------- |
+| tiny     | 40MB  | 1GB  | Very fast | Good      | Quick notes, commands           |
+| base     | 150MB | 1GB  | Fast      | Better    | General use                     |
+| small    | 500MB | 2GB  | Medium    | Good      | **Recommended default**         |
+| medium   | 1.5GB | 5GB  | Slower    | Very good | Professional work               |
+| large-v3 | 2.9GB | 10GB | Slow      | Excellent | Transcription accuracy critical |
 
 **Re-run playbook after changing model:**
+
 ```bash
 ansible-playbook playbooks/imports/optional/common/play-speech-to-text.yml
 ```
@@ -175,6 +185,7 @@ Enable real-time transcription in extension settings:
 2. Select **"Streaming mode (instant)"**
 
 **First-time streaming setup:**
+
 - Downloads large dependencies (~2GB PyTorch)
 - May take 5-15 minutes
 - Subsequent uses are instant
@@ -186,31 +197,35 @@ Enable real-time transcription in extension settings:
 ### Basic Workflow
 
 1. **Start Recording**: Press **Insert** key
+
    - 🎤 Red microphone icon appears
    - Desktop notification: "Recording..."
    - Maximum duration: 30 seconds
 
 2. **Speak Clearly**: Say what you want to type
+
    - Speak at normal pace
    - Minimize background noise
    - Pause briefly between sentences
 
 3. **Stop Recording**: Press **Insert** again
+
    - Icon changes to ⚙️ (processing)
    - Desktop notification: "Transcribing..."
 
 4. **Text Appears**: Automatically typed at cursor
+
    - Notification shows preview
    - Press **Enter** sent automatically
    - Text also saved to `~/.cache/speech-to-text/last-transcription.txt`
 
 ### Keyboard Shortcuts
 
-| Shortcut | Action | Mode |
-|----------|--------|------|
-| **Insert** | Start/stop recording | Default (raw transcription) |
-| **Ctrl+Insert** | Record with corporate processing | 🤖 Claude corporate mode |
-| **Alt+Insert** | Record with natural processing | 💬 Claude natural mode |
+| Shortcut        | Action                           | Mode                        |
+| --------------- | -------------------------------- | --------------------------- |
+| **Insert**      | Start/stop recording             | Default (raw transcription) |
+| **Ctrl+Insert** | Record with corporate processing | 🤖 Claude corporate mode    |
+| **Alt+Insert**  | Record with natural processing   | 💬 Claude natural mode      |
 
 ### Extension Menu
 
@@ -231,6 +246,7 @@ Output: Hello world, this is a test.
 ```
 
 **Characteristics:**
+
 - Fast processing (2-5 seconds typical)
 - High accuracy
 - Complete sentence transcription
@@ -249,6 +265,7 @@ Output: The quick brown fox jumps over the lazy dog.
 ```
 
 **Characteristics:**
+
 - Words appear instantly while speaking
 - Useful for long-form dictation
 - Higher GPU load
@@ -268,6 +285,7 @@ Corporate: "We need to schedule a meeting."
 ```
 
 **What it does:**
+
 - Removes filler words (um, uh, like, you know)
 - Fixes grammar and punctuation
 - Professional but approachable tone
@@ -284,6 +302,7 @@ Natural: "Hey, can you grab some milk at the store?"
 ```
 
 **What it does:**
+
 - Removes filler words
 - Fixes punctuation and capitalization
 - Keeps contractions and casual tone
@@ -347,11 +366,13 @@ Prompt templates are stored in `~/.config/speech-to-text/`:
 **Customization workflow:**
 
 1. Edit prompt template:
+
    ```bash
    vim ~/.config/speech-to-text/claude-prompt-corporate.txt
    ```
 
 2. Keep `{TRANSCRIPTION}` placeholder intact:
+
    ```
    Transform this transcription: {TRANSCRIPTION}
 
@@ -377,6 +398,7 @@ wsi --claude-process --claude-model opus --claude-style natural
 ```
 
 **Model trade-offs:**
+
 - **haiku**: Fastest, cheapest, good for simple cleanup
 - **sonnet**: Best balance (default)
 - **opus**: Most capable, best for complex formatting
@@ -387,17 +409,18 @@ wsi --claude-process --claude-model opus --claude-style natural
 
 The extension icon indicates current status:
 
-| Icon | Status | Meaning |
-|------|--------|---------|
-| 🎤 | Recording | Listening to your voice (Insert to stop) |
-| ⚙️ | Processing | Transcribing audio |
-| 🤖 | Claude Processing | AI enhancement (corporate mode) |
-| 💬 | Claude Processing | AI enhancement (natural mode) |
-| ✅ | Success | Transcription complete |
-| ⚠️ | Error | Something went wrong (check logs) |
-| ⏸️ | Idle | Ready for next recording |
+| Icon | Status            | Meaning                                  |
+| ---- | ----------------- | ---------------------------------------- |
+| 🎤   | Recording         | Listening to your voice (Insert to stop) |
+| ⚙️   | Processing        | Transcribing audio                       |
+| 🤖   | Claude Processing | AI enhancement (corporate mode)          |
+| 💬   | Claude Processing | AI enhancement (natural mode)            |
+| ✅   | Success           | Transcription complete                   |
+| ⚠️   | Error             | Something went wrong (check logs)        |
+| ⏸️   | Idle              | Ready for next recording                 |
 
 **Desktop notifications** also show:
+
 - Recording status
 - Transcription preview
 - Error messages
@@ -414,17 +437,21 @@ The extension icon indicates current status:
 **Solutions:**
 
 1. Verify NVIDIA drivers installed:
+
    ```bash
    nvidia-smi
    ```
+
    Should show GPU info and CUDA version.
 
 2. Check CUDA libraries:
+
    ```bash
    python3 -c "import nvidia.cublas; import nvidia.cudnn; print('CUDA libs OK')"
    ```
 
 3. Reinstall with fresh CUDA:
+
    ```bash
    pip uninstall -y nvidia-cublas-cu12 nvidia-cudnn-cu12
    ansible-playbook playbooks/imports/optional/common/play-speech-to-text.yml
@@ -459,21 +486,25 @@ The playbook configures ydotool as a system service with world-writable socket (
 **Solutions:**
 
 1. Check extension is enabled:
+
    ```bash
    gnome-extensions list --enabled | grep speech-to-text
    ```
 
 2. Manually enable:
+
    ```bash
    gnome-extensions enable speech-to-text@fedora-desktop
    ```
 
 3. Check GNOME Shell logs:
+
    ```bash
    journalctl --user -u org.gnome.Shell --since "5 minutes ago" --no-pager | grep -i speech
    ```
 
 4. Re-run playbook:
+
    ```bash
    ansible-playbook playbooks/imports/optional/common/play-speech-to-text.yml
    ```
@@ -485,12 +516,14 @@ The playbook configures ydotool as a system service with world-writable socket (
 **Solutions:**
 
 1. Check for conflicts:
+
    ```bash
    # List all keybindings
    gsettings list-recursively | grep -i insert
    ```
 
 2. Test key detection:
+
    ```bash
    # Install wev (included in playbook)
    wev
@@ -506,6 +539,7 @@ The playbook configures ydotool as a system service with world-writable socket (
 **Possible causes:**
 
 1. **Microphone not working**:
+
    ```bash
    # Test microphone
    pw-record --rate 44100 test.wav
@@ -515,16 +549,19 @@ The playbook configures ydotool as a system service with world-writable socket (
    ```
 
 2. **Wrong input device selected**:
+
    - Open GNOME Settings → Sound → Input
    - Verify correct microphone is selected
    - Adjust input volume (70-90% recommended)
 
 3. **Background noise too high**:
+
    - Reduce ambient noise
    - Move closer to microphone
    - Use noise-cancelling microphone if available
 
 4. **Language mismatch**:
+
    ```yaml
    # Try auto-detect
    stt_language: ""
@@ -537,11 +574,13 @@ The playbook configures ydotool as a system service with world-writable socket (
 **Solutions:**
 
 1. **Use smaller model**:
+
    ```yaml
    stt_model: tiny  # or base
    ```
 
 2. **Check GPU is being used**:
+
    ```bash
    # During transcription, check GPU activity
    nvidia-smi -l 1
@@ -549,6 +588,7 @@ The playbook configures ydotool as a system service with world-writable socket (
    ```
 
 3. **Reduce model size** if VRAM insufficient:
+
    ```bash
    # Check VRAM usage
    nvidia-smi
@@ -563,6 +603,7 @@ The playbook configures ydotool as a system service with world-writable socket (
 **Solutions:**
 
 1. **Speak more clearly**:
+
    - Normal pace, not too fast
    - Enunciate clearly
    - Pause between sentences
@@ -570,11 +611,13 @@ The playbook configures ydotool as a system service with world-writable socket (
 2. **Reduce background noise**
 
 3. **Use larger model** for better accuracy:
+
    ```yaml
    stt_model: medium  # or large-v3
    ```
 
 4. **Force correct language**:
+
    ```yaml
    stt_language: en  # Don't rely on auto-detect
    ```
@@ -588,22 +631,26 @@ The playbook configures ydotool as a system service with world-writable socket (
 **Solutions:**
 
 1. **Manual install** (if playbook fails):
+
    ```bash
    pip install --user RealtimeSTT portaudio-devel
    ```
 
 2. **System dependencies**:
+
    ```bash
    sudo dnf install portaudio-devel python3-devel
    ```
 
 3. **Check script exists**:
+
    ```bash
    ls -l ~/.local/bin/wsi-stream
    chmod +x ~/.local/bin/wsi-stream
    ```
 
 4. **Test streaming mode**:
+
    ```bash
    wsi-stream --debug
    ```
@@ -712,6 +759,7 @@ Data:
 ### Dependencies
 
 **System packages** (via DNF):
+
 - sox - Audio resampling
 - ydotool - Keyboard simulation
 - wl-clipboard - Wayland clipboard
@@ -721,6 +769,7 @@ Data:
 - python3-devel - Python headers
 
 **Python packages** (via pip):
+
 - faster-whisper - GPU-accelerated Whisper
 - nvidia-cublas-cu12 - CUDA BLAS library
 - nvidia-cudnn-cu12 - CUDA DNN library
@@ -754,6 +803,7 @@ Data:
 ---
 
 **See also:**
-- [NVIDIA Driver Installation](../playbooks.md#play-nvidiaym)
+
+- [NVIDIA Driver Installation](../playbooks.md#play-nvidiayml)
 - [Claude Code Setup](../playbooks.md#play-claude-codeyml)
-- [Containerization Guide](containerization.md)
+- [Containerization Guide](../containerization.md)

@@ -156,10 +156,10 @@
           'kernel-core' 'kernel-modules-core' 'kernel-modules' 'kernel-modules-extra' \
           'kernel-devel' 'kernel-devel-matched' 'kernel-tools' 'kernel-tools-libs' \
           'python3-perf' 2>/dev/null \
-          | grep -E "\-${v_escaped}\." || true
+          | grep -E "\-${v_escaped}\." || test $? -eq 1
         # Akmod kmods — name pattern: kmod-<anything>-<v>.x86_64-<kmod_ver>
         # rpm -qa with glob matches the package NAME, not NEVRA.
-        rpm -qa "kmod-*-${v}.x86_64" 2>/dev/null || true
+        rpm -qa "kmod-*-${v}.x86_64" 2>/dev/null
       loop: "{{ half_installed_kernels }}"
       register: half_install_pkg_lookup
       changed_when: false

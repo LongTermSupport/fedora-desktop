@@ -88,11 +88,30 @@ else
     echo ""
 fi
 
-# Add GitHub host keys to avoid SSH verification prompts
+# Add GitHub host keys to avoid SSH verification prompts on in-container git ops.
+# CCY-08/BSH-16: capture the fetch explicitly instead of piping straight into
+# known_hosts. If it fails (offline build-cache reuse, API hiccup), an empty
+# known_hosts would make the first `git push` hang on an interactive host-key
+# prompt — so fall back to StrictHostKeyChecking=accept-new and report which
+# path was taken, rather than silently continuing (fail-fast visibility).
 mkdir -p ~/.ssh
 chmod 700 ~/.ssh
-if curl -sL --max-time 5 https://api.github.com/meta 2>/dev/null | jq -r '.ssh_keys | .[]' 2>/dev/null | sed -e 's/^/github.com /' >> ~/.ssh/known_hosts 2>/dev/null; then
+github_meta=$(curl -sL --max-time 5 https://api.github.com/meta 2>/dev/null) || github_meta=""
+github_known_hosts=""
+if [ -n "$github_meta" ]; then
+    github_known_hosts=$(echo "$github_meta" | jq -r '.ssh_keys | .[]' 2>/dev/null | sed -e 's/^/github.com /') || github_known_hosts=""
+fi
+if [ -n "$github_known_hosts" ]; then
+    echo "$github_known_hosts" >> ~/.ssh/known_hosts
     chmod 600 ~/.ssh/known_hosts
+    echo "✓ GitHub SSH host keys pinned in known_hosts"
+else
+    echo "⚠ Could not fetch GitHub SSH host keys (offline?) — using StrictHostKeyChecking=accept-new for git/ssh" >&2
+    {
+        echo "Host github.com"
+        echo "    StrictHostKeyChecking accept-new"
+    } >> ~/.ssh/config
+    chmod 600 ~/.ssh/config
 fi
 
 # Set sandbox mode to bypass root detection
@@ -101,6 +120,14 @@ export IS_SANDBOX=1
 # Disable Ink's hardcoded ctrl+z suspend handler (patched in Dockerfile to check this env var).
 # Without this, ctrl+z sends unblockable SIGSTOP to the process - unrecoverable in a container.
 export CCY_DISABLE_SUSPEND=1
+
+# CCY-07: the build-time ctrl+z patch is best-effort. If it soft-failed it leaves
+# a sentinel — surface that here (once, at launch) so a container that freezes on
+# ctrl+z is diagnosable rather than mysterious.
+if [ -f /opt/claude-yolo/.ctrlz-patch-status ] && [ "$(cat /opt/claude-yolo/.ctrlz-patch-status)" = "failed" ]; then
+    echo "⚠ ctrl+z suspend patch did NOT apply when this image was built — ctrl+z may freeze the container." >&2
+    echo "  Update ccy-ctrl-z-patch.js knownPatterns and rebuild (see CLAUDE/ContainerRules.md)." >&2
+fi
 
 # Disable mouse capture so native terminal selection works.
 # NOTE: CLAUDE_CODE_NO_FLICKER (fullscreen / alt-screen rendering) was previously

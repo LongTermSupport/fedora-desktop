@@ -217,7 +217,7 @@
     # surviving entry now so the directory task always succeeds.
     - name: Force-unmount any surviving FUSE entries at configured mountpoints
       ansible.builtin.shell: |
-        set -uo pipefail
+        set -euo pipefail
         mp="{{ item.mountpoint }}"
         if grep -qE "[[:space:]]${mp}[[:space:]]" /proc/self/mountinfo 2> /dev/null; then
             echo "found in mount table — unmounting"

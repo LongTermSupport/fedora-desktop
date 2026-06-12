@@ -28,6 +28,21 @@ if ! command -v semgrep >/dev/null 2>/dev/null; then
     exit 2
 fi
 
+# Self-check: validate the rules against their annotated fixture before scanning.
+# A rule that silently stops matching (or over-matches) is a worse failure than a
+# missing tool, so a self-test regression is a hard error (exit 2), never "0 issues".
+TMP_TEST_ERR=$(mktemp)
+if ! semgrep --test \
+        --config "$REPO_ROOT/.semgrep/bash-conventions.yml" \
+        "$REPO_ROOT/.semgrep/bash-conventions.bash" \
+        --metrics=off >/dev/null 2>"$TMP_TEST_ERR"; then
+    echo "ERROR: semgrep rule self-tests failed (see .semgrep/bash-conventions.bash)" >&2
+    cat "$TMP_TEST_ERR" >&2
+    rm -f "$TMP_TEST_ERR"
+    exit 2
+fi
+rm -f "$TMP_TEST_ERR"
+
 # Run semgrep
 # --json-output: write findings JSON to file (separate from progress output)
 # --quiet:       suppress progress/banner output
@@ -39,6 +54,7 @@ semgrep \
     --metrics=off \
     --quiet \
     --exclude '.git' \
+    --exclude '.semgrep' \
     --exclude 'node_modules' \
     --exclude 'untracked' \
     --exclude '.ansible/roles' \

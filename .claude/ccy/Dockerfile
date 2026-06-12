@@ -33,8 +33,10 @@ RUN pipx install ansible-lint && \
     pipx install ruff
 
 # Install jmespath library for Ansible json_query filter
-# This is a library dependency, not a CLI tool, so use pip
-RUN pip3 install --no-cache-dir --break-system-packages jmespath
+# This is a library dependency, not a CLI tool, so use pip.
+# --break-system-packages is safe here: this is an isolated container image
+# layer with no system Python packages that could be corrupted.
+RUN pip3 install --no-cache-dir --break-system-packages "jmespath>=1.0,<2"
 
 # Install GitHub CLI (gh) - used by git configuration playbook
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -47,7 +49,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && rm -rf /var/lib/apt/lists/*
 
 # Install yq (YAML processor) - used extensively in playbooks
-RUN wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 \
+# Pinned to a specific release; update by bumping the version and rebuilding.
+RUN wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.53.3/yq_linux_amd64 \
     && chmod +x /usr/local/bin/yq
 
 # Install ImageMagick 7 (Debian 12 ships only IM6).
@@ -56,6 +59,9 @@ RUN wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/d
 # AppImage is extracted (no FUSE in the container); a thin wrapper at
 # /usr/local/bin/magick fronts the bundled binary with the right
 # LD_LIBRARY_PATH and MAGICK_CONFIGURE_PATH.
+# TODO pin: imagemagick.org/archive/binaries/magick has no stable versioned URL;
+# track https://imagemagick.org/script/download.php for a pinnable release and
+# replace this with a versioned download once one is available.
 RUN wget -qO /tmp/magick.AppImage https://imagemagick.org/archive/binaries/magick \
     && chmod +x /tmp/magick.AppImage \
     && cd /opt \
@@ -71,8 +77,13 @@ RUN wget -qO /tmp/magick.AppImage https://imagemagick.org/archive/binaries/magic
     && chmod 755 /usr/local/bin/magick \
     && magick --version | head -n1
 
-# Install Ansible collections required by the project
-RUN ansible-galaxy collection install community.general ansible.posix
+# Install Ansible collections required by the project.
+# Versions pinned to known-good ranges (current latest: community.general 13.0.1,
+# ansible.posix 2.2.0); bump upper bounds when the project has been tested against
+# the next major.
+RUN ansible-galaxy collection install \
+    "community.general>=9.0.0,<14.0.0" \
+    "ansible.posix>=1.5.0,<3.0.0"
 
 # Create mount points for read-only host filesystem access (debugging)
 # These will be bound at runtime via CCY --extra-mounts flag

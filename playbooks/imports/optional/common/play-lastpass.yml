@@ -1,6 +1,5 @@
 #!/usr/bin/env ansible-playbook
 ---
-#!/usr/bin/env ansible-playbook
 # LastPass Setup - Supports both single and multi-account configurations
 - hosts: desktop
   name: LastPass Configuration
@@ -48,7 +47,7 @@
 
               Enter your LastPass accounts as comma-separated name:email pairs.
 
-              Example: work:john@company.com,personal:john@gmail.com
+              Example: work:user@example.com,personal:user2@example.com
 
               The names will be used for aliases (e.g., lpass-work, lpass-personal)
 
@@ -110,7 +109,11 @@
 
     - name: Check authentication status
       ansible.builtin.shell: |
+        set -euo pipefail
+        # grep -q exits non-zero when not logged in; || echo "needs_auth" is the intended probe result  # FAIL-FAST-OK: probe output drives login decision
         LPASS_HOME=/home/{{ user_login }}/.lpass-{{ item.key }} lpass status 2>&1 | grep -q "Logged in as {{ item.value }}" && echo "authenticated" || echo "needs_auth"
+      args:
+        executable: /bin/bash
       register: auth_status
       changed_when: false
       failed_when: false  # FAIL-FAST-OK: probe — checking if accounts are authenticated
@@ -128,13 +131,12 @@
 
     - name: Login to LastPass accounts
       ansible.builtin.shell: |
-        {% if lastpass_accounts | length == 1 and 'default' in lastpass_accounts %}
+        set -euo pipefail
         export LPASS_HOME=/home/{{ user_login }}/.lpass-{{ item.item.key }}
-        {% else %}
-        export LPASS_HOME=/home/{{ user_login }}/.lpass-{{ item.item.key }}
-        {% endif %}
         lpass login {{ item.item.value }}
         lpass sync
+      args:
+        executable: /bin/bash
       when: item.stdout != "authenticated"
       loop: "{{ auth_status.results }}"
 

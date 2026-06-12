@@ -1,6 +1,5 @@
 #!/usr/bin/env ansible-playbook
 ---
-#!/usr/bin/env ansible-playbook
 - hosts: desktop
   name: Install Virtualbox
   vars:
@@ -58,6 +57,7 @@
     - name: Run Commands to get Windows Key
       become: true
       ansible.builtin.shell: |
+        set -euo pipefail
         echo "A few different ways to get windows key"
         echo
         echo "Windows Key:"

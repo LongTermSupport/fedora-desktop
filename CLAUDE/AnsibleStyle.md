@@ -3,12 +3,14 @@
 ## Playbook Structure
 
 ### Host and Variable Patterns
+
 - **Target**: `desktop` group (localhost only)
 - **Connection**: Local transport (not SSH)
 - **Privilege Escalation**: sudo with `-HE` flags
 - **Inventory**: YAML-based localhost configuration
 
 **Consistent playbook structure:**
+
 ```yaml
 - hosts: desktop
   name: [Descriptive Name]
@@ -21,12 +23,14 @@
 ```
 
 **Categorisation:**
+
 - Core playbooks: Essential system setup
 - Optional/common: General development tools
 - Optional/hardware-specific: Hardware drivers/configs
 - Optional/experimental: Bleeding-edge features
 
 ### Required Variables
+
 - `fedora_version`: Target Fedora version (from `vars/fedora-version.yml`)
 - `user_login`: System username
 - `user_name`: Full display name
@@ -38,7 +42,9 @@
 ## File Modification Preferences
 
 ### blockinfile vs lineinfile
+
 **Prefer `blockinfile` for all file content modifications:**
+
 ```yaml
 # PREFERRED: For complex configurations
 - name: Update ~/.bashrc File for the Bash Git Prompt
@@ -53,7 +59,9 @@
 ```
 
 ### Marker Patterns
+
 Use descriptive markers with consistent format:
+
 ```yaml
 marker: "# {mark} ANSIBLE MANAGED: [Purpose Description]"
 marker: "## {mark} [specific purpose] for {{ user_login}}"  # For sudoers
@@ -81,10 +89,12 @@ marker: "-- {mark} ANSIBLE MANAGED: [Purpose]"  # For Lua configs
 ## User vs System Configuration
 
 ### Privilege Escalation
+
 - `become: true` for system-level tasks
 - Add `become_user: "{{ user_login }}"` for user-level tasks
 
 ### File Ownership and Permissions
+
 - **Always set** `owner:`, `group:`, `mode:` on every file task
 
 ---
@@ -92,6 +102,7 @@ marker: "-- {mark} ANSIBLE MANAGED: [Purpose]"  # For Lua configs
 ## Error Handling and Validation
 
 ### Idempotency with creates
+
 ```yaml
 - name: Install from URL
   shell: |
@@ -102,6 +113,7 @@ marker: "-- {mark} ANSIBLE MANAGED: [Purpose]"  # For Lua configs
 ```
 
 ### Preflight Assertions
+
 ```yaml
 - name: Check System Requirements
   assert:
@@ -116,6 +128,7 @@ marker: "-- {mark} ANSIBLE MANAGED: [Purpose]"  # For Lua configs
 ## Variable Naming and Templates
 
 ### Naming Conventions
+
 ```yaml
 vars:
   root_dir: "{{ inventory_dir }}/../../"
@@ -125,6 +138,7 @@ vars:
 ```
 
 ### Template References
+
 ```yaml
 # Always use the root_dir pattern for file references
 copy:
@@ -137,12 +151,15 @@ copy:
 ## Task Organisation
 
 ### Task Names
+
 Use descriptive, action-oriented names: e.g., "Install YQ Binary from GitHub", "Enable Flathub Repository"
 
 ### Task Grouping
+
 Group related tasks with `block` when appropriate
 
 ### Tagging Strategy
+
 ```yaml
 tags:
   - packages      # Package installation tasks
@@ -156,6 +173,7 @@ tags:
 ## Special Patterns
 
 ### Multi-file Loop Operations
+
 ```yaml
 - name: Ensure Bash Tweaks are Loaded
   blockinfile:
@@ -171,7 +189,21 @@ tags:
 ```
 
 ### External Repository Integration
-Use shell modules with proper error handling: `set -x`, `args.executable: /bin/bash`, `creates:` for idempotency
+
+Every multi-command `shell: |` block **must** begin with `set -euo pipefail` and declare `args: executable: /bin/bash`. The shell module only propagates the **last** command's exit code — without strict mode, any earlier failure is silently swallowed, violating the project's #1 fail-fast rule.
+
+```yaml
+- name: Install Tool from External Repo
+  ansible.builtin.shell: |
+    set -euo pipefail
+    curl -fsSL https://example.com/installer.sh -o /tmp/installer.sh
+    bash /tmp/installer.sh
+  args:
+    executable: /bin/bash
+    creates: /usr/bin/tool-binary
+```
+
+`set -x` (tracing) is optional and additive — it does not substitute for `set -e`. Use `creates:` or `changed_when:` for idempotency.
 
 ---
 

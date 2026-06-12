@@ -22,7 +22,7 @@
  *
  * The patch is BEST-EFFORT: if both strategies fail, we warn but do NOT fail
  * the build (soft-fail). Ctrl+z may freeze the container in that case.
- * See CLAUDE.md "KNOWN FRAGILE PATCH" section for manual fix instructions.
+ * See CLAUDE/ContainerRules.md "Known Fragile Patch" section for manual fix instructions.
  */
 
 'use strict';
@@ -34,6 +34,22 @@ const PKG_DIR = process.env.CCY_PKG_DIR || '/usr/local/lib/node_modules/@anthrop
 const CLI_JS_PATH = process.env.CCY_CLI_PATH || path.join(PKG_DIR, 'cli.js');
 const BINARY_PATH = path.join(PKG_DIR, 'bin', 'claude.exe');
 const SUSPEND_GUARD = '&&!process.env.CCY_DISABLE_SUSPEND';
+
+// CCY-07: when the patch soft-fails (target not found), drop a sentinel the
+// entrypoint reads at launch so a "ctrl+z freezes the container" outcome is
+// diagnosable instead of being a single line buried in the build log. A
+// successful patch writes nothing; the layer below the patch RUN never carries
+// the sentinel, so "absent" reliably means "patched OK".
+const STATUS_PATH = process.env.CCY_PATCH_STATUS_PATH || '/opt/claude-yolo/.ctrlz-patch-status';
+
+function writeFailedSentinel() {
+    try {
+        fs.mkdirSync(path.dirname(STATUS_PATH), { recursive: true });
+        fs.writeFileSync(STATUS_PATH, 'failed\n');
+    } catch (err) {
+        process.stderr.write('CCY PATCH WARNING: could not write ctrl+z status sentinel: ' + err.message + '\n');
+    }
+}
 
 const hasCliJs = fs.existsSync(CLI_JS_PATH);
 const hasBinary = fs.existsSync(BINARY_PATH);
@@ -211,6 +227,7 @@ function bufferReplaceAll(buf, find, replace) {
 }
 
 function softFail(context) {
+    writeFailedSentinel();
     process.stderr.write('CCY PATCH WARNING: ctrl+z patch target not found in ' + context + ' - skipping (Claude Code internals changed)\n');
     process.stderr.write('CCY PATCH INFO: ctrl+z may freeze the container. The CCY_DISABLE_SUSPEND env var will have no effect.\n');
     process.stderr.write('CCY PATCH INFO: To debug: grep -ao ".\\{0,5\\}handleSuspend.\\{0,100\\}" <binary-path>\n');

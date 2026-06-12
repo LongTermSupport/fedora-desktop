@@ -49,8 +49,8 @@ and tool comparison table.
   freezing.
 - Make Slack screen sharing work reliably without requiring per-update binary
   patching of `app.asar`.
-- Capture the working configuration in Ansible playbooks so both `joseph-x1`
-  and `joseph-p14` get the fix and survive reinstalls.
+- Capture the working configuration in Ansible playbooks so both `<hostname-a>`
+  and `<hostname-b>` get the fix and survive reinstalls.
 - Update the Fedora installation playbooks so future F43 installs do not hit
   these problems.
 
@@ -71,7 +71,7 @@ and tool comparison table.
 **Repo facts** (from local exploration):
 
 - Target OS: Fedora 43 (`vars/fedora-version.yml`).
-- Hosts: `joseph-x1` and `joseph-p14` (two laptops, host_vars in
+- Hosts: `<hostname-a>` and `<hostname-b>` (two laptops, host_vars in
   `environment/localhost/host_vars/localhost.yml:63-67`).
 - Slack is installed as a **Flatpak** (`com.slack.Slack`) via
   `playbooks/imports/play-comms.yml:1-17`. Version is not pinned.
@@ -120,15 +120,15 @@ and tool comparison table.
   - [ ] ⬜ `echo $XDG_SESSION_TYPE` (confirm wayland)
   - [ ] ⬜ `dnf history list | head -5` (when was last upgrade)
   - [ ] ⬜ Save outputs to `/tmp/screen-share-diag-$(hostname).txt` and paste
-        results into the plan's Notes & Updates
+    results into the plan's Notes & Updates
 - [ ] ⬜ **Task 1.2**: Decide Phase 2 entry conditions based on Task 1.1
   - [ ] ⬜ If `mutter < 49.3-1.fc43` → Phase 2.1 (upgrade) is the prime
-        suspect for Meet
+    suspect for Meet
   - [ ] ⬜ If NVIDIA proprietary driver loaded → flag the higher risk and
-        consider disabling for the test (NVIDIA + Wayland screen-cast is
-        still flaky as of late 2025 per research.md §8.3)
+    consider disabling for the test (NVIDIA + Wayland screen-cast is
+    still flaky as of late 2025 per research.md §8.3)
   - [ ] ⬜ If Slack version is < 4.30 → confirm whether `--enable-features`
-        flag still works (unlikely, but cheap to check)
+    flag still works (unlikely, but cheap to check)
 
 ### Phase 2: Cheapest fix — system upgrade for the Meet freeze
 
@@ -136,14 +136,14 @@ and tool comparison table.
   - [ ] ⬜ `sudo dnf upgrade --refresh` on the affected machine
   - [ ] ⬜ `flatpak update -y` (covers any Slack flatpak update)
   - [ ] ⬜ Reboot (mutter and gnome-shell upgrades require a full session
-        restart, not just a logout)
+    restart, not just a logout)
 - [ ] ⬜ **Task 2.2**: Re-test Google Meet
   - [ ] ⬜ Open `meet.google.com` in Firefox, start a test meeting alone
   - [ ] ⬜ Share the screen, leave it running for 10+ minutes, watch a video
-        in another window so frames are actually changing
+    in another window so frames are actually changing
   - [ ] ⬜ Confirm whether the freeze still happens
   - [ ] ⬜ If still frozen: capture `journalctl --user -b -u pipewire -u wireplumber` and `journalctl -b _COMM=mutter`
-        to a file in `/tmp/` and add to plan notes
+    to a file in `/tmp/` and add to plan notes
 
 ### Phase 3: Add a Chromium-family browser, install Slack as PWA
 
@@ -152,29 +152,29 @@ Firefox keeps misbehaving.
 
 - [ ] ⬜ **Task 3.1**: Choose the Chromium-family browser
   - [ ] ⬜ Decide: Google Chrome (RPM via Google's repo) vs Chromium
-        (Fedora RPM) vs ungoogled-chromium (Flatpak). research.md §3.3
-        recommends **Google Chrome RPM** as the fastest path — it has the
-        WebRTC PipeWire path enabled by default since Chrome 110 and is the
-        most-tested combo.
+    (Fedora RPM) vs ungoogled-chromium (Flatpak). research.md §3.3
+    recommends **Google Chrome RPM** as the fastest path — it has the
+    WebRTC PipeWire path enabled by default since Chrome 110 and is the
+    most-tested combo.
   - [ ] ⬜ Document the choice in this plan with a Decision entry
 - [ ] ⬜ **Task 3.2**: Create `playbooks/imports/optional/common/play-chrome.yml`
   - [ ] ⬜ Add the Google Chrome dnf repo (same idiom as RPM Fusion)
   - [ ] ⬜ Install `google-chrome-stable`
   - [ ] ⬜ Mark this playbook as opt-in via `playbook-main.yml` (do not
-        deploy to all machines unless the user wants it)
+    deploy to all machines unless the user wants it)
 - [ ] ⬜ **Task 3.3**: Run the playbook on the affected laptop and install
   Slack as a PWA
   - [ ] ⬜ `ansible-playbook playbooks/imports/optional/common/play-chrome.yml`
   - [ ] ⬜ Open Chrome → `https://app.slack.com` → log in → ⋮ menu →
-        "Install Slack…" (creates a desktop launcher)
+    "Install Slack…" (creates a desktop launcher)
   - [ ] ⬜ Test screen sharing in a real Slack call
   - [ ] ⬜ Note: PWA does NOT replace the Flatpak Slack icon — keep both
-        installed during the trial period
+    installed during the trial period
 - [ ] ⬜ **Task 3.4**: Once PWA is confirmed working, optionally remove the
   Flatpak
   - [ ] ⬜ Comment out the `com.slack.Slack` install in
-        `playbooks/imports/play-comms.yml` (do NOT delete the line —
-        leave it commented with a reference to this plan)
+    `playbooks/imports/play-comms.yml` (do NOT delete the line —
+    leave it commented with a reference to this plan)
   - [ ] ⬜ Run the playbook to remove the Flatpak
   - [ ] ⬜ Verify `flatpak list | grep -i slack` returns nothing
 
@@ -186,15 +186,15 @@ Slack).
 
 - [ ] ⬜ **Task 4.1**: Disable Chrome hardware acceleration
   - [ ] ⬜ `chrome://settings/system` → "Use graphics acceleration when
-        available" → off → relaunch Chrome
+    available" → off → relaunch Chrome
   - [ ] ⬜ Re-test Meet and Slack PWA screen sharing
   - [ ] ⬜ If this fixes it: persist via Chrome enterprise policy in
-        `/etc/opt/chrome/policies/managed/`
+    `/etc/opt/chrome/policies/managed/`
 - [ ] ⬜ **Task 4.2**: Confirm Mesa version is current
   - [ ] ⬜ `rpm -q mesa-libGL mesa-vulkan-drivers mesa-va-drivers`
   - [ ] ⬜ Cross-reference against the Fedora Discussion threads cited in
-        research.md §2.1 — if the user is on a known-bad Mesa version,
-        wait for the next update rather than downgrading
+    research.md §2.1 — if the user is on a known-bad Mesa version,
+    wait for the next update rather than downgrading
 - [ ] ⬜ **Task 4.3** (only if Task 4.1 didn't help): Test Firefox with
   `MOZ_ENABLE_WAYLAND=1` explicitly set and `media.webrtc.camera.allow-pipewire`
   in `about:config`
@@ -209,30 +209,30 @@ research.md before applying.
   evaluate switching team meetings to a more Linux-friendly tool for
   collaboration sessions (not chat — chat stays on Slack)
   - [ ] ⬜ Try **Jitsi Meet** at `meet.jit.si` in Firefox (works without flags
-        per research.md §6)
+    per research.md §6)
   - [ ] ⬜ Try **Whereby** in Firefox
   - [ ] ⬜ Note: this is an interim measure, not a tool migration
 - [ ] ⬜ **Task 5.2**: Slack `app.asar` patch (LAST RESORT only — fragile)
   - [ ] ⬜ Read research.md §3.2 for the exact patch and risks
   - [ ] ⬜ Do NOT apply unless user explicitly accepts the maintenance burden
-        of re-patching after every Slack auto-update
+    of re-patching after every Slack auto-update
   - [ ] ⬜ If applied: wrap in an Ansible handler that reapplies after
-        upgrades AND a systemd path unit watching `~/.var/app/com.slack.Slack`
+    upgrades AND a systemd path unit watching `~/.var/app/com.slack.Slack`
 - [ ] ⬜ **Task 5.3**: OBS + virtual webcam workaround
   - [ ] ⬜ Document in research.md whether OBS Studio + the v4l2loopback
-        kernel module can produce a "screen as webcam" stream that the
-        Slack Flatpak's webcam-share path can consume
+    kernel module can produce a "screen as webcam" stream that the
+    Slack Flatpak's webcam-share path can consume
   - [ ] ⬜ Only useful if Phases 3 and 5.2 are both rejected
 
 ### Phase 6: Codify the fix into Ansible and document
 
 - [ ] ⬜ **Task 6.1**: Make the working configuration reproducible
   - [ ] ⬜ Ensure `play-chrome.yml` (or whatever Phase 3.2 produced) is in
-        `playbooks/imports/optional/common/`
+    `playbooks/imports/optional/common/`
   - [ ] ⬜ Add a brief README at the top of that file pointing at this plan
-        ("see CLAUDE/Plan/028-fedora-screen-sharing/")
+    ("see CLAUDE/Plan/028-fedora-screen-sharing/")
   - [ ] ⬜ Add the playbook to `playbook-main.yml` if and only if both
-        machines are confirmed to need it
+    machines are confirmed to need it
 - [ ] ⬜ **Task 6.2**: Run the playbook on the *other* laptop (the one not
   used for the main fix) to validate idempotency and that the fix carries
   across machines
@@ -303,26 +303,26 @@ in this plan's Notes & Updates and open a follow-up plan if reached.
 ## Success Criteria
 
 - [ ] Google Meet screen sharing runs for at least 30 minutes continuously
-      with active screen content (e.g. a video playing) without freezing.
+  with active screen content (e.g. a video playing) without freezing.
 - [ ] Slack screen sharing works reliably from at least one launcher (PWA
-      or Flatpak), confirmed in a real call with another participant.
-- [ ] Both `joseph-x1` and `joseph-p14` have the fix applied and tested.
+  or Flatpak), confirmed in a real call with another participant.
+- [ ] Both `<hostname-a>` and `<hostname-b>` have the fix applied and tested.
 - [ ] The fix is captured in an Ansible playbook so a fresh F43 install
-      gets it automatically (or via a documented optional playbook).
+  gets it automatically (or via a documented optional playbook).
 - [ ] research.md and PLAN.md updated with the actual root cause that
-      applied to *this* user (which of the two suspects in §1) and the
-      actual working fix.
+  applied to *this* user (which of the two suspects in §1) and the
+  actual working fix.
 
 ## Risks & Mitigations
 
-| Risk | Impact | Probability | Mitigation |
-|------|--------|-------------|------------|
-| Phase 2 upgrade introduces *other* regressions (mutter is on the critical path for the entire desktop) | High | Low | Take a btrfs snapshot or note current `dnf history` ID before upgrading; rollback procedure documented in Phase 2 |
-| User has NVIDIA proprietary driver, which has its own screen-cast issues that none of these fixes address | Medium | Unknown until Phase 1 | Phase 1 explicitly checks for this; if found, escalate to research mode before continuing |
-| Google Chrome RPM repo introduces an unwanted update channel | Low | Low | Pin to stable, document removal procedure |
-| Slack PWA UX is meaningfully worse than the desktop client (notifications, file uploads, deep links) | Medium | Medium | The 2-week trial in Decision 2 catches this; user can revert to Flatpak with one playbook run |
-| Mutter 49.5 fixes don't actually resolve the Meet freeze (different bug) | Medium | Medium | Phase 4 has alternate diagnostics; research.md documents three independent root causes for Meet freezes |
-| Patching `app.asar` (Phase 5.2) breaks Slack on next auto-update with no warning | High | High | Phase 5.2 is gated as last-resort and requires explicit user opt-in to the maintenance burden |
+| Risk                                                                                                      | Impact | Probability           | Mitigation                                                                                                        |
+| --------------------------------------------------------------------------------------------------------- | ------ | --------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Phase 2 upgrade introduces *other* regressions (mutter is on the critical path for the entire desktop)    | High   | Low                   | Take a btrfs snapshot or note current `dnf history` ID before upgrading; rollback procedure documented in Phase 2 |
+| User has NVIDIA proprietary driver, which has its own screen-cast issues that none of these fixes address | Medium | Unknown until Phase 1 | Phase 1 explicitly checks for this; if found, escalate to research mode before continuing                         |
+| Google Chrome RPM repo introduces an unwanted update channel                                              | Low    | Low                   | Pin to stable, document removal procedure                                                                         |
+| Slack PWA UX is meaningfully worse than the desktop client (notifications, file uploads, deep links)      | Medium | Medium                | The 2-week trial in Decision 2 catches this; user can revert to Flatpak with one playbook run                     |
+| Mutter 49.5 fixes don't actually resolve the Meet freeze (different bug)                                  | Medium | Medium                | Phase 4 has alternate diagnostics; research.md documents three independent root causes for Meet freezes           |
+| Patching `app.asar` (Phase 5.2) breaks Slack on next auto-update with no warning                          | High   | High                  | Phase 5.2 is gated as last-resort and requires explicit user opt-in to the maintenance burden                     |
 
 ## Timeline
 
@@ -336,6 +336,7 @@ in this plan's Notes & Updates and open a follow-up plan if reached.
 ## Notes & Updates
 
 ### 2026-04-07
+
 - Plan created from deep web research (~25 web searches, ~15 page fetches,
   ~40 cited sources). Full report at [research.md](research.md).
 - Two distinct root causes identified: Slack hardcodes `WebRTCPipeWireCapturer`

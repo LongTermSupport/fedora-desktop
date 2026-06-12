@@ -13,6 +13,7 @@
     # See: gpg-agent extra-socket, GPG_AGENT_INFO env var, mounting sockets into containers
     - name: Setup Git Config - user
       ansible.builtin.shell: |
+        set -euo pipefail
         git config --global user.email "{{ user_email }}"
         git config --global user.name "{{ user_name }}"
         git config --global color.ui auto
@@ -24,16 +25,30 @@
         git config --global pull.rebase false
         git config --global branch.autoSetupMerge simple
         git config --global core.autocrlf input
+      args:
+        executable: /bin/bash
+
+    - name: Ensure ~/.config/git directory exists
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.config/git"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+
     - name: Set up Global Git Ignores
       ansible.builtin.blockinfile:
         create: true
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0644"
         block: |
           /.idea
           *.secret
           /untracked
           /vendor
           .phpunit.result.cache
-        path: "~/.config/git/ignore"
+        path: "/home/{{ user_login }}/.config/git/ignore"
 
     - name: Enable Git Bash Prompt
       ansible.builtin.shell: "git clone https://github.com/magicmonty/bash-git-prompt.git ~/.bash-git-prompt --depth=1"
@@ -78,10 +93,12 @@
     - name: Install Github Client
       become: true
       ansible.builtin.shell: |
+        set -euo pipefail
         dnf -y install 'dnf-command(config-manager)'
         dnf -y config-manager addrepo --from-repofile=https://cli.github.com/packages/rpm/gh-cli.repo
         dnf -y install gh
       args:
+        executable: /bin/bash
         chdir: /usr/bin/
         creates: gh
 

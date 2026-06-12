@@ -21,13 +21,19 @@
 
     - name: Download and Install NVM
       ansible.builtin.shell: |
+        set -eo pipefail
         curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v{{ nvm_version }}/install.sh | bash
       args:
+        executable: /bin/bash
         creates: "/home/{{ user_login }}/.nvm/nvm.sh"
         chdir: "/home/{{ user_login }}"
       environment:
         HOME: "/home/{{ user_login }}"
+      register: nvm_install
 
+    # Only fix ownership immediately after a fresh install. Everything under ~/.nvm is
+    # created by the user's own nvm thereafter, so a recursive walk of tens of thousands
+    # of node_modules files on every main run (PERF-05) is a guaranteed no-op.
     - name: Set NVM Directory Permissions
       ansible.builtin.file:
         path: "/home/{{ user_login }}/.nvm"
@@ -35,6 +41,7 @@
         group: "{{ user_login }}"
         recurse: true
         state: directory
+      when: nvm_install is changed
 
     - name: Check if NVM is already configured in bashrc
       ansible.builtin.shell: grep -q 'NVM_DIR' "/home/{{ user_login }}/.bashrc"
@@ -58,12 +65,14 @@
 
     - name: Source NVM and Install Latest Node.js LTS
       ansible.builtin.shell: |
+        set -euo pipefail
         export NVM_DIR="$HOME/.nvm"
         [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
         nvm install {{ node_version }}
         nvm use {{ node_version }}
         nvm alias default {{ node_version }}
       args:
+        executable: /bin/bash
         creates: "/home/{{ user_login }}/.nvm/versions/node"
         chdir: "/home/{{ user_login }}"
       environment:
@@ -71,9 +80,13 @@
 
     - name: Verify Node.js Installation
       ansible.builtin.shell: |
+        set -euo pipefail
         export NVM_DIR="$HOME/.nvm"
         [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-        node --version && npm --version
+        node --version
+        npm --version
+      args:
+        executable: /bin/bash
       environment:
         HOME: "/home/{{ user_login }}"
       register: node_version_check

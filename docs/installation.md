@@ -7,18 +7,21 @@ Get your Fedora system configured for development in 10-30 minutes.
 ### System Requirements
 
 You need:
-- **Fresh Fedora installation** - Fedora 42 (check version: `cat /etc/fedora-release`)
+
+- **Fresh Fedora installation** - Fedora 43 (check version: `cat /etc/fedora-release`)
 - **Regular user account** - Do not run as root
 - **Internet connection** - Stable connection required for downloading packages
 - **Sudo privileges** - Your user must be in the `wheel` group
 
 Strongly recommended:
+
 - **Encrypted root filesystem** - Set during Fedora installation
 - **Third-party repositories enabled** - Enable during Fedora installation setup
 
 ### Why Third-Party Repositories?
 
 Many features require packages from RPM Fusion (free and non-free):
+
 - Microsoft fonts
 - Media codecs
 - NVIDIA drivers (if using optional hardware playbooks)
@@ -43,30 +46,36 @@ From your Fedora desktop, open a terminal and run:
 The bootstrap script (`run.bash`) performs these steps in order:
 
 **Phase 1: Validation** (30 seconds)
-- Checks Fedora version matches target (Fedora 42)
+
+- Checks Fedora version matches target (Fedora 43)
 - Verifies you're running as regular user (not root)
 - Checks internet connectivity
 
 **Phase 2: Dependencies** (2-5 minutes)
+
 - Installs git, ansible, python3-libdnf5
 - May prompt for sudo password
 
 **Phase 3: GitHub Setup** (1-2 minutes)
+
 - Configures GitHub CLI (gh)
 - Generates Ed25519 SSH keys (`~/.ssh/id`, `~/.ssh/id.pub`)
 - Prompts for GitHub authentication
 
 **Phase 4: Repository** (30 seconds)
+
 - Clones project to `~/Projects/fedora-desktop`
 - Checks out appropriate branch
 
 **Phase 5: Configuration** (interactive)
+
 - Asks for your full name
 - Asks for your email address
 - Asks for bash prompt color preference (red, green, blue, etc.)
 - Creates Ansible vault password
 
 **Phase 6: Main Playbook** (5-20 minutes)
+
 - Runs all core playbooks automatically
 - Installs packages and configures system
 - See [Core Playbooks](playbooks.md#core-playbooks-automatically-run) for details
@@ -84,6 +93,7 @@ sudo dnf install -y git ansible python3-libdnf5
 ```
 
 **Why these packages?**
+
 - `git` - Clone the repository
 - `ansible` - Run the configuration playbooks
 - `python3-libdnf5` - Modern DNF Python bindings for Ansible
@@ -103,7 +113,7 @@ cd ~/Projects/fedora-desktop
 cat /etc/fedora-release
 
 # Checkout matching branch
-git checkout F42  # Replace with your version (F42, F43, etc.)
+git checkout F43  # Replace with your version (F43, F44, etc.)
 ```
 
 ### Step 4: Install Ansible Requirements
@@ -116,13 +126,19 @@ This installs required Ansible collections (community.general, ansible.posix).
 
 ### Step 5: Configure User Variables
 
-Edit the user configuration file:
+Copy the distribution template and edit it in a normal text editor:
 
 ```bash
-ansible-vault edit environment/localhost/host_vars/localhost.yml
+cp environment/localhost/host_vars/localhost.yml.dist \
+   environment/localhost/host_vars/localhost.yml
+$EDITOR environment/localhost/host_vars/localhost.yml
 ```
 
-You'll be prompted to create a vault password. Set these variables:
+`localhost.yml` is a **plain YAML file** — do **not** use `ansible-vault edit` or
+`ansible-vault view` on it (those commands fail with "input is not vault encrypted
+data" because this project uses variable-level, not file-level, encryption).
+
+Set these variables in the file:
 
 ```yaml
 user_login: "your-username"
@@ -130,7 +146,14 @@ user_name: "Your Full Name"
 user_email: "your.email@example.com"
 ```
 
-Save and exit (`:wq` in vim).
+For any secret values (API keys, tokens), encrypt them individually:
+
+```bash
+ansible-vault encrypt_string 'the-secret-value' --name 'variable_name'
+```
+
+Paste the resulting `!vault |` block into `localhost.yml` as the variable's value.
+See `CLAUDE/SecurityRules.md` for the full vault workflow.
 
 ### Step 6: Save Vault Password
 
@@ -155,6 +178,7 @@ Enter your sudo password when prompted. This runs all core playbooks automatical
 The main playbook installs and configures:
 
 **System Setup**
+
 - Preflight sanity checks (Fedora version validation)
 - Basic packages (vim, wget, htop, bash-completion, ripgrep, etc.)
 - DNF optimization (10 parallel downloads, fastest mirror)
@@ -162,6 +186,7 @@ The main playbook installs and configures:
 - RPM Fusion repositories
 
 **Development Tools**
+
 - Git configuration (name, email from host_vars)
 - bash-git-prompt with Solarized theme
 - GitHub CLI (gh)
@@ -171,12 +196,14 @@ The main playbook installs and configures:
 - JetBrains Toolbox
 
 **Container Platform**
+
 - LXC and LXD packages
 - Container networking (lxcbr0 bridge)
 - SSH configuration for containers
 - Firewall rules for container access
 
 **Enhancements**
+
 - Custom bash prompt with error indicators
 - Enhanced bash history (20K lines)
 - Microsoft fonts
@@ -188,17 +215,19 @@ The main playbook installs and configures:
 
 Must be run manually after main playbook. See [Playbooks Reference](playbooks.md#optional-playbooks) for the complete catalog.
 
-Popular options:
+**Note:** Docker (rootful) is installed automatically by the main playbook via
+`playbooks/imports/play-docker.yml` — it is a core component, not optional. See
+`CLAUDE/ContainerEngines.md` for the Podman-first / Docker-for-compatibility policy.
+
+Popular optional components:
+
 ```bash
 cd ~/Projects/fedora-desktop
-
-# Docker (rootless)
-ansible-playbook playbooks/imports/optional/common/play-docker.yml
 
 # Distrobox
 ansible-playbook playbooks/imports/optional/common/play-distrobox.yml
 
-# Python development
+# Python development (pyenv + multiple Python versions)
 ansible-playbook playbooks/imports/optional/common/play-python.yml
 
 # VS Code
@@ -241,19 +270,20 @@ echo $PS1 | grep -q "01;3" && echo "Custom prompt configured"
 **Cause:** Your Fedora version doesn't match the branch target
 
 **Solution:**
+
 ```bash
 # 1. Check your Fedora version
 cat /etc/fedora-release
-# Output: Fedora release 42 (Forty Two)
+# Output: Fedora release 43 (Forty Three)
 
 # 2. Check target version for current branch
 cd ~/Projects/fedora-desktop
 cat vars/fedora-version.yml
-# Output: fedora_version: 42
+# Output: fedora_version: 43
 
 # 3. If versions don't match, checkout correct branch
 git fetch origin
-git checkout F42  # Replace with your version
+git checkout F43  # Replace with your version
 
 # 4. Re-run the playbook
 ansible-playbook playbooks/playbook-main.yml --ask-become-pass
@@ -266,11 +296,13 @@ ansible-playbook playbooks/playbook-main.yml --ask-become-pass
 **Solutions:**
 
 **Check internet connection:**
+
 ```bash
 ping -c 3 raw.githubusercontent.com
 ```
 
 **Try alternative download method:**
+
 ```bash
 wget -O run.bash https://raw.githubusercontent.com/LongTermSupport/fedora-desktop/HEAD/run.bash
 chmod +x run.bash
@@ -286,6 +318,7 @@ chmod +x run.bash
 **Cause:** RPM Fusion repositories not enabled
 
 **Solution:**
+
 ```bash
 # Install RPM Fusion repositories manually
 sudo dnf install -y \
@@ -304,6 +337,7 @@ ansible-playbook playbooks/playbook-main.yml --ask-become-pass
 **Cause:** User not in wheel group (doesn't have sudo privileges)
 
 **Solution:**
+
 ```bash
 # Switch to root
 su -
@@ -327,6 +361,7 @@ sudo whoami
 **Cause:** Ansible not installed or not in PATH
 
 **Solution:**
+
 ```bash
 # Install Ansible
 sudo dnf install -y ansible
@@ -342,6 +377,7 @@ ansible --version
 **Solutions:**
 
 **Skip for now and configure manually later:**
+
 ```bash
 # After installation completes
 gh auth login
@@ -349,6 +385,7 @@ gh auth login
 ```
 
 **Use SSH key manually:**
+
 ```bash
 # Add your SSH public key to GitHub
 cat ~/.ssh/id.pub
@@ -362,11 +399,13 @@ cat ~/.ssh/id.pub
 **Symptom:** Ansible playbook appears stuck on a task
 
 **Common causes:**
+
 - **Slow mirror:** DNF downloading from slow repository mirror
 - **Large packages:** Installing large packages like JetBrains Toolbox
 - **First run:** Package cache being built for first time
 
 **What to do:**
+
 - **Be patient:** Some tasks legitimately take 5-10 minutes
 - **Check activity:** Look for disk I/O or network activity
 - **Increase verbosity:** Run with `-v` flag to see what's happening:
@@ -375,6 +414,7 @@ cat ~/.ssh/id.pub
   ```
 
 **Force timeout if truly stuck:**
+
 - Press `Ctrl+C` to stop
 - Check the last task that ran
 - Run playbook again (it's idempotent, safe to re-run)
@@ -386,6 +426,7 @@ cat ~/.ssh/id.pub
 **Cause:** Vault password file missing or incorrect
 
 **Solution:**
+
 ```bash
 # Check if vault password file exists
 ls -la ~/Projects/fedora-desktop/vault-pass.secret
@@ -395,9 +436,16 @@ cd ~/Projects/fedora-desktop
 echo "your-vault-password" > vault-pass.secret
 chmod 600 vault-pass.secret
 
-# Test vault access
-ansible-vault view environment/localhost/host_vars/localhost.yml
+# Verify the file parses cleanly (localhost.yml is a plain YAML file with
+# individual !vault values — do NOT use ansible-vault view/edit on it)
+python3 -c "import yaml, sys; yaml.safe_load(open('environment/localhost/host_vars/localhost.yml'))" \
+  && echo "localhost.yml parses OK"
 ```
+
+> **Note:** `ansible-vault view` / `ansible-vault edit` will fail with
+> "input is not vault encrypted data" even when everything is correct —
+> this project uses variable-level encryption, not file-level encryption.
+> See `CLAUDE/SecurityRules.md` for the correct workflow.
 
 ### NVM Installation Fails
 
@@ -406,6 +454,7 @@ ansible-vault view environment/localhost/host_vars/localhost.yml
 **Cause:** NVM not properly loaded in current shell
 
 **Solution:**
+
 ```bash
 # Source NVM in current shell
 export NVM_DIR="$HOME/.nvm"
@@ -425,6 +474,7 @@ ansible-playbook playbooks/imports/play-nvm-install.yml
 ### Still Having Issues?
 
 **Get help:**
+
 1. **Check existing issues:** [GitHub Issues](https://github.com/LongTermSupport/fedora-desktop/issues)
 2. **Search discussions:** [GitHub Discussions](https://github.com/LongTermSupport/fedora-desktop/discussions)
 3. **Open new issue:** Include:
@@ -434,6 +484,7 @@ ansible-playbook playbooks/imports/play-nvm-install.yml
    - Steps to reproduce
 
 **Debug mode:**
+
 ```bash
 # Run playbook with maximum verbosity
 ansible-playbook playbooks/playbook-main.yml --ask-become-pass -vvv

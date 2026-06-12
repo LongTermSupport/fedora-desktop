@@ -16,6 +16,8 @@
 
     - name: Install Fonts
       ansible.builtin.shell: |
+        set -euo pipefail
         rpm --nodigest -i https://downloads.sourceforge.net/project/mscorefonts2/rpms/msttcore-fonts-installer-2.6-1.noarch.rpm
       args:
         creates: /usr/share/fonts/msttcore
+        executable: /bin/bash

@@ -1,20 +1,26 @@
-# Claude Code Planning Workflow
+# Planning Workflow
 
-**Version 2.0** | Effective: January 2026
+This document defines the planning workflow for the **fedora-desktop** repository — a
+public Ansible Infrastructure-as-Code project that provisions a Fedora desktop. All
+contributors and AI agents follow it so work stays trackable and the plan state never
+drifts from the code state.
 
-This document defines the standard planning workflow for all work on the Claude Code Hooks Daemon project. All developers and AI agents must follow this workflow to ensure efficient, trackable, and high-quality work.
+> **This repo is Ansible + Bash + GNOME-extension JavaScript — not a Python project.**
+> The QA gate is `./scripts/qa-all.bash`. There is no `scripts/qa/`, no pytest, no
+> coverage gate, and no TDD-handler workflow here. (Those belong to the hooks-daemon
+> dependency, not to this repo.)
 
 ---
 
 ## Core Principles
 
-1. **Plan Before Execute** - Never start implementation without a documented plan
-2. **Break Down Complexity** - Decompose large work into manageable tasks
-3. **Track Everything** - Every task has a status and owner
-4. **Document Decisions** - Capture rationale for major decisions
-5. **Iterate Rapidly** - Plans are living documents, update as you learn
-6. **Test First (TDD)** - Write failing tests before implementation
-7. **Debug First** - Introspect hook events before writing handlers
+1. **Plan before execute** — non-trivial work gets a documented plan before code changes.
+2. **Break down complexity** — decompose multi-phase work into concrete, testable tasks.
+3. **Track everything** — every task has a status; update it in real time.
+4. **Document decisions** — capture the rationale for architectural choices.
+5. **Plans are living documents** — update them as you learn.
+6. **Never let plan state lag code state** — see the [Plan Commit Rule](../CLAUDE.md#plan-commit-rule).
+7. **Fail fast** — the project's #1 rule applies to plan work too: surface problems, don't paper over them.
 
 ---
 
@@ -25,795 +31,251 @@ This document defines the standard planning workflow for all work on the Claude 
 ```
 CLAUDE/
 └── Plan/
-    ├── 001-handler-implementation/
-    │   ├── PLAN.md                      # Main plan document
-    │   ├── {supporting-docs*}.md        # Supporting analysis docs
-    │   └── assets/                      # Diagrams, logs, etc.
-    ├── 002-config-refactoring/
+    ├── 00035-gh-multi-account-hardening/
+    │   ├── PLAN.md                 # Main plan document
+    │   ├── {supporting-docs}.md    # Optional analysis / research docs
+    │   └── assets/                 # Optional diagrams, logs, etc.
+    ├── 00049-full-repo-audit/
     │   ├── PLAN.md
-    │   └── config-analysis.md
-    ├── 003-qa-improvements/
-    │   ├── PLAN.md
-    │   └── coverage-report.md
-    └── README.md                        # Index of all plans
+    │   ├── triage.md
+    │   └── research/
+    ├── Completed/                  # Finished plans are moved here
+    ├── Archive/                    # Superseded / historical plans
+    └── README.md                   # Index of all plans
 ```
 
-### Plan Numbering
+### Plan Numbering — the git counter is authoritative
 
-- Plans are numbered sequentially: `001-`, `002-`, `003-`, etc.
-- Use kebab-case for plan folder names
-- Plan numbers never change even if plan is cancelled
+Plan numbers are **5 digits, zero-padded** (`00049-`, `00050-`). The next number is held
+in git config, **not** derived from a folder scan (folder scans miss `Completed/` and
+disagree across branches — the `plan_number_helper` handler will block such scans).
+
+```bash
+git config --local hooksdaemon.latestPlanNumber   # authoritative latest, e.g. 50
+```
+
+Add 1 and zero-pad → the next plan folder (counter `50` → `00051-description/`). The
+hooks daemon advances this counter automatically when a plan is created.
 
 ---
 
 ## Plan Document Structure
 
-Every `PLAN.md` must follow this structure:
+Every `PLAN.md` follows this shape. **Do not include effort estimates, durations, target
+dates, or a timeline** — the `plan_time_estimates` handler blocks that content in
+`CLAUDE/Plan/*.md`. Plans describe *what* and *why*, not *when*.
 
 ```markdown
-# Plan XXX: [Plan Title]
+# Plan XXXXX: [Plan Title]
 
-**Status**: In Progress | Complete | Blocked | Cancelled
+**Status**: Not Started | In Progress | Complete | Blocked | Cancelled
 **Created**: YYYY-MM-DD
 **Owner**: [Name/Agent]
 **Priority**: High | Medium | Low
-**Estimated Effort**: [Hours/Days]
 
 ## Overview
 
-[2-3 paragraphs describing what this plan aims to achieve and why]
+[2–3 paragraphs: what this plan achieves and why.]
 
 ## Goals
 
 - Clear, measurable goal 1
 - Clear, measurable goal 2
-- Clear, measurable goal 3
 
 ## Non-Goals
 
-- Explicitly what this plan will NOT do
-- Helps scope creep management
+- Explicitly what this plan will NOT do (scope control)
 
 ## Context & Background
 
-[Summary relevant background, previous decisions, or context needed]
-Refer to detailed info in supporting docs as required
+[Relevant background, prior decisions, links to supporting docs.]
 
 ## Tasks
 
 ### Phase 1: [Phase Name]
 
-- [ ] **Task 1.1**: Description of task
-  - [ ] Subtask 1.1.1: More specific work
-  - [ ] Subtask 1.1.2: More specific work
-- [ ] **Task 1.2**: Description of task
+- [ ] ⬜ **Task 1.1**: Description
+  - [ ] ⬜ Subtask 1.1.1
+- [ ] ⬜ **Task 1.2**: Description
 
 ### Phase 2: [Phase Name]
 
-- [ ] **Task 2.1**: Description of task
-- [ ] **Task 2.2**: Description of task
+- [ ] ⬜ **Task 2.1**: Description
 
 ## Dependencies
 
-- Depends on: Plan 001 (Complete)
-- Blocks: Plan 003 (Not Started)
-- Related: Plan 002
+- Depends on: Plan 00048 (Complete)
+- Blocks: Plan 00050 (Not Started)
 
 ## Technical Decisions
 
 ### Decision 1: [Title]
-**Context**: Why this decision is needed
-**Options Considered**:
-1. Option A - pros/cons
-2. Option B - pros/cons
-
-**Decision**: We chose Option A because [rationale]
+**Context**: why a decision is needed
+**Options considered**: A (pros/cons), B (pros/cons)
+**Decision**: chose A because […]
 **Date**: YYYY-MM-DD
 
 ## Success Criteria
 
-- [ ] Criterion 1 that must be met
-- [ ] Criterion 2 that must be met
-- [ ] All QA checks passing
+- [ ] Criterion 1
+- [ ] QA passes (`./scripts/qa-all.bash`)
 
 ## Risks & Mitigations
 
 | Risk | Impact | Probability | Mitigation |
 |------|--------|-------------|------------|
-| Risk description | High/Med/Low | High/Med/Low | How we'll handle it |
-
-## Timeline
-
-- Phase 1: [Date range]
-- Phase 2: [Date range]
-- Target Completion: YYYY-MM-DD
+| …    | H/M/L  | H/M/L       | …          |
 
 ## Notes & Updates
 
 ### YYYY-MM-DD
-- Update or note about progress/changes
-
-### YYYY-MM-DD
-- Another update
+- Progress note / change.
 ```
 
 ---
 
 ## Task Status System
 
-### Status Icons
+| Status       | Icon | Meaning                                |
+| ------------ | ---- | -------------------------------------- |
+| Not Started  | ⬜   | Not yet begun                          |
+| In Progress  | 🔄   | Currently being worked on              |
+| Completed    | ✅   | Finished **and verified** (QA passing) |
+| Blocked      | 🚫   | Cannot proceed (note why)              |
+| Cancelled    | ❌   | No longer needed                       |
+| On Hold      | ⏸️   | Paused                                 |
+| Needs Review | 👁️   | Done, awaiting review                  |
 
-Use these Unicode icons for task status:
+Rules:
 
-| Status | Icon | Markdown | Meaning |
-|--------|------|----------|---------|
-| **Not Started** | ⬜ | `⬜` | Task not yet begun |
-| **In Progress** | 🔄 | `🔄` | Currently being worked on |
-| **Completed** | ✅ | `✅` | Task finished and verified |
-| **Blocked** | 🚫 | `🚫` | Cannot proceed (dependency/issue) |
-| **Cancelled** | ❌ | `❌` | Task no longer needed |
-| **On Hold** | ⏸️ | `⏸️` | Paused temporarily |
-| **Needs Review** | 👁️ | `👁️` | Work done, awaiting review |
-
-### Task Formatting
-
-```markdown
-- [ ] ⬜ **Task Title**: Clear description of what needs to be done
-  - [ ] ⬜ Subtask 1: Specific action
-  - [ ] 🔄 Subtask 2: Another action (currently working)
-  - [ ] ✅ Subtask 3: Already completed
-```
-
-### Rules for Status Updates
-
-1. **One Task In Progress** - Limit to 1-2 tasks marked 🔄 at a time
-2. **Update Immediately** - Change status as soon as state changes
-3. **Document Blocks** - If marking 🚫, add note explaining why
-4. **Verify Completion** - Only mark ✅ after testing/verification and QA passing
+1. **Limit work in progress** — 1–2 tasks marked 🔄 at a time.
+2. **Update immediately** — change status the moment state changes.
+3. **Document blocks** — when marking 🚫, add a note explaining why.
+4. **Only mark ✅ after verification** — relevant QA must pass first.
 
 ---
 
-## QA Integration (Python Project)
+## QA Before Completion
 
-**CRITICAL: Before completing ANY task, all QA checks must pass.**
+**Before marking any task ✅ or committing**, run the project QA gate. The required
+command depends on what you changed (see `CLAUDE/QA.md` for the authoritative reference):
 
-### Required QA Verification
+| Changed files              | QA command                                         |
+| -------------------------- | -------------------------------------------------- |
+| Bash / Python / Ansible    | `./scripts/qa-all.bash`                            |
+| GNOME-extension JavaScript | `cd extensions && node_modules/.bin/eslint <file>` |
+| `ccy-ctrl-z-patch.js`      | `./scripts/qa-ctrl-z-patch.bash`                   |
 
-Run the complete QA suite before marking any task complete:
+`qa-all.bash` runs six stages (bash syntax + shellcheck, Python compile + ruff, semgrep
+patterns, Ansible fail-fast grep, `ansible-playbook --syntax-check`, JS `node --check` +
+ESLint). A missing **required** tool is a hard failure, in line with the fail-fast rule —
+do not engineer around it; fix the dependency in IaC.
 
-```bash
-# Run ALL QA checks (REQUIRED before commits)
-./scripts/qa/run_all.sh
-```
-
-### What Gets Checked
-
-| Check | Tool | Requirement |
-|-------|------|-------------|
-| Code Formatting | Black | Auto-formats (line length 100) |
-| Linting | Ruff | Auto-fixes violations |
-| Type Checking | MyPy | Strict mode, all functions typed |
-| Tests | Pytest | 95% minimum coverage |
-| Security | Bandit | No HIGH severity issues |
-
-### QA Task Format
-
-Always include QA verification as a subtask:
+Include the QA step explicitly as a task subitem:
 
 ```markdown
 - [ ] ⬜ **Implement feature X**
-  - [ ] ⬜ Write implementation
-  - [ ] ⬜ Run QA: `./scripts/qa/run_all.sh`
-  - [ ] ⬜ Fix any issues
-  - [ ] ⬜ Verify all checks pass
+  - [ ] ⬜ Edit the playbook / script / extension
+  - [ ] ⬜ Run QA: `./scripts/qa-all.bash`
+  - [ ] ⬜ Fix any findings
+  - [ ] ⬜ (On HOST, not in CCY container) deploy + test the playbook result
 ```
 
-### Individual QA Commands
+> **CCY container reminder**: if the project path is `/workspace/`, you are in a CCY
+> container — **edit and commit only, never run Ansible playbooks**. Deployment and
+> live testing happen on the HOST. See `CLAUDE/ContainerRules.md`.
+
+---
+
+## TodoWrite vs Plans
+
+**Use TodoWrite** for very small, low-risk, single-session work with no architectural
+decisions.
+
+**Create a Plan** for medium+ work, anything with risk, multi-phase work, architectural
+or design decisions, or work that may be resumed later or needs to be understood by
+others.
+
+If a TodoWrite list grows past ~5 items or spans multiple sessions, promote it to a
+proper plan, migrate the tasks, and reference the plan in your work.
+
+---
+
+## Workflow Steps
+
+1. **Identify work** — does it fit an existing plan? If not, and it is non-trivial,
+   create a new plan.
+2. **Create the plan** — `CLAUDE/Plan/NNNNN-descriptive-name/PLAN.md` (number from the
+   git counter); add an entry to `CLAUDE/Plan/README.md`.
+3. **Break down tasks** — phases → concrete, testable tasks. A good task names a single
+   verifiable outcome ("Make `play-docker.yml` rootful and import it from
+   `playbook-main.yml`"), not "work on Docker".
+4. **Execute** — mark the plan 🔄, work tasks in order, update status in real time, run
+   QA before each commit, and reference the plan in commit messages.
+5. **Complete** — verify all success criteria, confirm QA passes, mark tasks ✅, set the
+   plan to Complete with a completion date, and move the folder to `Completed/` when
+   appropriate.
+
+---
+
+## Git Integration
+
+### When to commit plans
+
+Per the [Plan Commit Rule](../CLAUDE.md#plan-commit-rule), never let plan state lag the
+code it tracks.
+
+- **Plan + code in one commit** (preferred when both change together):
+  ```bash
+  git add CLAUDE/Plan/00049-full-repo-audit/PLAN.md playbooks/imports/play-docker.yml
+  git commit -m "Plan 00049: make Docker rootful and core"
+  ```
+- **Plan-only commit** (encouraged for new plans, research, decision notes, status
+  updates):
+  ```bash
+  git add CLAUDE/Plan/00049-full-repo-audit/
+  git commit -m "Plan 00049: add documentation-drift research"
+  ```
+
+**Prohibited**: committing code that completes plan tasks while leaving the plan file
+unchanged on disk.
+
+### Commit message reference
+
+```
+Plan 00049: realign documentation with the deployed playbooks
+
+- Fix Docker rootless→rootful drift across the user docs
+- Rewrite PlanWorkflow.md for this repo
+
+Refs: CLAUDE/Plan/00049-full-repo-audit
+```
+
+### Quick pre-commit check
 
 ```bash
-# Individual checks (auto-fix enabled by default)
-./scripts/qa/run_lint.sh          # Ruff linter
-./scripts/qa/run_format_check.sh  # Black formatter
-./scripts/qa/run_type_check.sh    # MyPy type checker
-./scripts/qa/run_tests.sh         # Pytest with coverage
-
-# Manual auto-fix
-./scripts/qa/run_autofix.sh       # Runs Black + Ruff --fix
-```
-
----
-
-## TDD Integration
-
-This project enforces Test-Driven Development. All implementation work must follow the Red-Green-Refactor cycle.
-
-### TDD Workflow
-
-1. **Red**: Write a failing test that defines the expected behavior
-2. **Green**: Write the minimum code to make the test pass
-3. **Refactor**: Clean up the code while keeping tests green
-4. **Verify**: Run full QA suite
-
-### TDD Task Format
-
-```markdown
-- [ ] ⬜ **Implement handler for X**
-  - [ ] ⬜ Write failing test for matches() behavior
-  - [ ] ⬜ Implement matches() to pass test
-  - [ ] ⬜ Write failing test for handle() behavior
-  - [ ] ⬜ Implement handle() to pass test
-  - [ ] ⬜ Refactor for clarity
-  - [ ] ⬜ Verify 95%+ coverage maintained
-  - [ ] ⬜ Run full QA suite
-```
-
-### Coverage Requirement
-
-- Minimum 95% test coverage is required
-- New code must have corresponding tests
-- Coverage reports in `untracked/qa/coverage.json`
-
-### Running Tests
-
-```bash
-# Run all tests with coverage
-./scripts/qa/run_tests.sh
-
-# Run specific test file
-pytest tests/handlers/pre_tool_use/test_my_handler.py -v
-
-# Run with coverage report
-pytest --cov=src --cov-report=html
-```
-
----
-
-## Planning Workflow Steps
-
-### Step 1: Identify Work
-
-When new work is identified:
-
-1. Check if it fits in an existing plan
-2. If not, determine if a new plan is needed
-3. For small tasks (< 1 hour), use TodoWrite instead
-
-**New Plan Threshold**: If work will take > 2 hours or involves multiple phases
-
-### Step 2: Create Plan
-
-1. Create new folder: `CLAUDE/Plan/XXX-descriptive-name/`
-2. Copy plan template to `PLAN.md`
-3. Fill in overview, goals, and initial task breakdown
-4. Update `CLAUDE/Plan/README.md` with plan entry
-
-### Step 3: Break Down Tasks
-
-1. Decompose work into phases (if needed)
-2. Break each phase into concrete tasks
-3. Break tasks into subtasks if task > 30 minutes
-4. Ensure tasks are actionable and testable
-5. **Include TDD subtasks for implementation work**
-6. **Include QA verification subtasks**
-
-**Good Task**: "Create PreToolUse handler to block destructive sed commands with 95% coverage"
-**Bad Task**: "Work on handlers"
-
-### Step 4: Review & Approve
-
-1. Review plan completeness
-2. Verify tasks are well-defined
-3. Check for missing dependencies
-4. Get stakeholder approval (if needed)
-
-### Step 5: Execute
-
-1. Mark plan status as 🔄 In Progress
-2. Work through tasks sequentially
-3. **Follow TDD cycle for implementation**
-4. Update task status in real-time
-5. Document any blockers or changes
-6. **Run QA before each commit**
-7. Commit work with reference to plan: `Plan 001: Implement destructive git handler`
-
-### Step 6: Complete
-
-1. **Verify all QA checks pass**
-2. Verify all success criteria met
-3. Mark all tasks as ✅
-4. Mark plan status as Complete
-5. Add completion date to plan
-6. Document any lessons learned
-
----
-
-## Using TodoWrite vs Plans
-
-### Use TodoWrite For:
-- Very small tasks and LOW RISK tasks
-- Single-session work
-- No major architectural decisions
-- Temporary tracking during active work
-
-### Use Plans For:
-- Medium sized+ work
-- Any risk
-- Work with multiple phases
-- Architectural or design decisions
-- Work that may need to be resumed later
-- Work that others need to understand
-
-### Converting TodoWrite to Plan
-
-If TodoWrite list grows beyond 5 items or becomes multi-session:
-1. Create proper plan
-2. Migrate tasks to plan
-3. Clear TodoWrite
-4. Reference plan in work
-
----
-
-## Plan Templates
-
-### Handler Implementation Plan Template
-
-Use this template when creating new handlers for hook events.
-
-```markdown
-# Plan XXX: [Handler Name] Handler
-
-**Status**: Not Started
-**Type**: Handler Implementation
-**Event Type**: PreToolUse | PostToolUse | SessionStart | etc.
-**Priority Range**: [10-20 for safety, 25-35 for quality, 36-55 for workflow]
-**Estimated Effort**: [X hours]
-
-## Overview
-
-[What handler, why needed, what behavior it enforces]
-
-## Goals
-
-- Intercept [specific event/pattern]
-- Enforce [specific behavior]
-- Maintain 95%+ test coverage
-
-## Non-Goals
-
-- [What this handler does NOT do]
-
-## Debug Analysis
-
-**Before implementation**, capture event flow:
-```bash
-./scripts/debug_hooks.sh start "Testing [scenario]"
-# ... perform actions in Claude Code ...
-./scripts/debug_hooks.sh stop
-```
-
-**Event Analysis**:
-- Event Type: [PreToolUse, etc.]
-- Tool Name: [Write, Bash, etc.]
-- Key hook_input fields: [list relevant fields]
-- Trigger Pattern: [what triggers this handler]
-
-## Tasks
-
-### Phase 1: Debug & Design
-- [ ] ⬜ Run debug script for target scenario
-- [ ] ⬜ Analyze captured events and data
-- [ ] ⬜ Document event type and patterns
-- [ ] ⬜ Design handler matching logic
-- [ ] ⬜ Determine priority and terminal behavior
-
-### Phase 2: TDD Implementation
-- [ ] ⬜ Create test file: `tests/handlers/{event_type}/test_{handler_name}.py`
-- [ ] ⬜ Write failing test for matches() - positive case
-- [ ] ⬜ Write failing test for matches() - negative cases
-- [ ] ⬜ Implement matches() to pass tests
-- [ ] ⬜ Write failing test for handle() - expected result
-- [ ] ⬜ Write failing test for handle() - edge cases
-- [ ] ⬜ Implement handle() to pass tests
-- [ ] ⬜ Refactor and clean up
-
-### Phase 3: Integration
-- [ ] ⬜ Register handler in config
-- [ ] ⬜ Update handler count in CLAUDE.md
-- [ ] ⬜ Run full QA suite: `./scripts/qa/run_all.sh`
-- [ ] ⬜ Test with live Claude Code session
-- [ ] ⬜ Update documentation
-
-## Handler Specification
-
-```python
-class [HandlerName]Handler(Handler):
-    def __init__(self) -> None:
-        super().__init__(
-            name="[handler-name]",
-            priority=[XX],
-            terminal=[True/False]
-        )
-
-    def matches(self, hook_input: dict) -> bool:
-        # Pattern matching logic
-        pass
-
-    def handle(self, hook_input: dict) -> HookResult:
-        # Handler behavior
-        pass
-```
-
-## Success Criteria
-
-- [ ] Handler correctly intercepts target events
-- [ ] All tests passing
-- [ ] 95%+ coverage maintained
-- [ ] Live testing successful in Claude Code
-- [ ] Documentation updated
-- [ ] All QA checks pass
-```
-
-### Feature Implementation Plan Template
-
-```markdown
-# Plan XXX: [Feature Name]
-
-**Status**: Not Started
-**Type**: Feature Implementation
-**Estimated Effort**: [X hours/days]
-
-## Overview
-
-[What feature, why needed]
-
-## Tasks
-
-### Phase 1: Design
-- [ ] ⬜ Analyze requirements
-- [ ] ⬜ Design solution architecture
-- [ ] ⬜ Document technical decisions
-
-### Phase 2: TDD Implementation
-- [ ] ⬜ Write failing tests for core functionality
-- [ ] ⬜ Implement core functionality
-- [ ] ⬜ Write tests for edge cases
-- [ ] ⬜ Implement edge case handling
-- [ ] ⬜ Refactor for clarity
-
-### Phase 3: Integration & QA
-- [ ] ⬜ Integrate with existing code
-- [ ] ⬜ Run full QA: `./scripts/qa/run_all.sh`
-- [ ] ⬜ Fix any QA issues
-- [ ] ⬜ Update documentation
-
-## Success Criteria
-
-- [ ] Feature works as specified
-- [ ] All tests passing with 95%+ coverage
-- [ ] All QA checks pass
-- [ ] Documentation updated
-```
-
-### Bug Fix Plan Template
-
-```markdown
-# Plan XXX: Fix [Bug Description]
-
-**Status**: Not Started
-**Type**: Bug Fix
-**Severity**: Critical | High | Medium | Low
-
-## Bug Description
-
-[What's broken, how to reproduce]
-
-## Tasks
-
-- [ ] ⬜ Reproduce bug locally
-- [ ] ⬜ **Write failing test that demonstrates the bug**
-- [ ] ⬜ Identify root cause
-- [ ] ⬜ Implement fix (make test pass)
-- [ ] ⬜ Add additional regression tests
-- [ ] ⬜ Run full QA: `./scripts/qa/run_all.sh`
-- [ ] ⬜ Verify fix works in live testing
-
-## Success Criteria
-
-- [ ] Bug no longer reproducible
-- [ ] Failing test now passes
-- [ ] No regression in other tests
-- [ ] All QA checks pass
-```
-
-### Refactoring Plan Template
-
-Use this template when improving existing code without changing behavior.
-
-```markdown
-# Plan XXX: Refactor [Component/Area]
-
-**Status**: Not Started
-**Type**: Refactoring
-**Estimated Effort**: [X hours]
-
-## Overview
-
-[What needs refactoring, why it improves the codebase]
-
-## Goals
-
-- Improve [readability/maintainability/performance]
-- Maintain existing behavior
-- Maintain or improve test coverage
-
-## Non-Goals
-
-- No new features
-- No behavior changes
-
-## Tasks
-
-### Phase 1: Preparation
-- [ ] ⬜ Identify all affected code
-- [ ] ⬜ Ensure adequate test coverage exists
-- [ ] ⬜ Document current behavior
-
-### Phase 2: Refactoring
-- [ ] ⬜ Apply refactoring incrementally
-- [ ] ⬜ Run tests after each change
-- [ ] ⬜ Verify no behavior changes
-
-### Phase 3: Verification
-- [ ] ⬜ Run full QA: `./scripts/qa/run_all.sh`
-- [ ] ⬜ Compare before/after behavior
-- [ ] ⬜ Update documentation if needed
-
-## Success Criteria
-
-- [ ] All existing tests pass
-- [ ] Coverage maintained at 95%+
-- [ ] No behavior changes
-- [ ] All QA checks pass
-- [ ] Code is cleaner/more maintainable
-```
-
----
-
-## Best Practices
-
-### Task Writing
-
-✅ **Good Tasks**:
-- "Create PreToolUse handler to block force push to main/master"
-- "Add terminal flag to npm audit handler with priority 45"
-- "Fix MyPy type error in FrontController.dispatch method"
-- "Increase test coverage for daemon/server.py to 95%"
-
-❌ **Bad Tasks**:
-- "Fix the daemon"
-- "Make it work better"
-- "Work on handlers"
-
-### Task Granularity
-
-- **Task**: 15-60 minutes of focused work
-- **Subtask**: 5-15 minutes of specific action
-- **Phase**: Group of related tasks (hours/days)
-
-### Status Update Discipline
-
-1. **Before starting work**: Review plan, mark task 🔄
-2. **During work**: Update status if blocked
-3. **After completing**: Mark ✅, run QA, commit with reference
-4. **Daily**: Review plan, update progress notes
-
-### Handling Changes
-
-When requirements change mid-plan:
-
-1. **Document Change**: Add note to plan with date
-2. **Update Tasks**: Revise task list as needed
-3. **Assess Impact**: Update estimates, dependencies
-4. **Communicate**: Ensure stakeholders aware
-
----
-
-## Plan Reviews
-
-### Daily Review (If actively working on plan)
-
-- Are tasks up to date?
-- Any blockers need attention?
-- Is plan still on track?
-- Are QA checks still passing?
-
-### Weekly Review (For active plans)
-
-- Progress vs timeline?
-- Any scope changes needed?
-- Dependencies still valid?
-- Test coverage maintained?
-
-### Completion Review
-
-- All success criteria met?
-- All QA checks pass?
-- Lessons learned documented?
-- Follow-up work identified?
-
----
-
-## Plan Metrics
-
-Track these for each plan:
-
-- **Planned vs Actual Effort**: Improve estimation
-- **Blocker Count**: Identify process issues
-- **Scope Changes**: Track requirements stability
-- **Completion Rate**: % of tasks completed
-- **QA Pass Rate**: How often QA passes on first run
-
----
-
-## Integration with Git
-
-### When to Commit Plans
-
-**The hard rule**: never let plan state lag behind code state. Both of these patterns are valid and encouraged:
-
-**Pattern A — Plan + code in one commit** (preferred when both change in one session):
-
-```bash
-git add CLAUDE/Plan/001-handler/PLAN.md src/handlers/destructive_git.py
-git commit -m "Plan 001: Implement destructive git handler"
-```
-
-**Pattern B — Plan-only commit** (encouraged for plan creation, research updates, decision-gate notes, or status changes that are not tied to a code change):
-
-```bash
-git add CLAUDE/Plan/001-handler/
-git commit -m "Plan 001: Add research notes for handler design"
-```
-
-**What is prohibited**: committing code that completes plan tasks while leaving the plan file unchanged on disk. This creates drift between what the plan says and what the codebase actually contains, which is the bug the rule exists to prevent.
-
-The canonical version of this rule lives in [CLAUDE.md → Plan Commit Rule](../CLAUDE.md#plan-commit-rule).
-
-### Commit Messages
-
-Reference plans in commits:
-
-```
-Plan 001: Implement destructive git handler
-
-- Add DestructiveGitHandler to block force push and reset --hard
-- Include tests for all blocked patterns
-- Register handler with priority 10
-
-Refs: CLAUDE/Plan/001-handler-implementation
-```
-
-### Branch Naming
-
-For larger plans, use feature branches:
-
-```
-plan/001-destructive-git-handler
-plan/002-config-refactoring
-plan/003-tdd-enforcement
-```
-
-### Pre-Commit Verification
-
-Before committing, always verify:
-
-```bash
-# Run full QA suite
-./scripts/qa/run_all.sh
-
-# Check git status
-git status
-
-# Stage specific files (avoid staging secrets)
-git add src/handlers/pre_tool_use/my_handler.py
-git add tests/handlers/pre_tool_use/test_my_handler.py
-
-# Commit with plan reference
-git commit -m "Plan 001: Implement destructive git handler"
+git status                              # look for untracked CLAUDE/Plan/ dirs + unstaged plan edits
+./scripts/qa-all.bash                   # for Bash / Python / Ansible changes
+git add CLAUDE/Plan/NNNNN-description/  # stage the plan alongside related code
 ```
 
 ---
 
 ## Plan Index
 
-Maintain `CLAUDE/Plan/README.md`:
-
-```markdown
-# Plans Index
-
-## Active Plans
-- [001: Destructive Git Handler](001-handler-implementation/PLAN.md) - In Progress
-
-## Completed Plans
-- None yet
-
-## Blocked Plans
-- None
-
-## Cancelled Plans
-- None
-```
+Keep `CLAUDE/Plan/README.md` current as the index of active, completed, blocked, and
+cancelled plans.
 
 ---
 
 ## AI Agent Guidelines
 
-When Claude Code (or other AI agents) work on this project:
-
-1. **Always check for existing plans** before starting work
-2. **Create plan if none exists** for work > 2 hours
-3. **Debug hook events first** - Before writing handlers:
-   - Use `scripts/debug_hooks.sh` to capture event flow
-   - Analyze logs to understand what events fire
-   - See CLAUDE/DEBUGGING_HOOKS.md for complete guide
-4. **Follow TDD workflow** - Write failing tests before implementation
-5. **Update task status in real-time** as you work
-6. **Run QA before commits** - `./scripts/qa/run_all.sh` must pass
-7. **Document blockers immediately** if you get stuck
-8. **Ask user for approval** before marking plan complete
-9. **Reference plans in all commits** for traceability
-
-### Agent Workflow Example
-
-```
-User: "Implement a handler to block destructive sed commands"
-
-Agent:
-1. Checks CLAUDE/Plan/ for existing plan
-2. If none, creates Plan 001
-3. Runs debug script to capture sed usage events
-4. Analyzes events to determine handler design
-5. Breaks down into TDD tasks
-6. Shows plan to user for approval
-7. Begins execution:
-   - Write failing test
-   - Implement handler
-   - Run QA suite
-8. Commits with "Plan 001: Implement sed blocker handler"
-9. Updates plan progress notes
-10. Marks complete when all QA passes
-```
-
-### Handler Development Workflow
-
-**CRITICAL**: Always debug first, develop second:
-
-1. Identify scenario ("enforce TDD", "block destructive git", etc.)
-2. **Use `scripts/debug_hooks.sh` to capture event flow**
-3. Analyze logs to determine which event type and what data is available
-4. Write tests first (TDD)
-5. Implement handler
-6. Run QA suite
-7. Debug again to verify handler intercepts correctly
-8. Test in live Claude Code session
-
----
-
-## Summary
-
-**Remember**:
-- Plan before you code
-- Debug hook events before writing handlers
-- Write tests first (TDD)
-- Run QA before commits
-- Update status religiously
-- Keep tasks concrete and testable
-- Document decisions and changes
-- Plans are living documents
-
-**Questions?** See examples in `CLAUDE/Plan/` or ask in conversation.
-
----
-
-**Maintained by**: Claude Code Hooks Daemon Contributors
-**Last Updated**: January 2026
+1. **Check for an existing plan** before starting work.
+2. **Create a plan** for any work that is non-trivial or multi-session.
+3. **Get the next plan number from the git counter**, never a folder scan.
+4. **Update task status in real time** as you work.
+5. **Run `./scripts/qa-all.bash` before commits** that touch Bash/Python/Ansible
+   (ESLint for extension JS, `qa-ctrl-z-patch.bash` for the CCY patch).
+6. **Reference the plan** in every related commit for traceability.
+7. **Respect the CCY container boundary** — edit and commit only; deploy on the HOST.
+8. **Document blockers immediately**; do not silently stop or work around a failure.

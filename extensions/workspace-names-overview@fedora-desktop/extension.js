@@ -103,7 +103,8 @@ export default class WorkspaceNamesOverviewExtension extends Extension {
                     item.label.destroy();
                 }
             } catch (e) {
-                // Ignore cleanup errors
+                // Actor may already be destroyed; log rather than swallow silently.
+                logError(e, 'workspace-names: label cleanup');
             }
         }
         this._labels = [];

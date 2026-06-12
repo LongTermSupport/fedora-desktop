@@ -1,182 +1,194 @@
 # NordVPN Installation Guide
 
-This guide covers installing and configuring NordVPN on Fedora with GNOME Shell integration.
+This guide covers installing and configuring NordVPN on Fedora using OpenVPN and
+NetworkManager. This is an **optional** playbook — it is not run by default.
 
-## Overview
+## Architecture
 
-A single playbook provides complete NordVPN setup:
+This repo implements NordVPN connectivity via **OpenVPN + NetworkManager**, not the
+official NordVPN CLI client. There is no `nordvpnd` daemon, no `nordvpn` group, and no
+`nordvpn login` command. Instead:
 
-**play-nordvpn-cli.yml** - Installs the NordVPN CLI client and GNOME Shell extension
+- `openvpn`, `NetworkManager-openvpn`, and `NetworkManager-openvpn-gnome` are installed
+- You download `.ovpn` server config files from NordVPN manually
+- The `nord` helper script manages import and connection via `nmcli`
+- NordVPN **service credentials** (not your account login) are stored in
+  `~/.config/nordvpn/.credentials` (mode 0600)
 
 ## Prerequisites
 
 - Active NordVPN subscription
 - Fedora desktop system
-- GNOME Shell desktop environment
+- Ansible configured with vault (see `CLAUDE/SecurityRules.md`)
 
-## Installation Steps
+## Installation
 
-### Step 1: Install NordVPN
+### Step 1: Configure Service Credentials
+
+The playbook prompts for your NordVPN **service credentials** on first run. These are
+separate from your NordVPN account login. To find them:
+
+1. Log in to nordvpn.com
+2. Go to Dashboard → Services → NordVPN
+3. Click "Set up NordVPN manually"
+4. Copy the **Service credentials** username and password
+
+On first run the playbook appends them in plaintext to
+`environment/localhost/host_vars/localhost.yml`. Encrypt them immediately afterwards:
 
 ```bash
-ansible-playbook playbooks/imports/optional/common/play-nordvpn-cli.yml
+ansible-vault encrypt_string 'your-service-username' --name 'nordvpn_username'
+ansible-vault encrypt_string 'your-service-password' --name 'nordvpn_password'
 ```
 
-This will:
-- Install the official NordVPN CLI client
-- Add your user to the `nordvpn` group
-- Enable and start the `nordvpnd` daemon
-- Install the NordVPN Connect GNOME Shell extension
+Replace the plaintext values in `localhost.yml` with the resulting `!vault |` blocks.
+See `CLAUDE/SecurityRules.md` for the full variable-level vault workflow.
 
-**IMPORTANT**: You must **reboot** after installation for group membership to take effect.
+If credentials are already present in `localhost.yml` (as `nordvpn_username` /
+`nordvpn_password`), the prompt is skipped.
 
-### Step 2: Authenticate and Enable Extension
-
-After rebooting:
-
-1. Log in to your NordVPN account:
-   ```bash
-   nordvpn login
-   ```
-
-2. Restart GNOME Shell to activate the extension:
-   - Press `Alt+F2`
-   - Type `r` and press Enter
-   - The NordVPN icon will appear in your top bar
-
-## Usage
-
-### CLI Commands
+### Step 2: Run the Playbook
 
 ```bash
-# Connect to best server
-nordvpn connect
+ansible-playbook playbooks/imports/optional/common/play-nordvpn-openvpn.yml
+```
 
-# Connect to specific country
-nordvpn connect United_States
-nordvpn connect Germany
+This playbook:
 
-# Connect to specific city
-nordvpn connect United_States New_York
+- Installs `openvpn`, `NetworkManager-openvpn`, `NetworkManager-openvpn-gnome`
+- Creates `~/.config/nordvpn/` (mode 0700) and `~/.config/nordvpn/configs/` (mode 0755)
+- Creates `~/.local/share/nordvpn/` for logs
+- Deploys credentials to `~/.config/nordvpn/.credentials` (mode 0600)
+- Deploys the `nord` helper script to `~/.local/bin/nord`
+- Adds the `openvpn` service to firewalld (if firewalld is running)
+
+### Step 3: Download OpenVPN Configs
+
+The playbook does not download `.ovpn` files — you must fetch them manually:
+
+1. Go to nordvpn.com → Dashboard → Downloads → Linux
+2. Choose the **OpenVPN** tab
+3. Download the server configs you want (UDP recommended)
+4. Move them into place:
+
+```bash
+mv ~/Downloads/*.ovpn ~/.config/nordvpn/configs/
+```
+
+## Usage: `nord` Helper
+
+`~/.local/bin/nord` manages connections via NetworkManager. Configs are imported to
+NetworkManager on first connect and named with a `nordvpn-` prefix.
+
+### Commands
+
+```bash
+# Interactive chooser — lists available servers and prompts for selection
+nord
+
+# List available .ovpn configs in ~/.config/nordvpn/configs/
+nord list
+
+# List configs already imported into NetworkManager
+nord list-active
+
+# Connect to a server (imports .ovpn into NetworkManager if not yet imported)
+nord connect uk1234.nordvpn.com.udp
+
+# Show current connection status and public IP
+nord status
+
+# Switch to a different server (disconnects current first)
+nord switch us1234.nordvpn.com.udp
 
 # Disconnect
-nordvpn disconnect
+nord disconnect
 
-# Check status
-nordvpn status
+# Remove all nordvpn-* connections from NetworkManager
+nord cleanup
 
-# List countries
-nordvpn countries
+# Debug output
+nord --debug connect <name>
 
-# List cities in a country
-nordvpn cities United_States
-
-# View settings
-nordvpn settings
-
-# Enable features
-nordvpn set killswitch on
-nordvpn set cybersec on
-nordvpn set autoconnect on
-
-# Set protocol
-nordvpn set technology nordlynx  # Recommended (WireGuard-based)
-nordvpn set technology openvpn
+# Version
+nord --version
 ```
 
-### GNOME Extension Features
+The `<name>` argument matches the `.ovpn` filename without its extension. NordVPN file
+names typically follow the pattern `<server>.nordvpn.com.udp` or
+`<server>.nordvpn.com.tcp` — `nord list` strips the `.nordvpn.com.(udp|tcp)` suffix for
+display but the short form works as the argument too.
 
-The extension provides:
-- **Quick connect/disconnect toggle** in the system tray
-- **Connection status indicator**
-- **Server selection** by country
-- **Settings access** for:
-  - Protocol selection (UDP/TCP)
-  - CyberSec toggle
-  - AutoConnect toggle
-  - Custom DNS configuration
-  - Favorite servers
+Connections persist in NetworkManager across reboots. Use GNOME Settings → Network to
+view or remove them via the GUI.
+
+## Security
+
+- Credentials are stored at `~/.config/nordvpn/.credentials` with mode 0600
+- The file contains two lines: service username on line 1, service password on line 2
+- `nordvpn_username` and `nordvpn_password` in `localhost.yml` must be encrypted with
+  `ansible-vault encrypt_string` before committing — the playbook prints a reminder if
+  they were just written in plaintext
+- This is a public repo — never commit plaintext credentials
 
 ## Troubleshooting
 
-### Permission Denied Error
+### `nord` reports missing credentials
 
-If you see `Permission denied accessing /run/nordvpn/nordvpnd.sock`:
-
-1. Verify you're in the nordvpn group: `groups $USER`
-2. If not, re-run the CLI playbook
-3. **Reboot** - group changes require a new login session
-
-### Extension Not Appearing
-
-1. Verify NordVPN CLI is installed: `which nordvpn`
-2. Check you're in the nordvpn group: `groups $USER`
-3. Restart GNOME Shell: `Alt+F2` → type `r` → Enter
-4. Check extension status: `gnome-extensions list | grep NordVPN`
-5. Enable manually: `gnome-extensions enable NordVPN_Connect@poilrouge.fr`
-
-### Connection Issues
+Re-run the playbook to regenerate `~/.config/nordvpn/.credentials`:
 
 ```bash
-# Check daemon status
-systemctl status nordvpnd
-
-# Check account status
-nordvpn account
-
-# View logs
-journalctl -u nordvpnd -f
+ansible-playbook playbooks/imports/optional/common/play-nordvpn-openvpn.yml
 ```
 
-## Technical Details
-
-### Official Resources
-
-- [NordVPN Linux Installation](https://support.nordvpn.com/hc/en-us/articles/20196094470929-Installing-NordVPN-on-Linux-distributions)
-- [NordVPN Linux CLI](https://github.com/NordSecurity/nordvpn-linux)
-- [GNOME Extension Repository](https://github.com/AlexPoilrouge/NordVPN-connect)
-
-### What Gets Installed
-
-**CLI Playbook:**
-- NordVPN package from official source
-- nordvpnd systemd service
-- User added to nordvpn group
-
-**Extension Playbook:**
-- NordVPN Connect GNOME extension
-- Extension installed to `~/.local/share/gnome-shell/extensions/`
-- GSettings schema compiled
-
-### Security Considerations
-
-- The NordVPN CLI uses a local daemon (`nordvpnd`) that requires group membership
-- Only users in the `nordvpn` group can control the VPN
-- Authentication tokens are stored securely by the NordVPN client
-- Kill switch and CyberSec features available for enhanced security
-
-### Uninstallation
-
-To remove NordVPN:
+### Connection fails
 
 ```bash
-# Stop and disable service
-sudo systemctl stop nordvpnd
-sudo systemctl disable nordvpnd
+# Check NetworkManager logs for OpenVPN errors
+journalctl -u NetworkManager --no-pager --since "5 minutes ago"
 
-# Remove package
-sudo dnf remove nordvpn
+# Verify the credentials file exists and is non-empty
+wc -l ~/.config/nordvpn/.credentials
 
-# Remove extension
-rm -rf ~/.local/share/gnome-shell/extensions/NordVPN_Connect@poilrouge.fr
+# Remove the imported connection and re-import
+nord cleanup
+nord connect <name>
 
-# Restart GNOME Shell
-# Alt+F2 → type 'r' → Enter
+# Check NetworkManager-openvpn plugin is installed
+rpm -q NetworkManager-openvpn NetworkManager-openvpn-gnome
 ```
 
-## Notes
+### No `.ovpn` configs found
 
-- The GNOME extension is community-developed and not officially affiliated with NordVPN
-- Extension requires systemd (already present on Fedora)
-- NordVPN supports multiple VPN protocols (NordLynx/WireGuard recommended)
-- The extension works by wrapping the official CLI commands
+```bash
+ls ~/.config/nordvpn/configs/
+```
+
+If empty, download configs from nordvpn.com (see Step 3 above).
+
+### Firewall warning during playbook run
+
+If the playbook prints "firewalld is not running — OpenVPN firewall rule was NOT
+applied", start firewalld and re-run:
+
+```bash
+sudo systemctl start firewalld
+ansible-playbook playbooks/imports/optional/common/play-nordvpn-openvpn.yml
+```
+
+## File Locations
+
+| Path                                    | Purpose                                |
+| --------------------------------------- | -------------------------------------- |
+| `~/.config/nordvpn/configs/`            | Downloaded `.ovpn` server config files |
+| `~/.config/nordvpn/.credentials`        | Service credentials (mode 0600)        |
+| `~/.config/nordvpn/.current-connection` | State file tracking active connection  |
+| `~/.local/bin/nord`                     | Connection manager script              |
+| `~/.local/share/nordvpn/nord.log`       | Connection log (rotates at 1 MB)       |
+
+**Source files in this repo:**
+
+| Repo path                                                    | Deployed to           |
+| ------------------------------------------------------------ | --------------------- |
+| `files/home/.local/bin/nord`                                 | `~/.local/bin/nord`   |
+| `playbooks/imports/optional/common/play-nordvpn-openvpn.yml` | (runs the deployment) |

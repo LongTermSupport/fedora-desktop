@@ -43,8 +43,8 @@ Relevant current code in `run.bash`:
 - line 954 — `"$_pull_projects_script" --account "$primary_gh_username"`
 
 Today's incident: user had the LTS account as their config host, but the
-active gh default was a different account (`ballidev`). run.bash looked
-for `ballidev/fedora-desktop-config`, didn't find it, and offered to
+active gh default was a different account (`<gh-username-a>`). run.bash looked
+for `<gh-username-a>/fedora-desktop-config`, didn't find it, and offered to
 configure fresh — which would have wiped the existing vault.
 
 ## Tasks
@@ -128,5 +128,5 @@ account. If that changes, split later (YAGNI).
 ### 2026-04-23
 
 - Plan created after F42→F43 migration surfaced the issue. User ran
-  `./run.bash` while the active gh default was `ballidev`, not the LTS
+  `./run.bash` while the active gh default was `<gh-username-a>`, not the LTS
   account that owns the config repo. Existing workaround: `gh auth switch` before running. Proper fix: this plan.

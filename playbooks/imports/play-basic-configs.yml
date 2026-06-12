@@ -9,9 +9,9 @@
     # Priority 1: per-hostname override in localhost.yml
     # Example in localhost.yml:
     #   hostname_overrides:
-    #     joseph-x1:
+    #     <hostname-a>:
     #       ps1_colour: green
-    #     joseph-p14:
+    #     <hostname-b>:
     #       ps1_colour: lightblueBold
     - name: Set PS1_Colour from hostname override
       ansible.builtin.set_fact:
@@ -107,6 +107,9 @@
       ansible.builtin.copy:
         src: "{{ root_dir }}/files{{ item }}"
         dest: "{{ item }}"
+        owner: root
+        group: root
+        mode: "0644"
       loop:
         - /etc/profile.d/zz_lts-fedora-desktop.bash
         - /var/local/colours
@@ -116,6 +119,9 @@
       ansible.builtin.copy:
         content: "export PS1_COLOUR={{ PS1_Colour }}"
         dest: /var/local/ps1-prompt-colour
+        owner: root
+        group: root
+        mode: "0644"
 
     - name: Create .bashrc-includes directories
       ansible.builtin.file:
@@ -221,8 +227,10 @@
     - name: Install YQ
       become: true
       ansible.builtin.shell: |
+        set -euo pipefail
         wget -qO /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 && chmod +x /usr/bin/yq
       args:
+        executable: /bin/bash
         creates: /usr/bin/yq
       tags: yq
 
@@ -241,7 +249,13 @@
       ansible.builtin.shell: |
         set -e
         fwupdmgr get-devices
-        fwupdmgr refresh --force
+        # Plain refresh respects the fwupd metadata-age cache and exits quickly when fresh
+        # (no forced LVFS re-download every run, PERF-04). rc 2 means metadata already current.
+        rc=0
+        fwupdmgr refresh || rc=$?
+        if [ "$rc" -ne 0 ] && [ "$rc" -ne 2 ]; then
+          exit "$rc"
+        fi
         rc=0
         fwupdmgr get-updates || rc=$?
         if [ "$rc" -ne 0 ] && [ "$rc" -ne 2 ]; then
@@ -254,4 +268,9 @@
         fi
       args:
         executable: /bin/bash
-      changed_when: true  # get-updates/update return rc=2 when no updates available
+      register: fwupd_result
+      # Report changed only when an update was actually staged/applied, not on no-op runs.
+      changed_when: >-
+        'Successfully installed firmware' in fwupd_result.stdout
+        or 'has been updated' in fwupd_result.stdout
+        or 'reboot is required' in fwupd_result.stdout | lower

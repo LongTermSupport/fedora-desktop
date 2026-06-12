@@ -3,7 +3,7 @@
 ## Setup
 ## !! BUMP THIS VERSION ON EVERY CHANGE TO THIS FILE — NO EXCEPTIONS !!
 ## !! If you forget, there is NO WAY to tell which version is running !!
-RUN_BASH_VERSION="1.5.1"  # Cross-host config selection when no config for current host
+RUN_BASH_VERSION="1.5.3"  # Security hardening: drop hostname from public posts, fail-closed sanitiser, private config-repo gate, secret unset, full issue preview
 set -e
 set -u
 set -o pipefail
@@ -97,7 +97,7 @@ echo -e "${CYAN}${INFO} Running on Fedora ${fedora_version}${NC}"
 ## Functions
 
 title(){
-  ((STEP_CURRENT++)) || true
+  STEP_CURRENT=$(( STEP_CURRENT + 1 ))
   echo -e "\n${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo -e "${CYAN}${BOLD}[$STEP_CURRENT/$STEP_TOTAL]${NC} ${BOLD}$1${NC}"
   echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -375,11 +375,12 @@ create_github_issue(){
   fi
   
   # Get system information
-  local fedora_version branch commit hostname kernel
+  # Note: hostname is deliberately NOT collected — it is a "Never Commit" item
+  # (CLAUDE/SecurityRules.md) and the issue body is posted to a PUBLIC tracker.
+  local fedora_version branch commit kernel
   fedora_version=$(grep "^VERSION_ID=" /etc/os-release | cut -d= -f2)
   branch=$(git branch --show-current)
   commit=$(git rev-parse --short HEAD)
-  hostname=$(hostname)
   kernel=$(uname -r)
   
   # Ask user to paste error output
@@ -392,30 +393,43 @@ create_github_issue(){
   local sanitized_log
   sanitized_log=$(sanitize_error_log "$error_log")
   
-  # If Claude Code is available, use it for enhanced sanitization
+  # If Claude Code is available, use it for enhanced sanitization.
+  #
+  # FAIL CLOSED: the issue body is posted to a PUBLIC tracker. When `claude` is
+  # installed it is the strong sanitiser and the regex pass alone is known to miss
+  # things (git remote URLs, bare tokens). So if Claude is present but its
+  # sanitisation produces no output (empty result or non-zero exit), we ABORT the
+  # issue-creation flow rather than silently downgrading to regex-only output.
+  # The regex-only path is taken ONLY when `claude` is genuinely not installed,
+  # and even then the explicit confirmation below still gates the post.
   if check_claude_code; then
     info "Using Claude Code for enhanced sensitive data removal..."
     local temp_file
     temp_file=$(mktemp)
     echo "$sanitized_log" > "$temp_file"
 
-    # Ask Claude to sanitize the log further
-    local claude_sanitized
-    claude_sanitized=$(claude "Please remove any potentially sensitive information from this error log including passwords, API keys, tokens, personal data, private URLs, or system-specific paths that shouldn't be shared publicly. Return ONLY the sanitized version of the log, preserving the error messages and structure but with sensitive data replaced with placeholders like ***REDACTED***:\n\n$(cat "$temp_file")" 2>/dev/null || echo "")
-    
-    if [[ -n "$claude_sanitized" ]]; then
-      # Use Claude's sanitized version
-      sanitized_log="$claude_sanitized"
-      success "Claude Code: Additional sensitive data removed"
-      
-      # Optional: Show what Claude changed
-      if [[ "$VERBOSE" == "true" ]]; then
-        info "Claude Code sanitization applied"
-      fi
-    else
-      warning "Claude Code sanitization failed, using basic sanitization only"
-    fi
+    # Ask Claude to sanitize the log further. Capture exit status explicitly so a
+    # failure is surfaced rather than hidden behind a fallback default.
+    local claude_sanitized claude_status
+    claude_sanitized=$(claude "Please remove any potentially sensitive information from this error log including passwords, API keys, tokens, personal data, private URLs, or system-specific paths that shouldn't be shared publicly. Return ONLY the sanitized version of the log, preserving the error messages and structure but with sensitive data replaced with placeholders like ***REDACTED***:\n\n$(cat "$temp_file")")
+    claude_status=$?
     rm -f "$temp_file"
+
+    if [[ "$claude_status" -ne 0 || -z "$claude_sanitized" ]]; then
+      error "Claude Code sanitization failed (exit $claude_status, empty result)."
+      error "Refusing to post to the PUBLIC tracker with regex-only sanitization."
+      error "Sanitize the log manually and create the issue yourself, or re-run when Claude is working."
+      return 1
+    fi
+
+    # Use Claude's sanitized version
+    sanitized_log="$claude_sanitized"
+    success "Claude Code: Additional sensitive data removed"
+
+    # Optional: Show what Claude changed
+    if [[ "${VERBOSE:-}" == "true" ]]; then
+      info "Claude Code sanitization applied"
+    fi
   fi
   
   # Prepare issue title and body
@@ -426,10 +440,9 @@ create_github_issue(){
   issue_body="## Playbook Failure Report
 
 ### Environment
-- **Fedora Version**: $fedora_version
+- **OS**: Fedora $fedora_version
 - **Branch**: $branch
 - **Commit**: $commit
-- **Hostname**: $hostname
 - **Kernel**: $kernel
 - **Date**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
 
@@ -462,14 +475,22 @@ _This issue was automatically generated. The error log has been sanitized to rem
 ---
 _Generated by fedora-desktop automated error reporting_"
   
-  # Show preview to user
+  # Show the FULL preview to user before posting to the PUBLIC tracker.
+  # The body is also written to a temp file so the user can review/edit it out of
+  # band; nothing is truncated (a truncated preview could hide pasted secrets that
+  # would then be posted unseen).
+  local preview_file
+  preview_file=$(mktemp)
+  echo "$issue_body" > "$preview_file"
+
   echo -e "\n${CYAN}${BOLD}Issue Preview${NC}"
   echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo -e "${BOLD}Title:${NC} $issue_title\n"
-  echo -e "${BOLD}Body:${NC}"
-  echo "$issue_body" | head -n 50
-  echo -e "\n... [truncated for preview] ...\n"
-  
+  echo -e "${BOLD}Body (full — review carefully before confirming):${NC}"
+  echo "$issue_body"
+  echo -e "\n${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${INFO} Full body also saved for review at: $preview_file\n"
+
   # Ask for confirmation
   if confirm "Do you want to create this GitHub issue?"; then
     info "Creating GitHub issue..."
@@ -765,12 +786,12 @@ ssh_key_fingerprint=$(ssh-keygen -lf ~/.ssh/id.pub | awk '{print $2}')
 # Use gh api to check for SSH keys without triggering signing key scope warning
 if ! $GH_REPO api user/keys 2>/dev/null | grep -q "$ssh_key_fingerprint"; then
   # Add SSH key for authentication only (not signing)
-  if $GH_REPO ssh-key add ~/.ssh/id.pub --title="$(hostname) Added by fedora-desktop setup script on $(date +%Y-%m-%d)" --type=authentication 2>&1; then
+  if $GH_REPO ssh-key add ~/.ssh/id.pub --title="fedora-desktop setup $(date +%Y-%m-%d)" --type=authentication 2>&1; then
     success "SSH authentication key added to GitHub"
   else
     error "Failed to add SSH key to GitHub"
     echo -e "${YELLOW}${ARROW} Try manually adding your SSH key:${NC}"
-    echo -e "   cat ~/.ssh/id.pub | $GH_REPO ssh-key add --title='$(hostname)' --type=authentication"
+    echo -e "   cat ~/.ssh/id.pub | $GH_REPO ssh-key add --title='fedora-desktop setup' --type=authentication"
     exit 1
   fi
 else
@@ -780,8 +801,10 @@ completed
 
 title "Updating SSH Known Hosts"
 info "Configuring GitHub host keys"
-# Remove existing GitHub entries silently
-ssh-keygen -R github.com &>/dev/null || true
+# Remove existing GitHub entries silently (absent on first run is fine)
+if ! ssh-keygen -R github.com >/dev/null 2>/dev/null; then
+  info "No existing github.com entry in known_hosts to remove"
+fi
 # Add fresh GitHub host keys
 curl -sL https://api.github.com/meta | jq -r '.ssh_keys | .[]' | sed -e 's/^/github.com /' >> ~/.ssh/known_hosts
 success "GitHub host keys updated"
@@ -838,6 +861,18 @@ config_source_label=""
 
 if gh api "repos/${config_repo}" --jq '.name' > /dev/null 2>/dev/null; then
   has_config_repo=true
+
+  # PRIVACY GATE (FUP-22): localhost.yml carries PII + the Ansible vault. It must
+  # never be read from or written to a PUBLIC repo. Confirm the repo is private
+  # before any pull or push touches it. A non-private (or unreadable .private)
+  # repo aborts the flow — there is no safe automatic downgrade here.
+  config_repo_private=$(${GH_REPO:-gh} api "repos/${config_repo}" --jq '.private' 2>/dev/null)
+  if [[ "$config_repo_private" != "true" ]]; then
+    error "Config repo github.com/${config_repo} is NOT private (.private='${config_repo_private:-unknown}')."
+    error "localhost.yml contains PII and your Ansible vault and must never be synced to a public repo."
+    error "Make the repo private (gh repo edit ${config_repo} --visibility private), then re-run."
+    exit 1
+  fi
 
   # Try host-specific config first
   if raw_content=$(gh api "repos/${config_repo}/contents/${config_host_path}" --jq '.content' 2>/dev/null); then
@@ -1009,7 +1044,8 @@ if grep -qF '!vault' "$localhost_yml" 2>/dev/null; then
       echo -e "   Enter the correct vault password (from your password manager):"
       read -rsp "   " vaultPass
       echo
-      echo "$vaultPass" > "$vault_pass_file"
+      # printf avoids the trailing newline echo would add — the vault password must be exact
+      printf '%s' "$vaultPass" > "$vault_pass_file"
       chmod 600 "$vault_pass_file"
       success "Vault password updated"
     fi
@@ -1018,7 +1054,8 @@ if grep -qF '!vault' "$localhost_yml" 2>/dev/null; then
     echo -e "   Enter your vault password (from your password manager):"
     read -rsp "   " vaultPass
     echo
-    echo "$vaultPass" > "$vault_pass_file"
+    # printf avoids the trailing newline echo would add — the vault password must be exact
+    printf '%s' "$vaultPass" > "$vault_pass_file"
     chmod 600 "$vault_pass_file"
     success "Vault password configured"
   fi
@@ -1035,8 +1072,11 @@ else
   else
     success "Vault password configured"
   fi
-  echo "$vaultPass" > "$vault_pass_file"
+  # printf avoids the trailing newline echo would add — the vault password must be exact
+  printf '%s' "$vaultPass" > "$vault_pass_file"
 fi
+# Secret no longer needed in memory — the password now lives only in the 0600 file.
+unset vaultPass
 completed
 
 title "GitHub SSH Key Passphrase"
@@ -1078,6 +1118,8 @@ else
   printf '\n%s\n' "$_encrypted" >> "$localhost_yml"
   success "github_ssh_passphrase saved to localhost.yml (vault-encrypted)"
 fi
+# The SSH-key password was only needed as a default offer above — drop it now.
+unset _ssh_key_password _confirm_passphrase _encrypted
 completed
 
 title "Setting Up GitHub Multi-Account Access"
@@ -1093,6 +1135,9 @@ if grep -q 'github_accounts' "$localhost_yml" 2>/dev/null; then
 else
   success "Single account setup — no additional accounts to authenticate"
 fi
+# Passphrase has been handed off (env var to the setup script / vault-encrypted in
+# localhost.yml) — clear it from this shell before the long playbook run.
+unset _github_ssh_passphrase
 completed
 
 title "Running Ansible Playbooks"
@@ -1103,7 +1148,15 @@ command git pull
 success "Repository up to date"
 
 info "Installing Ansible requirements"
-ansible-galaxy install -r requirements.yml > /dev/null 2>&1
+# Do NOT suppress output — this is a supply-chain install (pulls roles/collections
+# from Galaxy/Git). Tee to a log so the user can see exactly what was fetched, and
+# surface the log if the install fails (set -e then aborts the run).
+_galaxy_log=$(mktemp)
+if ! ansible-galaxy install -r requirements.yml 2>&1 | tee "$_galaxy_log"; then
+  error "ansible-galaxy install failed — see output above (log: $_galaxy_log)"
+  exit 1
+fi
+rm -f "$_galaxy_log"
 success "Requirements installed"
 
 info "Executing main configuration playbook"

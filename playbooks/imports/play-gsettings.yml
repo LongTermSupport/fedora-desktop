@@ -1,17 +1,23 @@
 #!/usr/bin/env ansible-playbook
 ---
-#!/usr/bin/env ansible-playbook
 - hosts: desktop
   name: GSettings
   tasks:
-    - name: Apply Gsettings
+    # community.general.dconf is idempotent and writes the user's dconf database directly,
+    # so it no longer reports changed on every run the way the gsettings shell loop did.
+    # Values are GVariant-formatted (string arrays / quoted strings), matching dconf.
+    - name: Disable Caps Lock key (xkb-options)
       become: true
       become_user: "{{ user_login }}"
-      # dbus-run-session provides a temporary D-Bus session so gsettings works
-      # without GNOME currently running (e.g. SSH sessions, fresh installs)
-      ansible.builtin.shell: "dbus-run-session -- {{ item }}"
-      loop:
-        # disable caps lock key
-        - gsettings set org.gnome.desktop.input-sources xkb-options \[\'caps:none\'\]
-        # disable middle-click closing tabs in Ptyxis terminal
-        - gsettings set org.gnome.Ptyxis tab-middle-click 'nothing'
+      community.general.dconf:
+        key: /org/gnome/desktop/input-sources/xkb-options
+        value: "['caps:none']"
+        state: present
+
+    - name: Disable middle-click closing tabs in Ptyxis terminal
+      become: true
+      become_user: "{{ user_login }}"
+      community.general.dconf:
+        key: /org/gnome/Ptyxis/tab-middle-click
+        value: "'nothing'"
+        state: present

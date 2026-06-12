@@ -47,11 +47,7 @@ Use these Unicode icons in plan documents:
 
 - [014-whisper-model-manager](014-whisper-model-manager/) - Replace cluttered model dropdown with a dedicated Textual TUI (`wsi-model-manager`) for browsing and downloading Whisper models
 
-- [020-semgrep-custom-bash-rules](020-semgrep-custom-bash-rules/) - Add Semgrep with custom bash convention rules (no error hiding, fail-fast enforcement) integrated into qa-all.bash
-
 - [023-hostname-based-inventory](023-hostname-based-inventory/) - Migrate Ansible inventory from hardcoded `localhost` to machine hostname, supporting per-machine host_vars and multiple laptops
-
-- [024-claude-md-modular-restructure](024-claude-md-modular-restructure/) - Restructure monolithic CLAUDE.md (40k+ chars) into modular architecture: lean front page + CLAUDE/ topic files + docs/ for user content + subdirectory stubs with @ pointers
 
 - [025-ccy-spring-cleaning](025-ccy-spring-cleaning/) - CCY codebase spring cleaning: fix 63 shellcheck warnings, remove 20 dead functions, fix double-sourcing, exit-vs-return, and code quality issues
 
@@ -95,8 +91,14 @@ Use these Unicode icons in plan documents:
 
 - [00049-full-repo-audit](00049-full-repo-audit/) - Full repository audit via dynamic multi-agent workflow: 10 audit dimensions (security, fail-fast, Ansible, bash, CCY, extensions, performance, docs drift, opportunities, QA gaps) with adversarial verification of critical/high findings; research docs + triage.md + final action plan in the plan folder
 
+- [00050-fedora-44-tracking](00050-fedora-44-tracking/)
+
+- [00051-ansible-lint-improvement](00051-ansible-lint-improvement/) - Systematic ansible-lint compliance improvement: `scripts/lint` tooling, FQCN enforcement, and per-rule violation fixes across all 37 playbooks - Fedora 43 → 44 migration tracking (research phase only — no fixes). Dynamic Fable workflow swept six version-sensitivity dimensions (version literals, packages/repos+DNF, Python, GNOME extensions, hardware/kernel, install/bootstrap) against the live F44 changeset. 55 findings (7 high, 14 medium, 25 low, 9 info) in research/ + triage.md. Confirmed F44 baseline: GNOME 50, kernel 7.0.x, Python stays 3.14, DNF5 complete. The bump's core is one line (`fedora_version: 44`) but seven highs gate it; execution deliberately deferred to a future decision gate.
+
 ## Completed Plans
 
+- [020-semgrep-custom-bash-rules](Completed/020-semgrep-custom-bash-rules/) - Add Semgrep with custom bash convention rules (no error hiding, fail-fast enforcement) integrated into qa-all.bash. Semgrep 1.153.1 installed via pipx in CCY Dockerfile (v2.10); 0 violations in 44 bash files.
+- [024-claude-md-modular-restructure](Completed/024-claude-md-modular-restructure/) - Restructure monolithic CLAUDE.md (40k+ chars) into modular architecture: lean front page + CLAUDE/ topic files + docs/ for user content. All CLAUDE/ topic files created and @ pointers in place.
 - [033-ddev-installation](Completed/033-ddev-installation/) - Install DDEV on rootful Docker (Approach C); rootless Podman remains default engine, LXC unchanged. End-to-end host run verified (`ddev v1.25.1` + `docker 29.4.0`).
 - [00043-ipu6-webcam-fallout](Completed/00043-ipu6-webcam-fallout/) - Incident + recovery: `play-ipu6-webcam.yml` (commit e5d0e33) pulled `akmod-intel-ipu6` which dragged in a half-installed kernel 7.0.9 because the previous-minor `kernel` versionlock silently filtered the metapackage out of the depsolve while the unlocked sub-packages came in — leaving a "kernel" with no iwlwifi/btusb. IPU6 play rewritten to drop the akmod (mainline IPU6 is in-tree on F43+); recovery executed via new `play-AB-dnf-upgrade.yml` which now also auto-detects + cleans up future half-installs. Verified end-to-end on 7.0.9-105: WiFi, BT, camera all working.
 - [00044-laptop-health-audit](Completed/00044-laptop-health-audit/) - Read-only audit (4 parallel sub-agents) of the daily-driver X1 Carbon Gen 10 i7-1260P, then IaC cross-check to separate real gaps from busywork. Net result: new `play-AB-dnf-upgrade.yml` (also recovers half-install state), `play-ZZ-repo-cleanup.yml` (orphan COPR removal), `play-laptop-thermal-diagnostics.yml` (mask thermald + install lm_sensors), `play-network-wait-tuning.yml` (cap NM-wait-online to 5s), `play-rclone.yml` extended with per-mount `MemoryHigh`/`MemoryMax`. Dropped as busywork: `tuned` profile (tuned-ppd auto-switches), WWAN modprobe blacklist (GNOME Settings is the toggle), warp-svc verbosity (no stable config surface). Established the "work WITH GNOME, not against it" principle.

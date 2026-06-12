@@ -1,26 +1,33 @@
 # Containerization Technologies
 
-This project supports three distinct containerization technologies, each serving different use cases in the development workflow.
+This project supports four distinct containerization technologies, each serving different use cases in the development workflow. **Podman is the default container engine** — see the [Podman section](#podman) for why it is preferred and how it is used by CCY.
 
 ## Quick Decision Guide
 
 **Choose the right tool for your needs:**
 
 **Use LXC if you need:**
+
 - A complete Linux system with systemd
 - Long-running test environments
 - System service testing (networking, init, etc.)
 - To test installation scripts on different distros
 - Full isolation from host system
 
+**Use Podman if you need:**
+
+- A default, rootless container engine for everyday use
+- CCY (`ccy`) — it uses Podman by default
+- Docker-compatible images without the Docker daemon
+- A safer alternative to Docker (no root-equivalent group)
+
 **Use Docker if you need:**
-- To run web services, databases, or APIs
-- CI/CD pipelines and build environments
-- Production-ready container deployments
-- Microservices architecture
-- Kubernetes or container orchestration
+
+- Compatibility with tools that require full Docker semantics (e.g. DDEV)
+- `docker-compose.yml` workflows that do not work under `podman-compose`
 
 **Use Distrobox if you need:**
+
 - Interactive development shells
 - GUI applications from other distros
 - Ubuntu/Debian packages on Fedora
@@ -31,18 +38,21 @@ This project supports three distinct containerization technologies, each serving
 
 ## Overview Comparison
 
-| Technology | Type | Primary Use Case | GUI Support | Home Access | Management Complexity |
-|------------|------|-----------------|-------------|-------------|---------------------|
-| **LXC** | System Containers | Isolated environments, testing | Manual setup | Isolated | High |
-| **Docker** | Application Containers | Services, deployments | Manual setup | Isolated | Medium |
-| **Distrobox** | Development Shells | Interactive development | Automatic | Shared by default | Low |
+| Technology    | Type                   | Primary Use Case                     | GUI Support  | Home Access       | Management Complexity |
+| ------------- | ---------------------- | ------------------------------------ | ------------ | ----------------- | --------------------- |
+| **Podman**    | Application Containers | Default engine, CCY, daily use       | Manual setup | Isolated          | Low                   |
+| **LXC**       | System Containers      | Isolated environments, testing       | Manual setup | Isolated          | High                  |
+| **Docker**    | Application Containers | Compatibility (DDEV, docker-compose) | Manual setup | Isolated          | Medium                |
+| **Distrobox** | Development Shells     | Interactive development              | Automatic    | Shared by default | Low                   |
 
 ## LXC (Linux Containers)
 
 ### What is LXC?
+
 LXC provides system-level containerization, creating lightweight virtual machines with their own complete Linux userspace, init system, and network stack.
 
 ### Key Characteristics
+
 - **Full system containers** - Complete Linux environment with systemd
 - **Near-VM experience** - Feels like a separate operating system
 - **Privileged by default** - Can run multiple services and processes
@@ -51,6 +61,7 @@ LXC provides system-level containerization, creating lightweight virtual machine
 - **Resource overhead** - More than app containers, less than VMs
 
 ### Use Cases
+
 - **Multi-environment testing** - Test applications in different distros
 - **Isolated development** - Complete separation from host system
 - **System service testing** - Test systemd services, networking configs
@@ -58,12 +69,15 @@ LXC provides system-level containerization, creating lightweight virtual machine
 - **Legacy application support** - Run older distro versions for compatibility
 
 ### Installation
+
 Installed automatically by the main playbook:
+
 ```bash
 # Already configured in playbook-main.yml
 ```
 
 Key features configured:
+
 - SELinux in permissive mode for container compatibility
 - lxcbr0 network bridge in trusted firewall zone
 - Insecure SSH key (`~/.ssh/id_lxc`) for container access
@@ -72,6 +86,7 @@ Key features configured:
 - Kernel modules for Docker/OpenVPN in containers
 
 ### Usage Examples
+
 ```bash
 # Create a container
 sudo lxc-create -n mycontainer -t download -- -d ubuntu -r jammy -a amd64
@@ -93,12 +108,14 @@ sudo lxc-destroy -n mycontainer
 ```
 
 ### Advanced: Docker-in-LXC
+
 For isolated Docker development environments, see `play-docker-in-lxc-support.yml` in the experimental playbooks section.
 
 This configuration:
+
 - Loads required kernel modules (overlay, br_netfilter)
 - Configures sysctl for IP forwarding and bridge netfilter
-- Enables user namespaces for rootless Docker
+- Enables user namespaces for Docker-in-LXC
 - Installs `docker-in-lxc` command for project-based LXC containers
 
 ```bash
@@ -118,9 +135,11 @@ docker-compose up
 ## Docker
 
 ### What is Docker?
+
 Docker is an application containerization platform designed for packaging, distributing, and running isolated services and applications.
 
 ### Key Characteristics
+
 - **Application-focused** - Run single services/applications
 - **Immutable by design** - Build images, deploy containers from them
 - **Service-oriented** - Designed for daemons, microservices, APIs
@@ -130,6 +149,7 @@ Docker is an application containerization platform designed for packaging, distr
 - **Stateless preference** - Data persistence via volumes
 
 ### Use Cases
+
 - **Web services** - Run web servers, APIs, microservices
 - **Databases** - Isolated database instances
 - **CI/CD pipelines** - Reproducible build and test environments
@@ -138,20 +158,23 @@ Docker is an application containerization platform designed for packaging, distr
 - **Distribution** - Package applications with all dependencies
 
 ### Installation
-Optional playbook (run manually):
+
+Installed automatically by the main playbook (`playbooks/imports/play-docker.yml` is a core import of `playbook-main.yml`). To run it standalone:
+
 ```bash
-ansible-playbook playbooks/imports/optional/common/play-docker.yml
+ansible-playbook playbooks/imports/play-docker.yml
 ```
 
 Configuration details:
+
 - Adds Docker CE repository
 - Installs Docker CE, CLI, containerd, buildx, compose
-- Configures **rootless Docker** for security
-- Sets up user namespace ID mapping
-- Enables user systemd service (no sudo required)
-- Configures subuid/subgid ranges for user
+- Configures **rootful Docker** (system daemon, `docker` group — see [Security Considerations](#docker-1))
+- Enables and starts `docker.socket` and `docker.service` (system-level, not user-level)
+- Adds the user to the `docker` group (log out and back in, or run `newgrp docker`)
 
 ### Usage Examples
+
 ```bash
 # Run a service
 docker run -d -p 8080:80 nginx
@@ -173,30 +196,85 @@ docker-compose down
 docker system prune -a
 ```
 
-### Rootless Docker
-This project configures rootless Docker, which:
-- Runs Docker daemon as regular user (no root)
-- Uses user namespaces for isolation
-- Service managed via `systemctl --user`
-- Enhanced security posture
+### Rootful Docker (System Daemon)
+
+This project installs Docker as a **rootful system daemon**. This is a deliberate choice driven by DDEV's requirement for standard Docker semantics — see `CLAUDE/ContainerEngines.md` for the full rationale.
+
+Key implications:
+
+- Docker daemon runs as root (`docker.service` system unit)
+- `docker` group membership is **root-equivalent** — any member can gain root on the host
+- For daily use, prefer Podman (rootless, no daemon required)
 
 ```bash
 # Check service status
-systemctl --user status docker
+systemctl status docker --no-pager -l
 
 # Restart service
-systemctl --user restart docker
+sudo systemctl restart docker
 
 # View logs
-journalctl --user -u docker
+journalctl -u docker --no-pager -n 50
 ```
+
+## Podman
+
+### What is Podman?
+
+Podman is the **default container engine** for this project. It is a daemonless, rootless OCI container engine that is fully compatible with Docker images and most `docker-compose.yml` workflows.
+
+### Key Characteristics
+
+- **Rootless by default** — containers run in your user namespace; no root daemon, no `docker` group
+- **Daemonless** — `podman run` directly spawns containers; no always-on service to crash or attack
+- **OCI-compliant** — images built with `podman build` are identical to Docker images
+- **Fedora-native** — Red Hat maintains Podman; it ships pre-installed on Fedora
+
+### What Uses Podman in This Repo
+
+- **CCY (`ccy`)** — the main daily-driver Claude Code container (`--engine podman` is the default)
+- **Claude devtools** (`play-claude-devtools.yml`)
+- All new container work should default to Podman; use the `container_engine` variable, not a hardcoded engine name
+
+### Installation
+
+Installed automatically by the main playbook (`playbooks/imports/play-podman.yml` is a core import):
+
+```bash
+# Already configured in playbook-main.yml
+```
+
+### Usage Examples
+
+```bash
+# Run a container
+podman run -d -p 8080:80 nginx
+
+# Build an image
+podman build -t myapp:latest .
+
+# Use compose for multi-container apps
+podman-compose up -d
+
+# View running containers
+podman ps
+
+# List local images
+podman images
+```
+
+### Further Reading
+
+See `CLAUDE/ContainerEngines.md` for the complete Podman-first policy, the rationale for rootful Docker as a compatibility layer, and the FAQ.
 
 ## Distrobox
 
 ### What is Distrobox?
+
 Distrobox is a wrapper around Podman/Docker that creates seamlessly integrated development environments, making containers feel like native shell sessions.
 
 ### Key Characteristics
+
 - **Desktop integration** - Containers blend with host system
 - **Home directory shared** - Auto-mounts `~/` into container
 - **GUI automatic** - X11/Wayland forwarded without configuration
@@ -207,15 +285,18 @@ Distrobox is a wrapper around Podman/Docker that creates seamlessly integrated d
 - **No root needed** - Runs as regular user (rootless)
 
 ### The Distrobox Philosophy
+
 Distrobox solves: **"I use Fedora, but this tool only works on Ubuntu"**
 
 You get Ubuntu's package ecosystem and compatibility while:
+
 - Working on your Fedora home directory
 - Using your Fedora desktop
 - Staying in your Fedora session
 - Accessing all your host files
 
 ### Use Cases
+
 - **Development environments** - Different distros for different projects
 - **Tool compatibility** - Use Ubuntu/Debian-only tools on Fedora
 - **Package availability** - Access packages not available in Fedora
@@ -224,12 +305,15 @@ You get Ubuntu's package ecosystem and compatibility while:
 - **GUI applications** - Run graphical apps from other distros
 
 ### Installation
+
 Optional playbook (run manually):
+
 ```bash
 ansible-playbook playbooks/imports/optional/common/play-distrobox.yml
 ```
 
 ### Basic Usage
+
 ```bash
 # Create a container
 distrobox create --name mydev --image ubuntu:22.04
@@ -270,6 +354,7 @@ ls ~/   # Your actual home directory
 ```
 
 **What's shared:**
+
 - Home directory (`~/`)
 - Current directory (`$PWD`)
 - User ID and group ID
@@ -279,18 +364,20 @@ ls ~/   # Your actual home directory
 - Network (same as host)
 
 **What's different:**
+
 - Package manager (apt vs dnf)
 - System libraries
 - Available packages
 - Init system (limited)
 
-### Custom Dockerfiles for CCY
+## Custom Dockerfiles
 
 `ccy` supports project-specific container customization through custom Dockerfiles. This allows you to extend the base container with additional tools, languages, and dependencies needed for your specific project.
 
-#### When to Use Custom Dockerfiles
+### When to Use Custom Dockerfiles
 
 Create a custom Dockerfile when you need:
+
 - **Additional languages**: Python 3.12, Go, Rust, Ruby, Java
 - **Build tools**: make, cmake, gradle, maven, specific compiler versions
 - **Database clients**: postgresql-client, mysql-client, mongodb tools
@@ -298,9 +385,10 @@ Create a custom Dockerfile when you need:
 - **Development tools**: Language-specific linters, formatters, test frameworks
 - **System libraries**: Dependencies for native extensions
 
-#### Two Approaches Available
+### Two Approaches Available
 
 **Quick Template-Based (`--custom`)**:
+
 ```bash
 cd ~/Projects/my-project
 ccy --custom
@@ -312,6 +400,7 @@ ccy --custom
 ```
 
 **AI-Guided Planning (`--custom-docker`)**:
+
 ```bash
 cd ~/Projects/my-project
 ccy --custom-docker
@@ -325,28 +414,30 @@ ccy --custom-docker
 # 6. Provides clear next steps
 ```
 
-#### How It Works
+### How It Works
 
 **Dockerfile Fallback Priority**
 
 This is the key thing to understand. When `ccy` starts, it looks for a Dockerfile in this order:
 
-| Priority | `ccy` looks for | Result |
-|----------|-----------------|--------|
+| Priority    | `ccy` looks for          | Result               |
+| ----------- | ------------------------ | -------------------- |
 | 1 (highest) | `.claude/ccy/Dockerfile` | Custom project image |
-| 2 (default) | *(none found)* | Base image only |
+| 2 (default) | *(none found)*           | Base image only      |
 
 **Built image names:**
+
 - `ccy` builds: `claude-yolo:<project-name>`
 - Automatic rebuilds when Dockerfile changes detected
 - Fast rebuilds with cache mounts
 
 **What's already included in the base image:**
+
 - Node.js 20, npm, Python 3, git, gh CLI, Claude Code (latest)
 - Development tools: ripgrep, jq, yq, vim
 - agent-browser CLI for token-efficient browser automation via Chromium
 
-#### Example Workflow
+### Example Workflow
 
 **Creating a Custom Dockerfile for a Python Project:**
 
@@ -386,6 +477,7 @@ ccy --custom-docker
 ```
 
 **Result:**
+
 ```dockerfile
 # .claude/ccy/Dockerfile
 FROM claude-yolo:latest
@@ -443,11 +535,12 @@ RUN python3.12 --version && \
     aws --version
 ```
 
-#### Updating Existing Dockerfiles
+### Updating Existing Dockerfiles
 
 If a Dockerfile already exists, `--custom-docker` offers two options:
 
 **Analyze and Improve:**
+
 ```bash
 ccy --custom-docker
 # Option 1: Analyze and propose improvements
@@ -460,6 +553,7 @@ ccy --custom-docker
 ```
 
 **Replace with New:**
+
 ```bash
 ccy --custom-docker
 # Option 2: Replace with new
@@ -468,9 +562,10 @@ ccy --custom-docker
 # Old Dockerfile backed up automatically
 ```
 
-#### Best Practices
+### Best Practices
 
 **Cache Mounts for Speed:**
+
 ```dockerfile
 # Good - Uses cache mounts (30 second rebuilds)
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -482,6 +577,7 @@ RUN apt-get update && apt-get install -y python3
 ```
 
 **Keep It Minimal:**
+
 ```dockerfile
 # Good - Only install tools
 RUN apt-get install -y golang-1.21
@@ -492,6 +588,7 @@ RUN go mod download  # ❌ Wrong - happens at runtime
 ```
 
 **Document Everything:**
+
 ```dockerfile
 # Good - Explains why
 # PostgreSQL Client for development database
@@ -503,6 +600,7 @@ RUN apt-get install -y postgresql-client-15
 ```
 
 **Verify Installations:**
+
 ```dockerfile
 # Good - Catches build failures early
 RUN go version && golangci-lint --version
@@ -511,7 +609,7 @@ RUN go version && golangci-lint --version
 RUN apt-get install -y golang-1.21 golangci-lint
 ```
 
-#### Saving Dockerfiles as Templates
+### Saving Dockerfiles as Templates
 
 If you create a Dockerfile you want to reuse:
 
@@ -526,24 +624,26 @@ sudo cp .claude/ccy/Dockerfile \
 # - Can be shared across projects
 ```
 
-#### Troubleshooting Custom Builds
+### Troubleshooting Custom Builds
 
 **Build fails:**
+
 ```bash
 # Check Dockerfile syntax
-docker build --check .claude/ccy/
+podman build --check .claude/ccy/
 
 # Manual build to see errors
-cd .claude/ccy && docker build -t test .
+cd .claude/ccy && podman build -t test .
 
 # Check logs
 ccy --rebuild
 ```
 
 **Image too large:**
+
 ```bash
 # Check image size
-docker images | grep claude-yolo
+podman images | grep claude-yolo
 
 # Reduce size:
 # - Use --no-install-recommends with apt
@@ -553,6 +653,7 @@ docker images | grep claude-yolo
 ```
 
 **Slow rebuilds:**
+
 ```bash
 # Add cache mounts (see Best Practices above)
 # - apt cache: /var/cache/apt and /var/lib/apt
@@ -562,6 +663,7 @@ docker images | grep claude-yolo
 ```
 
 **Dockerfile doesn't update:**
+
 ```bash
 # Force rebuild
 ccy --rebuild
@@ -570,25 +672,27 @@ ccy --rebuild
 git status .claude/ccy/Dockerfile
 ```
 
-#### Comparison: --custom vs --custom-docker
+### Comparison: --custom vs --custom-docker
 
-| Feature | `--custom` | `--custom-docker` |
-|---------|------------|-------------------|
-| **Speed** | Fast (template selection) | Slower (investigation + planning) |
-| **Guidance** | Basic | Comprehensive AI planning |
-| **Investigation** | None | Deep project analysis |
-| **Questions** | None | Targeted, contextual |
-| **Proposals** | None | Feature list with reasoning |
-| **Validation** | None | Syntax + logic checks |
-| **Education** | Minimal | Extensive comments |
-| **Best for** | Known tech stack | Unknown needs, learning |
+| Feature           | `--custom`                | `--custom-docker`                 |
+| ----------------- | ------------------------- | --------------------------------- |
+| **Speed**         | Fast (template selection) | Slower (investigation + planning) |
+| **Guidance**      | Basic                     | Comprehensive AI planning         |
+| **Investigation** | None                      | Deep project analysis             |
+| **Questions**     | None                      | Targeted, contextual              |
+| **Proposals**     | None                      | Feature list with reasoning       |
+| **Validation**    | None                      | Syntax + logic checks             |
+| **Education**     | Minimal                   | Extensive comments                |
+| **Best for**      | Known tech stack          | Unknown needs, learning           |
 
 **When to use `--custom`:**
+
 - You know exactly what you need
 - Using a common tech stack (Ansible, Go)
 - Want quick setup
 
 **When to use `--custom-docker`:**
+
 - Unsure what tools are needed
 - Complex/multi-language project
 - Want to learn best practices
@@ -597,6 +701,7 @@ git status .claude/ccy/Dockerfile
 ## Choosing the Right Technology
 
 ### Use LXC when you need:
+
 - ✅ Complete isolated Linux system
 - ✅ Multiple running services (systemd)
 - ✅ Custom network configuration
@@ -604,6 +709,7 @@ git status .claude/ccy/Dockerfile
 - ✅ Long-running environments
 
 ### Use Docker when you need:
+
 - ✅ Application/service deployment
 - ✅ CI/CD pipelines
 - ✅ Microservices architecture
@@ -611,6 +717,7 @@ git status .claude/ccy/Dockerfile
 - ✅ Container orchestration (Kubernetes)
 
 ### Use Distrobox when you need:
+
 - ✅ Interactive development shells
 - ✅ Access to different distro packages
 - ✅ GUI applications from other distros
@@ -621,6 +728,7 @@ git status .claude/ccy/Dockerfile
 ## Real-World Examples
 
 ### Example 1: Web Application Development
+
 ```bash
 # LXC: Full isolated staging environment
 sudo lxc-create -n staging -t download -- -d ubuntu -r jammy -a amd64
@@ -637,18 +745,20 @@ npm install && npm run dev  # Browser opens on host desktop
 ```
 
 ### Example 2: Browser Automation Testing
+
 ```bash
 # Bad: Install Playwright on Fedora (pollutes host, may break)
 npm install playwright  # ❌ System library conflicts, desktop pollution
 
 # Good: Use CCY with built-in agent-browser
 cd ~/Projects/my-project
-ccy  # ✅ Docker-based, isolated, headed browser mode
+ccy  # ✅ Podman-based (default engine), isolated, headed browser mode
 # agent-browser is pre-installed — ask Claude to navigate, screenshot, test
 # Browser windows appear on your desktop via Wayland forwarding
 ```
 
 ### Example 3: Multi-Distro Testing
+
 ```bash
 # LXC: Test deployment scripts
 sudo lxc-create -n ubuntu-test -t download
@@ -663,29 +773,33 @@ distrobox create --name arch-dev --image archlinux:latest
 
 ## Performance Comparison
 
-| Aspect | LXC | Docker | Distrobox |
-|--------|-----|--------|-----------|
-| **Startup Time** | ~5-10s | ~1-3s | <1s |
-| **Memory Overhead** | ~50-100MB | ~10-50MB | ~5-20MB |
-| **Storage Overhead** | ~500MB-1GB | ~100-500MB | ~100-500MB |
-| **CPU Overhead** | Minimal | Minimal | Minimal |
-| **I/O Performance** | Near-native | Near-native | Native (shared FS) |
+| Aspect               | LXC         | Docker      | Distrobox          |
+| -------------------- | ----------- | ----------- | ------------------ |
+| **Startup Time**     | ~5-10s      | ~1-3s       | \<1s               |
+| **Memory Overhead**  | ~50-100MB   | ~10-50MB    | ~5-20MB            |
+| **Storage Overhead** | ~500MB-1GB  | ~100-500MB  | ~100-500MB         |
+| **CPU Overhead**     | Minimal     | Minimal     | Minimal            |
+| **I/O Performance**  | Near-native | Near-native | Native (shared FS) |
 
 ## Security Considerations
 
 ### LXC
+
 - Full system containers require careful security configuration
 - SELinux in permissive mode (configured by playbook)
 - Insecure SSH key for convenience (not for production)
 - Containers can be privileged or unprivileged
 
 ### Docker
-- Rootless mode configured (enhanced security)
-- User namespace isolation
+
+- **Rootful system daemon** — `docker.service` runs as root
+- `docker` group membership is **root-equivalent** (any member can gain full root access)
+- Deliberate trade-off for DDEV compatibility — see `CLAUDE/ContainerEngines.md` for rationale
 - Limited host access by default
 - No privileged operations without explicit flags
 
 ### Distrobox
+
 - Shares home directory (access to all your files)
 - Uses host network (no isolation)
 - Same UID inside and outside (by design)
@@ -695,6 +809,7 @@ distrobox create --name arch-dev --image archlinux:latest
 ## Maintenance
 
 ### LXC Maintenance
+
 ```bash
 # Update container
 sudo lxc-attach -n mycontainer -- apt update && apt upgrade -y
@@ -712,19 +827,20 @@ This project uses [lxc-bash](https://github.com/LongTermSupport/lxc-bash) for en
 
 **What it provides:**
 
-| Command | Description |
-|---------|-------------|
-| `lxc-ls` | List all containers with status (alias for `sudo lxc-ls -f`) |
-| `lxc-start <name>` | Start a stopped container (with tab completion) |
-| `lxc-stop <name>` | Stop a running container (with tab completion) |
-| `lxc-attach <name>` | Attach to container, auto-starting if stopped |
-| `lxc-shutdown <name>` | Gracefully shutdown container via poweroff |
-| `lxc-info <name>` | Show container info |
-| `lxc-freeze <name>` | Freeze a running container |
-| `lxc-unfreeze <name>` | Unfreeze a frozen container |
+| Command               | Description                                                  |
+| --------------------- | ------------------------------------------------------------ |
+| `lxc-ls`              | List all containers with status (alias for `sudo lxc-ls -f`) |
+| `lxc-start <name>`    | Start a stopped container (with tab completion)              |
+| `lxc-stop <name>`     | Stop a running container (with tab completion)               |
+| `lxc-attach <name>`   | Attach to container, auto-starting if stopped                |
+| `lxc-shutdown <name>` | Gracefully shutdown container via poweroff                   |
+| `lxc-info <name>`     | Show container info                                          |
+| `lxc-freeze <name>`   | Freeze a running container                                   |
+| `lxc-unfreeze <name>` | Unfreeze a frozen container                                  |
 
 **Tab completion:**
 All commands have intelligent tab completion that filters by container state:
+
 - `lxc-start` only shows STOPPED containers
 - `lxc-stop` only shows RUNNING containers
 - `lxc-freeze` only shows RUNNING containers
@@ -733,6 +849,7 @@ All commands have intelligent tab completion that filters by container state:
 **Location:** Cloned to `~/Projects/lxc-bash/` and sourced from `~/.bashrc`
 
 ### Docker Maintenance
+
 ```bash
 # Update images
 docker pull image:latest
@@ -745,6 +862,7 @@ docker system df
 ```
 
 ### Distrobox Maintenance
+
 ```bash
 # Update container
 distrobox enter mycontainer
@@ -762,7 +880,9 @@ sudo dnf upgrade distrobox
 ## Troubleshooting
 
 ### LXC Issues
+
 **Container won't get IP address:**
+
 ```bash
 sudo systemctl restart lxc
 sudo firewall-cmd --zone=trusted --change-interface=lxcbr0 --permanent
@@ -770,6 +890,7 @@ sudo firewall-cmd --reload
 ```
 
 **SSH connection fails:**
+
 ```bash
 # Check SSH key
 ls ~/.ssh/id_lxc
@@ -778,21 +899,29 @@ grep -A 5 "10.0.*.*" ~/.ssh/config
 ```
 
 ### Docker Issues
+
 **Permission denied:**
+
 ```bash
-# Check rootless service
-systemctl --user status docker
-systemctl --user restart docker
+# Check system Docker service
+systemctl status docker --no-pager -l
+sudo systemctl restart docker
+
+# If newly added to docker group, log out and back in (or run):
+newgrp docker
 ```
 
 **Out of space:**
+
 ```bash
 docker system prune -a
 docker volume prune
 ```
 
 ### Distrobox Issues
+
 **Container won't start:**
+
 ```bash
 # Check podman/docker
 podman ps -a
@@ -805,6 +934,7 @@ distrobox create --name mycontainer --image ubuntu:22.04
 ```
 
 **GUI apps don't work:**
+
 ```bash
 # Check X11 forwarding
 echo $DISPLAY  # Should show something like :0 or :1

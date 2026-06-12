@@ -242,6 +242,20 @@ stop_recording() {
     fi
 }
 
+# EXT-03: refuse to clobber a live recorder's PID file. If one already exists and
+# its process is still alive, another instance is already recording. Bail here —
+# BEFORE the EXIT-cleanup trap is installed (so we do not delete the live instance's
+# PID file) and BEFORE pw-record starts (so we do not orphan a second recorder).
+if [ -f "$PID_FILE" ]; then
+    existing_pid=$(cat "$PID_FILE" 2>/dev/null) || existing_pid=""
+    if [ -n "$existing_pid" ] && kill -0 "$existing_pid" 2>/dev/null; then
+        log_debug "Another recorder is already running (PID $existing_pid); refusing to start a second"
+        echo "wsi: already recording (PID $existing_pid); not starting a second recorder" >&2
+        exit 1
+    fi
+    log_debug "Stale PID file found (no live process for ${existing_pid:-unknown}); will overwrite"
+fi
+
 # Trap EXIT for final cleanup
 trap cleanup EXIT
 # Trap TERM/INT to stop recording but continue script

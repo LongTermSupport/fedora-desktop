@@ -1,6 +1,5 @@
 #!/usr/bin/env ansible-playbook
 ---
-#!/usr/bin/env ansible-playbook
 # NordVPN OpenVPN Manager
 #
 # Deploys a bash script (nord) to manage NordVPN OpenVPN connections via NetworkManager CLI.
@@ -169,8 +168,11 @@
     - name: Add OpenVPN to Firewalld
       become: true
       ansible.builtin.shell: |
+        set -euo pipefail
         firewall-cmd --add-service openvpn --permanent
         firewall-cmd --reload
+      args:
+        executable: /bin/bash
       register: firewall_result
       changed_when: "'ALREADY_ENABLED' not in firewall_result.stderr"
       when: firewalld_status.rc == 0

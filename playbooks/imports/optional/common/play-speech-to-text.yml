@@ -1,6 +1,5 @@
 #!/usr/bin/env ansible-playbook
 ---
-#!/usr/bin/env ansible-playbook
 # Speech-to-Text GNOME Extension with GPU-accelerated Whisper (faster-whisper)
 #
 # Prerequisites: NVIDIA drivers installed via play-nvidia.yml
@@ -266,14 +265,11 @@
         extra_args: --user --resume-retries 5
         state: present
 
-    - name: Stop wsi-stream-server if Running (to pick up updated scripts)
-      become: true
-      become_user: "{{ user_login }}"
-      ansible.builtin.shell:
-        cmd: pkill -f wsi-stream-server
-      register: pkill_result
-      changed_when: pkill_result.rc == 0
-      failed_when: pkill_result.rc not in [0, 1]  # 1 = no process found, that's fine
+    # PERF-11: the warm streaming server (which loads the speech model — "CAN TAKE MANY
+    # MINUTES") is no longer killed unconditionally on every play run. The deploy tasks for
+    # the streaming scripts below notify the `restart wsi-stream-server` handler, so the
+    # server is only stopped (and thus cold-started on the next dictation) when a deployed
+    # script actually changed.
 
     - name: Deploy Streaming Script (wsi-stream)
       ansible.builtin.copy:
@@ -282,6 +278,7 @@
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: '0755'
+      notify: restart wsi-stream-server
 
     - name: Deploy Streaming Server Script (wsi-stream-server)
       ansible.builtin.copy:
@@ -290,6 +287,7 @@
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: '0755'
+      notify: restart wsi-stream-server
 
     - name: Deploy Whisper Model Manager (wsi-model-manager)
       ansible.builtin.copy:
@@ -483,3 +481,15 @@
       ansible.builtin.debug:
         msg: "⚠ Extension will be enabled on next GNOME session start (no active session detected)"
       when: enable_result.rc != 0
+
+  handlers:
+    # Stop the warm streaming server so the next dictation cold-starts it with the updated
+    # script. Only fires when a wsi-stream / wsi-stream-server deploy task reported changed.
+    - name: restart wsi-stream-server
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.shell:
+        cmd: pkill -f wsi-stream-server
+      register: pkill_result
+      changed_when: pkill_result.rc == 0
+      failed_when: pkill_result.rc not in [0, 1]  # 1 = no process found, that's fine

@@ -4,6 +4,7 @@ Enforces infrastructure-as-code principle: edit project files in files/
 directory and deploy via Ansible, never edit deployed files directly.
 """
 
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,70 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "hooks-daemon/src")
 from claude_code_hooks_daemon.core import Decision, Handler, HookResult
 from claude_code_hooks_daemon.core.acceptance_test import AcceptanceTest, TestType
 from claude_code_hooks_daemon.core.utils import get_file_path
+
+# Sentinel files whose presence at a directory confirms it is the project root.
+# Used by _resolve_project_root() to guard against a wrong parents[N] depth.
+_ROOT_SENTINELS = (".claude/settings.json", "CLAUDE.md")
+
+
+def _resolve_project_root() -> str:
+    """Return the project root directory (with trailing slash).
+
+    Derives the root from this file's own location (five parents up), then
+    verifies the result by checking for a sentinel file.  If the depth
+    assumption is wrong, falls back to the CLAUDE_PROJECT_DIR env var.
+    Raises RuntimeError if neither source yields a verifiable root so that
+    a misconfiguration fails loudly rather than silently mis-exempting paths.
+    """
+    # This file lives at:
+    #   <project_root>/.claude/hooks/handlers/pre_tool_use/system_paths.py
+    # so project_root is five parents up.
+    derived = Path(__file__).resolve().parents[4]
+    if any((derived / sentinel).exists() for sentinel in _ROOT_SENTINELS):
+        return str(derived) + "/"
+
+    # Depth assumption appears wrong — fall back to the env var if available.
+    env_root = os.environ.get("CLAUDE_PROJECT_DIR", "").strip()
+    if env_root:
+        env_path = Path(env_root).resolve()
+        if any((env_path / sentinel).exists() for sentinel in _ROOT_SENTINELS):
+            return str(env_path) + "/"
+        raise RuntimeError(
+            f"system_paths handler: CLAUDE_PROJECT_DIR={env_root!r} does not "
+            f"contain a sentinel ({_ROOT_SENTINELS}).  Cannot determine project "
+            "root — refusing to run to avoid mis-exempting system paths."
+        )
+
+    raise RuntimeError(
+        f"system_paths handler: derived project root {derived!r} (parents[4] of "
+        f"{__file__!r}) does not contain a sentinel ({_ROOT_SENTINELS}) and "
+        "CLAUDE_PROJECT_DIR is not set.  Cannot determine project root — refusing "
+        "to run to avoid mis-exempting system paths."
+    )
+
+
+def _is_claude_projects_path(resolved: str) -> bool:
+    """Return True if *resolved* is under a Claude Code agent runtime directory.
+
+    Matches /root/.claude/projects/... and /home/<user>/.claude/projects/...
+    using a resolved-prefix check, not a substring match, so a crafted path
+    like /var/evil/.claude/projects/../../etc/passwd cannot bypass the block.
+    """
+    if resolved.startswith("/root/.claude/projects/"):
+        return True
+    # /home/<user>/.claude/projects/  — match exactly three leading components
+    # before .claude so we don't accidentally exempt /home/user/work/.claude/...
+    if resolved.startswith("/home/"):
+        parts = Path(resolved).parts  # ('/', 'home', '<user>', '.claude', ...)
+        # parts[0]='/', parts[1]='home', parts[2]=<user>, parts[3]='.claude',
+        # parts[4]='projects'
+        if (
+            len(parts) >= 5
+            and parts[3] == ".claude"
+            and parts[4] == "projects"
+        ):
+            return True
+    return False
 
 
 class SystemPathsHandler(Handler):
@@ -62,21 +127,20 @@ class SystemPathsHandler(Handler):
         # the HOST (not inside a /workspace CCY container), the project itself
         # lives under /home/<user>/..., and legitimately editing its own files
         # must not be confused with editing deployed system files.
-        # Derive project root from this handler's own location — the daemon
-        # process does not receive CLAUDE_PROJECT_DIR as an env var, so
-        # os.environ is unreliable here. This file lives at:
-        #   <project_root>/.claude/hooks/handlers/pre_tool_use/system_paths.py
-        # so project_root is five parents up.
-        project_dir = str(Path(__file__).resolve().parents[4]) + "/"
+        # _resolve_project_root() verifies the derived path against a sentinel
+        # so a wrong parents[N] depth fails loudly instead of silently
+        # over-exempting an unrelated directory.
+        project_dir = _resolve_project_root()
         if file_path.startswith(project_dir):
             return False
 
         # Exempt the Claude Code agent's own runtime directory. This holds
         # the agent's memory, session state, todos and plans — it is not
-        # deployed system config. The path is /root/.claude/projects/ when
-        # the agent runs as root inside CCY, or /home/<user>/.claude/projects/
-        # when running on host, so match the subpath rather than a prefix.
-        if "/.claude/projects/" in file_path:
+        # deployed system config.
+        # Use a resolved-prefix check (not a substring match) so a crafted
+        # path containing /.claude/projects/ mid-string cannot bypass the block.
+        resolved = str(Path(file_path).resolve())
+        if _is_claude_projects_path(resolved):
             return False
 
         # Check if file_path starts with any blocked system path

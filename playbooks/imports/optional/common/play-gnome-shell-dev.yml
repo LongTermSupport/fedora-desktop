@@ -1,6 +1,5 @@
 #!/usr/bin/env ansible-playbook
 ---
-#!/usr/bin/env ansible-playbook
 # GNOME Shell Development Tools
 # Installs tools for developing and testing GNOME Shell extensions
 #

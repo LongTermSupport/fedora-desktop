@@ -46,7 +46,9 @@ scripts/qa-ccy/package-lock.json
 .env
 .env.*
 !.env.example
-!.env.dist# Security incident documentation - DO NOT COMMIT
+!.env.dist
+
+# Security incident documentation - DO NOT COMMIT
 SECURITY-INCIDENT-LOG.md
 FORCE-PUSH-REQUIRED.md
 *-incident*.md
@@ -56,6 +58,17 @@ FORCE-PUSH-REQUIRED.md
 
 # Claude Code managed worktrees
 .claude/worktrees/
+
+# Claude Code runtime artifacts (session-local state, never commit)
+.claude/scheduled_tasks.lock
+.claude/scheduled_tasks.json
+.claude/routines/.state/
+.claude/checkpoints/
+.claude/mailbox/
+.claude/agent-registry.json
+.claude/agent-memory-local
+.claude/first-run
+.claude/assistant-daemon-state.json
 
 # ClaudeMdInjector backup (session artifact, never commit)
 .CLAUDE.md.pre-inject

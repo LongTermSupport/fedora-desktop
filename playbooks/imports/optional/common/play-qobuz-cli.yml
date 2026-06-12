@@ -23,8 +23,11 @@
     # Version detection for hifi-rs
     - name: Get latest hifi-rs version
       ansible.builtin.shell: |
+        set -euo pipefail
         curl -s https://api.github.com/repos/iamdb/hifi.rs/releases/latest |
         jq -r '.tag_name' | sed 's/^v//'
+      args:
+        executable: /bin/bash
       register: hifiRsLatestVersion
       when: hifiRsVersion == "latest"
       changed_when: false
@@ -42,8 +45,11 @@
     # Tag scheme is date-based (e.g. v2026-05-11), not semver.
     - name: Get latest qobuz-player version
       ansible.builtin.shell: |
+        set -euo pipefail
         curl -s https://api.github.com/repos/SofusA/qobine/releases/latest |
         jq -r '.tag_name' | sed 's/^v//'
+      args:
+        executable: /bin/bash
       register: qobuzPlayerLatestVersion
       when: qobuzPlayerVersion == "latest"
       changed_when: false
@@ -64,7 +70,7 @@
 
     - name: Install hifi-rs
       ansible.builtin.shell: |
-        set -ex
+        set -exuo pipefail
         if [[ -f {{ hifiRsPath }} ]]; then
           installedVersion="$(hifi-rs --version | grep -Po '[0-9.]+')"
           desiredVersion="{{ hifiRsVersionFinal }}"
@@ -85,11 +91,11 @@
 
     - name: Install qobuz-player
       ansible.builtin.shell: |
-        set -ex
+        set -exuo pipefail
         if [[ -f {{ qobuzPlayerPath }} ]]; then
           # Parse version from first line, last whitespace-separated token.
           # Previous regex matched stray hyphens in multi-line output.
-          installedVersion="$(qobuz-player --version 2>/dev/null | head -n1 | awk '{print $NF}' || true)"
+          installedVersion="$(qobuz-player --version 2>/dev/null | head -n1 | awk '{print $NF}')" || installedVersion=""
           desiredVersion="{{ qobuzPlayerVersionFinal }}"
           if [[ "$installedVersion" == "$desiredVersion" ]]; then
             echo "installed version $installedVersion matches desired version $desiredVersion"
@@ -119,6 +125,7 @@
 
     - name: Install Recsrobbled
       ansible.builtin.shell: |
+        set -euo pipefail
         cd /home/{{ user_login }}/Downloads
         rm -rf rescrobbled*
         wget "{{ rescrobbledUrl }}"
@@ -179,34 +186,72 @@
             lastfm_api_key: "{{ lastfm_key_prompt.user_input }}"
             lastfm_api_secret: "{{ lastfm_secret_prompt.user_input }}"
 
-        - name: Vault-encrypt and save Last.fm API Key to localhost.yml
-          ansible.builtin.shell: |
-            printf '%s' '{{ lastfm_key_prompt.user_input }}' | \
-              ansible-vault encrypt_string --stdin-name 'lastfm_api_key' \
-              >> {{ root_dir }}/environment/localhost/host_vars/localhost.yml
+        # Pass the secret via stdin (NOT inline-templated into quoted shell):
+        # an apostrophe in the user input would otherwise break the single-quote
+        # context and inject shell. encrypt_string reads the value from stdin and
+        # emits the encrypted YAML block on stdout, which we capture then write
+        # idempotently with blockinfile below.
+        - name: Vault-encrypt Last.fm API Key
+          ansible.builtin.command:
+            argv:
+              - ansible-vault
+              - encrypt_string
+              - --stdin-name
+              - lastfm_api_key
           args:
-            executable: /bin/bash
+            stdin: "{{ lastfm_key_prompt.user_input }}"
+          register: lastfm_key_encrypted
+          changed_when: false
           no_log: true
 
-        - name: Vault-encrypt and save Last.fm API Secret to localhost.yml
-          ansible.builtin.shell: |
-            printf '%s' '{{ lastfm_secret_prompt.user_input }}' | \
-              ansible-vault encrypt_string --stdin-name 'lastfm_api_secret' \
-              >> {{ root_dir }}/environment/localhost/host_vars/localhost.yml
+        - name: Vault-encrypt Last.fm API Secret
+          ansible.builtin.command:
+            argv:
+              - ansible-vault
+              - encrypt_string
+              - --stdin-name
+              - lastfm_api_secret
           args:
-            executable: /bin/bash
+            stdin: "{{ lastfm_secret_prompt.user_input }}"
+          register: lastfm_secret_encrypted
+          changed_when: false
+          no_log: true
+
+        # blockinfile (markered) converges on re-runs instead of appending
+        # duplicate keys the way a raw `>>` redirect would.
+        - name: Save vault-encrypted Last.fm API Key to localhost.yml
+          ansible.builtin.blockinfile:
+            path: "{{ root_dir }}/environment/localhost/host_vars/localhost.yml"
+            marker: "# {mark} ANSIBLE MANAGED: lastfm_api_key"
+            block: "{{ lastfm_key_encrypted.stdout }}"
+            create: false
+          no_log: true
+
+        - name: Save vault-encrypted Last.fm API Secret to localhost.yml
+          ansible.builtin.blockinfile:
+            path: "{{ root_dir }}/environment/localhost/host_vars/localhost.yml"
+            marker: "# {mark} ANSIBLE MANAGED: lastfm_api_secret"
+            block: "{{ lastfm_secret_encrypted.stdout }}"
+            create: false
           no_log: true
 
         - name: Confirm credentials saved
           ansible.builtin.debug:
             msg: "Last.fm credentials saved to localhost.yml (vault-encrypted). Future runs will use them automatically."
 
+    # Contains the Last.fm API key + secret in plaintext, so lock it to 0600 and
+    # suppress logging/diff so `--diff` runs never print the credentials.
     - name: Configure Rescrobbled
       ansible.builtin.copy:
         content: |
           lastfm-key = "{{ lastfm_api_key }}"
           lastfm-secret = "{{ lastfm_api_secret }}"
         dest: /home/{{ user_login }}/.config/rescrobbled/config.toml
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0600"
+      no_log: true
+      diff: false
 
     - name: Create Systemd User Dir
       ansible.builtin.file:
@@ -275,20 +320,32 @@
       block:
         - name: Set qobuz-player username
           ansible.builtin.shell: |
+            set -euo pipefail
             {{ qobuzPlayerPath }} config username "{{ qobuz_username }}"
+          args:
+            executable: /bin/bash
           no_log: true
 
         - name: Set qobuz-player password
           ansible.builtin.shell: |
+            set -euo pipefail
             {{ qobuzPlayerPath }} config password "{{ qobuz_password }}"
+          args:
+            executable: /bin/bash
           no_log: true
 
         - name: Set qobuz-player audio quality
           ansible.builtin.shell: |
+            set -euo pipefail
             {{ qobuzPlayerPath }} config max-audio-quality hifi192
+          args:
+            executable: /bin/bash
         - name: Verify qobuz-player configuration
           ansible.builtin.shell: |
+            set -euo pipefail
             {{ qobuzPlayerPath }} api search test 2>&1
+          args:
+            executable: /bin/bash
           register: qobuz_player_verify
           failed_when: false  # FAIL-FAST-OK: probe — verifying API credentials are configured
           changed_when: false
@@ -481,7 +538,10 @@
 
     - name: Check if hifi-rs is configured with Qobuz credentials
       ansible.builtin.shell: |
+        set -euo pipefail
         hifi-rs api search test -o json 2>&1
+      args:
+        executable: /bin/bash
       register: hifirs_api_check
       failed_when: false  # FAIL-FAST-OK: probe — checking if Qobuz credentials are set
       changed_when: false
@@ -519,7 +579,10 @@
 
         - name: Verify hifi-rs API Access
           ansible.builtin.shell: |
+            set -euo pipefail
             hifi-rs api search test -o json
+          args:
+            executable: /bin/bash
           register: hifirs_api_verify
           changed_when: false
 

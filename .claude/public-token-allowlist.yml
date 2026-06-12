@@ -1,0 +1,25 @@
+# Public Token Allowlist
+#
+# This file lists identifiers that are INTENTIONALLY PUBLIC and therefore safe
+# to appear in this public repository. The pre-commit secret scanner builds a
+# private-identifier denylist from the gitignored localhost.yml and then
+# SUBTRACTS every entry below before deciding whether to reject a commit.
+#
+# Why this exists: some identity values (e.g. the repo owner's visible git
+# username and the public organisation names) are public-by-design per
+# Plan 00046 (localhost-yml-leak-guard). Without this allowlist the denylist
+# would block legitimate commits that reference these public-by-design tokens.
+#
+# RULES:
+#   - Only add tokens that are genuinely public and safe in a public repo.
+#   - Never add a real email address, real /home path, or any secret here.
+#   - Entries are matched case-insensitively, whole-token, against the
+#     denylist derived from localhost.yml identity fields.
+#
+# Public-by-design per Plan 00046.
+public_tokens:
+  - joseph
+  - joseph-uk
+  - lts
+  - LTSCommerce
+  - LongTermSupport

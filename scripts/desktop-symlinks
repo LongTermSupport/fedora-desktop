@@ -75,8 +75,9 @@ echo "Launching CCY with extra mounts..."
 echo "Note: This modifies the container launch temporarily"
 echo
 
-# Export environment variable that CCY can check for extra mounts
-# (This requires CCY script modification to read CCY_EXTRA_MOUNTS)
+# Export the extra mounts for CCY to consume. claude-yolo reads CCY_EXTRA_MOUNTS
+# (since CCY 3.18.0, BSH-12), splits it on whitespace, and appends the tokens to
+# its DOCKER_MOUNTS array — so mount paths here must not contain spaces.
 export CCY_EXTRA_MOUNTS="${EXTRA_MOUNTS[*]}"
 
 # Launch CCY (passing through any arguments)

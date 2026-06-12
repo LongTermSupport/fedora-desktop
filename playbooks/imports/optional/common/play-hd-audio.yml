@@ -1,6 +1,5 @@
 #!/usr/bin/env ansible-playbook
 ---
-#!/usr/bin/env ansible-playbook
 # Comprehensive Audio Enhancement Configuration
 # Includes HD audio support, dynamic rate switching, and Bluetooth audio fixes
 # @see https://gitlab.freedesktop.org/pipewire/pipewire/-/wikis/Performance-tuning

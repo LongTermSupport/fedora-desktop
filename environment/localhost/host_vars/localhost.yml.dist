@@ -1,13 +1,28 @@
 user_login: "yourname"
 user_name: "Firstname Lastname"
-user_email: "yourname@yourdomain.com"
+user_email: "yourname@example.com"
+
+# Required for LXC/GitHub SSH flow (play-lxc-install-config, play-github-cli-multi).
+# Set this even if not using LXC — play-github-cli-multi asserts it is defined.
+# Encrypt with: ansible-vault encrypt_string 'yourpassphrase' --name 'github_ssh_passphrase'
+# github_ssh_passphrase: !vault |
+#   $ANSIBLE_VAULT;1.2;AES256;localhost
+#   <encrypted-value-goes-here>
 
 # Optional Qobuz CLI Related
-# lastfm_api_key: !vault |...
-# lastfm_secret: !vault |...
+# lastfm_api_key: !vault |
+#   $ANSIBLE_VAULT;1.2;AES256;localhost
+#   <encrypted-value-goes-here>
+# lastfm_api_secret: !vault |
+#   $ANSIBLE_VAULT;1.2;AES256;localhost
+#   <encrypted-value-goes-here>
 # qobuz_username: "your_qobuz_email@example.com"
-# qobuz_password: !vault |...
+# qobuz_password: !vault |
+#   $ANSIBLE_VAULT;1.2;AES256;localhost
+#   <encrypted-value-goes-here>
 
 # Optional MOK Password for Secure Boot (DisplayLink, NVIDIA, etc.)
 # Required when installing kernel modules with Secure Boot enabled
-# mok_password: !vault |...
+# mok_password: !vault |
+#   $ANSIBLE_VAULT;1.2;AES256;localhost
+#   <encrypted-value-goes-here>

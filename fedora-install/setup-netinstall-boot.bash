@@ -55,6 +55,17 @@ die() {
     exit 1
 }
 
+# Best-effort teardown/rollback step: run the command and, if it fails, report
+# the failure to stderr and continue. Force-release and rollback sequences must
+# attempt every step even when an individual step is inapplicable (e.g. a mount
+# that is already gone). This replaces the error-hiding trailing or-true idiom
+# with a visible, non-fatal note so a genuine failure is never silently hidden.
+attempt() {
+    if ! "$@" 2>/dev/null; then
+        echo "  note: best-effort step failed (continuing): $*" >&2
+    fi
+}
+
 get_version_from_file() {
     if [[ ! -f "$VERSION_FILE" ]]; then
         die "Version file not found: $VERSION_FILE"
@@ -205,7 +216,7 @@ preflight_checks() {
     if [[ "$mode" == "setup" ]]; then
         # Verify LUKS root exists
         local root_source
-        root_source=$(findmnt -no SOURCE / 2>/dev/null) || true
+        root_source=$(findmnt -no SOURCE / 2>/dev/null) || root_source=""
         if [[ ! "$root_source" =~ ^/dev/mapper/ ]]; then
             die "Root filesystem is not on LUKS (device-mapper). Got: ${root_source:-unknown}"
         fi
@@ -213,7 +224,7 @@ preflight_checks() {
         # Check Btrfs free space (need MIN_BTRFS_FREE_GIB before attempting SHRINK_SIZE_GIB shrink)
         local btrfs_avail_bytes
         btrfs_avail_bytes=$(btrfs filesystem usage -b / 2>/dev/null \
-            | awk '/Free \(estimated\):/{print $3}') || true
+            | awk '/Free \(estimated\):/{print $3}') || btrfs_avail_bytes=""
         if [[ -z "$btrfs_avail_bytes" ]] || [[ ! "$btrfs_avail_bytes" =~ ^[0-9]+$ ]]; then
             local avail_kb
             avail_kb=$(df --output=avail / | tail -1 | tr -d ' ')
@@ -397,7 +408,7 @@ create_fdinst_partition() {
     local new_dm_sectors=$(( current_dm_sectors - SHRINK_SIZE_SECTORS ))
     if ! printf '%s' "$luks_pass" | cryptsetup resize "$dm_name" --size "$new_dm_sectors"; then
         echo "  ROLLBACK: Restoring Btrfs size..."
-        btrfs filesystem resize max / 2>/dev/null || true
+        attempt btrfs filesystem resize max /
         die "Failed to shrink LUKS container"
     fi
 
@@ -405,8 +416,10 @@ create_fdinst_partition() {
     echo "  Step 3/5: Shrinking partition ${luks_part_num}..."
     if ! parted "$disk" resizepart "$luks_part_num" "${new_end}s"; then
         echo "  ROLLBACK: Restoring LUKS and Btrfs..."
-        printf '%s' "$luks_pass" | cryptsetup resize "$dm_name" 2>/dev/null || true
-        btrfs filesystem resize max / 2>/dev/null || true
+        if ! printf '%s' "$luks_pass" | cryptsetup resize "$dm_name" 2>/dev/null; then
+            echo "  note: LUKS restore failed during rollback (continuing to die)" >&2
+        fi
+        attempt btrfs filesystem resize max /
         die "Failed to shrink partition ${luks_part_num}"
     fi
 
@@ -414,9 +427,11 @@ create_fdinst_partition() {
     echo "  Step 4/5: Creating partition ${new_part_num}..."
     if ! parted -s "$disk" mkpart "$FDINST_LABEL" ext4 "${new_start}s" 100%; then
         echo "  ROLLBACK: Restoring partition, LUKS, and Btrfs..."
-        parted -s "$disk" resizepart "$luks_part_num" "${old_end}s" 2>/dev/null || true
-        printf '%s' "$luks_pass" | cryptsetup resize "$dm_name" 2>/dev/null || true
-        btrfs filesystem resize max / 2>/dev/null || true
+        attempt parted -s "$disk" resizepart "$luks_part_num" "${old_end}s"
+        if ! printf '%s' "$luks_pass" | cryptsetup resize "$dm_name" 2>/dev/null; then
+            echo "  note: LUKS restore failed during rollback (continuing to die)" >&2
+        fi
+        attempt btrfs filesystem resize max /
         die "Failed to create partition ${new_part_num}"
     fi
     partprobe "$disk"
@@ -428,11 +443,13 @@ create_fdinst_partition() {
     echo "  Step 5/5: Formatting ${new_part_dev} as ext4 (label=${FDINST_LABEL})..."
     if ! mkfs.ext4 -L "$FDINST_LABEL" -q "$new_part_dev"; then
         echo "  ROLLBACK: Removing partition and restoring..."
-        parted -s "$disk" rm "$new_part_num" 2>/dev/null || true
-        partprobe "$disk" 2>/dev/null || true
-        parted -s "$disk" resizepart "$luks_part_num" "${old_end}s" 2>/dev/null || true
-        printf '%s' "$luks_pass" | cryptsetup resize "$dm_name" 2>/dev/null || true
-        btrfs filesystem resize max / 2>/dev/null || true
+        attempt parted -s "$disk" rm "$new_part_num"
+        attempt partprobe "$disk"
+        attempt parted -s "$disk" resizepart "$luks_part_num" "${old_end}s"
+        if ! printf '%s' "$luks_pass" | cryptsetup resize "$dm_name" 2>/dev/null; then
+            echo "  note: LUKS restore failed during rollback (continuing to die)" >&2
+        fi
+        attempt btrfs filesystem resize max /
         die "Failed to format ${new_part_dev}"
     fi
 
@@ -457,7 +474,7 @@ remove_fdinst_partition() {
         umount "$FDINST_MOUNT"
     fi
     if findmnt -rno TARGET "$fdinst_dev" &>/dev/null; then
-        umount "$fdinst_dev" 2>/dev/null || true
+        attempt umount "$fdinst_dev"
     fi
 
     # Step 1: Remove FDINST partition
@@ -480,7 +497,7 @@ remove_fdinst_partition() {
 
     echo "  Disk space restored."
 
-    rmdir "$FDINST_MOUNT" 2>/dev/null || true
+    attempt rmdir "$FDINST_MOUNT"
 }
 
 # Fully release a block device: unmount, detach loop devices, kill holders, settle udev
@@ -490,13 +507,13 @@ release_device() {
     # Unmount from expected mountpoint
     if mountpoint -q "$FDINST_MOUNT" 2>/dev/null; then
         echo "  Releasing: unmounting ${FDINST_MOUNT}..."
-        fuser -mk "$FDINST_MOUNT" 2>/dev/null || true
-        umount "$FDINST_MOUNT" 2>/dev/null || true
+        attempt fuser -mk "$FDINST_MOUNT"
+        attempt umount "$FDINST_MOUNT"
     fi
     # Unmount device wherever it appears in /proc/mounts
     if grep -q "$dev" /proc/mounts 2>/dev/null; then
         echo "  Releasing: ${dev} in /proc/mounts, unmounting..."
-        umount -f "$dev" 2>/dev/null || true
+        attempt umount -f "$dev"
     fi
     # Detach stale loop devices backed by files on FDINST (e.g. from a
     # previous run that died mid-ISO-extraction). These hold the partition
@@ -507,11 +524,11 @@ release_device() {
         back_file=$(losetup -n -O BACK-FILE "$loop_dev" 2>/dev/null) || continue
         if [[ "$back_file" == "${FDINST_MOUNT}/"* ]]; then
             echo "  Releasing: detaching stale loop device ${loop_dev} (${back_file})"
-            losetup -d "$loop_dev" 2>/dev/null || true
+            attempt losetup -d "$loop_dev"
         fi
     done
     # Kill anything holding the raw device open
-    fuser -mk "$dev" 2>/dev/null || true
+    attempt fuser -mk "$dev"
     # Check for stale ext4 journal thread (jbd2). A lazy unmount (umount -l)
     # detaches the mount from the namespace but leaves the jbd2 kernel thread
     # running, keeping the filesystem "alive" in kernel memory. This causes
@@ -527,17 +544,17 @@ release_device() {
         tmp_mnt=$(mktemp -d)
         if mount -o ro "$dev" "$tmp_mnt" 2>/dev/null; then
             # Remount ro forces journal flush if it was rw
-            umount "$tmp_mnt" 2>/dev/null || true
+            attempt umount "$tmp_mnt"
         fi
-        rmdir "$tmp_mnt" 2>/dev/null || true
+        attempt rmdir "$tmp_mnt"
         sleep 1
         if pgrep -q "jbd2/${bdev}" 2>/dev/null; then
             echo "  Warning: jbd2/${bdev} persists — reboot may be needed for clean state"
         fi
     fi
     # Flush device buffers and wait for udev
-    blockdev --flushbufs "$dev" 2>/dev/null || true
-    udevadm settle 2>/dev/null || true
+    attempt blockdev --flushbufs "$dev"
+    attempt udevadm settle
 }
 
 FDINST_LOOP=""  # Tracks loop device if used (for cleanup in unmount_fdinst)
@@ -571,7 +588,7 @@ unmount_fdinst() {
     if ! umount "$FDINST_MOUNT" 2>/dev/null; then
         # Kill processes holding the mount, then retry
         echo "  FDINST busy — killing processes using ${FDINST_MOUNT}..."
-        fuser -mk "$FDINST_MOUNT" 2>/dev/null || true
+        attempt fuser -mk "$FDINST_MOUNT"
         sleep 1
         if ! umount "$FDINST_MOUNT" 2>/dev/null; then
             die "Cannot unmount ${FDINST_MOUNT}. Check 'fuser -v ${FDINST_MOUNT}' and retry."
@@ -579,7 +596,7 @@ unmount_fdinst() {
     fi
     # Clean up loop device if one was used
     if [[ -n "${FDINST_LOOP:-}" ]]; then
-        losetup -d "$FDINST_LOOP" 2>/dev/null || true
+        attempt losetup -d "$FDINST_LOOP"
         FDINST_LOOP=""
     fi
 }
@@ -664,6 +681,100 @@ download_file() {
             die "${description} download produced no output and no local copy exists"
         fi
     fi
+}
+
+# Verify a downloaded ISO against Fedora's signed CHECKSUM file.
+#
+# Fedora publishes a GPG clearsigned "*-CHECKSUM" file next to each ISO. It
+# contains BSD-style lines: `SHA256 (<iso>) = <hex>`. We:
+#   1. download the CHECKSUM file from the same release directory,
+#   2. GPG-verify the clearsignature against the Fedora release keys shipped in
+#      the distribution-gpg-keys package (best-effort — if the keys are not
+#      installed we proceed to the hash check with a loud warning rather than
+#      failing the whole setup over a missing optional package),
+#   3. extract the expected SHA-256 for this ISO and compare it against the
+#      sha256sum of the file on disk (this step is mandatory — a mismatch dies).
+#
+# Args: <iso_path> <iso_url> <description>
+verify_iso() {
+    local iso_path="$1"
+    local iso_url="$2"
+    local description="$3"
+    local iso_name dir_url checksum_url checksum_file
+    iso_name="$(basename "$iso_path")"
+    dir_url="${iso_url%/*}/"
+
+    echo "Verifying ${description} checksum..."
+
+    # Find the CHECKSUM file in the release directory listing.
+    local checksum_name
+    checksum_name=$(curl -sfL --max-time 30 "$dir_url" 2>/dev/null \
+        | grep -oP '[A-Za-z0-9._-]+-CHECKSUM' \
+        | sort -u \
+        | head -1)
+    if [[ -z "$checksum_name" ]]; then
+        die "Cannot find a *-CHECKSUM file in ${dir_url} — refusing to use unverified ${description}"
+    fi
+
+    checksum_url="${dir_url}${checksum_name}"
+    checksum_file="${iso_path%/*}/${checksum_name}"
+    if ! curl -fL --max-time 60 --progress-bar -o "$checksum_file" "$checksum_url"; then
+        die "Failed to download CHECKSUM (${checksum_url}) — cannot verify ${description}"
+    fi
+
+    # GPG verification of the clearsigned CHECKSUM (best-effort on key presence).
+    local gpg_keydir="/usr/share/distribution-gpg-keys/fedora"
+    local gpg_bin=""
+    if command -v gpg2 >/dev/null; then
+        gpg_bin="$(command -v gpg2)"
+    elif command -v gpg >/dev/null; then
+        gpg_bin="$(command -v gpg)"
+    fi
+
+    if [[ -z "$gpg_bin" ]]; then
+        echo "  WARNING: gpg not available — skipping signature check, doing hash check only" >&2
+    elif [[ ! -d "$gpg_keydir" ]]; then
+        echo "  WARNING: ${gpg_keydir} not found (install 'distribution-gpg-keys' for signature verification) — doing hash check only" >&2
+    else
+        local gnupg_home
+        gnupg_home=$(mktemp -d)
+        chmod 700 "$gnupg_home"
+        local imported=0
+        local _key
+        for _key in "$gpg_keydir"/*.asc "$gpg_keydir"/RPM-GPG-KEY-fedora*; do
+            [[ -f "$_key" ]] || continue
+            if "$gpg_bin" --homedir "$gnupg_home" --import "$_key" >/dev/null 2>>"${gnupg_home}/import.log"; then
+                imported=$((imported + 1))
+            fi
+        done
+        if [[ "$imported" -eq 0 ]]; then
+            echo "  WARNING: no Fedora GPG keys could be imported from ${gpg_keydir} — skipping signature check, doing hash check only" >&2
+        elif "$gpg_bin" --homedir "$gnupg_home" --verify "$checksum_file" >/dev/null 2>"${gnupg_home}/verify.log"; then
+            echo "  GPG signature on CHECKSUM verified (${imported} Fedora key(s) imported)"
+        else
+            echo "  --- gpg --verify output ---" >&2
+            cat "${gnupg_home}/verify.log" >&2
+            rm -rf "$gnupg_home"
+            die "GPG signature verification FAILED for ${checksum_name} — possible tampering, refusing ${description}"
+        fi
+        rm -rf "$gnupg_home"
+    fi
+
+    # Mandatory hash check: extract the expected SHA-256 for this exact ISO from
+    # the (now signature-verified, where possible) CHECKSUM file and compare.
+    local expected actual
+    expected=$(grep -E "SHA256 \(${iso_name}\) = " "$checksum_file" 2>/dev/null \
+        | grep -oE '[0-9a-fA-F]{64}' \
+        | head -1)
+    if [[ -z "$expected" ]]; then
+        die "CHECKSUM file ${checksum_name} has no SHA256 entry for ${iso_name} — cannot verify"
+    fi
+    echo "  Computing SHA-256 of ${iso_name} (this can take a moment)..."
+    actual=$(sha256sum "$iso_path" | cut -d' ' -f1)
+    if [[ "${expected,,}" != "${actual,,}" ]]; then
+        die "SHA-256 MISMATCH for ${iso_name}: expected ${expected}, got ${actual} — refusing ${description}"
+    fi
+    echo "  SHA-256 verified for ${iso_name}"
 }
 
 extract_squashfs() {
@@ -837,6 +948,7 @@ do_setup() {
         workstation_url=$(discover_workstation_url "$target_version")
         workstation_iso="${download_dir}/$(basename "$workstation_url")"
         download_file "$workstation_url" "$workstation_iso" "$MIN_ISO_SIZE" "Workstation Live ISO"
+        verify_iso "$workstation_iso" "$workstation_url" "Workstation Live ISO"
         extract_squashfs "$workstation_iso" "${FDINST_MOUNT}/${squashfs_name}"
     fi
 
@@ -844,6 +956,7 @@ do_setup() {
     local netinstall_url
     netinstall_url=$(discover_netinstall_url "$target_version")
     download_file "$netinstall_url" "${FDINST_MOUNT}/${netinstall_name}" "$MIN_ISO_SIZE" "netinstall ISO"
+    verify_iso "${FDINST_MOUNT}/${netinstall_name}" "$netinstall_url" "netinstall ISO"
 
     # Extract vmlinuz + initrd.img from netinstall ISO to /boot
     extract_boot_files "${FDINST_MOUNT}/${netinstall_name}"
@@ -954,18 +1067,18 @@ GRUBEOF
 
     # Check netinstall ISO: exists, readable, minimum size, valid ISO magic
     if [[ ! -f "$netinstall_path" ]]; then
-        echo "  FAIL: ${netinstall_name} not found on FDINST" >&2; (( errors++ )) || true
+        echo "  FAIL: ${netinstall_name} not found on FDINST" >&2; errors=$(( errors + 1 ))
     elif ! stat -c%s "$netinstall_path" >/dev/null 2>&1; then
-        echo "  FAIL: ${netinstall_name} inode unreadable (filesystem corruption)" >&2; (( errors++ )) || true
+        echo "  FAIL: ${netinstall_name} inode unreadable (filesystem corruption)" >&2; errors=$(( errors + 1 ))
     else
         local iso_size iso_type
         iso_size=$(stat -c%s "$netinstall_path")
         if [[ "$iso_size" -lt "$MIN_ISO_SIZE" ]]; then
-            echo "  FAIL: ${netinstall_name} too small (${iso_size} bytes)" >&2; (( errors++ )) || true
+            echo "  FAIL: ${netinstall_name} too small (${iso_size} bytes)" >&2; errors=$(( errors + 1 ))
         else
             iso_type=$(file "$netinstall_path" 2>/dev/null)
             if ! echo "$iso_type" | grep -qi "ISO 9660"; then
-                echo "  FAIL: ${netinstall_name} not a valid ISO (file says: ${iso_type})" >&2; (( errors++ )) || true
+                echo "  FAIL: ${netinstall_name} not a valid ISO (file says: ${iso_type})" >&2; errors=$(( errors + 1 ))
             else
                 echo "  OK: ${netinstall_name} ($(( iso_size / 1024 / 1024 ))MB, valid ISO)"
             fi
@@ -974,19 +1087,19 @@ GRUBEOF
 
     # Check squashfs: exists, readable, minimum size, valid squashfs magic
     if [[ ! -f "$squashfs_path" ]]; then
-        echo "  FAIL: ${squashfs_name} not found on FDINST" >&2; (( errors++ )) || true
+        echo "  FAIL: ${squashfs_name} not found on FDINST" >&2; errors=$(( errors + 1 ))
     elif ! stat -c%s "$squashfs_path" >/dev/null 2>&1; then
-        echo "  FAIL: ${squashfs_name} inode unreadable (filesystem corruption)" >&2; (( errors++ )) || true
+        echo "  FAIL: ${squashfs_name} inode unreadable (filesystem corruption)" >&2; errors=$(( errors + 1 ))
     else
         local sq_size sq_type
         sq_size=$(stat -c%s "$squashfs_path")
         if [[ "$sq_size" -lt "$MIN_SQUASHFS_SIZE" ]]; then
-            echo "  FAIL: ${squashfs_name} too small (${sq_size} bytes)" >&2; (( errors++ )) || true
+            echo "  FAIL: ${squashfs_name} too small (${sq_size} bytes)" >&2; errors=$(( errors + 1 ))
         else
             sq_type=$(file "$squashfs_path" 2>/dev/null)
             # Accept squashfs or erofs — Fedora switched Live images from squashfs to erofs
             if ! echo "$sq_type" | grep -qiE "(squashfs|erofs)"; then
-                echo "  FAIL: ${squashfs_name} not a valid filesystem image (file says: ${sq_type})" >&2; (( errors++ )) || true
+                echo "  FAIL: ${squashfs_name} not a valid filesystem image (file says: ${sq_type})" >&2; errors=$(( errors + 1 ))
             else
                 echo "  OK: ${squashfs_name} ($(( sq_size / 1024 / 1024 ))MB, valid: ${sq_type%%,*})"
             fi
@@ -999,7 +1112,7 @@ GRUBEOF
     for f in vmlinuz initrd.img ks.cfg; do
         local path="${BOOT_DIR}/${f}"
         if [[ ! -s "$path" ]]; then
-            echo "  FAIL: ${path} missing or empty" >&2; (( errors++ )) || true
+            echo "  FAIL: ${path} missing or empty" >&2; errors=$(( errors + 1 ))
         else
             echo "  OK: ${path} ($(( $(stat -c%s "$path") / 1024 ))KB)"
         fi
@@ -1007,9 +1120,9 @@ GRUBEOF
 
     # Check GRUB entry exists and references the right files
     if [[ ! -x "$GRUB_ENTRY" ]]; then
-        echo "  FAIL: GRUB entry missing: ${GRUB_ENTRY}" >&2; (( errors++ )) || true
+        echo "  FAIL: GRUB entry missing: ${GRUB_ENTRY}" >&2; errors=$(( errors + 1 ))
     elif ! grep -q "$netinstall_name" "$GRUB_ENTRY"; then
-        echo "  FAIL: GRUB entry does not reference ${netinstall_name}" >&2; (( errors++ )) || true
+        echo "  FAIL: GRUB entry does not reference ${netinstall_name}" >&2; errors=$(( errors + 1 ))
     else
         echo "  OK: GRUB entry references correct ISO"
     fi
@@ -1115,8 +1228,8 @@ case "${1:-}" in
         echo "  Writing fresh filesystem to ${fdinst_dev}..."
         dd if="$img" of="$fdinst_dev" bs=4M conv=fsync 2>/dev/null
         rm -f "$img"
-        blockdev --flushbufs "$fdinst_dev" 2>/dev/null || true
-        udevadm settle 2>/dev/null || true
+        attempt blockdev --flushbufs "$fdinst_dev"
+        attempt udevadm settle
         echo "  Clean. Re-run without --clean to repopulate."
         ;;
     --non-interactive|-n)

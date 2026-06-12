@@ -45,6 +45,8 @@ export default class SpeechToTextExtension extends Extension {
         this._claudeEnabled = false;  // Enable Claude Code post-processing
         this._claudeModel = 'sonnet';  // Claude model: 'sonnet', 'opus', 'haiku'
         this._currentState = 'IDLE';
+        this._launchPending = false;  // Debounce: a recorder has been spawned but has not yet reported via DBus
+        this._launchPendingTimeoutId = null;
         this._updatingToggles = false;  // Guard flag to prevent toggle cascade
         this._settingsChangedId = null;
         this._lastError = null;
@@ -223,7 +225,8 @@ export default class SpeechToTextExtension extends Extension {
             Main.wm.removeKeybinding('toggle-recording-claude-natural');
             this._removeAbortKeybinding();
         } catch (e) {
-            // Ignore if keybinding doesn't exist
+            // A keybinding may not have been registered; surface it rather than swallow it.
+            logError(e, 'STT: removing keybindings in disable()');
         }
 
         // Cancel pending icon reset timeout
@@ -243,6 +246,9 @@ export default class SpeechToTextExtension extends Extension {
             GLib.Source.remove(this._flashTimer);
             this._flashTimer = null;
         }
+
+        // Cancel pending launch-debounce timeout
+        this._clearLaunchDebounce();
 
         // Stop server status polling
         this._stopServerStatusPolling();
@@ -428,6 +434,7 @@ export default class SpeechToTextExtension extends Extension {
             (connection, sender, path, iface, signal, params) => {
                 const state = params.get_child_value(0).get_string()[0];
                 this._currentState = state;
+                this._clearLaunchDebounce();  // the spawned recorder has now reported
                 this._updateIconState(state);
                 this._log(`State: ${state}`);
 
@@ -763,8 +770,40 @@ export default class SpeechToTextExtension extends Extension {
         return value.replace(/[;&|`$(){}'"\\!#~<>]/g, '');
     }
 
+    _beginLaunchDebounce() {
+        // Mark a launch in flight. _currentState only updates when the spawned
+        // recorder emits its first DBus StateChanged signal (hundreds of ms to
+        // seconds away for the streaming path), so without this flag a second
+        // Insert press in that window would spawn a second recorder that clobbers
+        // the shared PID file. Cleared on the first DBus signal or by a safety
+        // timeout (so a recorder that dies before signalling cannot wedge launch).
+        this._launchPending = true;
+        if (this._launchPendingTimeoutId) {
+            GLib.Source.remove(this._launchPendingTimeoutId);
+        }
+        this._launchPendingTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 10000, () => {
+            this._log('Launch debounce expired without a DBus state signal');
+            this._launchPending = false;
+            this._launchPendingTimeoutId = null;
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    _clearLaunchDebounce() {
+        this._launchPending = false;
+        if (this._launchPendingTimeoutId) {
+            GLib.Source.remove(this._launchPendingTimeoutId);
+            this._launchPendingTimeoutId = null;
+        }
+    }
+
     _launchWSI() {
         try {
+            // Debounce: ignore a repeat press while a spawned recorder has not yet reported
+            if (this._launchPending) {
+                this._log('Launch already in progress; ignoring repeat press');
+                return;
+            }
             // If currently in any active state, stop it instead of starting new
             if (this._currentState === 'RECORDING' ||
                 this._currentState === 'PREPARING' ||
@@ -788,7 +827,9 @@ export default class SpeechToTextExtension extends Extension {
 
             // Use wsi-stream for streaming mode, otherwise use batch wsi
             const script = this._streamingMode ? 'wsi-stream' : 'wsi';
-            const langFlag = ` --language ${this._getWhisperLanguage()}`;
+            // Strip shell metacharacters: language is a free-form GSettings string and
+            // is interpolated into a double-quoted `bash -c` command in the non-auto path.
+            const langFlag = ` --language ${this._validateShellArg(this._getWhisperLanguage())}`;
 
             // Add startup mode flags for streaming mode
             let startupModeFlag = '';
@@ -820,6 +861,7 @@ export default class SpeechToTextExtension extends Extension {
             }
 
             this._log(`Launching: ${command}`);
+            this._beginLaunchDebounce();
             GLib.spawn_command_line_async(command);
         } catch (e) {
             this._lastError = e.message;
@@ -830,6 +872,11 @@ export default class SpeechToTextExtension extends Extension {
 
     _launchWSIClaude(style = 'corporate') {
         try {
+            // Debounce: ignore a repeat press while a spawned recorder has not yet reported
+            if (this._launchPending) {
+                this._log('Launch already in progress; ignoring repeat press');
+                return;
+            }
             // If currently in any active state, stop it instead of starting new
             if (this._currentState === 'RECORDING' ||
                 this._currentState === 'PREPARING' ||
@@ -853,7 +900,9 @@ export default class SpeechToTextExtension extends Extension {
 
             // Use wsi-stream for streaming mode, otherwise use batch wsi
             const script = this._streamingMode ? 'wsi-stream' : 'wsi';
-            const langFlag = ` --language ${this._getWhisperLanguage()}`;
+            // Strip shell metacharacters: language is a free-form GSettings string and
+            // is interpolated into a double-quoted `bash -c` command in the non-auto path.
+            const langFlag = ` --language ${this._validateShellArg(this._getWhisperLanguage())}`;
 
             // Add startup mode flags for streaming mode
             let startupModeFlag = '';
@@ -894,6 +943,7 @@ export default class SpeechToTextExtension extends Extension {
             }
 
             this._log(`Launching with Claude processing: ${command}`);
+            this._beginLaunchDebounce();
             GLib.spawn_command_line_async(command);
         } catch (e) {
             this._lastError = e.message;
@@ -904,6 +954,11 @@ export default class SpeechToTextExtension extends Extension {
 
     _launchArticleMode() {
         try {
+            // Debounce: ignore a repeat press while a spawned recorder has not yet reported
+            if (this._launchPending) {
+                this._log('Article mode: launch already in progress; ignoring repeat press');
+                return;
+            }
             // Don't allow opening article mode while another recording is active
             if (this._currentState === 'RECORDING' ||
                 this._currentState === 'PREPARING' ||
@@ -918,7 +973,9 @@ export default class SpeechToTextExtension extends Extension {
 
             const debugFlag = this._debugEnabled ? ' --debug' : '';
             const noNotifyFlag = !this._showNotifications ? ' --no-notify' : '';
-            const langFlag = ` --language ${this._getWhisperLanguage()}`;
+            // Strip shell metacharacters: language is a free-form GSettings string and
+            // is interpolated into a double-quoted `bash -c` command in the non-auto path.
+            const langFlag = ` --language ${this._validateShellArg(this._getWhisperLanguage())}`;
             const safeClaudeModel = this._validateShellArg(
                 this._claudeModel,
                 this._claudeModels.map(m => m[0])
@@ -929,6 +986,7 @@ export default class SpeechToTextExtension extends Extension {
             const command = scriptPath + debugFlag + noNotifyFlag + langFlag + modelFlag;
 
             this._log(`Launching article mode: ${command}`);
+            this._beginLaunchDebounce();
             GLib.spawn_command_line_async(command);
 
             // Start elapsed timer immediately for visual feedback
@@ -1050,6 +1108,7 @@ export default class SpeechToTextExtension extends Extension {
 
         // Reset UI immediately
         this._currentState = 'IDLE';
+        this._clearLaunchDebounce();
         this._stopCountdown();
         this._updateIconState('IDLE');
         this._log('Recording aborted');
@@ -1061,7 +1120,8 @@ export default class SpeechToTextExtension extends Extension {
             try {
                 dir.make_directory_with_parents(null);
             } catch (e) {
-                // Silent fail - will be created by wsi script
+                // Non-fatal: the wsi script also creates this dir. Log so it is diagnosable.
+                logError(e, 'STT: creating log directory');
             }
         }
     }
@@ -1196,7 +1256,7 @@ export default class SpeechToTextExtension extends Extension {
             try {
                 this._settings.set_boolean('debug-mode', enabled);
             } catch (e) {
-                // Setting may not exist yet
+                logError(e, 'STT: saving debug-mode setting');
             }
         }
     }
@@ -1206,7 +1266,7 @@ export default class SpeechToTextExtension extends Extension {
             try {
                 this._settings.set_boolean('auto-paste', enabled);
             } catch (e) {
-                // Setting may not exist yet
+                logError(e, 'STT: saving auto-paste setting');
             }
         }
     }
@@ -1242,7 +1302,9 @@ export default class SpeechToTextExtension extends Extension {
             stream.write_all(logLine, null);
             stream.close(null);
         } catch (e) {
-            // Silent fail for logging
+            // FAIL-FAST-OK: this IS the file logger; fall back to the journal rather than
+            // recurse into _log. Never throw from here (the caller is on the shell thread).
+            log(`STT: failed to write debug log: ${e.message}`);
         }
     }
 

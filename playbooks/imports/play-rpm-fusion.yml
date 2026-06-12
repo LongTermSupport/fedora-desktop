@@ -2,17 +2,32 @@
 ---
 - hosts: desktop
   name: RPM Fusion
+  become: true
   tasks:
-    - name: Install RPM Fusion
-      become: true
+    # The dnf module accepts remote-URL rpms and is a no-op once installed, so the two
+    # release packages no longer re-fetch rpmfusion.org headers on every main run.
+    # disable_gpg_check is required: the release rpm itself ships the rpmfusion keys, so
+    # it cannot be verified against a key that is not installed yet (chicken-and-egg).
+    - name: Install RPM Fusion free + nonfree release packages
+      ansible.builtin.dnf:
+        name:
+          - "https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-{{ ansible_distribution_major_version }}.noarch.rpm"
+          - "https://download1.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-{{ ansible_distribution_major_version }}.noarch.rpm"
+        state: present
+        disable_gpg_check: true
+
+    # Multimedia codec setup is a one-time operation; the creates guard skips the whole
+    # block (openh264 enable + multimedia group + intel-media-driver) after first run.
+    # The @core/@multimedia `dnf update` lines are intentionally dropped — play-AB-dnf-
+    # upgrade.yml already brings every package to latest earlier in the same run.
+    - name: Configure multimedia codecs (openh264 + multimedia group)
       ansible.builtin.shell: |
+        set -euo pipefail
         set -x
-        dnf -y install https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm
-        dnf -y install https://download1.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm
         dnf -y config-manager --enable fedora-cisco-openh264
-        dnf -y update @core
-        dnf -y group install multimedia --allowerasing
-        dnf -y update @multimedia --setopt="install_weak_deps=False" --exclude=PackageKit-gstreamer-plugin
+        dnf -y group install multimedia --allowerasing --setopt="install_weak_deps=False" --exclude=PackageKit-gstreamer-plugin
         dnf -y install intel-media-driver
+        touch /var/local/.rpmfusion-multimedia-configured
       args:
         executable: /bin/bash
+        creates: /var/local/.rpmfusion-multimedia-configured

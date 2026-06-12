@@ -1,0 +1,103 @@
+name: QA
+
+# Server-side quality gate. The local git hooks (scripts/git-hooks) are
+# bypassable with --no-verify and run only on the contributor's clone; this
+# workflow is the non-bypassable layer. It runs the same suite as
+# ./scripts/qa-all.bash plus a gitleaks secret scan over the full history.
+#
+# See CLAUDE/QA.md for what each stage checks.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qa-all:
+    name: qa-all.bash (6 stages)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # shellcheck is preinstalled on ubuntu-latest runners; the rest are not.
+      - name: Install QA tooling
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install ruff semgrep ansible
+          shellcheck --version
+          ruff --version
+          semgrep --version
+          ansible-playbook --version
+
+      # Install the project's pinned role + collections (requirements.yml) so
+      # `ansible-playbook --syntax-check` can resolve every module/role the
+      # playbooks reference.
+      - name: Install Ansible requirements
+        run: ansible-galaxy install -r requirements.yml
+
+      - name: Install extension JS deps (for ESLint stage)
+        working-directory: extensions
+        run: npm ci
+
+      # ansible.cfg sets `vault_password_file = ./vault-pass.secret`, which is
+      # gitignored (a real secret) and absent on a clean checkout. `--syntax-check`
+      # is parse-only and never decrypts, but Ansible still needs the password
+      # file to EXIST at startup — provide a throwaway placeholder. It is gitignored
+      # so it can never be committed, and is never used to decrypt anything.
+      - name: Provide placeholder vault password (parse-only, never decrypts)
+        run: echo "ci-syntax-check-placeholder" > vault-pass.secret
+
+      - name: Run full QA suite
+        run: ./scripts/qa-all.bash
+
+      - name: Upload QA results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-results
+          path: /tmp/qa-results.json
+          if-no-files-found: ignore
+
+  gitleaks:
+    name: gitleaks secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # The gitleaks GitHub Action requires a paid GITLEAKS_LICENSE for
+      # organisation-owned repos. The gitleaks BINARY is free/OSS, so we run it
+      # directly. We scan the working tree (`gitleaks dir`), not full history:
+      # the historical PII is a known, accepted state (see Decision Gate 1), so a
+      # history scan would red-fail every run; a tree scan still blocks any NEW
+      # secret from being merged.
+      - name: Install gitleaks
+        run: |
+          set -euo pipefail
+          VER=8.30.1
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${VER}/gitleaks_${VER}_linux_x64.tar.gz" -o /tmp/gitleaks.tgz
+          tar -xzf /tmp/gitleaks.tgz -C /tmp gitleaks
+          sudo install /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      - name: Scan working tree
+        run: gitleaks dir . --redact --no-banner --verbose

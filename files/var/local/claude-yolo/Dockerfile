@@ -29,8 +29,10 @@ ARG DOCKERFILE_HASH="unknown"
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
 LABEL claude-yolo-version="2.18"
-LABEL claude-yolo-dockerfile-hash="${DOCKERFILE_HASH}"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
+# NOTE: the claude-yolo-dockerfile-hash LABEL is set at the END of the final `full` stage
+# (PERF-02) so a Dockerfile edit — which changes DOCKERFILE_HASH — only invalidates that
+# last label layer instead of cascading a full rebuild of every apt/npm layer below.
 
 # Disable apt's _apt sandbox download user. In rootless podman the chown of
 # cache dirs to _apt fails with EPERM, and the downloaded .deb files are then
@@ -229,3 +231,9 @@ COPY --from=phpantom-builder /build/target/x86_64-unknown-linux-musl/release/php
 RUN chmod 755 /usr/local/bin/phpantom_lsp
 # PHPantom Claude Code plugin (registers phpantom_lsp as an LSP server for .php files)
 COPY plugins/phpantom-lsp/ /opt/claude-yolo/plugins/phpantom-lsp/
+
+# PERF-02: image-hash metadata as the very last layer. DOCKERFILE_HASH changes on every
+# Dockerfile edit; keeping its only consumer here means a one-line edit no longer busts the
+# apt/npm/Chromium layers above it. Re-declared because ARGs do not cross stage boundaries.
+ARG DOCKERFILE_HASH="unknown"
+LABEL claude-yolo-dockerfile-hash="${DOCKERFILE_HASH}"

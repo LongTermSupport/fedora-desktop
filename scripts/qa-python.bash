@@ -14,7 +14,8 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 JSON_OUT="${QA_JSON_OUT:-/tmp/qa-python-results.json}"
 TMP_RESULTS=$(mktemp)
-trap 'rm -f "$TMP_RESULTS"' EXIT
+TMP_RUFF_ERR=$(mktemp)
+trap 'rm -f "$TMP_RESULTS" "$TMP_RUFF_ERR"' EXIT
 ERRORS=0
 
 # Fail fast: check required dependencies
@@ -65,20 +66,30 @@ for file in "${PY_FILES[@]}"; do
         echo "✗ python: $rel_path: $err"
         jq -nc --arg f "$rel_path" --arg e "$err" \
             '{"file":$f,"type":"python","status":"fail","error":$e}' >> "$TMP_RESULTS"
-        ((ERRORS++)) || true
+        ERRORS=$((ERRORS + 1))
     fi
 done
 
-# Ruff: auto-fix then capture remaining diagnostics as JSON
+# Ruff: capture diagnostics as JSON (read-only check — never mutate the tree).
+#
+# Crash handling (probe-then-fail): ruff rc 0 (clean) or 1 (lint findings) is
+# normal data; rc>=2 is an invocation error (bad config, internal failure).
+# A crash must surface as exit 2, not degrade to an empty "[]" pass.
+# stderr is kept in a temp file so the error message is preserved, not hidden.
 RUFF_JSON="[]"
 if [[ $TOTAL -gt 0 ]]; then
-    ruff check --fix "${PY_FILES[@]}" >/dev/null 2>&1 || true
-    ruff_raw=$(ruff check --output-format json "${PY_FILES[@]}" 2>/dev/null) || true
+    ruff_rc=0
+    ruff_raw=$(ruff check --output-format json "${PY_FILES[@]}" 2>"$TMP_RUFF_ERR") || ruff_rc=$?
+    if [[ $ruff_rc -ge 2 ]]; then
+        echo "✗ python: ruff invocation failed (rc=$ruff_rc):" >&2
+        cat "$TMP_RUFF_ERR" >&2
+        exit 2
+    fi
     RUFF_JSON="${ruff_raw:-[]}"
     ruff_count=$(printf '%s' "$RUFF_JSON" | jq 'length')
     if [[ "$ruff_count" -gt 0 ]]; then
         echo "✗ python: ruff: $ruff_count issues (see $JSON_OUT .ruff_diagnostics)"
-        ((ERRORS++)) || true
+        ERRORS=$((ERRORS + 1))
     fi
 fi
 
