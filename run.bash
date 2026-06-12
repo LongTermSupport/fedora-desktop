@@ -3,7 +3,7 @@
 ## Setup
 ## !! BUMP THIS VERSION ON EVERY CHANGE TO THIS FILE — NO EXCEPTIONS !!
 ## !! If you forget, there is NO WAY to tell which version is running !!
-RUN_BASH_VERSION="1.7.1"  # GitHub-accounts input validation (empty alias/username + comma-only re-prompt, no crash/empty map) + EOF-safe show_menu reads + tty-guarded clear
+RUN_BASH_VERSION="1.7.2"  # Fix: detect genuine NOPASSWD sudo with `sudo -k -n true` so password-sudo machines use --ask-become-pass (cached ticket no longer masks it -> no "premature end of stream waiting for become success")
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -637,7 +637,13 @@ run_playbook_with_issue_option(){
   # whole installer before exit_code=$? could capture it — bypassing the
   # issue-reporting UX below. Seed 0 and capture with `|| exit_code=$?` so the
   # failure is handled here instead of killing the run.
-  if sudo -n true 2>/dev/null; then
+  # -k ignores any cached sudo timestamp, so this is true ONLY for genuine
+  # passwordless (NOPASSWD) sudo. Without -k, an earlier `sudo` in this run
+  # leaves a cached ticket that makes this pass, skipping --ask-become-pass —
+  # but ansible become runs in its own tty (Fedora tty_tickets) and can't use
+  # that cache, so it fails with "premature end of stream waiting for become
+  # success". Detecting real NOPASSWD here routes password sudo to --ask-become-pass.
+  if sudo -k -n true 2>/dev/null; then
     exit_code=0
     "$playbook" || exit_code=$?
   else
