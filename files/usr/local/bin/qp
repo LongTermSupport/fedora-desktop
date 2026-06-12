@@ -227,7 +227,9 @@ get_qobuz_pid() {
 stop_qobuz_player() {
   if pid=$(get_qobuz_pid); then
     echo "Stopping qobuz-player (PID: $pid)..."
-    kill "$pid" 2>/dev/null || true
+    if ! kill "$pid" 2>/dev/null; then
+      echo "qobuz-player (PID: $pid) was already stopped."
+    fi
 
     # Wait for process to stop (up to 5 seconds)
     local count=0
@@ -239,7 +241,9 @@ stop_qobuz_player() {
     # Force kill if still running
     if kill -0 "$pid" 2>/dev/null; then
       echo "Force killing qobuz-player..."
-      kill -9 "$pid" 2>/dev/null || true
+      if ! kill -9 "$pid" 2>/dev/null; then
+        echo "qobuz-player (PID: $pid) exited before force kill."
+      fi
     fi
 
     rm -f "$PID_FILE"
@@ -335,7 +339,8 @@ show_status() {
   fi
 
   # Check if process exists without our PID file
-  local orphan_pids=$(pgrep -f "qobuz-player open --web" 2>/dev/null || true)
+  local orphan_pids
+  orphan_pids=$(pgrep -f "qobuz-player open --web" 2>/dev/null) || orphan_pids=""
   if [[ -n "$orphan_pids" ]] && [[ "$orphan_pids" != "$pid" ]]; then
     echo ""
     echo "Warning: Found qobuz-player process(es) not tracked by qp:"
@@ -361,7 +366,9 @@ if [[ -n "$command" ]]; then
       ;;
     restart)
       echo "Restarting qobuz-player..."
-      stop_qobuz_player || true
+      if ! stop_qobuz_player; then
+        echo "qobuz-player was not running; starting fresh."
+      fi
       sleep 1
       open_web=true  # Open web interface after restart
       ;;

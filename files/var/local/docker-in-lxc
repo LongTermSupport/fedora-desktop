@@ -4,7 +4,7 @@
 #
 # Version: 1.0.0
 #
-DIL_VERSION="1.0.0"
+DIL_VERSION="1.0.1"
 
 set -e
 
@@ -471,7 +471,8 @@ echo "Checking for Claude Code updates..."
 _npm_out=$(npm update -g @anthropic-ai/claude-code 2>&1) || {
     echo "WARN: Claude Code update failed (will use installed version): $_npm_out" >&2
 }
-echo "$_npm_out" | grep -v "npm WARN" || true  # FAIL-FAST-OK: grep -v exits 1 when all lines are filtered
+# awk prints non-WARN lines and exits 0 even when none match (no error to suppress)
+echo "$_npm_out" | awk '!/npm WARN/'
 
 # Run Claude Code with full permissions
 exec claude --dangerously-skip-permissions "$@"
@@ -714,7 +715,9 @@ destroy_container() {
     # Stop if running
     if container_is_running "$name"; then
         info "Stopping container..."
-        sudo lxc-stop -n "$name" -k || true
+        if ! sudo lxc-stop -n "$name" -k; then
+            info "lxc-stop reported an error; continuing to destroy"
+        fi
         sleep 2
     fi
 

@@ -13,7 +13,9 @@ usb_audio_fix() {
 
     # Kill any processes using audio devices
     echo "Stopping processes using audio devices..."
-    sudo fuser -k /dev/snd/* 2>/dev/null || true
+    if ! sudo fuser -k /dev/snd/* 2>/dev/null; then
+        echo "No processes were using the audio devices."
+    fi
     sleep 1
 
     # Restart audio services

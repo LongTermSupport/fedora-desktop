@@ -17,3 +17,36 @@ rules:
     metadata:
       category: correctness
       confidence: HIGH
+
+  # Rule: ban trailing || true / || :  (error hiding)
+  #
+  # WRONG: some_command 2>/dev/null || true   ← swallows every failure silently
+  # WRONG: (( count++ )) || true              ← use count=$(( count + 1 )) instead
+  # RIGHT: if ! some_command; then echo 'note: ...' >&2; fi   (best-effort, reported)
+  # RIGHT: var=$(cmd) || var=""               (explicit fallback on failure)
+  #
+  # There is no FAIL-FAST-OK escape here: this mirrors the write-time
+  # error_hiding_blocker hook, which blocks all `|| true` unconditionally.
+  # Best-effort teardown belongs in an explicit, reporting if/else block.
+  #
+  # Line-anchored: catches the dominant trailing form. The write-time hook
+  # additionally catches mid-line forms (e.g. inside $(...) or before `)`).
+  #
+  # CCY wrapper (files/var/local/claude-yolo/**) is excluded pending Plan 00049
+  # Phase 6, which fixes its occurrences alongside the required CCY_VERSION bump.
+  - id: bash-error-hiding-or-true
+    patterns:
+      - pattern-regex: '(?m)^.*\|\|[ \t]*(true|:)[ \t]*(#.*)?$'
+    paths:
+      exclude:
+        - 'files/var/local/claude-yolo/**'
+    message: >
+      Error hiding: trailing '|| true' / '|| :' swallows the command's failure.
+      Handle it explicitly: 'if ! cmd; then echo "note: ..." >&2; fi' for
+      best-effort steps, or 'var=$(cmd) || var=""' for capture-with-fallback.
+      For arithmetic, use 'n=$(( n + 1 ))' instead of '(( n++ )) || true'.
+    languages: [bash]
+    severity: ERROR
+    metadata:
+      category: correctness
+      confidence: HIGH

@@ -3,7 +3,7 @@
 ## Setup
 ## !! BUMP THIS VERSION ON EVERY CHANGE TO THIS FILE — NO EXCEPTIONS !!
 ## !! If you forget, there is NO WAY to tell which version is running !!
-RUN_BASH_VERSION="1.5.1"  # Cross-host config selection when no config for current host
+RUN_BASH_VERSION="1.5.2"  # Fail-fast cleanup: replace error-hiding or-true with explicit handling
 set -e
 set -u
 set -o pipefail
@@ -97,7 +97,7 @@ echo -e "${CYAN}${INFO} Running on Fedora ${fedora_version}${NC}"
 ## Functions
 
 title(){
-  ((STEP_CURRENT++)) || true
+  STEP_CURRENT=$(( STEP_CURRENT + 1 ))
   echo -e "\n${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo -e "${CYAN}${BOLD}[$STEP_CURRENT/$STEP_TOTAL]${NC} ${BOLD}$1${NC}"
   echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -780,8 +780,10 @@ completed
 
 title "Updating SSH Known Hosts"
 info "Configuring GitHub host keys"
-# Remove existing GitHub entries silently
-ssh-keygen -R github.com &>/dev/null || true
+# Remove existing GitHub entries silently (absent on first run is fine)
+if ! ssh-keygen -R github.com >/dev/null 2>/dev/null; then
+  info "No existing github.com entry in known_hosts to remove"
+fi
 # Add fresh GitHub host keys
 curl -sL https://api.github.com/meta | jq -r '.ssh_keys | .[]' | sed -e 's/^/github.com /' >> ~/.ssh/known_hosts
 success "GitHub host keys updated"

@@ -76,7 +76,11 @@ cp "$CLI_JS" "$TMP_CLI"
 
 # Run the patch script against the temp copy (CCY_CLI_PATH overrides the hardcoded path).
 # We check for success by inspecting the file, not the exit code (soft-fail exits 0).
-PATCH_OUTPUT=$(CCY_CLI_PATH="$TMP_CLI" node "$PATCH_SCRIPT" 2>&1) || true
+PATCH_RC=0
+PATCH_OUTPUT=$(CCY_CLI_PATH="$TMP_CLI" node "$PATCH_SCRIPT" 2>&1) || PATCH_RC=$?
+if [[ "$PATCH_RC" -ne 0 ]]; then
+    echo "  note: patch script exited $PATCH_RC; success is verified via file inspection below" >&2
+fi
 
 # Determine patch result
 PATCH_RESULT="not-applied"

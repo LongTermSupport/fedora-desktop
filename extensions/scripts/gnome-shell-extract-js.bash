@@ -22,7 +22,7 @@ get_version() {
 # Find existing extracted versions
 get_extracted_versions() {
     if [ -d "$UNTRACKED_DIR" ]; then
-        find "$UNTRACKED_DIR" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; 2>/dev/null || true
+        find "$UNTRACKED_DIR" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; 2>/dev/null
     fi
 }
 
@@ -92,7 +92,7 @@ main() {
 
     echo ""
     echo "Key files for extension development:"
-    ls -1 "$UNTRACKED_DIR/$version/js-extracted/org/gnome/shell/ui/" | head -20
+    find "$UNTRACKED_DIR/$version/js-extracted/org/gnome/shell/ui/" -maxdepth 1 -type f -printf '%f\n' | sort | head -20
 }
 
 main "$@"
