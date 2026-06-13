@@ -232,6 +232,14 @@
         group: "{{ user_login }}"
         mode: "0755"
 
+    - name: Install scp-with-password helper script
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/scp-with-password"
+        dest: "/home/{{ user_login }}/.local/bin/scp-with-password"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+
     - name: Install YQ
       become: true
       ansible.builtin.shell: |
