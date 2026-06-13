@@ -224,6 +224,14 @@
         group: "{{ user_login }}"
         mode: "0755"
 
+    - name: Install ssh-with-agent shared library (sourced, not executed)
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/ssh-with-agent.bash"
+        dest: "/home/{{ user_login }}/.local/bin/ssh-with-agent.bash"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0644"
+
     - name: Install ssh-with-password helper script
       ansible.builtin.copy:
         src: "{{ root_dir }}/files/home/.local/bin/ssh-with-password"
