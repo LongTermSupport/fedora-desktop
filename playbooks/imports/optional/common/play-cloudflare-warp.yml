@@ -4,78 +4,227 @@
   become: true
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    # ----------------------------------------------------------------------
+    # Cloudflare WARP is UNINSTALLED by default as of Fedora 44.
+    #
+    # The cloudflare-warp stable RPM hard-requires webkit2gtk3, which Fedora
+    # retired in F44 (libsoup2 is EOL), so the package is uninstallable and
+    # blocks the F43 -> F44 distupgrade:
+    #   "nothing provides webkit2gtk3 needed by cloudflare-warp-..."
+    # @see https://github.com/cloudflare/cloudflare-docs/issues/31057
+    #
+    # On this host WARP was only ever used for encrypted, malware-filtered DNS
+    # (mode doh + dns families malware) - NOT as a VPN tunnel. That capability
+    # is now provided natively, with no client and no webkit2gtk3, by
+    # play-cloudflare-dns.yml (systemd-resolved DNS-over-TLS to Cloudflare's
+    # malware-blocking resolvers).
+    #
+    # Set this to false ONLY when Cloudflare ships an F44-compatible RPM AND
+    # you genuinely want the WARP client back. The install branch below is
+    # intentionally dead until then (see the commented tasks).
+    # ----------------------------------------------------------------------
+    cloudflare_warp_uninstall: true
   tasks:
-    # @see https://pkg.cloudflareclient.com/#rhel
-    - name: Install Repo
-      ansible.builtin.get_url:
-        url: https://pkg.cloudflareclient.com/cloudflare-warp-ascii.repo
-        dest: /etc/yum.repos.d/cloudflare-warp.repo
-        owner: root
-        group: root
-        mode: "0644"
+    # === UNINSTALL BRANCH (default) =======================================
+    - name: Remove Cloudflare WARP
+      when: cloudflare_warp_uninstall | bool
+      block:
+        - name: Probe for an installed WARP client
+          ansible.builtin.stat:
+            path: /usr/bin/warp-cli
+          register: _warp_cli
 
-    - name: Install
-      ansible.builtin.dnf:
-        name: cloudflare-warp
-        state: latest
+        # Best-effort teardown while the client still exists. "Not connected"
+        # and "not registered" are benign here, so a non-zero rc is tolerated
+        # (annotated) rather than failing the uninstall.
+        # Restore working DNS FIRST, while WARP is still up. WARP points
+        # systemd-resolved at its local resolver (127.0.2.2/3); the moment
+        # warp-svc stops, that resolver dies and DNS breaks. If we left this
+        # until after stopping the service, the `dnf remove` below would try to
+        # refresh repo metadata against dead DNS and fail with the generic
+        # "Failed to install some of the specified packages". So drop the WARP
+        # DNS routing and restart resolved now - the box reverts to its
+        # DHCP/per-link DNS for the rest of the run.
+        - name: Remove WARP systemd-resolved drop-in
+          ansible.builtin.file:
+            path: /etc/systemd/resolved.conf.d/cloudflare-warp.conf
+            state: absent
+          register: _warp_dropin
 
-    # @see https://developers.cloudflare.com/warp-client/get-started/linux/
-    # Probe-then-act: detect existing registration by exit code of
-    # `registration show` instead of grepping output for a specific string
-    # (Cloudflare changes the output format between releases, which silently
-    # broke the previous grep-based check).
-    - name: Probe existing Warp registration
-      ansible.builtin.command: warp-cli --accept-tos registration show
-      register: _warp_reg_show
-      failed_when: false  # FAIL-FAST-OK: probe-then-act — rc drives next task
-      changed_when: false
-      become: true
-      become_user: "{{ user_login }}"
+        # Older WARP setups wrote the local-resolver addresses straight into the
+        # main resolved.conf rather than a drop-in. DNS= lines are additive
+        # across the main file and every drop-in, so once warp-svc is gone these
+        # 127.0.2.2/3 entries linger as dead servers merged ahead of any real
+        # ones. Strip just that line; leave the rest of resolved.conf untouched.
+        - name: Remove dead WARP DNS line from main resolved.conf
+          ansible.builtin.lineinfile:
+            path: /etc/systemd/resolved.conf
+            regexp: '^\s*DNS\s*=\s*127\.0\.2\.2(\s|$)'
+            state: absent
+          register: _warp_resolved_main
 
-    # Idempotent: only create a registration when the probe found none
-    # (rc != 0). Never delete an existing registration — re-registering on
-    # every run churns the device entry server-side and briefly drops Warp.
-    - name: Register Warp device
-      become: true
-      become_user: "{{ user_login }}"
-      ansible.builtin.shell: |
-        set -euo pipefail
-        # --accept-tos accepts the TOS non-interactively, so no `yes` pipe is
-        # needed (piping `yes` only created a spurious SIGPIPE that masked the
-        # real exit code). </dev/null guards against any unexpected prompt.
-        warp-cli --accept-tos registration new </dev/null
-      args:
-        executable: /bin/bash
-      when: _warp_reg_show.rc != 0
+        # Reload (not restart): resolved does not hot-watch its config, so the
+        # edits above only take effect once it re-reads them. Reload re-parses
+        # resolved.conf + drop-ins and flushes caches with no DNS interruption.
+        - name: Reload systemd-resolved to drop WARP DNS routing
+          ansible.builtin.systemd:
+            name: systemd-resolved
+            state: reloaded
+          when: _warp_dropin.changed or _warp_resolved_main.changed
 
-    # connect/mode/dns are convergent settings — safe to apply every run.
-    - name: Configure Warp connection
-      become: true
-      become_user: "{{ user_login }}"
-      ansible.builtin.shell: |
-        set -euo pipefail
-        warp-cli --accept-tos connect
-        warp-cli --accept-tos mode doh
-        warp-cli --accept-tos dns families malware
-      args:
-        executable: /bin/bash
-      changed_when: false
+        - name: Disconnect WARP
+          become_user: "{{ user_login }}"
+          ansible.builtin.command: warp-cli --accept-tos disconnect
+          register: _warp_disconnect
+          failed_when: false  # FAIL-FAST-OK: best-effort cleanup - "not connected" is benign
+          changed_when: _warp_disconnect.rc == 0
+          when: _warp_cli.stat.exists
 
-    - name: Systemd Resolved Config
-      ansible.builtin.copy:
-        dest: /etc/systemd/resolved.conf.d/cloudflare-warp.conf
-        owner: root
-        group: root
-        mode: "0644"
-        content: |
-          [Resolve]
-          DNS=127.0.2.2 127.0.2.3
-          ResolveUnicastSingleLabel=yes
-      notify: resolved-reload
+        - name: Delete WARP device registration
+          become_user: "{{ user_login }}"
+          ansible.builtin.command: warp-cli --accept-tos registration delete
+          register: _warp_dereg
+          failed_when: false  # FAIL-FAST-OK: best-effort cleanup - "not registered" is benign
+          changed_when: _warp_dereg.rc == 0
+          when: _warp_cli.stat.exists
 
-  handlers:
-    - name: resolved-reload
-      ansible.builtin.systemd:
-        name: systemd-resolved
-        state: restarted
-        enabled: true
+        - name: Stop and disable warp-svc service
+          ansible.builtin.systemd:
+            name: warp-svc
+            state: stopped
+            enabled: false
+          when: _warp_cli.stat.exists
+
+        - name: Remove Cloudflare WARP yum repo
+          ansible.builtin.file:
+            path: /etc/yum.repos.d/cloudflare-warp.repo
+            state: absent
+
+        - name: Check whether cloudflare-warp is installed
+          ansible.builtin.command: rpm -q cloudflare-warp
+          register: _warp_rpm
+          failed_when: false  # FAIL-FAST-OK: probe-then-act - rc tells us if the package is present
+          changed_when: false
+
+        # The package's %preun scriptlet runs `systemctl --user stop
+        # warp-taskbar.service`, but rpm executes scriptlets as root with no
+        # user session bus, so it fails with "Failed to connect to user scope
+        # bus" and aborts the whole transaction. `dnf` has no skip-scriptlets
+        # option; only rpm does. warp-taskbar is just the GUI tray and the
+        # warp-svc system service is already stopped above, so the scriptlet's
+        # cleanup is redundant - erase with --noscripts to bypass it. rc is
+        # captured (failed_when:false) so the full error is shown before we
+        # assert-fail, instead of being masked by the dnf module.
+        - name: Remove cloudflare-warp package (skip broken user-bus scriptlet)
+          ansible.builtin.command: rpm --erase --noscripts cloudflare-warp
+          register: _warp_remove
+          failed_when: false  # FAIL-FAST-OK: rc is asserted below, after the full output is surfaced
+          changed_when: _warp_remove.rc == 0
+          when: _warp_rpm.rc == 0
+
+        - name: Reload systemd so the removed warp-svc unit is forgotten
+          ansible.builtin.systemd:
+            daemon_reload: true
+          when:
+            - _warp_rpm.rc == 0
+            - _warp_remove.rc == 0
+
+        - name: Show full removal output if it failed
+          ansible.builtin.debug:
+            var: _warp_remove
+          when:
+            - _warp_rpm.rc == 0
+            - _warp_remove.rc != 0
+
+        - name: Fail if cloudflare-warp removal did not succeed
+          ansible.builtin.assert:
+            that:
+              - _warp_remove.rc == 0
+            fail_msg: >-
+              rpm failed to remove cloudflare-warp (rc={{ _warp_remove.rc }}).
+              See the 'Show full removal output if it failed' task above for the
+              real error.
+          when: _warp_rpm.rc == 0
+
+    # === INSTALL BRANCH - INTENTIONALLY DEAD ON FEDORA 44+ ================
+    # Preserved verbatim but commented out. To revive WARP once Cloudflare
+    # ships an F44-compatible RPM: set cloudflare_warp_uninstall=false,
+    # uncomment the tasks below, and delete the noop placeholder task.
+    #
+    #   # @see https://pkg.cloudflareclient.com/#rhel
+    #   - name: Install Repo
+    #     ansible.builtin.get_url:
+    #       url: https://pkg.cloudflareclient.com/cloudflare-warp-ascii.repo
+    #       dest: /etc/yum.repos.d/cloudflare-warp.repo
+    #       owner: root
+    #       group: root
+    #       mode: "0644"
+    #
+    #   - name: Install
+    #     ansible.builtin.dnf:
+    #       name: cloudflare-warp
+    #       state: latest
+    #
+    #   # @see https://developers.cloudflare.com/warp-client/get-started/linux/
+    #   # Probe-then-act: detect existing registration by exit code of
+    #   # `registration show` instead of grepping output for a specific string
+    #   # (Cloudflare changes the output format between releases, which silently
+    #   # broke the previous grep-based check).
+    #   - name: Probe existing Warp registration
+    #     ansible.builtin.command: warp-cli --accept-tos registration show
+    #     register: _warp_reg_show
+    #     failed_when: false  # FAIL-FAST-OK: probe-then-act - rc drives next task
+    #     changed_when: false
+    #     become: true
+    #     become_user: "{{ user_login }}"
+    #
+    #   # Idempotent: only create a registration when the probe found none
+    #   # (rc != 0). Never delete an existing registration - re-registering on
+    #   # every run churns the device entry server-side and briefly drops Warp.
+    #   - name: Register Warp device
+    #     become: true
+    #     become_user: "{{ user_login }}"
+    #     ansible.builtin.shell: |
+    #       set -euo pipefail
+    #       # --accept-tos accepts the TOS non-interactively, so no `yes` pipe is
+    #       # needed (piping `yes` only created a spurious SIGPIPE that masked the
+    #       # real exit code). </dev/null guards against any unexpected prompt.
+    #       warp-cli --accept-tos registration new </dev/null
+    #     args:
+    #       executable: /bin/bash
+    #     when: _warp_reg_show.rc != 0
+    #
+    #   # connect/mode/dns are convergent settings - safe to apply every run.
+    #   - name: Configure Warp connection
+    #     become: true
+    #     become_user: "{{ user_login }}"
+    #     ansible.builtin.shell: |
+    #       set -euo pipefail
+    #       warp-cli --accept-tos connect
+    #       warp-cli --accept-tos mode doh
+    #       warp-cli --accept-tos dns families malware
+    #     args:
+    #       executable: /bin/bash
+    #     changed_when: false
+    #
+    #   - name: Systemd Resolved Config
+    #     ansible.builtin.copy:
+    #       dest: /etc/systemd/resolved.conf.d/cloudflare-warp.conf
+    #       owner: root
+    #       group: root
+    #       mode: "0644"
+    #       content: |
+    #         [Resolve]
+    #         DNS=127.0.2.2 127.0.2.3
+    #         ResolveUnicastSingleLabel=yes
+    #     notify: resolved-reload
+    #
+    - name: WARP install branch is disabled on Fedora 44+
+      ansible.builtin.debug:
+        msg: >-
+          Cloudflare WARP install is intentionally disabled - the stable RPM
+          requires webkit2gtk3, which is not available on Fedora 44. Encrypted,
+          malware-filtered DNS is now provided by play-cloudflare-dns.yml. To
+          revive the WARP client, uncomment the install tasks above once
+          Cloudflare ships an F44-compatible package.
+      when: not (cloudflare_warp_uninstall | bool)

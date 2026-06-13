@@ -1,0 +1,53 @@
+#!/usr/bin/env ansible-playbook
+---
+- hosts: desktop
+  name: Cloudflare Encrypted DNS (DNS-over-TLS + malware filtering)
+  become: true
+  vars:
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+  tasks:
+    # Replaces the only thing Cloudflare WARP did on this host: encrypted,
+    # malware-filtered DNS (WARP `mode doh` + `dns families malware`). Instead
+    # of the WARP client (uninstallable on F44 - needs webkit2gtk3), we point
+    # systemd-resolved straight at Cloudflare's malware-blocking resolvers over
+    # DNS-over-TLS. Same encryption + filtering, no client, no webkit2gtk3.
+    #
+    # 1.1.1.2 / 1.0.0.2 = Cloudflare "for Families" malware-blocking tier
+    # (1.1.1.3 / 1.0.0.3 would also block adult content - not enabled here, to
+    # match the previous WARP `families malware` behaviour).
+    # The #hostname suffix enables TLS certificate verification.
+    # @see https://developers.cloudflare.com/1.1.1.1/setup/#1111-for-families
+    # @see https://developers.cloudflare.com/1.1.1.1/encryption/dns-over-tls/
+    - name: Ensure systemd-resolved drop-in directory exists
+      ansible.builtin.file:
+        path: /etc/systemd/resolved.conf.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Configure systemd-resolved for Cloudflare malware-blocking DoT
+      ansible.builtin.copy:
+        dest: /etc/systemd/resolved.conf.d/cloudflare-dns.conf
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Resolve]
+          DNS=1.1.1.2#security.cloudflare-dns.com 1.0.0.2#security.cloudflare-dns.com
+          DNS=2606:4700:4700::1112#security.cloudflare-dns.com 2606:4700:4700::1002#security.cloudflare-dns.com
+          DNSOverTLS=yes
+          # Preserves prior WARP behaviour: resolve single-label names via
+          # unicast DNS rather than only multicast/LLMNR.
+          ResolveUnicastSingleLabel=yes
+      notify: resolved-reload
+
+  handlers:
+    # Reload, not restart: resolved does not hot-watch its config, but reloading
+    # re-parses resolved.conf + drop-ins and flushes caches without interrupting
+    # DNS. enabled keeps it persistent across boots.
+    - name: resolved-reload
+      ansible.builtin.systemd:
+        name: systemd-resolved
+        state: reloaded
+        enabled: true
