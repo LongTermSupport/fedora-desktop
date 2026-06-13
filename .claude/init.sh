@@ -284,29 +284,38 @@ _resolve_python_cmd() {
 #
 # _get_hostname_suffix() - Get hostname-based suffix for runtime files
 #
-# Uses HOSTNAME environment variable directly to isolate daemon runtime
-# files across different environments (containers, machines).
+# Resolves a STABLE hostname (in series): $HOSTNAME, then the `hostname`
+# command (the OS hostname), then a constant. This MUST agree with the Python
+# side (daemon/paths.py:_resolve_hostname_from_env, which uses
+# socket.gethostname()) so the bash forwarder and the Python daemon compute the
+# SAME socket/PID suffix.
+#
+# NEVER use a time-based hash here: $HOSTNAME is unset on macOS (zsh) and many
+# minimal containers, and a time hash changes on every call — so start/status/
+# stop would each look for a different socket (the macOS daemon-unmanageable
+# bug, Plan 00122 BUG 1).
 #
 # Returns:
-#   "-{sanitized-hostname}" or "-{time-hash}" if no hostname
+#   "-{sanitized-hostname}"
 #
 # Example:
 #   HOSTNAME="laptop" -> "-laptop"
 #   HOSTNAME="506355bfbc76" -> "-506355bfbc76"
 #   HOSTNAME="My-Server" -> "-my-server"
-#   No HOSTNAME -> "-a1b2c3d4" (MD5 of timestamp)
+#   No HOSTNAME -> "-{os-hostname}" (e.g. "-work.local"), or "-localhost"
 #
 _get_hostname_suffix() {
     local hostname="${HOSTNAME:-}"
 
-    # No hostname? Use MD5 of current time for uniqueness
+    # No $HOSTNAME (macOS/zsh, minimal containers)? Use the OS hostname — the
+    # same value Python's socket.gethostname() returns — so both sides agree.
+    if [[ -z "$hostname" ]] && command -v hostname > /dev/null; then
+        hostname="$(hostname)"
+    fi
+
+    # Last resort: a stable constant (matches paths.py _HOSTNAME_FALLBACK).
     if [[ -z "$hostname" ]]; then
-        local timestamp
-        timestamp=$(date +%s.%N)
-        local hash
-        hash=$(echo -n "$timestamp" | md5sum | cut -c1-8)
-        echo "-${hash}"
-        return 0
+        hostname="localhost"
     fi
 
     # Sanitize hostname for filesystem safety: lowercase, no spaces
@@ -377,7 +386,6 @@ _exec_bit_selfheal() {
 # Pattern: {project}/.claude/hooks-daemon/untracked/daemon.{sock|pid}
 # Container: {project}/.claude/hooks-daemon/untracked/daemon-{hash}.{sock|pid}
 # Must match Python paths module: claude_code_hooks_daemon.daemon.paths
-_abs_project_path=$(realpath "$PROJECT_PATH")
 
 # Determine untracked directory path
 # Must match ProjectContext.daemon_untracked_dir() logic

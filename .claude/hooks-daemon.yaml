@@ -58,11 +58,12 @@ handlers:
       options:
         track_plans_in_project: "CLAUDE/Plan"
         plan_workflow_docs: "CLAUDE/PlanWorkflow.md"
-        allowed_markdown_paths:
-          - "^CLAUDE/.*\\.md$"          # LLM docs
-          - "^docs/.*\\.md$"            # Human-facing docs
-          - "^untracked/.*\\.md$"       # Temporary/scratch docs
-          - "^RELEASES/.*\\.md$"        # Release notes
+        # Additive list layered on top of the daemon's built-in defaults
+        # (CLAUDE/, docs/, untracked/, RELEASES/), so only the project-specific
+        # extra needs declaring here — upstream default additions are inherited
+        # automatically. Migrated from the discouraged full-override
+        # allowed_markdown_paths in hooks-daemon v3.19.0.
+        extra_allowed_markdown_paths:
           - "^files/opt/claude-yolo/skills/.*\\.md$"  # Container-deployed skill docs
 
     lsp_enforcement: {enabled: true, priority: 38}          # Steer toward LSP tools instead of Grep
