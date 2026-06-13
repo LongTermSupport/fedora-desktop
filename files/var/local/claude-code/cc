@@ -72,6 +72,35 @@ if [ -n "$SELECTED_TOKEN" ]; then
     echo "Token: $TOKEN_NAME"
 
     export CLAUDE_CODE_OAUTH_TOKEN="$TOKEN_CONTENT"
+
+    # Claude Code ignores CLAUDE_CODE_OAUTH_TOKEN and drops into the interactive
+    # first-run login wizard ("Select login method") whenever onboarding is not
+    # marked complete in ~/.claude.json — interactively that shows the login
+    # screen, headlessly (-p) it hangs. The ccy container seeds this flag in its
+    # entrypoint (hasCompletedOnboarding: true), which is exactly why the same
+    # token authenticates inside ccy but is bypassed by host cc. Mirror only the
+    # onboarding flag here so the chosen token is honoured. We deliberately do
+    # NOT touch bypassPermissionsModeAccepted — that is a container-only YOLO
+    # setting and must never be forced onto the host. Idempotent: re-running
+    # leaves an already-onboarded config unchanged apart from this flag.
+    # Only applied in the token branch; the Desktop branch leaves ~/.claude/
+    # untouched so its normal OAuth/onboarding flow is preserved.
+    CLAUDE_JSON="$HOME/.claude.json"
+    if ! command -v jq >/dev/null 2>&1; then
+        print_error "jq is required to mark onboarding complete in $CLAUDE_JSON"
+        echo "Install jq on the host (it is part of this distro's standard tool set)." >&2
+        exit 1
+    fi
+    if [ -f "$CLAUDE_JSON" ]; then
+        if ! SEEDED_JSON=$(jq '.hasCompletedOnboarding = true' "$CLAUDE_JSON"); then
+            print_error "Could not parse/update $CLAUDE_JSON (is it valid JSON?)"
+            exit 1
+        fi
+        printf '%s\n' "$SEEDED_JSON" > "$CLAUDE_JSON"
+    else
+        printf '%s\n' '{"hasCompletedOnboarding":true}' > "$CLAUDE_JSON"
+        chmod 600 "$CLAUDE_JSON"
+    fi
 else
     echo "Token: Desktop (host ~/.claude/)"
 fi
