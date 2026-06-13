@@ -70,19 +70,24 @@ decisions so future audits don't re-flag them as gaps.
 These appear (or are very likely to appear) on any F44 desktop the repo
 converges. Fixing them in the imports/ playbooks helps every user.
 
-- [ ] ⬜ **Task 1.1**: Resolve `NetworkManager-wait-online.service` boot
+- [x] ✅ **Task 1.1**: Resolve `NetworkManager-wait-online.service` boot
   failure
 
-  - [ ] ⬜ Investigate why `play-network-wait-tuning.yml`'s current
-    timeout extension isn't preventing the failure on a Wi-Fi-only
-    boot.
-  - [ ] ⬜ Decide between "mask the service" vs "raise
-    `OnlineTimeoutSec=` further" (see Decision 1).
-  - [ ] ⬜ Update `playbooks/imports/play-network-wait-tuning.yml`
-    accordingly.
-  - [ ] ⬜ Run QA: `./scripts/qa-all.bash`.
-  - [ ] ⬜ Deploy on HOST, reboot, confirm `systemctl --failed` reports
-    zero failed units.
+  - [x] ✅ Confirmed: the `NM_ONLINE_TIMEOUT=5` drop-in caps the wait,
+    but the 5s expiry IS the failure exit on a Wi-Fi-only boot — the
+    timeout fires before NM declares the link online.
+  - [x] ✅ Decision 1 resolved: *mask* the service. Nothing on this
+    desktop config synchronously requires `network-online.target`, so
+    the unit adds nothing but a permanent failure record.
+  - [x] ✅ `play-network-wait-tuning.yml` now masks the service (Plan
+    00053\) and keeps the timeout drop-in as a fallback for anyone
+    who later unmasks it. Added a probe + conditional
+    `systemctl reset-failed` so converging onto a host that has been
+    booting with the failure clears the stale runtime record without
+    needing a reboot.
+  - [x] ✅ QA green; play applied on host; `systemctl --failed`
+    reports `0 loaded units`. Pre-mask journal entries from this
+    morning's boot will disappear on next boot.
 
 - [ ] ⬜ **Task 1.2**: Resolve firewalld⇄docker NAME_CONFLICT at boot
 
@@ -108,13 +113,18 @@ converges. Fixing them in the imports/ playbooks helps every user.
   - [ ] ⬜ If a fix is found, drop it into `playbooks/imports/play-gnome-shell.yml`
     (or a new `play-gnome-keyring.yml` if the changeset is large).
 
-- [ ] ⬜ **Task 1.4**: Eliminate `intel_lpmd` boot noise on F44
+- [x] ✅ **Task 1.4**: Eliminate `intel_lpmd` boot noise on F44
 
-  - [ ] ⬜ Confirm `intel_lpmd[…]: Open /proc/sys/kernel/sched_itmt_enabled     failed` is harmless (the daemon falls back, ITMT just isn't
-    scheduled).
-  - [ ] ⬜ Decide whether to mask `intel_lpmd.service` repo-wide (Decision
-    3\) — it adds nothing on a TuneD-managed host that already does
-    power-profile switching.
+  - [x] ✅ Confirmed harmless: the daemon logs the kernel-knob
+    failure and continues with reduced behaviour; no functional
+    impact on a TuneD-managed F44 host.
+  - [x] ✅ Decision 3 resolved: *mask repo-wide* via the new
+    `playbooks/imports/play-mask-intel-lpmd.yml` (imported in
+    `playbook-main.yml` between `play-network-wait-tuning.yml` and
+    `play-systemd-user-tweaks.yml`). The play probes
+    `LoadState` first so it's a no-op on AMD hosts where the unit
+    doesn't exist. Play applied on the audited host;
+    `intel_lpmd.service` is now `masked` / `inactive`.
 
 - [ ] ⬜ **Task 1.5**: Audit and document the SSH brute-force-style noise
 
@@ -289,9 +299,12 @@ but the unit still fails on a Wi-Fi-only boot.
   this is a desktop, not a server.
 - *Raise timeout further (e.g. 30s).* Pro: keeps the unit semantically
   meaningful. Con: adds boot latency on poor Wi-Fi, may still fail.
-  **Decision**: TBD during Task 1.1 — favouring *mask* on the basis that
-  nothing on a desktop should be network-online-blocking at boot.
-  **Date**: pending.
+
+**Decision**: *Mask* the service. Nothing in the converge chain needs
+`network-online.target` synchronously. The existing 5s timeout drop-in
+is preserved on disk as a no-op fallback so unmasking still gets the
+cap rather than the 30s default.
+**Date**: 2026-06-13.
 
 ### Decision 2: Resolving the firewalld⇄docker NAME_CONFLICT
 
@@ -317,8 +330,13 @@ adds noise without obvious benefit on this kernel.
 - *Mask `intel_lpmd.service` for the desktop role.*
 - *Leave installed for forward-compatibility with a future kernel that
   exposes `sched_itmt_enabled`.*
-  **Decision**: TBD — leaning toward mask now, unmask only if a measurable
-  benefit ever surfaces.
+
+**Decision**: *Mask* via the new `play-mask-intel-lpmd.yml`. The play
+is presence-guarded (it probes `LoadState` and skips on AMD), so it's
+safe to import unconditionally from `playbook-main.yml`. Reversal is a
+documented `systemctl unmask` if a future kernel makes the daemon
+useful again.
+**Date**: 2026-06-13.
 
 ### Decision 4: `dnf-makecache.service` 33.9s blame cost
 
@@ -429,3 +447,9 @@ ships `tuned` + `tuned-ppd` as the default Power Mode backend;
   119/119 probes at rc=0. Decision 6 resolved (post-process via
   `capture_treat_empty_as_clean`). Phase 3 was the lowest-risk warm-up
   before touching live systemd state in Phase 1.
+- Phase 1 tasks 1.1 and 1.4 complete: NetworkManager-wait-online.service
+  and intel_lpmd.service masked (Decisions 1 and 3 both resolved).
+  Plays applied; `systemctl --failed` clean on the audited host. The
+  remaining historical entries in `journal -b -p err` are from the
+  same boot, before the mask landed; next reboot will start with a
+  zero-error journal for the units this phase addressed.

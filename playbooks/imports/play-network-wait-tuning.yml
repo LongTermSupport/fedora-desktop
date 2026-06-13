@@ -1,7 +1,8 @@
 #!/usr/bin/env ansible-playbook
 ---
-# Cap NetworkManager-wait-online.service timeout so a slow DHCP / VPN /
-# probe handshake doesn't stall boot for the full 30-second default.
+# Disable NetworkManager-wait-online.service so a slow DHCP / VPN /
+# portal-detection handshake doesn't stall boot — and, more importantly,
+# so a Wi-Fi-only laptop boot doesn't end with a failed unit.
 #
 # Why this exists:
 #   Fedora's NetworkManager-wait-online.service blocks the
@@ -11,15 +12,29 @@
 #   that nothing on the desktop actually needs synchronously. Audit on
 #   the X1 Carbon Gen 10 (Plan 00044) saw a 5.79s stall.
 #
-#   Setting NM_ONLINE_TIMEOUT=5 caps the stall at 5 seconds. Units
-#   that genuinely require online network (none in this repo's main
-#   workflow) will still wait the 5s; if they need longer they can
-#   add their own Wants/After + retry.
+# History:
+#   The first iteration of this play (Plan 00044) wrote an
+#   `NM_ONLINE_TIMEOUT=5` drop-in capping the stall at 5 seconds. The
+#   drop-in helped boot latency on a wired desktop, but the audited
+#   fresh-F44 ThinkPad in Plan 00053 still ended every Wi-Fi boot with
+#   `NetworkManager-wait-online.service: failed` — the 5s cap fires as
+#   the failure exit, it doesn't avoid it.
 #
-# Reversal: `sudo rm /etc/systemd/system/NetworkManager-wait-online.service.d/timeout.conf`
-# and `systemctl daemon-reload`.
+#   Nothing in this repo's main workflow synchronously requires
+#   network-online.target on a desktop, so the fix is to mask the
+#   service outright. The timeout drop-in is kept on disk as a no-op
+#   safety net so that anyone who later unmasks the unit still gets the
+#   5s cap rather than the 30s default.
+#
+# Reversal:
+#   sudo systemctl unmask NetworkManager-wait-online.service
+#   sudo systemctl daemon-reload
+#
+#   The 5s timeout drop-in stays put after unmask. To remove that too:
+#   sudo rm -f /etc/systemd/system/NetworkManager-wait-online.service.d/timeout.conf
+#
 - hosts: desktop
-  name: Cap NetworkManager-wait-online timeout to 5s
+  name: Disable NetworkManager-wait-online + keep timeout cap as fallback
   become: true
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
@@ -37,17 +52,62 @@
         - systemd
         - network
 
-    - name: Write timeout drop-in
+    - name: Write timeout drop-in (no-op when masked, safety net on unmask)
       ansible.builtin.copy:
         dest: /etc/systemd/system/NetworkManager-wait-online.service.d/timeout.conf
         owner: root
         group: root
         mode: "0644"
         content: |
-          # ANSIBLE MANAGED: play-network-wait-tuning.yml — Plan 00044
+          # ANSIBLE MANAGED: play-network-wait-tuning.yml — Plan 00044 + 00053
+          # Effective only if the service is unmasked. The play masks it by
+          # default; this drop-in keeps the 5s cap in place as a fallback.
           [Service]
           Environment=NM_ONLINE_TIMEOUT=5
       notify: reload-systemd
+      tags:
+        - systemd
+        - network
+
+    - name: Mask NetworkManager-wait-online.service (Plan 00053 Task 1.1)
+      ansible.builtin.systemd_service:
+        name: NetworkManager-wait-online.service
+        masked: true
+        enabled: false
+        state: stopped
+      tags:
+        - systemd
+        - network
+
+    # `state: stopped` on the mask above doesn't clear an existing
+    # "failed" record — that state lives in systemd's runtime memory
+    # until the next boot or an explicit reset-failed. On a host that's
+    # been booting with the failure for a while, the converge would
+    # leave `systemctl --failed` reporting the unit until reboot.
+    # Probe + conditional reset keeps the play idempotent: noop on
+    # hosts that aren't carrying a stale failure.
+    - name: Probe NetworkManager-wait-online.service for stale failed state
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - is-failed
+          - NetworkManager-wait-online.service
+      register: nm_wait_online_failed
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — is-failed exits 1 when unit is healthy
+      check_mode: false
+      tags:
+        - systemd
+        - network
+
+    - name: Clear stale failed state on NetworkManager-wait-online.service
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - reset-failed
+          - NetworkManager-wait-online.service
+      when: nm_wait_online_failed.rc == 0
+      changed_when: true
       tags:
         - systemd
         - network

@@ -1,0 +1,62 @@
+#!/usr/bin/env ansible-playbook
+---
+# Mask intel_lpmd.service on Intel-CPU hosts where it just adds boot
+# noise. (Plan 00053 Task 1.4.)
+#
+# Why this exists:
+#   On a fresh Fedora 44 install the intel-lpmd package is pulled in
+#   alongside the kernel's Intel power-management tooling. On the
+#   audited Meteor Lake ThinkPad in Plan 00053 the daemon logs
+#
+#     intel_lpmd[…]: Open /proc/sys/kernel/sched_itmt_enabled failed
+#
+#   at every boot. The kernel knob it wants (`sched_itmt_enabled`)
+#   isn't exposed by the Fedora 44 kernel on this CPU class, so the
+#   daemon just complains and falls back. On a TuneD-managed F44
+#   desktop (`tuned-ppd` already owns the GNOME Power Mode panel via
+#   net.hadess.PowerProfiles) intel_lpmd contributes nothing — masking
+#   it removes the recurring error from `journalctl -b -p err` without
+#   changing the user-visible power model.
+#
+# Scope:
+#   Only acts when `intel_lpmd.service` is actually present (load
+#   state != not-found). On AMD hosts the unit doesn't exist and the
+#   mask is skipped, so importing this play unconditionally from
+#   playbook-main.yml is safe.
+#
+# Reversal:
+#   sudo systemctl unmask intel_lpmd.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl start intel_lpmd.service  # optional
+#
+- hosts: desktop
+  name: Mask intel_lpmd.service when installed
+  become: true
+  vars:
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+  tasks:
+    - name: Probe intel_lpmd.service load state
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - show
+          - --property=LoadState
+          - --value
+          - intel_lpmd.service
+      register: intel_lpmd_load
+      changed_when: false
+      check_mode: false
+      tags:
+        - systemd
+        - power
+
+    - name: Mask intel_lpmd.service (silences sched_itmt_enabled spam)
+      ansible.builtin.systemd_service:
+        name: intel_lpmd.service
+        masked: true
+        enabled: false
+        state: stopped
+      when: intel_lpmd_load.stdout | trim != 'not-found'
+      tags:
+        - systemd
+        - power
