@@ -486,20 +486,6 @@ Proceeding on that basis; the user will interrupt if wrong.
 
 **Escape hatch** (genuine ambiguity): prefix every question text with `ASKING BECAUSE: <reason>`. Mixing prefixed and non-prefixed questions in one call still triggers a block — prefix all or none.
 
-## markdown_organization — markdown files must go in allowed locations
-
-Writing a new `.md` file to an unrecognised location is blocked. Markdown files must be placed in project-configured allowed paths.
-
-**Common allowed locations**: `CLAUDE/`, `docs/`, `RELEASES/`, `CLAUDE/Plan/`, root-level `README.md`, or any path matching the `allowed_markdown_paths` config.
-
-**Dependency directories**: `vendor/` (PHP) and `node_modules/` (JS) are treated as implicit monorepos — each package is a sub-project where normal markdown rules apply (e.g. `vendor/acme/lib/docs/guide.md` is allowed, `vendor/acme/lib/random/notes.md` is blocked).
-
-**Plan file redirection**: when `track_plans_in_project` is enabled, Claude Code planning mode writes are automatically redirected to the project's `CLAUDE/Plan/` directory. Plan folders must follow the `NNNN-description/` naming convention.
-
-If you need a markdown file in a new location, add a pattern to `allowed_markdown_paths` in `.claude/hooks-daemon.yaml`.
-
-If your project has sub-projects with their own `docs/`, `CLAUDE/`, etc., configure `monorepo_subproject_patterns` in `.claude/hooks-daemon.yaml` so normal rules apply within each sub-project.
-
 ## plan_number_helper — the git counter is the source of truth for plan numbers
 
 The next plan number is authoritative in git config, NOT in the folder listing.
@@ -528,6 +514,20 @@ Writing time estimates into a `CLAUDE/Plan/*.md` file is blocked. Plans capture 
 - `ETA:`, `timeline:`, `deadline:`, `due date:` lines
 
 **Instead:** break work into concrete tasks and implementation steps, and let the user decide scheduling. Technical durations that describe a feature (cache TTL, session timeout, retention window) are allowed — only work/effort estimates are blocked.
+
+## markdown_organization — markdown files must go in allowed locations
+
+Writing a new `.md` file to an unrecognised location is blocked. Markdown files must be placed in project-configured allowed paths.
+
+**Common allowed locations**: `CLAUDE/`, `docs/`, `RELEASES/`, `CLAUDE/Plan/`, root-level `README.md`, or any path matching the `allowed_markdown_paths` config.
+
+**Dependency directories**: `vendor/` (PHP) and `node_modules/` (JS) are treated as implicit monorepos — each package is a sub-project where normal markdown rules apply (e.g. `vendor/acme/lib/docs/guide.md` is allowed, `vendor/acme/lib/random/notes.md` is blocked).
+
+**Plan file redirection**: when `track_plans_in_project` is enabled, Claude Code planning mode writes are automatically redirected to the project's `CLAUDE/Plan/` directory. Plan folders must follow the `NNNN-description/` naming convention.
+
+If you need a markdown file in a new location, add a pattern to `extra_allowed_markdown_paths` in `.claude/hooks-daemon.yaml`. This is ADDITIVE — it layers your patterns on top of the built-in defaults, so you keep `CLAUDE/`, `docs/`, `RELEASES/`, etc. without redeclaring them. The older `allowed_markdown_paths` option REPLACES all built-in locations and is discouraged for simple additions.
+
+If your project has sub-projects with their own `docs/`, `CLAUDE/`, etc., configure `monorepo_subproject_patterns` in `.claude/hooks-daemon.yaml` so normal rules apply within each sub-project.
 
 ## system_paths — do not edit deployed system files directly
 
@@ -567,6 +567,10 @@ After every `Write` or `Edit` of a `.md` or `.markdown` file, the content is re-
 ```
 $PYTHON -m claude_code_hooks_daemon.daemon.cli format-markdown <path>
 ```
+
+## git_hooks_executable_fixer — auto-fixes non-executable git hooks
+
+When a git command prints `hint: The '...' hook was ignored because it's not set as executable`, this handler automatically `chmod +x`s every non-`.sample` file in the repository's hooks directory (resolved via `git rev-parse --git-path hooks`, so worktrees and `core.hooksPath` are handled). Execute bits are added with least privilege (only where read is already granted). It never blocks the command and reports which hooks it fixed via advisory context. `.sample` files and already-executable hooks are left untouched.
 
 ## hook_registration_checker — hooks configuration policy
 
