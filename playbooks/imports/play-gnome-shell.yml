@@ -10,3 +10,7 @@
       ansible.builtin.dnf:
         name:
           - gnome-tweaks.noarch
+          # The official "Extensions" GUI. GNOME Tweaks 40+ dropped its extensions
+          # panel, and Fedora no longer ships this app by default, so without it
+          # there is no graphical way to enable/disable/configure extensions.
+          - gnome-extensions-app
