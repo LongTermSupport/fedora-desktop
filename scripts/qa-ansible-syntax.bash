@@ -25,6 +25,15 @@ TMP_ERR=$(mktemp)
 trap 'rm -f "$TMP_RESULTS" "$TMP_ERR"' EXIT
 ERRORS=0
 
+# Pin the Ansible config explicitly so syntax-check is cwd-independent.
+# Ansible's normal discovery looks at ./ansible.cfg in cwd — when QA runs from
+# a subdirectory (or any non-repo-root cwd), discovery silently misses and the
+# `ansible.builtin.config('CONFIG_FILE')` lookup used by every playbook's
+# `root_dir` returns None, crashing the `dirname` filter at parse time. Setting
+# the env var sidesteps the discovery entirely so the result depends only on
+# REPO_ROOT, never on how the user happened to invoke QA.
+export ANSIBLE_CONFIG="$REPO_ROOT/ansible.cfg"
+
 # Fail fast: require ansible-playbook.
 # `command -v` prints the resolved path to stdout (discarded) and nothing to
 # stderr — no error output is suppressed by dropping stdout here.
