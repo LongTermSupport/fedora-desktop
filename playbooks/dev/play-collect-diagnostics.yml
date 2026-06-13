@@ -1,0 +1,65 @@
+#!/usr/bin/env ansible-playbook
+---
+# Repo-development playbook — NOT part of the standard configuration run.
+#
+# Gathers a comprehensive host diagnostic snapshot into
+# untracked/diagnostics/<ISO timestamp>/ so an agent (human or LLM) can
+# audit a freshly installed / freshly converged Fedora desktop for bugs,
+# regressions and opportunities to improve the playbooks in this repo.
+#
+# Outputs are structured per-tool text files (and a few SVGs) plus a
+# README.md index and a _manifest.tsv listing every probe and its exit
+# code. The untracked/ directory is gitignored so snapshots stay local.
+#
+# Run from the repo root on the HOST (never inside a CCY container):
+#
+#     ansible-playbook playbooks/dev/play-collect-diagnostics.yml
+#
+- hosts: desktop
+  name: Collect host diagnostic snapshot for repo-side analysis
+  become: true
+  vars:
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    capture_timestamp: "{{ ansible_date_time.iso8601_basic_short }}"
+    out_dir: "{{ root_dir }}/untracked/diagnostics/{{ capture_timestamp }}"
+  tasks:
+    - name: Ensure untracked/diagnostics base directory exists
+      ansible.builtin.file:
+        path: "{{ root_dir }}/untracked/diagnostics"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+
+    - name: Create this run's output directory
+      ansible.builtin.file:
+        path: "{{ out_dir }}"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+
+    - name: Run diagnostic collection script
+      ansible.builtin.command:
+        argv:
+          - "{{ root_dir }}/scripts/collect-diagnostics.bash"
+          - "{{ out_dir }}"
+          - "{{ user_login }}"
+      register: collect_result
+      changed_when: true
+
+    - name: Print collection progress (stderr from the script)
+      ansible.builtin.debug:
+        var: collect_result.stderr_lines
+
+    - name: Print summary
+      ansible.builtin.debug:
+        msg:
+          - "Diagnostic snapshot written to:"
+          - "  {{ out_dir }}"
+          - ""
+          - "Start by reading:"
+          - "  {{ out_dir }}/README.md"
+          - ""
+          - "Manifest of all captures (TSV: subdir, name, exit_code):"
+          - "  {{ out_dir }}/_manifest.tsv"
