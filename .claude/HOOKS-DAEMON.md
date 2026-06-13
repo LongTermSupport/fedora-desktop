@@ -1,6 +1,6 @@
 # Hooks Daemon - Active Configuration
 
-> Generated on 2026-04-19 (v3.5.0) by `generate-docs`. Regenerate: `$PYTHON -m claude_code_hooks_daemon.daemon.cli generate-docs`
+> Generated on 2026-06-13 (v3.19.0) by `generate-docs`. Regenerate: `$PYTHON -m claude_code_hooks_daemon.daemon.cli generate-docs`
 
 ## Plan Mode
 
@@ -14,12 +14,12 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 
 ## Active Handlers
 
-### PreToolUse (34 handlers)
+### PreToolUse (35 handlers)
 
 | Priority | Handler | Behavior | Description |
 |----------|---------|----------|-------------|
 | 5 | hello_world_pre_tool_use | NON-TERMINAL | Simple test handler that confirms PreToolUse hook is working |
-| 10 | ask_user_question_blocker | TERMINAL | Block AskUserQuestion to prevent progress-blocking user prompts |
+| 10 | ask_user_question_blocker | TERMINAL | Allow AskUserQuestion only when every question is prefix-justified |
 | 10 | curl_pipe_shell | TERMINAL | Block curl/wget piped to shell commands |
 | 10 | daemon_restart_verifier | ADVISORY | Verify daemon can restart before allowing git commits |
 | 10 | destructive_git | BLOCKING | Block destructive git commands that permanently destroy data |
@@ -42,6 +42,7 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | 35 | markdown_organization | BLOCKING | Enforce markdown file organization rules |
 | 38 | lsp_enforcement | BLOCKING | Enforce LSP tool usage instead of Grep/Bash grep for symbol lookups |
 | 40 | gh_issue_comments | BLOCKING | Ensure gh issue view commands always include --comments flag |
+| 40 | gh_pr_comments | BLOCKING | Ensure gh pr view commands always include --comments flag |
 | 40 | global_npm_advisor | NON-TERMINAL | Advise on global npm/yarn package installations |
 | 40 | plan_time_estimates | ADVISORY | Block time estimates in plan documents |
 | 45 | plan_workflow | ADVISORY | Provide guidance when creating plan files |
@@ -53,7 +54,7 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | 57 | daemon_docs_guard | ADVISORY | Warn when reading from the hooks-daemon internal CLAUDE/ docs directory |
 | 60 | british_english | ADVISORY | Warn about American English spellings in content files (non-blocking) |
 
-### PostToolUse (5 handlers)
+### PostToolUse (6 handlers)
 
 | Priority | Handler | Behavior | Description |
 |----------|---------|----------|-------------|
@@ -61,15 +62,15 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | 10 | validate_eslint_on_write | ADVISORY | Run ESLint validation on TypeScript/TSX files after write |
 | 25 | lint_on_edit | NON-TERMINAL | Run language-aware lint validation on files after Write/Edit |
 | 26 | markdown_table_formatter | NON-TERMINAL | Auto-format markdown tables after Write/Edit of .md files |
+| 27 | git_hooks_executable_fixer | NON-TERMINAL | Detect git's "not set as executable" hint and fix the hooks automatically |
 | 50 | bash_error_detector | ADVISORY | Detect errors and warnings in Bash command output |
 
-### SessionStart (9 handlers)
+### SessionStart (8 handlers)
 
 | Priority | Handler | Behavior | Description |
 |----------|---------|----------|-------------|
 | 5 | hello_world_session_start | NON-TERMINAL | Simple test handler that confirms SessionStart hook is working |
 | 40 | yolo_container_detection | ADVISORY | Detects YOLO container environments using multi-tier confidence scoring |
-| 50 | workflow_state_restoration | ADVISORY | Restore workflow state after compaction |
 | 51 | hook_registration_checker | ADVISORY | Validate hook registrations in Claude Code settings on session start |
 | 52 | optimal_config_checker | ADVISORY | Check Claude Code environment for optimal configuration on session start |
 | 53 | git_filemode_checker | ADVISORY | Warn when git core.fileMode=false is detected |
@@ -84,13 +85,12 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | 5 | hello_world_session_end | NON-TERMINAL | Simple test handler that confirms SessionEnd hook is working |
 | 10 | cleanup | NON-TERMINAL | Clean up temporary files when session ends |
 
-### PreCompact (3 handlers)
+### PreCompact (2 handlers)
 
 | Priority | Handler | Behavior | Description |
 |----------|---------|----------|-------------|
 | 5 | hello_world_pre_compact | NON-TERMINAL | Simple test handler that confirms PreCompact hook is working |
 | 10 | transcript_archiver | NON-TERMINAL | Archive conversation transcript before compaction |
-| 50 | workflow_state_pre_compact | NON-TERMINAL | Detect and preserve workflow state before compaction |
 
 ### UserPromptSubmit (4 handlers)
 
@@ -145,7 +145,7 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | 10 | model_context | NON-TERMINAL | Format model name with effort level and color-coded context percentage |
 | 14 | current_time | NON-TERMINAL | Display current local time in status line (24-hour format, no seconds) |
 | 15 | usage_tracking | NON-TERMINAL | Display daily and weekly token usage percentages |
-| 20 | git_branch | NON-TERMINAL | Show current git branch if in a git repo |
+| 20 | git_branch | NON-TERMINAL | Show current git branch with magicmonty-style status icons if in a git repo |
 | 25 | thinking_mode | NON-TERMINAL | Display thinking mode and effort level in status line |
 | 25 | working_directory | NON-TERMINAL | Display working directory when it differs from project root |
 | 28 | startup_cleanup | NON-TERMINAL | Show 🧹 briefly after daemon startup to indicate stale-file cleanup ran |

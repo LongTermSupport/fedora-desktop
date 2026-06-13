@@ -1,6 +1,6 @@
 # Claude Code Hooks Daemon
 # Exclude the cloned daemon repository (users install it themselves)
-hooks-daemon/
+/hooks-daemon/
 
 # Backup directories created during installation
 hooks.bak/
