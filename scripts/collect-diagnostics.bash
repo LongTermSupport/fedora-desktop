@@ -105,6 +105,112 @@ capture_user_sh() {
     capture_user "$subdir" "$name" bash -c "$snippet"
 }
 
+# record_tool_absent <subdir> <name> <missing_cmd> <argv...>
+# Helper for capture_if_present / capture_user_if_present: writes a
+# "tool not installed" stub with rc=0 so the manifest stays focused on
+# real defects rather than environment differences.
+record_tool_absent() {
+    local subdir="$1" name="$2" cmd="$3"
+    shift 3
+    local dir="$OUT_DIR/$subdir"
+    local outfile="$dir/$name.txt"
+    mkdir -p "$dir"
+    {
+        echo "# Diagnostic: $subdir/$name"
+        echo "# Command  : $*"
+        echo "# Captured : $(date -Iseconds)"
+        echo "# Host     : $(hostname)"
+        echo "# Status   : skipped — '$cmd' not installed on this host"
+        echo "# ---- BEGIN OUTPUT ----"
+        echo "(tool '$cmd' not installed)"
+        echo "# ---- END OUTPUT ----"
+        echo "# Exit code: 0"
+    } > "$outfile"
+
+    printf "%s\t%s\t%d\n" "$subdir" "$name" "0" >> "$MANIFEST"
+    printf "  skip  %s/%s (no '%s')\n" "$subdir" "$name" "$cmd" >&2
+}
+
+# capture_if_present <subdir> <name> <argv...>
+# capture() variant that probes `command -v <argv[0]>` first and skips
+# cleanly when absent. Use for diagnostic tools that aren't installed by
+# default on every host (lshw, inxi, sensors, snap, tlp-stat, ...).
+# command -v writes the path to stdout when found and nothing to stderr
+# when missing, so plain `>/dev/null` suffices — no error hiding.
+capture_if_present() {
+    local subdir="$1" name="$2"
+    shift 2
+    local cmd="$1"
+    if command -v "$cmd" >/dev/null; then
+        capture "$subdir" "$name" "$@"
+    else
+        record_tool_absent "$subdir" "$name" "$cmd" "$@"
+    fi
+}
+
+# capture_user_if_present <subdir> <name> <argv...>
+# capture_user() variant with the same presence guard. Existence is
+# checked in root's PATH for simplicity — that matches the user's PATH
+# for all distro-installed binaries we currently probe.
+capture_user_if_present() {
+    local subdir="$1" name="$2"
+    shift 2
+    local cmd="$1"
+    if command -v "$cmd" >/dev/null; then
+        capture_user "$subdir" "$name" "$@"
+    else
+        record_tool_absent "$subdir" "$name" "$cmd" "$@"
+    fi
+}
+
+# capture_treat_empty_as_clean <subdir> <name> <clean_regex> <argv...>
+# capture() variant for probes where exit != 0 with output matching
+# <clean_regex> is the desired "no findings" outcome (ausearch
+# "<no matches>", systemctl list-unit-files "0 unit files listed", ...).
+# When the pattern matches, the manifest gets rc=0 and the file records
+# the original exit code alongside the rewrite reason.
+capture_treat_empty_as_clean() {
+    local subdir="$1" name="$2" clean_pattern="$3"
+    shift 3
+    local dir="$OUT_DIR/$subdir"
+    local outfile="$dir/$name.txt"
+    local rc=0
+    mkdir -p "$dir"
+    {
+        echo "# Diagnostic: $subdir/$name"
+        echo "# Command  : $*"
+        echo "# Captured : $(date -Iseconds)"
+        echo "# Host     : $(hostname)"
+        echo "# Note     : exit-non-zero with output matching /$clean_pattern/"
+        echo "#            is treated as 'clean / no findings' (rc=0)"
+        echo "# ---- BEGIN OUTPUT ----"
+    } > "$outfile"
+
+    if "$@" >> "$outfile" 2>&1; then
+        rc=0
+    else
+        rc=$?
+    fi
+
+    echo "# ---- END OUTPUT ----" >> "$outfile"
+
+    if [[ $rc -ne 0 ]]; then
+        if grep -qE "$clean_pattern" "$outfile"; then
+            echo "# Original exit code: $rc (rewritten to 0: matched clean pattern)" >> "$outfile"
+            rc=0
+        fi
+    fi
+    echo "# Exit code: $rc" >> "$outfile"
+
+    printf "%s\t%s\t%d\n" "$subdir" "$name" "$rc" >> "$MANIFEST"
+
+    if [[ $rc -eq 0 ]]; then
+        printf "  ok    %s/%s\n" "$subdir" "$name" >&2
+    else
+        printf "  rc=%-3d %s/%s\n" "$rc" "$subdir" "$name" >&2
+    fi
+}
+
 echo "==> Collecting diagnostics for user '$USER_LOGIN' (uid=$USER_UID, home=$USER_HOME)" >&2
 echo "==> Output dir: $OUT_DIR" >&2
 echo "" >&2
@@ -129,16 +235,17 @@ capture    01-identity localectl       localectl
 capture    02-hardware lscpu              lscpu
 capture    02-hardware lspci-verbose      lspci -vnnk
 capture    02-hardware lsusb-tree         lsusb -tv
-capture    02-hardware lsblk              lsblk -fO
+capture    02-hardware lsblk-fs           lsblk -f
+capture    02-hardware lsblk-all          lsblk -O
 capture    02-hardware lsmod              lsmod
 capture    02-hardware dmidecode-system   dmidecode -t system
 capture    02-hardware dmidecode-bios     dmidecode -t bios
 capture    02-hardware dmidecode-memory   dmidecode -t memory
 capture    02-hardware fwupdmgr-devices   fwupdmgr get-devices
 capture    02-hardware fwupdmgr-updates   fwupdmgr get-updates
-capture    02-hardware lshw-short         lshw -short
-capture    02-hardware inxi               inxi -Fxxxz --no-host
-capture    02-hardware sensors            sensors
+capture_if_present 02-hardware lshw-short  lshw -short
+capture_if_present 02-hardware inxi        inxi -Fxxxz --no-host
+capture_if_present 02-hardware sensors     sensors
 
 # ---------------------------------------------------------------------------
 # 03-boot — performance + chain
@@ -155,7 +262,7 @@ capture_sh 03-boot systemd-analyze-plot           "systemd-analyze plot > '$OUT_
 capture      04-systemd failed-units            systemctl --failed --no-pager
 capture      04-systemd all-units               systemctl list-units --no-pager
 capture      04-systemd enabled-unit-files      systemctl list-unit-files --state=enabled --no-pager
-capture      04-systemd masked-unit-files       systemctl list-unit-files --state=masked --no-pager
+capture_treat_empty_as_clean 04-systemd masked-unit-files '0 unit files listed' systemctl list-unit-files --state=masked --no-pager
 capture      04-systemd jobs                    systemctl list-jobs --no-pager
 capture_user 04-systemd user-failed-units       systemctl --user --failed --no-pager
 capture_user 04-systemd user-all-units          systemctl --user list-units --no-pager
@@ -173,8 +280,8 @@ capture      05-logs journal-previous-boot    journalctl -b -1 --no-pager -o sho
 capture      05-logs journal-previous-errors  journalctl -b -1 -p err --no-pager -o short-iso
 capture_user 05-logs journal-user-boot        journalctl --user -b --no-pager -o short-iso
 capture      05-logs coredumps                coredumpctl list --no-pager
-capture      05-logs selinux-denials          ausearch -m AVC,USER_AVC -ts boot
-capture      05-logs audit-anomaly            ausearch -m ANOM_ABEND,ANOM_PROMISCUOUS -ts boot
+capture_treat_empty_as_clean 05-logs selinux-denials '<no matches>' ausearch -m AVC,USER_AVC -ts boot
+capture_treat_empty_as_clean 05-logs audit-anomaly   '<no matches>' ausearch -m ANOM_ABEND,ANOM_PROMISCUOUS -ts boot
 
 # ---------------------------------------------------------------------------
 # 06-network
@@ -222,7 +329,7 @@ capture    09-packages flatpak-list      flatpak list
 capture    09-packages flatpak-remotes   flatpak remotes -d
 capture_sh 09-packages rpm-count         'echo "Installed RPM count: $(rpm -qa | wc -l)"'
 capture_sh 09-packages largest-rpms      "rpm -qa --queryformat '%{SIZE}\t%{NAME}\n' | sort -rn | head -100"
-capture    09-packages snap-list         snap list
+capture_if_present 09-packages snap-list   snap list
 
 # ---------------------------------------------------------------------------
 # 10-display-audio — GPU, screen, sound
@@ -231,8 +338,8 @@ capture_sh   10-display-audio gpu-pci       'lspci -nnk | grep -A 3 -E -i "vga|3
 capture_sh   10-display-audio gpu-modules   'grep -E "^(nvidia|nouveau|amdgpu|radeon|i915|xe) " /proc/modules'
 capture_user 10-display-audio glxinfo       glxinfo -B
 capture_user 10-display-audio vainfo        vainfo
-capture_user 10-display-audio vdpauinfo     vdpauinfo
-capture_user 10-display-audio xdpyinfo      xdpyinfo
+capture_user_if_present 10-display-audio vdpauinfo  vdpauinfo
+capture_user_if_present 10-display-audio xdpyinfo   xdpyinfo
 capture_user_sh 10-display-audio display-env   'env | grep -E "^(XDG_|WAYLAND_|DISPLAY|XAUTHORITY|GDK_|QT_|MUTTER_|GTK_)" | sort'
 capture_user 10-display-audio pactl-info    pactl info
 capture_user_sh 10-display-audio pactl-sinks   'pactl list short sinks'
@@ -245,11 +352,23 @@ capture      10-display-audio asound-modules cat /proc/asound/modules
 # ---------------------------------------------------------------------------
 # 11-power — battery, thermals, profiles
 # ---------------------------------------------------------------------------
-capture    11-power power-profiles-list  powerprofilesctl list
-capture    11-power power-profile-get    powerprofilesctl get
-capture    11-power upower-dump          upower -d
+# Power Mode backend probes. The GNOME Power Mode panel binds to the
+# net.hadess.PowerProfiles D-Bus interface, which on F44 is owned by
+# tuned-ppd (TuneD's compatibility shim), not power-profiles-daemon —
+# powerprofilesctl is part of the latter package and is intentionally
+# not installed on a stock F44. Probe the D-Bus interface directly so
+# the snapshot reflects what the panel actually sees regardless of
+# which backend is running, then probe each backend's own CLI only when
+# present.
+capture    11-power dbus-power-profiles-active busctl --no-pager get-property net.hadess.PowerProfiles /net/hadess/PowerProfiles net.hadess.PowerProfiles ActiveProfile
+capture    11-power dbus-power-profiles-list   busctl --no-pager get-property net.hadess.PowerProfiles /net/hadess/PowerProfiles net.hadess.PowerProfiles Profiles
+capture_if_present 11-power tuned-adm-active   tuned-adm active
+capture_if_present 11-power tuned-adm-list     tuned-adm list
+capture_if_present 11-power powerprofilesctl-list powerprofilesctl list
+capture_if_present 11-power powerprofilesctl-get  powerprofilesctl get
+capture    11-power upower-dump              upower -d
 capture_sh 11-power battery               'for b in /sys/class/power_supply/BAT*; do if [[ -d "$b" ]]; then echo "=== $b ==="; for f in status capacity energy_full energy_full_design energy_now power_now cycle_count manufacturer model_name; do if [[ -r "$b/$f" ]]; then printf "%-22s %s\n" "$f" "$(cat "$b/$f")"; fi; done; fi; done'
-capture    11-power tlp-stat              tlp-stat -s
+capture_if_present 11-power tlp-stat       tlp-stat -s
 capture_sh 11-power cpu-frequency         'for f in scaling_driver scaling_governor scaling_min_freq scaling_max_freq; do p=/sys/devices/system/cpu/cpu0/cpufreq/$f; if [[ -r "$p" ]]; then printf "%-22s %s\n" "$f" "$(cat "$p")"; else printf "%-22s (n/a)\n" "$f"; fi; done'
 capture_sh 11-power thermal-zones         'for z in /sys/class/thermal/thermal_zone*; do if [[ -d "$z" ]] && [[ -r "$z/temp" ]]; then printf "%-30s type=%-30s temp=%s\n" "$(basename "$z")" "$(cat "$z/type")" "$(cat "$z/temp")"; fi; done'
 

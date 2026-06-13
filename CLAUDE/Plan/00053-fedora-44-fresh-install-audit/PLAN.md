@@ -192,54 +192,58 @@ Intel + NVIDIA Optimus on Meteor Lake). They belong under
 Surfaced by running the collector on real hardware. None of these break
 the snapshot but they all reduce noise and improve agent-driven triage.
 
-- [ ] ⬜ **Task 3.1**: Fix `lsblk -fO` mutually-exclusive flag
+- [x] ✅ **Task 3.1**: Fix `lsblk -fO` mutually-exclusive flag
 
-  - [ ] ⬜ Replace the single `lsblk -fO` probe with `lsblk -f` (and
-    optionally a separate `lsblk -O` probe).
-  - [ ] ⬜ Run QA + re-run the play to confirm the manifest goes from
-    `rc=1` to `rc=0` on that probe.
+  - [x] ✅ Split into `lsblk-fs` (`lsblk -f`) and `lsblk-all`
+    (`lsblk -O`) — both views captured, neither flag pair is invalid.
+  - [x] ✅ QA + re-run: both new probes show rc=0 in the manifest.
 
-- [ ] ⬜ **Task 3.2**: Fix output-dir timestamp using a stale cached
+- [x] ✅ **Task 3.2**: Fix output-dir timestamp using a stale cached
   fact
 
-  - [ ] ⬜ The play stamps the output dir from
-    `ansible_date_time.iso8601_basic_short` which is served from the
-    on-disk fact cache (`untracked/facts/s1_localhost`), so the
-    directory name is "yesterday" while the captures inside are
-    current.
-  - [ ] ⬜ Switch the timestamp source: either gather facts fresh in the
-    play (or clear the cached `ansible_date_time` first), or compute
-    the timestamp via `lookup('pipe', 'date +%Y%m%dT%H%M%S')`.
+  - [x] ✅ First cut used `lookup('pipe', 'date …')` directly in
+    `vars:`. That re-evaluates on every variable access, producing
+    two adjacent timestamped dirs (parent-dir prep vs. collection
+    script). Final form: `ansible.builtin.set_fact` resolves the
+    lookup once and binds `out_dir` for the rest of the play.
+  - [x] ✅ Verified: single timestamped dir per run.
 
-- [ ] ⬜ **Task 3.3**: Replace `powerprofilesctl` probe with a TuneD-aware
+- [x] ✅ **Task 3.3**: Replace `powerprofilesctl` probe with a TuneD-aware
   probe
 
-  - [ ] ⬜ On F44 the PPD interface is owned by `tuned-ppd`, not
-    `power-profiles-daemon` — `powerprofilesctl` isn't part of the
-    TuneD package set, so the probe always reports `rc=127` on a
-    correctly-configured host.
-  - [ ] ⬜ Replace with `busctl --no-pager status net.hadess.PowerProfiles`
-    (or `dbus-send` equivalent) + a `tuned-adm active` probe so the
-    snapshot answers "is the Power Mode panel actually wired up?"
-    regardless of which daemon backs it.
+  - [x] ✅ Confirmed on the audited host: `tuned-ppd` owns
+    `net.hadess.PowerProfiles` and `org.freedesktop.UPower.PowerProfiles`
+    on the system bus; `power-profiles-daemon` is not installed.
+  - [x] ✅ New probe set: `busctl get-property` on `ActiveProfile` and
+    `Profiles` of `net.hadess.PowerProfiles` (works regardless of
+    backend), plus `tuned-adm active` / `tuned-adm list` and the
+    original `powerprofilesctl list` / `get` all behind
+    `capture_if_present` so hosts with either daemon installed show
+    their own state. Verified the busctl probe reports
+    `ActiveProfile = "performance"` on the audited host.
 
-- [ ] ⬜ **Task 3.4**: Quieten "tool absent" rc=127 noise
+- [x] ✅ **Task 3.4**: Quieten "tool absent" rc=127 noise
 
-  - [ ] ⬜ Wrap optional probes (`lshw`, `inxi`, `sensors`, `vdpauinfo`,
-    `xdpyinfo`, `snap`, `tlp-stat`, etc.) with a `command -v` guard
-    so the captured file says `tool not installed on this host`
-    with `rc=0`, leaving `rc != 0` in the manifest reserved for
-    "real" defects.
+  - [x] ✅ Added `capture_if_present` and `capture_user_if_present`
+    helpers (sharing a `record_tool_absent` stub-writer). Each probes
+    `command -v <argv0>` first and either dispatches to the normal
+    capture or writes a "tool not installed" stub with rc=0.
+  - [x] ✅ Wrapped `lshw`, `inxi`, `sensors`, `snap`, `tlp-stat`,
+    `vdpauinfo`, `xdpyinfo`, `tuned-adm`, `powerprofilesctl`. On the
+    audited host these now show `skip` in the run log and rc=0 in
+    the manifest instead of `rc=127`.
 
-- [ ] ⬜ **Task 3.5**: Decide on the `ausearch <no matches> = rc=1`
-  pattern
+- [x] ✅ **Task 3.5**: Treat `ausearch "<no matches>"` and
+  `systemctl "0 unit files listed"` exit-1 outputs as clean
+  (Decision 6: post-process to rc=0 with annotation)
 
-  - [ ] ⬜ `selinux-denials.txt`, `audit-anomaly.txt`,
-    `04-systemd/masked-unit-files.txt` all return `rc=1` when the
-    result is "nothing to report" — which is the desired, clean
-    outcome.
-  - [ ] ⬜ Either post-process empty output to `rc=0`, or annotate the
-    README so the agent doesn't chase them as defects (Decision 6).
+  - [x] ✅ Added `capture_treat_empty_as_clean <subdir> <name> <clean_regex> <argv...>` — runs the command, captures rc, and if
+    rc != 0 AND the output matches the regex, rewrites rc to 0 while
+    recording the original exit code inline in the file.
+  - [x] ✅ Applied to `04-systemd/masked-unit-files`
+    (`0 unit files listed`), `05-logs/selinux-denials` and
+    `05-logs/audit-anomaly` (`<no matches>`). On the audited host all
+    three now show rc=0 with the rewrite note.
 
 ### Phase 4: Firmware update workflow
 
@@ -353,8 +357,13 @@ similar return non-zero when there's nothing to report — which is the
   defects. Con: hides the original tool exit code.
 - *Annotate in README only.* Pro: preserves tool semantics. Con: noisy
   manifest.
-  **Decision**: TBD during Task 3.5 — leaning toward post-process with an
-  explicit "rewritten from rc=1 because no results" comment in the file.
+
+**Decision**: Post-process — `capture_treat_empty_as_clean` rewrites
+rc=0 when a clean-pattern matches the captured output, and the
+original exit code is recorded inline in the file along with the
+regex that matched. Manifest stays focused on real defects; the
+file an agent reads preserves full provenance.
+**Date**: 2026-06-13.
 
 ### Decision 7: ship firmware-update auto-flow or document manual?
 
@@ -416,3 +425,7 @@ ships `tuned` + `tuned-ppd` as the default Power Mode backend;
   not power-profiles-daemon). Decision recorded above.
 - Phases split into: generic (1), hardware-specific (2), dev-tool (3),
   firmware (4).
+- Phase 3 complete: collector script + play updated, re-run shows
+  119/119 probes at rc=0. Decision 6 resolved (post-process via
+  `capture_treat_empty_as_clean`). Phase 3 was the lowest-risk warm-up
+  before touching live systemd state in Phase 1.

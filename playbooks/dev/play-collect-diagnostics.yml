@@ -20,9 +20,20 @@
   become: true
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
-    capture_timestamp: "{{ ansible_date_time.iso8601_basic_short }}"
-    out_dir: "{{ root_dir }}/untracked/diagnostics/{{ capture_timestamp }}"
   tasks:
+    # Freeze the timestamp once so every downstream task sees the same
+    # value. Putting `lookup('pipe', 'date …')` in `vars:` directly
+    # re-evaluates the lookup on every variable access — which created
+    # two adjacent timestamped directories one second apart (parent-dir
+    # task vs. collection-script task). `ansible_date_time.*` would
+    # avoid the second-flicker but is served from the on-disk fact
+    # cache (untracked/facts/), so its value is the timestamp of the
+    # last full fact gather, not "now". set_fact binds the resolved
+    # value as a fact for the rest of the play.
+    - name: Freeze capture timestamp and output dir
+      ansible.builtin.set_fact:
+        out_dir: "{{ root_dir }}/untracked/diagnostics/{{ lookup('ansible.builtin.pipe', 'date +%Y%m%dT%H%M%S') }}"
+
     - name: Ensure untracked/diagnostics base directory exists
       ansible.builtin.file:
         path: "{{ root_dir }}/untracked/diagnostics"
