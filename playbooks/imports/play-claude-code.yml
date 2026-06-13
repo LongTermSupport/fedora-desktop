@@ -5,7 +5,13 @@
   become: false
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
-    claude_code_version: "stable"
+    # 'latest' tracks the leading-edge release train (the same one npm's `latest`
+    # dist-tag serves the ccy container), so host `cc` and container `ccy` stay on
+    # the same Claude Code version. 'stable' is the slower staged-rollout channel
+    # and lags behind — using it left the host stuck several releases back while
+    # ccy moved ahead. The native updater's channel is sticky: cc's per-launch
+    # `claude update` only ever reaches the head of whichever channel is set here.
+    claude_code_version: "latest"
   tasks:
     # cc wrapper sources ccy's lib at runtime. play-claude-yolo MUST run
     # first (see playbook-main.yml import order). Fail at deploy time
@@ -40,6 +46,7 @@
         path: "/home/{{ user_login }}/.local/bin/claude"
       register: claude_installed
 
+    # Fresh host: bootstrap the native build on the chosen channel.
     - name: Install Claude Code CLI via Official Installer
       ansible.builtin.shell: |
         set -euo pipefail
@@ -49,6 +56,33 @@
       environment:
         HOME: "/home/{{ user_login }}"
       when: not claude_installed.stat.exists
+
+    # Existing host: ensure it tracks the chosen channel. `claude install latest`
+    # switches the native updater's (sticky) channel so cc's per-launch
+    # `claude update` follows the leading edge instead of the slower `stable`
+    # rollout. Without this, retargeting claude_code_version above would never
+    # reach a host that already has claude installed (the bootstrap task is
+    # gated on absence). Reports changed only when it actually moves the version.
+    - name: Ensure Claude Code Tracks the '{{ claude_code_version }}' Channel
+      ansible.builtin.shell: |
+        set -euo pipefail
+        export PATH="$HOME/.local/bin:$PATH"
+        before="$(claude --version)"
+        claude install {{ claude_code_version }}
+        after="$(claude --version)"
+        # Surface the result for changed_when; trailing line is machine-parsed.
+        echo "CCVER before=${before} after=${after}"
+      args:
+        executable: /bin/bash
+      environment:
+        HOME: "/home/{{ user_login }}"
+      when: claude_installed.stat.exists
+      register: claude_channel_sync
+      changed_when: >-
+        ('CCVER before=' in claude_channel_sync.stdout) and
+        (claude_channel_sync.stdout
+          | regex_search('CCVER before=(.*) after=(.*)$', '\\1', '\\2')
+          | unique | length > 1)
 
     - name: Verify Claude Code Installation
       ansible.builtin.shell: |
