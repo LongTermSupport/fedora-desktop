@@ -86,6 +86,31 @@ gh repo edit --default-branch F44
 # - Fix any compatibility issues
 ```
 
+### After Changing the Default Branch — Resync Local Clones
+
+Step 4 above changes the default branch on GitHub, but **existing clones keep
+pointing their local `origin/HEAD` at the old default** (e.g. `main` or the
+previous `F<VERSION>`). This is a stale local symref, not a GitHub state — so
+`git rev-parse origin/HEAD`, `git-oss-checkout-default`, and similar helpers
+will resolve to the wrong branch until each clone is resynced.
+
+Every contributor (and any automation) should run, once, after the default
+branch moves:
+
+```bash
+git remote set-head origin --auto   # repoints local origin/HEAD to the new default
+```
+
+Verify with:
+
+```bash
+git symbolic-ref refs/remotes/origin/HEAD          # -> refs/remotes/origin/F44
+gh repo view --json defaultBranchRef --jq .defaultBranchRef.name   # -> F44
+```
+
+The two must agree. If they disagree, the local symref is stale — re-run the
+`set-head` command above.
+
 ### Branch Lifecycle
 
 - **Active**: Current Fedora version branch
