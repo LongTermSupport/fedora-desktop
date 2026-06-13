@@ -8,6 +8,11 @@
 #   IdentityAgent=none        — do not consult the ssh-agent for keys
 #   PreferredAuthentications=publickey — public-key only, no password fallback
 #
+# Agent forwarding: pass -A (or -o ForwardAgent=yes) and the local ssh-agent is
+# forwarded to the remote host. Forwarding needs a live agent socket, so when -A
+# is requested we do NOT set IdentityAgent=none — auth to THIS host still uses
+# only the -i key because IdentitiesOnly=yes ignores every agent-held identity.
+#
 # Usage:
 #   ssh-with-key [-i KEYPATH] [ssh-args...] user@host
 #
@@ -96,9 +101,25 @@ if [ ! -r "$key" ]; then
     exit 1
 fi
 
-exec ssh \
-    -i "$key" \
-    -o IdentitiesOnly=yes \
-    -o IdentityAgent=none \
-    -o PreferredAuthentications=publickey \
-    "$@"
+# Detect a request to forward the agent: a short-flag cluster containing A
+# (-A, -AX, -tA, …) or an explicit -o ForwardAgent=yes.
+forward_agent=0
+for arg in "$@"; do
+    if [[ "$arg" == -[!-]* && "$arg" == *A* ]] || [[ "$arg" == "ForwardAgent=yes" ]]; then
+        forward_agent=1
+        break
+    fi
+done
+
+opts=(
+    -i "$key"
+    -o IdentitiesOnly=yes
+    -o PreferredAuthentications=publickey
+)
+# IdentityAgent=none — do not consult the ssh-agent for keys. Skipped when the
+# agent is being forwarded (-A), since forwarding needs the agent socket alive.
+if [ "$forward_agent" -eq 0 ]; then
+    opts+=(-o IdentityAgent=none)
+fi
+
+exec ssh "${opts[@]}" "$@"
