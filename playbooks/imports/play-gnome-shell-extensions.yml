@@ -23,6 +23,10 @@
       ansible.builtin.dnf:
         name:
           - xprop
+          # The official "Extensions" GUI. GNOME Tweaks 40+ dropped its extensions
+          # panel, and Fedora no longer ships this app by default, so without it
+          # there is no graphical way to enable/disable/configure extensions.
+          - gnome-extensions-app
           # EXT-08: DNF resolves the per-release build automatically (105-1.fc44 on Fedora 44).
           # No version pin needed — the distro package always targets the bundled GNOME major.
           - gnome-shell-extension-dash-to-dock
