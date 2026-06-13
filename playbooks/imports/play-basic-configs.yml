@@ -240,6 +240,22 @@
         group: "{{ user_login }}"
         mode: "0755"
 
+    - name: Install ssh-with-key helper script
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/ssh-with-key"
+        dest: "/home/{{ user_login }}/.local/bin/ssh-with-key"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+
+    - name: Install scp-with-key helper script
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/scp-with-key"
+        dest: "/home/{{ user_login }}/.local/bin/scp-with-key"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+
     - name: Install YQ
       become: true
       ansible.builtin.shell: |

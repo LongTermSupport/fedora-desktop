@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+# ssh-with-key — ssh to a host serving ONLY one specified key, never any other
+#
+# Offers exactly one private key and nothing else: not other files in ~/.ssh,
+# not keys held by the ssh-agent, and it will not fall back to password auth.
+# The key-disabling companion to ssh-with-password.
+#   IdentitiesOnly=yes        — use only the key given with -i, ignore others
+#   IdentityAgent=none        — do not consult the ssh-agent for keys
+#   PreferredAuthentications=publickey — public-key only, no password fallback
+#
+# Usage:
+#   ssh-with-key [-i KEYPATH] [ssh-args...] user@host
+#
+#   -i KEYPATH   Private key to use. MUST be the first argument if given.
+#                If omitted, an interactive picker lists keys in ~/.ssh.
+#
+# Examples:
+#   ssh-with-key -i ~/.ssh/id_ed25519 admin@host.example.com
+#   ssh-with-key admin@host.example.com            # no -i -> pick a key
+set -euo pipefail
+
+SSH_DIR="$HOME/.ssh"
+
+usage() {
+    echo "Usage: ssh-with-key [-i KEYPATH] [ssh-args...] user@host"
+    echo ""
+    echo "  SSH offering ONLY one key — no agent keys, no other ~/.ssh keys,"
+    echo "  no password fallback."
+    echo ""
+    echo "  -i KEYPATH   Private key to use (must be the first argument)."
+    echo "               Omit it to pick a key from ~/.ssh interactively."
+    echo ""
+    echo "Examples:"
+    echo "  ssh-with-key -i ~/.ssh/id_ed25519 admin@host.example.com"
+    echo "  ssh-with-key admin@host.example.com"
+}
+
+# Interactive picker — lists private keys in ~/.ssh and echoes the chosen path
+# on stdout. All prompts go to stderr (stdout is captured by the caller), and
+# the read is bound to /dev/tty so it works inside command substitution.
+pick_key() {
+    local f name
+    local -a keys=()
+    for f in "$SSH_DIR"/*; do
+        [ -f "$f" ] || continue
+        name="$(basename "$f")"
+        case "$name" in
+            *.pub|config|known_hosts|known_hosts.old|authorized_keys|*.swp|*.bak) continue ;;
+        esac
+        keys+=("$f")
+    done
+
+    if [ "${#keys[@]}" -eq 0 ]; then
+        echo "No private keys found in $SSH_DIR" >&2
+        return 1
+    fi
+
+    echo "Select a private key from $SSH_DIR:" >&2
+    local i=1
+    for f in "${keys[@]}"; do
+        echo "  $i) $(basename "$f")" >&2
+        i=$((i + 1))
+    done
+
+    local choice
+    read -rp "Key number: " choice < /dev/tty
+    if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt "${#keys[@]}" ]; then
+        echo "Invalid selection: $choice" >&2
+        return 1
+    fi
+    printf '%s\n' "${keys[$((choice - 1))]}"
+}
+
+case "${1:-}" in
+    -h|--help) usage; exit 0 ;;
+    "") usage; exit 1 ;;
+esac
+
+# Extract a leading "-i KEYPATH"; otherwise fall back to the picker.
+key=""
+if [ "${1:-}" = "-i" ]; then
+    if [ "$#" -lt 2 ]; then
+        echo "Error: -i requires a key path" >&2
+        exit 1
+    fi
+    key="$2"
+    shift 2
+fi
+
+if [ -z "$key" ]; then
+    key="$(pick_key)" || exit 1
+fi
+
+if [ ! -r "$key" ]; then
+    echo "Error: key not found or not readable: $key" >&2
+    exit 1
+fi
+
+exec ssh \
+    -i "$key" \
+    -o IdentitiesOnly=yes \
+    -o IdentityAgent=none \
+    -o PreferredAuthentications=publickey \
+    "$@"
