@@ -77,7 +77,23 @@ ESLINT_ERR=""
 
 if [[ -d "$REPO_ROOT/extensions" ]]; then
     if [[ ! -x "$ESLINT_BIN" ]]; then
-        echo "✗ js: extensions/node_modules eslint missing — run 'npm install' in extensions/" >&2
+        # Dev-only tooling: the extensions/ eslint deps are NOT installed by any
+        # playbook (a plain repo install / fresh CCY container does not carry
+        # them, and most users never edit the GNOME-extension JS). Fail loudly
+        # with clear setup guidance rather than silently skipping or
+        # auto-installing — the latter would force dev tooling on every install.
+        {
+            echo "✗ js: eslint dev tooling for extensions/ is not set up"
+            echo ""
+            echo "  The GNOME-extension lint check needs node deps that no playbook"
+            echo "  installs — they are dev-only and only required if you are editing"
+            echo "  the extensions/ JavaScript."
+            echo ""
+            echo "  Set the tooling up once (reproducible from package-lock.json):"
+            echo "      cd extensions && npm ci"
+            echo ""
+            echo "  Then re-run ./scripts/qa-all.bash."
+        } >&2
         # Missing-dependency rule: do not skip. Surface as missing-tool exit 2.
         exit 2
     fi
