@@ -14,41 +14,56 @@ NC='\033[0m' # No Color
 # Repository root (this hook runs from the repo root via core.hooksPath)
 REPO_ROOT=$(git rev-parse --show-toplevel)
 
-# Sensitive patterns to detect (using generic patterns, no actual sensitive data)
-# Each pattern has format: "pattern::description" (using :: to avoid conflicts with | in regex)
+# Sensitive patterns to detect (using generic patterns, no actual sensitive data).
+#
+# Each entry has the format "pattern::description::guidance" — :: separates the
+# three fields (chosen to avoid conflicts with | inside the regexes). The
+# guidance string tells the contributor exactly which reserved placeholder to
+# use instead, and is printed alongside any match.
+#
+# The set of accepted example placeholders (IPs, emails, hostnames, usernames)
+# is the documented schema in CLAUDE/ExampleValues.md — RFC 5737 IPs, RFC 2606
+# domains/emails, RFC 3849 IPv6. Keep the whitelist logic below and that doc in
+# sync.
+EXAMPLE_DOC="CLAUDE/ExampleValues.md"
+RESERVED_IPS="192.0.2.0/24, 198.51.100.0/24 or 203.0.113.0/24 (RFC 5737)"
+RESERVED_EMAIL="name@example.com (subdomains like admin@host.example.com are accepted too)"
 declare -a SENSITIVE_PATTERNS=(
-    # Any real email address. Obvious placeholders (example.com/.org/.net, or
-    # addresses inside <...>/{{...}}) are filtered out in the per-pattern logic below.
-    "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}::Email address"
+    # Any real email address. Reserved example domains (example.com/.org/.net and
+    # their subdomains), the .example/.test/.invalid/.localhost TLDs, and
+    # <...>/{{...}} placeholders are filtered out in the per-pattern logic below.
+    "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}::Email address::Use a reserved example email — ${RESERVED_EMAIL}. See ${EXAMPLE_DOC}"
 
     # Common username patterns with company/personal identifiers
     # Will exclude example_user, test_user, etc. in the script logic below
-    "[a-z]{3,}_[a-z]{3,}\\.(token|key|credential)\\b::Specific username in credential filename"
+    "[a-z]{3,}_[a-z]{3,}\\.(token|key|credential)\\b::Specific username in credential filename::Use a placeholder username (example_user, test_user) or {{ user_login }}. See ${EXAMPLE_DOC}"
 
     # Private key material (PEM blocks of any key type)
-    "-----BEGIN [A-Z ]*PRIVATE KEY-----::Private key block"
+    "-----BEGIN [A-Z ]*PRIVATE KEY-----::Private key block::Never commit key material. Remove it and rotate the key if it was real."
 
     # SSH/API key patterns (actual keys, not references)
-    "ssh-rsa [A-Za-z0-9+/=]{50,}::SSH public key"
-    "ssh-ed25519 [A-Za-z0-9+/=]{50,}::SSH Ed25519 public key"
-    "sk-ant-oat01-[A-Za-z0-9_-]{20,}::Anthropic OAuth token"
-    "sk-ant-[a-z0-9-]{50,}::Anthropic API token"
-    "ghp_[A-Za-z0-9]{36,}::GitHub personal access token"
-    "gho_[A-Za-z0-9]{36,}::GitHub OAuth token"
-    "ghs_[A-Za-z0-9]{36,}::GitHub server-to-server token"
-    "ghr_[A-Za-z0-9]{36,}::GitHub refresh token"
-    "github_pat_[A-Za-z0-9_]{20,}::GitHub fine-grained personal access token"
-    "glpat-[A-Za-z0-9_-]{20,}::GitLab personal access token"
+    "ssh-rsa [A-Za-z0-9+/=]{50,}::SSH public key::Remove the key. If an example is needed, redact the body to ssh-rsa AAAA...placeholder."
+    "ssh-ed25519 [A-Za-z0-9+/=]{50,}::SSH Ed25519 public key::Remove the key. If an example is needed, redact the body to ssh-ed25519 AAAA...placeholder."
+    "sk-ant-oat01-[A-Za-z0-9_-]{20,}::Anthropic OAuth token::This is a live credential. Remove it and rotate the token."
+    "sk-ant-[a-z0-9-]{50,}::Anthropic API token::This is a live credential. Remove it and rotate the token."
+    "ghp_[A-Za-z0-9]{36,}::GitHub personal access token::This is a live credential. Remove it and rotate the token."
+    "gho_[A-Za-z0-9]{36,}::GitHub OAuth token::This is a live credential. Remove it and rotate the token."
+    "ghs_[A-Za-z0-9]{36,}::GitHub server-to-server token::This is a live credential. Remove it and rotate the token."
+    "ghr_[A-Za-z0-9]{36,}::GitHub refresh token::This is a live credential. Remove it and rotate the token."
+    "github_pat_[A-Za-z0-9_]{20,}::GitHub fine-grained personal access token::This is a live credential. Remove it and rotate the token."
+    "glpat-[A-Za-z0-9_-]{20,}::GitLab personal access token::This is a live credential. Remove it and rotate the token."
 
     # AWS credentials
-    "AKIA[0-9A-Z]{16}::AWS access key ID"
+    "AKIA[0-9A-Z]{16}::AWS access key ID::This is a live credential. Remove it and rotate the key."
 
     # Home directory paths (but allow {{ user_login }} and generic placeholders)
-    "/home/[a-z][a-z0-9_-]{2,}[^}]::Hardcoded username in path (use {{ user_login }})"
+    "/home/[a-z][a-z0-9_-]{2,}[^}]::Hardcoded username in path::Use {{ user_login }} or /home/<user>. See ${EXAMPLE_DOC}"
 
-    # Private IP addresses (specific ones, not documentation)
-    "192\\.168\\.[0-9]{1,3}\\.[0-9]{1,3}::Private IP address (192.168.x.x)"
-    "10\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}::Private IP address (10.x.x.x)"
+    # Private IP addresses (specific ones, not documentation). The RFC 5737
+    # documentation ranges (192.0.2.x / 198.51.100.x / 203.0.113.x) are NOT
+    # matched here, so they pass — use those for examples.
+    "192\\.168\\.[0-9]{1,3}\\.[0-9]{1,3}::Private IP address (192.168.x.x)::Use a reserved documentation IP — ${RESERVED_IPS}. See ${EXAMPLE_DOC}"
+    "10\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}::Private IP address (10.x.x.x)::Use a reserved documentation IP — ${RESERVED_IPS}. See ${EXAMPLE_DOC}"
 )
 
 echo "🔍 Scanning staged changes for sensitive information..."
@@ -150,8 +165,11 @@ for FILE in "${STAGED_FILE_LIST[@]}"; do
 
     # Check each pattern
     for PATTERN_DESC in "${SENSITIVE_PATTERNS[@]}"; do
+        # Split "pattern::description::guidance" into its three fields.
         PATTERN="${PATTERN_DESC%%::*}"
-        DESCRIPTION="${PATTERN_DESC##*::}"
+        _REST="${PATTERN_DESC#*::}"
+        DESCRIPTION="${_REST%%::*}"
+        GUIDANCE="${_REST#*::}"
 
         # Collect every line matching this pattern (with line numbers), then
         # remove whitelisted/placeholder lines PER LINE. A flag is raised only
@@ -169,13 +187,17 @@ for FILE in "${STAGED_FILE_LIST[@]}"; do
                 ;;
             *@*)
                 # Email pattern: drop obvious non-personal "user@host" shapes that
-                # pervade this repo and are NOT email addresses — placeholders
-                # (example.com/.org/.net, <...>, {{...}}), the SSH git remote user
-                # (git@github.com, git@gitlab.example.com, git@github.com-alias),
-                # and systemd unit names (foo@instance.service / .socket / .timer …).
-                # Real personal addresses (a gmail/company address) are still caught.
+                # pervade this repo and are NOT email addresses — reserved example
+                # domains (example.com/.org/.net AND their subdomains, e.g.
+                # admin@host.example.com), the reserved .example/.test/.invalid/
+                # .localhost TLDs (RFC 2606/6761), <...>/{{...}} placeholders, the
+                # SSH git remote user (git@github.com, git@github.com-alias), and
+                # systemd unit names (foo@instance.service / .socket / .timer …).
+                # See CLAUDE/ExampleValues.md for the full schema. Real personal
+                # addresses (a gmail/company address) are still caught.
                 MATCH_LINES=$(echo "$MATCH_LINES" \
-                    | grep -viE "@example\\.(com|org|net)" \
+                    | grep -viE "@([A-Za-z0-9-]+\\.)*example\\.(com|org|net)\\b" \
+                    | grep -viE "@[A-Za-z0-9.-]+\\.(example|test|invalid|localhost)\\b" \
                     | grep -vE "<[^>]*@[^>]*>" \
                     | grep -vE "\\{\\{[^}]*@[^}]*\\}\\}" \
                     | grep -vE "(^|[^A-Za-z0-9._%+-])git@[A-Za-z0-9.-]+" \
@@ -213,6 +235,7 @@ for FILE in "${STAGED_FILE_LIST[@]}"; do
         echo "$MATCH_LINES" | head -3 | while IFS=: read -r LINE_NUM LINE_CONTENT; do
             echo "  Line $LINE_NUM: ${LINE_CONTENT:0:100}"
         done
+        echo -e "  ${YELLOW}→ Fix:${NC} $GUIDANCE"
         echo ""
 
         FOUND_ISSUES=1
@@ -360,10 +383,14 @@ if [ $FOUND_ISSUES -eq 1 ]; then
     echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
     echo "Actions to take:"
-    echo "  1. Remove or replace the sensitive information with generic placeholders"
-    echo "  2. Use Ansible variables ({{ user_login }}) instead of hardcoded values"
-    echo "  3. Add truly sensitive data to Ansible Vault"
-    echo "  4. Review CLAUDE.md 'PUBLIC REPOSITORY WARNING' section"
+    echo "  1. For EXAMPLES, swap in a reserved placeholder (see the 'Fix:' line above):"
+    echo "       IPs    → 192.0.2.x / 198.51.100.x / 203.0.113.x   (RFC 5737)"
+    echo "       Email  → name@example.com (subdomains OK)         (RFC 2606)"
+    echo "       Host   → host.example.com / *.test / *.invalid    (RFC 2606)"
+    echo "       User   → {{ user_login }} or <user>"
+    echo "     Full schema: CLAUDE/ExampleValues.md"
+    echo "  2. For REAL secrets, remove them and use Ansible Vault; rotate if exposed."
+    echo "  3. Review CLAUDE/SecurityRules.md 'Public Repository Warning' section."
     echo ""
     echo "To bypass this check (NOT RECOMMENDED):"
     echo "  git commit --no-verify"

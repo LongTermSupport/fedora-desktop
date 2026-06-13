@@ -27,6 +27,7 @@
 ### Pre-Commit Checks
 
 **Before committing:**
+
 1. Review ALL changes with `git diff`
 2. Search for usernames: `git diff | grep -i "yourname"`
 3. Check for email addresses: `git diff | grep -E "[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}"`
@@ -34,6 +35,8 @@
 5. Confirm no tokens/keys visible: `git diff | grep -E "(token|key|password|secret)"`
 
 **Automated Protection:** `scripts/git-hooks/pre-commit` and `commit-msg` scan staged files and commit messages for secrets/sensitive patterns. Enforced by Ansible on every main playbook run. Manual install: `git config core.hooksPath scripts/git-hooks`
+
+**Example values in docs/comments:** Use the reserved placeholders the scanner whitelists (RFC 5737 IPs, `example.com` emails/hostnames, `{{ user_login }}`/`<user>`). The full schema is in `CLAUDE/ExampleValues.md` — the rejection message names the exact placeholder to use.
 
 ### If Accidentally Committed
 
@@ -56,6 +59,7 @@
 - **Encrypting new values**: `ansible-vault encrypt_string 'secret' --name 'var_name'`
 
 **Example of variable-level encryption:**
+
 ```yaml
 # Regular unencrypted variables
 user_login: example_user
