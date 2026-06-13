@@ -61,6 +61,35 @@
           id: 5090
           # https://extensions.gnome.org/extension/5090/space-bar/
 
+    # EXT-09: gnome-shell-extension-installer v1.7 does NOT run glib-compile-schemas
+    # after extracting the zip. Extensions that ship only the .gschema.xml source
+    # (blur-my-shell, tilingshell, just-perfection — verified on GNOME 50 / Fedora 44)
+    # then fail to enable with "Failed to open file gschemas.compiled: No such file
+    # or directory" and end up in State: ERROR. Extensions that bundle a pre-compiled
+    # gschemas.compiled in their zip (Vitals, AppIndicator, Clipboard Indicator,
+    # Space Bar) work without this step — but we sweep all schema dirs unconditionally
+    # so any future extension lands compiled regardless of how the upstream zip
+    # was packaged.
+    - name: Discover Extension GSettings Schemas
+      become: false
+      ansible.builtin.find:
+        paths: "/home/{{ user_login }}/.local/share/gnome-shell/extensions"
+        patterns: "*.gschema.xml"
+        recurse: true
+        file_type: file
+      register: gse_schema_files
+
+    # Idempotent on the "does compiled file exist at all" question via creates:.
+    # gnome-shell-extension-installer wipes and re-extracts on a version bump, so a
+    # stale compiled file from a previous version cannot persist — the new XML always
+    # arrives without a compiled sibling, and this task regenerates it.
+    - name: Compile Extension GSettings Schemas
+      become: false
+      ansible.builtin.command:
+        cmd: glib-compile-schemas "{{ item }}"
+        creates: "{{ item }}/gschemas.compiled"
+      loop: "{{ gse_schema_files.files | map(attribute='path') | map('dirname') | unique | sort }}"
+
     - name: Deploy Custom Extension - Workspace Names in Overview
       become: true
       become_user: "{{ user_login }}"
