@@ -1148,13 +1148,27 @@ completed
 
 title "Setting up Project Directory and Repository"
 mkdir -p ~/Projects
+# Clone via SSH (not HTTPS) so push works without a PAT and so the user's
+# already-configured SSH auth (set up above) is the single auth path. By
+# this point we have: (a) the user's SSH key uploaded to GitHub, and (b)
+# github.com's host keys in ~/.ssh/known_hosts — so `git@github.com:` is
+# guaranteed to work non-interactively.
+fedora_desktop_ssh_url="git@github.com:LongTermSupport/fedora-desktop.git"
 if [[ ! -d ~/Projects/fedora-desktop ]]; then
-  info "Cloning fedora-desktop repository"
-  git clone https://github.com/LongTermSupport/fedora-desktop.git ~/Projects/fedora-desktop
+  info "Cloning fedora-desktop repository via SSH"
+  git clone "$fedora_desktop_ssh_url" ~/Projects/fedora-desktop
   success "Repository cloned"
 else
   info "Pulling latest changes"
   assert_clean_worktree ~/Projects/fedora-desktop
+  # Migrate any pre-existing HTTPS origin to SSH so subsequent pulls /
+  # pushes use the user's SSH key, not a (possibly-absent) cached HTTPS
+  # credential. Idempotent: only rewrites when the URL is not already SSH.
+  current_origin=$(command git -C ~/Projects/fedora-desktop remote get-url origin)
+  if [[ "$current_origin" != "$fedora_desktop_ssh_url" ]]; then
+    info "Migrating origin remote from '$current_origin' to SSH"
+    command git -C ~/Projects/fedora-desktop remote set-url origin "$fedora_desktop_ssh_url"
+  fi
   # Use `command git` to bypass any git() bash wrapper function (e.g. from
   # gh-aliases.inc.bash). Wrappers that run subcommands and assign to vars
   # can propagate non-zero exits under `set -e` even when they're benign.
