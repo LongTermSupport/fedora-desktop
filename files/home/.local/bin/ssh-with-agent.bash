@@ -25,6 +25,57 @@ swa_wants_agent_forward() {
     return 1
 }
 
+# swa_remote_git_push_init — print the remote-shell init run on an interactive
+# forwarded login. It presets GIT_SSH_COMMAND so `git push` on the remote uses
+# the FORWARDED agent and ignores that machine's ~/.ssh/config (its
+# `IdentitiesOnly yes` + custom-named key would otherwise shadow the forwarded
+# key and authenticate as the wrong, push-less account). `-F /dev/null` reads no
+# config, so only the forwarded agent key is offered, then a login shell is
+# exec'd. The \$SHELL is deliberately left for the REMOTE shell to expand.
+swa_remote_git_push_init() {
+    printf '%s' "export GIT_SSH_COMMAND=\"ssh -F /dev/null\"; exec \"\$SHELL\" -l"
+}
+
+# swa_has_remote_command ARGS... — succeed (0) when the ssh args include a remote
+# command (a non-option token after the destination), i.e. NOT an interactive
+# login. Mirrors ssh's own option parsing: the short options below take a
+# following argument, everything else is a boolean flag or the destination.
+swa_has_remote_command() {
+    local argopts="bBcDEeFIiJLlmOopQRSWw"
+    local t cl ch n i skip_next=0 seen_host=0
+    for t in "$@"; do
+        if [ "$skip_next" -eq 1 ]; then
+            skip_next=0
+            continue
+        fi
+        case "$t" in
+            -*)
+                cl="${t#-}"
+                n=${#cl}
+                i=0
+                while [ "$i" -lt "$n" ]; do
+                    ch="${cl:$i:1}"
+                    if [[ "$argopts" == *"$ch"* ]]; then
+                        # Arg-taking option: it consumes the rest of this token as
+                        # its value, or the next token when it is the cluster's tail.
+                        [ "$i" -eq $((n - 1)) ] && skip_next=1
+                        break
+                    fi
+                    i=$((i + 1))
+                done
+                ;;
+            *)
+                if [ "$seen_host" -eq 0 ]; then
+                    seen_host=1
+                else
+                    return 0
+                fi
+                ;;
+        esac
+    done
+    return 1
+}
+
 # swa_discover_keys — print candidate private keys in SWA_SSH_DIR, one per line.
 # Skips public keys and the usual non-key files.
 swa_discover_keys() {

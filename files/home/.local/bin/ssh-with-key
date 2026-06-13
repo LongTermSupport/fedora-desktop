@@ -11,8 +11,11 @@
 # Agent forwarding: pass -A (or -o ForwardAgent=yes) and a fresh, dedicated
 # ssh-agent is started for this session — you are asked which keys to add — and
 # forwarded to the remote host. The agent is killed again when the connection
-# closes. Auth to THIS host is unaffected: it still uses only the -i key because
-# IdentitiesOnly=yes ignores every agent-held identity.
+# closes. For an interactive login (no remote command given) the remote shell is
+# started with GIT_SSH_COMMAND preset, so `git push` over there uses the
+# forwarded key even on a machine whose ~/.ssh/config pins IdentitiesOnly to a
+# local, push-less key. Auth to THIS host is unaffected: it still uses only the
+# -i key because IdentitiesOnly=yes ignores every agent-held identity.
 #
 # Usage:
 #   ssh-with-key [-i KEYPATH] [ssh-args...] user@host
@@ -121,7 +124,14 @@ if swa_wants_agent_forward "$@"; then
     # NOT exec — running ssh as a child lets the EXIT trap kill the agent after.
     swa_start_ephemeral_agent
     rc=0
-    ssh "${opts[@]}" "$@" || rc=$?
+    if swa_has_remote_command "$@"; then
+        # User supplied their own remote command — just forward the agent.
+        ssh "${opts[@]}" "$@" || rc=$?
+    else
+        # Interactive login: preset GIT_SSH_COMMAND on the remote so `git push`
+        # there uses the forwarded agent (-t for a real shell, see the lib note).
+        ssh -t "${opts[@]}" "$@" "$(swa_remote_git_push_init)" || rc=$?
+    fi
     exit "$rc"
 fi
 
