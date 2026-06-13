@@ -8,10 +8,11 @@
 #   IdentityAgent=none        — do not consult the ssh-agent for keys
 #   PreferredAuthentications=publickey — public-key only, no password fallback
 #
-# Agent forwarding: pass -A (or -o ForwardAgent=yes) and the local ssh-agent is
-# forwarded to the remote host. Forwarding needs a live agent socket, so when -A
-# is requested we do NOT set IdentityAgent=none — auth to THIS host still uses
-# only the -i key because IdentitiesOnly=yes ignores every agent-held identity.
+# Agent forwarding: pass -A (or -o ForwardAgent=yes) and a fresh, dedicated
+# ssh-agent is started for this session — you are asked which keys to add — and
+# forwarded to the remote host. The agent is killed again when the connection
+# closes. Auth to THIS host is unaffected: it still uses only the -i key because
+# IdentitiesOnly=yes ignores every agent-held identity.
 #
 # Usage:
 #   ssh-with-key [-i KEYPATH] [ssh-args...] user@host
@@ -101,25 +102,29 @@ if [ ! -r "$key" ]; then
     exit 1
 fi
 
-# Detect a request to forward the agent: a short-flag cluster containing A
-# (-A, -AX, -tA, …) or an explicit -o ForwardAgent=yes.
-forward_agent=0
-for arg in "$@"; do
-    if [[ "$arg" == -[!-]* && "$arg" == *A* ]] || [[ "$arg" == "ForwardAgent=yes" ]]; then
-        forward_agent=1
-        break
-    fi
-done
+# Shared agent-forwarding helpers live alongside this script in ~/.local/bin.
+SWA_LIB="$(dirname "$(readlink -f "$0")")/ssh-with-agent.bash"
+if [ ! -r "$SWA_LIB" ]; then
+    echo "Error: helper library not found: $SWA_LIB" >&2
+    exit 1
+fi
+source "$SWA_LIB"
 
 opts=(
     -i "$key"
     -o IdentitiesOnly=yes
     -o PreferredAuthentications=publickey
 )
-# IdentityAgent=none — do not consult the ssh-agent for keys. Skipped when the
-# agent is being forwarded (-A), since forwarding needs the agent socket alive.
-if [ "$forward_agent" -eq 0 ]; then
-    opts+=(-o IdentityAgent=none)
+
+if swa_wants_agent_forward "$@"; then
+    # -A: start a dedicated agent and pick keys. Do NOT disable the agent, and do
+    # NOT exec — running ssh as a child lets the EXIT trap kill the agent after.
+    swa_start_ephemeral_agent
+    rc=0
+    ssh "${opts[@]}" "$@" || rc=$?
+    exit "$rc"
 fi
 
+# No forwarding — never consult the agent, and exec for a clean handoff.
+opts+=(-o IdentityAgent=none)
 exec ssh "${opts[@]}" "$@"
