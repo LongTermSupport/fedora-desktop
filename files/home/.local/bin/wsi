@@ -32,6 +32,12 @@ WHISPERFILE="faster-whisper-transcribe"
 CLIPBOARD=false
 AUTO_PASTE=false
 SKIP_AUTO_ENTER=false  # Auto-enter is ON by default in auto-paste mode
+# When set ("0" or "1"), auto-paste uses the CLIPBOARD selection plus Ctrl+V (0) or
+# Ctrl+Shift+V (1) instead of the legacy PRIMARY+Shift+Insert path. The extension
+# sets this per focused window (browsers/Slack/Discord need Ctrl+V; terminals need
+# Ctrl+Shift+V). Empty = legacy mode (PRIMARY + Shift+Insert) for backward compat
+# when wsi is invoked directly from the shell.
+PASTE_WITH_SHIFT=""
 WRAP_MARKER=false
 LANGUAGE=""  # Language code for Whisper (empty = use env var or default)
 NO_NOTIFY=false  # Suppress desktop notifications
@@ -372,6 +378,10 @@ Options:
   -c, --clipboard     Use CLIPBOARD instead of PRIMARY selection
   -a, --auto-paste    Type text directly at cursor (sends Enter by default)
   --no-auto-enter     Skip sending Enter/Return key after auto-paste
+  --paste-with-shift N  Use CLIPBOARD + Ctrl+V (N=0) or Ctrl+Shift+V (N=1)
+                      instead of legacy PRIMARY + Shift+Insert. Set by the
+                      GNOME extension per focused window; omit when running
+                      wsi from the shell to keep the legacy behaviour.
   -w, --wrap-marker   Wrap text with speech-to-text:"..." for LLM context
   -l, --language      Language code for transcription (e.g., 'en')
   -n, --netapi        Use whisper.cpp server (host:port from config)
@@ -415,6 +425,19 @@ while [ $# -gt 0 ]; do
             SKIP_AUTO_ENTER=true
             log_debug "Auto-enter disabled (will not send Enter after paste)"
             shift
+            ;;
+        --paste-with-shift)
+            PASTE_WITH_SHIFT="$2"
+            if [ "$PASTE_WITH_SHIFT" != "0" ] && [ "$PASTE_WITH_SHIFT" != "1" ]; then
+                log_error "--paste-with-shift requires 0 (Ctrl+V) or 1 (Ctrl+Shift+V), got: $PASTE_WITH_SHIFT"
+                exit 1
+            fi
+            if [ "$PASTE_WITH_SHIFT" = "1" ]; then
+                log_debug "Paste mode: CLIPBOARD + Ctrl+Shift+V"
+            else
+                log_debug "Paste mode: CLIPBOARD + Ctrl+V"
+            fi
+            shift 2
             ;;
         -w|--wrap-marker)
             WRAP_MARKER=true
@@ -837,9 +860,20 @@ fi
 
 wm="${XDG_SESSION_TYPE:-unknown}"
 
-# Handle auto-paste mode - copy to PRIMARY selection then simulate Shift+Insert
+# Handle auto-paste mode
+# Two paste paths:
+#   1. PASTE_WITH_SHIFT set ("0" or "1") - extension-driven path:
+#      copy to CLIPBOARD selection, then simulate Ctrl+V (0) or Ctrl+Shift+V (1).
+#      Browsers, Slack, Discord etc. use Ctrl+V; terminals use Ctrl+Shift+V.
+#   2. PASTE_WITH_SHIFT empty - legacy direct-shell path:
+#      copy to PRIMARY selection, then simulate Shift+Insert (works almost
+#      everywhere but loses the per-app distinction the extension makes).
 if [ "$AUTO_PASTE" = true ]; then
-    log_debug "Auto-pasting text via PRIMARY selection + Shift+Insert"
+    if [ -n "$PASTE_WITH_SHIFT" ]; then
+        log_debug "Auto-pasting text via CLIPBOARD + $([ "$PASTE_WITH_SHIFT" = "1" ] && echo "Ctrl+Shift+V" || echo "Ctrl+V")"
+    else
+        log_debug "Auto-pasting text via PRIMARY selection + Shift+Insert (legacy)"
+    fi
     log_debug "Text length: ${#str} characters"
     log_debug "Text preview: ${str:0:100}"
 
@@ -850,33 +884,67 @@ if [ "$AUTO_PASTE" = true ]; then
         exit 1
     fi
 
-    # Copy text to PRIMARY selection (Shift+Insert pastes from PRIMARY, not CLIPBOARD)
-    case "$wm" in
-        "wayland")
-            echo -n "$str" | wl-copy -p
-            log_debug "Text copied to PRIMARY selection (Wayland)"
-            ;;
-        "x11")
-            echo -n "$str" | xsel -ip
-            log_debug "Text copied to PRIMARY selection (X11)"
-            ;;
-        *)
-            log_error "Unknown window manager for clipboard: $wm"
-            exit 1
-            ;;
-    esac
+    # Copy text to the correct selection target for the chosen paste keys
+    if [ -n "$PASTE_WITH_SHIFT" ]; then
+        case "$wm" in
+            "wayland")
+                echo -n "$str" | wl-copy
+                log_debug "Text copied to CLIPBOARD selection (Wayland)"
+                ;;
+            "x11")
+                echo -n "$str" | xsel -ib
+                log_debug "Text copied to CLIPBOARD selection (X11)"
+                ;;
+            *)
+                log_error "Unknown window manager for clipboard: $wm"
+                exit 1
+                ;;
+        esac
+    else
+        case "$wm" in
+            "wayland")
+                echo -n "$str" | wl-copy -p
+                log_debug "Text copied to PRIMARY selection (Wayland)"
+                ;;
+            "x11")
+                echo -n "$str" | xsel -ip
+                log_debug "Text copied to PRIMARY selection (X11)"
+                ;;
+            *)
+                log_error "Unknown window manager for clipboard: $wm"
+                exit 1
+                ;;
+        esac
+    fi
 
     # Brief delay to ensure selection is ready
     sleep 0.05
 
-    # Simulate Shift+Insert paste using ydotool
-    # Key codes: 42 = Left Shift, 110 = Insert
-    # Format: keycode:1 = press, keycode:0 = release
-    log_debug "Simulating Shift+Insert paste"
-    if ! YDOTOOL_SOCKET=/run/ydotool.socket ydotool key 42:1 110:1 110:0 42:0; then
-        exit_code=$?
-        log_error "ydotool key simulation failed (exit code: $exit_code)"
-        exit 1
+    # Simulate the paste keys via ydotool.
+    # Key codes (linux/input-event-codes.h):
+    #   29 = Left Ctrl, 42 = Left Shift, 47 = V, 110 = Insert
+    # Format: keycode:1 = press, keycode:0 = release.
+    if [ "$PASTE_WITH_SHIFT" = "1" ]; then
+        log_debug "Simulating Ctrl+Shift+V paste"
+        if ! YDOTOOL_SOCKET=/run/ydotool.socket ydotool key 29:1 42:1 47:1 47:0 42:0 29:0; then
+            exit_code=$?
+            log_error "ydotool Ctrl+Shift+V simulation failed (exit code: $exit_code)"
+            exit 1
+        fi
+    elif [ "$PASTE_WITH_SHIFT" = "0" ]; then
+        log_debug "Simulating Ctrl+V paste"
+        if ! YDOTOOL_SOCKET=/run/ydotool.socket ydotool key 29:1 47:1 47:0 29:0; then
+            exit_code=$?
+            log_error "ydotool Ctrl+V simulation failed (exit code: $exit_code)"
+            exit 1
+        fi
+    else
+        log_debug "Simulating Shift+Insert paste"
+        if ! YDOTOOL_SOCKET=/run/ydotool.socket ydotool key 42:1 110:1 110:0 42:0; then
+            exit_code=$?
+            log_error "ydotool key simulation failed (exit code: $exit_code)"
+            exit 1
+        fi
     fi
     log_debug "Paste simulated successfully"
     # Delay to ensure paste completes before sending Enter

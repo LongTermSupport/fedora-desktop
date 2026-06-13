@@ -594,6 +594,13 @@ export default class SpeechToTextExtension extends Extension {
                     this._iconResetTimeoutId = null;
                     return GLib.SOURCE_REMOVE;
                 });
+                // When auto-paste is OFF the transcript only lands in the PRIMARY
+                // selection — there is no visible feedback that it's ready. Show
+                // a one-shot notification so the user knows to middle-click.
+                // Auto-paste ON is self-evident (the text appears at the cursor).
+                if (!this._autoPaste) {
+                    Main.notify('Speech to Text', 'Transcribed — middle-click to paste');
+                }
                 break;
             case 'ERROR':
                 this._stopCountdown();
