@@ -4,13 +4,12 @@
 - hosts: desktop
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
-    # Python versions to install - using latest stable patch releases
-    # To update: pyenv install --list | grep -E "^\s*3\.(11|12|13)\.[0-9]+$" | tail -3
-    # Last verified: 2026-06-12 via git ls-remote --tags https://github.com/python/cpython
-    pyenv_versions:
-      - 3.11.15 # LTS version - security support until Oct 2027
-      - 3.12.13 # Stable version - security support until Oct 2028
-      - 3.13.14 # Latest stable
+    # Number of newest CPython MINOR lines (3.x) to install. Nothing is hardcoded:
+    # the latest N minors and the latest patch of each are resolved at runtime from
+    # pyenv (see "Install/upgrade Pyenv Versions"). Pinning exact patches made the
+    # old static list go stale on every CPython point release and fail with
+    # "definition not found"; deriving everything from pyenv self-heals that.
+    pyenv_minor_count: 4
   tasks:
     - name: Ensure pipx Installed, Pyenv dependencies, and dependencies required by various python packages
       become: true
@@ -86,23 +85,24 @@
         - /home/{{ user_login }}/.bashrc
         - /home/{{ user_login }}/.bash_profile
 
-    - name: Install Pyenv Versions
-      ansible.builtin.shell: |
-        set -eo pipefail
-        # Source the login profile WITHOUT nounset: the Fedora /etc/bashrc guard tests
-        # an unset BASHRCSOURCED (line 12), so set -u here aborts with
-        # "BASHRCSOURCED: unbound variable" before pyenv is ever on PATH. System bash
-        # startup files are not nounset-safe — enable -u only for our own code below.
-        source ~/.bash_profile
-        set -u
-        pyenv install -s {{ item }}  # -s/--skip-existing skips if already installed
-      args:
-        executable: /bin/bash
-      loop: "{{ pyenv_versions }}"
+    # All non-trivial pyenv logic (refresh definitions, pick the newest N minor
+    # lines, resolve the latest patch of each, keep+flag stale installs) lives in
+    # a unit-tested Python helper rather than an Ansible shell block: the 2.19
+    # free-form parser is not bash-aware and chokes on real scripts. The helper
+    # drives the pyenv binary via PYENV_ROOT, so it also avoids the BASHRCSOURCED
+    # nounset trap entirely. Logic: helpers/pyenv/resolver.py (+ tests/).
+    - name: Install/upgrade Pyenv Versions
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -m
+          - helpers.pyenv.install_pyenv_versions
+          - --minor-count
+          - "{{ pyenv_minor_count }}"
+        chdir: "{{ root_dir }}" # repo root must be cwd so the helpers package imports
       register: pyenv_install
-      # pyenv prints "Installed Python-..." (to stderr) only when it actually builds a
-      # version; with -s an already-present version is a silent no-op, so report unchanged.
-      changed_when: "'Installed' in pyenv_install.stderr or 'Installed' in pyenv_install.stdout"
+      # The helper prints PYENV-CHANGED once per version it actually builds.
+      changed_when: "'PYENV-CHANGED' in pyenv_install.stdout"
       tags:
         - pyenv
         - pyenv_install_versions

@@ -4,6 +4,27 @@
 
 **Deployment workflow (edit → playbook → deploy → test):** @../CLAUDE/InfrastructureAsCode.md
 
+**Complex logic belongs in a tested helper, not a shell block:** @../helpers/CLAUDE.md
+
+## Complex Logic → TDD Helper (in stone)
+
+> **Ansible may run trivial bash / commands inline. Anything complex MUST be
+> extracted into a TDD'd Python helper under `helpers/`.**
+
+- **Trivial** = a single command, or a couple of straight-line commands with no
+  branching, loops, arrays, `case`, process substitution, or data-munging.
+- **Complex** = loops, conditionals, arrays, `case`, logic-carrying pipelines,
+  version math, text parsing — extract it.
+
+**Why:** Ansible 2.19's `shell:`/`command:` free-form parser (`split_args`) is
+**not bash-aware** and rejects non-trivial inline blocks at `--syntax-check`
+time (`failed at splitting arguments, either an unbalanced jinja2 block or quotes`) even when the bash itself is valid. A tested Python helper avoids the
+whole class of breakage, and is invoked with `command:` + `argv:` (which bypasses
+`split_args`) plus `chdir: "{{ root_dir }}"`. Helpers are **stdlib-only** (no
+venv, no pip) — full pattern, rationale, and test layout in
+@../helpers/CLAUDE.md. First example: `helpers/pyenv/` driving
+`playbooks/imports/play-python.yml`.
+
 ## Executable Playbooks Requirement
 
 **ALL playbooks in this directory MUST be directly executable.**
