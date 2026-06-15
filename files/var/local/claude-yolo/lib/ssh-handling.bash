@@ -317,13 +317,23 @@ build_ssh_mounts_and_validate() {
         #   -o IdentityAgent=none → ignore ssh-agent
         #   -o IdentitiesOnly=yes → only try the -i key
         # ssh -T responds with: "Hi <username>! You've successfully authenticated..."
+        # GITHUB_SSH_443=1 (set by the --github-443 wrapper flag) routes the probe
+        # over ssh.github.com:443. Essential: when port 22 is firewall-blocked, a
+        # github.com:22 probe would fail and block the launch — the exact scenario
+        # 443 mode exists for. ssh.github.com:443 serves the same host keys.
+        local gh_ssh_host="github.com" gh_ssh_port="22"
+        if [ "${GITHUB_SSH_443:-0}" = "1" ]; then
+            gh_ssh_host="ssh.github.com"
+            gh_ssh_port="443"
+        fi
         local detected_user
         detected_user=$(ssh -T -i "${SSH_KEYS[$i]}" \
             -F /dev/null \
             -o IdentitiesOnly=yes \
             -o IdentityAgent=none \
             -o StrictHostKeyChecking=no \
-            git@github.com 2>&1 | grep -oP "Hi \K[^!]+")
+            -p "$gh_ssh_port" \
+            "git@${gh_ssh_host}" 2>&1 | grep -oP "Hi \K[^!]+")
 
         if [ -z "$detected_user" ]; then
             print_error "SSH key authentication to GitHub failed: ${SSH_KEYS[$i]}"

@@ -96,20 +96,48 @@ fi
 # path was taken, rather than silently continuing (fail-fast visibility).
 mkdir -p ~/.ssh
 chmod 700 ~/.ssh
-github_meta=$(curl -sL --max-time 5 https://api.github.com/meta 2>/dev/null) || github_meta=""
-github_known_hosts=""
-if [ -n "$github_meta" ]; then
-    github_known_hosts=$(echo "$github_meta" | jq -r '.ssh_keys | .[]' 2>/dev/null | sed -e 's/^/github.com /') || github_known_hosts=""
+
+# Build the `Host github.com` directives the container needs. In --github-443
+# mode (GITHUB_SSH_443=1, set by the wrapper) rewrite the endpoint to
+# ssh.github.com:443 — used when the host/container network firewalls port 22.
+# ssh.github.com:443 serves the SAME host keys as github.com:22, so this is a
+# transparent endpoint swap, not a separate identity.
+github_ssh_directives=()
+if [ "${GITHUB_SSH_443:-0}" = "1" ]; then
+    github_ssh_directives+=("    HostName ssh.github.com" "    Port 443" "    User git")
+    echo "✓ GitHub SSH routed over ssh.github.com:443 (--github-443)"
 fi
-if [ -n "$github_known_hosts" ]; then
-    echo "$github_known_hosts" >> ~/.ssh/known_hosts
+
+github_meta=$(curl -sL --max-time 5 https://api.github.com/meta 2>/dev/null) || github_meta=""
+github_ssh_keys=""
+if [ -n "$github_meta" ]; then
+    github_ssh_keys=$(echo "$github_meta" | jq -r '.ssh_keys | .[]' 2>/dev/null) || github_ssh_keys=""
+fi
+
+if [ -n "$github_ssh_keys" ]; then
+    # Pin the fetched keys. In 443 mode also pin them under [ssh.github.com]:443 —
+    # the known_hosts lookup key SSH uses once HostName/Port are rewritten — so the
+    # first push does not hang on an interactive host-key prompt.
+    while IFS= read -r ghkey; do
+        [ -n "$ghkey" ] || continue
+        echo "github.com $ghkey"
+        if [ "${GITHUB_SSH_443:-0}" = "1" ]; then
+            echo "[ssh.github.com]:443 $ghkey"
+        fi
+    done <<< "$github_ssh_keys" >> ~/.ssh/known_hosts
     chmod 600 ~/.ssh/known_hosts
     echo "✓ GitHub SSH host keys pinned in known_hosts"
 else
     echo "⚠ Could not fetch GitHub SSH host keys (offline?) — using StrictHostKeyChecking=accept-new for git/ssh" >&2
+    github_ssh_directives+=("    StrictHostKeyChecking accept-new")
+fi
+
+# Write the github.com config stanza if any directives were collected (the 443
+# endpoint rewrite and/or the offline accept-new fallback).
+if [ "${#github_ssh_directives[@]}" -gt 0 ]; then
     {
         echo "Host github.com"
-        echo "    StrictHostKeyChecking accept-new"
+        printf '%s\n' "${github_ssh_directives[@]}"
     } >> ~/.ssh/config
     chmod 600 ~/.ssh/config
 fi

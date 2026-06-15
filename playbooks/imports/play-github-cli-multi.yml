@@ -6,6 +6,13 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     vault_file: "{{ root_dir }}/environment/localhost/host_vars/localhost.yml"
+    # GitHub SSH-over-HTTPS toggle. Default off. Set github_ssh_over_443: true in
+    # host_vars/localhost.yml (or pass -e github_ssh_over_443=true) when port 22 is
+    # blocked by a firewall. ssh.github.com:443 serves the SAME host keys as
+    # github.com:22, so this is a transparent endpoint swap, not a separate identity.
+    # default() is used (not a play-vars default) so a host_vars override still wins.
+    github_ssh_hostname: "{{ 'ssh.github.com' if (github_ssh_over_443 | default(false) | bool) else 'github.com' }}"
+    github_ssh_port: "{{ '443' if (github_ssh_over_443 | default(false) | bool) else '22' }}"
   vars_files:
     # Single source of truth for github_required_scopes — shared with
     # scripts/gh-account-setup.bash so the two lists can never drift.
@@ -340,7 +347,8 @@
             marker: "# {mark} ANSIBLE MANAGED: GitHub {{ item.key }}"
             block: |
               Host github.com-{{ item.key }}
-                  HostName github.com
+                  HostName {{ github_ssh_hostname }}
+                  Port {{ github_ssh_port }}
                   User git
                   IdentityFile ~/.ssh/github_{{ item.key }}
                   IdentitiesOnly yes
@@ -357,7 +365,8 @@
             marker: "# {mark} ANSIBLE MANAGED: GitHub default"
             block: |
               Host github.com
-                  HostName github.com
+                  HostName {{ github_ssh_hostname }}
+                  Port {{ github_ssh_port }}
                   User git
                   IdentityFile ~/.ssh/id
                   IdentitiesOnly yes
@@ -432,7 +441,8 @@
             # and ssh hangs until the outer timeout fires (rc=124, no output).
             timeout 15 ssh -F /dev/null -o IdentityAgent=none -o IdentitiesOnly=yes \
               -o BatchMode=yes -o ConnectTimeout=10 \
-              -o StrictHostKeyChecking=accept-new -i "$tmp_key" -T git@github.com 2>&1
+              -o StrictHostKeyChecking=accept-new -i "$tmp_key" \
+              -p {{ github_ssh_port }} -T git@{{ github_ssh_hostname }} 2>&1
           args:
             executable: /bin/bash
           timeout: 30

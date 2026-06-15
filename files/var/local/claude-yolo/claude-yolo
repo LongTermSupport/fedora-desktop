@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.18.0"  # Plan 00049 Phase 6 CCY hardening: narrow Wayland mount to the display socket only (SEC-03/CCY-02); pass OAuth/GH tokens by env NAME not in argv (BSH-09); mktemp for gitconfig staging + build-failure log (BSH-10); token create/renew now continues the launch or exits cleanly instead of crashing on cat "" (BSH-05); fix create_token PIPESTATUS so setup-token failures are diagnosed (BSH-04); ccy --connect uses get_project_name (BSH-14); fix dockerfile-custom heredoc corruption (CCY-01); ctrl+z patch sentinel surfaced at launch (CCY-07); byte-range message 90-120 (CCY-06); leak-free temp update container (CCY-09); eliminate all || true in the wrapper + libs (QA-07).
+CCY_VERSION="3.19.0"  # --github-443: route GitHub SSH over ssh.github.com:443 when port 22 is firewall-blocked. Wrapper flag exports GITHUB_SSH_443, consumed by the host-side username probe (ssh-handling.bash, so launch works on 22-blocked networks) and by entrypoint.sh (rewrites Host github.com to ssh.github.com:443 and pins host keys under [ssh.github.com]:443). Host-side equivalent is the github_ssh_over_443 var in play-github-cli-multi.yml.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -133,6 +133,7 @@ Options:
   --engine ENGINE        Use specific container engine (docker/podman, default: podman)
   --ssh-key PATH         SSH private key to mount (can be specified multiple times)
   --no-ssh               Skip SSH key selection (git push will not work)
+  --github-443           Route GitHub SSH over ssh.github.com:443 (use when port 22 is firewall-blocked)
   --token NAME           Use specific named token
   --create-token         Create a new named token
   --update-token=NAME    Replace an existing named token (e.g. invalidated before expiry)
@@ -406,6 +407,7 @@ TOP_MODE=false
 PREVENT_MODE=false
 CONNECT_NETWORK=""
 NO_SSH_MODE=false
+GITHUB_443_MODE=false
 SPECIFIED_NETWORK=""
 NETWORK_FROM_CONFIG=false
 NO_NETWORK_MODE=false
@@ -476,6 +478,8 @@ for arg in "$@"; do
         DISABLE_CUSTOM_DOCKER=true
     elif [ "$arg" = "--no-ssh" ]; then
         NO_SSH_MODE=true
+    elif [ "$arg" = "--github-443" ]; then
+        GITHUB_443_MODE=true
     elif [ "$arg" = "--no-network" ]; then
         NO_NETWORK_MODE=true
     elif [ "$arg" = "--headless" ]; then
@@ -525,6 +529,15 @@ for arg in "$@"; do
     fi
 done
 
+# Export the GitHub-443 toggle as the env var consumed BOTH by the host-side SSH
+# probe in build_ssh_mounts_and_validate (ssh-handling.bash) and by the container
+# entrypoint. Set here — after parsing, before the probe at build_ssh_mounts_and_validate.
+if [ "$GITHUB_443_MODE" = true ]; then
+    export GITHUB_SSH_443=1
+else
+    export GITHUB_SSH_443=0
+fi
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Fail-fast flag validation
 # ─────────────────────────────────────────────────────────────────────────────
@@ -569,8 +582,8 @@ if [ ${#suspect_flags[@]} -gt 0 ]; then
 
         if [ ${#unknown[@]} -gt 0 ]; then
             ccy_flags=(
-                --rebuild --disable-custom-docker --no-ssh --no-network --headless
-                --prompt --debug --engine --ssh-key --token --create-token
+                --rebuild --disable-custom-docker --no-ssh --github-443 --no-network
+                --headless --prompt --debug --engine --ssh-key --token --create-token
                 --update-token --list-tokens --export-token --network --connect
                 --custom --custom-docker --top --prevent --help
             )
@@ -2656,6 +2669,7 @@ container_cmd run $DOCKER_FLAGS --rm \
     -e "DEBUG_MODE=$DEBUG_MODE" \
     -e "DEBUG_ENTRYPOINT=$DEBUG_ENTRYPOINT" \
     -e "SSH_KEY_PATHS=$SSH_KEY_PATHS_STR" \
+    -e "GITHUB_SSH_443=$GITHUB_SSH_443" \
     -e "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-1}" \
     -e "MAX_THINKING_TOKENS=${MAX_THINKING_TOKENS:-}" \
     -e "TERM=${TERM:-xterm}" \
