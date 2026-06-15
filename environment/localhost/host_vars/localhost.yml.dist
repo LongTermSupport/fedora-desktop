@@ -9,6 +9,11 @@ user_email: "yourname@example.com"
 #   $ANSIBLE_VAULT;1.2;AES256;localhost
 #   <encrypted-value-goes-here>
 
+# Optional: route GitHub SSH over ssh.github.com:443 when port 22 is firewall-blocked.
+# Off by default. ssh.github.com:443 serves the same host keys as github.com:22.
+# Do NOT enable on networks that TLS-inspect port 443 — see docs/github-multi-account.md.
+# github_ssh_over_443: true
+
 # Optional Qobuz CLI Related
 # lastfm_api_key: !vault |
 #   $ANSIBLE_VAULT;1.2;AES256;localhost

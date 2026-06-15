@@ -202,6 +202,50 @@ Verify every configured account is authenticated, scoped, keyed, and reachable
    # then delete the "# ANSIBLE MANAGED: GitHub <alias>" block from ~/.ssh/config
    ```
 
+## GitHub SSH over Port 443 (when port 22 is blocked)
+
+Some networks (corporate, hotel, airport wifi) firewall outbound port 22, which
+breaks `git@github.com` SSH. GitHub serves SSH on the HTTPS port at
+`ssh.github.com:443` as an escape hatch. This repo exposes it as an **opt-in
+toggle, off by default** — `ssh.github.com:443` presents the *same* host keys as
+`github.com:22`, so it is a transparent endpoint swap, not a separate identity.
+
+**Why it is off by default:** SSH-over-443 is raw SSH on port 443, **not** TLS. A
+network that does HTTPS/TLS deep-packet-inspection on 443 will reject it — so
+enabling it everywhere can *break* a connection that works fine on port 22. Turn
+it on only when you actually need it.
+
+### Desktop host
+
+Set the variable in `environment/localhost/host_vars/localhost.yml`:
+
+```yaml
+github_ssh_over_443: true
+```
+
+Then re-run the playbook and verify:
+
+```bash
+ansible-playbook playbooks/imports/play-github-cli-multi.yml
+ssh -T -p 443 git@ssh.github.com    # expect: "Hi <user>! You've successfully authenticated..."
+```
+
+When true, **every** generated `~/.ssh/config` block — the default `Host github.com` and each per-account `Host github.com-<alias>` — is rewritten to
+`HostName ssh.github.com` + `Port 443`. Set it back to `false` (or remove the
+line) and re-run the playbook to revert.
+
+### CCY container
+
+The toggle is per-launch (the container regenerates its SSH config every start):
+
+```bash
+ccy --rebuild        # once, to pick up the entrypoint change
+ccy --github-443     # launch with GitHub SSH routed over 443
+```
+
+This also switches CCY's host-side account-detection probe to 443, so launching
+works even on a network where port 22 is blocked.
+
 ## Troubleshooting
 
 | Symptom                                              | Cause / Fix                                                                                                                                                           |
@@ -211,3 +255,4 @@ Verify every configured account is authenticated, scoped, keyed, and reachable
 | SSH verify fails despite key installed on GitHub     | Almost always passphrase-related. Diagnose: `ssh-keygen -y -P "$(cat /tmp/.github_ssh_pp)" -f ~/.ssh/github_<alias>`.                                                 |
 | Commits attributed to the wrong account              | Run `git-which-account` in the repo; use `git-<alias>` to force the right identity, or fix the remote to `git@github.com-<alias>:owner/repo.git`.                     |
 | `gh auth login` opened the wrong browser profile     | Open a **new** terminal (sources `/etc/profile.d/gh-multi-profile.sh`, which prints the device-code URL instead of guessing a browser), then re-run the setup script. |
+| SSH hangs / times out on `git@github.com` (port 22)  | Network firewalls port 22. Enable SSH over 443 — see [GitHub SSH over Port 443](#github-ssh-over-port-443-when-port-22-is-blocked).                                   |
