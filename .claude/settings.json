@@ -1,4 +1,5 @@
 {
+  "autoMemoryEnabled": false,
   "plansDirectory": "./CLAUDE/Plan",
   "statusLine": {
     "type": "command",
