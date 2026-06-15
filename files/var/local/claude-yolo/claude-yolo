@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.19.0"  # --github-443: route GitHub SSH over ssh.github.com:443 when port 22 is firewall-blocked. Wrapper flag exports GITHUB_SSH_443, consumed by the host-side username probe (ssh-handling.bash, so launch works on 22-blocked networks) and by entrypoint.sh (rewrites Host github.com to ssh.github.com:443 and pins host keys under [ssh.github.com]:443). Host-side equivalent is the github_ssh_over_443 var in play-github-cli-multi.yml.
+CCY_VERSION="3.20.0"  # GitHub SSH 443 auto-fallback: when the launch-time key probe fails on port 22 and --github-443 was not passed, ssh-handling.bash retries over ssh.github.com:443; if that authenticates (port 22 firewall-blocked) it offers to enable 443 for the session (auto-enables when headless/non-tty). Probe gained ConnectTimeout=10 so blocked-port-22 fails fast. Builds on 3.19.0 --github-443 (route GitHub SSH over ssh.github.com:443; host-side equivalent is github_ssh_over_443 in play-github-cli-multi.yml).
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

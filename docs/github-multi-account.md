@@ -236,15 +236,27 @@ line) and re-run the playbook to revert.
 
 ### CCY container
 
-The toggle is per-launch (the container regenerates its SSH config every start):
+**Auto-fallback (no flag needed).** At launch CCY probes GitHub with your SSH key
+over port 22. If that fails but `ssh.github.com:443` works, CCY detects the
+port-22 block and offers to enable 443 for the session:
+
+```text
+⚠ GitHub SSH on port 22 failed, but ssh.github.com:443 works (authenticated as <user>).
+  Port 22 is likely blocked on this network.
+Enable GitHub SSH over 443 for this session? [Y/n]
+```
+
+Accept and the whole session — host-side probe, container git, host-key pinning —
+routes over 443. Headless/non-interactive launches enable it automatically (it is
+the only way to proceed). This is per-launch only; it does not persist.
+
+**Force it explicitly** (skips the probe-and-prompt — e.g. you already know port 22
+is blocked):
 
 ```bash
 ccy --rebuild        # once, to pick up the entrypoint change
 ccy --github-443     # launch with GitHub SSH routed over 443
 ```
-
-This also switches CCY's host-side account-detection probe to 443, so launching
-works even on a network where port 22 is blocked.
 
 ## Troubleshooting
 

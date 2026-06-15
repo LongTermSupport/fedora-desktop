@@ -281,6 +281,29 @@ discover_and_select_ssh_keys() {
     fi
 }
 
+# Probe GitHub for the authenticated username using a specific key + endpoint.
+# Echoes the username on success, nothing on failure (grep returns 1, but callers
+# run inside build_ssh_mounts_and_validate which is invoked as `|| exit 1`, so
+# set -e is disabled — an empty result does not abort).
+# CRITICAL isolation flags — without them the probe falls through to ~/.ssh/config's
+# default `Host github.com` entry and/or ssh-agent, returning the wrong account:
+#   -F /dev/null          → ignore ~/.ssh/config
+#   -o IdentitiesOnly=yes → only try the -i key
+#   -o IdentityAgent=none → ignore ssh-agent
+# ConnectTimeout bounds the wait so a DROP-firewalled port 22 fails fast (~10s)
+# instead of hanging on the default TCP timeout before any 443 fallback can run.
+_github_probe_user() {
+    local key="$1" host="$2" port="$3"
+    ssh -T -i "$key" \
+        -F /dev/null \
+        -o IdentitiesOnly=yes \
+        -o IdentityAgent=none \
+        -o StrictHostKeyChecking=no \
+        -o ConnectTimeout=10 \
+        -p "$port" \
+        "git@${host}" 2>&1 | grep -oP "Hi \K[^!]+"
+}
+
 # Function to build SSH mounts and validate GitHub connection
 # Args: $1 = tool_name (for display)
 # Requires: SSH_KEYS global array
@@ -306,34 +329,55 @@ build_ssh_mounts_and_validate() {
         SSH_MOUNTS+=("-v" "${SSH_KEYS[$i]}:/root/.ssh/key_$i:ro")
         SSH_KEY_PATHS+=("/root/.ssh/key_$i")
 
-        # Extract GitHub username by testing SSH connection with the key.
-        # CRITICAL isolation flags — without them the probe falls through to
-        # ~/.ssh/config's default `Host github.com` entry (which typically
-        # points IdentityFile at ~/.ssh/id) and/or ssh-agent, so GitHub
-        # returns "Hi <id-owner>!" regardless of which github_<alias> key
-        # was passed via -i. That false positive silently mis-maps aliases
-        # to accounts and fails downstream in the container's token check.
-        #   -F /dev/null        → ignore ~/.ssh/config
-        #   -o IdentityAgent=none → ignore ssh-agent
-        #   -o IdentitiesOnly=yes → only try the -i key
-        # ssh -T responds with: "Hi <username>! You've successfully authenticated..."
-        # GITHUB_SSH_443=1 (set by the --github-443 wrapper flag) routes the probe
-        # over ssh.github.com:443. Essential: when port 22 is firewall-blocked, a
-        # github.com:22 probe would fail and block the launch — the exact scenario
-        # 443 mode exists for. ssh.github.com:443 serves the same host keys.
+        # Probe for the username. GITHUB_SSH_443=1 (the --github-443 flag, or an
+        # accepted auto-fallback below) routes over ssh.github.com:443; otherwise
+        # the standard github.com:22. ssh.github.com:443 serves the same host keys.
         local gh_ssh_host="github.com" gh_ssh_port="22"
         if [ "${GITHUB_SSH_443:-0}" = "1" ]; then
             gh_ssh_host="ssh.github.com"
             gh_ssh_port="443"
         fi
         local detected_user
-        detected_user=$(ssh -T -i "${SSH_KEYS[$i]}" \
-            -F /dev/null \
-            -o IdentitiesOnly=yes \
-            -o IdentityAgent=none \
-            -o StrictHostKeyChecking=no \
-            -p "$gh_ssh_port" \
-            "git@${gh_ssh_host}" 2>&1 | grep -oP "Hi \K[^!]+")
+        detected_user=$(_github_probe_user "${SSH_KEYS[$i]}" "$gh_ssh_host" "$gh_ssh_port")
+
+        # Auto-fallback: only on the PRIMARY key, only when not already on 443.
+        # If port 22 failed but ssh.github.com:443 authenticates, port 22 is
+        # firewall-blocked — offer to enable 443 for THIS session. GITHUB_SSH_443
+        # propagates to the container env + entrypoint, and to subsequent keys in
+        # this loop (they recompute the endpoint from it each iteration).
+        if [ -z "$detected_user" ] && [ "$i" -eq 0 ] && [ "${GITHUB_SSH_443:-0}" != "1" ]; then
+            local user_443
+            user_443=$(_github_probe_user "${SSH_KEYS[$i]}" "ssh.github.com" "443")
+            if [ -n "$user_443" ]; then
+                echo ""
+                echo "⚠ GitHub SSH on port 22 failed, but ssh.github.com:443 works (authenticated as $user_443)."
+                echo "  Port 22 is likely blocked on this network."
+                echo "  443 mode routes all GitHub SSH over ssh.github.com:443 for THIS ccy session."
+                local enable_443=false
+                if [ "${HEADLESS_MODE:-false}" = "true" ] || [ ! -t 0 ]; then
+                    echo "  Non-interactive launch — enabling 443 automatically (the only way to proceed)."
+                    enable_443=true
+                else
+                    local reply_443
+                    read -rp "Enable GitHub SSH over 443 for this session? [Y/n] " reply_443
+                    case "$reply_443" in
+                        [Nn]*) enable_443=false ;;
+                        *) enable_443=true ;;
+                    esac
+                fi
+                if [ "$enable_443" = "true" ]; then
+                    export GITHUB_SSH_443=1
+                    gh_ssh_host="ssh.github.com"
+                    gh_ssh_port="443"
+                    detected_user="$user_443"
+                    echo "✓ GitHub SSH over 443 enabled for this session"
+                else
+                    print_error "GitHub SSH over port 22 is blocked and 443 mode was declined."
+                    echo "Re-run with 443 enabled:  ccy --github-443"
+                    return 1
+                fi
+            fi
+        fi
 
         if [ -z "$detected_user" ]; then
             print_error "SSH key authentication to GitHub failed: ${SSH_KEYS[$i]}"
