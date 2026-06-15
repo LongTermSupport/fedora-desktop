@@ -439,6 +439,11 @@
           register: ssh_test
           changed_when: false
           failed_when: ssh_test.rc not in [0, 1, 124, 255]
+          # Live SSH auth cannot run under --check: the passphrase file and
+          # any generated keys are side-effect tasks that are skipped in check
+          # mode, leaving this probe with empty stdout. Skip it (and the assert
+          # below) rather than fail spuriously on a dry run.
+          when: not ansible_check_mode
           loop: "{{ github_accounts | default({}) | dict2items }}"
           loop_control:
             label: "{{ item.key }}"
@@ -448,11 +453,13 @@
             msg: >
               github_{{ item.item.key }} (expects {{ item.item.value }}):
               {{ item.stdout | regex_search('Hi [^!]+!') | default('NOT AUTHENTICATED', true) }}
-          loop: "{{ ssh_test.results }}"
+          when: not ansible_check_mode
+          loop: "{{ ssh_test.results | default([]) }}"
           loop_control:
             label: "{{ item.item.key }}"
 
         - name: Assert SSH access and identity match for all accounts
+          when: not ansible_check_mode
           ansible.builtin.assert:
             that:
               - "'successfully authenticated' in item.stdout"
@@ -473,7 +480,7 @@
                 rm ~/.ssh/github_{{ item.item.key }} ~/.ssh/github_{{ item.item.key }}.pub
                 # then re-run this playbook
             success_msg: "{{ item.item.key }} -> {{ item.item.value }} OK"
-          loop: "{{ ssh_test.results }}"
+          loop: "{{ ssh_test.results | default([]) }}"
           loop_control:
             label: "{{ item.item.key }}"
 
