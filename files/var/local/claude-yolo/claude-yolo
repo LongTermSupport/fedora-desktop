@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.21.0"  # GitHub SSH 443 now honours an inherited GITHUB_SSH_443=1 env var (host-level enable): `export GITHUB_SSH_443=1; ccy` — or a profile.d export / `eval "$(github-ssh-443 env)"` on the host — routes ccy over ssh.github.com:443 without the --github-443 flag. Precedence: flag > inherited env > auto-fallback probe. Builds on 3.20.0 auto-fallback (probe port 22, retry ssh.github.com:443, offer/auto-enable 443) and 3.19.0 --github-443. Host-side equivalent: github_ssh_over_443 in play-github-cli-multi.yml.
+CCY_VERSION="3.22.0"  # GitHub SSH 443: show a prominent launch banner whenever the session ends up routed over ssh.github.com:443, naming the trigger (--github-443 flag / GITHUB_SSH_443 env host-level enable / auto-detected port-22 block). Builds on 3.21.0 (honour inherited GITHUB_SSH_443=1; precedence flag > env > auto-fallback), 3.20.0 auto-fallback, 3.19.0 --github-443. Host-side equivalent: github_ssh_over_443 in play-github-cli-multi.yml.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -547,6 +547,10 @@ if [ "$GITHUB_443_MODE" = true ] || [ "${GITHUB_SSH_443:-0}" = "1" ]; then
 else
     export GITHUB_SSH_443=0
 fi
+# Snapshot the 443 state BEFORE the SSH probe so the post-validate banner can name
+# the trigger: still 1 here means flag/env; flipped 0→1 by the probe means
+# auto-fallback (port 22 firewall-blocked).
+GITHUB_443_PRELAUNCH="$GITHUB_SSH_443"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Fail-fast flag validation
@@ -845,6 +849,29 @@ fi
 # Build SSH mounts and validate GitHub access
 # This sets: SSH_MOUNTS, SSH_KEY_PATHS, GITHUB_USERNAME, GH_TOKEN
 build_ssh_mounts_and_validate "ccy" || exit 1
+
+# Banner: make 443 mode impossible to miss. Fires whenever GitHub SSH ends up
+# routed over ssh.github.com:443 — whether forced (--github-443), inherited from
+# the host (GITHUB_SSH_443=1), or auto-detected when port 22 is firewall-blocked.
+if [ "${GITHUB_SSH_443:-0}" = "1" ]; then
+    if [ "$GITHUB_443_MODE" = true ]; then
+        github_443_trigger="--github-443 flag"
+    elif [ "$GITHUB_443_PRELAUNCH" = "1" ]; then
+        github_443_trigger="GITHUB_SSH_443 env (host-level enable)"
+    else
+        github_443_trigger="auto-detected (port 22 blocked, 443 reachable)"
+    fi
+    echo ""
+    echo -e "${COLOR_YELLOW}════════════════════════════════════════════════════════════════════════════════${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}${COLOR_BOLD}  🔒 GitHub SSH-over-443 MODE ACTIVE${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}════════════════════════════════════════════════════════════════════════════════${COLOR_RESET}"
+    echo "  GitHub SSH is routed over ssh.github.com:443 (port-22 firewall bypass)."
+    echo "  Same host keys, same identity — only the endpoint changes."
+    echo -e "  Trigger: ${COLOR_BOLD}${github_443_trigger}${COLOR_RESET}"
+    echo "  Scope:   this ccy session (host + container git over 443)."
+    echo -e "${COLOR_YELLOW}════════════════════════════════════════════════════════════════════════════════${COLOR_RESET}"
+    echo ""
+fi
 
 # Handle create token mode (requires SSH/GH setup for container functionality)
 if [ "$CREATE_TOKEN_MODE" = true ]; then

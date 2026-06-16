@@ -299,6 +299,11 @@ Accept and the whole session — host-side probe, container git, host-key pinnin
 routes over 443. Headless/non-interactive launches enable it automatically (it is
 the only way to proceed). This is per-launch only; it does not persist.
 
+Whenever a session ends up on 443 — by flag, inherited `GITHUB_SSH_443`, or
+auto-detection — ccy prints a prominent **`🔒 GitHub SSH-over-443 MODE ACTIVE`**
+banner at launch, naming which of the three triggered it, so the routing is never
+a surprise.
+
 **Force it explicitly** (skips the probe-and-prompt — e.g. you already know port 22
 is blocked):
 

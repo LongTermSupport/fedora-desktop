@@ -162,6 +162,22 @@ source of truth.
   - [x] ✅ `host_vars/localhost.yml.dist`: documented `github_ssh_over_443`
     (always-on) + `github_443_extra_aliases`.
 
+### Phase 5: Launch banner + one-shot deploy script ✅
+
+- [x] ✅ **Task 5.1**: ccy launch banner when 443 mode is active
+  - [x] ✅ `claude-yolo` prints a prominent yellow `🔒 GitHub SSH-over-443 MODE ACTIVE` banner after SSH validation whenever `GITHUB_SSH_443=1`, naming the
+    trigger (flag / host env / auto-detected). A pre-validate snapshot
+    (`GITHUB_443_PRELAUNCH`) distinguishes env-enable from auto-fallback. So it
+    fires for all three paths, including the auto-fallback that flips it mid-launch.
+  - [x] ✅ `CCY_VERSION` 3.21.0 → 3.22.0. Brief note added to docs CCY section.
+  - [x] ✅ `bash -n` + QA green.
+- [x] ✅ **Task 5.2**: `update.bash` in the plan folder
+  - [x] ✅ Runs the plays in order (`play-github-cli-multi.yml` →
+    `play-claude-yolo.yml`), resolves the repo root from its own location, refuses
+    to run inside the CCY container, then interactively offers to enable 443 mode
+    now (`github-ssh-443 on`) with always-on guidance. Idempotent, fail-fast,
+    shellcheck-clean.
+
 ## Dependencies
 
 - Builds on the shipped CCY 443 work (commit `311be26`, CCY 3.20.0) and the
