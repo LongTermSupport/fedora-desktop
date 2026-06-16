@@ -1,6 +1,6 @@
 # Plan 00054: Host-level GitHub SSH-over-443, unified with CCY
 
-**Status**: Not Started
+**Status**: In Progress
 **Created**: 2026-06-16
 **Owner**: joseph / Claude
 **Priority**: Medium
@@ -98,14 +98,14 @@ always-on default (leaving it on is harmless but a clean off-switch is hygiene).
 
 ## Tasks
 
-### Phase 1: CCY honours the host-level env var (smallest, highest value)
+### Phase 1: CCY honours the host-level env var (smallest, highest value) ✅
 
-- [ ] ⬜ **Task 1.1**: Make `claude-yolo` honour an inherited `GITHUB_SSH_443=1`
-  - [ ] ⬜ Change the post-parse block so precedence is: `--github-443` flag →
-    inherited `GITHUB_SSH_443=1` → else `0`. Auto-fallback still runs when `0`.
-  - [ ] ⬜ Bump `CCY_VERSION` (minor) with a descriptive comment.
-  - [ ] ⬜ Update `--help` / docs to mention `GITHUB_SSH_443=1 ccy`.
-  - [ ] ⬜ Run QA: `./scripts/qa-all.bash`.
+- [x] ✅ **Task 1.1**: Make `claude-yolo` honour an inherited `GITHUB_SSH_443=1`
+  - [x] ✅ Precedence now: `--github-443` flag → inherited `GITHUB_SSH_443=1` →
+    else `0`. Auto-fallback still runs when `0`. (`claude-yolo` ~line 535.)
+  - [x] ✅ Bumped `CCY_VERSION` 3.20.0 → 3.21.0 with a descriptive comment.
+  - [x] ✅ `--help` now notes `export GITHUB_SSH_443=1` as the flag's equivalent.
+  - [x] ✅ QA green (`./scripts/qa-all.bash` exit 0).
 
 ### Phase 2: Host `known_hosts` pin + deploy-key alias override
 

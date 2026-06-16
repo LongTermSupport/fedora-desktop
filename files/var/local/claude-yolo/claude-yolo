@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.20.0"  # GitHub SSH 443 auto-fallback: when the launch-time key probe fails on port 22 and --github-443 was not passed, ssh-handling.bash retries over ssh.github.com:443; if that authenticates (port 22 firewall-blocked) it offers to enable 443 for the session (auto-enables when headless/non-tty). Probe gained ConnectTimeout=10 so blocked-port-22 fails fast. Builds on 3.19.0 --github-443 (route GitHub SSH over ssh.github.com:443; host-side equivalent is github_ssh_over_443 in play-github-cli-multi.yml).
+CCY_VERSION="3.21.0"  # GitHub SSH 443 now honours an inherited GITHUB_SSH_443=1 env var (host-level enable): `export GITHUB_SSH_443=1; ccy` — or a profile.d export / `eval "$(github-ssh-443 env)"` on the host — routes ccy over ssh.github.com:443 without the --github-443 flag. Precedence: flag > inherited env > auto-fallback probe. Builds on 3.20.0 auto-fallback (probe port 22, retry ssh.github.com:443, offer/auto-enable 443) and 3.19.0 --github-443. Host-side equivalent: github_ssh_over_443 in play-github-cli-multi.yml.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -134,6 +134,7 @@ Options:
   --ssh-key PATH         SSH private key to mount (can be specified multiple times)
   --no-ssh               Skip SSH key selection (git push will not work)
   --github-443           Route GitHub SSH over ssh.github.com:443 (use when port 22 is firewall-blocked)
+                         Equivalent: export GITHUB_SSH_443=1 before launch (host-level enable)
   --token NAME           Use specific named token
   --create-token         Create a new named token
   --update-token=NAME    Replace an existing named token (e.g. invalidated before expiry)
@@ -532,7 +533,16 @@ done
 # Export the GitHub-443 toggle as the env var consumed BOTH by the host-side SSH
 # probe in build_ssh_mounts_and_validate (ssh-handling.bash) and by the container
 # entrypoint. Set here — after parsing, before the probe at build_ssh_mounts_and_validate.
-if [ "$GITHUB_443_MODE" = true ]; then
+#
+# Precedence (highest first):
+#   1. --github-443 flag           → force 443 on for this run
+#   2. inherited GITHUB_SSH_443=1  → host-level enable (e.g. `export GITHUB_SSH_443=1; ccy`,
+#                                    a profile.d export, or `eval "$(github-ssh-443 env)"`).
+#                                    This is the host→container signal: enabling 443 on the
+#                                    desktop makes ccy run in 443 mode automatically.
+#   3. otherwise                   → 0, and the launch-time auto-fallback probe still applies.
+# Without honouring the inherited value, a host export would be clobbered to 0 here.
+if [ "$GITHUB_443_MODE" = true ] || [ "${GITHUB_SSH_443:-0}" = "1" ]; then
     export GITHUB_SSH_443=1
 else
     export GITHUB_SSH_443=0
