@@ -25,6 +25,14 @@
     # used, with `| default([])` applied there. It is deliberately NOT redeclared as
     # a play var: a self-referential `x: "{{ x | default([]) }}"` triggers Ansible
     # 2.19's "Recursive loop detected in template" error.
+    #
+    # Endpoint derived from the toggle, for the final SSH probe ONLY. That probe
+    # uses `ssh -F /dev/null` (to isolate to a single key + ignore the agent), so
+    # it bypasses the ~/.ssh/config override block and must be told the endpoint
+    # explicitly. These derive from github_ssh_over_443 (NOT from themselves), so
+    # they are safe under 2.19.
+    github_ssh_hostname: "{{ 'ssh.github.com' if (github_ssh_over_443 | default(false) | bool) else 'github.com' }}"
+    github_ssh_port: "{{ '443' if (github_ssh_over_443 | default(false) | bool) else '22' }}"
   vars_files:
     # Single source of truth for github_required_scopes — shared with
     # scripts/gh-account-setup.bash so the two lists can never drift.
