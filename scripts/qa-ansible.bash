@@ -136,6 +136,47 @@ while IFS= read -r -d '' yml_file; do
 done < <(find "$REPO_ROOT/playbooks/" -type f \( -name '*.yml' -o -name '*.yaml' \) -print0)
 
 # ---------------------------------------------------------------------------
+# Check 3: self-default vars (Ansible 2.19 "Recursive loop" footgun)
+# ---------------------------------------------------------------------------
+# A var defined as its own default — `foo: "{{ foo | default(...) }}"` — used to
+# work via lazy evaluation but under ansible-core 2.19 it aborts at task-arg
+# finalization with "Recursive loop detected in template: maximum recursion depth
+# exceeded". `ansible-playbook --syntax-check` does NOT evaluate templates, so it
+# passes this clean — only runtime catches it. This static check closes that gap.
+#
+# We target the self-DEFAULT idiom specifically (`\1 | default`), not any
+# self-mention: a bare `x: "{{ x }}"` is almost always legitimate block-literal
+# text being templated into another file (e.g. a blockinfile writing host_vars
+# from a set_fact), which must not be flagged. The PCRE backreference \1 requires
+# the SAME identifier on both sides:
+#   <indent><name>: "{{ <name> | default(...
+SELFREF_PATTERN='^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*):[[:space:]]*["'"'"']?\{\{[[:space:]]*\1[[:space:]]*\|[[:space:]]*default\b'
+SELFREF_VIOLATIONS=()
+
+selfref_rc=0
+grep -rnP \
+    --include='*.yml' \
+    --include='*.yaml' \
+    --exclude-dir=vendor \
+    "$SELFREF_PATTERN" \
+    "${FF_SEARCH_DIRS[@]}" \
+    > "$TMP_MATCHES" 2>"$TMP_GREP_ERR" || selfref_rc=$?
+
+if [[ $selfref_rc -ge 2 ]]; then
+    echo "ERROR: self-reference grep failed (rc=$selfref_rc):" >&2
+    cat "$TMP_GREP_ERR" >&2
+    exit 2
+fi
+
+while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    rel_line="${line#"$REPO_ROOT"/}"
+    echo "  ERROR (self-ref var): $rel_line"
+    SELFREF_VIOLATIONS+=("$rel_line")
+    ERRORS=$((ERRORS + 1))
+done < "$TMP_MATCHES"
+
+# ---------------------------------------------------------------------------
 # Build JSON output — same shape as sibling qa scripts
 # ---------------------------------------------------------------------------
 
@@ -151,6 +192,12 @@ for v in "${HYGIENE_VIOLATIONS[@]+"${HYGIENE_VIOLATIONS[@]}"}"; do
     hy_json_array=$(printf '%s' "$hy_json_array" | jq --arg v "$v" '. + [$v]')
 done
 
+# Encode SELFREF_VIOLATIONS as a JSON array
+sr_json_array="[]"
+for v in "${SELFREF_VIOLATIONS[@]+"${SELFREF_VIOLATIONS[@]}"}"; do
+    sr_json_array=$(printf '%s' "$sr_json_array" | jq --arg v "$v" '. + [$v]')
+done
+
 # Total "files" counted: playbook count for hygiene + 1 synthetic entry for fail-fast scan
 TOTAL=$((PLAYBOOK_COUNT + 1))
 STATUS="pass"
@@ -162,6 +209,7 @@ jq -n \
     --argjson errors "$ERRORS" \
     --argjson ff "$ff_json_array" \
     --argjson hy "$hy_json_array" \
+    --argjson sr "$sr_json_array" \
     '{
         "type": "ansible",
         "status": $status,
@@ -172,12 +220,14 @@ jq -n \
         },
         "failures": (
             ($ff | map({"file": ., "type": "ansible", "status": "fail", "error": "fail-fast pattern without FAIL-FAST-OK annotation"})) +
-            ($hy | map({"file": (. | split(" (")[0]), "type": "ansible", "status": "fail", "error": ("hygiene: " + (. | split(" (")[1] | rtrimstr(")"))) }))
+            ($hy | map({"file": (. | split(" (")[0]), "type": "ansible", "status": "fail", "error": ("hygiene: " + (. | split(" (")[1] | rtrimstr(")"))) })) +
+            ($sr | map({"file": ., "type": "ansible", "status": "fail", "error": "self-referential var (Ansible 2.19 recursive-loop error at runtime)"}))
         ),
         "results": [],
         "checks": {
             "fail_fast": $ff,
-            "hygiene":   $hy
+            "hygiene":   $hy,
+            "self_ref":  $sr
         }
     }' > "$JSON_OUT"
 
@@ -185,12 +235,13 @@ jq -n \
 # Terse summary
 # ---------------------------------------------------------------------------
 if [[ $ERRORS -eq 0 ]]; then
-    echo "✓ ansible: fail-fast patterns OK; $PLAYBOOK_COUNT playbook(s) have correct shebang+exec"
+    echo "✓ ansible: fail-fast patterns OK; no self-referential vars; $PLAYBOOK_COUNT playbook(s) have correct shebang+exec"
     exit 0
 else
     FF_COUNT=${#FF_VIOLATIONS[@]}
     HY_COUNT=${#HYGIENE_VIOLATIONS[@]}
-    echo "✗ ansible: $ERRORS violation(s) — $FF_COUNT fail-fast, $HY_COUNT hygiene"
+    SR_COUNT=${#SELFREF_VIOLATIONS[@]}
+    echo "✗ ansible: $ERRORS violation(s) — $FF_COUNT fail-fast, $HY_COUNT hygiene, $SR_COUNT self-ref var"
     echo "  Hygiene fixer: ./scripts/make-playbooks-executable.bash"
     echo "  Details: jq '.failures[]' $JSON_OUT"
     exit 1

@@ -20,7 +20,11 @@
     # For a TEMPORARY enable without re-running Ansible, use the `github-ssh-443`
     # CLI this play deploys (`github-ssh-443 on|off|auto|status|env`). It drives the
     # same helper, so the two reconcile.
-    github_443_extra_aliases: "{{ github_443_extra_aliases | default([]) }}"
+    #
+    # github_443_extra_aliases is read straight from host_vars (or -e) where it is
+    # used, with `| default([])` applied there. It is deliberately NOT redeclared as
+    # a play var: a self-referential `x: "{{ x | default([]) }}"` triggers Ansible
+    # 2.19's "Recursive loop detected in template" error.
   vars_files:
     # Single source of truth for github_required_scopes — shared with
     # scripts/gh-account-setup.bash so the two lists can never drift.
@@ -454,7 +458,7 @@
               - --ssh-dir
               - "/home/{{ user_login }}/.ssh"
               - --aliases
-              - "{{ github_443_extra_aliases | join(',') }}"
+              - "{{ github_443_extra_aliases | default([]) | join(',') }}"
               - --no-teardown
             chdir: "{{ root_dir }}"
           register: gh443_apply

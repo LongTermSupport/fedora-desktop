@@ -192,6 +192,40 @@ failure only appears at `ansible-playbook` time on the host.
 before committing a playbook, even if `qa-all.bash` passes — it is fast and
 catches the 2.19-specific scanner errors PyYAML misses.
 
+### Ansible 2.19 self-default vars recurse at runtime — `--syntax-check` misses it
+
+A var defined as its own default — `foo: "{{ foo | default([]) }}"` — used to
+work via lazy evaluation (the value was either an override from `-e`/host_vars or
+the default). Under `ansible-core 2.19+` it aborts the moment the template is
+finalized with:
+
+```
+[ERROR]: ... Error while resolving value for 'argv':
+Recursive loop detected in template: maximum recursion depth exceeded
+```
+
+**The trap — this one is nastier than the other two 2.19 gotchas:**
+`ansible-playbook --syntax-check` parses structure but does **not** evaluate
+templates, so it passes the broken playbook clean. The recursion only fires at
+**runtime**, during task-arg finalization (e.g. templating a `command`'s `argv`).
+So both `qa-all.bash` **and** `--syntax-check` go green and it still explodes on
+the host. (This is now caught by a dedicated `qa-ansible.bash` self-default grep,
+added precisely because neither existing gate could.)
+
+**How to apply:**
+
+- Never write `x: "{{ x | default(...) }}"`. To make a var optional, **drop the
+  play-var redeclaration entirely** and apply `| default(...)` at the point of
+  use: `"{{ x | default([]) | join(',') }}"`. host_vars / `-e` still override.
+- A bare `x: "{{ x }}"` inside a `block: |` literal (e.g. a `blockinfile` writing
+  host_vars from a `set_fact`) is **fine** — that is literal text templated into
+  another file, not a self-reference; the QA grep deliberately only flags the
+  `| default` idiom to avoid false-positiving on it.
+
+**Diagnosis:** `./scripts/qa-ansible.bash` now flags it statically; to confirm a
+fix actually resolves at runtime, template it in a throwaway play
+(`vars: {x: "{{ x | default([]) }}"}` → recursion; point-of-use default → clean).
+
 ### Pre-commit secret scanner flags any non-example.com email
 
 The `scripts/git-hooks/pre-commit` secret scanner rejects the commit if **any

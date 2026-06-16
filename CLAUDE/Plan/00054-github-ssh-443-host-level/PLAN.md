@@ -269,3 +269,14 @@ signal. Always-on uses the profile.d export of the same var.
   (316 files), syntax-check clean (73 playbooks), 71 helper tests pass.
 - **Remaining**: HOST-only deploy + live test (this is a CCY container — edit/commit
   only). See the unchecked Success Criterion.
+- **Runtime regression found + fixed during HOST deploy.** The play var
+  `github_443_extra_aliases: "{{ github_443_extra_aliases | default([]) }}"` is a
+  self-default that aborts under ansible-core 2.19 ("Recursive loop detected in
+  template") when the apply task's `argv` is finalized. It passed BOTH
+  `qa-all.bash` and `--syntax-check` because neither evaluates templates — the
+  failure is runtime-only. Fix: dropped the self-referential play var and apply
+  `| default([])` at the point of use in the `argv`. Reproduced the recursion and
+  verified the fix with throwaway plays. **QA hardened**: added a `qa-ansible.bash`
+  self-default check (PCRE backreference, targets the `\1 | default` idiom only so
+  it doesn't false-positive on `blockinfile` literals like nordvpn's
+  `x: {{ x }}`). Documented in `CLAUDE/QA.md` and `CLAUDE/AgentNotes.md`.
