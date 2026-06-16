@@ -1,0 +1,25 @@
+#!/bin/bash
+# github-ssh-443 — toggle GitHub SSH over ssh.github.com:443 on this host.
+#
+# Thin wrapper around the unit-tested helper in helpers/github443/cli.py, which
+# play-github-cli-multi.yml deploys to /usr/local/lib/ccy-helpers/. The helper is
+# the single source of truth for the host SSH 443 config (the same module the
+# playbook drives for the persistent github_ssh_over_443 toggle), so the
+# temporary CLI and the Ansible-managed state reconcile cleanly.
+#
+# Usage:
+#   github-ssh-443 on        # route GitHub SSH over 443 (edits ~/.ssh/config + known_hosts)
+#   github-ssh-443 off       # restore github.com:22
+#   github-ssh-443 auto      # probe; enable only if port 22 is blocked and 443 works
+#   github-ssh-443 status    # show port-22 vs 443 reachability + current state
+#   github-ssh-443 env       # print `export`/`unset GITHUB_SSH_443` for eval
+#
+# Make THIS shell (and any ccy launched from it) follow the host toggle:
+#   eval "$(github-ssh-443 env)"
+#
+# Pass extra deploy-key Host alias globs that redirect to github.com:
+#   github-ssh-443 on --aliases 'myorg_deploy_*,clientco_*'
+#
+# Runs as the invoking user and edits that user's ~/.ssh — do not run with sudo.
+set -euo pipefail
+exec env PYTHONPATH=/usr/local/lib/ccy-helpers python3 -m helpers.github443.cli "$@"

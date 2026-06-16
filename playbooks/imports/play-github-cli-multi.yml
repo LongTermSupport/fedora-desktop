@@ -6,13 +6,21 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     vault_file: "{{ root_dir }}/environment/localhost/host_vars/localhost.yml"
-    # GitHub SSH-over-HTTPS toggle. Default off. Set github_ssh_over_443: true in
-    # host_vars/localhost.yml (or pass -e github_ssh_over_443=true) when port 22 is
-    # blocked by a firewall. ssh.github.com:443 serves the SAME host keys as
+    # GitHub SSH-over-443 ALWAYS-ON toggle. Default off. Set github_ssh_over_443:
+    # true in host_vars/localhost.yml (or pass -e github_ssh_over_443=true) when
+    # port 22 is firewall-blocked. ssh.github.com:443 serves the SAME host keys as
     # github.com:22, so this is a transparent endpoint swap, not a separate identity.
-    # default() is used (not a play-vars default) so a host_vars override still wins.
-    github_ssh_hostname: "{{ 'ssh.github.com' if (github_ssh_over_443 | default(false) | bool) else 'github.com' }}"
-    github_ssh_port: "{{ '443' if (github_ssh_over_443 | default(false) | bool) else '22' }}"
+    #
+    # Routing is applied by the unit-tested helpers/github443 module (a single
+    # first-wins override block at the top of ~/.ssh/config + a [ssh.github.com]:443
+    # known_hosts pin), NOT by per-stanza HostName rewriting — so it also covers
+    # deploy-key aliases. github_443_extra_aliases adds extra Host globs (e.g.
+    # ['myorg_deploy_*']) for deploy keys that redirect to github.com.
+    #
+    # For a TEMPORARY enable without re-running Ansible, use the `github-ssh-443`
+    # CLI this play deploys (`github-ssh-443 on|off|auto|status|env`). It drives the
+    # same helper, so the two reconcile.
+    github_443_extra_aliases: "{{ github_443_extra_aliases | default([]) }}"
   vars_files:
     # Single source of truth for github_required_scopes — shared with
     # scripts/gh-account-setup.bash so the two lists can never drift.
@@ -69,6 +77,59 @@
         group: root
         mode: "0644"
       become: true
+
+    # =========================================================================
+    # GitHub SSH-over-443 host tooling (deployed unconditionally — useful for
+    # single- and multi-account hosts alike). The unit-tested helper is the
+    # single source of truth for host 443 routing; the CLI wrapper and the
+    # persistent apply task above both drive it.
+    # =========================================================================
+    - name: Ensure ccy-helpers library directory exists
+      ansible.builtin.file:
+        path: /usr/local/lib/ccy-helpers/helpers/github443
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      become: true
+
+    - name: Deploy github443 helper modules
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/helpers/github443/{{ item }}"
+        dest: "/usr/local/lib/ccy-helpers/helpers/github443/{{ item }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop:
+        - core.py
+        - cli.py
+      become: true
+
+    - name: Deploy github-ssh-443 toggle CLI
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/usr/local/bin/github-ssh-443"
+        dest: /usr/local/bin/github-ssh-443
+        owner: root
+        group: root
+        mode: "0755"
+      become: true
+
+    - name: Enable always-on GitHub SSH-over-443 profile export
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/etc/profile.d/zz-github-ssh-443.sh"
+        dest: /etc/profile.d/zz-github-ssh-443.sh
+        owner: root
+        group: root
+        mode: "0644"
+      become: true
+      when: github_ssh_over_443 | default(false) | bool
+
+    - name: Remove always-on GitHub SSH-over-443 profile export when disabled
+      ansible.builtin.file:
+        path: /etc/profile.d/zz-github-ssh-443.sh
+        state: absent
+      become: true
+      when: not (github_ssh_over_443 | default(false) | bool)
 
     - name: Check current gh authentication status
       ansible.builtin.shell: gh auth status 2>&1
@@ -345,10 +406,13 @@
             group: "{{ user_login }}"
             mode: "0600"
             marker: "# {mark} ANSIBLE MANAGED: GitHub {{ item.key }}"
+            # HostName/Port stay github.com:22 here. 443 routing (when enabled) is
+            # applied by the github443 helper's first-wins override block at the top
+            # of this file, which matches `github.com-*` and overrides these.
             block: |
               Host github.com-{{ item.key }}
-                  HostName {{ github_ssh_hostname }}
-                  Port {{ github_ssh_port }}
+                  HostName github.com
+                  Port 22
                   User git
                   IdentityFile ~/.ssh/github_{{ item.key }}
                   IdentitiesOnly yes
@@ -363,14 +427,38 @@
             group: "{{ user_login }}"
             mode: "0600"
             marker: "# {mark} ANSIBLE MANAGED: GitHub default"
+            # HostName/Port stay github.com:22; the github443 override block at the
+            # top of the file reroutes to ssh.github.com:443 when 443 is enabled.
             block: |
               Host github.com
-                  HostName {{ github_ssh_hostname }}
-                  Port {{ github_ssh_port }}
+                  HostName github.com
+                  Port 22
                   User git
                   IdentityFile ~/.ssh/id
                   IdentitiesOnly yes
                   AddKeysToAgent yes
+
+        - name: Apply GitHub SSH-over-443 host config (BOF override + known_hosts pin)
+          # Single source of truth for host 443 routing — the same helpers/github443
+          # module the `github-ssh-443` CLI drives. `on` when github_ssh_over_443 is
+          # set (writes the first-wins override block at the top of ~/.ssh/config and
+          # pins [ssh.github.com]:443 in known_hosts), `off` otherwise (cleanly
+          # removes both managed blocks). --no-teardown skips the control-socket close
+          # during provisioning. chdir puts the repo root on sys.path for the import.
+          ansible.builtin.command:
+            argv:
+              - python3
+              - -m
+              - helpers.github443.cli
+              - "{{ 'on' if (github_ssh_over_443 | default(false) | bool) else 'off' }}"
+              - --ssh-dir
+              - "/home/{{ user_login }}/.ssh"
+              - --aliases
+              - "{{ github_443_extra_aliases | join(',') }}"
+              - --no-teardown
+            chdir: "{{ root_dir }}"
+          register: gh443_apply
+          changed_when: "'GH443-CHANGED' in gh443_apply.stdout"
 
         # Audit GitHub-installed keys directly via the API, not via an SSH
         # roundtrip. For each account: switch, fetch installed pubkey list,

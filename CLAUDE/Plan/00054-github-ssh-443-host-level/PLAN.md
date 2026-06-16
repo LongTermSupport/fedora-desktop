@@ -1,6 +1,6 @@
 # Plan 00054: Host-level GitHub SSH-over-443, unified with CCY
 
-**Status**: In Progress
+**Status**: In Progress (implementation + QA complete; HOST deploy + live test pending)
 **Created**: 2026-06-16
 **Owner**: joseph / Claude
 **Priority**: Medium
@@ -107,52 +107,60 @@ always-on default (leaving it on is harmless but a clean off-switch is hygiene).
   - [x] ✅ `--help` now notes `export GITHUB_SSH_443=1` as the flag's equivalent.
   - [x] ✅ QA green (`./scripts/qa-all.bash` exit 0).
 
-### Phase 2: Host `known_hosts` pin + deploy-key alias override
+### Phase 2: Host `known_hosts` pin + deploy-key alias override ✅
 
-- [ ] ⬜ **Task 2.1**: Pin `[ssh.github.com]:443` in the host `known_hosts`
-  - [ ] ⬜ Add a `blockinfile` (distinct marker) gated on `github_ssh_over_443`,
-    `state: present/absent`, fetching keys from the GitHub meta API
-    (`api.github.com/meta .ssh_keys`) or static published keys (decision below).
-  - [ ] ⬜ Run QA + `ansible-playbook --syntax-check`.
-- [ ] ⬜ **Task 2.2**: First-wins BOF override for deploy-key aliases
-  - [ ] ⬜ Add `github_443_extra_aliases` (list, default `[]`) to vars + dist.
-  - [ ] ⬜ Convert the default `Host github.com` handling to a BOF override block
-    (`insertbefore: BOF`) matching
-    `github.com ssh.github.com {{ github_443_extra_aliases | join(' ') }}`,
-    carrying only endpoint-routing keywords (HostName/Port/User/ConnectTimeout).
-    Per-key IdentityFile stanzas stay where they are (first-wins keeps them).
-  - [ ] ⬜ Verify off-mode cleanly removes the override (`state: absent`).
-  - [ ] ⬜ Run QA + `--syntax-check`.
+Folded into the helper (Phase 3) as the single 443-routing mechanism, rather than
+a parallel `blockinfile`, so the temporary CLI and the persistent apply share one
+source of truth.
 
-### Phase 3: Temporary host toggle (TDD'd helper + thin CLI)
+- [x] ✅ **Task 2.1**: Pin `[ssh.github.com]:443` in the host `known_hosts`
+  - [x] ✅ The helper writes a managed `[ssh.github.com]:443` block in
+    `~/.ssh/known_hosts` (present/absent with the 443 state). Keys come from the
+    meta API with an `ssh-keyscan -p 443` fallback (Decision 2 → both, runtime).
+  - [x] ✅ QA + `--syntax-check` clean (73 playbooks).
+- [x] ✅ **Task 2.2**: First-wins BOF override for deploy-key aliases
+  - [x] ✅ Added `github_443_extra_aliases` (list, default `[]`) to play vars + dist.
+  - [x] ✅ Helper writes one BOF override block matching
+    `github.com ssh.github.com github.com-* <extra>` carrying only
+    HostName/Port/User/ConnectTimeout; per-key `IdentityFile` stanzas survive
+    (first-wins). Per-alias + default play blocks reverted to literal github.com:22
+    so routing lives in exactly one place. Verified by smoke test (deploy alias +
+    `github.com-work` both rerouted; `off` round-trips to original content).
+  - [x] ✅ Off-mode cleanly removes the block (`apply_state(present=False)`).
+  - [x] ✅ QA + `--syntax-check` clean.
 
-- [ ] ⬜ **Task 3.1**: `helpers/github443/` Python helper (stdlib only, TDD)
-  - [ ] ⬜ Write tests first (`tests/helpers/github443/...`): managed-block
-    insert-at-BOF / remove (idempotent), `known_hosts` pin/unpin, 22-vs-443
-    probe, control-socket teardown command emission.
-  - [ ] ⬜ Pure logic (block rendering, idempotent edit) split from a thin
-    side-effecting executor; stable marker output for `changed_when`.
-  - [ ] ⬜ Run `python3 -m unittest discover -s tests`.
-- [ ] ⬜ **Task 3.2**: User CLI wrapper `github-ssh-443 on|off|auto|status`
-  - [ ] ⬜ Deploy via the playbook; calls the helper; `on`/`off` flip the same
-    managed blocks, `auto` probes + enables only if 22 blocked & 443 works,
-    `status` reports the probe + current config state.
-  - [ ] ⬜ `on` also exports/persists `GITHUB_SSH_443=1` for the session so CCY in
-    the same shell goes 443 (mechanism decision below).
-  - [ ] ⬜ Run QA.
+### Phase 3: Temporary host toggle (TDD'd helper + thin CLI) ✅
 
-### Phase 4: Always-on host path + propagation to CCY
+- [x] ✅ **Task 3.1**: `helpers/github443/` Python helper (stdlib only, TDD)
+  - [x] ✅ Tests written first: `tests/helpers/github443/test_core.py` (25) +
+    `test_cli.py` (11). Cover idempotent insert-at-BOF / replace / remove,
+    known_hosts render, meta+keyscan parsing, auto decision, env line, file modes,
+    fetch fallback, probe parsing. 36 new tests; 71 helper tests total green.
+  - [x] ✅ Pure logic (`core.py`) split from the side-effecting executor
+    (`cli.py`); stable `GH443-CHANGED` marker for `changed_when`.
+  - [x] ✅ `python3 -m unittest tests.helpers.github443.test_core test_cli` green.
+- [x] ✅ **Task 3.2**: User CLI `github-ssh-443 on|off|auto|status|env`
+  - [x] ✅ Deployed by the play: helper modules → `/usr/local/lib/ccy-helpers/`,
+    wrapper `files/usr/local/bin/github-ssh-443`. `on`/`off` flip the managed
+    blocks, `auto` probes + enables only if 22 blocked & 443 works, `status`
+    reports reachability + state. Verified working from a non-repo cwd via
+    PYTHONPATH.
+  - [x] ✅ Decision 4 → env var: `github-ssh-443 env` prints `export`/`unset GITHUB_SSH_443` for `eval`, so the same shell (and ccy via Phase 1) follows it.
+  - [x] ✅ QA green.
 
-- [ ] ⬜ **Task 4.1**: profile.d export when `github_ssh_over_443: true`
-  - [ ] ⬜ Deploy `/etc/profile.d/zz-github-ssh-443.sh` exporting
-    `GITHUB_SSH_443=1` (state gated on the var) so every login shell — and
-    thus every `ccy` — inherits 443.
-  - [ ] ⬜ Run QA + `--syntax-check`.
-- [ ] ⬜ **Task 4.2**: Documentation
-  - [ ] ⬜ Update `docs/github-multi-account.md` with the temporary vs always-on
-    matrix, the ssh-agent note, and deploy-key alias handling.
-  - [ ] ⬜ Add `github_ssh_over_443` + `github_443_extra_aliases` to
-    `host_vars/localhost.yml.dist` with comments.
+### Phase 4: Always-on host path + propagation to CCY ✅
+
+- [x] ✅ **Task 4.1**: profile.d export when `github_ssh_over_443: true`
+  - [x] ✅ `files/etc/profile.d/zz-github-ssh-443.sh` exports `GITHUB_SSH_443=1`;
+    deployed when the var is true, removed (`state: absent`) when false. Every
+    login shell — thus every `ccy` — inherits 443.
+  - [x] ✅ QA + `--syntax-check` clean.
+- [x] ✅ **Task 4.2**: Documentation
+  - [x] ✅ `docs/github-multi-account.md`: one-signal/two-layer/two-lifetime model,
+    temporary CLI vs always-on var, the ssh-agent note, deploy-key aliases, and the
+    ccy env-var precedence.
+  - [x] ✅ `host_vars/localhost.yml.dist`: documented `github_ssh_over_443`
+    (always-on) + `github_443_extra_aliases`.
 
 ## Dependencies
 
@@ -170,38 +178,51 @@ flows host → container. The flag and the Ansible var are just two ways to *set
 No rename (avoids churn); document the relationship.
 **Date**: 2026-06-16
 
-### Decision 2 (OPEN): host known_hosts key source — static vs meta API
+### Decision 2 (RESOLVED): host known_hosts key source — static vs meta API
 
-**Options**: (A) embed GitHub's published `[ssh.github.com]:443` keys statically
-(simple, offline, but needs manual rotation); (B) fetch from
-`api.github.com/meta` at play time (tracks rotation, needs network at deploy).
-**Leaning**: B with A as fallback, mirroring the entrypoint which already fetches.
-**Decision**: TBD.
+**Decision**: runtime fetch, no embedded keys. `fetch_keys()` tries the meta API
+(`api.github.com/meta`, itself HTTPS/443 so it works on the very networks that
+block port 22) and falls back to `ssh-keyscan -p 443 ssh.github.com`; it raises
+`KeyFetchError` if neither yields keys (fail fast — never pin an empty set).
+Avoids both embedded-key rotation staleness and any secret-scanner friction.
+**Date**: 2026-06-16
 
-### Decision 3 (OPEN): CLI + helper deployment location on the host
+### Decision 3 (RESOLVED): CLI + helper deployment location on the host
 
-**Context**: the TDD helper lives in the repo; the user CLI must reach it from any
-cwd. Options: deploy a launcher that `cd`s to the repo root; or install the helper
-module to a stable path. **Decision**: TBD — resolve in Phase 3.
+**Decision**: install the helper modules to a stable path
+(`/usr/local/lib/ccy-helpers/helpers/github443/`) and ship a thin wrapper
+(`/usr/local/bin/github-ssh-443`) that runs `PYTHONPATH=/usr/local/lib/ccy-helpers python3 -m helpers.github443.cli`. Self-contained — works from any cwd, no runtime
+dependency on the repo clone location. The playbook's own persistent apply still
+runs the in-repo copy via `chdir: root_dir` (pyenv pattern). Verified from a
+non-repo cwd.
+**Date**: 2026-06-16
 
-### Decision 4 (OPEN): how the temporary toggle hands 443 to CCY in the same shell
+### Decision 4 (RESOLVED): how the temporary toggle hands 443 to CCY in the same shell
 
-**Options**: (A) the toggle prints `export GITHUB_SSH_443=1` for the user to eval;
-(B) it writes a flag file `~/.config/ccy/github-443` that ccy reads; (C) both.
-**Leaning**: A is least magical and matches the env-var-is-truth model; ccy already
-needs Phase 1 to honour the env. **Decision**: TBD.
+**Decision**: env var (option A). `github-ssh-443 env` prints `export GITHUB_SSH_443=1` / `unset GITHUB_SSH_443` for `eval "$(github-ssh-443 env)"`. No
+ccy flag-file path — Phase 1 already makes ccy honour the env var, keeping a single
+signal. Always-on uses the profile.d export of the same var.
+**Date**: 2026-06-16
 
 ## Success Criteria
 
-- [ ] `export GITHUB_SSH_443=1; ccy` runs CCY in 443 mode (no flag needed).
-- [ ] `github-ssh-443 on` reroutes host git + a foreign deploy-key alias over 443
-  without an Ansible run; `off` cleanly reverts; both reconcile with Ansible.
-- [ ] Host `known_hosts` is pinned for `[ssh.github.com]:443` in 443 mode.
-- [ ] `github_ssh_over_443: true` + playbook run = always-on host SSH **and** every
-  `ccy` inherits 443.
-- [ ] ssh-agent untouched; control sockets (if any) torn down by the toggle.
-- [ ] QA passes (`./scripts/qa-all.bash`), `--syntax-check` clean, helper unit
-  tests pass.
+- [x] ✅ `export GITHUB_SSH_443=1; ccy` runs CCY in 443 mode (no flag needed) —
+  code path verified (`claude-yolo` precedence); HOST live-run pending.
+- [x] ✅ `github-ssh-443 on` reroutes host git + a foreign deploy-key alias over
+  443; `off` cleanly reverts (round-trips to original); both share the helper's
+  managed blocks with the Ansible apply. Smoke-tested against a temp `~/.ssh`.
+- [x] ✅ Host `known_hosts` is pinned for `[ssh.github.com]:443` in 443 mode
+  (helper writes the managed block).
+- [x] ✅ `github_ssh_over_443: true` + playbook = always-on host SSH **and** every
+  `ccy` inherits 443 (profile.d export of `GITHUB_SSH_443=1`). Wiring complete;
+  HOST `ansible-playbook` run pending (CCY container cannot deploy).
+- [x] ✅ ssh-agent untouched (documented); control sockets torn down by the toggle
+  (`teardown_control_sockets`).
+- [x] ✅ QA passes (`./scripts/qa-all.bash` exit 0, 316 files), `--syntax-check`
+  clean (73 playbooks), 71 helper unit tests pass.
+- [ ] ⬜ **HOST verification** (user, not CCY): run
+  `ansible-playbook playbooks/imports/play-github-cli-multi.yml`, then
+  `github-ssh-443 status`, a real `git ls-remote`, and `ssh -T -p 443 git@ssh.github.com`.
 
 ## Risks & Mitigations
 
@@ -220,3 +241,15 @@ needs Phase 1 to honour the env. **Decision**: TBD.
 - Plan created. Current state, the four gaps, and the ssh-agent/control-socket
   analysis verified against the tree. Three open decisions (2, 3, 4) flagged for
   resolution during implementation.
+- All four phases implemented. Phase 1 (ccy honours inherited `GITHUB_SSH_443`)
+  shipped as its own commit (CCY 3.21.0). Phases 2–4 landed together: the
+  `helpers/github443` module (36 TDD tests) is the single source of truth for host
+  443 routing — one first-wins BOF override block + a `[ssh.github.com]:443`
+  known_hosts pin — driven by both the `github-ssh-443` CLI (temporary) and the
+  play (always-on, gated on `github_ssh_over_443`, plus a profile.d export of the
+  env var so ccy inherits it). Decisions 2/3/4 resolved (runtime key fetch;
+  `/usr/local/lib/ccy-helpers` + wrapper; env-var signal). Per-alias/default play
+  blocks reverted to literal github.com:22 so routing lives in one place. QA green
+  (316 files), syntax-check clean (73 playbooks), 71 helper tests pass.
+- **Remaining**: HOST-only deploy + live test (this is a CCY container — edit/commit
+  only). See the unchecked Success Criterion.

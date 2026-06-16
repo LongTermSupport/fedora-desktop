@@ -215,24 +215,73 @@ network that does HTTPS/TLS deep-packet-inspection on 443 will reject it — so
 enabling it everywhere can *break* a connection that works fine on port 22. Turn
 it on only when you actually need it.
 
-### Desktop host
+### One signal, two layers, two lifetimes
 
-Set the variable in `environment/localhost/host_vars/localhost.yml`:
+There is a single runtime signal — the `GITHUB_SSH_443` environment variable —
+and it drives **both** layers:
+
+- **Host SSH** (desktop `git`, deploy keys, raw `ssh`) — controlled by a single
+  first-wins override block at the **top** of `~/.ssh/config` plus a
+  `[ssh.github.com]:443` `known_hosts` pin. Because OpenSSH uses the first value
+  it sees per keyword, that one block reroutes plain `github.com`, the per-account
+  `github.com-<alias>` aliases, **and** any deploy-key aliases you list — without
+  editing each stanza (each keeps its own `IdentityFile`).
+- **CCY container** — the entrypoint writes the container's own 443 config when
+  `GITHUB_SSH_443=1` is set, so enabling 443 on the host propagates into ccy.
+
+You can enable it **temporarily** (this bad network, no Ansible run) or
+**always-on** (persisted, applied by Ansible).
+
+> **ssh-agent: nothing to restart or flush.** The agent holds private-key
+> identities, which are endpoint-agnostic — the same key authenticates identically
+> on `github.com:22` and `ssh.github.com:443`. Routing and host verification come
+> from `~/.ssh/config` / `~/.ssh/known_hosts`, re-read on every invocation. The
+> only thing that can go stale is an SSH connection-multiplexing **control socket**
+> pinned to `github.com:22`; this repo configures none, and the toggle closes any
+> user-configured one (`ssh -O exit git@github.com`) anyway.
+
+### Desktop host — temporary (no Ansible run)
+
+Use the `github-ssh-443` CLI (deployed by `play-github-cli-multi.yml`):
+
+```bash
+github-ssh-443 status          # probe port 22 vs 443 and show current state
+github-ssh-443 on              # route GitHub SSH over 443 (edits ~/.ssh/config + known_hosts)
+github-ssh-443 auto            # enable only if port 22 is blocked AND 443 works
+eval "$(github-ssh-443 env)"   # make THIS shell (and any ccy launched from it) use 443
+github-ssh-443 off             # restore github.com:22 when you leave the network
+```
+
+`on`/`off` write the **same** managed blocks the playbook manages, so a later
+Ansible run reconciles cleanly. If you have deploy-key Host aliases that redirect
+to `github.com`, pass their globs so they are rerouted too:
+
+```bash
+github-ssh-443 on --aliases 'myorg_deploy_*,clientco_*'
+```
+
+### Desktop host — always-on (persisted)
+
+Set the variable in `environment/localhost/host_vars/localhost.yml` and re-run the
+playbook:
 
 ```yaml
 github_ssh_over_443: true
+# Optional: deploy-key Host alias globs that redirect to github.com, so the
+# override reroutes them too.
+github_443_extra_aliases:
+  - myorg_deploy_*
 ```
-
-Then re-run the playbook and verify:
 
 ```bash
 ansible-playbook playbooks/imports/play-github-cli-multi.yml
 ssh -T -p 443 git@ssh.github.com    # expect: "Hi <user>! You've successfully authenticated..."
 ```
 
-When true, **every** generated `~/.ssh/config` block — the default `Host github.com` and each per-account `Host github.com-<alias>` — is rewritten to
-`HostName ssh.github.com` + `Port 443`. Set it back to `false` (or remove the
-line) and re-run the playbook to revert.
+Always-on also deploys `/etc/profile.d/zz-github-ssh-443.sh`, which exports
+`GITHUB_SSH_443=1` for every login shell — so **every** `ccy` launch inherits 443
+automatically. Set `github_ssh_over_443: false` and re-run to revert (the override
+block, the `known_hosts` pin, and the profile export are all removed).
 
 ### CCY container
 
@@ -254,9 +303,15 @@ the only way to proceed). This is per-launch only; it does not persist.
 is blocked):
 
 ```bash
-ccy --rebuild        # once, to pick up the entrypoint change
-ccy --github-443     # launch with GitHub SSH routed over 443
+ccy --rebuild              # once, to pick up the entrypoint change
+ccy --github-443           # launch with GitHub SSH routed over 443
+export GITHUB_SSH_443=1    # equivalent host-level enable; ccy honours it
+ccy                        #   → runs in 443 mode without the flag
 ```
+
+Precedence inside ccy: `--github-443` flag → inherited `GITHUB_SSH_443=1` →
+otherwise the auto-fallback probe above. This is why the always-on host export
+(or `eval "$(github-ssh-443 env)"`) makes ccy follow the host toggle with no flag.
 
 ## Troubleshooting
 

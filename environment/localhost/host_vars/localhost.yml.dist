@@ -12,7 +12,15 @@ user_email: "yourname@example.com"
 # Optional: route GitHub SSH over ssh.github.com:443 when port 22 is firewall-blocked.
 # Off by default. ssh.github.com:443 serves the same host keys as github.com:22.
 # Do NOT enable on networks that TLS-inspect port 443 — see docs/github-multi-account.md.
+# This is the ALWAYS-ON switch: it writes the 443 override block + known_hosts pin
+# and exports GITHUB_SSH_443=1 for every shell (so ccy inherits 443 too). For a
+# TEMPORARY enable without re-running Ansible, use the `github-ssh-443` CLI instead.
 # github_ssh_over_443: true
+#
+# Optional: extra deploy-key Host alias globs (that redirect to github.com) to
+# reroute over 443 alongside github.com and the github.com-<alias> accounts.
+# github_443_extra_aliases:
+#   - myorg_deploy_*
 
 # Optional Qobuz CLI Related
 # lastfm_api_key: !vault |
