@@ -83,6 +83,10 @@ To check all configured accounts are healthy:
 ./scripts/gh-account-setup.bash --check
 ```
 
+> **On a network that blocks SSH port 22?** Keep `git push`/`pull` working by
+> routing GitHub SSH over `ssh.github.com:443`: run `github-ssh-443 auto && eval "$(github-ssh-443 env)"`.
+> See [GitHub SSH over Port 443](docs/github-ssh-over-443.md).
+
 ## Version Compatibility
 
 **Current branch targets: Fedora 44**
@@ -177,6 +181,7 @@ Comprehensive guides are available in the [docs/](docs/) directory:
 - **[Configuration Guide](docs/configuration.md)** - Customize your setup
 - **[Containerization Guide](docs/containerization.md)** - LXC vs Docker vs Distrobox explained
 - **[GitHub Multi-Account Management](docs/github-multi-account.md)** - Multiple GitHub identities, SSH keys, and per-account helpers
+- **[GitHub SSH over Port 443](docs/github-ssh-over-443.md)** - Keep Git-over-SSH working on networks that block port 22
 - **[Architecture Overview](docs/architecture.md)** - How the project is structured
 - **[Development Guide](docs/development.md)** - Contributing and development workflow
 

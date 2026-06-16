@@ -18,6 +18,7 @@ Complete guide to the Fedora Desktop Configuration Manager.
 - "How do I add Docker?" → [Optional playbooks](playbooks.md#optional-playbooks)
 - "How do I set up DDEV?" → [DDEV Guide](ddev.md)
 - "What's the difference between LXC, Docker, and Distrobox?" → [Containerization Guide](containerization.md#overview-comparison)
+- "My `git push` to GitHub hangs on this WiFi" → [GitHub SSH over Port 443](github-ssh-over-443.md)
 
 ## Documentation by Purpose
 
@@ -279,6 +280,7 @@ distrobox enter dev
 **GitHub**
 
 - [Multi-account management](github-multi-account.md) — Setup, commands, adding/removing accounts
+- [SSH over Port 443](github-ssh-over-443.md) — Keep Git-over-SSH working on networks that block port 22
 
 **Networking**
 
@@ -313,6 +315,7 @@ distrobox enter dev
 - **Container issues:** [Container troubleshooting](containerization.md#troubleshooting)
 - **Configuration errors:** [Configuration debugging](configuration.md#troubleshooting-configuration)
 - **Playbook debugging:** [Testing guide](development.md#debugging)
+- **GitHub SSH blocked on this network (port 22):** [SSH over Port 443](github-ssh-over-443.md#troubleshooting)
 
 ## Getting Help
 
