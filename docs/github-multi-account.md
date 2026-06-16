@@ -260,6 +260,15 @@ to `github.com`, pass their globs so they are rerouted too:
 github-ssh-443 on --aliases 'myorg_deploy_*,clientco_*'
 ```
 
+> **Run `eval "$(github-ssh-443 env)"` too.** The per-account git wrappers
+> (`git`, `git-<alias>`, `clone-<alias>`) force an isolated `ssh -F /dev/null`
+> command that bypasses `~/.ssh/config`, so they follow the `GITHUB_SSH_443`
+> **environment** signal, not the config block. Without the `eval`, plain `git`
+> with a `git@github.com-<alias>:` remote still routes over 443 (via the config
+> override), but the wrappers would stay on port 22. Always-on mode sets the env
+> var for every shell via `/etc/profile.d`, so this only matters for the temporary
+> CLI path.
+
 ### Desktop host — always-on (persisted)
 
 Set the variable in `environment/localhost/host_vars/localhost.yml` and re-run the

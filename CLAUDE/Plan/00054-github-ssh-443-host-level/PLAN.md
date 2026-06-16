@@ -280,3 +280,24 @@ signal. Always-on uses the profile.d export of the same var.
   self-default check (PCRE backreference, targets the `\1 | default` idiom only so
   it doesn't false-positive on `blockinfile` literals like nordvpn's
   `x: {{ x }}`). Documented in `CLAUDE/QA.md` and `CLAUDE/AgentNotes.md`.
+- **Restricted-network chicken-and-egg fixed (found on first HOST run, port 22
+  blocked).** Two more port-22 hardwires that only fail at runtime on a blocked
+  network:
+  1. The "Verify SSH access" probe targeted only the configured endpoint
+     (`github.com:22` when the toggle is off), so the play died with "Connection
+     refused" before 443 could help. Fix: the probe now falls back to
+     `ssh.github.com:443` (same host keys/identity) when the primary endpoint does
+     not authenticate — the same auto-fallback pattern ccy uses. Verification is
+     now port-agnostic; ansible task `timeout` 30→45 to fit two attempts.
+  2. The deployed per-account git wrappers (`git()` auto-detect, `git-<alias>()`,
+     `clone-<alias>`) forced `ssh -F /dev/null -o HostName=github.com`, which
+     isolates the key but also bypasses the `~/.ssh/config` 443 override — so even
+     with 443 enabled, wrapper-driven `git push` stayed on port 22. Fix: a shared
+     `_gh443_sshcmd` helper in the deployed include builds the sshCommand from the
+     `GITHUB_SSH_443` runtime signal (ssh.github.com:443 when set, else
+     github.com:22; unset → byte-identical to the old string). Key-isolation model
+     untouched. Note: wrapper users need `GITHUB_SSH_443` in the shell — automatic
+     with always-on (profile.d) or `eval "$(github-ssh-443 env)"`; plain `git`
+     with `git@github.com-<alias>:` remotes already routes via the override block.
+     Everything else in the play (key audit, override apply, key fetch) already used
+     the GitHub HTTPS API / meta endpoint, so it works on a port-22-blocked network.

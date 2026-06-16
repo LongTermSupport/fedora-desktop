@@ -539,13 +539,26 @@
             # specified key. Without these, ssh also offers every key in the
             # running ssh-agent — GitHub rate-limits after ~5 failed attempts
             # and ssh hangs until the outer timeout fires (rc=124, no output).
-            timeout 15 ssh -F /dev/null -o IdentityAgent=none -o IdentitiesOnly=yes \
-              -o BatchMode=yes -o ConnectTimeout=10 \
-              -o StrictHostKeyChecking=accept-new -i "$tmp_key" \
-              -p {{ github_ssh_port }} -T git@{{ github_ssh_hostname }} 2>&1
+            out=$(timeout 15 ssh -F /dev/null -o IdentityAgent=none -o IdentitiesOnly=yes \
+              -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
+              -i "$tmp_key" -p {{ github_ssh_port }} -T git@{{ github_ssh_hostname }} 2>&1)
+            # Port-agnostic fallback: if the primary endpoint did not authenticate
+            # (e.g. a network that firewalls port 22), retry over ssh.github.com:443,
+            # which serves the SAME host keys and identity. This keeps verification
+            # working on restricted networks and removes the chicken-and-egg where
+            # the play cannot pass on a port-22-blocked network before 443 is on.
+            if ! printf '%s' "$out" | grep -q "successfully authenticated"; then
+              alt=$(timeout 15 ssh -F /dev/null -o IdentityAgent=none -o IdentitiesOnly=yes \
+                -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
+                -i "$tmp_key" -p 443 -T git@ssh.github.com 2>&1)
+              if printf '%s' "$alt" | grep -q "successfully authenticated"; then
+                out="$alt"
+              fi
+            fi
+            printf '%s\n' "$out"
           args:
             executable: /bin/bash
-          timeout: 30
+          timeout: 45
           register: ssh_test
           changed_when: false
           failed_when: ssh_test.rc not in [0, 1, 124, 255]
@@ -655,6 +668,24 @@
             marker: "# {mark} ANSIBLE MANAGED: GitHub CLI Multi-Account Aliases"
             block: |
               # GitHub CLI Multi-Account Aliases and Functions
+
+              # GitHub SSH-over-443 awareness for the per-account git wrappers.
+              # Those wrappers force `ssh -F /dev/null -o HostName=github.com` to
+              # isolate to a single key (ignoring ~/.ssh/config), which also
+              # bypasses the 443 override block. So they build their sshCommand
+              # through this helper, which consults the GITHUB_SSH_443 runtime
+              # signal and swaps the endpoint to ssh.github.com:443 when set
+              # (host export, /etc/profile.d, or `eval "$(github-ssh-443 env)"`),
+              # else github.com:22. Unset → identical to the previous behaviour.
+              _gh443_sshcmd() {
+                  local key="$1"
+                  local host="github.com" port="22"
+                  if [ "${GITHUB_SSH_443:-0}" = "1" ]; then
+                      host="ssh.github.com"
+                      port="443"
+                  fi
+                  printf 'ssh -F /dev/null -o HostName=%s -p %s -i %s -o IdentitiesOnly=yes -o AddKeysToAgent=yes' "$host" "$port" "$key"
+              }
 
               # Quick status check for all GitHub accounts
               function gh-status() {
@@ -792,7 +823,7 @@
 
                   # Switch to the right account and clone
                   gh auth switch --hostname github.com --user "{{ username }}" 2>/dev/null
-                  gh repo clone "$repo_path" -- --config core.sshCommand="ssh -F /dev/null -o HostName=github.com -i ~/.ssh/github_{{ alias }} -o IdentitiesOnly=yes -o AddKeysToAgent=yes"
+                  gh repo clone "$repo_path" -- --config core.sshCommand="$(_gh443_sshcmd ~/.ssh/github_{{ alias }})"
                   local exit_code=$?
 
                   # Set the remote to use the specific SSH key
@@ -1034,7 +1065,7 @@
                       # would try to resolve the literal host "github.com-<alias>"
                       # and fail ("Could not resolve hostname"). Forcing HostName
                       # restores the real target while keeping the isolation.
-                      command git -c "core.sshCommand=ssh -F /dev/null -o HostName=github.com -i ~/.ssh/github_${detected_alias} -o IdentitiesOnly=yes -o AddKeysToAgent=yes" "$@"
+                      command git -c "core.sshCommand=$(_gh443_sshcmd ~/.ssh/github_${detected_alias})" "$@"
                   else
                       # No account detected, use standard git
                       command git "$@"
@@ -1051,7 +1082,7 @@
               # "github.com-<alias>" used by clone-<alias>/remote-<alias> remotes.
               {% for alias in github_accounts.keys() %}
               function git-{{ alias }}() {
-                  command git -c "core.sshCommand=ssh -F /dev/null -o HostName=github.com -i ~/.ssh/github_{{ alias }} -o IdentitiesOnly=yes -o AddKeysToAgent=yes" "$@"
+                  command git -c "core.sshCommand=$(_gh443_sshcmd ~/.ssh/github_{{ alias }})" "$@"
               }
               {% endfor %}
 
