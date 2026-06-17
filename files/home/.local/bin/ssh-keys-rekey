@@ -1,0 +1,247 @@
+#!/usr/bin/env bash
+# ssh-keys-rekey — change the passphrase on every SSH private key in one pass
+#
+# Premise: ALL targeted keys currently share ONE passphrase. The script collects
+# that current passphrase once, then the new passphrase (with confirmation), and:
+#
+#   1. Discovers the target private keys — every private key in ~/.ssh by
+#      default, or the explicit paths/globs you pass.
+#   2. SANITY CHECK (fail fast): verifies EVERY target key can be opened with the
+#      current passphrase BEFORE touching anything. If even one key cannot, it
+#      aborts and changes nothing — mixed passphrases are explicitly unsupported.
+#   3. Backs up every target private key (and its .pub) to a timestamped backup
+#      directory, so a bad run can be rolled back.
+#   4. Rekeys every target key to the new passphrase. If a rekey fails partway,
+#      it restores the keys it already changed from the backup and aborts.
+#
+# Note: an UNencrypted key opens with any passphrase, so it passes the sanity
+# check regardless and is simply (re)encrypted with the new passphrase. The
+# "same passphrase" assumption only constrains the encrypted keys.
+#
+# Usage:
+#   ssh-keys-rekey [options] [KEY ...]
+#
+#   KEY ...            Private key paths or globs to rekey. If omitted, every
+#                      private key in ~/.ssh is targeted.
+#
+# Options:
+#   -d, --ssh-dir DIR  Directory scanned for keys when no KEY is given
+#                      (default: ~/.ssh).
+#   -n, --dry-run      Run discovery + the sanity check only; make no changes.
+#   -y, --yes          Skip the final "proceed?" confirmation prompt.
+#   -h, --help         Show this help and exit.
+#
+# Examples:
+#   ssh-keys-rekey                       # rekey all keys in ~/.ssh
+#   ssh-keys-rekey ~/.ssh/id_ed25519     # rekey one key
+#   ssh-keys-rekey '~/.ssh/id_*'         # rekey a glob (quote it!)
+#   ssh-keys-rekey --dry-run             # check everything, change nothing
+set -euo pipefail
+
+SSH_DIR="${HOME}/.ssh"
+DRY_RUN=0
+ASSUME_YES=0
+
+usage() {
+    echo "Usage: ssh-keys-rekey [options] [KEY ...]"
+    echo ""
+    echo "  Rekey (change the passphrase on) SSH private keys in bulk. All"
+    echo "  targeted keys must currently share ONE passphrase."
+    echo ""
+    echo "  KEY ...            Key paths or globs to rekey (default: all of ~/.ssh)."
+    echo ""
+    echo "  -d, --ssh-dir DIR  Directory scanned when no KEY is given (default: ~/.ssh)."
+    echo "  -n, --dry-run      Discovery + sanity check only; make no changes."
+    echo "  -y, --yes          Skip the final confirmation prompt."
+    echo "  -h, --help         Show this help and exit."
+}
+
+# A real SSH/OpenSSL private key file carries a "PRIVATE KEY" header line.
+is_private_key() {
+    local f="$1"
+    [ -f "$f" ] || return 1
+    [ -r "$f" ] || return 1
+    grep -qI "PRIVATE KEY" "$f"
+}
+
+# Read a secret from the controlling terminal (so it works even when stdout is
+# captured) and echo it on stdout. The prompt + trailing newline go to stderr.
+prompt_secret() {
+    local _prompt="$1" _val
+    read -rsp "$_prompt" _val < /dev/tty
+    echo >&2
+    printf '%s' "$_val"
+}
+
+# Discover candidate private keys in SSH_DIR, skipping the well-known non-key
+# files, and confirming each really is a private key.
+discover_default_keys() {
+    local f name
+    for f in "$SSH_DIR"/*; do
+        [ -f "$f" ] || continue
+        name="$(basename "$f")"
+        case "$name" in
+            *.pub|config|known_hosts|known_hosts.old|authorized_keys|*.swp|*.bak|*.old) continue ;;
+        esac
+        if is_private_key "$f"; then
+            printf '%s\n' "$f"
+        fi
+    done
+}
+
+declare -a KEYS=()
+
+add_key() {
+    local f="$1" k
+    if [ "${#KEYS[@]}" -gt 0 ]; then
+        for k in "${KEYS[@]}"; do
+            [ "$k" = "$f" ] && return 0
+        done
+    fi
+    KEYS+=("$f")
+}
+
+# --- argument parsing ---
+declare -a targets=()
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -h|--help) usage; exit 0 ;;
+        -n|--dry-run) DRY_RUN=1; shift ;;
+        -y|--yes) ASSUME_YES=1; shift ;;
+        -d|--ssh-dir)
+            [ "$#" -ge 2 ] || { echo "Error: $1 requires a directory argument" >&2; exit 1; }
+            SSH_DIR="$2"; shift 2 ;;
+        --) shift; while [ "$#" -gt 0 ]; do targets+=("$1"); shift; done ;;
+        -*) echo "Error: unknown option: $1" >&2; usage >&2; exit 1 ;;
+        *) targets+=("$1"); shift ;;
+    esac
+done
+
+# --- build the target key list ---
+if [ "${#targets[@]}" -eq 0 ]; then
+    while IFS= read -r f; do
+        add_key "$f"
+    done < <(discover_default_keys)
+    if [ "${#KEYS[@]}" -eq 0 ]; then
+        echo "No private keys found in $SSH_DIR" >&2
+        exit 1
+    fi
+else
+    for pat in "${targets[@]}"; do
+        # Expand a leading ~/ ourselves — a quoted glob arg skips shell tilde
+        # expansion, so '~/.ssh/id_*' would otherwise keep its literal tilde.
+        case "$pat" in
+            "~/"*) pat="${HOME}/${pat#\~/}" ;;
+            "~")   pat="${HOME}" ;;
+        esac
+        matched=0
+        for f in $pat; do
+            [ -e "$f" ] || continue
+            if ! is_private_key "$f"; then
+                echo "Error: not an SSH private key: $f" >&2
+                exit 1
+            fi
+            add_key "$f"
+            matched=1
+        done
+        if [ "$matched" -eq 0 ]; then
+            echo "Error: no matching SSH private key for: $pat" >&2
+            exit 1
+        fi
+    done
+fi
+
+# --- show the plan and collect the current passphrase ---
+echo "ssh-keys-rekey — targeting ${#KEYS[@]} SSH private key(s):" >&2
+printf '  %s\n' "${KEYS[@]}" >&2
+echo >&2
+
+CUR_PASS="$(prompt_secret 'Current passphrase (shared by all keys): ')"
+
+# --- sanity check: every key must open with the current passphrase ---
+echo "Verifying all keys open with the current passphrase..." >&2
+fail=0
+for f in "${KEYS[@]}"; do
+    if ssh-keygen -y -P "$CUR_PASS" -f "$f" > /dev/null; then
+        echo "  ok    $f" >&2
+    else
+        echo "  FAIL  $f  (cannot open with the provided passphrase)" >&2
+        fail=1
+    fi
+done
+if [ "$fail" -ne 0 ]; then
+    echo "" >&2
+    echo "Aborting: one or more keys did not open with the current passphrase." >&2
+    echo "All targeted keys must share the same passphrase; mixed sets are unsupported." >&2
+    exit 1
+fi
+
+if [ "$DRY_RUN" -eq 1 ]; then
+    echo "" >&2
+    echo "Dry run: all ${#KEYS[@]} key(s) open with the current passphrase. No changes made." >&2
+    exit 0
+fi
+
+# --- collect and confirm the new passphrase ---
+NEW_PASS="$(prompt_secret 'New passphrase (empty = remove passphrase): ')"
+NEW_PASS2="$(prompt_secret 'Confirm new passphrase: ')"
+if [ "$NEW_PASS" != "$NEW_PASS2" ]; then
+    echo "Aborting: new passphrases do not match. No changes made." >&2
+    exit 1
+fi
+
+# --- final confirmation ---
+if [ "$ASSUME_YES" -ne 1 ]; then
+    printf 'Rekey %d key(s) now? [y/N] ' "${#KEYS[@]}" >&2
+    read -r reply < /dev/tty
+    case "$reply" in
+        y|Y|yes|YES) ;;
+        *) echo "Aborted by user. No changes made." >&2; exit 1 ;;
+    esac
+fi
+
+# --- back up every target key before touching it ---
+ts="$(date +%Y%m%d-%H%M%S)"
+BACKUP_DIR="${SSH_DIR%/}/rekey-backup-${ts}"
+mkdir -p "$BACKUP_DIR"
+chmod 700 "$BACKUP_DIR"
+echo "Backing up keys to $BACKUP_DIR" >&2
+
+declare -a BACKUPS=()
+i=0
+for f in "${KEYS[@]}"; do
+    b="${BACKUP_DIR}/$(printf '%03d' "$i")-$(basename "$f")"
+    cp -p "$f" "$b"
+    chmod 600 "$b"
+    BACKUPS[i]="$b"
+    if [ -f "${f}.pub" ]; then
+        cp -p "${f}.pub" "${b}.pub"
+    fi
+    i=$((i + 1))
+done
+
+# --- rekey, rolling back everything already changed on any failure ---
+echo "Rekeying..." >&2
+i=0
+for f in "${KEYS[@]}"; do
+    if ssh-keygen -p -P "$CUR_PASS" -N "$NEW_PASS" -f "$f" > /dev/null; then
+        echo "  rekeyed  $f" >&2
+    else
+        echo "  ERROR rekeying $f — rolling back all changes" >&2
+        j=0
+        while [ "$j" -le "$i" ]; do
+            cp -p "${BACKUPS[$j]}" "${KEYS[$j]}"
+            chmod 600 "${KEYS[$j]}"
+            echo "  restored ${KEYS[$j]}" >&2
+            j=$((j + 1))
+        done
+        echo "Rollback complete. Backups remain in $BACKUP_DIR" >&2
+        exit 1
+    fi
+    i=$((i + 1))
+done
+
+echo "" >&2
+echo "Done. Rekeyed ${#KEYS[@]} key(s)." >&2
+echo "Backups kept in: $BACKUP_DIR" >&2
+echo "Once you've confirmed the new passphrase works, you can remove that directory." >&2

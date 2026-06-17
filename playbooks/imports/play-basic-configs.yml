@@ -264,6 +264,14 @@
         group: "{{ user_login }}"
         mode: "0755"
 
+    - name: Install ssh-keys-rekey helper script
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/ssh-keys-rekey"
+        dest: "/home/{{ user_login }}/.local/bin/ssh-keys-rekey"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+
     - name: Install YQ
       become: true
       ansible.builtin.shell: |
