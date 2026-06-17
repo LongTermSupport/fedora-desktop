@@ -41,6 +41,7 @@ set -euo pipefail
 SSH_DIR="${HOME}/.ssh"
 DRY_RUN=0
 ASSUME_YES=0
+MAX_TRIES=3   # bounded retries on recoverable input mistakes (typos, mismatches)
 
 usage() {
     echo "Usage: ssh-keys-rekey [options] [KEY ...]"
@@ -66,9 +67,13 @@ is_private_key() {
 
 # Read a secret from the controlling terminal (so it works even when stdout is
 # captured) and echo it on stdout. The prompt + trailing newline go to stderr.
+# Returns non-zero on EOF (Ctrl-D / no TTY) so callers can treat it as cancelled.
 prompt_secret() {
     local _prompt="$1" _val
-    read -rsp "$_prompt" _val < /dev/tty
+    if ! read -rsp "$_prompt" _val < /dev/tty; then
+        echo >&2
+        return 1
+    fi
     echo >&2
     printf '%s' "$_val"
 }
@@ -151,30 +156,60 @@ else
     done
 fi
 
-# --- show the plan and collect the current passphrase ---
+# --- show the plan ---
 echo "ssh-keys-rekey — targeting ${#KEYS[@]} SSH private key(s):" >&2
 printf '  %s\n' "${KEYS[@]}" >&2
 echo >&2
 
-CUR_PASS="$(prompt_secret 'Current passphrase (shared by all keys): ')"
-
-# --- sanity check: every key must open with the current passphrase ---
-echo "Verifying all keys open with the current passphrase..." >&2
-fail=0
-for f in "${KEYS[@]}"; do
-    if ssh-keygen -y -P "$CUR_PASS" -f "$f" > /dev/null; then
-        echo "  ok    $f" >&2
-    else
-        echo "  FAIL  $f  (cannot open with the provided passphrase)" >&2
-        fail=1
+# --- collect the current passphrase, retrying on a typo ---
+# A passphrase that opens NONE of the keys is almost certainly a typo -> re-prompt
+# (bounded). A passphrase that opens SOME but not all means the keys do not share
+# one passphrase -> that is unfixable here, so fail fast with guidance.
+CUR_PASS=""
+attempt=1
+while :; do
+    if ! CUR_PASS="$(prompt_secret 'Current passphrase (shared by all keys): ')"; then
+        echo "Cancelled — no passphrase entered. No changes made." >&2
+        exit 1
     fi
+
+    echo "Verifying all keys open with that passphrase..." >&2
+    failed=()
+    opened=0
+    for f in "${KEYS[@]}"; do
+        if probe="$(ssh-keygen -y -P "$CUR_PASS" -f "$f" 2>&1)"; then
+            opened=$((opened + 1))
+        else
+            failed+=("$f")
+        fi
+    done
+
+    if [ "${#failed[@]}" -eq 0 ]; then
+        echo "  All ${#KEYS[@]} key(s) opened." >&2
+        break
+    fi
+
+    if [ "$opened" -gt 0 ]; then
+        # Mixed passphrases — a retry cannot fix this. Fail fast with guidance.
+        echo "" >&2
+        echo "These key(s) did NOT open with that passphrase:" >&2
+        printf '    %s\n' "${failed[@]}" >&2
+        echo "…but others did, so your keys do not all share one passphrase." >&2
+        echo "ssh-keys-rekey only handles a single shared passphrase." >&2
+        echo "Rekey the differing key(s) on their own, e.g.:" >&2
+        printf '    ssh-keys-rekey %s\n' "${failed[0]}" >&2
+        exit 1
+    fi
+
+    # Opened none -> almost certainly a typo. Re-prompt within the cap.
+    echo "  That passphrase didn't open any key — typo?  (last error: ${probe})" >&2
+    attempt=$((attempt + 1))
+    if [ "$attempt" -gt "$MAX_TRIES" ]; then
+        echo "Giving up after $MAX_TRIES attempts. No changes made." >&2
+        exit 1
+    fi
+    echo "  Try again — attempt $attempt of $MAX_TRIES." >&2
 done
-if [ "$fail" -ne 0 ]; then
-    echo "" >&2
-    echo "Aborting: one or more keys did not open with the current passphrase." >&2
-    echo "All targeted keys must share the same passphrase; mixed sets are unsupported." >&2
-    exit 1
-fi
 
 if [ "$DRY_RUN" -eq 1 ]; then
     echo "" >&2
@@ -182,21 +217,35 @@ if [ "$DRY_RUN" -eq 1 ]; then
     exit 0
 fi
 
-# --- collect and confirm the new passphrase ---
-NEW_PASS="$(prompt_secret 'New passphrase (empty = remove passphrase): ')"
-NEW_PASS2="$(prompt_secret 'Confirm new passphrase: ')"
-if [ "$NEW_PASS" != "$NEW_PASS2" ]; then
-    echo "Aborting: new passphrases do not match. No changes made." >&2
-    exit 1
-fi
+# --- collect and confirm the new passphrase, retrying on a mismatch ---
+NEW_PASS=""
+attempt=1
+while :; do
+    if ! NEW_PASS="$(prompt_secret 'New passphrase (empty = remove passphrase): ')"; then
+        echo "Cancelled — no new passphrase entered. No changes made." >&2
+        exit 1
+    fi
+    if ! NEW_PASS2="$(prompt_secret 'Confirm new passphrase: ')"; then
+        echo "Cancelled. No changes made." >&2
+        exit 1
+    fi
+    [ "$NEW_PASS" = "$NEW_PASS2" ] && break
 
-# --- final confirmation ---
+    echo "  Those didn't match — let's try again." >&2
+    attempt=$((attempt + 1))
+    if [ "$attempt" -gt "$MAX_TRIES" ]; then
+        echo "Giving up after $MAX_TRIES attempts. No changes made." >&2
+        exit 1
+    fi
+done
+
+# --- final confirmation (default: No) ---
 if [ "$ASSUME_YES" -ne 1 ]; then
     printf 'Rekey %d key(s) now? [y/N] ' "${#KEYS[@]}" >&2
-    read -r reply < /dev/tty
+    if ! read -r reply < /dev/tty; then reply=""; fi
     case "$reply" in
         y|Y|yes|YES) ;;
-        *) echo "Aborted by user. No changes made." >&2; exit 1 ;;
+        *) echo "Aborted — no changes made." >&2; exit 1 ;;
     esac
 fi
 
