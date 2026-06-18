@@ -325,22 +325,19 @@ triggering `common.bash`'s podman-check `exit 1`.
 CCY container can only edit & commit. Deployment and live testing
 happen on the host.
 
-- [ ] ⬜ **Task 4.1**: User runs
+- [x] ✅ **Task 4.1**: User ran
   `ansible-playbook playbooks/imports/play-claude-code.yml` on host
-- [ ] ⬜ **Task 4.2**: Open a fresh terminal and run `type cc` —
-  should resolve to the alias pointing at `/var/local/claude-code/cc`
+- [x] ✅ **Task 4.2**: `cc` alias resolves and launches the wrapper
+  (chooser renders) — confirmed on host
 - [ ] ⬜ **Task 4.3**: Empty-pool sanity (test rig): rename
   `~/.claude-tokens/ccy/tokens/` to `…-bak/`, run `cc --version`,
   verify the instructional banner prints and Desktop fallback works;
   restore the dir afterwards
-- [ ] ⬜ **Task 4.4**: Populated-pool sanity: with at least one
-  valid token in the pool, run `cc` and verify the chooser shows
-  the token plus the Desktop option
-- [ ] ⬜ **Task 4.5**: Token-selection sanity: pick a named token
-  from the chooser, verify `claude` launches and is authenticated
-  as that account (cross-check with whichever account-identity
-  signal the user prefers — `claude` version banner, profile state,
-  etc.)
+- [x] ✅ **Task 4.4**: Populated-pool sanity: chooser shows the
+  named tokens plus the Desktop option — confirmed on host
+- [x] ✅ **Task 4.5**: Token-selection sanity: a named token
+  authenticates and `claude` answers (no 401) — confirmed on host
+  after the stale-credential shadow fix (see 2026-06-18 note)
 - [ ] ⬜ **Task 4.6**: Desktop-selection sanity: pick Desktop from
   the chooser, verify `claude` launches using host `~/.claude/`
   state (current pre-plan behaviour preserved)
@@ -748,3 +745,38 @@ Decision 4's "verify playbook-main.yml imports both" verification
 step is now satisfied AND tightened: the import order is fixed,
 documented inline in playbook-main.yml, and protected by the
 preflight assert.
+
+### 2026-06-18 — Phase 4 host deploy surfaced a stale-credential shadow bug
+
+First real host deploy of `play-claude-code.yml`. The chooser, token
+selection, and `hasCompletedOnboarding` seeding all worked, but every
+named-token session failed at the API call with
+`Please run /login · API Error: 401 Invalid authentication credentials`,
+while the identical token authenticates fine in the `ccy` container.
+
+Root cause: the host `~/.claude/.credentials.json` held an **expired**
+`claudeAiOauth` block from a previous Desktop `/login` (subscriptionType
+`max`, expired ~4 June). claude consults that on-disk credential even with
+`CLAUDE_CODE_OAUTH_TOKEN` exported and `/status` reporting the env token as
+the active method — so the stale entry shadows the injected token and 401s.
+The `ccy` container never has this file, which is exactly why the same token
+works there. Env-var precedence was ruled out as the cause: no
+`ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` set, no `apiKeyHelper` in settings.
+
+Fix (in `files/var/local/claude-code/cc`): in **named-token mode only**, drop
+any higher-precedence auth env vars (`unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN`) and **park `~/.claude/.credentials.json` aside for the
+session**, restoring it on exit via a `trap … EXIT INT TERM`. The launch was
+changed from `exec claude` to `claude "$@"` so the trap actually fires. A
+self-heal at startup restores the parked file if a prior session was
+hard-killed before its trap ran. The Desktop pseudo-option leaves the file
+untouched.
+
+Why not `CLAUDE_CONFIG_DIR` isolation: its scope is undocumented and likely
+relocates the whole config tree, which would orphan the user's host
+`settings.json` / MCP servers / project history. Parking only the one
+credential file is surgical and preserves everything else.
+
+Confirmed on host after re-deploy: named-token `cc` now authenticates
+(no 401). Tasks 4.1/4.2/4.4/4.5 ✅. Optional sanity checks remain:
+4.3 (empty-pool banner), 4.6 (Desktop-selection), 4.7 (`ccy` chooser
+regression).

@@ -40,6 +40,22 @@ source "$COMMON_PURE"
 # shellcheck source=../claude-yolo/lib/token-management.bash
 source "$TOKEN_MGMT"
 
+# Stale-credential shadow-proofing (full rationale in the named-token branch
+# below). claude reads ~/.claude/.credentials.json even when
+# CLAUDE_CODE_OAUTH_TOKEN is exported; an expired entry there 401s the session.
+# Named-token mode parks this file for the duration and restores it on exit.
+CRED_FILE="$HOME/.claude/.credentials.json"
+CRED_BAK="$CRED_FILE.cc-desktop-bak"
+
+# Self-heal: if a previous named-token session was hard-killed (SIGKILL, power
+# loss) before its EXIT trap restored the file, the real Desktop credential is
+# still parked in the backup with no live credentials file. Put it back before
+# we do anything else so the Desktop option / a future login is never silently
+# lost.
+if [ ! -f "$CRED_FILE" ] && [ -f "$CRED_BAK" ]; then
+    mv -f "$CRED_BAK" "$CRED_FILE"
+fi
+
 # Host-mode chooser. Always sets SELECTED_TOKEN (path to token file, or ""
 # for Desktop). Returns 0 in normal operation; never falls through with an
 # unset SELECTED_TOKEN.
@@ -101,8 +117,30 @@ if [ -n "$SELECTED_TOKEN" ]; then
         printf '%s\n' '{"hasCompletedOnboarding":true}' > "$CLAUDE_JSON"
         chmod 600 "$CLAUDE_JSON"
     fi
+
+    # Shadow-proofing the chosen token. claude consults
+    # ~/.claude/.credentials.json even when CLAUDE_CODE_OAUTH_TOKEN is exported,
+    # so a stale/expired credential left by a previous Desktop /login produces a
+    # 401 "Invalid authentication credentials" — the exact failure that does NOT
+    # happen in the clean ccy container (which has no such file). Drop any
+    # higher-precedence auth env vars (precedence tiers 2-3 outrank the token at
+    # tier 5), then park the credential aside so the injected token is the only
+    # credential claude can use, restoring it when cc exits. The Desktop
+    # pseudo-option (else-branch) leaves the file untouched.
+    unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN
+    if [ -f "$CRED_FILE" ]; then
+        mv -f "$CRED_FILE" "$CRED_BAK"
+        # Restore on any exit. NOTE: the launch below must NOT use `exec` — exec
+        # would replace this shell and the trap would never fire, permanently
+        # parking the Desktop credential.
+        trap 'if [ -f "$CRED_BAK" ]; then mv -f "$CRED_BAK" "$CRED_FILE"; fi' EXIT INT TERM
+    fi
 else
     echo "Token: Desktop (host ~/.claude/)"
 fi
 
-exec claude "$@"
+# Deliberately NOT `exec`: the EXIT trap set in the named-token branch must run
+# after the session to restore the Desktop credential. A lingering parent shell
+# is a negligible cost for guaranteed cleanup. `set -e` still propagates claude's
+# exit status (the trap's mv does not overwrite it).
+claude "$@"
