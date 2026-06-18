@@ -548,8 +548,13 @@ start_daemon() {
         return 1
     fi
 
-    # Remove stale socket file
-    rm -f "$SOCKET_PATH"
+    # NOTE (Plan 00127): do NOT `rm -f "$SOCKET_PATH"` here. On the
+    # host+container shared-untracked path the socket may be owned by a LIVE
+    # incumbent daemon, and unconditionally deleting it would steal the socket
+    # before the python layer's liveness gate ever runs. Stale-socket cleanup is
+    # now the single responsibility of the python server, which probes socket
+    # liveness before unlinking (reuse on live, unlink on stale). We already
+    # short-circuit via is_daemon_running() above for the healthy-incumbent case.
 
     # Start daemon using CLI (proper daemonization)
     # CRITICAL: Pass --project-root and export env vars so the CLI uses the
