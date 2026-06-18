@@ -13,6 +13,12 @@
 #      directory, so a bad run can be rolled back.
 #   4. Rekeys every target key to the new passphrase. If a rekey fails partway,
 #      it restores the keys it already changed from the backup and aborts.
+#   5. Invalidates each rekeyed key's cached passphrase in the GNOME keyring
+#      (gcr Secret Service). A rekey makes that cache STALE: gcr keeps handing
+#      ssh-add the OLD passphrase, the decrypt fails, and (a known gcr/ssh-add
+#      bug) ssh-add busy-loops at ~100% CPU instead of re-prompting — which
+#      manifests as `git push`/ssh hanging forever. Best-effort; needs
+#      `secret-tool` (libsecret). Without it there is no gcr cache to clear.
 #
 # Note: an UNencrypted key opens with any passphrase, so it passes the sanity
 # check regardless and is simply (re)encrypted with the new passphrase. The
@@ -289,6 +295,29 @@ for f in "${KEYS[@]}"; do
     fi
     i=$((i + 1))
 done
+
+# --- invalidate stale gnome-keyring (gcr) passphrase caches (step 5) ---
+# gcr caches each key's passphrase as a Secret Service item keyed by
+#   unique = ssh-store:<absolute-key-path>
+# After the rekey that cached value is WRONG. Left in place, gcr feeds the old
+# passphrase to ssh-add on every use; the decrypt fails and ssh-add busy-loops
+# at ~100% CPU forever instead of re-prompting (observed: git push hangs, load
+# average climbs). Clearing the entry makes gcr prompt once next time and
+# re-cache the new passphrase. Best-effort: only when secret-tool is installed.
+# Output is captured (not redirected to /dev/null) so a real failure is shown.
+if command -v secret-tool >/dev/null; then
+    echo "" >&2
+    echo "Invalidating stale GNOME-keyring passphrase cache for rekeyed key(s)..." >&2
+    for f in "${KEYS[@]}"; do
+        abs="$(realpath -- "$f")"
+        if clear_out="$(secret-tool clear unique "ssh-store:${abs}" 2>&1)"; then
+            echo "  keyring cache cleared: $abs" >&2
+        else
+            echo "  keyring cache NOT cleared for $abs: ${clear_out}" >&2
+        fi
+    done
+    echo "gcr will prompt for the new passphrase the next time each key is used." >&2
+fi
 
 echo "" >&2
 echo "Done. Rekeyed ${#KEYS[@]} key(s)." >&2
