@@ -780,3 +780,12 @@ Confirmed on host after re-deploy: named-token `cc` now authenticates
 (no 401). Tasks 4.1/4.2/4.4/4.5 ✅. Optional sanity checks remain:
 4.3 (empty-pool banner), 4.6 (Desktop-selection), 4.7 (`ccy` chooser
 regression).
+
+Follow-up (same session): the hooks-daemon status line showed no token
+for host `cc`, while `ccy` shows it. Not a daemon bug — the
+`account_display` status handler reads `LAST_TOKEN` from
+`~/.claude/.last-launch.conf`, which `ccy` writes via its launch config
+but host `cc` never did (it only echoed the name). Added a
+`write_status_token` helper to `cc` that writes that key on launch
+(token name for a named token, `Desktop` for the Desktop option), so the
+host status line reaches parity with `ccy` (👤 \<name>).

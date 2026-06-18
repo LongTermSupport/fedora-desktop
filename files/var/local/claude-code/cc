@@ -56,6 +56,20 @@ if [ ! -f "$CRED_FILE" ] && [ -f "$CRED_BAK" ]; then
     mv -f "$CRED_BAK" "$CRED_FILE"
 fi
 
+# Surface the active token in the status line, matching ccy. The hooks-daemon
+# account_display status handler reads LAST_TOKEN from ~/.claude/.last-launch.conf
+# and renders it (👤 <name>). ccy writes that key via its own launch config; host
+# cc previously only echoed the name, so the host status line stayed blank. Write
+# the same key here so cc has parity. The file carries only the token NAME (not the
+# secret), but is mode 600 to match ccy's convention.
+write_status_token() {
+    local _name="$1"
+    mkdir -p "$HOME/.claude"
+    printf '# Written by cc for hooks-daemon status-line token display\nLAST_TOKEN="%s"\n' \
+        "$_name" > "$HOME/.claude/.last-launch.conf"
+    chmod 600 "$HOME/.claude/.last-launch.conf"
+}
+
 # Host-mode chooser. Always sets SELECTED_TOKEN (path to token file, or ""
 # for Desktop). Returns 0 in normal operation; never falls through with an
 # unset SELECTED_TOKEN.
@@ -86,6 +100,7 @@ if [ -n "$SELECTED_TOKEN" ]; then
     TOKEN_FILENAME=$(basename "$SELECTED_TOKEN")
     TOKEN_NAME="${TOKEN_FILENAME%.*.token}"
     echo "Token: $TOKEN_NAME"
+    write_status_token "$TOKEN_NAME"
 
     export CLAUDE_CODE_OAUTH_TOKEN="$TOKEN_CONTENT"
 
@@ -137,6 +152,7 @@ if [ -n "$SELECTED_TOKEN" ]; then
     fi
 else
     echo "Token: Desktop (host ~/.claude/)"
+    write_status_token "Desktop"
 fi
 
 # Deliberately NOT `exec`: the EXIT trap set in the named-token branch must run
