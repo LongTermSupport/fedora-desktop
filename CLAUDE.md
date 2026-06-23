@@ -199,6 +199,7 @@ Piping network content directly to a shell is blocked. It executes untrusted rem
 **Blocked**: `curl URL | bash`, `curl URL | sh`, `wget URL | bash`, `curl URL | sudo bash`
 
 **Safe alternative**: download first, inspect, then execute:
+
 ```
 curl -o /tmp/script.sh URL
 cat /tmp/script.sh          # inspect
@@ -221,6 +222,7 @@ Before making a `git commit` in the hooks daemon repository, this handler advise
 **Blocked**: `chmod 777`, `chmod 666`, `chmod a+w`, `chmod o+w`
 
 **Use least-privilege permissions instead**:
+
 - Executable scripts: `chmod 755` (owner rwx, group/other rx)
 - Regular files: `chmod 644` (owner rw, group/other r)
 - Private files: `chmod 600` (owner rw only)
@@ -229,17 +231,17 @@ Before making a `git commit` in the hooks daemon repository, this handler advise
 
 The following git commands are permanently blocked and will always be denied:
 
-| Command | Reason |
-|---------|--------|
-| `git reset --hard` | Permanently destroys all uncommitted changes |
-| `git clean -f` | Permanently deletes untracked files |
-| `git checkout -- <file>` | Discards all local changes to that file |
-| `git restore <file>` | Discards local changes (`--staged` is allowed) |
-| `git stash drop` | Permanently destroys stashed changes |
-| `git stash clear` | Permanently destroys all stashes |
-| `git push --force` | Can overwrite remote history and destroy teammates' work |
-| `git branch -D` | Force-deletes branch without checking if merged (lowercase `-d` is safe) |
-| `git commit --amend` | Rewrites the previous commit — create a new commit instead |
+| Command                  | Reason                                                                   |
+| ------------------------ | ------------------------------------------------------------------------ |
+| `git reset --hard`       | Permanently destroys all uncommitted changes                             |
+| `git clean -f`           | Permanently deletes untracked files                                      |
+| `git checkout -- <file>` | Discards all local changes to that file                                  |
+| `git restore <file>`     | Discards local changes (`--staged` is allowed)                           |
+| `git stash drop`         | Permanently destroys stashed changes                                     |
+| `git stash clear`        | Permanently destroys all stashes                                         |
+| `git push --force`       | Can overwrite remote history and destroy teammates' work                 |
+| `git branch -D`          | Force-deletes branch without checking if merged (lowercase `-d` is safe) |
+| `git commit --amend`     | Rewrites the previous commit — create a new commit instead               |
 
 If the user needs to run one of these, ask them to do it manually. Do not attempt to work around the block.
 
@@ -250,6 +252,7 @@ If the user needs to run one of these, ask them to do it manually. Do not attemp
 Writing code that silently swallows errors is blocked. All errors must be handled explicitly.
 
 **Blocked patterns (examples)**:
+
 - Python: bare `except` clauses with an empty body, catching and discarding all exceptions
 - Shell: redirecting stderr to `/dev/null` to silence failures, `|| true` to suppress non-zero exit codes
 - JavaScript/TypeScript: empty `catch` blocks that swallow exceptions
@@ -257,26 +260,12 @@ Writing code that silently swallows errors is blocked. All errors must be handle
 
 **Required action**: Handle errors explicitly — log them, return them to the caller, or propagate them. Silent error suppression masks bugs and makes debugging impossible.
 
-## lsp_enforcement — use LSP tools for code symbol lookups
-
-Using `Grep` or `Bash` (grep/rg) to find class definitions, function signatures, or symbol references is blocked or redirected to LSP tools, which are faster and semantically accurate.
-
-**Prefer LSP tools for**:
-- Finding where a class or function is defined → `goToDefinition`
-- Finding all usages of a symbol → `findReferences`
-- Getting type information or documentation → `hover`
-- Listing all symbols in a file → `documentSymbol`
-- Searching symbols across the project → `workspaceSymbol`
-
-**Grep/Bash grep is still appropriate for**: text patterns in content, log searching, finding strings in config files.
-
-Default mode (`block_once`): the first symbol-lookup grep in a session is denied with guidance; subsequent retries are allowed.
-
 ## security_antipattern — OWASP security antipatterns are blocked
 
 Writing code that contains security antipatterns is blocked across all supported languages. Fix the code to use safe patterns instead.
 
 **Blocked categories**:
+
 - SQL injection: building queries via string concatenation (use parameterised queries)
 - Command injection: passing unvalidated input to subprocess (use argument lists)
 - Hardcoded credentials: API keys, passwords, tokens embedded in source code
@@ -290,15 +279,18 @@ Writing code that contains security antipatterns is blocked across all supported
 `sed` is blocked because Claude gets sed syntax wrong and a single error can silently destroy hundreds of files with no recovery possible.
 
 **Blocked**:
+
 - `sed -i` / `sed -e` (in-place file editing via Bash tool)
 - `grep -rl X | xargs sed -i` (mass file modification)
 - Shell scripts (`.sh`/`.bash`) written via Write tool that contain `sed`
 
 **Allowed** (read-only, no file modification):
+
 - `cat file | sed 's/x/y/' | grep z` (pipeline transforming stdout only)
 - `sed` mentioned in commit messages, PR bodies, or `.md` documentation files
 
 **Use instead**:
+
 - `Edit` tool — safe, atomic, verifiable
 - Parallel Haiku agents with `Edit` tool for bulk changes across many files:
   1. Identify all files to update
@@ -310,6 +302,7 @@ Writing code that contains security antipatterns is blocked across all supported
 Creating a production source file is blocked until a corresponding test file exists.
 
 **TDD workflow (required)**:
+
 1. Create the **test file first** (e.g. `tests/unit/handlers/test_my_handler.py`)
 2. Write failing tests — RED phase
 3. Create the source file and implement until tests pass — GREEN phase
@@ -318,6 +311,7 @@ Creating a production source file is blocked until a corresponding test file exi
 **Supported languages**: Python, Go, JavaScript/TypeScript, PHP, Rust, Java, C#, Kotlin, Ruby, Swift, Dart
 
 **Test file locations checked** (any satisfies the block):
+
 - Separate mirror: `tests/unit/{subdir}/test_{module}.py`
 - Collocated: `{source_dir}/{module}.test.ts` (JS/TS projects)
 - Test subdirectory: `{source_dir}/__tests__/{module}.test.ts`
@@ -329,6 +323,7 @@ Creating a production source file is blocked until a corresponding test file exi
 Writing ephemeral or session-specific content to `CLAUDE.md` or `README.md` is blocked. These files should contain only stable instructions, not implementation logs or session state.
 
 **Blocked content types**:
+
 - Timestamps and ISO dates
 - Status emoji followed by completion words (e.g. checkmark + 'Done')
 - Implementation log sentences ('created the file X', 'added the class Y')
@@ -362,6 +357,7 @@ Direct `Write` or `Edit` to package manager lock files is blocked. Lock files ar
 **Blocked files**: `composer.lock`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `Gemfile.lock`, `Cargo.lock`, `go.sum`, `Package.resolved`, `Pipfile.lock`, and others.
 
 **Use package manager commands instead**:
+
 - PHP: `composer install` / `composer require package`
 - Node: `npm install` / `yarn add package`
 - Ruby: `bundle install` / `bundle add gem`
@@ -402,6 +398,7 @@ pytest tests/ > /tmp/pytest_out.txt 2>&1
 Writing QA suppression directives into source files is blocked across all supported languages. Fix the underlying code issue instead.
 
 **Blocked annotation types (by language)**:
+
 - Python: `noqa` directives, `type: ignore` annotations
 - JavaScript/TypeScript: `eslint-disable` inline directives
 - Go: `nolint` directives (golangci-lint)
@@ -419,6 +416,7 @@ Writing QA suppression directives into source files is blocked across all suppor
 **Why**: stashes get forgotten, lost, and block `git pull`. Use `git commit -m 'WIP: ...'` instead — WIP commits are acceptable.
 
 **Escape hatch** (when commit truly won't work):
+
 ```
 MUST_STASH_BECAUSE="explain why"; git stash
 ```
@@ -482,12 +480,14 @@ Even in a container running as root, `sudo` adds nothing — drop it and use a v
 AskUserQuestion calls are only allowed when every `question` string begins with `ASKING BECAUSE:` (case-sensitive, leading whitespace OK). The convention mirrors the Stop handler's `STOPPING BECAUSE:` pattern — explicit declared intent gates the privilege of pausing the session.
 
 **Before asking, evaluate critically**:
+
 - Tautological/rhetorical questions with one obvious answer ("Should I continue?", "Would you like me to proceed?") — do NOT ask. State the question and your assumed-correct answer in plain output text and proceed. The user is watching and will interrupt if the assumption is wrong.
 - Questions whose options reduce to **good vs. bad** are tautological — the answer is always the good option. Examples: best practice vs. bodge, increasing vs. decreasing code quality, delivering the requirement vs. not delivering it, fixing the failing test vs. leaving it broken, following project conventions vs. inventing your own. Do NOT ask; pick the good option and proceed.
 - Errors with a clear recovery path ("Should I fix the failing test?") — do NOT ask. Fix it.
 - Genuine choice questions where you cannot resolve the answer from context — these are the legitimate use case. Prefix every question text with `ASKING BECAUSE: <one-line reason you cannot decide>` so the daemon allows the call through.
 
 **Audit log pattern** (preferred for tautological questions):
+
 ```
 I would normally ask: <question>.
 Assumed answer: <your assumption>.
@@ -495,22 +495,6 @@ Proceeding on that basis; the user will interrupt if wrong.
 ```
 
 **Escape hatch** (genuine ambiguity): prefix every question text with `ASKING BECAUSE: <reason>`. Mixing prefixed and non-prefixed questions in one call still triggers a block — prefix all or none.
-
-## plan_number_helper — the git counter is the source of truth for plan numbers
-
-The next plan number is authoritative in git config, NOT in the folder listing.
-
-**To get the next plan number:**
-
-```
-git config --local hooksdaemon.latestPlanNumber
-```
-
-Add 1 to that value — that is the next plan number (zero-pad to 5 digits, e.g. counter `117` → next plan `00118`). The daemon updates this counter automatically whenever a plan is created, so it stays correct across branches.
-
-**Do NOT** scan `CLAUDE/Plan/` with `ls`/`find`/glob pipelines to discover the next number. Folder scans miss plans in `Completed/` and other subdirectories, and disagree across branches. The folder scan is only a fallback used to bootstrap the counter when the git key is unset.
-
-If the counter key is missing (unset), it is safe to bootstrap once from the highest `NNNNN-` prefix under `CLAUDE/Plan/` (including `Completed/`); the daemon persists it back to git config for subsequent reads.
 
 ## plan_time_estimates — plans describe WHAT, not WHEN
 
@@ -525,19 +509,60 @@ Writing time estimates into a `CLAUDE/Plan/*.md` file is blocked. Plans capture 
 
 **Instead:** break work into concrete tasks and implementation steps, and let the user decide scheduling. Technical durations that describe a feature (cache TTL, session timeout, retention window) are allowed — only work/effort estimates are blocked.
 
-## markdown_organization — markdown files must go in allowed locations
+## lsp_enforcement — use LSP tools for code symbol lookups
 
-Writing a new `.md` file to an unrecognised location is blocked. Markdown files must be placed in project-configured allowed paths.
+Using `Grep` or `Bash` (grep/rg) to find class definitions, function signatures, or symbol references is blocked or redirected to LSP tools, which are faster and semantically accurate.
 
-**Common allowed locations**: `CLAUDE/`, `docs/`, `RELEASES/`, `CLAUDE/Plan/`, root-level `README.md`, or any path matching the `allowed_markdown_paths` config.
+**Prefer LSP tools for**:
 
-**Dependency directories**: `vendor/` (PHP) and `node_modules/` (JS) are treated as implicit monorepos — each package is a sub-project where normal markdown rules apply (e.g. `vendor/acme/lib/docs/guide.md` is allowed, `vendor/acme/lib/random/notes.md` is blocked).
+- Finding where a class or function is defined → `goToDefinition`
+- Finding all usages of a symbol → `findReferences`
+- Getting type information or documentation → `hover`
+- Listing all symbols in a file → `documentSymbol`
+- Searching symbols across the project → `workspaceSymbol`
 
-**Plan file redirection**: when `track_plans_in_project` is enabled, Claude Code planning mode writes are automatically redirected to the project's `CLAUDE/Plan/` directory. Plan folders must follow the `NNNN-description/` naming convention.
+**Grep/Bash grep is still appropriate for**: text patterns in content, log searching, finding strings in config files.
 
-If you need a markdown file in a new location, add a pattern to `extra_allowed_markdown_paths` in `.claude/hooks-daemon.yaml`. This is ADDITIVE — it layers your patterns on top of the built-in defaults, so you keep `CLAUDE/`, `docs/`, `RELEASES/`, etc. without redeclaring them. The older `allowed_markdown_paths` option REPLACES all built-in locations and is discouraged for simple additions.
+Default mode (`block_once`): the first symbol-lookup grep in a session is denied with guidance; subsequent retries are allowed.
 
-If your project has sub-projects with their own `docs/`, `CLAUDE/`, etc., configure `monorepo_subproject_patterns` in `.claude/hooks-daemon.yaml` so normal rules apply within each sub-project.
+## markdown_organization — tracked-docs policy (untracked Claude memory BLOCKED)
+
+This project sets `allow_untracked_claude_memory: false`. Writing to Claude
+auto-memory files (`~/.claude/projects/*/memory/*.md`) is **blocked** — via the
+Write/Edit tools AND via bash redirect/`tee` side-doors. **Reading memory is
+still allowed** so existing memory can be migrated out.
+
+**Put durable knowledge in TRACKED project docs (progressive disclosure):**
+
+- Always-relevant facts → `CLAUDE.md` (keep lean; resident every session)
+- Path-specific guidance → `.claude/rules/*.md` with `paths:` glob frontmatter (loads on demand only when matching files are touched)
+- Intent-triggered procedures → a thin skill under `.claude/skills/` pointing at a single-source-of-truth doc body
+- Human-facing reference → `docs/`
+- Link docs with plain markdown links (zero token cost until followed); **avoid `@`-imports** (they re-inline eagerly rather than defer)
+
+Keep ONE source of truth per fact and link to it. Normal markdown-location rules (below) still apply to every other `.md` file.
+
+**Allowed locations**: `CLAUDE/`, `docs/`, `RELEASES/`, `CLAUDE/Plan/`, root-level `README.md`, `.claude/rules/`, or any `extra_allowed_markdown_paths` pattern.
+
+## plan_number_helper — use `mkplan.bash` to create a plan
+
+**To create a new plan, run the deployed scaffolding script:**
+
+```
+CLAUDE/Plan/mkplan.bash "descriptive-kebab-name"
+```
+
+(Use the project's configured plan directory if it is not `CLAUDE/Plan/`.) The script takes a lock, reads the same authoritative git counter (`hooksdaemon.latestPlanNumber`), assigns the next number atomically, creates the `NNNNN-name/` folder, scaffolds `PLAN.md`, and advances the counter — so concurrent runs can never collide on a number. It prints the new folder path on stdout. You still add the README index row yourself (the script reminds you).
+
+**If you only need the *number* (not a folder)**, read the counter and add 1 — this is the fallback, not the primary path:
+
+```
+git config --local hooksdaemon.latestPlanNumber
+```
+
+Add 1 to that value (zero-pad to 5 digits, e.g. counter `117` → next plan `00118`). The git counter is the source of truth; the daemon keeps it correct across branches.
+
+**Do NOT** scan `CLAUDE/Plan/` with `ls`/`find`/glob pipelines to discover the next number. Folder scans miss plans in `Completed/` and other subdirectories, and disagree across branches. The folder scan is only used to bootstrap the counter when the git key is unset (which `mkplan.bash` and the daemon both handle).
 
 ## system_paths — do not edit deployed system files directly
 
@@ -545,6 +570,7 @@ Writing or editing files under system paths (/etc/, /var/, /usr/, /opt/, /root/,
 These are deployed files managed by Ansible.
 
 **Edit the project source instead**:
+
 - `/etc/foo` → `files/etc/foo`
 - `/var/local/foo` → `files/var/local/foo`
 - `/usr/bin/foo` → `files/usr/bin/foo`
@@ -560,6 +586,10 @@ Direct package management, service management, and system configuration commands
 **Allowed** (read-only queries): `dnf info/list/search`, `systemctl status`, `gsettings get`, `flatpak list`
 
 **Use instead**: Create/update Ansible playbook in `playbooks/imports/` and deploy with `ansible-playbook`.
+
+## git_hooks_executable_fixer — auto-fixes non-executable git hooks
+
+When a git command prints `hint: The '...' hook was ignored because it's not set as executable`, this handler automatically `chmod +x`s every non-`.sample` file in the repository's hooks directory (resolved via `git rev-parse --git-path hooks`, so worktrees and `core.hooksPath` are handled). Execute bits are added with least privilege (only where read is already granted). It never blocks the command and reports which hooks it fixed via advisory context. `.sample` files and already-executable hooks are left untouched.
 
 ## markdown_table_formatter — markdown tables are auto-aligned
 
@@ -577,10 +607,6 @@ After every `Write` or `Edit` of a `.md` or `.markdown` file, the content is re-
 ```
 $PYTHON -m claude_code_hooks_daemon.daemon.cli format-markdown <path>
 ```
-
-## git_hooks_executable_fixer — auto-fixes non-executable git hooks
-
-When a git command prints `hint: The '...' hook was ignored because it's not set as executable`, this handler automatically `chmod +x`s every non-`.sample` file in the repository's hooks directory (resolved via `git rev-parse --git-path hooks`, so worktrees and `core.hooksPath` are handled). Execute bits are added with least privilege (only where read is already granted). It never blocks the command and reports which hooks it fixed via advisory context. `.sample` files and already-executable hooks are left untouched.
 
 ## hook_registration_checker — hooks configuration policy
 
@@ -613,9 +639,9 @@ Stop-time advisory that fires on language patterns signalling avoidance of work.
 
 **Avoid**:
 
-- Dismissing issues as `pre-existing`, `out of scope`, `not our problem`,   or `not relevant` to deflect work that is in fact yours.
-- Premature-halt phrasing like `natural checkpoint`, `ready to continue on your   cue`, `pausing here` mid-plan when there is more to do — finish the task   rather than dressing up a halt.
-- Speculative `should be fine` or `probably works` when verification is   cheap (run the test, read the file).
+- Dismissing issues as `pre-existing`, `out of scope`, `not our problem`, or `not relevant` to deflect work that is in fact yours.
+- Premature-halt phrasing like `natural checkpoint`, `ready to continue on your   cue`, `pausing here` mid-plan when there is more to do — finish the task rather than dressing up a halt.
+- Speculative `should be fine` or `probably works` when verification is cheap (run the test, read the file).
 
 **Do**: acknowledge the issue, fix it, or — if it genuinely is out of scope — say so once with the specific reason and continue with the in-scope work.
 
@@ -630,15 +656,18 @@ STOPPING BECAUSE: all tasks complete, QA passes, daemon restart verified.
 **Why**: The stop hook enforces intentional stops. Stopping without an explanation triggers an auto-block that asks you to explain or continue.
 
 **Alternatives**:
+
 - `STOPPING BECAUSE: <reason>` — stops cleanly with explanation
 - Continue working — no need to stop unless all work is genuinely complete
 
 **Do NOT**:
+
 - Stop mid-task without explanation
 - Ask confirmation questions and then stop (the hook auto-continues those)
 - Use `AUTO-CONTINUE` unless you intend to keep working indefinitely
 
 **Before asking a question, evaluate it critically**:
+
 - Tautological/rhetorical questions with obvious answers ("Should I continue?", "Would you like me to proceed?") — do NOT ask, just do it
 - Errors with a clear next step ("The test failed, should I fix it?") — do NOT ask, just fix it
 - Genuine choice questions where all options are valid ("Which of A, B, or C should we use?") — these deserve a response. Use `STOPPING BECAUSE: need user input` and ask your question
@@ -646,6 +675,7 @@ STOPPING BECAUSE: all tasks complete, QA passes, daemon restart verified.
 **Recovering from a `tool_use_error` — do NOT stop silently**:
 
 Some tool errors require an explicit recovery action, not a halt. The most common shape:
+
 - You call `Edit` or `Write` on a file you have not yet read.
 - Claude Code returns a `tool_use_error` (e.g. "File has not been read yet").
 - The correct recovery is **Read the file, then retry Edit/Write** — **do not stop**. Stopping silently after a tool error triggers a Stop-hook re-entry loop and wastes a turn.
