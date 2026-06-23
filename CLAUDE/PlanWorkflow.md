@@ -50,12 +50,21 @@ Plan numbers are **5 digits, zero-padded** (`00049-`, `00050-`). The next number
 in git config, **not** derived from a folder scan (folder scans miss `Completed/` and
 disagree across branches — the `plan_number_helper` handler will block such scans).
 
+**To scaffold a new plan folder**, use the bundled script — it reads the counter
+atomically, allocates the next number, and creates the `NNNNN-name/PLAN.md` skeleton:
+
+```bash
+CLAUDE/Plan/mkplan.bash "descriptive-kebab-name"
+```
+
+**To read the next number only** (without creating a folder):
+
 ```bash
 git config --local hooksdaemon.latestPlanNumber   # authoritative latest, e.g. 50
 ```
 
-Add 1 and zero-pad → the next plan folder (counter `50` → `00051-description/`). The
-hooks daemon advances this counter automatically when a plan is created.
+Add 1 and zero-pad → `00051-description/`. The hooks daemon advances this counter
+automatically whenever a plan is created.
 
 ---
 
@@ -205,8 +214,8 @@ proper plan, migrate the tasks, and reference the plan in your work.
 
 1. **Identify work** — does it fit an existing plan? If not, and it is non-trivial,
    create a new plan.
-2. **Create the plan** — `CLAUDE/Plan/NNNNN-descriptive-name/PLAN.md` (number from the
-   git counter); add an entry to `CLAUDE/Plan/README.md`.
+2. **Create the plan** — run `CLAUDE/Plan/mkplan.bash "descriptive-kebab-name"` to
+   scaffold `NNNNN-name/PLAN.md`; add an entry to `CLAUDE/Plan/README.md`.
 3. **Break down tasks** — phases → concrete, testable tasks. A good task names a single
    verifiable outcome ("Make `play-docker.yml` rootful and import it from
    `playbook-main.yml`"), not "work on Docker".
@@ -272,7 +281,8 @@ cancelled plans.
 
 1. **Check for an existing plan** before starting work.
 2. **Create a plan** for any work that is non-trivial or multi-session.
-3. **Get the next plan number from the git counter**, never a folder scan.
+3. **Use `CLAUDE/Plan/mkplan.bash "name"` to create plans** — it reads the git counter
+   atomically and scaffolds the folder. Never derive the number from a folder scan.
 4. **Update task status in real time** as you work.
 5. **Run `./scripts/qa-all.bash` before commits** that touch Bash/Python/Ansible
    (ESLint for extension JS, `qa-ctrl-z-patch.bash` for the CCY patch).
