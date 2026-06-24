@@ -8,9 +8,34 @@ CLAUDE/Plan/
   CLAUDE.md              # This file - lifecycle instructions
   NNNNN-description/     # Active plans (5-digit zero-padded)
     PLAN.md              # Plan document with tasks and status
+    deploy.bash          # Optional: run this plan's Ansible deploy (HOST-only)
+    triage.bash          # Optional: verify health (planning stage and/or post-deploy)
+    acceptance.bash      # Optional: plan-specific test/acceptance script
   Completed/
     NNNNN-description/   # Completed plans (moved here when done)
 ```
+
+## Plan-Local Scripts & Artifacts — IN STONE
+
+**Every transient, plan-specific script or artifact lives INSIDE its plan folder,
+never at the project root.** This keeps the repo root clean and lets a plan's
+tooling travel with it into `Completed/`.
+
+- `deploy.bash` — runs the plan's Ansible command(s) (HOST-only; never run Ansible
+  in the CCY container).
+- `triage.bash` — confirms things are OK, at planning stage and/or after deploy
+  (read-only, re-runnable).
+- testing / `acceptance.bash` (and any other plan-specific test/scratch script,
+  fixtures, captured logs) — all in the plan folder.
+
+Resolve the repo root with `git rev-parse --show-toplevel`, not a fixed `../` hop.
+
+**NO project-root scripts/artifacts that are not persistently relevant and useful.**
+Permanent deliverables — a QA gate wired into `qa-all.bash`, the `tests/`
+regression suite, reusable `helpers/`, user tools under `files/` — stay in their
+normal homes. Plan scaffolding does not. See `CLAUDE/PlanWorkflow.md`
+("Plan-Local Scripts & Artifacts — IN STONE") for the full rule and the
+transient-vs-persistent test.
 
 ## Plan Lifecycle
 

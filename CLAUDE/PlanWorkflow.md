@@ -34,15 +34,60 @@ CLAUDE/
     ├── 00035-gh-multi-account-hardening/
     │   ├── PLAN.md                 # Main plan document
     │   ├── {supporting-docs}.md    # Optional analysis / research docs
+    │   ├── deploy.bash             # Optional: run the plan's Ansible deploy (HOST)
+    │   ├── triage.bash             # Optional: confirm health pre-deploy / post-deploy
+    │   ├── acceptance.bash         # Optional: plan-specific test/acceptance script
     │   └── assets/                 # Optional diagrams, logs, etc.
     ├── 00049-full-repo-audit/
     │   ├── PLAN.md
-    │   ├── triage.md
+    │   ├── triage.bash
     │   └── research/
     ├── Completed/                  # Finished plans are moved here
     ├── Archive/                    # Superseded / historical plans
     └── README.md                   # Index of all plans
 ```
+
+### Plan-Local Scripts & Artifacts — IN STONE
+
+> **Every transient, plan-specific script or artifact lives INSIDE its plan
+> folder — never at the project root.** A plan's own `deploy.bash`, `triage.bash`,
+> test/`acceptance.bash`, fixtures, logs, and scratch files belong in
+> `CLAUDE/Plan/NNNNN-name/`, so they travel with the plan into `Completed/` and
+> never clutter the repo root.
+
+**Canonical plan-local scripts** (all optional, all fail-fast, all HOST-run where
+they deploy or touch the live system — never run Ansible inside the CCY container):
+
+- **`deploy.bash`** — runs the plan's Ansible command(s) (e.g.
+  `ansible-playbook playbooks/imports/.../play-foo.yml`). A thin, idempotent wrapper.
+- **`triage.bash`** — confirms things are OK. Run it **at planning stage** (to
+  capture the current/broken state) **and/or after `deploy.bash`** (to verify the
+  change landed). Read-only / non-destructive; safe to re-run.
+- **Testing / `acceptance.bash`** (and any other test script) — plan-specific
+  verification that is not a permanent repo gate.
+
+Resolve the repo root with `git rev-parse --show-toplevel` (NOT a fixed `../`
+hop) — these scripts sit several directories deep, and the path must survive the
+move into `Completed/`.
+
+**The dividing line — transient vs. persistent:**
+
+- **Transient (→ plan folder):** anything whose usefulness ends with the plan —
+  one-off deploy/triage wrappers, plan acceptance tests, migration scripts,
+  captured output, scratch fixtures.
+- **Persistent (→ `scripts/`, `tests/`, `helpers/`, etc.):** anything that stays
+  useful after the plan ships — a permanent QA gate wired into `qa-all.bash`, the
+  regression unit suite under `tests/`, a reusable helper under `helpers/`, a
+  user-facing tool under `files/`. These are deliverables, not plan scaffolding.
+
+> **Rule: NO project-root-level scripts or artifacts that are not persistently
+> relevant and useful.** If it only matters while this plan is in flight, it goes
+> in the plan folder. When in doubt, ask: *"after this plan is Complete and moved
+> to `Completed/`, would anyone still run this from the repo root?"* — if no, it is
+> plan-local.
+
+(Plan-folder `*.bash` is still discovered and linted by `qa-bash.bash` /
+`qa-all.bash` — being plan-local does not exempt a script from QA.)
 
 ### Plan Numbering — the git counter is authoritative
 
