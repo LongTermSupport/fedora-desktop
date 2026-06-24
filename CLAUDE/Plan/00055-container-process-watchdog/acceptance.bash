@@ -38,6 +38,9 @@ BURNER_TTL_S=30
 # Small, ubiquitous image with a POSIX shell.
 BURNER_IMAGE="${CW_TEST_IMAGE:-docker.io/library/alpine:latest}"
 # Two background spinners + wait → reads as CPU-pinned (>1 core) within seconds.
+# NOTE: two spinners = two long+hot processes, so the watchdog correctly reports
+# one finding PER spinner. The assertions expect >= 1 finding (all attributed to
+# the burner), not exactly 1.
 BURNER_CMD='timeout '"$BURNER_TTL_S"' sh -c "while :; do :; done & while :; do :; done & wait"'
 
 FAILED=0
@@ -255,22 +258,40 @@ run_oci_engine_block() {
         return 0
     fi
 
-    # 4. Assertions via jq.
+    # 4. Assertions via jq. The burner runs TWO background spinners, so the
+    #    watchdog legitimately reports one finding PER hot process (>= 1, not
+    #    exactly 1 — flagging every long+hot process is the whole point). We assert
+    #    at least one, that EVERY finding for the burner is correctly attributed
+    #    (no mis-attribution), then validate a representative finding — preferring
+    #    one whose in-container PID matches the ground-truth spinner set.
     count="$(printf '%s' "$json" | jq --arg n "$burner" '[.findings[] | select(.container_name == $n)] | length')"
-    assert_eq "$engine: exactly one finding for $burner" "1" "$count"
+    assert_ge "$engine: at least one finding for $burner" "$count" "1"
 
-    if [ "$count" != "1" ]; then
+    if [ "$count" -lt 1 ]; then
         echo "  (report findings dump for triage):" >&2
         printf '%s' "$json" | jq '.findings' >&2
         return 0
     fi
 
-    finding="$(printf '%s' "$json" | jq -c --arg n "$burner" '.findings[] | select(.container_name == $n)')"
+    # Every finding attributed to the burner must carry the right engine (no
+    # mis-attribution to another container).
+    local mis
+    mis="$(printf '%s' "$json" | jq --arg n "$burner" --arg e "$engine" \
+        '[.findings[] | select(.container_name == $n) | select(.engine != $e)] | length')"
+    assert_eq "$engine: every $burner finding attributed to $engine" "0" "$mis"
+
+    # Ground-truth PIDs as a JSON array, used to prefer a finding whose
+    # container_pid matches a real in-container spinner PID.
+    local gt_json
+    gt_json="$(printf '%s\n' "$gt_pids" | jq -R 'select(length > 0) | tonumber' | jq -s '.')"
+    finding="$(printf '%s' "$json" | jq -c --arg n "$burner" --argjson gt "$gt_json" \
+        '[.findings[] | select(.container_name == $n)]
+         | (map(select(.container_pid as $p | $gt | index($p))) + .) | .[0]')"
 
     assert_eq "$engine: engine field"   "$engine" "$(printf '%s' "$finding" | jq -r '.engine')"
     assert_eq "$engine: container_name" "$burner"  "$(printf '%s' "$finding" | jq -r '.container_name')"
 
-    # container_pid must equal one of the ground-truth in-container spinner PIDs.
+    # The representative finding's container_pid must be a real in-container PID.
     local cpid
     cpid="$(printf '%s' "$finding" | jq -r '.container_pid')"
     if printf '%s\n' "$gt_pids" | grep -qx "$cpid"; then
@@ -368,14 +389,21 @@ run_lxc_block() {
         return 0
     fi
 
+    # Dual-spinner burner → one finding per hot process (>= 1, not exactly 1).
     count="$(printf '%s' "$json" | jq --arg n "$burner" '[.findings[] | select(.container_name == $n)] | length')"
-    assert_eq "$engine: exactly one finding for $burner" "1" "$count"
-    if [ "$count" != "1" ]; then
+    assert_ge "$engine: at least one finding for $burner" "$count" "1"
+    if [ "$count" -lt 1 ]; then
         printf '%s' "$json" | jq '.findings' >&2
         return 0
     fi
 
-    finding="$(printf '%s' "$json" | jq -c --arg n "$burner" '.findings[] | select(.container_name == $n)')"
+    local mis
+    mis="$(printf '%s' "$json" | jq --arg n "$burner" \
+        '[.findings[] | select(.container_name == $n) | select(.engine != "lxc")] | length')"
+    assert_eq "$engine: every $burner finding attributed to lxc" "0" "$mis"
+
+    # Representative finding (first for the burner — they are all the same shape).
+    finding="$(printf '%s' "$json" | jq -c --arg n "$burner" '[.findings[] | select(.container_name == $n)] | .[0]')"
     assert_eq       "$engine: engine field"   "lxc"     "$(printf '%s' "$finding" | jq -r '.engine')"
     assert_eq       "$engine: container_name" "$burner" "$(printf '%s' "$finding" | jq -r '.container_name')"
     assert_contains "$engine: cmd contains the spinner" "$(printf '%s' "$finding" | jq -r '.cmd')" "while"

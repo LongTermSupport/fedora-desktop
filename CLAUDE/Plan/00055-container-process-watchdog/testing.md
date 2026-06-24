@@ -174,9 +174,13 @@ docker if the daemon/group is present; lxc if `lxc-*` + sudo are present):
 2. Capture ground truth: container name, host PID (`podman top` / `docker top` /
    `lxc-info`), and in-container PID (`exec … pgrep`).
 3. Run `container-watch scan --once --json`.
-4. **Assert**: exactly one finding for `cw-test-burner`; `engine` correct;
-   `container_name` correct; `container_pid` == ground-truth in-container PID;
-   `cmd` contains the spinner; `age_s ≥ 1`; `cpu_pct` high; `exec_hint` is
+4. **Assert**: **at least one** finding for `cw-test-burner` (the dual-spinner
+   burner has two long+hot processes, so the watchdog correctly reports one
+   finding per spinner — assert `>= 1`, not exactly 1); **every** finding for the
+   burner is attributed to the right `engine`; then validate a representative
+   finding (preferring one whose `container_pid` is in the ground-truth
+   in-container PID set): `container_name` correct; `container_pid` ∈ ground-truth
+   set; `cmd` contains the spinner; `age_s ≥ 1`; `cpu_pct` high; `exec_hint` is
    engine-correct and names the container.
 5. **Safety assert (reporting-only, behavioural)**: the spinner process is **still
    alive** after the scan (the tool must not have killed it).
