@@ -141,6 +141,25 @@ best_effort_rm() {
     return 0
 }
 
+# lxc_restore <name> <existing 0|1> <started_by_us 0|1>
+# Tear down the LXC test load safely. A throwaway container is destroyed; an
+# operator-nominated EXISTING container is NEVER destroyed — we stop our spinner
+# and restore its prior run-state (stop it only if we started it).
+lxc_restore() {
+    local name="$1" existing="$2" started="$3"
+    if [ "$existing" -eq 1 ]; then
+        best_effort_rm "stop spinner in $name" sudo lxc-attach -n "$name" -- pkill -f 'while :; do'
+        if [ "$started" -eq 1 ]; then
+            best_effort_rm "lxc-stop $name (restore prior STOPPED state)" sudo lxc-stop -n "$name"
+            echo "  restored '$name' to STOPPED (we started it for the test)"
+        else
+            echo "  left '$name' RUNNING (its prior state — we did not start it)"
+        fi
+    else
+        best_effort_rm "lxc-destroy $name" sudo lxc-destroy -f -n "$name"
+    fi
+}
+
 # --------------------------------------------------------------------------- #
 # Cleanup — idempotent, runs on every exit (success OR failure). Force-removes
 # every cw-test-* container under each present engine, plus the throwaway config
@@ -351,24 +370,50 @@ run_oci_engine_block() {
 # =========================================================================== #
 run_lxc_block() {
     local engine="lxc"
-    local burner="cw-test-burner-lxc"
+    local burner existing=0 started_by_us=0 prior_state=""
     local json finding count gt_pids gt_in_pid out st tools procs
 
     hdr "$engine — start burner + assert detection"
 
-    # Minimal system container via the portable download template. If the
-    # template/network is unavailable this is a legitimate environmental SKIP
-    # (not a faked pass) — we cannot exercise lxc without an image.
-    if ! out="$(sudo lxc-create -n "$burner" -t download -- \
-            --dist alpine --release edge --arch amd64 2>&1)"; then
-        skip "$engine: could not create test container (template/network unavailable): $(printf '%s' "$out" | tail -n1)"
-        return 0
+    if [ -n "${CW_LXC_TEST_CONTAINER:-}" ]; then
+        # Operator nominated an EXISTING container (e.g. a localdev system
+        # container). We NEVER create or destroy it — start it only if stopped, and
+        # restore its prior run-state afterwards (see lxc_restore). This is the real
+        # runtime LXC test; a full system container also has proper coreutils/procps
+        # for the spinner, unlike a minimal busybox throwaway.
+        burner="$CW_LXC_TEST_CONTAINER"
+        existing=1
+        if ! prior_state="$(sudo lxc-info -n "$burner" -sH 2>&1)"; then
+            fail "$engine: CW_LXC_TEST_CONTAINER='$burner' not found: $prior_state"
+            return 0
+        fi
+        echo "  using existing container '$burner' (prior state: $prior_state)"
+        if [ "$prior_state" != "RUNNING" ]; then
+            if ! out="$(sudo lxc-start -n "$burner" 2>&1)"; then
+                fail "$engine: could not start existing container '$burner': $out"
+                return 0
+            fi
+            started_by_us=1
+            sleep 2
+        fi
+        pass "$engine: existing container '$burner' is running"
+    else
+        # No nominated container → attempt a throwaway minimal image. If the
+        # template/network is unavailable, SKIP (env limitation, not a faked pass);
+        # set CW_LXC_TEST_CONTAINER=<name> to exercise a real LXC container.
+        burner="cw-test-burner-lxc"
+        if ! out="$(sudo lxc-create -n "$burner" -t download -- \
+                --dist alpine --release edge --arch amd64 2>&1)"; then
+            skip "$engine: no CW_LXC_TEST_CONTAINER set and throwaway create failed (template/network unavailable): $(printf '%s' "$out" | tail -n1)"
+            return 0
+        fi
+        if ! out="$(sudo lxc-start -n "$burner" 2>&1)"; then
+            fail "$engine: could not start throwaway container $burner: $out"
+            best_effort_rm "lxc-destroy $burner" sudo lxc-destroy -f -n "$burner"
+            return 0
+        fi
+        pass "$engine: started throwaway container '$burner'"
     fi
-    if ! out="$(sudo lxc-start -n "$burner" 2>&1)"; then
-        fail "$engine: could not start container $burner: $out"
-        return 0
-    fi
-    pass "$engine: started container '$burner'"
 
     # Launch a bounded CPU spinner. Background the WHOLE lxc-attach on the HOST side
     # so the spinner runs in the FOREGROUND inside the container (held alive by
@@ -399,7 +444,12 @@ run_lxc_block() {
         #   - the podman + docker L2 blocks above prove the engine-agnostic runtime
         #     (scan, attribution, NSpid, the safety survive-assert, allowlist, DBus).
         # We deliberately do NOT burn CPU inside real project containers to force it.
-        skip "$engine: no throwaway LXC burner here — LXC cgroup attribution is covered by L1 unit fixtures + the engine-agnostic runtime by the podman/docker L2 blocks (not faking a pass)"
+        # Could not generate in-container CPU load → SKIP (not a watchdog defect):
+        # the LXC-specific logic is covered by L1 unit fixtures and the
+        # engine-agnostic runtime by the podman/docker L2 blocks. Use a full system
+        # container (CW_LXC_TEST_CONTAINER=<name>) if a minimal throwaway lacks the
+        # tooling to spin.
+        skip "$engine: could not generate in-container CPU load (no spinner PIDs) — LXC cgroup attribution covered by L1 unit fixtures + engine-agnostic runtime by the podman/docker L2 blocks; set CW_LXC_TEST_CONTAINER=<name> for a real system container"
         if ! st="$(sudo lxc-info -n "$burner" -sH 2>&1)"; then st="(lxc-info failed: $st)"; fi
         if ! tools="$(sudo lxc-attach -n "$burner" -- sh -c 'command -v timeout pgrep ps busybox' 2>&1)"; then
             tools="(tool probe failed: $tools)"
@@ -412,7 +462,7 @@ run_lxc_block() {
             echo "  processes      :"
             printf '%s\n' "$procs"
         } >&2
-        best_effort_rm "lxc-destroy $burner" sudo lxc-destroy -f -n "$burner"
+        lxc_restore "$burner" "$existing" "$started_by_us"
         return 0
     fi
     gt_in_pid="$(printf '%s\n' "$gt_pids" | head -n1)"
@@ -420,6 +470,7 @@ run_lxc_block() {
 
     if ! json="$(scan_json)"; then
         fail "$engine: scan --once --json failed"
+        lxc_restore "$burner" "$existing" "$started_by_us"
         return 0
     fi
 
@@ -428,6 +479,7 @@ run_lxc_block() {
     assert_ge "$engine: at least one finding for $burner" "$count" "1"
     if [ "$count" -lt 1 ]; then
         printf '%s' "$json" | jq '.findings' >&2
+        lxc_restore "$burner" "$existing" "$started_by_us"
         return 0
     fi
 
@@ -436,13 +488,29 @@ run_lxc_block() {
         '[.findings[] | select(.container_name == $n) | select(.engine != "lxc")] | length')"
     assert_eq "$engine: every $burner finding attributed to lxc" "0" "$mis"
 
-    # Representative finding (first for the burner — they are all the same shape).
-    finding="$(printf '%s' "$json" | jq -c --arg n "$burner" '[.findings[] | select(.container_name == $n)] | .[0]')"
+    # Representative finding: prefer one of OUR spinner PIDs (a real system
+    # container may also have other busy app processes flagged under the same
+    # container_name, so a blind .[0] could pick one of those and fail the
+    # spinner-cmd assertion). Fall back to the first finding.
+    local gt_json
+    gt_json="$(printf '%s\n' "$gt_pids" | jq -R 'select(length > 0) | tonumber' | jq -s '.')"
+    finding="$(printf '%s' "$json" | jq -c --arg n "$burner" --argjson gt "$gt_json" \
+        '[.findings[] | select(.container_name == $n)]
+         | (map(select(.container_pid as $p | $gt | index($p))) + .) | .[0]')"
     assert_eq       "$engine: engine field"   "lxc"     "$(printf '%s' "$finding" | jq -r '.engine')"
     assert_eq       "$engine: container_name" "$burner" "$(printf '%s' "$finding" | jq -r '.container_name')"
     assert_contains "$engine: cmd contains the spinner" "$(printf '%s' "$finding" | jq -r '.cmd')" "while"
     assert_ge       "$engine: age_s >= 1"     "$(printf '%s' "$finding" | jq -r '.age_s')" "1"
     assert_ge       "$engine: cpu_pct high"   "$(printf '%s' "$finding" | jq -r '.cpu_pct | floor')" "5"
+
+    # The representative finding's container_pid must be a real in-container PID.
+    local cpid
+    cpid="$(printf '%s' "$finding" | jq -r '.container_pid')"
+    if printf '%s\n' "$gt_pids" | grep -qx "$cpid"; then
+        pass "$engine: container_pid ($cpid) matches a ground-truth in-container PID"
+    else
+        fail "$engine: container_pid ($cpid) not in ground-truth set [$(printf '%s' "$gt_pids" | tr '\n' ' ')]"
+    fi
 
     local hint
     hint="$(printf '%s' "$finding" | jq -r '.exec_hint')"
@@ -450,15 +518,22 @@ run_lxc_block() {
     assert_contains "$engine: exec_hint names the container" "$hint" "$burner"
 
     hdr "$engine — SAFETY: burner survives the scan (reporting-only)"
-    local still
-    if still="$(sudo lxc-attach -n "$burner" -- pgrep -f 'while' 2>&1)" && [ -n "$still" ]; then
+    local still survived=0 p
+    still="$(sudo lxc-attach -n "$burner" -- pgrep -f 'while' 2>&1)"
+    # Confirm at least one of OUR ground-truth spinner PIDs is still alive — not
+    # merely some other 'while' process a real system container might also run.
+    while IFS= read -r p; do
+        [ -n "$p" ] || continue
+        if printf '%s\n' "$still" | grep -qx "$p"; then survived=1; break; fi
+    done <<< "$gt_pids"
+    if [ "$survived" -eq 1 ]; then
         pass "$engine: spinner STILL ALIVE after scan — tool did not terminate it"
     else
-        fail "$engine: spinner is GONE after scan — reporting-only tool must NOT terminate findings! ($still)"
+        fail "$engine: our spinner PID(s) GONE after scan — a reporting-only tool must NOT terminate findings! (still-running 'while' procs: ${still:-none})"
     fi
 
-    best_effort_rm "lxc-destroy $burner" sudo lxc-destroy -f -n "$burner"
-    pass "$engine: container destroyed"
+    lxc_restore "$burner" "$existing" "$started_by_us"
+    pass "$engine: LXC test load cleaned up (container preserved if pre-existing)"
 }
 
 # =========================================================================== #

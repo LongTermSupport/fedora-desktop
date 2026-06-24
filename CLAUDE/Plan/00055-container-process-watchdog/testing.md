@@ -167,6 +167,14 @@ podman run -d --rm --name cw-test-burner <small-image> \
 (Use a couple of background spinners to ensure it reads as CPU-pinned; `timeout`
 caps the lifetime; an `EXIT` trap force-removes the container even on failure.)
 
+**LXC note**: a *minimal busybox* throwaway often lacks the tooling to spin
+reliably, so the LXC block **SKIPs** (not FAILs) when it cannot generate load —
+the LXC-specific logic is already covered by the L1 fixtures and the runtime by
+the podman/docker blocks. To exercise a **real** LXC container, point the block at
+an existing one: `CW_LXC_TEST_CONTAINER=<name> ./acceptance.bash`. That container
+is **never created or destroyed** — it is started only if stopped and restored to
+its prior run-state afterwards.
+
 **Per available engine** (gated by the §1.6 presence probe — podman always;
 docker if the daemon/group is present; lxc if `lxc-*` + sudo are present):
 
