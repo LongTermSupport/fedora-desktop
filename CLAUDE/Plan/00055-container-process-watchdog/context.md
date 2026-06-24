@@ -110,9 +110,26 @@ $ grep NSpid /proc/2124472/status
 NSpid:  2124472   <pid-as-seen-inside-container>
 ```
 
-The **last** field is the PID inside the container's PID namespace. The report
-must surface this so the guidance can say e.g. *"in the container run
-`kill <container-pid>`"*.
+The fields are the PID at each namespace level, outermost (host) first. **Parsing
+rules (resolves the single-field / nested-namespace ambiguity):**
+
+- A **host** process has a **single-field** `NSpid:` (just its own PID). The
+  "last field" heuristic would then wrongly report `container_pid == host_pid`, so:
+  **only emit `container_pid` when the process is attributed to a container AND
+  `NSpid` has ≥ 2 fields.**
+- For an attributed container process, take the **second field** (the first nested
+  level — the PID as seen one namespace in, which is where a plain
+  `podman exec`/`docker exec`/`lxc-attach` into the container lands), **not**
+  unconditionally the last field. For **deeper nesting** (3+ fields, e.g.
+  container-in-container) the second field is still the level the human's `exec`
+  reaches from the host engine; the innermost is only correct if exec'ing through
+  every layer, which is not the guidance we give.
+- When `container_pid` cannot be translated (host process, or NSpid absent / single
+  field), **omit the field or set it to `null` — never `0`** (`0` is never a valid
+  user PID and would collide with a "could not translate" sentinel; see §4b).
+
+The report must surface the translated PID so the guidance can say e.g. *"in the
+container run `kill <container-pid>`"*.
 
 ### 2d. Gotchas discovered (must be encoded in the tool)
 
@@ -200,6 +217,20 @@ A process is **flagged** when ALL hold:
 - `cpu_pct ≥ CPU_THRESHOLD` (default e.g. **50 %** of one core, configurable;
   consider expressing as % of a single core so multi-core pinning scores high).
 
+**cgroup format decision (fail-fast, no silent mis-bucketing).** Attribution targets
+the **cgroup-v2 unified hierarchy** (`0::/…`), which is Fedora's default. The parser
+must handle the off-nominal lines explicitly rather than silently treating them as
+"host":
+
+- A **v1-style** `/proc/<pid>/cgroup` (multiple `N:subsys:path` lines, no `0::` unified
+  line) is **not** the documented target → **log a clear one-line diagnostic and treat
+  that PID as unattributable** (per fail-fast: surface it, do not mis-bucket as host).
+- A cgroup that is **clearly containerised** (e.g. under a `user@…/…/…scope` leaf) but
+  carries **no recognised engine marker** (future/renamed runtime) is recorded as
+  **`engine: "unknown"` — logged, not silently dropped to host**. It is **not a
+  finding** (we can't safely attribute or build an `exec_hint`), but it must be
+  distinguishable from a genuine host process so a new runtime can't masquerade as host.
+
 CPU "right now" = diff of (`utime`+`stime`) from `/proc/<pid>/stat` across a short
 in-invocation interval (e.g. 1–3 s), divided by elapsed clock ticks. For a
 "**sustained**" signal across timer firings, optionally persist the last sample
@@ -207,6 +238,13 @@ per-PID in the state dir and require N consecutive hot readings before alerting
 (reduces false positives from short legitimate bursts like a build). Capture both;
 start simple (single-invocation sample) and add the persistent "sustained" gate if
 noisy.
+
+**Detection latency.** Because the age gate (default 900 s) is checked on each timer
+firing, the *first* alert for a runaway lands at
+`max(age_threshold, sustained-window) + ≤ 1 timer interval` — i.e. the 2-min timer
+cadence does **not** shorten the 15-min age threshold; it only bounds how soon after
+the threshold is met the finding surfaces. Tests collapse this to milliseconds by
+injecting a low `CW_AGE_S` rather than waiting.
 
 ### 4b. Report format (single source of truth for both UIs)
 
@@ -221,7 +259,8 @@ noisy.
   "findings": [
     {
       "host_pid": 2124472,
-      "container_pid": 0,                // from NSpid, last field
+      "container_pid": 12,               // from NSpid 2nd field (first nested level);
+                                         // null/omitted when untranslated — never 0 (§2c)
       "engine": "podman",               // podman | docker | lxc
       "rootless": true,
       "owner_uid": 1000,
@@ -246,8 +285,13 @@ engine).
 
 This repo's `speech-to-text@fedora-desktop` extension already uses a **DBus signal
 from a CLI backend → GNOME extension** (`StateChanged`/`Error`). Reuse that
-pattern: the reporter emits a DBus signal (e.g. `org.fedoraDesktop.ContainerWatch`
-`FindingsChanged`) carrying a count + the report path; the extension listens and
+pattern: the reporter emits a DBus signal on the **all-lowercase** namespace
+`org.fedoradesktop.ContainerWatch` (path `/org/fedoradesktop/ContainerWatch`) —
+matching the working precedent `org.fedoradesktop.SpeechToText` /
+`/org/fedoradesktop/SpeechToText` (`files/home/.local/bin/wsi:74-75`,
+`extensions/speech-to-text@fedora-desktop/extension.js:24-25`); **camelCase
+`fedoraDesktop` would silently break signal subscription**. The signal (e.g.
+`FindingsChanged`) carries a count + the report path; the extension listens and
 updates the panel + raises a notification. The extension reads the full detail
 from `report.json` (or the signal carries the JSON). The CLI reads the same
 `report.json`. **One data source, two front-ends.**
@@ -295,19 +339,33 @@ non-interactive + fail-fast):
 
 cgroup-v2 path markers and resolution per engine:
 
-| Engine               | cgroup path marker (in `/proc/<pid>/cgroup`)                         | id/name token            | Resolve id → name                                         | Inspect inside container   |
-| -------------------- | -------------------------------------------------------------------- | ------------------------ | --------------------------------------------------------- | -------------------------- |
-| **Podman** rootless  | `…/user-<uid>.slice/…/libpod-<id>.scope/container`                   | `<id>` (64-hex)          | `podman inspect --format '{{.Name}}' <id>` **as `<uid>`** | `podman exec -it <name> …` |
-| **Podman** rootful   | `/machine.slice/libpod-<id>.scope/container`                         | `<id>`                   | `sudo podman inspect …`                                   | `sudo podman exec …`       |
-| **Docker** (rootful) | `/system.slice/docker-<id>.scope` (systemd driver) or `/docker/<id>` | `<id>`                   | `docker inspect --format '{{.Name}}' <id>`                | `docker exec -it <name> …` |
-| **LXC / LXD**        | `…/lxc.payload.<name>/…` or `/lxc/<name>`                            | `<name>` (already plain) | name is in the path; verify `lxc-info -n <name>`          | `lxc-attach -n <name>`     |
+| Engine               | cgroup path marker (in `/proc/<pid>/cgroup`)                         | id/name token            | Resolve id → name                                                                                                                               | Inspect inside container   |
+| -------------------- | -------------------------------------------------------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| **Podman** rootless  | `…/user-<uid>.slice/…/libpod-<id>.scope/container`                   | `<id>` (64-hex)          | user timer: `podman inspect --format '{{.Name}}' <id>` (native, as session user); root fallback only: `runuser -u "#<uid>" -- podman inspect …` | `podman exec -it <name> …` |
+| **Podman** rootful   | `/machine.slice/libpod-<id>.scope/container`                         | `<id>`                   | `sudo podman inspect …`                                                                                                                         | `sudo podman exec …`       |
+| **Docker** (rootful) | `/system.slice/docker-<id>.scope` (systemd driver) or `/docker/<id>` | `<id>`                   | `docker inspect --format '{{.Name}}' <id>`                                                                                                      | `docker exec -it <name> …` |
+| **LXC / LXD**        | `…/lxc.payload.<name>/…` or `/lxc/<name>`                            | `<name>` (already plain) | name is in the path; verify `lxc-info -n <name>`                                                                                                | `lxc-attach -n <name>`     |
 
-Resolution-ownership matrix (this repo's reality, per `CLAUDE/ContainerEngines.md`):
+**Decision — timer model and rootless resolution (resolves the F2 tension).** The
+chosen model is the **`systemd --user` timer running as the session user** (see the
+design-consequence table below). Under that model the timer **is** the rootless-Podman
+owning uid, so it resolves its **own** rootless containers natively with a plain
+`podman inspect` and **no uid hop**. The cross-uid `runuser -u "#<uid>"` /
+`machinectl shell` machinery requires **root** and a non-root user timer cannot use it
+— so it is **out of scope for the user-timer path**. It is retained **only** in the
+documented system-level (root) multi-uid fallback, where root makes it valid. The
+"resolve id→name as `<uid>`" column in the §6 table is therefore **conditional on the
+timer model**: native `podman inspect` for the user timer; `runuser`-as-uid only for
+the root fallback.
 
-- **Rootless Podman** containers belong to the **invoking user** — must
-  `podman inspect` **as that uid** (extract `<uid>` from the cgroup path; e.g.
-  `runuser -u "#<uid>" -- podman inspect …` or `machinectl shell`). Root cannot
-  see them directly.
+Resolution-ownership matrix (this repo's reality, per `CLAUDE/ContainerEngines.md`),
+under the **recommended user-timer model**:
+
+- **Rootless Podman** containers belong to the **invoking user**, which **is** the
+  user timer — resolve with a plain `podman inspect` **as the session user**, no uid
+  hop. (Extracting `<uid>` from the cgroup is still useful to *report* `owner_uid`,
+  and to assert the container is the session user's; cross-uid `runuser -u "#<uid>"`
+  is only needed in the **root system-level fallback**, where root makes it valid.)
 - **Docker is rootful**; the repo puts the primary user in the `docker` group, so
   `docker inspect` works **as the user** (no sudo needed in this single-user
   workstation context).
@@ -341,11 +399,25 @@ Proposed file layout (final paths TBD in PLAN.md):
   `ExecStart=%h/.local/bin/container-watch scan`.
 - `files/home/.config/systemd/user/container-watch.timer` —
   `OnUnitActiveSec`/`OnBootSec` (default 2 min).
-- `files/home/.local/share/gnome-shell/extensions/container-watch@fedora-desktop/`
-  — `metadata.json` (+ correct `shell-version`) and `extension.js`.
+- `extensions/container-watch@fedora-desktop/` — `metadata.json` (+ correct
+  `shell-version`) and `extension.js`. **Extension source lives under `extensions/`,
+  not `files/home/.local/share/gnome-shell/extensions/`** — that is the repo
+  convention: `play-speech-to-text.yml` deploys from
+  `{{ root_dir }}/extensions/{{ extension_name }}` and
+  `play-gnome-shell-extensions.yml` copies `extensions/workspace-names-overview@…/`
+  inline. The `extensions/<uuid>/metadata.json` compat gate
+  (`helpers.gnome.check_extension_compat`) and `extensions/CLAUDE.md` both assume
+  this location. The playbook copies from `{{ root_dir }}/extensions/…` to the
+  user's `~/.local/share/gnome-shell/extensions/`.
 - `playbooks/imports/optional/common/play-container-watch.yml` — deploys files,
   enables the user timer (`systemd: scope: user, enabled: yes, state: started`),
-  enables the extension. Imported from `playbook-main.yml`.
+  enables the extension. **Integration point** (matching how the repo actually wires
+  extensions, see F4 below): either add the deploy tasks into
+  `play-gnome-shell-extensions.yml` (the always-on inline pattern used for
+  `workspace-names-overview`), **or** ship this as an opt-in optional play — do
+  **not** assume a `playbook-main.yml` import, which the comparable
+  `play-speech-to-text.yml` does **not** have. Verify the chosen wiring against
+  `playbook-main.yml` at implementation time.
 
 State/report location: a user-writable runtime dir, e.g.
 `$XDG_RUNTIME_DIR/container-watch/report.json` (tmpfs, cleared on logout) with the

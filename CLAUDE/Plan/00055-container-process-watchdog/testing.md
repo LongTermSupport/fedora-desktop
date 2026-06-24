@@ -65,12 +65,20 @@ Run by `./scripts/qa-all.bash` plus the extension/compat gates (`CLAUDE/QA.md`):
 - `python3 -m helpers.gnome.check_extension_compat` — the new extension's
   `metadata.json` declares the GNOME major for this branch's Fedora
   (`vars/fedora-version.yml`; F44 → GNOME 50).
-- **No-kill safety guard (static)** — a dedicated check (CI + a semgrep/grep rule)
-  asserting the core contains **no** process-termination path aimed at findings:
-  no `os.kill`, `signal.SIG*` sends, `.send_signal(`, `subprocess … kill/pkill`,
-  `Gio.Subprocess … kill`. This is a first-class success criterion (reporting-only)
-  and must fail the build if violated. Showing the human a kill *command string* in
-  `exec_hint` is allowed; the tool executing one is not.
+- **No-kill safety guard (static)** — a dedicated check asserting the core contains
+  **no** process-termination path aimed at findings: no `os.kill`, `signal.SIG*`
+  sends, `.send_signal(`, `subprocess … kill/pkill`, `Gio.Subprocess … kill`.
+  **Implementation note (resolves the "semgrep infra" gap)**: the repo's only
+  semgrep ruleset is **bash-scoped** (`.semgrep/bash-conventions.yml`, run by
+  `qa-patterns.bash` against bash only) — there is **no** Python/JS semgrep ruleset
+  wired into `qa-all.bash`. Implement this guard as a **small `grep`-based bash gate**
+  (matching the "grep rule" wording and the repo's lightweight style) over the
+  reporter Python + extension JS, wired into `qa-all.bash`. Do **not** assume a
+  Python-semgrep ruleset exists; standing one up (ruleset + self-test fixture + QA
+  wiring) is the only alternative and would need its own explicit task. This is a
+  first-class success criterion (reporting-only) and must fail the build if violated.
+  Showing the human a kill *command string* in `exec_hint` is allowed; the tool
+  executing one is not.
 
 ## 3. L1 — Unit tests over `/proc` fixtures (CI, 100% automated)
 
@@ -80,14 +88,16 @@ is a fixture `proc_root` directory with `<pid>/{cgroup,stat,status,cmdline}` fil
 
 **Attribution matrix — one fixture per row (covers §6 of context.md):**
 
-| Fixture                     | `cgroup` content (abridged)                                    | Expect engine | Expect rootless | Expect owner_uid |
-| --------------------------- | -------------------------------------------------------------- | ------------- | --------------- | ---------------- |
-| podman-rootless             | `…/user-1000.slice/…/libpod-<id>.scope/container`              | podman        | true            | 1000             |
-| podman-rootful              | `/machine.slice/libpod-<id>.scope/container`                   | podman        | false           | 0                |
-| docker-systemd-driver       | `/system.slice/docker-<id>.scope`                              | docker        | false           | 0                |
-| docker-cgroupfs-driver      | `/docker/<id>`                                                 | docker        | false           | 0                |
-| lxc-payload                 | `…/lxc.payload.<name>/…`                                       | lxc           | false           | 0                |
-| host-process (not in a ctr) | `0::/user.slice/user-1000.slice/user@1000.service/app.slice/…` | none          | n/a             | n/a              |
+| Fixture                                              | `cgroup` content (abridged)                                    | Expect engine                       | Expect rootless | Expect owner_uid |
+| ---------------------------------------------------- | -------------------------------------------------------------- | ----------------------------------- | --------------- | ---------------- |
+| podman-rootless                                      | `…/user-1000.slice/…/libpod-<id>.scope/container`              | podman                              | true            | 1000             |
+| podman-rootful                                       | `/machine.slice/libpod-<id>.scope/container`                   | podman                              | false           | 0                |
+| docker-systemd-driver                                | `/system.slice/docker-<id>.scope`                              | docker                              | false           | 0                |
+| docker-cgroupfs-driver                               | `/docker/<id>`                                                 | docker                              | false           | 0                |
+| lxc-payload                                          | `…/lxc.payload.<name>/…`                                       | lxc                                 | false           | 0                |
+| host-process (not in a ctr)                          | `0::/user.slice/user-1000.slice/user@1000.service/app.slice/…` | none                                | n/a             | n/a              |
+| unrecognised-marker (containerised, unknown runtime) | `0::/…/some-future-runtime-<id>.scope/container`               | unknown                             | n/a             | n/a              |
+| cgroup-v1 (multi-line, no `0::`)                     | `12:cpu:/…\n11:memory:/…` (no unified line)                    | (logged, unattributable — not host) | n/a             | n/a              |
 
 **Detection logic cases:**
 
@@ -96,12 +106,20 @@ is a fixture `proc_root` directory with `<pid>/{cgroup,stat,status,cmdline}` fil
   flagged (must be in a container).
 - CPU% computed correctly from two `stat` samples (fixture provides before/after
   utime+stime; assert the percentage).
+- **PID-reuse guard**: fixture where the second sample is missing (process vanished)
+  → **no finding, no crash**; fixture where the second sample's `starttime`
+  (field 22) differs from the first (PID recycled) → the delta is **discarded**, not
+  reported as a bogus `cpu_pct`.
 - age computed from `starttime` vs a fixture `btime` (no wall-clock dependency).
 - **`comm` gotcha regression test**: fixture where `comm`=`claude.exe` but
   `cmdline` argv[0]=`ugrep` → must still be enumerated/flagged (proves matching is
   cmdline-based, not comm-based). This pins the exact bug that broke triage.
-- **NSpid translation**: `status` with `NSpid:\t<host>\t<container>` → finding's
-  `container_pid` == the last field.
+- **NSpid translation**: `status` with `NSpid:\t<host>\t<container>` (two fields) →
+  finding's `container_pid` == the **second** field (first nested level).
+  - **single-field NSpid** (host process: `NSpid:\t<host>`) → `container_pid` is
+    **null/omitted, never `0`** and never equal to `host_pid`.
+  - **3-field NSpid** (nested namespaces) → `container_pid` == the **second** field
+    (the `exec`-reachable level), not the innermost last field.
 - **report schema**: emitted JSON validates against schema v1; `exec_hint` is
   engine-correct (`podman exec`/`docker exec`/`lxc-attach`) and contains the
   resolved name + container PID.
