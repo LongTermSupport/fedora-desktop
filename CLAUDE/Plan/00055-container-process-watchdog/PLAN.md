@@ -68,7 +68,12 @@ decisions.
   findings. **Guard PID reuse between the two CPU samples**: re-validate process
   identity across the ~1–3 s interval (compare `/proc/<pid>/stat` field 22
   `starttime`, or skip if the process vanished) before computing a delta — a recycled
-  PID would otherwise yield a bogus `cpu_pct`.
+  PID would otherwise yield a bogus `cpu_pct`. **Sustained-gate PID-reuse** (R5): if
+  the optional "sustained over N consecutive timer ticks" gate (§4a) is built, the
+  persisted per-PID record must include `starttime` (field 22) in its identity key —
+  PID reuse is far more likely across the minutes-apart timer firings than across the
+  ~1–3 s in-invocation samples, and a `starttime` mismatch must **reset** the
+  consecutive-hot counter, not carry it over to an innocent recycled PID.
 - [ ] ⬜ **Task 1.3**: Per-engine name resolution (rootless-Podman: native
   `podman inspect` **as the session user** under the chosen user-timer model — no
   `runuser` uid hop, which is root-only and reserved for the system-level fallback;
@@ -111,21 +116,43 @@ decisions.
   `play-speech-to-text.yml` has none. Pick the real integration point: either add
   the deploy tasks into `play-gnome-shell-extensions.yml` (always-on inline pattern)
   **or** ship an opt-in optional play; verify against `playbook-main.yml` at
-  implementation time.
+  implementation time. **Deploy-file-list rule** (`extensions/CLAUDE.md`): a new
+  extension's whole file set is new, so prefer a **recursive directory `copy:`** of
+  `{{ root_dir }}/extensions/container-watch@fedora-desktop/` (matches
+  `play-gnome-shell-extensions.yml`'s `workspace-names-overview` pattern, auto-includes
+  every file). If instead using an explicit per-file loop (like `play-speech-to-text.yml`),
+  **enumerate every file** (`extension.js` + `metadata.json` + any `prefs.js`/schemas) —
+  any file omitted from the loop silently never deploys.
 - [ ] ⬜ **Task 4.2**: (On HOST, not CCY) deploy + verify timer fires, report
   generates, panel + CLI both show a synthetic finding.
 
 ### Phase 5: Testing & acceptance (full process in [`testing.md`](testing.md))
 
 - [ ] ⬜ **Task 5.1**: L0 static — add the **no-kill safety guard** as a small
-  **`grep`-based bash gate** wired into `qa-all.bash` (asserting no
-  `os.kill`/`send_signal`/`pkill`/`Gio.Subprocess … kill` path aimed at findings).
+  **`grep`-based bash gate**. **Wiring is a structural aggregator edit, not a
+  drop-in** (R1): `qa-all.bash` is a hardcoded 6-stage pipeline (six `mktemp` vars,
+  a 6-path `trap`, six `rc=0…||rc=$?` blocks, a `jq -s` merge keyed by positional
+  index `.[0]`–`.[5]`). Adding a 7th top-level stage means editing all five points
+  (new `TMP_*` var, extended `trap`, new rc-block, new `.[6]` key, new `checks.nokill`
+  entry) — **or**, lower-risk, fold the no-kill grep into the existing
+  `qa-patterns.bash`/`qa-bash.bash` stage instead of standing up a 7th stage. The
+  grep must target **executable call sites** (`os.kill(`, `signal.SIG`,
+  `.send_signal(`, `Gio.Subprocess` `force_exit`/`send_signal`, `pkill`/`kill ` as a
+  spawned argv) and **exclude** `kill` inside `exec_hint`/guidance string literals,
+  with a self-test fixture (a benign `kill`-in-a-hint string that must PASS) mirroring
+  how `.semgrep/bash-conventions.bash` self-tests (R4).
   **Not** semgrep: the repo has no Python/JS semgrep ruleset, only the bash-scoped
   one (testing.md §2).
 - [ ] ⬜ **Task 5.2**: L1 unit — `/proc`-fixture suite covering the full attribution
   matrix (podman rootless/rootful, docker systemd+cgroupfs drivers, lxc, host),
   detection logic, schema, and the `comm`/NSpid/allowlist regression cases; wired
-  into `./scripts/qa-helper-tests.bash`.
+  into `./scripts/qa-helper-tests.bash`. **Public-repo fixture hygiene** (R3): all
+  committed fixtures (`tests/.../fixtures/proc/<pid>/cmdline`) and `--inject` sample
+  finding JSON use reserved placeholders per `CLAUDE/ExampleValues.md` (`<project-a>`,
+  `example.com` paths, synthetic container IDs) — **never** a real container name,
+  workspace path, or argv captured from an actual incident. (`report.json` itself is a
+  runtime artifact under `$XDG_RUNTIME_DIR`, never committed — the leak surface is the
+  committed fixtures, which can bypass the email/IP-shaped commit scanner.)
 - [ ] ⬜ **Task 5.3**: L2 host integration — `scripts/acceptance-container-watch.bash`:
   threshold-overridden, engine-gated, spins a throwaway CPU-burner container per
   available engine and asserts flag + attribution + `exec_hint` + NSpid + the
@@ -208,3 +235,27 @@ decisions.
     criterion (context.md §4a, Success Criteria).
   - **F12** (low): pre-resolved Task 0.4 toward the `helpers/` package + bin wrapper
     and flagged the TDD-first (tests-before-source) constraint.
+- **Audit round 2** complete — see [`plan-review-2.md`](plan-review-2.md).
+  **Converged**: all 12 round-1 findings verified resolved against repo reality, no
+  regressions, no new high/medium issues. Folded the five residual LOW
+  implementation-precision findings into the relevant tasks as one-line clarifications
+  (no further full revision round needed):
+  - **R1** (low): noted that wiring the no-kill gate into `qa-all.bash` is a
+    structural five-point aggregator edit (`TMP_*` var + `trap` path + rc-block +
+    positional `jq` `.[6]` key + `checks.nokill`), with the lower-risk option of
+    folding it into the existing `qa-patterns.bash`/`qa-bash.bash` stage (Task 5.1,
+    testing.md §2).
+  - **R2** (low): surfaced the `extensions/CLAUDE.md` deploy-file-list rule in
+    Task 4.1 — prefer a recursive directory `copy:` (auto-includes every file); if a
+    per-file loop is used, enumerate every file or it silently never deploys.
+  - **R3** (low): added public-repo fixture-hygiene note — all committed
+    fixtures + `--inject` samples use `CLAUDE/ExampleValues.md` placeholders, never a
+    real container name/workspace path/argv (Task 5.2, testing.md §3).
+  - **R4** (low): scoped the no-kill grep to executable call sites
+    (`os.kill(`/`signal.SIG`/`.send_signal(`/`Gio.Subprocess` force-exit/`pkill`),
+    excluding `kill` inside `exec_hint` guidance literals, with a self-test fixture
+    (Task 5.1, testing.md §2).
+  - **R5** (low): noted that if the optional sustained gate is built, its persisted
+    per-PID record must key on `starttime` (field 22) and reset the consecutive-hot
+    counter on mismatch — PID reuse is likelier across the minutes-apart ticks
+    (Task 1.2, context.md §4a).

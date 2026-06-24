@@ -237,7 +237,11 @@ in-invocation interval (e.g. 1–3 s), divided by elapsed clock ticks. For a
 per-PID in the state dir and require N consecutive hot readings before alerting
 (reduces false positives from short legitimate bursts like a build). Capture both;
 start simple (single-invocation sample) and add the persistent "sustained" gate if
-noisy.
+noisy. **PID-reuse across ticks**: if this persistent gate is built, the per-PID
+record must include `starttime` (stat field 22) in its identity key — across the
+minutes-apart timer firings PID reuse is far likelier than across the ~1–3 s
+in-invocation samples, so a `starttime` mismatch must **reset** the consecutive-hot
+counter rather than letting a recycled PID inherit a prior tick's hot count.
 
 **Detection latency.** Because the age gate (default 900 s) is checked on each timer
 firing, the *first* alert for a runaway lands at

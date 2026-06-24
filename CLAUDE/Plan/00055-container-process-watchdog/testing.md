@@ -73,18 +73,40 @@ Run by `./scripts/qa-all.bash` plus the extension/compat gates (`CLAUDE/QA.md`):
   `qa-patterns.bash` against bash only) — there is **no** Python/JS semgrep ruleset
   wired into `qa-all.bash`. Implement this guard as a **small `grep`-based bash gate**
   (matching the "grep rule" wording and the repo's lightweight style) over the
-  reporter Python + extension JS, wired into `qa-all.bash`. Do **not** assume a
-  Python-semgrep ruleset exists; standing one up (ruleset + self-test fixture + QA
-  wiring) is the only alternative and would need its own explicit task. This is a
-  first-class success criterion (reporting-only) and must fail the build if violated.
-  Showing the human a kill *command string* in `exec_hint` is allowed; the tool
-  executing one is not.
+  reporter Python + extension JS, wired into `qa-all.bash`. **Wiring is a structural
+  aggregator edit, not a drop-in**: `qa-all.bash` is a hardcoded 6-stage pipeline (six
+  `mktemp` vars, a 6-path `trap`, six `rc=0…||rc=$?` blocks, a `jq -s` merge keyed by
+  positional index `.[0]`–`.[5]`), so adding a 7th top-level stage touches all five
+  points (new `TMP_*` var, extended `trap`, new rc-block, new `.[6]` key, new
+  `checks.nokill` entry) — **or**, lower-risk, fold the no-kill grep into the existing
+  `qa-patterns.bash`/`qa-bash.bash` stage instead of adding a 7th stage. Do **not**
+  assume a Python-semgrep ruleset exists; standing one up (ruleset + self-test fixture
+  - QA wiring) is the only alternative and would need its own explicit task. This is a
+    first-class success criterion (reporting-only) and must fail the build if violated.
+    Showing the human a kill *command string* in `exec_hint` is allowed; the tool
+    executing one is not. **Guard scoping (avoid self-false-positives)**: the grep
+    targets **executable call patterns** (`os.kill(`, `signal.SIG`, `.send_signal(`,
+    `Gio.Subprocess` with `force_exit`/`send_signal`, `pkill`/`kill ` as a spawned
+    argv) and **excludes** `kill` appearing inside `exec_hint`/guidance string literals
+    — otherwise the gate red-fails on the very guidance the tool prints (context.md §2c
+    shows `kill <container-pid>` as guidance text). Add a tiny **self-test fixture** (a
+    benign `kill`-in-a-hint string that must PASS) so the gate's scoping is
+    regression-guarded, mirroring how `.semgrep/bash-conventions.bash` self-tests the
+    bash ruleset.
 
 ## 3. L1 — Unit tests over `/proc` fixtures (CI, 100% automated)
 
 stdlib `unittest`, collected by `./scripts/qa-helper-tests.bash` (if the core lives
 under `helpers/`, tests go in `tests/helpers/containerwatch/test_*.py`). Each case
 is a fixture `proc_root` directory with `<pid>/{cgroup,stat,status,cmdline}` files.
+
+> **Public-repo fixture hygiene**: every committed fixture (`<pid>/cmdline`,
+> `<pid>/cgroup`, etc.) and every `--inject` sample finding JSON uses reserved
+> placeholders per `CLAUDE/ExampleValues.md` (`<project-a>`, `example.com` paths,
+> synthetic container IDs) — **never** a real container name, workspace path, or argv
+> captured from an actual incident. A real identifier baked into a fixture cmdline
+> would leak in this world-readable repo and can slip past the email/IP-shaped commit
+> scanner.
 
 **Attribution matrix — one fixture per row (covers §6 of context.md):**
 
