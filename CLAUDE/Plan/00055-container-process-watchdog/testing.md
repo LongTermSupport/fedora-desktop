@@ -150,7 +150,7 @@ is a fixture `proc_root` directory with `<pid>/{cgroup,stat,status,cmdline}` fil
 
 ## 4. L2 — Host integration acceptance script (HOST, 100% automated)
 
-A single fail-fast script, e.g. `scripts/acceptance-container-watch.bash`
+A single fail-fast script, `acceptance.bash` in this plan folder
 (host-only — **not** in the CCY container; it starts real containers). It prints a
 PASS/FAIL line per assertion and exits non-zero on any failure. It overrides
 thresholds (`CW_AGE_S=1 CW_CPU_PCT=5`) so nothing waits.
@@ -238,7 +238,7 @@ auditable.
   guard**.
 - [ ] L1 green: unit suite via `./scripts/qa-helper-tests.bash` — full attribution
   matrix (all engines) + detection + schema + `comm`/NSpid/allowlist cases.
-- [ ] L2 green: `scripts/acceptance-container-watch.bash` PASS for every **present**
+- [ ] L2 green: `acceptance.bash` (this plan folder) PASS for every **present**
   engine, incl. the behavioural **safety** assert (process survives) and DBus +
   systemd checks; no stray test containers left.
 - [ ] L3 confirmed: GNOME panel/notification visual pass (5a) + one real guided

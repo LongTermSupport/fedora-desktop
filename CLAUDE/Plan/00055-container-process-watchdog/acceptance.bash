@@ -101,7 +101,12 @@ need jq
 need timeout
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# This script lives in its plan folder (CLAUDE/Plan/NNNNN-*/), not at repo root,
+# so resolve the repo root via git rather than a fixed parent-dir hop.
+if ! REPO_ROOT="$(cd "$SCRIPT_DIR" && git rev-parse --show-toplevel 2>&1)"; then
+    echo "Cannot locate repo root (not a git checkout?): $REPO_ROOT" >&2
+    exit 1
+fi
 
 # Resolve the CLI robustly: prefer the deployed wrapper on PATH; else the module
 # form. CW[] is the argv prefix every invocation reuses.

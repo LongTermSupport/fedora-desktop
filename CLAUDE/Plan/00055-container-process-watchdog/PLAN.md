@@ -144,8 +144,14 @@ decisions.
   every file). If instead using an explicit per-file loop (like `play-speech-to-text.yml`),
   **enumerate every file** (`extension.js` + `metadata.json` + any `prefs.js`/schemas) —
   any file omitted from the loop silently never deploys.
-- [ ] ⬜ **Task 4.2**: (On HOST, not CCY) deploy + verify timer fires, report
-  generates, panel + CLI both show a synthetic finding.
+- [ ] 🔄 **Task 4.2**: (On HOST, not CCY) deploy + verify. Use the plan-local
+  `deploy.bash` (runs the play) then `triage.bash` (forces a scan, shows the timer
+  schedule + findings). **Partially confirmed on HOST**: deploy succeeded, the
+  `container-watch.timer` is registered and has fired, the oneshot service runs, and
+  `container-watch status`/`list` work (`OK — 0 findings`, the healthy steady state).
+  **Still to confirm**: panel + notification react to a finding (drive via
+  `container-watch scan --inject` per `testing-checklist.md`), i.e. the L3 visual
+  pass and the L2 `acceptance.bash` run on the HOST.
 
 ### Phase 5: Testing & acceptance (full process in [`testing.md`](testing.md))
 
@@ -184,7 +190,7 @@ decisions.
   workspace path, or argv captured from an actual incident. (`report.json` itself is a
   runtime artifact under `$XDG_RUNTIME_DIR`, never committed — the leak surface is the
   committed fixtures, which can bypass the email/IP-shaped commit scanner.)
-- [x] ✅ **Task 5.3**: L2 host integration — `scripts/acceptance-container-watch.bash`
+- [x] ✅ **Task 5.3**: L2 host integration — `acceptance.bash` (in this plan folder)
   written (threshold-overridden `CW_AGE_S=1 CW_CPU_PCT=5`, engine-gated, spins a
   throwaway CPU-burner per available engine and asserts flag + attribution +
   `exec_hint` + NSpid + the behavioural **safety** assert (burner survives) +
@@ -341,7 +347,7 @@ decisions.
 
 ### 2026-06-24 (implementation — Phase 5 L2 + L3 authored; all in-container work done)
 
-- **Phase 5 L2**: `scripts/acceptance-container-watch.bash` — host-only,
+- **Phase 5 L2**: `acceptance.bash` (in this plan folder) — host-only,
   engine-gated, fail-fast acceptance test (burner per engine, full assertion set
   incl. the behavioural survive-assert, allowlist, DBus, `systemd-analyze --user verify`, trap cleanup). `bash -n` + shellcheck clean; in `qa-all.bash` bash gate.
 - **Phase 5 L3**: `testing-checklist.md` — numbered nested-GNOME visual checklist
@@ -353,6 +359,23 @@ decisions.
   **In Progress** because the remaining work is HOST-only and cannot run in this
   container: **Task 4.2** (`ansible-playbook play-container-watch.yml`, then confirm
   the timer fires + panel/CLI show a finding) and the **HOST execution** of L2
-  (`scripts/acceptance-container-watch.bash`) and L3 (`testing-checklist.md`). Once
+  (`acceptance.bash`) and L3 (`testing-checklist.md`). Once
   those pass on the HOST, mark Task 4.2 ✅, set the plan Complete, and move it to
   `CLAUDE/Plan/Completed/`.
+
+### 2026-06-24 (HOST deploy confirmed + plan-local-scripts convention)
+
+- **Deployed on HOST**: `deploy.bash` ran the play cleanly; `container-watch.timer`
+  is registered and has fired; the oneshot service runs; `container-watch status`/`list` return `OK — 0 findings` (correct healthy state — no runaway
+  containers present). Task 4.2 moved to 🔄 (deploy/timer/CLI confirmed; panel +
+  acceptance run still pending on HOST).
+- **New convention — plan-local scripts (set in stone)**: the L2 script was
+  relocated `scripts/acceptance-container-watch.bash` →
+  `acceptance.bash` (this folder), and `deploy.bash` + `triage.bash` were added
+  here. Transient, plan-specific scripts/artifacts now live in the plan folder, not
+  the repo root; only persistently-useful tooling (e.g. the permanent
+  `scripts/qa-nokill-containerwatch.bash` gate, the `tests/helpers/containerwatch/`
+  regression suite) stays in its normal home. The rule is encoded in
+  `CLAUDE/PlanWorkflow.md` and `CLAUDE/Plan/CLAUDE.md`. All three plan scripts
+  resolve the repo root via `git rev-parse --show-toplevel` and pass `bash -n` +
+  shellcheck (error-level).

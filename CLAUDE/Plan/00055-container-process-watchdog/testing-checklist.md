@@ -7,7 +7,7 @@ react, and was the guidance usable?* Everything else is covered by L0/L1/L2.
 
 > **Prerequisite**: L0 (`./scripts/qa-all.bash`, ESLint, `check_extension_compat`,
 > the no-kill guard), L1 (`./scripts/qa-helper-tests.bash`), and L2
-> (`./scripts/acceptance-container-watch.bash`) are all green. This checklist is
+> (`acceptance.bash` in this plan folder) are all green. This checklist is
 > the **final** gate, run only after the automated layers pass.
 
 > **Public-repo note**: every identifier below is a reserved placeholder
