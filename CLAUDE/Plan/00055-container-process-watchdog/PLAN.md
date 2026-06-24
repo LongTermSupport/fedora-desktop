@@ -184,14 +184,17 @@ decisions.
   workspace path, or argv captured from an actual incident. (`report.json` itself is a
   runtime artifact under `$XDG_RUNTIME_DIR`, never committed — the leak surface is the
   committed fixtures, which can bypass the email/IP-shaped commit scanner.)
-- [ ] ⬜ **Task 5.3**: L2 host integration — `scripts/acceptance-container-watch.bash`:
-  threshold-overridden, engine-gated, spins a throwaway CPU-burner container per
-  available engine and asserts flag + attribution + `exec_hint` + NSpid + the
-  behavioural **safety** assert (burner survives) + allowlist + DBus + systemd;
-  trap-cleans all `cw-test-*` containers.
-- [ ] ⬜ **Task 5.4**: L3 human — scripted nested-GNOME visual check (panel +
-  notification + dedupe, driven by `scan --inject`) plus one real guided-resolution
-  walkthrough; captured as a numbered `testing-checklist.md`.
+- [x] ✅ **Task 5.3**: L2 host integration — `scripts/acceptance-container-watch.bash`
+  written (threshold-overridden `CW_AGE_S=1 CW_CPU_PCT=5`, engine-gated, spins a
+  throwaway CPU-burner per available engine and asserts flag + attribution +
+  `exec_hint` + NSpid + the behavioural **safety** assert (burner survives) +
+  allowlist + DBus + systemd; trap-cleans all `cw-test-*`). `bash -n` + shellcheck
+  clean. **Execution is HOST-only** (it starts real containers + a session bus) —
+  run it on the HOST as the gating acceptance step (pending, part of Task 4.2).
+- [x] ✅ **Task 5.4**: L3 human — `testing-checklist.md` written: numbered
+  nested-GNOME visual checks (panel attention state + notification + dedupe, driven
+  by `scan --inject`) plus the real guided-resolution walkthrough and a run-record
+  table. **Execution is HOST-only** (nested GNOME Shell) — pending on the HOST.
 
 ## Dependencies
 
@@ -335,3 +338,21 @@ decisions.
 - Built via parallel opus agents (frozen-contract hand-off), then integrated and
   re-verified here. Remaining: Phase 4.2 (HOST deploy/verify), Phase 5 L2
   acceptance script + L3 checklist.
+
+### 2026-06-24 (implementation — Phase 5 L2 + L3 authored; all in-container work done)
+
+- **Phase 5 L2**: `scripts/acceptance-container-watch.bash` — host-only,
+  engine-gated, fail-fast acceptance test (burner per engine, full assertion set
+  incl. the behavioural survive-assert, allowlist, DBus, `systemd-analyze --user verify`, trap cleanup). `bash -n` + shellcheck clean; in `qa-all.bash` bash gate.
+- **Phase 5 L3**: `testing-checklist.md` — numbered nested-GNOME visual checklist
+  - guided-resolution walkthrough + run-record table (reserved placeholders, no
+    time estimates).
+- **Status**: every task that can be done inside the CCY container is complete and
+  verified — `qa-all.bash` (341 files), `qa-helper-tests.bash` (148 tests), ESLint,
+  `check_extension_compat`, and the no-kill gate are all green. The plan stays
+  **In Progress** because the remaining work is HOST-only and cannot run in this
+  container: **Task 4.2** (`ansible-playbook play-container-watch.yml`, then confirm
+  the timer fires + panel/CLI show a finding) and the **HOST execution** of L2
+  (`scripts/acceptance-container-watch.bash`) and L3 (`testing-checklist.md`). Once
+  those pass on the HOST, mark Task 4.2 ✅, set the plan Complete, and move it to
+  `CLAUDE/Plan/Completed/`.
