@@ -370,15 +370,30 @@ run_lxc_block() {
     fi
     pass "$engine: started container '$burner'"
 
-    # Launch the bounded spinner inside the container (detached).
+    # Launch the bounded spinner inside the container, fully DETACHED. A plain
+    # `... &` job under lxc-attach is fragile: the backgrounded process keeps the
+    # attach pipe's stdout fd open (so this command substitution would stall until
+    # the burner's TTL elapsed), and it can be torn down with the attach session.
+    # Redirecting its stdio to a log file inside the container frees the pipe (this
+    # returns immediately), and `nohup` makes it ignore the session SIGHUP so it
+    # survives lxc-attach exiting and is reparented to the container init.
     if ! out="$(sudo lxc-attach -n "$burner" -- sh -c \
-            "timeout $BURNER_TTL_S sh -c 'while :; do :; done & while :; do :; done & wait' &" 2>&1)"; then
+            "nohup timeout $BURNER_TTL_S sh -c 'while :; do :; done & while :; do :; done & wait' >/tmp/cw-burn.log 2>&1 &" 2>&1)"; then
         echo "  note: lxc-attach spinner launch reported: $out" >&2
     fi
-    sleep 2
 
-    if ! gt_pids="$(sudo lxc-attach -n "$burner" -- pgrep -f 'while' 2>&1)"; then
-        fail "$engine: could not read ground-truth in-container PID: $gt_pids"
+    # Ground truth: the in-container spinner PID(s). The system-container init plus
+    # nohup detach can lag a beat, so retry a few times before giving up.
+    gt_pids=""
+    for _ in 1 2 3 4 5 6; do
+        sleep 1
+        if gt_pids="$(sudo lxc-attach -n "$burner" -- pgrep -f 'while' 2>&1)" && [ -n "$gt_pids" ]; then
+            break
+        fi
+        gt_pids=""
+    done
+    if [ -z "$gt_pids" ]; then
+        fail "$engine: could not read ground-truth in-container PID (spinner did not start or detach)"
         return 0
     fi
     gt_in_pid="$(printf '%s\n' "$gt_pids" | head -n1)"
