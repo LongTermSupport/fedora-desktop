@@ -46,13 +46,17 @@ decisions.
 
 ### Phase 0: Decisions (resolve §8 of context.md)
 
-- [ ] ⬜ **Task 0.1**: Decide DBus emission strategy (shell-out `gdbus`/`busctl` vs
-  `gi` vs poll) to keep core stdlib-only.
-- [ ] ⬜ **Task 0.2**: Confirm CPU threshold semantics (per-core %) + default, and
-  the age default (900 s).
-- [ ] ⬜ **Task 0.3**: Confirm reporting-only (no kill path at all) + allowlist
-  config shape for legitimate long/hot jobs.
-- [ ] ⬜ **Task 0.4**: Decide core/CLI split — **pre-resolved toward `helpers/`
+- [x] ✅ **Task 0.1**: DBus via shell-out — `cli.emit_signal` runs `gdbus emit`
+  (subprocess), so the helper stays stdlib-only (no `gi`). Matches the
+  speech-to-text precedent; emission is best-effort (non-fatal if no session bus).
+- [x] ✅ **Task 0.2**: CPU is **per-single-core %** (`compute_cpu_pct`), default
+  `DEFAULT_CPU_PCT = 50`; age default `DEFAULT_AGE_S = 900`. Both env-overridable
+  (`CW_CPU_PCT`/`CW_AGE_S`) then config-overridable.
+- [x] ✅ **Task 0.3**: Reporting-only confirmed — **no** kill path anywhere in the
+  package (no `os.kill`/`send_signal`/`pkill`). Allowlist config shape settled:
+  `config.json` `{"allowlist": [{"container_name": "...", "cmd_pattern": "<glob>"}]}`
+  (`core.matches_allowlist`; both fields optional, AND when both present).
+- [x] ✅ **Task 0.4**: Decide core/CLI split — **pre-resolved toward `helpers/`
   package + thin bin wrapper**: it is the only layout that gets the rich L1 unit
   matrix into `qa-helper-tests.bash` (collected from
   `tests/helpers/containerwatch/test_*.py`), and testing.md §3 already assumes it.
@@ -62,10 +66,18 @@ decisions.
 
 ### Phase 1: Reporter core + CLI
 
-- [ ] ⬜ **Task 1.1**: `/proc` enumeration + cgroup-based container attribution
-  (engine + id/name + rootless uid), per the §6 marker table.
-- [ ] ⬜ **Task 1.2**: Age (btime) + CPU-delta sampling + threshold logic →
-  findings. **Guard PID reuse between the two CPU samples**: re-validate process
+- [x] ✅ **Task 1.1**: `/proc` enumeration + cgroup-based container attribution
+  (engine + id/name + rootless uid), per the §6 marker table —
+  `core.parse_cgroup` + `core.scan_proc_root` (cgroup-v2; v1 → `CgroupV1Error`;
+  `unknown` bucket for kubepods/cri-o). Full attribution matrix unit-tested.
+- [x] ✅ **Task 1.2**: Age (btime) + CPU-delta sampling + threshold logic →
+  findings (`core.compute_age_s`, `core.cpu_delta_pct`, `core.is_flagged`,
+  `cli.make_cpu_sampler`). **PID-reuse guard between the two CPU samples** built
+  (`starttime` re-check → `None` skip; negative delta → `None`); unit-tested. The
+  **optional sustained N-tick gate is deferred** (YAGNI — start with the
+  single-invocation sample per context.md §4a; add the persisted, `starttime`-keyed
+  per-PID gate from R5 only if real noise appears). Original guard note retained
+  below for when it is built: re-validate process
   identity across the ~1–3 s interval (compare `/proc/<pid>/stat` field 22
   `starttime`, or skip if the process vanished) before computing a delta — a recycled
   PID would otherwise yield a bogus `cpu_pct`. **Sustained-gate PID-reuse** (R5): if
@@ -74,21 +86,23 @@ decisions.
   PID reuse is far more likely across the minutes-apart timer firings than across the
   ~1–3 s in-invocation samples, and a `starttime` mismatch must **reset** the
   consecutive-hot counter, not carry it over to an innocent recycled PID.
-- [ ] ⬜ **Task 1.3**: Per-engine name resolution (rootless-Podman: native
+- [x] ✅ **Task 1.3**: Per-engine name resolution (rootless-Podman: native
   `podman inspect` **as the session user** under the chosen user-timer model — no
   `runuser` uid hop, which is root-only and reserved for the system-level fallback;
   Docker via group; LXC via sudo) + host→container PID (NSpid; only emit
   `container_pid` when attributed to a container **and** NSpid has ≥2 fields — see
   Task 1.3 NSpid notes / context.md §2c) + `exec_hint`.
-- [ ] ⬜ **Task 1.4**: Emit `report.json` (atomic) + human report + DBus signal.
-- [ ] ⬜ **Task 1.5**: CLI subcommands: `scan`, `status`, `list`, `explain`,
-  `watch`.
-- [ ] ⬜ **Task 1.6**: Build the **test seams** (required by [`testing.md`](testing.md) §1):
-  injectable `proc_root`, env-overridable thresholds (`CW_AGE_S`/`CW_CPU_PCT`),
-  stubbable name-resolver, `scan --once --json`, `scan --inject <finding>`, and an
-  engine-presence probe.
-- [ ] ⬜ **Task 1.7**: Run QA: `./scripts/qa-all.bash` (+ `qa-helper-tests.bash`
-  if a helper package is added).
+- [x] ✅ **Task 1.4**: Emit `report.json` (atomic `tmp`+`os.replace` to
+  `$XDG_RUNTIME_DIR/container-watch/`) + human report (`render_list`/`render_explain`)
+  - DBus `FindingsChanged` signal (`cli.emit_signal`, non-fatal).
+- [x] ✅ **Task 1.5**: CLI subcommands `scan`/`status`/`list`/`explain`/`watch`
+  (`cli.build_parser`); smoke-tested end-to-end via the `--inject` seam.
+- [x] ✅ **Task 1.6**: Test seams built — injectable `proc_root`
+  (`CW_PROC_ROOT` env / `scan_proc_root` arg), env thresholds
+  (`CW_AGE_S`/`CW_CPU_PCT`), stubbable name-resolver + cpu-sampler callables,
+  `scan --json`, `scan --inject <file|empty>`, and `cli.engine_available` probe.
+- [x] ✅ **Task 1.7**: QA green — `./scripts/qa-all.bash` (334 files) and
+  `./scripts/qa-helper-tests.bash` (148 tests incl. 60 new containerwatch tests).
 
 ### Phase 2: systemd timer
 
@@ -143,10 +157,13 @@ decisions.
   how `.semgrep/bash-conventions.bash` self-tests (R4).
   **Not** semgrep: the repo has no Python/JS semgrep ruleset, only the bash-scoped
   one (testing.md §2).
-- [ ] ⬜ **Task 5.2**: L1 unit — `/proc`-fixture suite covering the full attribution
-  matrix (podman rootless/rootful, docker systemd+cgroupfs drivers, lxc, host),
-  detection logic, schema, and the `comm`/NSpid/allowlist regression cases; wired
-  into `./scripts/qa-helper-tests.bash`. **Public-repo fixture hygiene** (R3): all
+- [x] ✅ **Task 5.2**: L1 unit — `/proc`-fixture suite covering the full attribution
+  matrix (podman rootless/rootful, docker systemd+cgroupfs drivers, lxc, host,
+  **unknown**), detection logic, schema, and the `comm`/NSpid/allowlist/PID-reuse
+  regression cases; wired into `./scripts/qa-helper-tests.bash`
+  (`tests/helpers/containerwatch/test_core.py` + `test_cli.py`, 60 tests). Fixtures
+  built in-memory with reserved placeholders — no committed `fixtures/` tree, so no
+  real argv/paths land in git. **Public-repo fixture hygiene** (R3): all
   committed fixtures (`tests/.../fixtures/proc/<pid>/cmdline`) and `--inject` sample
   finding JSON use reserved placeholders per `CLAUDE/ExampleValues.md` (`<project-a>`,
   `example.com` paths, synthetic container IDs) — **never** a real container name,
@@ -259,3 +276,26 @@ decisions.
     per-PID record must key on `starttime` (field 22) and reset the consecutive-hot
     counter on mismatch — PID reuse is likelier across the minutes-apart ticks
     (Task 1.2, context.md §4a).
+
+### 2026-06-24 (implementation — Phase 0, 1 + Phase 5 L1)
+
+- **Phase 0 decisions all resolved** in code: DBus via `gdbus` subprocess
+  (stdlib-only); per-core CPU% default 50, age default 900 s, both env- then
+  config-overridable; reporting-only (zero kill paths); `helpers/containerwatch`
+  package + `~/.local/bin/container-watch` wrapper.
+- **Phase 1 complete**: `helpers/containerwatch/core.py` (pure attribution +
+  detection + schema + NSpid + exec_hint + allowlist + PID-reuse-guarded
+  `cpu_delta_pct`) and `helpers/containerwatch/cli.py` (real `/proc` scan, engine
+  name resolution, atomic `report.json`, `gdbus` emit, `scan/status/list/explain/watch`
+  subcommands, the `--inject`/`CW_PROC_ROOT`/threshold-env test seams). Bin wrapper
+  `files/home/.local/bin/container-watch` mirrors the `github-ssh-443` /
+  `ccy-helpers` deploy pattern.
+- **Phase 5 L1 complete**: 60 stdlib-`unittest` tests
+  (`tests/helpers/containerwatch/test_core.py` + `test_cli.py`) cover the full
+  attribution matrix, detection gates, schema, and the `comm`/NSpid/allowlist/
+  PID-reuse regressions. `qa-all.bash` (334 files) and `qa-helper-tests.bash`
+  (148 tests) both green.
+- **Optional sustained gate deferred** (YAGNI) — single-invocation CPU sample
+  ships first; R5's persisted `starttime`-keyed gate added later only if noisy.
+- Remaining: Phase 2 (systemd user units), Phase 3 (GNOME extension), Phase 4
+  (Ansible play), Phase 5 L0 no-kill gate / L2 acceptance script / L3 checklist.

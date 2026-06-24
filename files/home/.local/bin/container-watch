@@ -1,0 +1,21 @@
+#!/bin/bash
+# container-watch — reporting-only watchdog for long-running, CPU-pinned
+# container processes (Plan 00055). Thin wrapper around the unit-tested helper
+# in helpers/containerwatch/cli.py, which play-container-watch.yml deploys to
+# /usr/local/lib/ccy-helpers/. The helper is the single source of truth; the
+# systemd --user timer calls `container-watch scan`, and a human uses the other
+# subcommands. The tool NEVER kills or throttles — it attributes the offender to
+# its container and prints the exact command to inspect it INSIDE that container.
+#
+# Usage:
+#   container-watch scan [--once] [--json] [--inject FILE|empty] [--interval S]
+#   container-watch status                # one-line summary (reads report.json)
+#   container-watch list                  # table of current findings
+#   container-watch explain <host_pid>    # full detail + in-container exec hint
+#   container-watch watch [--interval S]  # live-refresh loop for the terminal
+#
+# Runs as the invoking user (the rootless-Podman owning uid), so `podman inspect`
+# resolves that user's containers natively. Detection reads world-readable /proc,
+# so it also sees root-owned Docker/LXC processes.
+set -euo pipefail
+exec env PYTHONPATH=/usr/local/lib/ccy-helpers python3 -m helpers.containerwatch.cli "$@"
