@@ -81,6 +81,18 @@ elif [[ $rc -ne 0 ]]; then
     FAILED=$((FAILED + 1))
 fi
 
+# L0 no-kill safety gate (Plan 00055): the container-watch watchdog is
+# reporting-only and must never gain a process-termination call site. This is a
+# minimal, non-structural HARD gate — deliberately NOT a 7th jq-merged stage, so
+# it cannot corrupt the positional .[0]..[5] JSON merge below. It fails the whole
+# run immediately if a forbidden kill call site is introduced.
+nokill_out=""
+if ! nokill_out="$(bash "$SCRIPT_DIR/qa-nokill-containerwatch.bash" 2>&1)"; then
+    echo "$nokill_out" >&2
+    echo "✗ QA FAILED: no-kill safety gate (container-watch) rejected a process-termination call site" >&2
+    exit 1
+fi
+
 # Merge JSON from all checks
 STATUS="pass"
 [[ $FAILED -gt 0 ]] && STATUS="fail"

@@ -106,8 +106,9 @@ decisions.
 
 ### Phase 2: systemd timer
 
-- [ ] ⬜ **Task 2.1**: `container-watch.service` (oneshot) + `.timer` (default
-  2 min) user units. **This is the repo's first `.timer`** (only `.service` user
+- [x] ✅ **Task 2.1**: `container-watch.service` (oneshot) + `.timer` (default
+  2 min) user units created under
+  `files/home/.config/systemd/user/`. **This is the repo's first `.timer`** (only `.service` user
   units exist today, e.g. qobuz `rescrobbled.service`) — so: model the `.service` on
   qobuz's `copy: content:` pattern; enable the **`.timer`** (not the `.service`) with
   `ansible.builtin.systemd: scope: user, enabled: yes, state: started, daemon_reload: true`, `WantedBy=timers.target`; verify with
@@ -115,15 +116,21 @@ decisions.
 
 ### Phase 3: GNOME Shell extension
 
-- [ ] ⬜ **Task 3.1**: Panel indicator + DBus listener + notification + finding
-  menu with copyable `exec_hint`.
-- [ ] ⬜ **Task 3.2**: `metadata.json` with correct `shell-version`; pass
-  `python3 -m helpers.gnome.check_extension_compat`.
-- [ ] ⬜ **Task 3.3**: ESLint clean (`extensions/node_modules/.bin/eslint`).
+- [x] ✅ **Task 3.1**: Panel indicator (neutral/attention) + session-bus
+  `FindingsChanged` listener (re-reads `report.json` as the source of truth) +
+  new-finding notification (deduped on `host_pid:container_id`) + per-finding menu
+  item that copies the `exec_hint` to the clipboard + 60 s poll fallback + full
+  `disable()` cleanup. `extensions/container-watch@fedora-desktop/extension.js`.
+- [x] ✅ **Task 3.2**: `metadata.json` declares `shell-version`
+  `["45"…"50"]`; `python3 -m helpers.gnome.check_extension_compat` passes
+  (F44 → GNOME 50 covered).
+- [x] ✅ **Task 3.3**: ESLint clean
+  (`extensions/node_modules/.bin/eslint container-watch@fedora-desktop/extension.js`
+  → 0 findings; async-only, no blocking calls).
 
 ### Phase 4: Ansible deployment
 
-- [ ] ⬜ **Task 4.1**: `play-container-watch.yml` deploys files (copy extension
+- [x] ✅ **Task 4.1**: `play-container-watch.yml` deploys files (copy extension
   from `{{ root_dir }}/extensions/container-watch@fedora-desktop/` like
   `play-speech-to-text.yml`), enables the user timer + extension. **Wiring**: do
   **not** assume a `playbook-main.yml` import — the comparable
@@ -142,9 +149,16 @@ decisions.
 
 ### Phase 5: Testing & acceptance (full process in [`testing.md`](testing.md))
 
-- [ ] ⬜ **Task 5.1**: L0 static — add the **no-kill safety guard** as a small
-  **`grep`-based bash gate**. **Wiring is a structural aggregator edit, not a
-  drop-in** (R1): `qa-all.bash` is a hardcoded 6-stage pipeline (six `mktemp` vars,
+- [x] ✅ **Task 5.1**: L0 static — `scripts/qa-nokill-containerwatch.bash` greps
+  `helpers/containerwatch/*.py` + the extension JS for executable termination
+  call sites (`os.kill(`/`signal.SIG`/`.send_signal(`/`force_exit`/spawned
+  `kill`/`pkill`), excludes `kill` inside guidance/`exec_hint` literals, and
+  self-tests both directions (`--self-test`). Wired into `qa-all.bash` as a
+  minimal **hard gate** before the `jq` merge (not a 7th positional stage), so it
+  can't corrupt the `.[0]`…`.[5]` merge. Gate + self-test green on current code.
+  The chosen "minimal hard gate before the merge" follows the R1 analysis (a 7th
+  positional stage was deliberately avoided). Original design notes for reference:
+  **Wiring is a structural aggregator edit, not a drop-in** (R1): `qa-all.bash` is a hardcoded 6-stage pipeline (six `mktemp` vars,
   a 6-path `trap`, six `rc=0…||rc=$?` blocks, a `jq -s` merge keyed by positional
   index `.[0]`–`.[5]`). Adding a 7th top-level stage means editing all five points
   (new `TMP_*` var, extended `trap`, new rc-block, new `.[6]` key, new `checks.nokill`
@@ -299,3 +313,25 @@ decisions.
   ships first; R5's persisted `starttime`-keyed gate added later only if noisy.
 - Remaining: Phase 2 (systemd user units), Phase 3 (GNOME extension), Phase 4
   (Ansible play), Phase 5 L0 no-kill gate / L2 acceptance script / L3 checklist.
+
+### 2026-06-24 (implementation — Phases 2, 3, 4 + Phase 5 L0)
+
+- **Phase 2**: `files/home/.config/systemd/user/container-watch.{service,timer}`
+  (oneshot `ExecStart=%h/.local/bin/container-watch scan`; timer `OnBootSec`/
+  `OnUnitActiveSec=2min`, `WantedBy=timers.target`) — the repo's first `.timer`.
+- **Phase 3**: `extensions/container-watch@fedora-desktop/{metadata.json,extension.js}`
+  — thin read-only panel front-end; `FindingsChanged` signal is a re-read trigger,
+  `report.json` is the source of truth; new-finding notifications deduped on
+  `host_pid:container_id`; per-finding clipboard-copy of `exec_hint`; async file
+  reads only. ESLint clean; `check_extension_compat` green (GNOME 50).
+- **Phase 4**: `playbooks/imports/optional/common/play-container-watch.yml` —
+  standalone/opt-in (NOT imported into `playbook-main.yml`), deploys the helper to
+  `/usr/local/lib/ccy-helpers`, the wrapper, both user units, and the extension
+  (recursive dir copy), enables the user **timer** + extension behind session
+  probes. `ansible-playbook --syntax-check` clean (2.19 hazards avoided).
+- **Phase 5 L0**: `scripts/qa-nokill-containerwatch.bash` + `qa-all.bash` hard-gate
+  wiring (see Task 5.1). `qa-all.bash` green over 339 files; `qa-helper-tests.bash`
+  148 tests green.
+- Built via parallel opus agents (frozen-contract hand-off), then integrated and
+  re-verified here. Remaining: Phase 4.2 (HOST deploy/verify), Phase 5 L2
+  acceptance script + L3 checklist.

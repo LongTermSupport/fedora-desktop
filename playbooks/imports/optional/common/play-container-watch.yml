@@ -1,0 +1,183 @@
+#!/usr/bin/env ansible-playbook
+---
+# Container Process Watchdog (reporting-only)
+#
+# Deploys the containerwatch helper, its CLI wrapper, the systemd --user timer
+# that runs periodic scans, and the GNOME Shell panel extension that surfaces the
+# findings report. This is a REPORTING-ONLY watchdog: it never kills or throttles
+# any process, it only writes a report.json + emits a DBus signal.
+#
+# Standalone / opt-in play (like play-speech-to-text.yml) — deliberately NOT
+# imported from playbook-main.yml. Run it directly:
+#   ./playbooks/imports/optional/common/play-container-watch.yml
+- hosts: desktop
+  name: Container Process Watchdog
+  become: true
+  vars:
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    extension_name: container-watch@fedora-desktop
+    extension_src: "{{ root_dir }}/extensions/{{ extension_name }}"
+    extension_dest: "/home/{{ user_login }}/.local/share/gnome-shell/extensions/{{ extension_name }}"
+  tasks:
+    # =========================================================================
+    # Helper library (ccy-helpers shared lib, imported as helpers.containerwatch)
+    # =========================================================================
+    - name: Ensure ccy-helpers containerwatch library directory exists
+      ansible.builtin.file:
+        path: /usr/local/lib/ccy-helpers/helpers/containerwatch
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Deploy containerwatch helper modules
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/helpers/containerwatch/{{ item }}"
+        dest: "/usr/local/lib/ccy-helpers/helpers/containerwatch/{{ item }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop:
+        - core.py
+        - cli.py
+
+    # =========================================================================
+    # CLI wrapper (~/.local/bin)
+    # =========================================================================
+    - name: Ensure user local bin directory exists
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.local/bin"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+
+    - name: Deploy container-watch CLI wrapper
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/container-watch"
+        dest: "/home/{{ user_login }}/.local/bin/container-watch"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+
+    # =========================================================================
+    # systemd --user units (service + timer)
+    # =========================================================================
+    - name: Ensure user systemd unit directory exists
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.config/systemd/user"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+
+    - name: Deploy container-watch user systemd units
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.config/systemd/user/{{ item }}"
+        dest: "/home/{{ user_login }}/.config/systemd/user/{{ item }}"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0644"
+      loop:
+        - container-watch.service
+        - container-watch.timer
+
+    # =========================================================================
+    # GNOME Extension (recursive directory copy — auto-includes every file)
+    # =========================================================================
+    - name: Ensure extension destination directory exists
+      ansible.builtin.file:
+        path: "{{ extension_dest }}"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+
+    - name: Deploy container-watch GNOME extension
+      ansible.builtin.copy:
+        src: "{{ extension_src }}/"
+        dest: "{{ extension_dest }}/"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0644"
+        directory_mode: "0755"
+
+    # =========================================================================
+    # Enable the user TIMER (not the service)
+    # =========================================================================
+    # The CCY container has no user systemd; the deployed HOST does. Probe for a
+    # usable user manager first, then only attempt enable when one is present.
+    - name: Probe for a usable systemd --user manager
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        cmd: systemctl --user is-system-running
+      register: user_systemd_probe
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — no user bus in CCY container is expected
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ user_login_uid | default(1000) }}"
+
+    - name: Enable and start the container-watch user timer
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.systemd:
+        name: container-watch.timer
+        scope: user
+        enabled: true
+        state: started
+        daemon_reload: true
+      when: user_systemd_probe.rc == 0
+      register: timer_enable
+      failed_when: false  # FAIL-FAST-OK: enable may fail if no active user session; timer activates on next login
+
+    - name: Container-watch timer enable deferred
+      ansible.builtin.debug:
+        msg: "Container-watch timer will be enabled on next user session start (no active systemd --user manager detected)"
+      when: user_systemd_probe.rc != 0
+
+    # =========================================================================
+    # Enable the GNOME extension (same probe/disable/enable pattern as STT play)
+    # =========================================================================
+    - name: Check if container-watch extension is currently enabled
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.shell:
+        cmd: gnome-extensions list --enabled | grep -q "{{ extension_name }}"
+      register: extension_enabled
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — extension may not be enabled yet
+
+    - name: Disable container-watch extension to force reload
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        cmd: gnome-extensions disable {{ extension_name }}
+      when: extension_enabled.rc == 0
+      register: disable_result
+      changed_when: disable_result.rc == 0
+      failed_when: false  # FAIL-FAST-OK: disable may fail if GNOME session is unavailable
+
+    - name: Wait for container-watch extension to unload
+      ansible.builtin.pause:
+        seconds: 2
+      when: extension_enabled.rc == 0
+
+    - name: Enable container-watch extension
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        cmd: gnome-extensions enable {{ extension_name }}
+      register: enable_result
+      changed_when: "'is now enabled' in enable_result.stderr or enable_result.rc == 0"
+      failed_when: false  # FAIL-FAST-OK: enable may fail if GNOME session is unavailable
+
+    - name: Container-watch extension reload complete
+      ansible.builtin.debug:
+        msg: "Container-watch extension reloaded successfully"
+      when: enable_result.rc == 0
+
+    - name: Container-watch extension enable deferred
+      ansible.builtin.debug:
+        msg: "Container-watch extension will be enabled on next GNOME session start (no active session detected)"
+      when: enable_result.rc != 0
