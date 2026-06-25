@@ -254,10 +254,18 @@ have_lxc() {
 
 # --------------------------------------------------------------------------- #
 # scan helper: run `scan --once --json`, capture stdout, fail-fast on a crash.
+#
+# --interval 0.25 shrinks the CPU sample window from the 1.0s default. The
+# sampler sleeps the interval PER aged candidate PID sequentially, so on a busy
+# host (many container processes older than CW_AGE_S=1) the default would make a
+# single scan take ~tens of seconds — long enough to outlive a test burner and
+# falsely fail the post-scan safety check. A 0.25s window still reads a
+# CPU-pinned spinner as ~100%, so detection is unaffected while the scan is ~4x
+# faster. (The deployed watchdog keeps the 1.0s default; this is a test speed-up.)
 # --------------------------------------------------------------------------- #
 scan_json() {
     local out
-    if ! out="$(cw scan --once --json 2>&1)"; then
+    if ! out="$(cw scan --once --json --interval 0.25 2>&1)"; then
         echo "  scan crashed:" >&2
         echo "$out" >&2
         return 1
@@ -431,21 +439,16 @@ run_lxc_block() {
     fi
     pass "$engine: existing container '$burner' is running"
 
-    # Launch a bounded CPU spinner DETACHED inside the container. `setsid --fork`
-    # puts it in its own session, reparented to the container init, so it is NOT a
-    # child of the host-side lxc-attach: lxc-attach returns immediately and the
-    # spinner's lifetime is owned solely by its own `timeout` (backstopped by
-    # lxc_restore's pkill). Backgrounding the lxc-attach on the host instead made
-    # the spinner die the moment that transient attach session ended — that was the
-    # SAFETY-check false failure (host attach PID gone, no in-container spinner).
-    # The spinner is silent (busy loops), so no redirect is needed.
-    if ! out="$(sudo lxc-attach -n "$burner" -- \
-            setsid --fork timeout "$BURNER_TTL_S" \
-            sh -c 'while :; do :; done & while :; do :; done & wait' 2>&1)"; then
-        fail "$engine: could not launch spinner in '$burner': $out"
-        lxc_restore "$burner" "$started_by_us"
-        return 0
-    fi
+    # Launch a bounded CPU spinner by backgrounding the lxc-attach on the HOST
+    # side, so the spinner runs in the container foreground (held by `wait` until
+    # `timeout` ends it at TTL). We deliberately do NOT detach with an in-container
+    # `setsid`/`nohup`: a minimal container may lack util-linux `setsid`, which
+    # made the spinner fail to launch at all. The host-side background reliably
+    # starts it; the generous TTL plus the short scan interval (see scan_json)
+    # keep it alive across the scan + safety check, and lxc_restore's pkill is the
+    # cleanup backstop. The spinner is silent (busy loops) → no redirect needed.
+    sudo lxc-attach -n "$burner" -- timeout "$BURNER_TTL_S" \
+        sh -c 'while :; do :; done & while :; do :; done & wait' &
     # Settle: ensure the spinner is established AND aged past CW_AGE_S before the
     # scan — a sub-second-old process is filtered by the age gate, which was the
     # flaky 0-findings cause. This settle is the deterministic fix.
