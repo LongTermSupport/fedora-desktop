@@ -1,6 +1,6 @@
 # Hooks Daemon - Active Configuration
 
-> Generated on 2026-06-13 (v3.19.0) by `generate-docs`. Regenerate: `$PYTHON -m claude_code_hooks_daemon.daemon.cli generate-docs`
+> Generated on 2026-06-25 (v3.30.0) by `generate-docs`. Regenerate: `$PYTHON -m claude_code_hooks_daemon.daemon.cli generate-docs`
 
 ## Plan Mode
 
@@ -14,7 +14,7 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 
 ## Active Handlers
 
-### PreToolUse (35 handlers)
+### PreToolUse (36 handlers)
 
 | Priority | Handler | Behavior | Description |
 |----------|---------|----------|-------------|
@@ -35,6 +35,7 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | 15 | security_antipattern | BLOCKING | Block Write/Edit of files containing security antipatterns |
 | 15 | tdd_enforcement | BLOCKING | Enforce TDD by blocking production file creation without corresponding test file |
 | 15 | worktree_file_copy | BLOCKING | Prevent copying files between worktrees and main repo |
+| 16 | root_recursion_guard | BLOCKING | Block recursive scanners (grep -r, find, fd, rg, ...) rooted at ``/``/home/etc |
 | 20 | git_stash | BLOCKING | Block or warn about git stash based on mode configuration |
 | 30 | plan_number_helper | ADVISORY | Detect bash commands attempting to discover plan numbers and provide correct answer |
 | 30 | qa_suppression | BLOCKING | Block QA suppression comments across all supported languages |
@@ -54,7 +55,7 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | 57 | daemon_docs_guard | ADVISORY | Warn when reading from the hooks-daemon internal CLAUDE/ docs directory |
 | 60 | british_english | ADVISORY | Warn about American English spellings in content files (non-blocking) |
 
-### PostToolUse (6 handlers)
+### PostToolUse (8 handlers)
 
 | Priority | Handler | Behavior | Description |
 |----------|---------|----------|-------------|
@@ -63,6 +64,8 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | 25 | lint_on_edit | NON-TERMINAL | Run language-aware lint validation on files after Write/Edit |
 | 26 | markdown_table_formatter | NON-TERMINAL | Auto-format markdown tables after Write/Edit of .md files |
 | 27 | git_hooks_executable_fixer | NON-TERMINAL | Detect git's "not set as executable" hint and fix the hooks automatically |
+| 28 | background_process_tracker | ADVISORY | Track backgrounded Bash processes and advise on watchdog/harvest (never kills) |
+| 30 | recovery_cron_advisor | ADVISORY | Advisory handler that manages failsafe recovery cron across plan lifecycle |
 | 50 | bash_error_detector | ADVISORY | Detect errors and warnings in Bash command output |
 
 ### SessionStart (8 handlers)
@@ -70,7 +73,7 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | Priority | Handler | Behavior | Description |
 |----------|---------|----------|-------------|
 | 5 | hello_world_session_start | NON-TERMINAL | Simple test handler that confirms SessionStart hook is working |
-| 40 | yolo_container_detection | ADVISORY | Detects YOLO container environments using multi-tier confidence scoring |
+| 40 | yolo_container_detection | ADVISORY | Detects YOLO container environments using precise OS-level container markers |
 | 51 | hook_registration_checker | ADVISORY | Validate hook registrations in Claude Code settings on session start |
 | 52 | optimal_config_checker | ADVISORY | Check Claude Code environment for optimal configuration on session start |
 | 53 | git_filemode_checker | ADVISORY | Warn when git core.fileMode=false is detected |
@@ -136,10 +139,11 @@ The redirect handler intercepts `~/.claude/plans/` writes as a safety net only.
 | 10 | subagent_completion_logger | NON-TERMINAL | Log subagent completion events to a JSONL file |
 | 20 | remind_prompt_library | ADVISORY | Remind to capture successful prompts to the library |
 
-### Status (10 handlers)
+### Status (11 handlers)
 
 | Priority | Handler | Behavior | Description |
 |----------|---------|----------|-------------|
+| 4 | environment_indicator | NON-TERMINAL | Show 💻 (desktop/host) or a container icon (🐳 docker / 📦 podman / 🧊 lxc) |
 | 5 | git_repo_name | NON-TERMINAL | Show git repository name at start of status line |
 | 6 | account_display | NON-TERMINAL | Display Claude account username in status line |
 | 10 | model_context | NON-TERMINAL | Format model name with effort level and color-coded context percentage |

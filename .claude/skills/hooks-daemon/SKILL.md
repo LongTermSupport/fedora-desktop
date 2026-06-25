@@ -1,7 +1,7 @@
 ---
 name: hooks-daemon
 description: Manage Claude Code Hooks Daemon - install, upgrade, check health, restart, and develop project-level handlers
-argument-hint: "[install|upgrade|health|restart|check|dev-handlers|logs] [args...]"
+argument-hint: "[install|upgrade|health|restart|check|dev-handlers|regen-docs|logs|release-notes] [args...]"
 disable-model-invocation: false
 user-invocable: true
 allowed-tools: Bash, Read, Write, Edit
@@ -47,6 +47,26 @@ See [upgrade.md](upgrade.md) for detailed upgrade documentation.
 The daemon caches config at startup — restart picks up any config or handler changes.
 
 See [restart.md](restart.md) for details.
+
+### Regenerate Generated Docs
+
+Force-regenerate the daemon's generated documentation **without restarting**:
+
+```bash
+/hooks-daemon regen-docs
+```
+
+Rewrites both generated artifacts to their canonical form in one shot:
+
+- `.claude/HOOKS-DAEMON.md` — the active-handler summary.
+- The `<hooksdaemon>` guidance block inside your project `CLAUDE.md`.
+
+This is the explicit way to recover both files after a **git merge/rebase conflict**
+left them stale or conflict-marked — run it, then stage the clean result. (A normal
+`restart` also refreshes these, but `regen-docs` does it as a one-shot with no daemon
+bounce.)
+
+See [regen-docs.md](regen-docs.md) for details.
 
 ### Check Health & Status
 
@@ -97,6 +117,24 @@ Generate a detailed investigation report with timeline, evidence, and analysis:
 The report is saved to `./untracked/hooks-daemon-{description}.md` for sharing with maintainers.
 
 See [report.md](report.md) for details.
+
+### Read Release Notes
+
+Show the daemon's release notes without leaving the terminal. With no flag it
+shows the notes for the version you currently have installed:
+
+```bash
+/hooks-daemon release-notes                       # installed version's notes
+/hooks-daemon release-notes --latest              # newest available version
+/hooks-daemon release-notes --version 3.27.0      # a specific version
+/hooks-daemon release-notes --from 3.20.0 --to 3.27.0   # everything you gained upgrading
+/hooks-daemon release-notes --list                # list available versions
+/hooks-daemon release-notes --version 3.27.0 --format json
+```
+
+Notes are read from the per-version `RELEASES/vX.Y.Z.md` files that ship with
+the install — no network access required. `--from` is exclusive and `--to` is
+inclusive, matching the upgrade semantics (the notes for everything you gained).
 
 ## Quick Start
 
@@ -165,7 +203,12 @@ case "$SUBCOMMAND" in
         cat "$SKILL_DIR/report.md" | sed "s/\$ARGUMENTS/$*/"
         ;;
 
-    logs|status|restart|handlers|validate-config|bug-report|check)
+    regen-docs|regenerate-docs)
+        # User-facing alias regen-docs maps to the CLI command regenerate-docs.
+        bash "$SKILL_DIR/scripts/daemon-cli.sh" regenerate-docs "$@"
+        ;;
+
+    logs|status|restart|handlers|validate-config|bug-report|check|release-notes)
         # Forward to daemon CLI wrapper
         bash "$SKILL_DIR/scripts/daemon-cli.sh" "$SUBCOMMAND" "$@"
         ;;
@@ -177,6 +220,7 @@ case "$SUBCOMMAND" in
         echo "Available commands:"
         echo "  install [--force]     Install daemon (fresh clone)"
         echo "  restart               Restart daemon (required after config changes)"
+        echo "  regen-docs            Force-regenerate HOOKS-DAEMON.md + CLAUDE.md block"
         echo "  health                Check daemon health and status"
         echo "  upgrade [VERSION]     Upgrade daemon to new version"
         echo "  dev-handlers          Scaffold new project handlers"
@@ -186,6 +230,7 @@ case "$SUBCOMMAND" in
         echo "  check                 Verbose environment & configuration audit"
         echo "  bug-report DESC       Generate bug report with diagnostics"
         echo "  report DESC           Investigate an issue and generate a detailed report"
+        echo "  release-notes [opts]  Show release notes (installed version by default)"
         echo ""
         echo "After editing .claude/hooks-daemon.yaml, always run: /hooks-daemon restart"
         echo ""
