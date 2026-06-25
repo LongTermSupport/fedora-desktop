@@ -442,7 +442,22 @@ run_lxc_block() {
     count="$(printf '%s' "$json" | jq --arg n "$burner" '[.findings[] | select(.container_name == $n)] | length')"
     assert_ge "$engine: at least one finding for $burner" "$count" "1"
     if [ "$count" -lt 1 ]; then
-        printf '%s' "$json" | jq '.findings' >&2
+        # Real container + live, aged, CPU-pinned spinner but 0 findings → a genuine
+        # watchdog detection/attribution gap. Dump what it had to work with: every
+        # finding this scan, plus the host cgroup of this container's init (exactly
+        # what parse_cgroup inspects for the lxc marker) so the marker format is
+        # visible and fixable.
+        echo "  (0 findings for '$burner' — diagnosing the detection/attribution gap):" >&2
+        echo "  all findings this scan:" >&2
+        printf '%s' "$json" | jq -c '.findings[]?' >&2
+        local initpid cg
+        if initpid="$(sudo lxc-info -n "$burner" -pH 2>&1)" && [ -n "$initpid" ]; then
+            echo "  '$burner' init host PID: $initpid" >&2
+            if cg="$(sudo cat "/proc/$initpid/cgroup" 2>&1)"; then
+                echo "  /proc/$initpid/cgroup (what parse_cgroup reads for the lxc marker):" >&2
+                printf '%s\n' "$cg" >&2
+            fi
+        fi
         lxc_restore "$burner" "$started_by_us"
         return 0
     fi
