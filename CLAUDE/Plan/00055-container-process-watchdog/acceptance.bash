@@ -141,22 +141,18 @@ best_effort_rm() {
     return 0
 }
 
-# lxc_restore <name> <existing 0|1> <started_by_us 0|1>
-# Tear down the LXC test load safely. A throwaway container is destroyed; an
-# operator-nominated EXISTING container is NEVER destroyed — we stop our spinner
-# and restore its prior run-state (stop it only if we started it).
+# lxc_restore <name> <started_by_us 0|1>
+# Safely tear down the LXC test load against an operator-nominated EXISTING
+# container: stop our spinner and restore the container's prior run-state. The
+# container is NEVER created or destroyed by this script.
 lxc_restore() {
-    local name="$1" existing="$2" started="$3"
-    if [ "$existing" -eq 1 ]; then
-        best_effort_rm "stop spinner in $name" sudo lxc-attach -n "$name" -- pkill -f 'while :; do'
-        if [ "$started" -eq 1 ]; then
-            best_effort_rm "lxc-stop $name (restore prior STOPPED state)" sudo lxc-stop -n "$name"
-            echo "  restored '$name' to STOPPED (we started it for the test)"
-        else
-            echo "  left '$name' RUNNING (its prior state — we did not start it)"
-        fi
+    local name="$1" started="$2"
+    best_effort_rm "stop spinner in $name" sudo lxc-attach -n "$name" -- pkill -f 'while :; do'
+    if [ "$started" -eq 1 ]; then
+        best_effort_rm "lxc-stop $name (restore prior STOPPED state)" sudo lxc-stop -n "$name"
+        echo "  restored '$name' to STOPPED (we started it for the test)"
     else
-        best_effort_rm "lxc-destroy $name" sudo lxc-destroy -f -n "$name"
+        echo "  left '$name' RUNNING (its prior state — we did not start it)"
     fi
 }
 
@@ -370,50 +366,41 @@ run_oci_engine_block() {
 # =========================================================================== #
 run_lxc_block() {
     local engine="lxc"
-    local burner existing=0 started_by_us=0 prior_state=""
-    local json finding count gt_pids gt_in_pid out st tools procs
+    local burner started_by_us=0 prior_state=""
+    local json finding count gt_pids gt_in_pid out
 
     hdr "$engine — start burner + assert detection"
 
-    if [ -n "${CW_LXC_TEST_CONTAINER:-}" ]; then
-        # Operator nominated an EXISTING container (e.g. a localdev system
-        # container). We NEVER create or destroy it — start it only if stopped, and
-        # restore its prior run-state afterwards (see lxc_restore). This is the real
-        # runtime LXC test; a full system container also has proper coreutils/procps
-        # for the spinner, unlike a minimal busybox throwaway.
-        burner="$CW_LXC_TEST_CONTAINER"
-        existing=1
-        if ! prior_state="$(sudo lxc-info -n "$burner" -sH 2>&1)"; then
-            fail "$engine: CW_LXC_TEST_CONTAINER='$burner' not found: $prior_state"
+    # Use a REAL existing LXC container — nominated via CW_LXC_TEST_CONTAINER, else
+    # auto-pick the first one lxc-ls reports. We NEVER create or destroy it: start it
+    # only if stopped, run a bounded spinner, then restore its prior run-state.
+    burner="${CW_LXC_TEST_CONTAINER:-}"
+    if [ -z "$burner" ]; then
+        if ! out="$(sudo lxc-ls -1 2>&1)"; then
+            fail "$engine: lxc-ls failed: $out"
             return 0
         fi
-        echo "  using existing container '$burner' (prior state: $prior_state)"
-        if [ "$prior_state" != "RUNNING" ]; then
-            if ! out="$(sudo lxc-start -n "$burner" 2>&1)"; then
-                fail "$engine: could not start existing container '$burner': $out"
-                return 0
-            fi
-            started_by_us=1
-            sleep 2
-        fi
-        pass "$engine: existing container '$burner' is running"
-    else
-        # No nominated container → attempt a throwaway minimal image. If the
-        # template/network is unavailable, SKIP (env limitation, not a faked pass);
-        # set CW_LXC_TEST_CONTAINER=<name> to exercise a real LXC container.
-        burner="cw-test-burner-lxc"
-        if ! out="$(sudo lxc-create -n "$burner" -t download -- \
-                --dist alpine --release edge --arch amd64 2>&1)"; then
-            skip "$engine: no CW_LXC_TEST_CONTAINER set and throwaway create failed (template/network unavailable): $(printf '%s' "$out" | tail -n1)"
+        burner="${out%%$'\n'*}"   # first line, no pipe (pipefail-safe)
+        if [ -z "$burner" ]; then
+            fail "$engine: no LXC containers exist (lxc-ls empty) — nothing to test against"
             return 0
         fi
-        if ! out="$(sudo lxc-start -n "$burner" 2>&1)"; then
-            fail "$engine: could not start throwaway container $burner: $out"
-            best_effort_rm "lxc-destroy $burner" sudo lxc-destroy -f -n "$burner"
-            return 0
-        fi
-        pass "$engine: started throwaway container '$burner'"
+        echo "  auto-picked existing LXC container '$burner' (override with CW_LXC_TEST_CONTAINER=<name>)"
     fi
+    if ! prior_state="$(sudo lxc-info -n "$burner" -sH 2>&1)"; then
+        fail "$engine: container '$burner' not found: $prior_state"
+        return 0
+    fi
+    echo "  using existing container '$burner' (prior state: $prior_state) — never created/destroyed"
+    if [ "$prior_state" != "RUNNING" ]; then
+        if ! out="$(sudo lxc-start -n "$burner" 2>&1)"; then
+            fail "$engine: could not start container '$burner': $out"
+            return 0
+        fi
+        started_by_us=1
+        sleep 3   # let the container init settle
+    fi
+    pass "$engine: existing container '$burner' is running"
 
     # Launch a bounded CPU spinner. Background the WHOLE lxc-attach on the HOST side
     # so the spinner runs in the FOREGROUND inside the container (held alive by
@@ -423,47 +410,23 @@ run_lxc_block() {
     sudo lxc-attach -n "$burner" -- timeout "$BURNER_TTL_S" \
         sh -c 'while :; do :; done & while :; do :; done & wait' &
     local lxc_burn_pid=$!
+    # Settle: ensure the spinner is established AND aged past CW_AGE_S before the
+    # scan — a sub-second-old process is filtered by the age gate, which was the
+    # flaky 0-findings cause. This settle is the deterministic fix.
+    sleep 3
 
-    # Ground truth: the in-container spinner PID(s). System-container init can lag,
-    # so retry a few times.
+    # Ground truth: the in-container spinner PID(s).
     gt_pids=""
-    for _ in 1 2 3 4 5 6; do
-        sleep 1
+    for _ in 1 2 3 4 5; do
         if gt_pids="$(sudo lxc-attach -n "$burner" -- pgrep -f 'while' 2>&1)" && [ -n "$gt_pids" ]; then
             break
         fi
         gt_pids=""
+        sleep 1
     done
     if [ -z "$gt_pids" ]; then
-        # SKIP, not FAIL: being unable to stand up a *throwaway* LXC burner in this
-        # environment is an LXC-tooling limitation, NOT a watchdog defect — so this
-        # is a legitimate environmental skip, not a faked pass. The watchdog's
-        # LXC support is already proven where it actually lives:
-        #   - L1 unit fixtures (test_core.py: test_lxc_payload / test_lxc_plain /
-        #     test_lxc_hint_uses_attach) cover the lxc.payload + /lxc cgroup markers
-        #     and the lxc-attach exec_hint — the ONLY LXC-specific logic; and
-        #   - the podman + docker L2 blocks above prove the engine-agnostic runtime
-        #     (scan, attribution, NSpid, the safety survive-assert, allowlist, DBus).
-        # We deliberately do NOT burn CPU inside real project containers to force it.
-        # Could not generate in-container CPU load → SKIP (not a watchdog defect):
-        # the LXC-specific logic is covered by L1 unit fixtures and the
-        # engine-agnostic runtime by the podman/docker L2 blocks. Use a full system
-        # container (CW_LXC_TEST_CONTAINER=<name>) if a minimal throwaway lacks the
-        # tooling to spin.
-        skip "$engine: could not generate in-container CPU load (no spinner PIDs) — LXC cgroup attribution covered by L1 unit fixtures + engine-agnostic runtime by the podman/docker L2 blocks; set CW_LXC_TEST_CONTAINER=<name> for a real system container"
-        if ! st="$(sudo lxc-info -n "$burner" -sH 2>&1)"; then st="(lxc-info failed: $st)"; fi
-        if ! tools="$(sudo lxc-attach -n "$burner" -- sh -c 'command -v timeout pgrep ps busybox' 2>&1)"; then
-            tools="(tool probe failed: $tools)"
-        fi
-        if ! procs="$(sudo lxc-attach -n "$burner" -- ps -ef 2>&1)"; then procs="(ps -ef failed: $procs)"; fi
-        {
-            echo "  --- LXC diagnostics (informational) ---"
-            echo "  container state: $st"
-            echo "  tools present  : $tools"
-            echo "  processes      :"
-            printf '%s\n' "$procs"
-        } >&2
-        lxc_restore "$burner" "$existing" "$started_by_us"
+        fail "$engine: could not start a spinner in '$burner' (does it have sh + pgrep?)"
+        lxc_restore "$burner" "$started_by_us"
         return 0
     fi
     gt_in_pid="$(printf '%s\n' "$gt_pids" | head -n1)"
@@ -471,7 +434,7 @@ run_lxc_block() {
 
     if ! json="$(scan_json)"; then
         fail "$engine: scan --once --json failed"
-        lxc_restore "$burner" "$existing" "$started_by_us"
+        lxc_restore "$burner" "$started_by_us"
         return 0
     fi
 
@@ -480,7 +443,7 @@ run_lxc_block() {
     assert_ge "$engine: at least one finding for $burner" "$count" "1"
     if [ "$count" -lt 1 ]; then
         printf '%s' "$json" | jq '.findings' >&2
-        lxc_restore "$burner" "$existing" "$started_by_us"
+        lxc_restore "$burner" "$started_by_us"
         return 0
     fi
 
@@ -531,23 +494,15 @@ run_lxc_block() {
         [ -n "$p" ] || continue
         if printf '%s\n' "$still" | grep -qx "$p"; then survived=1; break; fi
     done <<< "$gt_pids"
+    probe="$(kill -0 "$lxc_burn_pid" 2>&1)" && probe="burner job alive" || probe="${probe:-burner job ended}"
     if [ "$survived" -eq 1 ]; then
         pass "$engine: spinner STILL ALIVE after scan — tool did not terminate it"
-    elif probe="$(kill -0 "$lxc_burn_pid" 2>&1)"; then
-        # Host-side burner job is still alive but our in-container PIDs vanished →
-        # genuinely suspicious (the tool may have terminated the finding).
-        fail "$engine: spinner PID(s) gone while the burner job is alive — possible termination! (live 'while' procs: ${still:-none})"
     else
-        # The host-side burner self-ended (timeout/lxc-attach) BEFORE the safety
-        # check — a throwaway-harness timing limitation, NOT the watchdog killing it.
-        # Reporting-only is already proven by the podman/docker survive-asserts, the
-        # L0 no-kill static gate, and L1. Use CW_LXC_TEST_CONTAINER=<name> (a full
-        # system container) for a robust LXC survive-assert.
-        skip "$engine: throwaway spinner self-ended before the safety check (harness timing) — reporting-only proven by the podman/docker survive-asserts + the L0 no-kill gate; set CW_LXC_TEST_CONTAINER=<name> for a robust LXC survive-assert (probe: ${probe:-burner job not running})"
+        fail "$engine: spinner PID(s) gone after the scan — a reporting-only tool must NOT terminate findings! ($probe; live 'while' procs: ${still:-none})"
     fi
 
-    lxc_restore "$burner" "$existing" "$started_by_us"
-    pass "$engine: LXC test load cleaned up (container preserved if pre-existing)"
+    lxc_restore "$burner" "$started_by_us"
+    pass "$engine: spinner stopped; container '$burner' preserved (restored to prior state)"
 }
 
 # =========================================================================== #
