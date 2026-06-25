@@ -60,8 +60,10 @@ export CW_AGE_S=1
 export CW_CPU_PCT=5
 
 # Burner lifetime: long enough to be sampled across a scan + the post-scan
-# liveness assert, short enough to self-clean if the trap is ever bypassed.
-BURNER_TTL_S=30
+# liveness assert (the CPU sampler sleeps ~1s PER aged candidate PID, so a busy
+# host's scan can take several seconds), short enough to self-clean if the trap
+# is ever bypassed.
+BURNER_TTL_S=60
 # Small, ubiquitous image with a POSIX shell.
 BURNER_IMAGE="${CW_TEST_IMAGE:-docker.io/library/alpine:latest}"
 # Two background spinners + wait → reads as CPU-pinned (>1 core) within seconds.
@@ -429,14 +431,21 @@ run_lxc_block() {
     fi
     pass "$engine: existing container '$burner' is running"
 
-    # Launch a bounded CPU spinner. Background the WHOLE lxc-attach on the HOST side
-    # so the spinner runs in the FOREGROUND inside the container (held alive by
-    # `wait` until `timeout` ends it at TTL) — this avoids the in-container
-    # backgrounding fragility a `... &` job hits under lxc-attach. The spinner is
-    # silent (busy loops), so no redirect is needed.
-    sudo lxc-attach -n "$burner" -- timeout "$BURNER_TTL_S" \
-        sh -c 'while :; do :; done & while :; do :; done & wait' &
-    local lxc_burn_pid=$!
+    # Launch a bounded CPU spinner DETACHED inside the container. `setsid --fork`
+    # puts it in its own session, reparented to the container init, so it is NOT a
+    # child of the host-side lxc-attach: lxc-attach returns immediately and the
+    # spinner's lifetime is owned solely by its own `timeout` (backstopped by
+    # lxc_restore's pkill). Backgrounding the lxc-attach on the host instead made
+    # the spinner die the moment that transient attach session ended — that was the
+    # SAFETY-check false failure (host attach PID gone, no in-container spinner).
+    # The spinner is silent (busy loops), so no redirect is needed.
+    if ! out="$(sudo lxc-attach -n "$burner" -- \
+            setsid --fork timeout "$BURNER_TTL_S" \
+            sh -c 'while :; do :; done & while :; do :; done & wait' 2>&1)"; then
+        fail "$engine: could not launch spinner in '$burner': $out"
+        lxc_restore "$burner" "$started_by_us"
+        return 0
+    fi
     # Settle: ensure the spinner is established AND aged past CW_AGE_S before the
     # scan — a sub-second-old process is filtered by the age gate, which was the
     # flaky 0-findings cause. This settle is the deterministic fix.
@@ -524,7 +533,7 @@ run_lxc_block() {
     assert_contains "$engine: exec_hint names the container" "$hint" "$burner"
 
     hdr "$engine — SAFETY: burner survives the scan (reporting-only)"
-    local still survived=0 p probe
+    local still survived=0 p
     # Guard the assignment in an `if` so a non-zero pgrep (no match) can NEVER abort
     # the script under `set -e` (the bare-assignment form did — that aborted the run).
     if ! still="$(sudo lxc-attach -n "$burner" -- pgrep -f 'while' 2>&1)"; then
@@ -536,11 +545,10 @@ run_lxc_block() {
         [ -n "$p" ] || continue
         if printf '%s\n' "$still" | grep -qx "$p"; then survived=1; break; fi
     done <<< "$gt_pids"
-    probe="$(kill -0 "$lxc_burn_pid" 2>&1)" && probe="burner job alive" || probe="${probe:-burner job ended}"
     if [ "$survived" -eq 1 ]; then
         pass "$engine: spinner STILL ALIVE after scan — tool did not terminate it"
     else
-        fail "$engine: spinner PID(s) gone after the scan — a reporting-only tool must NOT terminate findings! ($probe; live 'while' procs: ${still:-none})"
+        fail "$engine: spinner PID(s) gone after the scan — a reporting-only tool must NOT terminate findings! (live 'while' procs: ${still:-none})"
     fi
 
     lxc_restore "$burner" "$started_by_us"
