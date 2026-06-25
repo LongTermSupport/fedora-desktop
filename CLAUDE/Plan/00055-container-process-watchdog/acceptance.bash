@@ -27,6 +27,33 @@
 set -euo pipefail
 
 # --------------------------------------------------------------------------- #
+# Args — `--lxc` runs ONLY the LXC block (podman/docker are confirmed-good, so
+# this gives a fast path to iterate on the LXC detection/attribution case alone).
+# `-h`/`--help` prints usage. Unknown options fail fast.
+# --------------------------------------------------------------------------- #
+ONLY_LXC=0
+usage() {
+    cat <<'USAGE'
+Usage: acceptance.bash [--lxc] [-h|--help]
+
+  --lxc        Run ONLY the LXC engine block (skip podman, docker, and the
+               engine-independent DBus/systemd cross-cutting checks). Use this to
+               iterate on the LXC case when the OCI engines are already known-good.
+  -h, --help   Show this help and exit.
+
+With no flags, every present engine (podman/docker/lxc) plus the DBus and systemd
+cross-cutting checks run.
+USAGE
+}
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --lxc)      ONLY_LXC=1; shift ;;
+        -h|--help)  usage; exit 0 ;;
+        *)          echo "Unknown option: $1 (see --help)" >&2; exit 2 ;;
+    esac
+done
+
+# --------------------------------------------------------------------------- #
 # Thresholds — low so a few-second burner trips both gates immediately.
 # --------------------------------------------------------------------------- #
 export CW_AGE_S=1
@@ -642,23 +669,31 @@ run_systemd_block() {
 # =========================================================================== #
 echo "container-watch L2 acceptance — thresholds CW_AGE_S=$CW_AGE_S CW_CPU_PCT=$CW_CPU_PCT"
 echo "Burner image: $BURNER_IMAGE  TTL: ${BURNER_TTL_S}s"
-
-# Podman — always attempt (it is the repo default engine); SKIP if not usable.
-hdr "Engine gate: podman"
-if have_podman; then
-    pass "podman present and usable"
-    run_oci_engine_block "podman"
-else
-    skip "podman: not present"
+if [ "$ONLY_LXC" -eq 1 ]; then
+    echo "Mode: --lxc (LXC-only; podman/docker + DBus/systemd cross-cutting checks skipped)"
 fi
 
-# Docker — only if the daemon/group is actually usable.
-hdr "Engine gate: docker"
-if have_docker; then
-    pass "docker present and usable"
-    run_oci_engine_block "docker"
-else
-    skip "docker: not present"
+# Podman + Docker + the engine-independent cross-cutting checks run unless
+# --lxc was given (the OCI engines are confirmed-good, so --lxc skips straight
+# to the LXC case for fast iteration).
+if [ "$ONLY_LXC" -eq 0 ]; then
+    # Podman — always attempt (it is the repo default engine); SKIP if not usable.
+    hdr "Engine gate: podman"
+    if have_podman; then
+        pass "podman present and usable"
+        run_oci_engine_block "podman"
+    else
+        skip "podman: not present"
+    fi
+
+    # Docker — only if the daemon/group is actually usable.
+    hdr "Engine gate: docker"
+    if have_docker; then
+        pass "docker present and usable"
+        run_oci_engine_block "docker"
+    else
+        skip "docker: not present"
+    fi
 fi
 
 # LXC — only if lxc-* tooling + non-interactive sudo are available.
@@ -670,9 +705,11 @@ else
     skip "lxc: not present"
 fi
 
-# Cross-cutting checks (engine-independent).
-run_dbus_block
-run_systemd_block
+# Cross-cutting checks (engine-independent) — skipped in --lxc mode.
+if [ "$ONLY_LXC" -eq 0 ]; then
+    run_dbus_block
+    run_systemd_block
+fi
 
 hdr "RESULT"
 if [ "$FAILED" -ne 0 ]; then
