@@ -42,6 +42,34 @@ cd /workspace/extensions && node_modules/.bin/eslint speech-to-text@fedora-deskt
 
 ---
 
+## Helper Unit Tests + Extension Version Compatibility
+
+Helper packages under `helpers/` are stdlib-only (`helpers/CLAUDE.md`). Their unit
+tests are namespace-package modules, so `unittest discover` cannot collect them —
+run them with the dedicated runner, which enumerates `tests/helpers/**/test_*.py`
+and runs them by explicit module name:
+
+```bash
+./scripts/qa-helper-tests.bash
+```
+
+A separate **static** gate confirms every `extensions/<uuid>/metadata.json`
+declares support for the GNOME Shell major that this branch's Fedora release ships
+(`vars/fedora-version.yml`). It is session-free (unlike the runtime
+`helpers.gnome.verify_extension`), so it runs in CI on the repo source:
+
+```bash
+python3 -m helpers.gnome.check_extension_compat
+```
+
+The Fedora→GNOME-Shell map lives in `helpers/gnome/fedora_compat.py`
+(`FEDORA_TO_GNOME_MAJOR`). When cutting a new `F<N>` branch, add that release's
+GNOME major there — an unmapped Fedora version fails the gate by design, forcing a
+human to confirm the GNOME version. Both run automatically in the `helpers` CI job
+(`.github/workflows/qa.yml`).
+
+---
+
 ## CCY ctrl+z Patch
 
 For changes to `ccy-ctrl-z-patch.js`, run the dedicated patch QA script:

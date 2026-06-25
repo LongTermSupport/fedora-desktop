@@ -77,6 +77,30 @@ jobs:
           path: /tmp/qa-results.json
           if-no-files-found: ignore
 
+  helpers:
+    name: helper unit tests + extension version compat
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Helpers and their tests are stdlib-only by rule (helpers/CLAUDE.md), so no
+      # pip install step is needed — this job runs on the bare interpreter.
+      - name: Run helper unit tests
+        run: ./scripts/qa-helper-tests.bash
+
+      # Static gate: every extensions/<uuid>/metadata.json must declare support for
+      # the GNOME Shell major that this branch's Fedora release (vars/fedora-version.yml)
+      # ships. Catches "metadata stale vs branch Fedora version" at PR time, before
+      # it reaches a desktop and GNOME flags the extension out of date.
+      - name: Check extension GNOME-Shell version compatibility
+        run: python3 -m helpers.gnome.check_extension_compat
+
   gitleaks:
     name: gitleaks secret scan
     runs-on: ubuntu-latest

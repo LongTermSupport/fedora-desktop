@@ -34,15 +34,60 @@ CLAUDE/
     ├── 00035-gh-multi-account-hardening/
     │   ├── PLAN.md                 # Main plan document
     │   ├── {supporting-docs}.md    # Optional analysis / research docs
+    │   ├── deploy.bash             # Optional: run the plan's Ansible deploy (HOST)
+    │   ├── triage.bash             # Optional: confirm health pre-deploy / post-deploy
+    │   ├── acceptance.bash         # Optional: plan-specific test/acceptance script
     │   └── assets/                 # Optional diagrams, logs, etc.
     ├── 00049-full-repo-audit/
     │   ├── PLAN.md
-    │   ├── triage.md
+    │   ├── triage.bash
     │   └── research/
     ├── Completed/                  # Finished plans are moved here
     ├── Archive/                    # Superseded / historical plans
     └── README.md                   # Index of all plans
 ```
+
+### Plan-Local Scripts & Artifacts — IN STONE
+
+> **Every transient, plan-specific script or artifact lives INSIDE its plan
+> folder — never at the project root.** A plan's own `deploy.bash`, `triage.bash`,
+> test/`acceptance.bash`, fixtures, logs, and scratch files belong in
+> `CLAUDE/Plan/NNNNN-name/`, so they travel with the plan into `Completed/` and
+> never clutter the repo root.
+
+**Canonical plan-local scripts** (all optional, all fail-fast, all HOST-run where
+they deploy or touch the live system — never run Ansible inside the CCY container):
+
+- **`deploy.bash`** — runs the plan's Ansible command(s) (e.g.
+  `ansible-playbook playbooks/imports/.../play-foo.yml`). A thin, idempotent wrapper.
+- **`triage.bash`** — confirms things are OK. Run it **at planning stage** (to
+  capture the current/broken state) **and/or after `deploy.bash`** (to verify the
+  change landed). Read-only / non-destructive; safe to re-run.
+- **Testing / `acceptance.bash`** (and any other test script) — plan-specific
+  verification that is not a permanent repo gate.
+
+Resolve the repo root with `git rev-parse --show-toplevel` (NOT a fixed `../`
+hop) — these scripts sit several directories deep, and the path must survive the
+move into `Completed/`.
+
+**The dividing line — transient vs. persistent:**
+
+- **Transient (→ plan folder):** anything whose usefulness ends with the plan —
+  one-off deploy/triage wrappers, plan acceptance tests, migration scripts,
+  captured output, scratch fixtures.
+- **Persistent (→ `scripts/`, `tests/`, `helpers/`, etc.):** anything that stays
+  useful after the plan ships — a permanent QA gate wired into `qa-all.bash`, the
+  regression unit suite under `tests/`, a reusable helper under `helpers/`, a
+  user-facing tool under `files/`. These are deliverables, not plan scaffolding.
+
+> **Rule: NO project-root-level scripts or artifacts that are not persistently
+> relevant and useful.** If it only matters while this plan is in flight, it goes
+> in the plan folder. When in doubt, ask: *"after this plan is Complete and moved
+> to `Completed/`, would anyone still run this from the repo root?"* — if no, it is
+> plan-local.
+
+(Plan-folder `*.bash` is still discovered and linted by `qa-bash.bash` /
+`qa-all.bash` — being plan-local does not exempt a script from QA.)
 
 ### Plan Numbering — the git counter is authoritative
 
@@ -50,12 +95,21 @@ Plan numbers are **5 digits, zero-padded** (`00049-`, `00050-`). The next number
 in git config, **not** derived from a folder scan (folder scans miss `Completed/` and
 disagree across branches — the `plan_number_helper` handler will block such scans).
 
+**To scaffold a new plan folder**, use the bundled script — it reads the counter
+atomically, allocates the next number, and creates the `NNNNN-name/PLAN.md` skeleton:
+
+```bash
+CLAUDE/Plan/mkplan.bash "descriptive-kebab-name"
+```
+
+**To read the next number only** (without creating a folder):
+
 ```bash
 git config --local hooksdaemon.latestPlanNumber   # authoritative latest, e.g. 50
 ```
 
-Add 1 and zero-pad → the next plan folder (counter `50` → `00051-description/`). The
-hooks daemon advances this counter automatically when a plan is created.
+Add 1 and zero-pad → `00051-description/`. The hooks daemon advances this counter
+automatically whenever a plan is created.
 
 ---
 
@@ -205,8 +259,8 @@ proper plan, migrate the tasks, and reference the plan in your work.
 
 1. **Identify work** — does it fit an existing plan? If not, and it is non-trivial,
    create a new plan.
-2. **Create the plan** — `CLAUDE/Plan/NNNNN-descriptive-name/PLAN.md` (number from the
-   git counter); add an entry to `CLAUDE/Plan/README.md`.
+2. **Create the plan** — run `CLAUDE/Plan/mkplan.bash "descriptive-kebab-name"` to
+   scaffold `NNNNN-name/PLAN.md`; add an entry to `CLAUDE/Plan/README.md`.
 3. **Break down tasks** — phases → concrete, testable tasks. A good task names a single
    verifiable outcome ("Make `play-docker.yml` rootful and import it from
    `playbook-main.yml`"), not "work on Docker".
@@ -272,7 +326,8 @@ cancelled plans.
 
 1. **Check for an existing plan** before starting work.
 2. **Create a plan** for any work that is non-trivial or multi-session.
-3. **Get the next plan number from the git counter**, never a folder scan.
+3. **Use `CLAUDE/Plan/mkplan.bash "name"` to create plans** — it reads the git counter
+   atomically and scaffolds the folder. Never derive the number from a folder scan.
 4. **Update task status in real time** as you work.
 5. **Run `./scripts/qa-all.bash` before commits** that touch Bash/Python/Ansible
    (ESLint for extension JS, `qa-ctrl-z-patch.bash` for the CCY patch).

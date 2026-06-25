@@ -1,0 +1,15 @@
+[Unit]
+Description=Run the container process watchdog every 2 minutes
+Documentation=https://github.com/LongTermSupport/fedora-desktop
+
+[Timer]
+# Cadence is the polling interval, NOT the alert threshold: a process must still
+# be ≥ CW_AGE_S old (default 15 min) AND CPU-pinned to be flagged. So detection
+# latency ≈ age_threshold + ≤ one interval; the 2-min cadence does not shorten the
+# 15-min age gate (see PLAN.md Success Criteria).
+OnBootSec=2min
+OnUnitActiveSec=2min
+AccuracySec=15s
+
+[Install]
+WantedBy=timers.target

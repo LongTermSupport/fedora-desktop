@@ -7,8 +7,11 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     # Version configuration
-    displaylink_version: "v6.2.0-1"
+    displaylink_version: "v6.3.0"
     evdi_version: "1.14.16"
+    # RPM release suffix of the evdi package — drifts independently of the
+    # evdi version itself (v6.2.0-1 shipped -1, v6.3.0 ships -2).
+    evdi_rpm_release: "2"
     # Set to true to bypass version check (use with caution)
     force_install: false
   vars_files:
@@ -123,7 +126,7 @@
 
     - name: Install DisplayLink RPM
       ansible.builtin.dnf:
-        name: "https://github.com/displaylink-rpm/displaylink-rpm/releases/download/{{ displaylink_version }}/fedora-{{ fedora_version }}-displaylink-{{ evdi_version }}-1.github_evdi.x86_64.rpm"
+        name: "https://github.com/displaylink-rpm/displaylink-rpm/releases/download/{{ displaylink_version }}/fedora-{{ fedora_version }}-displaylink-{{ evdi_version }}-{{ evdi_rpm_release }}.github_evdi.x86_64.rpm"
         disable_gpg_check: true
       register: displaylink_install
 

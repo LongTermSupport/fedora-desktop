@@ -1,0 +1,15 @@
+[Unit]
+Description=Container process watchdog scan (reporting-only)
+Documentation=https://github.com/LongTermSupport/fedora-desktop
+# Detection reads world-readable /proc and resolves rootless-Podman names as the
+# session user, so this runs in the user manager (not system) — it also reaches
+# the GNOME session to emit its DBus signal. After the graphical session so the
+# session bus exists for the signal (the scan still works headless; emit is
+# best-effort and non-fatal).
+After=graphical-session.target
+
+[Service]
+Type=oneshot
+# Reporting-only: scan writes report.json and emits a DBus signal. It NEVER kills
+# or throttles anything — there is no termination path in the tool.
+ExecStart=%h/.local/bin/container-watch scan
