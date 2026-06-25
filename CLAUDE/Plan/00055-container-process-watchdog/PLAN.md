@@ -146,12 +146,16 @@ decisions.
   any file omitted from the loop silently never deploys.
 - [ ] 🔄 **Task 4.2**: (On HOST, not CCY) deploy + verify. Use the plan-local
   `deploy.bash` (runs the play) then `triage.bash` (forces a scan, shows the timer
-  schedule + findings). **Partially confirmed on HOST**: deploy succeeded, the
-  `container-watch.timer` is registered and has fired, the oneshot service runs, and
-  `container-watch status`/`list` work (`OK — 0 findings`, the healthy steady state).
-  **Still to confirm**: panel + notification react to a finding (drive via
-  `container-watch scan --inject` per `testing-checklist.md`), i.e. the L3 visual
-  pass and the L2 `acceptance.bash` run on the HOST.
+  schedule + findings). **Confirmed on HOST**: deploy succeeded, the
+  `container-watch.timer` is registered and has fired, the oneshot service runs,
+  `container-watch status`/`list` work (`OK — 0 findings`, the healthy steady state),
+  **and the L2 `acceptance.bash` run is fully GREEN for all three engines** — podman,
+  docker, and lxc (the last against the real `bl-admin` container): detection,
+  attribution (engine/name/in-container NSpid), `cmd`/`age`/`cpu`, engine-correct
+  `exec_hint`, and the behavioural **safety** survive-assert all pass; allowlist +
+  DBus + systemd cross-cutting checks pass. **Still to confirm**: the L3 visual pass
+  (panel attention state + notification + dedupe via `container-watch scan --inject`,
+  in a nested GNOME Shell, per `testing-checklist.md`).
 
 ### Phase 5: Testing & acceptance (full process in [`testing.md`](testing.md))
 
@@ -213,11 +217,13 @@ decisions.
   after the age threshold is met** (verified via threshold injection — `CW_AGE_S`).
   Detection latency = max(age_threshold, sustained-window) + ≤ 1 timer interval; the
   2-min cadence does **not** shorten the 15-min age gate.
-- [ ] Finding correctly names the container for a Podman **and** a Docker **and** an
-  LXC container.
+- [x] Finding correctly names the container for a Podman **and** a Docker **and** an
+  LXC container. (L2 `acceptance.bash` GREEN on HOST for all three; lxc verified
+  against the real `bl-admin` container.)
 - [ ] Report reachable from both the GNOME panel and the CLI.
-- [ ] No kill/throttle path exists in the shipped tool (enforced by the L0 no-kill
-  guard, confirmed by the L2 behavioural survive-assert).
+- [x] No kill/throttle path exists in the shipped tool (enforced by the L0 no-kill
+  guard, confirmed by the L2 behavioural survive-assert — burner survives the scan
+  on podman, docker, and the real `bl-admin` LXC container).
 - [ ] QA passes (`./scripts/qa-all.bash`, ESLint, `check_extension_compat`).
 - [ ] Acceptance passes per [`testing.md`](testing.md) §6: L0 + L1 + L2 green, L3
   visual/walkthrough confirmed — with no 15-minute waits and no hand-crafted
@@ -379,3 +385,25 @@ decisions.
   `CLAUDE/PlanWorkflow.md` and `CLAUDE/Plan/CLAUDE.md`. All three plan scripts
   resolve the repo root via `git rev-parse --show-toplevel` and pass `bash -n` +
   shellcheck (error-level).
+
+### 2026-06-25 (HOST L2 acceptance GREEN for all three engines)
+
+- **L2 `acceptance.bash` passes on the HOST for podman, docker, AND lxc.** The lxc
+  block runs against the operator's real `bl-admin` LXC container (auto-picked from
+  `lxc-ls`, overridable via `CW_LXC_TEST_CONTAINER`); it is never created or
+  destroyed, only started-if-stopped and restored to its prior run-state. All
+  detection/attribution assertions plus the behavioural safety survive-assert pass.
+- **`--lxc` flag added** to `acceptance.bash` — runs ONLY the lxc block (skips the
+  confirmed-good podman/docker OCI blocks + DBus/systemd cross-cutting checks) for
+  fast iteration on the LXC path.
+- **Two LXC test-harness fixes** (not watchdog bugs — the OCI engines and the L0
+  no-kill gate prove the tool never kills): (1) the spinner is launched by
+  backgrounding the lxc-attach on the HOST side (an in-container `setsid` detach
+  failed because a minimal container lacks util-linux `setsid`); (2) the earlier
+  safety false-fail was slow scans — the CPU sampler sleeps ~1s per aged candidate
+  PID, so on a busy host a default-interval scan outlived the burner. `scan_json`
+  now uses `--interval 0.25` (a pegged spinner still reads ~100%) and the burner TTL
+  is 30→60s. The deployed watchdog keeps the 1.0s default; this is a test speed-up.
+- **Remaining**: only the L3 nested-GNOME visual pass (`testing-checklist.md`).
+  Once that is confirmed on the HOST, mark Task 4.2 ✅, set the plan Complete, and
+  move it to `CLAUDE/Plan/Completed/`.
