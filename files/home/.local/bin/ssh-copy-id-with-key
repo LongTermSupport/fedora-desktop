@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+# ssh-copy-id-with-key — install a public key on a remote host, logging in with
+# ONLY one specified key, never any other key and never a password.
+#
+# The ssh-copy-id companion to ssh-with-key. Use it to add a new key to a host
+# you can already reach with an existing key: the login authenticates with
+# exactly the key you name (not other ~/.ssh files, not agent keys, no password
+# fallback), while the key that gets installed is chosen the normal ssh-copy-id
+# way.
+#
+# TWO different keys are in play, so they have two different flags:
+#
+#   --auth-key KEYPATH   PRIVATE key used to LOG IN (this wrapper's flag).
+#                        MUST come first. Omit it to pick one from ~/.ssh.
+#                        Mapped to ssh's IdentityFile + IdentitiesOnly=yes.
+#
+#   -i KEYPATH           PUBLIC key to INSTALL (ssh-copy-id's own flag).
+#                        Passed straight through, unchanged. Omit it to install
+#                        your default identities, exactly as plain ssh-copy-id.
+#
+#   IdentitiesOnly=yes        — log in using only the --auth-key key
+#   IdentityAgent=none        — do not consult the ssh-agent for login keys
+#   PreferredAuthentications=publickey — public-key only, no password fallback
+#
+# Usage:
+#   ssh-copy-id-with-key [--auth-key LOGIN_KEY] [ssh-copy-id-args...] [user@]host
+#
+# Examples:
+#   ssh-copy-id-with-key --auth-key ~/.ssh/existing -i ~/.ssh/new.pub admin@host.example.com
+#   ssh-copy-id-with-key -i ~/.ssh/new.pub admin@host.example.com   # pick login key
+set -euo pipefail
+
+SSH_DIR="$HOME/.ssh"
+
+usage() {
+    echo "Usage: ssh-copy-id-with-key [--auth-key LOGIN_KEY] [ssh-copy-id-args...] [user@]host"
+    echo ""
+    echo "  Install a public key on a remote host, logging in with ONLY one key"
+    echo "  — no agent keys, no other ~/.ssh keys, no password fallback."
+    echo ""
+    echo "  --auth-key KEYPATH   PRIVATE key to LOG IN with (must be first)."
+    echo "                       Omit it to pick a key from ~/.ssh interactively."
+    echo "  -i KEYPATH           PUBLIC key to INSTALL (ssh-copy-id's own flag),"
+    echo "                       passed straight through."
+    echo ""
+    echo "Examples:"
+    echo "  ssh-copy-id-with-key --auth-key ~/.ssh/existing -i ~/.ssh/new.pub admin@host.example.com"
+    echo "  ssh-copy-id-with-key -i ~/.ssh/new.pub admin@host.example.com"
+}
+
+# Interactive picker — lists private keys in ~/.ssh and echoes the chosen path
+# on stdout. All prompts go to stderr (stdout is captured by the caller), and
+# the read is bound to /dev/tty so it works inside command substitution.
+pick_key() {
+    local f name
+    local -a keys=()
+    for f in "$SSH_DIR"/*; do
+        [ -f "$f" ] || continue
+        name="$(basename "$f")"
+        case "$name" in
+            *.pub|config|known_hosts|known_hosts.old|authorized_keys|*.swp|*.bak) continue ;;
+        esac
+        keys+=("$f")
+    done
+
+    if [ "${#keys[@]}" -eq 0 ]; then
+        echo "No private keys found in $SSH_DIR" >&2
+        return 1
+    fi
+
+    echo "Select a LOGIN private key from $SSH_DIR:" >&2
+    local i=1
+    for f in "${keys[@]}"; do
+        echo "  $i) $(basename "$f")" >&2
+        i=$((i + 1))
+    done
+
+    local choice
+    read -rp "Key number: " choice < /dev/tty
+    if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt "${#keys[@]}" ]; then
+        echo "Invalid selection: $choice" >&2
+        return 1
+    fi
+    printf '%s\n' "${keys[$((choice - 1))]}"
+}
+
+case "${1:-}" in
+    -h|--help) usage; exit 0 ;;
+    "") usage; exit 1 ;;
+esac
+
+# Extract a leading "--auth-key KEYPATH"; otherwise fall back to the picker.
+auth_key=""
+if [ "${1:-}" = "--auth-key" ]; then
+    if [ "$#" -lt 2 ]; then
+        echo "Error: --auth-key requires a key path" >&2
+        exit 1
+    fi
+    auth_key="$2"
+    shift 2
+fi
+
+if [ -z "$auth_key" ]; then
+    auth_key="$(pick_key)" || exit 1
+fi
+
+if [ ! -r "$auth_key" ]; then
+    echo "Error: login key not found or not readable: $auth_key" >&2
+    exit 1
+fi
+
+# IdentityFile pins the login key; ssh-copy-id forwards every -o to its ssh
+# calls. ssh-copy-id's own -i (the key to install) is untouched in "$@".
+opts=(
+    -o "IdentityFile=$auth_key"
+    -o IdentitiesOnly=yes
+    -o IdentityAgent=none
+    -o PreferredAuthentications=publickey
+)
+
+exec ssh-copy-id "${opts[@]}" "$@"
