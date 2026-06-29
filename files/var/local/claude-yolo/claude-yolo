@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.22.0"  # GitHub SSH 443: show a prominent launch banner whenever the session ends up routed over ssh.github.com:443, naming the trigger (--github-443 flag / GITHUB_SSH_443 env host-level enable / auto-detected port-22 block). Builds on 3.21.0 (honour inherited GITHUB_SSH_443=1; precedence flag > env > auto-fallback), 3.20.0 auto-fallback, 3.19.0 --github-443. Host-side equivalent: github_ssh_over_443 in play-github-cli-multi.yml.
+CCY_VERSION="3.23.0"  # Daily per-image Claude Code auto-update: on launch, once per 24h per image, compare the running image's bundled Claude Code against npm latest and run the fast in-place npm update (update_claude_inplace) when behind — NOOP when current. Gates on the FINAL resolved IMAGE_NAME (project image when a custom Dockerfile exists, else claude-yolo:latest), so old project images self-update on their next session; second session same day is zero-impact (fresh per-image stamp). Soft-fails offline; CCY_AUTO_UPDATE=0 falls back to notify-only. Cache moved to per-image dir ~/.cache/claude-yolo-update-checks. Builds on 3.22.0 GitHub SSH 443 launch banner, 3.21.0 inherited GITHUB_SSH_443, 3.20.0 auto-fallback, 3.19.0 --github-443.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -111,7 +111,12 @@ DOCKERFILE_DIR="/opt/claude-yolo"
 CCY_ROOT="$HOME/.claude-tokens/ccy"
 TOKEN_DIR="$CCY_ROOT/tokens"
 PROJECT_DIR="$CCY_ROOT/projects"
-VERSION_CHECK_CACHE="$HOME/.cache/claude-yolo-version-check"
+# Per-image daily update-check stamps live as files INSIDE this directory
+# (one per image tag — claude-yolo:latest, claude-yolo:<project>, …). It used to
+# be a single global file; per-image gating means an old project opened today
+# still re-checks even if another project already checked earlier today. New path
+# (not the old "-version-check" file) avoids a file-vs-directory migration clash.
+VERSION_CHECK_CACHE="$HOME/.cache/claude-yolo-update-checks"
 
 # Show version if requested
 if [ "$1" = "--version" ] || [ "$1" = "-v" ]; then
@@ -163,7 +168,8 @@ Features:
   • Long-lived OAuth tokens (sk-ant-oat01-...) - same as GitHub Actions
   • Named tokens with expiry tracking for multiple Claude accounts
   • Automatic expiry checking - forces new token when expired
-  • Checks for Claude Code updates once per day (cached)
+  • Auto-updates Claude Code once per day, per image (fast in-place npm update
+    when behind; noop when current). Set CCY_AUTO_UPDATE=0 for notify-only.
   • Mounts current directory as /workspace
   • Files created have correct host user ownership
   • Project-specific container extensions via .claude/ccy/Dockerfile
@@ -1217,68 +1223,99 @@ printf '\033]0;CCY: %s\007' "$PROJECT_NAME"
 
 # ═══════════════════════════════════════════════════════════════════════════
 
-# Function to check for Claude Code updates (cached daily)
-check_claude_code_updates() {
+# Auto-update Claude Code in the image that is about to run, gated daily and
+# PER-IMAGE. Once per 24h per image, compare the image's bundled Claude Code
+# version against the npm `latest` tag:
+#   • already current → NOOP (just refresh the daily stamp)
+#   • behind          → fast in-place npm update (update_claude_inplace) + commit,
+#                       NO full image rebuild
+#   • version unknown → soft-fail, proceed on the existing image (offline-safe)
+#
+# Per-image (not global) gating: each image — claude-yolo:latest and every
+# claude-yolo:<project> — has its OWN daily stamp, so an old project launched for
+# the first time today still updates even if another project checked earlier
+# today. Must be called with the FINAL resolved $IMAGE_NAME (after the project
+# image is selected), so custom/project images are the ones kept current.
+#
+# Set CCY_AUTO_UPDATE=0 to disable auto-update and fall back to notify-only.
+auto_update_claude_code() {
     local image_name="$1"
-    local cache_file="$VERSION_CHECK_CACHE"
+    local cache_dir="$VERSION_CHECK_CACHE"
     local cache_duration=$((24 * 60 * 60))  # 24 hours in seconds
 
-    # Check if cache exists and is fresh (less than 24 hours old)
+    # Per-image stamp file: sanitise ':' and '/' in the image tag to a flat name.
+    local cache_file="$cache_dir/${image_name//[:\/]/_}"
+
+    # Daily gate. A fresh stamp means we already checked this image today → do
+    # nothing (no registry round-trip, no container spawn). This is what makes a
+    # second session the same day zero-impact.
     if [ -f "$cache_file" ]; then
         local cache_age
         cache_age=$(( $(date +%s) - $(stat -c %Y "$cache_file" 2>/dev/null || echo 0) ))
         if [ "$cache_age" -lt "$cache_duration" ]; then
-            # Cache is fresh, skip check
             return 0
         fi
     fi
 
-    # Cache is stale or doesn't exist - perform check
-    echo "Checking for Claude Code updates (daily check)..."
+    echo "Checking for Claude Code updates (daily, image: $image_name)..."
+    mkdir -p "$cache_dir"
 
-    # Get version from container
-    # `claude --version` outputs "X.Y.Z (Claude Code)" — extract the semver
+    # Bundled version in THIS image. `claude --version` → "X.Y.Z (Claude Code)".
     local container_version
     container_version=$(container_cmd run --rm --entrypoint claude "$image_name" --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -1 || echo "unknown")
 
-    # Get latest version from npm registry API (no npm CLI required)
+    # Latest published version (npm registry API, no npm CLI required).
     local latest_version
     latest_version=$(timeout 5 curl -fsSL "https://registry.npmjs.org/@anthropic-ai/claude-code/latest" 2>/dev/null | grep -oP '"version":\s*"\K[^"]+' | head -1 || echo "unknown")
 
+    # Could not determine a version (offline / registry hiccup). Stamp so we do
+    # not re-probe every launch today, and proceed on the existing image.
+    # FAIL-FAST-OK: optional launch-time convenience — auto-update must never
+    # block starting Claude when the network is down.
     if [ "$container_version" = "unknown" ] || [ "$latest_version" = "unknown" ]; then
-        # Can't determine versions, cache failure and skip notification
-        mkdir -p "$(dirname "$cache_file")"
+        echo "⚠ Could not determine Claude Code version (offline?) — skipping update check for today" >&2
         touch "$cache_file"
         return 0
     fi
 
-    # Cache the check result
-    mkdir -p "$(dirname "$cache_file")"
-    echo "container=$container_version,latest=$latest_version,checked=$(date +%s)" > "$cache_file"
-
-    # Compare versions and notify if outdated
-    if [ "$container_version" != "$latest_version" ]; then
-        echo ""
-        echo "════════════════════════════════════════════════════════════════════════════════"
-        echo "📦 Claude Code Update Available"
-        echo "════════════════════════════════════════════════════════════════════════════════"
-        echo ""
-        echo "  Current version:  $container_version"
-        echo "  Latest version:   $latest_version"
-        echo ""
-        echo "To update, rebuild the container:"
-        echo "  ccy --rebuild"
-        echo ""
-        echo "This check runs once per day."
-        echo "════════════════════════════════════════════════════════════════════════════════"
-        echo ""
-    else
+    # Already current → NOOP. Refresh the daily stamp and move on.
+    if [ "$container_version" = "$latest_version" ]; then
         echo "✓ Claude Code is up to date ($container_version)"
+        touch "$cache_file"
+        return 0
+    fi
+
+    # Behind, but the user opted out → notify-only (the pre-auto-update behaviour).
+    if [ "${CCY_AUTO_UPDATE:-1}" = "0" ]; then
+        echo ""
+        echo "📦 Claude Code update available: $container_version → $latest_version"
+        echo "   Auto-update disabled (CCY_AUTO_UPDATE=0). Update manually: ccy --rebuild=claude"
+        echo ""
+        touch "$cache_file"
+        return 0
+    fi
+
+    # Behind and auto-update enabled → fast in-place update of the running image.
+    echo ""
+    echo "📦 Updating Claude Code in $image_name: $container_version → $latest_version"
+    echo "   (fast in-place npm update — no full rebuild; first launch today only)"
+    echo ""
+    if update_claude_inplace "$image_name"; then
+        touch "$cache_file"
+        echo "✓ Claude Code auto-updated to $latest_version"
+    else
+        # Update attempt failed mid-flight (e.g. a network drop after the version
+        # probe). Do NOT stamp — leave it stale so the next launch retries — and
+        # proceed on the working older image rather than blocking the session.
+        # FAIL-FAST-OK: optional convenience; a failed auto-update must not stop
+        # the user starting Claude on the existing image.
+        echo "⚠ Auto-update failed — continuing on existing image ($container_version)." >&2
+        echo "  Retry manually with: ccy --rebuild=claude" >&2
     fi
 }
 
-# Ensure cache directory exists
-mkdir -p "$(dirname "$VERSION_CHECK_CACHE")"
+# Ensure the per-image update-check cache directory exists
+mkdir -p "$VERSION_CHECK_CACHE"
 
 # Best-effort removal of a temporary container. A container that is already gone
 # is not an error here, so the failure is logged at debug level rather than
@@ -1337,7 +1374,7 @@ if [ "$FORCE_REBUILD" = true ]; then
                     update_claude_inplace "$BASE_IMAGE_NAME"
                 fi
             fi
-            rm -f "$VERSION_CHECK_CACHE"
+            rm -rf "$VERSION_CHECK_CACHE"
             echo "✓ Claude Code updated"
             ;;
         project)
@@ -1348,7 +1385,7 @@ if [ "$FORCE_REBUILD" = true ]; then
                     update_claude_inplace "$BASE_IMAGE_NAME"
                 fi
             fi
-            rm -f "$VERSION_CHECK_CACHE"
+            rm -rf "$VERSION_CHECK_CACHE"
             ;;
         full)
             echo "Forcing full container rebuild (no cache)..."
@@ -1358,7 +1395,7 @@ if [ "$FORCE_REBUILD" = true ]; then
                 exit 1
             fi
             build_container_with_hash "$IMAGE_NAME" "$DOCKERFILE_DIR" "--no-cache" "$BASE_IMAGE_NAME"
-            rm -f "$VERSION_CHECK_CACHE"
+            rm -rf "$VERSION_CHECK_CACHE"
             echo "✓ Container image rebuilt successfully"
             ;;
     esac
@@ -1381,12 +1418,12 @@ if ! validate_container_version "$IMAGE_NAME" "$DOCKERFILE_DIR/Dockerfile" "$REQ
     # Version/hash mismatch - rebuild required
     build_container_with_hash "$IMAGE_NAME" "$DOCKERFILE_DIR" "" "$BASE_IMAGE_NAME"
     echo "✓ Container image rebuilt with version $REQUIRED_CONTAINER_VERSION"
-    # Clear version cache so we check for updates after rebuild
-    rm -f "$VERSION_CHECK_CACHE"
+    # Clear per-image update-check stamps so every image re-checks after rebuild
+    rm -rf "$VERSION_CHECK_CACHE"
 fi
 
-# Check for Claude Code updates (cached daily)
-check_claude_code_updates "$IMAGE_NAME"
+# Note: the daily per-image auto-update runs LATER, after the project image is
+# resolved (so it gates the image that actually runs, not just claude-yolo:latest).
 
 # Function to find next available container name with suffix
 # Note: get_next_container_name is now in lib/common.bash
@@ -1581,6 +1618,12 @@ if [ -f "$PROJECT_DOCKERFILE" ] && [ "$DISABLE_CUSTOM_DOCKER" = false ]; then
     echo "════════════════════════════════════════════════════════════════════════════════"
     echo ""
 fi
+
+# Daily, per-image Claude Code auto-update. Runs HERE — after the project image
+# is resolved — so $IMAGE_NAME is the image that will actually run (project image
+# when a custom Dockerfile exists, else claude-yolo:latest). NOOP when already on
+# the latest npm version; first launch of the day only when behind.
+auto_update_claude_code "$IMAGE_NAME"
 
 echo "✓ Token: Long-lived OAuth (CLAUDE_CODE_OAUTH_TOKEN)"
 echo "✓ State: /workspace/.claude/ (project-level, persists in git repo)"
