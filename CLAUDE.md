@@ -192,6 +192,146 @@ The `Read`, `Write`, and `Edit` tools require absolute paths. Relative paths are
 
 The working directory is `/workspace`. Prepend `/workspace/` to any relative path before calling these tools.
 
+## daemon_restart_verifier — restart the daemon before committing
+
+Before making a `git commit` in the hooks daemon repository, this handler advises verifying that the daemon can restart successfully with the current code changes. This is advisory — it adds context but does not block the commit.
+
+**Why**: Unit tests alone don't catch import errors. A handler that fails to import silently disables protection without any test-time error. Daemon restart is the definitive check.
+
+**Run before committing** (in this repo only):
+`$PYTHON -m claude_code_hooks_daemon.daemon.cli restart` then verify status shows RUNNING.
+
+## error_hiding_blocker — error-suppression patterns are blocked
+
+Writing code that silently swallows errors is blocked. All errors must be handled explicitly.
+
+**Blocked patterns (examples)**:
+
+- Python: bare `except` clauses with an empty body, catching and discarding all exceptions
+- Shell: redirecting stderr to `/dev/null` to silence failures, `|| true` to suppress non-zero exit codes
+- JavaScript/TypeScript: empty `catch` blocks that swallow exceptions
+- Go: `_ = err` (discarding error return values without handling)
+
+**Required action**: Handle errors explicitly — log them, return them to the caller, or propagate them. Silent error suppression masks bugs and makes debugging impossible.
+
+## validate_instruction_content — CLAUDE.md and README.md must have stable content
+
+Writing ephemeral or session-specific content to `CLAUDE.md` or `README.md` is blocked. These files should contain only stable instructions, not implementation logs or session state.
+
+**Blocked content types**:
+
+- Timestamps and ISO dates
+- Status emoji followed by completion words (e.g. checkmark + 'Done')
+- Implementation log sentences ('created the file X', 'added the class Y')
+- Test output counts ('3 tests passed')
+- LLM summary section headings ('## Summary', '## Key Points')
+
+Content inside markdown code blocks is exempt from validation.
+
+## worktree_file_copy — do not copy files between worktrees and the main repo
+
+`cp`, `mv`, and `rsync` operations that move files from a worktree directory (`untracked/worktrees/` or `.claude/worktrees/`) into the main repo (`src/`, `tests/`, `config/`) — or vice versa — are blocked.
+
+Worktrees are isolated branches. Cross-copying corrupts that isolation and can silently overwrite in-progress work.
+
+**Allowed**: operations within the same worktree branch. **To merge changes**: use `git merge` or `git cherry-pick` instead.
+
+## lock_file_edit_blocker — never directly edit lock files
+
+Direct `Write` or `Edit` to package manager lock files is blocked. Lock files are generated artifacts; manual edits create checksum mismatches and broken dependency graphs.
+
+**Blocked files**: `composer.lock`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `Gemfile.lock`, `Cargo.lock`, `go.sum`, `Package.resolved`, `Pipfile.lock`, and others.
+
+**Use package manager commands instead**:
+
+- PHP: `composer install` / `composer require package`
+- Node: `npm install` / `yarn add package`
+- Ruby: `bundle install` / `bundle add gem`
+- Rust: `cargo add crate`
+- Go: `go get module`
+
+### Pipe Blocker
+
+Commands piped to `tail` or `head` are **blocked** — piping truncates output and causes information loss.
+
+**Use a temp file instead:**
+
+```bash
+# WRONG — blocked:
+pytest tests/ 2>&1 | tail -20
+
+# RIGHT — redirect to temp file:
+pytest tests/ > /tmp/pytest_out.txt 2>&1
+# Then read selectively if needed
+```
+
+**Allowed** (whitelisted): `grep`, `rg`, `awk`, `sed`, `jq`, `ls`, `cat`, `git log`, `git tag`, `git branch`, and other cheap filtering commands.
+
+**Add to whitelist** (if safe to pipe): set `extra_whitelist` in `.claude/hooks-daemon.yaml` under `pipe_blocker`.
+
+## git_stash — git stash is blocked by default
+
+`git stash`, `git stash push`, and `git stash save` are blocked. `git stash pop`, `git stash apply`, `git stash list`, and `git stash show` are always allowed.
+
+**Why**: stashes get forgotten, lost, and block `git pull`. Use `git commit -m 'WIP: ...'` instead — WIP commits are acceptable.
+
+**Escape hatch** (when commit truly won't work):
+
+```
+MUST_STASH_BECAUSE="explain why"; git stash
+```
+
+Configure via `handlers.pre_tool_use.git_stash.options.mode: warn` for advisory-only mode.
+
+## pip_break_system — --break-system-packages is blocked
+
+`pip install --break-system-packages` (and the `pip3` / `python -m pip` / `python3 -m pip` variants) is blocked. The flag bypasses PEP 668 system-package protection and corrupts the system Python environment in containers and on modern Linux distros.
+
+**Use a virtualenv or `--user` install instead**:
+
+```
+python3 -m venv /tmp/venv && /tmp/venv/bin/pip install <package>
+# or
+pip install --user <package>
+```
+
+If a tool's installer insists on `--break-system-packages` (some quick-start scripts do), download it first, inspect, and run it inside a venv — do not shortcut by adding the flag.
+
+## sudo_pip — sudo pip install is blocked
+
+`sudo pip install` (and the `sudo pip3` / `sudo python -m pip` / `sudo python3 -m pip` variants) is blocked. Installing as root corrupts the system Python managed by the OS package manager and creates permission/ownership issues that are painful to recover from.
+
+**Use a virtualenv or `--user` install instead**:
+
+```
+python3 -m venv /tmp/venv && /tmp/venv/bin/pip install <package>
+# or
+pip install --user <package>
+```
+
+Even in a container running as root, `sudo` adds nothing — drop it and use a venv.
+
+## ask_user_question_blocker — questions need `ASKING BECAUSE:` justification
+
+AskUserQuestion calls are only allowed when every `question` string begins with `ASKING BECAUSE:` (case-sensitive, leading whitespace OK). The convention mirrors the Stop handler's `STOPPING BECAUSE:` pattern — explicit declared intent gates the privilege of pausing the session.
+
+**Before asking, evaluate critically**:
+
+- Tautological/rhetorical questions with one obvious answer ("Should I continue?", "Would you like me to proceed?") — do NOT ask. State the question and your assumed-correct answer in plain output text and proceed. The user is watching and will interrupt if the assumption is wrong.
+- Questions whose options reduce to **good vs. bad** are tautological — the answer is always the good option. Examples: best practice vs. bodge, increasing vs. decreasing code quality, delivering the requirement vs. not delivering it, fixing the failing test vs. leaving it broken, following project conventions vs. inventing your own. Do NOT ask; pick the good option and proceed.
+- Errors with a clear recovery path ("Should I fix the failing test?") — do NOT ask. Fix it.
+- Genuine choice questions where you cannot resolve the answer from context — these are the legitimate use case. Prefix every question text with `ASKING BECAUSE: <one-line reason you cannot decide>` so the daemon allows the call through.
+
+**Audit log pattern** (preferred for tautological questions):
+
+```
+I would normally ask: <question>.
+Assumed answer: <your assumption>.
+Proceeding on that basis; the user will interrupt if wrong.
+```
+
+**Escape hatch** (genuine ambiguity): prefix every question text with `ASKING BECAUSE: <reason>`. Mixing prefixed and non-prefixed questions in one call still triggers a block — prefix all or none.
+
 ## curl_pipe_shell — never pipe curl/wget to bash/sh
 
 Piping network content directly to a shell is blocked. It executes untrusted remote code without any inspection.
@@ -206,14 +346,19 @@ cat /tmp/script.sh          # inspect
 bash /tmp/script.sh         # execute if safe
 ```
 
-## daemon_restart_verifier — restart the daemon before committing
+## daemon_location_guard — do not cd into .claude/hooks-daemon/
 
-Before making a `git commit` in the hooks daemon repository, this handler advises verifying that the daemon can restart successfully with the current code changes. This is advisory — it adds context but does not block the commit.
+Bash commands that change directory into `.claude/hooks-daemon/` (or `cd` into a daemon-internal subdirectory and then run something) are blocked. The daemon is an upstream dependency that must remain untouched in client repos.
 
-**Why**: Unit tests alone don't catch import errors. A handler that fails to import silently disables protection without any test-time error. Daemon restart is the definitive check.
+**Run daemon CLI from the project root instead** — it always works regardless of cwd:
 
-**Run before committing** (in this repo only):
-`$PYTHON -m claude_code_hooks_daemon.daemon.cli restart` then verify status shows RUNNING.
+```
+$PYTHON -m claude_code_hooks_daemon.daemon.cli status
+$PYTHON -m claude_code_hooks_daemon.daemon.cli restart
+$PYTHON -m claude_code_hooks_daemon.daemon.cli logs
+```
+
+If you need to inspect daemon source for debugging, use `Read` from the project root with the absolute path — never `cd` in. Do NOT edit anything inside `.claude/hooks-daemon/`; changes will be overwritten on the next upgrade.
 
 ## dangerous_permissions — chmod 777 is blocked
 
@@ -247,18 +392,138 @@ If the user needs to run one of these, ask them to do it manually. Do not attemp
 
 **Safe alternatives**: `git stash` (recoverable), `git diff` / `git status` (inspect first), `git commit` (save changes permanently first).
 
-## error_hiding_blocker — error-suppression patterns are blocked
+## gh_issue_comments — always include --comments on gh issue view
 
-Writing code that silently swallows errors is blocked. All errors must be handled explicitly.
+`gh issue view` without `--comments` is blocked. Issue comments often contain critical context, clarifications, and updates not in the issue body.
 
-**Blocked patterns (examples)**:
+**Blocked**: `gh issue view 123`, `gh issue view 123 --repo owner/repo`
 
-- Python: bare `except` clauses with an empty body, catching and discarding all exceptions
-- Shell: redirecting stderr to `/dev/null` to silence failures, `|| true` to suppress non-zero exit codes
-- JavaScript/TypeScript: empty `catch` blocks that swallow exceptions
-- Go: `_ = err` (discarding error return values without handling)
+**Allowed**: `gh issue view 123 --comments`, `gh issue view 123 --json title,body,comments`
 
-**Required action**: Handle errors explicitly — log them, return them to the caller, or propagate them. Silent error suppression masks bugs and makes debugging impossible.
+If using `--json`, include `comments` in the field list instead of adding `--comments`.
+
+## gh_pr_comments — always include --comments on gh pr view
+
+`gh pr view` without `--comments` is blocked. PR comments often contain review feedback, reviewer requests, and decisions not in the PR body.
+
+**Blocked**: `gh pr view 123`, `gh pr view 123 --repo owner/repo`
+
+**Allowed**: `gh pr view 123 --comments`, `gh pr view 123 --json title,body,comments`
+
+If using `--json`, include `comments` in the field list instead of adding `--comments`.
+
+## lsp_enforcement — use LSP tools for code symbol lookups
+
+Using `Grep` or `Bash` (grep/rg) to find class definitions, function signatures, or symbol references is blocked or redirected to LSP tools, which are faster and semantically accurate.
+
+**Prefer LSP tools for**:
+
+- Finding where a class or function is defined → `goToDefinition`
+- Finding all usages of a symbol → `findReferences`
+- Getting type information or documentation → `hover`
+- Listing all symbols in a file → `documentSymbol`
+- Searching symbols across the project → `workspaceSymbol`
+
+**Grep/Bash grep is still appropriate for**: text patterns in content, log searching, finding strings in config files.
+
+Default mode (`block_once`): the first symbol-lookup grep in a session is denied with guidance; subsequent retries are allowed.
+
+## markdown_organization — tracked-docs policy (untracked Claude memory BLOCKED)
+
+This project sets `allow_untracked_claude_memory: false`. Writing to Claude
+auto-memory files (`~/.claude/projects/*/memory/*.md`) is **blocked** — via the
+Write/Edit tools AND via bash redirect/`tee` side-doors. **Reading memory is
+still allowed** so existing memory can be migrated out.
+
+**Put durable knowledge in TRACKED project docs (progressive disclosure):**
+
+- Always-relevant facts → `CLAUDE.md` (keep lean; resident every session)
+- Path-specific guidance → `.claude/rules/*.md` with `paths:` glob frontmatter (loads on demand only when matching files are touched)
+- Intent-triggered procedures → a thin skill under `.claude/skills/` pointing at a single-source-of-truth doc body
+- Human-facing reference → `docs/`
+- Link docs with plain markdown links (zero token cost until followed); **avoid `@`-imports** (they re-inline eagerly rather than defer)
+
+Keep ONE source of truth per fact and link to it. Normal markdown-location rules (below) still apply to every other `.md` file.
+
+**Allowed locations**: `CLAUDE/`, `docs/`, `RELEASES/`, `CLAUDE/Plan/`, root-level `README.md`, `.claude/rules/`, or any `extra_allowed_markdown_paths` pattern.
+
+## npm_command — use llm: prefixed npm commands
+
+Direct `npm run` and `npx` commands are blocked or advised against. Projects with `llm:` prefixed scripts in `package.json` should use those instead.
+
+**Why**: `llm:` commands are configured for LLM-friendly output (no spinners, no colour codes, structured results).
+
+**Example**: Use `npm run llm:build` instead of `npm run build`.
+
+If no `llm:` commands exist in `package.json`, the handler operates in advisory mode (warns but does not block).
+
+## plan_number_helper — use `mkplan.bash` to create a plan
+
+**To create a new plan, run the deployed scaffolding script:**
+
+```
+CLAUDE/Plan/mkplan.bash "descriptive-kebab-name"
+```
+
+(Use the project's configured plan directory if it is not `CLAUDE/Plan/`.) The script takes a lock, reads the same authoritative git counter (`hooksdaemon.latestPlanNumber`), assigns the next number atomically, creates the `NNNNN-name/` folder, scaffolds `PLAN.md`, and advances the counter — so concurrent runs can never collide on a number. It prints the new folder path on stdout. You still add the README index row yourself (the script reminds you).
+
+**If you only need the *number* (not a folder)**, read the counter and add 1 — this is the fallback, not the primary path:
+
+```
+git config --local hooksdaemon.latestPlanNumber
+```
+
+Add 1 to that value (zero-pad to 5 digits, e.g. counter `117` → next plan `00118`). The git counter is the source of truth; the daemon keeps it correct across branches.
+
+**Do NOT** scan `CLAUDE/Plan/` with `ls`/`find`/glob pipelines to discover the next number. Folder scans miss plans in `Completed/` and other subdirectories, and disagree across branches. The folder scan is only used to bootstrap the counter when the git key is unset (which `mkplan.bash` and the daemon both handle).
+
+## plan_time_estimates — plans describe WHAT, not WHEN
+
+Writing time estimates into a `CLAUDE/Plan/*.md` file is blocked. Plans capture the work to be done, not how long it will take.
+
+**Blocked in plan documents:**
+
+- Effort estimates — `**Estimated Effort**: 4 hours`, `Total Estimated Time: 2 days`
+- Per-phase durations — `Phase 1: ... (3 days)`, `takes 8-12 hours`
+- Target/completion dates — `**Target Completion**: 2026-06-30`, `Completion: 2026-06-30`
+- `ETA:`, `timeline:`, `deadline:`, `due date:` lines
+
+**Instead:** break work into concrete tasks and implementation steps, and let the user decide scheduling. Technical durations that describe a feature (cache TTL, session timeout, retention window) are allowed — only work/effort estimates are blocked.
+
+## qa_suppression — QA suppression annotations are blocked
+
+Writing QA suppression directives into source files is blocked across all supported languages. Fix the underlying code issue instead.
+
+**Blocked annotation types (by language)**:
+
+- Python: `noqa` directives, `type: ignore` annotations
+- JavaScript/TypeScript: `eslint-disable` inline directives
+- Go: `nolint` directives (golangci-lint)
+- PHP: `phpstan-ignore`, `psalm-suppress` annotations
+- Java/Kotlin: `@SuppressWarnings`, `@Suppress` annotations
+- C#: `pragma warning disable` directives
+- Rust: `allow(...)` attributes anywhere in the file (item-level `#[allow(...)]` and crate-level `#![allow(...)]`)
+
+**Required action**: Fix the code so QA passes without suppression. If a suppression is genuinely necessary, ask the user to add it manually — this signals a conscious decision rather than a shortcut.
+
+## root_recursion_guard — recursive scans rooted at / are blocked
+
+A recursive scanner whose path argument resolves to a catastrophic root location is blocked, because it walks the entire filesystem and can pin every CPU core for hours.
+
+**Blocked** (recursive scanner + dangerous root path):
+
+- `grep -r`/`-R`/`-rl`, `ugrep -r`, `rgrep`, `find`, `fd`/`fdfind`, `rg`
+- pointed at `/`, `/proc`, `/sys`, `/home`, `/root`, `~`, `$HOME`
+
+**Allowed**: the same scanners scoped to the project — `rg -l "x" /workspace`, `grep -rl "x" "$CLAUDE_PROJECT_DIR"`, `grep -rl x src/`, `find . -name y`. Non-recursive `grep x /etc/hosts` is not affected.
+
+**Note**: `... | head` does NOT bound a `-l`/`-rl` scan — a producer that matches nothing never writes, so it never receives SIGPIPE and runs to completion across the whole disk.
+
+**Escape hatch** (rare legitimate whole-disk scan):
+
+```
+MUST_SCAN_ROOT_BECAUSE="explain why"; grep -rl x /
+```
 
 ## security_antipattern — OWASP security antipatterns are blocked
 
@@ -318,252 +583,6 @@ Creating a production source file is blocked until a corresponding test file exi
 
 **Allowed through without blocking**: vendor dirs, node_modules, build outputs, generated files, and file extensions not in the supported language list.
 
-## validate_instruction_content — CLAUDE.md and README.md must have stable content
-
-Writing ephemeral or session-specific content to `CLAUDE.md` or `README.md` is blocked. These files should contain only stable instructions, not implementation logs or session state.
-
-**Blocked content types**:
-
-- Timestamps and ISO dates
-- Status emoji followed by completion words (e.g. checkmark + 'Done')
-- Implementation log sentences ('created the file X', 'added the class Y')
-- Test output counts ('3 tests passed')
-- LLM summary section headings ('## Summary', '## Key Points')
-
-Content inside markdown code blocks is exempt from validation.
-
-## worktree_file_copy — do not copy files between worktrees and the main repo
-
-`cp`, `mv`, and `rsync` operations that move files from a worktree directory (`untracked/worktrees/` or `.claude/worktrees/`) into the main repo (`src/`, `tests/`, `config/`) — or vice versa — are blocked.
-
-Worktrees are isolated branches. Cross-copying corrupts that isolation and can silently overwrite in-progress work.
-
-**Allowed**: operations within the same worktree branch. **To merge changes**: use `git merge` or `git cherry-pick` instead.
-
-## gh_issue_comments — always include --comments on gh issue view
-
-`gh issue view` without `--comments` is blocked. Issue comments often contain critical context, clarifications, and updates not in the issue body.
-
-**Blocked**: `gh issue view 123`, `gh issue view 123 --repo owner/repo`
-
-**Allowed**: `gh issue view 123 --comments`, `gh issue view 123 --json title,body,comments`
-
-If using `--json`, include `comments` in the field list instead of adding `--comments`.
-
-## lock_file_edit_blocker — never directly edit lock files
-
-Direct `Write` or `Edit` to package manager lock files is blocked. Lock files are generated artifacts; manual edits create checksum mismatches and broken dependency graphs.
-
-**Blocked files**: `composer.lock`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `Gemfile.lock`, `Cargo.lock`, `go.sum`, `Package.resolved`, `Pipfile.lock`, and others.
-
-**Use package manager commands instead**:
-
-- PHP: `composer install` / `composer require package`
-- Node: `npm install` / `yarn add package`
-- Ruby: `bundle install` / `bundle add gem`
-- Rust: `cargo add crate`
-- Go: `go get module`
-
-## npm_command — use llm: prefixed npm commands
-
-Direct `npm run` and `npx` commands are blocked or advised against. Projects with `llm:` prefixed scripts in `package.json` should use those instead.
-
-**Why**: `llm:` commands are configured for LLM-friendly output (no spinners, no colour codes, structured results).
-
-**Example**: Use `npm run llm:build` instead of `npm run build`.
-
-If no `llm:` commands exist in `package.json`, the handler operates in advisory mode (warns but does not block).
-
-### Pipe Blocker
-
-Commands piped to `tail` or `head` are **blocked** — piping truncates output and causes information loss.
-
-**Use a temp file instead:**
-
-```bash
-# WRONG — blocked:
-pytest tests/ 2>&1 | tail -20
-
-# RIGHT — redirect to temp file:
-pytest tests/ > /tmp/pytest_out.txt 2>&1
-# Then read selectively if needed
-```
-
-**Allowed** (whitelisted): `grep`, `rg`, `awk`, `sed`, `jq`, `ls`, `cat`, `git log`, `git tag`, `git branch`, and other cheap filtering commands.
-
-**Add to whitelist** (if safe to pipe): set `extra_whitelist` in `.claude/hooks-daemon.yaml` under `pipe_blocker`.
-
-## qa_suppression — QA suppression annotations are blocked
-
-Writing QA suppression directives into source files is blocked across all supported languages. Fix the underlying code issue instead.
-
-**Blocked annotation types (by language)**:
-
-- Python: `noqa` directives, `type: ignore` annotations
-- JavaScript/TypeScript: `eslint-disable` inline directives
-- Go: `nolint` directives (golangci-lint)
-- PHP: `phpstan-ignore`, `psalm-suppress` annotations
-- Java/Kotlin: `@SuppressWarnings`, `@Suppress` annotations
-- C#: `pragma warning disable` directives
-- Rust: `allow(clippy::...)` attributes on type-level items
-
-**Required action**: Fix the code so QA passes without suppression. If a suppression is genuinely necessary, ask the user to add it manually — this signals a conscious decision rather than a shortcut.
-
-## git_stash — git stash is blocked by default
-
-`git stash`, `git stash push`, and `git stash save` are blocked. `git stash pop`, `git stash apply`, `git stash list`, and `git stash show` are always allowed.
-
-**Why**: stashes get forgotten, lost, and block `git pull`. Use `git commit -m 'WIP: ...'` instead — WIP commits are acceptable.
-
-**Escape hatch** (when commit truly won't work):
-
-```
-MUST_STASH_BECAUSE="explain why"; git stash
-```
-
-Configure via `handlers.pre_tool_use.git_stash.options.mode: warn` for advisory-only mode.
-
-## gh_pr_comments — always include --comments on gh pr view
-
-`gh pr view` without `--comments` is blocked. PR comments often contain review feedback, reviewer requests, and decisions not in the PR body.
-
-**Blocked**: `gh pr view 123`, `gh pr view 123 --repo owner/repo`
-
-**Allowed**: `gh pr view 123 --comments`, `gh pr view 123 --json title,body,comments`
-
-If using `--json`, include `comments` in the field list instead of adding `--comments`.
-
-## daemon_location_guard — do not cd into .claude/hooks-daemon/
-
-Bash commands that change directory into `.claude/hooks-daemon/` (or `cd` into a daemon-internal subdirectory and then run something) are blocked. The daemon is an upstream dependency that must remain untouched in client repos.
-
-**Run daemon CLI from the project root instead** — it always works regardless of cwd:
-
-```
-$PYTHON -m claude_code_hooks_daemon.daemon.cli status
-$PYTHON -m claude_code_hooks_daemon.daemon.cli restart
-$PYTHON -m claude_code_hooks_daemon.daemon.cli logs
-```
-
-If you need to inspect daemon source for debugging, use `Read` from the project root with the absolute path — never `cd` in. Do NOT edit anything inside `.claude/hooks-daemon/`; changes will be overwritten on the next upgrade.
-
-## pip_break_system — --break-system-packages is blocked
-
-`pip install --break-system-packages` (and the `pip3` / `python -m pip` / `python3 -m pip` variants) is blocked. The flag bypasses PEP 668 system-package protection and corrupts the system Python environment in containers and on modern Linux distros.
-
-**Use a virtualenv or `--user` install instead**:
-
-```
-python3 -m venv /tmp/venv && /tmp/venv/bin/pip install <package>
-# or
-pip install --user <package>
-```
-
-If a tool's installer insists on `--break-system-packages` (some quick-start scripts do), download it first, inspect, and run it inside a venv — do not shortcut by adding the flag.
-
-## sudo_pip — sudo pip install is blocked
-
-`sudo pip install` (and the `sudo pip3` / `sudo python -m pip` / `sudo python3 -m pip` variants) is blocked. Installing as root corrupts the system Python managed by the OS package manager and creates permission/ownership issues that are painful to recover from.
-
-**Use a virtualenv or `--user` install instead**:
-
-```
-python3 -m venv /tmp/venv && /tmp/venv/bin/pip install <package>
-# or
-pip install --user <package>
-```
-
-Even in a container running as root, `sudo` adds nothing — drop it and use a venv.
-
-## ask_user_question_blocker — questions need `ASKING BECAUSE:` justification
-
-AskUserQuestion calls are only allowed when every `question` string begins with `ASKING BECAUSE:` (case-sensitive, leading whitespace OK). The convention mirrors the Stop handler's `STOPPING BECAUSE:` pattern — explicit declared intent gates the privilege of pausing the session.
-
-**Before asking, evaluate critically**:
-
-- Tautological/rhetorical questions with one obvious answer ("Should I continue?", "Would you like me to proceed?") — do NOT ask. State the question and your assumed-correct answer in plain output text and proceed. The user is watching and will interrupt if the assumption is wrong.
-- Questions whose options reduce to **good vs. bad** are tautological — the answer is always the good option. Examples: best practice vs. bodge, increasing vs. decreasing code quality, delivering the requirement vs. not delivering it, fixing the failing test vs. leaving it broken, following project conventions vs. inventing your own. Do NOT ask; pick the good option and proceed.
-- Errors with a clear recovery path ("Should I fix the failing test?") — do NOT ask. Fix it.
-- Genuine choice questions where you cannot resolve the answer from context — these are the legitimate use case. Prefix every question text with `ASKING BECAUSE: <one-line reason you cannot decide>` so the daemon allows the call through.
-
-**Audit log pattern** (preferred for tautological questions):
-
-```
-I would normally ask: <question>.
-Assumed answer: <your assumption>.
-Proceeding on that basis; the user will interrupt if wrong.
-```
-
-**Escape hatch** (genuine ambiguity): prefix every question text with `ASKING BECAUSE: <reason>`. Mixing prefixed and non-prefixed questions in one call still triggers a block — prefix all or none.
-
-## plan_time_estimates — plans describe WHAT, not WHEN
-
-Writing time estimates into a `CLAUDE/Plan/*.md` file is blocked. Plans capture the work to be done, not how long it will take.
-
-**Blocked in plan documents:**
-
-- Effort estimates — `**Estimated Effort**: 4 hours`, `Total Estimated Time: 2 days`
-- Per-phase durations — `Phase 1: ... (3 days)`, `takes 8-12 hours`
-- Target/completion dates — `**Target Completion**: 2026-06-30`, `Completion: 2026-06-30`
-- `ETA:`, `timeline:`, `deadline:`, `due date:` lines
-
-**Instead:** break work into concrete tasks and implementation steps, and let the user decide scheduling. Technical durations that describe a feature (cache TTL, session timeout, retention window) are allowed — only work/effort estimates are blocked.
-
-## lsp_enforcement — use LSP tools for code symbol lookups
-
-Using `Grep` or `Bash` (grep/rg) to find class definitions, function signatures, or symbol references is blocked or redirected to LSP tools, which are faster and semantically accurate.
-
-**Prefer LSP tools for**:
-
-- Finding where a class or function is defined → `goToDefinition`
-- Finding all usages of a symbol → `findReferences`
-- Getting type information or documentation → `hover`
-- Listing all symbols in a file → `documentSymbol`
-- Searching symbols across the project → `workspaceSymbol`
-
-**Grep/Bash grep is still appropriate for**: text patterns in content, log searching, finding strings in config files.
-
-Default mode (`block_once`): the first symbol-lookup grep in a session is denied with guidance; subsequent retries are allowed.
-
-## markdown_organization — tracked-docs policy (untracked Claude memory BLOCKED)
-
-This project sets `allow_untracked_claude_memory: false`. Writing to Claude
-auto-memory files (`~/.claude/projects/*/memory/*.md`) is **blocked** — via the
-Write/Edit tools AND via bash redirect/`tee` side-doors. **Reading memory is
-still allowed** so existing memory can be migrated out.
-
-**Put durable knowledge in TRACKED project docs (progressive disclosure):**
-
-- Always-relevant facts → `CLAUDE.md` (keep lean; resident every session)
-- Path-specific guidance → `.claude/rules/*.md` with `paths:` glob frontmatter (loads on demand only when matching files are touched)
-- Intent-triggered procedures → a thin skill under `.claude/skills/` pointing at a single-source-of-truth doc body
-- Human-facing reference → `docs/`
-- Link docs with plain markdown links (zero token cost until followed); **avoid `@`-imports** (they re-inline eagerly rather than defer)
-
-Keep ONE source of truth per fact and link to it. Normal markdown-location rules (below) still apply to every other `.md` file.
-
-**Allowed locations**: `CLAUDE/`, `docs/`, `RELEASES/`, `CLAUDE/Plan/`, root-level `README.md`, `.claude/rules/`, or any `extra_allowed_markdown_paths` pattern.
-
-## plan_number_helper — use `mkplan.bash` to create a plan
-
-**To create a new plan, run the deployed scaffolding script:**
-
-```
-CLAUDE/Plan/mkplan.bash "descriptive-kebab-name"
-```
-
-(Use the project's configured plan directory if it is not `CLAUDE/Plan/`.) The script takes a lock, reads the same authoritative git counter (`hooksdaemon.latestPlanNumber`), assigns the next number atomically, creates the `NNNNN-name/` folder, scaffolds `PLAN.md`, and advances the counter — so concurrent runs can never collide on a number. It prints the new folder path on stdout. You still add the README index row yourself (the script reminds you).
-
-**If you only need the *number* (not a folder)**, read the counter and add 1 — this is the fallback, not the primary path:
-
-```
-git config --local hooksdaemon.latestPlanNumber
-```
-
-Add 1 to that value (zero-pad to 5 digits, e.g. counter `117` → next plan `00118`). The git counter is the source of truth; the daemon keeps it correct across branches.
-
-**Do NOT** scan `CLAUDE/Plan/` with `ls`/`find`/glob pipelines to discover the next number. Folder scans miss plans in `Completed/` and other subdirectories, and disagree across branches. The folder scan is only used to bootstrap the counter when the git key is unset (which `mkplan.bash` and the daemon both handle).
-
 ## system_paths — do not edit deployed system files directly
 
 Writing or editing files under system paths (/etc/, /var/, /usr/, /opt/, /root/, /home/) is blocked.
@@ -608,6 +627,85 @@ After every `Write` or `Edit` of a `.md` or `.markdown` file, the content is re-
 $PYTHON -m claude_code_hooks_daemon.daemon.cli format-markdown <path>
 ```
 
+## background_process_tracker — backgrounded processes are tracked
+
+A PostToolUse advisory that fires when a Bash call backgrounds a process (`run_in_background: true`, or a `&`/`nohup`/`setsid`/`disown` command). It records the command to `background-processes.jsonl` and injects rate-limited guidance.
+
+**The daemon never kills.** It surfaces runaways; you decide.
+
+When you background a long-lived process:
+
+- Create a non-durable recurring **watchdog cron** (CronCreate, durable:false) whose prompt runs `$PYTHON -m claude_code_hooks_daemon.daemon.cli harvest-background` and acts on any runaway — this covers the idle/compaction window a tool-call hook cannot. Do NOT wait for the cron; keep working.
+- Check on demand: run `harvest-background` (exit 1 == runaways surfaced).
+- Reap a runaway by its **process group**: `kill -- -<pgid>` (not just the pid).
+- Keep a wanted long task: note `KEEP_RUNNING_BECAUSE="reason"`.
+- Delete the watchdog cron (CronDelete) when no backgrounded work remains.
+
+Advisory is rate-limited per session (default-on). Disable with `handlers.post_tool_use.background_process_tracker.enabled: false`.
+
+## recovery_cron_advisor — failsafe recovery cron lifecycle advisory
+
+An advisory PostToolUse handler that fires across a plan's lifecycle and
+injects guidance telling the agent to manage a non-durable hourly failsafe
+recovery cron.
+
+### What it does
+
+Three lifecycle phases are detected from Write/Edit to `CLAUDE/Plan/<digits>-<name>/PLAN.md`
+(never from files inside `Completed/`) and from `mkplan.bash` Bash invocations:
+
+| Phase          | Trigger                                                                               | Guidance injected                                                                                                                                                                                                                                         |
+| -------------- | ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Creation**   | New PLAN.md written, or `mkplan.bash` invoked                                         | Create a non-durable hourly cron now (CronCreate, durable:false); record the ID in the plan; do NOT wait for the cron.                                                                                                                                    |
+| **Progress**   | Edit to PLAN.md touching task-status icons (⬜/🔄/✅) or `## Notes & Updates` section | Confirm the recovery cron is still running (CronList); recreate if missing; keep working.                                                                                                                                                                 |
+| **Completion** | `**Status**: Complete[d]` written/edited                                              | Plan complete — **warns first**: deleting now leaves the still-live session with no recovery coverage. Keep the cron if any further work may happen (it is non-durable and dies on session exit); `CronDelete` only when certain the session is finished. |
+
+Progress reminders are rate-limited per plan: the handler advises on the first
+progress edit and then once every few progress edits for that plan, so it does
+not spam context on every edit. Completion always advises (bypasses the interval).
+
+### CRITICAL: recovery cron is NOT a heartbeat
+
+The recovery cron is a **failsafe safety net**, not a pacing mechanism:
+
+- The agent **must never** wait for the cron between units of work.
+- Work proceeds at **full speed** until an external factor (Claude API error,
+  rate limit, 5-hour usage limit, network failure) actually stalls it.
+- The cron fires only while the REPL is idle; it cannot interrupt active work.
+- Treating the cron as a heartbeat is an **own goal** — it would convert a
+  safety net into an artificial hourly throttle.
+
+### Canonical recovery-cron prompt
+
+Use this verbatim as the CronCreate prompt:
+
+```
+**FAILSAFE RECOVERY CHECK (automated hourly safety net — NOT a heartbeat).**
+If your most recent work on the active plan/task was interrupted by an
+*external* factor (Claude API error/overload, rate limit, 5-hour usage limit,
+network failure) and is now resumable, resume it immediately and carry it to
+completion. If you are blocked **only** on human input, do nothing and keep
+waiting. If work is already proceeding normally, this is a **no-op** — do not
+interrupt, restart, or duplicate anything in flight. Never treat this as a
+heartbeat or pacing signal: between checks, continue at full speed until an
+external factor actually stops you — waiting for the cron is an own goal. Do
+NOT delete this cron merely because a tick finds nothing to resume: it is
+non-durable and ends automatically when the session exits, and a still-live
+session stays exposed to the next rate limit without it. Remove it (CronDelete)
+only once the session is genuinely finished with no further work.
+```
+
+### Configuration
+
+This handler is **on by default** (opt-out). Disable with:
+
+```yaml
+handlers:
+  post_tool_use:
+    recovery_cron_advisor:
+      enabled: false
+```
+
 ## hook_registration_checker — hooks configuration policy
 
 On every new session this handler audits hook configuration across `.claude/settings.json` and `.claude/settings.local.json`. When it reports issues, fix them — do not ignore the warning.
@@ -625,6 +723,19 @@ On every new session this handler audits hook configuration across `.claude/sett
 - **Missing hooks**: the daemon's installer writes the full set. If any are missing, re-run `install.py` or manually add the missing `{event_name}` entry pointing at `"$CLAUDE_PROJECT_DIR"/.claude/hooks/{bash-key}`.
 - **Duplicate hooks**: a hook registered in both files fires twice. Keep the `settings.json` entry, delete from `settings.local.json`.
 
+## project_handler_load_checker — project protection degraded alert
+
+At session start this handler reports any **project handlers** (`.claude/project-handlers/`) that FAILED to load in the running daemon. A skipped handler is a silently-disabled protection — the alert exists so you never assume a guardrail is active when it is not.
+
+### When you see `🚨 PROJECT PROTECTION DEGRADED 🚨`
+
+1. **Do not assume normal guardrails are in force.** The listed handlers are OFF for this session.
+2. **Diagnose** each failure: `$PYTHON -m claude_code_hooks_daemon.daemon.cli validate-project-handlers` names the file, the missing method, and the daemon version that introduced it.
+3. **Fix** the handler(s) — usually adding a required method stub (e.g. `get_claude_md`) that a daemon upgrade made mandatory.
+4. **Restart the daemon** (`$PYTHON -m claude_code_hooks_daemon.daemon.cli restart`). The alert reflects the *running* daemon, so it clears only after a restart reloads the fixed handlers — fixing the file alone is not enough.
+
+The handler is silent when every project handler loads, so seeing this alert always means real action is required.
+
 ## auto_approve_reads — gated on bypassPermissions mode
 
 Read-only tool permission requests (`Read`, `Glob`, `Grep`) are auto-approved **only** when Claude Code reports `permission_mode == "bypassPermissions"` (YOLO mode).
@@ -632,18 +743,6 @@ Read-only tool permission requests (`Read`, `Glob`, `Grep`) are auto-approved **
 In every other mode (`default`, `plan`, `acceptEdits`, `dontAsk`) the handler defers and Claude Code's normal approval prompt is shown — the user has not opted out of per-tool approvals, so the daemon must not silently approve on their behalf.
 
 If a permission prompt for `Read` appears in `default` mode, that is correct behaviour — approve it via Claude Code's UI.
-
-## dismissive_language_detector — do not deflect or prematurely halt
-
-Stop-time advisory that fires on language patterns signalling avoidance of work. The handler does NOT block the stop, but injects context for the next turn so the agent self-corrects.
-
-**Avoid**:
-
-- Dismissing issues as `pre-existing`, `out of scope`, `not our problem`, or `not relevant` to deflect work that is in fact yours.
-- Premature-halt phrasing like `natural checkpoint`, `ready to continue on your   cue`, `pausing here` mid-plan when there is more to do — finish the task rather than dressing up a halt.
-- Speculative `should be fine` or `probably works` when verification is cheap (run the test, read the file).
-
-**Do**: acknowledge the issue, fix it, or — if it genuinely is out of scope — say so once with the specific reason and continue with the in-scope work.
 
 ### Stop Explanation Required
 
@@ -683,5 +782,17 @@ Some tool errors require an explicit recovery action, not a halt. The most commo
 **Rule: Read before Edit/Write.** If you must edit a file you have not read, Read it first in the same turn. The daemon's Stop handler will detect a `tool_use_error` followed by a silent stop and re-fire to force recovery.
 
 **On Stop hook re-entry (the hook fires again after a prior block)**: your next response is treated like any other — it must either prefix with `STOPPING BECAUSE:` or continue the work. Re-entry does not exempt you from the explanation rule.
+
+## dismissive_language_detector — do not deflect or prematurely halt
+
+Stop-time advisory that fires on language patterns signalling avoidance of work. The handler does NOT block the stop, but injects context for the next turn so the agent self-corrects.
+
+**Avoid**:
+
+- Dismissing issues as `pre-existing`, `out of scope`, `not our problem`, or `not relevant` to deflect work that is in fact yours.
+- Premature-halt phrasing like `natural checkpoint`, `ready to continue on your   cue`, `pausing here` mid-plan when there is more to do — finish the task rather than dressing up a halt.
+- Speculative `should be fine` or `probably works` when verification is cheap (run the test, read the file).
+
+**Do**: acknowledge the issue, fix it, or — if it genuinely is out of scope — say so once with the specific reason and continue with the in-scope work.
 
 </hooksdaemon>
