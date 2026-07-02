@@ -1,0 +1,12 @@
+[Unit]
+Description=DisplayLink Dock Hotplug Recovery
+Documentation=file:///usr/local/lib/displaylink-recovery/helpers/displaylink_recovery/run_recovery.py
+After=displaylink-driver.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/usr/local/lib/displaylink-recovery
+ExecStart=/usr/bin/python3 -m helpers.displaylink_recovery.run_recovery
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=displaylink-dock-recovery
