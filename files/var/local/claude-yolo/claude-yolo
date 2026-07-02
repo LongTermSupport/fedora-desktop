@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.23.0"  # Daily per-image Claude Code auto-update: on launch, once per 24h per image, compare the running image's bundled Claude Code against npm latest and run the fast in-place npm update (update_claude_inplace) when behind — NOOP when current. Gates on the FINAL resolved IMAGE_NAME (project image when a custom Dockerfile exists, else claude-yolo:latest), so old project images self-update on their next session; second session same day is zero-impact (fresh per-image stamp). Soft-fails offline; CCY_AUTO_UPDATE=0 falls back to notify-only. Cache moved to per-image dir ~/.cache/claude-yolo-update-checks. Builds on 3.22.0 GitHub SSH 443 launch banner, 3.21.0 inherited GITHUB_SSH_443, 3.20.0 auto-fallback, 3.19.0 --github-443.
+CCY_VERSION="3.24.0"  # Container base bumped to node:lts-slim (was node:20-slim) so the bundled Claude Code satisfies its rising Node engine floor (2.1.x needs >=22); floating LTS tag auto-tracks future majors at build time. Also fixes the long-soft-failing ctrl+z patch: Claude Code 2.1.198 removed the platform-boolean guard and now gates suspend on a shared ano() call, so ccy-ctrl-z-patch.js now no-ops the single-purpose handleSuspend() method itself (guard-refactor-proof) instead of chasing the condition. CRITICAL: update_claude_inplace() now re-applies the patch after the daily in-place npm update (the fresh install ships an UNPATCHED binary, which previously re-enabled the freeze until the next full rebuild); the Dockerfile keeps the patch script at /opt/claude-yolo/ so it is available for that. REQUIRED_CONTAINER_VERSION 2.18 -> 2.19 forces a one-time rebuild. Prior: Daily per-image Claude Code auto-update: on launch, once per 24h per image, compare the running image's bundled Claude Code against npm latest and run the fast in-place npm update (update_claude_inplace) when behind — NOOP when current. Gates on the FINAL resolved IMAGE_NAME (project image when a custom Dockerfile exists, else claude-yolo:latest), so old project images self-update on their next session; second session same day is zero-impact (fresh per-image stamp). Soft-fails offline; CCY_AUTO_UPDATE=0 falls back to notify-only. Cache moved to per-image dir ~/.cache/claude-yolo-update-checks. Builds on 3.22.0 GitHub SSH 443 launch banner, 3.21.0 inherited GITHUB_SSH_443, 3.20.0 auto-fallback, 3.19.0 --github-443.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,7 +36,7 @@ done
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.18"
+REQUIRED_CONTAINER_VERSION="2.19"
 
 set -e
 
@@ -1331,11 +1331,17 @@ update_claude_inplace() {
     local image_name="$1"
     local temp_name="ccy-claude-update-$$"
     echo "  npm install -g @anthropic-ai/claude-code@latest in $image_name..."
+    # Re-apply the ctrl+z suspend patch immediately after updating: the fresh
+    # npm install ships an UNPATCHED Claude Code, so without this the daily
+    # in-place update would silently re-enable the SIGSTOP-freeze bug until the
+    # next full image rebuild. The patch script is baked into the image at
+    # /opt/claude-yolo/ (Dockerfile keeps it, does not rm it). It soft-fails
+    # harmlessly if the script is absent from an older image.
     if ! container_cmd run \
         --name "$temp_name" \
         --entrypoint sh \
         "$image_name" \
-        -c "npm install -g @anthropic-ai/claude-code@latest 2>&1"; then
+        -c 'set -e; npm install -g @anthropic-ai/claude-code@latest 2>&1; if [ -f /opt/claude-yolo/ccy-ctrl-z-patch.js ]; then node /opt/claude-yolo/ccy-ctrl-z-patch.js 2>&1; else echo "CCY: ctrl+z patch script absent from this (older) image; it will be re-applied on the next full rebuild"; fi'; then
         remove_temp_container "$temp_name"
         print_error "Failed to update Claude Code in $image_name"
         return 1

@@ -103,14 +103,16 @@ fG5 = process.platform !== "win32"
 fG5 = process.platform !== "win32" && !process.env.CCY_DISABLE_SUSPEND
 ```
 
-The entrypoint sets `CCY_DISABLE_SUSPEND=1`. The patch script uses two strategies: (1) known hardcoded patterns, (2) dynamic regex discovery near `handleSuspend`. It **soft-fails** (warns but does not break the build) if both strategies fail.
+The entrypoint sets `CCY_DISABLE_SUSPEND=1` (this env gating only takes effect on the legacy `cli.js` path; native edits are unconditional — see below). The patch script tries its strategies in order and **soft-fails** (warns but does not break the build) if all of them fail.
 
 ### Two packaging formats: legacy `cli.js` and native binary
 
 Claude Code ships in two shapes, and the patch script (`ccy-ctrl-z-patch.js`) handles both:
 
 - **Legacy `cli.js`** (pre-2.1.x): plain JavaScript. The patch appends `&&!process.env.CCY_DISABLE_SUSPEND` to the platform guard (variable-length text replacement).
-- **Native binary** (2.1.x+): an ELF with embedded JS (Node.js SEA) at `bin/claude.exe`. The platform check is constant-folded at build time (`<var>=!0`), so the patch flips it to `<var>=!1` — a **same-length byte replacement** (length mismatch is a hard error, never written). An unoptimised native build is also handled (`!==` → `===`).
+- **Native binary** (2.1.x+): an ELF with embedded JS (Node.js SEA) at `bin/claude.exe`. All native edits are **same-length byte replacements** (length mismatch is a hard error, never written). Two strategies in order:
+  - **PRIMARY — no-op `handleSuspend()` itself.** Claude Code 2.1.198 removed the platform boolean and now gates suspend on a *shared* predicate call — `if(...&&ano()){e.handleSuspend();continue}`, where `ano()` returns false only for `CLAUDE_CODE_SESSION_KIND==="bg"` and is reused elsewhere for unrelated foreground-only behaviour. The *guard condition* churns release-to-release (that churn is what kept soft-failing), but the *method* is single-purpose (its only job is SIGSTOP) and has no other callers. So the patch replaces the method's first statement with an unconditional `return;` padded by a block comment to the same length (`handleSuspend=()=>{if(!this.isRawModeSupported())return;` → `handleSuspend=()=>{return;/*…*/`). We deliberately do **not** flip `ano()`'s body — that would disable unrelated foreground behaviour.
+  - **LEGACY fallback** (pre-2.1.198): the platform check was constant-folded to `<var>=!0`; the patch flips it to `<var>=!1`. An unoptimised build is handled too (`!==` → `===`). Absent in newer builds, so it no-matches and we fall through.
 
 The script auto-detects which artifact `npm install -g` produced (`cli.js` present → legacy path; else `bin/claude.exe` → native path) and patches accordingly. `CCY_PKG_DIR` / `CCY_CLI_PATH` override the lookup paths (used by the QA harness).
 
@@ -123,14 +125,15 @@ When the patch soft-fails it writes a sentinel `/opt/claude-yolo/.ctrlz-patch-st
 - Build output will show: `CCY PATCH WARNING: ctrl+z patch target not found - skipping`, and the launch warning above will fire.
 - **Legacy cli.js:** find the new minified variable name with
   `grep -o '.\{20\}platform.*win32.\{20\}' /usr/local/lib/node_modules/@anthropic-ai/claude-code/cli.js`, then add the pattern to the `knownPatterns` array.
-- **Native binary:** inspect the guard with
-  `grep -ao '.\{0,5\}handleSuspend.\{0,100\}' /usr/local/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe` and confirm the `if(<var>){...handleSuspend();continue}` shape the script keys on still holds.
+- **Native binary:** inspect the method with
+  `grep -ao 'handleSuspend=()=>{.\{0,120\}' /usr/local/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe`. The PRIMARY patch keys on the method's opening statement (`handleSuspend=()=>{if(!this.isRawModeSupported())return;`); if that opening statement changed, add the new variant to the `firstStatements` list in `tryNoopHandleSuspend()`. Only fall back to the legacy platform-variable shape (`if(<var>){...handleSuspend();continue}`) if the method-noop anchor is truly gone.
 - Bump container version (Dockerfile label + `REQUIRED_CONTAINER_VERSION` in claude-yolo).
-- Verify against the latest release: `./scripts/qa-ctrl-z-patch.bash --update` (the QA exercises whichever artifact npm produced).
+- Verify against the latest release: `./scripts/qa-ctrl-z-patch.bash` (always reinstalls @latest and, for native builds, executes the patched binary to prove the same-length edit did not corrupt the JS blob).
 
 **Files involved:**
 
-- `files/var/local/claude-yolo/ccy-ctrl-z-patch.js` — the patch script (update `knownPatterns` here; handles both artifacts; writes the soft-fail sentinel)
-- `files/var/local/claude-yolo/Dockerfile` — COPYs and RUNs the patch script
+- `files/var/local/claude-yolo/ccy-ctrl-z-patch.js` — the patch script (native primary = `handleSuspend()` no-op via `firstStatements`; legacy cli.js = `knownPatterns`; handles both artifacts; writes the soft-fail sentinel on failure and clears a stale one on success)
+- `files/var/local/claude-yolo/Dockerfile` — COPYs the patch script to `/opt/claude-yolo/` (kept in the image, not `rm`'d) and RUNs it at build
+- `files/var/local/claude-yolo/claude-yolo` — `update_claude_inplace()` re-runs the patch after the daily in-place `npm i -g …@latest`, so the auto-update to latest never ships an unpatched (freeze-prone) binary
 - `files/var/local/claude-yolo/entrypoint.sh` — sets `CCY_DISABLE_SUSPEND=1`; warns at launch if the sentinel says `failed`
-- `scripts/qa-ctrl-z-patch.bash` — artifact-aware QA gate for the patch
+- `scripts/qa-ctrl-z-patch.bash` — artifact-aware QA gate; always reinstalls `@latest` and executes the patched native binary to prove the edit is valid
