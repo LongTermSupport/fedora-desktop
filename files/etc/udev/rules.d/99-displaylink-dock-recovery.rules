@@ -1,0 +1,5 @@
+# ANSIBLE MANAGED: DisplayLink dock hotplug recovery (Plan 00056 / GitHub issue #28)
+# On dock (re)connect, kick off the staged recovery sequence for a wedged evdi
+# video head. --no-block is required: udev workers must not block on a
+# multi-second recovery run.
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="17e9", ATTR{idProduct}=="602b", RUN+="/usr/bin/systemctl --no-block start displaylink-dock-recovery.service"

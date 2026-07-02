@@ -16,7 +16,12 @@ WORKDIR /build
 RUN cargo build --release --target x86_64-unknown-linux-musl
 # The static binary will be copied into the runtime image below
 
-FROM node:20-slim AS base
+# Track the latest Node LTS rather than pinning a major. Claude Code raises its
+# minimum Node engine over time (e.g. 2.1.x requires >=22); a floating LTS tag
+# auto-satisfies that at build time so we don't chase it by hand. node:lts-slim
+# is Debian-based, matching the apt layers below; the PHPantom LSP is built
+# static with musl (above) so it stays portable even if the base Debian moves.
+FROM node:lts-slim AS base
 
 # Accept build arg for Dockerfile hash (calculated by wrapper at build time)
 ARG DOCKERFILE_HASH="unknown"
@@ -28,7 +33,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.18"
+LABEL claude-yolo-version="2.19"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 # NOTE: the claude-yolo-dockerfile-hash LABEL is set at the END of the final `full` stage
 # (PERF-02) so a Dockerfile edit — which changes DOCKERFILE_HASH — only invalidates that
@@ -163,13 +168,17 @@ RUN printf '#!/bin/sh\necho "Command not found: agentbrowser" >&2\necho "Did you
     > /usr/local/bin/agentbrowser && \
     chmod +x /usr/local/bin/agentbrowser
 
-# Patch Ink's hardcoded ctrl+z handler in Claude Code to respect CCY_DISABLE_SUSPEND env var.
-# Ink intercepts ctrl+z BEFORE the keybinding system and calls process.kill(pid, 'SIGSTOP')
-# which is unblockable. This patch extends the platform check to also test CCY_DISABLE_SUSPEND.
-# The patch is BEST-EFFORT: uses dynamic discovery and soft-fails if Claude Code internals change.
-# See ccy-ctrl-z-patch.js and CLAUDE.md "KNOWN FRAGILE PATCH" section for details.
-COPY ccy-ctrl-z-patch.js /tmp/ccy-ctrl-z-patch.js
-RUN node /tmp/ccy-ctrl-z-patch.js && rm /tmp/ccy-ctrl-z-patch.js
+# Patch Ink's hardcoded ctrl+z handler in Claude Code so it cannot SIGSTOP the
+# container. Ink intercepts ctrl+z BEFORE the keybinding system and calls
+# process.kill(pid, 'SIGSTOP'), which is unblockable and unrecoverable in a
+# container. The patch no-ops handleSuspend() (native) or extends the platform
+# guard (legacy cli.js). BEST-EFFORT: soft-fails if Claude Code internals change.
+# The script is kept IN the image (not rm'd) so update_claude_inplace() in
+# claude-yolo can re-apply it after the daily in-place `npm i -g …@latest`, which
+# would otherwise ship a fresh, unpatched binary. See ccy-ctrl-z-patch.js and
+# CLAUDE/ContainerRules.md "Known Fragile Patch" section for details.
+COPY ccy-ctrl-z-patch.js /opt/claude-yolo/ccy-ctrl-z-patch.js
+RUN node /opt/claude-yolo/ccy-ctrl-z-patch.js
 
 # Copy and set up entrypoint script
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh

@@ -75,14 +75,12 @@ human to confirm the GNOME version. Both run automatically in the `helpers` CI j
 For changes to `ccy-ctrl-z-patch.js`, run the dedicated patch QA script:
 
 ```bash
-# First run (installs latest Claude Code into scripts/qa-ccy/node_modules/):
-./scripts/qa-ctrl-z-patch.bash --update
-
-# Subsequent runs (uses cached install, fast):
+# Always reinstalls the LATEST Claude Code into scripts/qa-ccy/node_modules/,
+# applies the patch, and (for native builds) executes the patched binary to prove
+# the same-length edit did not corrupt the embedded JS blob. Requires network.
 ./scripts/qa-ctrl-z-patch.bash
 
-# After a Claude Code release, refresh and re-verify:
-./scripts/qa-ctrl-z-patch.bash --update
+# `--update` is accepted for back-compat but is a no-op — every run pulls @latest.
 ```
 
 ---

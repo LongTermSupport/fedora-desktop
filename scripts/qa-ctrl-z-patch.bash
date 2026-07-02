@@ -6,12 +6,14 @@
 # Claude Code package.
 #
 # Usage:
-#   ./scripts/qa-ctrl-z-patch.bash           # test (auto-install on first run)
-#   ./scripts/qa-ctrl-z-patch.bash --update  # pull latest Claude Code, then test
+#   ./scripts/qa-ctrl-z-patch.bash           # always pulls the LATEST Claude Code, then tests
+#   ./scripts/qa-ctrl-z-patch.bash --update  # accepted for back-compat; identical behaviour
 #
-# Claude Code is cached in scripts/qa-ccy/node_modules/ (gitignored).
-# On first run the package is installed automatically.
-# Use --update to explicitly refresh to the latest published version.
+# This gate exists to catch packaging changes in the NEWEST published Claude Code
+# before it ships in the container, so it ALWAYS reinstalls @latest — it never
+# reuses a cached/locked version (doing so is exactly how the QA silently drifted
+# to validating a stale build). Install goes to scripts/qa-ccy/node_modules/
+# (gitignored); network access is therefore required on every run.
 #
 # jq usage:
 #   jq '.status'                 # "pass" or "fail"
@@ -32,8 +34,7 @@ PATCH_SCRIPT="$REPO_ROOT/files/var/local/claude-yolo/ccy-ctrl-z-patch.js"
 JSON_OUT="${QA_JSON_OUT:-/tmp/qa-ctrl-z-patch-results.json}"
 SUSPEND_GUARD='&&!process.env.CCY_DISABLE_SUSPEND'
 
-UPDATE=0
-[[ "${1:-}" == "--update" ]] && UPDATE=1
+# `--update` is accepted for back-compat but is a no-op: we always pull @latest.
 
 # Write failure JSON and exit 1
 _fail() {
@@ -52,13 +53,17 @@ _fail() {
 }
 
 # Install / update Claude Code package
-if [[ $UPDATE -eq 1 ]] || [[ ! -d "$NODE_MODULES" ]]; then
-    action="Installing"
-    [[ $UPDATE -eq 1 ]] && action="Updating"
-    echo "  $action @anthropic-ai/claude-code (this may take a moment)..."
-    npm install --prefix "$QA_DIR" > /tmp/qa-ccy-npm.log 2>&1 \
-        || _fail "npm install failed" "See /tmp/qa-ccy-npm.log for details"
-fi
+# Always (re)install @latest. Pinning @latest explicitly forces npm to re-resolve
+# and rewrite the gitignored local lock, so a stale package-lock.json can never
+# pin us to an old release — the failure mode that had this gate silently
+# validating an old cli.js build while the container shipped a newer native binary.
+echo "  Installing latest @anthropic-ai/claude-code (this may take a moment)..."
+# --no-save: install into node_modules only, never rewrite the tracked package.json
+# (which must stay pinned to "latest") or the gitignored lock. Without it, npm
+# rewrites the dependency to a caret range like "^2.1.198", which both dirties the
+# working tree and defeats the always-latest guarantee on the next run.
+npm install "@anthropic-ai/claude-code@latest" --no-save --prefix "$QA_DIR" > /tmp/qa-ccy-npm.log 2>&1 \
+    || _fail "npm install failed" "See /tmp/qa-ccy-npm.log for details"
 
 # Sanity-check the package is present
 if [[ ! -d "$CC_DIR" ]]; then
@@ -111,14 +116,22 @@ else
     cp "$CC_DIR/bin/claude.exe" "$TMP_PKG/bin/claude.exe"
     PATCH_OUTPUT=$(CCY_PKG_DIR="$TMP_PKG" CCY_PATCH_STATUS_PATH="$TMP_STATUS" \
         node "$PATCH_SCRIPT" 2>&1) || PATCH_RC=$?
-    # Native binary is patched by a same-length byte flip, so we cannot grep for
-    # the cli.js guard string. Success = the patch reported applying (or already
-    # applied) AND no soft-fail sentinel was written.
+    # Native binary is patched by a same-length byte edit, so we cannot grep for
+    # the cli.js guard string. Success requires ALL of:
+    #   1. no soft-fail sentinel written,
+    #   2. the patch reported applying (method no-op or legacy flip) or already-applied,
+    #   3. the patched SEA binary STILL EXECUTES — proving the same-length edit did
+    #      not corrupt the embedded JS blob (a syntax error would abort at startup).
     sentinel="$(cat "$TMP_STATUS" 2>/dev/null)" || sentinel=""
     if [[ "$sentinel" != "failed" ]] && \
-       echo "$PATCH_OUTPUT" | grep -qE "applied to native binary|already applied"; then
-        STATUS="pass"
-        PATCH_RESULT="applied-native"
+       echo "$PATCH_OUTPUT" | grep -qE "no-op of handleSuspend|applied to native binary|already applied"; then
+        if "$TMP_PKG/bin/claude.exe" --version > /tmp/qa-ccy-patched-version.log 2>&1; then
+            STATUS="pass"
+            PATCH_RESULT="applied-native"
+        else
+            PATCH_OUTPUT="$PATCH_OUTPUT
+  patched binary failed to execute (--version) — embedded JS blob likely corrupted; see /tmp/qa-ccy-patched-version.log"
+        fi
     fi
 fi
 

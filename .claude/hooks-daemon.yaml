@@ -137,7 +137,6 @@ handlers:
     model_context: {enabled: true, priority: 10}    # Model name and context %
     usage_tracking: {enabled: true, priority: 15}   # Usage statistics
     git_branch: {enabled: true, priority: 20}       # Current git branch
-    thinking_mode: {enabled: true, priority: 25}    # Current thinking mode
     startup_cleanup: {enabled: true, priority: 28}  # Stale file cleanup indicator
     daemon_stats: {enabled: true, priority: 30}     # Daemon health metrics
 

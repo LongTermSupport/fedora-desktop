@@ -129,6 +129,35 @@ SHA-blind cherry-picks) on a prior plan branch.
 - If you catch yourself about to "manually squash" by re-committing everything as
   one commit, stop — that recreates the exact failure mode.
 
+### A confirmed "no reboot-free fix exists" finding must be reported, never routed around
+
+When research concludes a problem genuinely has no non-disruptive fix (e.g. no
+reboot-free/logout-free recovery on Wayland), the correct output is a clear
+diagnosis and user notification — **not** an automated mechanism that performs
+the disruptive action anyway, even opt-in and default-off.
+
+**Why:** during Plan 00056 (DisplayLink dock hotplug recovery), research
+confirmed GNOME/mutter has no reboot-free or logout-free way to clear a
+corrupted monitor-manager state on Wayland. The first implementation draft
+still added an opt-in `displaylink_recovery_force_logout` flag that, when
+enabled, would auto-detect the corruption via a journal grep and run
+`loginctl terminate-session` to force a logout. The user rejected this
+immediately: *"you have found there's no way to fix without logout so instead
+of confirm[ing] that ... you are going to build an automated log out into the
+playbook?? hmm fuck no."* Gating a destructive, hard-to-reverse action
+(killing every app in a session) behind a default-off flag does not make it
+safe to have built at all — it's still IaC quietly offering to automate a
+human decision that should never be automated. The fix was to delete the
+mechanism entirely (not just default it off): no `Action.FORCE_LOGOUT`, no
+CLI flag, no executor function — only a passive desktop notification.
+
+**How to apply:** when a finding is "X can only be fixed by a disruptive,
+hard-to-reverse action," stop at reporting/notifying. Do not design an
+automated path to perform X, regardless of default state or opt-in gating.
+This is a specific instance of the general "Executing actions with care"
+principle, but worth calling out because "make it opt-in" can *feel* like it
+satisfies that principle when it does not.
+
 ---
 
 ## Project Gotchas

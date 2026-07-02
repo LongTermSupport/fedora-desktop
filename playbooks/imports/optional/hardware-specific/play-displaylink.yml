@@ -195,78 +195,66 @@
         - "'SecureBoot enabled' in secure_boot_state.stdout"
         - "'is already enrolled' in mok_enrolled.stdout | default('')"
 
-    # Configure suspend/resume handling for DisplayLink
-    # This prevents display configuration getting stuck after suspend/resume cycles
-    # The service restarts cause GNOME to lose monitor layout because EVDI recreates
-    # virtual DRM devices with new IDs, breaking ~/.config/monitors.xml references
-    # Alternative approaches:
-    # 1. Save/restore monitor config: gdbus call to Mutter DisplayConfig
-    # 2. USB power management: disable autosuspend for DisplayLink devices
-    # 3. EVDI persistence: options evdi initial_device_count=N in modprobe.d
-    - name: Create DisplayLink suspend/resume check script
+    # DisplayLink dock hotplug/suspend-resume recovery (Plan 00056 / issue #28).
+    # EVDI recreates virtual DRM devices with new IDs on reconnect, which can
+    # both wedge a video head (connected but never gets an EDID) and corrupt
+    # ~/.config/monitors.xml references. The old bash watchdog only restarted
+    # displaylink-driver.service — issue #28 established that alone does not
+    # reload the evdi kernel module and does nothing for a wedged head. The
+    # staged recovery logic (service restart -> USB reauth -> module reload,
+    # each only as needed) is unit-tested in helpers/displaylink_recovery/ —
+    # see that package's docstring for the full decision rationale, including
+    # why mutter monitor-manager corruption can only be notified about, not
+    # silently fixed, on Wayland.
+    - name: Deploy DisplayLink recovery decision logic
       ansible.builtin.copy:
-        content: |
-          #!/bin/bash
-          # Check if DisplayLink needs recovery after suspend
+        src: "{{ root_dir }}/helpers/displaylink_recovery/recovery.py"
+        dest: /usr/local/lib/displaylink-recovery/helpers/displaylink_recovery/recovery.py
+        owner: root
+        group: root
+        mode: "0644"
 
-          # Wait for system to stabilize
-          sleep 5
+    - name: Deploy DisplayLink recovery executor
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/helpers/displaylink_recovery/run_recovery.py"
+        dest: /usr/local/lib/displaylink-recovery/helpers/displaylink_recovery/run_recovery.py
+        owner: root
+        group: root
+        mode: "0644"
 
-          # Check if DisplayLink USB device exists
-          if ! lsusb | grep -qi displaylink; then
-              echo "No DisplayLink device connected"
-              exit 0
-          fi
+    - name: Deploy DisplayLink dock hotplug recovery udev rule
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/etc/udev/rules.d/99-displaylink-dock-recovery.rules"
+        dest: /etc/udev/rules.d/99-displaylink-dock-recovery.rules
+        owner: root
+        group: root
+        mode: "0644"
+      notify: reload-udev-rules
 
-          # Check if EVDI module is loaded
-          if ! lsmod | grep -q evdi; then
-              echo "EVDI module not loaded - restarting service"
-              systemctl restart displaylink-driver.service
-              exit 0
-          fi
+    - name: Deploy DisplayLink dock hotplug recovery systemd service
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/etc/systemd/system/displaylink-dock-recovery.service"
+        dest: /etc/systemd/system/displaylink-dock-recovery.service
+        owner: root
+        group: root
+        mode: "0644"
+      notify: reload-systemd
 
-          # Check if DisplayLinkManager process is running
-          if ! pgrep -f DisplayLinkManager > /dev/null; then
-              echo "DisplayLinkManager not running - restarting service"
-              systemctl restart displaylink-driver.service
-              exit 0
-          fi
-
-          # Check for EVDI errors in kernel log (last 10 seconds)
-          if journalctl -k --since "10 seconds ago" | grep -q "evdi.*error\|evdi.*fail"; then
-              echo "EVDI errors detected - restarting service"
-              systemctl restart displaylink-driver.service
-              exit 0
-          fi
-
-          # Check if any connected DisplayLink monitor lost its display output
-          # This checks if EVDI cards exist but aren't properly connected
-          for card in /sys/class/drm/card*/status; do
-              if [[ -e "$card" ]] && grep -q "evdi" "${card%/status}/device/driver" 2>/dev/null; then
-                  status=$(cat "$card")
-                  if [[ "$status" != "connected" ]]; then
-                      echo "EVDI card disconnected - restarting service"
-                      systemctl restart displaylink-driver.service
-                      exit 0
-                  fi
-              fi
-          done
-
-          echo "DisplayLink appears healthy - no restart needed"
-        dest: /usr/local/bin/displaylink-resume-check.sh
-        mode: "0755"
-
-    - name: Create DisplayLink suspend/resume service
+    - name: Create DisplayLink suspend/resume recovery service
       ansible.builtin.copy:
         content: |
           [Unit]
-          Description=DisplayLink Suspend/Resume Handler
-          After=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
+          Description=DisplayLink Suspend/Resume Recovery
+          After=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target displaylink-driver.service
 
           [Service]
           Type=oneshot
-          # Only restart DisplayLink if there are actual issues detected
-          ExecStart=/usr/local/bin/displaylink-resume-check.sh
+          WorkingDirectory=/usr/local/lib/displaylink-recovery
+          ExecStartPre=/bin/sleep 5
+          ExecStart=/usr/bin/python3 -m helpers.displaylink_recovery.run_recovery
+          StandardOutput=journal
+          StandardError=journal
+          SyslogIdentifier=displaylink-suspend-recovery
 
           [Install]
           WantedBy=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
@@ -279,6 +267,11 @@
         name: displaylink-suspend.service
         enabled: true
         daemon_reload: "{{ suspend_service.changed }}"
+
+    - name: Remove obsolete DisplayLink resume-check bash script
+      ansible.builtin.file:
+        path: /usr/local/bin/displaylink-resume-check.sh
+        state: absent
 
     - name: Ensure DisplayLink service is started
       ansible.builtin.systemd:
@@ -318,3 +311,17 @@
 
           Press ENTER to continue...
           ========================================================================
+
+  handlers:
+    - name: reload-systemd
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: reload-udev-rules
+      ansible.builtin.command: udevadm control --reload-rules
+      changed_when: true
+      notify: trigger-udev
+
+    - name: trigger-udev
+      ansible.builtin.command: udevadm trigger --subsystem-match=usb
+      changed_when: true
