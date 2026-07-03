@@ -192,27 +192,6 @@ The `Read`, `Write`, and `Edit` tools require absolute paths. Relative paths are
 
 The working directory is `/workspace`. Prepend `/workspace/` to any relative path before calling these tools.
 
-## ask_user_question_blocker — questions need `ASKING BECAUSE:` justification
-
-AskUserQuestion calls are only allowed when every `question` string begins with `ASKING BECAUSE:` (case-sensitive, leading whitespace OK). The convention mirrors the Stop handler's `STOPPING BECAUSE:` pattern — explicit declared intent gates the privilege of pausing the session.
-
-**Before asking, evaluate critically**:
-
-- Tautological/rhetorical questions with one obvious answer ("Should I continue?", "Would you like me to proceed?") — do NOT ask. State the question and your assumed-correct answer in plain output text and proceed. The user is watching and will interrupt if the assumption is wrong.
-- Questions whose options reduce to **good vs. bad** are tautological — the answer is always the good option. Examples: best practice vs. bodge, increasing vs. decreasing code quality, delivering the requirement vs. not delivering it, fixing the failing test vs. leaving it broken, following project conventions vs. inventing your own. Do NOT ask; pick the good option and proceed.
-- Errors with a clear recovery path ("Should I fix the failing test?") — do NOT ask. Fix it.
-- Genuine choice questions where you cannot resolve the answer from context — these are the legitimate use case. Prefix every question text with `ASKING BECAUSE: <one-line reason you cannot decide>` so the daemon allows the call through.
-
-**Audit log pattern** (preferred for tautological questions):
-
-```
-I would normally ask: <question>.
-Assumed answer: <your assumption>.
-Proceeding on that basis; the user will interrupt if wrong.
-```
-
-**Escape hatch** (genuine ambiguity): prefix every question text with `ASKING BECAUSE: <reason>`. Mixing prefixed and non-prefixed questions in one call still triggers a block — prefix all or none.
-
 ## daemon_restart_verifier — restart the daemon before committing
 
 Before making a `git commit` in the hooks daemon repository, this handler advises verifying that the daemon can restart successfully with the current code changes. This is advisory — it adds context but does not block the commit.
@@ -235,81 +214,6 @@ Writing code that silently swallows errors is blocked. All errors must be handle
 
 **Required action**: Handle errors explicitly — log them, return them to the caller, or propagate them. Silent error suppression masks bugs and makes debugging impossible.
 
-## git_stash — git stash is blocked by default
-
-`git stash`, `git stash push`, and `git stash save` are blocked. `git stash pop`, `git stash apply`, `git stash list`, and `git stash show` are always allowed.
-
-**Why**: stashes get forgotten, lost, and block `git pull`. Use `git commit -m 'WIP: ...'` instead — WIP commits are acceptable.
-
-**Escape hatch** (when commit truly won't work):
-
-```
-MUST_STASH_BECAUSE="explain why"; git stash
-```
-
-Configure via `handlers.pre_tool_use.git_stash.options.mode: warn` for advisory-only mode.
-
-## lock_file_edit_blocker — never directly edit lock files
-
-Direct `Write` or `Edit` to package manager lock files is blocked. Lock files are generated artifacts; manual edits create checksum mismatches and broken dependency graphs.
-
-**Blocked files**: `composer.lock`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `Gemfile.lock`, `Cargo.lock`, `go.sum`, `Package.resolved`, `Pipfile.lock`, and others.
-
-**Use package manager commands instead**:
-
-- PHP: `composer install` / `composer require package`
-- Node: `npm install` / `yarn add package`
-- Ruby: `bundle install` / `bundle add gem`
-- Rust: `cargo add crate`
-- Go: `go get module`
-
-## pip_break_system — --break-system-packages is blocked
-
-`pip install --break-system-packages` (and the `pip3` / `python -m pip` / `python3 -m pip` variants) is blocked. The flag bypasses PEP 668 system-package protection and corrupts the system Python environment in containers and on modern Linux distros.
-
-**Use a virtualenv or `--user` install instead**:
-
-```
-python3 -m venv /tmp/venv && /tmp/venv/bin/pip install <package>
-# or
-pip install --user <package>
-```
-
-If a tool's installer insists on `--break-system-packages` (some quick-start scripts do), download it first, inspect, and run it inside a venv — do not shortcut by adding the flag.
-
-### Pipe Blocker
-
-Commands piped to `tail` or `head` are **blocked** — piping truncates output and causes information loss.
-
-**Use a temp file instead:**
-
-```bash
-# WRONG — blocked:
-pytest tests/ 2>&1 | tail -20
-
-# RIGHT — redirect to temp file:
-pytest tests/ > /tmp/pytest_out.txt 2>&1
-# Then read selectively if needed
-```
-
-**Allowed** (whitelisted): `grep`, `rg`, `awk`, `sed`, `jq`, `ls`, `cat`, `git log`, `git tag`, `git branch`, and other cheap filtering commands.
-
-**Add to whitelist** (if safe to pipe): set `extra_whitelist` in `.claude/hooks-daemon.yaml` under `pipe_blocker`.
-
-## sudo_pip — sudo pip install is blocked
-
-`sudo pip install` (and the `sudo pip3` / `sudo python -m pip` / `sudo python3 -m pip` variants) is blocked. Installing as root corrupts the system Python managed by the OS package manager and creates permission/ownership issues that are painful to recover from.
-
-**Use a virtualenv or `--user` install instead**:
-
-```
-python3 -m venv /tmp/venv && /tmp/venv/bin/pip install <package>
-# or
-pip install --user <package>
-```
-
-Even in a container running as root, `sudo` adds nothing — drop it and use a venv.
-
 ## validate_instruction_content — CLAUDE.md and README.md must have stable content
 
 Writing ephemeral or session-specific content to `CLAUDE.md` or `README.md` is blocked. These files should contain only stable instructions, not implementation logs or session state.
@@ -331,6 +235,102 @@ Content inside markdown code blocks is exempt from validation.
 Worktrees are isolated branches. Cross-copying corrupts that isolation and can silently overwrite in-progress work.
 
 **Allowed**: operations within the same worktree branch. **To merge changes**: use `git merge` or `git cherry-pick` instead.
+
+## lock_file_edit_blocker — never directly edit lock files
+
+Direct `Write` or `Edit` to package manager lock files is blocked. Lock files are generated artifacts; manual edits create checksum mismatches and broken dependency graphs.
+
+**Blocked files**: `composer.lock`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `Gemfile.lock`, `Cargo.lock`, `go.sum`, `Package.resolved`, `Pipfile.lock`, and others.
+
+**Use package manager commands instead**:
+
+- PHP: `composer install` / `composer require package`
+- Node: `npm install` / `yarn add package`
+- Ruby: `bundle install` / `bundle add gem`
+- Rust: `cargo add crate`
+- Go: `go get module`
+
+### Pipe Blocker
+
+Commands piped to `tail` or `head` are **blocked** — piping truncates output and causes information loss.
+
+**Use a temp file instead:**
+
+```bash
+# WRONG — blocked:
+pytest tests/ 2>&1 | tail -20
+
+# RIGHT — redirect to temp file:
+pytest tests/ > /tmp/pytest_out.txt 2>&1
+# Then read selectively if needed
+```
+
+**Allowed** (whitelisted): `grep`, `rg`, `awk`, `sed`, `jq`, `ls`, `cat`, `git log`, `git tag`, `git branch`, and other cheap filtering commands.
+
+**Add to whitelist** (if safe to pipe): set `extra_whitelist` in `.claude/hooks-daemon.yaml` under `pipe_blocker`.
+
+## git_stash — git stash is blocked by default
+
+`git stash`, `git stash push`, and `git stash save` are blocked. `git stash pop`, `git stash apply`, `git stash list`, and `git stash show` are always allowed.
+
+**Why**: stashes get forgotten, lost, and block `git pull`. Use `git commit -m 'WIP: ...'` instead — WIP commits are acceptable.
+
+**Escape hatch** (when commit truly won't work):
+
+```
+MUST_STASH_BECAUSE="explain why"; git stash
+```
+
+Configure via `handlers.pre_tool_use.git_stash.options.mode: warn` for advisory-only mode.
+
+## pip_break_system — --break-system-packages is blocked
+
+`pip install --break-system-packages` (and the `pip3` / `python -m pip` / `python3 -m pip` variants) is blocked. The flag bypasses PEP 668 system-package protection and corrupts the system Python environment in containers and on modern Linux distros.
+
+**Use a virtualenv or `--user` install instead**:
+
+```
+python3 -m venv /tmp/venv && /tmp/venv/bin/pip install <package>
+# or
+pip install --user <package>
+```
+
+If a tool's installer insists on `--break-system-packages` (some quick-start scripts do), download it first, inspect, and run it inside a venv — do not shortcut by adding the flag.
+
+## sudo_pip — sudo pip install is blocked
+
+`sudo pip install` (and the `sudo pip3` / `sudo python -m pip` / `sudo python3 -m pip` variants) is blocked. Installing as root corrupts the system Python managed by the OS package manager and creates permission/ownership issues that are painful to recover from.
+
+**Use a virtualenv or `--user` install instead**:
+
+```
+python3 -m venv /tmp/venv && /tmp/venv/bin/pip install <package>
+# or
+pip install --user <package>
+```
+
+Even in a container running as root, `sudo` adds nothing — drop it and use a venv.
+
+## ask_user_question_blocker — questions need `ASKING BECAUSE:` justification
+
+AskUserQuestion calls are only allowed when every `question` string begins with `ASKING BECAUSE:` (case-sensitive, leading whitespace OK). The convention mirrors the Stop handler's `STOPPING BECAUSE:` pattern — explicit declared intent gates the privilege of pausing the session.
+
+**Before asking, evaluate critically**:
+
+- Tautological/rhetorical questions with one obvious answer ("Should I continue?", "Would you like me to proceed?") — do NOT ask. State the question and your assumed-correct answer in plain output text and proceed. The user is watching and will interrupt if the assumption is wrong.
+- Questions whose options reduce to **good vs. bad** are tautological — the answer is always the good option. Examples: best practice vs. bodge, increasing vs. decreasing code quality, delivering the requirement vs. not delivering it, fixing the failing test vs. leaving it broken, following project conventions vs. inventing your own. Do NOT ask; pick the good option and proceed.
+- Errors with a clear recovery path ("Should I fix the failing test?") — do NOT ask. Fix it.
+- Genuine choice questions where you cannot resolve the answer from context — these are the legitimate use case. Prefix every question text with `ASKING BECAUSE: <one-line reason you cannot decide>` so the daemon allows the call through.
+
+**Audit log pattern** (preferred for tautological questions):
+
+```
+I would normally ask: <question>.
+Assumed answer: <your assumption>.
+Proceeding on that basis; the user will interrupt if wrong.
+```
+
+**Escape hatch** (genuine ambiguity): prefix every question text with `ASKING BECAUSE: <reason>`. Mixing prefixed and non-prefixed questions in one call still triggers a block — prefix all or none.
 
 ## curl_pipe_shell — never pipe curl/wget to bash/sh
 
@@ -412,6 +412,22 @@ If using `--json`, include `comments` in the field list instead of adding `--com
 
 If using `--json`, include `comments` in the field list instead of adding `--comments`.
 
+## lsp_enforcement — use LSP tools for code symbol lookups
+
+Using `Grep` or `Bash` (grep/rg) to find class definitions, function signatures, or symbol references is blocked or redirected to LSP tools, which are faster and semantically accurate.
+
+**Prefer LSP tools for**:
+
+- Finding where a class or function is defined → `goToDefinition`
+- Finding all usages of a symbol → `findReferences`
+- Getting type information or documentation → `hover`
+- Listing all symbols in a file → `documentSymbol`
+- Searching symbols across the project → `workspaceSymbol`
+
+**Grep/Bash grep is still appropriate for**: text patterns in content, log searching, finding strings in config files.
+
+Default mode (`block_once`): the first symbol-lookup grep in a session is denied with guidance; subsequent retries are allowed.
+
 ## markdown_organization — tracked-docs policy (untracked Claude memory BLOCKED)
 
 This project sets `allow_untracked_claude_memory: false`. Writing to Claude
@@ -430,6 +446,16 @@ still allowed** so existing memory can be migrated out.
 Keep ONE source of truth per fact and link to it. Normal markdown-location rules (below) still apply to every other `.md` file.
 
 **Allowed locations**: `CLAUDE/`, `docs/`, `RELEASES/`, `CLAUDE/Plan/`, root-level `README.md`, `.claude/rules/`, or any `extra_allowed_markdown_paths` pattern.
+
+## npm_command — use llm: prefixed npm commands
+
+Direct `npm run` and `npx` commands are blocked or advised against. Projects with `llm:` prefixed scripts in `package.json` should use those instead.
+
+**Why**: `llm:` commands are configured for LLM-friendly output (no spinners, no colour codes, structured results).
+
+**Example**: Use `npm run llm:build` instead of `npm run build`.
+
+If no `llm:` commands exist in `package.json`, the handler operates in advisory mode (warns but does not block).
 
 ## plan_number_helper — use `mkplan.bash` to create a plan
 
@@ -479,6 +505,25 @@ Writing QA suppression directives into source files is blocked across all suppor
 - Rust: `allow(...)` attributes anywhere in the file (item-level `#[allow(...)]` and crate-level `#![allow(...)]`)
 
 **Required action**: Fix the code so QA passes without suppression. If a suppression is genuinely necessary, ask the user to add it manually — this signals a conscious decision rather than a shortcut.
+
+## root_recursion_guard — recursive scans rooted at / are blocked
+
+A recursive scanner whose path argument resolves to a catastrophic root location is blocked, because it walks the entire filesystem and can pin every CPU core for hours.
+
+**Blocked** (recursive scanner + dangerous root path):
+
+- `grep -r`/`-R`/`-rl`, `ugrep -r`, `rgrep`, `find`, `fd`/`fdfind`, `rg`
+- pointed at `/`, `/proc`, `/sys`, `/home`, `/root`, `~`, `$HOME`
+
+**Allowed**: the same scanners scoped to the project — `rg -l "x" /workspace`, `grep -rl "x" "$CLAUDE_PROJECT_DIR"`, `grep -rl x src/`, `find . -name y`. Non-recursive `grep x /etc/hosts` is not affected.
+
+**Note**: `... | head` does NOT bound a `-l`/`-rl` scan — a producer that matches nothing never writes, so it never receives SIGPIPE and runs to completion across the whole disk.
+
+**Escape hatch** (rare legitimate whole-disk scan):
+
+```
+MUST_SCAN_ROOT_BECAUSE="explain why"; grep -rl x /
+```
 
 ## security_antipattern — OWASP security antipatterns are blocked
 
@@ -538,51 +583,6 @@ Creating a production source file is blocked until a corresponding test file exi
 
 **Allowed through without blocking**: vendor dirs, node_modules, build outputs, generated files, and file extensions not in the supported language list.
 
-## lsp_enforcement — use LSP tools for code symbol lookups
-
-Using `Grep` or `Bash` (grep/rg) to find class definitions, function signatures, or symbol references is blocked or redirected to LSP tools, which are faster and semantically accurate.
-
-**Prefer LSP tools for**:
-
-- Finding where a class or function is defined → `goToDefinition`
-- Finding all usages of a symbol → `findReferences`
-- Getting type information or documentation → `hover`
-- Listing all symbols in a file → `documentSymbol`
-- Searching symbols across the project → `workspaceSymbol`
-
-**Grep/Bash grep is still appropriate for**: text patterns in content, log searching, finding strings in config files.
-
-Default mode (`block_once`): the first symbol-lookup grep in a session is denied with guidance; subsequent retries are allowed.
-
-## npm_command — use llm: prefixed npm commands
-
-Direct `npm run` and `npx` commands are blocked or advised against. Projects with `llm:` prefixed scripts in `package.json` should use those instead.
-
-**Why**: `llm:` commands are configured for LLM-friendly output (no spinners, no colour codes, structured results).
-
-**Example**: Use `npm run llm:build` instead of `npm run build`.
-
-If no `llm:` commands exist in `package.json`, the handler operates in advisory mode (warns but does not block).
-
-## root_recursion_guard — recursive scans rooted at / are blocked
-
-A recursive scanner whose path argument resolves to a catastrophic root location is blocked, because it walks the entire filesystem and can pin every CPU core for hours.
-
-**Blocked** (recursive scanner + dangerous root path):
-
-- `grep -r`/`-R`/`-rl`, `ugrep -r`, `rgrep`, `find`, `fd`/`fdfind`, `rg`
-- pointed at `/`, `/proc`, `/sys`, `/home`, `/root`, `~`, `$HOME`
-
-**Allowed**: the same scanners scoped to the project — `rg -l "x" /workspace`, `grep -rl "x" "$CLAUDE_PROJECT_DIR"`, `grep -rl x src/`, `find . -name y`. Non-recursive `grep x /etc/hosts` is not affected.
-
-**Note**: `... | head` does NOT bound a `-l`/`-rl` scan — a producer that matches nothing never writes, so it never receives SIGPIPE and runs to completion across the whole disk.
-
-**Escape hatch** (rare legitimate whole-disk scan):
-
-```
-MUST_SCAN_ROOT_BECAUSE="explain why"; grep -rl x /
-```
-
 ## system_paths — do not edit deployed system files directly
 
 Writing or editing files under system paths (/etc/, /var/, /usr/, /opt/, /root/, /home/) is blocked.
@@ -610,22 +610,6 @@ Direct package management, service management, and system configuration commands
 
 When a git command prints `hint: The '...' hook was ignored because it's not set as executable`, this handler automatically `chmod +x`s every non-`.sample` file in the repository's hooks directory (resolved via `git rev-parse --git-path hooks`, so worktrees and `core.hooksPath` are handled). Execute bits are added with least privilege (only where read is already granted). It never blocks the command and reports which hooks it fixed via advisory context. `.sample` files and already-executable hooks are left untouched.
 
-## background_process_tracker — backgrounded processes are tracked
-
-A PostToolUse advisory that fires when a Bash call backgrounds a process (`run_in_background: true`, or a `&`/`nohup`/`setsid`/`disown` command). It records the command to `background-processes.jsonl` and injects rate-limited guidance.
-
-**The daemon never kills.** It surfaces runaways; you decide.
-
-When you background a long-lived process:
-
-- Create a non-durable recurring **watchdog cron** (CronCreate, durable:false) whose prompt runs `$PYTHON -m claude_code_hooks_daemon.daemon.cli harvest-background` and acts on any runaway — this covers the idle/compaction window a tool-call hook cannot. Do NOT wait for the cron; keep working.
-- Check on demand: run `harvest-background` (exit 1 == runaways surfaced).
-- Reap a runaway by its **process group**: `kill -- -<pgid>` (not just the pid).
-- Keep a wanted long task: note `KEEP_RUNNING_BECAUSE="reason"`.
-- Delete the watchdog cron (CronDelete) when no backgrounded work remains.
-
-Advisory is rate-limited per session (default-on). Disable with `handlers.post_tool_use.background_process_tracker.enabled: false`.
-
 ## markdown_table_formatter — markdown tables are auto-aligned
 
 After every `Write` or `Edit` of a `.md` or `.markdown` file, the content is re-formatted via `mdformat + mdformat-gfm` so that table pipes are aligned and column widths are consistent. The handler is non-terminal and advisory — it never blocks, it just rewrites the file on disk.
@@ -642,6 +626,22 @@ After every `Write` or `Edit` of a `.md` or `.markdown` file, the content is re-
 ```
 $PYTHON -m claude_code_hooks_daemon.daemon.cli format-markdown <path>
 ```
+
+## background_process_tracker — backgrounded processes are tracked
+
+A PostToolUse advisory that fires when a Bash call backgrounds a process (`run_in_background: true`, or a `&`/`nohup`/`setsid`/`disown` command). It records the command to `background-processes.jsonl` and injects rate-limited guidance.
+
+**The daemon never kills.** It surfaces runaways; you decide.
+
+When you background a long-lived process:
+
+- Create a non-durable recurring **watchdog cron** (CronCreate, durable:false) whose prompt runs `$PYTHON -m claude_code_hooks_daemon.daemon.cli harvest-background` and acts on any runaway — this covers the idle/compaction window a tool-call hook cannot. Do NOT wait for the cron; keep working.
+- Check on demand: run `harvest-background` (exit 1 == runaways surfaced).
+- Reap a runaway by its **process group**: `kill -- -<pgid>` (not just the pid).
+- Keep a wanted long task: note `KEEP_RUNNING_BECAUSE="reason"`.
+- Delete the watchdog cron (CronDelete) when no backgrounded work remains.
+
+Advisory is rate-limited per session (default-on). Disable with `handlers.post_tool_use.background_process_tracker.enabled: false`.
 
 ## recovery_cron_advisor — failsafe recovery cron lifecycle advisory
 
