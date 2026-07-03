@@ -1,0 +1,27 @@
+# gitleaks configuration for fedora-desktop (public repo).
+#
+# CI runs `gitleaks dir . --redact --no-banner --verbose` (see
+# .github/workflows/qa.yml) with no `-c` flag, so gitleaks auto-loads this file
+# from the repo root. We keep the FULL default ruleset and only allowlist known
+# test fixtures that trip entropy-based generic rules — real secrets anywhere
+# else are still caught.
+
+[extend]
+useDefault = true
+
+# Fake container token used purely as a unit-test fixture in the containerwatch
+# helper tests. `container_token="abcdef0123456789"` is a truncated container
+# ID (16 hex chars), not a credential, but gitleaks' generic-api-key rule fires
+# on its entropy. Scope the allowance to that one test module and require the
+# match to be the fake-token assignment (matchCondition = AND), so a genuinely
+# leaked secret in the same file would still be reported.
+[[allowlists]]
+description = "containerwatch test fixtures (fake container tokens, not real secrets)"
+matchCondition = "AND"
+paths = [
+  '''tests/helpers/containerwatch/test_cli\.py''',
+]
+regexes = [
+  '''container_token="[0-9a-f]+"''',
+]
+regexTarget = "line"

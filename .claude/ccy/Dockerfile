@@ -53,16 +53,28 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 RUN wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.53.3/yq_linux_amd64 \
     && chmod +x /usr/local/bin/yq
 
+# Install gitleaks (secret scanner) - lets us reproduce the CI "gitleaks secret
+# scan" job locally with `gitleaks dir .` before pushing. Pinned to the SAME
+# version the QA workflow (.github/workflows/qa.yml) installs so local and CI
+# results match exactly; bump both together.
+ARG GITLEAKS_VERSION=8.30.1
+RUN wget -qO /tmp/gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+    && tar -xzf /tmp/gitleaks.tgz -C /usr/local/bin gitleaks \
+    && rm /tmp/gitleaks.tgz \
+    && chmod +x /usr/local/bin/gitleaks
+
 # Install ImageMagick 7 (Debian 12 ships only IM6).
 # Production target is Fedora 43 which ships IM7 natively; this is for
 # prototyping recipes against the same major version the script will call.
 # AppImage is extracted (no FUSE in the container); a thin wrapper at
 # /usr/local/bin/magick fronts the bundled binary with the right
 # LD_LIBRARY_PATH and MAGICK_CONFIGURE_PATH.
-# TODO pin: imagemagick.org/archive/binaries/magick has no stable versioned URL;
-# track https://imagemagick.org/script/download.php for a pinnable release and
-# replace this with a versioned download once one is available.
-RUN wget -qO /tmp/magick.AppImage https://imagemagick.org/archive/binaries/magick \
+# Pinned to a GitHub release AppImage (the old unversioned
+# imagemagick.org/archive/binaries/magick URL was removed upstream and now
+# 404s). Bump IMAGEMAGICK_VERSION to update; see the releases list at
+# https://github.com/ImageMagick/ImageMagick/releases
+ARG IMAGEMAGICK_VERSION=7.1.2-26
+RUN wget -qO /tmp/magick.AppImage "https://github.com/ImageMagick/ImageMagick/releases/download/${IMAGEMAGICK_VERSION}/ImageMagick-${IMAGEMAGICK_VERSION}-gcc-x86_64.AppImage" \
     && chmod +x /tmp/magick.AppImage \
     && cd /opt \
     && /tmp/magick.AppImage --appimage-extract > /dev/null \
@@ -96,5 +108,6 @@ RUN ansible --version && \
     ansible-lint --version && \
     gh --version && \
     yq --version && \
+    gitleaks version && \
     rg --version && \
     magick --version
