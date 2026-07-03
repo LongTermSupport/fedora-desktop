@@ -92,7 +92,7 @@ Key mechanics established during diagnosis (all from the stock Fedora
 - [x] ✅ **Task 1.2**: Add a **real** DHCP-readiness sanity gate to
   `play-lxc-install-config.yml`, augmenting the false-positive "bridge is up"
   check with asserts on `lxc-net` active + `/run/lxc/network_up` present.
-  - [ ] ⬜ Run QA: `./scripts/qa-all.bash`
+  - [x] ✅ Run QA: `./scripts/qa-all.bash` (green — 352 files, 74 playbooks)
 
 ### Phase 2: Fix (prevent recurrence)
 
@@ -108,12 +108,15 @@ Key mechanics established during diagnosis (all from the stock Fedora
 - [x] ✅ **Task 2.5**: Trigger `reload NetworkManager` then `restart lxc-net`
   (handlers run in definition order) via an in-play `flush_handlers`, so the fix
   both recovers the current host and applies cleanly on re-run.
-  - [ ] ⬜ Run QA: `./scripts/qa-all.bash` + `ansible-playbook --syntax-check`
+  - [x] ✅ Run QA: `./scripts/qa-all.bash` + `ansible-playbook --syntax-check`
+    (green — 74 playbooks syntax-checked, fail-fast + self-ref-var gates pass)
 
 ### Phase 3: Deploy & verify (HOST)
 
+- [x] ✅ **Task 3.0**: Add `deploy.bash` (HOST-only wrapper: pre-triage →
+  `ansible-playbook play-lxc-install-config.yml` → post-triage gate).
 - [ ] ⬜ **Task 3.1**: `triage.bash` before deploy — capture the broken state.
-- [ ] ⬜ **Task 3.2**: Run the play on the HOST.
+- [ ] ⬜ **Task 3.2**: Run the play on the HOST (via `deploy.bash`).
 - [ ] ⬜ **Task 3.3**: `triage.bash` after deploy — confirm `lxc-net` active,
   DHCP up, containers hold leases, `lxcbr0` NM-unmanaged.
 - [ ] ⬜ **Task 3.4**: Confirm a container is reachable again over SSH.
@@ -175,3 +178,11 @@ of whether NM manages the device.
 - No system changes were made during diagnosis (read-only only).
 - Adopting "defence before fix": detection (triage + real playbook gate) lands
   first, then the NM-unmanaged root-cause fix + recovery.
+- Plan committed on its own first (branch `plan-00057-lxc-net-nm-bridge-race`),
+  then the fix implemented: playbook edits + `files/etc/NetworkManager/conf.d/ 99-lxc-unmanaged.conf` + plan-local `deploy.bash`. QA green
+  (`./scripts/qa-all.bash`: 352 files, 74 playbooks syntax-checked).
+- **Push/PR blocked**: no GitHub identity available on this host has write
+  access to the repo (all authenticated accounts report `push=false`). The plan
+  commit and the fix commit exist locally on the branch; the push and the PR are
+  pending a credential/access change. The live host has NOT been deployed to —
+  Phase 3 (deploy) is intentionally still open, gated on explicit go-ahead.
