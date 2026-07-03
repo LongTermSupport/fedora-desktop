@@ -67,9 +67,13 @@ else
     fail "/run/lxc/network_up missing — lxc-net aborted before starting dnsmasq"
 fi
 
-# 3) A dnsmasq must be listening on the bridge address for DHCP (UDP :67).
+# 3) A dnsmasq must be listening for DHCP on the bridge (UDP :67). lxc-net starts
+#    dnsmasq with --bind-interfaces, so `ss` reports the listener scoped to the
+#    interface as "0.0.0.0%lxcbr0:67" (NOT "<bridge_ip>:67"). Match the
+#    interface-scoped form, the bridge IP, and the wildcard forms.
 dhcp_listen="$(sudo ss -H -lnup 2>&1)"
-if [ -n "$bridge_ip" ] && printf '%s' "$dhcp_listen" | grep -qE "(${bridge_ip//./\\.}|\*|0\.0\.0\.0):67([[:space:]]|$)"; then
+bridge_ip_re="${bridge_ip//./\\.}"
+if printf '%s' "$dhcp_listen" | grep -qE "(%${BRIDGE}|${bridge_ip_re:-0\.0\.0\.0}|\*|0\.0\.0\.0):67([[:space:]]|$)"; then
     ok "DHCP server listening on UDP :67 (dnsmasq)"
 elif [ -z "$bridge_ip" ]; then
     fail "no IPv4 on ${BRIDGE} and no DHCP listener — lxc-net did not configure the bridge"

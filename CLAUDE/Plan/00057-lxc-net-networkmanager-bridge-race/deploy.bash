@@ -45,9 +45,23 @@ echo "-- running: ansible-playbook $PLAY $* --"
 ansible-playbook "$PLAY" "$@"
 echo
 
-# Post-deploy triage MUST pass — set -e makes a non-zero exit fail the deploy,
-# so a fix that did not actually restore DHCP is reported loudly.
-echo "-- post-deploy triage (must be green) --"
-"$TRIAGE"
+# Post-deploy triage MUST end green. After lxc-net restarts, dnsmasq is up
+# immediately but containers only re-lease on their own DHCP backoff (which can
+# be tens of seconds), so we retry the triage for up to ~90s rather than
+# hard-failing on the first pass. set -e still fails the deploy if it never goes
+# green — so a fix that did not actually restore DHCP is reported loudly.
+echo "-- post-deploy triage (retrying up to ~90s for containers to re-lease) --"
+deadline=$((SECONDS + 90))
+while :; do
+    if "$TRIAGE"; then
+        break
+    fi
+    if [ "$SECONDS" -ge "$deadline" ]; then
+        echo "ERROR: LXC networking still degraded 90s after deploy — see triage above." >&2
+        exit 1
+    fi
+    echo "   ...not fully green yet; waiting for container leases, retrying in 10s" >&2
+    sleep 10
+done
 echo
 echo "== Plan 00057 deploy complete: LXC DHCP healthy =="

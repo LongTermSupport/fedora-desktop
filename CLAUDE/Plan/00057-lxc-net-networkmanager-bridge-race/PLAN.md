@@ -114,12 +114,16 @@ Key mechanics established during diagnosis (all from the stock Fedora
 ### Phase 3: Deploy & verify (HOST)
 
 - [x] ✅ **Task 3.0**: Add `deploy.bash` (HOST-only wrapper: pre-triage →
-  `ansible-playbook play-lxc-install-config.yml` → post-triage gate).
-- [ ] ⬜ **Task 3.1**: `triage.bash` before deploy — capture the broken state.
-- [ ] ⬜ **Task 3.2**: Run the play on the HOST (via `deploy.bash`).
-- [ ] ⬜ **Task 3.3**: `triage.bash` after deploy — confirm `lxc-net` active,
-  DHCP up, containers hold leases, `lxcbr0` NM-unmanaged.
-- [ ] ⬜ **Task 3.4**: Confirm a container is reachable again over SSH.
+  `ansible-playbook play-lxc-install-config.yml` → post-triage gate, retried).
+- [x] ✅ **Task 3.1**: `triage.bash` before deploy — captured the broken state
+  (9 failures).
+- [x] ✅ **Task 3.2**: Ran the play on the HOST (`ok=44 changed=10 failed=0`).
+  In-play DHCP-readiness gate passed; NM-unmanaged + lxc-net restart recovered
+  the bridge without bouncing containers.
+- [x] ✅ **Task 3.3**: `triage.bash` after deploy — **0 failures**: `lxc-net`
+  active, `dnsmasq` on UDP :67, `lxcbr0` NM-unmanaged, all 5 running containers
+  hold leases.
+- [x] ✅ **Task 3.4**: Confirmed a container reachable over SSH (`SSH_OK`, exit 0).
 
 ## Technical Decisions
 
@@ -184,5 +188,23 @@ of whether NM manages the device.
 - **Push/PR blocked**: no GitHub identity available on this host has write
   access to the repo (all authenticated accounts report `push=false`). The plan
   commit and the fix commit exist locally on the branch; the push and the PR are
-  pending a credential/access change. The live host has NOT been deployed to —
-  Phase 3 (deploy) is intentionally still open, gated on explicit go-ahead.
+  pending a credential/access change.
+- **Deployed & verified on the HOST** (user gave explicit go-ahead, "ignore
+  pushing — we need to be sure all is ok"). `deploy.bash` ran the play
+  (`ok=44 changed=10 failed=0`); post-deploy triage is **0 failures**; SSH to a
+  container succeeds. Root cause is resolved: `lxcbr0` is now NM-unmanaged and
+  `lxc-net` owns the bridge + DHCP.
+- Two follow-ups found during verification and fixed:
+  - `triage.bash` check #3 false-negatived: with `--bind-interfaces`, `ss` shows
+    the DHCP listener as `0.0.0.0%lxcbr0:67` (interface-scoped), which the old
+    regex (expecting `<bridge_ip>:67`) missed. Pattern now also matches the
+    `%<bridge>` form.
+  - `deploy.bash` post-triage now retries for ~90s: after `lxc-net` restarts,
+    dnsmasq is up immediately but containers re-lease only on their own DHCP
+    backoff, so a single instant check could false-fail.
+- One-time recovery note (NOT host IaC): container `bl-accounts-api`'s in-guest
+  NetworkManager had given up (`eth0` disconnected, no DHCP attempts) after the
+  long outage, while the other four kept retrying and leased on their own. A
+  single `nmcli device connect eth0` inside that container triggered a fresh
+  DISCOVER and it leased `…148` immediately. On a clean boot with this fix in
+  place, `lxc-net` starts before the containers, so no nudge is needed.
