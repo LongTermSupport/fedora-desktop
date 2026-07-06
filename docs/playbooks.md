@@ -711,32 +711,25 @@ Photography tools:
 Qobuz apps — gapless HD audio streaming from Qobuz:
 
 - **hifi-rs**: Rust-based Qobuz CLI player
-- **qobuz-player**: Enhanced CLI fork with web interface (default)
 - **QBZ**: Native full-featured hi-fi Qobuz **GUI** player (Rust/Slint, no
   webview), installed as a Flatpak from Flathub (`com.blitzfc.qbz`). Launches
   from the app grid. Bit-perfect DAC passthrough / exclusive mode works — the
   Flatpak manifest grants `--device=all`, `--socket=pulseaudio`, and PipeWire
   access.
 - **rescrobbled**: Last.fm scrobbling systemd service
-- Configurable default CLI player via environment variable
 
 **Shell functions**:
 
 ```bash
-play [album/track]    # Play with default player
-hplay [album/track]   # Force hifi-rs player
-qplay [album/track]   # Force qobuz-player
-qobuz_switch          # Switch default player
-qobuz_web             # Open web interface
-qobuz_status          # Show current player
+play [album/track]    # Play a Qobuz URL with hifi-rs
+hplay [album/track]   # Alias for play
+qobuz_status          # Show hifi-rs status
 ```
 
 **Features**:
 
 - High-resolution audio streaming (up to 24-bit/192kHz)
-- Web interface for qobuz-player (http://localhost:port)
 - Last.fm scrobbling integration
-- Playlist support with shuffle
 
 #### play-rclone.yml
 

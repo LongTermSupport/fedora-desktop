@@ -28,14 +28,14 @@ echo ""
 echo "## Current Sample Rates (pw-top snapshot)"
 pw-top -b | head -30
 echo ""
-echo "## qobuz-player Process Info"
-if pgrep -f qobuz-player > /dev/null; then
-    echo "qobuz-player PID: $(pgrep -f qobuz-player)"
+echo "## hifi-rs Process Info"
+if pgrep -f hifi-rs > /dev/null; then
+    echo "hifi-rs PID: $(pgrep -f hifi-rs)"
 else
-    echo "qobuz-player not running"
+    echo "hifi-rs not running"
 fi
 echo ""
-echo "## PipeWire Graph Info for qobuz-player"
-if ! pw-dump | jq '.[] | select(.info.props."application.name" == "PipeWire ALSA [qobuz-player]") | {name: .info.props."application.name", api: .info.props."client.api", node: .info.props."node.name"}' 2>/dev/null; then
-    echo "qobuz-player not found in PipeWire graph"
+echo "## PipeWire Graph Info for hifi-rs"
+if ! pw-dump | jq '.[] | select(.info.props."application.name" == "PipeWire ALSA [hifi-rs]") | {name: .info.props."application.name", api: .info.props."client.api", node: .info.props."node.name"}' 2>/dev/null; then
+    echo "hifi-rs not found in PipeWire graph"
 fi

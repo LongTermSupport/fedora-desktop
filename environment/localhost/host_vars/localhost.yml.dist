@@ -22,15 +22,11 @@ user_email: "yourname@example.com"
 # github_443_extra_aliases:
 #   - myorg_deploy_*
 
-# Optional Qobuz CLI Related
+# Optional Last.fm scrobbling (rescrobbled) credentials
 # lastfm_api_key: !vault |
 #   $ANSIBLE_VAULT;1.2;AES256;localhost
 #   <encrypted-value-goes-here>
 # lastfm_api_secret: !vault |
-#   $ANSIBLE_VAULT;1.2;AES256;localhost
-#   <encrypted-value-goes-here>
-# qobuz_username: "your_qobuz_email@example.com"
-# qobuz_password: !vault |
 #   $ANSIBLE_VAULT;1.2;AES256;localhost
 #   <encrypted-value-goes-here>
 

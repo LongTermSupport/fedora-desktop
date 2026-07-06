@@ -1,18 +1,13 @@
 #!/usr/bin/env ansible-playbook
 ---
 - hosts: desktop
-  name: Qobuz Apps - Native GUI Player, CLI Players and Last.fm Scrobbling
+  name: Qobuz Apps - Native GUI Player, CLI Player and Last.fm Scrobbling
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     # hifi-rs configuration
     # Set to "latest" for automatic version detection or specify version like "0.3.8"
     hifiRsVersion: "latest"
     hifiRsPath: "/home/{{ user_login }}/.local/bin/hifi-rs"
-
-    # qobuz-player configuration (fork of hifi-rs with enhanced features)
-    # Set to "latest" for automatic version detection or specify version like "0.4.0"
-    qobuzPlayerVersion: "latest"
-    qobuzPlayerPath: "/home/{{ user_login }}/.local/bin/qobuz-player"
 
     # Rescrobbled configuration for Last.fm scrobbling
     # Check https://github.com/InputUsername/rescrobbled/releases for updates
@@ -40,41 +35,6 @@
       ansible.builtin.set_fact:
         hifiRsUrl: "https://github.com/iamdb/hifi.rs/releases/download/v{{ hifiRsVersionFinal }}/hifi-rs-x86_64-unknown-linux-gnu.tar.gz"
 
-    # qobuz-player moved from SofusA/qobuz-player to SofusA/qobine in 2026-05.
-    # The old repo was wiped of releases; the binary now ships from qobine.
-    # Tag scheme is date-based (e.g. v2026-05-11), not semver.
-    - name: Get latest qobuz-player version
-      ansible.builtin.shell: |
-        set -euo pipefail
-        curl -s https://api.github.com/repos/SofusA/qobine/releases/latest |
-        jq -r '.tag_name' | sed 's/^v//'
-      args:
-        executable: /bin/bash
-      register: qobuzPlayerLatestVersion
-      when: qobuzPlayerVersion == "latest"
-      changed_when: false
-      tags:
-        - qobuz-player
-
-    - name: Set qobuz-player version
-      ansible.builtin.set_fact:
-        qobuzPlayerVersionFinal: "{{ qobuzPlayerLatestVersion.stdout if qobuzPlayerVersion == 'latest' else qobuzPlayerVersion }}"
-      tags:
-        - qobuz-player
-
-    # As of the v2026-07-01 qobine release the release assets were renamed from
-    # `qobuz-player-*` to `qobine-*` and split per app. The old all-in-one plain
-    # `qobuz-player` binary (config/api/open/play CLI) is now shipped as the TUI
-    # app `qobine-tui` — the tarball's string profile is byte-identical to the
-    # former plain `qobuz-player`, so it is the direct successor (NOT `qobine-web`,
-    # which corresponds to the separate former `qobuz-player-web`). The tarball
-    # contains a single binary named `qobine-tui`, moved to ~/.local/bin/qobuz-player.
-    - name: Set qobuz-player URL
-      ansible.builtin.set_fact:
-        qobuzPlayerUrl: "https://github.com/SofusA/qobine/releases/download/v{{ qobuzPlayerVersionFinal }}/qobine-tui-x86_64-unknown-linux-gnu.tar.gz"
-      tags:
-        - qobuz-player
-
     - name: Install hifi-rs
       ansible.builtin.shell: |
         set -exuo pipefail
@@ -96,48 +56,14 @@
       tags:
         - hifi-rs
 
-    - name: Install qobuz-player
-      ansible.builtin.shell: |
-        set -exuo pipefail
-        if [[ -f {{ qobuzPlayerPath }} ]]; then
-          # NOTE: `qobuz-player --version` prints a semver (e.g. 0.3.2) while the
-          # qobine desired version is a date-based git tag (e.g. 2026-07-01), so
-          # these can never be equal and the task effectively reinstalls on every
-          # run. That is harmless (idempotent overwrite) and is NOT the download
-          # bug fixed here; reconciling the two schemes is non-trivial (no reliable
-          # date-tag<->semver mapping upstream) so it is intentionally left as-is.
-          # Parse version from first line, last whitespace-separated token.
-          # Previous regex matched stray hyphens in multi-line output.
-          installedVersion="$(qobuz-player --version 2>/dev/null | head -n1 | awk '{print $NF}')" || installedVersion=""
-          desiredVersion="{{ qobuzPlayerVersionFinal }}"
-          if [[ "$installedVersion" == "$desiredVersion" ]]; then
-            echo "installed version $installedVersion matches desired version $desiredVersion"
-            exit 0
-          fi
-          echo "upgrading from $installedVersion to $desiredVersion"
-        fi
-        cd /home/{{ user_login }}/Downloads
-        # Clean stale artifacts from both the old (qobuz-player*) and new (qobine-*)
-        # asset naming so re-runs never extract over a previous download.
-        rm -rf qobuz-player* qobine-*
-        wget "{{ qobuzPlayerUrl }}"
-        tar -xf qobine-tui-x86_64-unknown-linux-gnu.tar.gz
-        # Tarball ships a single binary named `qobine-tui`; install it as qobuz-player.
-        mv -f qobine-tui "{{ qobuzPlayerPath }}"
-        chmod +x "{{ qobuzPlayerPath }}"
-      args:
-        executable: /bin/bash
-      tags:
-        - qobuz-player
-
     # QBZ (https://qbz.lol, github.com/vicrodh/qbz) — a native, full-featured
-    # hi-fi Qobuz *GUI* player (Rust + Slint, no webview). Unlike hifi-rs and
-    # qobuz-player (headless CLI binaries dropped into ~/.local/bin above), QBZ
+    # hi-fi Qobuz *GUI* player (Rust + Slint, no webview). Unlike hifi-rs
+    # (a headless CLI binary dropped into ~/.local/bin above), QBZ
     # is a desktop application, so it is installed as a Flatpak from Flathub
     # rather than as a raw release binary:
     #   - Flathub (com.blitzfc.qbz) gives desktop integration (.desktop + icon),
     #     sandboxing, and automatic updates — no version-pinning maintenance like
-    #     the hifi-rs/qobuz-player tarball tasks carry.
+    #     the hifi-rs tarball task carries.
     #   - Bit-perfect DAC passthrough / exclusive mode still works: the Flathub
     #     manifest grants --device=all (exposes /dev/snd), --socket=pulseaudio,
     #     and read-only PipeWire access, so the sandbox does not block real
@@ -159,15 +85,6 @@
         state: present
       tags:
         - qbz
-
-    - name: Install qp controller script
-      become: true
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/usr/local/bin/qp"
-        dest: /usr/local/bin/qp
-        owner: root
-        group: root
-        mode: "0755"
 
     - name: Install Recsrobbled
       ansible.builtin.shell: |
@@ -357,71 +274,6 @@
           when: not rescrobbled_session_check.stat.exists
       when: not rescrobbled_session_file.stat.exists | default(true)
 
-    # Configure qobuz-player with vault credentials if available
-    - name: Check if qobuz credentials are defined
-      ansible.builtin.set_fact:
-        has_qobuz_credentials: "{{ qobuz_username is defined and qobuz_password is defined }}"
-
-    - name: Configure qobuz-player with credentials
-      block:
-        - name: Set qobuz-player username
-          ansible.builtin.shell: |
-            set -euo pipefail
-            {{ qobuzPlayerPath }} config username "{{ qobuz_username }}"
-          args:
-            executable: /bin/bash
-          no_log: true
-
-        - name: Set qobuz-player password
-          ansible.builtin.shell: |
-            set -euo pipefail
-            {{ qobuzPlayerPath }} config password "{{ qobuz_password }}"
-          args:
-            executable: /bin/bash
-          no_log: true
-
-        - name: Set qobuz-player audio quality
-          ansible.builtin.shell: |
-            set -euo pipefail
-            {{ qobuzPlayerPath }} config max-audio-quality hifi192
-          args:
-            executable: /bin/bash
-        - name: Verify qobuz-player configuration
-          ansible.builtin.shell: |
-            set -euo pipefail
-            {{ qobuzPlayerPath }} api search test 2>&1
-          args:
-            executable: /bin/bash
-          register: qobuz_player_verify
-          failed_when: false  # FAIL-FAST-OK: probe — verifying API credentials are configured
-          changed_when: false
-          no_log: true
-
-        - name: Display qobuz-player configuration status
-          ansible.builtin.debug:
-            msg: |
-              ✓ qobuz-player configured with provided credentials
-              ✓ Audio quality set to hifi192
-          when: qobuz_player_verify.rc == 0
-
-        - name: Warn if qobuz-player configuration failed
-          ansible.builtin.debug:
-            msg: |
-              ⚠ qobuz-player configuration may have failed
-              Please verify credentials and run: qobuz-player api search test
-          when: qobuz_player_verify.rc != 0
-      when: has_qobuz_credentials
-
-    - name: Manual qobuz-player setup required
-      ansible.builtin.debug:
-        msg: |
-          ℹ qobuz-player installed but not configured
-          To configure manually:
-            qobuz-player config username
-            qobuz-player config password
-            qobuz-player config default-quality
-      when: not has_qobuz_credentials
-
     - name: Reload systemd daemon for user
       ansible.builtin.systemd:
         daemon_reload: true
@@ -453,134 +305,39 @@
       ansible.builtin.copy:
         content: |
           # Qobuz Players Configuration
-          # Set QOBUZ_PLAYER to choose default: "hifi-rs" or "qobuz-player"
-          export QOBUZ_PLAYER="${QOBUZ_PLAYER:-qobuz-player}"
+          # hifi-rs is the CLI Qobuz player. `play` (and its `hplay` alias) run it.
 
-          # hifi-rs play function
-          play_hifi_rs() {
+          # Play a Qobuz URL with hifi-rs
+          play() {
               if ! command -v hifi-rs &> /dev/null; then
                   echo "Error: hifi-rs not found in PATH"
+                  return 1
+              fi
+              if [ -z "$1" ]; then
+                  echo "Usage: play <qobuz_url>"
                   return 1
               fi
               hifi-rs play --url "$1"
           }
 
-          # qobuz-player play function
-          play_qobuz_player() {
-              if ! command -v qobuz-player &> /dev/null; then
-                  echo "Error: qobuz-player not found in PATH"
-                  return 1
-              fi
-              # qobuz-player uses different CLI syntax
-              qobuz-player play "$1"
-          }
+          # hplay is an alias for play (kept for muscle memory)
+          alias hplay='play'
 
-          # Main play function - routes to configured player
-          play() {
-              if [ -z "$1" ]; then
-                  echo "Usage: play <qobuz_url>"
-                  echo "Current player: $QOBUZ_PLAYER"
-                  echo ""
-                  echo "To change player for this session:"
-                  echo "  export QOBUZ_PLAYER=qobuz-player"
-                  echo "  export QOBUZ_PLAYER=hifi-rs"
-                  echo ""
-                  echo "Or use direct commands:"
-                  echo "  hplay <url>  - Always use hifi-rs"
-                  echo "  qplay <url>  - Always use qobuz-player"
-                  return 1
-              fi
-
-              case "$QOBUZ_PLAYER" in
-                  hifi-rs)
-                      play_hifi_rs "$@"
-                      ;;
-                  qobuz-player|qobuz)
-                      play_qobuz_player "$@"
-                      ;;
-                  *)
-                      echo "Error: Invalid QOBUZ_PLAYER value: $QOBUZ_PLAYER"
-                      echo "Valid options: hifi-rs, qobuz-player"
-                      return 1
-                      ;;
-              esac
-          }
-
-          # Direct access aliases
-          alias hplay='play_hifi_rs'
-          alias qplay='play_qobuz_player'
-
-          # Quick switcher function
-          qobuz_switch() {
-              case "$1" in
-                  hifi|hifi-rs|h)
-                      export QOBUZ_PLAYER="hifi-rs"
-                      echo "✓ Switched to hifi-rs"
-                      ;;
-                  qobuz|qobuz-player|q)
-                      export QOBUZ_PLAYER="qobuz-player"
-                      echo "✓ Switched to qobuz-player"
-                      ;;
-                  *)
-                      echo "Current player: $QOBUZ_PLAYER"
-                      echo ""
-                      echo "Usage: qobuz_switch [hifi|qobuz]"
-                      echo "  hifi, h  - Switch to hifi-rs"
-                      echo "  qobuz, q - Switch to qobuz-player"
-                      ;;
-              esac
-          }
-
-          # Launch qobuz-player web interface
-          qobuz_web() {
-              if ! command -v qobuz-player &> /dev/null; then
-                  echo "Error: qobuz-player not found"
-                  return 1
-              fi
-              echo "Starting qobuz-player web interface..."
-              echo "Access at: http://localhost:9888"
-              qobuz-player open --web &
-          }
-
-          # qp command - controller for qobuz-player web API
-          # Usage: qp <qobuz_url> or qp --shuffle <playlist_url>
-          # This is a system-wide command installed in /usr/local/bin
-
-          # Show player status
+          # Show hifi-rs status
           qobuz_status() {
-              echo "Qobuz Players Status:"
-              echo "====================="
-              echo "Default player: $QOBUZ_PLAYER"
-              echo ""
-
+              echo "Qobuz Player Status:"
+              echo "===================="
               if command -v hifi-rs &> /dev/null; then
                   version=$(hifi-rs --version 2>/dev/null | grep -Po '[0-9.]+' || echo "unknown")
                   echo "✓ hifi-rs: v$version"
               else
                   echo "✗ hifi-rs: not installed"
               fi
-
-              if command -v qobuz-player &> /dev/null; then
-                  version=$(qobuz-player --version 2>/dev/null | grep -Po '[0-9.]+' || echo "unknown")
-                  echo "✓ qobuz-player: v$version"
-              else
-                  echo "✗ qobuz-player: not installed"
-              fi
           }
         dest: /home/{{ user_login }}/.bashrc-includes/qobuz-players
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: "0644"
-
-    # Set default player preference in .bashrc
-    - name: Set default Qobuz player in bashrc
-      ansible.builtin.blockinfile:
-        path: /home/{{ user_login }}/.bashrc
-        marker: "# {mark} ANSIBLE MANAGED: Default Qobuz Player"
-        block: |
-          # Default Qobuz player (hifi-rs or qobuz-player)
-          export QOBUZ_PLAYER="qobuz-player"
-        create: false
 
     - name: Check if hifi-rs is configured with Qobuz credentials
       ansible.builtin.shell: |
@@ -649,24 +406,13 @@
           - Qobuz Apps Installation Complete!
           - ============================================
           - ""
-          - ✓ hifi-rs {{ hifiRsVersionFinal }} installed
-          - ✓ qobuz-player {{ qobuzPlayerVersionFinal }} installed
+          - ✓ hifi-rs {{ hifiRsVersionFinal }} installed (CLI player)
           - ✓ QBZ (native GUI player) installed via Flathub (com.blitzfc.qbz)
           - ✓ rescrobbled {{ rescrobbledVersion }} installed and running
           - ""
-          - "Default player: qobuz-player"
-          - ""
           - "Usage:"
-          - play <qobuz_url>     - Play using default player
-          - hplay <qobuz_url>    - Play using hifi-rs
-          - qplay <qobuz_url>    - Play using qobuz-player
-          - qp <qobuz_url>       - Web API controller (auto-starts if needed)
-          - qp --shuffle <url>   - Play shuffled playlist via web API
-          - qobuz_status         - Show player status
-          - qobuz_switch [h|q]   - Switch default player
-          - qobuz_web            - Launch web interface
+          - play <qobuz_url>     - Play a Qobuz URL with hifi-rs
+          - hplay <qobuz_url>    - Alias for play
+          - qobuz_status         - Show hifi-rs status
           - ""
           - "QBZ (GUI player) launches from the app grid, or: flatpak run com.blitzfc.qbz"
-          - ""
-          - To change default player permanently:
-          - Edit ~/.bashrc and set QOBUZ_PLAYER="hifi-rs" or "qobuz-player"
