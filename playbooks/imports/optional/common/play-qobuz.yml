@@ -86,6 +86,37 @@
       tags:
         - qbz
 
+    # Persist two launch fixes as a Flatpak override so they apply to EVERY launch
+    # (GNOME app-grid .desktop as well as `flatpak run`), not just the CLI:
+    #   1. QBZ_RENDERER=gl — QBZ's default wgpu/Vulkan renderer times out acquiring
+    #      a surface frame on hybrid-GPU laptops (Intel Arc iGPU + NVIDIA dGPU),
+    #      crashing on load with "timeout ... acquire the next frame". The GL
+    #      (femtovg/OpenGL) renderer is a different path that starts reliably.
+    #   2. --talk-name=org.freedesktop.secrets — the Flathub manifest omits Secret
+    #      Service access, so QBZ can't reach gnome-keyring and its error path
+    #      panics a zbus thread ("no reactor running"). Granting it removes both
+    #      the warning and the panic and lets QBZ use the real keyring.
+    # community.general has no flatpak-override module, so drive the CLI, guarded
+    # to stay idempotent (only apply when the override is not already set).
+    - name: Read current QBZ Flatpak overrides
+      become: true
+      ansible.builtin.command:
+        cmd: flatpak override --show com.blitzfc.qbz
+      register: qbz_flatpak_override
+      changed_when: false
+      tags:
+        - qbz
+
+    - name: Force QBZ GL renderer and grant keyring access (persist for app-grid launches)
+      become: true
+      ansible.builtin.command:
+        cmd: flatpak override --env=QBZ_RENDERER=gl --talk-name=org.freedesktop.secrets com.blitzfc.qbz
+      when: >-
+        'QBZ_RENDERER=gl' not in qbz_flatpak_override.stdout
+        or 'org.freedesktop.secrets' not in qbz_flatpak_override.stdout
+      tags:
+        - qbz
+
     - name: Install Recsrobbled
       ansible.builtin.shell: |
         set -euo pipefail
