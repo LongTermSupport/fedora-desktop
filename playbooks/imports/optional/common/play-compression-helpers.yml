@@ -7,7 +7,7 @@
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     # Pin ouch version for reproducibility. Update deliberately.
     # @see https://github.com/ouch-org/ouch/releases
-    ouchVersion: "0.6.1"
+    ouchVersion: "0.8.1"
     ouchArch: "x86_64-unknown-linux-musl"
     ouchDir: "/opt/ouch-{{ ouchVersion }}"
     ouchBin: "/usr/local/bin/ouch"
