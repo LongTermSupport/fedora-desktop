@@ -1,5 +1,5 @@
 #!/bin/bash
-# Shutdown with Update - Updates firmware and packages before shutdown
+# Shutdown with Update - Updates firmware, dnf packages, Flatpaks and pipx tools before shutdown
 
 # Trap Ctrl+C and exit cleanly
 trap 'echo -e "\nShutdown cancelled by user."; exit 1' INT TERM
@@ -17,6 +17,38 @@ echo "Starting system package updates..."
 if ! dnf -y upgrade; then
     echo "Error: Package updates failed"
     exit 1
+fi
+
+# Flatpak apps (Slack, QBZ, videography tools) are installed system-wide by the
+# playbooks (become: true) and are NOT covered by dnf, so update them explicitly.
+# Update failures are non-fatal here: this runs right before poweroff, and a
+# flaky mirror must never leave the machine unable to shut down.
+echo "Starting Flatpak updates..."
+if command -v flatpak >/dev/null; then
+    if ! flatpak update --system -y; then
+        echo "Warning: system Flatpak update failed, continuing..."
+    fi
+    # Also update any per-user Flatpaks, as the invoking user rather than root.
+    if [ -n "${SUDO_USER:-}" ]; then
+        if ! sudo -u "$SUDO_USER" -H flatpak update --user -y; then
+            echo "Warning: user Flatpak update failed, continuing..."
+        fi
+    fi
+else
+    echo "flatpak not installed, skipping."
+fi
+
+# pipx CLI tools (pdm, semgrep, huggingface CLI) are installed into the invoking
+# user's ~/.local/pipx by play-python.yml — not root's — so upgrade them as that
+# user. Non-fatal for the same reason as the Flatpak block above.
+echo "Starting pipx tool updates..."
+update_user="${SUDO_USER:-$USER}"
+if sudo -u "$update_user" -H bash -lc 'command -v pipx >/dev/null'; then
+    if ! sudo -u "$update_user" -H bash -lc 'pipx upgrade-all'; then
+        echo "Warning: pipx upgrade-all failed, continuing..."
+    fi
+else
+    echo "pipx not installed for $update_user, skipping."
 fi
 
 echo "Updates complete. Checking for kernel module builds..."
