@@ -62,9 +62,16 @@
       tags:
         - qobuz-player
 
+    # As of the v2026-07-01 qobine release the release assets were renamed from
+    # `qobuz-player-*` to `qobine-*` and split per app. The old all-in-one plain
+    # `qobuz-player` binary (config/api/open/play CLI) is now shipped as the TUI
+    # app `qobine-tui` — the tarball's string profile is byte-identical to the
+    # former plain `qobuz-player`, so it is the direct successor (NOT `qobine-web`,
+    # which corresponds to the separate former `qobuz-player-web`). The tarball
+    # contains a single binary named `qobine-tui`, moved to ~/.local/bin/qobuz-player.
     - name: Set qobuz-player URL
       ansible.builtin.set_fact:
-        qobuzPlayerUrl: "https://github.com/SofusA/qobine/releases/download/v{{ qobuzPlayerVersionFinal }}/qobuz-player-x86_64-unknown-linux-gnu.tar.gz"
+        qobuzPlayerUrl: "https://github.com/SofusA/qobine/releases/download/v{{ qobuzPlayerVersionFinal }}/qobine-tui-x86_64-unknown-linux-gnu.tar.gz"
       tags:
         - qobuz-player
 
@@ -93,6 +100,12 @@
       ansible.builtin.shell: |
         set -exuo pipefail
         if [[ -f {{ qobuzPlayerPath }} ]]; then
+          # NOTE: `qobuz-player --version` prints a semver (e.g. 0.3.2) while the
+          # qobine desired version is a date-based git tag (e.g. 2026-07-01), so
+          # these can never be equal and the task effectively reinstalls on every
+          # run. That is harmless (idempotent overwrite) and is NOT the download
+          # bug fixed here; reconciling the two schemes is non-trivial (no reliable
+          # date-tag<->semver mapping upstream) so it is intentionally left as-is.
           # Parse version from first line, last whitespace-separated token.
           # Previous regex matched stray hyphens in multi-line output.
           installedVersion="$(qobuz-player --version 2>/dev/null | head -n1 | awk '{print $NF}')" || installedVersion=""
@@ -104,10 +117,13 @@
           echo "upgrading from $installedVersion to $desiredVersion"
         fi
         cd /home/{{ user_login }}/Downloads
-        rm -rf qobuz-player*
+        # Clean stale artifacts from both the old (qobuz-player*) and new (qobine-*)
+        # asset naming so re-runs never extract over a previous download.
+        rm -rf qobuz-player* qobine-*
         wget "{{ qobuzPlayerUrl }}"
-        tar -xf qobuz-player-x86_64-unknown-linux-gnu.tar.gz
-        mv -f qobuz-player "{{ qobuzPlayerPath }}"
+        tar -xf qobine-tui-x86_64-unknown-linux-gnu.tar.gz
+        # Tarball ships a single binary named `qobine-tui`; install it as qobuz-player.
+        mv -f qobine-tui "{{ qobuzPlayerPath }}"
         chmod +x "{{ qobuzPlayerPath }}"
       args:
         executable: /bin/bash

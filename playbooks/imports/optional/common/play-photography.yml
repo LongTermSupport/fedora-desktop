@@ -7,17 +7,17 @@
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     # RapidRAW - hardcoded version for security and reproducibility
     # @see https://github.com/CyberTimon/RapidRAW/releases
-    rapidraw_version: "1.5.5"
+    rapidraw_version: "1.5.8"
     rapidraw_rpm: "03_RapidRAW_v{{ rapidraw_version }}_ubuntu-22.04_x86_64.rpm"
     rapidraw_url: "https://github.com/CyberTimon/RapidRAW/releases/download/v{{ rapidraw_version }}/{{ rapidraw_rpm }}"
-    rapidraw_sha256: "72e40924134dea7fbae45e2b7dfa75ea307e37e545b49d529c7ebad81c765b21"
+    rapidraw_sha256: "673896bfc94f6e5d3198345c3e597bb34a107b4902dc635267ac952eb86ab17c"
     rapidraw_tmp: "/tmp/{{ rapidraw_rpm }}"
     # ART - hardcoded version for security and reproducibility
     # @see https://artraweditor.github.io/ | https://github.com/artraweditor/ART/releases
-    art_version: "1.26.3"
+    art_version: "1.26.6"
     art_appimage: "ART-{{ art_version }}-x86_64.AppImage"
     art_url: "https://github.com/artraweditor/ART/releases/download/{{ art_version }}/{{ art_appimage }}"
-    art_sha256: "6c072495b39bb30219bc71d656b6f7557830259e2f34b9f17d3d6ece3355eede"
+    art_sha256: "a467b757cf4a8ce1a9dd5cb8ef0cdb38b7c49ae45953e0b601463f09824dae02"
     art_install_path: "/opt/{{ art_appimage }}"
 
   tasks:
