@@ -1,5 +1,5 @@
 #!/bin/bash
-# Shutdown with Update - Updates firmware, dnf packages, Flatpaks and pipx tools before shutdown
+# Shutdown with Update - Updates firmware, dnf packages, Flatpaks, pipx tools and the Rust toolchain before shutdown
 
 # Trap Ctrl+C and exit cleanly
 trap 'echo -e "\nShutdown cancelled by user."; exit 1' INT TERM
@@ -49,6 +49,18 @@ if sudo -u "$update_user" -H bash -lc 'command -v pipx >/dev/null'; then
     fi
 else
     echo "pipx not installed for $update_user, skipping."
+fi
+
+# Rust toolchain is installed into the invoking user's ~/.rustup / ~/.cargo by
+# play-rust-dev.yml (optional), so update it as that user rather than root.
+# Non-fatal for the same reason as the blocks above.
+echo "Starting Rust toolchain updates..."
+if sudo -u "$update_user" -H bash -lc 'command -v rustup >/dev/null'; then
+    if ! sudo -u "$update_user" -H bash -lc 'rustup update'; then
+        echo "Warning: rustup update failed, continuing..."
+    fi
+else
+    echo "rustup not installed for $update_user, skipping."
 fi
 
 echo "Updates complete. Checking for kernel module builds..."
