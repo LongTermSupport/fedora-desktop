@@ -7,11 +7,11 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     # Version configuration
-    displaylink_version: "v6.3.0"
-    evdi_version: "1.14.16"
+    displaylink_version: "v6.3.0-1"
+    evdi_version: "1.15.0"
     # RPM release suffix of the evdi package — drifts independently of the
-    # evdi version itself (v6.2.0-1 shipped -1, v6.3.0 ships -2).
-    evdi_rpm_release: "2"
+    # evdi version itself (e.g. v6.3.0 shipped evdi 1.14.16-2, v6.3.0-1 ships 1.15.0-1).
+    evdi_rpm_release: "1"
     # Set to true to bypass version check (use with caution)
     force_install: false
   vars_files:
