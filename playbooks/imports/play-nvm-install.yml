@@ -5,7 +5,7 @@
   become: false
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
-    nvm_version: "0.40.1"
+    nvm_version: "0.40.5"
     node_version: "lts/*"
   tasks:
     - name: Install NVM Dependencies
