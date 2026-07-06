@@ -16,7 +16,7 @@
 
     # Rescrobbled configuration for Last.fm scrobbling
     # Check https://github.com/InputUsername/rescrobbled/releases for updates
-    rescrobbledVersion: 0.8.0
+    rescrobbledVersion: 0.10.0
     rescrobbledUrl: "https://github.com/InputUsername/rescrobbled/releases/download/v{{ rescrobbledVersion }}/rescrobbled"
     rescrobbledPath: "/home/{{ user_login }}/.local/bin/rescrobbled"
   tasks:
