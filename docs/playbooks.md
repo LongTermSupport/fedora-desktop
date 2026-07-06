@@ -706,14 +706,19 @@ Photography tools:
 
 - Installs RAW processors, colour management utilities, and camera tethering tools
 
-#### play-qobuz-cli.yml
+#### play-qobuz.yml
 
-Qobuz CLI apps — gapless HD audio streaming from Qobuz:
+Qobuz apps — gapless HD audio streaming from Qobuz:
 
-- **hifi-rs**: Rust-based Qobuz player
-- **qobuz-player**: Enhanced fork with web interface (default)
+- **hifi-rs**: Rust-based Qobuz CLI player
+- **qobuz-player**: Enhanced CLI fork with web interface (default)
+- **QBZ**: Native full-featured hi-fi Qobuz **GUI** player (Rust/Slint, no
+  webview), installed as a Flatpak from Flathub (`com.blitzfc.qbz`). Launches
+  from the app grid. Bit-perfect DAC passthrough / exclusive mode works — the
+  Flatpak manifest grants `--device=all`, `--socket=pulseaudio`, and PipeWire
+  access.
 - **rescrobbled**: Last.fm scrobbling systemd service
-- Configurable default player via environment variable
+- Configurable default CLI player via environment variable
 
 **Shell functions**:
 

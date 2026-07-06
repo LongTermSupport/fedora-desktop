@@ -1,7 +1,7 @@
 #!/usr/bin/env ansible-playbook
 ---
 - hosts: desktop
-  name: Qobuz CLI Apps - Gapless HD Audio Streaming from Qobuz
+  name: Qobuz Apps - Native GUI Player, CLI Players and Last.fm Scrobbling
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     # hifi-rs configuration
@@ -113,6 +113,36 @@
         executable: /bin/bash
       tags:
         - qobuz-player
+
+    # QBZ (https://qbz.lol, github.com/vicrodh/qbz) — a native, full-featured
+    # hi-fi Qobuz *GUI* player (Rust + Slint, no webview). Unlike hifi-rs and
+    # qobuz-player (headless CLI binaries dropped into ~/.local/bin above), QBZ
+    # is a desktop application, so it is installed as a Flatpak from Flathub
+    # rather than as a raw release binary:
+    #   - Flathub (com.blitzfc.qbz) gives desktop integration (.desktop + icon),
+    #     sandboxing, and automatic updates — no version-pinning maintenance like
+    #     the hifi-rs/qobuz-player tarball tasks carry.
+    #   - Bit-perfect DAC passthrough / exclusive mode still works: the Flathub
+    #     manifest grants --device=all (exposes /dev/snd), --socket=pulseaudio,
+    #     and read-only PipeWire access, so the sandbox does not block real
+    #     high-resolution output.
+    - name: Enable Flathub remote
+      become: true
+      community.general.flatpak_remote:
+        name: flathub
+        flatpakrepo_url: https://flathub.org/repo/flathub.flatpakrepo
+        state: present
+      tags:
+        - qbz
+
+    - name: Install QBZ (native Qobuz GUI player) from Flathub
+      become: true
+      community.general.flatpak:
+        name: com.blitzfc.qbz
+        remote: flathub
+        state: present
+      tags:
+        - qbz
 
     - name: Install qp controller script
       become: true
@@ -600,11 +630,12 @@
       ansible.builtin.debug:
         msg:
           - ============================================
-          - Qobuz CLI Apps Installation Complete!
+          - Qobuz Apps Installation Complete!
           - ============================================
           - ""
           - ✓ hifi-rs {{ hifiRsVersionFinal }} installed
           - ✓ qobuz-player {{ qobuzPlayerVersionFinal }} installed
+          - ✓ QBZ (native GUI player) installed via Flathub (com.blitzfc.qbz)
           - ✓ rescrobbled {{ rescrobbledVersion }} installed and running
           - ""
           - "Default player: qobuz-player"
@@ -618,6 +649,8 @@
           - qobuz_status         - Show player status
           - qobuz_switch [h|q]   - Switch default player
           - qobuz_web            - Launch web interface
+          - ""
+          - "QBZ (GUI player) launches from the app grid, or: flatpak run com.blitzfc.qbz"
           - ""
           - To change default player permanently:
           - Edit ~/.bashrc and set QOBUZ_PLAYER="hifi-rs" or "qobuz-player"
