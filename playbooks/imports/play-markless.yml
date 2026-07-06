@@ -6,9 +6,9 @@
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     # Markless configuration
     # Hardcoded version for security and reproducibility
-    marklessVersion: "0.9.6"
+    marklessVersion: "0.9.29"
     marklessUrl: "https://github.com/jvanderberg/markless/releases/download/v{{ marklessVersion }}/markless-x86_64-unknown-linux-gnu.tar.gz"
-    marklessSha256: "16b2bb2a1d85be460605746df8582e8c5e6a214f5cdaa570285d6707336d4490"
+    marklessSha256: "7c7911ee34707ff85dbbee2b7f588f4366067adbad2a3a4d5730d0165249599d"
     marklessPath: "/home/{{ user_login }}/.local/bin/markless"
   tasks:
     - name: Ensure .local/bin directory exists
