@@ -267,6 +267,24 @@ if ! owner="$(git -C "$repo_root" config user.name)" || [[ -z "$owner" ]]; then
     owner="Unknown"
 fi
 
+# Project-managed template (Plan 00144): when the plan dir carries a tracked
+# _TEMPLATE_.md, render it with pure-bash placeholder substitution — projects
+# own their template while still getting the daemon default as a starting
+# point (the deploy seeds it when missing and never overwrites it). Without
+# one, fall back to the built-in skeleton below so the script stays drop-in
+# self-contained.
+readonly TEMPLATE_BASENAME="_TEMPLATE_.md"
+template_file="$plan_dir/$TEMPLATE_BASENAME"
+if [[ -f "$template_file" ]]; then
+    if ! body="$(cat "$template_file")"; then
+        die "could not read plan template '$template_file'"
+    fi
+    body="${body//\{\{PLAN_NUMBER\}\}/$padded}"
+    body="${body//\{\{PLAN_TITLE\}\}/$title}"
+    body="${body//\{\{CREATED_DATE\}\}/$created}"
+    body="${body//\{\{OWNER\}\}/$owner}"
+    printf '%s\n' "$body" > "$plan_file"
+else
 cat > "$plan_file" <<PLAN
 # Plan $padded: $title
 
@@ -303,6 +321,7 @@ cat > "$plan_file" <<PLAN
 
 - Plan scaffolded.
 PLAN
+fi
 
 # --- advance the counter (only after a successful write) -------------------
 
