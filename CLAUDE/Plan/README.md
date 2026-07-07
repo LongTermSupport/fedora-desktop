@@ -110,9 +110,9 @@ Use these Unicode icons in plan documents:
 
 - [00058-github-version-pin-updates](00058-github-version-pin-updates/) - Bumps every hardcoded upstream version pin in the playbooks that `scripts/check-pinned-versions.bash` found behind upstream (nvm, markless, rescrobbled, ouch, RapidRAW, ART, DisplayLink/evdi), including each adjacent sha256 checksum and release-asset-name change, one commit per pin. darktable held back (Fedora dist-git still ships 5.4.1, so a 5.6.0 bump would break the spec-driven build); cuDNN left as a manual NVIDIA check. Ships a plan-local `deploy.bash` to re-run every affected playbook on the HOST.
 
-- [00059-plan-folder-cleanup-and-plan-qa](00059-plan-folder-cleanup-and-plan-qa/) - Make `plan_workflow.qa` explicit in `.claude/hooks-daemon.yaml` and resolve the pre-existing plan-tree drift its first sweep surfaced (missing index rows, completed/cancelled plans left in the active root, missing status headers, a lowercase `plan.md`) so `plan-qa --sweep` exits 0 and is CI-able.
-
 ## Completed Plans
+
+- [00059-plan-folder-cleanup-and-plan-qa](Completed/00059-plan-folder-cleanup-and-plan-qa/) - Made `plan_workflow.qa` explicit in `.claude/hooks-daemon.yaml` and resolved the pre-existing plan-tree drift its first sweep surfaced (missing index rows, completed/cancelled plans left in the active root, missing status headers, a lowercase `plan.md`); `plan-qa --sweep` went 16 findings → 0.
 
 - [002-nordvpn-openvpn-manager](Completed/002-nordvpn-openvpn-manager/) - `nord` bash script + Ansible playbook to manage NordVPN OpenVPN connections via NetworkManager (on-demand import, persistent connections, vault credentials). Shipped `files/home/.local/bin/nord`, `play-nordvpn-openvpn.yml`, and `docs/nordvpn-installation.md`.
 

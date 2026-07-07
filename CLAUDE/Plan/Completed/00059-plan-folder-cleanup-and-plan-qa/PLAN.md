@@ -1,6 +1,6 @@
 # Plan 00059: Plan folder cleanup and enable plan_workflow.qa
 
-**Status**: In Progress
+**Status**: Complete
 **Created**: 2026-07-07
 **Owner**: joseph
 **Priority**: Medium
@@ -105,18 +105,18 @@ disables that auto-migration, so the block MUST restate `enabled: true` +
   `mkplan.bash`.
 - [x] ✅ **Task 3.2**: Run `plan-qa --sweep` and confirm exit 0 (no blocking
   findings; residual advisories understood).
-- [ ] 🔄 **Task 3.3**: Run `./scripts/qa-all.bash` (green) and commit the
+- [x] ✅ **Task 3.3**: Run `./scripts/qa-all.bash` (green) and commit the
   cleanup as one coherent Plan 00059 change (config + moves + README + this plan
   file staged together, satisfying index-at-birth and terminal-state atomicity).
 
 ## Success Criteria
 
-- [ ] `plan-qa --sweep` exits 0 with zero blocking findings.
-- [ ] Every `CLAUDE/Plan/` folder has exactly one README row in the section
+- [x] `plan-qa --sweep` exits 0 with zero blocking findings.
+- [x] Every `CLAUDE/Plan/` folder has exactly one README row in the section
   matching its physical location; every row link resolves.
-- [ ] `.claude/hooks-daemon.yaml` carries an explicit `plan_workflow.qa` block
+- [x] `.claude/hooks-daemon.yaml` carries an explicit `plan_workflow.qa` block
   and the daemon restarts RUNNING.
-- [ ] `./scripts/qa-all.bash` passes.
+- [x] `./scripts/qa-all.bash` passes.
 
 ## Notes & Updates
 
@@ -129,3 +129,5 @@ disables that auto-migration, so the block MUST restate `enabled: true` +
   `wsi-article`, the CCB retirement, the firstboot redesign — shipped into the
   repo), not orphans/active. 006 already sits in `Completed/` and only lacks a
   README row.
+- Cleanup delivered in commit `7d50458`; `plan-qa --sweep` went 16 findings → 0.
+  This plan folder is itself archived to `Completed/` in the completion commit.
