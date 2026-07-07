@@ -583,6 +583,64 @@ Creating a production source file is blocked until a corresponding test file exi
 
 **Allowed through without blocking**: vendor dirs, node_modules, build outputs, generated files, and file extensions not in the supported language list.
 
+## plan_qa_commit_gate — cross-file plan checks at git commit
+
+Every `git commit` is checked against the STAGED tree's plan QA
+invariants. In `commit_gate_mode: warn` (the rollout default)
+violations appear as advisory context — read them and amend the
+commit content BEFORE committing; in `block` mode they deny the
+commit with a TODO list of what the commit must also contain.
+
+**The invariants**:
+
+- creating a plan folder ⇒ the SAME commit stages its README
+  index row (`index-at-birth`) and the number must come from the
+  git counter / mkplan.bash (`counter-sanity`, `no-new-collisions`)
+- flipping a plan to Complete/Cancelled/Superseded ⇒ the SAME
+  commit contains the `git mv` into the archive dir AND the README
+  row + statistics update (`terminal-state-atomic`)
+- every folder has a README row in the section matching its
+  location, and every row's link resolves
+  (`row-folder-bijection`, `stats-recount`)
+- a commit claiming `Plan NNNNN` that stages src/tests/config
+  changes should also update that plan's PLAN.md
+  (`same-commit-plan-doc`); reference plans as `Plan NNNNN:`
+  (`plan-ref-format`)
+
+Check the staged tree any time without committing:
+`$PYTHON -m claude_code_hooks_daemon.daemon.cli plan-qa --check-staged`.
+Commits inside nested/vendor repos or foreign worktrees are exempt.
+
+## plan_qa_edit — PLAN.md writes are linted in real time
+
+Every Write/Edit of a `PLAN.md` under the plan directory is checked
+against the plan QA edit-stage rules on the content the file WOULD
+have. Block-level violations (in `edit_mode: block`) deny the tool
+call with the exact remediation; fix the content and retry.
+
+**Rules that block new plan material**:
+
+- a parseable `**Status**:` line must exist (`status-line-present`)
+- the status token must be one of: Not Started, In Progress,
+  Complete, Blocked, Cancelled, Superseded, Dormant
+  (`status-enum-and-date`)
+- the header must not contradict the body — do not leave
+  `Not Started`/`In Progress` above an all-ticked task list or
+  "ALL DONE" prose; flip the status instead
+  (`header-body-coherence`)
+- use the template task grammar `- [ ] ⬜ **Task N.N**:` — not
+  ad-hoc markers like `[✓]`/`[⏳]` (`task-grammar`)
+
+**Advisory rules**: missing Created/Owner/Priority headers on new
+plans; a terminal status set while the folder is still in the plan
+root (the same commit must `git mv` it to the archive dir and
+update the README row); edits to archived plans; backticked
+`src/...` paths that no longer exist.
+
+Grandfathered plans in `plan_workflow.qa.legacy_plan_allowlist`
+only ever advise. Lint any file on demand:
+`$PYTHON -m claude_code_hooks_daemon.daemon.cli plan-qa --lint <file>`.
+
 ## system_paths — do not edit deployed system files directly
 
 Writing or editing files under system paths (/etc/, /var/, /usr/, /opt/, /root/, /home/) is blocked.
@@ -735,6 +793,27 @@ At session start this handler reports any **project handlers** (`.claude/project
 4. **Restart the daemon** (`$PYTHON -m claude_code_hooks_daemon.daemon.cli restart`). The alert reflects the *running* daemon, so it clears only after a restart reloads the fixed handlers — fixing the file alone is not enough.
 
 The handler is silent when every project handler loads, so seeing this alert always means real action is required.
+
+## plan_qa_sweep — plan-tree drift report at session start
+
+At the start of each new session the plan directory is swept with the
+plan QA check catalogue (index/folder bijection, number collisions,
+statistics recount, archive structure, status-vs-location coherence,
+staleness). Findings are injected once as advisory context — the
+sweep never blocks.
+
+**When a drift report appears**: fix the listed findings (each names
+its exact remediation) as part of your plan housekeeping, then
+re-check with:
+
+```
+$PYTHON -m claude_code_hooks_daemon.daemon.cli plan-qa --sweep
+```
+
+The CLI exits 1 while findings remain (CI-able). Single-file lint:
+`plan-qa --lint <PLAN.md>`; staged-commit check: `plan-qa --check-staged`.
+Policy lives under `plan_workflow.qa` in `.claude/hooks-daemon.yaml`
+(archive dir names, staleness window, legacy/collision allowlists).
 
 ## auto_approve_reads — gated on bypassPermissions mode
 
