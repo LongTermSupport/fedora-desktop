@@ -102,6 +102,12 @@ atomically, allocates the next number, and creates the `NNNNN-name/PLAN.md` skel
 CLAUDE/Plan/mkplan.bash "descriptive-kebab-name"
 ```
 
+The `PLAN.md` skeleton is rendered from the tracked, project-owned template
+`CLAUDE/Plan/_TEMPLATE_.md` (placeholders `{{PLAN_NUMBER}}`, `{{PLAN_TITLE}}`,
+`{{CREATED_DATE}}`, `{{OWNER}}`) — customise that file freely; it is seeded from the
+daemon default when missing and never overwritten on upgrade. The script's built-in
+skeleton is only a fallback for when no `_TEMPLATE_.md` exists.
+
 **To read the next number only** (without creating a folder):
 
 ```bash
