@@ -19,6 +19,27 @@ daemon:
   enable_hello_world_handlers: false
   enforce_single_daemon_process: true  # Auto-enabled (container detected)
 
+# Plan workflow + QA policy.
+# Made explicit in Plan 00059 (the daemon otherwise synthesises this block from
+# the legacy markdown_organization.track_plans_in_project option). An explicit
+# top-level plan_workflow block DISABLES that auto-migration, so enabled +
+# directory MUST be restated here or plan tracking silently turns off.
+# qa: subsystem (Plan 00144 upstream) lints the plan tree for cross-file drift.
+plan_workflow:
+  enabled: true
+  directory: CLAUDE/Plan
+  workflow_docs: CLAUDE/PlanWorkflow.md
+  qa:
+    enabled: true
+    completed_dir: Completed
+    cancelled_dir: Cancelled
+    edit_mode: block          # block | warn | off
+    commit_gate_mode: warn    # warn-first; flip to block once the tree stays clean
+    sweep_mode: advise        # advise | off
+    staleness_days: 30
+    legacy_plan_allowlist: []  # legacy plans fixed properly in 00059, not suppressed
+    collision_allowlist: []
+
 # Handler Configuration
 # Handlers run in priority order (lower number = earlier execution)
 # Priority ranges: 5=test, 10-20=safety, 25-45=workflow, 50-60=tool usage

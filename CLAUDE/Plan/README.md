@@ -30,10 +30,9 @@ Use these Unicode icons in plan documents:
 - ❌ `FAILED` - Attempted but failed (requires rework)
 - ⏸️ `PAUSED` - Temporarily suspended
 - 👁️ `REVIEW` - Needs review/approval
+- 💤 `DORMANT` - Paused indefinitely, blocked on an external/human decision
 
 ## Active Plans
-
-- [002-nordvpn-openvpn-manager](002-nordvpn-openvpn-manager/) - NordVPN OpenVPN connection manager
 
 - [004-comprehensive-feature-documentation](004-comprehensive-feature-documentation/) - Documentation for all major features (CCY, CCB, Nord, Speech-to-Text, etc.)
 
@@ -47,6 +46,10 @@ Use these Unicode icons in plan documents:
 
 - [014-whisper-model-manager](014-whisper-model-manager/) - Replace cluttered model dropdown with a dedicated Textual TUI (`wsi-model-manager`) for browsing and downloading Whisper models
 
+- [018-fedora-kickstart-install](018-fedora-kickstart-install/) - Fully automated Fedora install pipeline: GRUB netinstall boot entry, a `%pre` TUI collecting WiFi/LUKS/user info upfront, and a LUKS2 + Btrfs single encrypted volume
+
+- [022-install-security-and-resilience](022-install-security-and-resilience/) - Fixes found during real-hardware kickstart testing (FDINST partition wiped by `clearpart --all` on reinstall; install security + resilience hardening)
+
 - [023-hostname-based-inventory](023-hostname-based-inventory/) - Migrate Ansible inventory from hardcoded `localhost` to machine hostname, supporting per-machine host_vars and multiple laptops
 
 - [025-ccy-spring-cleaning](025-ccy-spring-cleaning/) - CCY codebase spring cleaning: fix 63 shellcheck warnings, remove 20 dead functions, fix double-sourcing, exit-vs-return, and code quality issues
@@ -59,9 +62,9 @@ Use these Unicode icons in plan documents:
 
 - [029-rapid-raw-cloud-ai](029-rapid-raw-cloud-ai/) - Evaluate cloud GPU paths for RapidRAW Tier 2 generative AI: free local-first verification (dGPU + Tier 1), local SD 1.5 prototype, vast.ai $10-credit prototype with SDXL/Flux Fill, then evidence-based decision gate before any productionisation
 
-- [030-phpantom-lsp](030-phpantom-lsp/) - Research PHPantom (Rust-based PHP LSP) as replacement for Intelephense; decision gate before implementation
+- [030-phpantom-lsp](030-phpantom-lsp/) - 💤 Dormant — Research PHPantom (Rust-based PHP LSP) as replacement for Intelephense; awaiting decision-gate go/no-go before implementation
 
-- [031-reliable-screen-sharing](031-reliable-screen-sharing/) - Find reliable screen-sharing alternatives for WFH devs on Fedora 43 Wayland (complements Plan 028); 4 parallel research tracks: self-hosted platforms, native Linux tools, current SaaS, unconventional approaches
+- [031-reliable-screen-sharing](031-reliable-screen-sharing/) - 💤 Dormant — Reliable screen-sharing alternatives for WFH devs on Fedora 43 Wayland (complements Plan 028); Phase 2 complete, blocked awaiting user go-ahead for Phase 3
 
 - [032-compression-helpers](032-compression-helpers/) - `compress` / `uncompress` CLI wrappers around `ouch`: xz by default, `--zip` flag, auto-detect on decompress, always-extract-into-folder (tarbomb protection)
 
@@ -79,21 +82,21 @@ Use these Unicode icons in plan documents:
 
 - [00041-remote-desktop-quick-toggle](00041-remote-desktop-quick-toggle/) - One-click GNOME quick-settings toggle for `gnome-remote-desktop` Desktop Sharing on F43 Wayland: `rdt` CLI + quick-settings extension, LAN-scoped (user-configured CIDR) non-persistent firewalld rich-rule, off by default and after reboot, RDP creds in GNOME Keyring (not the repo); rejected NoMachine/AnyDesk (user reports prior instability) and Remote Login mode (separate session not wanted); lock-screen-but-show-real-desktop documented as impossible in mirror-mode RDP — workaround is lid-close as privacy
 
-- [00046-localhost-yml-leak-guard](00046-localhost-yml-leak-guard/) - Project-level PreToolUse hooks-daemon handler that blocks `gh issue/pr/gist (create|edit|comment)` and HTTP-POST commands (`curl -d`, `wget --post-*`) when the command body contains any token from a deny-list dynamically derived from `localhost.yml`. Allowlist of public-by-design tokens (`joseph`, `LongTermSupport`, …) lives in `.claude/public-token-allowlist.yml`. Closes the safeguard gap surfaced by a recent leak into the public fedora-desktop issue tracker via `gh issue create`.
+- [00042-darktable-ai-features](00042-darktable-ai-features/) - Enable darktable's optional AI features (object masks, denoise, upscale) on Fedora 43; research found Fedora RPM and Flathub Flatpak are both built WITHOUT `-DUSE_AI=ON`. Recommended path: local source-built RPM via `mock` (cmake auto-downloads ONNX Runtime; one-flag delta from Fedora spec; A7V cameras.xml becomes a build-time patch). Fallback: upstream AppImage as `darktable-ai`. Optional GPU acceleration playbook gated by `lspci` vendor ID `10de` for safe multi-laptop deploy. Awaiting Phase 1 decision gate. (Renumbered from local 00039 on merge — collided with remote 00039 ftp-camera-viewer-tui.)
 
 - [00045-project-personas-multi-tool-accounts](00045-project-personas-multi-tool-accounts/) - Generalise the gh `github_accounts` + per-alias-bash-function pattern into a top-level `project_personas` map in `localhost.yml` driving multiple tools (gh today + wrangler next; npm/aws/gcloud/etc. in follow-ups). KISS migration: gh playbook reads `project_personas` directly and fail-fasts on legacy schema with copy-pasteable migration YAML — no compat shim. Wrangler uses explicit env-var injection per `wrangler-<alias>` call; API tokens stored in GNOME Keyring via `secret-tool`, never on disk in plaintext. Awaiting Phase 1 decision gate.
 
-- [00047-claude-code-mouse-wheel-pageup](00047-claude-code-mouse-wheel-pageup/) - Claude Code's fullscreen-rendering mode (in-process alt-screen, not tmux) combined with CCY's `CLAUDE_CODE_DISABLE_MOUSE=1` (preserves native click-drag selection) leaves the terminal's DECSET-1007 fallback in charge of the wheel; on alt-screen the wheel emits arrow-up/down which the CC prompt reads as history recall, clobbering input. Path C+ chosen: deploy per-emulator wheel→PageUp config (kitty, alacritty, wezterm) via Ansible AND add a runtime `terminal_preflight_check` in `claude-yolo` with gum-styled abort banner for unsupported terminals (ghostty, VTE/gnome-terminal/Ptyxis, konsole, foot). Ghostty initially recommended as "best" but corrected after upstream-docs verification: ghostty has no mouse-binding config in v1.x; **kitty is the new recommendation**. Implementation ready (lib/terminal-detection.bash + claude-yolo version bump to v3.15.0).
+- [00046-localhost-yml-leak-guard](00046-localhost-yml-leak-guard/) - Project-level PreToolUse hooks-daemon handler that blocks `gh issue/pr/gist (create|edit|comment)` and HTTP-POST commands (`curl -d`, `wget --post-*`) when the command body contains any token from a deny-list dynamically derived from `localhost.yml`. Allowlist of public-by-design tokens (`joseph`, `LongTermSupport`, …) lives in `.claude/public-token-allowlist.yml`. Closes the safeguard gap surfaced by a recent leak into the public fedora-desktop issue tracker via `gh issue create`.
 
-- [00042-darktable-ai-features](00042-darktable-ai-features/) - Enable darktable's optional AI features (object masks, denoise, upscale) on Fedora 43; research found Fedora RPM and Flathub Flatpak are both built WITHOUT `-DUSE_AI=ON`. Recommended path: local source-built RPM via `mock` (cmake auto-downloads ONNX Runtime; one-flag delta from Fedora spec; A7V cameras.xml becomes a build-time patch). Fallback: upstream AppImage as `darktable-ai`. Optional GPU acceleration playbook gated by `lspci` vendor ID `10de` for safe multi-laptop deploy. Awaiting Phase 1 decision gate. (Renumbered from local 00039 on merge — collided with remote 00039 ftp-camera-viewer-tui.)
+- [00047-claude-code-mouse-wheel-pageup](00047-claude-code-mouse-wheel-pageup/) - Claude Code's fullscreen-rendering mode (in-process alt-screen, not tmux) combined with CCY's `CLAUDE_CODE_DISABLE_MOUSE=1` (preserves native click-drag selection) leaves the terminal's DECSET-1007 fallback in charge of the wheel; on alt-screen the wheel emits arrow-up/down which the CC prompt reads as history recall, clobbering input. Path C+ chosen: deploy per-emulator wheel→PageUp config (kitty, alacritty, wezterm) via Ansible AND add a runtime `terminal_preflight_check` in `claude-yolo` with gum-styled abort banner for unsupported terminals (ghostty, VTE/gnome-terminal/Ptyxis, konsole, foot). Ghostty initially recommended as "best" but corrected after upstream-docs verification: ghostty has no mouse-binding config in v1.x; **kitty is the new recommendation**. Implementation ready (lib/terminal-detection.bash + claude-yolo version bump to v3.15.0).
 
 - [00048-cc-token-source-parity](00048-cc-token-source-parity/) - Supersedes cancelled Plan 00036: extend host `cc` to use ccy's named-token chooser (shared pool at `~/.claude-tokens/ccy/tokens/`) via a new wrapper script at `/var/local/claude-code/cc` that sources the existing `token-management.bash` library. Adds a "Desktop" pseudo-option to the chooser meaning "use host `~/.claude/` OAuth" (current `cc` behaviour, now explicit); empty-pool path falls through to Desktop with inline instructions to create tokens via `ccy --create-token`. Phase 1 also factors a new `common-pure.bash` so the host wrapper can source helpers without triggering `common.bash`'s podman-check `exit 1`. No container required for `cc` (creation stays ccy-only). Not blocked by Plan 00047 — does not export `CLAUDE_CODE_DISABLE_MOUSE=1`.
 
 - [00049-full-repo-audit](00049-full-repo-audit/) - Full repository audit via dynamic multi-agent workflow: 10 audit dimensions (security, fail-fast, Ansible, bash, CCY, extensions, performance, docs drift, opportunities, QA gaps) with adversarial verification of critical/high findings; research docs + triage.md + final action plan in the plan folder
 
-- [00050-fedora-44-tracking](00050-fedora-44-tracking/)
+- [00050-fedora-44-tracking](00050-fedora-44-tracking/) - Fedora 43 → 44 migration tracking (research phase only — no fixes). Dynamic Fable workflow swept six version-sensitivity dimensions (version literals, packages/repos+DNF, Python, GNOME extensions, hardware/kernel, install/bootstrap) against the live F44 changeset. 55 findings (7 high, 14 medium, 25 low, 9 info) in research/ + triage.md. Confirmed F44 baseline: GNOME 50, kernel 7.0.x, Python stays 3.14, DNF5 complete. The bump's core is one line (`fedora_version: 44`) but seven highs gate it; execution deliberately deferred to a future decision gate.
 
-- [00051-ansible-lint-improvement](00051-ansible-lint-improvement/) - Systematic ansible-lint compliance improvement: `scripts/lint` tooling, FQCN enforcement, and per-rule violation fixes across all 37 playbooks - Fedora 43 → 44 migration tracking (research phase only — no fixes). Dynamic Fable workflow swept six version-sensitivity dimensions (version literals, packages/repos+DNF, Python, GNOME extensions, hardware/kernel, install/bootstrap) against the live F44 changeset. 55 findings (7 high, 14 medium, 25 low, 9 info) in research/ + triage.md. Confirmed F44 baseline: GNOME 50, kernel 7.0.x, Python stays 3.14, DNF5 complete. The bump's core is one line (`fedora_version: 44`) but seven highs gate it; execution deliberately deferred to a future decision gate.
+- [00051-ansible-lint-improvement](00051-ansible-lint-improvement/) - Systematic ansible-lint compliance improvement: `scripts/lint` tooling, FQCN enforcement, and per-rule violation fixes across all 37 playbooks
 
 - [00053-fedora-44-fresh-install-audit](00053-fedora-44-fresh-install-audit/) - First fresh-F44 host audit using the new `playbooks/dev/play-collect-diagnostics.yml` collector. Splits findings into generic (NetworkManager-wait-online failure, firewalld⇄docker NAME_CONFLICT, gkr-pam at GDM login, intel-lpmd noise, dnf-makecache boot cost), hardware-specific (ThinkPad DYTC thermal mask, NVIDIA RTX 500 Ada Optimus on Meteor Lake, bluetoothd hci0, slow TPM/serial discovery), dev-tooling fixes for the collector itself (`lsblk -fO` flag clash, stale cached timestamp, `powerprofilesctl` probe misreads F44's tuned-ppd backend, rc=127 "tool absent" noise), and a firmware-update workflow decision (Intel ME multi-CVE behind). Decision recorded: F44's TuneD + tuned-ppd is the supported Power Mode backend; no `power-profiles-daemon` install.
 
@@ -107,7 +110,19 @@ Use these Unicode icons in plan documents:
 
 - [00058-github-version-pin-updates](00058-github-version-pin-updates/) - Bumps every hardcoded upstream version pin in the playbooks that `scripts/check-pinned-versions.bash` found behind upstream (nvm, markless, rescrobbled, ouch, RapidRAW, ART, DisplayLink/evdi), including each adjacent sha256 checksum and release-asset-name change, one commit per pin. darktable held back (Fedora dist-git still ships 5.4.1, so a 5.6.0 bump would break the spec-driven build); cuDNN left as a manual NVIDIA check. Ships a plan-local `deploy.bash` to re-run every affected playbook on the HOST.
 
+- [00059-plan-folder-cleanup-and-plan-qa](00059-plan-folder-cleanup-and-plan-qa/) - Make `plan_workflow.qa` explicit in `.claude/hooks-daemon.yaml` and resolve the pre-existing plan-tree drift its first sweep surfaced (missing index rows, completed/cancelled plans left in the active root, missing status headers, a lowercase `plan.md`) so `plan-qa --sweep` exits 0 and is CI-able.
+
 ## Completed Plans
+
+- [002-nordvpn-openvpn-manager](Completed/002-nordvpn-openvpn-manager/) - `nord` bash script + Ansible playbook to manage NordVPN OpenVPN connections via NetworkManager (on-demand import, persistent connections, vault credentials). Shipped `files/home/.local/bin/nord`, `play-nordvpn-openvpn.yml`, and `docs/nordvpn-installation.md`.
+
+- [006-documentation-audit-and-update](Completed/006-documentation-audit-and-update/) - Documentation coverage audit and feature inventory across the repo (coverage assessment + feature inventory supporting docs).
+
+- [015-article-mode](Completed/015-article-mode/) - Article mode for speech-to-text: an indefinite looped recording mode that flushes every 120 s and re-polishes the whole raw article via Claude in a two-pane GTK window (`Shift+Insert`). Shipped `files/home/.local/bin/wsi-article` + `wsi-article-window`.
+
+- [017-merge-ccy-ccb](Completed/017-merge-ccy-ccb/) - Retire CCB and CCB-Browser and consolidate into the single CCY tool.
+
+- [021-firstboot-wizard-redesign](Completed/021-firstboot-wizard-redesign/) - Firstboot wizard redesign.
 
 - [00052-run-bash-human-friendly](Completed/00052-run-bash-human-friendly/) - Made `run.bash` totally human-friendly (v1.5.4 → 1.6.1): Enter accepts at every confirm (fixed the `promptForValue` "Is this correct? (y/n)" bug that forced a full re-type on Enter), safe-polarity defaults (`(Y/n)` benign / `(y/N)` for reboot+public-issue+untested-playbooks), visible `[default]` on every prompt, all prompts on the shared helper family, friendlier error messaging, and verify-before-write hardening of the vault-password recovery path with an `abort` escape hatch. Opus implementation + adversarial Fable review (caught a raw-escape-render defect on the headline prompt + two interrupt-safety nits). QA green (285 files), smoke 22/22. HOST-only live run (Task 6.4) deferred to the user.
 
@@ -123,8 +138,8 @@ Use these Unicode icons in plan documents:
 
 ## Cancelled Plans
 
-- [012-fix-plugin-handlers](012-fix-plugin-handlers/) - Upstream bug in `claude-code-hooks-daemon`; bug report filed at `untracked/upstream-bug-report-plugin-handler-suffix.md`
-- [00036-cc-ccy-parity](00036-cc-ccy-parity/) - Cancelled — superseded by Plan 00048. Was: bashrc include exporting `CLAUDE_CODE_NO_FLICKER` + `CLAUDE_CODE_DISABLE_MOUSE` on every host shell. Both vars independently obsoleted — NO_FLICKER dropped from ccy in commit a32c3d3 (Plan 00047 Path D), DISABLE_MOUSE now owned by Plan 00047. Per-invocation wrapper-script approach in Plan 00048 covers the remaining cc/ccy parity space.
+- [012-fix-plugin-handlers](Cancelled/012-fix-plugin-handlers/) - Upstream bug in `claude-code-hooks-daemon`; bug report filed at `untracked/upstream-bug-report-plugin-handler-suffix.md`
+- [00036-cc-ccy-parity](Cancelled/00036-cc-ccy-parity/) - Cancelled — superseded by Plan 00048. Was: bashrc include exporting `CLAUDE_CODE_NO_FLICKER` + `CLAUDE_CODE_DISABLE_MOUSE` on every host shell. Both vars independently obsoleted — NO_FLICKER dropped from ccy in commit a32c3d3 (Plan 00047 Path D), DISABLE_MOUSE now owned by Plan 00047. Per-invocation wrapper-script approach in Plan 00048 covers the remaining cc/ccy parity space.
 
 ## Archive
 
@@ -141,18 +156,15 @@ These are preserved for reference but don't follow the current plan structure.
 
 See [PlanWorkflow.md](../PlanWorkflow.md) for complete instructions.
 
-**Quick start:**
+**Quick start** — use the scaffolding script (reads the authoritative git counter and creates the numbered folder atomically):
 
 ```bash
-# Create new plan directory
-mkdir -p CLAUDE/Plan/001-my-feature
-
-# Copy plan template
-cp CLAUDE/Plan/templates/PLAN-template.md CLAUDE/Plan/001-my-feature/PLAN.md
-
-# Edit plan with goals, approach, and tasks
-vim CLAUDE/Plan/001-my-feature/PLAN.md
+CLAUDE/Plan/mkplan.bash "my-feature"
 ```
+
+Then add an index row for the new plan under **Active Plans** above. The `PLAN.md`
+skeleton is rendered from the tracked, project-owned template
+[`_TEMPLATE_.md`](_TEMPLATE_.md).
 
 ## Plan Workflow Integration
 
@@ -161,6 +173,7 @@ The hooks daemon enforces plan workflow standards:
 - ✅ `validate_plan_number` - Ensures correct numbering format
 - ✅ `plan_time_estimates` - Blocks time estimates in plans
 - ✅ `plan_workflow` - Provides guidance when creating plans
+- ✅ `plan_qa_edit` / `plan_qa_commit_gate` / `plan_qa_sweep` - Lint plan-tree drift (status headers, row↔folder bijection, archive placement) at edit, commit, and session-start; policy under `plan_workflow.qa` in `.claude/hooks-daemon.yaml`
 
 ## References
 

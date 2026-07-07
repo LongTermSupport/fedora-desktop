@@ -1,4 +1,12 @@
-# Plan: Article Mode for Speech-to-Text
+# Plan 015: Article Mode for Speech-to-Text
+
+**Status**: Complete
+**Owner**: joseph
+**Priority**: Medium
+
+Delivered: `files/home/.local/bin/wsi-article` + `wsi-article-window`, the
+`Shift+Insert` binding, and the two-pane article window are all shipped in the
+repo (see the Key Reference Files / Verification sections below).
 
 ## Context
 
@@ -11,6 +19,7 @@ The speech-to-text system currently supports single-session recording (up to 120
 ## Architecture
 
 The extension (thin layer) launches `wsi-article-window`, which:
+
 1. Opens the two-pane GTK4 window
 2. Spawns `wsi-article` as a subprocess (the looping recorder)
 3. Monitors article files for changes and drives Claude polishing
@@ -22,9 +31,11 @@ The extension (thin layer) launches `wsi-article-window`, which:
 ## Files to Create
 
 ### 1. `files/home/.local/bin/wsi-article`
+
 Python script: looped RealtimeSTT recording in 120-second chunks.
 
 **Behaviour:**
+
 - Accepts args: `--debug`, `--language`, `--no-notify`, `--model`
 - Creates RealtimeSTT recorder once (model loaded once, reused across chunks)
 - Inner loop:
@@ -39,9 +50,11 @@ Python script: looped RealtimeSTT recording in 120-second chunks.
 - Exits cleanly on SIGTERM/SIGINT
 
 ### 2. `files/home/.local/bin/wsi-article-window`
+
 Python + GTK4 two-pane window.
 
 **Window layout:**
+
 ```
 ┌─────────────────────────────────────────────────┐
 │  [Stop Recording]    Status: Recording chunk 1… │
@@ -58,6 +71,7 @@ Python + GTK4 two-pane window.
 ```
 
 **Behaviour:**
+
 - Accepts args: `--model sonnet|opus|haiku`, `--debug`, `--language`, `--no-notify`
 - Spawns `wsi-article` as subprocess on startup with matching args
 - Uses `GLib.timeout_add(500, poll_files)` to poll:
@@ -70,6 +84,7 @@ Python + GTK4 two-pane window.
 - When wsi-article exits: updates status to "Recording stopped", Stop button becomes inactive, window stays open for copy/review
 
 ### 3. `files/home/.config/speech-to-text/claude-prompt-article.txt`
+
 ```
 Transform this raw speech-to-text article into a well-structured, polished piece of writing. Output ONLY the formatted article with no preamble or explanation.
 
@@ -88,6 +103,7 @@ Guidelines:
 
 Output the polished article:
 ```
+
 Note: `{TWEAK}` is replaced with `\nAdditional instruction: {tweak_text}` when present, or removed when absent.
 
 ---
@@ -95,13 +111,17 @@ Note: `{TWEAK}` is replaced with `\nAdditional instruction: {tweak_text}` when p
 ## Files to Modify
 
 ### 4. `files/home/.local/bin/wsi-claude-process`
+
 Add `--tweak TEXT` argument:
+
 - When `--tweak` is provided and non-empty, replace `{TWEAK}` placeholder in prompt with `\nAdditional instruction: {tweak_text}`
 - When absent, replace `{TWEAK}` with empty string
 - Backwards-compatible: existing prompts (corporate, natural) don't contain `{TWEAK}`, so the substitution is a no-op
 
 ### 5. `extensions/speech-to-text@fedora-desktop/schemas/org.gnome.shell.extensions.speech-to-text.gschema.xml`
+
 Add new key:
+
 ```xml
 <key name="toggle-recording-article" type="as">
   <default><![CDATA[['<Shift>Insert']]]></default>
@@ -111,7 +131,9 @@ Add new key:
 ```
 
 ### 6. `extensions/speech-to-text@fedora-desktop/extension.js`
+
 Changes:
+
 - Add `this._isArticleMode = false` and `this._elapsedSeconds = 0` to constructor
 - Register `toggle-recording-article` keybinding → `_launchArticleMode()`
 - Add `_launchArticleMode()`: validates state (stops if active), sets `_isArticleMode = true`, launches `wsi-article-window` with model/debug/language flags, calls `_startElapsedTimer()`
@@ -120,6 +142,7 @@ Changes:
 - Unregister `toggle-recording-article` keybinding in `disable()`
 
 ### 7. `playbooks/imports/optional/common/play-speech-to-text.yml`
+
 - Add `wsi-article` and `wsi-article-window` to the "Copy User Scripts" task loop (mode `0755`)
 - Add `claude-prompt-article.txt` to the "Copy Claude Prompt Templates" task loop
 
@@ -127,10 +150,10 @@ Changes:
 
 ## Cache Files Used
 
-| File | Purpose |
-|------|---------|
-| `~/.cache/speech-to-text/article-raw.txt` | Full accumulated raw transcription (all completed chunks) |
-| `~/.cache/speech-to-text/article-partial.txt` | Current chunk's partial real-time transcription |
+| File                                            | Purpose                                                                |
+| ----------------------------------------------- | ---------------------------------------------------------------------- |
+| `~/.cache/speech-to-text/article-raw.txt`       | Full accumulated raw transcription (all completed chunks)              |
+| `~/.cache/speech-to-text/article-partial.txt`   | Current chunk's partial real-time transcription                        |
 | `~/.cache/speech-to-text/article-chunk.trigger` | Timestamp written after each chunk flush (signals window to re-polish) |
 
 ---

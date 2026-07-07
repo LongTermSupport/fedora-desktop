@@ -1,6 +1,6 @@
 # Plan 031: Reliable Screen Sharing for Fedora Wayland WFH Devs
 
-**Status**: In Progress — Phase 2 complete, awaiting user go-ahead for Phase 3
+**Status**: Dormant (Phase 2 complete; blocked awaiting user go-ahead for Phase 3)
 **Tracking issue**: LongTermSupport/fedora-desktop#17
 **Created**: 2026-04-14
 **Owner**: User

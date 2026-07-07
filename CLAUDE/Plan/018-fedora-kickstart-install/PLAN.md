@@ -1,7 +1,10 @@
 # Plan 018: Fedora Kickstart Automated Install
 
-> Status: In Progress
-> Created: 2026-03-01
+**Status**: In Progress
+**Created**: 2026-03-01
+**Owner**: joseph
+**Priority**: Medium
+
 > Branch: F43
 > Target: Fedora 43
 
@@ -75,17 +78,17 @@ The main kickstart file with these sections:
 
 Switch to tty6, collect all user input via plain `read` commands (dialog/whiptail not available in Anaconda):
 
-| Input | Method | Notes |
-|-------|--------|-------|
-| WiFi SSID | `read` | Prompted first — needed for network install |
-| WiFi password | `read -s` | Connects via `nmcli device wifi connect` |
-| Username | `read` | Validates non-empty |
-| Full name | `read` | For git config + GECOS |
-| Email | `read` | For git config |
-| Hostname | `read` | Default: `fedora-desktop` |
-| LUKS passphrase | `read -s` with confirmation | Min length check |
-| User password | `read -s` with confirmation | Hashed via python crypt |
-| PS1 colour | `read` with list of options | Default: `lightblueBold` |
+| Input           | Method                      | Notes                                       |
+| --------------- | --------------------------- | ------------------------------------------- |
+| WiFi SSID       | `read`                      | Prompted first — needed for network install |
+| WiFi password   | `read -s`                   | Connects via `nmcli device wifi connect`    |
+| Username        | `read`                      | Validates non-empty                         |
+| Full name       | `read`                      | For git config + GECOS                      |
+| Email           | `read`                      | For git config                              |
+| Hostname        | `read`                      | Default: `fedora-desktop`                   |
+| LUKS passphrase | `read -s` with confirmation | Min length check                            |
+| User password   | `read -s` with confirmation | Hashed via python crypt                     |
+| PS1 colour      | `read` with list of options | Default: `lightblueBold`                    |
 
 **WiFi connection flow** (first thing in %pre, before other prompts):
 
@@ -98,6 +101,7 @@ Switch to tty6, collect all user input via plain `read` commands (dialog/whiptai
 This ensures the network is available for the rest of the install (package downloads, inst.repo).
 
 Generates three temp files:
+
 - `/tmp/part-include` — Partitioning directives with LUKS passphrase
 - `/tmp/user-include` — User creation with hashed password
 - `/tmp/install-vars` — All variables for %post/firstboot (includes WiFi SSID for %post nmcli config)
@@ -134,6 +138,7 @@ btrfs /home --subvol --name=home LABEL=fedora
 ```
 
 Key decisions:
+
 - **Separate unencrypted /boot** — Avoids GRUB/LUKS2/Argon2id incompatibility. LUKS passphrase prompt happens via Plymouth/initramfs (better UX).
 - **Single Btrfs volume** with root + home subvolumes — User requested no separate /home partition.
 - **No /var subvolume** — Keeps it simple. Can add later if needed.
@@ -167,6 +172,7 @@ pipx
 ```
 
 Key decisions:
+
 - Install `ansible-core` + collections via dnf RPMs (avoids Galaxy network issues in %post)
 - Install `pipx` for later Ansible full install in firstboot
 - Include `gh` (GitHub CLI) directly in packages
@@ -185,18 +191,20 @@ cp /tmp/install-vars /mnt/sysimage/var/lib/fedora-desktop-install/install-vars
 #### %post (chroot) — Minimal system prep
 
 What this section does:
-1. Read install-vars
-2. Set hostname via `hostnamectl`
-3. Configure passwordless sudo for the user
-4. Write `/var/local/ps1-prompt-colour` (pre-set to avoid interactive prompt in Ansible)
-5. Generate vault password: `openssl rand -base64 32`
-6. Write minimal `localhost.yml` (unencrypted values only)
-7. Enable DNF parallel downloads
-8. Configure WiFi as a persistent NetworkManager connection (`nmcli connection add` with autoconnect)
-9. Deploy the firstboot script and systemd service
+
+01. Read install-vars
+02. Set hostname via `hostnamectl`
+03. Configure passwordless sudo for the user
+04. Write `/var/local/ps1-prompt-colour` (pre-set to avoid interactive prompt in Ansible)
+05. Generate vault password: `openssl rand -base64 32`
+06. Write minimal `localhost.yml` (unencrypted values only)
+07. Enable DNF parallel downloads
+08. Configure WiFi as a persistent NetworkManager connection (`nmcli connection add` with autoconnect)
+09. Deploy the firstboot script and systemd service
 10. Enable the firstboot service
 
 What this section does NOT do:
+
 - Run Ansible playbooks (chroot limitations)
 - Start services (no systemd PID 1)
 - Clone git repos (defer to firstboot for reliability)
@@ -259,6 +267,7 @@ This creates a self-contained bootable ISO where kickstart is automatically appl
 **Solution**: Create a 2GB ext4 partition (FDINST) by shrinking the LUKS container from the end, download the full Fedora netinstall ISO onto it, and boot via GRUB with `inst.stage2=hd:LABEL=FDINST:/fedora-install.iso`. Anaconda loads stage2 from local disk (no network needed during dracut). WiFi connects in %pre for package downloads.
 
 **Setup flow**:
+
 1. Preflight checks (root, commands, GRUB, LUKS exists, Btrfs >= 5GB free)
 2. Read version from `vars/fedora-version.yml`, construct ISO URL, verify with HTTP HEAD
 3. Detect disk layout: root dm-crypt → LUKS backing partition → parent disk
@@ -272,11 +281,13 @@ This creates a self-contained bootable ISO where kickstart is automatically appl
 **Remove flow** (reverse): rm boot files → rm GRUB entry → parted rm p4 → grow p3 100% → cryptsetup resize → btrfs resize max → regenerate GRUB
 
 **Partition operations** (shrink from END — safe, no data movement):
+
 - Create: btrfs resize -2g → cryptsetup resize --size → parted resizepart → parted mkpart → mkfs.ext4
 - Remove: parted rm → parted resizepart 100% → cryptsetup resize (no --size = fill) → btrfs resize max
 - Each step has rollback on failure
 
 **File layout after setup**:
+
 ```
 /boot/fedora-netinstall/        (on /boot, ext4)
 ├── vmlinuz      (17MB)
@@ -291,14 +302,14 @@ This creates a self-contained bootable ISO where kickstart is automatically appl
 
 Some playbooks in the main chain need modifications or guards for automated context:
 
-| Playbook | Issue | Solution |
-|----------|-------|----------|
-| `play-basic-configs.yml` | PS1 colour prompt is interactive | Pre-create `/var/local/ps1-prompt-colour` in %post — **already handled** by the existing conditional check |
-| `play-basic-configs.yml` | SSH key copy to root | Add `when: ssh_key_stat.stat.exists` guard (keys may not exist yet) |
-| `play-basic-configs.yml` | fwupdmgr may timeout | Add `ignore_errors: true` or conditional |
-| `play-github-cli-multi.yml` | Requires interactive browser auth | Add a skip condition (e.g., check if `gh auth status` succeeds, skip if not) |
-| `play-lxc-install-config.yml` | Clones via SSH (needs GitHub auth) | Change to HTTPS clone, or add fallback |
-| `play-toolbox-install.yml` | Launches GUI (JetBrains Toolbox) | Add headless detection guard |
+| Playbook                      | Issue                              | Solution                                                                                                   |
+| ----------------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `play-basic-configs.yml`      | PS1 colour prompt is interactive   | Pre-create `/var/local/ps1-prompt-colour` in %post — **already handled** by the existing conditional check |
+| `play-basic-configs.yml`      | SSH key copy to root               | Add `when: ssh_key_stat.stat.exists` guard (keys may not exist yet)                                        |
+| `play-basic-configs.yml`      | fwupdmgr may timeout               | Add `ignore_errors: true` or conditional                                                                   |
+| `play-github-cli-multi.yml`   | Requires interactive browser auth  | Add a skip condition (e.g., check if `gh auth status` succeeds, skip if not)                               |
+| `play-lxc-install-config.yml` | Clones via SSH (needs GitHub auth) | Change to HTTPS clone, or add fallback                                                                     |
+| `play-toolbox-install.yml`    | Launches GUI (JetBrains Toolbox)   | Add headless detection guard                                                                               |
 
 **Approach**: Add conditional guards to existing playbooks rather than creating separate "headless" versions. Each guard checks whether the required precondition exists (e.g., SSH keys, gh auth, display server).
 
@@ -347,15 +358,15 @@ Some playbooks in the main chain need modifications or guards for automated cont
 
 ## Risks and Mitigations
 
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| DNS fails in %post | Can't install extra packages | Copy resolv.conf in --nochroot phase |
-| Network unavailable at firstboot | Clone fails | Retry loop with 120s timeout, fail gracefully |
-| Ansible playbook fails partway | Incomplete config | Log everything, system still boots, user can re-run manually |
-| Kickstart syntax errors | Install fails | Validate with `ksvalidator` before deploying |
-| LUKS2/GRUB incompatibility | Can't boot | Separate unencrypted /boot avoids this entirely |
-| Fedora version mismatch | Preflight fails | ks.cfg version tag matches branch, fedora-version.yml already set to 43 |
-| Missing packages in Fedora repos | %packages fails | Use `--ignoremissing` or verify all packages exist first |
+| Risk                             | Impact                       | Mitigation                                                              |
+| -------------------------------- | ---------------------------- | ----------------------------------------------------------------------- |
+| DNS fails in %post               | Can't install extra packages | Copy resolv.conf in --nochroot phase                                    |
+| Network unavailable at firstboot | Clone fails                  | Retry loop with 120s timeout, fail gracefully                           |
+| Ansible playbook fails partway   | Incomplete config            | Log everything, system still boots, user can re-run manually            |
+| Kickstart syntax errors          | Install fails                | Validate with `ksvalidator` before deploying                            |
+| LUKS2/GRUB incompatibility       | Can't boot                   | Separate unencrypted /boot avoids this entirely                         |
+| Fedora version mismatch          | Preflight fails              | ks.cfg version tag matches branch, fedora-version.yml already set to 43 |
+| Missing packages in Fedora repos | %packages fails              | Use `--ignoremissing` or verify all packages exist first                |
 
 ## Out of Scope (Future Work)
 
@@ -367,6 +378,7 @@ Some playbooks in the main chain need modifications or guards for automated cont
 ## Notes & Updates
 
 ### 2026-03-02 — v3: liveimg approach
+
 - **Problem with v2**: netinstall ISO + `url` + `%packages` downloads ~2GB packages over WiFi each reinstall
 - **v3 solution**: Use `liveimg` kickstart directive to deploy the Workstation Live filesystem from a local squashfs.img
 - `setup-netinstall-boot.bash` now downloads **two ISOs**: netinstall (~1.1GB) and Workstation Live (~2.2GB)
@@ -378,12 +390,14 @@ Some playbooks in the main chain need modifications or guards for automated cont
 - FDINST partition mounted read-only in `%pre` so liveimg can access squashfs.img
 
 ### 2026-03-02 — Installer UX: keyboard layout + font size
+
 - **Keyboard layout**: GRUB entry passes `vconsole.keymap=<detected>` from host's `localectl`/`/etc/vconsole.conf` so `%pre` TUI gets correct keymap (e.g. `gb` not `us` — @ is in the wrong place on UK keyboards)
 - **Font size**: GRUB entry passes `vconsole.font=latarcyrheb-sun32` so installer console uses 32px font instead of the tiny default
 - **Installed system keyboard**: `setup-netinstall-boot.bash` sed-substitutes detected X11 layout into the copied `ks.cfg` `keyboard --xlayouts=` directive
 - `ks.cfg` `%pre` calls `setfont latarcyrheb-sun32 2>/dev/null || true` after switching to tty6 as belt-and-suspenders fallback
 
 ### 2026-03-01
+
 - Rewrote `setup-netinstall-boot.bash` from PXE download to ISO partition approach
 - PXE initrd lacks iwlwifi drivers; netinstall ISO's stage2 (install.img) has full driver support
 - ISO partition approach eliminates chicken-and-egg problem: stage2 loads from disk, WiFi connects later in %pre

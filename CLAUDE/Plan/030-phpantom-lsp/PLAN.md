@@ -1,6 +1,6 @@
 # Plan 030: PHPantom LSP — Research and Potential Migration
 
-**Status**: In Progress
+**Status**: Dormant (research/decision-gate plan; awaiting go/no-go on migrating off Intelephense to PHPantom — no recent activity)
 **Created**: 2026-04-13
 **Owner**: Claude/User
 **Priority**: Medium

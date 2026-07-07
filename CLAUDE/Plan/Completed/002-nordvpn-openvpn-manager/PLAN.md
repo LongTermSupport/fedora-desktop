@@ -1,10 +1,15 @@
 # Plan 002: NordVPN OpenVPN Manager
 
+**Status**: Complete
+**Owner**: joseph
+**Priority**: Medium
+
 ## Overview
 
 Create a bash script (`nord`) and Ansible playbook to manage NordVPN OpenVPN connections via NetworkManager CLI. User downloads .ovpn files, script handles import/connect/disconnect/switch operations.
 
 **Key Design Decisions:**
+
 - On-demand import (import configs when connecting, not all upfront)
 - Persistent NetworkManager connections (visible in GNOME Settings)
 - Two-tier credentials: Ansible Vault (git) + runtime file (mode 0600)
@@ -44,6 +49,7 @@ NM_PREFIX="nordvpn-"
 **Core Functions to Implement:**
 
 1. **Logging Functions** (following `wsi` patterns from `/workspace/files/home/.local/bin/wsi:74-152`)
+
    - `ensure_log_dir()` - Create log dir, rotate if > 1MB
    - `log_to_file()` - Write to log with ISO 8601 timestamp
    - `log()` - Info-level (stderr + file)
@@ -51,16 +57,19 @@ NM_PREFIX="nordvpn-"
    - `log_error()` - Error-level with cleanup
 
 2. **Cleanup & Signal Handling** (following `wsi` patterns)
+
    - `cleanup()` - Remove temp files, update state
    - `trap cleanup EXIT` - Always run cleanup
    - `trap 'cleanup; exit 130' TERM INT` - Handle signals
 
 3. **Dependency Checking** (following `wsi` patterns from `wsi:290-335`)
+
    - `check_dependencies()` - Verify nmcli, openvpn available
    - Check NetworkManager is running
    - Check credentials file exists (if connections exist)
 
 4. **Core Operations**
+
    - `list_configs()` - List available .ovpn files in configs/ directory
    - `list_connections()` - List imported NM connections (prefix: nordvpn-)
    - `import_config()` - Import .ovpn to NetworkManager with credentials
@@ -68,9 +77,10 @@ NM_PREFIX="nordvpn-"
    - `disconnect_vpn()` - Disconnect current VPN
    - `switch_vpn()` - Disconnect current, connect new
    - `status_vpn()` - Show connection status + public IP
-   - `cleanup_old()` - Remove all nordvpn-* connections from NM
+   - `cleanup_old()` - Remove all nordvpn-\* connections from NM
 
 5. **Command Interface** (following git-style subcommands)
+
    ```bash
    # Argument parsing with case/shift loop (following wsi:387-464)
    case "$1" in
@@ -161,6 +171,7 @@ fi
 **Task Breakdown:**
 
 1. **System Dependencies**
+
    ```yaml
    - name: Install OpenVPN and NetworkManager Support
      become: true
@@ -173,6 +184,7 @@ fi
    ```
 
 2. **Directory Creation** (following `play-speech-to-text.yml:215-274`)
+
    ```yaml
    - name: Create NordVPN Configuration Directory
      ansible.builtin.file:
@@ -200,6 +212,7 @@ fi
    ```
 
 3. **Credential Collection** (only if not already configured)
+
    ```yaml
    - name: Check if NordVPN Credentials Already Configured
      ansible.builtin.set_fact:
@@ -247,6 +260,7 @@ fi
    ```
 
 4. **Deploy Credentials File**
+
    ```yaml
    - name: Create Credentials File
      ansible.builtin.copy:
@@ -260,6 +274,7 @@ fi
    ```
 
 5. **Deploy Script**
+
    ```yaml
    - name: Deploy nord Script
      ansible.builtin.copy:
@@ -271,6 +286,7 @@ fi
    ```
 
 6. **Firewall Configuration** (following `play-vpn.yml:26-29`)
+
    ```yaml
    - name: Add OpenVPN to Firewalld
      become: true
@@ -283,6 +299,7 @@ fi
    ```
 
 7. **Usage Instructions**
+
    ```yaml
    - name: Display Setup Instructions
      ansible.builtin.debug:
@@ -328,6 +345,7 @@ nordvpn_password: servicepassword456
 ```
 
 **Post-deployment:** User must encrypt these values with:
+
 ```bash
 # Encrypt username
 ansible-vault encrypt_string 'actual_username' --name 'nordvpn_username' --vault-id localhost@vault-pass.secret
@@ -363,6 +381,7 @@ ansible-vault encrypt_string 'actual_password' --name 'nordvpn_password' --vault
 ## Implementation Steps
 
 ### Step 1: Create Main Script
+
 1. Create `files/home/.local/bin/nord`
 2. Implement logging functions (from wsi patterns)
 3. Implement dependency checking
@@ -372,6 +391,7 @@ ansible-vault encrypt_string 'actual_password' --name 'nordvpn_password' --vault
 7. Test script locally: `bash -n files/home/.local/bin/nord`
 
 ### Step 2: Create Ansible Playbook
+
 1. Create `playbooks/imports/optional/common/play-nordvpn-openvpn.yml`
 2. Add system dependencies installation
 3. Add directory creation tasks
@@ -382,12 +402,14 @@ ansible-vault encrypt_string 'actual_password' --name 'nordvpn_password' --vault
 8. Add usage instructions
 
 ### Step 3: Test Deployment
+
 1. Run playbook: `ansible-playbook playbooks/imports/optional/common/play-nordvpn-openvpn.yml`
 2. Verify directories created
 3. Verify nord script deployed and executable
 4. Verify credentials file created (mode 0600)
 
 ### Step 4: Test Functionality
+
 1. Download sample .ovpn file from NordVPN
 2. Place in `~/.config/nordvpn/configs/`
 3. Test: `nord list` - should show config
@@ -398,6 +420,7 @@ ansible-vault encrypt_string 'actual_password' --name 'nordvpn_password' --vault
 8. Test: GUI connect/disconnect
 
 ### Step 5: Encrypt Credentials
+
 1. Test nord with plaintext credentials first
 2. Once working, encrypt credentials in `localhost.yml`
 3. Re-run playbook to deploy encrypted credentials
@@ -410,6 +433,7 @@ ansible-vault encrypt_string 'actual_password' --name 'nordvpn_password' --vault
 ### Manual Test Checklist
 
 **Installation:**
+
 - [ ] Playbook runs without errors
 - [ ] OpenVPN and NetworkManager packages installed
 - [ ] Directories created with correct permissions (0700, 0755, 0600)
@@ -417,6 +441,7 @@ ansible-vault encrypt_string 'actual_password' --name 'nordvpn_password' --vault
 - [ ] Credentials file exists and secured (`ls -la ~/.config/nordvpn/.credentials`)
 
 **Functionality:**
+
 - [ ] `nord --help` shows usage
 - [ ] `nord --version` shows version
 - [ ] `nord list` shows "no configs" message when empty
@@ -424,25 +449,28 @@ ansible-vault encrypt_string 'actual_password' --name 'nordvpn_password' --vault
 - [ ] `nord list` shows the config
 - [ ] `nord connect <name>` imports and connects (check output)
 - [ ] `nord status` shows connected + public IP
-- [ ] `nmcli connection show` lists nordvpn-* connection
+- [ ] `nmcli connection show` lists nordvpn-\* connection
 - [ ] GNOME Settings → Network shows VPN connection
 - [ ] `nord switch <other-name>` disconnects first, connects second
 - [ ] `nord disconnect` disconnects
 - [ ] `nord status` shows not connected
 
 **Error Handling:**
+
 - [ ] `nord connect nonexistent` shows error + lists available configs
 - [ ] `nord connect` (no arg) shows usage
 - [ ] Missing credentials file shows clear error
 - [ ] NetworkManager stopped shows clear error
 
 **Persistence:**
+
 - [ ] Connection persists in NetworkManager (survives reboot)
 - [ ] Can reconnect without re-import
 - [ ] `nord cleanup` removes all connections
 - [ ] Next connect re-imports successfully
 
 **Integration:**
+
 - [ ] GUI connect works (GNOME Settings → Network → VPN → Connect)
 - [ ] GUI disconnect works
 - [ ] System tray shows VPN icon when connected
@@ -484,16 +512,19 @@ Not connected
 ### Credential Protection
 
 **In Git Repository:**
+
 - ✅ Credentials encrypted in `localhost.yml` with ansible-vault
 - ✅ Vault password in `vault-pass.secret` (gitignored)
 - ❌ Never commit plaintext credentials
 
 **On Filesystem:**
+
 - ✅ `~/.config/nordvpn/.credentials` - mode 0600 (owner read/write only)
 - ✅ `~/.config/nordvpn/` - mode 0700 (owner access only)
 - ✅ NetworkManager stores credentials in keyring (protected by session)
 
 **In NetworkManager:**
+
 - ✅ Credentials stored in GNOME keyring
 - ✅ Protected by user's session authentication
 - ✅ Visible in GNOME Settings (by owner only)
@@ -514,11 +545,13 @@ Not connected
 ## Critical Files Reference
 
 **Implementation:**
+
 - `files/home/.local/bin/nord` - Main script (NEW)
 - `playbooks/imports/optional/common/play-nordvpn-openvpn.yml` - Deployment playbook (NEW)
 - `environment/localhost/host_vars/localhost.yml` - Credentials storage (APPEND)
 
 **Pattern References:**
+
 - `files/home/.local/bin/wsi:74-152` - Logging functions
 - `files/home/.local/bin/wsi:290-335` - Dependency checking
 - `files/home/.local/bin/wsi:387-464` - Argument parsing
@@ -530,23 +563,27 @@ Not connected
 ## Design Rationale
 
 **Why On-Demand Import?**
+
 - NordVPN has 5000+ servers, users may download 50+ configs
 - Importing all would clutter NetworkManager
-- Import-on-connect is fast (<2 seconds) and keeps NM clean
+- Import-on-connect is fast (\<2 seconds) and keeps NM clean
 
 **Why Persistent Connections?**
+
 - Faster subsequent connections (no re-import)
 - Visible in GNOME Settings (better UX)
 - User can manually manage via GUI
 - Can be cleaned up with `nord cleanup` if needed
 
 **Why No Systemd?**
+
 - User preference stated in requirements
 - NetworkManager already manages VPN connections
 - No background daemon needed
 - Simpler architecture
 
 **Credentials Note:**
+
 - NordVPN service credentials ≠ account login credentials
 - Service credentials: alphanumeric string + password (for OpenVPN auth)
 - Account credentials: email + password (for website login)
