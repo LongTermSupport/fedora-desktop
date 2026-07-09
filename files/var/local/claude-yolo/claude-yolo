@@ -9,7 +9,7 @@
 # The hash validates script integrity - if hash changes but version doesn't,
 # users will get a warning that version wasn't properly updated.
 #
-CCY_VERSION="3.24.0"  # Container base bumped to node:lts-slim (was node:20-slim) so the bundled Claude Code satisfies its rising Node engine floor (2.1.x needs >=22); floating LTS tag auto-tracks future majors at build time. Also fixes the long-soft-failing ctrl+z patch: Claude Code 2.1.198 removed the platform-boolean guard and now gates suspend on a shared ano() call, so ccy-ctrl-z-patch.js now no-ops the single-purpose handleSuspend() method itself (guard-refactor-proof) instead of chasing the condition. CRITICAL: update_claude_inplace() now re-applies the patch after the daily in-place npm update (the fresh install ships an UNPATCHED binary, which previously re-enabled the freeze until the next full rebuild); the Dockerfile keeps the patch script at /opt/claude-yolo/ so it is available for that. REQUIRED_CONTAINER_VERSION 2.18 -> 2.19 forces a one-time rebuild. Prior: Daily per-image Claude Code auto-update: on launch, once per 24h per image, compare the running image's bundled Claude Code against npm latest and run the fast in-place npm update (update_claude_inplace) when behind — NOOP when current. Gates on the FINAL resolved IMAGE_NAME (project image when a custom Dockerfile exists, else claude-yolo:latest), so old project images self-update on their next session; second session same day is zero-impact (fresh per-image stamp). Soft-fails offline; CCY_AUTO_UPDATE=0 falls back to notify-only. Cache moved to per-image dir ~/.cache/claude-yolo-update-checks. Builds on 3.22.0 GitHub SSH 443 launch banner, 3.21.0 inherited GITHUB_SSH_443, 3.20.0 auto-fallback, 3.19.0 --github-443.
+CCY_VERSION="3.25.0"  # Optional default-off claude supervisor-wrap seam: new --supervise flag sets a default CCY_CLAUDE_WRAPPER (claude-supervise --, operator-overridable) and forwards it into the container, where entrypoint.sh prepends it to the claude invocation. Unset => byte-for-byte unchanged behaviour; the supervisor binary is provided separately (no image-content change, REQUIRED_CONTAINER_VERSION unchanged). Ref: LongTermSupport/fedora-desktop#31. Prior 3.24.0: Container base bumped to node:lts-slim (was node:20-slim) so the bundled Claude Code satisfies its rising Node engine floor (2.1.x needs >=22); floating LTS tag auto-tracks future majors at build time. Also fixes the long-soft-failing ctrl+z patch: Claude Code 2.1.198 removed the platform-boolean guard and now gates suspend on a shared ano() call, so ccy-ctrl-z-patch.js now no-ops the single-purpose handleSuspend() method itself (guard-refactor-proof) instead of chasing the condition. CRITICAL: update_claude_inplace() now re-applies the patch after the daily in-place npm update (the fresh install ships an UNPATCHED binary, which previously re-enabled the freeze until the next full rebuild); the Dockerfile keeps the patch script at /opt/claude-yolo/ so it is available for that. REQUIRED_CONTAINER_VERSION 2.18 -> 2.19 forces a one-time rebuild. Prior: Daily per-image Claude Code auto-update: on launch, once per 24h per image, compare the running image's bundled Claude Code against npm latest and run the fast in-place npm update (update_claude_inplace) when behind — NOOP when current. Gates on the FINAL resolved IMAGE_NAME (project image when a custom Dockerfile exists, else claude-yolo:latest), so old project images self-update on their next session; second session same day is zero-impact (fresh per-image stamp). Soft-fails offline; CCY_AUTO_UPDATE=0 falls back to notify-only. Cache moved to per-image dir ~/.cache/claude-yolo-update-checks. Builds on 3.22.0 GitHub SSH 443 launch banner, 3.21.0 inherited GITHUB_SSH_443, 3.20.0 auto-fallback, 3.19.0 --github-443.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -153,6 +153,13 @@ Options:
   --disable-custom-docker  Skip custom Dockerfile build, use base image (for fixing broken Dockerfiles)
   --prompt "text"        Start Claude Code with a preseeded prompt
   --headless             Run in headless mode (requires --prompt)
+  --supervise            Run claude under an in-container supervisor wrapper by
+                         setting+forwarding CCY_CLAUDE_WRAPPER (default:
+                         'claude-supervise --', override via that env var).
+                         Requires the supervisor command to be present in the
+                         image (see fedora-desktop issue #31); until it is
+                         vendored this flag is a no-op that fails loudly if the
+                         wrapper is missing. Unset => unchanged behaviour.
   --top                  Container manager: list/stop all CCY containers
   --prevent              Disable CCY for this project folder (writes 'never' to .claude/ccy/allowed-hostnames)
   --help, -h             Show this help message
@@ -419,6 +426,7 @@ SPECIFIED_NETWORK=""
 NETWORK_FROM_CONFIG=false
 NO_NETWORK_MODE=false
 HEADLESS_MODE=false
+SUPERVISE_MODE=false
 PROMPT_TEXT=""
 SAW_DOUBLE_DASH=false
 
@@ -491,6 +499,8 @@ for arg in "$@"; do
         NO_NETWORK_MODE=true
     elif [ "$arg" = "--headless" ]; then
         HEADLESS_MODE=true
+    elif [ "$arg" = "--supervise" ]; then
+        SUPERVISE_MODE=true
     elif [ "$arg" = "--prompt" ]; then
         NEXT_IS_PROMPT=true
     elif [ "$arg" = "--debug" ]; then
@@ -603,7 +613,7 @@ if [ ${#suspect_flags[@]} -gt 0 ]; then
         if [ ${#unknown[@]} -gt 0 ]; then
             ccy_flags=(
                 --rebuild --disable-custom-docker --no-ssh --github-443 --no-network
-                --headless --prompt --debug --engine --ssh-key --token --create-token
+                --headless --supervise --prompt --debug --engine --ssh-key --token --create-token
                 --update-token --list-tokens --export-token --network --connect
                 --custom --custom-docker --top --prevent --help
             )
@@ -2742,6 +2752,15 @@ fi
 # inline for clarity.
 export CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_OAUTH_TOKEN"
 export GH_TOKEN
+
+# Optional supervisor wrap (default OFF): --supervise opts in by setting a default
+# wrapper command (operator-overridable if CCY_CLAUDE_WRAPPER is already exported).
+# When --supervise is absent the var stays empty and the entrypoint branch is a
+# no-op — behaviour is byte-for-byte unchanged. See fedora-desktop issue #31.
+if [ "$SUPERVISE_MODE" = true ]; then
+    CCY_CLAUDE_WRAPPER="${CCY_CLAUDE_WRAPPER:-claude-supervise --}"
+fi
+
 container_cmd run $DOCKER_FLAGS --rm \
     --name "$CONTAINER_NAME" \
     $NETWORK_FLAG \
@@ -2756,6 +2775,7 @@ container_cmd run $DOCKER_FLAGS --rm \
     -e "DEBUG_ENTRYPOINT=$DEBUG_ENTRYPOINT" \
     -e "SSH_KEY_PATHS=$SSH_KEY_PATHS_STR" \
     -e "GITHUB_SSH_443=$GITHUB_SSH_443" \
+    -e "CCY_CLAUDE_WRAPPER=${CCY_CLAUDE_WRAPPER:-}" \
     -e "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-1}" \
     -e "MAX_THINKING_TOKENS=${MAX_THINKING_TOKENS:-}" \
     -e "TERM=${TERM:-xterm}" \

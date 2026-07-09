@@ -262,5 +262,12 @@ fi
 echo "$trust_updated" > /root/.claude.json
 echo "✓ /workspace marked as trusted (hasTrustDialogAccepted)"
 
-# Execute the command
+# Execute the command.
+# Optional supervisor wrap (default OFF): if CCY_CLAUDE_WRAPPER is set, prepend it
+# to the claude invocation. Unset => unchanged behaviour. The wrapper command must
+# exist on PATH inside the image (provided separately — see fedora-desktop issue #31).
+if [[ -n "${CCY_CLAUDE_WRAPPER:-}" ]]; then
+    read -ra _ccy_wrapper <<< "$CCY_CLAUDE_WRAPPER"
+    exec "${_ccy_wrapper[@]}" "$@"
+fi
 exec "$@"
