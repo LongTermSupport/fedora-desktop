@@ -148,11 +148,12 @@ check_ccy_gitignore_safety() {
 
     # Expected .gitignore content
     local expected_gitignore="# CCY session data - NEVER commit sensitive files
-# Only .gitignore, Dockerfile, and allowed-hostnames are safe to track
+# Only .gitignore, Dockerfile, allowed-hostnames, and ccy.env are safe to track
 *
 !.gitignore
 !Dockerfile
-!allowed-hostnames"
+!allowed-hostnames
+!ccy.env"
 
     # ═══════════════════════════════════════════════════════════════════════════
     # STEP 1: Force .claude/ccy/.gitignore to exist with correct content
@@ -199,8 +200,9 @@ check_ccy_gitignore_safety() {
         local basename
         basename=$(basename "$file")
         case "$basename" in
-            .gitignore|Dockerfile|allowed-hostnames)
-                # Safe to track
+            .gitignore|Dockerfile|allowed-hostnames|ccy.env)
+                # Safe to track. ccy.env is the tracked per-project ccy config
+                # (e.g. CCY_CLAUDE_WRAPPER) sourced in-container by entrypoint.sh.
                 ;;
             *)
                 # Dangerous!
