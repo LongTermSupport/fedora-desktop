@@ -262,6 +262,17 @@ fi
 echo "$trust_updated" > /root/.claude.json
 echo "✓ /workspace marked as trusted (hasTrustDialogAccepted)"
 
+# Source the project's ccy.env (if present) so per-project ccy config is
+# declarative and tracked, not ad-hoc host exports. Sourced HERE, inside the
+# container (the same sandbox where claude --dangerously-skip-permissions runs),
+# never on the host — so a project cannot execute code on the host via it.
+_ccy_env_file="/workspace/.claude/ccy/ccy.env"
+if [ -f "$_ccy_env_file" ]; then
+    echo "Sourcing project ccy env: $_ccy_env_file"
+    # shellcheck source=/dev/null
+    . "$_ccy_env_file"
+fi
+
 # Execute the command.
 # Optional supervisor wrap (default OFF): if CCY_CLAUDE_WRAPPER is set, prepend it
 # to the claude invocation. Unset => unchanged behaviour. The wrapper command must
