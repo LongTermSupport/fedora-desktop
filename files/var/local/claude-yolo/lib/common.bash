@@ -148,12 +148,14 @@ check_ccy_gitignore_safety() {
 
     # Expected .gitignore content
     local expected_gitignore="# CCY session data - NEVER commit sensitive files
-# Only .gitignore, Dockerfile, allowed-hostnames, and ccy.env are safe to track
+# Only .gitignore, Dockerfile, allowed-hostnames, ccy.env and the
+# claude-supervise* supervisor (any extension or none) are safe to track
 *
 !.gitignore
 !Dockerfile
 !allowed-hostnames
-!ccy.env"
+!ccy.env
+!claude-supervise*"
 
     # ═══════════════════════════════════════════════════════════════════════════
     # STEP 1: Force .claude/ccy/.gitignore to exist with correct content
@@ -200,9 +202,12 @@ check_ccy_gitignore_safety() {
         local basename
         basename=$(basename "$file")
         case "$basename" in
-            .gitignore|Dockerfile|allowed-hostnames|ccy.env)
+            .gitignore|Dockerfile|allowed-hostnames|ccy.env|claude-supervise*)
                 # Safe to track. ccy.env is the tracked per-project ccy config
-                # (e.g. CCY_CLAUDE_WRAPPER) sourced in-container by entrypoint.sh.
+                # (e.g. CCY_CLAUDE_WRAPPER) sourced in-container by entrypoint.sh;
+                # claude-supervise* is the vendored PTY supervisor that ccy.env's
+                # CCY_CLAUDE_WRAPPER points at (any extension or none, so it is not
+                # locked to Python). Neither holds session/secret data.
                 ;;
             *)
                 # Dangerous!
