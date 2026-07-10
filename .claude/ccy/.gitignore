@@ -21,3 +21,9 @@
 
 # And custom Dockerfile (project-specific container extensions)
 !Dockerfile
+
+# And the tracked per-project ccy environment (arms the supervisor wrapper).
+# entrypoint.sh sources this in-container before `claude` runs. Safe to track:
+# it holds config only, never session data or secrets. The supervisor it points
+# at (claude-supervise.py) is deployed by the hooks daemon and stays ignored.
+!ccy.env
