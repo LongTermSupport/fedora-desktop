@@ -35,7 +35,7 @@ import termios
 import time
 import tty
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -50,6 +50,57 @@ _LOG_FILENAME = "decision.log"
 
 _USAGE = "Usage: claude-supervise.py [--dry-run | --arm] [--log PATH] -- <child argv...>\n"
 
+# ---------------------------------------------------------------------------
+# Human input-line tracking (empty-input-box injection guard)
+#
+# Observed live failure: the supervisor pasted its injection into a NON-EMPTY
+# input box the human had partially typed into, then submitted the corrupted
+# mix. The fix: model the human's input line from the stdin bytes the
+# supervisor already forwards, and refuse to inject while that line holds any
+# non-whitespace human input. Supervisor-injected keystrokes are written
+# straight to the PTY master (never through `InputActivity.record`), so they
+# can never mark the box non-empty.
+# ---------------------------------------------------------------------------
+
+# Keys that clear the input box: Enter (CR / LF) submits it, Ctrl-U kills the
+# line, Ctrl-C discards the in-progress message in the Claude Code TUI.
+_LINE_CLEAR_BYTES = frozenset({0x0D, 0x0A, 0x15, 0x03})
+# Keys that delete one character: Ctrl-H and DEL.
+_LINE_BACKSPACE_BYTES = frozenset({0x08, 0x7F})
+# Bytes that never make the box "non-empty" on their own: space and tab.
+_LINE_WHITESPACE_BYTES = frozenset({0x20, 0x09})
+
+
+class HumanInputLine:
+    """Model of the human's current input-box line, fed from forwarded stdin.
+
+    Deliberately conservative: any byte not positively recognised as a
+    clear/backspace/whitespace key (escape sequences, other control bytes,
+    UTF-8 multibyte content) counts as content. A false "non-empty" merely
+    defers an injection tick; a false "empty" would paste bot text into a
+    half-typed human message and submit it -- the failure this guard exists
+    to prevent.
+    """
+
+    def __init__(self) -> None:
+        self._buffer: list[int] = []
+
+    def feed(self, data: bytes) -> None:
+        """Advance the line model with a chunk of forwarded human stdin bytes."""
+        for byte in data:
+            if byte in _LINE_CLEAR_BYTES:
+                self._buffer.clear()
+            elif byte in _LINE_BACKSPACE_BYTES:
+                if self._buffer:
+                    self._buffer.pop()
+            else:
+                self._buffer.append(byte)
+
+    @property
+    def is_empty(self) -> bool:
+        """True when the box holds no non-whitespace human input."""
+        return all(byte in _LINE_WHITESPACE_BYTES for byte in self._buffer)
+
 
 @dataclass
 class InputActivity:
@@ -57,11 +108,13 @@ class InputActivity:
 
     bytes_seen: int = 0
     last_input_monotonic: float | None = None
+    line: HumanInputLine = field(default_factory=HumanInputLine)
 
     def record(self, data: bytes) -> None:
         """Record a chunk of stdin data that was forwarded to the child."""
         self.bytes_seen += len(data)
         self.last_input_monotonic = os.times().elapsed
+        self.line.feed(data)
 
 
 class DecisionLog:
@@ -149,6 +202,15 @@ _DEFAULT_COMPACTION_SIGNAL_TTL_SECONDS = 600.0
 _COMPACTION_SIGNAL_GLOB = "*.compacting"
 
 
+# NOOP reasons that mean "an injection is pending but gated on the session
+# being safe to type into". `_poll_once` uses these to log a deferral when
+# the gate was the non-empty input box rather than keystroke activity.
+_REASON_BUSY_COMPOSING = "session busy (composing)"
+_REASON_BUSY_AWAIT_RESUME = "compaction detected but session busy -> awaiting idle to resume"
+_INJECTION_GATED_REASONS = frozenset({_REASON_BUSY_COMPOSING, _REASON_BUSY_AWAIT_RESUME})
+_DEFERRED_LOG_PREFIX = "injection deferred: input box not empty"
+
+
 class Decision(enum.Enum):
     """What the supervisor WOULD do this evaluation (dry-run logs it)."""
 
@@ -211,12 +273,30 @@ def _coerce_int(value: object) -> int:
 def _default_sidecar_dir() -> Path:
     """Resolve the daemon's context-sidecar directory from the environment.
 
-    Mirrors ``DecisionLog._default_path``: uses ``$CLAUDE_PROJECT_DIR`` (the
-    project root, exported by ccy in-container), falling back to the current
-    working directory when the variable is unset.
+    The daemon writes the sidecar to ``daemon_untracked_dir()/context-sidecar``,
+    whose location is INSTALL-MODE-AWARE (see ``ProjectContext``):
+
+    - normal client install: ``{project}/.claude/hooks-daemon/untracked``
+    - self-install (the daemon's own repo): ``{project}/untracked``
+
+    We must resolve the SAME directory or we poll a path the daemon never writes
+    (the v3.34.0 bug: the compact trigger was permanently inert in every normal
+    client install because this hardcoded the self-install layout). Install mode
+    is detected exactly as the daemon does: self-install iff the daemon SOURCE
+    tree ``{project}/src/claude_code_hooks_daemon`` is present at the project
+    root. This is stdlib-only (no daemon import) and stable at startup regardless
+    of whether the sidecar directory exists yet.
+
+    Uses ``$CLAUDE_PROJECT_DIR`` (the project root, exported by ccy in-container),
+    falling back to the current working directory when the variable is unset.
     """
     project_dir = Path(os.environ.get("CLAUDE_PROJECT_DIR") or Path.cwd())
-    return project_dir / "untracked" / _SIDECAR_SUBDIR
+    self_install = (project_dir / "src" / "claude_code_hooks_daemon").exists()
+    if self_install:
+        daemon_untracked = project_dir / "untracked"
+    else:
+        daemon_untracked = project_dir / ".claude" / "hooks-daemon" / "untracked"
+    return daemon_untracked / _SIDECAR_SUBDIR
 
 
 def load_freshest_sidecar(
@@ -336,10 +416,7 @@ class CompactStateMachine:
                 # Never type `continue` into a busy TUI -- it would be lost or
                 # corrupt in-flight input. Do NOT latch: retry on the next idle
                 # poll so the resume still fires once the session settles.
-                return Evaluation(
-                    Decision.NOOP,
-                    "compaction detected but session busy -> awaiting idle to resume",
-                )
+                return Evaluation(Decision.NOOP, _REASON_BUSY_AWAIT_RESUME)
             self._compaction_handled = True
             self._last_action_ts = now
             self.state = SupervisorState.MONITOR
@@ -364,7 +441,7 @@ class CompactStateMachine:
         if not reading.red:
             return Evaluation(Decision.NOOP, f"not red (tier={reading.tier})")
         if not idle:
-            return Evaluation(Decision.NOOP, "session busy (composing)")
+            return Evaluation(Decision.NOOP, _REASON_BUSY_COMPOSING)
         if self._injections >= self._policy.max_injections:
             return Evaluation(Decision.NOOP, "injection cap reached")
         if not self._cooldown_elapsed(now):
@@ -514,6 +591,7 @@ def _poll_once(
     log: DecisionLog | None,
     freshness_seconds: float,
     compaction_signal_ttl_seconds: float = _DEFAULT_COMPACTION_SIGNAL_TTL_SECONDS,
+    input_line_empty: bool = True,
 ) -> Evaluation:
     """One supervisor tick: read the sidecar, decide, and inject if warranted.
 
@@ -521,6 +599,15 @@ def _poll_once(
     machine, and -- for a non-NOOP decision -- injects the resolved payload
     (a marker for a dry-run compact; the real command otherwise) and logs it.
     Returns the Evaluation so callers/tests can observe the decision.
+
+    ``input_line_empty`` is the empty-input-box guard: when False (the human
+    has non-whitespace text sitting in the input box), NO injection may fire
+    on this tick -- pasting into and submitting a half-typed human message is
+    data corruption. The gate is applied to the machine's ``idle`` input, so
+    every injection path (armed ``/compact``, ``continue``, dry-run marker)
+    defers via the machine's existing busy semantics: no latch, no cooldown,
+    the compaction signal stays in place, and the injection retries on the
+    next tick with an empty box.
     """
     reading = load_freshest_sidecar(sidecar_dir, now=now_wall, freshness_seconds=freshness_seconds)
     # A compaction stops status renders, so the context sidecar goes
@@ -544,7 +631,12 @@ def _poll_once(
                 stale=False,
             )
         )
-    evaluation = machine.evaluate(reading, idle=idle, now=now_wall)
+    # Empty-input-box guard: the machine only ever decides to inject when its
+    # `idle` input is True, so AND-ing the box state into `idle` guards every
+    # injection path without new machine states -- the busy branches already
+    # defer-and-retry correctly (no latch, no cooldown, signal kept).
+    can_inject = idle and input_line_empty
+    evaluation = machine.evaluate(reading, idle=can_inject, now=now_wall)
     payload = _resolve_payload(evaluation.decision, dry_run=dry_run)
     if payload is not None:
         _perform_injection(master_writer, payload)
@@ -554,6 +646,15 @@ def _poll_once(
         # NOOP leaves it in place to retry on the next idle poll.
         if evaluation.decision is Decision.WOULD_CONTINUE and signal_path is not None:
             _consume_signal(signal_path, log)
+    elif (
+        log is not None
+        and idle
+        and not input_line_empty
+        and evaluation.reason in _INJECTION_GATED_REASONS
+    ):
+        # An injection was pending and the NON-EMPTY INPUT BOX was the sole
+        # gate (keystrokes were idle) -- record the skip.
+        log.write(f"{_DEFERRED_LOG_PREFIX} ({evaluation.reason})")
     return evaluation
 
 
@@ -651,7 +752,10 @@ def supervise(
     sidecar and runs the Decision H state machine. When the compact trigger
     fires (red + idle + cooldown/cap) it INJECTS a payload into the child PTY:
     a harmless visible MARKER in dry-run (default), or the real `/compact` when
-    armed. Forwarded I/O is never altered by a tick.
+    armed. Injection only ever targets an EMPTY input box: the human input
+    line is tracked from the forwarded stdin bytes (`activity.line`) and any
+    tick that finds non-whitespace human text pending is deferred and logged
+    instead. Forwarded I/O is never altered by a tick.
 
     Args:
         argv: The child command and its arguments (argv[0] is the executable).
@@ -730,6 +834,7 @@ def supervise(
             log=log,
             freshness_seconds=policy.freshness_seconds,
             compaction_signal_ttl_seconds=policy.compaction_signal_ttl_seconds,
+            input_line_empty=activity.line.is_empty,
         )
 
     previous_handler = signal.signal(signal.SIGWINCH, _on_winch)
