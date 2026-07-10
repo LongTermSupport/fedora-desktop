@@ -24,6 +24,11 @@
 
 # And the tracked per-project ccy environment (arms the supervisor wrapper).
 # entrypoint.sh sources this in-container before `claude` runs. Safe to track:
-# it holds config only, never session data or secrets. The supervisor it points
-# at (claude-supervise.py) is deployed by the hooks daemon and stays ignored.
+# it holds config only, never session data or secrets.
 !ccy.env
+
+# And the PTY supervisor itself. The hooks daemon deploys claude-supervise.py
+# into project code (ccy.deploy_supervisor) precisely so it is TRACKED — a fresh
+# clone, or a ccy launch before the daemon has run, then already has it. The
+# daemon refreshes this tracked copy on upgrade; commit the update when it does.
+!claude-supervise*
