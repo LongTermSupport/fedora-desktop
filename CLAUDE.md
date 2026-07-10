@@ -842,6 +842,7 @@ STOPPING BECAUSE: all tasks complete, QA passes, daemon restart verified.
 
 - Stop mid-task without explanation
 - Ask confirmation questions and then stop (the hook auto-continues those)
+- Smuggle a rhetorical continue question inside a `STOPPING BECAUSE:` message ('STOPPING BECAUSE: slice 1 done. Want me to build slice 2?') — this is HARD-BLOCKED; the prefix does not exempt tautological questions. Just continue with the next unit of work
 - Use `AUTO-CONTINUE` unless you intend to keep working indefinitely
 
 **Before asking a question, evaluate it critically**:
@@ -864,7 +865,7 @@ Some tool errors require an explicit recovery action, not a halt. The most commo
 
 ## dismissive_language_detector — do not deflect or prematurely halt
 
-Stop-time advisory that fires on language patterns signalling avoidance of work. The handler does NOT block the stop, but injects context for the next turn so the agent self-corrects.
+Stop-time advisory that fires on language patterns signalling avoidance of work. The handler does NOT block the stop, but injects context for the next turn so the agent self-corrects. Identical advisories (same session, same phrase set) are emitted once, not repeated on every subsequent stop.
 
 **Avoid**:
 
