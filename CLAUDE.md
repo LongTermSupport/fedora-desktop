@@ -201,19 +201,6 @@ Before making a `git commit` in the hooks daemon repository, this handler advise
 **Run before committing** (in this repo only):
 `$PYTHON -m claude_code_hooks_daemon.daemon.cli restart` then verify status shows RUNNING.
 
-## error_hiding_blocker — error-suppression patterns are blocked
-
-Writing code that silently swallows errors is blocked. All errors must be handled explicitly.
-
-**Blocked patterns (examples)**:
-
-- Python: bare `except` clauses with an empty body, catching and discarding all exceptions
-- Shell: redirecting stderr to `/dev/null` to silence failures, `|| true` to suppress non-zero exit codes
-- JavaScript/TypeScript: empty `catch` blocks that swallow exceptions
-- Go: `_ = err` (discarding error return values without handling)
-
-**Required action**: Handle errors explicitly — log them, return them to the caller, or propagate them. Silent error suppression masks bugs and makes debugging impossible.
-
 ## validate_instruction_content — CLAUDE.md and README.md must have stable content
 
 Writing ephemeral or session-specific content to `CLAUDE.md` or `README.md` is blocked. These files should contain only stable instructions, not implementation logs or session state.
@@ -490,22 +477,6 @@ Writing time estimates into a `CLAUDE/Plan/*.md` file is blocked. Plans capture 
 
 **Instead:** break work into concrete tasks and implementation steps, and let the user decide scheduling. Technical durations that describe a feature (cache TTL, session timeout, retention window) are allowed — only work/effort estimates are blocked.
 
-## qa_suppression — QA suppression annotations are blocked
-
-Writing QA suppression directives into source files is blocked across all supported languages. Fix the underlying code issue instead.
-
-**Blocked annotation types (by language)**:
-
-- Python: `noqa` directives, `type: ignore` annotations
-- JavaScript/TypeScript: `eslint-disable` inline directives
-- Go: `nolint` directives (golangci-lint)
-- PHP: `phpstan-ignore`, `psalm-suppress` annotations
-- Java/Kotlin: `@SuppressWarnings`, `@Suppress` annotations
-- C#: `pragma warning disable` directives
-- Rust: `allow(...)` attributes anywhere in the file (item-level `#[allow(...)]` and crate-level `#![allow(...)]`)
-
-**Required action**: Fix the code so QA passes without suppression. If a suppression is genuinely necessary, ask the user to add it manually — this signals a conscious decision rather than a shortcut.
-
 ## root_recursion_guard — recursive scans rooted at / are blocked
 
 A recursive scanner whose path argument resolves to a catastrophic root location is blocked, because it walks the entire filesystem and can pin every CPU core for hours.
@@ -524,20 +495,6 @@ A recursive scanner whose path argument resolves to a catastrophic root location
 ```
 MUST_SCAN_ROOT_BECAUSE="explain why"; grep -rl x /
 ```
-
-## security_antipattern — OWASP security antipatterns are blocked
-
-Writing code that contains security antipatterns is blocked across all supported languages. Fix the code to use safe patterns instead.
-
-**Blocked categories**:
-
-- SQL injection: building queries via string concatenation (use parameterised queries)
-- Command injection: passing unvalidated input to subprocess (use argument lists)
-- Hardcoded credentials: API keys, passwords, tokens embedded in source code
-- Weak cryptography: MD5 or SHA1 for password hashing (use bcrypt/argon2)
-- Path traversal: unvalidated user input used in file paths
-
-**Supported languages**: Python, JavaScript/TypeScript, Go, PHP, Ruby, Java, Kotlin, C#, Rust, Swift, Dart.
 
 ## sed_blocker — sed is forbidden for file modification
 
@@ -640,6 +597,55 @@ update the README row); edits to archived plans; backticked
 Grandfathered plans in `plan_workflow.qa.legacy_plan_allowlist`
 only ever advise. Lint any file on demand:
 `$PYTHON -m claude_code_hooks_daemon.daemon.cli plan-qa --lint <file>`.
+
+## error_hiding_blocker — error-suppression patterns are blocked
+
+Writing code that silently swallows errors is blocked. All errors must be handled explicitly.
+
+**Blocked patterns (examples)**:
+
+- Python: bare `except` clauses with an empty body, catching and discarding all exceptions
+- Shell: redirecting stderr to `/dev/null` to silence failures, `|| true` to suppress non-zero exit codes
+- JavaScript/TypeScript: empty `catch` blocks that swallow exceptions
+- Go: `_ = err` (discarding error return values without handling)
+
+**Required action**: Handle errors explicitly — log them, return them to the caller, or propagate them. Silent error suppression masks bugs and makes debugging impossible.
+
+**Excluded paths**: vendor/, node_modules/, and test-fixture dirs (tests/fixtures/, tests/assets/, __fixtures__/) are skipped by default. Exempt more paths with glob patterns via `handlers.pre_tool_use.error_hiding_blocker.options.exclude_paths` or the project-wide `daemon.exclude_paths` — use these for fixtures of deliberately-broken code instead of disabling the handler.
+
+## qa_suppression — QA suppression annotations are blocked
+
+Writing QA suppression directives into source files is blocked across all supported languages. Fix the underlying code issue instead.
+
+**Blocked annotation types (by language)**:
+
+- Python: `noqa` directives, `type: ignore` annotations
+- JavaScript/TypeScript: `eslint-disable` inline directives
+- Go: `nolint` directives (golangci-lint)
+- PHP: `phpstan-ignore`, `psalm-suppress` annotations
+- Java/Kotlin: `@SuppressWarnings`, `@Suppress` annotations
+- C#: `pragma warning disable` directives
+- Rust: `allow(...)` attributes anywhere in the file (item-level `#[allow(...)]` and crate-level `#![allow(...)]`)
+
+**Required action**: Fix the code so QA passes without suppression. If a suppression is genuinely necessary, ask the user to add it manually — this signals a conscious decision rather than a shortcut.
+
+**Excluded paths**: per-language vendor/build/node_modules dirs are skipped by default. Exempt more paths with glob patterns via `handlers.pre_tool_use.qa_suppression.options.exclude_paths` or the project-wide `daemon.exclude_paths` — use these for fixtures that must contain suppression annotations.
+
+## security_antipattern — OWASP security antipatterns are blocked
+
+Writing code that contains security antipatterns is blocked across all supported languages. Fix the code to use safe patterns instead.
+
+**Blocked categories**:
+
+- SQL injection: building queries via string concatenation (use parameterised queries)
+- Command injection: passing unvalidated input to subprocess (use argument lists)
+- Hardcoded credentials: API keys, passwords, tokens embedded in source code
+- Weak cryptography: MD5 or SHA1 for password hashing (use bcrypt/argon2)
+- Path traversal: unvalidated user input used in file paths
+
+**Supported languages**: Python, JavaScript/TypeScript, Go, PHP, Ruby, Java, Kotlin, C#, Rust, Swift, Dart.
+
+**Excluded paths**: vendor/, node_modules/, and test fixtures are skipped by default. Exempt more paths with glob patterns via `handlers.pre_tool_use.security_antipattern.options.exclude_paths` or the project-wide `daemon.exclude_paths`.
 
 ## system_paths — do not edit deployed system files directly
 
@@ -822,6 +828,7 @@ At session start this handler checks a ccy project (`.claude/ccy/`) whose superv
 - **`claude-supervise.py` missing** → the launcher's `exec` fails. Redeploy via a daemon upgrade or restore from git.
 - **not executable** → `chmod +x .claude/ccy/claude-supervise.py`.
 - **git-ignored** → it won't be committed; teammates get a broken supervisor. Add a `!claude-supervise.py` / `!ccy.env` whitelist line to `.claude/ccy/.gitignore` and commit the files.
+- **`ccy.deploy_supervisor: false` while armed+present** → the installer skips deploy on `false`, so upgrades never refresh `claude-supervise.py` and the project runs an increasingly stale supervisor. Set it to `true` (or disarm `CCY_CLAUDE_WRAPPER` if you truly want it off).
 
 When you see this alert, fix the listed item(s) and commit the ccy files so the supervisor works for everyone.
 
@@ -832,6 +839,18 @@ Read-only tool permission requests (`Read`, `Glob`, `Grep`) are auto-approved **
 In every other mode (`default`, `plan`, `acceptEdits`, `dontAsk`) the handler defers and Claude Code's normal approval prompt is shown — the user has not opted out of per-tool approvals, so the daemon must not silently approve on their behalf.
 
 If a permission prompt for `Read` appears in `default` mode, that is correct behaviour — approve it via Claude Code's UI.
+
+## dismissive_language_detector — do not deflect or prematurely halt
+
+Stop-time advisory that fires on language patterns signalling avoidance of work. The handler does NOT block the stop, but injects context for the next turn so the agent self-corrects. Identical advisories (same session, same phrase set) are emitted once, not repeated on every subsequent stop.
+
+**Avoid**:
+
+- Dismissing issues as `pre-existing`, `out of scope`, `not our problem`, or `not relevant` to deflect work that is in fact yours.
+- Premature-halt phrasing like `natural checkpoint`, `ready to continue on your   cue`, `pausing here` mid-plan when there is more to do — finish the task rather than dressing up a halt.
+- Speculative `should be fine` or `probably works` when verification is cheap (run the test, read the file).
+
+**Do**: acknowledge the issue, fix it, or — if it genuinely is out of scope — say so once with the specific reason and continue with the in-scope work.
 
 ### Stop Explanation Required
 
@@ -872,17 +891,5 @@ Some tool errors require an explicit recovery action, not a halt. The most commo
 **Rule: Read before Edit/Write.** If you must edit a file you have not read, Read it first in the same turn. The daemon's Stop handler will detect a `tool_use_error` followed by a silent stop and re-fire to force recovery.
 
 **On Stop hook re-entry (the hook fires again after a prior block)**: your next response is treated like any other — it must either prefix with `STOPPING BECAUSE:` or continue the work. Re-entry does not exempt you from the explanation rule.
-
-## dismissive_language_detector — do not deflect or prematurely halt
-
-Stop-time advisory that fires on language patterns signalling avoidance of work. The handler does NOT block the stop, but injects context for the next turn so the agent self-corrects. Identical advisories (same session, same phrase set) are emitted once, not repeated on every subsequent stop.
-
-**Avoid**:
-
-- Dismissing issues as `pre-existing`, `out of scope`, `not our problem`, or `not relevant` to deflect work that is in fact yours.
-- Premature-halt phrasing like `natural checkpoint`, `ready to continue on your   cue`, `pausing here` mid-plan when there is more to do — finish the task rather than dressing up a halt.
-- Speculative `should be fine` or `probably works` when verification is cheap (run the test, read the file).
-
-**Do**: acknowledge the issue, fix it, or — if it genuinely is out of scope — say so once with the specific reason and continue with the in-scope work.
 
 </hooksdaemon>
