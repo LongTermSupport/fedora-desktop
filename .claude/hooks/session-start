@@ -19,6 +19,9 @@ if ! ensure_daemon; then
     exit 0  # Exit 0 so Claude processes the JSON response
 fi
 
-# Pipe directly from stdin through jq to daemon - no shell variable storage
-# send_request_stdin handles socket errors internally and outputs JSON on failure
-jq -c '{event: "SessionStart", hook_input: .}' | send_request_stdin
+# Plan 00156: no jq. send_request_stdin wraps the raw stdin hook_input into
+# {event, hook_input} itself (the python3 transport it already spawns). The
+# payload stays on stdin — control-character safe; only the hardcoded event-name
+# literal is passed as an argument.
+# send_request_stdin handles socket errors internally and outputs JSON on failure.
+send_request_stdin "SessionStart"
