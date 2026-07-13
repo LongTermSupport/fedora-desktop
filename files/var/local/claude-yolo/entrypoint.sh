@@ -157,28 +157,28 @@ if [ -f /opt/claude-yolo/.ctrlz-patch-status ] && [ "$(cat /opt/claude-yolo/.ctr
     echo "  Update ccy-ctrl-z-patch.js knownPatterns and rebuild (see CLAUDE/ContainerRules.md)." >&2
 fi
 
-# Disable mouse capture so native terminal selection works.
-# NOTE: CLAUDE_CODE_NO_FLICKER (fullscreen / alt-screen rendering) was previously
-# set here but has been REMOVED — see CLAUDE/Plan/00047/DECISION.md. The short
-# version: fullscreen mode uses the terminal's alt-screen buffer, which on
-# Wayland (kitty, GNOME-Terminal, etc.) breaks mouse-wheel scroll because the
-# wheel-to-PageUp emulator remap is impossible without re-enabling mouse
-# tracking (which in turn would break native click-drag selection). Reverting
-# to the classic in-band renderer means kitty's native scrollback IS the
-# conversation; wheel/touchpad scroll, click-drag selection, and Ctrl+F search
-# all work natively. Trade-off: minor flicker on big re-renders.
+# Mouse / fullscreen rendering: CCY sets NEITHER CLAUDE_CODE_DISABLE_MOUSE nor
+# CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN. Claude Code's own defaults apply — the
+# classic in-band renderer by default, with `/tui fullscreen` opting in and
+# persisting via the settings.json CCY symlinks to
+# /workspace/.claude/ccy/settings.json.
 #
-# CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN is the kill-switch that forces the
-# classic in-band renderer regardless of any persisted "tui": "fullscreen"
-# setting in ~/.claude/settings.json (which CCY symlinks to
-# /workspace/.claude/ccy/settings.json). Just unsetting CLAUDE_CODE_NO_FLICKER
-# is NOT sufficient — if anyone ever ran `/tui fullscreen` in a prior CC
-# session, that setting is sticky and the env-var absence does not override
-# it. Setting DISABLE_ALTERNATE_SCREEN makes the result independent of
-# persisted state.
+# History (Plan 00047 — do NOT re-add DISABLE_MOUSE without reading this):
+# fullscreen draws on the terminal alt-screen, and with mouse capture OFF (the
+# old DISABLE_MOUSE=1, kept "for native click-drag selection") Wayland
+# terminals — GNOME-Terminal/VTE, and even kitty — fall back to DECSET-1007
+# "alternate scroll" and remap the wheel to arrow keys, which the prompt reads
+# as history recall and clobbers your input. Plan 00047 chased per-emulator
+# wheel→PageUp remaps (dead: kitty bypasses mouse_map with tracking off) and
+# then forced the classic renderer via DISABLE_ALTERNATE_SCREEN=1. Every one of
+# those dead-ends assumed mouse tracking stayed OFF. It doesn't have to: letting
+# Claude Code capture the mouse (i.e. NOT setting DISABLE_MOUSE) makes CC handle
+# the wheel itself inside the alt-screen, so fullscreen scroll works natively on
+# VTE. With the wheel fixed there is no reason to force the classic renderer, so
+# the kill switch is gone too and fullscreen is a normal opt-in again.
+# Trade-off in fullscreen: click-drag selection becomes Shift-drag and native
+# Ctrl+F search becomes Ctrl+O transcript mode; the classic default avoids both.
 # See: https://docs.anthropic.com/en/docs/claude-code/fullscreen
-export CLAUDE_CODE_DISABLE_MOUSE=1
-export CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1
 
 # Symlink /root/.claude to /workspace/.claude/ccy for project-local session storage
 # This keeps containers ephemeral while persisting sessions in the project directory

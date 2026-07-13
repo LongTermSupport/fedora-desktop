@@ -1,10 +1,9 @@
 # Plan 00047: Claude Code Safe Scroll — Mouse Wheel → PageUp/PageDown
 
-**Status**: 🔄 Reworking on PR branch — Path C+ proven dead, pivoting to "drop fullscreen rendering" (Path D)
+**Status**: Complete (2026-07-13)
 **Created**: 2026-05-27
 **Owner**: joseph
 **Priority**: Medium
-**Estimated Effort**: TBD (pending research)
 
 ## Overview
 
@@ -78,10 +77,29 @@ The research phase below must clarify these mechanics before we pick an implemen
 - [x] ✅ **Task 3.4**: Bump `CCY_VERSION` 3.14.0 → 3.15.0 with explanatory comment
 - [x] ✅ **Task 3.5**: Source new lib in `claude-yolo` and call `terminal_preflight_check` after `check_allowed_hostname`
 - [x] ✅ **Task 3.6**: Deploy via `play-claude-yolo.yml` (add to lib loop + install `gum` as host dependency)
-- [ ] ⬜ **Task 3.7**: QA — `./scripts/qa-all.bash`
-- [ ] ⬜ **Task 3.8**: Commit (CCY container — edit only, deploy on host)
-- [ ] ⬜ **Task 3.9**: HOST deployment by user — `ansible-playbook playbooks/imports/play-claude-yolo.yml` then `ansible-playbook playbooks/imports/play-terminal-emulators.yml`
-- [ ] ⬜ **Task 3.10**: Live end-to-end test on host: wheel in CC scrolls transcript via PageUp; primary-screen scroll unchanged; unsupported-terminal banner fires on gnome-terminal
+- [x] ❌ **Task 3.7**: QA of Path C+ — superseded by Path E (the Path C+ artifacts never shipped; QA runs against the Path E change instead)
+- [x] ❌ **Task 3.8**: Commit Path C+ — superseded by Path E (committed under the Path E change)
+- [x] ❌ **Task 3.9**: HOST deployment of Path C+ configs — superseded by Path E (no `play-terminal-emulators.yml` wheel remap to deploy)
+- [x] ❌ **Task 3.10**: Live test of Path C+ banner/PageUp — superseded by Path E (verified fullscreen wheel scroll on GNOME-Terminal instead)
+
+### Path E: fullscreen + mouse capture (the actual resolution)
+
+The Phase 3 tasks above chase Path C+ (per-emulator wheel→PageUp remap + a
+preflight gate), which was proven empirically dead, after which the plan pivoted
+to Path D (force the classic renderer via `CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1`).
+Both paths shared one buried assumption — that CCY keeps mouse tracking **off**
+(`CLAUDE_CODE_DISABLE_MOUSE=1`, kept for native click-drag selection).
+
+Dropping that assumption solved it: with `CLAUDE_CODE_DISABLE_MOUSE` unset,
+Claude Code captures the mouse itself and handles the wheel **inside** the
+alt-screen, so fullscreen scroll works natively on GNOME-Terminal/VTE — no
+emulator remap, no DECSET-1007 arrow-key fallback. With the wheel fixed, the
+Path D kill switch had no reason to exist and was removed too, so fullscreen is
+a normal opt-in again (`/tui fullscreen`, or per-repo via `.claude/ccy/ccy.env`).
+
+- [x] ✅ **Task E.1**: Drop `CLAUDE_CODE_DISABLE_MOUSE=1` from `entrypoint.sh` — verified: wheel scrolls in a forced-fullscreen (agent-view / `claude attach`) session on GNOME-Terminal
+- [x] ✅ **Task E.2**: Drop `CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1` (Path D kill switch) so fullscreen is opt-in again; per-repo override via `ccy.env` documented in `entrypoint.sh`
+- [x] ✅ **Task E.3**: Container rebuild forced (`REQUIRED_CONTAINER_VERSION` 2.20 → 2.22; `CCY_VERSION` → 3.27.0); QA green (`./scripts/qa-all.bash`)
 
 ## Open Questions (for research to answer)
 
@@ -97,12 +115,12 @@ The research phase below must clarify these mechanics before we pick an implemen
 
 ## Success Criteria
 
-- [ ] Mouse wheel up in Claude Code TUI engages scrollback, does NOT touch prompt buffer
-- [ ] Mouse wheel down in Claude Code TUI engages scrollback (or returns to live view if already in scrollback)
-- [ ] Keyboard arrow keys still work normally for prompt history
-- [ ] Configuration is deployed via Ansible (no manual steps after `ansible-playbook`)
-- [ ] All QA checks pass
-- [ ] Tested on the user's actual daily-driver terminal + Claude Code
+- [x] Mouse wheel up in Claude Code TUI scrolls the conversation, does NOT touch the prompt buffer (via CC's own alt-screen mouse capture, not PageUp/tmux)
+- [x] Mouse wheel down scrolls the conversation / returns to live view (same mechanism)
+- [x] Keyboard arrow keys still work normally for prompt history
+- [x] Configuration is deployed via Ansible (`entrypoint.sh` via `play-claude-yolo.yml`; no manual steps)
+- [x] All QA checks pass
+- [x] Tested on the user's actual daily-driver terminal (GNOME-Terminal) + Claude Code
 
 ## Notes & Updates
 
@@ -117,3 +135,24 @@ The research phase below must clarify these mechanics before we pick an implemen
 - **PIVOT** (same day, after host testing): Path C+ proven empirically dead. `kitty --debug-input` showed kitty bypasses `mouse_map` entirely in `NO_TRACKING` mode (the mode CCY's `CLAUDE_CODE_DISABLE_MOUSE=1` enforces). Smooth scroll-axis events on Wayland never synthesise into `b4`/`b5` button presses; they go to kitty's own scrollback handler. DECSET 1007's wheel→arrow translation (what CC was seeing) also bypasses `mouse_map`. No emulator-side fix is reachable while CCY keeps mouse tracking off and fullscreen mode on.
 - **New direction (Path D)**: drop `CLAUDE_CODE_NO_FLICKER=1` from `entrypoint.sh` — CC reverts to classic in-band rendering, kitty's native scrollback IS the conversation, wheel/selection/search all work natively. The thing fullscreen mode was buying (flat memory, no flicker) turns out not to be worth its cost on a GPU-accelerated emulator. See `DECISION.md` → "FINAL ANSWER".
 - All today's work has been moved to PR branch `plan/00047-wheel-pageup-rework`; F43 will be reset to before these commits and the PR merged once Path D is live-verified.
+
+### 2026-07-13 — Resolved via Path E (fullscreen + mouse capture)
+
+- While fixing an unrelated CCY symptom (the mouse wheel typing arrow keys in
+  agent-view / `claude attach` background sessions, which force fullscreen and
+  ignore the Path D kill switch), we found the assumption underpinning both
+  dead paths: they all kept `CLAUDE_CODE_DISABLE_MOUSE=1`. Removing it lets
+  Claude Code capture the mouse and scroll the conversation natively inside the
+  alt-screen — the exact thing Plan 00047 concluded was impossible on VTE.
+- Shipped as **Path E**: `entrypoint.sh` now sets **neither**
+  `CLAUDE_CODE_DISABLE_MOUSE` nor `CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN`. CC's
+  own defaults apply (classic renderer by default; `/tui fullscreen` opts in,
+  per-repo via the symlinked `.claude/ccy/settings.json` or an
+  `export CLAUDE_CODE_NO_FLICKER=1` in `.claude/ccy/ccy.env`).
+- Container rebuild forced: `REQUIRED_CONTAINER_VERSION` 2.20 → 2.22 (an interim
+  2.21 image was built during dogfooding and is skipped in committed history);
+  `CCY_VERSION` → 3.27.0. QA green. Verified on GNOME-Terminal: wheel scrolls
+  the conversation in fullscreen; classic sessions keep native selection/search.
+- Path C+ artifacts (`lib/terminal-detection.bash`, preflight gate, per-emulator
+  wheel remap) were already reverted before this — nothing to unwind.
+- Ref: LongTermSupport/fedora-desktop#31.
