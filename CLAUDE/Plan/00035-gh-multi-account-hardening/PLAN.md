@@ -1,6 +1,6 @@
 # Plan 00035: GitHub Multi-Account Hardening (gh + SSH Keys + Signed Commits)
 
-**Status**: In Progress
+**Status**: Dormant
 **Created**: 2026-04-24
 **Owner**: joseph
 **Priority**: High
@@ -77,8 +77,8 @@ trustworthy across all accounts, SSH keys become easy to manage and rotate.
    has an identical SSH command missing the same isolation flags. This
    produced the `Expected: LTSCommerce / Got: <gh-username-b>`
    entrypoint mismatch observed today in an unrelated project (user
-   picked `github_ec`; SSH probe fell through to `~/.ssh/id` → reported
-   LTSCommerce; alias-extracted `gh-token-ec` returned <gh-username-b>'s
+   picked `github_<alias-b>`; SSH probe fell through to `~/.ssh/id` → reported
+   LTSCommerce; alias-extracted `gh-token-<alias-b>` returned <gh-username-b>'s
    token; container's `gh api user` returned <gh-username-b> → mismatch).
 3. **Weak assertion** — `play-github-cli-multi.yml:290` asserts only
    `'successfully authenticated' in item.stdout`. That is true when the
@@ -360,7 +360,7 @@ a single command: add the account to config, run one script, done.
 | Risk                                                                                              | Impact                                             | Mitigation                                                                                                                                                            |
 | ------------------------------------------------------------------------------------------------- | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `gh auth refresh` scope flow can't be driven non-interactively                                    | High — blocks automation of first-time scope grant | Fail fast in the playbook with the exact command the user must run; do it once per account during fresh-install in `run.bash` so the playbook rarely has to re-prompt |
-| GitHub rejects programmatic key upload due to org SSO enforcement                                 | Medium — would affect LTS/EC accounts              | Detect in the preflight; fall back to paste-and-confirm prompt with link to SSO authorisation page                                                                    |
+| GitHub rejects programmatic key upload due to org SSO enforcement                                 | Medium — would affect LTS/<org-b> accounts         | Detect in the preflight; fall back to paste-and-confirm prompt with link to SSO authorisation page                                                                    |
 | Key regeneration trigger is in a shared component we don't control (gnome-keyring, F43 migration) | Medium — can't fix, only work around               | Phase 1 research output will inform whether we need defensive copies or just a clearer recovery runbook                                                               |
 | Signed-commits research says "do it" but implementation is larger than anticipated                | Low — it's spun off into its own plan              | Keep this plan's scope tight: research only, implementation in Plan 00036                                                                                             |
 
@@ -383,14 +383,14 @@ touch different files.)
 
 - Originated from today's session: ccy token mismatch → playbook
   probe bug → manual registration of four pubkeys via `gh ssh-key add` as an immediate unblock.
-- Manual unblock done: `github_balli`, `github_lts`, `github_ec`,
+- Manual unblock done: `github_<alias-c>`, `github_lts`, `github_<alias-b>`,
   `github_joseph` now registered against their correct accounts.
   `<gh-username-a>` and `joseph-uk` needed `gh auth refresh --scopes admin:public_key` first (interactive).
 - `<gh-username-a>` auth end-to-end verified working in live terminal.
-  Post-auth SSH hang observed on `-i github_balli -o IdentitiesOnly=yes` probe — out of scope for this plan (suspected
+  Post-auth SSH hang observed on `-i github_<alias-c> -o IdentitiesOnly=yes` probe — out of scope for this plan (suspected
   VPN/MTU), noted here so it doesn't get lost.
 - Reproduced the ccy side of the bug in a separate project (user
-  picked `github_ec`; entrypoint reported "Expected: LTSCommerce /
+  picked `github_<alias-b>`; entrypoint reported "Expected: LTSCommerce /
   Got: <gh-username-b>") — confirms Phase 5 is a real blocker, not
   just hypothetical.
 - Patched `.claude/hooks/handlers/pre_tool_use/system_paths.py` to
@@ -486,3 +486,17 @@ touch different files.)
 - QA passed (`./scripts/qa-all.bash`), shellcheck clean on new script.
 - Remaining: idempotency test on host, playbook `pause:` removal
   (Phase 4), SSH probe hardening (Phase 3).
+
+### 2026-07-13 — Marked Dormant (staleness resolution)
+
+- Plan flipped `In Progress` → `Dormant` to resolve the plan-QA
+  staleness nag (no commits for 31 days). Not cancelled — the work is
+  real and 12 of 28 tasks are already done and committed.
+- **Blocked on**: the remaining tasks (idempotency test, playbook
+  `pause:` removal, SSH probe hardening) all require **HOST**
+  deployment + live re-run of `run.bash` / the playbooks against real
+  GitHub accounts. None of that can happen inside the CCY container
+  (edit-only). Paused pending a host session that can deploy and
+  verify per-account SSH registration end-to-end.
+- Resume trigger: next host provisioning session, or the next time a
+  new `github_<alias>` account is added and the flow needs exercising.
