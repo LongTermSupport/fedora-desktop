@@ -25,6 +25,10 @@ Commands:
                           (reads value from stdin or prompts interactively)
   set <varname>           Encrypt a string and append it to localhost.yml
                           (reads value from stdin or prompts interactively)
+                          Refuses if <varname> already exists — use 'replace'.
+  replace <varname>       Update an EXISTING variable: drop its old vault block
+                          and append the newly-encrypted value
+                          (reads value from stdin or prompts interactively)
 
 Examples:
   ./vault.bash get github_ssh_passphrase
@@ -32,6 +36,7 @@ Examples:
   ./vault.bash list
   echo 'secret123' | ./vault.bash encrypt my_variable
   ./vault.bash set new_secret_var
+  ./vault.bash replace github_ssh_passphrase
 
 Notes:
   - Vault password file: vault-pass.secret
@@ -123,26 +128,33 @@ cmd_list() {
   grep -oP '^[a-zA-Z_]\w*(?=:.*!vault)' "$VAULT_FILE" | sort
 }
 
-cmd_encrypt() {
-  local varname="${1:?Usage: vault.bash encrypt <varname>}"
-  check_vault_pass
-
-  local value
+# Read a secret value: interactively (prompt + confirm) when stdin is a TTY,
+# otherwise straight from piped stdin. Echoes ONLY the value on stdout; every
+# prompt and diagnostic goes to stderr so `value=$(_read_value foo)` stays pure.
+_read_value() {
+  local varname="$1" value confirm
   if [[ -t 0 ]]; then
-    # Interactive - prompt for value
     read -rsp "Enter value for '$varname': " value
     echo >&2
-    local confirm
     read -rsp "Confirm value: " confirm
     echo >&2
     if [[ "$value" != "$confirm" ]]; then
       echo "ERROR: Values do not match" >&2
-      exit 1
+      return 1
     fi
   else
     # Piped input
     value=$(cat)
   fi
+  printf '%s' "$value"
+}
+
+cmd_encrypt() {
+  local varname="${1:?Usage: vault.bash encrypt <varname>}"
+  check_vault_pass
+
+  local value
+  value=$(_read_value "$varname")
 
   # Don't pass --vault-id here: ansible.cfg already registers one at
   # vault-id "localhost". Passing it again makes ansible-core 2.20+ see
@@ -156,26 +168,14 @@ cmd_set() {
   local varname="${1:?Usage: vault.bash set <varname>}"
   check_vault_pass
 
-  if grep -q "^${varname}:" "$VAULT_FILE" 2>/dev/null; then
+  if grep -q "^${varname}:" "$VAULT_FILE"; then
     echo "ERROR: Variable '$varname' already exists in $VAULT_FILE" >&2
-    echo "Edit the file manually to replace it, or use a different name." >&2
+    echo "Use './vault.bash replace $varname' to update it in place." >&2
     exit 1
   fi
 
   local value
-  if [[ -t 0 ]]; then
-    read -rsp "Enter value for '$varname': " value
-    echo >&2
-    local confirm
-    read -rsp "Confirm value: " confirm
-    echo >&2
-    if [[ "$value" != "$confirm" ]]; then
-      echo "ERROR: Values do not match" >&2
-      exit 1
-    fi
-  else
-    value=$(cat)
-  fi
+  value=$(_read_value "$varname")
 
   # See note in cmd_encrypt: ansible.cfg registers vault-id "localhost"
   # already; passing --vault-id here duplicates it and breaks on
@@ -188,6 +188,44 @@ cmd_set() {
   echo "Saved '$varname' to $VAULT_FILE (vault-encrypted)" >&2
 }
 
+cmd_replace() {
+  local varname="${1:?Usage: vault.bash replace <varname>}"
+  check_vault_pass
+
+  if ! grep -q "^${varname}:" "$VAULT_FILE"; then
+    echo "ERROR: Variable '$varname' not found in $VAULT_FILE" >&2
+    echo "Use './vault.bash set $varname' to add a new variable." >&2
+    exit 1
+  fi
+
+  local value
+  value=$(_read_value "$varname")
+
+  # See note in cmd_encrypt: ansible.cfg registers vault-id "localhost"
+  # already; passing --vault-id here duplicates it and breaks on
+  # ansible-core 2.20+.
+  local encrypted
+  encrypted=$(printf '%s' "$value" | ansible-vault encrypt_string \
+    --stdin-name "$varname")
+
+  # Rewrite the file: drop the old block (the `varname:` line plus its
+  # indented `!vault |` continuation lines, up to the next unindented key),
+  # then append the freshly-encrypted block at the end. Write to a temp file
+  # and mv so a mid-operation failure never leaves a half-edited vault file.
+  local tmp
+  tmp=$(mktemp)
+  awk -v key="^${varname}:" '
+    skip && /^[^[:space:]]/ { skip=0 }   # an unindented line ends the old block
+    $0 ~ key                { skip=1; next }   # start of target block -> drop it
+    skip                    { next }           # inside the block -> drop it
+    { print }
+  ' "$VAULT_FILE" > "$tmp"
+  printf '%s\n' "$encrypted" >> "$tmp"
+  mv "$tmp" "$VAULT_FILE"
+
+  echo "Replaced '$varname' in $VAULT_FILE (vault-encrypted)" >&2
+}
+
 # Main dispatch
 case "${1:-}" in
   get)     shift; cmd_get "$@" ;;
@@ -196,6 +234,7 @@ case "${1:-}" in
   list)    shift; cmd_list "$@" ;;
   encrypt) shift; cmd_encrypt "$@" ;;
   set)     shift; cmd_set "$@" ;;
+  replace) shift; cmd_replace "$@" ;;
   -h|--help|help) usage ;;
   "")      usage; exit 1 ;;
   *)       echo "Unknown command: $1" >&2; usage; exit 1 ;;
