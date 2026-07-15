@@ -71,6 +71,20 @@ Scripts a human runs and is prompted by (extensionless executables and executed 
 
 **Full rules, scope, and canonical patterns:** @CLAUDE/InteractiveScripts.md
 
+### Stderr Hygiene: Diagnostics to stderr, stdout is the payload
+
+A script or function's **stdout is its return value** — the one thing a caller
+would `$(capture)`. Everything that is not that value (status, progress,
+"switching…", prompts, warnings, diagnostics) goes to **stderr** with `>&2`.
+Mixing chatter into stdout silently pollutes `$(cmd)` captures and breaks
+`jq`/`read` downstream — often only on a conditional code path. This applies to
+bash executables, **generated** bash written into user dotfiles by playbooks,
+embedded `shell:` blocks, `scripts/`, and `helpers/` Python (parsed marker lines
+= stdout; diagnostics = stderr). Help/status/report commands whose entire job is
+to print for a human are the exception — their text IS the payload.
+
+**Full rule, decision procedure, patterns, and review checklist:** @CLAUDE/StderrHygiene.md
+
 ### Container Engines: Podman First
 
 **Use Podman wherever possible — it is the better system.** Reach for Docker only when a tool genuinely needs it for compatibility or legacy reasons, and understand that Docker is significantly less secure than Podman.
@@ -144,6 +158,7 @@ If `git status` shows plan files modified by your session, decide before committ
 | @CLAUDE/QA.md                   | QA scripts reference, what to run when                                     |
 | @CLAUDE/DebugCommands.md        | Non-interactive command rules for user diagnostics                         |
 | @CLAUDE/InteractiveScripts.md   | Human-friendly interactive script rules (validate strictly, retry on loop) |
+| @CLAUDE/StderrHygiene.md        | Diagnostics → stderr; stdout is the captured payload (bash + Python)       |
 | @CLAUDE/GnomeShell.md           | GNOME Shell extension development (Wayland, ESLint, APIs)                  |
 | @CLAUDE/PlanWorkflow.md         | Planning workflow and plan document structure                              |
 | @CLAUDE/AgentNotes.md           | Working practices and project gotchas (feedback + project knowledge)       |

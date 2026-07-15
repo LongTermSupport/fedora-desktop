@@ -71,7 +71,10 @@ the former, fail fast on the latter.
     never write it to a file or log.
 
 08. **Prompts and diagnostics → stderr; machine output → stdout.** Keep the script
-    pipe-friendly: a caller capturing stdout must get data, not prompts.
+    pipe-friendly: a caller capturing stdout must get data, not prompts. This is
+    the interactive-script facet of the repo-wide **stderr hygiene** standard
+    (stdout = the captured payload; all chatter → `>&2`) — see
+    [StderrHygiene.md](StderrHygiene.md) for the general rule and patterns.
 
 09. **Friendly, specific error messages.** Say *what* was wrong and *what to do
     next*: "Those didn't match — let's try again." not "Aborting: mismatch.". No

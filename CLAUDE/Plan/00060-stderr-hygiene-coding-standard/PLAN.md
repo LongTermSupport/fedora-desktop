@@ -68,11 +68,12 @@ standard so the pattern is caught in review going forward.
 
 ### Phase 3: Coding standard
 
-- [ ] ⬜ **Task 3.1**: Author the "stderr hygiene" standard (diagnostics → stderr,
+- [x] ✅ **Task 3.1**: Author the "stderr hygiene" standard (diagnostics → stderr,
   stdout = captured output), cross-referencing `CLAUDE/InteractiveScripts.md`
-  rule 08
-- [ ] ⬜ **Task 3.2**: Wire it into the CLAUDE docs index so it is discoverable
-- [ ] ⬜ **Task 3.3**: Commit the standard (Plan 00060)
+  rule 08 — `CLAUDE/StderrHygiene.md`
+- [x] ✅ **Task 3.2**: Wire it into the CLAUDE docs index + a first-class Critical
+  Rules subsection; back-link from InteractiveScripts.md rule 08
+- [ ] 🔄 **Task 3.3**: Commit the standard (Plan 00060)
 
 ## Dependencies
 
