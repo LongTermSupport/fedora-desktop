@@ -1,7 +1,8 @@
 # Plan 00060: stderr hygiene coding standard
 
-**Status**: In Progress
+**Status**: Complete
 **Created**: 2026-07-15
+**Completed**: 2026-07-15
 **Owner**: joseph
 **Priority**: Medium
 
@@ -56,15 +57,22 @@ standard so the pattern is caught in review going forward.
 - [x] ✅ **Task 1.1**: Redirect the `gh-<alias>` wrapper "Switching to …" status
   line to stderr in `play-github-cli-multi.yml`
 - [x] ✅ **Task 1.2**: Run QA (`./scripts/qa-all.bash`) and fix findings
-- [ ] 🔄 **Task 1.3**: Commit the gh fix (Plan 00060), reference the plan
+- [x] ✅ **Task 1.3**: Commit the gh fix (Plan 00060), reference the plan — `f2c7f93`, pushed
 
 ### Phase 2: Repo-wide stderr-hygiene audit
 
-- [ ] 🔄 **Task 2.1**: Dispatch audit agent over bash executables, generated
+- [x] ✅ **Task 2.1**: Dispatch audit agent over bash executables, generated
   includes, playbook shell blocks, `scripts/`, `helpers/`
-- [ ] ⬜ **Task 2.2**: Triage results — confirm HIGH/MEDIUM findings, reject
-  false positives (help/status/report commands)
-- [ ] ⬜ **Task 2.3**: Apply fixes for confirmed findings; QA; commit
+- [x] ✅ **Task 2.2**: Triage results — confirm HIGH/MEDIUM findings, reject
+  false positives (help/status/report commands). **Result: 0 real bugs.** The
+  repo is already disciplined — every value-returning shell/Python function
+  routes chatter to stderr. The wrapper fix in Phase 1 was the only real
+  finding. `gh-switch()` (line 712) prints `Switching to …` on stdout but emits
+  no captured value (nothing does `x=$(gh-switch …)`), so the StderrHygiene
+  carve-out applies — redirecting it would *contradict* the standard, so it is
+  deliberately left as-is.
+- [x] ✅ **Task 2.3**: Apply fixes for confirmed findings — none needed (0
+  confirmed findings); no code change in this phase
 
 ### Phase 3: Coding standard
 
@@ -73,7 +81,7 @@ standard so the pattern is caught in review going forward.
   rule 08 — `CLAUDE/StderrHygiene.md`
 - [x] ✅ **Task 3.2**: Wire it into the CLAUDE docs index + a first-class Critical
   Rules subsection; back-link from InteractiveScripts.md rule 08
-- [ ] 🔄 **Task 3.3**: Commit the standard (Plan 00060)
+- [x] ✅ **Task 3.3**: Commit the standard (Plan 00060) — `62ac5c5`, pushed
 
 ## Dependencies
 
@@ -82,11 +90,11 @@ standard so the pattern is caught in review going forward.
 
 ## Success Criteria
 
-- [ ] `gh-<alias>` wrapper stdout is pure (status line on stderr)
-- [ ] Audit complete; every confirmed finding fixed or explicitly deferred with
-  reason
-- [ ] Coding standard documented and indexed
-- [ ] QA passes (`./scripts/qa-all.bash`)
+- [x] `gh-<alias>` wrapper stdout is pure (status line on stderr) — `f2c7f93`
+- [x] Audit complete; every confirmed finding fixed or explicitly deferred with
+  reason — 0 confirmed findings; `gh-switch` deferred by the carve-out
+- [x] Coding standard documented and indexed — `62ac5c5`
+- [x] QA passes (`./scripts/qa-all.bash`) — exit 0
 
 ## Delivery & Milestones
 
@@ -95,4 +103,6 @@ standard so the pattern is caught in review going forward.
      JOURNAL/00060-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
 - Recovery cron: 73605707 (session-only failsafe)
-- Task 1.1 done: gh-<alias> wrapper status line redirected to stderr
+- `f2c7f93` — Phase 1: gh-<alias> wrapper status line → stderr (the real bug); QA green
+- `62ac5c5` — Phase 3: `CLAUDE/StderrHygiene.md` standard + CLAUDE.md first-class rule + index row + InteractiveScripts.md back-link
+- Phase 2 audit (background agent): 0 real bugs — repo already disciplined; `gh-switch` correctly left on stdout per the carve-out
