@@ -892,11 +892,20 @@ def emit_error_json(event_name, error_type, error_details):
         ]
     context = chr(10).join(context_lines)
 
-    # Stop/SubagentStop: top-level decision only (deny to show error)
+    # Stop/SubagentStop: top-level decision only (deny to show error). Fail
+    # CLOSED regardless of cause, but keep the reason honest: a malformed payload
+    # failed to parse client-side and never reached the socket, so 'daemon not
+    # running' is wrong for that case (Plan 00157 review follow-up) — mirror the
+    # error_type branch used for context_lines above.
     if event_name in ('Stop', 'SubagentStop'):
+        if error_type == 'invalid_hook_input':
+            reason = ('Hooks daemon received a malformed hook payload - this '
+                      'event was not validated (daemon likely healthy; do not restart)')
+        else:
+            reason = 'Hooks daemon not running - protection not active'
         response = {
             'decision': 'block',
-            'reason': 'Hooks daemon not running - protection not active',
+            'reason': reason,
         }
     else:
         # Other events: hookSpecificOutput with context (fail-open allow)

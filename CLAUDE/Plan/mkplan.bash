@@ -323,6 +323,35 @@ cat > "$plan_file" <<PLAN
 PLAN
 fi
 
+# --- scaffold the plan JOURNAL/ (Plan 00163) -------------------------------
+
+# First-class plan journalling: a JOURNAL/ subfolder of per-day, append-only
+# files NNNNN-Journal-YY-MM-DD.md — the linear activity log complementary to
+# PLAN.md. Gated on a project-owned _JOURNAL_TEMPLATE_.md whose presence is the
+# "this project journals" marker, so non-journalling projects get clean plans.
+# Written with bash (mkdir / cat), not the Write tool — same reason as PLAN.md.
+readonly JOURNAL_DIR_BASENAME="JOURNAL"
+readonly JOURNAL_TEMPLATE_BASENAME="_JOURNAL_TEMPLATE_.md"
+journal_template_file="$plan_dir/$JOURNAL_TEMPLATE_BASENAME"
+if [[ -f "$journal_template_file" ]]; then
+    journal_dir="$target/$JOURNAL_DIR_BASENAME"
+    if ! mkdir "$journal_dir"; then
+        die "could not create journal folder '$journal_dir'"
+    fi
+    journal_day="$(date +%y-%m-%d)"
+    journal_time="$(date +%H:%M)"
+    journal_file="$journal_dir/$padded-Journal-$journal_day.md"
+    if ! journal_body="$(cat "$journal_template_file")"; then
+        die "could not read journal template '$journal_template_file'"
+    fi
+    journal_body="${journal_body//\{\{PLAN_NUMBER\}\}/$padded}"
+    journal_body="${journal_body//\{\{PLAN_TITLE\}\}/$title}"
+    journal_body="${journal_body//\{\{DATE\}\}/$journal_day}"
+    journal_body="${journal_body//\{\{TIME\}\}/$journal_time}"
+    journal_body="${journal_body//\{\{OWNER\}\}/$owner}"
+    printf '%s\n' "$journal_body" > "$journal_file"
+fi
+
 # --- advance the counter (only after a successful write) -------------------
 
 # High-water-mark write (mirrors the daemon's max() semantics, Plan 00112): the

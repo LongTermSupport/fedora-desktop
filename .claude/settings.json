@@ -2,7 +2,8 @@
   "plansDirectory": "./CLAUDE/Plan",
   "statusLine": {
     "type": "command",
-    "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/status-line"
+    "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/status-line",
+    "refreshInterval": 10
   },
   "hooks": {
     "PreToolUse": [
