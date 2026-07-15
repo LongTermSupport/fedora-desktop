@@ -237,25 +237,6 @@ Direct `Write` or `Edit` to package manager lock files is blocked. Lock files ar
 - Rust: `cargo add crate`
 - Go: `go get module`
 
-### Pipe Blocker
-
-Commands piped to `tail` or `head` are **blocked** — piping truncates output and causes information loss.
-
-**Use a temp file instead:**
-
-```bash
-# WRONG — blocked:
-pytest tests/ 2>&1 | tail -20
-
-# RIGHT — redirect to temp file:
-pytest tests/ > /tmp/pytest_out.txt 2>&1
-# Then read selectively if needed
-```
-
-**Allowed** (whitelisted): `grep`, `rg`, `awk`, `sed`, `jq`, `ls`, `cat`, `git log`, `git tag`, `git branch`, and other cheap filtering commands.
-
-**Add to whitelist** (if safe to pipe): set `extra_whitelist` in `.claude/hooks-daemon.yaml` under `pipe_blocker`.
-
 ## git_stash — git stash is blocked by default
 
 `git stash`, `git stash push`, and `git stash save` are blocked. `git stash pop`, `git stash apply`, `git stash list`, and `git stash show` are always allowed.
@@ -415,25 +396,6 @@ Using `Grep` or `Bash` (grep/rg) to find class definitions, function signatures,
 
 Default mode (`block_once`): the first symbol-lookup grep in a session is denied with guidance; subsequent retries are allowed.
 
-## markdown_organization — tracked-docs policy (untracked Claude memory BLOCKED)
-
-This project sets `allow_untracked_claude_memory: false`. Writing to Claude
-auto-memory files (`~/.claude/projects/*/memory/*.md`) is **blocked** — via the
-Write/Edit tools AND via bash redirect/`tee` side-doors. **Reading memory is
-still allowed** so existing memory can be migrated out.
-
-**Put durable knowledge in TRACKED project docs (progressive disclosure):**
-
-- Always-relevant facts → `CLAUDE.md` (keep lean; resident every session)
-- Path-specific guidance → `.claude/rules/*.md` with `paths:` glob frontmatter (loads on demand only when matching files are touched)
-- Intent-triggered procedures → a thin skill under `.claude/skills/` pointing at a single-source-of-truth doc body
-- Human-facing reference → `docs/`
-- Link docs with plain markdown links (zero token cost until followed); **avoid `@`-imports** (they re-inline eagerly rather than defer)
-
-Keep ONE source of truth per fact and link to it. Normal markdown-location rules (below) still apply to every other `.md` file.
-
-**Allowed locations**: `CLAUDE/`, `docs/`, `RELEASES/`, `CLAUDE/Plan/`, root-level `README.md`, `.claude/rules/`, or any `extra_allowed_markdown_paths` pattern.
-
 ## npm_command — use llm: prefixed npm commands
 
 Direct `npm run` and `npx` commands are blocked or advised against. Projects with `llm:` prefixed scripts in `package.json` should use those instead.
@@ -540,64 +502,6 @@ Creating a production source file is blocked until a corresponding test file exi
 
 **Allowed through without blocking**: vendor dirs, node_modules, build outputs, generated files, and file extensions not in the supported language list.
 
-## plan_qa_commit_gate — cross-file plan checks at git commit
-
-Every `git commit` is checked against the STAGED tree's plan QA
-invariants. In `commit_gate_mode: warn` (the rollout default)
-violations appear as advisory context — read them and amend the
-commit content BEFORE committing; in `block` mode they deny the
-commit with a TODO list of what the commit must also contain.
-
-**The invariants**:
-
-- creating a plan folder ⇒ the SAME commit stages its README
-  index row (`index-at-birth`) and the number must come from the
-  git counter / mkplan.bash (`counter-sanity`, `no-new-collisions`)
-- flipping a plan to Complete/Cancelled/Superseded ⇒ the SAME
-  commit contains the `git mv` into the archive dir AND the README
-  row + statistics update (`terminal-state-atomic`)
-- every folder has a README row in the section matching its
-  location, and every row's link resolves
-  (`row-folder-bijection`, `stats-recount`)
-- a commit claiming `Plan NNNNN` that stages src/tests/config
-  changes should also update that plan's PLAN.md
-  (`same-commit-plan-doc`); reference plans as `Plan NNNNN:`
-  (`plan-ref-format`)
-
-Check the staged tree any time without committing:
-`$PYTHON -m claude_code_hooks_daemon.daemon.cli plan-qa --check-staged`.
-Commits inside nested/vendor repos or foreign worktrees are exempt.
-
-## plan_qa_edit — PLAN.md writes are linted in real time
-
-Every Write/Edit of a `PLAN.md` under the plan directory is checked
-against the plan QA edit-stage rules on the content the file WOULD
-have. Block-level violations (in `edit_mode: block`) deny the tool
-call with the exact remediation; fix the content and retry.
-
-**Rules that block new plan material**:
-
-- a parseable `**Status**:` line must exist (`status-line-present`)
-- the status token must be one of: Not Started, In Progress,
-  Complete, Blocked, Cancelled, Superseded, Dormant
-  (`status-enum-and-date`)
-- the header must not contradict the body — do not leave
-  `Not Started`/`In Progress` above an all-ticked task list or
-  "ALL DONE" prose; flip the status instead
-  (`header-body-coherence`)
-- use the template task grammar `- [ ] ⬜ **Task N.N**:` — not
-  ad-hoc markers like `[✓]`/`[⏳]` (`task-grammar`)
-
-**Advisory rules**: missing Created/Owner/Priority headers on new
-plans; a terminal status set while the folder is still in the plan
-root (the same commit must `git mv` it to the archive dir and
-update the README row); edits to archived plans; backticked
-`src/...` paths that no longer exist.
-
-Grandfathered plans in `plan_workflow.qa.legacy_plan_allowlist`
-only ever advise. Lint any file on demand:
-`$PYTHON -m claude_code_hooks_daemon.daemon.cli plan-qa --lint <file>`.
-
 ## error_hiding_blocker — error-suppression patterns are blocked
 
 Writing code that silently swallows errors is blocked. All errors must be handled explicitly.
@@ -647,6 +551,121 @@ Writing code that contains security antipatterns is blocked across all supported
 
 **Excluded paths**: vendor/, node_modules/, and test fixtures are skipped by default. Exempt more paths with glob patterns via `handlers.pre_tool_use.security_antipattern.options.exclude_paths` or the project-wide `daemon.exclude_paths`.
 
+## markdown_organization — tracked-docs policy (untracked Claude memory BLOCKED)
+
+This project sets `allow_untracked_claude_memory: false`. Writing to Claude
+auto-memory files (`~/.claude/projects/*/memory/*.md`) is **blocked** — via the
+Write/Edit tools AND via bash redirect/`tee` side-doors. **Reading memory is
+still allowed** so existing memory can be migrated out.
+
+**Put durable knowledge in TRACKED project docs (progressive disclosure):**
+
+- Always-relevant facts → `CLAUDE.md` (keep lean; resident every session)
+- Path-specific guidance → `.claude/rules/*.md` with `paths:` glob frontmatter (loads on demand only when matching files are touched)
+- Intent-triggered procedures → a thin skill under `.claude/skills/` pointing at a single-source-of-truth doc body
+- Human-facing reference → `docs/`
+- Link docs with plain markdown links (zero token cost until followed); **avoid `@`-imports** (they re-inline eagerly rather than defer)
+
+Keep ONE source of truth per fact and link to it. Normal markdown-location rules (below) still apply to every other `.md` file.
+
+**Allowed locations**: `CLAUDE/`, `docs/`, `RELEASES/`, `CLAUDE/Plan/`, root-level `README.md`, `.claude/rules/`, or any `extra_allowed_markdown_paths` pattern.
+
+### Pipe Blocker
+
+Commands piped to `tail` or `head` are **blocked** — piping truncates output and causes information loss.
+
+**Do NOT do the theatre** of capturing output to a file and then echoing the WHOLE file to stdout — that defeats the point and just bloats tokens.
+
+**Preferred — `echd-capture`**: capture the FULL output, see only a preview.
+
+```bash
+# WRONG — blocked (and truncates):
+pytest tests/ 2>&1 | tail -20
+
+# RIGHT — full capture, bounded preview + path to the rest:
+set -o pipefail
+pytest tests/ 2>&1 | echd-capture 20
+# prints the last 20 lines + '(full output: /…/command-output-….txt)'.
+# Use --head N for the first N lines. pipefail keeps pytest's exit code visible.
+```
+
+**Alternative** (no pipe): `pytest tests/ > /tmp/out.txt 2>&1` then read selectively.
+
+**Allowed** (whitelisted): `grep`, `rg`, `awk`, `sed`, `jq`, `ls`, `cat`, `git log`, `git tag`, `git branch`, and other cheap filtering commands.
+
+**Add to whitelist** (if safe to pipe): set `extra_whitelist` in `.claude/hooks-daemon.yaml` under `pipe_blocker`.
+
+## plan_qa_commit_gate — cross-file plan checks at git commit
+
+Every `git commit` is checked against the STAGED tree's plan QA
+invariants. In `commit_gate_mode: warn` (the rollout default)
+violations appear as advisory context — read them and amend the
+commit content BEFORE committing; in `block` mode they deny the
+commit with a TODO list of what the commit must also contain.
+
+**The invariants**:
+
+- creating a plan folder ⇒ the SAME commit stages its README
+  index row (`index-at-birth`) and the number must come from the
+  git counter / mkplan.bash (`counter-sanity`, `no-new-collisions`)
+- flipping a plan to Complete/Cancelled/Superseded ⇒ the SAME
+  commit contains the `git mv` into the archive dir AND the README
+  row + statistics update (`terminal-state-atomic`)
+- every folder has a README row in the section matching its
+  location, and every row's link resolves
+  (`row-folder-bijection`, `stats-recount`)
+- a commit claiming `Plan NNNNN` that stages src/tests/config
+  changes should also update that plan's PLAN.md
+  (`same-commit-plan-doc`); reference plans as `Plan NNNNN:`
+  (`plan-ref-format`)
+- (advise-only, Plan 00163) a commit that changes a plan's PLAN.md
+  tasks should stage a `JOURNAL/` entry recording what changed
+  (`journal-entry-with-progress`); a terminal-status flip should
+  stage a closing journal entry when
+  `plan_workflow.qa.journal.enforce_on_completion` is on
+  (`journal-completion-entry`)
+
+Check the staged tree any time without committing:
+`$PYTHON -m claude_code_hooks_daemon.daemon.cli plan-qa --check-staged`.
+Commits inside nested/vendor repos or foreign worktrees are exempt.
+
+## plan_qa_edit — PLAN.md writes are linted in real time
+
+Every Write/Edit of a `PLAN.md` under the plan directory is checked
+against the plan QA edit-stage rules on the content the file WOULD
+have. Block-level violations (in `edit_mode: block`) deny the tool
+call with the exact remediation; fix the content and retry.
+
+**Rules that block new plan material**:
+
+- a parseable `**Status**:` line must exist (`status-line-present`)
+- the status token must be one of: Not Started, In Progress,
+  Complete, Blocked, Cancelled, Superseded, Dormant
+  (`status-enum-and-date`)
+- the header must not contradict the body — do not leave
+  `Not Started`/`In Progress` above an all-ticked task list or
+  "ALL DONE" prose; flip the status instead
+  (`header-body-coherence`)
+- use the template task grammar `- [ ] ⬜ **Task N.N**:` — not
+  ad-hoc markers like `[✓]`/`[⏳]` (`task-grammar`)
+
+**Advisory rules**: missing Created/Owner/Priority headers on new
+plans; a terminal status set while the folder is still in the plan
+root (the same commit must `git mv` it to the archive dir and
+update the README row); edits to archived plans; backticked
+`src/...` paths that no longer exist.
+
+**Journal day-files** (`JOURNAL/NNNNN-Journal-YY-MM-DD.md`) are also
+linted (all ADVISE): the name must match the grammar and the
+enclosing plan number with a today/yesterday date
+(`journal-dayfile-naming`), and edits must APPEND — never rewrite or
+remove earlier entries (`journal-append-only`). Corrections are new
+dated entries at the bottom, not edits to old ones.
+
+Grandfathered plans in `plan_workflow.qa.legacy_plan_allowlist`
+only ever advise. Lint any file on demand:
+`$PYTHON -m claude_code_hooks_daemon.daemon.cli plan-qa --lint <file>`.
+
 ## system_paths — do not edit deployed system files directly
 
 Writing or editing files under system paths (/etc/, /var/, /usr/, /opt/, /root/, /home/) is blocked.
@@ -673,23 +692,6 @@ Direct package management, service management, and system configuration commands
 ## git_hooks_executable_fixer — auto-fixes non-executable git hooks
 
 When a git command prints `hint: The '...' hook was ignored because it's not set as executable`, this handler automatically `chmod +x`s every non-`.sample` file in the repository's hooks directory (resolved via `git rev-parse --git-path hooks`, so worktrees and `core.hooksPath` are handled). Execute bits are added with least privilege (only where read is already granted). It never blocks the command and reports which hooks it fixed via advisory context. `.sample` files and already-executable hooks are left untouched.
-
-## markdown_table_formatter — markdown tables are auto-aligned
-
-After every `Write` or `Edit` of a `.md` or `.markdown` file, the content is re-formatted via `mdformat + mdformat-gfm` so that table pipes are aligned and column widths are consistent. The handler is non-terminal and advisory — it never blocks, it just rewrites the file on disk.
-
-**What changes:**
-
-- Table pipes are aligned vertically and delimiter rows widened to match cell widths.
-- Ordered lists keep consecutive numbering (`1.` `2.` `3.`).
-- `---` thematic breaks are preserved (mdformat's 70-underscore default is post-processed back).
-- Asterisks in table cells are escaped (`*` → `\*`) as required by GFM.
-
-**Ad-hoc formatting of existing files:**
-
-```
-$PYTHON -m claude_code_hooks_daemon.daemon.cli format-markdown <path>
-```
 
 ## background_process_tracker — backgrounded processes are tracked
 
@@ -770,6 +772,25 @@ handlers:
       enabled: false
 ```
 
+## markdown_table_formatter — markdown tables are auto-aligned
+
+After every `Write` or `Edit` of a `.md` or `.markdown` file, the content is re-formatted via `mdformat + mdformat-gfm` so that table pipes are aligned and column widths are consistent. The handler is non-terminal and advisory — it never blocks, it just rewrites the file on disk.
+
+**What changes:**
+
+- Table pipes are aligned vertically and delimiter rows widened to match cell widths.
+- Ordered lists keep consecutive numbering (`1.` `2.` `3.`).
+- `---` thematic breaks are preserved (mdformat's 70-underscore default is post-processed back).
+- Asterisks in table cells are escaped (`*` → `\*`) as required by GFM.
+
+**Exempt:** journal day-files (`JOURNAL/NNNNN-Journal-YY-MM-DD.md`, Plan 00163) are NEVER reformatted — they are an append-only, byte-stable log and rewriting them would trip the `journal-append-only` check.
+
+**Ad-hoc formatting of existing files:**
+
+```
+$PYTHON -m claude_code_hooks_daemon.daemon.cli format-markdown <path>
+```
+
 ## hook_registration_checker — hooks configuration policy
 
 On every new session this handler audits hook configuration across `.claude/settings.json` and `.claude/settings.local.json`. When it reports issues, fix them — do not ignore the warning.
@@ -830,7 +851,13 @@ At session start this handler checks a ccy project (`.claude/ccy/`) whose superv
 - **git-ignored** → it won't be committed; teammates get a broken supervisor. Add a `!claude-supervise.py` / `!ccy.env` whitelist line to `.claude/ccy/.gitignore` and commit the files.
 - **`ccy.deploy_supervisor: false` while armed+present** → the installer skips deploy on `false`, so upgrades never refresh `claude-supervise.py` and the project runs an increasingly stale supervisor. Set it to `true` (or disarm `CCY_CLAUDE_WRAPPER` if you truly want it off).
 
+It also detects a **stale running supervisor** (Plan 00164): when a daemon upgrade has put a NEWER `claude-supervise.py` on disk than the live process (compared by source fingerprint, not just version), it advises restarting ccy so the wrapper re-execs the updated supervisor. Nothing is broken meanwhile — the old supervisor keeps working until the session is relaunched.
+
 When you see this alert, fix the listed item(s) and commit the ccy files so the supervisor works for everyone.
+
+## idle_housekeeping_advisory — report-first idle housekeeping (beta, opt-in)
+
+When the session is idle and caught up (repeated no-op failsafe-recovery ticks), this advisory suggests a bounded HOUSEKEEPING MODE: dispatch specialist housekeeping sub-agents that run read-only audits and write shareable **markdown report files** (default `untracked/reports/`). It is REPORT-ONLY — never auto-fix or auto-commit — and strictly lower priority than real work (a real user prompt aborts it). Off by default; enable via `handlers.user_prompt_submit.idle_housekeeping_advisory.enabled: true`. A project can point it at its own doc via the `custom_guidance_doc` option (`custom_guidance_mode: additive` appends it to the default, `replace` uses only the project doc). See docs/guides/CREATING_REPORTS.md.
 
 ## auto_approve_reads — gated on bypassPermissions mode
 
