@@ -778,7 +778,9 @@
                   # First ensure we're switched to the right account for github.com
                   local current_active=$(gh auth status 2>&1 | grep -A1 "account {{ username }}" | grep "Active account" | grep -c "true")
                   if [ "$current_active" -eq 0 ]; then
-                      echo "Switching to {{ username }}..."
+                      # >&2: keep the gh-{{ alias }} wrapper's stdout pure so
+                      # $(gh-{{ alias }} ... --json) captures unpolluted JSON for jq.
+                      echo "Switching to {{ username }}..." >&2
                       gh auth switch --hostname github.com --user "{{ username }}" 2>/dev/null || {
                           echo "Error: Account {{ username }} not authenticated. Run:"
                           echo "  gh auth login --hostname github.com --git-protocol ssh"
