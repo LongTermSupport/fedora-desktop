@@ -47,6 +47,9 @@ plan_workflow:
     staleness_days: 30
     legacy_plan_allowlist: []  # legacy plans fixed properly in 00059, not suppressed
     collision_allowlist: []
+    journal:                   # Plan journalling (daemon v3.40.0). All checks advise-only unless mode: block.
+      enabled: true
+      grandfather_before: 60   # plans 00001-00059 predate journalling — never nag them to add a JOURNAL/
 
 # Handler Configuration
 # Handlers run in priority order (lower number = earlier execution)

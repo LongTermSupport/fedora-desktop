@@ -186,11 +186,23 @@ dates, or a timeline** — the `plan_time_estimates` handler blocks that content
 |------|--------|-------------|------------|
 | …    | H/M/L  | H/M/L       | …          |
 
-## Notes & Updates
+## Delivery & Milestones
 
-### YYYY-MM-DD
-- Progress note / change.
+<!-- Curated milestones + delivery commit hashes only (git is the SSoT for
+     "when" — do not add dates). The blow-by-blow activity log lives in
+     JOURNAL/NNNNN-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
+
+- Milestone or delivery commit hash
 ```
+
+**The blow-by-blow activity stream lives in `JOURNAL/`, not in `PLAN.md`.** Each
+plan folder carries a `JOURNAL/` of append-only, per-day
+`NNNNN-Journal-YY-MM-DD.md` files (findings, dead-ends, in-flight decisions,
+hand-off state). `PLAN.md` keeps only the thin, curated `## Delivery & Milestones`
+stub above. `mkplan.bash` scaffolds `JOURNAL/` with a seeded day-1 file. See
+[CLAUDE/PlanJournalling.md](PlanJournalling.md) for the entry grammar and the
+append-only discipline. Legacy plans that still carry `## Notes & Updates` are
+never rewritten — the new structure applies to new material.
 
 ---
 

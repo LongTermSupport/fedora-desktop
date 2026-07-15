@@ -27,8 +27,10 @@
 
 - [ ] <!-- criterion that must be met -->
 
-## Notes & Updates
+## Delivery & Milestones
 
-### {{CREATED_DATE}}
+<!-- Curated milestones + delivery commit hashes only (git is the SSoT for
+     "when" — do not add dates). The blow-by-blow activity log lives in
+     JOURNAL/{{PLAN_NUMBER}}-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
-- Plan scaffolded.
+- <!-- milestone or delivery commit hash -->
