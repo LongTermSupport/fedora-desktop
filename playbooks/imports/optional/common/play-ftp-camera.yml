@@ -5,6 +5,7 @@
   become: true
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
     # Upload directory — override in environment/localhost/host_vars/localhost.yml
     # Uses /srv/ to avoid path traversal issues (home dirs are mode 700)
     ftp_camera_upload_dir: "/srv/ftp-camera"

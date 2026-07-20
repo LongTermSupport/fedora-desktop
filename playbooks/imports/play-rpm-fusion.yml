@@ -3,6 +3,8 @@
 - hosts: desktop
   name: RPM Fusion
   become: true
+  vars:
+    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
   tasks:
     # The dnf module accepts remote-URL rpms and is a no-op once installed, so the two
     # release packages no longer re-fetch rpmfusion.org headers on every main run.

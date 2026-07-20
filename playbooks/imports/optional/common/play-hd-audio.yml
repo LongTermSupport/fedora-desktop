@@ -6,6 +6,7 @@
 - hosts: desktop
   name: Audio Enhancements (HD Audio & Bluetooth)
   vars:
+    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
     pipewire_config_dir: "/home/{{ user_login }}/.config/pipewire"
     wireplumber_config_dir: "/home/{{ user_login }}/.config/wireplumber"
   tasks:

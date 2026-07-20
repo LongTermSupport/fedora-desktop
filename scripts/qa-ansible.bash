@@ -177,6 +177,147 @@ while IFS= read -r line; do
 done < "$TMP_MATCHES"
 
 # ---------------------------------------------------------------------------
+# Check 4: provisioning-profile scope + guard declaration (Plan 00061)
+# ---------------------------------------------------------------------------
+# Every PLAYBOOK (core AND optional, any file with a top-level "- hosts:"
+# line, minus imports/optional/archived/) must:
+#   1. declare EXACTLY ONE vars.scope in general|gnome|server, and
+#   2. if scope is gnome or server, carry the exact 2-task canonical guard
+#      (see CLAUDE/AnsibleStyle.md "Provisioning Profile Self-Guard") as its
+#      FIRST TWO tasks; if scope is general, the guard must be ABSENT (a
+#      general play never needs it — see CLAUDE/Plan/00061 PROPOSAL.md §3.3).
+#
+# playbook-main.yml has no "- hosts:" line (it is an import-only entry point),
+# so the playbook-discovery guard below naturally skips it without a special
+# case.
+#
+# A file with more than one "- hosts:" play is REJECTED outright before any
+# scope/guard scan — this check cannot safely vouch for a second, unexamined
+# play hiding behind the first play's declaration.
+GUARD_ASSERT_NAME='Scope guard — assert provisioning_profile is recognised'
+GUARD_END_NAME='Scope guard — end play if provisioning_profile does not match declared scope'
+GUARD_END_META='end_play'
+GUARD_END_WHEN="(scope == 'gnome' and provisioning_profile == 'server') or (scope == 'server' and provisioning_profile != 'server')"
+SCOPE_VIOLATIONS=()
+
+while IFS= read -r -d '' yml_file; do
+    grep -qE '^[[:space:]]*-[[:space:]]+hosts:' "$yml_file" 2>"$TMP_GREP_ERR" || continue
+    [[ "$yml_file" == */optional/archived/* ]] && continue
+
+    rel_file="${yml_file#"$REPO_ROOT"/}"
+
+    # This grep is only reached after the -qE above confirmed >=1 "- hosts:"
+    # line, so it always matches (rc 0). The explicit `|| hosts_block_count=0`
+    # is a defensive fallback that handles the impossible-here rc=1 case
+    # without letting `set -e` abort — NOT error hiding (the count is used, a
+    # 0 would simply fall through to the single-play path).
+    hosts_block_count=$(grep -cE '^[[:space:]]*-[[:space:]]+hosts:' "$yml_file") || hosts_block_count=0
+    if [[ $hosts_block_count -gt 1 ]]; then
+        echo "  ERROR (scope): $rel_file — file contains $hosts_block_count separate '- hosts:' plays; this gate cannot safely vouch for a multi-play file. Split it (one play per file, matching every other playbook in the repo), then give each its own vars.scope (+ guard if needed)."
+        SCOPE_VIOLATIONS+=("$rel_file (multi-play file: $hosts_block_count plays in one file, not supported)")
+        ERRORS=$((ERRORS + 1))
+        continue
+    fi
+
+    # Single pass: extract vars.scope (wherever it sits in the play-level
+    # vars: block) and the first TWO tasks' name / meta / when fields, using
+    # bash counters rather than `grep -c` throughout — no `grep -c`-on-empty
+    # hazard anywhere in this loop.
+    scope_count=0
+    scope_val=""
+    t1_name=""; t2_name=""; t2_meta=""; t2_when=""
+    while IFS='|' read -r key val; do
+        case "$key" in
+            SCOPE) scope_count=$((scope_count + 1)); scope_val="$val" ;;
+            TASK1_NAME) t1_name="$val" ;;
+            TASK2_NAME) t2_name="$val" ;;
+            TASK2_META) t2_meta="$val" ;;
+            TASK2_WHEN) t2_when="$val" ;;
+        esac
+    done < <(awk '
+        /^  vars:[[:space:]]*$/ { in_vars=1; next }
+        in_vars && /^    scope:[[:space:]]*/ {
+            val = $0
+            sub(/^    scope:[[:space:]]*/, "", val)
+            sub(/[[:space:]]*#.*$/, "", val)
+            sub(/\r$/, "", val)
+            if (val != "") { print "SCOPE|" val }
+            next
+        }
+        in_vars && /^[^[:space:]]/ { in_vars = 0 }
+        in_vars && /^  [^ ]/ { in_vars = 0 }
+
+        /^  tasks:[[:space:]]*$/ { in_tasks=1; task_count=0; next }
+        in_tasks && /^    - name:[[:space:]]*/ {
+            task_count++
+            if (task_count > 2) { in_tasks = 0; next }
+            val = $0
+            sub(/^    - name:[[:space:]]*/, "", val)
+            print "TASK" task_count "_NAME|" val
+            next
+        }
+        in_tasks && task_count == 2 && /^      ansible\.builtin\.meta:[[:space:]]*/ {
+            val = $0
+            sub(/^      ansible\.builtin\.meta:[[:space:]]*/, "", val)
+            sub(/[[:space:]]*#.*$/, "", val)   # strip trailing comment (parity with SCOPE)
+            sub(/\r$/, "", val)                # strip stray CRLF (parity with SCOPE)
+            print "TASK2_META|" val
+            next
+        }
+        in_tasks && task_count == 2 && /^      when:[[:space:]]*/ {
+            val = $0
+            sub(/^      when:[[:space:]]*/, "", val)
+            sub(/[[:space:]]*#.*$/, "", val)   # strip trailing comment (parity with SCOPE)
+            sub(/\r$/, "", val)                # strip stray CRLF (parity with SCOPE)
+            print "TASK2_WHEN|" val
+            next
+        }
+        in_tasks && /^  [^ ]/ { in_tasks = 0 }
+    ' "$yml_file")
+
+    if [[ $scope_count -eq 0 ]]; then
+        echo "  ERROR (scope): $rel_file — missing vars.scope (need exactly one of general|gnome|server)"
+        SCOPE_VIOLATIONS+=("$rel_file (missing vars.scope)")
+        ERRORS=$((ERRORS + 1))
+        continue
+    elif [[ $scope_count -gt 1 ]]; then
+        echo "  ERROR (scope): $rel_file — multiple vars.scope entries declared (exactly one required)"
+        SCOPE_VIOLATIONS+=("$rel_file (multiple vars.scope entries)")
+        ERRORS=$((ERRORS + 1))
+        continue
+    fi
+
+    case "$scope_val" in
+        general|gnome|server) : ;;
+        *)
+            echo "  ERROR (scope): $rel_file — invalid vars.scope value: $scope_val (must be exactly one of general|gnome|server)"
+            SCOPE_VIOLATIONS+=("$rel_file (invalid vars.scope: $scope_val)")
+            ERRORS=$((ERRORS + 1))
+            continue
+            ;;
+    esac
+
+    guard_ok=0
+    if [[ "$t1_name" == "$GUARD_ASSERT_NAME" && "$t2_name" == "$GUARD_END_NAME" && "$t2_meta" == "$GUARD_END_META" && "$t2_when" == "$GUARD_END_WHEN" ]]; then
+        guard_ok=1
+    fi
+
+    if [[ "$scope_val" == "general" ]]; then
+        if [[ "$t1_name" == "$GUARD_ASSERT_NAME" || "$t1_name" == "$GUARD_END_NAME" ]]; then
+            echo "  ERROR (scope): $rel_file — unnecessary scope guard on a general-scope play (guard never fires for general; remove it)"
+            SCOPE_VIOLATIONS+=("$rel_file (unnecessary guard on general play)")
+            ERRORS=$((ERRORS + 1))
+        fi
+    else
+        if [[ $guard_ok -eq 0 ]]; then
+            echo "  ERROR (scope): $rel_file — scope=$scope_val requires the 2-task canonical guard (assert + meta:end_play) as its first two tasks; missing or incorrect"
+            SCOPE_VIOLATIONS+=("$rel_file (scope=$scope_val missing/incorrect guard)")
+            ERRORS=$((ERRORS + 1))
+        fi
+    fi
+done < <(find "$REPO_ROOT/playbooks/" -type f \( -name '*.yml' -o -name '*.yaml' \) -print0)
+
+# ---------------------------------------------------------------------------
 # Build JSON output — same shape as sibling qa scripts
 # ---------------------------------------------------------------------------
 
@@ -198,6 +339,12 @@ for v in "${SELFREF_VIOLATIONS[@]+"${SELFREF_VIOLATIONS[@]}"}"; do
     sr_json_array=$(printf '%s' "$sr_json_array" | jq --arg v "$v" '. + [$v]')
 done
 
+# Encode SCOPE_VIOLATIONS as a JSON array
+sc_json_array="[]"
+for v in "${SCOPE_VIOLATIONS[@]+"${SCOPE_VIOLATIONS[@]}"}"; do
+    sc_json_array=$(printf '%s' "$sc_json_array" | jq --arg v "$v" '. + [$v]')
+done
+
 # Total "files" counted: playbook count for hygiene + 1 synthetic entry for fail-fast scan
 TOTAL=$((PLAYBOOK_COUNT + 1))
 STATUS="pass"
@@ -210,6 +357,7 @@ jq -n \
     --argjson ff "$ff_json_array" \
     --argjson hy "$hy_json_array" \
     --argjson sr "$sr_json_array" \
+    --argjson sc "$sc_json_array" \
     '{
         "type": "ansible",
         "status": $status,
@@ -221,13 +369,15 @@ jq -n \
         "failures": (
             ($ff | map({"file": ., "type": "ansible", "status": "fail", "error": "fail-fast pattern without FAIL-FAST-OK annotation"})) +
             ($hy | map({"file": (. | split(" (")[0]), "type": "ansible", "status": "fail", "error": ("hygiene: " + (. | split(" (")[1] | rtrimstr(")"))) })) +
-            ($sr | map({"file": ., "type": "ansible", "status": "fail", "error": "self-referential var (Ansible 2.19 recursive-loop error at runtime)"}))
+            ($sr | map({"file": ., "type": "ansible", "status": "fail", "error": "self-referential var (Ansible 2.19 recursive-loop error at runtime)"})) +
+            ($sc | map({"file": (. | split(" (")[0]), "type": "ansible", "status": "fail", "error": ("scope: " + (. | split(" (")[1] | rtrimstr(")"))) }))
         ),
         "results": [],
         "checks": {
             "fail_fast": $ff,
             "hygiene":   $hy,
-            "self_ref":  $sr
+            "self_ref":  $sr,
+            "scope":     $sc
         }
     }' > "$JSON_OUT"
 
@@ -235,13 +385,14 @@ jq -n \
 # Terse summary
 # ---------------------------------------------------------------------------
 if [[ $ERRORS -eq 0 ]]; then
-    echo "✓ ansible: fail-fast patterns OK; no self-referential vars; $PLAYBOOK_COUNT playbook(s) have correct shebang+exec"
+    echo "✓ ansible: fail-fast patterns OK; no self-referential vars; scope+guard declarations OK; $PLAYBOOK_COUNT playbook(s) have correct shebang+exec"
     exit 0
 else
     FF_COUNT=${#FF_VIOLATIONS[@]}
     HY_COUNT=${#HYGIENE_VIOLATIONS[@]}
     SR_COUNT=${#SELFREF_VIOLATIONS[@]}
-    echo "✗ ansible: $ERRORS violation(s) — $FF_COUNT fail-fast, $HY_COUNT hygiene, $SR_COUNT self-ref var"
+    SC_COUNT=${#SCOPE_VIOLATIONS[@]}
+    echo "✗ ansible: $ERRORS violation(s) — $FF_COUNT fail-fast, $HY_COUNT hygiene, $SR_COUNT self-ref var, $SC_COUNT scope/guard"
     echo "  Hygiene fixer: ./scripts/make-playbooks-executable.bash"
     echo "  Details: jq '.failures[]' $JSON_OUT"
     exit 1

@@ -5,6 +5,7 @@
   become: true
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
   pre_tasks:
     - name: Load Fedora version config
       ansible.builtin.include_vars:
@@ -24,3 +25,14 @@
           - ansible_facts['distribution'] == 'Fedora'
           - ansible_facts['distribution_major_version'] | int == fedora_version | int
         fail_msg: "This project expects Fedora {{ fedora_version }}"
+
+    - name: Check provisioning_profile is a recognised value
+      ansible.builtin.assert:
+        that:
+          - provisioning_profile in ['desktop', 'server']
+        fail_msg: |
+          provisioning_profile={{ provisioning_profile }} is not recognised.
+          Valid values: desktop, server.
+          Auto-detected from `systemctl get-default`
+          (see environment/localhost/group_vars/desktop.yml) or overridden
+          via -e provisioning_profile=desktop|server.

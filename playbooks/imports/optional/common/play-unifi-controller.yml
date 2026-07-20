@@ -5,6 +5,7 @@
   become: true
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
     # UniFi controller data persists across container rebuilds
     unifi_data_dir: /home/{{ user_login }}/.local/share/unifi
     # @see https://hub.docker.com/r/linuxserver/unifi-network-application/tags

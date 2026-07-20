@@ -6,6 +6,7 @@
   become: true
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
     # Version configuration
     displaylink_version: "v6.3.0-1"
     evdi_version: "1.15.0"
@@ -17,6 +18,21 @@
   vars_files:
     - "{{ root_dir }}/vars/fedora-version.yml"
   tasks:
+    - name: Scope guard — assert provisioning_profile is recognised
+      ansible.builtin.assert:
+        that:
+          - provisioning_profile in ['desktop', 'server']
+        fail_msg: |
+          provisioning_profile={{ provisioning_profile }} is not recognised.
+          Valid values: desktop, server.
+          Auto-detected from `systemctl get-default`
+          (see environment/localhost/group_vars/desktop.yml) or overridden
+          via -e provisioning_profile=desktop|server.
+
+    - name: Scope guard — end play if provisioning_profile does not match declared scope
+      ansible.builtin.meta: end_play
+      when: (scope == 'gnome' and provisioning_profile == 'server') or (scope == 'server' and provisioning_profile != 'server')
+
     - name: Check if Secure Boot is enabled
       ansible.builtin.shell: mokutil --sb-state
       register: secure_boot_state

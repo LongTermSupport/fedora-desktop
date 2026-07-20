@@ -174,6 +174,68 @@ tags:
   - pyenv         # Python environment setup
 ```
 
+### Provisioning Profile Self-Guard (Plan 00061)
+
+This repo provisions **both** a Fedora desktop and a headless Fedora server from
+the same source tree. Which one is being built is auto-detected — with zero
+flags — into the `provisioning_profile` variable
+(`environment/localhost/group_vars/desktop.yml`), from `systemctl get-default`:
+`graphical.target` → `desktop`, anything else → `server` (server-biased when
+uncertain).
+
+**Every playbook declares a `scope`** in its play-level `vars:` block — one of
+`general | gnome | server`:
+
+```yaml
+- hosts: desktop
+  name: <Play Name>
+  vars:
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+  tasks:
+    ...
+```
+
+- **`general`** — no task needs a GUI session, a display server, or a GUI app.
+  Carries **no** guard; its first task is its first real task.
+- **`gnome`** — needs a GUI session (the bucket means "needs a desktop", not
+  literally GNOME — e.g. an LXDE install is `gnome`-bucketed).
+- **`server`** — headless-only (no core/optional play is `server` today, but the
+  value exists for symmetry).
+
+A `gnome`- or `server`-scoped play **must** carry this exact 2-task guard as its
+**first two tasks** (byte-identical everywhere — the QA gate checks the text):
+
+```yaml
+    - name: Scope guard — assert provisioning_profile is recognised
+      ansible.builtin.assert:
+        that:
+          - provisioning_profile in ['desktop', 'server']
+        fail_msg: |
+          provisioning_profile={{ provisioning_profile }} is not recognised.
+          Valid values: desktop, server.
+          Auto-detected from `systemctl get-default`
+          (see environment/localhost/group_vars/desktop.yml) or overridden
+          via -e provisioning_profile=desktop|server.
+
+    - name: Scope guard — end play if provisioning_profile does not match declared scope
+      ansible.builtin.meta: end_play
+      when: (scope == 'gnome' and provisioning_profile == 'server') or (scope == 'server' and provisioning_profile != 'server')
+```
+
+The guard makes **every play safe to run standalone** — `ansible-playbook playbooks/imports/play-firefox.yml` auto-detects and self-gates, no
+`playbook-main.yml` needed. Override detection with
+`-e provisioning_profile=desktop|server`.
+
+**A `general` play with one or two GUI-only tasks** stays `general` and gates
+just those tasks with `when: provisioning_profile != 'server'` (see
+`play-vpn.yml`, `play-basic-configs.yml`, `play-container-watch.yml`) rather than
+scoping the whole play `gnome`.
+
+All of the above — the `scope` value, the exact guard text on `gnome`/`server`
+plays, and the *absence* of a guard on `general` plays — is enforced by
+`scripts/qa-ansible.bash` (Check 4), which runs inside `./scripts/qa-all.bash`.
+
 ---
 
 ## Special Patterns

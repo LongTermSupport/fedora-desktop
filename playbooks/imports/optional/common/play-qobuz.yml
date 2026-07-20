@@ -4,6 +4,7 @@
   name: Qobuz Apps - Native GUI Player, CLI Player and Last.fm Scrobbling
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
     # hifi-rs configuration
     # Set to "latest" for automatic version detection or specify version like "0.3.8"
     hifiRsVersion: "latest"
@@ -68,12 +69,16 @@
     #     manifest grants --device=all (exposes /dev/snd), --socket=pulseaudio,
     #     and read-only PipeWire access, so the sandbox does not block real
     #     high-resolution output.
+    # The QBZ GUI player (Flatpak) is desktop-only; the hifi-rs CLI player and
+    # the rescrobbled Last.fm scrobbler below stay available headless. These
+    # four qbz-tagged tasks are gated off on a server (Plan 00061 mixed play).
     - name: Enable Flathub remote
       become: true
       community.general.flatpak_remote:
         name: flathub
         flatpakrepo_url: https://flathub.org/repo/flathub.flatpakrepo
         state: present
+      when: provisioning_profile != 'server'
       tags:
         - qbz
 
@@ -83,6 +88,7 @@
         name: com.blitzfc.qbz
         remote: flathub
         state: present
+      when: provisioning_profile != 'server'
       tags:
         - qbz
 
@@ -104,6 +110,7 @@
         cmd: flatpak override --show com.blitzfc.qbz
       register: qbz_flatpak_override
       changed_when: false
+      when: provisioning_profile != 'server'
       tags:
         - qbz
 
@@ -111,9 +118,13 @@
       become: true
       ansible.builtin.command:
         cmd: flatpak override --env=QBZ_RENDERER=gl --talk-name=org.freedesktop.secrets com.blitzfc.qbz
-      when: >-
-        'QBZ_RENDERER=gl' not in qbz_flatpak_override.stdout
-        or 'org.freedesktop.secrets' not in qbz_flatpak_override.stdout
+      # Profile gate first so the qbz_flatpak_override.stdout reference below is
+      # never evaluated on a server (the Read task above is skipped there).
+      when:
+        - provisioning_profile != 'server'
+        - >-
+          'QBZ_RENDERER=gl' not in qbz_flatpak_override.stdout
+          or 'org.freedesktop.secrets' not in qbz_flatpak_override.stdout
       tags:
         - qbz
 

@@ -5,6 +5,7 @@
   become: true
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
     # Pin ouch version for reproducibility. Update deliberately.
     # @see https://github.com/ouch-org/ouch/releases
     ouchVersion: "0.8.1"

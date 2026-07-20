@@ -5,6 +5,7 @@
   name: GitHub CLI Multi-Account Configuration
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
     vault_file: "{{ root_dir }}/environment/localhost/host_vars/localhost.yml"
     # GitHub SSH-over-443 ALWAYS-ON toggle. Default off. Set github_ssh_over_443:
     # true in host_vars/localhost.yml (or pass -e github_ssh_over_443=true) when

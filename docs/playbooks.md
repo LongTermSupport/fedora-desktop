@@ -14,6 +14,45 @@ Complete catalog of available features and how to use them.
 - [Set up Distrobox](#play-distroboxyml) - Seamless dev environments
 - [Python development](#play-pythonyml) - pyenv and PDM
 
+## Desktop vs. Headless Server Provisioning
+
+This repo provisions **both** a Fedora desktop and a headless Fedora server from
+the same playbooks. Which one you get is **auto-detected with zero flags** — the
+`provisioning_profile` variable is computed from `systemctl get-default`:
+
+- `graphical.target` → **desktop** (all playbooks run)
+- anything else (`multi-user.target`, a lookup failure, an unrecognised target) →
+  **server** (GUI-only playbooks and GUI-only tasks auto-skip)
+
+Detection is **server-biased when uncertain**: only a confirmed graphical target
+is treated as a desktop, so a headless box never tries to run GNOME-only tasks.
+
+```bash
+# Zero-flag default — auto-detects desktop vs. server:
+ansible-playbook playbooks/playbook-main.yml
+
+# Force a profile (testing / CI / an atypical box):
+ansible-playbook playbooks/playbook-main.yml -e provisioning_profile=server
+ansible-playbook playbooks/playbook-main.yml -e provisioning_profile=desktop
+```
+
+**Every playbook is safe to run standalone.** Each GUI-oriented play self-guards,
+so running one on its own auto-detects and cleanly no-ops on a server:
+
+```bash
+ansible-playbook playbooks/imports/play-firefox.yml
+# runs fully on a desktop; ends immediately (guard) on a server
+
+ansible-playbook playbooks/imports/play-docker.yml
+# general play — runs on both desktop and server
+```
+
+How a play is classified (`scope: general | gnome | server`) and the self-guard
+mechanism are documented in `CLAUDE/AnsibleStyle.md` ("Provisioning Profile
+Self-Guard"). On a server, GUI-only plays end via their guard and a handful of
+`general` plays skip their one or two GUI-only tasks (e.g. `play-vpn.yml`'s
+`NetworkManager-openvpn-gnome`, `play-basic-configs.yml`'s USB-audio fix).
+
 ## Core Playbooks (Automatically Run)
 
 These playbooks are executed automatically by `playbook-main.yml` during initial installation. They run in the order listed below. Do **not** run them manually — just run `playbook-main.yml`.

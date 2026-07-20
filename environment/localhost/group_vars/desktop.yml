@@ -1,0 +1,26 @@
+---
+# Auto-detected provisioning profile — desktop vs. headless server.
+#
+# `ansible.cfg` sets transport=local and every play targets hosts: desktop,
+# which environment/localhost/hosts.yml maps to localhost with
+# ansible_connection: local — the controller IS the target, so this `pipe`
+# lookup reads the REAL box's systemd default target. This assumption breaks
+# if this repo is ever pointed at a remote host (lookups execute on the
+# CONTROL node, not the managed node) — it never is; every play in this repo
+# is hosts: desktop / connection: local, by design (CLAUDE/AnsibleStyle.md).
+#
+# Server-biased when uncertain: ONLY a confirmed graphical.target resolves to
+# desktop; multi-user.target, a get-default failure, or any unrecognised
+# target resolves to server. A mis-detected desktop just skips GUI installs
+# (recoverable — re-run with the override below); a mis-detected server would
+# run the gnome plays against a box with no GNOME session and hit the
+# gsettings hard-fail (§1.2) under this repo's `any_errors_fatal = true`
+# (whole-RUN abort, not just the one play) — server-biased avoids that
+# failure mode by construction, not by luck.
+#
+# Override for testing/CI (also skips the lookup entirely — extra-vars have
+# the highest precedence, so this template is never rendered when overridden):
+#   -e provisioning_profile=desktop
+#   -e provisioning_profile=server
+_systemd_default_target: "{{ lookup('ansible.builtin.pipe', 'systemctl get-default') }}"
+provisioning_profile: "{{ 'desktop' if _systemd_default_target == 'graphical.target' else 'server' }}"

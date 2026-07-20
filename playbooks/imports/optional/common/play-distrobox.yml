@@ -5,6 +5,7 @@
   become: true
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
   tasks:
     - name: Install Distrobox Package
       ansible.builtin.package:

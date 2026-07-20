@@ -20,6 +20,7 @@
   become: true
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
     clean_paste_binary: "/home/{{ user_login }}/.local/bin/clean-paste"
     clean_paste_lib_dir: "/home/{{ user_login }}/.local/lib/clean-paste"
     clean_paste_registrar: "/home/{{ user_login }}/.local/lib/clean-paste/register-shortcut.py"
@@ -28,6 +29,20 @@
     media_keys_schema: "org.gnome.settings-daemon.plugins.media-keys"
     custom_keybindings_base: "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings"
   tasks:
+    - name: Scope guard — assert provisioning_profile is recognised
+      ansible.builtin.assert:
+        that:
+          - provisioning_profile in ['desktop', 'server']
+        fail_msg: |
+          provisioning_profile={{ provisioning_profile }} is not recognised.
+          Valid values: desktop, server.
+          Auto-detected from `systemctl get-default`
+          (see environment/localhost/group_vars/desktop.yml) or overridden
+          via -e provisioning_profile=desktop|server.
+
+    - name: Scope guard — end play if provisioning_profile does not match declared scope
+      ansible.builtin.meta: end_play
+      when: (scope == 'gnome' and provisioning_profile == 'server') or (scope == 'server' and provisioning_profile != 'server')
 
     # =========================================================================
     # Packages: wl-clipboard (wl-paste/wl-copy) + wtype (Ctrl+Shift+V injector)

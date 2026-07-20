@@ -10,14 +10,23 @@
   become: true
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
   tasks:
-    - name: Install VPN Packages
+    - name: Install VPN Packages (CLI, headless-safe)
       ansible.builtin.dnf:
         name:
           - wireguard-tools
           - NetworkManager-openvpn
+        state: present
+
+    # NetworkManager-openvpn-gnome is the GNOME NetworkManager-applet
+    # integration — useless on a headless server (Plan 00061 §6.3).
+    - name: Install NetworkManager GNOME Applet Integration
+      ansible.builtin.dnf:
+        name:
           - NetworkManager-openvpn-gnome
         state: present
+      when: provisioning_profile != 'server'
 
     - name: Allow OpenVPN Through Firewall
       ansible.posix.firewalld:

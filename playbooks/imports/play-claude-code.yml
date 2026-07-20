@@ -5,6 +5,7 @@
   become: false
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
     # 'latest' tracks the leading-edge release train (the same one npm's `latest`
     # dist-tag serves the ccy container), so host `cc` and container `ccy` stay on
     # the same Claude Code version. 'stable' is the slower staged-rollout channel

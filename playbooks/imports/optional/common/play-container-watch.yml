@@ -15,6 +15,7 @@
   become: true
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
     extension_name: container-watch@fedora-desktop
     extension_src: "{{ root_dir }}/extensions/{{ extension_name }}"
     extension_dest: "/home/{{ user_login }}/.local/share/gnome-shell/extensions/{{ extension_name }}"
@@ -85,6 +86,9 @@
     # =========================================================================
     # GNOME Extension (recursive directory copy — auto-includes every file)
     # =========================================================================
+    # The general watchdog daemon (helper lib, CLI, systemd --user timer) above
+    # runs on any profile; the GNOME Shell panel extension below is desktop-only,
+    # so every extension task is gated off on a server (Plan 00061 §6.4).
     - name: Ensure extension destination directory exists
       ansible.builtin.file:
         path: "{{ extension_dest }}"
@@ -92,6 +96,7 @@
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: "0755"
+      when: provisioning_profile != 'server'
 
     - name: Deploy container-watch GNOME extension
       ansible.builtin.copy:
@@ -101,6 +106,7 @@
         group: "{{ user_login }}"
         mode: "0644"
         directory_mode: "0755"
+      when: provisioning_profile != 'server'
 
     # =========================================================================
     # Enable the user TIMER (not the service)
@@ -147,13 +153,16 @@
       register: extension_enabled
       changed_when: false
       failed_when: false  # FAIL-FAST-OK: probe — extension may not be enabled yet
+      when: provisioning_profile != 'server'
 
     - name: Disable container-watch extension to force reload
       become: true
       become_user: "{{ user_login }}"
       ansible.builtin.command:
         cmd: gnome-extensions disable {{ extension_name }}
-      when: extension_enabled.rc == 0
+      when:
+        - provisioning_profile != 'server'
+        - extension_enabled.rc == 0
       register: disable_result
       changed_when: disable_result.rc == 0
       failed_when: false  # FAIL-FAST-OK: disable may fail if GNOME session is unavailable
@@ -161,7 +170,9 @@
     - name: Wait for container-watch extension to unload
       ansible.builtin.pause:
         seconds: 2
-      when: extension_enabled.rc == 0
+      when:
+        - provisioning_profile != 'server'
+        - extension_enabled.rc == 0
 
     - name: Enable container-watch extension
       become: true
@@ -171,13 +182,18 @@
       register: enable_result
       changed_when: "'is now enabled' in enable_result.stderr or enable_result.rc == 0"
       failed_when: false  # FAIL-FAST-OK: enable may fail if GNOME session is unavailable
+      when: provisioning_profile != 'server'
 
     - name: Container-watch extension reload complete
       ansible.builtin.debug:
         msg: "Container-watch extension reloaded successfully"
-      when: enable_result.rc == 0
+      when:
+        - provisioning_profile != 'server'
+        - enable_result.rc == 0
 
     - name: Container-watch extension enable deferred
       ansible.builtin.debug:
         msg: "Container-watch extension will be enabled on next GNOME session start (no active session detected)"
-      when: enable_result.rc != 0
+      when:
+        - provisioning_profile != 'server'
+        - enable_result.rc != 0
