@@ -1,0 +1,27 @@
+#!/bin/bash
+#
+# Claude Code Hooks - TeammateIdle Forwarder
+#
+# Forwards TeammateIdle hook calls to daemon via Unix socket.
+# CRITICAL: Pipes JSON directly - NEVER store in shell variables.
+# CRITICAL: All errors output valid JSON to stdout for agent visibility.
+#
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../init.sh"
+
+# Try to start daemon - if it fails, output proper JSON error to stdout
+if ! ensure_daemon; then
+    emit_hook_error "TeammateIdle" "daemon_startup_failed" \
+        "Failed to start hooks daemon. Use the hooks-daemon skill to check logs (Skill tool: skill=hooks-daemon, args=logs)"
+    exit 0  # Exit 0 so Claude processes the JSON response
+fi
+
+# Plan 00156: no jq. send_request_stdin wraps the raw stdin hook_input into
+# {event, hook_input} itself (the python3 transport it already spawns). The
+# payload stays on stdin — control-character safe; only the hardcoded event-name
+# literal is passed as an argument.
+# send_request_stdin handles socket errors internally and outputs JSON on failure.
+send_request_stdin "TeammateIdle"

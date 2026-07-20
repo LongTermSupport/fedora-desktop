@@ -405,6 +405,26 @@ _exec_bit_selfheal() {
         notification
         pre-compact
         permission-request
+        setup
+        permission-denied
+        cwd-changed
+        worktree-create
+        worktree-remove
+        user-prompt-expansion
+        post-tool-use-failure
+        post-tool-batch
+        subagent-start
+        task-created
+        task-completed
+        stop-failure
+        teammate-idle
+        instructions-loaded
+        config-change
+        file-changed
+        post-compact
+        elicitation
+        elicitation-result
+        message-display
     )
     local h
     for h in "${hooks[@]}"; do
@@ -845,11 +865,29 @@ send_request_stdin() {
     local response_mode="${2:-}"
     python3 -c "
 import json
+import os
 import socket
 import sys
 
 event_name = sys.argv[1] if len(sys.argv) > 1 else 'Unknown'
 response_mode = sys.argv[2] if len(sys.argv) > 2 else ''
+
+# Socket budget for the whole connect+send+recv exchange. Default 30s; operators
+# can raise it via CLAUDE_HOOKS_SOCKET_TIMEOUT (also lets tests drive the timeout
+# path fast). A non-numeric or non-positive value falls back to the default.
+# Defined up-front (not inside the try) so emit_error_json can name it even when
+# a failure fires before the socket is opened (Plan 00177).
+def _resolve_socket_timeout():
+    raw = os.environ.get('CLAUDE_HOOKS_SOCKET_TIMEOUT', '').strip()
+    if not raw:
+        return 30.0
+    try:
+        value = float(raw)
+    except ValueError:
+        return 30.0
+    return value if value > 0 else 30.0
+
+SOCKET_TIMEOUT_SECONDS = _resolve_socket_timeout()
 
 def emit_error_json(event_name, error_type, error_details):
     '''Output valid hook error response to stdout.
@@ -873,6 +911,24 @@ def emit_error_json(event_name, error_type, error_details):
             'The daemon itself is likely healthy — do NOT restart it.',
             'If this recurs, capture the exact hook input and report it.',
         ]
+    elif error_type == 'socket_timeout':
+        # A read-side timeout: connect()+sendall() SUCCEEDED, so the daemon was
+        # reached and is ALIVE — a handler merely ran past the budget. Framing
+        # this as 'daemon not running' and advising a restart is wrong and
+        # actively harmful (a restart fixes nothing). Almost always the session
+        # transcript has grown very large (Plan 00177).
+        context_lines = [
+            f'HOOKS DAEMON: A hook handler exceeded the {SOCKET_TIMEOUT_SECONDS:g}s budget',
+            '',
+            f'Error: {error_type} - {error_details}',
+            '',
+            'The daemon was REACHED and is ALIVE (the connection succeeded); a',
+            'hook handler simply ran past the deadline. This is NOT a dead daemon',
+            '— do NOT restart it, a restart fixes nothing here.',
+            '',
+            'This usually means the session transcript has grown very large.',
+            'Run /compact or start a new session to restore fast hooks.',
+        ]
     else:
         context_lines = [
             'HOOKS DAEMON: Not currently running',
@@ -892,21 +948,34 @@ def emit_error_json(event_name, error_type, error_details):
         ]
     context = chr(10).join(context_lines)
 
-    # Stop/SubagentStop: top-level decision only (deny to show error). Fail
-    # CLOSED regardless of cause, but keep the reason honest: a malformed payload
-    # failed to parse client-side and never reached the socket, so 'daemon not
-    # running' is wrong for that case (Plan 00157 review follow-up) — mirror the
-    # error_type branch used for context_lines above.
+    # Stop/SubagentStop: top-level decision only. Fail CLOSED (block) for a
+    # genuinely-down daemon, but keep the reason honest and carve out the two
+    # cases where the daemon is NOT down: a malformed payload failed to parse
+    # client-side and never reached the socket (Plan 00157), and a read-side
+    # socket_timeout reached a live-but-slow daemon (Plan 00177) — that one fails
+    # OPEN. Mirror the error_type branches used for context_lines above.
     if event_name in ('Stop', 'SubagentStop'):
-        if error_type == 'invalid_hook_input':
+        if error_type == 'socket_timeout':
+            # Read-side timeout: the daemon was reached and is ALIVE, a handler
+            # was just slow. Fail OPEN (allow the stop) rather than wedge the
+            # session with a misleading block that also re-fires into a 30s
+            # stall loop. The honest diagnostic is on stderr above. Connect/send
+            # failures (genuine down) still fail closed via the else arm below
+            # (Plan 00177).
+            response = {}
+        elif error_type == 'invalid_hook_input':
             reason = ('Hooks daemon received a malformed hook payload - this '
                       'event was not validated (daemon likely healthy; do not restart)')
+            response = {
+                'decision': 'block',
+                'reason': reason,
+            }
         else:
             reason = 'Hooks daemon not running - protection not active'
-        response = {
-            'decision': 'block',
-            'reason': reason,
-        }
+            response = {
+                'decision': 'block',
+                'reason': reason,
+            }
     else:
         # Other events: hookSpecificOutput with context (fail-open allow)
         response = {
@@ -959,6 +1028,14 @@ except Exception as exc:
 # jq '. + {hook_event_name: \"Status\"}').
 if event_name == 'Status' and isinstance(hook_input, dict):
     hook_input['hook_event_name'] = 'Status'
+    # Forward the terminal size from THIS wrapper process's environment (Plan
+    # 00167) - the daemon is a separate long-running process and never
+    # inherits COLUMNS/LINES. Omit entirely when unset/non-numeric so older
+    # Claude Code clients (<2.1.153, which sends no COLUMNS) degrade cleanly.
+    for _src, _dst in (('COLUMNS', 'terminal_columns'), ('LINES', 'terminal_lines')):
+        _v = os.environ.get(_src)
+        if _v is not None and _v.strip().isdigit():
+            hook_input[_dst] = int(_v)
 
 # Wrap into the daemon request envelope; newline-terminated as the daemon expects.
 request = json.dumps({'event': event_name, 'hook_input': hook_input}) + '\n'
@@ -967,7 +1044,7 @@ socket_path = '$SOCKET_PATH'
 
 try:
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    sock.settimeout(30)  # 30 second timeout
+    sock.settimeout(SOCKET_TIMEOUT_SECONDS)  # budget for connect+send+recv
     sock.connect(socket_path)
     sock.sendall(request.encode('utf-8'))
     sock.shutdown(socket.SHUT_WR)
@@ -991,8 +1068,8 @@ try:
 
 except socket.timeout:
     fail('socket_timeout',
-        f'Socket timeout (30s) connecting to daemon at {socket_path}. '
-        'Daemon may be hung or overloaded.')
+        f'Socket timeout ({SOCKET_TIMEOUT_SECONDS:g}s) waiting on daemon at {socket_path}. '
+        'The daemon was reached but a handler ran past the budget (it is alive).')
 
 except FileNotFoundError:
     fail('socket_not_found',

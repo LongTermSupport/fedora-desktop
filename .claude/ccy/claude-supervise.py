@@ -14,8 +14,48 @@ session. In DRY-RUN (default) that injection is a harmless VISIBLE MARKER,
 proving the mechanism end-to-end without a real compaction; with ``--arm`` it
 injects the real ``/compact`` (and ``continue``).
 
+It also GUARDS the session against accidental terminal control keys that would
+otherwise freeze or kill it: Ctrl+Z (SUSP) is stripped from the forwarded input
+(``strip_suspend``) AND, belt-and-braces, the stop/quit SIGNALS are swallowed if
+ever delivered (``install_input_signal_guards``: SIGTSTP + SIGQUIT, plus ignored
+SIGTTIN/SIGTTOU). Ctrl+C (SIGINT) is deliberately left working. Each swallow
+surfaces a transient status-line notice via the message channel below.
+
 Usage:
     claude-supervise.py [--dry-run | --arm] [--log PATH] -- <child argv...>
+
+THREAD / PROCESS SAFETY (FIRST-CLASS CONCERN — read before touching shared
+state or any file under the ``supervise/`` runtime dir).
+
+The supervisor does NOT run in isolation. Every file it writes under the daemon
+untracked dir (``supervise/``: the status file, the message file, sidecars,
+signal files) is concurrently accessed by OTHER processes and threads:
+
+  * the supervisor HOST process (the select loop),
+  * the ``--worker`` decision SUBPROCESS (a separate pid),
+  * the DAEMON (a different process entirely) reading these files on every
+    status-line render,
+  * MULTIPLE Claude sessions that may share one daemon (Plan 00127).
+
+Non-negotiable rules for anything in this area:
+
+  1. WRITES ARE ATOMIC-REPLACE ONLY. Write to a PRIVATE temp file, then
+     ``os.replace`` (atomic rename on POSIX) — never write a shared file in
+     place. A reader therefore always sees either the old or the new COMPLETE
+     file, never a partial one. Temp names carry the pid (and, where more than
+     one thread may write, the thread id) so concurrent writers never share a
+     temp path. See ``write_supervisor_status`` and ``write_status_message``
+     for the canonical form; last writer wins.
+  2. READS ARE FAIL-SILENT AND DEFENSIVE. A missing / malformed / partial /
+     foreign-schema file yields "no result", never an exception — a bad file
+     must never wedge the supervisor or break the status line.
+  3. IN-PROCESS SHARED MUTABLE STATE IS LOCK-GUARDED. Any state touched from
+     more than one thread (e.g. a poster's rate-limit counter) uses a
+     ``threading.Lock`` around the check-and-update. See ``StatusMessagePoster``.
+
+The paired daemon-side reader guidance lives in
+``src/claude_code_hooks_daemon/handlers/status_line/CLAUDE.md`` and
+``CLAUDE/Architecture/StatusLine.md``.
 """
 
 from __future__ import annotations
@@ -36,6 +76,7 @@ import sys
 import termios
 import threading
 import time
+import traceback
 import tty
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -51,7 +92,7 @@ if TYPE_CHECKING:
 # (see CLAUDE/development/RELEASING.md). Display-only for the banner and the
 # runtime status file; staleness detection (Plan 00164 Phase 3) uses a content
 # hash of THIS file so it is correct even between version bumps.
-__version__ = "3.41.0"
+__version__ = "3.46.0"
 
 # Absolute path to THIS running script — hashed for staleness detection so the
 # daemon can tell when the on-disk supervisor differs from the running one.
@@ -216,6 +257,29 @@ _LINE_WHITESPACE_BYTES = frozenset({0x20, 0x09})
 # `/compact` — the supervisor detects it to avoid stacking its own /compact on
 # top (Claude Code aborts the duplicate). Covers `/compact` and `/compact <args>`.
 _COMPACT_COMMAND_PREFIX = "/compact"
+
+# Ctrl+Z (SUSP, 0x1a): universal "undo" muscle memory, but a terminal turns it
+# into SIGTSTP (suspend). Under the supervisor the outer terminal is raw so it
+# arrives as this byte rather than a signal (see `_forward_io`); the input guard
+# strips it from the forwarded stream so Ctrl+Z can never reach the child PTY or
+# suspend the session — it becomes an inert, ignored keystroke (upstream
+# anthropics/claude-code#43596). 0x1a has no legitimate meaning in the input box.
+_SUSPEND_BYTE = 0x1A
+
+
+def strip_suspend(data: bytes) -> bytes:
+    """Return ``data`` with every Ctrl+Z (SUSP, ``0x1a``) byte removed.
+
+    The supervisor forwards operator stdin to the child byte-for-byte; this
+    filter drops the suspend byte so Ctrl+Z can never reach the child PTY or
+    suspend the session. ``0x1a`` has no legitimate meaning in Claude's input
+    line, so removing it is safe. Returns ``data`` unchanged (the same object)
+    when no suspend byte is present — the overwhelming common case on the hot
+    input-forwarding path, so the filter allocates nothing in the fast path.
+    """
+    if _SUSPEND_BYTE not in data:
+        return data
+    return bytes(byte for byte in data if byte != _SUSPEND_BYTE)
 
 
 # ANSI control-sequence parser states. Terminal-GENERATED sequences (focus
@@ -448,6 +512,12 @@ class DecisionLog:
         """
         self._path = path if path is not None else self._default_path()
         self._path.parent.mkdir(parents=True, exist_ok=True)
+        # Dedup state for `write_noop` (Plan 00168 Phase 1): the last NOOP-reason
+        # message written, so a gate held unchanged for minutes logs ONCE rather
+        # than flooding the log every ~1-2s idle tick. Any real `write` (an
+        # injection / deferral / reap / lifecycle line) resets it so the next
+        # NOOP re-logs and the file stays a faithful transition record.
+        self._last_noop_message: str | None = None
 
     @staticmethod
     def _default_path() -> Path:
@@ -471,6 +541,33 @@ class DecisionLog:
         timestamp = datetime.now(UTC).isoformat()
         with self._path.open("a", encoding="utf-8") as handle:
             handle.write(f"{timestamp} {message}\n")
+        # A real action line breaks the NOOP-dedup run: the next identical NOOP
+        # reason must re-log (it describes a fresh post-action observation).
+        self._last_noop_message = None
+
+    def write_noop(self, message: str) -> None:
+        """Append a NOOP-reason line, suppressing a CONSECUTIVE identical repeat.
+
+        Plan 00168 Phase 1 observability: the supervisor records WHY each idle
+        tick did nothing (the gate that blocked -- ``sidecar stale`` /
+        ``cooldown active`` / ``not idle`` / ``no sidecar reading`` / ...), so a
+        red-but-not-compacting session is diagnosable from the log alone. The
+        message is low-cardinality (the reason plus a coarse context band, never
+        a per-tick pct), so deduping on the exact message keeps a steady gate to
+        a single line while still logging every gate TRANSITION.
+
+        Args:
+            message: The NOOP-reason line to record if it differs from the last.
+
+        Raises:
+            OSError: If the file cannot be written (never swallowed).
+        """
+        if message == self._last_noop_message:
+            return
+        timestamp = datetime.now(UTC).isoformat()
+        with self._path.open("a", encoding="utf-8") as handle:
+            handle.write(f"{timestamp} {message}\n")
+        self._last_noop_message = message
 
 
 # ---------------------------------------------------------------------------
@@ -541,6 +638,94 @@ _DEFAULT_REAP_TTL_SECONDS = 1800.0
 _CONTEXT_SIDECAR_GLOB = "*.json"
 
 
+# ---------------------------------------------------------------------------
+# Own-session identity (Plan 00166): namespace-broad session-id filtering.
+#
+# Two `ccy` terminals in the SAME repo share ONE context-sidecar dir (a
+# bind-mounted `untracked/`), but each runs in its OWN container / PID
+# namespace. Without a filter, this supervisor reads the freshest sidecar and
+# the first `*.compacting` signal in the shared dir REGARDLESS of which session
+# wrote them -- so a compaction in terminal B makes terminal A's supervisor
+# inject `continue` into A's PTY (the reported cross-injection bug).
+#
+# Fix (Decision 1, option B): a session id reachable in the supervisor's OWN
+# PID namespace belongs to the supervisor's own Claude instance -- a foreign
+# terminal is a separate container and never appears here. So we learn the
+# own-session-id SET by scanning the container's process environs for
+# `CLAUDE_CODE_SESSION_ID`, then act ONLY on sidecars/signals in that set. Fail
+# safe: an empty (not-yet-learned / non-Linux) set means act on NOTHING.
+#
+# Caveat: under a shared PID namespace (e.g. `podman run --pid=host`) the scan
+# could see a sibling terminal's ids. For that deployment give the session its
+# own runtime via CLAUDE_HOOKS_SOCKET_PATH / _PID_PATH / _LOG_PATH.
+# ---------------------------------------------------------------------------
+
+_PROC_ROOT = "/proc"
+_SESSION_ENV_PREFIX = b"CLAUDE_CODE_SESSION_ID="
+
+# Accumulated own-session ids. Union-only: ids are stable per Claude process
+# and only ever come from this process's own namespace, so growth never admits
+# a foreign terminal. Keeps ids learned during active work available on later
+# idle ticks (when no descendant currently exposes the env var).
+_own_session_ids_cache: set[str] = set()
+
+
+def _session_ids_from_environ(environ: bytes) -> set[str]:
+    """Extract ``CLAUDE_CODE_SESSION_ID`` value(s) from a NUL-delimited environ."""
+    found: set[str] = set()
+    for entry in environ.split(b"\x00"):
+        if entry.startswith(_SESSION_ENV_PREFIX):
+            value = entry[len(_SESSION_ENV_PREFIX) :].decode("utf-8", "replace").strip()
+            if value:
+                found.add(value)
+    return found
+
+
+def _read_proc_environ(environ_path: Path) -> bytes:
+    """Read a ``/proc/<pid>/environ`` blob; empty bytes if the process vanished."""
+    try:
+        return environ_path.read_bytes()
+    except OSError:
+        # The process exited between listdir and read, or its environ is
+        # unreadable -- it simply contributes no session id. Not an error.
+        return b""
+
+
+def resolve_own_session_ids(proc_root: Path | None = None) -> frozenset[str]:
+    """Scan this container's process environs for ``CLAUDE_CODE_SESSION_ID``.
+
+    Returns every session id found in the supervisor's OWN PID namespace
+    (namespace-broad identity, Plan 00166). Empty on a host without ``/proc``
+    so the caller fails safe.
+    """
+    root = proc_root if proc_root is not None else Path(_PROC_ROOT)
+    if not root.is_dir():
+        return frozenset()
+    found: set[str] = set()
+    for entry in root.iterdir():
+        if entry.name.isdigit():
+            found |= _session_ids_from_environ(_read_proc_environ(entry / "environ"))
+    return frozenset(found)
+
+
+def cached_own_session_ids(proc_root: Path | None = None) -> frozenset[str]:
+    """Union-accumulate and return the supervisor's own-session-id set."""
+    _own_session_ids_cache.update(resolve_own_session_ids(proc_root))
+    return frozenset(_own_session_ids_cache)
+
+
+def _session_in_scope(session_id: object, own_sessions: frozenset[str] | None) -> bool:
+    """True if ``session_id`` should be acted on given the own-session filter.
+
+    ``own_sessions is None`` disables filtering (legacy / unit-test callers).
+    A provided set (even empty) filters: only ids in the set are in scope, so an
+    empty set puts NOTHING in scope -- the fail-safe when identity is unknown.
+    """
+    if own_sessions is None:
+        return True
+    return isinstance(session_id, str) and session_id in own_sessions
+
+
 # NOOP reasons that mean "an injection is pending but gated on the session
 # being safe to type into". `_poll_once` uses these to log a deferral when
 # the gate was the non-empty input box rather than keystroke activity.
@@ -558,6 +743,10 @@ _REASON_FOREGROUND_AMBIGUOUS = "foreground ambiguous (recent thread switch) -> d
 # for the red band only; the elevated + critical bands still act promptly.
 _REASON_RED_WORK_IN_PROGRESS = "red (patient band) but work in progress -> deferring until settled"
 _DEFERRED_LOG_PREFIX = "injection deferred: input box not empty"
+# Plan 00168 Phase 1: prefix for the deduped NOOP-reason diagnostic. Every idle
+# tick that decides NOOP records `<prefix>: <reason>[ band]` so a
+# red-but-not-compacting session names its blocking gate in `decision.log`.
+_NOOP_LOG_PREFIX = "noop"
 
 
 class Decision(enum.Enum):
@@ -662,6 +851,11 @@ class TickOutcome:
     # The machine state AFTER this tick (Plan 00164 Phase 4 fix). The host adopts
     # it as the new authoritative state so the next fallback tick cannot diverge.
     machine_state: dict[str, object] | None = None
+    # Plan 00168 Phase 1: a deduped NOOP-reason diagnostic (`noop: <reason>[
+    # band]`) the host writes to `decision.log` via `DecisionLog.write_noop`.
+    # Set only for NOOP ticks NOT already covered by `deferred_log`. None on
+    # action ticks. Kept out of the state machine (host-side dedup owns volume).
+    noop_reason_log: str | None = None
 
 
 def _coerce_float(value: object) -> float:
@@ -711,6 +905,76 @@ def _daemon_untracked_dir() -> Path:
     if self_install:
         return project_dir / "untracked"
     return project_dir / ".claude" / "hooks-daemon" / "untracked"
+
+
+_WORKER_ERROR_LOG_NAME = "claude-supervise-worker.err.log"
+
+
+def worker_error_log_path() -> Path:
+    """Absolute path of the supervisor worker's error log (never the PTY).
+
+    The policy worker runs as a subprocess whose stderr MUST NOT reach the
+    inherited terminal — a per-tick exception would otherwise flood the live
+    Claude session with tracebacks. All worker diagnostics land in this file.
+    """
+    return _daemon_untracked_dir() / _WORKER_ERROR_LOG_NAME
+
+
+def open_worker_error_log() -> TextIO | None:
+    """Open the worker error log for appending; None if it cannot be opened.
+
+    Used as the worker subprocess's ``stderr`` so nothing it emits — including
+    an uncaught interpreter traceback — can reach the inherited PTY. Callers
+    fall back to ``os.devnull`` when this returns None; the worker's stderr is
+    NEVER left inheriting the terminal.
+    """
+    try:
+        path = worker_error_log_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path.open("a", encoding="utf-8", buffering=1)
+    except OSError:
+        # Cannot open the log — the caller redirects to os.devnull instead. We
+        # return a sentinel (None), never the terminal. This is not swallowing:
+        # the failure changes the caller's redirect target, it does not hide it.
+        return None
+
+
+def append_worker_error(message: str) -> None:
+    """Append a timestamped diagnostic to the worker error log (last resort).
+
+    Best-effort file logging that must itself NEVER raise or write to the PTY —
+    it is the safety net's own logger, so a failure here has nowhere left to go
+    and is intentionally dropped (see error_hiding exclusion).
+    """
+    stamp = datetime.now(tz=UTC).strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        with worker_error_log_path().open("a", encoding="utf-8") as handle:
+            handle.write(f"[{stamp}] {message}\n")
+    except OSError:
+        # Deliberate last-resort drop: the error logger cannot log its own
+        # failure anywhere safe (writing to stderr would flood the PTY, which
+        # is the very bug this safety net exists to prevent).
+        return
+
+
+def _redirect_worker_stderr_to_log() -> None:
+    """Point the worker process's stderr (fd 2 + ``sys.stderr``) at the log file.
+
+    Guarantees the worker can never write to an inherited terminal even if it is
+    launched directly. Best-effort: if the log cannot be opened, stderr is left
+    as the host already configured it (the Popen redirect), never forced onto a
+    tty by this function.
+    """
+    stream = open_worker_error_log()
+    if stream is None:
+        return
+    try:
+        os.dup2(stream.fileno(), sys.stderr.fileno())
+    except (OSError, ValueError) as exc:
+        # fileno() unavailable or dup2 failed: record it, then fall through to
+        # swap the Python-level handle only -- still never a terminal.
+        append_worker_error(f"stderr dup2 failed, using handle swap: {exc}")
+    sys.stderr = stream
 
 
 def compute_source_hash(path: Path) -> str:
@@ -777,8 +1041,206 @@ def remove_supervisor_status(untracked_dir: Path) -> None:
         sys.stderr.write(f"claude-supervise: could not remove status file: {exc}\n")
 
 
+# ---------------------------------------------------------------------------
+# Supervisor -> status-line transient message channel (GENERAL, reusable).
+#
+# The supervisor writes a small TTL-bounded JSON message file that the daemon's
+# status-line handler reads and renders, auto-omitting it once expired. The
+# Ctrl+Z "ignored" notice is merely the FIRST consumer; future supervisor
+# events (compact fired, worker restart, arm/disarm, ...) can post through the
+# same channel.
+#
+# THREAD/PROCESS SAFETY (first-class concern — see the top-of-file note): this
+# file is read by the daemon (a SEPARATE process) on every status render and
+# may be written by more than one supervisor thread/process. Every writer here
+# obeys the same rules as `write_supervisor_status`: write to a PRIVATE temp
+# file (named with BOTH pid and thread id so concurrent writers never share a
+# temp path), then `os.replace` (atomic on POSIX) swaps it in — a reader always
+# sees either the old or the new COMPLETE file, never a partial. Last writer
+# wins. In-process rate-limit state is guarded by a `threading.Lock`.
+# ---------------------------------------------------------------------------
+
+_STATUS_MESSAGE_FILENAME = "status-message.json"
+# How long a posted supervisor message stays live. The status line re-renders on
+# Claude Code Status events (~per turn / periodic), NOT on keypress, so the TTL
+# must outlast the gap to the next render for the message to be seen, while
+# staying short enough that a stale notice clears promptly. A few status renders'
+# worth of seconds is the pragmatic middle ground.
+_STATUS_MESSAGE_TTL_SECONDS = 10.0
+# Minimum monotonic gap between writes from one poster, so a key-mash (a burst of
+# Ctrl+Z) rewrites the file at most once per interval instead of thrashing it.
+_STATUS_MESSAGE_MIN_INTERVAL_SECONDS = 1.0
+# Severity levels a posted message can carry. The status-line reader maps
+# "warning" to an orange background (attached to the supervisor's top hat) and
+# treats anything else (including a missing level) as plain info. Kept as named
+# constants — the string values are the on-disk contract shared with the daemon
+# handler (``status_message.py``), so they MUST stay in lockstep.
+_STATUS_LEVEL_INFO = "info"
+_STATUS_LEVEL_WARNING = "warning"
+# Text shown when a Ctrl+Z (SUSP) keystroke/signal is swallowed by the guard.
+_CTRL_Z_NOTICE_TEXT = "⛔ Ctrl+Z ignored — use /exit to quit"
+# Text shown when a Ctrl+\ (QUIT) SIGNAL is swallowed by the guard. Ctrl+\ almost
+# never intentional — a fat-finger next to Enter that would otherwise SIGQUIT
+# (and possibly core-dump) the session.
+_CTRL_BACKSLASH_NOTICE_TEXT = "⛔ Ctrl+\\ ignored — use /exit to quit"
+# The signals install_input_signal_guards manages — SIGINT (Ctrl+C) is
+# deliberately EXCLUDED. Kept as one tuple so supervise() can save+restore
+# exactly this set around the forwarding loop (must stay in sync with the
+# signals install_input_signal_guards touches).
+_INPUT_GUARD_SIGNALS = (signal.SIGTSTP, signal.SIGQUIT, signal.SIGTTIN, signal.SIGTTOU)
+
+
+def _status_message_path(untracked_dir: Path) -> Path:
+    """Path to the supervisor->status-line message file (shared 'supervise' dir)."""
+    return untracked_dir / _LOG_SUBDIRECTORY / _STATUS_MESSAGE_FILENAME
+
+
+def write_status_message(
+    untracked_dir: Path,
+    *,
+    text: str,
+    expires_at: float,
+    level: str = _STATUS_LEVEL_INFO,
+) -> Path | None:
+    """Atomically write a transient supervisor message for the status line.
+
+    THREAD/PROCESS SAFETY: the message file is read by the daemon (a separate
+    process) on every status render and may be written by more than one
+    supervisor thread/process. The write goes to a PRIVATE temp file named with
+    BOTH pid and thread id (``.{name}.{pid}.{tid}.tmp``) so concurrent writers
+    never share a temp path, then ``os.replace`` (atomic on POSIX) swaps it in —
+    a reader therefore always sees either the old or the new COMPLETE file, never
+    a partial one. Last writer wins.
+
+    ``level`` (``_STATUS_LEVEL_INFO`` / ``_STATUS_LEVEL_WARNING``) rides along in
+    the payload so the reader can colour warning-level notices (orange
+    background on the supervisor's top hat) distinctly from plain info.
+
+    Best-effort: a write failure is reported to stderr and returns None rather
+    than disturbing the supervised session.
+
+    Returns:
+        The message file path on success, or None on failure.
+    """
+    message_path = _status_message_path(untracked_dir)
+    payload = {"text": text, "expires_at": expires_at, "level": level}
+    try:
+        message_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = (
+            message_path.parent
+            / f".{_STATUS_MESSAGE_FILENAME}.{os.getpid()}.{threading.get_ident()}.tmp"
+        )
+        tmp_path.write_text(json.dumps(payload), encoding="utf-8")
+        tmp_path.replace(message_path)
+    except OSError as exc:
+        sys.stderr.write(f"claude-supervise: could not write status message: {exc}\n")
+        return None
+    return message_path
+
+
+class StatusMessagePoster:
+    """Thread-safe, rate-limited writer for transient status-line messages.
+
+    A GENERAL supervisor->status-line channel; the Ctrl+Z guard is merely its
+    first consumer. The rate-limit state (``_last_monotonic``) is shared mutable
+    state that concurrent supervisor threads may touch, so the check-and-update
+    is done under a ``threading.Lock`` — two threads posting at the same instant
+    can never both slip past the interval. The file write itself is atomic (see
+    ``write_status_message``) and is performed OUTSIDE the lock so I/O never
+    serialises other posters' rate-limit checks.
+    """
+
+    def __init__(
+        self,
+        untracked_dir: Path,
+        *,
+        ttl_seconds: float = _STATUS_MESSAGE_TTL_SECONDS,
+        min_interval_seconds: float = _STATUS_MESSAGE_MIN_INTERVAL_SECONDS,
+        wall_clock: Callable[[], float] = time.time,
+        monotonic: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._untracked_dir = untracked_dir
+        self._ttl_seconds = ttl_seconds
+        self._min_interval_seconds = min_interval_seconds
+        self._wall_clock = wall_clock
+        self._monotonic = monotonic
+        self._lock = threading.Lock()
+        self._last_monotonic: float | None = None
+
+    def post(self, text: str, *, level: str = _STATUS_LEVEL_INFO) -> Path | None:
+        """Write ``text`` as the current status message, honouring the rate limit.
+
+        ``level`` selects the severity (``_STATUS_LEVEL_WARNING`` renders on an
+        orange background attached to the supervisor's top hat; the default is
+        plain info). Returns the written path, or None when the post is
+        suppressed by the rate limit or the write fails. Thread-safe: the
+        rate-limit check-and-update runs under the lock so concurrent posters
+        cannot both pass within one interval.
+        """
+        now_mono = self._monotonic()
+        with self._lock:
+            if (
+                self._last_monotonic is not None
+                and now_mono - self._last_monotonic < self._min_interval_seconds
+            ):
+                return None
+            self._last_monotonic = now_mono
+            expires_at = self._wall_clock() + self._ttl_seconds
+        return write_status_message(
+            self._untracked_dir, text=text, expires_at=expires_at, level=level
+        )
+
+
+def install_input_signal_guards(post_notice: Callable[[str], object]) -> None:
+    """Make the supervisor un-suspendable / un-quittable by accidental keys.
+
+    Belt-and-braces to the byte-level ``strip_suspend``: the byte strip only
+    covers Ctrl+Z while the outer terminal is in RAW mode. If a stop/quit SIGNAL
+    is actually delivered — a race in the window before ``tty.setraw`` runs, a
+    non-tty stdin, ``kill -TSTP``/``-QUIT``, or shell job control — the process
+    would still freeze or core-dump. These handlers swallow those signals so the
+    session survives, surfacing a transient notice via ``post_notice`` instead:
+
+    - ``SIGTSTP`` (Ctrl+Z / VSUSP): suspend — swallowed, notice posted.
+    - ``SIGQUIT`` (Ctrl+\\ / VQUIT): quit + possible core dump — swallowed,
+      notice posted. Almost never an intentional keystroke.
+    - ``SIGTTIN`` / ``SIGTTOU``: a backgrounded process touching the tty is
+      stopped by these — ignored so terminal ops never wedge the supervisor.
+
+    ``SIGINT`` (Ctrl+C / VINTR) is DELIBERATELY LEFT ALONE — it is the
+    legitimate, expected interrupt in Claude's TUI; swallowing it would break
+    real usage.
+
+    THREAD SAFETY: ``post_notice`` runs inside a signal handler, which CPython
+    dispatches on the main thread between bytecodes. Pass a lock-free writer
+    (e.g. ``write_status_message`` directly, NOT a ``StatusMessagePoster`` whose
+    ``threading.Lock`` the interrupted main thread might already hold) to avoid
+    a self-deadlock.
+
+    Must be called from the PARENT after ``pty.fork`` so the child ``claude``
+    (already forked with default dispositions) never inherits these handlers.
+    """
+
+    def _swallow_stop(_signum: int, _frame: FrameType | None) -> None:
+        # Suspend swallowed: post the notice and return WITHOUT stopping.
+        post_notice(_CTRL_Z_NOTICE_TEXT)
+
+    def _swallow_quit(_signum: int, _frame: FrameType | None) -> None:
+        # Quit swallowed: post the notice and return WITHOUT exiting/core-dumping.
+        post_notice(_CTRL_BACKSLASH_NOTICE_TEXT)
+
+    signal.signal(signal.SIGTSTP, _swallow_stop)
+    signal.signal(signal.SIGQUIT, _swallow_quit)
+    signal.signal(signal.SIGTTIN, signal.SIG_IGN)
+    signal.signal(signal.SIGTTOU, signal.SIG_IGN)
+
+
 def load_freshest_sidecar(
-    directory: Path, *, now: float, freshness_seconds: float
+    directory: Path,
+    *,
+    now: float,
+    freshness_seconds: float,
+    own_sessions: frozenset[str] | None = None,
 ) -> SidecarReading | None:
     """Load the freshest (max-``ts``) sidecar JSON in ``directory``.
 
@@ -797,7 +1259,7 @@ def load_freshest_sidecar(
     Returns:
         The freshest valid ``SidecarReading``, or None if none is available.
     """
-    scanned = _scan_sidecars(directory)
+    scanned = _scan_sidecars(directory, own_sessions=own_sessions)
     if not scanned:
         return None
     data, ts = max(scanned, key=lambda pair: pair[1])
@@ -810,6 +1272,7 @@ def load_foreground_sidecar(
     now: float,
     freshness_seconds: float,
     margin_seconds: float = _DEFAULT_FOREGROUND_MARGIN_SECONDS,
+    own_sessions: frozenset[str] | None = None,
 ) -> tuple[SidecarReading | None, bool]:
     """Return ``(freshest_reading, foreground_ambiguous)``.
 
@@ -827,7 +1290,7 @@ def load_foreground_sidecar(
     is no live foreground to be ambiguous about; the caller NOOPs on staleness
     anyway).
     """
-    scanned = _scan_sidecars(directory)
+    scanned = _scan_sidecars(directory, own_sessions=own_sessions)
     if not scanned:
         return None, False
     scanned.sort(key=lambda pair: pair[1], reverse=True)
@@ -843,12 +1306,19 @@ def load_foreground_sidecar(
     return reading, ambiguous
 
 
-def _scan_sidecars(directory: Path) -> list[tuple[dict[str, object], float]]:
+def _scan_sidecars(
+    directory: Path, own_sessions: frozenset[str] | None = None
+) -> list[tuple[dict[str, object], float]]:
     """Parse every ``*.json`` sidecar in ``directory`` into ``(data, ts)`` pairs.
 
     Single source of truth for the sidecar scan shared by ``load_freshest_sidecar``
     and ``load_foreground_sidecar``. Unreadable, malformed, or non-object files are
     skipped (older schema or a foreign writer) rather than aborting the scan.
+
+    ``own_sessions`` (Plan 00166): when provided, sidecars whose ``session_id`` is
+    NOT in the set are skipped, so a foreign terminal's sidecar in the shared dir
+    can never be read as this supervisor's foreground. ``None`` disables the
+    filter (legacy / unit-test callers).
     """
     if not directory.is_dir():
         return []
@@ -859,6 +1329,8 @@ def _scan_sidecars(directory: Path) -> list[tuple[dict[str, object], float]]:
         except (OSError, ValueError):
             continue
         if not isinstance(data, dict):
+            continue
+        if not _session_in_scope(data.get("session_id"), own_sessions):
             continue
         results.append((data, _coerce_float(data.get("ts"))))
     return results
@@ -883,16 +1355,27 @@ def _build_sidecar_reading(
     )
 
 
-def load_compaction_signal(directory: Path, *, now: float, ttl_seconds: float) -> Path | None:
+def load_compaction_signal(
+    directory: Path,
+    *,
+    now: float,
+    ttl_seconds: float,
+    own_sessions: frozenset[str] | None = None,
+) -> Path | None:
     """Return the path of a fresh compaction-signal file, or None.
 
     The daemon's PreCompact handler drops a ``<session>.compacting`` file (JSON
-    ``{"ts": ...}``) when a compaction starts -- whether the supervisor
-    triggered it or the human typed ``/compact``. A signal is "fresh" while
-    ``now - ts <= ttl_seconds``; older files are treated as a finished
+    ``{"ts": ..., "session_id": ...}``) when a compaction starts -- whether the
+    supervisor triggered it or the human typed ``/compact``. A signal is "fresh"
+    while ``now - ts <= ttl_seconds``; older files are treated as a finished
     compaction and ignored. The path (not a bool) is returned so the caller can
     CONSUME the file (unlink it) once it has acted on it, guaranteeing the
     resume fires exactly once and cannot wedge a later compaction.
+
+    ``own_sessions`` (Plan 00166): when provided, a signal whose ``session_id``
+    is NOT in the set is skipped -- this is what stops terminal A's supervisor
+    resuming off terminal B's compaction in the shared dir. ``None`` disables
+    the filter (legacy / unit-test callers).
     """
     if not directory.is_dir():
         return None
@@ -902,6 +1385,8 @@ def load_compaction_signal(directory: Path, *, now: float, ttl_seconds: float) -
         except (OSError, ValueError):
             continue
         if not isinstance(data, dict):
+            continue
+        if not _session_in_scope(data.get("session_id"), own_sessions):
             continue
         ts = _coerce_float(data.get("ts"))
         if (now - ts) <= ttl_seconds:
@@ -1115,6 +1600,15 @@ class CompactStateMachine:
                 return Evaluation(Decision.NOOP, _REASON_BUSY_AWAIT_RESUME)
             self._compaction_handled = True
             self._last_action_ts = now
+            # Plan 00180: a compaction actually happened, so refresh the injection
+            # budget. `max_injections` is a runaway-loop fuse on CONSECUTIVE FAILED
+            # injections (compact injected but nothing compacts), NOT a lifetime
+            # cap -- without this reset a long-lived session hits 20 legitimate
+            # compactions and is then permanently muzzled even at CRITICAL context.
+            # Reset ONLY here (the confirmed-compaction success path), never in
+            # `_enter_monitor` (the AWAIT-timeout give-up path also calls it, and a
+            # wedged session's failed injections MUST keep accumulating).
+            self._injections = 0
             self._enter_monitor()
             return Evaluation(
                 Decision.WOULD_CONTINUE,
@@ -1265,20 +1759,26 @@ class CompactStateMachine:
 
 # All supervisor-injected PROMPTS carry this bot prefix (with an emoji) so they
 # are visibly machine-generated in the transcript and never mistaken for
-# something the human typed.
-_BOT_PREFIX = "🤖 [ccy-supervisor]"
-_DRY_RUN_COMPACT_MARKER = (
-    f"{_BOT_PREFIX} compact suggestion fired (dry-run — not a real /compact, not human input)"
-)
+# something the human typed. The full prefix appends the local wall-clock time
+# the message was injected (see `_format_bot_prefix`) so a human scrolling back
+# through a long session can see WHEN each supervisor action happened -- the
+# `]` closes the bracket AFTER the timestamp: `🤖 [ccy-supervisor 2026-07-16 14:30:05]`.
+_BOT_PREFIX = "🤖 [ccy-supervisor"
+# Local time (not UTC): the marker is read by a human scrolling their own
+# terminal history, for whom local time is the natural "when" reference.
+_BOT_PREFIX_TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+# Message BODIES (without the timestamped prefix, which is prepended at inject
+# time by `_resolve_payload`). Kept as the single source of truth for the text.
+_DRY_RUN_COMPACT_BODY = "compact suggestion fired (dry-run — not a real /compact, not human input)"
 # The armed compact is a real `/compact`, but `/compact` accepts freeform custom
 # instructions as its argument -- so the bot chrome rides along AS those
 # instructions. The slash command is still the first token (recognised
-# normally), the compaction summary is now visibly bot-initiated (never mistaken
-# for a human `/compact`), and the instruction text tells the post-compact
-# session it was an AUTOMATED compaction that must resume -- reinforcing the
-# `continue` keystroke the supervisor injects once compaction ends.
-_ARMED_COMPACT_PAYLOAD = (
-    f"/compact {_BOT_PREFIX} automated compaction — NOT human-initiated. "
+# normally) and the timestamped `🤖 [ccy-supervisor ...]` prefix marks it for a
+# human reading scrollback. The instruction itself is purely ACTIONABLE -- just
+# "resume and continue" -- with no provenance framing: the agent should act on
+# what it is told regardless of who initiated it (reinforced by the `continue`
+# keystroke the supervisor injects once compaction ends).
+_ARMED_COMPACT_BODY = (
     "After compacting, immediately resume and continue the work that was in progress."
 )
 # `continue` is harmless -- it only nudges the agent to resume -- so it is
@@ -1286,15 +1786,28 @@ _ARMED_COMPACT_PAYLOAD = (
 # not resuming would defeat the purpose, and (unlike /compact) a stray
 # `continue` cannot destroy context. It keeps the bot prefix so a post-compact
 # resume is clearly the supervisor's doing, not a human message.
-_CONTINUE_PAYLOAD = f"{_BOT_PREFIX} continue"
+_CONTINUE_BODY = "continue"
 # The real ESC byte injected (armed) to interrupt the current turn so a QUEUED
 # `/compact` runs. It is an interrupt KEY, not a line: injected raw with NO
 # trailing Enter. ESC is harmless (it only interrupts), but it DOES affect the
 # session, so in dry-run a visible marker is shown instead of a real ESC.
 _ESC_PAYLOAD = "\x1b"
-_DRY_RUN_ESCAPE_MARKER = (
-    f"{_BOT_PREFIX} would send [esc] to flush a queued /compact " "(dry-run — no real ESC sent)"
-)
+_DRY_RUN_ESCAPE_BODY = "would send [esc] to flush a queued /compact (dry-run — no real ESC sent)"
+
+
+def _format_bot_prefix(now_wall: float | None = None) -> str:
+    """Return the bot prefix stamped with the tick's local wall-clock time.
+
+    ``now_wall`` is the tick's epoch-seconds wall clock (``time.time()``), so the
+    stamp is deterministic and matches the decision that triggered the injection.
+    When omitted the current local time is used. Local time (not UTC) is used
+    deliberately: the marker is read by a human scrolling their own terminal
+    history, for whom local time is the natural "when did this happen" reference.
+    """
+    moment = datetime.now() if now_wall is None else datetime.fromtimestamp(now_wall)
+    return f"{_BOT_PREFIX} {moment.strftime(_BOT_PREFIX_TIME_FORMAT)}]"
+
+
 _INJECT_SUBMIT = "\r"
 # The submit (Enter) is written SEPARATELY from the payload, after this pause.
 # Injecting `payload + \r` in a single burst leaves the trailing carriage
@@ -1316,19 +1829,31 @@ _DEFAULT_IDLE_FLOOR_SECONDS = 2.0
 _DEFAULT_WORK_SETTLE_SECONDS = 3.0
 
 
-def _resolve_payload(decision: Decision, *, dry_run: bool) -> str | None:
+def _resolve_payload(
+    decision: Decision, *, dry_run: bool, now_wall: float | None = None
+) -> str | None:
     """Return the keystroke payload for a decision, or None for NOOP.
 
     In dry-run mode the payload is a harmless, visible MARKER string so the
     injection path can be exercised end-to-end without triggering a real
     compaction. Armed mode injects the real slash-command / prompt.
+
+    Every visible payload embeds the tick's local wall-clock time (via
+    ``_format_bot_prefix(now_wall)``) so the human can see WHEN the supervisor
+    acted when scrolling back. The raw ESC (armed) is exempt -- it is an
+    interrupt key, not a human-readable line.
     """
+    prefix = _format_bot_prefix(now_wall)
     if decision is Decision.WOULD_COMPACT:
-        return _DRY_RUN_COMPACT_MARKER if dry_run else _ARMED_COMPACT_PAYLOAD
+        if dry_run:
+            return f"{prefix} {_DRY_RUN_COMPACT_BODY}"
+        # `/compact` MUST stay the FIRST token so it is recognised as the slash
+        # command; the timestamped bot chrome rides along as its instruction arg.
+        return f"/compact {prefix} {_ARMED_COMPACT_BODY}"
     if decision is Decision.WOULD_CONTINUE:
-        return _CONTINUE_PAYLOAD
+        return f"{prefix} {_CONTINUE_BODY}"
     if decision is Decision.WOULD_ESCAPE:
-        return _DRY_RUN_ESCAPE_MARKER if dry_run else _ESC_PAYLOAD
+        return f"{prefix} {_DRY_RUN_ESCAPE_BODY}" if dry_run else _ESC_PAYLOAD
     return None
 
 
@@ -1397,6 +1922,37 @@ def _is_work_idle(
     return (now_monotonic - output_activity.last_output_monotonic) >= work_settle_seconds
 
 
+def _is_benign_not_red(reading: SidecarReading | None) -> bool:
+    """True when the supervisor POSITIVELY sees a not-red, non-stale context.
+
+    This is the overwhelmingly common idle tick -- the context is genuinely
+    fine and there is nothing to do. Its NOOP carries no diagnostic value, so
+    Plan 00168 Phase 1 stays SILENT on it (keeping a green idle session's
+    decision.log empty). Every OTHER NOOP gate IS logged -- crucially the
+    ``reading is None`` (no sidecar / filtered out) and ``reading.stale`` cases,
+    which are the blind-spots (H3 / H1) a red-but-not-compacting report needs.
+    """
+    return reading is not None and not reading.stale and not reading.red
+
+
+def _noop_band_suffix(reading: SidecarReading | None) -> str:
+    """A coarse ' [band]' suffix for a NOOP-reason line (Plan 00168 Phase 1).
+
+    Annotates the observed context severity when it is known and not already
+    stated by the reason itself. Deliberately low-cardinality (band, never a
+    per-tick pct) so ``DecisionLog.write_noop`` dedup keeps a steady gate to one
+    line. Empty when there is no reading, the reading is stale, or the context
+    is not red (those cases the reason string already describes fully).
+    """
+    if reading is None or reading.stale or not reading.red:
+        return ""
+    if reading.critical:
+        return " [critical]"
+    if reading.compact_urgent:
+        return " [urgent]"
+    return " [red]"
+
+
 def decide_once(
     machine: CompactStateMachine,
     *,
@@ -1408,6 +1964,7 @@ def decide_once(
     compaction_signal_ttl_seconds: float = _DEFAULT_COMPACTION_SIGNAL_TTL_SECONDS,
     reap_ttl_seconds: float = _DEFAULT_REAP_TTL_SECONDS,
     foreground_margin_seconds: float = _DEFAULT_FOREGROUND_MARGIN_SECONDS,
+    own_sessions: frozenset[str] | None = None,
 ) -> TickOutcome:
     """Decide what to inject this tick WITHOUT touching the PTY (Plan 00164 P4).
 
@@ -1418,23 +1975,37 @@ def decide_once(
     IDENTICALLY in the policy-worker subprocess and in-process, so a worker
     restart cannot change behaviour. ``log`` is used only for reap diagnostics.
 
+    ``own_sessions`` (Plan 00166): the set of session ids belonging to THIS
+    supervisor's own Claude instance. Sidecars and compaction signals from any
+    other session in the shared dir are ignored, so a compaction in one terminal
+    never drives an injection into another. ``None`` disables the filter (the
+    legacy behaviour, used by unit tests); the production callers resolve the
+    set via :func:`cached_own_session_ids` and pass it. The empty set fails safe
+    (act on nothing).
+
     See ``_poll_once`` for the semantics of the individual :class:`TickFacts`
     (empty-input-box guard, human-compact edge, work-idle band gating, reaping).
     """
     reap_stale_sidecars(sidecar_dir, now=facts.now_wall, ttl_seconds=reap_ttl_seconds, log=log)
     # Plan 00160: resolve the FOREGROUND sidecar and whether it is ambiguous (a
     # recent Agent-View thread switch left two still-fresh sidecars). Ambiguity
-    # gates only the compact path in the machine below.
+    # gates only the compact path in the machine below. Plan 00166: scoped to
+    # this instance's own sessions so a foreign terminal's sidecar is invisible.
     reading, foreground_ambiguous = load_foreground_sidecar(
         sidecar_dir,
         now=facts.now_wall,
         freshness_seconds=freshness_seconds,
         margin_seconds=foreground_margin_seconds,
+        own_sessions=own_sessions,
     )
     # A compaction stops status renders, so the context sidecar goes
     # stale/absent during one -- the compaction signal is an independent input.
+    # Plan 00166: only this instance's own compaction signal counts.
     signal_path = load_compaction_signal(
-        sidecar_dir, now=facts.now_wall, ttl_seconds=compaction_signal_ttl_seconds
+        sidecar_dir,
+        now=facts.now_wall,
+        ttl_seconds=compaction_signal_ttl_seconds,
+        own_sessions=own_sessions,
     )
     if signal_path is not None:
         reading = (
@@ -1472,7 +2043,7 @@ def decide_once(
         work_idle=facts.work_idle,
         foreground_ambiguous=foreground_ambiguous,
     )
-    payload = _resolve_payload(evaluation.decision, dry_run=dry_run)
+    payload = _resolve_payload(evaluation.decision, dry_run=dry_run, now_wall=facts.now_wall)
     # The raw ESC is an interrupt key, not a line -- inject it WITHOUT a trailing
     # Enter. Every other payload (compact / continue / markers) is a line.
     submit = not (evaluation.decision is Decision.WOULD_ESCAPE and not dry_run)
@@ -1491,6 +2062,18 @@ def decide_once(
         and evaluation.reason in _INJECTION_GATED_REASONS
     ):
         deferred_log = f"{_DEFERRED_LOG_PREFIX} ({evaluation.reason})"
+    # Plan 00168 Phase 1: for every OTHER NOOP tick (not the input-box deferral
+    # above, which already logs), emit a deduped NOOP-reason diagnostic naming
+    # the gate + observed band. This makes a red-but-not-compacting session
+    # self-explaining in decision.log. Decision-preserving: pure logging.
+    noop_reason_log = None
+    if (
+        payload is None
+        and deferred_log is None
+        and evaluation.decision is Decision.NOOP
+        and not _is_benign_not_red(reading)
+    ):
+        noop_reason_log = f"{_NOOP_LOG_PREFIX}: {evaluation.reason}{_noop_band_suffix(reading)}"
     return TickOutcome(
         decision_value=evaluation.decision.value,
         reason=evaluation.reason,
@@ -1499,6 +2082,7 @@ def decide_once(
         consume_signal_path=consume_signal_path,
         deferred_log=deferred_log,
         machine_state=machine.export_state(),
+        noop_reason_log=noop_reason_log,
     )
 
 
@@ -1523,6 +2107,10 @@ def _apply_decision(
     elif log is not None and outcome.deferred_log is not None:
         # An injection was pending and the NON-EMPTY INPUT BOX was the sole gate.
         log.write(outcome.deferred_log)
+    elif log is not None and outcome.noop_reason_log is not None:
+        # Plan 00168 Phase 1: record WHY this idle tick did nothing (deduped, so
+        # an unchanged gate never floods). Makes red-but-not-compacting visible.
+        log.write_noop(outcome.noop_reason_log)
 
 
 def _poll_once(
@@ -1541,12 +2129,15 @@ def _poll_once(
     work_idle: bool = True,
     reap_ttl_seconds: float = _DEFAULT_REAP_TTL_SECONDS,
     foreground_margin_seconds: float = _DEFAULT_FOREGROUND_MARGIN_SECONDS,
+    own_sessions: frozenset[str] | None = None,
 ) -> Evaluation:
     """One in-process supervisor tick: decide (``decide_once``) then inject.
 
     Retained as the in-process fast path AND the fallback used when the policy
     worker cannot run (Plan 00164 Phase 4). Behaviour is unchanged: it delegates
     the decision to ``decide_once`` and the injection to ``_apply_decision``.
+    ``own_sessions`` (Plan 00166) is passed straight through to ``decide_once``
+    (``None`` = no own-session filter; the production loop resolves and passes it).
     """
     facts = TickFacts(
         now_wall=now_wall,
@@ -1565,6 +2156,7 @@ def _poll_once(
         compaction_signal_ttl_seconds=compaction_signal_ttl_seconds,
         reap_ttl_seconds=reap_ttl_seconds,
         foreground_margin_seconds=foreground_margin_seconds,
+        own_sessions=own_sessions,
     )
     _apply_decision(outcome, master_writer=master_writer, log=log)
     return Evaluation(decision=Decision(outcome.decision_value), reason=outcome.reason)
@@ -1617,6 +2209,7 @@ def _outcome_to_json(outcome: TickOutcome) -> str:
             "consume_signal_path": outcome.consume_signal_path,
             "deferred_log": outcome.deferred_log,
             "machine_state": outcome.machine_state,
+            "noop_reason_log": outcome.noop_reason_log,
         }
     )
 
@@ -1631,6 +2224,7 @@ def _outcome_from_json(line: str) -> TickOutcome:
         consume_signal_path=data["consume_signal_path"],
         deferred_log=data["deferred_log"],
         machine_state=data.get("machine_state"),
+        noop_reason_log=data.get("noop_reason_log"),
     )
 
 
@@ -1657,21 +2251,49 @@ def run_worker(
         try:
             facts = _facts_from_json(line)
         except (ValueError, KeyError) as exc:
-            sys.stderr.write(f"claude-supervise worker: bad tick line: {exc}\n")
+            append_worker_error(f"bad tick line: {exc}")
             continue
-        outcome = decide_once(
-            machine,
-            sidecar_dir=sidecar_dir,
-            facts=facts,
-            dry_run=dry_run,
-            freshness_seconds=policy.freshness_seconds,
-            compaction_signal_ttl_seconds=policy.compaction_signal_ttl_seconds,
-            reap_ttl_seconds=policy.reap_ttl_seconds,
-            foreground_margin_seconds=policy.foreground_margin_seconds,
-        )
+        try:
+            outcome = decide_once(
+                machine,
+                sidecar_dir=sidecar_dir,
+                facts=facts,
+                dry_run=dry_run,
+                freshness_seconds=policy.freshness_seconds,
+                compaction_signal_ttl_seconds=policy.compaction_signal_ttl_seconds,
+                reap_ttl_seconds=policy.reap_ttl_seconds,
+                foreground_margin_seconds=policy.foreground_margin_seconds,
+                own_sessions=cached_own_session_ids(),  # Plan 00166: only our own sessions
+            )
+        except Exception:
+            # SAFETY NET: a single tick's exception must not kill the worker
+            # (the host would respawn it and the crash would repeat every tick,
+            # flooding the PTY with tracebacks). Log the full traceback to the
+            # error FILE, emit a safe NOOP so the host still gets a reply, and
+            # carry on with the next tick. This is a deliberate broad catch --
+            # the whole purpose is to contain ANY unexpected decision failure.
+            append_worker_error("decide_once failed:\n" + traceback.format_exc())
+            outcome = _worker_error_noop()
         out_stream.write(_outcome_to_json(outcome) + "\n")
         out_stream.flush()
     return 0
+
+
+def _worker_error_noop() -> TickOutcome:
+    """A do-nothing TickOutcome emitted when a worker tick raised.
+
+    ``machine_state=None`` leaves the host's authoritative state untouched, so a
+    transient tick error never advances or corrupts the compaction state.
+    """
+    return TickOutcome(
+        decision_value=Decision.NOOP.value,
+        reason="worker tick error (see worker error log)",
+        payload=None,
+        submit=True,
+        consume_signal_path=None,
+        deferred_log=None,
+        machine_state=None,
+    )
 
 
 class PolicyWorker:
@@ -1694,6 +2316,7 @@ class PolicyWorker:
         self._dry_run = dry_run
         self._read_timeout = read_timeout
         self._proc: subprocess.Popen[str] | None = None
+        self._err_stream: TextIO | None = None
         self._source_fingerprint = self._current_fingerprint()
 
     def _current_fingerprint(self) -> str | None:
@@ -1708,17 +2331,26 @@ class PolicyWorker:
         argv = [sys.executable, str(self._self_path), _WORKER_FLAG]
         if not self._dry_run:
             argv.append("--arm")
+        # The worker's stderr MUST go to a file (or /dev/null), NEVER the PTY the
+        # host inherited: an uncaught per-tick traceback would otherwise flood
+        # the live Claude session. Open the error log; fall back to devnull.
+        self._err_stream = open_worker_error_log()
+        err_target: TextIO | int = (
+            self._err_stream if self._err_stream is not None else subprocess.DEVNULL
+        )
         try:
             # SECURITY: fixed argv (python + this script + flags), never a shell.
             self._proc = subprocess.Popen(  # nosec B603 - trusted fixed argv, no shell
                 argv,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
+                stderr=err_target,
                 text=True,
                 bufsize=1,
             )
         except OSError as exc:
-            sys.stderr.write(f"claude-supervise: could not start policy worker: {exc}\n")
+            append_worker_error(f"could not start policy worker: {exc}")
+            self._close_err_stream()
             self._proc = None
             return False
         self._source_fingerprint = self._current_fingerprint()
@@ -1767,10 +2399,22 @@ class PolicyWorker:
         self.close()
         return self.start()
 
+    def _close_err_stream(self) -> None:
+        """Close the worker's error-log stream handle if the host opened one."""
+        stream = self._err_stream
+        self._err_stream = None
+        if stream is None:
+            return
+        try:
+            stream.close()
+        except OSError as exc:
+            append_worker_error(f"worker error-log close failed: {exc}")
+
     def close(self) -> None:
         proc = self._proc
         self._proc = None
         if proc is None:
+            self._close_err_stream()
             return
         for stream in (proc.stdin, proc.stdout):
             if stream is None:
@@ -1778,14 +2422,15 @@ class PolicyWorker:
             try:
                 stream.close()
             except OSError as exc:
-                sys.stderr.write(f"claude-supervise: worker stream close failed: {exc}\n")
+                append_worker_error(f"worker stream close failed: {exc}")
         try:
             proc.terminate()
             proc.wait(timeout=1.0)
         except subprocess.TimeoutExpired:
             proc.kill()
         except OSError as exc:
-            sys.stderr.write(f"claude-supervise: worker terminate failed: {exc}\n")
+            append_worker_error(f"worker terminate failed: {exc}")
+        self._close_err_stream()
 
 
 def _get_winsize(stdin_fd: int) -> bytes:
@@ -1818,6 +2463,7 @@ def _forward_io(
     poll_seconds: float | None = None,
     on_poll: Callable[[], None] | None = None,
     output_activity: OutputActivity | None = None,
+    on_suspend: Callable[[], object] | None = None,
 ) -> None:
     """Select loop: forward stdin -> master, master -> stdout.
 
@@ -1876,8 +2522,19 @@ def _forward_io(
         if stdin_open and stdin_fd in readable:
             data = os.read(stdin_fd, _READ_CHUNK_SIZE)
             if data:
-                activity.record(data)
-                os.write(master_fd, data)
+                # Drop Ctrl+Z (SUSP) before it reaches the child so it can never
+                # suspend the session. A chunk that was ONLY suspend bytes
+                # forwards nothing, but must NOT be mistaken for EOF (that is the
+                # empty-read branch below) — so this stays inside `if data:`.
+                forwarded = strip_suspend(data)
+                if forwarded != data and on_suspend is not None:
+                    # At least one suspend byte was swallowed — surface a
+                    # transient status-line notice so the user learns why their
+                    # Ctrl+Z did nothing. Best-effort: never let it break I/O.
+                    on_suspend()
+                if forwarded:
+                    activity.record(forwarded)
+                    os.write(master_fd, forwarded)
             else:
                 # stdin EOF: stop watching it so poll timeouts can fire.
                 stdin_open = False
@@ -1956,6 +2613,11 @@ def supervise(
     policy = policy if policy is not None else CompactPolicy()
     machine = CompactStateMachine(policy)
     mode = "dry-run (injects marker)" if dry_run else "ARMED (injects /compact)"
+    # Transient supervisor->status-line message channel (GENERAL; the Ctrl+Z
+    # input guard is its first consumer). Co-located with the sidecar dir's
+    # PARENT — the daemon untracked dir — so the daemon's status handler reads
+    # the very same file. Thread-safe + rate-limited (see StatusMessagePoster).
+    status_message_poster = StatusMessagePoster(sidecar_dir.parent)
 
     if log is not None:
         log.write(
@@ -2062,9 +2724,30 @@ def supervise(
                 work_idle=work_idle,
                 reap_ttl_seconds=policy.reap_ttl_seconds,
                 foreground_margin_seconds=policy.foreground_margin_seconds,
+                own_sessions=cached_own_session_ids(),  # Plan 00166: only our own sessions
             )
 
     previous_handler = signal.signal(signal.SIGWINCH, _on_winch)
+
+    # Belt-and-braces to the byte-level Ctrl+Z strip: swallow stop/quit SIGNALS
+    # if they ever reach the supervisor (race before setraw, non-tty stdin, `kill
+    # -TSTP`, job control) so the session can never freeze or core-dump. Uses a
+    # LOCK-FREE writer (not the poster) because it runs inside a signal handler
+    # (see install_input_signal_guards). Installed here in the PARENT, after the
+    # fork, so the child never inherits these dispositions.
+    def _post_signal_notice(notice: str) -> None:
+        write_status_message(
+            sidecar_dir.parent,
+            text=notice,
+            expires_at=time.time() + _STATUS_MESSAGE_TTL_SECONDS,
+            level=_STATUS_LEVEL_WARNING,
+        )
+
+    # Save prior dispositions so they are restored on exit (supervise() is called
+    # in-process by tests; leaked stop/quit handlers would break their job
+    # control). getsignal returns the typeshed _HANDLER union — inferred locally.
+    prev_signal_guards = {sig: signal.getsignal(sig) for sig in _INPUT_GUARD_SIGNALS}
+    install_input_signal_guards(_post_signal_notice)
 
     try:
         _forward_io(
@@ -2074,8 +2757,13 @@ def supervise(
             poll_seconds=poll_seconds,
             on_poll=_on_poll,
             output_activity=output_activity,
+            on_suspend=lambda: status_message_poster.post(
+                _CTRL_Z_NOTICE_TEXT, level=_STATUS_LEVEL_WARNING
+            ),
         )
     finally:
+        for guarded_signal, prior_handler in prev_signal_guards.items():
+            signal.signal(guarded_signal, prior_handler)
         signal.signal(signal.SIGWINCH, previous_handler)
         if old_termios is not None:
             termios.tcsetattr(stdin_fd, termios.TCSAFLUSH, old_termios)
@@ -2157,6 +2845,11 @@ def main(argv: list[str] | None = None) -> int:
     # Policy-worker mode (Plan 00164 Phase 4): no child argv — read TickFacts
     # from stdin, write TickOutcomes to stdout. The host spawns this.
     if _WORKER_FLAG in argv:
+        # Defence in depth: guarantee the worker's stderr is a FILE, never a
+        # terminal, regardless of how it was launched (the host already sets
+        # this via Popen, but a direct/manual `--worker` run must not flood a
+        # tty either). See Plan 00166.
+        _redirect_worker_stderr_to_log()
         return run_worker(
             sys.stdin,
             sys.stdout,
