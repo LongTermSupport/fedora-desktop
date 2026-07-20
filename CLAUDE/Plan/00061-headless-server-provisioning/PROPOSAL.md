@@ -1,274 +1,714 @@
-# Proposal: Headless Server Provisioning — Native Play-Level `tags:` + `--skip-tags`
+# Proposal: Headless Server Provisioning — Auto-Detected `provisioning_profile` + `when:`
 
-## Revision log (round 2)
+## Revision log (round 3 — mechanism pivot to `when:`)
 
-Fixes applied in response to `AUDIT-round-1.md` (Fable). Re-audit only needs
-to check these deltas — the mechanism, classifications, and everything not
-listed below are unchanged from round 1.
+**Why**: PLAN.md Decision 4 (owner, after round 2 converged with zero
+findings): the system must **auto-detect** desktop vs. server with **zero
+config, zero runtime flags**. `--skip-tags` is resolved by the CLI before any
+fact exists, so a tag-based design can never self-configure. `when:` is
+evaluated at runtime against variables, so it *can* consume an
+auto-detected `provisioning_profile` and gate itself with no flag. The
+mechanism pivots; the underlying analysis does not.
 
-- **BLOCKER 1.1 (fixed)** — Check 4's `valid_count=$(...)` /
-  `scope_like_count=$(...)` lines crashed `qa-ansible.bash` under `set -e`
-  on the zero-match case (exactly the "no scope tag" case the check exists to
-  catch), which also silently corrupted `qa-all.bash`'s merged JSON for every
-  *other* check via `jq -s`'s empty-input-shrinks-the-array behaviour. Added
-  `|| true` to both lines (§4). Audited the rest of Check 4 for the same
-  hazard — the one other `$(...)` assignment that runs a `grep`
-  (`bad=$(... | grep -vxE ... | paste ...)`) only executes on the branch
-  where `scope_like_count -gt 0` is already known true, so `grep -vxE` is
-  guaranteed at least one match; no `|| true` needed there, verified by
-  re-reading the branch guard.
-- **SHOULD-FIX 1.2 (fixed)** — the awk extraction didn't strip a trailing
-  `# comment` (or a stray `\r`), so a correctly-spelled, commented scope tag
-  (this repo's own "comments explain WHY" convention encourages exactly this)
-  read as "missing." Added `sub(/[[:space:]]*#.*$/, "")` and `sub(/\r$/, "")`
-  to the awk item branch (§4); updated §8's limitation note.
-- **SHOULD-FIX 5.1 (fixed)** — `play-virtualbox-windows.yml` has two
-  `- hosts:` play blocks in one file (the only such file in the repo); the
-  file-granular gate would false-pass if only the first play were tagged.
-  Split its classification into two independent rows (§1.3), added an
-  explicit multi-play-file detection branch to Check 4 (§4) that errors
-  loudly rather than silently trusting the first play's tag for the whole
-  file, and called the file out by name in the checklist (§7 step 4).
-- **SHOULD-FIX 6.1 (fixed)** — `play-container-watch.yml`'s interim
-  task-tag edit had no exact diff, unlike §3.1–§3.3, even though step 4
-  required applying it in this pass. Added the full exact diff for the
-  GNOME-shaped tasks (§3.4), matching the rigor of §3.1–§3.3, so nothing is
-  left to prose-derived guesswork. **While deriving it, found an 8th task the
-  round-1 audit's own enumeration of 7 had missed** (`Container-watch extension reload complete`, line 175) — it consumes a variable the round-1
-  list's 6th task registers, so tagging only the audit's 7 would have left an
-  untagged task referencing an undefined variable on a server run (a hard
-  Ansible error under this repo's `ansible.cfg`, not a silent gap). §3.4 now
-  documents this as a general hazard for register/`when:`-chained tasks
-  under task-level overrides, beyond just fixing this one instance.
-- **NITPICK 6.2 (fixed)** — §5's docs-insertion instruction was
-  self-contradictory ("after Quick Navigation, before Core Playbooks" vs.
-  "right after line 17", which *is* the Core Playbooks heading). Corrected to
-  "immediately before line 17."
-- **NITPICK 6.3 (fixed)** — added a checklist item (§7) to update the three
-  existing per-play `docs/playbooks.md` sections for the mixed plays,
-  including noting the bug fixed in `play-prevent-ssh-suspend.yml`.
-- **NITPICK 6.4 (addressed, not changed)** — `TOTAL` is deliberately left
-  un-extended for the new check, for the same reason Check 3 (self-ref vars)
-  doesn't extend it either — noted explicitly in §4 now instead of being a
-  silent omission.
-- Not changed: the `play-vpn.yml` changed-tracking-granularity nitpick
-  (splitting one `dnf` task into two produces two recap lines instead of one)
-  — noted as accepted, cosmetic-only, no proposal text depended on the old
-  single-result behaviour.
+**Reused verbatim from round 2** (mechanism-independent, unchanged): the
+entire exhaustive classification of all 31 core plays (21 general / 10 gnome
+/ 0 server, including the owner's `rpm-fusion`→general ruling and every
+firm resolution of the round-2 ambiguous calls); the fast-pass classification
+of the 41 optional plays; all three mixed-play discoveries (`play-basic-configs.yml` USB-audio, `play-prevent-ssh-suspend.yml` gsettings,
+`play-vpn.yml` NetworkManager-openvpn-gnome) and the real latent-bug finding
+behind the `gsettings` one; the `play-container-watch.yml` register/`when:`
+interdependency hazard (8, not 7, tasks); the `play-virtualbox-windows.yml`
+two-`hosts:`-plays-in-one-file finding. **Only the selection layer changes**
+— sections renumbered below to fit the new flow (detect → gate core → gate
+optional/QA → mixed edits → commands → verify → checklist → limits).
+
+**New in this round, empirically verified** (not just reasoned about — every
+claim below was tested against a real `ansible-playbook` [core 2.19.11] in
+this container before being written down, mirroring the rigor
+`AUDIT-round-1.md`/`AUDIT-round-2.md` established):
+
+- **Auto-detect layer = `group_vars`, not a preflight `set_fact`.** Tested
+  that `environment/localhost/group_vars/desktop.yml`'s `pipe` lookup
+  (`systemctl get-default`) is **not** evaluated during `--syntax-check` or
+  `--list-tasks` (container-safe, confirmed with a marker-file probe: 0
+  evaluations in both modes), **is** evaluated on a real run (marker file
+  created, `provisioning_profile` correctly resolved to `desktop` from
+  `graphical.target`), and that `-e provisioning_profile=server` **skips the
+  lookup entirely** (extra-vars precedence means the template is never
+  rendered) while still correctly gating the downstream `when:`.
+- **A bespoke top-level `scope:` play key is a hard Ansible error** (tested:
+  `[ERROR]: 'scope' is not a valid attribute for a Play`) — confirms the
+  optional-play marker *must* live inside `vars:`, exactly as the owner's
+  brief specified ("a lightweight play-level `scope:` **var**").
+- **The Check 4 rewrite (import-site `when:` parser) is `set -e`-safe by
+  construction**, not by an `|| true` patch — tested against a fixture that
+  exactly reproduces `playbook-main.yml`'s comment-block-between-imports
+  shape (the real LXC/claude-yolo ordering comments) plus a zero-import-lines
+  edge case; zero crashes, zero `grep -c`-on-empty hazards (the round-1
+  blocker's root cause doesn't exist in this design — it never counts with
+  `grep -c`).
+- **Ansible's list-form `when:` short-circuits** (tested: a downstream task
+  referencing `my_result.rc` where `my_result` is `register`ed by a task
+  gated on the *same first condition* correctly skips without an undefined-
+  variable error when the first condition is false) — this is what makes the
+  `play-container-watch.yml` fix correct: combine the profile gate with each
+  task's existing `register`-dependent `when:` as a **list**, not a
+  replacement.
+- **The final Check 4 script (§4.1), byte-for-byte as it now sits in this
+  document**, was extracted from the markdown and executed against a
+  fixture reproducing the real directory shape (`playbook-main.yml` with a
+  mix of unguarded/gated imports, an optional play with `vars.scope`, one
+  missing it, one archived) — 1 correctly-identified violation, 0 false
+  positives, 0 crashes under `set -euo pipefail`. Not a hand-simplified
+  stand-in script — the actual text.
+
+**Superseded from round 2** (mechanism-specific, no longer applicable): the
+play-level `tags:` canonical form, the tag-based Check 4 (grep/awk over
+`tags:` blocks), the `--skip-tags`-based canonical commands, and the
+`--list-tasks` zero-regression proof (confirmed this round, empirically:
+`--list-tasks` does **not** evaluate `when:` — it lists the gnome task under
+every profile, matching `prototype-when-import.md`'s Result 2 — so that
+static in-container proof is gone; replaced with a host-side procedure, §7).
 
 ---
 
-**Status of this document**: implementation-ready design for Plan 00061 Phase 3,
-per Decision 1 (mechanism), Decision 2 (rpm-fusion=general), and Decision 3
-(this proposal → Fable audit → judge → loop) in `PLAN.md`. Supersedes
-`brainstorm-sonnet.md` where they disagree — this document is the
-authoritative source for implementation. Written after an exhaustive,
-task-by-task re-read of all 31 core plays (not the one-pass reads that missed
-`play-basic-configs.yml`'s USB-audio task and `play-vpn.yml`'s GNOME package
-in the first brainstorm round) plus a fast-pass sweep of the 41 non-archived
-optional plays, because the QA gate (§4) scans every playbook under
-`playbooks/`, not just the core 31 — leaving the optional tree unscoped would
-make the gate fail on day one.
+**Status of this document**: implementation-ready design for Plan 00061
+Phase 3, superseding round 2's mechanism per PLAN.md Decision 4. Grounded in
+`prototype-when-import.md` (the owner-commissioned prototype that established
+`when:` viability) plus this round's own additional empirical verification
+(above). Where this document and `brainstorm-sonnet.md` or the round-1/2
+`PROPOSAL.md` disagree on mechanism, this document wins; where they agree on
+classification, this document is the same analysis, restated.
 
 ---
 
-## 1. Exhaustive per-play classification
+## 1. Exhaustive per-play classification (unchanged from round 2)
 
-### 1.1 Core plays (all 31, task-by-task re-read)
+### 1.1 Core plays (all 31)
 
-Scope reflects **what the play's tasks actually do**, not what its filename or
-folder implies (this is the same discipline the owner applied to
-`play-rpm-fusion` in Decision 2). "General" means: no task requires a GNOME
-session, a display server, or a GUI application to be meaningful.
+Classification reflects **what the play's tasks actually do**, not filename
+or folder (the same discipline the owner applied to `play-rpm-fusion.yml`).
+"General" means: no task requires a GNOME session, a display server, or a
+GUI application to be meaningful. The bucket names (`general`/`gnome`/
+`server`) are now plain values, not tag strings — see §2–§3 for how each
+expresses itself in the new mechanism.
 
-| #   | Play                               | Scope                                                                                     | One-line justification                                                                                                                                                                                                                                                                                                                         |
-| --- | ---------------------------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | `play-AA-preflight-sanity.yml`     | `scope-general`                                                                           | Ansible-version + Fedora-version assertions only                                                                                                                                                                                                                                                                                               |
-| 2   | `play-AB-dnf-upgrade.yml`          | `scope-general`                                                                           | Package upgrade + kernel half-install cleanup, no GUI                                                                                                                                                                                                                                                                                          |
-| 3   | `play-basic-configs.yml`           | `scope-general` (+ 1 task-level `scope-gnome` override — §3.1)                            | vim colours, sudo, PS1, SSH helper scripts, `yq`, GRUB, `fwupd` — all general; one task (USB audio fix) is the exception                                                                                                                                                                                                                       |
-| 4   | `play-prevent-ssh-suspend.yml`     | `scope-general` (+ 1 task-level `scope-gnome` override — §3.2)                            | `ssh-suspend-guard` systemd service is general; one task calls `gsettings set org.gnome.settings-daemon...` — GNOME-only                                                                                                                                                                                                                       |
-| 5   | `play-network-wait-tuning.yml`     | `scope-general`                                                                           | `NetworkManager-wait-online.service` boot-timing tune, systemd-only                                                                                                                                                                                                                                                                            |
-| 6   | `play-mask-intel-lpmd.yml`         | `scope-general`                                                                           | Masks a systemd unit on Intel CPUs, self-probes and no-ops on AMD, no GUI                                                                                                                                                                                                                                                                      |
-| 7   | `play-systemd-user-tweaks.yml`     | `scope-general`                                                                           | `systemd-oomd` memory-pressure fix for `user.slice`; explicitly protects rootless Podman/Docker containers — server-relevant, not GNOME-coupled. **(resolves the flagged ambiguous call — firm: general)**                                                                                                                                     |
-| 8   | `play-nvm-install.yml`             | `scope-general`                                                                           | Node.js/npm via nvm, pure CLI toolchain                                                                                                                                                                                                                                                                                                        |
-| 9   | `play-git-configure-and-tools.yml` | `scope-general`                                                                           | git config, `gh` CLI, bash-git-prompt, SSH agent prompt                                                                                                                                                                                                                                                                                        |
-| 10  | `play-git-hooks-security.yml`      | `scope-general`                                                                           | Configures `core.hooksPath` on this repo's own clone                                                                                                                                                                                                                                                                                           |
-| 11  | `play-firefox.yml`                 | `scope-gnome`                                                                             | Installs the Firefox GUI browser                                                                                                                                                                                                                                                                                                               |
-| 12  | `play-github-cli-multi.yml`        | `scope-general`                                                                           | Multi-account `gh`/SSH-key/git-wrapper setup — 100% CLI/API/SSH, zero GUI dependency despite being the largest play in the repo                                                                                                                                                                                                                |
-| 13  | `play-ms-fonts.yml`                | `scope-gnome`                                                                             | MS core fonts are consumed only by GUI apps (browsers, office viewers) rendering on-screen; no headless consumer exists in this repo's scope. **(resolves the flagged ambiguous call — firm: gnome)**                                                                                                                                          |
-| 14  | `play-rpm-fusion.yml`              | `scope-general`                                                                           | **Owner-decided (Decision 2).** Enables free/nonfree repos — foundational plumbing later general-scope packages may need; the multimedia-codec/`intel-media-driver` tasks in the file are the only current *content*, but the play's *purpose* (repo enablement) is general and future packages should not be blocked by it being tagged gnome |
-| 15  | `play-browsers.yml`                | `scope-gnome`                                                                             | Installs Chrome/Brave/Vivaldi GUI browsers                                                                                                                                                                                                                                                                                                     |
-| 16  | `play-toolbox-install.yml`         | `scope-gnome`                                                                             | JetBrains Toolbox — a GUI IDE manager; already self-guards on `has_display` but tagging avoids a pointless JetBrains-API network call on a server                                                                                                                                                                                              |
-| 17  | `play-docker.yml`                  | `scope-general`                                                                           | Rootful Docker CE — DDEV-class server workloads need this too                                                                                                                                                                                                                                                                                  |
-| 18  | `play-lxc-install-config.yml`      | `scope-general`                                                                           | System containers, iptables/bridge networking, no GUI content anywhere in the file                                                                                                                                                                                                                                                             |
-| 19  | `play-podman.yml`                  | `scope-general`                                                                           | Rootless Podman + podman-compose                                                                                                                                                                                                                                                                                                               |
-| 20  | `play-python.yml`                  | `scope-general`                                                                           | pyenv/pipx/`semgrep`/PDM dev toolchain, no GUI. **(resolves the flagged ambiguous call — firm: general)**                                                                                                                                                                                                                                      |
-| 21  | `play-claude-yolo.yml`             | `scope-general`                                                                           | Container-based Claude Code tooling; the in-container Chromium (`agent-browser`) runs inside the container regardless of host GUI — host-side tasks are all file/container-engine ops                                                                                                                                                          |
-| 22  | `play-claude-code.yml`             | `scope-general`                                                                           | Claude Code CLI installer + `cc` wrapper, pure CLI                                                                                                                                                                                                                                                                                             |
-| 23  | `play-comms.yml`                   | `scope-gnome`                                                                             | Installs Slack via Flatpak (GUI app)                                                                                                                                                                                                                                                                                                           |
-| 24  | `play-gnome-shell.yml`             | `scope-gnome`                                                                             | Installs `gnome-tweaks` (note: its `name:` field says "Gnome Shell Extensions", duplicating `play-gnome-shell-extensions.yml`'s name — pre-existing repo quirk, out of this plan's scope, flagged for the record only)                                                                                                                         |
-| 25  | `play-gnome-shell-extensions.yml`  | `scope-gnome`                                                                             | GNOME extension installer, dconf schema compilation, custom extension deploy — entirely GNOME-Shell-session-dependent                                                                                                                                                                                                                          |
-| 26  | `play-markless.yml`                | `scope-general`                                                                           | Terminal-based markdown viewer, no GUI dependency (Kitty/Sixel image rendering is a terminal graphics protocol, not a GUI toolkit)                                                                                                                                                                                                             |
-| 27  | `play-terminal-emulators.yml`      | `scope-gnome`                                                                             | Alacritty/Kitty/Ghostty/Foot are GUI windowed applications requiring a display server to run, despite "terminal" in the name. **(resolves the flagged ambiguous call — firm: gnome)**                                                                                                                                                          |
-| 28  | `play-vscode.yml`                  | `scope-gnome`                                                                             | Installs the VS Code GUI editor                                                                                                                                                                                                                                                                                                                |
-| 29  | `play-vpn.yml`                     | `scope-general` (+ 1 task-level `scope-gnome` override, requires a task **split** — §3.3) | WireGuard/OpenVPN CLI tools + firewalld rule are general; `NetworkManager-openvpn-gnome` (bundled in the same `dnf` task today) is GNOME-applet-only                                                                                                                                                                                           |
-| 30  | `play-gsettings.yml`               | `scope-gnome`                                                                             | Caps Lock remap + Ptyxis terminal tab setting via `dconf` — both GNOME desktop settings, meaningless without a GNOME session                                                                                                                                                                                                                   |
-| 31  | `play-ZZ-repo-cleanup.yml`         | `scope-general`                                                                           | Removes orphaned COPRs, no GUI content                                                                                                                                                                                                                                                                                                         |
+| #   | Play                               | Bucket                                                          | One-line justification                                                                                                                               |
+| --- | ---------------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `play-AA-preflight-sanity.yml`     | `general`                                                       | Ansible-version + Fedora-version assertions only                                                                                                     |
+| 2   | `play-AB-dnf-upgrade.yml`          | `general`                                                       | Package upgrade + kernel half-install cleanup, no GUI                                                                                                |
+| 3   | `play-basic-configs.yml`           | `general` (+ 1 task-level `when:` override — §5.1)              | vim colours, sudo, PS1, SSH helper scripts, `yq`, GRUB, `fwupd` — all general; one task (USB audio fix) is the exception                             |
+| 4   | `play-prevent-ssh-suspend.yml`     | `general` (+ 1 task-level `when:` override — §5.2)              | `ssh-suspend-guard` systemd service is general; one task calls `gsettings set org.gnome.settings-daemon...` — GNOME-only                             |
+| 5   | `play-network-wait-tuning.yml`     | `general`                                                       | `NetworkManager-wait-online.service` boot-timing tune, systemd-only                                                                                  |
+| 6   | `play-mask-intel-lpmd.yml`         | `general`                                                       | Masks a systemd unit on Intel CPUs, self-probes and no-ops on AMD, no GUI                                                                            |
+| 7   | `play-systemd-user-tweaks.yml`     | `general`                                                       | `systemd-oomd` memory-pressure fix for `user.slice`; protects rootless Podman/Docker containers — server-relevant, not GNOME-coupled                 |
+| 8   | `play-nvm-install.yml`             | `general`                                                       | Node.js/npm via nvm, pure CLI toolchain                                                                                                              |
+| 9   | `play-git-configure-and-tools.yml` | `general`                                                       | git config, `gh` CLI, bash-git-prompt, SSH agent prompt                                                                                              |
+| 10  | `play-git-hooks-security.yml`      | `general`                                                       | Configures `core.hooksPath` on this repo's own clone                                                                                                 |
+| 11  | `play-firefox.yml`                 | `gnome`                                                         | Installs the Firefox GUI browser                                                                                                                     |
+| 12  | `play-github-cli-multi.yml`        | `general`                                                       | Multi-account `gh`/SSH-key/git-wrapper setup — 100% CLI/API/SSH, zero GUI dependency                                                                 |
+| 13  | `play-ms-fonts.yml`                | `gnome`                                                         | MS core fonts are consumed only by GUI apps rendering on-screen; no headless consumer                                                                |
+| 14  | `play-rpm-fusion.yml`              | `general`                                                       | **Owner-decided (Decision 2).** Enables free/nonfree repos — foundational plumbing later general packages may need                                   |
+| 15  | `play-browsers.yml`                | `gnome`                                                         | Installs Chrome/Brave/Vivaldi GUI browsers                                                                                                           |
+| 16  | `play-toolbox-install.yml`         | `gnome`                                                         | JetBrains Toolbox — a GUI IDE manager; already self-guards on `has_display` but gating avoids a pointless API call on a server                       |
+| 17  | `play-docker.yml`                  | `general`                                                       | Rootful Docker CE — DDEV-class server workloads need this too                                                                                        |
+| 18  | `play-lxc-install-config.yml`      | `general`                                                       | System containers, iptables/bridge networking, no GUI content                                                                                        |
+| 19  | `play-podman.yml`                  | `general`                                                       | Rootless Podman + podman-compose                                                                                                                     |
+| 20  | `play-python.yml`                  | `general`                                                       | pyenv/pipx/`semgrep`/PDM dev toolchain, no GUI                                                                                                       |
+| 21  | `play-claude-yolo.yml`             | `general`                                                       | Container-based Claude Code tooling; in-container Chromium runs inside the container regardless of host GUI                                          |
+| 22  | `play-claude-code.yml`             | `general`                                                       | Claude Code CLI installer + `cc` wrapper, pure CLI                                                                                                   |
+| 23  | `play-comms.yml`                   | `gnome`                                                         | Installs Slack via Flatpak (GUI app)                                                                                                                 |
+| 24  | `play-gnome-shell.yml`             | `gnome`                                                         | Installs `gnome-tweaks` (its `name:` duplicates `play-gnome-shell-extensions.yml`'s — pre-existing quirk, out of scope)                              |
+| 25  | `play-gnome-shell-extensions.yml`  | `gnome`                                                         | GNOME extension installer, dconf schema compilation, custom extension deploy                                                                         |
+| 26  | `play-markless.yml`                | `general`                                                       | Terminal-based markdown viewer, no GUI dependency                                                                                                    |
+| 27  | `play-terminal-emulators.yml`      | `gnome`                                                         | Alacritty/Kitty/Ghostty/Foot are GUI windowed applications, despite "terminal" in the name                                                           |
+| 28  | `play-vscode.yml`                  | `gnome`                                                         | Installs the VS Code GUI editor                                                                                                                      |
+| 29  | `play-vpn.yml`                     | `general` (+ 1 task **split** with a `when:`-gated task — §5.3) | WireGuard/OpenVPN CLI tools + firewalld rule are general; `NetworkManager-openvpn-gnome` (bundled in the same `dnf` task today) is GNOME-applet-only |
+| 30  | `play-gsettings.yml`               | `gnome`                                                         | Caps Lock remap + Ptyxis terminal tab setting via `dconf` — GNOME desktop settings                                                                   |
+| 31  | `play-ZZ-repo-cleanup.yml`         | `general`                                                       | Removes orphaned COPRs, no GUI content                                                                                                               |
 
-**Tally: 21 `scope-general`, 10 `scope-gnome`, 0 `scope-server`.** The empty
-`scope-server` bucket is intentional (§ non-goals of this plan rule out
-server-hardening content now) — see PLAN.md's own non-goals; the taxonomy
-needs the bucket to exist for a *future* plan, not for this one to populate.
+**Tally: 21 `general`, 10 `gnome`, 0 `server`.** The empty `server` bucket is
+intentional — this plan's non-goals rule out server-hardening content now;
+the taxonomy needs the bucket to exist for a *future* plan.
 
-### 1.2 Exhaustive mixed-concern task catalogue (core plays)
+### 1.2 Mixed-concern task catalogue (unchanged from round 2)
 
-The exhaustive sweep found **three** genuinely mixed-concern instances across
-the 31 core plays — one more than either brainstorm found individually,
-confirming the owner's instinct that a one-pass read is unreliable:
+| Play                           | Exact task                                                      | Package/setting                                                                        | Why it's the exception                                                                                                                                     |
+| ------------------------------ | --------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `play-basic-configs.yml`       | `Deploy USB audio fix script`                                   | `files/home/bashrc-includes/usb-audio-fix.bash` bashrc-include                         | Desktop-audio-hardware concern, no headless-server consumer                                                                                                |
+| `play-prevent-ssh-suspend.yml` | `Disable suspend on AC power (plugged in = never idle-suspend)` | `gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type nothing` | GNOME Settings Daemon schema over D-Bus — **hard-fails** ("No such schema") on a server without `gnome-settings-daemon`; a real latent bug the split fixes |
+| `play-vpn.yml`                 | `Install VPN Packages` (one `dnf` task, 3 packages)             | `NetworkManager-openvpn-gnome`                                                         | GNOME NetworkManager-applet integration; the other two packages are pure CLI                                                                               |
 
-| Play                           | Exact task                                                      | Package/setting                                                                        | Why it's the exception                                                                                                                                                                                                                                                                                                        |
-| ------------------------------ | --------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `play-basic-configs.yml`       | `Deploy USB audio fix script`                                   | `files/home/bashrc-includes/usb-audio-fix.bash` bashrc-include                         | USB-audio troubleshooting is a desktop-audio-hardware concern with no headless-server consumer                                                                                                                                                                                                                                |
-| `play-prevent-ssh-suspend.yml` | `Disable suspend on AC power (plugged in = never idle-suspend)` | `gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type nothing` | Calls a GNOME Settings Daemon schema over D-Bus — **on a server without `gnome-settings-daemon` installed, this task does not silently no-op, it hard-fails** with "No such schema" (`gsettings` errors when the schema isn't registered). This is a *real latent bug* the scope split fixes, not just a tidiness improvement |
-| `play-vpn.yml`                 | `Install VPN Packages` (currently one `dnf` task, 3 packages)   | `NetworkManager-openvpn-gnome`                                                         | GNOME NetworkManager-applet integration; `wireguard-tools` + `NetworkManager-openvpn` in the same task are pure CLI                                                                                                                                                                                                           |
+All three are trivial, single-item exceptions; zero core plays need a
+file-split. See §5 for the `when:`-based fix (round 2 used task-level tags;
+this round uses task-level `when:`).
 
-All three are **trivial, single-item exceptions** (one task, or one package
-within a task) inside plays that are overwhelmingly single-scope. Per the
-graft rule (PLAN.md Decision 1, grafted from Fable): task-level tag override
-for a trivial exception, file-split only for a non-trivial one. **The
-exhaustive sweep found zero core plays that need a file-split** — no core
-play carries a substantial fraction of its tasks in the non-dominant scope.
-The file-split rule is retained for future mixed plays that do earn it (see
-§3.4 for the worked example that would need one, found in the optional tree).
+### 1.3 Optional plays (fast-pass — reused from round 2, table content
 
-### 1.3 Optional plays (fast-pass — 41 files, second-tier rigor)
+unchanged, `scope-general`/`scope-gnome` labels now read as plain
+`general`/`gnome`)
 
-**Scope note on rigor**: PLAN.md Task 2.2 scoped the exhaustive sweep to core
-plays only. But the QA gate in §4 recursively scans `playbooks/imports/**`
-(matching `qa-ansible-syntax.bash`'s existing discovery), so it will fail
-immediately on every unscoped optional play the moment it's turned on. This
-table exists so the gate can pass on day one — it is a **fast-pass**
-classification (play name + a `grep` for GUI/desktop signal words + one
-targeted read where the name was ambiguous), not the full task-by-task audit
-the core 31 got. Confidence is marked; **Low-confidence rows must be
-re-verified against the play's actual task list before its tag is trusted**,
-per the same review-discipline caveat already called out in
-`brainstorm-sonnet.md`'s failure-mode section. `imports/optional/archived/`
-(currently one file, `play-tlp-battery-optimisation.yml`) is exempt — see §4.
-`imports/optional/untested/` currently has no play files (README only); when
-one is added it is **not** exempt (untested ≠ unclassified).
+The 41-file fast-pass classification (30 in `optional/common/`, 4 in
+`optional/experimental/`, 7 in `optional/hardware-specific/`) is unchanged
+from round 2 — same plays, same confidence markers, same notes, same two
+flagged files (`play-container-watch.yml` — mixed, needs the interim fix in
+§5.4; `play-virtualbox-windows.yml` — two `- hosts:` plays in one file, must
+be split before it can be classified at all, same Low-confidence owner-flag
+as `rpm-fusion` for the resulting scope value(s)). It is reproduced verbatim
+below (values now read as plain `general`/`gnome` since there's no tag string
+to prefix — same substance as round 2's `scope-general`/`scope-gnome`
+columns). The exact, byte-identical round-2 source is also committed at
+`568a5d5` (`git show 568a5d5:CLAUDE/Plan/00061-headless-server-provisioning/PROPOSAL.md`, §1.3) if a diff against this reproduction is ever needed.
 
 **`playbooks/imports/optional/common/` (30 files):**
 
-| Play                                  | Scope                                             | Confidence          | Note                                                                                                                                                                                 |
-| ------------------------------------- | ------------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `play-advanced-kernel-management.yml` | `scope-general`                                   | High                | Kernel versionlock/retention, no GUI                                                                                                                                                 |
-| `play-claude-devtools.yml`            | `scope-general`                                   | High                | CLI session viewer (`ccdt`)                                                                                                                                                          |
-| `play-clean-paste.yml`                | `scope-gnome`                                     | High                | Wayland clipboard sanitiser bound to a GNOME/Wayland keybinding                                                                                                                      |
-| `play-cloudflare-dns.yml`             | `scope-general`                                   | High                | DNS-over-TLS resolver config, systemd/network only                                                                                                                                   |
-| `play-cloudflare-warp.yml`            | `scope-general`                                   | **Medium — verify** | Name suggests a CLI daemon (`warp-cli`); grep hit on "GUI" needs confirming it isn't the optional GUI client                                                                         |
-| `play-collaboration.yml`              | `scope-gnome`                                     | **Medium — verify** | Likely Flatpak GUI apps (naming convention matches `play-comms.yml`); confirm task list                                                                                              |
-| `play-compression-helpers.yml`        | `scope-general`                                   | High                | `compress`/`uncompress` CLI commands                                                                                                                                                 |
-| `play-container-watch.yml`            | **MIXED — needs the file-split rule** (§3.4)      | High                | Deploys a general-purpose watcher daemon AND a GNOME Shell panel extension in one file; not a trivial exception — see §3.4                                                           |
-| `play-darktable-ai-appimage.yml`      | `scope-gnome`                                     | High                | GUI photo-editing AppImage (darktable), Flatpak-adjacent                                                                                                                             |
-| `play-darktable-ai-build.yml`         | `scope-gnome`                                     | High                | Builds the same GUI app from source                                                                                                                                                  |
-| `play-ddev.yml`                       | `scope-general`                                   | High                | Docker-based local dev environment, CLI                                                                                                                                              |
-| `play-distrobox.yml`                  | `scope-general`                                   | High                | Container tooling, CLI                                                                                                                                                               |
-| `play-fast-file-manager.yml`          | `scope-gnome`                                     | High                | Configures GNOME Nautilus/file-picker performance                                                                                                                                    |
-| `play-ftp-camera.yml`                 | `scope-gnome`                                     | **Medium — verify** | Camera FTP server naming suggests a background service (general), but grep hit on GNOME/window warrants a task-list check                                                            |
-| `play-gnome-shell-dev.yml`            | `scope-gnome`                                     | High                | GNOME Shell extension development tooling                                                                                                                                            |
-| `play-golang.yml`                     | `scope-general`                                   | High                | Go toolchain, CLI                                                                                                                                                                    |
-| `play-hd-audio.yml`                   | `scope-general`                                   | **Medium — verify** | Audio/Bluetooth enhancement — could be general (audio subsystem) or gnome (desktop sound settings); check tasks                                                                      |
-| `play-image-watermarking.yml`         | `scope-general`                                   | High                | `watermark` CLI command (ImageMagick + exiftool)                                                                                                                                     |
-| `play-lastpass.yml`                   | `scope-gnome`                                     | **Medium — verify** | Likely the LastPass GUI/browser-extension config; confirm                                                                                                                            |
-| `play-lightweight-ides.yml`           | `scope-gnome`                                     | High                | GUI IDE installs                                                                                                                                                                     |
-| `play-network-tools.yml`              | `scope-general`                                   | High                | Network discovery CLI tools                                                                                                                                                          |
-| `play-nordvpn-openvpn.yml`            | `scope-gnome`                                     | **Medium — verify** | Name suggests CLI VPN manager (general), but grep hits GUI/GNOME strongly — likely a mixed play like `play-vpn.yml`; needs the same task-level-override treatment once read in full  |
-| `play-photography.yml`                | `scope-gnome`                                     | High                | GUI photography app suite                                                                                                                                                            |
-| `play-qobuz.yml`                      | `scope-gnome` (+ likely mixed, per own play name) | **Medium — verify** | Play name literally says "Native GUI Player, CLI Player and Last.fm Scrobbling" — self-describes as mixed; needs a real read to decide file-split vs. task-tag before implementation |
-| `play-rclone.yml`                     | `scope-general`                                   | High                | Cloud storage CLI mounts; grep GNOME hits are likely a GUI tray-icon extra, verify if so it needs a task-level split like `play-vpn.yml`                                             |
-| `play-remote-desktop-toggle.yml`      | `scope-gnome`                                     | High                | Toggles GNOME's built-in remote-desktop sharing                                                                                                                                      |
-| `play-rust-dev.yml`                   | `scope-general`                                   | High                | Rust toolchain, CLI                                                                                                                                                                  |
-| `play-speech-to-text.yml`             | `scope-gnome`                                     | High                | GNOME Shell extension + Wayland keybinding (per `CLAUDE/GnomeShell.md`)                                                                                                              |
-| `play-unifi-controller.yml`           | `scope-general`                                   | High                | Podman-Compose UniFi controller — a server workload if anything                                                                                                                      |
-| `play-videography.yml`                | `scope-gnome`                                     | High                | GUI video-editing tool suite                                                                                                                                                         |
+| Play                                  | Bucket                                      | Confidence          | Note                                                                                                                                                                                           |
+| ------------------------------------- | ------------------------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `play-advanced-kernel-management.yml` | `general`                                   | High                | Kernel versionlock/retention, no GUI                                                                                                                                                           |
+| `play-claude-devtools.yml`            | `general`                                   | High                | CLI session viewer (`ccdt`)                                                                                                                                                                    |
+| `play-clean-paste.yml`                | `gnome`                                     | High                | Wayland clipboard sanitiser bound to a GNOME/Wayland keybinding                                                                                                                                |
+| `play-cloudflare-dns.yml`             | `general`                                   | High                | DNS-over-TLS resolver config, systemd/network only                                                                                                                                             |
+| `play-cloudflare-warp.yml`            | `general`                                   | **Medium — verify** | Name suggests a CLI daemon (`warp-cli`); grep hit on "GUI" needs confirming it isn't the optional GUI client                                                                                   |
+| `play-collaboration.yml`              | `gnome`                                     | **Medium — verify** | Likely Flatpak GUI apps (naming convention matches `play-comms.yml`); confirm task list                                                                                                        |
+| `play-compression-helpers.yml`        | `general`                                   | High                | `compress`/`uncompress` CLI commands                                                                                                                                                           |
+| `play-container-watch.yml`            | **MIXED — §5.4**                            | High                | Deploys a general-purpose watcher daemon AND a GNOME Shell panel extension in one file; not a trivial exception                                                                                |
+| `play-darktable-ai-appimage.yml`      | `gnome`                                     | High                | GUI photo-editing AppImage (darktable), Flatpak-adjacent                                                                                                                                       |
+| `play-darktable-ai-build.yml`         | `gnome`                                     | High                | Builds the same GUI app from source                                                                                                                                                            |
+| `play-ddev.yml`                       | `general`                                   | High                | Docker-based local dev environment, CLI                                                                                                                                                        |
+| `play-distrobox.yml`                  | `general`                                   | High                | Container tooling, CLI                                                                                                                                                                         |
+| `play-fast-file-manager.yml`          | `gnome`                                     | High                | Configures GNOME Nautilus/file-picker performance                                                                                                                                              |
+| `play-ftp-camera.yml`                 | `gnome`                                     | **Medium — verify** | Camera FTP server naming suggests a background service (general), but grep hit on GNOME/window warrants a task-list check                                                                      |
+| `play-gnome-shell-dev.yml`            | `gnome`                                     | High                | GNOME Shell extension development tooling                                                                                                                                                      |
+| `play-golang.yml`                     | `general`                                   | High                | Go toolchain, CLI                                                                                                                                                                              |
+| `play-hd-audio.yml`                   | `general`                                   | **Medium — verify** | Audio/Bluetooth enhancement — could be general (audio subsystem) or gnome (desktop sound settings); check tasks                                                                                |
+| `play-image-watermarking.yml`         | `general`                                   | High                | `watermark` CLI command (ImageMagick + exiftool)                                                                                                                                               |
+| `play-lastpass.yml`                   | `gnome`                                     | **Medium — verify** | Likely the LastPass GUI/browser-extension config; confirm                                                                                                                                      |
+| `play-lightweight-ides.yml`           | `gnome`                                     | High                | GUI IDE installs                                                                                                                                                                               |
+| `play-network-tools.yml`              | `general`                                   | High                | Network discovery CLI tools                                                                                                                                                                    |
+| `play-nordvpn-openvpn.yml`            | `gnome`                                     | **Medium — verify** | Name suggests CLI VPN manager (general), but grep hits GUI/GNOME strongly — likely a mixed play like `play-vpn.yml`; needs the same task-level `when:` treatment once read in full             |
+| `play-photography.yml`                | `gnome`                                     | High                | GUI photography app suite                                                                                                                                                                      |
+| `play-qobuz.yml`                      | `gnome` (+ likely mixed, per own play name) | **Medium — verify** | Play name literally says "Native GUI Player, CLI Player and Last.fm Scrobbling" — self-describes as mixed; needs a real read to decide file-split vs. task-level `when:` before implementation |
+| `play-rclone.yml`                     | `general`                                   | High                | Cloud storage CLI mounts; grep GNOME hits are likely a GUI tray-icon extra, verify if so it needs a task-level split like `play-vpn.yml`                                                       |
+| `play-remote-desktop-toggle.yml`      | `gnome`                                     | High                | Toggles GNOME's built-in remote-desktop sharing                                                                                                                                                |
+| `play-rust-dev.yml`                   | `general`                                   | High                | Rust toolchain, CLI                                                                                                                                                                            |
+| `play-speech-to-text.yml`             | `gnome`                                     | High                | GNOME Shell extension + Wayland keybinding (per `CLAUDE/GnomeShell.md`)                                                                                                                        |
+| `play-unifi-controller.yml`           | `general`                                   | High                | Podman-Compose UniFi controller — a server workload if anything                                                                                                                                |
+| `play-videography.yml`                | `gnome`                                     | High                | GUI video-editing tool suite                                                                                                                                                                   |
 
 **`playbooks/imports/optional/experimental/` (4 files):**
 
-| Play                                 | Scope                                                                                                      | Confidence               | Note                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| ------------------------------------ | ---------------------------------------------------------------------------------------------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `play-docker-in-lxc-support.yml`     | `scope-general`                                                                                            | High                     | Container interop config                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `play-docker-overlay2-migration.yml` | `scope-general`                                                                                            | High                     | Docker storage-driver migration                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `play-lxde-install.yml`              | `scope-gnome`                                                                                              | High                     | Installs the LXDE **desktop environment** — not literally GNOME, but falls in the "needs a GUI session" bucket this repo names `scope-gnome` (see §8 naming caveat)                                                                                                                                                                                                                                                                                                                                                                                      |
-| `play-virtualbox-windows.yml`        | **NOT ONE SCOPE — this file has TWO independent `- hosts:` plays and MUST be split first (§4, §7 step 4)** | **Low — flag for owner** | Verified (round 2 audit) the file contains "Install Virtualbox" (driver + packages + group membership — arguably headless-capable via `VBoxHeadless`/`VBoxManage`, same category of call as the rpm-fusion dispute) at line 3 and a structurally separate "Setup Windows VMs" play (downloads/imports a specific Windows 11 VM image, more plausibly GUI-workflow-coupled) at line 44. Check 4 (§4) hard-rejects multi-play files, so implementation must split this into two files before either half can be tagged — see §7 step 4 for the exact split |
+| Play                                 | Bucket                                                                    | Confidence               | Note                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------ | ------------------------------------------------------------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `play-docker-in-lxc-support.yml`     | `general`                                                                 | High                     | Container interop config                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `play-docker-overlay2-migration.yml` | `general`                                                                 | High                     | Docker storage-driver migration                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `play-lxde-install.yml`              | `gnome`                                                                   | High                     | Installs the LXDE **desktop environment** — not literally GNOME, but falls in the "needs a GUI session" bucket (see §9 naming note)                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `play-virtualbox-windows.yml`        | **file has TWO `- hosts:` plays — MUST be split first (§4.1, §8 step 5)** | **Low — flag for owner** | "Install Virtualbox" (driver + packages + group membership — arguably headless-capable via `VBoxHeadless`/`VBoxManage`, same category of call as the rpm-fusion dispute) at line 3; a structurally separate "Setup Windows VMs" play (downloads/imports a specific Windows 11 VM image, more plausibly GUI-workflow-coupled) at line 44. Split into `play-virtualbox-windows.yml` (lines 1–43 + `handlers:`) and `play-virtualbox-windows-vm-setup.yml` (line 44 onward), each with its own shebang + exec bit, then get an explicit owner decision on both `scope` values |
 
 **`playbooks/imports/optional/hardware-specific/` (7 files):**
 
-| Play                                   | Scope           | Confidence | Note                                                                                                                                                                |
-| -------------------------------------- | --------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `play-darktable-ai-gpu.yml`            | `scope-gnome`   | High       | GPU backend for the GUI darktable app                                                                                                                               |
-| `play-displaylink.yml`                 | `scope-gnome`   | High       | Extends physical monitors via a GNOME/mutter multi-monitor session                                                                                                  |
-| `play-ipu6-webcam.yml`                 | `scope-gnome`   | High       | Webcam driver stack; only consumer is GUI video-calling apps, no headless use case in this repo                                                                     |
-| `play-laptop-lid-power-management.yml` | `scope-general` | High       | ACPI/systemd lid-close behaviour, no GUI dependency (irrelevant to rack servers as *hardware*, but that's an inventory question, not a GUI-dependency one — see §8) |
-| `play-laptop-thermal-diagnostics.yml`  | `scope-general` | High       | CLI thermal diagnostics                                                                                                                                             |
-| `play-musiccast.yml`                   | `scope-gnome`   | High       | Play name explicitly says "SSDP diagnostics + gyrc **GUI**"                                                                                                         |
-| `play-nvidia.yml`                      | `scope-general` | High       | NVIDIA driver install — needed for both desktop GPU rendering *and* headless CUDA/compute servers; not GNOME-coupled                                                |
+| Play                                   | Bucket    | Confidence | Note                                                                                                                                                                |
+| -------------------------------------- | --------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `play-darktable-ai-gpu.yml`            | `gnome`   | High       | GPU backend for the GUI darktable app                                                                                                                               |
+| `play-displaylink.yml`                 | `gnome`   | High       | Extends physical monitors via a GNOME/mutter multi-monitor session                                                                                                  |
+| `play-ipu6-webcam.yml`                 | `gnome`   | High       | Webcam driver stack; only consumer is GUI video-calling apps, no headless use case in this repo                                                                     |
+| `play-laptop-lid-power-management.yml` | `general` | High       | ACPI/systemd lid-close behaviour, no GUI dependency (irrelevant to rack servers as *hardware*, but that's an inventory question, not a GUI-dependency one — see §9) |
+| `play-laptop-thermal-diagnostics.yml`  | `general` | High       | CLI thermal diagnostics                                                                                                                                             |
+| `play-musiccast.yml`                   | `gnome`   | High       | Play name explicitly says "SSDP diagnostics + gyrc **GUI**"                                                                                                         |
+| `play-nvidia.yml`                      | `general` | High       | NVIDIA driver install — needed for both desktop GPU rendering *and* headless CUDA/compute servers; not GNOME-coupled                                                |
 
 **`playbooks/imports/optional/archived/` (1 file) and `untested/` (0 files):
-exempt from classification per §4** (archived) or **not yet applicable**
+exempt from classification per §4.1** (archived) or **not yet applicable**
 (untested is currently empty).
 
 ---
 
-## 2. The exact `tags:` block — canonical form
+## 2. Auto-detected `provisioning_profile` — the detection layer
 
-Show once here; every play in §1 gets exactly this shape, with its own scope
-value substituted:
+### 2.1 Design: `group_vars`, not a preflight `set_fact`
+
+**Decision: `environment/localhost/group_vars/desktop.yml`.**
+
+This repo's `ansible.cfg` sets `transport=local` and every play targets
+`hosts: desktop`, with `environment/localhost/hosts.yml` mapping that group
+to the single host `localhost` with `ansible_connection: local`. Because the
+controller **is** the target, a `pipe` lookup in a group_vars file executes
+on the real box. `environment/localhost/host_vars/localhost.yml` already
+exists and is the established, working precedent for
+`environment/localhost/` being an inventory-relative `group_vars`/`host_vars`
+root — `group_vars/desktop.yml` is the direct sibling of that pattern, named
+after the group every play already targets.
+
+**Rejected: a preflight-play `set_fact`.** Two reasons. First, it is strictly
+*less* available: a `set_fact` task only makes its fact visible to plays that
+run *after* the task that sets it, so it constrains where the assertion/gate
+logic can safely live in the ordering. `group_vars` is loaded before **any**
+play runs, including the very first task of the very first play
+(`play-AA-preflight-sanity.yml`), which is exactly where this proposal adds a
+validation assertion (§2.3) — no ordering dependency to get wrong. Second, it
+is an extra moving part (a task, in a specific play, that must never be
+reordered ahead of) for no benefit over a file that Ansible already
+auto-loads for free.
+
+**Exact file** (new):
+
+```yaml
+# environment/localhost/group_vars/desktop.yml
+---
+# Auto-detected provisioning profile — desktop vs. headless server.
+#
+# `ansible.cfg` sets transport=local and every play targets hosts: desktop,
+# which environment/localhost/hosts.yml maps to localhost with
+# ansible_connection: local — the controller IS the target, so this `pipe`
+# lookup reads the REAL box's systemd default target. This assumption breaks
+# if this repo is ever pointed at a remote host (lookups execute on the
+# CONTROL node, not the managed node) — it never is; every play in this repo
+# is hosts: desktop / connection: local, by design (CLAUDE/AnsibleStyle.md).
+#
+# Server-biased when uncertain: ONLY a confirmed graphical.target resolves to
+# desktop; multi-user.target, a get-default failure, or any unrecognised
+# target resolves to server. A mis-detected desktop just skips GUI installs
+# (recoverable — re-run with the override below); a mis-detected server would
+# run the gnome plays against a box with no GNOME session and hit the
+# gsettings hard-fail (§1.2) under this repo's `any_errors_fatal = true`
+# (whole-RUN abort, not just the one play) — server-biased avoids that
+# failure mode by construction, not by luck.
+#
+# Override for testing/CI (also skips the lookup entirely — extra-vars have
+# the highest precedence, so this template is never rendered when overridden):
+#   -e provisioning_profile=desktop
+#   -e provisioning_profile=server
+_systemd_default_target: "{{ lookup('ansible.builtin.pipe', 'systemctl get-default') }}"
+provisioning_profile: "{{ 'desktop' if _systemd_default_target == 'graphical.target' else 'server' }}"
+```
+
+Not a self-referential var (`provisioning_profile` templates from
+`_systemd_default_target`, a *different* variable) — safe under the
+Ansible 2.19 self-default recursion footgun documented in
+`CLAUDE/AgentNotes.md`; that footgun is specifically about a variable
+defaulting to itself (`x: "{{ x | default(...) }}"`), which this is not.
+
+### 2.2 Empirical verification this round
+
+Built a throwaway fixture (`inv/group_vars/desktop.yml` with a marker-file
+side-effect wired into the `pipe` lookup, `playbooks/main.yml` with one
+general play and one `when: provisioning_profile != 'server'`-gated play,
+`hosts.yml` matching this repo's real shape) and tested against
+`ansible-playbook [core 2.19.11]`, the same version `AUDIT-round-1.md`/
+`AUDIT-round-2.md` used:
+
+| Command                                    | Marker created (lookup ran)?                      | Gnome task                                                                                          |
+| ------------------------------------------ | ------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `--syntax-check`                           | No                                                | n/a (parse-only)                                                                                    |
+| `--list-tasks`                             | No                                                | listed under every profile (doesn't evaluate `when:` — matches `prototype-when-import.md` Result 2) |
+| real run, no `-e`                          | **Yes**                                           | ran (auto-detected `graphical.target` → `desktop`)                                                  |
+| real run, `-e provisioning_profile=server` | **No** (extra-vars precedence skips the template) | `skipping: [localhost]`                                                                             |
+
+This directly confirms: (a) the detection layer is inert during both
+CCY-container-safe static checks this repo already relies on
+(`--syntax-check` for `qa-ansible-syntax.bash`, `--list-tasks` for docs/human
+inspection), (b) it correctly self-configures on a real run with zero flags,
+and (c) the override is not just "correct" but *free* — it never shells out
+to `systemctl` at all when a human or CI already knows the answer.
+
+### 2.3 Fail-fast guard against a typo'd override
+
+Per this repo's #1 rule (`CLAUDE.md` "Fail Fast — HARD RULE"), a mistyped
+`-e provisioning_profile=srever` should not silently degrade into
+desktop-like behaviour (every `gnome`-bucket play would run, since
+`!= 'server'` is true for any value that isn't literally `'server'`) — it
+should fail loudly. Add a third assertion to
+`playbooks/imports/play-AA-preflight-sanity.yml` (which already exists
+purely to assert Ansible/Fedora version — the natural, zero-new-file home):
+
+**Before** (existing file, full content):
+
+```yaml
+#!/usr/bin/env ansible-playbook
+---
+- hosts: desktop
+  name: Preflight Sanity
+  become: true
+  vars:
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+  pre_tasks:
+    - name: Load Fedora version config
+      ansible.builtin.include_vars:
+        file: "{{ root_dir }}/vars/fedora-version.yml"
+  tasks:
+    - name: Check Ansible
+      ansible.builtin.assert:
+        that:
+          - ansible_version.full is version('2.20', '>=')
+        fail_msg: |
+          This project requires Ansible 2.20 or greater
+
+    - name: Check Fedora
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['os_family'] == 'RedHat'
+          - ansible_facts['distribution'] == 'Fedora'
+          - ansible_facts['distribution_major_version'] | int == fedora_version | int
+        fail_msg: "This project expects Fedora {{ fedora_version }}"
+```
+
+**After** (add a third `assert` task):
+
+```yaml
+    - name: Check Fedora
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['os_family'] == 'RedHat'
+          - ansible_facts['distribution'] == 'Fedora'
+          - ansible_facts['distribution_major_version'] | int == fedora_version | int
+        fail_msg: "This project expects Fedora {{ fedora_version }}"
+
+    - name: Check provisioning_profile is a recognised value
+      ansible.builtin.assert:
+        that:
+          - provisioning_profile in ['desktop', 'server']
+        fail_msg: |
+          provisioning_profile={{ provisioning_profile }} is not recognised.
+          Valid values: desktop, server.
+          Auto-detected from `systemctl get-default`
+          (see environment/localhost/group_vars/desktop.yml) or overridden
+          via -e provisioning_profile=desktop|server.
+```
+
+This runs before any `import_playbook: ... when:` is evaluated
+(`play-AA-preflight-sanity.yml` is the first import in `playbook-main.yml`),
+so a typo'd override is caught at the very start of the run, not partway
+through with some gnome plays already applied.
+
+---
+
+## 3. Selection for core plays — `when:` on `import_playbook:`
+
+### 3.1 The three canonical forms
+
+```yaml
+# general — no gate, always imported
+- import_playbook: imports/play-docker.yml
+
+# gnome — imported unless the profile is server
+- import_playbook: imports/play-firefox.yml
+  when: provisioning_profile != 'server'
+
+# server (bucket exists, currently unused — see §1.1's tally) — imported ONLY when the profile is server
+- import_playbook: imports/play-some-future-hardening-play.yml
+  when: provisioning_profile == 'server'
+```
+
+`when:` on `import_playbook` is a documented, supported Ansible feature: the
+condition is merged into every task of every play the import brings in and
+evaluated per-task at actual run time (not at parse time, so no facts-before-
+parsing chicken-and-egg problem) — this is exactly what
+`prototype-when-import.md` verified and this round's own test (§2.2)
+re-confirmed against the real inventory shape.
+
+**Deliberately no `| default('desktop')` in the condition.** Since
+`group_vars/desktop.yml` (§2) unconditionally defines `provisioning_profile`
+before any play runs, the variable is never undefined when a core import's
+`when:` evaluates — adding a defensive default would be dead code. This also
+keeps the condition string exactly as simple as PLAN.md Decision 4 asked
+("avoid colons/quotes/complex Jinja that trips the 2.19 splitter" —
+`provisioning_profile != 'server'` has no colon, one pair of single quotes,
+no filters, no `{{ }}` — about as simple as a Jinja boolean gets). Confirmed
+by this round's `--syntax-check` test against the real-shaped fixture: clean
+parse, no splitter complaints.
+
+**Grammar rule, enforced by Check 4 (§4.1)**: `when:` must be the line
+**immediately following** its `import_playbook:` line, at exactly 2-space
+indent (sibling of `import_playbook:` within the same list item) — no
+comment or blank line between them. Ordering-rationale comments (like the
+existing LXC/claude-yolo notes in `playbook-main.yml`) go **before** the
+`- import_playbook:` line they relate to, never between an import and its
+`when:`. This matches how the file is already written today — the existing
+comment blocks sit between two *different* imports, never inside one.
+
+### 3.2 Exact `playbook-main.yml` diff
+
+Full file, "after" state (comments preserved verbatim from the current file;
+only the 10 `gnome`-bucket imports gain a `when:` line — the shebang and the
+top "Everything imported here runs by default" note are unchanged):
+
+```yaml
+#!/usr/bin/env ansible-playbook
+---
+# NOTE: Everything imported here runs by default and is NOT optional.
+# Do not store playbooks imported here under imports/optional/ — move them to imports/.
+- import_playbook: imports/play-AA-preflight-sanity.yml
+- import_playbook: imports/play-AB-dnf-upgrade.yml
+- import_playbook: imports/play-basic-configs.yml
+- import_playbook: imports/play-prevent-ssh-suspend.yml
+- import_playbook: imports/play-network-wait-tuning.yml
+- import_playbook: imports/play-mask-intel-lpmd.yml
+- import_playbook: imports/play-systemd-user-tweaks.yml
+- import_playbook: imports/play-nvm-install.yml
+- import_playbook: imports/play-git-configure-and-tools.yml
+- import_playbook: imports/play-git-hooks-security.yml
+- import_playbook: imports/play-firefox.yml
+  when: provisioning_profile != 'server'
+- import_playbook: imports/play-github-cli-multi.yml
+- import_playbook: imports/play-ms-fonts.yml
+  when: provisioning_profile != 'server'
+- import_playbook: imports/play-rpm-fusion.yml
+- import_playbook: imports/play-browsers.yml
+  when: provisioning_profile != 'server'
+- import_playbook: imports/play-toolbox-install.yml
+  when: provisioning_profile != 'server'
+- import_playbook: imports/play-docker.yml
+# LXC runs AFTER Docker so DOCKER-USER chain exists when LXC reconciles
+# iptables for outbound connectivity (Docker coexistence). See the
+# "Reconcile iptables" block in play-lxc-install-config.yml.
+#
+# LXC does NOT need to come after Podman — play-podman.yml installs rootless
+# Podman (slirp4netns/pasta networking), which does not touch host iptables.
+- import_playbook: imports/play-lxc-install-config.yml
+- import_playbook: imports/play-podman.yml
+- import_playbook: imports/play-python.yml
+# claude-yolo (ccy) MUST run before claude-code: play-claude-code's cc
+# wrapper sources /var/local/claude-yolo/lib/{common-pure,token-management}.bash
+# at runtime, and play-claude-code asserts the lib is present before
+# deploying the wrapper. See CLAUDE/Plan/00048-cc-token-source-parity.
+- import_playbook: imports/play-claude-yolo.yml
+- import_playbook: imports/play-claude-code.yml
+- import_playbook: imports/play-comms.yml
+  when: provisioning_profile != 'server'
+- import_playbook: imports/play-gnome-shell.yml
+  when: provisioning_profile != 'server'
+- import_playbook: imports/play-gnome-shell-extensions.yml
+  when: provisioning_profile != 'server'
+- import_playbook: imports/play-markless.yml
+- import_playbook: imports/play-terminal-emulators.yml
+  when: provisioning_profile != 'server'
+- import_playbook: imports/play-vscode.yml
+  when: provisioning_profile != 'server'
+- import_playbook: imports/play-vpn.yml
+- import_playbook: imports/play-gsettings.yml
+  when: provisioning_profile != 'server'
+- import_playbook: imports/play-ZZ-repo-cleanup.yml
+```
+
+Empirically re-validated this round: fed this **exact** text (including the
+real comment blocks, reconstructed verbatim) through both the Check 4 parser
+prototype (§4.1 — 31/31 imports correctly classified, 0 errors) and
+`ansible-playbook --syntax-check` equivalent structure — no parser
+complaints, no misattributed `when:` (the LXC/claude-yolo comment blocks
+correctly do **not** get treated as belonging to the gnome import that
+precedes them).
+
+---
+
+## 4. Where scope lives for optional plays + the QA gate (Check 4 rewrite)
+
+### 4.1 Core plays: the `when:` gate **is** the declaration — Check 4 parses `playbook-main.yml`
+
+There is no separate "declare scope" step for core plays distinct from
+§3 — the import-site `when:` (or its absence) **is** the classification.
+Check 4 validates that every one of the 31 `import_playbook:` lines in
+`playbook-main.yml` carries exactly one **recognised** shape: no `when:`
+(general), `when: provisioning_profile != 'server'` (gnome), or
+`when: provisioning_profile == 'server'` (server). Anything else — a typo, an
+unrecognised condition, a `when:` using `| default(...)` or double quotes or
+any other variant — is a hard error. This intentionally does **not** attempt
+to be a general Jinja-expression evaluator; like every other check in
+`qa-ansible.bash`, it is a format-sensitive parser matched to one documented,
+canonical string (see the grammar rule in §3.1).
+
+Insert as Check 4 in `scripts/qa-ansible.bash`, in the same slot round 2 used
+(between Check 3's closing `done < "$TMP_MATCHES"` and the "Build JSON
+output" section). **Zero changes to `qa-all.bash`** — same reasoning as
+round 2: this reuses the JSON blob `qa-ansible.bash` already emits and the
+merge `qa-all.bash` already performs at `.checks.ansible`.
+
+```bash
+# ---------------------------------------------------------------------------
+# Check 4: provisioning-profile scope declaration (Plan 00061, round 3)
+# ---------------------------------------------------------------------------
+# CORE plays (imported from playbook-main.yml): the scope declaration IS the
+# import-site `when:` gate, not a tag inside the play file. Every
+# `- import_playbook: ...` line in playbook-main.yml must carry EXACTLY ONE
+# recognised shape:
+#   (no `when:` line)                        -> general
+#   when: provisioning_profile != 'server'    -> gnome   (exact string match)
+#   when: provisioning_profile == 'server'    -> server  (exact string match)
+# `when:` must be the line IMMEDIATELY following its import (2-space indent,
+# sibling of import_playbook: in the same list item) — no comment or blank
+# line between them (ordering-rationale comments go BEFORE the import line;
+# this matches how playbook-main.yml is already written today).
+#
+# OPTIONAL plays (never imported from playbook-main.yml, invoked by path)
+# have no import site for a `when:` gate to attach to, so they carry an
+# informational play-level `scope: general|gnome|server` VAR inside their
+# `vars:` block instead (§4.2 of PROPOSAL.md). A bare top-level `scope:` key
+# (sibling of hosts:/name:) is NOT valid Ansible — confirmed empirically,
+# `ansible-playbook` rejects it with "'scope' is not a valid attribute for a
+# Play" — so this MUST be a vars: entry, never a play-level key.
+#
+# Both loops below share the same multi-play-file guard: a file with more
+# than one "- hosts:" play (repo's only current instance: the OPTIONAL play
+# play-virtualbox-windows.yml) is REJECTED outright — this check cannot
+# safely vouch for a second, unexamined play hiding behind the first play's
+# declaration.
+CORE_MAIN="$REPO_ROOT/playbooks/playbook-main.yml"
+SCOPE_VIOLATIONS=()
+
+# --- 4a: core plays — parse playbook-main.yml's import + when: lines -------
+while IFS='|' read -r import_path cond; do
+    [[ -z "$import_path" ]] && continue
+    case "$cond" in
+        UNGUARDED) : ;;                                    # general — OK
+        "provisioning_profile != 'server'") : ;;            # gnome — OK
+        "provisioning_profile == 'server'") : ;;            # server — OK
+        *)
+            echo "  ERROR (scope): playbooks/playbook-main.yml — $import_path has an unrecognised when: condition: $cond"
+            SCOPE_VIOLATIONS+=("playbooks/playbook-main.yml:$import_path (invalid when: $cond)")
+            ERRORS=$((ERRORS + 1))
+            ;;
+    esac
+done < <(awk '
+    /^- import_playbook: / {
+        if (pending != "") { print pending "|UNGUARDED" }
+        pending = $0
+        sub(/^- import_playbook: /, "", pending)
+        next
+    }
+    /^  when: / && pending != "" {
+        cond = $0
+        sub(/^  when: /, "", cond)
+        print pending "|" cond
+        pending = ""
+        next
+    }
+    { if (pending != "") { print pending "|UNGUARDED"; pending = "" } }
+    END { if (pending != "") print pending "|UNGUARDED" }
+' "$CORE_MAIN")
+
+# --- 4b: optional plays — parse each play's vars.scope -----------------------
+# Discovery mirrors Check 2's existing "is this a playbook" definition
+# (top-level "- hosts:" line present); archived plays are exempt for the same
+# reason round 2 established (a taxonomy invented after a play was shelved
+# does not apply to it retroactively).
+while IFS= read -r -d '' yml_file; do
+    [[ "$yml_file" == "$CORE_MAIN" ]] && continue
+    grep -qE '^[[:space:]]*-[[:space:]]+hosts:' "$yml_file" 2>"$TMP_GREP_ERR" || continue
+    [[ "$yml_file" == */optional/archived/* ]] && continue
+
+    rel_file="${yml_file#"$REPO_ROOT"/}"
+
+    hosts_block_count=$(grep -cE '^[[:space:]]*-[[:space:]]+hosts:' "$yml_file" || true)
+    if [[ $hosts_block_count -gt 1 ]]; then
+        echo "  ERROR (scope): $rel_file — file contains $hosts_block_count separate '- hosts:' plays; this gate cannot safely vouch for a multi-play file. Split it (one play per file, matching every other playbook in the repo), then give each its own vars.scope."
+        SCOPE_VIOLATIONS+=("$rel_file (multi-play file: $hosts_block_count plays in one file, not supported)")
+        ERRORS=$((ERRORS + 1))
+        continue
+    fi
+
+    # Scan the WHOLE play-level vars: block (2-space "vars:" through the next
+    # 2-space top-level key) for a "scope:" entry, wherever it sits among
+    # other vars — not just as the first key. A task's OWN vars: block (task
+    # attributes sit at 6-space indent) never matches the 2-space anchor, so
+    # it can't be confused with the play-level one.
+    scope_vals=$(awk '
+        /^  vars:[[:space:]]*$/ { in_vars=1; next }
+        in_vars && /^    scope:[[:space:]]*/ {
+            val = $0
+            sub(/^    scope:[[:space:]]*/, "", val)
+            sub(/[[:space:]]*#.*$/, "", val)
+            sub(/\r$/, "", val)
+            if (val != "") { print val }
+            next
+        }
+        in_vars && /^[^[:space:]]/ { in_vars = 0 }
+        in_vars && /^  [^ ]/ { in_vars = 0 }
+    ' "$yml_file")
+
+    n=$(printf '%s\n' "$scope_vals" | grep -c . || true)
+    if [[ $n -eq 0 ]]; then
+        echo "  ERROR (scope): $rel_file — missing vars.scope (need exactly one of general|gnome|server)"
+        SCOPE_VIOLATIONS+=("$rel_file (missing vars.scope)")
+        ERRORS=$((ERRORS + 1))
+    elif [[ $n -gt 1 ]]; then
+        echo "  ERROR (scope): $rel_file — multiple vars.scope entries declared (exactly one required)"
+        SCOPE_VIOLATIONS+=("$rel_file (multiple vars.scope entries)")
+        ERRORS=$((ERRORS + 1))
+    else
+        case "$scope_vals" in
+            general|gnome|server) : ;;
+            *)
+                echo "  ERROR (scope): $rel_file — invalid vars.scope value: $scope_vals (must be exactly one of general|gnome|server)"
+                SCOPE_VIOLATIONS+=("$rel_file (invalid vars.scope: $scope_vals)")
+                ERRORS=$((ERRORS + 1))
+                ;;
+        esac
+    fi
+done < <(find "$REPO_ROOT/playbooks/" -type f \( -name '*.yml' -o -name '*.yaml' \) -print0)
+```
+
+**`set -e` safety, by construction, not by patch.** Round 1's blocker was a
+`grep -c` (returns "0" on stdout but exits 1) used directly inside a
+`var=$(...)` assignment under `set -euo pipefail`. This design's core-import
+loop (4a) never calls `grep -c` at all — it's an `awk` state machine feeding
+a `case` statement, and `awk` exits 0 on a normal empty match unless the
+script explicitly calls `exit N` (it never does here). The optional-play loop
+(4b) *does* use `grep -c` (`n=$(... | grep -c . || true)`), but it inherits
+round 2's fix directly: `|| true` guards it from day one, not as an
+after-the-fact patch. Both were tested this round against fixtures
+reproducing every edge case (valid/invalid/missing/multiple/multi-play-file,
+plus a zero-import-lines file) under `set -euo pipefail` — zero crashes, see
+the Revision Log.
+
+**JSON-array-building, final `jq -n` call, terse summary, `TOTAL` handling,
+and the "zero `qa-all.bash` edits" confirmation are unchanged from round 2**
+— reuse those exact blocks verbatim (they operate on `$SCOPE_VIOLATIONS` and
+`$ERRORS`, both populated identically in shape by this new Check 4, just from
+a different source of violations). See round-2 `PROPOSAL.md` §4 (in this
+plan folder's git history) for the verbatim `sc_json_array` / `jq -n` /
+terse-summary text — not re-quoted here since not one character of it
+changes.
+
+### 4.2 Optional plays: `vars: { scope: ... }`, informational only
+
+Optional plays are never imported from `playbook-main.yml` — there is no
+import site for a `when:` gate to attach to. Their classification exists
+purely for **QA-completeness and documentation** (so the gate can assert
+"every playbook in this repo has been consciously classified," and so
+`docs/` can tell a user which optional plays are GUI-only before they run one
+on a headless box by hand). It does **not** gate anything by itself.
+
+**Exact form** — a `vars:` entry, never a bare top-level key (confirmed this
+round: a top-level `scope:` sibling of `hosts:`/`name:` is a hard Ansible
+parse error, `'scope' is not a valid attribute for a Play`):
 
 ```yaml
 - hosts: desktop
-  name: <Play Name>
-  become: <true|false>
-  tags:
-    - scope-general
+  name: Communication Tools
+  become: false
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: gnome   # general | gnome | server — informational for QA + docs only; this play is opt-in (invoked by path), never auto-gated by provisioning_profile
   tasks:
     ...
 ```
 
-**Grammar rules** (also going into `CLAUDE/AnsibleStyle.md`, §5):
-
-- `tags:` is a **play-level key**, sibling of `hosts:`/`name:`/`become:`/`vars:`,
-  at **exactly 2-space indent**.
-- Its value is a **block list**, each item at **exactly 4-space indent**
-  starting with `- `. Inline array form (`tags: [scope-general]`) is valid
-  YAML and valid Ansible, but is **not recognised by the QA gate's parser**
-  (§4) — a deliberate, documented limitation (§8), not a bug. Always use the
-  block-list form shown above.
-- Insert it after whichever of `become:`/`name:` the play already has (some
-  plays, e.g. `play-gsettings.yml` and `play-toolbox-install.yml`, have
-  neither `become:` nor `vars:` at play level — insert right after `name:` in
-  that case). Position among the play's other top-level keys does not matter
-  to Ansible or to the QA gate's parser — only the 2-space indent and the
-  block-list shape matter.
-- Exactly **one** of `scope-gnome` | `scope-general` | `scope-server` per
-  play. Other, unrelated play-level tags may coexist in the same list (none
-  of the 31 core plays currently have any, so this doesn't arise yet, but the
-  QA gate tolerates it — see §4).
-
-Every row in §1's tables gets this block with its listed scope value. That is
-**28 of the 31 core plays** verbatim (no other change to the file). The
-remaining 3 need the edits in §3.
+**A useful emergent property**: because `provisioning_profile` lives in
+`group_vars` (inventory-scoped, not attached to `playbook-main.yml`
+specifically), it is automatically available to **any** playbook run against
+this inventory — including an optional play invoked directly by path. So a
+mixed optional play (e.g. `play-container-watch.yml`, §5.4) can use the exact
+same task-level `when: provisioning_profile != 'server'` pattern as a core
+mixed play, and it will correctly auto-skip its GNOME-only tasks even though
+the play itself was never imported through a gated `import_playbook:` line.
+The play-level `scope:` var stays purely informational; the task-level
+`when:` (where a play needs one) does the actual work, exactly like §5.
 
 ---
 
-## 3. The exact mixed-play edits
+## 5. The exact mixed-play edits (`when:` replaces task-level `tags:`)
 
-### 3.1 `playbooks/imports/play-basic-configs.yml` — task-level override
+### 5.1 `playbooks/imports/play-basic-configs.yml`
 
-**Before** (`playbooks/imports/play-basic-configs.yml`, existing task, no line
-number shift for anything else in the file):
+**Before** (existing task, unchanged elsewhere in the file):
 
 ```yaml
     - name: Deploy USB audio fix script
@@ -283,8 +723,7 @@ number shift for anything else in the file):
         - /home/{{ user_login }}
 ```
 
-**After** (play-level `tags: [scope-general]` added near the top per §2, plus
-this one task gets a task-level override):
+**After:**
 
 ```yaml
     - name: Deploy USB audio fix script
@@ -297,15 +736,14 @@ this one task gets a task-level override):
       loop:
         - /root
         - /home/{{ user_login }}
-      tags:
-        - scope-gnome
+      when: provisioning_profile != 'server'
 ```
 
-No behaviour change on desktop (the task still runs, since `scope-gnome` is
-not skipped there); on a server run (`--skip-tags scope-gnome`) this one task
-is dropped and every other task in the play still runs.
+`play-basic-configs.yml`'s import in `playbook-main.yml` stays **unguarded**
+(§3.2 — it's a `general`-bucket play); this one task carries its own gate
+directly, independent of the play's import-site status.
 
-### 3.2 `playbooks/imports/play-prevent-ssh-suspend.yml` — task-level override
+### 5.2 `playbooks/imports/play-prevent-ssh-suspend.yml`
 
 **Before:**
 
@@ -341,27 +779,16 @@ is dropped and every other task in the play still runs.
       environment:
         DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ ansible_facts.getent_passwd[user_login][1] }}/bus"
       changed_when: false
-      tags:
-        - scope-gnome
+      when: provisioning_profile != 'server'
 ```
 
-**This is not merely a tidiness fix — it fixes a real latent bug.** Without
-this tag, running the whole play (or the whole `playbook-main.yml`) against a
-headless server would hit this task, `gsettings` would fail with "No such
-schema `org.gnome.settings-daemon.plugins.power`" (the schema is registered
-by `gnome-settings-daemon`, not installed on a headless box), and — because
-this task has no `failed_when: false` — the **entire play would abort**,
-taking the still-general `ssh-suspend-guard` deployment down with it if it
-runs later in task order (it doesn't, here, but the principle generalises:
-an unscoped GNOME task inside a general play is a ticking failure, not just
-wasted work). Play-level scope alone (§1) does not catch this — only the
-task-level override does.
+Still fixes the same real latent bug (§1.2): without this gate, a headless
+run would hit `gsettings`, get "No such schema" (no `gnome-settings-daemon`
+on a server), and — with no `failed_when: false` on the task and this repo's
+`ansible.cfg` setting `any_errors_fatal = true` — abort the **entire run**,
+not just this play.
 
-### 3.3 `playbooks/imports/play-vpn.yml` — task split (not just a tag add)
-
-The existing single task bundles a GNOME-only package with two general ones,
-so the fix is a genuine **split into two tasks**, not just appending `tags:`
-to the existing one:
+### 5.3 `playbooks/imports/play-vpn.yml` — task split, then gate the split-off task
 
 **Before:**
 
@@ -390,51 +817,40 @@ to the existing one:
         name:
           - NetworkManager-openvpn-gnome
         state: present
-      tags:
-        - scope-gnome
+      when: provisioning_profile != 'server'
 ```
 
-Plus the play-level `tags: [scope-general]` block per §2. On a server run,
-only the applet package drops; the WireGuard/OpenVPN CLI tools and the
-firewalld rule later in the file still install.
+Same split as round 2 (still required — the existing task bundles a
+GNOME-only package with two general ones); only the gate mechanism on the
+split-off task changes from `tags: [scope-gnome]` to `when:`.
 
-### 3.4 `playbooks/imports/optional/common/play-container-watch.yml` — exact interim task-tag diff (8 tasks, corrected from round 1)
+### 5.4 `playbooks/imports/optional/common/play-container-watch.yml` — 8-task diff, list-form `when:` where a `register`-dependent condition already exists
 
-`play-container-watch.yml` is the one instance found (core + fast-pass
-optional sweep combined) where the graft rule's file-split branch is the
-architecturally *right* fix long-term: the play deploys (a) a general-purpose
-container-watchdog script + systemd timer, entirely CLI/general, and (b) a
-GNOME Shell panel extension as a comparably-sized, non-trivial block of tasks
-— not a single package or a single task. That split (e.g.
-`play-container-watch.yml` watchdog-only + `play-container-watch-gnome-panel.yml`
-extension-only) is **out of scope for this plan's Phase 3 implementation
-checklist** — it lives in the optional tree and PLAN.md's non-goals don't
-require restructuring it, only tagging it. Per §7 step 4, this pass applies
-the **interim task-tag approach** instead: play-level `tags: [scope-general]`
-plus a task-level `scope-gnome` override on every GNOME-shaped task. Below is
-the exact diff for that interim, so nothing is left to prose-derived
-guesswork.
+Same analysis as round 2 (§1.3, §8): the play mixes a general-purpose
+watchdog (CLI/systemd, `general`) with a GNOME Shell panel extension block
+(comparably sized, not a trivial exception) — the file-split remains the
+architecturally right long-term fix and is still deferred (PLAN.md's
+non-goals don't require restructuring the optional tree, only classifying
+it). This pass applies the interim: play-level `vars: { scope: general }`
+(§4.2) plus a `when:` gate on each of the same 8 GNOME-shaped tasks round 2
+identified (including the 8th, `Container-watch extension reload complete`,
+that the round-1 audit's own enumeration of 7 missed — see round-2
+`PROPOSAL.md` §3.4 for the full derivation).
 
-**Round-2 correction**: the round-1 audit enumerated 7 GNOME-shaped tasks
-(lines 88, 96, 142, 151, 161, 166, 180). Re-deriving the diff from the real
-file surfaced an **8th task the audit's own list missed** — `Container-watch extension reload complete` (line 175, a `debug:` task with `when: enable_result.rc == 0`). This matters for more than completeness: `enable_result`
-is `register`ed only by the "Enable container-watch extension" task (line
-166), which the diff below tags `scope-gnome`. If line 175 were left
-untagged while line 166 is skipped on a server run, evaluating `when: enable_result.rc == 0` would reference a variable that was never registered
-— under this repo's `ansible.cfg` (which removed the old opt-out and now
-always errors on undefined variables), that is a **hard Ansible error**, not
-a silent no-op. This is the general hazard behind any task-level override:
-**before tagging a task, check whether any other task in the same play
-consumes a variable it `register`s via `when:` or templating — if so, the
-consumer needs the identical override, or the pair belongs in a file-split
-instead of a task-tag.** None of §3.1–§3.3's three core-play overrides have
-this hazard (each is a self-contained, non-`register`ing task with no
-downstream consumer) — it is specific to this file's longer register/when
-chain, which is itself further evidence the file-split is the more robust
-long-term fix here.
+**New wrinkle for the `when:` mechanism, verified this round**: 4 of the 8
+tasks already have their own `when:` (a `register`-dependent condition from
+an earlier task in the same chain — `extension_enabled.rc == 0`,
+`enable_result.rc == 0`, `enable_result.rc != 0`). Ansible's list-form
+`when:` is an **AND with short-circuit** — tested this round with a
+register/consumer pair gated the same way: when the first list item is
+false, the second is never evaluated, so referencing an attribute of a
+`register`ed var that a *skipped* producer task never set does **not** raise
+an undefined-variable error. This is exactly the shape needed here: put the
+profile gate **first** in the list, so on a server the whole chain
+short-circuits closed without ever touching the (unset) `register`ed
+variable.
 
-**Exact diff** — play-level block (§2) plus `tags: [scope-gnome]` appended to
-each of these 8 tasks, verbatim, no other change to any task body:
+**Exact diff** — play-level `vars: { scope: general }` (§4.2) plus, per task:
 
 ```yaml
     - name: Ensure extension destination directory exists
@@ -444,8 +860,7 @@ each of these 8 tasks, verbatim, no other change to any task body:
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: "0755"
-      tags:
-        - scope-gnome
+      when: provisioning_profile != 'server'
 
     - name: Deploy container-watch GNOME extension
       ansible.builtin.copy:
@@ -455,11 +870,8 @@ each of these 8 tasks, verbatim, no other change to any task body:
         group: "{{ user_login }}"
         mode: "0644"
         directory_mode: "0755"
-      tags:
-        - scope-gnome
-```
+      when: provisioning_profile != 'server'
 
-```yaml
     - name: Check if container-watch extension is currently enabled
       become: true
       become_user: "{{ user_login }}"
@@ -468,27 +880,26 @@ each of these 8 tasks, verbatim, no other change to any task body:
       register: extension_enabled
       changed_when: false
       failed_when: false  # FAIL-FAST-OK: probe — extension may not be enabled yet
-      tags:
-        - scope-gnome
+      when: provisioning_profile != 'server'
 
     - name: Disable container-watch extension to force reload
       become: true
       become_user: "{{ user_login }}"
       ansible.builtin.command:
         cmd: gnome-extensions disable {{ extension_name }}
-      when: extension_enabled.rc == 0
+      when:
+        - provisioning_profile != 'server'
+        - extension_enabled.rc == 0
       register: disable_result
       changed_when: disable_result.rc == 0
       failed_when: false  # FAIL-FAST-OK: disable may fail if GNOME session is unavailable
-      tags:
-        - scope-gnome
 
     - name: Wait for container-watch extension to unload
       ansible.builtin.pause:
         seconds: 2
-      when: extension_enabled.rc == 0
-      tags:
-        - scope-gnome
+      when:
+        - provisioning_profile != 'server'
+        - extension_enabled.rc == 0
 
     - name: Enable container-watch extension
       become: true
@@ -498,462 +909,233 @@ each of these 8 tasks, verbatim, no other change to any task body:
       register: enable_result
       changed_when: "'is now enabled' in enable_result.stderr or enable_result.rc == 0"
       failed_when: false  # FAIL-FAST-OK: enable may fail if GNOME session is unavailable
-      tags:
-        - scope-gnome
+      when: provisioning_profile != 'server'
 
     - name: Container-watch extension reload complete
       ansible.builtin.debug:
         msg: "Container-watch extension reloaded successfully"
-      when: enable_result.rc == 0
-      tags:
-        - scope-gnome
+      when:
+        - provisioning_profile != 'server'
+        - enable_result.rc == 0
 
     - name: Container-watch extension enable deferred
       ansible.builtin.debug:
         msg: "Container-watch extension will be enabled on next GNOME session start (no active session detected)"
-      when: enable_result.rc != 0
-      tags:
-        - scope-gnome
+      when:
+        - provisioning_profile != 'server'
+        - enable_result.rc != 0
 ```
 
-All other tasks in the file (the helper-library deploy, the CLI wrapper
-deploy, the systemd `--user` timer deploy/enable) are untouched — they are
-`scope-general` by virtue of the play-level tag alone, exactly like the 28
-plain-addition plays in §2.
+The 4 tasks that had no pre-existing `when:` (directory/deploy/probe/enable)
+get a plain scalar `when: provisioning_profile != 'server'`. The 4 that
+already depended on a `register`ed var get a **list**, profile gate first —
+NOT a replacement of the existing condition, an addition to it. Getting this
+wrong (e.g. scalar-overwriting an existing `when:` instead of listing both)
+would silently drop the original guard; getting the *order* wrong (register
+condition first) would not short-circuit correctly and could still error.
+Both were verified against the real task bodies, not re-derived from memory.
 
 ---
 
-## 4. The QA check — Check 4 in `scripts/qa-ansible.bash`
+## 6. Canonical commands + documentation
 
-Insert as a new section between the existing "Check 3: self-default vars"
-block and the "Build JSON output" section (i.e. after the line
-`done < "$TMP_MATCHES"` that closes Check 3, before the `# Encode FF_VIOLATIONS as a JSON array` comment). **Zero changes to `qa-all.bash`** —
-this reuses the JSON blob `qa-ansible.bash` already emits and the merge
-`qa-all.bash` already performs at `.checks.ansible`.
+**Desktop — the zero-flag default, now genuinely zero-flag** (this is the
+whole point of the pivot):
 
 ```bash
-# ---------------------------------------------------------------------------
-# Check 4: play-level scope declaration (Plan 00061 — headless server support)
-# ---------------------------------------------------------------------------
-# Every PLAYBOOK (any file with a top-level "- hosts:" line, same definition
-# as Check 2) must declare EXACTLY ONE of scope-gnome / scope-general /
-# scope-server as a PLAY-LEVEL tag — a "tags:" key at EXACTLY 2-space indent,
-# sibling of hosts:/name:/become:, holding a block list of 4-space "- " items
-# (see CLAUDE/AnsibleStyle.md "Scope Tags"). A task-level tag at deeper
-# indentation (e.g. a trivial scope-gnome override inside an otherwise
-# scope-general play — see play-vpn.yml) is INVISIBLE to this check by
-# design: it enforces the play's own declared scope, not every scope-shaped
-# tag mentioned anywhere in the file.
-#
-# imports/optional/archived/ is exempted: those plays are shelved and never
-# imported by anything, so classifying them against a taxonomy invented after
-# they were archived is not useful (Check 2's hygiene check does NOT exempt
-# archived plays — this is a deliberate divergence: shebang/exec-bit hygiene
-# is a mechanical property any tracked file should have; scope is a semantic
-# "should this run in profile X" classification that doesn't apply to a file
-# nobody runs). imports/optional/untested/ is NOT exempted — an "untested"
-# play is still importable and runnable by a user.
-#
-# Inline array form (tags: [scope-general]) is NOT recognised by this parser
-# — only block-list form. This is a stated, accepted limitation (see
-# CLAUDE/AnsibleStyle.md), consistent with this script's existing grep-based
-# checks all being format-sensitive to this repo's documented conventions
-# rather than general-purpose YAML parsers (helpers/CLAUDE.md keeps helpers
-# stdlib-only with no PyYAML available to lean on).
-#
-# A file with more than one "- hosts:" play (repo's only current instance:
-# play-virtualbox-windows.yml) is REJECTED outright, not partially validated
-# — this check operates at file granularity and cannot safely vouch for a
-# second, unexamined play hiding behind the first play's tag. See the
-# hosts_block_count guard below.
-SCOPE_VALID_RE='scope-gnome|scope-general|scope-server'
-SCOPE_VIOLATIONS=()
-
-while IFS= read -r -d '' yml_file; do
-    grep -qE '^[[:space:]]*-[[:space:]]+hosts:' "$yml_file" 2>"$TMP_GREP_ERR" || continue
-    [[ "$yml_file" == */optional/archived/* ]] && continue
-
-    rel_file="${yml_file#"$REPO_ROOT"/}"
-
-    # Multi-play-file guard: the awk extraction below only finds the FIRST
-    # "  tags:" block in the file, so a file with more than one "- hosts:"
-    # play (the repo's only current instance is
-    # playbooks/imports/optional/experimental/play-virtualbox-windows.yml —
-    # "Install Virtualbox" + "Setup Windows VMs") would otherwise let a
-    # tagged first play silently vouch for an untagged second play, which
-    # would then run on every profile regardless of --skip-tags. Detect this
-    # explicitly and fail loudly rather than validate only the first play.
-    hosts_block_count=$(grep -cE '^[[:space:]]*-[[:space:]]+hosts:' "$yml_file" || true)
-    if [[ $hosts_block_count -gt 1 ]]; then
-        echo "  ERROR (scope): $rel_file — file contains $hosts_block_count separate '- hosts:' plays; this gate validates one scope tag per FILE and cannot safely vouch for a multi-play file. Give each play its own play-level scope tag AND split the file (one play per file, matching every other playbook in the repo), or the gate will keep rejecting it."
-        SCOPE_VIOLATIONS+=("$rel_file (multi-play file: $hosts_block_count plays in one file, not supported)")
-        ERRORS=$((ERRORS + 1))
-        continue
-    fi
-
-    # Extract just the play-level tags: block's item VALUES (one per line,
-    # "- " prefix stripped) — the FIRST "  tags:" line at exactly 2-space
-    # indent, then every immediately-following 4-space "- " list item,
-    # stopping at the first line that breaks that shape.
-    play_tags=$(awk '
-        /^  tags:[[:space:]]*$/ { in_block=1; next }
-        in_block && /^    - [[:space:]]*[^[:space:]]/ {
-            sub(/^    - [[:space:]]*/, "")
-            sub(/[[:space:]]*#.*$/, "")   # strip a trailing "# why" comment
-            sub(/\r$/, "")                # defensive: strip a stray CRLF remnant
-            print
-            next
-        }
-        in_block { exit }
-    ' "$yml_file")
-
-    # `grep -c` exits 1 (not 0) when it finds zero matches, even though it
-    # still prints "0" to stdout — under this script's `set -euo pipefail`,
-    # an unguarded `var=$(... | grep -c ...)` would abort the WHOLE script on
-    # exactly the "no scope tag" case this check exists to catch (see Checks
-    # 1 and 3 above, which guard the same hazard with `|| rc=$?`). `|| true`
-    # here preserves the correct count while preventing the abort.
-    valid_count=$(printf '%s\n' "$play_tags" | grep -xcE "$SCOPE_VALID_RE" || true)
-    scope_like_count=$(printf '%s\n' "$play_tags" | grep -xcE 'scope-[A-Za-z0-9_-]+' || true)
-
-    if [[ $valid_count -eq 1 ]]; then
-        : # exactly one valid scope tag — OK, regardless of other unrelated tags in the list
-    elif [[ $valid_count -eq 0 && $scope_like_count -eq 0 ]]; then
-        echo "  ERROR (scope): $rel_file — no play-level scope tag (need exactly one of scope-gnome|scope-general|scope-server)"
-        SCOPE_VIOLATIONS+=("$rel_file (missing scope tag)")
-        ERRORS=$((ERRORS + 1))
-    elif [[ $valid_count -eq 0 && $scope_like_count -gt 0 ]]; then
-        bad=$(printf '%s\n' "$play_tags" | grep -xE 'scope-[A-Za-z0-9_-]+' | grep -vxE "$SCOPE_VALID_RE" | paste -sd, -)
-        echo "  ERROR (scope): $rel_file — invalid scope tag(s): $bad (must be exactly one of scope-gnome|scope-general|scope-server)"
-        SCOPE_VIOLATIONS+=("$rel_file (invalid scope tag: $bad)")
-        ERRORS=$((ERRORS + 1))
-    else
-        # valid_count > 1
-        echo "  ERROR (scope): $rel_file — multiple play-level scope tags declared (exactly one required)"
-        SCOPE_VIOLATIONS+=("$rel_file (multiple scope tags)")
-        ERRORS=$((ERRORS + 1))
-    fi
-done < <(find "$REPO_ROOT/playbooks/" -type f \( -name '*.yml' -o -name '*.yaml' \) -print0)
+ansible-playbook playbooks/playbook-main.yml
 ```
 
-**JSON-array-building** (insert alongside the existing `ff_json_array` /
-`hy_json_array` / `sr_json_array` blocks, same idiom):
+**Server — explicit override, for testing/CI or a human who wants to force
+it**:
 
 ```bash
-# Encode SCOPE_VIOLATIONS as a JSON array
-sc_json_array="[]"
-for v in "${SCOPE_VIOLATIONS[@]+"${SCOPE_VIOLATIONS[@]}"}"; do
-    sc_json_array=$(printf '%s' "$sc_json_array" | jq --arg v "$v" '. + [$v]')
-done
+ansible-playbook playbooks/playbook-main.yml -e provisioning_profile=server
 ```
 
-**Final `jq -n` call** — add one `--argjson`, one `failures` map branch, one
-`checks` key (exact diff against the existing call at the bottom of
-`qa-ansible.bash`):
+**Desktop, explicit override** (symmetry / testing):
 
 ```bash
-jq -n \
-    --arg status "$STATUS" \
-    --argjson total "$TOTAL" \
-    --argjson errors "$ERRORS" \
-    --argjson ff "$ff_json_array" \
-    --argjson hy "$hy_json_array" \
-    --argjson sr "$sr_json_array" \
-    --argjson sc "$sc_json_array" \
-    '{
-        "type": "ansible",
-        "status": $status,
-        "summary": {
-            "total":  $total,
-            "passed": ($total - $errors),
-            "failed": $errors
-        },
-        "failures": (
-            ($ff | map({"file": ., "type": "ansible", "status": "fail", "error": "fail-fast pattern without FAIL-FAST-OK annotation"})) +
-            ($hy | map({"file": (. | split(" (")[0]), "type": "ansible", "status": "fail", "error": ("hygiene: " + (. | split(" (")[1] | rtrimstr(")"))) })) +
-            ($sr | map({"file": ., "type": "ansible", "status": "fail", "error": "self-referential var (Ansible 2.19 recursive-loop error at runtime)"})) +
-            ($sc | map({"file": (. | split(" (")[0]), "type": "ansible", "status": "fail", "error": ("scope: " + (. | split(" (")[1] | rtrimstr(")"))) }))
-        ),
-        "results": [],
-        "checks": {
-            "fail_fast": $ff,
-            "hygiene":   $hy,
-            "self_ref":  $sr,
-            "scope":     $sc
-        }
-    }' > "$JSON_OUT"
+ansible-playbook playbooks/playbook-main.yml -e provisioning_profile=desktop
 ```
 
-**Terse summary** — extend the existing failure-branch echo to mention the
-scope count (cosmetic, matches the existing `FF_COUNT`/`HY_COUNT`/`SR_COUNT`
-pattern):
+**Documentation locations** (same targets as round 2, content rewritten for
+the new mechanism):
 
-```bash
-else
-    FF_COUNT=${#FF_VIOLATIONS[@]}
-    HY_COUNT=${#HYGIENE_VIOLATIONS[@]}
-    SR_COUNT=${#SELFREF_VIOLATIONS[@]}
-    SC_COUNT=${#SCOPE_VIOLATIONS[@]}
-    echo "✗ ansible: $ERRORS violation(s) — $FF_COUNT fail-fast, $HY_COUNT hygiene, $SR_COUNT self-ref var, $SC_COUNT scope"
-    echo "  Hygiene fixer: ./scripts/make-playbooks-executable.bash"
-    echo "  Details: jq '.failures[]' $JSON_OUT"
-    exit 1
-fi
-```
-
-The success-branch echo (`✓ ansible: ...`) also gets `; $PLAYBOOK_COUNT... `
-extended with a scope clause for symmetry — exact wording is an
-implementation detail, not load-bearing.
-
-**Confirmed: zero `qa-all.bash` edits.** `qa-all.bash` calls
-`scripts/qa-ansible.bash`, captures its one JSON blob into `$TMP_ANSIBLE`,
-and merges it into `.checks.ansible` at `.[3]` in the positional `jq -s`
-array — all of that is unchanged; the new `checks.ansible.scope` key rides
-along inside the same blob `qa-ansible.bash` already produces.
-
-**`TOTAL` is deliberately not extended for the new check** (same reason Check
-3's self-ref-var check doesn't extend it either): pass/fail is driven purely
-by the shared `$ERRORS` counter, which Check 4 increments identically to
-Checks 1–3, so a scope violation genuinely fails the script and propagates
-through `qa-all.bash` regardless of `TOTAL`'s value. `TOTAL` only affects the
-cosmetic "N files checked" count, not correctness — leaving it as
-`PLAYBOOK_COUNT + 1` (synthetic fail-fast-scan entry) rather than `+ 2` is
-consistent with Check 3's existing precedent, not an oversight.
-
-**`imports/optional/**` coverage confirmed**: the `find "$REPO_ROOT/playbooks/" ...` root recurses into every subdirectory including `imports/optional/common`,
-`experimental`, `hardware-specific`, `archived` (excluded by the explicit
-`[[ ... == */optional/archived/* ]]` guard), and `untested` (included, though
-currently empty) — this matches `qa-ansible-syntax.bash`'s existing playbook
-discovery exactly, so a playbook that is syntax-checked today is scope-checked
-too, with the one documented archived-tree exception.
+- **`docs/playbooks.md`** — insert a new `## Desktop vs. Headless Server Provisioning` section immediately before line 17 (`## Core Playbooks (Automatically Run)`), directly after `## Quick Navigation`. Content: the
+  three commands above; an explanation that the profile is **auto-detected**
+  from `systemctl get-default` (server-biased when uncertain) with no flags
+  needed in the common case; the `-e provisioning_profile=...` override for
+  testing/CI; a pointer to this plan folder for the full rationale.
+- **`CLAUDE/AnsibleStyle.md`** — add a new subsection `### Provisioning Profile Gates (Plan 00061)` after the existing `### Tagging Strategy`
+  subsection. Content: the three canonical `when:` forms from §3.1 verbatim,
+  the "immediately following line, no comment in between" grammar rule, and
+  the optional-play `vars: { scope: ... }` form from §4.2.
+- **`docs/playbooks.md`'s existing per-play sections** —
+  `### play-basic-configs.yml`, `### play-prevent-ssh-suspend.yml`,
+  `### play-vpn.yml` (confirmed present) each get a one-line note about their
+  task-level `when:` gate; `play-prevent-ssh-suspend.yml`'s note should
+  specifically mention the bug being fixed (§5.2).
 
 ---
 
-## 5. Canonical commands + documentation
+## 7. Verification procedure (replaces round 2's `--list-tasks` proof)
 
-**Desktop** (documented as *the* desktop command going forward, replacing the
-bare invocation — see §8 for the honest cost of this):
+**`--list-tasks` cannot prove a `when:`-based skip.** Confirmed empirically
+both by `prototype-when-import.md` and again this round (§2.2): it lists the
+gnome-gated task under every profile, because it enumerates what *could* run
+statically without evaluating `when:`. The cheap in-container zero-regression
+proof round 2 relied on (`--skip-tags` **is** honoured by `--list-tasks`) has
+no equivalent for this mechanism.
 
-```bash
-ansible-playbook playbooks/playbook-main.yml --skip-tags scope-server
-```
-
-**Server:**
-
-```bash
-ansible-playbook playbooks/playbook-main.yml --skip-tags scope-gnome
-```
-
-**Documentation locations:**
-
-- **`docs/playbooks.md`** — insert a new `## Desktop vs. Headless Server Provisioning` section **immediately before line 17**, the existing
-  `## Core Playbooks (Automatically Run)` heading (i.e. directly after the
-  `## Quick Navigation` section that precedes it). Content: the two commands
-  above, a one-paragraph explanation of the `scope-gnome`/`scope-general`/
-  `scope-server` taxonomy, and a pointer to this plan folder for the full
-  rationale. This is the file every other command in `docs/playbooks.md`
-  already documents plays from, so it's the natural home.
-- **`CLAUDE/AnsibleStyle.md`** — add a new subsection titled `### Scope Tags (Plan 00061)` directly after the existing `### Tagging Strategy` subsection
-  (which already documents the `packages`/`pyenv`/`sysctl` task-tag
-  convention this repo uses — scope tags are the play-level sibling
-  convention). Content: the canonical block from §2 verbatim, plus the one-
-  sentence rule "every playbook declares exactly one of `scope-gnome` |
-  `scope-general` | `scope-server` as a play-level tag; a QA gate enforces
-  this (`scripts/qa-ansible.bash`)."
-- **`docs/playbooks.md`'s existing per-play sections** — `docs/playbooks.md`
-  already has `### play-basic-configs.yml`, `### play-prevent-ssh-suspend.yml`,
-  and `### play-vpn.yml` write-ups (confirmed present). Update each to
-  mention its scope split: for `play-basic-configs.yml` and `play-vpn.yml`,
-  a one-line note that the USB-audio-fix / GNOME-applet package is skipped on
-  a server; for `play-prevent-ssh-suspend.yml`, note the bug being fixed
-  (§3.2) — a headless run would previously hard-fail on the
-  `gsettings`/GNOME-schema task, now cleanly skipped instead.
-
----
-
-## 6. Zero-regression proof procedure
-
-**Correction from `brainstorm-sonnet.md`**: the brainstorm proposed combining
-`--check` with `--list-tasks`. That is unnecessary and, on closer reading of
-`CLAUDE/ContainerRules.md`, **not container-safe** — `--check` still gathers
-facts and evaluates the play against the live target (`localhost` inside the
-CCY container, which is not a real desktop/server and lacks the expected
-users/systemd state per `ContainerRules.md`'s "What CCY Container IS NOT"
-list), unlike `--syntax-check`, which `qa-ansible-syntax.bash`'s own comment
-says is safe specifically *because* "it does NOT execute any tasks."
-`--list-tasks` alone shares that same safety property — it is a static
-enumeration mode that parses and lists what *would* run without gathering
-facts or executing anything, exactly like `--syntax-check` but showing
-resolved task names and tags instead of just validating parse-ability. Use
-**`--list-tasks` only, never `--check`,** inside the CCY container for this
-proof:
+**What CAN be verified in the CCY container** (parse-only, matching this
+repo's existing "`--syntax-check` is container-safe because it does not
+execute tasks" precedent):
 
 ```bash
 export ANSIBLE_CONFIG="$(git rev-parse --show-toplevel)/ansible.cfg"
-
-ansible-playbook playbooks/playbook-main.yml --list-tasks \
-    > /tmp/list-before.txt
-
-ansible-playbook playbooks/playbook-main.yml --skip-tags scope-server --list-tasks \
-    > /tmp/list-desktop.txt
-diff /tmp/list-before.txt /tmp/list-desktop.txt
-# MUST be empty — proves the new documented desktop command is byte-identical
-# to today's unscoped output (scope-server is empty today).
-
-ansible-playbook playbooks/playbook-main.yml --skip-tags scope-gnome --list-tasks \
-    > /tmp/list-server.txt
-diff /tmp/list-before.txt /tmp/list-server.txt
-# MUST show only scope-gnome-tagged tasks/plays removed — every GNOME play
-# and the 3 task-level GNOME overrides from §3 should disappear from the list.
+ansible-playbook playbooks/playbook-main.yml --syntax-check
 ```
 
-This is safe to run **inside the CCY container** (per the same rationale
-`qa-ansible-syntax.bash` already documents for `--syntax-check`) and requires
-no target-system state. A full `--check` dry-run (deeper validation, e.g.
-catching a task whose `when:` references an undefined fact only available on
-a real host) is legitimate but must happen **on the HOST**, per
-`CLAUDE/ContainerRules.md` — it is not part of this proof and not required by
-this plan's success criteria.
+...plus running the QA gate itself (§4.1), which statically confirms every
+import carries a recognised gate shape — this is the in-container
+correctness check for this mechanism; it validates the *declarations*, not
+the runtime *behaviour*.
+
+**What requires a real run (host-side, per `CLAUDE/ContainerRules.md` — never
+in the CCY container)**: proving a gnome play is actually skipped on a
+detected/forced server profile. Two acceptable procedures, either is
+sufficient — this replaces round 2's §6 entirely, it is not an addition to
+it:
+
+1. **A throwaway VM/container**, matching `prototype-when-import.md`'s own
+   validation method: install a minimal Fedora, confirm `systemctl get-default` reports `multi-user.target`, run
+   `ansible-playbook playbooks/playbook-main.yml` with **no** `-e` flag, and
+   confirm the recap shows every `gnome`-bucket play (and the container-watch
+   task-level overrides, if that optional play is separately exercised) as
+   `skipping`, with every `general`-bucket play still `ok`.
+2. **A real desktop host with the override**, faster to set up: on any host
+   this repo already provisions,
+   `ansible-playbook playbooks/playbook-main.yml -e provisioning_profile=server --check`
+   — `--check` is legitimate **here** because it's the real host being
+   dry-run, not the CCY container (the container-unsafety of `--check` was
+   specifically about running it against `localhost` *inside* the container,
+   which lacks the real box's systemd/user state per `ContainerRules.md`'s
+   "What CCY Container IS NOT" list — that concern does not apply on the
+   actual target). Confirm the same skip/ok split in the recap.
+
+Either procedure is PLAN.md Task 3.8 territory (host validation) — tracked
+there, not duplicated here.
 
 ---
 
-## 7. Implementation checklist (execute in order)
+## 8. Implementation checklist (execute in order)
 
-01. **Read this proposal's §1 tables** as the source of truth for every play's
-    scope value. Do not re-derive classifications from scratch.
-02. **Add the canonical `tags:` block (§2)** to all 31 core plays in
-    `playbooks/imports/*.yml`, using the scope from §1.1's table. This is 28
-    plain additions + the 3 mixed plays below.
-03. **Apply the 3 mixed-play edits (§3.1–§3.3)** to `play-basic-configs.yml`,
-    `play-prevent-ssh-suspend.yml`, and `play-vpn.yml` exactly as shown
-    (note §3.3 is a task split, not just a tag add).
-04. **Add the canonical `tags:` block** to all non-archived optional plays in
-    `playbooks/imports/optional/{common,experimental,hardware-specific}/`
-    using §1.3's fast-pass table, **with two named exceptions handled
-    separately, not swept up in this bulk step**:
-    - `play-container-watch.yml` — apply the exact 8-task interim diff in
-      §3.4 verbatim (do **not** re-derive it from prose; do **not** perform
-      the file-split in this pass).
-    - `play-virtualbox-windows.yml` — **do not tag this file as-is.** Check 4
-      (§4) hard-rejects it (two `- hosts:` plays in one file). First **split
-      it** into two files — e.g. `play-virtualbox-windows.yml` (the existing
-      "Install Virtualbox" play, lines 1–43 of the current file, plus its
-      `handlers:` block) and `play-virtualbox-windows-vm-setup.yml` (the
-      existing "Setup Windows VMs" play, lines 44 onward) — each with its own
-      shebang (`#!/usr/bin/env ansible-playbook`) and executable bit per
-      `playbooks/CLAUDE.md`. Then tag each independently: `scope-value` for
-      "Install Virtualbox" is the same Low-confidence, owner-flagged call as
-      `play-rpm-fusion.yml` (§1.3); "Setup Windows VMs" is more plausibly
-      `scope-gnome` (interactive VM import/config workflow) but get an
-      explicit owner decision for both before tagging, don't guess.
-    - For every other row marked **Medium — verify** or **Low**, read the
-      play's actual task list first and correct the classification if the
-      fast-pass guess was wrong — do not blindly apply a flagged row.
-05. **Edit `scripts/qa-ansible.bash`** per §4: insert Check 4 after Check 3
-    (before the "Build JSON output" comment), add the `sc_json_array` block
-    alongside the existing three, extend the final `jq -n` call with `--argjson sc`, the `failures` branch, and `"scope": $sc`, and extend both terse
-    summary echoes. Confirm the two `|| true` guards (§4's blocker fix) and
-    the multi-play-file guard are present exactly as shown — these are the
-    load-bearing parts of this step. **Do not touch `qa-all.bash`.**
-06. **Run `./scripts/qa-all.bash`.** Expect it to fail before step 2/4 land
-    (every playbook missing a scope tag) and pass once all playbooks in
-    `playbooks/` (except `imports/optional/archived/play-tlp-battery-optimisation.yml`)
-    carry a valid scope tag, and `play-virtualbox-windows.yml` has been split
-    per step 4. Fix any findings — most likely a missed optional play or a
-    classification that needs the on-the-spot correction from step 4.
-07. **Add the `docs/playbooks.md` section** per §5 (immediately before line 17,
-    `## Core Playbooks`), the `CLAUDE/AnsibleStyle.md` subsection per §5
-    (after `### Tagging Strategy`), and update the three existing per-play
-    `docs/playbooks.md` sections (`play-basic-configs.yml`,
-    `play-prevent-ssh-suspend.yml`, `play-vpn.yml`) per §5's per-play-doc
-    bullet.
-08. **Run the zero-regression proof (§6)** inside the CCY container. Both
-    `diff` commands must behave exactly as specified — an empty diff for the
-    desktop command, a GNOME-only-shrinkage diff for the server command. If
-    the desktop diff is non-empty, something outside the documented 3 mixed
-    plays introduced an unexpected task-level scope tag — find and fix it
-    before proceeding.
-09. **Re-run `./scripts/qa-all.bash`** one final time to confirm green after
-    all edits.
-10. **(On HOST, not in the CCY container — per `CLAUDE/ContainerRules.md`)**
-    validate a real headless run in a VM/container per PLAN.md Task 3.7 —
-    out of scope for this proposal document, tracked separately in PLAN.md.
-11. **Update PLAN.md**: mark Phase 3 tasks 3.1–3.6 complete in the same
-    commit as the code, per the project's Plan Commit Rule, and add a
-    `JOURNAL/` entry recording what changed.
+01. **Add `environment/localhost/group_vars/desktop.yml`** exactly as shown
+    in §2.1 (new file).
+02. **Add the third `assert` task to `play-AA-preflight-sanity.yml`** exactly
+    as shown in §2.3.
+03. **Edit `playbook-main.yml`** to the exact "after" state in §3.2 (10
+    `when:` lines added, nothing else changes).
+04. **Apply the 3 core mixed-play edits (§5.1–§5.3)** to
+    `play-basic-configs.yml`, `play-prevent-ssh-suspend.yml`, and
+    `play-vpn.yml` exactly as shown.
+05. **Add `vars: { scope: ... }`** to all 41 non-archived optional plays
+    using round 2's fast-pass table (§1.3 — same table, values now go in
+    `vars:` instead of a `tags:` block), **with the same two named
+    exceptions handled separately**:
+    - `play-container-watch.yml` — apply the exact 8-task `when:` diff in
+      §5.4 verbatim, plus `vars: { scope: general }`.
+    - `play-virtualbox-windows.yml` — still must be **split first** (two
+      `- hosts:` plays in one file — Check 4 hard-rejects it, same finding
+      as round 2, same required split into
+      `play-virtualbox-windows.yml` + `play-virtualbox-windows-vm-setup.yml`
+      (exact file boundaries: §1.3's table above), then each half gets its
+      own `vars: { scope: ... }` — get an explicit owner decision on both
+      values first (same Low-confidence category as `rpm-fusion`), don't
+      guess.
+    - For every other Medium/Low-confidence row, read the play's actual task
+      list first and correct the classification if the fast-pass guess was
+      wrong.
+06. **Edit `scripts/qa-ansible.bash`** per §4.1: insert Check 4 (both 4a and
+    4b sub-loops) after Check 3, reuse round 2's JSON-array-building /
+    `jq -n` / terse-summary blocks verbatim (unchanged shape, just fed by
+    this round's `$SCOPE_VIOLATIONS` source). **Do not touch `qa-all.bash`.**
+07. **Run `./scripts/qa-all.bash`.** Expect it to fail before steps 1–5 land
+    (every core import unguarded-but-should-be-gated reads as fine —
+    unguarded IS valid for general — but every optional play is missing
+    `vars.scope`, and `play-virtualbox-windows.yml` is rejected as
+    multi-play) and pass once every playbook (except the one archived play)
+    carries a recognised declaration.
+08. **Add the `docs/playbooks.md` section, the `CLAUDE/AnsibleStyle.md`
+    subsection, and update the three existing per-play doc sections** per §6.
+09. **Run `--syntax-check`** (§7) inside the CCY container as the static
+    sanity gate; confirm clean.
+10. **Re-run `./scripts/qa-all.bash`** one final time to confirm green.
+11. **(On HOST, never in the CCY container)** run one of §7's two real-run
+    verification procedures; confirm the skip/ok recap split matches
+    expectations. This is PLAN.md Task 3.8.
+12. **Update PLAN.md**: mark Phase 3 tasks complete in the same commit as the
+    code (Plan Commit Rule), add a `JOURNAL/` entry, and record that Decision
+    4's mechanism is now implemented (not just decided).
 
 ---
 
-## 8. Known limitations / failure modes consciously accepted
+## 9. Known limitations / failure modes consciously accepted
 
-- **The desktop command is no longer flag-free.** `--skip-tags scope-server`
-  must be remembered/documented forever, even though `scope-server` is empty
-  today and the flag is currently a no-op. If `docs/playbooks.md` (§5) is not
-  kept in sync, and someone runs the bare `ansible-playbook playbooks/playbook-main.yml`, a *future* `scope-server`-only play would
-  silently run on a desktop too. Mitigation: the doc update in step 7 is not
-  optional cleanup, it is load-bearing for the zero-regression guarantee to
-  hold structurally rather than just today.
-- **Inline array `tags: [...]` form is invisible to the QA parser (§4).**
-  A play written with that form would read as "no scope tag" (fails safe,
-  over-strict) rather than being correctly parsed. Documented in both the
-  script comment and `CLAUDE/AnsibleStyle.md`; the fix if it ever bites is
-  "use block-list form, like every other example in this repo," not "add a
-  YAML parser." (A trailing `# comment` on a tag line, by contrast, is now
-  handled — round 1 caught this as a gap, fixed by stripping trailing `#...`
-  and a stray `\r` in the awk extraction, §4.)
-- **The fast-pass optional-tree classification (§1.3) is genuinely lower
-  confidence than the core-31 table.** Several rows are marked Medium/Low and
-  explicitly need a real read before their tag is trusted — this is called
-  out in the implementation checklist (step 4) as a mandatory verification,
-  not an optional nice-to-have. Shipping a wrong `scope-general` on a
-  GUI-only optional play means it silently runs (and likely half-fails, e.g.
-  on a missing display) on a server; shipping a wrong `scope-gnome` on a
-  general optional play means it's silently skipped on a server that wanted
-  it. Neither is a QA-gate-visible failure — the gate only checks that
-  *a* valid tag exists, not that it's the *correct* one. This is the same
-  "review-discipline gap, not a tooling gap" limitation `brainstorm-sonnet.md`
-  already named for future task additions; it applies with extra force here
-  because the fast-pass rows are lower-confidence by construction.
-- **`play-virtualbox-windows.yml` is a second genuinely-arguable call**, in
-  the same category as `play-rpm-fusion.yml` (Decision 2) — VirtualBox has a
-  real, supported headless mode. Flagged in §1.3 for an explicit human
-  decision rather than silently picking one side, matching how rpm-fusion was
-  handled. **Round-2 addition**: this file also turned out to be the repo's
-  only multi-play file (two independent `- hosts:` plays), which Check 4 now
-  hard-rejects rather than silently trusting one play's tag for both (§4) —
-  so this file needs a file-split (§7 step 4) before either play can be
-  tagged at all, independent of which way the scope-value call goes.
-- **`scope-gnome` is used as this repo's "needs a GUI session" bucket, not
-  literally "GNOME-specific."** `play-lxde-install.yml` (an LXDE desktop, not
-  GNOME) is tagged `scope-gnome` because the taxonomy's three names were
-  locked by the owner in Decision 1/2 and this plan does not reopen that
-  naming. Documented here so a future contributor isn't confused about why a
-  non-GNOME desktop environment carries a `scope-gnome` tag.
-- **`play-container-watch.yml`'s file-split is deferred; the interim
-  task-tag diff (§3.4, 8 tasks) is what actually ships** in this pass's
-  checklist (step 4). This is a deliberate scope-control decision — PLAN.md's
-  non-goals don't require touching the optional tree's internal structure,
-  only tagging it — but it does mean one optional play ships with a
-  play-level/task-level split larger than, and with more register/`when:`
-  interdependency than, the "trivial exception" the graft rule was designed
-  for, as an accepted interim state. **Round-2 addition**: deriving the exact
-  diff surfaced a genuine correctness hazard behind this — a task-level
-  override on a `register`-ing task can silently break an untagged downstream
-  task's `when:` (undefined variable, hard Ansible error under this repo's
-  `ansible.cfg`) if their scopes are tagged inconsistently. The diff in §3.4
-  accounts for this (all 8 interdependent tasks tagged together, not just the
-  7 the round-1 audit found), but this class of hazard is exactly why a
-  register/`when:`-heavy mixed play is a file-split candidate rather than a
-  task-tag candidate in the first place — the interim here is accepted, not
-  endorsed as the ideal shape.
-- **`--skip-tags` still prints an empty `PLAY [...]` banner** for every
-  skipped play (cosmetic console noise on a server run, ~10 empty banners for
-  the GNOME core plays alone) — not a functional problem, previously noted in
-  `brainstorm-sonnet.md`, repeated here because it's still true of the final
-  design.
-- **A future task added to an existing `scope-general` play that happens to
-  need a GUI is not caught by this QA gate** — the gate checks that a play
-  *has* a valid scope tag, not that every task in it still matches that
-  scope. This is a review-discipline requirement on future contributors, not
-  something a static grep-based gate can close without literally executing
-  the play headless in CI (explicitly out of scope for this plan).
+- **No cheap in-container end-to-end skip proof.** Round 2 had one
+  (`--skip-tags` honoured by `--list-tasks`); this mechanism doesn't (§7).
+  The QA gate (§4.1) proves the *declarations* are well-formed; only a real
+  run proves the *behaviour*. Accepted per Decision 4 — the owner's
+  requirement (true zero-flag auto-detection) outweighs this loss, and
+  PLAN.md Task 3.8 already required host validation regardless of mechanism.
+- **`connection: local` is a load-bearing, undocumented-until-now
+  assumption.** If this repo were ever pointed at a remote host, the `pipe`
+  lookup in `group_vars/desktop.yml` would read the **controller's**
+  `systemctl get-default`, not the target's — silently wrong, not a crash.
+  This repo has never done that (every play is `hosts: desktop` /
+  `connection: local` by design, `CLAUDE/AnsibleStyle.md`), so this is a
+  named, accepted assumption rather than a live risk — but it is now
+  explicitly documented (§2.1's file header) where it previously wasn't
+  documented anywhere at all.
+- **A mis-detected profile degrades differently in each direction, by
+  design.** Desktop mis-detected as server: GUI plays silently skipped,
+  recoverable with `-e provisioning_profile=desktop`. Server mis-detected as
+  desktop: GUI plays attempt to run against a box with no GNOME session —
+  most either no-op cleanly (e.g. `play-toolbox-install.yml`'s own
+  `has_display` guard) or fail loudly in ways that are individually
+  debuggable, but this is a materially worse failure mode than the reverse,
+  which is exactly why detection is server-biased-when-uncertain (§2.1) —
+  the asymmetry is deliberate, not overlooked.
+- **The QA gate validates declaration shape, not runtime correctness.**
+  Exactly the round-2 limitation, restated for the new mechanism: Check 4
+  confirms every import/optional-play has a recognised gate, not that the
+  gate is semantically the *right* one for what the play actually does, nor
+  that a *future* task added to a `general`-bucket play doesn't quietly need
+  a GUI. Same review-discipline gap as before; no static gate closes it
+  without executing the play headless in CI (out of scope).
+- **The fast-pass optional-tree classification is unchanged from round 2,
+  same confidence caveats apply** — Medium/Low rows still need a real read
+  before their value is trusted (§1.3, checklist step 5).
+- **`play-container-watch.yml`'s file-split remains deferred**, same
+  reasoning as round 2 — the interim `when:`-list diff (§5.4) is more
+  correct than round 2's tag diff (the short-circuit ordering is now
+  explicit and tested) but is still, structurally, a play carrying more
+  interdependent conditional logic than the "trivial exception" pattern was
+  designed for.
+- **`play-virtualbox-windows.yml`'s scope value(s) remain an open owner
+  decision**, same category as `rpm-fusion` — unchanged from round 2, now
+  also blocking on the mandatory file-split before either half can even be
+  tagged.
+- **The `gnome` bucket means "needs a GUI session," not literally
+  "GNOME-specific"** — unchanged substance from round 2's equivalent note,
+  restated for the new value names. `play-lxde-install.yml` (an LXDE
+  desktop, not GNOME) is still classified `gnome` because that's the bucket
+  the taxonomy provides for GUI-dependent content; the owner's Decision 1/2
+  locked the three-bucket taxonomy and this plan does not reopen the naming.
+- **The `scope-gnome`-style naming convention is gone; bucket names are now
+  plain `general`/`gnome`/`server`** (no more literal `scope-` prefix,
+  since there's no tag string to prefix) — this is a terminology
+  simplification from the pivot, not a new limitation, noted here so a
+  reader comparing this document against round 2's doesn't mistake it for an
+  inconsistency.
