@@ -111,18 +111,18 @@ decided:
 
 - [x] ✅ **Task 2.1**: Record the chosen mechanism (native play-level `tags:` + `--skip-tags`, Sonnet + Fable grafts) as **Technical Decision 1** below.
 - [x] ✅ **Task 2.2**: Exhaustive per-play task sweep done in `PROPOSAL.md` §1 (all 31 core plays task-by-task; the sweep found a **3rd** mixed play — `play-prevent-ssh-suspend`'s gsettings task, a real latent bug — that a one-pass read missed). Ambiguous calls settled: `rpm-fusion`→general (owner), `ms-fonts`→gnome, `terminal-emulators`→gnome, `systemd-user-tweaks`→general, `python`→general. Optional tree fast-pass-classified (Medium/Low rows flagged for verify-on-implement).
-- [x] ✅ **Task 2.3**: Sonnet↔Fable refinement loop run to **convergence** — `PROPOSAL.md` (Sonnet) → `AUDIT-round-1.md` (Fable: 1 blocker + 4 should-fix + 3 nitpick, all real) → round-2 revision (Sonnet) → `AUDIT-round-2.md` (Fable: **zero findings**, verified by executing the code, "implementable as-is, no round 3"). Judge concurs. `PROPOSAL.md` is the implementation-ready spec.
+- [x] ✅ **Task 2.3**: Sonnet↔Fable refinement loop run to **convergence** (five rounds total across two mechanisms). Tag design: `PROPOSAL.md`→`AUDIT-round-1.md` (1 blocker + 4 should-fix)→r2→`AUDIT-round-2.md` (zero findings). Then **Decision 4 mechanism pivot to `when:`** (owner auto-detect requirement): r3 `when:` rewrite→`AUDIT-round-3.md` (1 blocker: 4b flagged all 31 core plays; 1 should-fix: orphaned-`when:`)→r4 fixes→**judge independently re-ran the final Check 4a** (good file 11 general/10 gnome/0 err; malformed file: comment-between + blank-between → ORPHANED errors, typo'd `=` → invalid-when; 3 errors, no `set -e` abort). Three-way verified (Fable authored+verified fixes, Sonnet re-ran, judge re-ran). `PROPOSAL.md` is the implementation-ready spec for the `when:` design.
 
-### Phase 3: Implementation (native tags + `--skip-tags` design) — **ready; per `PROPOSAL.md` §7 checklist**
+### Phase 3: Implementation (`when:` + auto-detected `provisioning_profile`) — **ready; per `PROPOSAL.md` §7 checklist**
 
-- [ ] ⬜ **Task 3.1**: Add a play-level `tags: [scope-*]` block to every core play per `PROPOSAL.md` §1.1.
-- [ ] ⬜ **Task 3.2**: Apply the 3 mixed-play edits (`PROPOSAL.md` §3.1–§3.3) + the container-watch interim override (§3.4); split `play-virtualbox-windows.yml` (two `- hosts:` plays) first.
-- [ ] ⬜ **Task 3.3**: Add Check 4 to `scripts/qa-ansible.bash` (`PROPOSAL.md` §4); no `qa-all.bash` changes.
-- [ ] ⬜ **Task 3.4**: Tag the 41 optional plays (`PROPOSAL.md` §1.3) — **read Medium/Low-confidence rows before trusting the fast-pass tag**.
-- [ ] ⬜ **Task 3.5**: Document both commands in `docs/playbooks.md` + scope-tag grammar in `CLAUDE/AnsibleStyle.md` (`PROPOSAL.md` §5).
-- [ ] ⬜ **Task 3.6**: Run QA: `./scripts/qa-all.bash`; fix findings.
-- [ ] ⬜ **Task 3.7**: Zero-regression proof — `--skip-tags scope-server --list-tasks` == today's unscoped `--list-tasks` (CCY-safe, `--list-tasks` only, NOT `--check`); server command drops every GNOME play (`PROPOSAL.md` §6).
-- [ ] ⬜ **Task 3.8**: (On HOST) validate a headless run in a VM/container; confirm no GNOME/GUI plays execute.
+- [ ] ⬜ **Task 3.1**: Add `environment/localhost/group_vars/desktop.yml` computing `provisioning_profile` from `systemctl get-default` (server-biased; `-e` overridable) + the fail-fast assert in `play-AA-preflight-sanity.yml` (`PROPOSAL.md` §2).
+- [ ] ⬜ **Task 3.2**: Add `when: provisioning_profile != 'server'` (gnome) / `== 'server'` (server) to the core imports in `playbook-main.yml` per `PROPOSAL.md` §3.2 (10 gnome, 0 server today).
+- [ ] ⬜ **Task 3.3**: Apply the 3 mixed-play task-level `when:` edits + the container-watch list-form `when:` override (`PROPOSAL.md` §5); split `play-virtualbox-windows.yml` (two `- hosts:` plays) first.
+- [ ] ⬜ **Task 3.4**: Add Check 4 (4a import-site `when:` parser + 4b optional `vars.scope`) to `scripts/qa-ansible.bash` (`PROPOSAL.md` §4); no `qa-all.bash` changes.
+- [ ] ⬜ **Task 3.5**: Add `vars: {scope: …}` to the 41 optional plays (`PROPOSAL.md` §1.3) — **read Medium/Low-confidence rows before trusting the fast-pass value**.
+- [ ] ⬜ **Task 3.6**: Document the zero-flag command (`ansible-playbook playbook-main.yml`, auto-detects) + the `-e provisioning_profile=…` override in `docs/playbooks.md`; note the `when:`/`scope:` grammar in `CLAUDE/AnsibleStyle.md` (`PROPOSAL.md` §6).
+- [ ] ⬜ **Task 3.7**: Run QA: `./scripts/qa-all.bash`; fix findings. In-container static checks only (`--syntax-check` + the QA gate) — `--list-tasks` can NOT prove `when:` skips.
+- [ ] ⬜ **Task 3.8**: (On HOST) verify gating end-to-end via a real/`--check` run: server profile skips every gnome play; desktop runs them. `--list-tasks` is insufficient (`PROPOSAL.md` §7).
 
 **Open owner decisions before/within Phase 3** (genuine judgment calls the design deferred to a human, not blockers to the mechanism):
 

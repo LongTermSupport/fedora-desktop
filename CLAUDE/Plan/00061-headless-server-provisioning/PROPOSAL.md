@@ -1,5 +1,57 @@
 # Proposal: Headless Server Provisioning — Auto-Detected `provisioning_profile` + `when:`
 
+## Revision log (round 4 — two Check 4 fixes from `AUDIT-round-3.md`)
+
+Fable's round-3 audit executed the Check 4 rewrite against a fixture that
+reproduces the real repo's directory shape (core plays as direct children of
+`playbooks/imports/`, optional plays under `playbooks/imports/optional/`) and
+found two bugs, both confined to §4.1's Check 4 script. Everything else round
+3 shipped — the detection layer, the fail-fast assert, the `playbook-main.yml`
+diff, the container-watch list-`when:` fix, reuse integrity against round
+2 — audited clean and is unchanged.
+
+- **BLOCKER (fixed)**: 4b's file-discovery loop excluded only
+  `playbook-main.yml` (by exact path) and `/optional/archived/`, so it
+  processed all 31 core play files under `playbooks/imports/*.yml` too — each
+  one satisfies 4b's "has a `- hosts:` line" playbook check and correctly has
+  **no** `vars.scope` (core plays are classified at the import site, §4.1, by
+  design), so 4b flagged all 31 as "missing `vars.scope`," unconditionally,
+  from the very first `qa-all.bash` run. Fixed by adding
+  `[[ "$yml_file" != */optional/* ]] && continue` as the first line of 4b's
+  loop — core plays never even reach the rest of the checks now. Re-verified
+  against a fixture with 3 core plays (general/gnome/server-shaped, correctly
+  `when:`-gated, zero `vars.scope`), 2 optional plays (one clean, one
+  genuinely missing `vars.scope`), and one archived play: exactly 1 error
+  (the genuine optional-play violation), 0 false positives on the core or
+  archived files. Also re-confirmed a `scope:` entry as the *last* of several
+  `vars:` keys (mirroring `play-container-watch.yml`'s real shape) is still
+  correctly recognised.
+- **SHOULD-FIX (fixed, folded in rather than deferred — drift-prevention is
+  the gate's whole purpose)**: 4a's `when:` rule was gated on
+  `pending != ""`, so a comment or blank line between an `import_playbook:`
+  and its `when:` let the catch-all rule flush `pending` first (recording the
+  play as `general`/UNGUARDED) and silently swallow the orphaned `when:` line
+  when it was reached — zero error reported, contradicting §3.1's own claim
+  that the no-comment grammar is "enforced by Check 4." Did not affect the
+  round-3 diff as shipped (no comment sits in that position for any of the 10
+  real `gnome` imports), but was a real, permanent gap. Fixed by making the
+  `when:` rule match **unconditionally** and branch on whether `pending` is
+  already empty — emit an `ORPHANED|<line>` record instead of silently
+  matching nothing, paired with a new bash `case` branch that reports it as
+  an error. Re-verified: a comment-between-import-and-when: fixture now
+  correctly errors (`orphaned when: line ... not immediately following an import_playbook: line`); the real, complete 31-import `playbook-main.yml`
+  (§3.2, both real multi-line comment blocks included) still produces 31/31
+  correct classifications, 0 errors — no regression. One residual gap noted
+  in-code (a `when:` at the *wrong* indent depth is still invisible to
+  either rule's regex) and in §9 below, per Fable's own severity call
+  ("worth one comment line, not a separate fix").
+- Both fixes were tested as the **exact text now in this document** — the
+  Check 4 script was extracted from the markdown verbatim (not a
+  hand-simplified stand-in) and executed under `set -euo pipefail` against
+  every scenario above; zero crashes throughout.
+
+---
+
 ## Revision log (round 3 — mechanism pivot to `when:`)
 
 **Why**: PLAN.md Decision 4 (owner, after round 2 converged with zero
@@ -556,6 +608,12 @@ SCOPE_VIOLATIONS=()
 # --- 4a: core plays — parse playbook-main.yml's import + when: lines -------
 while IFS='|' read -r import_path cond; do
     [[ -z "$import_path" ]] && continue
+    if [[ "$import_path" == "ORPHANED" ]]; then
+        echo "  ERROR (scope): playbooks/playbook-main.yml — orphaned when: line ($cond) not immediately following an import_playbook: line. Move any rationale comment BEFORE the import line, not between the import and its when:."
+        SCOPE_VIOLATIONS+=("playbooks/playbook-main.yml (orphaned when: $cond)")
+        ERRORS=$((ERRORS + 1))
+        continue
+    fi
     case "$cond" in
         UNGUARDED) : ;;                                    # general — OK
         "provisioning_profile != 'server'") : ;;            # gnome — OK
@@ -573,7 +631,17 @@ done < <(awk '
         sub(/^- import_playbook: /, "", pending)
         next
     }
-    /^  when: / && pending != "" {
+    # Fires UNCONDITIONALLY (not gated on pending != "") so a when: line
+    # that is NOT immediately preceded by an import (a comment or blank
+    # line intervened, or two when: lines follow one import) is reported
+    # as ORPHANED instead of being silently swallowed by the catch-all
+    # below, which would otherwise flush `pending` first and let the
+    # when: fall through as a second, ignored UNGUARDED resolution. A
+    # when: at the WRONG indent depth (not exactly 2 spaces) still will
+    # not match this rule at all — that residual gap is a smaller,
+    # separately-tracked limitation (PROPOSAL.md §9), not fixed here.
+    /^  when: / {
+        if (pending == "") { print "ORPHANED|" $0; next }
         cond = $0
         sub(/^  when: /, "", cond)
         print pending "|" cond
@@ -590,6 +658,14 @@ done < <(awk '
 # reason round 2 established (a taxonomy invented after a play was shelved
 # does not apply to it retroactively).
 while IFS= read -r -d '' yml_file; do
+    # CORE plays (playbooks/imports/*.yml, including playbook-main.yml
+    # itself) are correctly classified at the import site (4a) and MUST
+    # carry no vars.scope per §4.2 — this loop only applies to the
+    # OPTIONAL tree. Without this guard, every one of the 31 core play
+    # files (each satisfying the "- hosts:" playbook check below) would be
+    # flagged "missing vars.scope", unconditionally, from the very first
+    # run — round 3's BLOCKER, fixed here.
+    [[ "$yml_file" != */optional/* ]] && continue
     [[ "$yml_file" == "$CORE_MAIN" ]] && continue
     grep -qE '^[[:space:]]*-[[:space:]]+hosts:' "$yml_file" 2>"$TMP_GREP_ERR" || continue
     [[ "$yml_file" == */optional/archived/* ]] && continue
@@ -1083,6 +1159,18 @@ there, not duplicated here.
 
 ## 9. Known limitations / failure modes consciously accepted
 
+- **A `when:` line at the wrong indent depth is still invisible to Check 4's
+  4a parser** (round 4, residual gap after fixing the orphaned-`when:` bug —
+  Fable's own severity call: "worth one comment line, not a separate fix").
+  Both the import rule and the `when:` rule anchor on an exact indent (`^- import_playbook: ` and `^  when: ` respectively); a `when:` written at,
+  say, 4-space indent instead of 2 matches neither rule, so it's silently
+  invisible rather than caught as ORPHANED or anything else — the import it
+  was meant to gate would resolve as `general`/UNGUARDED with no error. This
+  is a narrower version of the same "format-sensitive, not a general parser"
+  tradeoff already accepted throughout `qa-ansible.bash` (round 2 accepted
+  the identical shape of gap for inline-array `tags:` form); the fix, if it
+  ever bites, is "match `CLAUDE/AnsibleStyle.md`'s documented 2-space
+  grammar," not "add a YAML parser."
 - **No cheap in-container end-to-end skip proof.** Round 2 had one
   (`--skip-tags` honoured by `--list-tasks`); this mechanism doesn't (§7).
   The QA gate (§4.1) proves the *declarations* are well-formed; only a real
