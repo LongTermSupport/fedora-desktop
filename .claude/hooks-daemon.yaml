@@ -142,6 +142,11 @@ handlers:
     gitignore_safety_checker: {enabled: true, priority: 54}       # Warn when .claude/ paths not gitignored
     suggest_status_line: {enabled: true, priority: 55}            # Suggest status line setup
     version_check: {enabled: true, priority: 55}                  # Check for daemon updates
+    git_upstream_checker:                                         # Keep the branch in sync with upstream
+      enabled: true
+      priority: 56
+      options:
+        mode: agent-pull   # Pull as the session's first action when behind upstream
 
   # SessionEnd - Cleanup on exit
   session_end:
