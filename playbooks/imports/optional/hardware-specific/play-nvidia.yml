@@ -9,6 +9,7 @@
   become: true
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
     # NVIDIA per-distro package-signing key ("Kitmaker (Fedora N)"). One key per
     # repo signs both that repo metadata and its packages. The filename changed
     # between fedora43 (1940C73E.pub, 404 on f44) and fedora44 (73CD9B30.pub) —

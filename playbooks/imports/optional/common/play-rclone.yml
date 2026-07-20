@@ -93,6 +93,7 @@
   become: true
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
 
   tasks:
     # =========================================================================
@@ -316,6 +317,7 @@
         group: "{{ user_login }}"
         mode: '0755'
       when:
+        - provisioning_profile != 'server'   # GNOME Files bookmarks — desktop-only (Plan 00061)
         - rclone_mounts is defined
         - rclone_gnome_bookmarks | default(true)
       tags: rclone, mounts, bookmarks
@@ -330,6 +332,7 @@
         mode: '0644'
       loop: "{{ rclone_mounts }}"
       when:
+        - provisioning_profile != 'server'   # GNOME Files bookmarks — desktop-only (Plan 00061)
         - rclone_mounts is defined
         - rclone_gnome_bookmarks | default(true)
       tags: rclone, mounts, bookmarks

@@ -5,6 +5,7 @@
   become: true
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
   tasks:
     # Priority 1: per-hostname override in localhost.yml
     # Example in localhost.yml:
@@ -190,6 +191,8 @@
       loop:
         - /root
         - /home/{{ user_login }}
+      # Desktop-audio-hardware concern with no headless-server consumer (Plan 00061 §6.1).
+      when: provisioning_profile != 'server'
 
     - name: Check if SSH key exists
       ansible.builtin.stat:

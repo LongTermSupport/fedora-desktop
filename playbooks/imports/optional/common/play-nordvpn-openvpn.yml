@@ -11,6 +11,7 @@
   become: false
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
   pre_tasks:
     - name: Load host vars
       ansible.builtin.include_vars:
@@ -20,14 +21,23 @@
     # System Dependencies
     # =========================================================================
 
-    - name: Install OpenVPN and NetworkManager Support
+    - name: Install OpenVPN and NetworkManager Support (CLI, headless-safe)
       become: true
       ansible.builtin.dnf:
         name:
           - openvpn
           - NetworkManager-openvpn
-          - NetworkManager-openvpn-gnome  # GUI integration
         state: present
+
+    # NetworkManager-openvpn-gnome is the GNOME applet integration — useless on
+    # a headless server (Plan 00061, mixed-play pattern like play-vpn.yml §6.3).
+    - name: Install NetworkManager GNOME Applet Integration
+      become: true
+      ansible.builtin.dnf:
+        name:
+          - NetworkManager-openvpn-gnome
+        state: present
+      when: provisioning_profile != 'server'
 
     # =========================================================================
     # Configuration Directories

@@ -4,6 +4,7 @@
 - hosts: desktop
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
     # Number of newest CPython MINOR lines (3.x) to install. Nothing is hardcoded:
     # the latest N minors and the latest patch of each are resolved at runtime from
     # pyenv (see "Install/upgrade Pyenv Versions"). Pinning exact patches made the

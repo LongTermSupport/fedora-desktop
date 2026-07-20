@@ -3,7 +3,24 @@
 # see https://raw.githubusercontent.com/jaredhocutt/ansible-jetbrains-toolbox/master/tasks/main.yml
 - hosts: desktop
   name: Jetbrains Toolbox Installation
+  vars:
+    scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
   tasks:
+    - name: Scope guard — assert provisioning_profile is recognised
+      ansible.builtin.assert:
+        that:
+          - provisioning_profile in ['desktop', 'server']
+        fail_msg: |
+          provisioning_profile={{ provisioning_profile }} is not recognised.
+          Valid values: desktop, server.
+          Auto-detected from `systemctl get-default`
+          (see environment/localhost/group_vars/desktop.yml) or overridden
+          via -e provisioning_profile=desktop|server.
+
+    - name: Scope guard — end play if provisioning_profile does not match declared scope
+      ansible.builtin.meta: end_play
+      when: (scope == 'gnome' and provisioning_profile == 'server') or (scope == 'server' and provisioning_profile != 'server')
+
     - name: Check if JetBrains Toolbox is already installed
       ansible.builtin.stat:
         path: ~/.local/share/JetBrains/Toolbox

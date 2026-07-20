@@ -5,6 +5,7 @@
   become: false
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
   tasks:
     # Run as root so the check tests daemon health, not session group membership.
     # User-level docker group membership is verified separately below.

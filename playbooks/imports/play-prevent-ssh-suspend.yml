@@ -5,6 +5,7 @@
   become: true
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
   tasks:
     - name: Deploy ssh-suspend-guard script
       ansible.builtin.copy:
@@ -60,6 +61,10 @@
       environment:
         DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ ansible_facts.getent_passwd[user_login][1] }}/bus"
       changed_when: false
+      # GNOME Settings Daemon schema over D-Bus — hard-fails ("No such schema")
+      # on a headless server without gnome-settings-daemon, which under this
+      # repo's any_errors_fatal aborts the whole run (Plan 00061 §6.2).
+      when: provisioning_profile != 'server'
 
     - name: Verify ssh-suspend-guard is running
       ansible.builtin.command: systemctl is-active ssh-suspend-guard

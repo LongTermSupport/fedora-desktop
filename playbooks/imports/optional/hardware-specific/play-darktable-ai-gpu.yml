@@ -26,11 +26,27 @@
   become: false
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
     dt_ai_ort_manifest_url: "https://raw.githubusercontent.com/darktable-org/darktable/refs/heads/master/data/ort_gpu.json"
     dt_ai_ort_dir: "{{ ansible_env.HOME }}/.local/lib/onnxruntime-cuda"
     dt_ai_gpu_tmp: "/var/tmp/darktable-ai-gpu"
 
   tasks:
+    - name: Scope guard — assert provisioning_profile is recognised
+      ansible.builtin.assert:
+        that:
+          - provisioning_profile in ['desktop', 'server']
+        fail_msg: |
+          provisioning_profile={{ provisioning_profile }} is not recognised.
+          Valid values: desktop, server.
+          Auto-detected from `systemctl get-default`
+          (see environment/localhost/group_vars/desktop.yml) or overridden
+          via -e provisioning_profile=desktop|server.
+
+    - name: Scope guard — end play if provisioning_profile does not match declared scope
+      ansible.builtin.meta: end_play
+      when: (scope == 'gnome' and provisioning_profile == 'server') or (scope == 'server' and provisioning_profile != 'server')
+
     - name: Detect NVIDIA GPU via PCI vendor ID
       ansible.builtin.command: lspci -nn
       register: dt_ai_lspci

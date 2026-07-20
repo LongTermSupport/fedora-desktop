@@ -119,19 +119,19 @@ decided:
 
 ### Phase 3: Implementation (self-guarding plays + auto-detected `provisioning_profile`) — **ready; per `PROPOSAL.md` §8 checklist**
 
-- [ ] ⬜ **Task 3.1**: Add `environment/localhost/group_vars/desktop.yml` computing `provisioning_profile` from `systemctl get-default` (server-biased; `-e` overridable) + the batch-run fail-fast assert in `play-AA-preflight-sanity.yml` (`PROPOSAL.md` §2).
-- [ ] ⬜ **Task 3.2**: Add `vars: {scope: general|gnome|server}` to **every** play (all 31 core + 41 optional) per `PROPOSAL.md` §1; add the exact 2-task self-guard (assert + `meta: end_play`) as the first two tasks of every **gnome/server** play (general plays carry no guard).
-- [ ] ⬜ **Task 3.3**: Apply the 3 mixed-play task-level `when:` edits + the container-watch list-form `when:` override (`PROPOSAL.md` §6); split `play-virtualbox-windows.yml` (two `- hosts:` plays) first.
-- [ ] ⬜ **Task 3.4**: Add the uniform Check 4 (`vars.scope` + guard-presence per play; rejects a guard on a general play) to `scripts/qa-ansible.bash` (`PROPOSAL.md` §5); no `qa-all.bash` changes. `playbook-main.yml` stays bare imports (no `when:`).
-- [ ] ⬜ **Task 3.5**: **Read Medium/Low-confidence optional rows** (`PROPOSAL.md` §1.3) before trusting the fast-pass `scope:` value.
-- [ ] ⬜ **Task 3.6**: Document the zero-flag command (`ansible-playbook playbook-main.yml` auto-detects) + standalone runs (`ansible-playbook playbooks/imports/play-X.yml` also auto-gate) + the `-e provisioning_profile=…` override in `docs/playbooks.md`; note the `scope:`/guard grammar in `CLAUDE/AnsibleStyle.md` (`PROPOSAL.md` §7).
-- [ ] ⬜ **Task 3.7**: Run QA: `./scripts/qa-all.bash`; fix findings. In-container static checks only (`--syntax-check` + the QA gate) — `--list-tasks` can NOT prove guard skips.
+- [x] ✅ **Task 3.1**: Added `environment/localhost/group_vars/desktop.yml` computing `provisioning_profile` from `systemctl get-default` (server-biased; `-e` overridable) + the batch-run fail-fast assert in `play-AA-preflight-sanity.yml` (`PROPOSAL.md` §2).
+- [x] ✅ **Task 3.2**: Added `vars: {scope: …}` to **every** play (73 plays: 31 core + 41 optional + `dev/play-collect-diagnostics.yml`, which the proposal's count missed) per `PROPOSAL.md` §1; added the exact 2-task self-guard as the first two tasks of every **gnome** play (20 gnome plays; general plays carry no guard). Bulk edits parallelised across 5 subagents; the byte-exact Check 4 gate verified every one.
+- [x] ✅ **Task 3.3**: Applied the mixed-play task-level `when:` edits + the container-watch list-form `when:` override (`PROPOSAL.md` §6); split `play-virtualbox-windows.yml` into `play-virtualbox-windows.yml` (engine install, `general`) + `play-virtualbox-windows-vm-setup.yml` (Windows-VM setup, `gnome`). Two extra mixed plays found while reading Medium rows and given the same treatment: `play-nordvpn-openvpn.yml` (`-gnome` pkg split) and `play-rclone.yml` (GNOME-Files-bookmark tasks gated); `play-qobuz.yml` kept `general` with its QBZ GUI-Flatpak tasks gated (headless CLI player + scrobbler preserved).
+- [x] ✅ **Task 3.4**: Added the uniform Check 4 to `scripts/qa-ansible.bash` (`PROPOSAL.md` §5); zero `qa-all.bash` changes. `playbook-main.yml` untouched (already bare imports). (`|| true` swapped for explicit `|| hosts_block_count=0` — the error-hiding-blocker forbids the literal `|| true`; semantically identical since that grep always matches.)
+- [x] ✅ **Task 3.5**: Read every Medium/Low-confidence optional row. Corrections vs. the fast-pass guess: `collaboration` (tmate CLI), `ftp-camera` (vsftpd service), `lastpass` (CLI), `hd-audio` (PipeWire), `cloudflare-warp` (removal/DNS) are all **general**, not gnome; `nordvpn-openvpn`/`rclone`/`qobuz` are mixed (handled in 3.3).
+- [x] ✅ **Task 3.6**: Documented the zero-flag + standalone + `-e` override in `docs/playbooks.md` (new "Desktop vs. Headless Server Provisioning" section) and the `scope:`/guard grammar in `CLAUDE/AnsibleStyle.md` ("Provisioning Profile Self-Guard"). Deliberately did NOT add a per-play standalone note to all ~40 gnome per-play doc sections — the top section states standalone-safety universally, so per-play repetition would be doc bloat.
+- [x] ✅ **Task 3.7**: `./scripts/qa-all.bash` → PASS (exit 0): 75 playbooks scope+guard OK, 75 `--syntax-check` OK, all six stages green. (71 shellcheck findings are pre-existing advisory warnings, non-gating.)
 - [ ] ⬜ **Task 3.8**: (On HOST) verify gating end-to-end via a real/`--check` run, **batch AND standalone**: server profile ends every gnome play; desktop runs them; a standalone gnome play ends on server (`PROPOSAL.md` §7).
 
-**Open owner decisions before/within Phase 3** (genuine judgment calls the design deferred to a human, not blockers to the mechanism):
+**Open owner decisions — resolved with defensible calls (owner may revisit):**
 
-- `play-virtualbox-windows.yml` scope value(s) — VirtualBox has a real headless mode (same category as the rpm-fusion call); the file must be split into two plays and each scoped.
-- The Medium/Low-confidence optional-tree rows in `PROPOSAL.md` §1.3 — verify against the real task list at implementation time.
+- `play-virtualbox-windows.yml` split → engine install scoped **`general`** (VirtualBox is headless-capable via `VBoxHeadless`/`VBoxManage`, same rpm-fusion-style foundational reasoning); the split-off `play-virtualbox-windows-vm-setup.yml` (downloads/imports a Windows 11 desktop VM) scoped **`gnome`**. Flagged for owner review.
+- Medium/Low optional rows — all read and classified from their real task lists (see Task 3.5); `qobuz` kept `general`+mixed rather than whole-play `gnome` so its headless scrobbler/CLI player survive on a server. Flagged for owner review.
 
 ## Decision Gate: Fable vs Sonnet
 
