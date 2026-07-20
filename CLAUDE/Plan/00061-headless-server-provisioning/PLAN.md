@@ -201,6 +201,32 @@ Graft Fable's file-split rule for non-trivial mixed plays and the dual-command
 zero-regression discipline.
 **Date**: 2026-07-20
 
+### Decision 2: Ambiguous classifications resolved by the owner
+
+**Context**: The two brainstorms disagreed on a few play classifications.
+**Decision** (owner, 2026-07-20):
+
+- `play-rpm-fusion` → **`scope-general`**. It only enables the RPM Fusion
+  free/nonfree repositories — foundational plumbing many later plays depend on
+  (codecs, ffmpeg, hardware drivers). It is not GNOME-specific in any way, and
+  *omitting* it on a server risks breaking downstream package installs. (Fable's
+  read; overrides Sonnet's `scope-gnome`.)
+- Remaining flagged calls (`play-ms-fonts`, `play-terminal-emulators`,
+  `play-systemd-user-tweaks`, `play-python`) to be settled during the Phase 2
+  exhaustive sweep inside the full proposal.
+  **Date**: 2026-07-20
+
+### Decision 3: Refinement loop — Sonnet proposes, Fable audits, owner-agent judges
+
+**Context**: The chosen design (Decision 1) needs to become an
+implementation-ready proposal before Phase 3.
+**Process**: Sonnet authors a full proposal (`PROPOSAL.md`); Fable adversarially
+audits it (`AUDIT-round-N.md`); the orchestrating agent judges each round
+(real must-fix vs nitpick), feeds real findings back to Sonnet, and loops until
+convergence (Fable raises nothing material). Convergence + judge sign-off gates
+entry to Phase 3 implementation.
+**Date**: 2026-07-20
+
 ## Success Criteria
 
 - [ ] A documented command provisions a headless Fedora Server with no GNOME/GUI
