@@ -585,31 +585,6 @@ Keep ONE source of truth per fact and link to it. Normal markdown-location rules
 
 **Allowed locations**: `CLAUDE/`, `docs/`, `RELEASES/`, `CLAUDE/Plan/`, root-level `README.md`, `.claude/rules/`, or any `extra_allowed_markdown_paths` pattern.
 
-### Pipe Blocker
-
-Commands piped to `tail` or `head` are **blocked** — piping truncates output and causes information loss.
-
-**Do NOT do the theatre** of capturing output to a file and then echoing the WHOLE file to stdout — that defeats the point and just bloats tokens.
-
-**Preferred — `echd-capture`**: capture the FULL output, see only a preview.
-
-```bash
-# WRONG — blocked (and truncates):
-pytest tests/ 2>&1 | tail -20
-
-# RIGHT — full capture, bounded preview + path to the rest:
-set -o pipefail
-pytest tests/ 2>&1 | echd-capture 20
-# prints the last 20 lines + '(full output: /…/command-output-….txt)'.
-# Use --head N for the first N lines. pipefail keeps pytest's exit code visible.
-```
-
-**Alternative** (no pipe): `pytest tests/ > /tmp/out.txt 2>&1` then read selectively.
-
-**Allowed** (whitelisted): `grep`, `rg`, `awk`, `sed`, `jq`, `ls`, `cat`, `git log`, `git tag`, `git branch`, and other cheap filtering commands.
-
-**Add to whitelist** (if safe to pipe): set `extra_whitelist` in `.claude/hooks-daemon.yaml` under `pipe_blocker`.
-
 ## plan_qa_commit_gate — cross-file plan checks at git commit
 
 Every `git commit` is checked against the STAGED tree's plan QA
@@ -680,6 +655,32 @@ dated entries at the bottom, not edits to old ones.
 Grandfathered plans in `plan_workflow.qa.legacy_plan_allowlist`
 only ever advise. Lint any file on demand:
 `$PYTHON -m claude_code_hooks_daemon.daemon.cli plan-qa --lint <file>`.
+
+### Pipe Blocker
+
+Commands piped to `tail` or `head` are **blocked** — piping truncates output and causes information loss.
+
+**Do NOT do the theatre** of capturing output to a file and then echoing the WHOLE file to stdout — that defeats the point and just bloats tokens.
+
+**Preferred — `echd-capture`**: capture the FULL output, see only a preview. When the block fires it prints the exact invocation to use — an ABSOLUTE path to the deployed helper, not a bare name — so copy the path from the block message (the helper is not guaranteed to be on `PATH`). If no helper path can be resolved, the block recommends the temp-file redirect below instead.
+
+```bash
+# WRONG — blocked (and truncates):
+pytest tests/ 2>&1 | tail -20
+
+# RIGHT — full capture, bounded preview + path to the rest. Use the ABSOLUTE
+# echd-capture path from the block message (shown here as /…/scripts/echd-capture):
+set -o pipefail
+pytest tests/ 2>&1 | /…/scripts/echd-capture 20
+# prints the last 20 lines + '(full output: /…/command-output-….txt)'.
+# Use --head N for the first N lines. pipefail keeps pytest's exit code visible.
+```
+
+**Always-works alternative** (no helper, no pipe): `pytest tests/ > /tmp/out.txt 2>&1` then read the file selectively.
+
+**Allowed** (whitelisted): `grep`, `rg`, `awk`, `sed`, `jq`, `ls`, `cat`, `git log`, `git tag`, `git branch`, and other cheap filtering commands.
+
+**Add to whitelist** (if safe to pipe): set `extra_whitelist` in `.claude/hooks-daemon.yaml` under `pipe_blocker`.
 
 ## system_paths — do not edit deployed system files directly
 
@@ -869,6 +870,20 @@ At session start this handler checks a ccy project (`.claude/ccy/`) whose superv
 It also detects a **stale running supervisor** (Plan 00164): when a daemon upgrade has put a NEWER `claude-supervise.py` on disk than the live process (compared by source fingerprint, not just version), it advises restarting ccy so the wrapper re-execs the updated supervisor. Nothing is broken meanwhile — the old supervisor keeps working until the session is relaunched.
 
 When you see this alert, fix the listed item(s) and commit the ccy files so the supervisor works for everyone.
+
+## git_upstream_checker — additive fetch + pull/cleanup advice on session start
+
+On each new session the daemon runs an **additive** `git fetch --all` (never `--prune` — it never removes anything automatically) and then:
+
+**If your branch is behind its upstream**, acts on the configured `mode`:
+
+- `warn` (default): strongly advises you to run `git pull`.
+- `agent-pull`: instructs you to run `git pull` as your first action.
+- `auto-pull`: the daemon runs `git pull --ff-only` for you on a clean, non-diverged tree; if it cannot fast-forward (dirty tree or diverged history) it degrades to a warning and you pull manually.
+
+**If local branches track a remote branch that was deleted**, it lists them (marked merged = safe vs not-merged = has unique commits) and asks you to clean up AFTER checking: `git branch -d <name>` for merged branches, ask the human for the rest, and optionally `git fetch --prune` the stale remote-tracking refs. The daemon never prunes or deletes a branch itself; never use `git branch -D`.
+
+It is silent when up to date with no gone branches, not in a git repo, on a detached HEAD, or without an upstream. Configure via `handlers.session_start.git_upstream_checker.options.mode`.
 
 ## idle_housekeeping_advisory — report-first idle housekeeping (beta, opt-in)
 
