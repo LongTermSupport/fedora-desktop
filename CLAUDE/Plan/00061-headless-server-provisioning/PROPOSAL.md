@@ -1,5 +1,18 @@
 # Proposal: Headless Server Provisioning — Self-Guarding Plays (standalone-runnable, auto-gating)
 
+## Revision log (round 6 — final; one Check 4 fix from `AUDIT-round-5.md`)
+
+`AUDIT-round-5.md` (Fable): **0 blockers, 1 should-fix**, and it verified the
+round's highest-risk claim — the canonical guard passes its own gate
+byte-for-byte. The one should-fix (applied here, judge-verified):
+`TASK2_META`/`TASK2_WHEN` extraction did not strip a trailing `# comment`/CRLF
+(unlike `SCOPE` extraction, which does), so an otherwise byte-correct guard
+carrying a trailing comment on its `when:` was falsely rejected. Fixed by
+mirroring `SCOPE`'s two `sub()` calls onto both guard-field rules (§5.2).
+Re-verified independently: the canonical guard still matches and a
+comment-suffixed guard now matches too. **Design converged — implementable
+as-is.**
+
 ## Revision log (round 5 — gate moves into each play)
 
 **Why**: a new owner requirement, recorded as PLAN.md Decision 5: **every
@@ -717,12 +730,16 @@ while IFS= read -r -d '' yml_file; do
         in_tasks && task_count == 2 && /^      ansible\.builtin\.meta:[[:space:]]*/ {
             val = $0
             sub(/^      ansible\.builtin\.meta:[[:space:]]*/, "", val)
+            sub(/[[:space:]]*#.*$/, "", val)   # strip trailing comment (parity with SCOPE)
+            sub(/\r$/, "", val)                # strip stray CRLF (parity with SCOPE)
             print "TASK2_META|" val
             next
         }
         in_tasks && task_count == 2 && /^      when:[[:space:]]*/ {
             val = $0
             sub(/^      when:[[:space:]]*/, "", val)
+            sub(/[[:space:]]*#.*$/, "", val)   # strip trailing comment (parity with SCOPE)
+            sub(/\r$/, "", val)                # strip stray CRLF (parity with SCOPE)
             print "TASK2_WHEN|" val
             next
         }
