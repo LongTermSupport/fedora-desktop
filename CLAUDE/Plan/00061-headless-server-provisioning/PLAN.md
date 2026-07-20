@@ -282,6 +282,45 @@ profile-gate (unguarded = general, `!= 'server'` = gnome, `== 'server'` =
 server) rather than reading a tag.
 **Date**: 2026-07-20
 
+### Decision 5: Gate lives IN each play (self-guard), not on the import — every play standalone-runnable + auto-gating (supersedes Decision 4's import-site `when:`)
+
+**Context**: New owner requirement — every play must be runnable **standalone**
+(`ansible-playbook playbooks/imports/play-X.yml`), not only via the
+`playbook-main.yml` batch. Decision 4's `when:`-on-`import_playbook:` gate lives
+in `playbook-main.yml`, so it does **not** fire on a standalone run — a gnome
+core play run by itself would execute on a server. The import-site design's
+"core plays are batch-only" assumption is void.
+
+**Decision**: Move the profile gate from the import site **into each play** as a
+top-of-play guard task (`ansible.builtin.meta: end_play` — or `end_host` —
+`when: <play does not match provisioning_profile>`), driven by a per-play
+`scope:` var. The `when:`-on-import lines in `playbook-main.yml` are **dropped**.
+This unifies core + optional plays (one identical self-gating mechanism — no
+more split import-parser [4a] vs `vars.scope` [4b] in the QA gate), makes every
+play **self-describing and standalone-runnable**, and a single boilerplate guard
+expression referencing `scope:` covers all three buckets (general never ends;
+gnome ends when `provisioning_profile == 'server'`; server ends when
+`!= 'server'`). The `group_vars/desktop.yml` auto-detect layer (Decision 4 §2)
+is **unchanged** — verified it also loads on a standalone run. Classification,
+mixed-task handling, and the two latent-bug finds carry over verbatim.
+
+**Prototype evidence** (`prototype-self-guard.md`, ansible-core 2.19.11, run
+STANDALONE): (1) `group_vars/desktop.yml` loads on a bare single-play run
+(profile auto-computed, gnome play ran on `desktop`); (2) `meta: end_play` and
+`meta: end_host` both honor `when:` — with `-e provisioning_profile=server` the
+guard fires and the play ends before its real tasks. Both load-bearing
+assumptions confirmed.
+
+**Open design questions for the loop**: the exact guard expression (one uniform
+guard referencing `scope:` vs a per-scope hardcoded condition); whether general
+plays carry the boilerplate guard too (uniformity) or omit it; the QA-gate
+rewrite to a **uniform per-play** check (every play has a valid `scope:` var +,
+for gnome/server, the matching guard) replacing the 4a/4b split; and one gap — a
+typo'd `-e provisioning_profile=` on a **standalone** run bypasses `play-AA`'s
+assert (§2.3), so profile validation may need to live in the guard/group_vars
+itself.
+**Date**: 2026-07-20
+
 ## Success Criteria
 
 - [ ] A documented command provisions a headless Fedora Server with no GNOME/GUI
