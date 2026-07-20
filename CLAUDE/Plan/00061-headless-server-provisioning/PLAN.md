@@ -107,20 +107,27 @@ decided:
 - [x] ✅ **Task 1.2**: Commission two independent brainstorm passes into `brainstorm-fable.md` and `brainstorm-sonnet.md`, each proposing a full approach (mechanism + scope location + QA gate + mixed-play handling) with pros/cons and a concrete first-slice.
 - [x] ✅ **Task 1.3**: Compare the two brainstorms; pick the winning design (or a synthesis) at a decision gate recorded in this PLAN.md — see **Decision Gate** below.
 
-### Phase 2: Design commit (decision gate PASSED — awaiting user go-ahead to implement)
+### Phase 2: Design commit — **COMPLETE (proposal converged, design gate passed)**
 
 - [x] ✅ **Task 2.1**: Record the chosen mechanism (native play-level `tags:` + `--skip-tags`, Sonnet + Fable grafts) as **Technical Decision 1** below.
-- [ ] ⬜ **Task 2.2**: **Exhaustive per-play task sweep** (not a one-pass read — the two agents found different single mixed plays). Classify every core play into exactly one `scope-*` bucket, catalogue every mixed-concern task, and resolve the flagged ambiguous calls (`play-rpm-fusion`, `play-ms-fonts`, `play-terminal-emulators`, `play-systemd-user-tweaks`, `play-python`).
+- [x] ✅ **Task 2.2**: Exhaustive per-play task sweep done in `PROPOSAL.md` §1 (all 31 core plays task-by-task; the sweep found a **3rd** mixed play — `play-prevent-ssh-suspend`'s gsettings task, a real latent bug — that a one-pass read missed). Ambiguous calls settled: `rpm-fusion`→general (owner), `ms-fonts`→gnome, `terminal-emulators`→gnome, `systemd-user-tweaks`→general, `python`→general. Optional tree fast-pass-classified (Medium/Low rows flagged for verify-on-implement).
+- [x] ✅ **Task 2.3**: Sonnet↔Fable refinement loop run to **convergence** — `PROPOSAL.md` (Sonnet) → `AUDIT-round-1.md` (Fable: 1 blocker + 4 should-fix + 3 nitpick, all real) → round-2 revision (Sonnet) → `AUDIT-round-2.md` (Fable: **zero findings**, verified by executing the code, "implementable as-is, no round 3"). Judge concurs. `PROPOSAL.md` is the implementation-ready spec.
 
-### Phase 3: Implementation (native tags + `--skip-tags` design)
+### Phase 3: Implementation (native tags + `--skip-tags` design) — **ready; per `PROPOSAL.md` §7 checklist**
 
-- [ ] ⬜ **Task 3.1**: Add a play-level `tags: [scope-*]` block to every core play per the Task 2.2 catalogue.
-- [ ] ⬜ **Task 3.2**: Handle mixed plays — task-level `scope-gnome` tag for trivial single-item exceptions; split into a single-scope file when the mixed concern is non-trivial.
-- [ ] ⬜ **Task 3.3**: Add the scope check as a 4th grep/awk check **inside `scripts/qa-ansible.bash`** (no `qa-all.bash` positional-merge changes); it must fail on missing/invalid/multiple play-level scope tags.
-- [ ] ⬜ **Task 3.4**: Document both canonical commands (desktop `--skip-tags scope-server`, server `--skip-tags scope-gnome`) in `docs/`, and note the scope-tag grammar in `CLAUDE/AnsibleStyle.md`.
-- [ ] ⬜ **Task 3.5**: Run QA: `./scripts/qa-all.bash`; fix findings.
-- [ ] ⬜ **Task 3.6**: Prove zero regression — `ansible-playbook playbook-main.yml --skip-tags scope-server --check --list-tasks` must be identical to today's unscoped `--list-tasks`; the server command must visibly drop every GNOME play.
-- [ ] ⬜ **Task 3.7**: (On HOST) validate a headless run in a VM/container; confirm no GNOME/GUI plays execute.
+- [ ] ⬜ **Task 3.1**: Add a play-level `tags: [scope-*]` block to every core play per `PROPOSAL.md` §1.1.
+- [ ] ⬜ **Task 3.2**: Apply the 3 mixed-play edits (`PROPOSAL.md` §3.1–§3.3) + the container-watch interim override (§3.4); split `play-virtualbox-windows.yml` (two `- hosts:` plays) first.
+- [ ] ⬜ **Task 3.3**: Add Check 4 to `scripts/qa-ansible.bash` (`PROPOSAL.md` §4); no `qa-all.bash` changes.
+- [ ] ⬜ **Task 3.4**: Tag the 41 optional plays (`PROPOSAL.md` §1.3) — **read Medium/Low-confidence rows before trusting the fast-pass tag**.
+- [ ] ⬜ **Task 3.5**: Document both commands in `docs/playbooks.md` + scope-tag grammar in `CLAUDE/AnsibleStyle.md` (`PROPOSAL.md` §5).
+- [ ] ⬜ **Task 3.6**: Run QA: `./scripts/qa-all.bash`; fix findings.
+- [ ] ⬜ **Task 3.7**: Zero-regression proof — `--skip-tags scope-server --list-tasks` == today's unscoped `--list-tasks` (CCY-safe, `--list-tasks` only, NOT `--check`); server command drops every GNOME play (`PROPOSAL.md` §6).
+- [ ] ⬜ **Task 3.8**: (On HOST) validate a headless run in a VM/container; confirm no GNOME/GUI plays execute.
+
+**Open owner decisions before/within Phase 3** (genuine judgment calls the design deferred to a human, not blockers to the mechanism):
+
+- `play-virtualbox-windows.yml` scope value(s) — VirtualBox has a real headless mode (same category as the rpm-fusion call); the file must be split into two plays and each scoped.
+- The Medium/Low-confidence optional-tree rows in `PROPOSAL.md` §1.3 — verify against the real task list at implementation time.
 
 ## Decision Gate: Fable vs Sonnet
 
