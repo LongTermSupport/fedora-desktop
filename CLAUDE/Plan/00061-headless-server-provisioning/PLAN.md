@@ -234,6 +234,54 @@ convergence (Fable raises nothing material). Convergence + judge sign-off gates
 entry to Phase 3 implementation.
 **Date**: 2026-07-20
 
+### Decision 4: Mechanism PIVOT — `when:` + auto-detected `provisioning_profile` (supersedes Decision 1's selection layer)
+
+**Context**: A new owner requirement landed after Decision 1 converged: the
+system should **auto-detect** the target (desktop vs headless server) and adjust
+itself — **zero config, zero runtime flags** — "a hook that checks up front."
+
+**Key technical fact**: `--skip-tags` is resolved by the CLI *before* any fact
+exists, so a tag-based design can **never** self-configure — it always needs an
+external driver (a flag or a wrapper script). `when:` is evaluated at runtime
+against variables, so it *can* consume an auto-detected `provisioning_profile`
+and gate itself with no flag and no wrapper. The requirement moved; the right
+mechanism moves with it. (The owner also ruled the "convert a Server install
+into a GNOME desktop" case out of scope — a desktop comes from the Workstation
+ISO, a server from the Server ISO — so `systemctl get-default`
+\[`graphical.target` vs `multi-user.target`\] reflects genuine intent, and the
+desired-vs-current-state circularity worry is moot.)
+
+**Decision**: Pivot the *selection layer* from `tags:`/`--skip-tags` to `when:`
+on the core `import_playbook:` lines, gated by a `provisioning_profile` variable
+that is **auto-computed** (default `desktop`; detected from `systemctl get-default`, server-biased when uncertain; `-e provisioning_profile=…`
+overrides for testing/CI). `ansible-playbook playbook-main.yml` then
+auto-detects and gates with no flags. Everything mechanism-*independent* from
+the converged `PROPOSAL.md` is **reused verbatim** — the exhaustive
+classification (21 general / 10 gnome), the three mixed-play discoveries, the
+`prevent-ssh-suspend` gsettings latent-bug find, the container-watch
+`register`/`when` hazard. Only *how we select* changes.
+
+**Prototype evidence** (`prototype-when-import.md`, ansible-core 2.19.11):
+`when:` on `import_playbook` gated by `provisioning_profile` **works at runtime**
+(server → gnome play `skipping`, `skipped=1`; desktop → runs). **Caveat found:**
+`--list-tasks` does **not** evaluate `when:`, so the cheap in-container static
+skip-proof that worked for tags is **not** available for `when:` — end-to-end
+skip verification is host-side (`--check`/real run; Task 3.8 already is).
+
+**Accepted trade-offs vs Decision 1**: (a) core-play scope now lives at the
+import site in `playbook-main.yml` (plays less self-describing — acceptable, as
+core plays are batch-only; optional plays keep an in-file scope marker for the
+QA gate + docs); (b) weaker in-container static verification (host-side instead).
+**Won**: true zero-flag auto-detection, no wrapper, explicit readable gate logic,
+and it's arguably *simpler* overall than tags+wrapper.
+
+**Follow-up**: re-run the Decision-3 loop (Sonnet revises `PROPOSAL.md` for the
+`when:` mechanism, reusing the classification; Fable audits the deltas) — the
+QA gate now validates each core import carries exactly one recognized
+profile-gate (unguarded = general, `!= 'server'` = gnome, `== 'server'` =
+server) rather than reading a tag.
+**Date**: 2026-07-20
+
 ## Success Criteria
 
 - [ ] A documented command provisions a headless Fedora Server with no GNOME/GUI
