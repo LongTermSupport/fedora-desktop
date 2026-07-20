@@ -1,5 +1,63 @@
 # Proposal: Headless Server Provisioning — Native Play-Level `tags:` + `--skip-tags`
 
+## Revision log (round 2)
+
+Fixes applied in response to `AUDIT-round-1.md` (Fable). Re-audit only needs
+to check these deltas — the mechanism, classifications, and everything not
+listed below are unchanged from round 1.
+
+- **BLOCKER 1.1 (fixed)** — Check 4's `valid_count=$(...)` /
+  `scope_like_count=$(...)` lines crashed `qa-ansible.bash` under `set -e`
+  on the zero-match case (exactly the "no scope tag" case the check exists to
+  catch), which also silently corrupted `qa-all.bash`'s merged JSON for every
+  *other* check via `jq -s`'s empty-input-shrinks-the-array behaviour. Added
+  `|| true` to both lines (§4). Audited the rest of Check 4 for the same
+  hazard — the one other `$(...)` assignment that runs a `grep`
+  (`bad=$(... | grep -vxE ... | paste ...)`) only executes on the branch
+  where `scope_like_count -gt 0` is already known true, so `grep -vxE` is
+  guaranteed at least one match; no `|| true` needed there, verified by
+  re-reading the branch guard.
+- **SHOULD-FIX 1.2 (fixed)** — the awk extraction didn't strip a trailing
+  `# comment` (or a stray `\r`), so a correctly-spelled, commented scope tag
+  (this repo's own "comments explain WHY" convention encourages exactly this)
+  read as "missing." Added `sub(/[[:space:]]*#.*$/, "")` and `sub(/\r$/, "")`
+  to the awk item branch (§4); updated §8's limitation note.
+- **SHOULD-FIX 5.1 (fixed)** — `play-virtualbox-windows.yml` has two
+  `- hosts:` play blocks in one file (the only such file in the repo); the
+  file-granular gate would false-pass if only the first play were tagged.
+  Split its classification into two independent rows (§1.3), added an
+  explicit multi-play-file detection branch to Check 4 (§4) that errors
+  loudly rather than silently trusting the first play's tag for the whole
+  file, and called the file out by name in the checklist (§7 step 4).
+- **SHOULD-FIX 6.1 (fixed)** — `play-container-watch.yml`'s interim
+  task-tag edit had no exact diff, unlike §3.1–§3.3, even though step 4
+  required applying it in this pass. Added the full exact diff for the
+  GNOME-shaped tasks (§3.4), matching the rigor of §3.1–§3.3, so nothing is
+  left to prose-derived guesswork. **While deriving it, found an 8th task the
+  round-1 audit's own enumeration of 7 had missed** (`Container-watch extension reload complete`, line 175) — it consumes a variable the round-1
+  list's 6th task registers, so tagging only the audit's 7 would have left an
+  untagged task referencing an undefined variable on a server run (a hard
+  Ansible error under this repo's `ansible.cfg`, not a silent gap). §3.4 now
+  documents this as a general hazard for register/`when:`-chained tasks
+  under task-level overrides, beyond just fixing this one instance.
+- **NITPICK 6.2 (fixed)** — §5's docs-insertion instruction was
+  self-contradictory ("after Quick Navigation, before Core Playbooks" vs.
+  "right after line 17", which *is* the Core Playbooks heading). Corrected to
+  "immediately before line 17."
+- **NITPICK 6.3 (fixed)** — added a checklist item (§7) to update the three
+  existing per-play `docs/playbooks.md` sections for the mixed plays,
+  including noting the bug fixed in `play-prevent-ssh-suspend.yml`.
+- **NITPICK 6.4 (addressed, not changed)** — `TOTAL` is deliberately left
+  un-extended for the new check, for the same reason Check 3 (self-ref vars)
+  doesn't extend it either — noted explicitly in §4 now instead of being a
+  silent omission.
+- Not changed: the `play-vpn.yml` changed-tracking-granularity nitpick
+  (splitting one `dnf` task into two produces two recap lines instead of one)
+  — noted as accepted, cosmetic-only, no proposal text depended on the old
+  single-result behaviour.
+
+---
+
 **Status of this document**: implementation-ready design for Plan 00061 Phase 3,
 per Decision 1 (mechanism), Decision 2 (rpm-fusion=general), and Decision 3
 (this proposal → Fable audit → judge → loop) in `PLAN.md`. Supersedes
@@ -137,12 +195,12 @@ one is added it is **not** exempt (untested ≠ unclassified).
 
 **`playbooks/imports/optional/experimental/` (4 files):**
 
-| Play                                 | Scope           | Confidence                                       | Note                                                                                                                                                                                                                                                                                                            |
-| ------------------------------------ | --------------- | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `play-docker-in-lxc-support.yml`     | `scope-general` | High                                             | Container interop config                                                                                                                                                                                                                                                                                        |
-| `play-docker-overlay2-migration.yml` | `scope-general` | High                                             | Docker storage-driver migration                                                                                                                                                                                                                                                                                 |
-| `play-lxde-install.yml`              | `scope-gnome`   | High                                             | Installs the LXDE **desktop environment** — not literally GNOME, but falls in the "needs a GUI session" bucket this repo names `scope-gnome` (see §8 naming caveat)                                                                                                                                             |
-| `play-virtualbox-windows.yml`        | `scope-gnome`   | **Low — flag for owner, like `play-rpm-fusion`** | VirtualBox ships a GUI manager but can run fully headless via `VBoxHeadless`/`VBoxManage`; this repo's play likely targets the GUI workflow (Windows VM for interactive use) but this is genuinely arguable — same category of call as the rpm-fusion dispute, needs a human decision, not a coding-agent guess |
+| Play                                 | Scope                                                                                                      | Confidence               | Note                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `play-docker-in-lxc-support.yml`     | `scope-general`                                                                                            | High                     | Container interop config                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `play-docker-overlay2-migration.yml` | `scope-general`                                                                                            | High                     | Docker storage-driver migration                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `play-lxde-install.yml`              | `scope-gnome`                                                                                              | High                     | Installs the LXDE **desktop environment** — not literally GNOME, but falls in the "needs a GUI session" bucket this repo names `scope-gnome` (see §8 naming caveat)                                                                                                                                                                                                                                                                                                                                                                                      |
+| `play-virtualbox-windows.yml`        | **NOT ONE SCOPE — this file has TWO independent `- hosts:` plays and MUST be split first (§4, §7 step 4)** | **Low — flag for owner** | Verified (round 2 audit) the file contains "Install Virtualbox" (driver + packages + group membership — arguably headless-capable via `VBoxHeadless`/`VBoxManage`, same category of call as the rpm-fusion dispute) at line 3 and a structurally separate "Setup Windows VMs" play (downloads/imports a specific Windows 11 VM image, more plausibly GUI-workflow-coupled) at line 44. Check 4 (§4) hard-rejects multi-play files, so implementation must split this into two files before either half can be tagged — see §7 step 4 for the exact split |
 
 **`playbooks/imports/optional/hardware-specific/` (7 files):**
 
@@ -340,30 +398,128 @@ Plus the play-level `tags: [scope-general]` block per §2. On a server run,
 only the applet package drops; the WireGuard/OpenVPN CLI tools and the
 firewalld rule later in the file still install.
 
-### 3.4 Worked file-split example (optional tree, not required for this plan's Phase 3, included to demonstrate the graft rule has real teeth)
+### 3.4 `playbooks/imports/optional/common/play-container-watch.yml` — exact interim task-tag diff (8 tasks, corrected from round 1)
 
-`playbooks/imports/optional/common/play-container-watch.yml` is the one
-instance found (core + fast-pass optional sweep combined) where the graft
-rule's **other** branch applies: the play deploys (a) a general-purpose
+`play-container-watch.yml` is the one instance found (core + fast-pass
+optional sweep combined) where the graft rule's file-split branch is the
+architecturally *right* fix long-term: the play deploys (a) a general-purpose
 container-watchdog script + systemd timer, entirely CLI/general, and (b) a
-GNOME Shell panel extension (`Deploy container-watch GNOME extension`,
-`gnome-extensions enable/disable ...`) as a comparably-sized, non-trivial
-block of tasks — not a single package or a single task. Per the graft rule,
-this is **not** a task-level-override candidate; it should become two files
-(e.g. `play-container-watch.yml`, `scope-general`, watchdog-only, and
-`play-container-watch-gnome-panel.yml`, `scope-gnome`, extension-only,
-importing the general one as a soft dependency check or documenting the
-order). **This split is out of scope for this plan's Phase 3 implementation
-checklist** (§7) — it lives in the optional tree, is fast-pass-classified in
-§1.3, and is called out here only as evidence that the file-split branch of
-the graft rule is real and has an actual match, not a hypothetical. If a
-future task tags `play-container-watch.yml`, use the same play-level+override
-approach as an interim (tag the whole play `scope-general`, task-tag the
-extension block `scope-gnome`) rather than block Phase 3 on a file-split that
-PLAN.md's non-goals don't require yet — but note the interim leaves a task
-labelled `scope-general` at the play level next to `scope-gnome`-tagged
-tasks, which is exactly the shape the mandatory rule prefers to avoid when
-the block is this large. Flagging, not resolving, is the correct action here.
+GNOME Shell panel extension as a comparably-sized, non-trivial block of tasks
+— not a single package or a single task. That split (e.g.
+`play-container-watch.yml` watchdog-only + `play-container-watch-gnome-panel.yml`
+extension-only) is **out of scope for this plan's Phase 3 implementation
+checklist** — it lives in the optional tree and PLAN.md's non-goals don't
+require restructuring it, only tagging it. Per §7 step 4, this pass applies
+the **interim task-tag approach** instead: play-level `tags: [scope-general]`
+plus a task-level `scope-gnome` override on every GNOME-shaped task. Below is
+the exact diff for that interim, so nothing is left to prose-derived
+guesswork.
+
+**Round-2 correction**: the round-1 audit enumerated 7 GNOME-shaped tasks
+(lines 88, 96, 142, 151, 161, 166, 180). Re-deriving the diff from the real
+file surfaced an **8th task the audit's own list missed** — `Container-watch extension reload complete` (line 175, a `debug:` task with `when: enable_result.rc == 0`). This matters for more than completeness: `enable_result`
+is `register`ed only by the "Enable container-watch extension" task (line
+166), which the diff below tags `scope-gnome`. If line 175 were left
+untagged while line 166 is skipped on a server run, evaluating `when: enable_result.rc == 0` would reference a variable that was never registered
+— under this repo's `ansible.cfg` (which removed the old opt-out and now
+always errors on undefined variables), that is a **hard Ansible error**, not
+a silent no-op. This is the general hazard behind any task-level override:
+**before tagging a task, check whether any other task in the same play
+consumes a variable it `register`s via `when:` or templating — if so, the
+consumer needs the identical override, or the pair belongs in a file-split
+instead of a task-tag.** None of §3.1–§3.3's three core-play overrides have
+this hazard (each is a self-contained, non-`register`ing task with no
+downstream consumer) — it is specific to this file's longer register/when
+chain, which is itself further evidence the file-split is the more robust
+long-term fix here.
+
+**Exact diff** — play-level block (§2) plus `tags: [scope-gnome]` appended to
+each of these 8 tasks, verbatim, no other change to any task body:
+
+```yaml
+    - name: Ensure extension destination directory exists
+      ansible.builtin.file:
+        path: "{{ extension_dest }}"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+      tags:
+        - scope-gnome
+
+    - name: Deploy container-watch GNOME extension
+      ansible.builtin.copy:
+        src: "{{ extension_src }}/"
+        dest: "{{ extension_dest }}/"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0644"
+        directory_mode: "0755"
+      tags:
+        - scope-gnome
+```
+
+```yaml
+    - name: Check if container-watch extension is currently enabled
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.shell:
+        cmd: gnome-extensions list --enabled | grep -q "{{ extension_name }}"
+      register: extension_enabled
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe — extension may not be enabled yet
+      tags:
+        - scope-gnome
+
+    - name: Disable container-watch extension to force reload
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        cmd: gnome-extensions disable {{ extension_name }}
+      when: extension_enabled.rc == 0
+      register: disable_result
+      changed_when: disable_result.rc == 0
+      failed_when: false  # FAIL-FAST-OK: disable may fail if GNOME session is unavailable
+      tags:
+        - scope-gnome
+
+    - name: Wait for container-watch extension to unload
+      ansible.builtin.pause:
+        seconds: 2
+      when: extension_enabled.rc == 0
+      tags:
+        - scope-gnome
+
+    - name: Enable container-watch extension
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        cmd: gnome-extensions enable {{ extension_name }}
+      register: enable_result
+      changed_when: "'is now enabled' in enable_result.stderr or enable_result.rc == 0"
+      failed_when: false  # FAIL-FAST-OK: enable may fail if GNOME session is unavailable
+      tags:
+        - scope-gnome
+
+    - name: Container-watch extension reload complete
+      ansible.builtin.debug:
+        msg: "Container-watch extension reloaded successfully"
+      when: enable_result.rc == 0
+      tags:
+        - scope-gnome
+
+    - name: Container-watch extension enable deferred
+      ansible.builtin.debug:
+        msg: "Container-watch extension will be enabled on next GNOME session start (no active session detected)"
+      when: enable_result.rc != 0
+      tags:
+        - scope-gnome
+```
+
+All other tasks in the file (the helper-library deploy, the CLI wrapper
+deploy, the systemd `--user` timer deploy/enable) are untouched — they are
+`scope-general` by virtue of the play-level tag alone, exactly like the 28
+plain-addition plays in §2.
 
 ---
 
@@ -404,6 +560,12 @@ this reuses the JSON blob `qa-ansible.bash` already emits and the merge
 # checks all being format-sensitive to this repo's documented conventions
 # rather than general-purpose YAML parsers (helpers/CLAUDE.md keeps helpers
 # stdlib-only with no PyYAML available to lean on).
+#
+# A file with more than one "- hosts:" play (repo's only current instance:
+# play-virtualbox-windows.yml) is REJECTED outright, not partially validated
+# — this check operates at file granularity and cannot safely vouch for a
+# second, unexamined play hiding behind the first play's tag. See the
+# hosts_block_count guard below.
 SCOPE_VALID_RE='scope-gnome|scope-general|scope-server'
 SCOPE_VIOLATIONS=()
 
@@ -413,6 +575,22 @@ while IFS= read -r -d '' yml_file; do
 
     rel_file="${yml_file#"$REPO_ROOT"/}"
 
+    # Multi-play-file guard: the awk extraction below only finds the FIRST
+    # "  tags:" block in the file, so a file with more than one "- hosts:"
+    # play (the repo's only current instance is
+    # playbooks/imports/optional/experimental/play-virtualbox-windows.yml —
+    # "Install Virtualbox" + "Setup Windows VMs") would otherwise let a
+    # tagged first play silently vouch for an untagged second play, which
+    # would then run on every profile regardless of --skip-tags. Detect this
+    # explicitly and fail loudly rather than validate only the first play.
+    hosts_block_count=$(grep -cE '^[[:space:]]*-[[:space:]]+hosts:' "$yml_file" || true)
+    if [[ $hosts_block_count -gt 1 ]]; then
+        echo "  ERROR (scope): $rel_file — file contains $hosts_block_count separate '- hosts:' plays; this gate validates one scope tag per FILE and cannot safely vouch for a multi-play file. Give each play its own play-level scope tag AND split the file (one play per file, matching every other playbook in the repo), or the gate will keep rejecting it."
+        SCOPE_VIOLATIONS+=("$rel_file (multi-play file: $hosts_block_count plays in one file, not supported)")
+        ERRORS=$((ERRORS + 1))
+        continue
+    fi
+
     # Extract just the play-level tags: block's item VALUES (one per line,
     # "- " prefix stripped) — the FIRST "  tags:" line at exactly 2-space
     # indent, then every immediately-following 4-space "- " list item,
@@ -421,14 +599,22 @@ while IFS= read -r -d '' yml_file; do
         /^  tags:[[:space:]]*$/ { in_block=1; next }
         in_block && /^    - [[:space:]]*[^[:space:]]/ {
             sub(/^    - [[:space:]]*/, "")
+            sub(/[[:space:]]*#.*$/, "")   # strip a trailing "# why" comment
+            sub(/\r$/, "")                # defensive: strip a stray CRLF remnant
             print
             next
         }
         in_block { exit }
     ' "$yml_file")
 
-    valid_count=$(printf '%s\n' "$play_tags" | grep -xcE "$SCOPE_VALID_RE")
-    scope_like_count=$(printf '%s\n' "$play_tags" | grep -xcE 'scope-[A-Za-z0-9_-]+')
+    # `grep -c` exits 1 (not 0) when it finds zero matches, even though it
+    # still prints "0" to stdout — under this script's `set -euo pipefail`,
+    # an unguarded `var=$(... | grep -c ...)` would abort the WHOLE script on
+    # exactly the "no scope tag" case this check exists to catch (see Checks
+    # 1 and 3 above, which guard the same hazard with `|| rc=$?`). `|| true`
+    # here preserves the correct count while preventing the abort.
+    valid_count=$(printf '%s\n' "$play_tags" | grep -xcE "$SCOPE_VALID_RE" || true)
+    scope_like_count=$(printf '%s\n' "$play_tags" | grep -xcE 'scope-[A-Za-z0-9_-]+' || true)
 
     if [[ $valid_count -eq 1 ]]; then
         : # exactly one valid scope tag — OK, regardless of other unrelated tags in the list
@@ -525,6 +711,15 @@ and merges it into `.checks.ansible` at `.[3]` in the positional `jq -s`
 array — all of that is unchanged; the new `checks.ansible.scope` key rides
 along inside the same blob `qa-ansible.bash` already produces.
 
+**`TOTAL` is deliberately not extended for the new check** (same reason Check
+3's self-ref-var check doesn't extend it either): pass/fail is driven purely
+by the shared `$ERRORS` counter, which Check 4 increments identically to
+Checks 1–3, so a scope violation genuinely fails the script and propagates
+through `qa-all.bash` regardless of `TOTAL`'s value. `TOTAL` only affects the
+cosmetic "N files checked" count, not correctness — leaving it as
+`PLAYBOOK_COUNT + 1` (synthetic fail-fast-scan entry) rather than `+ 2` is
+consistent with Check 3's existing precedent, not an oversight.
+
 **`imports/optional/**` coverage confirmed**: the `find "$REPO_ROOT/playbooks/" ...` root recurses into every subdirectory including `imports/optional/common`,
 `experimental`, `hardware-specific`, `archived` (excluded by the explicit
 `[[ ... == */optional/archived/* ]]` guard), and `untested` (included, though
@@ -551,9 +746,9 @@ ansible-playbook playbooks/playbook-main.yml --skip-tags scope-gnome
 
 **Documentation locations:**
 
-- **`docs/playbooks.md`** — insert a new `## Desktop vs. Headless Server Provisioning` section immediately after the existing `## Quick Navigation`
-  section and before `## Core Playbooks (Automatically Run)` (i.e. right
-  after line 17's heading in the current file). Content: the two commands
+- **`docs/playbooks.md`** — insert a new `## Desktop vs. Headless Server Provisioning` section **immediately before line 17**, the existing
+  `## Core Playbooks (Automatically Run)` heading (i.e. directly after the
+  `## Quick Navigation` section that precedes it). Content: the two commands
   above, a one-paragraph explanation of the `scope-gnome`/`scope-general`/
   `scope-server` taxonomy, and a pointer to this plan folder for the full
   rationale. This is the file every other command in `docs/playbooks.md`
@@ -565,6 +760,14 @@ ansible-playbook playbooks/playbook-main.yml --skip-tags scope-gnome
   sentence rule "every playbook declares exactly one of `scope-gnome` |
   `scope-general` | `scope-server` as a play-level tag; a QA gate enforces
   this (`scripts/qa-ansible.bash`)."
+- **`docs/playbooks.md`'s existing per-play sections** — `docs/playbooks.md`
+  already has `### play-basic-configs.yml`, `### play-prevent-ssh-suspend.yml`,
+  and `### play-vpn.yml` write-ups (confirmed present). Update each to
+  mention its scope split: for `play-basic-configs.yml` and `play-vpn.yml`,
+  a one-line note that the USB-audio-fix / GNOME-applet package is skipped on
+  a server; for `play-prevent-ssh-suspend.yml`, note the bug being fixed
+  (§3.2) — a headless run would previously hard-fail on the
+  `gsettings`/GNOME-schema task, now cleanly skipped instead.
 
 ---
 
@@ -624,38 +827,58 @@ this plan's success criteria.
 03. **Apply the 3 mixed-play edits (§3.1–§3.3)** to `play-basic-configs.yml`,
     `play-prevent-ssh-suspend.yml`, and `play-vpn.yml` exactly as shown
     (note §3.3 is a task split, not just a tag add).
-04. **Add the canonical `tags:` block** to all 41 non-archived optional plays
-    in `playbooks/imports/optional/{common,experimental,hardware-specific}/`
-    using §1.3's fast-pass table. For any row marked **Medium — verify** or
-    **Low**, read the play's actual task list first and correct the
-    classification if the fast-pass guess was wrong — do not blindly apply a
-    flagged row. `play-container-watch.yml` gets an interim play-level
-    `scope-general` + task-level `scope-gnome` override on its GNOME-extension
-    block (§3.4), not a file-split, unless a human explicitly asks for the
-    split in this pass.
+04. **Add the canonical `tags:` block** to all non-archived optional plays in
+    `playbooks/imports/optional/{common,experimental,hardware-specific}/`
+    using §1.3's fast-pass table, **with two named exceptions handled
+    separately, not swept up in this bulk step**:
+    - `play-container-watch.yml` — apply the exact 8-task interim diff in
+      §3.4 verbatim (do **not** re-derive it from prose; do **not** perform
+      the file-split in this pass).
+    - `play-virtualbox-windows.yml` — **do not tag this file as-is.** Check 4
+      (§4) hard-rejects it (two `- hosts:` plays in one file). First **split
+      it** into two files — e.g. `play-virtualbox-windows.yml` (the existing
+      "Install Virtualbox" play, lines 1–43 of the current file, plus its
+      `handlers:` block) and `play-virtualbox-windows-vm-setup.yml` (the
+      existing "Setup Windows VMs" play, lines 44 onward) — each with its own
+      shebang (`#!/usr/bin/env ansible-playbook`) and executable bit per
+      `playbooks/CLAUDE.md`. Then tag each independently: `scope-value` for
+      "Install Virtualbox" is the same Low-confidence, owner-flagged call as
+      `play-rpm-fusion.yml` (§1.3); "Setup Windows VMs" is more plausibly
+      `scope-gnome` (interactive VM import/config workflow) but get an
+      explicit owner decision for both before tagging, don't guess.
+    - For every other row marked **Medium — verify** or **Low**, read the
+      play's actual task list first and correct the classification if the
+      fast-pass guess was wrong — do not blindly apply a flagged row.
 05. **Edit `scripts/qa-ansible.bash`** per §4: insert Check 4 after Check 3
     (before the "Build JSON output" comment), add the `sc_json_array` block
     alongside the existing three, extend the final `jq -n` call with `--argjson sc`, the `failures` branch, and `"scope": $sc`, and extend both terse
-    summary echoes. **Do not touch `qa-all.bash`.**
+    summary echoes. Confirm the two `|| true` guards (§4's blocker fix) and
+    the multi-play-file guard are present exactly as shown — these are the
+    load-bearing parts of this step. **Do not touch `qa-all.bash`.**
 06. **Run `./scripts/qa-all.bash`.** Expect it to fail before step 2/4 land
     (every playbook missing a scope tag) and pass once all playbooks in
     `playbooks/` (except `imports/optional/archived/play-tlp-battery-optimisation.yml`)
-    carry a valid scope tag. Fix any findings — most likely a missed optional
-    play or a classification that needs the on-the-spot correction from step 4.
-07. **Add the `docs/playbooks.md` section** per §5 (after `## Quick Navigation`, before `## Core Playbooks`).
-08. **Add the `CLAUDE/AnsibleStyle.md` subsection** per §5 (after `### Tagging Strategy`).
-09. **Run the zero-regression proof (§6)** inside the CCY container. Both
+    carry a valid scope tag, and `play-virtualbox-windows.yml` has been split
+    per step 4. Fix any findings — most likely a missed optional play or a
+    classification that needs the on-the-spot correction from step 4.
+07. **Add the `docs/playbooks.md` section** per §5 (immediately before line 17,
+    `## Core Playbooks`), the `CLAUDE/AnsibleStyle.md` subsection per §5
+    (after `### Tagging Strategy`), and update the three existing per-play
+    `docs/playbooks.md` sections (`play-basic-configs.yml`,
+    `play-prevent-ssh-suspend.yml`, `play-vpn.yml`) per §5's per-play-doc
+    bullet.
+08. **Run the zero-regression proof (§6)** inside the CCY container. Both
     `diff` commands must behave exactly as specified — an empty diff for the
     desktop command, a GNOME-only-shrinkage diff for the server command. If
     the desktop diff is non-empty, something outside the documented 3 mixed
     plays introduced an unexpected task-level scope tag — find and fix it
     before proceeding.
-10. **Re-run `./scripts/qa-all.bash`** one final time to confirm green after
+09. **Re-run `./scripts/qa-all.bash`** one final time to confirm green after
     all edits.
-11. **(On HOST, not in the CCY container — per `CLAUDE/ContainerRules.md`)**
+10. **(On HOST, not in the CCY container — per `CLAUDE/ContainerRules.md`)**
     validate a real headless run in a VM/container per PLAN.md Task 3.7 —
     out of scope for this proposal document, tracked separately in PLAN.md.
-12. **Update PLAN.md**: mark Phase 3 tasks 3.1–3.6 complete in the same
+11. **Update PLAN.md**: mark Phase 3 tasks 3.1–3.6 complete in the same
     commit as the code, per the project's Plan Commit Rule, and add a
     `JOURNAL/` entry recording what changed.
 
@@ -675,7 +898,9 @@ this plan's success criteria.
   over-strict) rather than being correctly parsed. Documented in both the
   script comment and `CLAUDE/AnsibleStyle.md`; the fix if it ever bites is
   "use block-list form, like every other example in this repo," not "add a
-  YAML parser."
+  YAML parser." (A trailing `# comment` on a tag line, by contrast, is now
+  handled — round 1 caught this as a gap, fixed by stripping trailing `#...`
+  and a stray `\r` in the awk extraction, §4.)
 - **The fast-pass optional-tree classification (§1.3) is genuinely lower
   confidence than the core-31 table.** Several rows are marked Medium/Low and
   explicitly need a real read before their tag is trusted — this is called
@@ -693,20 +918,34 @@ this plan's success criteria.
   the same category as `play-rpm-fusion.yml` (Decision 2) — VirtualBox has a
   real, supported headless mode. Flagged in §1.3 for an explicit human
   decision rather than silently picking one side, matching how rpm-fusion was
-  handled.
+  handled. **Round-2 addition**: this file also turned out to be the repo's
+  only multi-play file (two independent `- hosts:` plays), which Check 4 now
+  hard-rejects rather than silently trusting one play's tag for both (§4) —
+  so this file needs a file-split (§7 step 4) before either play can be
+  tagged at all, independent of which way the scope-value call goes.
 - **`scope-gnome` is used as this repo's "needs a GUI session" bucket, not
   literally "GNOME-specific."** `play-lxde-install.yml` (an LXDE desktop, not
   GNOME) is tagged `scope-gnome` because the taxonomy's three names were
   locked by the owner in Decision 1/2 and this plan does not reopen that
   naming. Documented here so a future contributor isn't confused about why a
   non-GNOME desktop environment carries a `scope-gnome` tag.
-- **`play-container-watch.yml`'s file-split (§3.4) is flagged, not
-  implemented**, by this proposal's own implementation checklist (step 4 uses
-  the interim task-tag approach). This is a deliberate scope-control decision
-  — PLAN.md's non-goals don't require touching the optional tree's internal
-  structure, only tagging it — but it does mean one optional play ships with
-  a play-level/task-level split larger than the "trivial exception" the graft
-  rule was designed for, as an accepted interim state.
+- **`play-container-watch.yml`'s file-split is deferred; the interim
+  task-tag diff (§3.4, 8 tasks) is what actually ships** in this pass's
+  checklist (step 4). This is a deliberate scope-control decision — PLAN.md's
+  non-goals don't require touching the optional tree's internal structure,
+  only tagging it — but it does mean one optional play ships with a
+  play-level/task-level split larger than, and with more register/`when:`
+  interdependency than, the "trivial exception" the graft rule was designed
+  for, as an accepted interim state. **Round-2 addition**: deriving the exact
+  diff surfaced a genuine correctness hazard behind this — a task-level
+  override on a `register`-ing task can silently break an untagged downstream
+  task's `when:` (undefined variable, hard Ansible error under this repo's
+  `ansible.cfg`) if their scopes are tagged inconsistently. The diff in §3.4
+  accounts for this (all 8 interdependent tasks tagged together, not just the
+  7 the round-1 audit found), but this class of hazard is exactly why a
+  register/`when:`-heavy mixed play is a file-split candidate rather than a
+  task-tag candidate in the first place — the interim here is accepted, not
+  endorsed as the ideal shape.
 - **`--skip-tags` still prints an empty `PLAY [...]` banner** for every
   skipped play (cosmetic console noise on a server run, ~10 empty banners for
   the GNOME core plays alone) — not a functional problem, previously noted in
