@@ -36,15 +36,13 @@ mkdir -p "$REPORTS_DIR"
 LOG="$REPORTS_DIR/reclaim-podman-triage.log"
 exec > >(tee "$LOG") 2>&1
 
-LAST_RC=0
 # Combined-output capture without hiding errors: prints the command's rc and its
 # stdout+stderr. A non-zero rc is DATA here, not a failure — so we branch on it,
-# never abort. LAST_RC exposes the rc to the caller for the verdict.
+# never abort.
 probe() {
     local label="$1"; shift
     local out rc
     if out="$("$@" 2>&1)"; then rc=0; else rc=$?; fi
-    LAST_RC=$rc
     printf '### %s  (rc=%d)\n%s\n\n' "$label" "$rc" "${out:-(no output)}"
     return 0
 }
@@ -70,12 +68,37 @@ else
 fi
 echo
 
-# The critical probe: does the store load in THIS session?
-probe "podman system df" podman system df
-DF_RC=$LAST_RC
+# The critical probe: does the store load in THIS session? Capture the output
+# into a var too, so the incomplete-layer ownership check below can reuse it.
+DF_OUT=""; DF_RC=0
+if DF_OUT="$(podman system df 2>&1)"; then DF_RC=0; else DF_RC=$?; fi
+printf '### podman system df  (rc=%d)\n%s\n\n' "$DF_RC" "${DF_OUT:-(no output)}"
+
 probe "podman info" podman info
 probe "podman images" podman images
 probe "podman ps (running containers)" podman ps
+
+# Cause-finding for the "permission denied" wedge: it happens when stored layer
+# files are owned by UIDs OUTSIDE the user's current /etc/subuid map. Dump the
+# map and the ACTUAL owning UIDs of any incomplete layer podman named, so the
+# two can be compared (in-range vs out-of-range) instead of guessed.
+_me="$(id -un)"
+probe "/etc/subuid entry for $_me (start:count the map covers)" grep -E "^${_me}:" /etc/subuid
+probe "/etc/subgid entry for $_me" grep -E "^${_me}:" /etc/subgid
+
+echo "### ownership of incomplete overlay layers named by podman"
+mapfile -t _incomplete < <(printf '%s\n' "$DF_OUT" | grep -oE '[0-9a-f]{64}' | sort -u)
+if [ "${#_incomplete[@]}" -eq 0 ]; then
+    echo "(podman named no incomplete layer in its df output)"
+else
+    for _id in "${_incomplete[@]}"; do
+        echo "-- layer $_id"
+        # ls -n prints NUMERIC owner/group UIDs; compare to the subuid map above.
+        probe "  layer dir" ls -land "$STORAGE/overlay/$_id"
+        probe "  layer diff top-level" ls -lan "$STORAGE/overlay/$_id/diff"
+    done
+fi
+echo
 
 echo "════════════════════════════════════════════════════════════"
 echo " Facts captured"

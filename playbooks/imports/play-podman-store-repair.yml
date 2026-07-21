@@ -2,12 +2,17 @@
 ---
 # Podman Rootless Store Repair
 #
-# Repairs a rootless podman store wedged by an interrupted pull/build (typically
-# during a full disk), which leaves behind files owned by the user's SUBORDINATE
-# UIDs (/etc/subuid, e.g. 100000+). The unprivileged user — and even `podman
-# unshare` (namespaced root, confined to the sub-UID map) — cannot remove them,
-# so podman fails to load its store on EVERY command (incl. CCY startup),
-# rc=125. Two forms seen, both handled here:
+# Repairs a rootless podman store wedged by leftover files owned by UIDs OUTSIDE
+# the user's current /etc/subuid map. The unprivileged user — and even `podman
+# unshare` (namespaced root, confined to that map) — cannot remove such files
+# (permission denied), so podman fails to load its store on EVERY command (incl.
+# CCY startup), rc=125.
+#
+# NOTE: the trigger is an interrupted podman operation (a killed process, crash,
+# reboot, or a change to the user's subuid/subgid range that leaves old layers
+# out-of-map). The specific root cause on a given host is NOT assumed here —
+# establish it with triage.bash (which dumps /etc/subuid + the layer ownership).
+# This play FIXES the wedge regardless of the trigger. Two forms are handled:
 #
 #   1. Stale temp dirs:
 #      error removing stale temp dir: unlinkat overlay/tempdirs/temp-dir-*/...: permission denied
