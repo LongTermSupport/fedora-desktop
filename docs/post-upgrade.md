@@ -16,6 +16,7 @@ After a major Fedora version upgrade (e.g. F43 → F44), use this checklist to r
 - `ansible-playbook` fails with `bad interpreter: No such file or directory`
 - `pipx list` warns `package X has invalid interpreter /usr/bin/python3.NN`
 - Other `~/.local/bin/*` tools installed via `pipx` fail to launch
+- A playbook fails with `The module interpreter '/usr/bin/python3.NN' was not found` (rc 127) even though `ansible --version` runs fine — a **stale fact cache** pinning the pre-upgrade interpreter, not a broken Ansible install (see step 2b)
 - System is otherwise booted and functional, but anything stacked on top of the old Python is broken
 
 ## The Repair Process
@@ -49,6 +50,35 @@ ls -la ~/.local/share/pipx/venvs/ansible/bin/python
 ```
 
 The symlink should now point at the new Python (e.g. `python3.14`), and `ansible --version` should run cleanly.
+
+### 2b. Clear the stale Ansible fact cache
+
+Separate from the pipx breakage, and easy to mistake for it. `ansible.cfg`
+enables JSON fact caching (`fact_caching=jsonfile`, `fact_caching_connection = ./untracked/facts/`). A run from *before* the upgrade caches
+`ansible_python_interpreter` (which `environment/localhost/hosts.yml` sets to
+`{{ ansible_playbook_python }}`) pointing at the **old** system Python. After the
+upgrade removes that interpreter, every playbook fails at its first module task —
+even though Ansible itself is healthy:
+
+```text
+[ERROR]: Task failed: Action failed: The module interpreter
+'/usr/bin/python3.11' was not found.
+... /bin/sh: line 1: /usr/bin/python3.11: No such file or directory ... rc": 127
+```
+
+Note the wording — `interpreter ... was not found` (a cached path), which is a
+*different* failure from pipx's `bad interpreter` (a dead shebang). Having *a*
+`python3.11` elsewhere (e.g. a `pyenv` shim) does **not** help — Ansible wants the
+exact cached path. The fix is to drop the cache so Ansible re-derives the live
+interpreter:
+
+```bash
+cd ~/Projects/fedora-desktop
+rm -rf untracked/facts/*
+```
+
+The cache is disposable (gitignored, regenerated on the next run). Re-run the
+failing playbook and it will discover the current Python.
 
 ### 3. Check out the matching branch for your new Fedora version
 
