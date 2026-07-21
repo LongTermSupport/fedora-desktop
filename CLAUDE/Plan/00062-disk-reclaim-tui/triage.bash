@@ -18,15 +18,23 @@ set -euo pipefail
 #   CLAUDE/Plan/00062-disk-reclaim-tui/triage.bash
 #
 # Pattern: CLAUDE/PlanWorkflow.md → "Plan-Local Scripts & Artifacts".
+#
+# It WRITES ITS OWN REPORT to untracked/reports/ (gitignored scratch inside the
+# repo tree). That directory is bind-mounted into the CCY container, so the agent
+# assisting on this plan can read the report directly at the same repo-relative
+# path — no copy-paste of terminal output required.
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 STORAGE="$HOME/.local/share/containers/storage"
 TEMPDIRS="$STORAGE/overlay/tempdirs"
 
-# Log every line to a timestamped file as well as the terminal, so the captured
-# facts can be pasted/shared verbatim. tee to a file (never /dev/null).
-LOG="${TMPDIR:-/tmp}/reclaim-podman-triage-$(date +%Y%m%d-%H%M%S).log"
-exec > >(tee -a "$LOG") 2>&1
+# Write the full report into the repo's gitignored reports dir AND to the
+# terminal. Fixed filename = latest run; readable by the agent at
+# untracked/reports/reclaim-podman-triage.log. tee to a file (never /dev/null).
+REPORTS_DIR="$REPO_ROOT/untracked/reports"
+mkdir -p "$REPORTS_DIR"
+LOG="$REPORTS_DIR/reclaim-podman-triage.log"
+exec > >(tee "$LOG") 2>&1
 
 LAST_RC=0
 # Combined-output capture without hiding errors: prints the command's rc and its
@@ -74,7 +82,7 @@ echo " Facts captured"
 echo "════════════════════════════════════════════════════════════"
 echo " podman system df exit code: $DF_RC   (0 = the store loaded)"
 echo " overlay/tempdirs: $([ -d "$TEMPDIRS" ] && echo present || echo absent)"
-echo " full log: $LOG"
 echo
-echo " Share the 'podman system df' block above (or the log) so the next"
-echo " step works from grounded facts — not guesses."
+echo " Report written to: $LOG"
+echo " (repo-relative: untracked/reports/reclaim-podman-triage.log — the agent"
+echo "  reads it directly; no need to copy-paste anything.)"
