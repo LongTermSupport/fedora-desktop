@@ -1,0 +1,525 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# reclaim — interactive disk-space reclamation TUI for Fedora.
+#
+# A pure-bash, dependency-light menu that REPORTS what is using disk and lets
+# you run targeted cleanup actions (package cache, orphaned deps, old kernels,
+# journal vacuum, container prune, flatpak/cache/trash) — each behind an
+# explicit confirmation (default No). It also launches richer analysers
+# (ncdu / baobab) for deep-diving big directories.
+#
+# Design: follows CLAUDE/InteractiveScripts.md — strict validation, friendly
+# recovery (re-prompt in a bounded loop, clean EOF exit), confirm-before-
+# destructive with a safe default, colour only on a TTY. Interactive UI text
+# goes to STDERR; the non-interactive `report` subcommand prints to STDOUT
+# (CLAUDE/StderrHygiene.md — stdout is the captured payload).
+#
+# Deployed by: playbooks/imports/optional/common/play-disk-reclaim.yml
+
+VERSION="1.0.0"
+MAX_TRIES=3                       # bounded retries on recoverable input mistakes
+KERNELS_TO_KEEP=2                 # newest N kernels retained by the old-kernel action
+JOURNAL_DEFAULT_SIZE="500M"       # default target for journal vacuum
+
+# ── Colours (only when stderr is a terminal) ───────────────────────────────────
+if [ -t 2 ]; then
+    BOLD='\033[1m'; DIM='\033[2m'
+    GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'
+    RED='\033[0;31m'; BLUE='\033[0;34m'; NC='\033[0m'
+else
+    BOLD=''; DIM=''; GREEN=''; YELLOW=''; CYAN=''; RED=''; BLUE=''; NC=''
+fi
+
+# ── stderr-hygiene helpers: all interactive UI text → stderr ───────────────────
+say()  { printf '%b\n' "$*" >&2; }                       # normal UI line
+info() { printf '%b\n' "${CYAN}$*${NC}" >&2; }
+warn() { printf '%b\n' "${YELLOW}$*${NC}" >&2; }
+err()  { printf '%b\n' "${RED}$*${NC}" >&2; }
+ok()   { printf '%b\n' "${GREEN}$*${NC}" >&2; }
+
+# Per-run scratch log so we never hide a command's stderr in /dev/null.
+ERRLOG="$(mktemp -t reclaim-stderr.XXXXXX)"
+cleanup() { rm -f "$ERRLOG"; }
+trap cleanup EXIT
+
+usage() {
+    cat <<'EOF'
+Usage: reclaim [SUBCOMMAND]
+
+Interactive disk-space reclamation TUI for Fedora. Run with no arguments to
+open the menu. Reports disk usage and offers targeted cleanup actions, each
+confirmed before it runs.
+
+Subcommands:
+  (none)        Open the interactive menu (requires a terminal)
+  report        Print a disk-usage report to stdout and exit (non-interactive)
+  -h, --help    Show this help
+  --version     Show version
+
+Menu actions:
+  Analyse    biggest directories (ncdu / baobab), biggest files
+  Packages   dnf autoremove (orphans) + dnf clean all, remove old kernels
+  Logs       journal disk usage + vacuum to a target size
+  Containers podman (and docker, if present) system prune
+  User data  flatpak unused runtimes, ~/.cache report/clear, empty trash
+  Sweep      run the safe reclaim actions back-to-back
+
+Destructive actions always show what they will do and default to "No".
+Package, kernel and journal actions require sudo; container/flatpak/cache/
+trash actions run as your user.
+EOF
+}
+
+# ── Capability detection ───────────────────────────────────────────────────────
+have() { command -v "$1" >/dev/null 2>&1; }
+
+HAVE_SUDO=false;    have sudo    && HAVE_SUDO=true
+HAVE_NCDU=false;    have ncdu    && HAVE_NCDU=true
+HAVE_BAOBAB=false;  have baobab  && HAVE_BAOBAB=true
+HAVE_DUF=false;     have duf     && HAVE_DUF=true
+HAVE_PODMAN=false;  have podman  && HAVE_PODMAN=true
+HAVE_DOCKER=false;  have docker  && HAVE_DOCKER=true
+HAVE_FLATPAK=false; have flatpak && HAVE_FLATPAK=true
+HAVE_TRASH=false;   have trash-empty && HAVE_TRASH=true
+
+# Run a command as root: direct if already root, else via sudo. Returns 2 (a
+# recoverable "cannot escalate" signal) when neither path is available.
+run_root() {
+    if [ "$(id -u)" -eq 0 ]; then
+        "$@"
+    elif $HAVE_SUDO; then
+        sudo "$@"
+    else
+        err "  This action needs root, but neither root nor sudo is available."
+        return 2
+    fi
+}
+
+# ── Input helpers (bounded, EOF-safe, read from the terminal) ──────────────────
+
+# confirm PROMPT — default No. EOF (Ctrl-D / no TTY) counts as No.
+confirm() {
+    local reply
+    printf '%b' "${BOLD}$1${NC} [y/N] " >&2
+    if ! read -r reply < /dev/tty; then
+        say ""
+        reply=""
+    fi
+    case "$reply" in
+        y|Y|yes|YES) return 0 ;;
+        *)           return 1 ;;
+    esac
+}
+
+# prompt_value PROMPT DEFAULT — echo the entered value (or DEFAULT on empty) to
+# stdout. Returns non-zero on EOF so the caller can treat it as "cancelled".
+prompt_value() {
+    local _prompt="$1" _default="$2" _val
+    printf '%b' "${BOLD}${_prompt}${NC} [${_default}] " >&2
+    if ! read -r _val < /dev/tty; then
+        say ""
+        return 1
+    fi
+    printf '%s' "${_val:-$_default}"
+}
+
+# ── Reporting ──────────────────────────────────────────────────────────────────
+
+# Human-readable filesystem usage for real (non-pseudo) mounts. Prefer duf's
+# coloured overview when installed; fall back to df.
+fs_report() {
+    if $HAVE_DUF && duf --only local 2>>"$ERRLOG"; then
+        return 0
+    fi
+    df -h -x tmpfs -x devtmpfs -x efivarfs -x overlay --output=target,size,used,avail,pcent \
+        2>>"$ERRLOG" || df -h 2>>"$ERRLOG"
+}
+
+# One-line journal size (fast).
+journal_usage() {
+    if ! have journalctl; then
+        echo "journal: journalctl not present"
+        return 0
+    fi
+    local out
+    if out="$(journalctl --disk-usage 2>>"$ERRLOG")"; then
+        echo "$out"
+    else
+        echo "journal: usage unavailable"
+    fi
+}
+
+# Directory size for a path if it exists, else nothing.
+dir_size() {
+    [ -e "$1" ] || return 0
+    du -sh "$1" 2>>"$ERRLOG" | awk '{print $1"\t"$2}'
+}
+
+# Print the header banner (to stderr for the TUI).
+print_header() {
+    say ""
+    say "${BOLD}${BLUE}════════════════════════════════════════════════════════════${NC}"
+    say "${BOLD}  reclaim — disk-space reclamation${NC}   ${DIM}v${VERSION}${NC}"
+    say "${BOLD}${BLUE}════════════════════════════════════════════════════════════${NC}"
+    while IFS= read -r line; do say "  $line"; done < <(fs_report)
+    say "  ${DIM}$(journal_usage)${NC}"
+    say ""
+}
+
+# Non-interactive report → stdout (this subcommand's stdout IS the payload).
+cmd_report() {
+    echo "reclaim disk report — $(uname -n)"
+    echo
+    echo "Filesystems:"
+    fs_report
+    echo
+    echo "Journal:"
+    journal_usage
+    echo
+    echo "Notable directories:"
+    dir_size "$HOME/.cache"
+    dir_size "$HOME/.local/share/Trash"
+    dir_size /var/log
+    dir_size /var/cache
+    if $HAVE_PODMAN; then
+        echo
+        echo "Podman storage:"
+        if ! podman system df 2>>"$ERRLOG"; then
+            echo "  (podman df failed — see notes)"
+        fi
+    fi
+}
+
+# ── Actions ────────────────────────────────────────────────────────────────────
+
+# 1) Biggest directories — prefer ncdu, fall back to a du summary; offer baobab.
+act_big_dirs() {
+    local target
+    if ! target="$(prompt_value 'Analyse which directory?' "$HOME")"; then
+        warn "  Cancelled."; return 0
+    fi
+    if [ ! -d "$target" ]; then
+        err "  Not a directory: $target"; return 0
+    fi
+    if $HAVE_NCDU; then
+        info "  Launching ncdu on $target (press 'q' to return)…"
+        ncdu -x "$target" 2>>"$ERRLOG" || warn "  ncdu exited non-zero."
+    else
+        warn "  ncdu is not installed — showing a du summary instead."
+        info "  Top-level usage under $target:"
+        du -x -h --max-depth=1 "$target" 2>>"$ERRLOG" | sort -rh | head -n 20 >&2 \
+            || warn "  du reported errors (see run notes)."
+    fi
+    if $HAVE_BAOBAB && [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
+        if confirm "  Also open baobab (graphical analyser) on $target?"; then
+            baobab "$target" >/dev/null 2>>"$ERRLOG" &
+            ok "  baobab launched in the background."
+        fi
+    fi
+    return 0
+}
+
+# 2) Biggest files under a chosen path.
+act_big_files() {
+    local target count
+    if ! target="$(prompt_value 'Find big files under which directory?' "$HOME")"; then
+        warn "  Cancelled."; return 0
+    fi
+    if [ ! -d "$target" ]; then
+        err "  Not a directory: $target"; return 0
+    fi
+    if ! count="$(prompt_value 'How many to list?' "20")"; then
+        warn "  Cancelled."; return 0
+    fi
+    if ! [[ "$count" =~ ^[0-9]+$ ]] || [ "$count" -eq 0 ]; then
+        err "  Not a positive number: $count"; return 0
+    fi
+    info "  Scanning $target (staying on one filesystem)…"
+    # Sizes to stderr (this is UI, not captured). Errors → run log, not /dev/null.
+    find "$target" -xdev -type f -printf '%s\t%p\n' 2>>"$ERRLOG" \
+        | sort -rn | head -n "$count" \
+        | while IFS=$'\t' read -r size path; do
+              printf '  %8s  %s\n' "$(numfmt --to=iec "$size")" "$path" >&2
+          done
+    return 0
+}
+
+# 3) dnf autoremove + clean all.
+act_pkg_clean() {
+    info "  Package cache and orphaned dependencies:"
+    local -a orphans=()
+    mapfile -t orphans < <(run_root dnf repoquery --unneeded -q 2>>"$ERRLOG")
+    if [ "${#orphans[@]}" -gt 0 ]; then
+        say "  Orphaned packages (${#orphans[@]}):"
+        printf '    %s\n' "${orphans[@]}" >&2
+    else
+        say "  ${DIM}(no orphaned packages detected in preview)${NC}"
+    fi
+    if confirm "  Run 'dnf autoremove' + 'dnf clean all' now?"; then
+        if run_root dnf -y autoremove && run_root dnf clean all; then
+            ok "  Package cleanup complete."
+        else
+            err "  dnf reported an error — see output above."
+        fi
+    else
+        say "  Skipped."
+    fi
+    return 0
+}
+
+# 4) Remove old kernels, keeping the newest KERNELS_TO_KEEP.
+act_old_kernels() {
+    local -a old
+    mapfile -t old < <(run_root dnf repoquery --installonly --latest-limit=-"$KERNELS_TO_KEEP" -q 2>>"$ERRLOG")
+    if [ "${#old[@]}" -eq 0 ]; then
+        ok "  No superfluous kernels — nothing to remove (keeping newest $KERNELS_TO_KEEP)."
+        return 0
+    fi
+    warn "  These old kernels can be removed (keeping the newest $KERNELS_TO_KEEP):"
+    printf '    %s\n' "${old[@]}" >&2
+    if confirm "  Remove ${#old[@]} old kernel package(s)?"; then
+        if run_root dnf -y remove "${old[@]}"; then
+            ok "  Old kernels removed."
+        else
+            err "  dnf remove reported an error."
+        fi
+    else
+        say "  Skipped."
+    fi
+    return 0
+}
+
+# 5) Journal vacuum.
+act_journal() {
+    if ! have journalctl; then
+        err "  journalctl is not available."; return 0
+    fi
+    info "  Current journal usage:"
+    say "    $(journal_usage)"
+    local target
+    if ! target="$(prompt_value 'Vacuum journal down to what size?' "$JOURNAL_DEFAULT_SIZE")"; then
+        warn "  Cancelled."; return 0
+    fi
+    if ! [[ "$target" =~ ^[0-9]+[KMGT]?$ ]]; then
+        err "  Not a valid size (e.g. 500M, 1G): $target"; return 0
+    fi
+    if confirm "  Vacuum system journal to $target?"; then
+        if run_root journalctl --vacuum-size="$target"; then
+            ok "  Journal vacuumed. Now: $(journal_usage)"
+        else
+            err "  journalctl --vacuum-size reported an error."
+        fi
+    else
+        say "  Skipped."
+    fi
+    return 0
+}
+
+# 6) Container prune (podman, and docker if present).
+act_containers() {
+    if ! $HAVE_PODMAN && ! $HAVE_DOCKER; then
+        warn "  Neither podman nor docker is installed."; return 0
+    fi
+    if $HAVE_PODMAN; then
+        info "  Podman storage usage:"
+        podman system df 2>>"$ERRLOG" >&2 || warn "  podman system df failed."
+        if confirm "  Prune unused podman data (images, containers, volumes)?"; then
+            if podman system prune -af 2>>"$ERRLOG" >&2; then
+                ok "  Podman pruned."
+            else
+                err "  podman system prune reported an error."
+            fi
+        else
+            say "  Skipped podman."
+        fi
+    fi
+    if $HAVE_DOCKER; then
+        # Only offer docker if the daemon is actually reachable.
+        if docker info >/dev/null 2>>"$ERRLOG"; then
+            info "  Docker storage usage:"
+            docker system df 2>>"$ERRLOG" >&2 || warn "  docker system df failed."
+            if confirm "  Prune unused docker data?"; then
+                if run_root docker system prune -af 2>>"$ERRLOG" >&2; then
+                    ok "  Docker pruned."
+                else
+                    err "  docker system prune reported an error."
+                fi
+            else
+                say "  Skipped docker."
+            fi
+        else
+            say "  ${DIM}docker present but daemon not reachable — skipping.${NC}"
+        fi
+    fi
+    return 0
+}
+
+# 7) Flatpak unused runtimes.
+act_flatpak() {
+    if ! $HAVE_FLATPAK; then
+        warn "  flatpak is not installed."; return 0
+    fi
+    info "  Unused flatpak runtimes:"
+    flatpak uninstall --unused --assumeno 2>>"$ERRLOG" >&2 \
+        || say "  ${DIM}(nothing unused, or preview unavailable)${NC}"
+    if confirm "  Remove unused flatpak runtimes?"; then
+        if flatpak uninstall --unused -y 2>>"$ERRLOG" >&2; then
+            ok "  Unused runtimes removed."
+        else
+            err "  flatpak uninstall reported an error."
+        fi
+    else
+        say "  Skipped."
+    fi
+    return 0
+}
+
+# 8) ~/.cache report + optional clear.
+act_cache() {
+    local cache="$HOME/.cache"
+    if [ ! -d "$cache" ]; then
+        ok "  No ~/.cache directory."; return 0
+    fi
+    info "  Largest items in ~/.cache:"
+    du -h --max-depth=1 "$cache" 2>>"$ERRLOG" | sort -rh | head -n 15 >&2 \
+        || warn "  du reported errors."
+    warn "  Note: applications recreate their caches on next use."
+    if confirm "  Delete the CONTENTS of ~/.cache now?"; then
+        # Delete children, keep the directory itself. find handles this safely.
+        if find "$cache" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>>"$ERRLOG"; then
+            ok "  ~/.cache cleared."
+        else
+            err "  Some cache items could not be removed (see run notes)."
+        fi
+    else
+        say "  Skipped."
+    fi
+    return 0
+}
+
+# 9) Empty trash.
+act_trash() {
+    local trash="$HOME/.local/share/Trash"
+    if $HAVE_TRASH; then
+        info "  Trash contents:"
+        trash-list 2>>"$ERRLOG" >&2 || say "  ${DIM}(trash empty or unavailable)${NC}"
+        if confirm "  Empty the trash now?"; then
+            if trash-empty -f 2>>"$ERRLOG" >&2; then
+                ok "  Trash emptied."
+            else
+                err "  trash-empty reported an error."
+            fi
+        else
+            say "  Skipped."
+        fi
+        return 0
+    fi
+    # Fallback: operate on the freedesktop trash spec directories directly.
+    if [ ! -d "$trash" ]; then
+        ok "  No trash directory."; return 0
+    fi
+    info "  Trash size: $(dir_size "$trash")"
+    if confirm "  Empty ~/.local/share/Trash now?"; then
+        if find "$trash/files" "$trash/info" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>>"$ERRLOG"; then
+            ok "  Trash emptied."
+        else
+            err "  Some trash items could not be removed (see run notes)."
+        fi
+    else
+        say "  Skipped."
+    fi
+    return 0
+}
+
+# 10) Safe sweep — run the low-risk reclaimers in sequence (each still confirms).
+act_sweep() {
+    warn "  Safe sweep runs, in order:"
+    say  "    • dnf autoremove + clean all"
+    say  "    • journal vacuum to $JOURNAL_DEFAULT_SIZE"
+    say  "    • podman system prune (if podman present)"
+    say  "    • flatpak unused runtimes (if flatpak present)"
+    say  "    • empty trash"
+    say  "  Each step asks for its own confirmation."
+    if ! confirm "  Begin the safe sweep?"; then
+        say "  Sweep cancelled."; return 0
+    fi
+    if ! act_pkg_clean; then warn "  package step had an issue"; fi
+    if ! act_journal; then warn "  journal step had an issue"; fi
+    if $HAVE_PODMAN && ! act_containers; then warn "  container step had an issue"; fi
+    if $HAVE_FLATPAK && ! act_flatpak; then warn "  flatpak step had an issue"; fi
+    if ! act_trash; then warn "  trash step had an issue"; fi
+    ok "  Safe sweep finished."
+    return 0
+}
+
+# ── Menu ───────────────────────────────────────────────────────────────────────
+print_menu() {
+    say "${BOLD}Analyse${NC}"
+    say "   1) Biggest directories        ${DIM}$($HAVE_NCDU && echo 'ncdu' || echo 'du summary')${NC}"
+    say "   2) Biggest files"
+    say "${BOLD}Reclaim${NC}  ${DIM}(destructive — each confirms first)${NC}"
+    say "   3) dnf autoremove + clean all ${DIM}(sudo)${NC}"
+    say "   4) Remove old kernels         ${DIM}(sudo, keep newest ${KERNELS_TO_KEEP})${NC}"
+    say "   5) Vacuum systemd journal     ${DIM}(sudo)${NC}"
+    say "   6) Prune containers           ${DIM}$($HAVE_PODMAN && echo podman || echo '-')$($HAVE_DOCKER && echo ' + docker')${NC}"
+    say "   7) Flatpak unused runtimes    ${DIM}$($HAVE_FLATPAK && echo flatpak || echo '(flatpak absent)')${NC}"
+    say "   8) Clear ~/.cache"
+    say "   9) Empty trash"
+    say "  10) Safe sweep (run 3,5,6,7,9)"
+    say "${BOLD}Other${NC}"
+    say "   r) Refresh report     q) Quit"
+    say ""
+}
+
+main_menu() {
+    if [ ! -t 0 ]; then
+        err "reclaim needs an interactive terminal. Try 'reclaim report' for a non-interactive summary."
+        exit 1
+    fi
+    local choice invalid=0
+    print_header
+    while :; do
+        print_menu
+        printf '%b' "${BOLD}Choose${NC} [1-10, r, q]: " >&2
+        if ! read -r choice < /dev/tty; then
+            say ""; info "No more input — exiting."; break
+        fi
+        case "$choice" in
+            1)  invalid=0; if ! act_big_dirs;   then warn "  action reported an issue"; fi ;;
+            2)  invalid=0; if ! act_big_files;  then warn "  action reported an issue"; fi ;;
+            3)  invalid=0; if ! act_pkg_clean;  then warn "  action reported an issue"; fi ;;
+            4)  invalid=0; if ! act_old_kernels;then warn "  action reported an issue"; fi ;;
+            5)  invalid=0; if ! act_journal;    then warn "  action reported an issue"; fi ;;
+            6)  invalid=0; if ! act_containers; then warn "  action reported an issue"; fi ;;
+            7)  invalid=0; if ! act_flatpak;    then warn "  action reported an issue"; fi ;;
+            8)  invalid=0; if ! act_cache;      then warn "  action reported an issue"; fi ;;
+            9)  invalid=0; if ! act_trash;      then warn "  action reported an issue"; fi ;;
+            10) invalid=0; if ! act_sweep;      then warn "  action reported an issue"; fi ;;
+            r|R) invalid=0; print_header ;;
+            q|Q|quit|exit) ok "Bye."; break ;;
+            "")  : ;;  # bare Enter re-draws the prompt
+            *)
+                invalid=$((invalid + 1))
+                err "  Not a valid choice: '$choice'. Pick 1-10, r, or q."
+                if [ "$invalid" -ge "$MAX_TRIES" ]; then
+                    err "Too many invalid choices — exiting."
+                    exit 1
+                fi
+                ;;
+        esac
+    done
+}
+
+# ── Entry point ────────────────────────────────────────────────────────────────
+case "${1:-}" in
+    "")            main_menu ;;
+    report)        cmd_report ;;
+    -h|--help)     usage ;;
+    --version)     echo "reclaim ${VERSION}" ;;
+    *)
+        err "Unknown argument: $1"
+        err "Run 'reclaim --help' for usage."
+        exit 2
+        ;;
+esac

@@ -1,0 +1,70 @@
+#!/usr/bin/env ansible-playbook
+---
+# Disk Reclaim — installs disk-usage analysers plus the `reclaim` TUI.
+#
+# `reclaim` is a pure-bash, dependency-light interactive menu that reports what
+# is using disk and runs targeted cleanup actions (dnf autoremove/clean, old
+# kernels, journal vacuum, container prune, flatpak/cache/trash) — each behind
+# an explicit confirmation. It launches ncdu / baobab for deep directory dives.
+#
+# Standalone / opt-in play (like play-compression-helpers.yml) — run directly:
+#   ./playbooks/imports/optional/common/play-disk-reclaim.yml
+- hosts: desktop
+  name: Disk Reclaim - installs disk analysers and the `reclaim` cleanup TUI
+  become: true
+  vars:
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+  tasks:
+    - name: Install command-line disk-usage tools
+      ansible.builtin.package:
+        name:
+          - ncdu           # Interactive ncurses disk-usage analyser (the tool's deep-dive)
+          - duf            # Friendly df replacement — coloured filesystem overview
+          - trash-cli      # FreeDesktop trash CLI (trash-list / trash-empty) for safe trashing
+        state: present
+      tags: disk-reclaim
+
+    # baobab is a GTK/GNOME GUI analyser — desktop-only. A `general` play gates
+    # its one GUI-only task rather than declaring the whole play `gnome`
+    # (CLAUDE/AnsibleStyle.md — "A general play with one or two GUI-only tasks").
+    - name: Install baobab GUI disk analyser (desktop only)
+      ansible.builtin.package:
+        name: baobab
+        state: present
+      when: provisioning_profile != 'server'
+      tags: disk-reclaim
+
+    - name: Ensure user local bin directory exists
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.local/bin"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+
+    - name: Deploy the reclaim TUI
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/reclaim"
+        dest: "/home/{{ user_login }}/.local/bin/reclaim"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
+      tags: disk-reclaim
+
+    - name: Display installation summary
+      ansible.builtin.debug:
+        msg:
+          - "============================================"
+          - "Disk Reclaim installed"
+          - "============================================"
+          - "Tools:"
+          - "  ncdu      - interactive directory disk-usage analyser"
+          - "  duf       - coloured df / filesystem overview"
+          - "  trash-cli - trash-list / trash-empty CLI"
+          - "  baobab    - GUI disk analyser (desktop only)"
+          - ""
+          - "Command:"
+          - "  reclaim          - open the interactive cleanup menu"
+          - "  reclaim report   - print a disk-usage report (non-interactive)"
+          - "  reclaim --help   - usage"
