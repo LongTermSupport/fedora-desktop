@@ -13,6 +13,46 @@ pointer rather than restated.
 
 How to work effectively on this repo (the `feedback`-type notes).
 
+### Never assume or hallucinate — decide only from grounded, triaged facts
+
+Every data point that drives a decision or a claim must be **confirmed from a
+real source**, never inferred, filled in, or narrated. This was learned the hard
+way on Plan 00062: a "full disk" cause was invented and then repeated as fact
+across a playbook, journal, and commit messages — the user had never had a full
+disk. Confident-sounding narrative is not evidence.
+
+**Why:** an unfounded cause sends the whole fix in the wrong direction and
+destroys trust. On a live, heavily-loaded host (the incident touched 6 running
+CCY sessions + 2 container stacks) acting on a guess is dangerous.
+
+**How to apply:**
+
+- **Establish ground truth with plan-local triage scripting**, not from memory.
+  Write a read-only, re-runnable `triage.bash` in the plan folder that gathers
+  the exact data points a decision needs. Have it **write its own report into
+  `untracked/reports/`** — that tree is gitignored *and* bind-mounted into the
+  CCY container, so the agent reads the report directly at the same repo path
+  (no copy-paste of terminal output). `untracked/` is the repo's scratch area
+  (`untracked/.gitignore` is `*` / `!.gitignore`).
+- **Separate fact from hypothesis, always.** Keep confirmed facts and unconfirmed
+  hypotheses in different buckets in the plan; never let a hypothesis harden into
+  an asserted cause.
+- **Under uncertainty, extend triage — don't guess.** If a needed data point is
+  missing, add a probe to `triage.bash` and have the user run it again. The user
+  can run it as many times as needed; iterate until the picture is complete.
+- **Confirm outcomes before claiming them.** "Fixed"/"works" is stated only after
+  triage confirms it (e.g. `podman system df` rc=0 in the report), never assumed
+  from having applied a change. See also [triage vs verify below](#triage-is-fact-finding-verifyacceptance-is-the-pass-fail-gate).
+
+### Triage is fact-finding; verify/acceptance is the pass/fail gate
+
+Keep the two plan-local roles distinct (user steer, Plan 00062): **`triage.bash`**
+= establish grounded facts (gather + log, no verdict); the **confirm-things-are-OK**
+pass/fail gate is separate — the repo's documented trio is
+`deploy.bash`/`triage.bash`/`acceptance.bash`, so that gate is `acceptance.bash`
+(`verify.bash` is an acceptable synonym). A verdict ("store loads ✅") belongs in
+the acceptance/verify gate, **not** in triage.
+
 ### Always fetch PR comments, not just the body
 
 When asked whether a PR is up to date, to review it, or to sync its state, pull
