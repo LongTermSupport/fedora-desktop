@@ -105,10 +105,27 @@
     # (because the parent `kernel` metapackage was versionlocked at the
     # previous-minor). Result: a "kernel" with no iwlwifi.ko / btusb.ko etc.
     # We detect and remove such half-installs so they don't clutter grub.
+    #
+    # SERVER SUPPORT (Plan 00161): this cleanup is a DESKTOP concern. A minimal
+    # Fedora Cloud/Server image legitimately ships kernel-core + kernel-modules-core
+    # and NO full kernel-modules — that is NOT a half-install. On a server the
+    # section would otherwise (a) hard-fail on `rpm -q kernel-modules` (rc 1, "not
+    # installed") under any_errors_fatal, and (b) if that were made tolerant, treat
+    # EVERY kernel as half-installed and `dnf remove` kernel-core +
+    # kernel-modules-core → an unbootable box. So it is skipped on the server profile;
+    # half_installed_kernels defaults to [] so the downstream length gates are safe.
+    - name: Default half-installed kernels to none (server profile skips the cleanup)
+      ansible.builtin.set_fact:
+        half_installed_kernels: []
+      tags:
+        - upgrade
+        - dnf
+
     - name: Enumerate installed kernel-core versions
       ansible.builtin.command: rpm -q kernel-core --queryformat '%{VERSION}-%{RELEASE} '
       register: kc_versions
       changed_when: false
+      when: provisioning_profile != 'server'
       tags:
         - upgrade
         - dnf
@@ -117,6 +134,7 @@
       ansible.builtin.command: rpm -q kernel-modules --queryformat '%{VERSION}-%{RELEASE} '
       register: km_versions
       changed_when: false
+      when: provisioning_profile != 'server'
       tags:
         - upgrade
         - dnf
@@ -124,6 +142,7 @@
     - name: Identify half-installed kernels (kernel-core without matching kernel-modules)
       ansible.builtin.set_fact:
         half_installed_kernels: "{{ kc_versions.stdout.split() | difference(km_versions.stdout.split()) | list }}"
+      when: provisioning_profile != 'server'
       tags:
         - upgrade
         - dnf

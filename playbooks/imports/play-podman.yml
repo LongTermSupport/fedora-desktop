@@ -12,6 +12,10 @@
       ansible.builtin.dnf:
         name:
           - podman
+          # A minimal Fedora Cloud/Server image ships no pip3, so the pip task below
+          # ("Install podman-compose") dies with "Unable to find any of pip3 to use".
+          # Install python3-pip here so the pip step works on server/headless too.
+          - python3-pip
         state: present
 
     - name: Install podman-compose (Docker Compose compatibility)

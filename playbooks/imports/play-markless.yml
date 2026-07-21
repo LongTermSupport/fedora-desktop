@@ -32,6 +32,10 @@
           fi
           echo "upgrading from $installedVersion to $desiredVersion"
         fi
+        # SERVER SUPPORT (Plan 00161): a minimal Fedora Cloud/Server image has no
+        # ~/Downloads (a desktop XDG dir), so `cd` there aborts the run under
+        # any_errors_fatal. Create it first — a no-op on desktop, server-safe on VMs.
+        mkdir -p /home/{{ user_login }}/Downloads
         cd /home/{{ user_login }}/Downloads
         rm -rf markless*
         wget "{{ marklessUrl }}"

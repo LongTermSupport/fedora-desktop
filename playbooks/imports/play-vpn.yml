@@ -28,8 +28,12 @@
         state: present
       when: provisioning_profile != 'server'
 
+    # The firewalld module needs the python3-firewall library, absent on a minimal
+    # Cloud/Server image; and a headless server is firewalled at the network edge
+    # (no local firewalld), so skip this desktop firewall rule on the server profile.
     - name: Allow OpenVPN Through Firewall
       ansible.posix.firewalld:
         service: openvpn
         permanent: true
         state: enabled
+      when: provisioning_profile != 'server'
