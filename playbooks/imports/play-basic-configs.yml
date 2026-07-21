@@ -312,6 +312,18 @@
       changed_when: true
       tags: grub
 
+    # SERVER SUPPORT (Plan 00161): fwupd (firmware updates) is a physical-hardware
+    # concern. A minimal Fedora Cloud/VM image does not ship fwupdmgr, so this task
+    # dies with rc 127 ("fwupdmgr: command not found") under any_errors_fatal. Gate it
+    # on fwupd actually being present — this skips VMs/minimal images while STILL
+    # running on a bare-metal server that has fwupd installed (better than a blanket
+    # server-profile skip, which would wrongly skip real firmware updates on metal).
+    - name: Check whether fwupd is available (VMs / minimal cloud images lack it)
+      ansible.builtin.shell: command -v fwupdmgr
+      register: fwupd_bin
+      changed_when: false
+      failed_when: false
+
     - name: Check and Apply Firmware Updates via fwupd
       ansible.builtin.shell: |
         set -e
@@ -341,3 +353,4 @@
         'Successfully installed firmware' in fwupd_result.stdout
         or 'has been updated' in fwupd_result.stdout
         or 'reboot is required' in fwupd_result.stdout | lower
+      when: fwupd_bin.rc == 0 # skip on VMs/minimal images without fwupd (Plan 00161)
