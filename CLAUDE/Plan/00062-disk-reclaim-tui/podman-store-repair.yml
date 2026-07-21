@@ -29,12 +29,13 @@
 # incomplete layer is never the mounted layer of a running container, and
 # tempdirs is orphaned scratch; NO prune/reset is performed.
 #
-# Run on the HOST:
-#   ansible-playbook playbooks/imports/play-podman-store-repair.yml
+# Plan-local incident-recovery playbook (Plan 00062) — NOT durable IaC, so it
+# lives in the plan folder, not under playbooks/. Run on the HOST:
+#   ansible-playbook CLAUDE/Plan/00062-disk-reclaim-tui/podman-store-repair.yml
 #
 # Optional: also remove a specific image podman flagged corrupted (it will be
 # re-pulled/rebuilt on next use) — e.g. the CCY image:
-#   ansible-playbook playbooks/imports/play-podman-store-repair.yml \
+#   ansible-playbook CLAUDE/Plan/00062-disk-reclaim-tui/podman-store-repair.yml \
 #     -e podman_repair_remove_image=claude-yolo:latest
 - hosts: desktop
   name: Podman Rootless Store Repair - clear incomplete layers + stale temp dirs
@@ -70,11 +71,17 @@
     # parse those IDs and remove the layer dirs as REAL root. This is what
     # podman itself is trying (and failing) to do — safe: an incomplete layer is
     # never the mounted layer of a running container.
+    # podman's logrus text formatter escapes the inner quotes, so the LITERAL
+    # bytes on stderr are:  Found incomplete layer \"<64-hex>\", deleting it
+    # (backslash-quote, not a bare quote). Matching a bare `"` here is why an
+    # earlier version extracted nothing and no-op'd. Anchor on the phrase and
+    # skip any non-hex run (space, backslash, quote) up to the id — robust to
+    # whatever quoting podman uses.
     - name: Detect incomplete overlay layers from podman's own output
       ansible.builtin.set_fact:
         podman_incomplete_layers: >-
           {{ (podman_df_before.stderr | default(''))
-             | regex_findall('Found incomplete layer "([0-9a-f]{64})"')
+             | regex_findall('incomplete layer[^0-9a-f]*([0-9a-f]{64})')
              | unique }}
 
     - name: Report detected incomplete layers

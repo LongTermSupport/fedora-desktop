@@ -140,10 +140,12 @@ Rules). Facts and hypotheses are kept strictly separate below.
 - [x] ✅ **Task 4.2**: `reclaim` v1.0.2 — detect the `stale temp dir` signature and
   point at the repair play instead of poking the store.
 
-- [x] ✅ **Task 4.3**: `playbooks/imports/play-podman-store-repair.yml` — removes
-  the incomplete overlay layers podman names in its own output + `overlay/tempdirs`
-  as **real root**, probes before/after, asserts the store loads. Safe with live
-  containers (no prune/reset). Optional `-e podman_repair_remove_image=`.
+- [x] ✅ **Task 4.3**: `CLAUDE/Plan/00062-disk-reclaim-tui/podman-store-repair.yml`
+  — removes the incomplete overlay layers podman names in its own output +
+  `overlay/tempdirs` as **real root**, probes before/after, asserts the store
+  loads. Safe with live containers (no prune/reset). Optional
+  `-e podman_repair_remove_image=`. Relocated from `playbooks/imports/` into the
+  plan folder (user steer): it is plan-local incident recovery, not durable IaC.
 
 - [x] ✅ **Task 4.4**: `triage.bash` (plan-local) — read-only fact-finding that
   WRITES its report to `untracked/reports/` (bind-mounted → agent reads directly);
@@ -157,8 +159,21 @@ Rules). Facts and hypotheses are kept strictly separate below.
 - [ ] ⬜ **Task 4.6**: (HOST) run extended `triage.bash` once more to capture the
   overlay ownership histogram (blast radius) → agent reads it.
 
-- [ ] ⬜ **Task 4.7**: (HOST) run the repair play → run `triage.bash` again →
-  confirm `podman system df` rc=0 and `ccy` starts.
+- [x] ✅ **Task 4.7a**: (HOST) FIRST repair run no-op'd — `Incomplete layers removed this run: []` and store still rc=125. Root cause CONFIRMED from data,
+  not guessed: podman's logrus text formatter escapes the inner quotes, so the
+  literal stderr bytes are `Found incomplete layer \"<id>\"` (backslash-quote),
+  but the regex matched a **bare** quote (`layer "([0-9a-f]{64})"`) → 0 matches →
+  nothing removed. Proven by replaying the exact stderr line from the triage log:
+  old regex → `[]`, new regex → `['2737e78…']`. Fixed to
+  `incomplete layer[^0-9a-f]*([0-9a-f]{64})` (anchor on phrase, skip any non-hex
+  run up to the id — robust to podman's quoting). `--syntax-check` clean.
+
+- [ ] ⬜ **Task 4.7b**: (HOST) re-run the fixed, relocated repair play →
+  `ansible-playbook CLAUDE/Plan/00062-disk-reclaim-tui/podman-store-repair.yml` →
+  then run `triage.bash` again → confirm `podman system df` rc=0 and `ccy`
+  starts. If a NEW incomplete-layer id appears (the 2nd 100000-owned orphan is
+  also incomplete), re-run once more; if the store loads with the 2nd orphan
+  still present, it is a COMPLETE layer backing an image → input to Task 4.8.
 
 - [ ] ⬜ **Task 4.8**: Preventive/durable fixes, scope decided strictly from the
   4.6 blast-radius facts — candidates (NOT yet committed to): (a) a migration
@@ -180,6 +195,11 @@ Rules). Facts and hypotheses are kept strictly separate below.
 - `triage.bash` — read-only fact-finding for the podman-store incident; writes
   `untracked/reports/reclaim-podman-triage.log` (agent reads it directly). Run
   repeatedly as triage is extended.
+- `podman-store-repair.yml` — incident-recovery Ansible playbook (HOST-only;
+  removes podman-named incomplete overlay layers + stale tempdirs as real root;
+  no prune/reset; safe with live containers). Plan-local, not durable IaC. Being
+  outside `playbooks/`, it is not covered by `qa-ansible-syntax`; check it with
+  `ansible-playbook --syntax-check CLAUDE/Plan/00062-disk-reclaim-tui/podman-store-repair.yml`.
 
 ## Delivery & Milestones
 
@@ -188,4 +208,8 @@ Rules). Facts and hypotheses are kept strictly separate below.
   `triage.bash` (`8869fe4`, `990d5f4`, `6e44ca2`, `e5052bb`).
 - Correction: retracted the hallucinated "full disk" cause (`e5052bb`); Ground
   Rules adopted.
+- Repair-play regex fix + relocation into the plan folder: the first HOST run
+  no-op'd (`removed: []`) because the id-extraction regex matched a bare quote
+  while podman's logrus escapes it (`\"`); fixed to skip any non-hex run, proven
+  against the real stderr bytes; `reclaim` v1.0.3 pointer updated.
 - Pending (HOST, blocked on grounded facts): Tasks 3.3, 4.5, 4.6, 4.7.
