@@ -121,14 +121,38 @@ Rules). Facts and hypotheses are kept strictly separate below.
   (orphaned). This is a bounded 2-layer problem, not store-wide corruption. One
   of the 2 is the incomplete `2737e78…`; the other is a second 100000-owned layer
   podman has not named.
+- **After removing `2737e78…` the error MOVED (2nd repair run):** the
+  incomplete-layer blocker is cleared — podman no longer fails on the layer
+  rename — and the failure surface is now a DIFFERENT out-of-map artifact, a
+  **volume**: `Error: open storage/volumes/brower-overlay_postgres_data/_data: permission denied`. This proves the two failure surfaces are distinct.
+- **`podman system df` is the wrong health gate:** `df` walks each volume's
+  `_data` to compute its size, so it aborts on ANY out-of-map volume even when
+  the layer store loads fine. `podman info` / `images` / `run` (and therefore
+  CCY) do NOT touch volume contents. The store-load blocker was the overlay
+  layer, now removed; the residual `df` failure is a VOLUME-sizing issue, not a
+  store failure. Gate switched to `podman info` + `podman images`.
+- **The out-of-map volume holds real data** (a Postgres `_data` dir), so it is
+  REPORTED, never deleted. Making it usable again is a deliberate subuid
+  migration (Task 4.8), separate from unblocking the store.
 
 **UNCONFIRMED — do NOT assert (pending grounded facts):**
 
+- **Whether the store now loads operationally** (`podman info` + `images` rc=0)
+  after `2737e78…` was removed. Strongly expected (the layer blocker is gone and
+  those probes do not touch volumes), but NOT yet confirmed — the previous run
+  only re-probed with `df`, which fails on the volume. The corrected play +
+  `deploy.bash` will capture `info`/`images` rc into
+  `untracked/reports/podman-store-repair-run.log`.
+
 - **Identity/nature of the 2nd orphaned layer** (incomplete vs a complete layer
-  backing an image). `triage.bash` extended to list both orphan ids + mtime.
-  Matters because the repair removes ONLY podman-named incomplete layers — a
-  complete orphan must NOT be deleted (it backs an image) and instead informs
-  Task 4.8.
+  backing an image). `triage.bash` lists both orphan ids + mtime. Matters because
+  the repair removes ONLY podman-named incomplete layers — a complete orphan must
+  NOT be deleted (it backs an image) and instead informs Task 4.8. If the store
+  loads with the 2nd orphan still present, it is complete.
+
+- **Which/how many volumes are out-of-map.** Only `brower-overlay_postgres_data`
+  is named so far (df aborts at the first). `triage.bash` now enumerates ALL
+  out-of-map volume `_data` dirs so the full set is known before Task 4.8.
 
 - Whether `reclaim` itself modified the store. v1.0.0 offered `podman system prune -af` AFTER `df` had already failed (store already unloadable), so
   `reclaim` SURFACED the wedge; any further contribution is unproven. The design
@@ -168,26 +192,47 @@ Rules). Facts and hypotheses are kept strictly separate below.
   `incomplete layer[^0-9a-f]*([0-9a-f]{64})` (anchor on phrase, skip any non-hex
   run up to the id — robust to podman's quoting). `--syntax-check` clean.
 
-- [ ] ⬜ **Task 4.7b**: (HOST) re-run the fixed, relocated repair play →
-  `ansible-playbook CLAUDE/Plan/00062-disk-reclaim-tui/podman-store-repair.yml` →
-  then run `triage.bash` again → confirm `podman system df` rc=0 and `ccy`
-  starts. If a NEW incomplete-layer id appears (the 2nd 100000-owned orphan is
-  also incomplete), re-run once more; if the store loads with the 2nd orphan
-  still present, it is a COMPLETE layer backing an image → input to Task 4.8.
+- [x] ✅ **Task 4.7b**: (HOST) 2nd repair run — regex fix WORKED (`removed: ['2737e78…']`), but the play still failed its assert because the error MOVED to
+  an out-of-map VOLUME (`open volumes/brower-overlay_postgres_data/_data: permission denied`) and the assert was gating on `podman system df` — which
+  walks volume contents and so fails on that volume even though the layer store
+  now loads. Diagnosis grounded in the pasted play output (see CONFIRMED FACTS).
+
+- [x] ✅ **Task 4.7c**: Correct the play + add the wrapper (this iteration):
+
+  - Health gate switched from `podman system df` to **`podman info` + `podman images`** (load the store, do NOT walk volumes) — the right "store loads"
+    signal; `df` demoted to informational.
+  - **Bounded self-iteration** (`repair-pass.yml`, `podman_repair_max_passes=6`):
+    each pass probes `info`, removes any named incomplete layer as root, loops
+    until the store loads — clears multiple incomplete layers in ONE run.
+  - Out-of-map volumes are **detected + reported, never deleted** (they hold real
+    data → Task 4.8).
+  - **`deploy.bash`** wrapper runs the play and tees full output to
+    `untracked/reports/podman-store-repair-run.log` (user steer). `triage.bash`
+    extended to enumerate out-of-map volumes. QA green; `--syntax-check` clean.
+
+- [ ] ⬜ **Task 4.7d**: (HOST) run `deploy.bash` → then `triage.bash` → confirm
+  from the captured report that `podman info` + `podman images` rc=0 and `ccy`
+  starts. `df` may still fail on the out-of-map volume — that is expected and does
+  NOT block CCY. Record the full out-of-map volume set + the 2nd orphan layer's
+  nature for Task 4.8.
 
 - [ ] ⬜ **Task 4.8**: Preventive/durable fixes, scope decided strictly from the
-  4.6 blast-radius facts — candidates (NOT yet committed to): (a) a migration
-  step that reconciles orphaned out-of-map layers when the subuid range changes;
-  (b) close the CCY `common.bash` recovery gap (cover the overlay store; use real
-  root, since `podman unshare` can't fix a cross-map shift). Decide with the user.
+  facts — candidates (NOT yet committed to): (a) a migration step that reconciles
+  orphaned out-of-map **layers AND volumes** into the new subuid range when it
+  changes (offset-preserving `chown` as real root, so images/volumes stay usable
+  without data loss); (b) close the CCY `common.bash` recovery gap (cover the
+  overlay store; use real root, since `podman unshare` can't fix a cross-map
+  shift). Decide with the user once 4.7d confirms the full artifact set.
 
 ## Success Criteria
 
 - [x] `./scripts/qa-all.bash` passes.
 - [x] `reclaim --help` / `report` / bad-arg behave correctly.
 - [ ] Play deploys the tool + packages on the HOST and the menu actions work.
-- [ ] Podman store recovered: `triage.bash` reports `podman system df` rc=0 and
-  `ccy` starts (confirmed from the report, not assumed).
+- [ ] Podman store recovered: the captured report shows `podman info` +
+  `podman images` rc=0 and `ccy` starts (confirmed from the report, not assumed).
+  (`podman system df` may still fail on an out-of-map volume — that is a Task 4.8
+  concern, not a store failure.)
 - [ ] Incident trigger established from grounded triage facts (not asserted).
 
 ## Plan-Local Scripts
@@ -195,11 +240,22 @@ Rules). Facts and hypotheses are kept strictly separate below.
 - `triage.bash` — read-only fact-finding for the podman-store incident; writes
   `untracked/reports/reclaim-podman-triage.log` (agent reads it directly). Run
   repeatedly as triage is extended.
-- `podman-store-repair.yml` — incident-recovery Ansible playbook (HOST-only;
-  removes podman-named incomplete overlay layers + stale tempdirs as real root;
-  no prune/reset; safe with live containers). Plan-local, not durable IaC. Being
-  outside `playbooks/`, it is not covered by `qa-ansible-syntax`; check it with
-  `ansible-playbook --syntax-check CLAUDE/Plan/00062-disk-reclaim-tui/podman-store-repair.yml`.
+- `deploy.bash` — HOST-only wrapper that runs the repair play and tees FULL
+  output to `untracked/reports/podman-store-repair-run.log` (the agent reads it
+  directly). Pass-through args reach `ansible-playbook` (e.g.
+  `-e podman_repair_remove_image=…`, `-e podman_repair_max_passes=N`). **Run the
+  repair via this**, not the play directly, so the result is always captured.
+- `podman-store-repair.yml` — incident-recovery Ansible playbook (HOST-only).
+  Gates on `podman info` + `podman images` (store-load signal, not `df`);
+  self-iterates removing podman-named incomplete overlay layers as real root
+  (`repair-pass.yml`, bounded by `podman_repair_max_passes`); removes stale
+  tempdirs; REPORTS out-of-map volumes without deleting them; no prune/reset;
+  safe with live containers. Plan-local, not durable IaC. Being outside
+  `playbooks/`, it is not covered by `qa-ansible-syntax`; check with
+  `ansible-playbook --syntax-check …/podman-store-repair.yml`.
+- `repair-pass.yml` — the single-pass task file included in the play's bounded
+  repair loop (probe `info` → remove named incomplete layers as root → mark
+  loaded). Not a standalone playbook.
 
 ## Delivery & Milestones
 

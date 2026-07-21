@@ -137,6 +137,41 @@ if [ -d "$_ovl" ]; then
 fi
 echo
 
+# Out-of-map VOLUMES: `podman system df` walks each volume's _data to size it and
+# aborts on a volume owned by an out-of-map sub-UID (open _data: permission
+# denied) — even when the store itself loads fine (podman info/images/run are
+# unaffected). Bucket volume _data dirs by owner UID, then list any not owned by
+# the host user. These hold REAL data and are NOT deleted by the repair play;
+# reconciling them is a deliberate subuid migration (Plan 00062 Task 4.8).
+echo "### volume _data ownership (owner UID → count) — out-of-map volumes break 'podman system df'"
+echo "    compare to the /etc/subuid map above: in-range = current, others = orphaned"
+_vol="$STORAGE/volumes"
+if [ -d "$_vol" ]; then
+    if _vowners="$(find "$_vol" -mindepth 2 -maxdepth 2 -name _data -printf '%U\n' | sort -n | uniq -c)"; then
+        printf '%s\n' "${_vowners:-(no volume _data dirs found)}"
+    else
+        echo "(enumeration failed — see find errors above)"
+    fi
+else
+    echo "(no volumes directory)"
+fi
+echo
+
+echo "### out-of-map volumes (owner UID != host user $(id -u)) — volume-dir · owner · mtime"
+if [ -d "$_vol" ]; then
+    if _vorphans="$(find "$_vol" -mindepth 2 -maxdepth 2 -name _data ! -uid "$(id -u)" \
+                    -printf '%h  uid=%U  %TY-%Tm-%Td\n' | sort)"; then
+        if [ -n "$_vorphans" ]; then
+            printf '%s\n' "$_vorphans"
+        else
+            echo "(none — every volume _data is owned by the host user)"
+        fi
+    else
+        echo "(enumeration failed — see find errors above)"
+    fi
+fi
+echo
+
 echo "════════════════════════════════════════════════════════════"
 echo " Facts captured"
 echo "════════════════════════════════════════════════════════════"

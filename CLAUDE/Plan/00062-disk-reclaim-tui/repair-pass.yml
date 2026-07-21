@@ -1,0 +1,48 @@
+---
+# One repair pass for podman-store-repair.yml (Plan 00062), included in a bounded
+# loop. Probe the store via `podman info`; if it fails because of an incomplete
+# overlay layer, remove that layer as REAL root so the next pass gets further.
+# When info succeeds, set store_loaded=true and the loop's `when` skips the rest.
+#
+# `podman info` is the probe (not `podman system df`): it loads the store fully
+# but does NOT walk volume contents, so it isolates the store-load blocker (an
+# incomplete overlay layer) from a merely unsizable out-of-map volume.
+#
+# podman's logrus text formatter escapes the inner quotes, so the LITERAL bytes
+# on stderr are:  Found incomplete layer \"<64-hex>\", deleting it  (backslash-
+# quote, not a bare quote). The regex anchors on the phrase and skips any non-hex
+# run up to the id — robust to whatever quoting podman uses.
+- name: "Pass {{ repair_pass }} - probe store via podman info (as the user)"
+  become_user: "{{ user_login }}"
+  ansible.builtin.command:
+    cmd: podman info
+  register: repair_info
+  changed_when: false
+  failed_when: false  # FAIL-FAST-OK: wedged store returns non-zero; we branch on rc
+  environment:
+    XDG_RUNTIME_DIR: "{{ podman_user_runtime }}"
+
+- name: "Pass {{ repair_pass }} - mark store loaded when podman info succeeded"
+  ansible.builtin.set_fact:
+    store_loaded: "{{ repair_info.rc == 0 }}"
+
+- name: "Pass {{ repair_pass }} - extract incomplete overlay layers podman named"
+  ansible.builtin.set_fact:
+    repair_incomplete: >-
+      {{ (repair_info.stderr | default(''))
+         | regex_findall('incomplete layer[^0-9a-f]*([0-9a-f]{64})')
+         | unique }}
+  when: not store_loaded
+
+- name: "Pass {{ repair_pass }} - remove those incomplete layers as real root"
+  ansible.builtin.file:
+    path: "{{ podman_storage }}/overlay/{{ item }}"
+    state: absent
+  loop: "{{ repair_incomplete | default([]) }}"
+  when: not store_loaded
+  register: repair_removed
+
+- name: "Pass {{ repair_pass }} - accumulate removed layer ids"
+  ansible.builtin.set_fact:
+    podman_incomplete_layers: "{{ (podman_incomplete_layers | default([])) + (repair_incomplete | default([])) }}"
+  when: not store_loaded

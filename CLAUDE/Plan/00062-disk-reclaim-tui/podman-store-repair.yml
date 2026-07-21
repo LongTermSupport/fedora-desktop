@@ -5,54 +5,65 @@
 # Repairs a rootless podman store wedged by leftover files owned by UIDs OUTSIDE
 # the user's current /etc/subuid map. The unprivileged user — and even `podman
 # unshare` (namespaced root, confined to that map) — cannot remove such files
-# (permission denied), so podman fails to load its store on EVERY command (incl.
-# CCY startup), rc=125.
+# (permission denied), so podman fails to load its store, rc=125.
 #
-# NOTE: the trigger is an interrupted podman operation (a killed process, crash,
-# reboot, or a change to the user's subuid/subgid range that leaves old layers
-# out-of-map). The specific root cause on a given host is NOT assumed here —
-# establish it with triage.bash (which dumps /etc/subuid + the layer ownership).
-# This play FIXES the wedge regardless of the trigger. Two forms are handled:
+# TWO DISTINCT failure surfaces, established from triage on host joseph-p14:
 #
-#   1. Stale temp dirs:
-#      error removing stale temp dir: unlinkat overlay/tempdirs/temp-dir-*/...: permission denied
-#   2. An INCOMPLETE overlay layer podman keeps trying (and failing) to delete:
-#      Found incomplete layer "<64-hex>", deleting it
-#      Error: loading primary layer store data: deleting layer "<64-hex>": failed to add to
-#      stage directory: rename overlay/<64-hex> overlay/tempdirs/temp-dir-*/0-<64-hex>: permission denied
-#      (this is the real source — it regenerates a temp dir on every podman call)
+#   1. Incomplete OVERLAY LAYER (the store-load blocker): podman names it on
+#      every load and tries to stage-delete it, but the layer dir is owned by an
+#      out-of-map sub-UID so the rename fails EACCES. Until it is gone, EVERY
+#      podman command (info/images/ps/run → CCY startup) fails. THIS is what
+#      blocks CCY. Fix: remove the named layer dir as REAL root. Safe — an
+#      incomplete layer is never the mounted layer of a running container.
 #
-# Fix: as REAL host root (become: true, no become_user — root has CAP_DAC_OVERRIDE
-# over every UID, unlike `podman unshare`), remove (a) the incomplete overlay
-# layer dirs podman named in its own output, and (b) overlay/tempdirs scratch.
-# Idempotent: nothing to remove = no-op. Safe with LIVE containers — an
-# incomplete layer is never the mounted layer of a running container, and
-# tempdirs is orphaned scratch; NO prune/reset is performed.
+#   2. Out-of-map VOLUME _data (a `podman system df` blocker ONLY): `podman
+#      system df` walks each volume's _data to compute its size and aborts on a
+#      volume owned by an out-of-map sub-UID (open _data: permission denied).
+#      This does NOT block the store from loading and does NOT block CCY — only
+#      `df`'s size accounting. Such a volume still holds real data (e.g. a
+#      Postgres data dir), so this play REPORTS it and does NOT delete it. Making
+#      it usable again is a deliberate subuid migration (Plan 00062 Task 4.8),
+#      not part of unblocking the store.
+#
+# HEALTH GATE: `podman info` + `podman images` (they load the store fully but do
+# NOT walk volume contents) — the correct "does the store load?" signal. `podman
+# system df` is captured for information only; its failure on an out-of-map
+# volume is expected and is NOT treated as store failure.
+#
+# Root cause of the out-of-map ownership on this host (grounded, not assumed):
+# the user's /etc/subuid range changed (this repo's play-docker.yml removed a
+# hand-managed 100000:65536 block, reverting to Fedora's auto-allocated
+# 524288:65536). Artifacts built under the old 100000 map are thereby orphaned.
+# Establish/confirm with triage.bash before drawing conclusions.
 #
 # Plan-local incident-recovery playbook (Plan 00062) — NOT durable IaC, so it
-# lives in the plan folder, not under playbooks/. Run on the HOST:
+# lives in the plan folder, not under playbooks/. Prefer the wrapper (captures
+# full output to untracked/reports/):
+#   CLAUDE/Plan/00062-disk-reclaim-tui/deploy.bash
+# or run it directly on the HOST:
 #   ansible-playbook CLAUDE/Plan/00062-disk-reclaim-tui/podman-store-repair.yml
 #
 # Optional: also remove a specific image podman flagged corrupted (it will be
 # re-pulled/rebuilt on next use) — e.g. the CCY image:
-#   ansible-playbook CLAUDE/Plan/00062-disk-reclaim-tui/podman-store-repair.yml \
-#     -e podman_repair_remove_image=claude-yolo:latest
+#   ...deploy.bash -e podman_repair_remove_image=claude-yolo:latest
 - hosts: desktop
-  name: Podman Rootless Store Repair - clear incomplete layers + stale temp dirs
+  name: Podman Rootless Store Repair - clear incomplete overlay layers so the store loads
   become: true
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    plan_dir: "{{ root_dir }}/CLAUDE/Plan/00062-disk-reclaim-tui"
     podman_storage: "/home/{{ user_login }}/.local/share/containers/storage"
     podman_tempdirs: "/home/{{ user_login }}/.local/share/containers/storage/overlay/tempdirs"
     podman_user_runtime: "/run/user/{{ user_login_uid | default(1000) }}"
+    podman_repair_max_passes: 6   # bounded self-iteration over incomplete layers
     podman_repair_remove_image: ""   # set via -e to also drop a corrupted image
   tasks:
-    - name: Probe rootless store health BEFORE repair (as the user)
+    - name: Probe rootless store health BEFORE repair via podman info (as the user)
       become_user: "{{ user_login }}"
       ansible.builtin.command:
-        cmd: podman system df
-      register: podman_df_before
+        cmd: podman info
+      register: podman_info_before
       changed_when: false
       failed_when: false  # FAIL-FAST-OK: a wedged store returns non-zero; we branch/report on rc below
       environment:
@@ -61,96 +72,131 @@
     - name: Report store health before repair
       ansible.builtin.debug:
         msg: >-
-          podman store BEFORE repair: rc={{ podman_df_before.rc }}
-          ({{ 'healthy — nothing to repair' if podman_df_before.rc == 0 else 'WEDGED — will repair' }})
+          podman store BEFORE repair: podman info rc={{ podman_info_before.rc }}
+          ({{ 'healthy — nothing to repair' if podman_info_before.rc == 0 else 'WEDGED — will clear incomplete layers' }})
 
-    # The deeper wedge: an INCOMPLETE overlay layer (interrupted pull) that
-    # podman tries to delete on every load but can't, because the layer dir is
-    # owned by mapped sub-UIDs (rename → tempdirs fails EACCES). podman names
-    # each one in its own output ('Found incomplete layer "<64-hex-id>"'); we
-    # parse those IDs and remove the layer dirs as REAL root. This is what
-    # podman itself is trying (and failing) to do — safe: an incomplete layer is
-    # never the mounted layer of a running container.
-    # podman's logrus text formatter escapes the inner quotes, so the LITERAL
-    # bytes on stderr are:  Found incomplete layer \"<64-hex>\", deleting it
-    # (backslash-quote, not a bare quote). Matching a bare `"` here is why an
-    # earlier version extracted nothing and no-op'd. Anchor on the phrase and
-    # skip any non-hex run (space, backslash, quote) up to the id — robust to
-    # whatever quoting podman uses.
-    - name: Detect incomplete overlay layers from podman's own output
-      ansible.builtin.set_fact:
-        podman_incomplete_layers: >-
-          {{ (podman_df_before.stderr | default(''))
-             | regex_findall('incomplete layer[^0-9a-f]*([0-9a-f]{64})')
-             | unique }}
-
-    - name: Report detected incomplete layers
-      ansible.builtin.debug:
-        msg: "Incomplete overlay layers detected: {{ podman_incomplete_layers | default([]) }}"
-
-    - name: Remove incomplete overlay layers as root (bypasses sub-UID ownership)
-      ansible.builtin.file:
-        path: "{{ podman_storage }}/overlay/{{ item }}"
-        state: absent
-      loop: "{{ podman_incomplete_layers | default([]) }}"
-      register: podman_incomplete_removed
+    # Bounded self-iteration: each pass probes `podman info`; if it fails because
+    # of an incomplete overlay layer, that layer is removed as REAL root and the
+    # next pass gets further. podman surfaces incomplete layers one-at-a-time
+    # (it aborts the load at the first it cannot delete), so we loop until the
+    # store loads or we exhaust the pass budget. Removing an incomplete layer is
+    # exactly what podman itself is trying to do — never a running mount.
+    - name: Clear incomplete overlay layers until the store loads (bounded loop, as root)
+      ansible.builtin.include_tasks: repair-pass.yml
+      loop: "{{ range(1, podman_repair_max_passes + 1) | list }}"
+      loop_control:
+        loop_var: repair_pass
+      when: not (store_loaded | default(false))
 
     - name: Stat the stale tempdirs directory
       ansible.builtin.stat:
         path: "{{ podman_tempdirs }}"
       register: podman_tempdirs_stat
 
-    - name: Remove stale podman temp dirs (as root — bypasses sub-UID ownership)
+    - name: Remove stale podman temp dirs as root (orphaned scratch; bypasses sub-UID ownership)
       ansible.builtin.file:
         path: "{{ podman_tempdirs }}"
         state: absent
       when: podman_tempdirs_stat.stat.exists
       register: podman_tempdirs_removed
 
-    - name: Report tempdirs outcome
-      ansible.builtin.debug:
-        msg: >-
-          {{ 'Removed stale tempdirs at ' ~ podman_tempdirs
-             if podman_tempdirs_stat.stat.exists
-             else 'No tempdirs present — store was not wedged by stale temp dirs' }}
+    - name: Final store-load probe - podman info (as the user)
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        cmd: podman info
+      register: podman_info_after
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: asserted explicitly two tasks below
+      environment:
+        XDG_RUNTIME_DIR: "{{ podman_user_runtime }}"
 
-    - name: Probe rootless store health AFTER repair (as the user)
+    - name: Final store-load probe - podman images (forces a full layer-store load)
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        cmd: podman images
+      register: podman_images_after
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: asserted explicitly below
+      environment:
+        XDG_RUNTIME_DIR: "{{ podman_user_runtime }}"
+
+    - name: Informational probe - podman system df (also sizes volumes; may fail on an out-of-map volume even when the store is healthy)
       become_user: "{{ user_login }}"
       ansible.builtin.command:
         cmd: podman system df
       register: podman_df_after
       changed_when: false
-      failed_when: false  # FAIL-FAST-OK: asserted explicitly in the next task
+      failed_when: false  # FAIL-FAST-OK: df failure on an out-of-map volume is expected, not a store failure
       environment:
         XDG_RUNTIME_DIR: "{{ podman_user_runtime }}"
 
-    - name: Show the exact podman output after repair (diagnostic)
+    # Diagnostic only (as real root): owner UID of every volume _data dir. Any
+    # UID that is neither the host user nor inside the current subuid map is an
+    # out-of-map volume — the kind that trips `podman system df`. Printed for the
+    # report; NOT acted on (these hold real data — see Task 4.8).
+    - name: Diagnostic - volume _data owner uids (as real root)
+      ansible.builtin.command:
+        argv:
+          - find
+          - "{{ podman_storage }}/volumes"
+          - -mindepth
+          - "2"
+          - -maxdepth
+          - "2"
+          - -name
+          - _data
+          - -printf
+          - '%U %p\n'
+      register: podman_volume_owners
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: purely diagnostic; a missing volumes dir is fine
+
+    - name: Show post-repair diagnostics
       ansible.builtin.debug:
         msg:
-          - "podman system df — rc={{ podman_df_after.rc }}"
-          - "STDOUT:"
-          - "{{ podman_df_after.stdout | default('') }}"
-          - "STDERR:"
+          - "podman info   rc={{ podman_info_after.rc }}   (0 = store loads)"
+          - "podman images rc={{ podman_images_after.rc }} (0 = layer store loads)"
+          - "podman df     rc={{ podman_df_after.rc }}     (non-zero here can be an out-of-map VOLUME, not a store failure)"
+          - "Incomplete overlay layers removed this run: {{ podman_incomplete_layers | default([]) }}"
+          - "df stderr (if any):"
           - "{{ podman_df_after.stderr | default('') }}"
+          - "volume _data owner uids (uid path):"
+          - "{{ podman_volume_owners.stdout | default('(none)') }}"
 
-    - name: Assert the store now loads cleanly
+    - name: Assert the store now loads (podman info AND podman images both succeed)
       ansible.builtin.assert:
         that:
-          - podman_df_after.rc == 0
-        success_msg: "Rootless podman store loads cleanly ✅ (CCY should start now)."
+          - podman_info_after.rc == 0
+          - podman_images_after.rc == 0
+        success_msg: "Rootless podman store loads cleanly ✅ (podman info + images OK — CCY can start now)."
         fail_msg: |
-          The rootless podman store still does not load (rc={{ podman_df_after.rc }})
-          after removing the incomplete layers it named and the stale tempdirs.
+          The rootless podman store still does not load.
+            podman info   rc={{ podman_info_after.rc }}
+            podman images rc={{ podman_images_after.rc }}
 
-          Incomplete layers removed this run: {{ podman_incomplete_layers | default([]) }}
+          Incomplete overlay layers removed this run: {{ podman_incomplete_layers | default([]) }}
 
-          podman's remaining error was:
-          {{ podman_df_after.stderr | default('(no stderr captured)') }}
+          podman info's remaining error was:
+          {{ podman_info_after.stderr | default('(no stderr captured)') }}
 
-          Re-run triage.bash and share the report — a NEW layer id here means
-          another incomplete layer to clear (re-running this play picks it up).
-          Do NOT run `podman system reset` (it would wipe all rootless
-          images/containers and disrupt the live CCY sessions).
+          If a NEW 64-hex layer id appears above, the pass budget
+          (podman_repair_max_passes={{ podman_repair_max_passes }}) was exhausted —
+          re-run the play (or raise the budget with -e podman_repair_max_passes=N).
+          If the error names something OTHER than an incomplete layer, capture it
+          with triage.bash and share the report — do NOT run `podman system reset`
+          (it wipes all rootless images/containers and disrupts the live CCY sessions).
+
+    - name: Note out-of-map volumes (store loads, but `podman system df` cannot size them)
+      ansible.builtin.debug:
+        msg:
+          - "The store loads, but `podman system df` failed (rc={{ podman_df_after.rc }})."
+          - "That is an OUT-OF-MAP VOLUME, not a store failure — it does NOT block CCY."
+          - "Such a volume still holds real data; it is NOT deleted here."
+          - "Run triage.bash to list out-of-map volumes; reconciling them is a"
+          - "deliberate subuid migration (Plan 00062 Task 4.8)."
+      when:
+        - podman_info_after.rc == 0
+        - podman_df_after.rc != 0
 
     - name: Remove a specific corrupted image if requested
       become_user: "{{ user_login }}"
@@ -169,11 +215,12 @@
           - "============================================"
           - "Podman rootless store repair complete"
           - "============================================"
-          - "Before: podman system df rc={{ podman_df_before.rc }}"
-          - "After:  podman system df rc={{ podman_df_after.rc }}"
-          - "Incomplete layers removed: {{ podman_incomplete_layers | default([]) }}"
+          - "Before: podman info rc={{ podman_info_before.rc }}"
+          - "After:  podman info rc={{ podman_info_after.rc }} / images rc={{ podman_images_after.rc }} / df rc={{ podman_df_after.rc }}"
+          - "Incomplete overlay layers removed: {{ podman_incomplete_layers | default([]) }}"
           - "{{ 'Corrupted image removed: ' ~ podman_repair_remove_image if podman_repair_remove_image | length > 0 else 'No image removed' }}"
           - ""
+          - "If df still fails, that is an out-of-map volume (Task 4.8), not a store failure."
           - "If CCY was flagged corrupted and still misbehaves, re-run with:"
           - "  -e podman_repair_remove_image=claude-yolo:latest"
           - "then relaunch ccy (it rebuilds from .claude/ccy/Dockerfile)."
