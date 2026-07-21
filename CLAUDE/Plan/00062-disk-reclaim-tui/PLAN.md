@@ -88,6 +88,16 @@ Adopted after a hallucinated "full disk" cause was asserted as fact. Non-negotia
 Decisions in this phase are made ONLY from confirmed triage facts (see Ground
 Rules). Facts and hypotheses are kept strictly separate below.
 
+**✅ RESOLVED — store recovered (confirmed from captured reports, not assumed):**
+After `deploy.bash` (report `untracked/reports/podman-store-repair-run.log`) and
+a fresh `triage.bash`: `podman info` rc=0, `podman images` rc=0 (142 images incl.
+ALL CCY tags), `podman ps` rc=0 (16 running). `overlay/tempdirs` absent. The
+repair play's BEFORE `info` probe was ALREADY rc=0 — the store recovered the
+moment `2737e78…` was removed in the prior run; only `df` (volume sizing) was
+ever still failing, which the old df-gate misread as "still wedged". **CCY is
+unblocked.** `podman system df` still rc=125 — expected: out-of-map volumes it
+cannot size (see Task 4.8), NOT a store failure.
+
 **CONFIRMED FACTS** (source: `triage.bash` on host joseph-p14, report at
 `untracked/reports/reclaim-podman-triage.log`):
 
@@ -135,24 +145,29 @@ Rules). Facts and hypotheses are kept strictly separate below.
   REPORTED, never deleted. Making it usable again is a deliberate subuid
   migration (Task 4.8), separate from unblocking the store.
 
-**UNCONFIRMED — do NOT assert (pending grounded facts):**
+**RESIDUAL OUT-OF-MAP ARTIFACTS — the full set (now CONFIRMED from triage), for
+Task 4.8. None block the store/CCY; all are latent (they only bite if the image
+is run / the volume is mounted under the new map):**
 
-- **Whether the store now loads operationally** (`podman info` + `images` rc=0)
-  after `2737e78…` was removed. Strongly expected (the layer blocker is gone and
-  those probes do not touch volumes), but NOT yet confirmed — the previous run
-  only re-probed with `df`, which fails on the volume. The corrected play +
-  `deploy.bash` will capture `info`/`images` rc into
-  `untracked/reports/podman-store-repair-run.log`.
+- **1 orphan overlay layer** `387e2af6408cdac84de0426ff580af7558aad8d7e342d2ddacbef7a03a514fbe`
+  (uid 100000, 2025-11-10). podman did NOT name it incomplete and the store loads
+  with it present → it is a **complete layer backing an image** (earlier
+  UNCONFIRMED now resolved). Lists fine; would fail to MOUNT under the new map.
+  Must NOT be deleted blindly.
+- **9 out-of-map volumes** (`df` aborts at the first; triage enumerates all):
+  - `brower-overlay_postgres_data` — uid **100069** (2026-01-13), a Postgres data
+    dir (real data).
+  - **8 anonymous** hex-named volumes — uid **100998** (all 2026-04-01): `4e038cbf…`,
+    `4f335c1e…`, `5e1e7adb…`, `645db9db…`, `77488eec…`, `8b120095…`, `a0ebb0b9…`,
+    `b904facc…`.
+  - For contrast, the CURRENT-map volumes are fine: `discreet-booking_postgres_data`,
+    `discreet-booking_postgres_run`, `boxer-images_database_data` (uid 524357).
+- **The offset is exact and deterministic:** old `100000+N` → new `524288+N`
+  (delta +424288). E.g. `100069`→`524357` — the very uid the healthy postgres
+  volumes carry. This makes an offset-preserving `chown` a clean, non-destructive
+  migration (Task 4.8 option).
 
-- **Identity/nature of the 2nd orphaned layer** (incomplete vs a complete layer
-  backing an image). `triage.bash` lists both orphan ids + mtime. Matters because
-  the repair removes ONLY podman-named incomplete layers — a complete orphan must
-  NOT be deleted (it backs an image) and instead informs Task 4.8. If the store
-  loads with the 2nd orphan still present, it is complete.
-
-- **Which/how many volumes are out-of-map.** Only `brower-overlay_postgres_data`
-  is named so far (df aborts at the first). `triage.bash` now enumerates ALL
-  out-of-map volume `_data` dirs so the full set is known before Task 4.8.
+**Still UNCONFIRMED (low importance):**
 
 - Whether `reclaim` itself modified the store. v1.0.0 offered `podman system prune -af` AFTER `df` had already failed (store already unloadable), so
   `reclaim` SURFACED the wedge; any further contribution is unproven. The design
@@ -210,30 +225,44 @@ Rules). Facts and hypotheses are kept strictly separate below.
     `untracked/reports/podman-store-repair-run.log` (user steer). `triage.bash`
     extended to enumerate out-of-map volumes. QA green; `--syntax-check` clean.
 
-- [ ] ⬜ **Task 4.7d**: (HOST) run `deploy.bash` → then `triage.bash` → confirm
-  from the captured report that `podman info` + `podman images` rc=0 and `ccy`
-  starts. `df` may still fail on the out-of-map volume — that is expected and does
-  NOT block CCY. Record the full out-of-map volume set + the 2nd orphan layer's
-  nature for Task 4.8.
+- [x] ✅ **Task 4.7d**: (HOST) ran `deploy.bash` → `triage.bash`. CONFIRMED from
+  the captured reports: `podman info` + `podman images` rc=0 (all CCY tags
+  present), `podman ps` rc=0 (16 running). Store recovered, CCY unblocked. `df`
+  still fails on the out-of-map volumes (expected). Full residual artifact set
+  captured (see RESIDUAL OUT-OF-MAP ARTIFACTS): 1 complete orphan layer + 9
+  out-of-map volumes. **The incident is resolved.**
 
-- [ ] ⬜ **Task 4.8**: Preventive/durable fixes, scope decided strictly from the
-  facts — candidates (NOT yet committed to): (a) a migration step that reconciles
-  orphaned out-of-map **layers AND volumes** into the new subuid range when it
-  changes (offset-preserving `chown` as real root, so images/volumes stay usable
-  without data loss); (b) close the CCY `common.bash` recovery gap (cover the
-  overlay store; use real root, since `podman unshare` can't fix a cross-map
-  shift). Decide with the user once 4.7d confirms the full artifact set.
+- [ ] ⬜ **Task 4.8**: Durable follow-up (incident already resolved; this is the
+  "won't recur / clean up the latent orphans" work). Scope is a USER DECISION
+  because it touches a live store with important work and includes a data volume.
+  The grounded options (from the confirmed artifact set):
+
+  - **(A) Defer reconciliation (recommended default).** Leave the 1 orphan layer +
+    9 out-of-map volumes as latent orphans (they only bite if you re-run that
+    image / re-mount those volumes). Document them. Do the PREVENTION work only.
+  - **(B) Reconcile now** via an opt-in offset-preserving `chown` (old `100000+N`
+    → new `524288+N`) as real root, on the 1 layer + 9 volumes — makes `df` clean
+    and all data usable again. Precondition: confirm none are mounted by a running
+    container first (the running stacks use the in-map volumes, so likely safe,
+    but verify — never assume). The 8 anonymous `100998` volumes may just be junk;
+    if so, deleting them is an alternative (needs user confirmation — data).
+  - **(C) Prevention (do regardless of A/B):** close the CCY `common.bash`
+    recovery gap (cover the overlay store + volumes; use REAL root, since
+    `podman unshare` can't fix a cross-map shift — proven here) and/or make
+    `play-docker.yml`'s subuid change migrate old artifacts instead of silently
+    orphaning them.
 
 ## Success Criteria
 
 - [x] `./scripts/qa-all.bash` passes.
 - [x] `reclaim --help` / `report` / bad-arg behave correctly.
 - [ ] Play deploys the tool + packages on the HOST and the menu actions work.
-- [ ] Podman store recovered: the captured report shows `podman info` +
-  `podman images` rc=0 and `ccy` starts (confirmed from the report, not assumed).
-  (`podman system df` may still fail on an out-of-map volume — that is a Task 4.8
-  concern, not a store failure.)
-- [ ] Incident trigger established from grounded triage facts (not asserted).
+- [x] Podman store recovered: the captured report shows `podman info` +
+  `podman images` rc=0 (all CCY tags present) and 16 containers running
+  (confirmed from the report, not assumed). (`podman system df` still fails on
+  out-of-map volumes — a Task 4.8 concern, not a store failure.)
+- [x] Incident trigger established from grounded triage facts (not asserted):
+  subuid range shift `100000:65536` → `524288:65536` orphaned old-map artifacts.
 
 ## Plan-Local Scripts
 
