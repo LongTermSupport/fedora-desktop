@@ -2,23 +2,27 @@
 ---
 # Podman Rootless Store Repair
 #
-# Repairs a rootless podman store that is wedged by STALE TEMP DIRS whose
-# contents are owned by mapped sub-UIDs. Symptom (every podman command, incl.
-# CCY startup, fails):
+# Repairs a rootless podman store wedged by an interrupted pull/build (typically
+# during a full disk), which leaves behind files owned by the user's SUBORDINATE
+# UIDs (/etc/subuid, e.g. 100000+). The unprivileged user — and even `podman
+# unshare` (namespaced root, confined to the sub-UID map) — cannot remove them,
+# so podman fails to load its store on EVERY command (incl. CCY startup),
+# rc=125. Two forms seen, both handled here:
 #
-#   error removing stale temp dir: unlinkat
-#   ~/.local/share/containers/storage/overlay/tempdirs/temp-dir-*/...: permission denied
-#   Image "..." exists in local storage but may be corrupted
+#   1. Stale temp dirs:
+#      error removing stale temp dir: unlinkat overlay/tempdirs/temp-dir-*/...: permission denied
+#   2. An INCOMPLETE overlay layer podman keeps trying (and failing) to delete:
+#      Found incomplete layer "<64-hex>", deleting it
+#      Error: loading primary layer store data: deleting layer "<64-hex>": failed to add to
+#      stage directory: rename overlay/<64-hex> overlay/tempdirs/temp-dir-*/0-<64-hex>: permission denied
+#      (this is the real source — it regenerates a temp dir on every podman call)
 #
-# Cause: interrupted podman pulls/builds (typically during a full disk) leave
-# temp dirs behind. Their files are owned by the user's SUBORDINATE UIDs
-# (/etc/subuid, e.g. 100000+), so the unprivileged user cannot unlink them
-# (EACCES/EPERM) — and podman fails to clean them on every store load.
-#
-# Fix: remove overlay/tempdirs as ROOT. root bypasses the DAC checks that block
-# the unprivileged user, so this needs no `podman unshare` session. tempdirs is
-# transient scratch — podman recreates it as needed. Idempotent: no tempdirs =
-# no-op.
+# Fix: as REAL host root (become: true, no become_user — root has CAP_DAC_OVERRIDE
+# over every UID, unlike `podman unshare`), remove (a) the incomplete overlay
+# layer dirs podman named in its own output, and (b) overlay/tempdirs scratch.
+# Idempotent: nothing to remove = no-op. Safe with LIVE containers — an
+# incomplete layer is never the mounted layer of a running container, and
+# tempdirs is orphaned scratch; NO prune/reset is performed.
 #
 # Run on the HOST:
 #   ansible-playbook playbooks/imports/play-podman-store-repair.yml
@@ -28,7 +32,7 @@
 #   ansible-playbook playbooks/imports/play-podman-store-repair.yml \
 #     -e podman_repair_remove_image=claude-yolo:latest
 - hosts: desktop
-  name: Podman Rootless Store Repair - clear stale temp dirs that wedge the store
+  name: Podman Rootless Store Repair - clear incomplete layers + stale temp dirs
   become: true
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
@@ -52,7 +56,32 @@
       ansible.builtin.debug:
         msg: >-
           podman store BEFORE repair: rc={{ podman_df_before.rc }}
-          ({{ 'healthy — nothing to repair' if podman_df_before.rc == 0 else 'WEDGED — will clear stale temp dirs' }})
+          ({{ 'healthy — nothing to repair' if podman_df_before.rc == 0 else 'WEDGED — will repair' }})
+
+    # The deeper wedge: an INCOMPLETE overlay layer (interrupted pull) that
+    # podman tries to delete on every load but can't, because the layer dir is
+    # owned by mapped sub-UIDs (rename → tempdirs fails EACCES). podman names
+    # each one in its own output ('Found incomplete layer "<64-hex-id>"'); we
+    # parse those IDs and remove the layer dirs as REAL root. This is what
+    # podman itself is trying (and failing) to do — safe: an incomplete layer is
+    # never the mounted layer of a running container.
+    - name: Detect incomplete overlay layers from podman's own output
+      ansible.builtin.set_fact:
+        podman_incomplete_layers: >-
+          {{ (podman_df_before.stderr | default(''))
+             | regex_findall('Found incomplete layer "([0-9a-f]{64})"')
+             | unique }}
+
+    - name: Report detected incomplete layers
+      ansible.builtin.debug:
+        msg: "Incomplete overlay layers detected: {{ podman_incomplete_layers | default([]) }}"
+
+    - name: Remove incomplete overlay layers as root (bypasses sub-UID ownership)
+      ansible.builtin.file:
+        path: "{{ podman_storage }}/overlay/{{ item }}"
+        state: absent
+      loop: "{{ podman_incomplete_layers | default([]) }}"
+      register: podman_incomplete_removed
 
     - name: Stat the stale tempdirs directory
       ansible.builtin.stat:
@@ -98,15 +127,18 @@
           - podman_df_after.rc == 0
         success_msg: "Rootless podman store loads cleanly ✅ (CCY should start now)."
         fail_msg: |
-          The rootless podman store still does not load after clearing tempdirs
-          (rc={{ podman_df_after.rc }}). Stale temp dirs were not the only cause.
+          The rootless podman store still does not load (rc={{ podman_df_after.rc }})
+          after removing the incomplete layers it named and the stale tempdirs.
 
-          podman's actual error was:
+          Incomplete layers removed this run: {{ podman_incomplete_layers | default([]) }}
+
+          podman's remaining error was:
           {{ podman_df_after.stderr | default('(no stderr captured)') }}
 
-          Do NOT run `podman system reset` yet (it would wipe all rootless
-          images/containers and disrupt the live CCY sessions). Paste the error
-          above back so the next repair step can target it.
+          Re-run triage.bash and share the report — a NEW layer id here means
+          another incomplete layer to clear (re-running this play picks it up).
+          Do NOT run `podman system reset` (it would wipe all rootless
+          images/containers and disrupt the live CCY sessions).
 
     - name: Remove a specific corrupted image if requested
       become_user: "{{ user_login }}"
@@ -127,6 +159,7 @@
           - "============================================"
           - "Before: podman system df rc={{ podman_df_before.rc }}"
           - "After:  podman system df rc={{ podman_df_after.rc }}"
+          - "Incomplete layers removed: {{ podman_incomplete_layers | default([]) }}"
           - "{{ 'Corrupted image removed: ' ~ podman_repair_remove_image if podman_repair_remove_image | length > 0 else 'No image removed' }}"
           - ""
           - "If CCY was flagged corrupted and still misbehaves, re-run with:"
