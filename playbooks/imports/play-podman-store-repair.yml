@@ -83,6 +83,15 @@
       environment:
         XDG_RUNTIME_DIR: "{{ podman_user_runtime }}"
 
+    - name: Show the exact podman output after repair (diagnostic)
+      ansible.builtin.debug:
+        msg:
+          - "podman system df — rc={{ podman_df_after.rc }}"
+          - "STDOUT:"
+          - "{{ podman_df_after.stdout | default('') }}"
+          - "STDERR:"
+          - "{{ podman_df_after.stderr | default('') }}"
+
     - name: Assert the store now loads cleanly
       ansible.builtin.assert:
         that:
@@ -90,12 +99,14 @@
         success_msg: "Rootless podman store loads cleanly ✅ (CCY should start now)."
         fail_msg: |
           The rootless podman store still does not load after clearing tempdirs
-          (rc={{ podman_df_after.rc }}). This indicates deeper corruption than
-          stale temp dirs. Inspect as the user:
-            sudo -u {{ user_login }} XDG_RUNTIME_DIR={{ podman_user_runtime }} podman system df
-          Last resort (WIPES all rootless images/containers/volumes; DDEV on
-          rootful Docker is unaffected; CCY rebuilds):
-            podman system reset
+          (rc={{ podman_df_after.rc }}). Stale temp dirs were not the only cause.
+
+          podman's actual error was:
+          {{ podman_df_after.stderr | default('(no stderr captured)') }}
+
+          Do NOT run `podman system reset` yet (it would wipe all rootless
+          images/containers and disrupt the live CCY sessions). Paste the error
+          above back so the next repair step can target it.
 
     - name: Remove a specific corrupted image if requested
       become_user: "{{ user_login }}"
