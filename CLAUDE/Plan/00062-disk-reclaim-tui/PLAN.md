@@ -5,6 +5,57 @@
 **Owner**: joseph
 **Priority**: Medium
 
+## ⏸️ RESUME POINT (paused 2026-07-21 — user shutting down)
+
+**The podman-store incident is RESOLVED.** The store loads, CCY is unblocked, all
+16 containers still running — confirmed from captured reports, not assumed
+(`untracked/reports/podman-store-repair-run.log` + `reclaim-podman-triage.log`).
+Working tree clean; committed through **`a7e132d`**; **14 commits unpushed on
+F44** (push when ready — never squash-merge, see AgentNotes).
+
+**What was in flight when paused:** I asked the user to choose the scope of the
+durable follow-up (Task 4.8) and they paused to shut down. **That decision is the
+first thing to resume on.** The three options (grounded in the confirmed facts):
+
+- **(A) Defer + build prevention (my recommendation).** Leave the latent orphans
+  as-is (documented); build durable IaC prevention — close the CCY `common.bash`
+  recovery gap (`files/var/local/claude-yolo/lib/common.bash`: cover the overlay
+  store + volumes, use REAL root, since `podman unshare` can't fix a cross-map
+  shift). Lowest risk to the live containers.
+- **(B) Reconcile orphans now.** Add an opt-in offset-preserving `chown`
+  (old `100000+N` → new `524288+N`, delta +424288) to the repair play; run as
+  real root on the 1 orphan layer + 9 volumes AFTER confirming (via triage) none
+  are mounted by a running container. Makes `df` clean + the Postgres data usable.
+  Plus the prevention from (A).
+- **(C) Stop.** Incident fixed; do nothing more now; leave 4.8 open.
+
+**Do NOT re-derive these — already grounded (see CONFIRMED FACTS / RESIDUAL
+OUT-OF-MAP ARTIFACTS below):**
+
+- Trigger: subuid shift `100000:65536` → `524288:65536` orphaned old-map artifacts.
+- Residual = **1 complete orphan overlay layer** `387e2af6…` (backs an image — do
+  NOT delete) + **9 out-of-map volumes** (`brower-overlay_postgres_data` uid
+  100069 = real Postgres data; 8 anonymous hex volumes uid 100998).
+- Health gate is `podman info` + `podman images` (NOT `df` — `df` walks volume
+  contents and false-negatives on out-of-map volumes even when the store is fine).
+
+**Other open items (lower priority):**
+
+- **Task 3.3** — (HOST) deploy + live-test the `reclaim` feature itself (walk the
+  menu). The tool + `play-disk-reclaim.yml` are written; not yet menu-walked.
+- **reclaim refinement (follow-up, not yet ticketed):** `reclaim`'s container
+  action uses `podman system df` as its reachability probe, which now
+  false-negatives (store healthy, but `df` fails on the out-of-map volumes) and
+  wrongly points the user at the repair play. It should probe reachability with
+  `podman info` and use `df` only for sizing — same lesson as the repair play.
+
+**How to resume:** read this section + the two report files, then put the Task 4.8
+decision back to the user (or proceed on the option they give). All plan-local
+scripts are in this folder: `deploy.bash` (HOST wrapper, tees to
+`untracked/reports/`), `triage.bash` (fact-finding), `podman-store-repair.yml` +
+`repair-pass.yml` (the repair play). CCY reminder: edit/commit only in the
+container; run Ansible on the HOST.
+
 ## Overview
 
 The repo previously provisioned no dedicated disk-usage or cleanup tooling into
