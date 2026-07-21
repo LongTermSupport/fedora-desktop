@@ -63,6 +63,27 @@ defaults to "No"; it can also launch richer analysers (`ncdu`, `baobab`).
 - [ ] ⬜ **Task 3.3**: (HOST, not CCY) deploy + live-test — run the play, then
   `reclaim report` and walk the menu actions on the real desktop.
 
+### Phase 4: Incident — reclaim wedged the rootless podman store
+
+Running `reclaim` on a host whose rootless podman store already held stale temp
+dirs (fallout of the full disk) surfaced and aggravated store corruption:
+v1.0.0's `act_containers` ran `podman system prune -af` even though `podman system df` had failed to load the store. Every podman command — including CCY
+startup across multiple live sessions — then failed with `error removing stale temp dir … permission denied`. The temp-dir files are owned by mapped sub-UIDs,
+so neither the user nor `podman unshare` (namespaced root, still bound to the
+sub-UID map) can unlink them — only real host root can.
+
+- [x] ✅ **Task 4.1**: Harden `reclaim` (v1.0.1) — `system df` is the reachability
+  probe; a failed probe surfaces the reason and SKIPS the prune. Applied to docker too.
+- [x] ✅ **Task 4.2**: `reclaim` v1.0.2 — detect the `stale temp dir` signature and
+  point the user at the repair playbook instead of poking the store.
+- [x] ✅ **Task 4.3**: New `playbooks/imports/play-podman-store-repair.yml` — removes
+  `overlay/tempdirs` as **real root** (bypasses the sub-UID ownership that blocks the
+  user and `podman unshare`), probes store health before/after, asserts it loads
+  cleanly. Safe with live containers (only orphaned scratch is removed; no
+  prune/reset). Optional `-e podman_repair_remove_image=` drops a flagged-corrupted
+  image (e.g. CCY).
+- [ ] ⬜ **Task 4.4**: (HOST) run the repair play; confirm store loads + CCY starts.
+
 ## Success Criteria
 
 - [x] `./scripts/qa-all.bash` passes.

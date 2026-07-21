@@ -1,0 +1,123 @@
+#!/usr/bin/env ansible-playbook
+---
+# Podman Rootless Store Repair
+#
+# Repairs a rootless podman store that is wedged by STALE TEMP DIRS whose
+# contents are owned by mapped sub-UIDs. Symptom (every podman command, incl.
+# CCY startup, fails):
+#
+#   error removing stale temp dir: unlinkat
+#   ~/.local/share/containers/storage/overlay/tempdirs/temp-dir-*/...: permission denied
+#   Image "..." exists in local storage but may be corrupted
+#
+# Cause: interrupted podman pulls/builds (typically during a full disk) leave
+# temp dirs behind. Their files are owned by the user's SUBORDINATE UIDs
+# (/etc/subuid, e.g. 100000+), so the unprivileged user cannot unlink them
+# (EACCES/EPERM) — and podman fails to clean them on every store load.
+#
+# Fix: remove overlay/tempdirs as ROOT. root bypasses the DAC checks that block
+# the unprivileged user, so this needs no `podman unshare` session. tempdirs is
+# transient scratch — podman recreates it as needed. Idempotent: no tempdirs =
+# no-op.
+#
+# Run on the HOST:
+#   ansible-playbook playbooks/imports/play-podman-store-repair.yml
+#
+# Optional: also remove a specific image podman flagged corrupted (it will be
+# re-pulled/rebuilt on next use) — e.g. the CCY image:
+#   ansible-playbook playbooks/imports/play-podman-store-repair.yml \
+#     -e podman_repair_remove_image=claude-yolo:latest
+- hosts: desktop
+  name: Podman Rootless Store Repair - clear stale temp dirs that wedge the store
+  become: true
+  vars:
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    podman_storage: "/home/{{ user_login }}/.local/share/containers/storage"
+    podman_tempdirs: "/home/{{ user_login }}/.local/share/containers/storage/overlay/tempdirs"
+    podman_user_runtime: "/run/user/{{ user_login_uid | default(1000) }}"
+    podman_repair_remove_image: ""   # set via -e to also drop a corrupted image
+  tasks:
+    - name: Probe rootless store health BEFORE repair (as the user)
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        cmd: podman system df
+      register: podman_df_before
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: a wedged store returns non-zero; we branch/report on rc below
+      environment:
+        XDG_RUNTIME_DIR: "{{ podman_user_runtime }}"
+
+    - name: Report store health before repair
+      ansible.builtin.debug:
+        msg: >-
+          podman store BEFORE repair: rc={{ podman_df_before.rc }}
+          ({{ 'healthy — nothing to repair' if podman_df_before.rc == 0 else 'WEDGED — will clear stale temp dirs' }})
+
+    - name: Stat the stale tempdirs directory
+      ansible.builtin.stat:
+        path: "{{ podman_tempdirs }}"
+      register: podman_tempdirs_stat
+
+    - name: Remove stale podman temp dirs (as root — bypasses sub-UID ownership)
+      ansible.builtin.file:
+        path: "{{ podman_tempdirs }}"
+        state: absent
+      when: podman_tempdirs_stat.stat.exists
+      register: podman_tempdirs_removed
+
+    - name: Report tempdirs outcome
+      ansible.builtin.debug:
+        msg: >-
+          {{ 'Removed stale tempdirs at ' ~ podman_tempdirs
+             if podman_tempdirs_stat.stat.exists
+             else 'No tempdirs present — store was not wedged by stale temp dirs' }}
+
+    - name: Probe rootless store health AFTER repair (as the user)
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        cmd: podman system df
+      register: podman_df_after
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: asserted explicitly in the next task
+      environment:
+        XDG_RUNTIME_DIR: "{{ podman_user_runtime }}"
+
+    - name: Assert the store now loads cleanly
+      ansible.builtin.assert:
+        that:
+          - podman_df_after.rc == 0
+        success_msg: "Rootless podman store loads cleanly ✅ (CCY should start now)."
+        fail_msg: |
+          The rootless podman store still does not load after clearing tempdirs
+          (rc={{ podman_df_after.rc }}). This indicates deeper corruption than
+          stale temp dirs. Inspect as the user:
+            sudo -u {{ user_login }} XDG_RUNTIME_DIR={{ podman_user_runtime }} podman system df
+          Last resort (WIPES all rootless images/containers/volumes; DDEV on
+          rootful Docker is unaffected; CCY rebuilds):
+            podman system reset
+
+    - name: Remove a specific corrupted image if requested
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        cmd: podman rmi -f {{ podman_repair_remove_image }}
+      when: podman_repair_remove_image | length > 0
+      register: podman_rmi
+      changed_when: podman_rmi.rc == 0
+      failed_when: false  # FAIL-FAST-OK: image may already be gone; informational only
+      environment:
+        XDG_RUNTIME_DIR: "{{ podman_user_runtime }}"
+
+    - name: Repair summary
+      ansible.builtin.debug:
+        msg:
+          - "============================================"
+          - "Podman rootless store repair complete"
+          - "============================================"
+          - "Before: podman system df rc={{ podman_df_before.rc }}"
+          - "After:  podman system df rc={{ podman_df_after.rc }}"
+          - "{{ 'Corrupted image removed: ' ~ podman_repair_remove_image if podman_repair_remove_image | length > 0 else 'No image removed' }}"
+          - ""
+          - "If CCY was flagged corrupted and still misbehaves, re-run with:"
+          - "  -e podman_repair_remove_image=claude-yolo:latest"
+          - "then relaunch ccy (it rebuilds from .claude/ccy/Dockerfile)."
