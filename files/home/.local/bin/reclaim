@@ -17,7 +17,7 @@ set -euo pipefail
 #
 # Deployed by: playbooks/imports/optional/common/play-disk-reclaim.yml
 
-VERSION="1.0.0"
+VERSION="1.0.1"
 MAX_TRIES=3                       # bounded retries on recoverable input mistakes
 KERNELS_TO_KEEP=2                 # newest N kernels retained by the old-kernel action
 JOURNAL_DEFAULT_SIZE="500M"       # default target for journal vacuum
@@ -316,29 +316,44 @@ act_journal() {
     return 0
 }
 
+# Show a captured multi-line reason, indented, on stderr.
+show_reason() {
+    while IFS= read -r _line; do say "    $_line"; done <<< "$1"
+}
+
 # 6) Container prune (podman, and docker if present).
+#
+# `system df` doubles as the reachability probe: if we cannot even query the
+# engine, we surface WHY and skip the destructive prune rather than offering it
+# blindly (offering to prune an engine we could not read is misleading).
 act_containers() {
     if ! $HAVE_PODMAN && ! $HAVE_DOCKER; then
         warn "  Neither podman nor docker is installed."; return 0
     fi
     if $HAVE_PODMAN; then
-        info "  Podman storage usage:"
-        podman system df 2>>"$ERRLOG" >&2 || warn "  podman system df failed."
-        if confirm "  Prune unused podman data (images, containers, volumes)?"; then
-            if podman system prune -af 2>>"$ERRLOG" >&2; then
-                ok "  Podman pruned."
+        local pdf
+        if pdf="$(podman system df 2>&1)"; then
+            info "  Podman storage usage:"
+            show_reason "$pdf"
+            if confirm "  Prune unused podman data (images, containers, volumes)?"; then
+                if podman system prune -af 2>>"$ERRLOG" >&2; then
+                    ok "  Podman pruned."
+                else
+                    err "  podman system prune reported an error."
+                fi
             else
-                err "  podman system prune reported an error."
+                say "  Skipped podman."
             fi
         else
-            say "  Skipped podman."
+            warn "  Cannot query podman — skipping podman prune. Reason:"
+            show_reason "$pdf"
         fi
     fi
     if $HAVE_DOCKER; then
-        # Only offer docker if the daemon is actually reachable.
-        if docker info >/dev/null 2>>"$ERRLOG"; then
+        local ddf
+        if ddf="$(docker system df 2>&1)"; then
             info "  Docker storage usage:"
-            docker system df 2>>"$ERRLOG" >&2 || warn "  docker system df failed."
+            show_reason "$ddf"
             if confirm "  Prune unused docker data?"; then
                 if run_root docker system prune -af 2>>"$ERRLOG" >&2; then
                     ok "  Docker pruned."
@@ -349,7 +364,7 @@ act_containers() {
                 say "  Skipped docker."
             fi
         else
-            say "  ${DIM}docker present but daemon not reachable — skipping.${NC}"
+            say "  ${DIM}docker present but not usable (daemon down / not in docker group) — skipping.${NC}"
         fi
     fi
     return 0
