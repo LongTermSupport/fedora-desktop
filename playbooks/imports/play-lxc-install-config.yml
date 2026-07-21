@@ -16,8 +16,29 @@
   become: true
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
-    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    # SERVER SUPPORT (Plan 00161): LXC here is desktop/dev-workstation tooling — it
+    # hard-requires Docker, the firewalld module (python3-firewall, absent on minimal
+    # Cloud), and a GitHub-SSH clone of "LXC Bash". None apply to a headless dev/prod
+    # server (podman is the container runtime there), so this play is desktop-only:
+    # scope 'gnome' makes the guard below end_play on the server profile, exactly like
+    # firefox/vscode/browsers (all 'gnome' = skip-on-server).
+    scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
   tasks:
+    - name: Scope guard — assert provisioning_profile is recognised
+      ansible.builtin.assert:
+        that:
+          - provisioning_profile in ['desktop', 'server']
+        fail_msg: |
+          provisioning_profile={{ provisioning_profile }} is not recognised.
+          Valid values: desktop, server.
+          Auto-detected from `systemctl get-default`
+          (see environment/localhost/group_vars/desktop.yml) or overridden
+          via -e provisioning_profile=desktop|server.
+
+    - name: Scope guard — end play if provisioning_profile does not match declared scope
+      ansible.builtin.meta: end_play
+      when: (scope == 'gnome' and provisioning_profile == 'server') or (scope == 'server' and provisioning_profile != 'server')
+
     # ── IaC Ordering Guard ─────────────────────────────────────────────────────
     - name: Check whether Docker is installed
       ansible.builtin.stat:
