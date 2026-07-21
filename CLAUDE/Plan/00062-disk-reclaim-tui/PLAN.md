@@ -116,13 +116,19 @@ Rules). Facts and hypotheses are kept strictly separate below.
   `purge_stale_buildah_cache` only covers the buildah cache (not the overlay
   layer store) and falls back to `podman unshare`, which cannot fix a cross-map
   shift (proven here — 100000 ∉ 524288 map).
+- **Blast radius is SMALL (histogram):** of ~1650 overlay layer dirs, **1648 are
+  owned by host uid 1000 (normal, in-map)** and only **2 are owned by 100000**
+  (orphaned). This is a bounded 2-layer problem, not store-wide corruption. One
+  of the 2 is the incomplete `2737e78…`; the other is a second 100000-owned layer
+  podman has not named.
 
 **UNCONFIRMED — do NOT assert (pending grounded facts):**
 
-- **Blast radius:** whether only this one incomplete layer is orphaned at 100000,
-  or many complete layers are too. `triage.bash` extended with an overlay
-  layer-dir ownership histogram (owner-UID → count) to settle this; decides
-  whether the repair fully cleans the store or merely unblocks it.
+- **Identity/nature of the 2nd orphaned layer** (incomplete vs a complete layer
+  backing an image). `triage.bash` extended to list both orphan ids + mtime.
+  Matters because the repair removes ONLY podman-named incomplete layers — a
+  complete orphan must NOT be deleted (it backs an image) and instead informs
+  Task 4.8.
 
 - Whether `reclaim` itself modified the store. v1.0.0 offered `podman system prune -af` AFTER `df` had already failed (store already unloadable), so
   `reclaim` SURFACED the wedge; any further contribution is unproven. The design

@@ -118,6 +118,25 @@ else
 fi
 echo
 
+# Identify the orphans by id: layer dirs NOT owned by the host user (uid 1000)
+# are the out-of-map ones. List id, owner UID, mtime, and whether a completion
+# marker / diff exists — so each can be classified (incomplete vs complete)
+# WITHOUT descending into sub-UID-owned content.
+echo "### orphaned layer dirs (owner UID != host user $(id -u)) — id · owner · mtime · has-diff"
+if [ -d "$_ovl" ]; then
+    if _orphans="$(find "$_ovl" -mindepth 1 -maxdepth 1 -type d ! -uid "$(id -u)" \
+                    -printf '%f  uid=%U  %TY-%Tm-%Td\n' | sort)"; then
+        if [ -n "$_orphans" ]; then
+            printf '%s\n' "$_orphans"
+        else
+            echo "(none — every layer dir is owned by the host user)"
+        fi
+    else
+        echo "(enumeration failed — see find errors above)"
+    fi
+fi
+echo
+
 echo "════════════════════════════════════════════════════════════"
 echo " Facts captured"
 echo "════════════════════════════════════════════════════════════"
