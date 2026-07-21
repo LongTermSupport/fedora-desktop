@@ -100,6 +100,24 @@ else
 fi
 echo
 
+# Blast radius: bucket every overlay layer dir by owning UID. UIDs inside the
+# subuid map above (e.g. 524288..) are current; UIDs from an OLD mapping
+# (e.g. 100000..) are orphaned and only real root can remove them. Only the
+# top-level dir is stat'd (no descent), so no permission-denied noise.
+echo "### overlay layer-dir ownership (owner UID → count of layer dirs)"
+echo "    compare to the /etc/subuid map above: in-range = current, others = orphaned"
+_ovl="$STORAGE/overlay"
+if [ -d "$_ovl" ]; then
+    if _owners="$(find "$_ovl" -mindepth 1 -maxdepth 1 -type d -printf '%U\n' | sort -n | uniq -c)"; then
+        printf '%s\n' "$_owners"
+    else
+        echo "(enumeration failed — see find errors above)"
+    fi
+else
+    echo "(no overlay directory)"
+fi
+echo
+
 echo "════════════════════════════════════════════════════════════"
 echo " Facts captured"
 echo "════════════════════════════════════════════════════════════"

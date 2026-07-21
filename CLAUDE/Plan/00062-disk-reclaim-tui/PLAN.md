@@ -101,14 +101,28 @@ Rules). Facts and hypotheses are kept strictly separate below.
 - The user AND `podman unshare` (namespaced root, bound to the sub-UID map) get
   permission denied on those files; only real host root can remove them.
 - Disk is NOT full: `/home` 77% used, 361G free.
+- **Ownership numbers (the smoking gun):** the incomplete layer dir is owned by
+  **UID/GID 100000** (dated Nov 6 2025); joseph's current `/etc/subuid` +
+  `/etc/subgid` map is **`524288:65536`** (covers 524288–589823). 100000 is
+  OUTSIDE that map → unmapped in any userns → only real root can remove it.
+- **Trigger (grounded in host data + repo source):** this repo's
+  `playbooks/imports/play-docker.yml` changed joseph's subuid range. Its own
+  comment (lines 108–114): an earlier version hand-wrote a `100000:65536` block;
+  the current version REMOVES it, reverting to Fedora's auto-allocated
+  `524288:65536`. Layers built under the old 100000 mapping (like `2737e78…`)
+  are thereby orphaned. RETRACTED the earlier "full disk" hallucination.
+- **CCY recovery gap (grounded in source):** `common.bash` documents this
+  failure class ("a sub{u,g}id range change", line 61) but its
+  `purge_stale_buildah_cache` only covers the buildah cache (not the overlay
+  layer store) and falls back to `podman unshare`, which cannot fix a cross-map
+  shift (proven here — 100000 ∉ 524288 map).
 
 **UNCONFIRMED — do NOT assert (pending grounded facts):**
 
-- WHY the layer's UIDs are outside the user's `/etc/subuid` map (the trigger).
-  Candidates only: killed process / crash / reboot, or a subuid-range change.
-  RETRACTED earlier hallucination: "interrupted pull during a full disk" — the
-  user never had a full disk. `triage.bash` extended to dump `/etc/subuid` +
-  the layer's numeric owning UIDs to settle this from data.
+- **Blast radius:** whether only this one incomplete layer is orphaned at 100000,
+  or many complete layers are too. `triage.bash` extended with an overlay
+  layer-dir ownership histogram (owner-UID → count) to settle this; decides
+  whether the repair fully cleans the store or merely unblocks it.
 
 - Whether `reclaim` itself modified the store. v1.0.0 offered `podman system prune -af` AFTER `df` had already failed (store already unloadable), so
   `reclaim` SURFACED the wedge; any further contribution is unproven. The design
@@ -129,14 +143,22 @@ Rules). Facts and hypotheses are kept strictly separate below.
   WRITES its report to `untracked/reports/` (bind-mounted → agent reads directly);
   extended with `/etc/subuid`/`/etc/subgid` + incomplete-layer ownership capture.
 
-- [ ] ⬜ **Task 4.5**: (HOST) run `triage.bash` → agent establishes the trigger
-  from the subuid/ownership data (no assertion until then).
+- [x] ✅ **Task 4.5**: (HOST) run `triage.bash` → trigger ESTABLISHED from data:
+  layer owned by 100000, current map `524288:65536`, and `play-docker.yml`'s own
+  comment confirms it removed a hand-managed `100000:65536` block. See CONFIRMED
+  FACTS above.
 
-- [ ] ⬜ **Task 4.6**: (HOST) run the repair play → run `triage.bash` again →
+- [ ] ⬜ **Task 4.6**: (HOST) run extended `triage.bash` once more to capture the
+  overlay ownership histogram (blast radius) → agent reads it.
+
+- [ ] ⬜ **Task 4.7**: (HOST) run the repair play → run `triage.bash` again →
   confirm `podman system df` rc=0 and `ccy` starts.
 
-- [ ] ⬜ **Task 4.7**: If the trigger is a repo-managed subuid change, add a
-  durable preventive fix (scope TBD strictly from 4.5 facts).
+- [ ] ⬜ **Task 4.8**: Preventive/durable fixes, scope decided strictly from the
+  4.6 blast-radius facts — candidates (NOT yet committed to): (a) a migration
+  step that reconciles orphaned out-of-map layers when the subuid range changes;
+  (b) close the CCY `common.bash` recovery gap (cover the overlay store; use real
+  root, since `podman unshare` can't fix a cross-map shift). Decide with the user.
 
 ## Success Criteria
 
