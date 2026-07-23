@@ -107,66 +107,156 @@ contract without flooding the normal help output.
   - `CLAUDE/SecurityRules.md` — headless must never echo secrets or place them in
     `argv`; env-var secrets read once and unset.
 
-## Design (proposed — to be hardened by the hostile review loop)
+## Design v2 — HARDENED after hostile review round 1
+
+> **Round 1 finding (both auditors, independently): the round-1 premise was wrong.**
+> "Make the bash prompt helpers headless-aware" (old D3) covers only the *easy
+> half* — `read`-based prompts. The **load-bearing** interactive walls are NOT
+> bash reads and are untouched by helper neutralisation: `gh auth login`/`auth refresh` **device-code OAuth** (`run.bash:1076/1111`, `gh-account-setup.bash:297/328`),
+> direct **`sudo` password** (from `run.bash:906`, long before the Ansible
+> `--ask-become-pass` at 1543), and the passphrase-protected **`~/.ssh/id` clone
+> with no ssh-agent** (`965-985`→`1159`). Plus secret exposure via cloud-init
+> user-data, a failed-playbook run that exits 0, and vault-password footguns. The
+> design below adds explicit contracts for each. See JOURNAL round-1 judgement.
 
 ### D1. Headless trigger
 
-Headless mode is ON when **any** of:
+Headless is ON when: `RUN_BASH_HEADLESS=1` / `--headless`, **or** (`[ ! -t 0 ]`
+**and** ≥1 `RUN_BASH_*` set). `--interactive` forces OFF. **Smoke-test caveat
+(round-1 S5):** piped-stdin smoke tests must set `--interactive` or export no
+`RUN_BASH_*`, else they trip headless.
 
-1. `RUN_BASH_HEADLESS=1` explicitly set, **or**
-2. stdin is not a TTY (`[ ! -t 0 ]`) **and** at least one `RUN_BASH_*` config var
-   is set (so an accidental pipe on a desktop does not silently go headless).
+### D2. Env-var contract v2 — non-secret env + **file-pointer** secrets
 
-Explicit `--headless` flag forces (1). `--interactive` forces it OFF (escape hatch
-for a piped-but-still-interactive edge case). Precedence and the exact
-auto-detect predicate are a **review-loop question**.
+**Secrets are NEVER literal env values** (round-1 B2/B3 + secret verdict): a literal
+secret in cloud-init `user-data` persists at `/var/lib/cloud/instance/user-data.txt`
 
-### D2. Env-var contract (initial draft — names/finality set by the loop)
+- the metadata service (`169.254.169.254`), world-readable **forever** — `unset`
+  cannot unwrite it — and every child inherits it via `/proc/PID/environ` during the
+  multi-minute run. So secret **bytes** arrive via `0600` **files** (cloud-init
+  `write_files`, `permissions: '0600'`); only the **path** is an env var. This keeps
+  the owner's env-driven contract (Decision 1) — path via env — while the secret
+  never enters the environment or user-data. Mirrors the existing `VAULT_PASS_FILE`
+  precedent (`gh-account-setup.bash:21`). run.bash reads each file into a `local` and
+  deletes it after use.
 
-| Variable                         | Purpose                                       | Required (headless) | Default               |
-| -------------------------------- | --------------------------------------------- | ------------------- | --------------------- |
-| `RUN_BASH_HEADLESS`              | Force headless                                | —                   | unset                 |
-| `RUN_BASH_USER_LOGIN`            | System login                                  | no                  | `$(whoami)`           |
-| `RUN_BASH_USER_NAME`             | Full name                                     | no                  | = login               |
-| `RUN_BASH_USER_EMAIL`            | Git/commit email                              | **yes**             | — (fail fast)         |
-| `RUN_BASH_GITHUB_ACCOUNTS`       | Comma-sep gh usernames (GitHub is mandatory)  | **yes**             | — (fail fast)         |
-| `RUN_BASH_GITHUB_SSH_PASSPHRASE` | Passphrase for generated GitHub SSH keys      | no                  | empty (no passphrase) |
-| `RUN_BASH_VAULT_PASSWORD`        | Ansible vault password                        | no                  | auto-generate         |
-| `RUN_BASH_CONFIG_SOURCE`         | Which config-repo host file to import         | no                  | fresh (no import)     |
-| `RUN_BASH_PROVISIONING_PROFILE`  | Force `desktop`/`server` → `-e` passthrough   | no                  | auto-detect           |
-| `RUN_BASH_OPTIONAL_PLAYBOOKS`    | Space/comma list of optional plays, or `none` | no                  | `none`                |
-| `RUN_BASH_RESTORE_PROJECTS`      | `1`/`0` restore from config manifest          | no                  | `0`                   |
-| `RUN_BASH_REBOOT`                | `1`/`0` reboot at end                         | no                  | `0`                   |
+**Non-secret config (plain `RUN_BASH_*` env):**
 
-Secrets (`*_PASSPHRASE`, `*_VAULT_PASSWORD`) are read into locals and `unset` from
-the environment immediately (never in `argv`, never logged).
+| Variable                        | Purpose                                       | Required (headless) | Default       |
+| ------------------------------- | --------------------------------------------- | ------------------- | ------------- |
+| `RUN_BASH_HEADLESS`             | Force headless                                | —                   | unset         |
+| `RUN_BASH_USER_LOGIN`           | System login                                  | no                  | `$(whoami)`   |
+| `RUN_BASH_USER_NAME`            | Full name                                     | no                  | = login       |
+| `RUN_BASH_USER_EMAIL`           | Git email                                     | **yes**             | — (fail fast) |
+| `RUN_BASH_HOSTNAME`             | Hostname when box is still `fedora` (S3)      | no                  | keep current  |
+| `RUN_BASH_GITHUB_ACCOUNTS`      | Comma-sep gh usernames (mandatory)            | **yes**             | — (fail fast) |
+| `RUN_BASH_CONFIG_SOURCE`        | Config-repo host file to import, or `none`    | no                  | `none`        |
+| `RUN_BASH_PROVISIONING_PROFILE` | Force `desktop`/`server` → `-e` passthrough   | no                  | auto-detect   |
+| `RUN_BASH_OPTIONAL_PLAYBOOKS`   | Space/comma list of optional plays, or `none` | no                  | `none`        |
+| `RUN_BASH_RESTORE_PROJECTS`     | `1`/`0` restore from config manifest          | no                  | `0`           |
+| `RUN_BASH_REBOOT`               | `1`/`0` reboot at end                         | no                  | `0`           |
 
-### D3. Prompt-helper neutralisation
+**Secret file-pointers (`0600` file paths, bytes never in env/user-data):**
 
-The cleanest chokepoint: make each prompt helper **headless-aware** so call sites
-barely change. In headless mode a helper returns its supplied env value or the
-documented default; if a **required** value is absent it calls a shared
-`headless_fail <VAR> <what>` that prints the exact env var to set and exits
-non-zero (fail fast, rule 11). `confirm()` returns the env-driven boolean (or the
-safe default). This keeps the interactive code paths untouched.
+| Variable                              | Purpose                                                  | Required (headless)            |
+| ------------------------------------- | -------------------------------------------------------- | ------------------------------ |
+| `RUN_BASH_GITHUB_TOKEN_FILE`          | Scoped PAT for `gh auth login --with-token` (D3)         | **yes** (see D3 multi-account) |
+| `RUN_BASH_VAULT_PASSWORD_FILE`        | Ansible vault password                                   | conditional (D6)               |
+| `RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE` | Passphrase for generated SSH keys incl. `~/.ssh/id` (D5) | no (empty ⇒ passphraseless)    |
 
-### D4. GitHub gate under headless
+### D3. GitHub **non-interactive auth** via scoped token (round-1 B1 — THE blocker)
 
-SSH is already the only GitHub auth path. In headless mode the line-1072
-"confirm you'll choose SSH" loop is **auto-satisfied** (SSH is implied), and
-`prompt_github_accounts_yaml` consumes `RUN_BASH_GITHUB_ACCOUNTS`. Missing
-accounts → fail fast (GitHub mandatory per owner decision).
+GitHub auth is a `gh` OAuth device flow, not a bash prompt — no read-helper can
+neutralise it. In headless mode, **before** `gh auth status` (`run.bash:1063`),
+authenticate each account with `gh auth login --hostname github.com --git-protocol ssh --with-token < "$RUN_BASH_GITHUB_TOKEN_FILE"`. A valid token
+makes `gh auth status` pass → the interactive `gh auth login` (1076),
+`gh auth refresh` (1111), and the SSH-confirm loop (1072) are all **structurally
+skipped** (old D4 solved the wrong problem). Token scope must include
+`admin:public_key` (for `gh ssh-key add`, `run.bash:1123`) plus the repo's pinned
+`REQUIRED_SCOPES` (`vars/github-required-scopes.yml` / `gh-account-setup.bash`).
+Fail fast if headless + a token file is missing/empty or lacks scopes.
+**`gh-account-setup.bash` also needs a token path** — its `--web` device flows
+(`:297/:328`) must accept per-account token files.
+**Multi-account (v1 decision):** headless supports **single account** cleanly; for
 
-### D5. Post-main behaviour
+> 1 account require one token file per alias (`RUN_BASH_GITHUB_TOKEN_FILE__<alias>`)
+> and **fail fast** if multiple accounts are requested without them — never a silent
+> partial auth.
 
-Optional menu, projects restore, and reboot all become env-gated and default to
-the **safe/no-op** choice headless, so an unattended run terminates cleanly.
+### D4. Sudo/become — headless REQUIRES NOPASSWD sudo, enforced at startup (B2/S2)
 
-### D6. `--help` / `--help-run-headless`
+`run.bash` calls `sudo` directly from step 1 (`:906` `sudo dnf …`), long before the
+Ansible `--ask-become-pass` logic (1539-1543). On a password-sudo box with no TTY
+that first `sudo` fails "no tty present"/hangs. So headless **probes `sudo -n true`
+at startup and fails fast** with clear guidance if it fails (the default cloud user
+has NOPASSWD; a plain Server install may not). With NOPASSWD guaranteed, the
+playbook runs **without** `--ask-become-pass` in headless. `sudo reboot` (1929) is
+likewise safe only under NOPASSWD.
+
+### D5. SSH keys — passphrase from file + ssh-agent, or passphraseless (S1)
+
+`~/.ssh/id` (generated `965-985`, currently forces a non-empty passphrase, **no
+agent anywhere**) authenticates the clone (`git clone git@github.com:` 1159). A
+passphrase-protected key with no agent prompts → hang. Headless: if
+`RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE` is set, generate the keys with that
+passphrase and **start an ssh-agent + `ssh-add`** for the clone's lifetime; if
+empty/unset, generate **passphraseless** (acceptable — the key is box-local to a
+dedicated provision). Never put the passphrase in `argv` where avoidable
+(pre-existing S3 caveat noted).
+
+### D6. Vault reconciliation — never auto-generate over an imported vault (B3/S1)
+
+After the optional config import, if the resolved `localhost.yml` contains any
+`!vault` value, `RUN_BASH_VAULT_PASSWORD_FILE` is **REQUIRED** and is **verified**
+(`verify_vault_password`, `run.bash:846`) — mismatch ⇒ fail fast, never the
+interactive `prompt_verified_vault_password` abort-loop (1405/1418).
+Auto-generate is allowed **only** when no `!vault` is present; the generated
+password (written `0600` to `vault-pass.secret`, 1444) is **surfaced** headless
+(stderr + stated path) so an ephemeral box's encrypted config is not left
+permanently undecryptable.
+
+### D7. Failure & public-post semantics — fail fast, never auto-post (B4/S4)
+
+Headless + non-zero `main_exit_code` ⇒ **`exit $main_exit_code`** (the desktop
+"continue despite failure?" default-yes at 1557 must NOT apply headless — else a
+failed provision reports success, `exit 0` at 1933). Both "create a GitHub issue?"
+gates (603/661/1552, default `n`) resolve to **No** headless — no unattended path
+posts box specifics to the **public** tracker (`sanitize_error_log` does not scrub
+`RUN_BASH_*`/vault values anyway).
+
+### D8. Non-root entrypoint (B4-security)
+
+`run.bash` refuses root (`:124`); cloud-init `runcmd` is root. Headless must run as
+the **non-root** target user (`sudo -u <user> -i …`). Secret **files** (D2) cross
+that boundary cleanly with no env-stripping issue — a further reason for the
+file-pointer model. `--help-run-headless` shows the exact cloud-init `write_files`
+(0600 secrets) + `runcmd` drop-to-user invocation.
+
+### D9. Read-prompt neutralisation + `headless_fail` (stderr-clean)
+
+For the remaining **`read`-based** prompts (identity 1343-1345/1373-1375, hostname
+1995, `RUN_BASH_GITHUB_ACCOUNTS` validation, config-repo `promptChoice`, optional
+menu, projects-restore, reboot): make each helper headless-aware — return the env
+value/default, or call `headless_fail <VAR> <what>` (fail fast, rule 11).
+`RUN_BASH_GITHUB_ACCOUNTS` runs the **same** validation as
+`prompt_github_accounts_yaml` and fails fast on a bad entry (never loops, S6).
+`confirm()` gets an EOF guard (S2). **Stderr hygiene (S5):** `headless_fail` and all
+status go to **stderr**; helper stdout stays the captured value only, or
+`user_email=$(…)`/the YAML write (1381) get corrupted.
+
+### D10. Implementation constraints
+
+No **new** `2>/dev/null` / `|| true` / `sed` (hooks daemon blocks them on new
+content — use capture-to-var probes, S7). **Bump `RUN_BASH_VERSION`** (line 6) on
+every edit. QA: `./scripts/qa-all.bash`.
+
+### D11. `--help` / `--help-run-headless`
 
 `--help` gains a one-line pointer to server/cloud + `--help-run-headless`.
-`--help-run-headless` prints the full env-var table, a copy-paste cloud-init
-`user-data` example, the fail-fast rules, and the desktop-vs-server/cloud model.
+`--help-run-headless` prints: the full env contract (non-secret env + secret
+file-pointers), the NOPASSWD-sudo + non-root requirements, the GitHub-token
+scopes, a copy-paste cloud-init `user-data` example (`write_files` 0600 secrets +
+`runcmd` drop-to-user), the fail-fast rules, and the desktop-vs-server/cloud model.
 
 ## Tasks
 
@@ -178,30 +268,45 @@ the **safe/no-op** choice headless, so an unattended run terminates cleanly.
   required, plan-first + hostile opus review loop + execute (see Technical
   Decisions).
 - [x] ✅ **Task 1.3**: Author this plan (problem, goals, non-goals, draft design).
-- [ ] 🔄 **Task 1.4**: **Hostile review loop** — ≥2 independent Opus agents
-  adversarially audit this plan/design (headless trigger correctness, env-var
-  contract completeness, fail-fast coverage of every prompt, security of secret
-  handling, zero-regression proof for desktop, standards compliance). Judge each
-  round, feed real findings back, iterate to convergence. Record rounds in
-  `JOURNAL/` and the verdict below.
+- [x] ✅ **Task 1.4 round 1**: Two independent Opus auditors (coverage lens +
+  security lens) hostile-audited the draft. **Both independently returned
+  NOT-implementation-ready**, converging on the same load-bearing gaps (GitHub
+  device-code auth, direct-sudo password, ssh-agent-less clone, user-data secret
+  persistence, failed-playbook-exits-0, vault footguns). Judged in JOURNAL; design
+  hardened to **v2** (D1-D11). No finding dismissed as invalid except "git commit
+  identity" (correctly unfounded — run.bash does no local commit).
+- [ ] 🔄 **Task 1.4 round 2**: Re-run the two auditors against **Design v2** —
+  confirm each round-1 finding is resolved and hunt for new gaps the v2 additions
+  introduce (token multi-account story, ssh-agent lifecycle, file-delete timing,
+  NOPASSWD startup probe placement). Iterate to convergence.
 - [ ] ⬜ **Task 1.5**: Freeze the converged design as the implementation spec.
 
 ### Phase 2: Implementation (post-convergence)
 
-- [ ] ⬜ **Task 2.1**: Add headless trigger + arg parsing (`--headless`,
-  `--interactive`); bump `RUN_BASH_VERSION`.
-- [ ] ⬜ **Task 2.2**: Make prompt helpers headless-aware + add `headless_fail`;
-  wire env vars into every identity/vault/SSH/GitHub gather point.
-- [ ] ⬜ **Task 2.3**: Env-gate the SSH-for-GitHub confirm, config-repo import,
-  optional menu, projects restore, and reboot; pass
-  `RUN_BASH_PROVISIONING_PROFILE` through to `playbook-main.yml` when set.
-- [ ] ⬜ **Task 2.4**: Expand `--help`; add `--help-run-headless` with the env
-  contract + cloud-init example.
-- [ ] ⬜ **Task 2.5**: Run `./scripts/qa-all.bash`; fix findings. Add a plan-local
-  `acceptance.bash` proving headless fail-fast + a dry desktop-path check (safe in
-  container where possible; host for the real run).
-- [ ] ⬜ **Task 2.6**: Docs — new `docs/` section (headless/server/cloud provisioning
-  via env) + `README.md` cross-link.
+- [ ] ⬜ **Task 2.1**: Headless trigger + arg parsing (`--headless`/`--interactive`);
+  startup **NOPASSWD-sudo probe → fail fast** (D4); bump `RUN_BASH_VERSION`.
+- [ ] ⬜ **Task 2.2**: Secret **file-pointer** plumbing (D2) — read `*_FILE` into
+  locals, `0600`-verify, delete after use; `headless_fail` (stderr-clean, D9).
+- [ ] ⬜ **Task 2.3**: **GitHub token auth** (D3) — `gh auth login --with-token` in
+  run.bash **and** `gh-account-setup.bash`; scope check; single-account v1 +
+  fail-fast on unsupported multi-account.
+- [ ] ⬜ **Task 2.4**: SSH keys (D5) — passphrase-from-file + ssh-agent for the
+  clone, or passphraseless; vault reconciliation (D6, verify-or-fail, no
+  auto-generate over `!vault`).
+- [ ] ⬜ **Task 2.5**: Read-prompt neutralisation (D9) — identity, hostname
+  (`RUN_BASH_HOSTNAME`), `RUN_BASH_GITHUB_ACCOUNTS` validation, config import,
+  optional menu, projects restore, reboot; env-gate + safe defaults.
+- [ ] ⬜ **Task 2.6**: Failure semantics (D7) — headless main-playbook failure ⇒
+  non-zero exit; both public-tracker gates resolve No; pass
+  `RUN_BASH_PROVISIONING_PROFILE` to `playbook-main.yml` when set.
+- [ ] ⬜ **Task 2.7**: `--help` + `--help-run-headless` (D11) with the cloud-init
+  `write_files`+`runcmd` drop-to-user example.
+- [ ] ⬜ **Task 2.8**: `./scripts/qa-all.bash`; plan-local `acceptance.bash`
+  (headless fail-fast proofs — missing token/email/accounts, non-NOPASSWD probe,
+  failed-playbook exit code; desktop path unchanged). No new
+  `2>/dev/null`/`|| true`/`sed` (D10).
+- [ ] ⬜ **Task 2.9**: Docs — `docs/` headless/server/cloud section + `README.md`
+  cross-link.
 
 ### Phase 3: Verification (HOST — not CCY container)
 
@@ -246,26 +351,67 @@ convergence) hostile-auditing the design before any code is written. Only execut
 once the loop converges.
 **Date**: 2026-07-23
 
+### Decision 4: Secrets travel as `0600` **file pointers**, not literal env values (round-1 refinement of Decision 1)
+
+**Context**: Round-1 security audit proved that literal secrets in env are exposed
+two ways on exactly the cloud-init use case Decision 1 targets: (a) cloud-init
+persists `user-data` to `/var/lib/cloud/instance/user-data.txt` + the metadata
+service, world-readable **indefinitely** (`unset` cannot unwrite it); (b) every
+child process inherits an exported secret via `/proc/PID/environ` during the
+multi-minute run.
+**Decision**: Keep Decision 1's env-driven contract, but for **secret material**
+(GitHub token, vault password, SSH passphrase) the env var carries a **path to a
+`0600` file**, not the secret bytes. cloud-init lays the files down via
+`write_files` (`permissions: '0600'`); run.bash reads each into a `local` and
+deletes it after use. Mirrors the repo's existing `VAULT_PASS_FILE`
+(`gh-account-setup.bash:21`). This is a **refinement, not a reversal** — the path
+still arrives via env; only the secret bytes stay out of the environment and
+user-data. **Owner FYI to confirm at round-2 sign-off** (does not block the loop).
+**Date**: 2026-07-23
+
+### Decision 5: Headless requires NOPASSWD sudo + a scoped GitHub token; single-account in v1
+
+**Context**: Round-1 coverage audit proved the load-bearing interactive walls are
+not bash prompts: direct `sudo` (password) and `gh` device-code OAuth.
+**Decision**: Headless **requires** (a) **NOPASSWD sudo** — probed at startup,
+fail-fast if absent (the default cloud user has it); and (b) a **scoped GitHub
+token file** (`gh auth login --with-token`) — GitHub auth cannot be done via any
+`read` helper. Headless v1 supports a **single GitHub account**; multiple accounts
+require one token file per alias and **fail fast** otherwise (no silent partial
+auth). Both are documented preconditions in `--help-run-headless`, not silent
+assumptions.
+**Date**: 2026-07-23
+
 ## Success Criteria
 
 - [ ] `run.bash` provisions a headless Fedora **Server/Cloud** box end-to-end with
-  **zero interactive prompts**, driven only by `RUN_BASH_*` env vars.
-- [ ] A missing **required** value with no TTY **fails fast** naming the exact env
-  var — never hangs.
-- [ ] GitHub setup runs (mandatory) from env in headless mode; SSH-only auth.
+  **zero interactive prompts**, driven by `RUN_BASH_*` env (non-secret) + `0600`
+  secret files.
+- [ ] Every missing **required** value / unmet precondition (email, GitHub
+  accounts, token file, NOPASSWD sudo, vault-over-`!vault`) **fails fast** naming
+  the exact fix — **never hangs**.
+- [ ] GitHub auth works non-interactively via a scoped token; SSH-only git auth.
+- [ ] A **failed** main playbook makes a headless run **exit non-zero** (never
+  reports success).
+- [ ] No secret bytes enter the environment or cloud-init `user-data`.
 - [ ] Desktop interactive `./run.bash` is **unchanged** (zero regression).
-- [ ] `--help` points to it; `--help-run-headless` documents the full contract with
-  a cloud-init example.
-- [ ] `./scripts/qa-all.bash` passes; `RUN_BASH_VERSION` bumped.
+- [ ] `--help` points to it; `--help-run-headless` documents the full contract +
+  cloud-init `write_files`/`runcmd` example.
+- [ ] `./scripts/qa-all.bash` passes; `RUN_BASH_VERSION` bumped; no new
+  `2>/dev/null`/`|| true`/`sed`.
 
 ## Risks & Mitigations
 
-| Risk                                                     | Impact | Probability | Mitigation                                                                                              |
-| -------------------------------------------------------- | ------ | ----------- | ------------------------------------------------------------------------------------------------------- |
-| Headless auto-detect fires on an accidental desktop pipe | H      | M           | Require an explicit `RUN_BASH_*` var (or `--headless`) in addition to no-TTY; `--interactive` override  |
-| A prompt is missed → hangs on a TTY-less box             | H      | M           | Central prompt-helper neutralisation + `headless_fail`; acceptance test enumerates every prompt         |
-| Secret leakage (env in argv / logs)                      | H      | L           | Read secrets to locals, `unset` from env, never pass in `argv`, never echo                              |
-| Desktop regression from shared helpers                   | H      | L           | Headless branch is additive/guarded; desktop path byte-unchanged; QA + host regression check (Task 3.2) |
+| Risk                                                     | Impact | Probability | Mitigation                                                                                                       |
+| -------------------------------------------------------- | ------ | ----------- | ---------------------------------------------------------------------------------------------------------------- |
+| GitHub device-code auth cannot run headless (round-1 B1) | H      | H→mitigated | D3: `gh auth login --with-token` from a scoped token file, in run.bash + gh-account-setup.bash; fail-fast checks |
+| Secret leak via cloud-init user-data / `/proc/environ`   | H      | H→mitigated | D2/Decision 4: `0600` file pointers, bytes never in env/user-data; read-to-local, delete after use               |
+| Password-sudo box: first direct `sudo` hangs headless    | H      | M→mitigated | D4: startup NOPASSWD probe → fail fast; playbook run drops `--ask-become-pass` headless                          |
+| Auto-generate vault password corrupts imported `!vault`  | H      | M→mitigated | D6: require+verify vault password when `!vault` present; auto-generate only on a fresh box, surfaced             |
+| Failed main playbook reports success (`exit 0`)          | H      | M→mitigated | D7: headless failure ⇒ `exit $main_exit_code`; continue-anyway is desktop-only                                   |
+| ssh-agent-less passphrase clone hangs                    | H      | M→mitigated | D5: passphrase-from-file + ssh-agent for the clone, or passphraseless                                            |
+| Headless auto-detect fires on an accidental desktop pipe | H      | L           | Explicit `RUN_BASH_*` (or `--headless`) required alongside no-TTY; `--interactive` override; smoke-test caveat   |
+| Desktop regression from shared helpers                   | H      | L           | Headless branch additive/guarded; desktop path byte-unchanged; QA + host regression (Task 3.2)                   |
 
 ## Delivery & Milestones
 
