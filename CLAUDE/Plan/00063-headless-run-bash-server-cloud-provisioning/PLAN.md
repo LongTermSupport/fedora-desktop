@@ -315,20 +315,25 @@ apply on top of D1-D11:
   inherits via `/proc/PID/environ` (the Decision-4b exposure). Teach
   `gh-account-setup.bash` a `*_FILE` input (or a documented, scoped env exception).
 
-**Open owner decisions surfaced by round 2** (do not block writing v3; block
-freeze/execute):
+**Open owner decisions surfaced by round 2 — ALL RESOLVED (kept for history):**
 
-1. **Confirm Decision 4 + V3.1** — secrets as `0600` file-pointers, and on cloud
-   fetched out-of-band (never user-data/write_files).
-2. **V3.6 ssh key at rest** — (a) ssh-agent+askpass keep passphrase, or (b)
-   passphraseless key. Recommend (b) for a dedicated provision box (simplest, no new
-   askpass exposure), documented.
-3. **Reconsider Decision 2 (GitHub-mandatory) for headless** — the loop shows every
-   hardest residual (token-scope gate, PAT at rest in gh config, SSH key at rest,
-   passphrase-in-argv, askpass helper) stems from GitHub being mandatory. For a pure
-   cloud/server box that needs no GitHub identity, **skip-GitHub-when-unset** removes
-   most of the remaining complexity and attack surface. New evidence justifies
-   re-raising.
+1. Confirm Decision 4 + V3.1 → **resolved**: support both secret forms, file
+   preferred, cloud out-of-band (Decision 4).
+2. ~~V3.6 ssh key at rest — passphraseless vs askpass~~ → **RESOLVED by Decision 6**
+   (keep passphrase, ssh-agent + `SSH_ASKPASS`). This item + V3.6's "OWNER TRADEOFF"
+   framing are **superseded** — do not re-raise passphraseless.
+3. ~~Reconsider GitHub-mandatory (skip-when-unset)~~ → **RESOLVED by Decision 2**
+   (mandatory to *configure*, may be explicitly *empty*; **unset → fail-fast**, not
+   skip). "skip-when-unset" is superseded.
+
+**Round-3 coherence reconciliation (V3.3 ↔ Decision 4 on the vault secret):** the
+vault password may be supplied as **either** `RUN_BASH_VAULT_PASSWORD` or
+`RUN_BASH_VAULT_PASSWORD_FILE` (Decision 4 + V3.10 guardrails; **file strongly
+preferred**). What V3.3/D6 forbid is **auto-generating** it headless (leaks to cloud
+logs / unrecoverable) and auto-gen over an imported `!vault`. **Rule: the vault
+password must be PROVIDED (either form), NEVER auto-generated in headless mode;**
+required whenever provisioning needs it (always, since `localhost.yml` carries the
+vault) → fail fast if absent.
 
 ## Tasks
 
@@ -362,9 +367,18 @@ freeze/execute):
   architecture breaks (**convergence**) — only bounded hardening **V3.10-V3.15**
   (literal-form guardrails, `set -u`-safe trap, agent-lifetime, askpass hardening,
   empty-GitHub HTTPS+migration, inline-fetch/SHA-pin). All folded in.
-- [x] ✅ **Task 1.5c**: **Design FROZEN** as the implementation spec — D1-D11 +
-  V3.1-V3.15 + Decisions 1-6 + Canonical invocation. Loop ran 3 rounds to
-  convergence (r1 architecture breaks → r2 blocker+hangs → r3 bounded hardening).
+- [x] ✅ **Task 1.5c**: ~~Design FROZEN~~ **RE-OPENED** — the round-3 *coverage*
+  audit (delayed behind an agent-messaging resend) landed a real **BLOCKER** the
+  premature freeze missed: the empty-GitHub path breaks `playbook-main.yml`
+  (`play-github-cli-multi.yml:42` ungated `gh --version`; `play-lxc:240` `git@` clone
+  — latent server-profile bugs). Security side (AuditSecurity r3) is fine — its
+  findings were already implemented in slice 2. Coherence fixes + Decision-2
+  re-grounding below. **No bug shipped** (empty-path execution unimplemented).
+- [ ] 🔄 **Task 1.6**: **Owner decision — empty-GitHub path in v1, or defer?** (A)
+  defer → v1 = GitHub-token-required headless (recommended, least latent-bug
+  surface); (B) do it → also guard `play-github-cli-multi` + `play-lxc` (HOST-test)
+  - set-u block-gating + identity/vault-write carve-out. Then re-freeze the
+    (decision-appropriate) spec.
 
 ### Phase 2: Implementation (post-convergence)
 
@@ -554,11 +568,18 @@ hardening items on the v3 mechanisms:
   env/argv** (only the non-secret file path), and is added to the V3.11 EXIT-trap
   cleanup. **Delete-ordering:** the passphrase file survives until `ssh-add` has
   consumed it (delete after the agent load, not after keygen).
-- **V3.14 — empty-GitHub HTTPS clone + skip SSH-origin migration (self-found).** The
-  empty path must clone with the **HTTPS url** (`https://github.com/LongTermSupport/fedora-desktop.git`)
-  at `:1156-1159` AND **skip the force-migration of origin to SSH** at `:1164-1171`
-  (else a second run rewrites origin to `git@…` and breaks on a keyless box). Pull at
-  `:1508` is read-only over HTTPS public — fine.
+- **V3.14 — empty-GitHub path is BLOCKED pending Task 1.6 (round-3 coverage).** Only
+  if the empty path is kept (Decision Task 1.6-B). It requires, all confirmed:
+  (i) clone with the **HTTPS url** at `:1156-1159` + **skip the SSH-origin migration**
+  at `:1164-1171` (self-found); (ii) **still write identity+vault** (`:1371-1449`) —
+  playbook-main needs `localhost.yml`; Decision 2 wrongly lumped this into the
+  skipped "config-repo block"; (iii) individually gate ~6 blocks (clone/config-import/
+  vault/ssh-pass/gh-setup/projects), NOT a line range — and guard `primary_gh_username`
+  refs at `:1200`/`:1569` or `set -u` aborts; (iv) **guard two general-scoped core
+  plays** that hard-depend on GitHub and break on a no-GitHub box (latent server bugs):
+  `play-github-cli-multi.yml:42` (ungated `gh --version` before its `:170` guard →
+  move guard ahead of the gh gate) and `play-lxc-install-config.yml:240` (`git@` SSH
+  clone of lxc-bash). These are HOST-tested IaC changes.
 - **V3.15 — canonical cloud example shows the out-of-band fetch INLINE + pins the
   fetch.** The cloud `runcmd` example must show the secret fetched out-of-band
   **inline** (e.g. `aws secretsmanager get-secret-value … > /run/secrets/vault-pass`)
