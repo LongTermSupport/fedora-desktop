@@ -356,9 +356,15 @@ freeze/execute):
   configure, may be empty), 4 (support both secret forms, advise file), 6 (keep
   passphrase, ssh-agent+`SSH_ASKPASS`). Canonical invocation (A minimal / B full)
   documented. Grounded that GitHub is not strictly required (public repo → HTTPS).
-- [ ] 🔄 **Task 1.5b**: **Focused final review** of the NEW/unaudited surface — the
-  empty-GitHub HTTPS-clone path, the both-secret-forms precedence, the canonical
-  invocation, and V3 coherence — then freeze the spec.
+- [x] ✅ **Task 1.5b**: **Round-3 focused review** (AuditSecurity r3 + self-audit;
+  AuditCoverage r3 not delivered — messaging glitch, its scope covered by the
+  self-found V3.14 gotcha + AuditSecurity's empty-path/canonical findings). No new
+  architecture breaks (**convergence**) — only bounded hardening **V3.10-V3.15**
+  (literal-form guardrails, `set -u`-safe trap, agent-lifetime, askpass hardening,
+  empty-GitHub HTTPS+migration, inline-fetch/SHA-pin). All folded in.
+- [x] ✅ **Task 1.5c**: **Design FROZEN** as the implementation spec — D1-D11 +
+  V3.1-V3.15 + Decisions 1-6 + Canonical invocation. Loop ran 3 rounds to
+  convergence (r1 architecture breaks → r2 blocker+hangs → r3 bounded hardening).
 
 ### Phase 2: Implementation (post-convergence)
 
@@ -497,6 +503,55 @@ askpass helper momentarily handles the passphrase. Both are same-uid, momentary,
 and on a box the operator already controls. The GitHub-**empty** path skips key
 generation entirely (Decision 2), so this whole surface is absent there.
 **Date**: 2026-07-23
+
+## Design v3 — round-3 hardening (bounded edits; architecture frozen)
+
+Round 3 found no new architecture breaks (convergence) — only these bounded
+hardening items on the v3 mechanisms:
+
+- **V3.10 — Literal-secret form needs ACTIVE guardrails (last blocker).** Supporting
+  the literal secret form (Decision 4) re-opens the round-1 user-data/`/proc` leak
+  unless guarded. Passive "docs advise file" is not a control. So the literal form
+  MUST: (a) **hard-fail if any literal `RUN_BASH_*_PASSWORD`/token/passphrase is set
+  on a detected cloud box** (`/var/lib/cloud/instance` present); (b) **loud stderr
+  warning** naming the user-data/`/proc` exposure otherwise; (c) **fail-fast when
+  BOTH the literal and its `_FILE` are set** (precedence is wrong semantics — the
+  literal still leaks); (d) **never fall back to literal/empty on an unreadable
+  `_FILE`** (hard-fail); (e) read every secret into a **non-exported local** and
+  `unset` any literal **before the first child spawn** (`dnf` at `:906`). This keeps
+  the owner's "support both, advise file" decision while closing the leak.
+- **V3.11 — `set -u`-safe cleanup trap (must-fix bug).** V3.4's EXIT trap referencing
+  unset secret-path vars **aborts under `set -u`** (line 51) — in the empty-GitHub
+  path (`*_TOKEN_FILE`/`*_PASSPHRASE_FILE` unset) and on any early abort before the
+  vars are assigned (e.g. the NOPASSWD probe or `dnf` failing) — so the trap
+  explodes and skips the cleanup it exists for (the vault file + `/tmp/.github_ssh_pp`
+  are still live in the empty path). Fix: initialise every trap-visible secret-path
+  var to empty **before the trap at line 56**; expand with `${x:-}` / a
+  `"${arr[@]:-}"` array. Confirm the trap is a no-op-safe with zero secret files.
+- **V3.12 — ssh-agent killed right after the last git op, not at EXIT.** V3.6's
+  EXIT-scoped teardown leaves the **unlocked** key in the agent across
+  `ansible-galaxy`, the entire main playbook (`:1540`), optional playbooks and
+  reboot — any same-uid process can auth to GitHub via `$SSH_AUTH_SOCK`. Kill the
+  agent (`ssh-agent -k`) **immediately after the pull at `:1508`**; EXIT trap is only
+  a backstop.
+- **V3.13 — askpass helper hardening.** The `SSH_ASKPASS` helper: `mktemp` at
+  `0700`, **reads the passphrase from the 0600 file at runtime** (`cat "$file"` —
+  never inline the passphrase into the script), carries **no passphrase in its own
+  env/argv** (only the non-secret file path), and is added to the V3.11 EXIT-trap
+  cleanup. **Delete-ordering:** the passphrase file survives until `ssh-add` has
+  consumed it (delete after the agent load, not after keygen).
+- **V3.14 — empty-GitHub HTTPS clone + skip SSH-origin migration (self-found).** The
+  empty path must clone with the **HTTPS url** (`https://github.com/LongTermSupport/fedora-desktop.git`)
+  at `:1156-1159` AND **skip the force-migration of origin to SSH** at `:1164-1171`
+  (else a second run rewrites origin to `git@…` and breaks on a keyless box). Pull at
+  `:1508` is read-only over HTTPS public — fine.
+- **V3.15 — canonical cloud example shows the out-of-band fetch INLINE + pins the
+  fetch.** The cloud `runcmd` example must show the secret fetched out-of-band
+  **inline** (e.g. `aws secretsmanager get-secret-value … > /run/secrets/vault-pass`)
+  immediately above the run.bash line — not as a prose caveat below the copy-paste
+  block — or operators reflexively `write_files` it (re-opening B2). Pin the
+  `curl|bash` fetch to a **commit SHA** (not `HEAD`) or add a checksum step, and note
+  the repo's own `curl_pipe_shell` download-inspect-run guidance.
 
 ## Canonical headless invocation (documented in `--help-run-headless` + docs)
 
