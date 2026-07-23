@@ -3,7 +3,7 @@
 ## Setup
 ## !! BUMP THIS VERSION ON EVERY CHANGE TO THIS FILE — NO EXCEPTIONS !!
 ## !! If you forget, there is NO WAY to tell which version is running !!
-RUN_BASH_VERSION="1.9.2"  # Feature (Plan 00063) slice 2: headless PREFLIGHT — headless_preflight validates+resolves all RUN_BASH_* input up front (non-root check, NOPASSWD-sudo probe, required email/accounts, secret *_FILE resolution with V3.10 guardrails: file-precedence, both-set/unreadable/literal-on-cloud fail-fast, literal-elsewhere warn, unset literals before first child), set -u-safe secret-file EXIT trap. v1.9.1: defer the GitHub-empty ('none') path per round-3 decision — headless v1 requires a single GitHub account + token file (fail fast on 'none'); help + acceptance aligned. v1.9.2: require RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE in v1 — the login SSH key stays passphrase-protected (D6), mirroring the interactive no-empty-passphrase rule, since headless loads it non-interactively via ssh-agent/SSH_ASKPASS (D5). Unattended EXECUTION path still to come; headless still stops honestly after preflight.
+RUN_BASH_VERSION="1.9.3"  # Feature (Plan 00063) slice 2: headless PREFLIGHT — headless_preflight validates+resolves all RUN_BASH_* input up front (non-root check, NOPASSWD-sudo probe, required email/accounts, secret *_FILE resolution with V3.10 guardrails: file-precedence, both-set/unreadable/literal-on-cloud fail-fast, literal-elsewhere warn, unset literals before first child), set -u-safe secret-file EXIT trap. v1.9.1: defer the GitHub-empty ('none') path per round-3 decision — headless v1 requires a single GitHub account + token file (fail fast on 'none'); help + acceptance aligned. v1.9.2: require RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE in v1 — the login SSH key stays passphrase-protected (D6), mirroring the interactive no-empty-passphrase rule, since headless loads it non-interactively via ssh-agent/SSH_ASKPASS (D5). v1.9.3: begin the EXECUTION slice — add hl_abort (BIG LOUD banner, exit 1) for headless execution failures, and a headless backstop at the top of every shared interactive prompt helper (confirm/promptForValue/promptChoice/promptSecretConfirmed/promptDefault/prompt_verified_vault_password/prompt_github_accounts_yaml) so a headless run that ever reaches a prompt fails LOUD instead of hanging (fail-fast rule 11). Honest-stop still active — execution branches wired next; flipped last. Unattended EXECUTION path still being wired; headless still stops honestly after preflight.
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -51,6 +51,29 @@ headless_fail() {
   echo -e "${RED}  ${1}${NC}" >&2
   echo -e "${YELLOW}${ARROW} ${2}${NC}" >&2
   echo -e "${YELLOW}${ARROW} Full contract: ./run.bash --help-run-headless${NC}" >&2
+  exit 1
+}
+
+# hl_abort <step> <what-failed> [how-to-debug] — BIG LOUD, unmissable abort for a
+# headless EXECUTION failure (after preflight, during actual provisioning). The
+# whole point of headless is an unattended run the operator is NOT watching live, so
+# any failure must SCREAM: a red banner naming the exact step, the concrete reason,
+# and a debug pointer — then exit non-zero so the run never limps on or hangs.
+# MUST be called directly (never inside $(...)) so exit ends the whole script.
+hl_abort() {
+  local _step="$1" _what="$2" _debug="${3:-}"
+  {
+    echo -e "\n${RED}${BOLD}╔════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${RED}${BOLD}║  HEADLESS PROVISIONING FAILED — run.bash v${RUN_BASH_VERSION}${NC}"
+    echo -e "${RED}${BOLD}╚════════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${RED}${BOLD}  STEP :${NC} ${_step}"
+    echo -e "${RED}${BOLD}  WHY  :${NC} ${_what}"
+    if [[ -n "$_debug" ]]; then
+      echo -e "${YELLOW}${BOLD}  DEBUG:${NC} ${_debug}"
+    fi
+    echo -e "${YELLOW}${ARROW} Headless mode is unattended — fix the above and re-run. Full contract:${NC}"
+    echo -e "${YELLOW}${ARROW} ./run.bash --help-run-headless${NC}\n"
+  } >&2
   exit 1
 }
 
@@ -534,6 +557,13 @@ assert_clean_worktree(){
 # Invalid keys re-prompt with what to press — confirm() never exits the run.
 confirm(){
   local msg="$1"
+  # Headless backstop (fail LOUD, never hang): a correctly-configured headless run
+  # supplies every decision via RUN_BASH_*, so it must NEVER reach an interactive
+  # yes/no prompt. If it does, a call site was not neutralised — abort loudly rather
+  # than block forever waiting on a TTY that isn't there.
+  [[ "${HEADLESS:-}" == "true" ]] && hl_abort "unattended yes/no prompt reached" \
+    "headless hit a confirmation prompt: \"${msg}\"" \
+    "this decision has no RUN_BASH_* input wired up (a run.bash bug) — report it, or run interactively"
   local default="${2:-}"
   local yn=""
   local hint
@@ -642,6 +672,11 @@ push_config_to_repo(){
 # Prompt for GitHub username(s) and write github_accounts YAML block to stdout.
 # All user-facing prompts go to stderr so stdout is clean YAML for redirection.
 prompt_github_accounts_yaml(){
+  # Headless backstop (fail LOUD, never hang) — see confirm(). Headless builds the
+  # github_accounts block from RUN_BASH_GITHUB_ACCOUNTS, so it must never prompt here.
+  [[ "${HEADLESS:-}" == "true" ]] && hl_abort "unattended GitHub-accounts prompt reached" \
+    "headless reached the interactive GitHub username prompt" \
+    "the headless path must build github_accounts from RUN_BASH_GITHUB_ACCOUNTS — a missing wiring here is a run.bash bug"
   echo -e "\n${CYAN}${ARROW}${NC} Enter your GitHub username(s)" 1>&2
   echo -e "   These are the usernames you log into github.com with." 1>&2
   echo -e "   For multiple accounts, prefix each with a short alias and colon." 1>&2
@@ -991,6 +1026,10 @@ run_playbook_with_issue_option(){
 promptForValue(){
   local item v yn validate default prefill
   item="$1"
+  # Headless backstop (fail LOUD, never hang) — see confirm().
+  [[ "${HEADLESS:-}" == "true" ]] && hl_abort "unattended value prompt reached" \
+    "headless needs a value for '${item}' but reached the interactive entry prompt" \
+    "supply it via the matching RUN_BASH_* variable (see --help-run-headless); a missing wiring here is a run.bash bug"
   validate="${2:-}"
   default="${3:-}"
   prefill=""
@@ -1074,6 +1113,10 @@ promptForValue(){
 # Enter takes it.
 promptChoice(){
   local prompt="$1" max="$2" default="${3:-}" choice
+  # Headless backstop (fail LOUD, never hang) — see confirm().
+  [[ "${HEADLESS:-}" == "true" ]] && hl_abort "unattended menu prompt reached" \
+    "headless reached an interactive numbered-choice prompt: \"${prompt}\"" \
+    "the headless path must pick this non-interactively from RUN_BASH_* — a missing wiring here is a run.bash bug"
   while true; do
     # M1: a failed read (EOF) takes the default if one exists, else aborts rather
     # than looping forever on the invalid-choice branch.
@@ -1105,6 +1148,10 @@ promptChoice(){
 # the two entries match; echo the agreed value. Empty is permitted (caller decides).
 promptSecretConfirmed(){
   local label="$1" s1 s2
+  # Headless backstop (fail LOUD, never hang) — see confirm().
+  [[ "${HEADLESS:-}" == "true" ]] && hl_abort "unattended secret prompt reached" \
+    "headless needs the secret '${label}' but reached the interactive hidden-entry prompt" \
+    "supply it via the matching RUN_BASH_*_FILE pointer (see --help-run-headless); a missing wiring here is a run.bash bug"
   while true; do
     # M1: a failed read (EOF / closed stdin) must abort, not silently return an
     # empty secret as if the user had confirmed a blank value twice.
@@ -1132,6 +1179,10 @@ promptSecretConfirmed(){
 # accepts it); re-prompts until the result is at least <minlen> characters.
 promptDefault(){
   local prompt="$1" default="$2" minlen="${3:-0}" v
+  # Headless backstop (fail LOUD, never hang) — see confirm().
+  [[ "${HEADLESS:-}" == "true" ]] && hl_abort "unattended value prompt reached" \
+    "headless reached an interactive prompt: \"${prompt}\"" \
+    "the headless path must supply this from RUN_BASH_* (see --help-run-headless); a missing wiring here is a run.bash bug"
   while true; do
     # M1: a failed read (EOF) falls back to the default; if that still fails the
     # minlen check, abort rather than loop forever on closed stdin.
@@ -1174,6 +1225,12 @@ verify_vault_password(){
 # emitted to stdout via printf. Prompts/errors go to stderr.
 prompt_verified_vault_password(){
   local yml="$1" vp
+  # Headless backstop (fail LOUD, never hang) — see confirm(). Headless resolves the
+  # vault password from RUN_BASH_VAULT_PASSWORD[_FILE] in preflight and reconciles it
+  # non-interactively, so it must never reach this prompt.
+  [[ "${HEADLESS:-}" == "true" ]] && hl_abort "unattended vault-password prompt reached" \
+    "headless reached the interactive vault-password prompt for ${yml}" \
+    "the supplied RUN_BASH_VAULT_PASSWORD[_FILE] did not decrypt localhost.yml — check the password matches the vault; there is no unattended fallback"
   while true; do
     # A failed read (EOF / closed stdin) must abort cleanly, not spin forever on
     # the empty-input branch.

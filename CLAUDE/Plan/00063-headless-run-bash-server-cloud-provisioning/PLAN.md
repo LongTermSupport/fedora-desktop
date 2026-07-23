@@ -411,9 +411,17 @@ vault) → fail fast if absent.
   (execution slice)**: the ssh-agent + transient `SSH_ASKPASS` load spanning
   keygen→clone→pull, agent teardown after the last git op (V3.12/V3.13), and the
   keygen `-P` from the resolved passphrase — all HOST-verified (Phase 3).
-- [ ] ⬜ **Task 2.5**: Read-prompt neutralisation (D9) — identity, hostname
+- [ ] 🔄 **Task 2.5**: Read-prompt neutralisation (D9) — identity, hostname
   (`RUN_BASH_HOSTNAME`), `RUN_BASH_GITHUB_ACCOUNTS` validation, config import,
   optional menu, projects restore, reboot; env-gate + safe defaults.
+  **Backstop done (v1.9.3)**: `hl_abort` (BIG LOUD banner) + a headless guard at the
+  top of every shared prompt helper (confirm/promptForValue/promptChoice/
+  promptSecretConfirmed/promptDefault/prompt_verified_vault_password/
+  prompt_github_accounts_yaml) — a headless run that reaches ANY prompt now fails
+  loud (names the prompt + the missing RUN_BASH\_\* wiring) instead of hanging. This
+  is the owner's "any problem surfaces a big clear error" steer as a single
+  no-hang guarantee. **Pending**: neutralise each legitimate call site with its
+  RUN_BASH\_\* value so headless flows THROUGH (not aborts).
 - [ ] ⬜ **Task 2.6**: Failure semantics (D7) — headless main-playbook failure ⇒
   non-zero exit; both public-tracker gates resolve No; pass
   `RUN_BASH_PROVISIONING_PROFILE` to `playbook-main.yml` when set.
