@@ -3,7 +3,7 @@
 ## Setup
 ## !! BUMP THIS VERSION ON EVERY CHANGE TO THIS FILE — NO EXCEPTIONS !!
 ## !! If you forget, there is NO WAY to tell which version is running !!
-RUN_BASH_VERSION="1.9.4"  # Feature (Plan 00063) slice 2: headless PREFLIGHT — headless_preflight validates+resolves all RUN_BASH_* input up front (non-root check, NOPASSWD-sudo probe, required email/accounts, secret *_FILE resolution with V3.10 guardrails: file-precedence, both-set/unreadable/literal-on-cloud fail-fast, literal-elsewhere warn, unset literals before first child), set -u-safe secret-file EXIT trap. v1.9.1: defer the GitHub-empty ('none') path per round-3 decision — headless v1 requires a single GitHub account + token file (fail fast on 'none'); help + acceptance aligned. v1.9.2: require RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE in v1 — the login SSH key stays passphrase-protected (D6), mirroring the interactive no-empty-passphrase rule, since headless loads it non-interactively via ssh-agent/SSH_ASKPASS (D5). v1.9.3: begin the EXECUTION slice — add hl_abort (BIG LOUD banner, exit 1) for headless execution failures, and a headless backstop at the top of every shared interactive prompt helper (confirm/promptForValue/promptChoice/promptSecretConfirmed/promptDefault/prompt_verified_vault_password/prompt_github_accounts_yaml) so a headless run that ever reaches a prompt fails LOUD instead of hanging (fail-fast rule 11). v1.9.4: GitHub/SSH execution mechanics — hl_ssh_agent_start (ssh-agent + transient 0700 SSH_ASKPASS reading a 0600 passphrase file, V3.13), hl_ssh_agent_stop (kill after last git op, V3.12), hl_cleanup EXIT trap (shred secret files + backstop agent kill, V3.11); headless branches for keygen (-P from resolved passphrase + agent load), hostname (RUN_BASH_HOSTNAME or leave default), gh token auth (gh auth login --with-token from stdin + git_protocol=ssh). All fail LOUD via hl_abort. Honest-stop still active — execution branches wired next; flipped last. Unattended EXECUTION path still being wired; headless still stops honestly after preflight.
+RUN_BASH_VERSION="1.9.5"  # Feature (Plan 00063) slice 2: headless PREFLIGHT — headless_preflight validates+resolves all RUN_BASH_* input up front (non-root check, NOPASSWD-sudo probe, required email/accounts, secret *_FILE resolution with V3.10 guardrails: file-precedence, both-set/unreadable/literal-on-cloud fail-fast, literal-elsewhere warn, unset literals before first child), set -u-safe secret-file EXIT trap. v1.9.1: defer the GitHub-empty ('none') path per round-3 decision — headless v1 requires a single GitHub account + token file (fail fast on 'none'); help + acceptance aligned. v1.9.2: require RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE in v1 — the login SSH key stays passphrase-protected (D6), mirroring the interactive no-empty-passphrase rule, since headless loads it non-interactively via ssh-agent/SSH_ASKPASS (D5). v1.9.3: begin the EXECUTION slice — add hl_abort (BIG LOUD banner, exit 1) for headless execution failures, and a headless backstop at the top of every shared interactive prompt helper (confirm/promptForValue/promptChoice/promptSecretConfirmed/promptDefault/prompt_verified_vault_password/prompt_github_accounts_yaml) so a headless run that ever reaches a prompt fails LOUD instead of hanging (fail-fast rule 11). v1.9.4: GitHub/SSH execution mechanics — hl_ssh_agent_start (ssh-agent + transient 0700 SSH_ASKPASS reading a 0600 passphrase file, V3.13), hl_ssh_agent_stop (kill after last git op, V3.12), hl_cleanup EXIT trap (shred secret files + backstop agent kill, V3.11); headless branches for keygen (-P from resolved passphrase + agent load), hostname (RUN_BASH_HOSTNAME or leave default), gh token auth (gh auth login --with-token from stdin + git_protocol=ssh). All fail LOUD via hl_abort. v1.9.5: localhost.yml assembly — hl_write_localhost_yml (idempotent keep, else RUN_BASH_CONFIG_SOURCE pull from the private config repo, else FRESH from RUN_BASH_* identity + github_accounts), hl_pull_config_source (private-repo gate + LOUD 404), hl_reconcile_vault (D6: provided-or-fail, verify against encrypted values, NEVER auto-generate over !vault); headless branch for github_ssh_passphrase (reuse resolved passphrase, vault-encrypt). Interactive config/vault blocks wrapped under `if HEADLESS != true`. Honest-stop still active — execution branches wired next; flipped last. Unattended EXECUTION path still being wired; headless still stops honestly after preflight.
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -257,6 +257,110 @@ hl_ssh_agent_stop() {
     warning "ssh-agent teardown returned non-zero (agent may already be gone): ${_o}"
   fi
   unset SSH_AUTH_SOCK SSH_AGENT_PID HL_SSH_AGENT_PID
+}
+
+# hl_pull_config_source <localhost_yml> <hosts/name.yml> — headless: pull a saved
+# config from the PRIVATE per-user config repo (RUN_BASH_CONFIG_SOURCE path). Refuses
+# a non-private repo (localhost.yml carries PII + the vault) and fails LOUD if the repo
+# or file is missing. Called only when RUN_BASH_CONFIG_SOURCE is set and != none.
+hl_pull_config_source() {
+  local yml="$1" path="$2"
+  local repo="${primary_gh_username}/fedora-desktop-config" _priv _content
+  if ! _priv="$(gh api "repos/${repo}" --jq '.private' 2>&1)"; then
+    hl_abort "pull config source" \
+      "config repo github.com/${repo} not found or not accessible" \
+      "gh said: ${_priv}; set RUN_BASH_CONFIG_SOURCE=none to configure fresh from RUN_BASH_* instead"
+  fi
+  if [[ "$_priv" != "true" ]]; then
+    hl_abort "pull config source" \
+      "config repo github.com/${repo} is NOT private (.private='${_priv}') — it would hold PII + your Ansible vault" \
+      "make it private (gh repo edit ${repo} --visibility private), or use RUN_BASH_CONFIG_SOURCE=none"
+  fi
+  if ! _content="$(gh api "repos/${repo}/contents/${path}" --jq '.content' 2>&1)"; then
+    hl_abort "pull config source" \
+      "config file '${path}' not found in github.com/${repo}" \
+      "gh said: ${_content}; set RUN_BASH_CONFIG_SOURCE to a valid hosts/<name>.yml or 'none'"
+  fi
+  printf '%s' "$_content" | base64 -d > "$yml"
+  success "Headless: pulled config ${path} from github.com/${repo}"
+}
+
+# hl_write_localhost_yml <localhost_yml> — headless replacement for the interactive
+# config-import menu. Idempotent: keeps an already-configured localhost.yml. Otherwise
+# pulls RUN_BASH_CONFIG_SOURCE from the private config repo, or (the default 'none')
+# writes a FRESH localhost.yml from RUN_BASH_* identity + RUN_BASH_GITHUB_ACCOUNTS.
+hl_write_localhost_yml() {
+  local yml="$1"
+  if [[ -f "$yml" ]] && grep -qE '(!vault|github_accounts)' "$yml"; then
+    info "Headless: keeping existing configured localhost.yml"
+    return 0
+  fi
+  local src="${RUN_BASH_CONFIG_SOURCE:-none}"
+  if [[ -n "$src" && "$src" != "none" ]]; then
+    info "Headless: importing saved config '${src}' from the config repo"
+    hl_pull_config_source "$yml" "$src"
+    return 0
+  fi
+  info "Headless: writing fresh localhost.yml (identity + github_accounts)"
+  local _alias _user
+  if [[ "$HL_GITHUB_ACCOUNTS" == *:* ]]; then
+    _alias="${HL_GITHUB_ACCOUNTS%%:*}"; _user="${HL_GITHUB_ACCOUNTS##*:}"
+  else
+    _alias="personal"; _user="$HL_GITHUB_ACCOUNTS"
+  fi
+  {
+    printf 'user_login: "%s"\n' "$HL_USER_LOGIN"
+    printf 'user_name: "%s"\n' "$HL_USER_NAME"
+    printf 'user_email: "%s"\n' "$HL_USER_EMAIL"
+    printf '# GitHub CLI accounts — to add more later: scripts/gh-account-setup.bash --add=alias:username\n'
+    printf 'github_accounts:\n'
+    printf '  %s: "%s"\n' "$_alias" "$_user"
+  } > "$yml"
+  success "Headless: localhost.yml written (fresh)"
+}
+
+# hl_reconcile_vault <localhost_yml> <vault_pass_file> — headless vault reconciliation
+# (D6): the password must be PROVIDED (RUN_BASH_VAULT_PASSWORD[_FILE], resolved in
+# preflight into HL_VAULT_PASSWORD), verified against any encrypted values, and NEVER
+# auto-generated over a !vault (that would silently orphan the encrypted data). A vault
+# password is genuinely required because the github_ssh_passphrase is vault-encrypted
+# into localhost.yml right after this. Every failure aborts LOUD.
+hl_reconcile_vault() {
+  local yml="$1" vpf="$2" has_vault=false
+  if grep -qF '!vault' "$yml"; then has_vault=true; fi
+
+  if [[ -n "$HL_VAULT_PASSWORD" ]]; then
+    printf '%s' "$HL_VAULT_PASSWORD" > "$vpf"
+    chmod 600 "$vpf"
+    if [[ "$has_vault" == "true" ]]; then
+      if ! verify_vault_password "$HL_VAULT_PASSWORD" "$yml"; then
+        hl_abort "vault reconcile" \
+          "RUN_BASH_VAULT_PASSWORD does not decrypt the vault-encrypted values in localhost.yml" \
+          "check it matches the vault this config was encrypted with — headless never auto-generates over encrypted values (D6)"
+      fi
+      success "Headless: vault password verified against encrypted config"
+    else
+      success "Headless: vault password set"
+    fi
+    return 0
+  fi
+
+  # No password provided.
+  if [[ "$has_vault" == "true" ]]; then
+    if [[ -f "$vpf" && -s "$vpf" ]] && verify_vault_password "$(cat "$vpf")" "$yml"; then
+      success "Headless: existing vault-pass.secret verified against encrypted config"
+    else
+      hl_abort "vault reconcile" \
+        "localhost.yml has vault-encrypted values but no working vault password" \
+        "provide RUN_BASH_VAULT_PASSWORD_FILE matching the vault this config was encrypted with"
+    fi
+  elif [[ -f "$vpf" && -s "$vpf" ]]; then
+    success "Headless: using existing vault-pass.secret"
+  else
+    hl_abort "vault reconcile" \
+      "a vault password is required (github_ssh_passphrase is vault-encrypted) but RUN_BASH_VAULT_PASSWORD[_FILE] was not provided and no vault-pass.secret exists" \
+      "set RUN_BASH_VAULT_PASSWORD_FILE to a 0600 file holding the vault password"
+  fi
 }
 
 # ── main() — the entire executable body ──────────────────────────────────────
@@ -1693,6 +1797,15 @@ config_repo="${primary_gh_username}/fedora-desktop-config"
 config_hostname=$(hostname)
 config_host_path="hosts/${config_hostname}.yml"
 
+# Headless: replace the entire interactive config-discovery + selection menu below with
+# a deterministic write (fresh from RUN_BASH_* identity + accounts, or a pull of
+# RUN_BASH_CONFIG_SOURCE). The interactive block (guarded by `if [[ HEADLESS != true ]]`)
+# is intentionally left at its original indentation — it is a large block and
+# re-indenting it would bury the real change in whitespace noise.
+if [[ "$HEADLESS" == "true" ]]; then
+  hl_write_localhost_yml "$localhost_yml"
+else
+
 # Discover config repo and find best available config for this host.
 # gh api returns non-zero when a resource doesn't exist — that's expected
 # for probe-then-act checks, not an error to propagate.
@@ -1878,11 +1991,15 @@ else
   error "Invalid choice: ${_config_choice}"
   exit 1
 fi
+
+fi  # end: interactive config import (headless wrote localhost.yml via hl_write_localhost_yml above)
 completed
 
 title "Ansible Vault Configuration"
 vault_pass_file=~/Projects/fedora-desktop/vault-pass.secret
-if grep -qF '!vault' "$localhost_yml" 2>/dev/null; then
+if [[ "$HEADLESS" == "true" ]]; then
+  hl_reconcile_vault "$localhost_yml" "$vault_pass_file"
+elif grep -qF '!vault' "$localhost_yml" 2>/dev/null; then
   # localhost.yml has encrypted values — need the matching vault password
   if [[ -f "$vault_pass_file" ]] && [[ -s "$vault_pass_file" ]]; then
     # Test existing vault password against encrypted values
@@ -1948,18 +2065,25 @@ _github_ssh_passphrase=""
 if grep -q 'github_ssh_passphrase:' "$localhost_yml" 2>/dev/null; then
   success "github_ssh_passphrase already configured in localhost.yml"
 else
-  info "GitHub SSH keys require a passphrase (these are full account keys, not deploy keys)"
-  echo
-  if [[ -n "$_ssh_key_password" ]]; then
-    if confirm "Use the same password as your main SSH key (~/.ssh/id) for all GitHub keys?" y; then
-      _github_ssh_passphrase="$_ssh_key_password"
-      success "Using same password as ~/.ssh/id"
+  if [[ "$HEADLESS" == "true" ]]; then
+    # Headless: the GitHub account keys reuse the resolved SSH passphrase (D6 keeps
+    # them passphrase-protected). Required in preflight, so it is always non-empty.
+    _github_ssh_passphrase="$HL_GITHUB_SSH_PASSPHRASE"
+    info "Headless: using the provided SSH passphrase for GitHub account keys"
+  else
+    info "GitHub SSH keys require a passphrase (these are full account keys, not deploy keys)"
+    echo
+    if [[ -n "$_ssh_key_password" ]]; then
+      if confirm "Use the same password as your main SSH key (~/.ssh/id) for all GitHub keys?" y; then
+        _github_ssh_passphrase="$_ssh_key_password"
+        success "Using same password as ~/.ssh/id"
+      fi
     fi
-  fi
 
-  if [[ -z "$_github_ssh_passphrase" ]]; then
-    info "Hint: your login password is a convenient choice"
-    _github_ssh_passphrase=$(promptSecretConfirmed "GitHub SSH keys passphrase")
+    if [[ -z "$_github_ssh_passphrase" ]]; then
+      info "Hint: your login password is a convenient choice"
+      _github_ssh_passphrase=$(promptSecretConfirmed "GitHub SSH keys passphrase")
+    fi
   fi
 
   info "Encrypting github_ssh_passphrase and saving to vault..."
