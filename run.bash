@@ -3,7 +3,7 @@
 ## Setup
 ## !! BUMP THIS VERSION ON EVERY CHANGE TO THIS FILE — NO EXCEPTIONS !!
 ## !! If you forget, there is NO WAY to tell which version is running !!
-RUN_BASH_VERSION="1.9.3"  # Feature (Plan 00063) slice 2: headless PREFLIGHT — headless_preflight validates+resolves all RUN_BASH_* input up front (non-root check, NOPASSWD-sudo probe, required email/accounts, secret *_FILE resolution with V3.10 guardrails: file-precedence, both-set/unreadable/literal-on-cloud fail-fast, literal-elsewhere warn, unset literals before first child), set -u-safe secret-file EXIT trap. v1.9.1: defer the GitHub-empty ('none') path per round-3 decision — headless v1 requires a single GitHub account + token file (fail fast on 'none'); help + acceptance aligned. v1.9.2: require RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE in v1 — the login SSH key stays passphrase-protected (D6), mirroring the interactive no-empty-passphrase rule, since headless loads it non-interactively via ssh-agent/SSH_ASKPASS (D5). v1.9.3: begin the EXECUTION slice — add hl_abort (BIG LOUD banner, exit 1) for headless execution failures, and a headless backstop at the top of every shared interactive prompt helper (confirm/promptForValue/promptChoice/promptSecretConfirmed/promptDefault/prompt_verified_vault_password/prompt_github_accounts_yaml) so a headless run that ever reaches a prompt fails LOUD instead of hanging (fail-fast rule 11). Honest-stop still active — execution branches wired next; flipped last. Unattended EXECUTION path still being wired; headless still stops honestly after preflight.
+RUN_BASH_VERSION="1.9.4"  # Feature (Plan 00063) slice 2: headless PREFLIGHT — headless_preflight validates+resolves all RUN_BASH_* input up front (non-root check, NOPASSWD-sudo probe, required email/accounts, secret *_FILE resolution with V3.10 guardrails: file-precedence, both-set/unreadable/literal-on-cloud fail-fast, literal-elsewhere warn, unset literals before first child), set -u-safe secret-file EXIT trap. v1.9.1: defer the GitHub-empty ('none') path per round-3 decision — headless v1 requires a single GitHub account + token file (fail fast on 'none'); help + acceptance aligned. v1.9.2: require RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE in v1 — the login SSH key stays passphrase-protected (D6), mirroring the interactive no-empty-passphrase rule, since headless loads it non-interactively via ssh-agent/SSH_ASKPASS (D5). v1.9.3: begin the EXECUTION slice — add hl_abort (BIG LOUD banner, exit 1) for headless execution failures, and a headless backstop at the top of every shared interactive prompt helper (confirm/promptForValue/promptChoice/promptSecretConfirmed/promptDefault/prompt_verified_vault_password/prompt_github_accounts_yaml) so a headless run that ever reaches a prompt fails LOUD instead of hanging (fail-fast rule 11). v1.9.4: GitHub/SSH execution mechanics — hl_ssh_agent_start (ssh-agent + transient 0700 SSH_ASKPASS reading a 0600 passphrase file, V3.13), hl_ssh_agent_stop (kill after last git op, V3.12), hl_cleanup EXIT trap (shred secret files + backstop agent kill, V3.11); headless branches for keygen (-P from resolved passphrase + agent load), hostname (RUN_BASH_HOSTNAME or leave default), gh token auth (gh auth login --with-token from stdin + git_protocol=ssh). All fail LOUD via hl_abort. Honest-stop still active — execution branches wired next; flipped last. Unattended EXECUTION path still being wired; headless still stops honestly after preflight.
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -198,6 +198,67 @@ headless_preflight() {
   echo -e "${GREEN}${CHECK} Headless preflight OK${NC} — user=${HL_USER_LOGIN} (${HL_USER_NAME}) email=${HL_USER_EMAIL} github=${HL_GITHUB_ACCOUNTS}" >&2
 }
 
+# hl_cleanup — EXIT-trap cleanup for a headless run: shred every 0600 secret file and,
+# as a BACKSTOP, tear down the ssh-agent if it is still up (V3.11/V3.12). The agent is
+# normally killed right after the last git op (hl_ssh_agent_stop); this only catches an
+# abnormal exit. set -u-safe: every var is expanded with `:-` and the array with
+# "${arr[@]:-}", so it is a harmless no-op on an interactive run or an early abort.
+hl_cleanup() {
+  rm -f /tmp/.github_ssh_pp "${HL_SECRET_FILES[@]:-}"
+  if [[ -n "${HL_SSH_AGENT_PID:-}" ]]; then
+    local _o
+    if ! _o="$(SSH_AGENT_PID="$HL_SSH_AGENT_PID" ssh-agent -k 2>&1)"; then
+      echo "  (cleanup) ssh-agent already gone: ${_o}" >&2
+    fi
+  fi
+}
+
+# hl_ssh_agent_start — start an ssh-agent and load the passphrase-protected login key
+# (~/.ssh/id) non-interactively via a transient SSH_ASKPASS helper (D5/V3.13). There is
+# NO file/stdin passphrase flag for ssh-add — SSH_ASKPASS (+SSH_ASKPASS_REQUIRE=force)
+# is the ONLY non-interactive path. The passphrase is written to a 0600 file the helper
+# reads at runtime (the helper carries only the non-secret PATH, never the passphrase),
+# and both temp files are shredded by hl_cleanup. Fails LOUD on any error.
+hl_ssh_agent_start() {
+  HL_SSH_PP_FILE="$(mktemp)" && chmod 600 "$HL_SSH_PP_FILE"
+  printf '%s' "$HL_GITHUB_SSH_PASSPHRASE" > "$HL_SSH_PP_FILE"
+  HL_ASKPASS="$(mktemp)" && chmod 700 "$HL_ASKPASS"
+  # Quoted heredoc: the helper body is written VERBATIM (the $HL_SSH_PP_FILE reference
+  # is resolved at askpass RUNTIME from the inherited env, not expanded here) — so the
+  # passphrase never enters the helper's own text, only the non-secret path does.
+  cat > "$HL_ASKPASS" <<'HL_ASKPASS_BODY'
+#!/usr/bin/env bash
+cat "$HL_SSH_PP_FILE"
+HL_ASKPASS_BODY
+  HL_SECRET_FILES+=("$HL_SSH_PP_FILE" "$HL_ASKPASS")
+  export HL_SSH_PP_FILE
+  local _agent_out
+  if ! _agent_out="$(ssh-agent -s)"; then
+    hl_abort "ssh-agent start" "could not start ssh-agent to load the login SSH key" \
+      "ssh-agent -s failed: ${_agent_out}"
+  fi
+  eval "$_agent_out"                # sets+exports SSH_AUTH_SOCK, SSH_AGENT_PID
+  HL_SSH_AGENT_PID="${SSH_AGENT_PID:-}"
+  local _add_out
+  if ! _add_out="$(SSH_ASKPASS="$HL_ASKPASS" SSH_ASKPASS_REQUIRE=force ssh-add ~/.ssh/id 2>&1)"; then
+    hl_abort "load login SSH key into ssh-agent" \
+      "the login SSH key (\$HOME/.ssh/id) could not be loaded — the supplied RUN_BASH_GITHUB_SSH_PASSPHRASE is probably wrong for this key" \
+      "ssh-add said: ${_add_out}"
+  fi
+}
+
+# hl_ssh_agent_stop — kill the ssh-agent immediately after the LAST git op (V3.12), so
+# the unlocked key is not left reachable via $SSH_AUTH_SOCK across ansible-galaxy, the
+# main playbook, optional playbooks, and reboot. hl_cleanup is only a backstop.
+hl_ssh_agent_stop() {
+  [[ -n "${HL_SSH_AGENT_PID:-}" ]] || return 0
+  local _o
+  if ! _o="$(SSH_AGENT_PID="$HL_SSH_AGENT_PID" ssh-agent -k 2>&1)"; then
+    warning "ssh-agent teardown returned non-zero (agent may already be gone): ${_o}"
+  fi
+  unset SSH_AUTH_SOCK SSH_AGENT_PID HL_SSH_AGENT_PID
+}
+
 # ── main() — the entire executable body ──────────────────────────────────────
 # B5: wrapping everything in main() (and only calling it on the last line via
 # `( main "$@" )`) guarantees the WHOLE file is parsed before any command runs.
@@ -220,7 +281,8 @@ main() {
   # early abort before the files are learned) — a "${arr[@]:-}" expansion of an
   # empty array is a harmless no-op for rm -f, never an unbound-variable error.
   HL_SECRET_FILES=()
-  trap 'rm -f /tmp/.github_ssh_pp "${HL_SECRET_FILES[@]:-}"' EXIT
+  HL_SSH_AGENT_PID=""   # set by hl_ssh_agent_start; kept empty so hl_cleanup is set -u-safe
+  trap hl_cleanup EXIT
 
 # Flags
 OPTIONAL_ONLY=false
@@ -1335,7 +1397,27 @@ completed
 
 _ssh_key_password=""  # saved here, offered as default for github_ SSH keys later
 title "Creating SSH Key Pair\n\nNOTE - you must set a password\n\nSuggest you use your login password"
-if [[ ! -f ~/.ssh/id ]]; then
+if [[ "$HEADLESS" == "true" ]]; then
+  # Headless: the passphrase came from RUN_BASH_GITHUB_SSH_PASSPHRASE[_FILE] (required
+  # in preflight, non-empty). Generate the key non-interactively, then load it into an
+  # ssh-agent so the SSH clone/pull below works without a TTY (D5/V3.12/V3.13). Every
+  # step fails LOUD.
+  mkdir -p ~/.ssh && chmod 700 ~/.ssh
+  if [[ ! -f ~/.ssh/id ]]; then
+    info "Headless: generating passphrase-protected login SSH key (~/.ssh/id)"
+    if ! _kg_out="$(ssh-keygen -t ed25519 -f ~/.ssh/id -P "$HL_GITHUB_SSH_PASSPHRASE" 2>&1)"; then
+      hl_abort "generate login SSH key" "ssh-keygen failed creating ~/.ssh/id" "ssh-keygen said: ${_kg_out}"
+    fi
+    unset _kg_out
+    success "Login SSH key generated"
+  else
+    info "Headless: found existing ~/.ssh/id"
+  fi
+  # The resolved passphrase is this key's passphrase (offered later for github_ keys).
+  _ssh_key_password="$HL_GITHUB_SSH_PASSPHRASE"
+  hl_ssh_agent_start
+  success "Login SSH key loaded into ssh-agent"
+elif [[ ! -f ~/.ssh/id ]]; then
   # B4: on a fresh machine ~/.ssh does not exist yet — ssh-keygen would fail.
   # Create it with the correct 0700 perms before generating the key.
   mkdir -p ~/.ssh && chmod 700 ~/.ssh
@@ -1362,10 +1444,24 @@ completed
 
 title "Set Custom Hostname"
 if [[ "$(hostname)" == "fedora" ]]; then
-  echo "found default hostname, please choose a new one"
-  echo "(your machine hostname, eg my-laptop, my-fedora etc)"
-  hostname=$(promptDefault "Hostname: " "" 1)
-  sudo hostnamectl set-hostname "$hostname"
+  if [[ "$HEADLESS" == "true" ]]; then
+    # Headless: set from RUN_BASH_HOSTNAME if given; otherwise leave the default
+    # (optional — not every server needs a custom hostname). No prompt.
+    if [[ -n "${RUN_BASH_HOSTNAME:-}" ]]; then
+      if ! _hn_out="$(sudo hostnamectl set-hostname "$RUN_BASH_HOSTNAME" 2>&1)"; then
+        hl_abort "set hostname" "could not set hostname to '${RUN_BASH_HOSTNAME}'" "hostnamectl said: ${_hn_out}"
+      fi
+      unset _hn_out
+      success "Hostname set to ${RUN_BASH_HOSTNAME}"
+    else
+      info "Headless: RUN_BASH_HOSTNAME not set — leaving default hostname 'fedora'"
+    fi
+  else
+    echo "found default hostname, please choose a new one"
+    echo "(your machine hostname, eg my-laptop, my-fedora etc)"
+    hostname=$(promptDefault "Hostname: " "" 1)
+    sudo hostnamectl set-hostname "$hostname"
+  fi
 fi
 
 title "Installing Github CLI"
@@ -1431,6 +1527,30 @@ function ghCheckTokenPermission(){
   echo "    $gh_cmd auth refresh -h github.com -s '$permission'"
   return 1
 }
+
+# Headless: authenticate to GitHub non-interactively with the provided token BEFORE the
+# interactive block below — which then sees an authenticated gh and no-ops into its
+# "Already authenticated" branch. `gh auth login --with-token` reads the PAT from STDIN
+# (never argv/env); set git_protocol=ssh so the SSH clone uses the key just loaded. LOUD.
+if [[ "$HEADLESS" == "true" ]]; then
+  if _gh_status_out="$(gh auth status 2>&1)"; then
+    info "Headless: already authenticated with GitHub"
+  else
+    info "Headless: authenticating to GitHub with the provided token"
+    if ! _gh_login_out="$(printf '%s' "$HL_GITHUB_TOKEN" | gh auth login --with-token 2>&1)"; then
+      hl_abort "GitHub token auth" \
+        "gh auth login --with-token was rejected — check the PAT in RUN_BASH_GITHUB_TOKEN_FILE (needs scopes: vars/github-required-scopes.yml + admin:public_key)" \
+        "gh said: ${_gh_login_out}"
+    fi
+    unset _gh_login_out
+    success "GitHub authentication successful (token)"
+  fi
+  unset _gh_status_out
+  if ! _gh_proto_out="$(gh config set -h github.com git_protocol ssh 2>&1)"; then
+    hl_abort "set gh git protocol" "could not set gh git_protocol=ssh (needed for the SSH clone)" "gh said: ${_gh_proto_out}"
+  fi
+  unset _gh_proto_out
+fi
 
 if ! gh auth status > /dev/null 2>&1; then
   echo -e "\n${YELLOW}${BOLD}┌─────────────────────────────────────────────────┐${NC}"
@@ -1879,6 +1999,15 @@ assert_clean_worktree ~/Projects/fedora-desktop
 # See note above on `command git` — bypass any sourced git() wrapper.
 command git pull
 success "Repository up to date"
+
+# V3.12: this pull is the LAST git op needing the login SSH key. Kill the ssh-agent
+# NOW (not at EXIT) so the unlocked key is not reachable via $SSH_AUTH_SOCK across
+# ansible-galaxy, the whole main playbook, optional playbooks, and reboot. hl_cleanup
+# is only a backstop. No-op on interactive runs (no agent was started).
+if [[ "$HEADLESS" == "true" ]]; then
+  hl_ssh_agent_stop
+  info "Headless: ssh-agent torn down after the last git operation"
+fi
 
 info "Installing Ansible requirements"
 # Do NOT suppress output — this is a supply-chain install (pulls roles/collections

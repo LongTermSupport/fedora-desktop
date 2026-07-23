@@ -399,9 +399,14 @@ vault) → fail fast if absent.
   literal-elsewhere → warn; literal env `unset` before first child (V3.10e);
   `HL_SECRET_FILES` array + `${arr[@]:-}` trap (V3.11). `headless_fail` stderr-clean
   (D9). **Pending (execution slice)**: delete-after-use + ssh-agent teardown.
-- [ ] ⬜ **Task 2.3**: **GitHub token auth** (D3) — `gh auth login --with-token` in
+- [ ] 🔄 **Task 2.3**: **GitHub token auth** (D3) — `gh auth login --with-token` in
   run.bash **and** `gh-account-setup.bash`; scope check; single-account v1 +
-  fail-fast on unsupported multi-account.
+  fail-fast on unsupported multi-account. **run.bash part done (v1.9.4)**: a headless
+  auth block runs BEFORE the interactive one (which then no-ops into "already
+  authenticated") — `printf '%s' "$HL_GITHUB_TOKEN" | gh auth login --with-token`
+  (PAT from stdin, never argv/env) + `gh config set git_protocol ssh`; LOUD abort on
+  rejection naming the scopes. **Pending**: `gh-account-setup.bash` headless path
+  (HOST-verified, Phase 3).
 - [ ] 🔄 **Task 2.4**: SSH keys (D5) — passphrase-from-file + ssh-agent for the
   clone; vault reconciliation (D6, verify-or-fail, no auto-generate over `!vault`).
   **Preflight part done (v1.9.2)**: since the deferral made GitHub always
@@ -411,6 +416,12 @@ vault) → fail fast if absent.
   (execution slice)**: the ssh-agent + transient `SSH_ASKPASS` load spanning
   keygen→clone→pull, agent teardown after the last git op (V3.12/V3.13), and the
   keygen `-P` from the resolved passphrase — all HOST-verified (Phase 3).
+  **Execution mechanics done (v1.9.4)**: `hl_ssh_agent_start` (ssh-agent + transient
+  0700 `SSH_ASKPASS` reading a 0600 passphrase file — the helper carries only the
+  non-secret path; V3.13), `hl_ssh_agent_stop` (kill right after the last git pull;
+  V3.12), `hl_cleanup` EXIT trap (shred secret files + backstop agent kill; V3.11);
+  headless keygen `-P "$HL_GITHUB_SSH_PASSPHRASE"` then agent load. Vault
+  reconciliation (D6) is the remaining part (next sub-slice).
 - [ ] 🔄 **Task 2.5**: Read-prompt neutralisation (D9) — identity, hostname
   (`RUN_BASH_HOSTNAME`), `RUN_BASH_GITHUB_ACCOUNTS` validation, config import,
   optional menu, projects restore, reboot; env-gate + safe defaults.
