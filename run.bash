@@ -3,7 +3,7 @@
 ## Setup
 ## !! BUMP THIS VERSION ON EVERY CHANGE TO THIS FILE — NO EXCEPTIONS !!
 ## !! If you forget, there is NO WAY to tell which version is running !!
-RUN_BASH_VERSION="1.7.3"  # Fix: the v1.7.2 sudo -k -n true change missed the MAIN playbook call (different indentation) — that unindented `sudo -n true` is what gated preflight, so become still failed. Now fixed on both call sites.
+RUN_BASH_VERSION="1.8.0"  # Feature (Plan 00063): headless/unattended mode for server & cloud provisioning via RUN_BASH_* env (secrets as 0600 *_FILE pointers), scaffolding slice — trigger + arg parsing (--headless/--interactive) + --help-run-headless + expanded --help. Behaviour-gating wired in following slices.
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -57,19 +57,29 @@ main() {
 
 # Flags
 OPTIONAL_ONLY=false
+# Headless / unattended mode (Plan 00063) — provision a Fedora Server or Cloud box
+# with no interactive prompts, driven by RUN_BASH_* env vars. Tri-state:
+#   HEADLESS=""     -> not yet decided (auto-detect below)
+#   HEADLESS=true   -> forced on  (--headless, or RUN_BASH_HEADLESS=1)
+#   HEADLESS=false  -> forced off (--interactive)
+# See ./run.bash --help-run-headless for the full env contract.
+HEADLESS=""
 for _arg in "$@"; do
   case "$_arg" in
     --help|-h)
       cat <<'USAGE'
 Usage: ./run.bash [OPTIONS]
 
-Fedora Desktop Configuration Installer
+Fedora Desktop / Server / Cloud Configuration Installer
 
 Options:
-  --optional-only   Skip core setup, jump straight to optional playbook menu
-  -h, --help        Show this help message
+  --optional-only      Skip core setup, jump straight to optional playbook menu
+  --headless           Force unattended mode (no prompts); config from RUN_BASH_* env
+  --interactive        Force interactive mode even with no TTY / RUN_BASH_* set
+  -h, --help           Show this help message
+      --help-run-headless  Deep-dive: unattended/IaC provisioning (server & cloud)
 
-First run:
+Interactive first run (desktop):
   ./run.bash                Full install (system deps, SSH, GitHub, Ansible,
                             main playbook, then optional playbooks menu)
 
@@ -77,12 +87,127 @@ Subsequent runs:
   ./run.bash --optional-only  Re-run only the optional playbooks menu
                               (useful for adding components after initial setup)
 
+Headless (server / cloud) — provision unattended from RUN_BASH_* env vars:
+  RUN_BASH_HEADLESS=1 RUN_BASH_USER_EMAIL=... RUN_BASH_GITHUB_ACCOUNTS=... \
+    ./run.bash          # full env contract: ./run.bash --help-run-headless
+
+Desktop vs. server/cloud is auto-detected by the Ansible layer
+(systemctl get-default -> graphical.target = desktop, else server); Fedora Cloud
+resolves to the server subset (no GNOME). Override with
+RUN_BASH_PROVISIONING_PROFILE=desktop|server.
+
 Requirements:
   - Fedora Linux (version must match the branch)
   - Network connectivity (GitHub, DNF repos)
-  - Must NOT be run as root (uses sudo internally)
+  - Must NOT be run as root (uses sudo internally; headless: run as the non-root
+    target user with NOPASSWD sudo)
 USAGE
       exit 0
+      ;;
+    --help-run-headless)
+      cat <<'USAGE'
+run.bash — HEADLESS / UNATTENDED provisioning (server & cloud, IaC)
+===================================================================
+
+Provision a headless Fedora Server or Cloud box end-to-end with ZERO interactive
+prompts, driven entirely by RUN_BASH_* environment variables. run.bash runs on the
+box it provisions (connection: local) and self-updates the repo, so a headless run
+always provisions the branch-latest source. The Ansible layer auto-detects the
+server profile and skips all GNOME/desktop plays (Plan 00061); Fedora Cloud is
+treated as a server (no new scope needed).
+
+TRIGGER
+  Headless is ON when any of:
+    * --headless flag, or RUN_BASH_HEADLESS=1
+    * stdin is not a TTY AND >=1 RUN_BASH_* config var is set
+  Force OFF with --interactive. (Piped-stdin smoke tests: pass --interactive or
+  set no RUN_BASH_* to avoid tripping headless.)
+
+PRECONDITIONS (fail fast if unmet — never hangs)
+  * NOPASSWD:ALL sudo (the default cloud user has it; a password-sudo Server does
+    not — configure NOPASSWD or run interactively).
+  * Run as the NON-root target user (cloud-init runcmd is root; drop to the user).
+  * GitHub is mandatory to CONFIGURE: set RUN_BASH_GITHUB_ACCOUNTS explicitly, to
+    account(s) OR to 'none'. Unset => fail fast.
+
+NON-SECRET CONFIG (plain RUN_BASH_* env)
+  RUN_BASH_HEADLESS=1              Force headless.
+  RUN_BASH_USER_EMAIL=...          Git email.                     (REQUIRED)
+  RUN_BASH_GITHUB_ACCOUNTS=...     Comma-sep gh usernames, or 'none'. (REQUIRED)
+  RUN_BASH_USER_LOGIN=...          System login.        (default: current user)
+  RUN_BASH_USER_NAME=...           Full name.                 (default: = login)
+  RUN_BASH_HOSTNAME=...            Set hostname when box is still 'fedora'.
+  RUN_BASH_CONFIG_SOURCE=...       Config-repo host file to import, or 'none'.
+  RUN_BASH_PROVISIONING_PROFILE=   Force desktop|server (default: auto-detect).
+  RUN_BASH_OPTIONAL_PLAYBOOKS=...  Space/comma list of optional plays, or 'none'.
+  RUN_BASH_RESTORE_PROJECTS=0|1    Restore projects from config manifest.
+  RUN_BASH_REBOOT=0|1              Reboot at end.
+
+SECRETS — prefer 0600 FILE POINTERS (recommended), literal env supported but risky
+  RUN_BASH_VAULT_PASSWORD_FILE=/path         Ansible vault password (file).
+  RUN_BASH_GITHUB_TOKEN_FILE=/path           Scoped GitHub PAT (file); REQUIRED
+                                             when accounts != none.
+  RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE=/path  SSH key passphrase (file).
+  Literal equivalents (RUN_BASH_VAULT_PASSWORD, _GITHUB_TOKEN,
+  _GITHUB_SSH_PASSPHRASE) are accepted but:
+    * REFUSED on a detected cloud box (cloud-init user-data persists them in the
+      metadata service, world-readable indefinitely) -> use the *_FILE form.
+    * warned loudly otherwise; setting BOTH a literal and its *_FILE is an error.
+  The *_FILE form is best: the secret bytes never enter the environment,
+  process listings, or cloud-init user-data.
+  GitHub token scope: the full vars/github-required-scopes.yml set + admin:public_key.
+
+GITHUB EMPTY vs. CONFIGURED
+  RUN_BASH_GITHUB_ACCOUNTS=none  -> clone the PUBLIC repo over HTTPS, skip ALL
+     GitHub/SSH-key/config-repo/projects setup; still run full provisioning. No
+     token or SSH key needed. Simplest for a bare cloud/server box.
+  RUN_BASH_GITHUB_ACCOUNTS=<user> -> full GitHub setup via the scoped token file
+     (single account in v1; multiple accounts need one token file per alias).
+
+CANONICAL INVOCATIONS (run as the non-root user)
+  A. Minimal, no GitHub identity:
+       RUN_BASH_HEADLESS=1 \
+       RUN_BASH_USER_EMAIL=name@example.com \
+       RUN_BASH_GITHUB_ACCOUNTS=none \
+       RUN_BASH_VAULT_PASSWORD_FILE=/run/secrets/vault-pass \
+         ./run.bash
+
+  B. Full, with GitHub (single account):
+       RUN_BASH_HEADLESS=1 \
+       RUN_BASH_USER_EMAIL=name@example.com \
+       RUN_BASH_GITHUB_ACCOUNTS=<gh-username> \
+       RUN_BASH_GITHUB_TOKEN_FILE=/run/secrets/gh-token \
+       RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE=/run/secrets/ssh-pass \
+       RUN_BASH_VAULT_PASSWORD_FILE=/run/secrets/vault-pass \
+         ./run.bash
+
+CLOUD-INIT (Fedora Cloud) — fetch secrets OUT-OF-BAND, never in write_files
+  write_files embeds content INSIDE user-data (served by the metadata service
+  forever) — so NEVER put secret bytes there. Fetch them out-of-band inside
+  runcmd, e.g.:
+     runcmd:
+       - [ sh, -c, 'aws secretsmanager get-secret-value --secret-id vault
+             --query SecretString --output text > /run/secrets/vault-pass' ]
+       - [ sh, -c, 'sudo -u <user> -i env RUN_BASH_HEADLESS=1
+             RUN_BASH_USER_EMAIL=name@example.com RUN_BASH_GITHUB_ACCOUNTS=none
+             RUN_BASH_VAULT_PASSWORD_FILE=/run/secrets/vault-pass
+             /home/<user>/run.bash' ]
+  Replace <user> with the box's non-root user (Fedora Cloud's default distro user).
+  /run/secrets is tmpfs (RAM-backed, wiped on reboot). Pin the run.bash source to
+  a commit SHA (not HEAD) when fetching it, and inspect before running.
+
+FAIL-FAST GUARANTEE
+  Any missing required value or unmet precondition aborts with a clear message
+  naming the exact fix — a headless run never hangs waiting on a prompt, and a
+  failed main playbook exits non-zero (never reports success).
+USAGE
+      exit 0
+      ;;
+    --headless)
+      HEADLESS=true
+      ;;
+    --interactive)
+      HEADLESS=false
       ;;
     --optional-only)
       OPTIONAL_ONLY=true
@@ -94,6 +219,48 @@ USAGE
       ;;
   esac
 done
+
+# Resolve the headless auto-detect when neither --headless nor --interactive forced
+# it. RUN_BASH_HEADLESS wins first; otherwise headless requires BOTH no-TTY-on-stdin
+# AND at least one RUN_BASH_* config var (so an accidental desktop pipe with no
+# RUN_BASH_* never silently goes headless).
+if [[ -z "$HEADLESS" ]]; then
+  case "${RUN_BASH_HEADLESS:-}" in
+    1|true|yes|on)
+      HEADLESS=true
+      ;;
+    0|false|no|off)
+      HEADLESS=false
+      ;;
+    *)
+      # Any RUN_BASH_* config var set, excluding the script's own VERSION constant?
+      _rb_has_cfg=false
+      while IFS= read -r _rb_v; do
+        if [[ "$_rb_v" != "RUN_BASH_VERSION" ]]; then
+          _rb_has_cfg=true
+          break
+        fi
+      done < <(compgen -v | grep -E '^RUN_BASH_')
+      if [[ ! -t 0 && "$_rb_has_cfg" == "true" ]]; then
+        HEADLESS=true
+      else
+        HEADLESS=false
+      fi
+      unset _rb_has_cfg _rb_v
+      ;;
+  esac
+fi
+
+# Headless BEHAVIOUR is delivered in following slices of Plan 00063. Until then,
+# fail fast (never hang, never half-run) so a triggered headless invocation is
+# honest rather than silently falling into the interactive path on a TTY-less box.
+if [[ "$HEADLESS" == "true" ]]; then
+  echo -e "${RED}${BOLD:-}${CROSS:-x} Headless mode is not yet fully implemented.${NC}" >&2
+  echo -e "${YELLOW:-}${ARROW:-} run.bash v${RUN_BASH_VERSION}: the --help-run-headless contract and" >&2
+  echo -e "${YELLOW:-}${ARROW:-} flag scaffolding are in place; the unattended execution path is being" >&2
+  echo -e "${YELLOW:-}${ARROW:-} wired in (Plan 00063). Run interactively for now, or track the plan." >&2
+  exit 1
+fi
 
 ## Step counter
 # STEP_TOTAL is derived by counting the title() calls in this very script, so it

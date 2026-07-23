@@ -368,8 +368,12 @@ freeze/execute):
 
 ### Phase 2: Implementation (post-convergence)
 
-- [ ] ⬜ **Task 2.1**: Headless trigger + arg parsing (`--headless`/`--interactive`);
+- [ ] 🔄 **Task 2.1**: Headless trigger + arg parsing (`--headless`/`--interactive`);
   startup **NOPASSWD-sudo probe → fail fast** (D4); bump `RUN_BASH_VERSION`.
+  **Slice 1 done** (v1.8.0): tri-state `HEADLESS`, `--headless`/`--interactive`
+  flags, auto-detect (no-TTY + any `RUN_BASH_*` config var, excl. `RUN_BASH_VERSION`;
+  `RUN_BASH_HEADLESS` override), honest fail-fast when headless is triggered (behaviour
+  not yet wired). **Pending**: NOPASSWD probe (lands with the behaviour path).
 - [ ] ⬜ **Task 2.2**: Secret **file-pointer** plumbing (D2) — read `*_FILE` into
   locals, `0600`-verify, delete after use; `headless_fail` (stderr-clean, D9).
 - [ ] ⬜ **Task 2.3**: **GitHub token auth** (D3) — `gh auth login --with-token` in
@@ -384,8 +388,12 @@ freeze/execute):
 - [ ] ⬜ **Task 2.6**: Failure semantics (D7) — headless main-playbook failure ⇒
   non-zero exit; both public-tracker gates resolve No; pass
   `RUN_BASH_PROVISIONING_PROFILE` to `playbook-main.yml` when set.
-- [ ] ⬜ **Task 2.7**: `--help` + `--help-run-headless` (D11) with the cloud-init
-  `write_files`+`runcmd` drop-to-user example.
+- [x] ✅ **Task 2.7**: `--help` + `--help-run-headless` (D11) — **done** (v1.8.0).
+  `--help` expanded (server/cloud + headless pointer + auto-detect note);
+  `--help-run-headless` documents the full env contract (non-secret + `*_FILE`
+  secrets), NOPASSWD/non-root preconditions, GitHub empty-vs-configured, canonical
+  A/B invocations, and a cloud-init **out-of-band** (`runcmd`, NOT `write_files`)
+  secret-fetch example per V3.15. QA green; in-container verified.
 - [ ] ⬜ **Task 2.8**: `./scripts/qa-all.bash`; plan-local `acceptance.bash`
   (headless fail-fast proofs — missing token/email/accounts, non-NOPASSWD probe,
   failed-playbook exit code; desktop path unchanged). No new
