@@ -255,8 +255,80 @@ every edit. QA: `./scripts/qa-all.bash`.
 `--help` gains a one-line pointer to server/cloud + `--help-run-headless`.
 `--help-run-headless` prints: the full env contract (non-secret env + secret
 file-pointers), the NOPASSWD-sudo + non-root requirements, the GitHub-token
-scopes, a copy-paste cloud-init `user-data` example (`write_files` 0600 secrets +
-`runcmd` drop-to-user), the fail-fast rules, and the desktop-vs-server/cloud model.
+scopes, a copy-paste cloud-init example, the fail-fast rules, and the
+desktop-vs-server/cloud model. **(v3 correction:** the cloud example must NOT put
+secrets in `write_files` — see V3.1.)
+
+## Design v3 — round-2 deltas (bounded fixes on the v2 architecture)
+
+Round 2 confirmed the v2 *architecture* is sound but found residual hangs, a leak
+v2 reintroduced, and a blocker in v2's own cloud secret-delivery. These deltas
+apply on top of D1-D11:
+
+- **V3.1 — Secrets OUT-OF-BAND on cloud, never `write_files` (BLOCKER, AuditSec #1).**
+  cloud-init `write_files` content lives *inside* user-data, which the metadata
+  service serves world-locally **forever** — so v2's "write the 0600 file via
+  write_files" re-persists the plaintext exactly where Decision 4 forbids. **Cloud:**
+  secrets are fetched **out-of-band inside `runcmd`** (secrets manager / vendor-data
+  / attached media), never user-data/write_files. **Plain Server (SSH-in):** the
+  operator places the `0600` files directly — no user-data involved — which is fine.
+  `--help-run-headless`'s cloud example shows the out-of-band pattern.
+- **V3.2 — Token-scope completeness gate before BOTH refresh sites (both auditors'
+  #1 pick).** Token pre-auth (D3) skips `gh auth login` but NOT the scope-triggered
+  interactive `gh auth refresh` at `run.bash:1111` **and** `gh-account-setup.bash:328`
+  → those still HANG on an under-scoped token. Add an explicit headless check of the
+  token against the **full** `vars/github-required-scopes.yml` + `admin:public_key`,
+  **before both** sites, fail-fast naming missing scopes. Single-account also routes
+  through `--setup-all` (guard at 1487 is `grep github_accounts`, always written) so
+  it needs the same gate.
+- **V3.3 — Vault: require file, never auto-generate/print headless (both #4).** D6's
+  "surface the generated password to stderr" leaks it into
+  `/var/log/cloud-init-output.log` + the serial console. Headless **requires**
+  `RUN_BASH_VAULT_PASSWORD_FILE` and fails fast; **no auto-generate**, never print
+  secret bytes (path only). Resolves the S5/D6 tension.
+- **V3.4 — EXIT-trap cleans every secret file (AuditSec #2).** The trap (`:56`) only
+  removes `/tmp/.github_ssh_pp`; a `set -e` abort leaves the new `*_FILE` secrets on
+  a persistent box. Extend the trap to `rm -f` all secret paths (trap-visible
+  array). Also fix the pre-existing un-trapped passphrase-stripped key copy at
+  `gh-account-setup.bash:211-232`.
+- **V3.5 — gh persists the token in `~/.config/gh/hosts.yml` (AuditSec #3).**
+  Deleting the token file is false assurance. Recommend a **fine-grained short-lived
+  PAT + `gh auth logout` at end**; document `vault-pass.secret` as a standing key on
+  a persistent box.
+- **V3.6 — ssh-agent lifecycle + argv passphrase (AuditCoverage a / S3 — OWNER
+  TRADEOFF).** `ssh-add` has no argv passphrase flag → needs an `SSH_ASKPASS` helper
+  (itself a passphrase-echoing surface) or it hangs; the agent must live from keygen
+  through the `git pull` at `:1508` (not just the clone `:1159`) and be torn down
+  (`ssh-agent -k`); `ssh-keygen -P/-N` expose the passphrase in `/proc/PID/cmdline`
+  regardless of source. Two options — **(a)** ssh-agent + `SSH_ASKPASS`, keep the
+  passphrase; **(b)** headless generates a **passphraseless** `~/.ssh/id` (simpler,
+  no askpass/agent, no argv leak) — but that leaves a standing passphraseless GitHub
+  **auth** key at rest. **Owner decision required** (see below).
+- **V3.7 — `sudo -k -n true`, document NOPASSWD:ALL (both #5).** Use `-k` (avoid a
+  cached-timestamp false pass); a command-scoped NOPASSWD passes `true` but fails
+  `dnf` → document the NOPASSWD:ALL assumption.
+- **V3.8 — Optional-playbook failures propagate headless (AuditCoverage B4-resid).**
+  `run_playbook` (1593-1600) swallows failures; D7 covers only the main playbook.
+  Headless optional failures must reach a non-zero final exit.
+- **V3.9 — Passphrase handoff to gh-account-setup via file, not env (AuditCoverage
+  e).** `run.bash:1492` passes `GITHUB_SSH_PASSPHRASE=` as literal env → child
+  inherits via `/proc/PID/environ` (the Decision-4b exposure). Teach
+  `gh-account-setup.bash` a `*_FILE` input (or a documented, scoped env exception).
+
+**Open owner decisions surfaced by round 2** (do not block writing v3; block
+freeze/execute):
+
+1. **Confirm Decision 4 + V3.1** — secrets as `0600` file-pointers, and on cloud
+   fetched out-of-band (never user-data/write_files).
+2. **V3.6 ssh key at rest** — (a) ssh-agent+askpass keep passphrase, or (b)
+   passphraseless key. Recommend (b) for a dedicated provision box (simplest, no new
+   askpass exposure), documented.
+3. **Reconsider Decision 2 (GitHub-mandatory) for headless** — the loop shows every
+   hardest residual (token-scope gate, PAT at rest in gh config, SSH key at rest,
+   passphrase-in-argv, askpass helper) stems from GitHub being mandatory. For a pure
+   cloud/server box that needs no GitHub identity, **skip-GitHub-when-unset** removes
+   most of the remaining complexity and attack surface. New evidence justifies
+   re-raising.
 
 ## Tasks
 
@@ -275,11 +347,14 @@ scopes, a copy-paste cloud-init `user-data` example (`write_files` 0600 secrets 
   persistence, failed-playbook-exits-0, vault footguns). Judged in JOURNAL; design
   hardened to **v2** (D1-D11). No finding dismissed as invalid except "git commit
   identity" (correctly unfounded — run.bash does no local commit).
-- [ ] 🔄 **Task 1.4 round 2**: Re-run the two auditors against **Design v2** —
-  confirm each round-1 finding is resolved and hunt for new gaps the v2 additions
-  introduce (token multi-account story, ssh-agent lifecycle, file-delete timing,
-  NOPASSWD startup probe placement). Iterate to convergence.
-- [ ] ⬜ **Task 1.5**: Freeze the converged design as the implementation spec.
+- [x] ✅ **Task 1.4 round 2**: Re-ran both auditors against **Design v2**. Verdict:
+  architecture sound; bounded residual hangs + one reintroduced leak + a blocker in
+  v2's own cloud secret-delivery (`write_files` = user-data). All confirmed and
+  folded into **Design v3 deltas (V3.1-V3.9)**. Convergence is close — remaining
+  items are bounded edits, except 3 genuine **owner decisions** the loop surfaced.
+- [ ] 🔄 **Task 1.5**: Resolve the 3 owner decisions (Decision 4/V3.1 confirm;
+  V3.6 ssh-key-at-rest; reconsider Decision 2 GitHub-mandatory), then either a final
+  confirming round or freeze the design as the implementation spec.
 
 ### Phase 2: Implementation (post-convergence)
 
