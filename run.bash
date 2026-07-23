@@ -3,7 +3,7 @@
 ## Setup
 ## !! BUMP THIS VERSION ON EVERY CHANGE TO THIS FILE — NO EXCEPTIONS !!
 ## !! If you forget, there is NO WAY to tell which version is running !!
-RUN_BASH_VERSION="1.9.1"  # Feature (Plan 00063) slice 2: headless PREFLIGHT — headless_preflight validates+resolves all RUN_BASH_* input up front (non-root check, NOPASSWD-sudo probe, required email/accounts, secret *_FILE resolution with V3.10 guardrails: file-precedence, both-set/unreadable/literal-on-cloud fail-fast, literal-elsewhere warn, unset literals before first child), set -u-safe secret-file EXIT trap. v1.9.1: defer the GitHub-empty ('none') path per round-3 decision — headless v1 requires a single GitHub account + token file (fail fast on 'none'); help + acceptance aligned. Unattended EXECUTION path still to come; headless still stops honestly after preflight.
+RUN_BASH_VERSION="1.9.2"  # Feature (Plan 00063) slice 2: headless PREFLIGHT — headless_preflight validates+resolves all RUN_BASH_* input up front (non-root check, NOPASSWD-sudo probe, required email/accounts, secret *_FILE resolution with V3.10 guardrails: file-precedence, both-set/unreadable/literal-on-cloud fail-fast, literal-elsewhere warn, unset literals before first child), set -u-safe secret-file EXIT trap. v1.9.1: defer the GitHub-empty ('none') path per round-3 decision — headless v1 requires a single GitHub account + token file (fail fast on 'none'); help + acceptance aligned. v1.9.2: require RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE in v1 — the login SSH key stays passphrase-protected (D6), mirroring the interactive no-empty-passphrase rule, since headless loads it non-interactively via ssh-agent/SSH_ASKPASS (D5). Unattended EXECUTION path still to come; headless still stops honestly after preflight.
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -150,6 +150,13 @@ headless_preflight() {
   [[ -n "$HL_GITHUB_TOKEN" ]] || headless_fail "RUN_BASH_GITHUB_TOKEN_FILE is required (headless v1 requires GitHub configured)." \
     "Provide a 0600 file holding a scoped PAT (scopes: vars/github-required-scopes.yml + admin:public_key)."
   hl_resolve_secret GITHUB_SSH_PASSPHRASE HL_GITHUB_SSH_PASSPHRASE
+  # Decision 6: the login SSH key stays passphrase-protected (this mirrors the
+  # interactive flow, which forbids an empty passphrase — run.bash:1278-1284).
+  # Headless v1 always configures GitHub and provisions the key non-interactively
+  # (ssh-agent + SSH_ASKPASS, D5/V3.12-V3.13), so the passphrase MUST be supplied up
+  # front — there is no TTY to prompt for it during the clone/pull later.
+  [[ -n "$HL_GITHUB_SSH_PASSPHRASE" ]] || headless_fail "RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE is required (the login SSH key must stay passphrase-protected)." \
+    "Provide a 0600 file holding the SSH key passphrase (loaded via ssh-agent for the clone; never passed on argv to a child)."
 
   # V3.10(e): drop any LITERAL secret env vars so children (dnf, gh, ansible) do not
   # inherit them via /proc/PID/environ. The *_FILE path vars are not secret and stay.
@@ -265,8 +272,10 @@ PRECONDITIONS (fail fast if unmet — never hangs)
     not — configure NOPASSWD or run interactively).
   * Run as the NON-root target user (cloud-init runcmd is root; drop to the user).
   * GitHub is mandatory in headless v1: set RUN_BASH_GITHUB_ACCOUNTS to a single
-    account AND provide RUN_BASH_GITHUB_TOKEN_FILE. Unset => fail fast. (The
-    'none' / GitHub-empty path is a planned follow-up, not yet supported.)
+    account AND provide RUN_BASH_GITHUB_TOKEN_FILE AND
+    RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE (the login SSH key stays passphrase-
+    protected). Unset => fail fast. (The 'none' / GitHub-empty path is a planned
+    follow-up, not yet supported.)
 
 NON-SECRET CONFIG (plain RUN_BASH_* env)
   RUN_BASH_HEADLESS=1              Force headless.
@@ -286,7 +295,9 @@ SECRETS — prefer 0600 FILE POINTERS (recommended), literal env supported but r
   RUN_BASH_VAULT_PASSWORD_FILE=/path         Ansible vault password (file).
   RUN_BASH_GITHUB_TOKEN_FILE=/path           Scoped GitHub PAT (file); REQUIRED
                                              in headless v1 (GitHub is mandatory).
-  RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE=/path  SSH key passphrase (file).
+  RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE=/path  SSH key passphrase (file); REQUIRED
+                                             in v1 (the login key stays passphrase-
+                                             protected, loaded via ssh-agent).
   Literal equivalents (RUN_BASH_VAULT_PASSWORD, _GITHUB_TOKEN,
   _GITHUB_SSH_PASSPHRASE) are accepted but:
     * REFUSED on a detected cloud box (cloud-init user-data persists them in the

@@ -402,9 +402,15 @@ vault) → fail fast if absent.
 - [ ] ⬜ **Task 2.3**: **GitHub token auth** (D3) — `gh auth login --with-token` in
   run.bash **and** `gh-account-setup.bash`; scope check; single-account v1 +
   fail-fast on unsupported multi-account.
-- [ ] ⬜ **Task 2.4**: SSH keys (D5) — passphrase-from-file + ssh-agent for the
-  clone, or passphraseless; vault reconciliation (D6, verify-or-fail, no
-  auto-generate over `!vault`).
+- [ ] 🔄 **Task 2.4**: SSH keys (D5) — passphrase-from-file + ssh-agent for the
+  clone; vault reconciliation (D6, verify-or-fail, no auto-generate over `!vault`).
+  **Preflight part done (v1.9.2)**: since the deferral made GitHub always
+  configured and D6 keeps the key passphrase-protected, `RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE`
+  is now **required** in v1 preflight (mirrors the interactive no-empty-passphrase
+  rule at `run.bash:1278-1284`; acceptance test "missing SSH passphrase"). **Pending
+  (execution slice)**: the ssh-agent + transient `SSH_ASKPASS` load spanning
+  keygen→clone→pull, agent teardown after the last git op (V3.12/V3.13), and the
+  keygen `-P` from the resolved passphrase — all HOST-verified (Phase 3).
 - [ ] ⬜ **Task 2.5**: Read-prompt neutralisation (D9) — identity, hostname
   (`RUN_BASH_HOSTNAME`), `RUN_BASH_GITHUB_ACCOUNTS` validation, config import,
   optional menu, projects restore, reboot; env-gate + safe defaults.

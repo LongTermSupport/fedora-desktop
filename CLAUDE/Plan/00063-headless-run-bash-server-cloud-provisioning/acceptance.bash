@@ -108,12 +108,20 @@ expect_fail "unreadable vault file" "is not a readable file" \
   RUN_BASH_USER_EMAIL=name@example.com RUN_BASH_GITHUB_ACCOUNTS=alice \
   RUN_BASH_VAULT_PASSWORD_FILE="$unreadable_secret"
 
-# 9. All config valid (single account, token + vault via readable files) reaches the
-#    LAST gate, the NOPASSWD-sudo probe, which fails for the unprivileged user —
-#    proving the happy config path resolves and the sudo precondition is enforced.
+# 9. Account + token but no SSH passphrase — the login key must stay passphrase-
+#    protected (Decision 6), so the passphrase file is required in v1.
+expect_fail "missing SSH passphrase" "RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE is required" \
+  RUN_BASH_USER_EMAIL=name@example.com RUN_BASH_GITHUB_ACCOUNTS=alice \
+  RUN_BASH_GITHUB_TOKEN_FILE="$readable_secret"
+
+# 10. All config valid (single account, token + vault + ssh passphrase via readable
+#     files) reaches the LAST gate, the NOPASSWD-sudo probe, which fails for the
+#     unprivileged user — proving the happy config path resolves and the sudo
+#     precondition is enforced.
 expect_fail "valid config hits NOPASSWD gate" "NOPASSWD" \
   RUN_BASH_USER_EMAIL=name@example.com RUN_BASH_GITHUB_ACCOUNTS=alice \
   RUN_BASH_GITHUB_TOKEN_FILE="$readable_secret" \
+  RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE="$readable_secret" \
   RUN_BASH_VAULT_PASSWORD_FILE="$readable_secret"
 
 echo
