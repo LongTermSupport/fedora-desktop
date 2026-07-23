@@ -3,7 +3,7 @@
 ## Setup
 ## !! BUMP THIS VERSION ON EVERY CHANGE TO THIS FILE — NO EXCEPTIONS !!
 ## !! If you forget, there is NO WAY to tell which version is running !!
-RUN_BASH_VERSION="1.9.0"  # Feature (Plan 00063) slice 2: headless PREFLIGHT — headless_preflight validates+resolves all RUN_BASH_* input up front (non-root check, NOPASSWD-sudo probe, required email/accounts, secret *_FILE resolution with V3.10 guardrails: file-precedence, both-set/unreadable/literal-on-cloud fail-fast, literal-elsewhere warn, unset literals before first child), set -u-safe secret-file EXIT trap. Unattended EXECUTION path still to come; headless still stops honestly after preflight.
+RUN_BASH_VERSION="1.9.1"  # Feature (Plan 00063) slice 2: headless PREFLIGHT — headless_preflight validates+resolves all RUN_BASH_* input up front (non-root check, NOPASSWD-sudo probe, required email/accounts, secret *_FILE resolution with V3.10 guardrails: file-precedence, both-set/unreadable/literal-on-cloud fail-fast, literal-elsewhere warn, unset literals before first child), set -u-safe secret-file EXIT trap. v1.9.1: defer the GitHub-empty ('none') path per round-3 decision — headless v1 requires a single GitHub account + token file (fail fast on 'none'); help + acceptance aligned. Unattended EXECUTION path still to come; headless still stops honestly after preflight.
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -123,28 +123,33 @@ headless_preflight() {
   # GitHub is mandatory to CONFIGURE — accounts, or the literal 'none' to skip it.
   HL_GITHUB_ACCOUNTS="${RUN_BASH_GITHUB_ACCOUNTS:-}"
   [[ -n "$HL_GITHUB_ACCOUNTS" ]] || headless_fail "RUN_BASH_GITHUB_ACCOUNTS is required." \
-    "Set it to your GitHub account(s), or to 'none' to provision without a GitHub identity."
+    "Set it to a single GitHub account (headless v1 requires GitHub configured)."
 
-  # Vault password: required whenever an imported/existing vault needs it; here we
-  # resolve it if provided (execution slice enforces the !vault-present rule, D6).
+  # v1 requires GitHub CONFIGURED. The 'configured empty' (RUN_BASH_GITHUB_ACCOUNTS=
+  # none) path is a planned follow-up: it must first fix two latent server-profile
+  # bugs (play-github-cli-multi.yml's ungated `gh --version`, play-lxc's git@ clone)
+  # that abort playbook-main on a no-GitHub box. Until then, fail fast rather than
+  # provision a box that would break at the playbook stage.
+  if [[ "$HL_GITHUB_ACCOUNTS" == "none" ]]; then
+    headless_fail "RUN_BASH_GITHUB_ACCOUNTS=none (GitHub-empty provisioning) is not supported in headless v1." \
+      "Provide a single GitHub account + RUN_BASH_GITHUB_TOKEN_FILE. (Empty-GitHub is a planned follow-up.)"
+  fi
+  # v1 supports a SINGLE account; multiple need one token file per alias (D5).
+  if [[ "$HL_GITHUB_ACCOUNTS" == *,* ]]; then
+    headless_fail "Multiple GitHub accounts ('${HL_GITHUB_ACCOUNTS}') are not supported in headless v1." \
+      "Use a single account."
+  fi
+
+  # Vault password: must be PROVIDED (either form, file preferred), NEVER
+  # auto-generated headless (V3.3/D6). Resolved here; the execution slice enforces
+  # required-when-vault-present.
   hl_resolve_secret VAULT_PASSWORD HL_VAULT_PASSWORD
 
-  if [[ "$HL_GITHUB_ACCOUNTS" == "none" ]]; then
-    echo -e "${CYAN}${INFO} GitHub configured empty — will clone the public repo over HTTPS and skip GitHub setup${NC}" >&2
-    HL_GITHUB_ENABLED=false
-  else
-    HL_GITHUB_ENABLED=true
-    # v1 supports a single account; multiple need one token file per alias (D5).
-    if [[ "$HL_GITHUB_ACCOUNTS" == *,* ]]; then
-      headless_fail "Multiple GitHub accounts ('${HL_GITHUB_ACCOUNTS}') are not supported in headless v1." \
-        "Use a single account, or RUN_BASH_GITHUB_ACCOUNTS=none to skip GitHub."
-    fi
-    # Scoped token is required for non-interactive gh auth (--with-token).
-    hl_resolve_secret GITHUB_TOKEN HL_GITHUB_TOKEN
-    [[ -n "$HL_GITHUB_TOKEN" ]] || headless_fail "RUN_BASH_GITHUB_TOKEN_FILE is required when RUN_BASH_GITHUB_ACCOUNTS is not 'none'." \
-      "Provide a 0600 file holding a scoped PAT (scopes: vars/github-required-scopes.yml + admin:public_key), or set RUN_BASH_GITHUB_ACCOUNTS=none."
-    hl_resolve_secret GITHUB_SSH_PASSPHRASE HL_GITHUB_SSH_PASSPHRASE
-  fi
+  # Scoped token is required for non-interactive gh auth (`gh auth login --with-token`).
+  hl_resolve_secret GITHUB_TOKEN HL_GITHUB_TOKEN
+  [[ -n "$HL_GITHUB_TOKEN" ]] || headless_fail "RUN_BASH_GITHUB_TOKEN_FILE is required (headless v1 requires GitHub configured)." \
+    "Provide a 0600 file holding a scoped PAT (scopes: vars/github-required-scopes.yml + admin:public_key)."
+  hl_resolve_secret GITHUB_SSH_PASSPHRASE HL_GITHUB_SSH_PASSPHRASE
 
   # V3.10(e): drop any LITERAL secret env vars so children (dnf, gh, ansible) do not
   # inherit them via /proc/PID/environ. The *_FILE path vars are not secret and stay.
@@ -160,7 +165,7 @@ headless_preflight() {
       "Grant NOPASSWD:ALL to this user (the default cloud user has it), or run interactively."
   fi
 
-  echo -e "${GREEN}${CHECK} Headless preflight OK${NC} — user=${HL_USER_LOGIN} (${HL_USER_NAME}) email=${HL_USER_EMAIL} github=${HL_GITHUB_ACCOUNTS} github_enabled=${HL_GITHUB_ENABLED}" >&2
+  echo -e "${GREEN}${CHECK} Headless preflight OK${NC} — user=${HL_USER_LOGIN} (${HL_USER_NAME}) email=${HL_USER_EMAIL} github=${HL_GITHUB_ACCOUNTS}" >&2
 }
 
 # ── main() — the entire executable body ──────────────────────────────────────
@@ -259,13 +264,15 @@ PRECONDITIONS (fail fast if unmet — never hangs)
   * NOPASSWD:ALL sudo (the default cloud user has it; a password-sudo Server does
     not — configure NOPASSWD or run interactively).
   * Run as the NON-root target user (cloud-init runcmd is root; drop to the user).
-  * GitHub is mandatory to CONFIGURE: set RUN_BASH_GITHUB_ACCOUNTS explicitly, to
-    account(s) OR to 'none'. Unset => fail fast.
+  * GitHub is mandatory in headless v1: set RUN_BASH_GITHUB_ACCOUNTS to a single
+    account AND provide RUN_BASH_GITHUB_TOKEN_FILE. Unset => fail fast. (The
+    'none' / GitHub-empty path is a planned follow-up, not yet supported.)
 
 NON-SECRET CONFIG (plain RUN_BASH_* env)
   RUN_BASH_HEADLESS=1              Force headless.
   RUN_BASH_USER_EMAIL=...          Git email.                     (REQUIRED)
-  RUN_BASH_GITHUB_ACCOUNTS=...     Comma-sep gh usernames, or 'none'. (REQUIRED)
+  RUN_BASH_GITHUB_ACCOUNTS=...     Single gh username (v1). ('none' is a planned
+                                   follow-up, not yet supported.)      (REQUIRED)
   RUN_BASH_USER_LOGIN=...          System login.        (default: current user)
   RUN_BASH_USER_NAME=...           Full name.                 (default: = login)
   RUN_BASH_HOSTNAME=...            Set hostname when box is still 'fedora'.
@@ -278,7 +285,7 @@ NON-SECRET CONFIG (plain RUN_BASH_* env)
 SECRETS — prefer 0600 FILE POINTERS (recommended), literal env supported but risky
   RUN_BASH_VAULT_PASSWORD_FILE=/path         Ansible vault password (file).
   RUN_BASH_GITHUB_TOKEN_FILE=/path           Scoped GitHub PAT (file); REQUIRED
-                                             when accounts != none.
+                                             in headless v1 (GitHub is mandatory).
   RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE=/path  SSH key passphrase (file).
   Literal equivalents (RUN_BASH_VAULT_PASSWORD, _GITHUB_TOKEN,
   _GITHUB_SSH_PASSPHRASE) are accepted but:
@@ -289,22 +296,16 @@ SECRETS — prefer 0600 FILE POINTERS (recommended), literal env supported but r
   process listings, or cloud-init user-data.
   GitHub token scope: the full vars/github-required-scopes.yml set + admin:public_key.
 
-GITHUB EMPTY vs. CONFIGURED
-  RUN_BASH_GITHUB_ACCOUNTS=none  -> clone the PUBLIC repo over HTTPS, skip ALL
-     GitHub/SSH-key/config-repo/projects setup; still run full provisioning. No
-     token or SSH key needed. Simplest for a bare cloud/server box.
+GITHUB (headless v1 — always CONFIGURED)
   RUN_BASH_GITHUB_ACCOUNTS=<user> -> full GitHub setup via the scoped token file
-     (single account in v1; multiple accounts need one token file per alias).
+     (single account in v1). This is the ONLY supported headless path today.
+  The GitHub-empty path (RUN_BASH_GITHUB_ACCOUNTS=none -> HTTPS-only public clone,
+     no token/SSH key) is a planned follow-up: it is currently BLOCKED by two
+     latent server-profile playbook bugs, so v1 fails fast on 'none' rather than
+     provision a box that would break at the playbook stage.
 
-CANONICAL INVOCATIONS (run as the non-root user)
-  A. Minimal, no GitHub identity:
-       RUN_BASH_HEADLESS=1 \
-       RUN_BASH_USER_EMAIL=name@example.com \
-       RUN_BASH_GITHUB_ACCOUNTS=none \
-       RUN_BASH_VAULT_PASSWORD_FILE=/run/secrets/vault-pass \
-         ./run.bash
-
-  B. Full, with GitHub (single account):
+CANONICAL INVOCATION (run as the non-root user)
+  The single supported headless provision — branch-latest repo, full setup:
        RUN_BASH_HEADLESS=1 \
        RUN_BASH_USER_EMAIL=name@example.com \
        RUN_BASH_GITHUB_ACCOUNTS=<gh-username> \
@@ -320,8 +321,11 @@ CLOUD-INIT (Fedora Cloud) — fetch secrets OUT-OF-BAND, never in write_files
      runcmd:
        - [ sh, -c, 'aws secretsmanager get-secret-value --secret-id vault
              --query SecretString --output text > /run/secrets/vault-pass' ]
+       - [ sh, -c, 'aws secretsmanager get-secret-value --secret-id gh-token
+             --query SecretString --output text > /run/secrets/gh-token' ]
        - [ sh, -c, 'sudo -u <user> -i env RUN_BASH_HEADLESS=1
-             RUN_BASH_USER_EMAIL=name@example.com RUN_BASH_GITHUB_ACCOUNTS=none
+             RUN_BASH_USER_EMAIL=name@example.com RUN_BASH_GITHUB_ACCOUNTS=<gh-username>
+             RUN_BASH_GITHUB_TOKEN_FILE=/run/secrets/gh-token
              RUN_BASH_VAULT_PASSWORD_FILE=/run/secrets/vault-pass
              /home/<user>/run.bash' ]
   Replace <user> with the box's non-root user (Fedora Cloud's default distro user).

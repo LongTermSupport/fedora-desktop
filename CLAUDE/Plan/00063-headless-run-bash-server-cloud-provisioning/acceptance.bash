@@ -86,29 +86,34 @@ expect_fail "bad USER_EMAIL" "is not a valid email" \
 expect_fail "missing GITHUB_ACCOUNTS" "RUN_BASH_GITHUB_ACCOUNTS is required" \
   RUN_BASH_USER_EMAIL=name@example.com
 
-# 4. Multiple GitHub accounts (v1 single-account).
+# 4. GitHub-empty ('none') path is deferred in v1 — must fail fast, not provision.
+expect_fail "github=none deferred in v1" "not supported in headless v1" \
+  RUN_BASH_USER_EMAIL=name@example.com RUN_BASH_GITHUB_ACCOUNTS=none
+
+# 5. Multiple GitHub accounts (v1 single-account).
 expect_fail "multiple GITHUB_ACCOUNTS" "Multiple GitHub accounts" \
   RUN_BASH_USER_EMAIL=name@example.com RUN_BASH_GITHUB_ACCOUNTS=alice,bob
 
-# 5. GitHub account set but no token file.
+# 6. GitHub account set but no token file (v1 requires GitHub configured).
 expect_fail "missing GITHUB_TOKEN_FILE" "RUN_BASH_GITHUB_TOKEN_FILE is required" \
   RUN_BASH_USER_EMAIL=name@example.com RUN_BASH_GITHUB_ACCOUNTS=alice
 
-# 6. Both literal + file forms for the vault secret.
+# 7. Both literal + file forms for the vault secret (resolved before the token gate).
 expect_fail "both vault forms set" "Both RUN_BASH_VAULT_PASSWORD_FILE" \
-  RUN_BASH_USER_EMAIL=name@example.com RUN_BASH_GITHUB_ACCOUNTS=none \
+  RUN_BASH_USER_EMAIL=name@example.com RUN_BASH_GITHUB_ACCOUNTS=alice \
   RUN_BASH_VAULT_PASSWORD=lit RUN_BASH_VAULT_PASSWORD_FILE="$readable_secret"
 
-# 7. Vault *_FILE set but unreadable — must NOT fall back.
+# 8. Vault *_FILE set but unreadable — must NOT fall back.
 expect_fail "unreadable vault file" "is not a readable file" \
-  RUN_BASH_USER_EMAIL=name@example.com RUN_BASH_GITHUB_ACCOUNTS=none \
+  RUN_BASH_USER_EMAIL=name@example.com RUN_BASH_GITHUB_ACCOUNTS=alice \
   RUN_BASH_VAULT_PASSWORD_FILE="$unreadable_secret"
 
-# 8. All config valid (github=none, vault via readable file) reaches the LAST gate,
-#    the NOPASSWD-sudo probe, which fails for the unprivileged user — proving the
-#    happy config path resolves and the sudo precondition is enforced.
+# 9. All config valid (single account, token + vault via readable files) reaches the
+#    LAST gate, the NOPASSWD-sudo probe, which fails for the unprivileged user —
+#    proving the happy config path resolves and the sudo precondition is enforced.
 expect_fail "valid config hits NOPASSWD gate" "NOPASSWD" \
-  RUN_BASH_USER_EMAIL=name@example.com RUN_BASH_GITHUB_ACCOUNTS=none \
+  RUN_BASH_USER_EMAIL=name@example.com RUN_BASH_GITHUB_ACCOUNTS=alice \
+  RUN_BASH_GITHUB_TOKEN_FILE="$readable_secret" \
   RUN_BASH_VAULT_PASSWORD_FILE="$readable_secret"
 
 echo

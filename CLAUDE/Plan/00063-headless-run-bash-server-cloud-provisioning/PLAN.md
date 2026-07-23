@@ -374,11 +374,16 @@ vault) → fail fast if absent.
   — latent server-profile bugs). Security side (AuditSecurity r3) is fine — its
   findings were already implemented in slice 2. Coherence fixes + Decision-2
   re-grounding below. **No bug shipped** (empty-path execution unimplemented).
-- [ ] 🔄 **Task 1.6**: **Owner decision — empty-GitHub path in v1, or defer?** (A)
-  defer → v1 = GitHub-token-required headless (recommended, least latent-bug
-  surface); (B) do it → also guard `play-github-cli-multi` + `play-lxc` (HOST-test)
-  - set-u block-gating + identity/vault-write carve-out. Then re-freeze the
-    (decision-appropriate) spec.
+- [x] ✅ **Task 1.6**: **Owner decision — empty-GitHub path in v1, or defer?**
+  **RESOLVED (owner): DEFER (option A).** v1 = GitHub-token-required headless — a
+  single account + `RUN_BASH_GITHUB_TOKEN_FILE` are mandatory; `RUN_BASH_GITHUB_ACCOUNTS=none`
+  now **fails fast** in `headless_preflight` naming the follow-up. This is the
+  least latent-bug surface: the empty path's two server-profile blockers
+  (`play-github-cli-multi.yml:42` ungated `gh --version`, `play-lxc:240` `git@`
+  clone) do NOT need fixing for v1. Landed in **run.bash v1.9.1** (preflight gate +
+  `--help-run-headless` + acceptance test "github=none deferred in v1"). Empty-GitHub
+  is carved out to a **separate follow-up plan** (fix the two plays, then re-enable).
+  Design is **RE-FROZEN** for the token-required spec.
 
 ### Phase 2: Implementation (post-convergence)
 
@@ -463,6 +468,18 @@ provisioning. **Accounts provided →** full GitHub setup via a scoped token
 (V3.2-V3.9). This preserves "every box makes a conscious GitHub decision" while
 removing the token/SSH residuals for the no-GitHub case.
 **Date**: 2026-07-23
+
+> **REFINED by round-3 coverage + owner decision (Task 1.6, 2026-07-23): the
+> *empty* half is DEFERRED to a follow-up.** The round-3 coverage audit found the
+> "explicitly empty → HTTPS-only" path is not actually a no-op skip — it breaks
+> `playbook-main.yml` on a no-GitHub box via two latent server-profile bugs
+> (`play-github-cli-multi.yml:42` ungated `gh --version`; `play-lxc:240` `git@`
+> clone). Fixing those is out of scope for headless v1. So **v1 = GitHub configured
+> and token-required**: a single account + `RUN_BASH_GITHUB_TOKEN_FILE` are
+> mandatory, and `RUN_BASH_GITHUB_ACCOUNTS=none` **fails fast** naming the follow-up.
+> The "may be configured empty" contract is preserved as the *target end-state* but
+> is delivered by a separate plan (fix the two plays, then re-enable the HTTPS-only
+> path). Landed in **run.bash v1.9.1**. See Task 1.6.
 
 ### Decision 3: Plan-first, then hostile Opus review loop, then execute
 
