@@ -38,6 +38,22 @@ Everything you need to get started:
 
 ---
 
+### I want to provision a server or cloud box unattended (IaC)
+
+**[Headless / Unattended Provisioning](headless-provisioning.md)**
+
+Provision a Fedora **Server** or **Cloud** box end-to-end with zero prompts, driven by
+`RUN_BASH_*` environment variables:
+
+- When headless mode turns on, and its fail-fast preconditions
+- The full environment contract (non-secret config + `0600` secret file pointers)
+- The canonical invocation and a cloud-init out-of-band secrets example
+- The fail-fast, fail-loud guarantee
+
+The authoritative contract is also built into the script: `./run.bash --help-run-headless`.
+
+---
+
 ### I want to add optional features
 
 **[Playbooks Reference](playbooks.md)**
@@ -281,6 +297,10 @@ distrobox enter dev
 
 - [Multi-account management](github-multi-account.md) — Setup, commands, adding/removing accounts
 - [SSH over Port 443](github-ssh-over-443.md) — Keep Git-over-SSH working on networks that block port 22
+
+**Headless / Server Provisioning**
+
+- [Headless / Unattended Provisioning](headless-provisioning.md) — Provision a Fedora Server/Cloud box with zero prompts via `RUN_BASH_*` (IaC / cloud-init / CI)
 
 **Networking**
 

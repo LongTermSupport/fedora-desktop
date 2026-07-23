@@ -458,13 +458,17 @@ vault) → fail fast if absent.
   (`runcmd`, NOT `write_files`) secret-fetch example per V3.15. QA green;
   in-container verified.
 - [ ] 🔄 **Task 2.8**: `./scripts/qa-all.bash` (green each slice); plan-local
-  `acceptance.bash` — **created, 8 preflight fail-fast gates pass** in-container via
-  `runuser -u nobody` (missing/bad email, missing/multiple accounts, missing token
-  file, both-secret-forms, unreadable `*_FILE`, valid-config→NOPASSWD gate). No new
-  `2>/dev/null`/`|| true`/`sed` (D10). **Pending**: failed-playbook exit-code +
-  desktop-path checks (added with the execution slices).
-- [ ] ⬜ **Task 2.9**: Docs — `docs/` headless/server/cloud section + `README.md`
-  cross-link.
+  `acceptance.bash` — **created, 10 preflight fail-fast gates pass** in-container via
+  `runuser -u nobody` (missing/bad email, missing accounts, github=none deferred,
+  multiple accounts, missing token file, both-secret-forms, unreadable `*_FILE`,
+  missing SSH passphrase, valid-config→NOPASSWD gate). No new `2>/dev/null`/`|| true`/
+  `sed` (D10). qa-all green after every slice; both files shellcheck -x clean.
+  **Remaining**: end-to-end execution assertions are HOST-only (Phase 3) — the
+  preflight gates are all that is reachable without a real box.
+- [x] ✅ **Task 2.9**: Docs — **done**: `docs/headless-provisioning.md` (trigger,
+  preconditions, full env contract, canonical invocation, cloud-init out-of-band
+  secrets, fail-loud guarantee), cross-linked from `docs/README.md` (purpose section
+  - A-Z) and `docs/installation.md` (intro pointer).
 
 ### Phase 3: Verification (HOST — not CCY container)
 

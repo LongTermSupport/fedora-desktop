@@ -2,6 +2,11 @@
 
 Get your Fedora system configured for development in 10-30 minutes.
 
+> **Provisioning a server or cloud box unattended?** This guide covers the
+> interactive desktop install. For a fully unattended, prompt-free provision of a
+> Fedora **Server** or **Cloud** box (IaC / cloud-init / CI), see
+> [Headless / Unattended Provisioning](headless-provisioning.md).
+
 ## Before You Begin
 
 ### System Requirements
