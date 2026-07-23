@@ -62,6 +62,13 @@ Make sure you have:
 
 Need more details? See the full [Installation Guide](docs/installation.md).
 
+### Unattended Server / Cloud Install (IaC)
+
+Provisioning a **Fedora Server or Cloud** box with no prompts (cloud-init / CI / an LLM
+agent)? Follow the step-by-step [Headless Server Install — Unattended IaC Runbook](docs/headless-server-install.md)
+(download `run.bash`, create the secret files, write the vars file, run), with the full
+`RUN_BASH_*` contract in [Headless / Unattended Provisioning](docs/headless-provisioning.md).
+
 ### Adding GitHub Accounts
 
 This project supports multiple GitHub identities on one machine, each with its own SSH key, `gh` authentication, and per-account `git-<alias>` / `gh-<alias>` shell helpers. **Read the full guide before adding an account: [GitHub Multi-Account Management](docs/github-multi-account.md).**
@@ -177,6 +184,8 @@ See [Playbooks Reference](docs/playbooks.md) for the complete list with usage ex
 Comprehensive guides are available in the [docs/](docs/) directory:
 
 - **[Installation Guide](docs/installation.md)** - Step-by-step setup instructions
+- **[Headless Server Install](docs/headless-server-install.md)** - Unattended IaC runbook for Fedora Server/Cloud (download → secrets → vars file → run)
+- **[Headless / Unattended Provisioning](docs/headless-provisioning.md)** - The full `RUN_BASH_*` contract, trigger rules, and security model
 - **[Playbooks Reference](docs/playbooks.md)** - Complete list of what you can install
 - **[Configuration Guide](docs/configuration.md)** - Customize your setup
 - **[Containerization Guide](docs/containerization.md)** - LXC vs Docker vs Distrobox explained

@@ -40,15 +40,17 @@ Everything you need to get started:
 
 ### I want to provision a server or cloud box unattended (IaC)
 
-**[Headless / Unattended Provisioning](headless-provisioning.md)**
+**[Headless Server Install — Unattended IaC Runbook](headless-server-install.md)** — start here
 
-Provision a Fedora **Server** or **Cloud** box end-to-end with zero prompts, driven by
-`RUN_BASH_*` environment variables:
+A precise, copy-paste, step-by-step runbook (download → secret files → vars file → run),
+optimised to be followed by a human or an LLM agent. Includes a full cloud-init example
+and a one-shot install script.
 
-- When headless mode turns on, and its fail-fast preconditions
-- The full environment contract (non-secret config + `0600` secret file pointers)
-- The canonical invocation and a cloud-init out-of-band secrets example
-- The fail-fast, fail-loud guarantee
+**[Headless / Unattended Provisioning](headless-provisioning.md)** — the reference
+
+The what behind the how: when headless mode triggers, the full `RUN_BASH_*` environment
+contract (non-secret config + `0600` secret file pointers), the security model, and the
+fail-fast, fail-loud guarantee.
 
 The authoritative contract is also built into the script: `./run.bash --help-run-headless`.
 
@@ -300,7 +302,8 @@ distrobox enter dev
 
 **Headless / Server Provisioning**
 
-- [Headless / Unattended Provisioning](headless-provisioning.md) — Provision a Fedora Server/Cloud box with zero prompts via `RUN_BASH_*` (IaC / cloud-init / CI)
+- [Headless Server Install — Unattended IaC Runbook](headless-server-install.md) — Step-by-step: download run.bash, create secret files, write the vars file, run (with cloud-init + one-shot script)
+- [Headless / Unattended Provisioning](headless-provisioning.md) — Reference: the full `RUN_BASH_*` contract, trigger rules, and security model
 
 **Networking**
 
