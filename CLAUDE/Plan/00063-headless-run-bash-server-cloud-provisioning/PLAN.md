@@ -411,12 +411,14 @@ vault) → fail fast if absent.
 - [ ] ⬜ **Task 2.6**: Failure semantics (D7) — headless main-playbook failure ⇒
   non-zero exit; both public-tracker gates resolve No; pass
   `RUN_BASH_PROVISIONING_PROFILE` to `playbook-main.yml` when set.
-- [x] ✅ **Task 2.7**: `--help` + `--help-run-headless` (D11) — **done** (v1.8.0).
-  `--help` expanded (server/cloud + headless pointer + auto-detect note);
-  `--help-run-headless` documents the full env contract (non-secret + `*_FILE`
-  secrets), NOPASSWD/non-root preconditions, GitHub empty-vs-configured, canonical
-  A/B invocations, and a cloud-init **out-of-band** (`runcmd`, NOT `write_files`)
-  secret-fetch example per V3.15. QA green; in-container verified.
+- [x] ✅ **Task 2.7**: `--help` + `--help-run-headless` (D11) — **done** (v1.8.0,
+  retuned v1.9.1). `--help` expanded (server/cloud + headless pointer + auto-detect
+  note); `--help-run-headless` documents the full env contract (non-secret +
+  `*_FILE` secrets), NOPASSWD/non-root preconditions, the **v1 token-required**
+  GitHub contract (single account + token file; `none`/empty flagged as a
+  follow-up), the single canonical invocation, and a cloud-init **out-of-band**
+  (`runcmd`, NOT `write_files`) secret-fetch example per V3.15. QA green;
+  in-container verified.
 - [ ] 🔄 **Task 2.8**: `./scripts/qa-all.bash` (green each slice); plan-local
   `acceptance.bash` — **created, 8 preflight fail-fast gates pass** in-container via
   `runuser -u nobody` (missing/bad email, missing/multiple accounts, missing token
