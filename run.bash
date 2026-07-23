@@ -3,7 +3,7 @@
 ## Setup
 ## !! BUMP THIS VERSION ON EVERY CHANGE TO THIS FILE — NO EXCEPTIONS !!
 ## !! If you forget, there is NO WAY to tell which version is running !!
-RUN_BASH_VERSION="1.8.0"  # Feature (Plan 00063): headless/unattended mode for server & cloud provisioning via RUN_BASH_* env (secrets as 0600 *_FILE pointers), scaffolding slice — trigger + arg parsing (--headless/--interactive) + --help-run-headless + expanded --help. Behaviour-gating wired in following slices.
+RUN_BASH_VERSION="1.9.0"  # Feature (Plan 00063) slice 2: headless PREFLIGHT — headless_preflight validates+resolves all RUN_BASH_* input up front (non-root check, NOPASSWD-sudo probe, required email/accounts, secret *_FILE resolution with V3.10 guardrails: file-precedence, both-set/unreadable/literal-on-cloud fail-fast, literal-elsewhere warn, unset literals before first child), set -u-safe secret-file EXIT trap. Unattended EXECUTION path still to come; headless still stops honestly after preflight.
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -37,6 +37,132 @@ INFO="ℹ"
 WARN="⚠"
 BUG="🐛"
 
+# ── Headless / unattended helpers (Plan 00063) ───────────────────────────────
+# Defined at TOP LEVEL (before main) so they are available in the early
+# flags/preflight region, which runs before main()'s nested functions exist.
+# They depend only on the colour/symbol constants above. Fail-fast rule 11:
+# a headless run never hangs — a missing/unsafe input aborts with a specific,
+# actionable message on stderr.
+
+# headless_fail <what-is-wrong> <how-to-fix> — abort a headless run (exit 1).
+# MUST be called directly (never inside $(...)) so exit ends the whole script.
+headless_fail() {
+  echo -e "\n${RED}${BOLD}${CROSS} Headless run cannot proceed${NC}" >&2
+  echo -e "${RED}  ${1}${NC}" >&2
+  echo -e "${YELLOW}${ARROW} ${2}${NC}" >&2
+  echo -e "${YELLOW}${ARROW} Full contract: ./run.bash --help-run-headless${NC}" >&2
+  exit 1
+}
+
+# hl_is_cloud — true if this looks like a cloud-init-provisioned box, where a
+# literal secret in the environment persists in user-data + the metadata service.
+hl_is_cloud() {
+  [[ -d /var/lib/cloud/instance ]]
+}
+
+# hl_resolve_secret <BASENAME> <OUT_VAR> — resolve a secret from
+# RUN_BASH_<BASENAME>_FILE (preferred) or the literal RUN_BASH_<BASENAME>, applying
+# the V3.10 guardrails, and assign the secret bytes to the global named <OUT_VAR>
+# via printf -v (NOT echoed — so it never lands in a captured/logged stdout, and so
+# headless_fail runs in the caller's shell and exits cleanly). Empty when neither
+# is set — the caller decides required-ness.
+#   both file+literal set      -> fail fast (ambiguous; the literal still leaks)
+#   *_FILE set but unreadable   -> fail fast (never fall back)
+#   literal on a cloud box      -> fail fast (user-data / metadata persistence)
+#   literal elsewhere           -> loud stderr warning, allowed
+hl_resolve_secret() {
+  local _base="$1" _out="$2"
+  local _lit="RUN_BASH_${_base}" _file="RUN_BASH_${_base}_FILE"
+  local _litval="${!_lit:-}" _fileval="${!_file:-}"
+  local _result=""
+  if [[ -n "$_fileval" && -n "$_litval" ]]; then
+    headless_fail "Both ${_file} and ${_lit} are set (ambiguous, and the literal still leaks)." \
+      "Set exactly one — prefer the *_FILE form (the secret bytes never enter the environment)."
+  fi
+  if [[ -n "$_fileval" ]]; then
+    if [[ ! -r "$_fileval" ]]; then
+      headless_fail "${_file}=${_fileval} is not a readable file." \
+        "Point it at a 0600 file containing the secret; there is no fallback to a literal."
+    fi
+    # cat strips the trailing newline that echo>file / here-strings add.
+    _result="$(cat -- "$_fileval")"
+  elif [[ -n "$_litval" ]]; then
+    if hl_is_cloud; then
+      headless_fail "${_lit} is set as a LITERAL on a cloud-init box." \
+        "Literal secrets persist in cloud-init user-data + the metadata service (world-readable). Use ${_file} with an out-of-band-fetched 0600 file."
+    fi
+    echo -e "${YELLOW}${WARN} ${_lit} passed as a literal env value — it is inherited by child processes via /proc/PID/environ. Prefer ${_file}.${NC}" >&2
+    _result="$_litval"
+  fi
+  printf -v "$_out" '%s' "$_result"
+}
+
+# headless_preflight — validate every precondition + resolve every RUN_BASH_* value
+# BEFORE any provisioning action, so an unattended run fails fast (never hangs) on a
+# missing/unsafe input. Populates HL_* globals (non-exported: not visible to child
+# processes via the environment) consumed by the execution path.
+headless_preflight() {
+  echo -e "${CYAN}${INFO} Headless mode — validating RUN_BASH_* configuration${NC}" >&2
+
+  # Non-root: cloud-init runcmd is root; run.bash must run as the target user
+  # (matches the interactive root refusal). Checked here with headless guidance.
+  if [[ "$(whoami)" == "root" ]]; then
+    headless_fail "Headless run is executing as root." \
+      "Run as the non-root target user (cloud-init: sudo -u <user> -i env RUN_BASH_...=... ./run.bash)."
+  fi
+
+  # Required identity.
+  HL_USER_EMAIL="${RUN_BASH_USER_EMAIL:-}"
+  [[ -n "$HL_USER_EMAIL" ]] || headless_fail "RUN_BASH_USER_EMAIL is required." \
+    "Set it to the git email for this box, e.g. RUN_BASH_USER_EMAIL=name@example.com."
+  [[ "$HL_USER_EMAIL" == *@*.* ]] || headless_fail "RUN_BASH_USER_EMAIL='${HL_USER_EMAIL}' is not a valid email." \
+    "Use a form like name@example.com."
+  HL_USER_LOGIN="${RUN_BASH_USER_LOGIN:-$(whoami)}"
+  HL_USER_NAME="${RUN_BASH_USER_NAME:-$HL_USER_LOGIN}"
+
+  # GitHub is mandatory to CONFIGURE — accounts, or the literal 'none' to skip it.
+  HL_GITHUB_ACCOUNTS="${RUN_BASH_GITHUB_ACCOUNTS:-}"
+  [[ -n "$HL_GITHUB_ACCOUNTS" ]] || headless_fail "RUN_BASH_GITHUB_ACCOUNTS is required." \
+    "Set it to your GitHub account(s), or to 'none' to provision without a GitHub identity."
+
+  # Vault password: required whenever an imported/existing vault needs it; here we
+  # resolve it if provided (execution slice enforces the !vault-present rule, D6).
+  hl_resolve_secret VAULT_PASSWORD HL_VAULT_PASSWORD
+
+  if [[ "$HL_GITHUB_ACCOUNTS" == "none" ]]; then
+    echo -e "${CYAN}${INFO} GitHub configured empty — will clone the public repo over HTTPS and skip GitHub setup${NC}" >&2
+    HL_GITHUB_ENABLED=false
+  else
+    HL_GITHUB_ENABLED=true
+    # v1 supports a single account; multiple need one token file per alias (D5).
+    if [[ "$HL_GITHUB_ACCOUNTS" == *,* ]]; then
+      headless_fail "Multiple GitHub accounts ('${HL_GITHUB_ACCOUNTS}') are not supported in headless v1." \
+        "Use a single account, or RUN_BASH_GITHUB_ACCOUNTS=none to skip GitHub."
+    fi
+    # Scoped token is required for non-interactive gh auth (--with-token).
+    hl_resolve_secret GITHUB_TOKEN HL_GITHUB_TOKEN
+    [[ -n "$HL_GITHUB_TOKEN" ]] || headless_fail "RUN_BASH_GITHUB_TOKEN_FILE is required when RUN_BASH_GITHUB_ACCOUNTS is not 'none'." \
+      "Provide a 0600 file holding a scoped PAT (scopes: vars/github-required-scopes.yml + admin:public_key), or set RUN_BASH_GITHUB_ACCOUNTS=none."
+    hl_resolve_secret GITHUB_SSH_PASSPHRASE HL_GITHUB_SSH_PASSPHRASE
+  fi
+
+  # V3.10(e): drop any LITERAL secret env vars so children (dnf, gh, ansible) do not
+  # inherit them via /proc/PID/environ. The *_FILE path vars are not secret and stay.
+  unset RUN_BASH_VAULT_PASSWORD RUN_BASH_GITHUB_TOKEN RUN_BASH_GITHUB_SSH_PASSPHRASE
+
+  # NOPASSWD:ALL sudo (V3.7): the first direct sudo (dnf) runs with no TTY. Probe
+  # with -k so a cached timestamp cannot yield a false pass. Capture stderr (no
+  # error-hiding redirect) so the failure reason is shown. Last precondition — after
+  # the cheaper config checks so the most common mistake (missing env) reports first.
+  local _sudo_probe
+  if ! _sudo_probe="$(sudo -k -n true 2>&1)"; then
+    headless_fail "Passwordless (NOPASSWD:ALL) sudo is required (sudo: ${_sudo_probe:-a password is required})." \
+      "Grant NOPASSWD:ALL to this user (the default cloud user has it), or run interactively."
+  fi
+
+  echo -e "${GREEN}${CHECK} Headless preflight OK${NC} — user=${HL_USER_LOGIN} (${HL_USER_NAME}) email=${HL_USER_EMAIL} github=${HL_GITHUB_ACCOUNTS} github_enabled=${HL_GITHUB_ENABLED}" >&2
+}
+
 # ── main() — the entire executable body ──────────────────────────────────────
 # B5: wrapping everything in main() (and only calling it on the last line via
 # `( main "$@" )`) guarantees the WHOLE file is parsed before any command runs.
@@ -52,8 +178,14 @@ main() {
   set -o pipefail
   IFS=$'\n\t'
 
-  # Safety net: always clean up sensitive temp files on exit
-  trap 'rm -f /tmp/.github_ssh_pp' EXIT
+  # Safety net: always clean up sensitive temp files on exit.
+  # HL_SECRET_FILES holds any 0600 secret files a headless run must shred on ANY
+  # exit path (V3.4/V3.11). Initialised empty BEFORE the trap so the trap is
+  # set -u-safe even when no headless secret files exist (empty-GitHub path / an
+  # early abort before the files are learned) — a "${arr[@]:-}" expansion of an
+  # empty array is a harmless no-op for rm -f, never an unbound-variable error.
+  HL_SECRET_FILES=()
+  trap 'rm -f /tmp/.github_ssh_pp "${HL_SECRET_FILES[@]:-}"' EXIT
 
 # Flags
 OPTIONAL_ONLY=false
@@ -251,14 +383,15 @@ if [[ -z "$HEADLESS" ]]; then
   esac
 fi
 
-# Headless BEHAVIOUR is delivered in following slices of Plan 00063. Until then,
-# fail fast (never hang, never half-run) so a triggered headless invocation is
-# honest rather than silently falling into the interactive path on a TTY-less box.
+# Headless: validate + resolve all RUN_BASH_* input up front (fail fast, never
+# hang). The unattended EXECUTION path (provisioning with the resolved HL_* values)
+# is delivered in following slices of Plan 00063; until then we stop honestly AFTER
+# a successful preflight so nothing half-provisions.
 if [[ "$HEADLESS" == "true" ]]; then
-  echo -e "${RED}${BOLD:-}${CROSS:-x} Headless mode is not yet fully implemented.${NC}" >&2
-  echo -e "${YELLOW:-}${ARROW:-} run.bash v${RUN_BASH_VERSION}: the --help-run-headless contract and" >&2
-  echo -e "${YELLOW:-}${ARROW:-} flag scaffolding are in place; the unattended execution path is being" >&2
-  echo -e "${YELLOW:-}${ARROW:-} wired in (Plan 00063). Run interactively for now, or track the plan." >&2
+  headless_preflight
+  echo -e "\n${YELLOW}${ARROW} run.bash v${RUN_BASH_VERSION}: headless preflight is complete; the unattended" >&2
+  echo -e "${YELLOW}${ARROW} EXECUTION path is still being wired in (Plan 00063). No changes were made.${NC}" >&2
+  echo -e "${YELLOW}${ARROW} Run interactively to provision for now, or track the plan.${NC}" >&2
   exit 1
 fi
 

@@ -368,14 +368,18 @@ freeze/execute):
 
 ### Phase 2: Implementation (post-convergence)
 
-- [ ] 🔄 **Task 2.1**: Headless trigger + arg parsing (`--headless`/`--interactive`);
-  startup **NOPASSWD-sudo probe → fail fast** (D4); bump `RUN_BASH_VERSION`.
-  **Slice 1 done** (v1.8.0): tri-state `HEADLESS`, `--headless`/`--interactive`
-  flags, auto-detect (no-TTY + any `RUN_BASH_*` config var, excl. `RUN_BASH_VERSION`;
-  `RUN_BASH_HEADLESS` override), honest fail-fast when headless is triggered (behaviour
-  not yet wired). **Pending**: NOPASSWD probe (lands with the behaviour path).
-- [ ] ⬜ **Task 2.2**: Secret **file-pointer** plumbing (D2) — read `*_FILE` into
-  locals, `0600`-verify, delete after use; `headless_fail` (stderr-clean, D9).
+- [x] ✅ **Task 2.1**: Headless trigger + arg parsing + version bump + **NOPASSWD
+  probe**. Slice 1 (v1.8.0): tri-state `HEADLESS`, `--headless`/`--interactive`,
+  auto-detect. Slice 2 (v1.9.0): `headless_preflight` runs `sudo -k -n true` →
+  fail-fast if not NOPASSWD (V3.7), non-root check, all as the FIRST thing a
+  triggered headless run does.
+- [ ] 🔄 **Task 2.2**: Secret **file-pointer** plumbing (D2) — **done: resolution +
+  V3.10 guardrails + `set -u`-safe trap** (slice 2). `hl_resolve_secret` (global-out
+  so `headless_fail` exits cleanly, not inside `$()`): `*_FILE` precedence, both-set
+  → fail, unreadable `*_FILE` → fail (no fallback), literal-on-cloud → fail,
+  literal-elsewhere → warn; literal env `unset` before first child (V3.10e);
+  `HL_SECRET_FILES` array + `${arr[@]:-}` trap (V3.11). `headless_fail` stderr-clean
+  (D9). **Pending (execution slice)**: delete-after-use + ssh-agent teardown.
 - [ ] ⬜ **Task 2.3**: **GitHub token auth** (D3) — `gh auth login --with-token` in
   run.bash **and** `gh-account-setup.bash`; scope check; single-account v1 +
   fail-fast on unsupported multi-account.
@@ -394,10 +398,12 @@ freeze/execute):
   secrets), NOPASSWD/non-root preconditions, GitHub empty-vs-configured, canonical
   A/B invocations, and a cloud-init **out-of-band** (`runcmd`, NOT `write_files`)
   secret-fetch example per V3.15. QA green; in-container verified.
-- [ ] ⬜ **Task 2.8**: `./scripts/qa-all.bash`; plan-local `acceptance.bash`
-  (headless fail-fast proofs — missing token/email/accounts, non-NOPASSWD probe,
-  failed-playbook exit code; desktop path unchanged). No new
-  `2>/dev/null`/`|| true`/`sed` (D10).
+- [ ] 🔄 **Task 2.8**: `./scripts/qa-all.bash` (green each slice); plan-local
+  `acceptance.bash` — **created, 8 preflight fail-fast gates pass** in-container via
+  `runuser -u nobody` (missing/bad email, missing/multiple accounts, missing token
+  file, both-secret-forms, unreadable `*_FILE`, valid-config→NOPASSWD gate). No new
+  `2>/dev/null`/`|| true`/`sed` (D10). **Pending**: failed-playbook exit-code +
+  desktop-path checks (added with the execution slices).
 - [ ] ⬜ **Task 2.9**: Docs — `docs/` headless/server/cloud section + `README.md`
   cross-link.
 
