@@ -3,7 +3,7 @@
 ## Setup
 ## !! BUMP THIS VERSION ON EVERY CHANGE TO THIS FILE — NO EXCEPTIONS !!
 ## !! If you forget, there is NO WAY to tell which version is running !!
-RUN_BASH_VERSION="1.9.5"  # Feature (Plan 00063) slice 2: headless PREFLIGHT — headless_preflight validates+resolves all RUN_BASH_* input up front (non-root check, NOPASSWD-sudo probe, required email/accounts, secret *_FILE resolution with V3.10 guardrails: file-precedence, both-set/unreadable/literal-on-cloud fail-fast, literal-elsewhere warn, unset literals before first child), set -u-safe secret-file EXIT trap. v1.9.1: defer the GitHub-empty ('none') path per round-3 decision — headless v1 requires a single GitHub account + token file (fail fast on 'none'); help + acceptance aligned. v1.9.2: require RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE in v1 — the login SSH key stays passphrase-protected (D6), mirroring the interactive no-empty-passphrase rule, since headless loads it non-interactively via ssh-agent/SSH_ASKPASS (D5). v1.9.3: begin the EXECUTION slice — add hl_abort (BIG LOUD banner, exit 1) for headless execution failures, and a headless backstop at the top of every shared interactive prompt helper (confirm/promptForValue/promptChoice/promptSecretConfirmed/promptDefault/prompt_verified_vault_password/prompt_github_accounts_yaml) so a headless run that ever reaches a prompt fails LOUD instead of hanging (fail-fast rule 11). v1.9.4: GitHub/SSH execution mechanics — hl_ssh_agent_start (ssh-agent + transient 0700 SSH_ASKPASS reading a 0600 passphrase file, V3.13), hl_ssh_agent_stop (kill after last git op, V3.12), hl_cleanup EXIT trap (shred secret files + backstop agent kill, V3.11); headless branches for keygen (-P from resolved passphrase + agent load), hostname (RUN_BASH_HOSTNAME or leave default), gh token auth (gh auth login --with-token from stdin + git_protocol=ssh). All fail LOUD via hl_abort. v1.9.5: localhost.yml assembly — hl_write_localhost_yml (idempotent keep, else RUN_BASH_CONFIG_SOURCE pull from the private config repo, else FRESH from RUN_BASH_* identity + github_accounts), hl_pull_config_source (private-repo gate + LOUD 404), hl_reconcile_vault (D6: provided-or-fail, verify against encrypted values, NEVER auto-generate over !vault); headless branch for github_ssh_passphrase (reuse resolved passphrase, vault-encrypt). Interactive config/vault blocks wrapped under `if HEADLESS != true`. Honest-stop still active — execution branches wired next; flipped last. Unattended EXECUTION path still being wired; headless still stops honestly after preflight.
+RUN_BASH_VERSION="1.10.0"  # Feature (Plan 00063) slice 2: headless PREFLIGHT — headless_preflight validates+resolves all RUN_BASH_* input up front (non-root check, NOPASSWD-sudo probe, required email/accounts, secret *_FILE resolution with V3.10 guardrails: file-precedence, both-set/unreadable/literal-on-cloud fail-fast, literal-elsewhere warn, unset literals before first child), set -u-safe secret-file EXIT trap. v1.9.1: defer the GitHub-empty ('none') path per round-3 decision — headless v1 requires a single GitHub account + token file (fail fast on 'none'); help + acceptance aligned. v1.9.2: require RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE in v1 — the login SSH key stays passphrase-protected (D6), mirroring the interactive no-empty-passphrase rule, since headless loads it non-interactively via ssh-agent/SSH_ASKPASS (D5). v1.9.3: begin the EXECUTION slice — add hl_abort (BIG LOUD banner, exit 1) for headless execution failures, and a headless backstop at the top of every shared interactive prompt helper (confirm/promptForValue/promptChoice/promptSecretConfirmed/promptDefault/prompt_verified_vault_password/prompt_github_accounts_yaml) so a headless run that ever reaches a prompt fails LOUD instead of hanging (fail-fast rule 11). v1.9.4: GitHub/SSH execution mechanics — hl_ssh_agent_start (ssh-agent + transient 0700 SSH_ASKPASS reading a 0600 passphrase file, V3.13), hl_ssh_agent_stop (kill after last git op, V3.12), hl_cleanup EXIT trap (shred secret files + backstop agent kill, V3.11); headless branches for keygen (-P from resolved passphrase + agent load), hostname (RUN_BASH_HOSTNAME or leave default), gh token auth (gh auth login --with-token from stdin + git_protocol=ssh). All fail LOUD via hl_abort. v1.9.5: localhost.yml assembly — hl_write_localhost_yml (idempotent keep, else RUN_BASH_CONFIG_SOURCE pull from the private config repo, else FRESH from RUN_BASH_* identity + github_accounts), hl_pull_config_source (private-repo gate + LOUD 404), hl_reconcile_vault (D6: provided-or-fail, verify against encrypted values, NEVER auto-generate over !vault); headless branch for github_ssh_passphrase (reuse resolved passphrase, vault-encrypt). Interactive config/vault blocks wrapped under `if HEADLESS != true`. v1.10.0: FLIP the honest-stop — headless now flows through the FULL body (gh-account-setup gets RUN_BASH_HEADLESS + fails LOUD on any interactive gh web/scope-refresh; main playbook gets RUN_BASH_PROVISIONING_PROFILE passthrough + D7 loud-fatal on failure; optional playbooks via RUN_BASH_OPTIONAL_PLAYBOOKS; projects restore via RUN_BASH_RESTORE_PROJECTS; reboot via RUN_BASH_REBOOT). END-TO-END execution is HOST-verified on a real server (Phase 3) — in-container this is bash -n + shellcheck + preflight acceptance only.
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -363,6 +363,49 @@ hl_reconcile_vault() {
   fi
 }
 
+# hl_run_optional_playbooks — headless replacement for the interactive optional-playbook
+# menu. Runs exactly the plays named in RUN_BASH_OPTIONAL_PLAYBOOKS (space/comma list of
+# play-foo.yml | foo | play-foo), in order; 'none'/unset skips the whole section. Any
+# unknown name or failing play aborts LOUD (a server run must not silently under-provision).
+hl_run_optional_playbooks() {
+  local spec="${RUN_BASH_OPTIONAL_PLAYBOOKS:-none}"
+  if [[ -z "$spec" || "$spec" == "none" ]]; then
+    info "Headless: RUN_BASH_OPTIONAL_PLAYBOOKS=none — skipping optional playbooks"
+    return 0
+  fi
+  if [[ ! -d ~/Projects/fedora-desktop ]]; then
+    hl_abort "optional playbooks" "$HOME/Projects/fedora-desktop not found — the repo was not cloned" \
+      "run the full headless install (it clones the repo) before requesting optional playbooks"
+  fi
+  cd ~/Projects/fedora-desktop || hl_abort "optional playbooks" "cannot cd into ~/Projects/fedora-desktop" "check the clone succeeded"
+  local -a _all_optional
+  mapfile -t _all_optional < <(find playbooks/imports/optional -name "*.yml" -type f | sort)
+  local -a _reqs
+  IFS=' ,' read -ra _reqs <<< "$spec"
+  local req pb base found name
+  for req in "${_reqs[@]}"; do
+    [[ -z "$req" ]] && continue
+    found=""
+    for pb in "${_all_optional[@]}"; do
+      base="$(basename "$pb")"
+      if [[ "$base" == "$req" || "$base" == "$req.yml" || "$base" == "play-${req}.yml" ]]; then
+        found="$pb"; break
+      fi
+    done
+    if [[ -z "$found" ]]; then
+      hl_abort "optional playbooks" "requested optional playbook '${req}' not found under playbooks/imports/optional/" \
+        "use an exact name like play-docker.yml (or docker), or set RUN_BASH_OPTIONAL_PLAYBOOKS=none"
+    fi
+    name="$(basename "$found" .yml)"
+    info "Headless: running optional playbook ${name}"
+    if ! "$found"; then
+      hl_abort "optional playbook ${name}" "${found} FAILED" \
+        "scroll up for the Ansible output; fix it, drop it from RUN_BASH_OPTIONAL_PLAYBOOKS, or set =none"
+    fi
+    success "Headless: optional playbook ${name} complete"
+  done
+}
+
 # ── main() — the entire executable body ──────────────────────────────────────
 # B5: wrapping everything in main() (and only calling it on the last line via
 # `( main "$@" )`) guarantees the WHOLE file is parsed before any command runs.
@@ -587,16 +630,14 @@ if [[ -z "$HEADLESS" ]]; then
   esac
 fi
 
-# Headless: validate + resolve all RUN_BASH_* input up front (fail fast, never
-# hang). The unattended EXECUTION path (provisioning with the resolved HL_* values)
-# is delivered in following slices of Plan 00063; until then we stop honestly AFTER
-# a successful preflight so nothing half-provisions.
+# Headless: validate + resolve all RUN_BASH_* input up front (fail fast, never hang)
+# BEFORE any provisioning action. On success the run then flows through the SAME body
+# as the interactive path — every interactive point below has a headless branch that
+# uses the resolved HL_*/RUN_BASH_* values, and the shared prompt helpers hard-fail
+# LOUD (hl_abort) if a headless run ever reaches an un-neutralised prompt.
 if [[ "$HEADLESS" == "true" ]]; then
   headless_preflight
-  echo -e "\n${YELLOW}${ARROW} run.bash v${RUN_BASH_VERSION}: headless preflight is complete; the unattended" >&2
-  echo -e "${YELLOW}${ARROW} EXECUTION path is still being wired in (Plan 00063). No changes were made.${NC}" >&2
-  echo -e "${YELLOW}${ARROW} Run interactively to provision for now, or track the plan.${NC}" >&2
-  exit 1
+  echo -e "\n${YELLOW}${ARROW} run.bash v${RUN_BASH_VERSION}: headless preflight OK — provisioning unattended.${NC}" >&2
 fi
 
 ## Step counter
@@ -2108,6 +2149,7 @@ if grep -q 'github_accounts' "$localhost_yml" 2>/dev/null; then
   GITHUB_SSH_PASSPHRASE="${_github_ssh_passphrase:-}" \
   LOCALHOST_YML="$localhost_yml" \
   VAULT_PASS_FILE="$vault_pass_file" \
+  RUN_BASH_HEADLESS="$HEADLESS" \
     ./scripts/gh-account-setup.bash --setup-all
 else
   success "Single account setup — no additional accounts to authenticate"
@@ -2155,6 +2197,13 @@ echo -e "${YELLOW}${INFO} This may take several minutes...${NC}\n"
 # failure is handled here instead of silently aborting.
 main_exit_code=0
 
+# Headless: forward the provisioning profile to the main playbook when the operator
+# pinned it (RUN_BASH_PROVISIONING_PROFILE); otherwise the playbook auto-detects it.
+_main_pb_args=()
+if [[ "$HEADLESS" == "true" && -n "${RUN_BASH_PROVISIONING_PROFILE:-}" ]]; then
+  _main_pb_args+=(-e "provisioning_profile=${RUN_BASH_PROVISIONING_PROFILE}")
+fi
+
 # -k ignores any cached sudo timestamp, so this is true ONLY for genuine
 # passwordless (NOPASSWD) sudo. Without -k, an earlier `sudo` in this run
 # leaves a cached ticket that makes this pass, skipping --ask-become-pass —
@@ -2162,17 +2211,23 @@ main_exit_code=0
 # that cache, so it fails with "premature end of stream waiting for become
 # success". Detecting real NOPASSWD here routes password sudo to --ask-become-pass.
 if sudo -k -n true 2>/dev/null; then
-  ./playbooks/playbook-main.yml || main_exit_code=$?
+  ./playbooks/playbook-main.yml "${_main_pb_args[@]}" || main_exit_code=$?
 else
   echo -e "${YELLOW}${INFO} sudo needs a password — Ansible will now prompt you for it (BECOME password)${NC}"
-  ./playbooks/playbook-main.yml --ask-become-pass || main_exit_code=$?
+  ./playbooks/playbook-main.yml "${_main_pb_args[@]}" --ask-become-pass || main_exit_code=$?
 fi
 
 if [[ $main_exit_code -eq 0 ]]; then
   completed
+elif [[ "$HEADLESS" == "true" ]]; then
+  # D7: a headless main-playbook failure is FATAL — no PUBLIC-tracker issue prompt, no
+  # continue-anyway. Abort LOUD with the exact exit code so the failure is unmissable
+  # and the run exits non-zero (never limps on into optional playbooks).
+  hl_abort "main playbook" "playbook-main.yml FAILED with exit code ${main_exit_code}" \
+    "scroll up for the failing Ansible task's output; fix the cause and re-run. Headless never files an issue or continues past a main-playbook failure."
 else
   error "Main playbook failed with exit code: $main_exit_code"
-  
+
   # Offer to create GitHub issue (posts to the PUBLIC tracker — default No)
   if confirm "Would you like to create a GitHub issue for this failure? (posts to the PUBLIC tracker)" n; then
     create_github_issue "./playbooks/playbook-main.yml" "$main_exit_code"
@@ -2190,7 +2245,19 @@ fi
 title "Restoring Projects"
 _pull_projects_script=~/Projects/fedora-desktop/fedora-install/pull-projects.bash
 if [[ -f "$_pull_projects_script" ]]; then
-  if confirm "Would you like to restore projects from your config repo manifest?" y; then
+  _do_restore=false
+  if [[ "$HEADLESS" == "true" ]]; then
+    # Headless: opt-in via RUN_BASH_RESTORE_PROJECTS=1 (default off — a fresh server
+    # usually has no project manifest yet). No prompt.
+    if [[ "${RUN_BASH_RESTORE_PROJECTS:-0}" == "1" ]]; then
+      _do_restore=true
+    else
+      info "Headless: RUN_BASH_RESTORE_PROJECTS not set — skipping project restore"
+    fi
+  elif confirm "Would you like to restore projects from your config repo manifest?" y; then
+    _do_restore=true
+  fi
+  if [[ "$_do_restore" == "true" ]]; then
     if ! "$_pull_projects_script" --account "$primary_gh_username"; then
       warning "Projects restore failed or no manifest found — continuing"
     fi
@@ -2395,7 +2462,9 @@ check_hardware() {
 echo -e "\n${MAGENTA}${BOLD}Optional Configurations${NC}"
 echo -e "${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
-if [[ "$OPTIONAL_ONLY" == "true" ]] || confirm "Would you like to install optional components?" y; then
+if [[ "$HEADLESS" == "true" ]]; then
+  hl_run_optional_playbooks
+elif [[ "$OPTIONAL_ONLY" == "true" ]] || confirm "Would you like to install optional components?" y; then
   # L4: --optional-only with no prior install has no cloned repo. Fail with a
   # clear "run the full install first" message rather than a terse cd error.
   if [[ ! -d ~/Projects/fedora-desktop ]]; then
@@ -2549,7 +2618,17 @@ touch ~/.local/state/fedora-desktop-setup-complete
 
 title "System Reboot"
 warning "A reboot is recommended to complete the configuration"
-if confirm "Ready to reboot now?" n; then
+if [[ "$HEADLESS" == "true" ]]; then
+  # Headless: reboot only when explicitly asked (RUN_BASH_REBOOT=1). Default: finish
+  # cleanly and leave the box up so the operator/orchestrator controls the reboot.
+  if [[ "${RUN_BASH_REBOOT:-0}" == "1" ]]; then
+    success "Headless provisioning complete — rebooting now (RUN_BASH_REBOOT=1)"
+    sudo reboot now
+  else
+    success "Headless provisioning complete! Reboot when convenient (set RUN_BASH_REBOOT=1 to auto-reboot)."
+    exit 0
+  fi
+elif confirm "Ready to reboot now?" n; then
   echo -e "${YELLOW}${INFO} Rebooting system...${NC}"
   sudo reboot now
 else

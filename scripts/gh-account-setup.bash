@@ -281,6 +281,14 @@ setup_account() {
   if is_gh_authed "$username"; then
     success "Authenticated: ${username}"
   else
+    # Headless (Plan 00063): the interactive browser/device-code flow cannot run
+    # unattended. run.bash token-auths the primary account before calling us, so a
+    # correctly-scoped PAT means we never get here. If we do, fail LOUD.
+    if [[ "${RUN_BASH_HEADLESS:-}" == "true" ]]; then
+      error "Headless: GitHub account '${username}' is not authenticated and headless cannot run the interactive browser/device-code login."
+      echo -e "   ${YELLOW}➜${NC} Ensure run.bash token-auth succeeded and RUN_BASH_GITHUB_TOKEN_FILE holds a PAT for this account." >&2
+      exit 1
+    fi
     info "Authenticating ${username}..."
     echo -e ""
     echo -e "   ${BOLD}1.${NC} Copy the one-time code shown below"
@@ -318,6 +326,13 @@ setup_account() {
   local missing_scopes
   missing_scopes=$(get_missing_scopes)
   if [[ -n "$missing_scopes" ]]; then
+    # Headless (Plan 00063): the interactive scope-refresh (gh auth refresh --web)
+    # cannot run unattended. The provided PAT must already carry every required scope.
+    if [[ "${RUN_BASH_HEADLESS:-}" == "true" ]]; then
+      error "Headless: GitHub account '${username}' is missing scopes ($(echo "$missing_scopes" | tr '\n' ' ')) and headless cannot run the interactive scope refresh."
+      echo -e "   ${YELLOW}➜${NC} Provide a PAT that already has all required scopes (vars/github-required-scopes.yml + admin:public_key)." >&2
+      exit 1
+    fi
     warning "Missing scopes: $(echo "$missing_scopes" | tr '\n' ' ')"
     echo -e ""
     echo -e "   Press Enter when prompted — the URL will be displayed (browser will NOT open)"

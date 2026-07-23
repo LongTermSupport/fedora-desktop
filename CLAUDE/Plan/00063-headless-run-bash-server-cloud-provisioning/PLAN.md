@@ -405,8 +405,11 @@ vault) → fail fast if absent.
   auth block runs BEFORE the interactive one (which then no-ops into "already
   authenticated") — `printf '%s' "$HL_GITHUB_TOKEN" | gh auth login --with-token`
   (PAT from stdin, never argv/env) + `gh config set git_protocol ssh`; LOUD abort on
-  rejection naming the scopes. **Pending**: `gh-account-setup.bash` headless path
-  (HOST-verified, Phase 3).
+  rejection naming the scopes. **gh-account-setup done (v1.10.0)**: run.bash passes
+  `RUN_BASH_HEADLESS`; the script's two interactive fallbacks (`gh auth login --web`,
+  `gh auth refresh --web` for missing scopes) now fail LOUD under headless instead of
+  hanging — the happy path (already token-authed + correctly-scoped PAT) is a no-op.
+  Code complete; HOST-verified (Phase 3).
 - [ ] 🔄 **Task 2.4**: SSH keys (D5) — passphrase-from-file + ssh-agent for the
   clone; vault reconciliation (D6, verify-or-fail, no auto-generate over `!vault`).
   **Preflight part done (v1.9.2)**: since the deferral made GitHub always
@@ -420,8 +423,10 @@ vault) → fail fast if absent.
   0700 `SSH_ASKPASS` reading a 0600 passphrase file — the helper carries only the
   non-secret path; V3.13), `hl_ssh_agent_stop` (kill right after the last git pull;
   V3.12), `hl_cleanup` EXIT trap (shred secret files + backstop agent kill; V3.11);
-  headless keygen `-P "$HL_GITHUB_SSH_PASSPHRASE"` then agent load. Vault
-  reconciliation (D6) is the remaining part (next sub-slice).
+  headless keygen `-P "$HL_GITHUB_SSH_PASSPHRASE"` then agent load. **Vault
+  reconciliation done (v1.9.5)**: `hl_reconcile_vault` (provided-or-fail, verify
+  against encrypted values, never auto-generate over `!vault`). Code complete;
+  ssh-agent load/clone/teardown end-to-end is HOST-verified (Phase 3).
 - [ ] 🔄 **Task 2.5**: Read-prompt neutralisation (D9) — identity, hostname
   (`RUN_BASH_HOSTNAME`), `RUN_BASH_GITHUB_ACCOUNTS` validation, config import,
   optional menu, projects restore, reboot; env-gate + safe defaults.
@@ -431,11 +436,19 @@ vault) → fail fast if absent.
   prompt_github_accounts_yaml) — a headless run that reaches ANY prompt now fails
   loud (names the prompt + the missing RUN_BASH\_\* wiring) instead of hanging. This
   is the owner's "any problem surfaces a big clear error" steer as a single
-  no-hang guarantee. **Pending**: neutralise each legitimate call site with its
-  RUN_BASH\_\* value so headless flows THROUGH (not aborts).
-- [ ] ⬜ **Task 2.6**: Failure semantics (D7) — headless main-playbook failure ⇒
-  non-zero exit; both public-tracker gates resolve No; pass
-  `RUN_BASH_PROVISIONING_PROFILE` to `playbook-main.yml` when set.
+  no-hang guarantee. **Call sites neutralised + STOP FLIPPED (v1.10.0)**: hostname
+  (`RUN_BASH_HOSTNAME`), config-import (`hl_write_localhost_yml`), vault
+  (`hl_reconcile_vault`), github_ssh_passphrase, gh-account-setup
+  (`RUN_BASH_HEADLESS` env → fails LOUD on any interactive gh web/scope-refresh),
+  optional playbooks (`hl_run_optional_playbooks` / `RUN_BASH_OPTIONAL_PLAYBOOKS`),
+  projects restore (`RUN_BASH_RESTORE_PROJECTS`), reboot (`RUN_BASH_REBOOT`). Every
+  interactive `read` is now either inside a backstopped helper or a headless-bypassed
+  block. Code complete; end-to-end is HOST-verified (Phase 3).
+- [x] ✅ **Task 2.6**: Failure semantics (D7) — **done (v1.10.0)**: a headless
+  main-playbook failure `hl_abort`s LOUD with the exit code (no PUBLIC-tracker issue
+  prompt, no continue-anyway) and exits non-zero; `RUN_BASH_PROVISIONING_PROFILE` is
+  passed to `playbook-main.yml` via `-e provisioning_profile=` when set. Optional
+  playbooks + gh-account-setup also fail LOUD (never hang). HOST-verified in Phase 3.
 - [x] ✅ **Task 2.7**: `--help` + `--help-run-headless` (D11) — **done** (v1.8.0,
   retuned v1.9.1). `--help` expanded (server/cloud + headless pointer + auto-detect
   note); `--help-run-headless` documents the full env contract (non-secret +
