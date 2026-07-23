@@ -352,9 +352,13 @@ freeze/execute):
   v2's own cloud secret-delivery (`write_files` = user-data). All confirmed and
   folded into **Design v3 deltas (V3.1-V3.9)**. Convergence is close — remaining
   items are bounded edits, except 3 genuine **owner decisions** the loop surfaced.
-- [ ] 🔄 **Task 1.5**: Resolve the 3 owner decisions (Decision 4/V3.1 confirm;
-  V3.6 ssh-key-at-rest; reconsider Decision 2 GitHub-mandatory), then either a final
-  confirming round or freeze the design as the implementation spec.
+- [x] ✅ **Task 1.5a**: 3 owner decisions resolved → Decisions 2 (mandatory-to-
+  configure, may be empty), 4 (support both secret forms, advise file), 6 (keep
+  passphrase, ssh-agent+`SSH_ASKPASS`). Canonical invocation (A minimal / B full)
+  documented. Grounded that GitHub is not strictly required (public repo → HTTPS).
+- [ ] 🔄 **Task 1.5b**: **Focused final review** of the NEW/unaudited surface — the
+  empty-GitHub HTTPS-clone path, the both-secret-forms precedence, the canonical
+  invocation, and V3 coherence — then freeze the spec.
 
 ### Phase 2: Implementation (post-convergence)
 
@@ -406,14 +410,24 @@ answers file, or Ansible extra-vars passthrough.
 answers file is an explicit **Non-Goal** for now.
 **Date**: 2026-07-23
 
-### Decision 2: GitHub setup stays mandatory in every mode
+### Decision 2: GitHub is mandatory to **configure**, but may be configured **empty** (round-2 refinement)
 
-**Context**: A bare server arguably needs no GitHub identity; option was to skip
-GitHub if unset headless.
-**Decision** (owner, 2026-07-23): **Always require GitHub.** Headless supplies
-accounts via `RUN_BASH_GITHUB_ACCOUNTS`; missing → fail fast. SSH stays the only
-auth path. Keeps behaviour uniform with the desktop flow and every provisioned box
-gets a working GitHub identity.
+**Context**: Round 2 showed GitHub-mandatory is the dominant headless
+complexity/security driver, and grounding proved GitHub is **not strictly required
+to provision**: the repo is **public** (clones over HTTPS with zero auth; the SSH
+clone at `run.bash:1156` is only for push-back), and `playbook-main.yml` needs
+`localhost.yml` (identity + vault), **not** `github_accounts` (those only drive
+`gh-account-setup`). The GitHub/SSH block (`964-1133`: keygen, gh install/auth, key
+upload, multi-account, config-repo, projects) is optional convenience.
+**Decision** (owner, 2026-07-23): **Keep GitHub mandatory to *configure*, allow it
+configured *empty*.** Headless MUST set `RUN_BASH_GITHUB_ACCOUNTS` explicitly — to
+one/more accounts, **or** explicitly to empty/`none`. **Unset → fail fast** (forces
+a conscious choice; uniform with the desktop flow). **Explicitly empty →** clone the
+public repo over **HTTPS**, **skip the entire GitHub/SSH/config-repo/projects
+block** (no keygen, no token, no key-at-rest exposure) and still run full
+provisioning. **Accounts provided →** full GitHub setup via a scoped token
+(V3.2-V3.9). This preserves "every box makes a conscious GitHub decision" while
+removing the token/SSH residuals for the no-GitHub case.
 **Date**: 2026-07-23
 
 ### Decision 3: Plan-first, then hostile Opus review loop, then execute
@@ -434,14 +448,20 @@ persists `user-data` to `/var/lib/cloud/instance/user-data.txt` + the metadata
 service, world-readable **indefinitely** (`unset` cannot unwrite it); (b) every
 child process inherits an exported secret via `/proc/PID/environ` during the
 multi-minute run.
-**Decision**: Keep Decision 1's env-driven contract, but for **secret material**
-(GitHub token, vault password, SSH passphrase) the env var carries a **path to a
-`0600` file**, not the secret bytes. cloud-init lays the files down via
-`write_files` (`permissions: '0600'`); run.bash reads each into a `local` and
-deletes it after use. Mirrors the repo's existing `VAULT_PASS_FILE`
-(`gh-account-setup.bash:21`). This is a **refinement, not a reversal** — the path
-still arrives via env; only the secret bytes stay out of the environment and
-user-data. **Owner FYI to confirm at round-2 sign-off** (does not block the loop).
+**Decision** (owner-confirmed, 2026-07-23): **Support BOTH forms; docs recommend
+file-based.** For each secret (GitHub token, vault password, SSH passphrase) accept
+a literal env var **and** a `*_FILE` path var; the `*_FILE` form takes precedence,
+and `--help-run-headless` **advises file-based as best**. File-pointer rationale
+(round-1 proof): a literal secret in env is exposed two ways on the cloud-init use
+case — (a) it persists in `user-data` (`/var/lib/cloud/instance/user-data.txt` +
+metadata service, world-locally readable **indefinitely**; `unset` cannot unwrite
+it), and (b) every child inherits it via `/proc/PID/environ`. The `*_FILE` form
+(0600, path via env, bytes read into a `local` and the file deleted — see V3.4
+trap) avoids both. **Cloud caveat (V3.1):** even the file must be delivered
+**out-of-band** (runcmd fetch), never via `write_files` — write_files content is
+itself user-data. Literal env remains available (owner choice) but is documented as
+compromised-on-arrival and must be rotated post-provision. Mirrors the repo's
+existing `VAULT_PASS_FILE` (`gh-account-setup.bash:21`).
 **Date**: 2026-07-23
 
 ### Decision 5: Headless requires NOPASSWD sudo + a scoped GitHub token; single-account in v1
@@ -450,12 +470,70 @@ user-data. **Owner FYI to confirm at round-2 sign-off** (does not block the loop
 not bash prompts: direct `sudo` (password) and `gh` device-code OAuth.
 **Decision**: Headless **requires** (a) **NOPASSWD sudo** — probed at startup,
 fail-fast if absent (the default cloud user has it); and (b) a **scoped GitHub
-token file** (`gh auth login --with-token`) — GitHub auth cannot be done via any
-`read` helper. Headless v1 supports a **single GitHub account**; multiple accounts
-require one token file per alias and **fail fast** otherwise (no silent partial
-auth). Both are documented preconditions in `--help-run-headless`, not silent
-assumptions.
+token file** (`gh auth login --with-token`) **when accounts are non-empty** —
+GitHub auth cannot be done via any `read` helper. Headless v1 supports a **single
+GitHub account**; multiple accounts require one token per alias and **fail fast**
+otherwise (no silent partial auth). Both are documented preconditions in
+`--help-run-headless`. (When `RUN_BASH_GITHUB_ACCOUNTS` is empty per Decision 2, no
+token is needed — the GitHub block is skipped and the public repo clones via HTTPS.)
 **Date**: 2026-07-23
+
+### Decision 6: SSH key keeps its passphrase; loaded via ssh-agent + `SSH_ASKPASS` (owner: keep passphrase)
+
+**Context**: Owner chose to keep `~/.ssh/id` passphrase-protected at rest (not
+passphraseless), but doubted ssh-agent+askpass is "really best". Grounding: there
+is **no** file/stdin passphrase flag for `ssh-add` or `ssh-keygen` — `SSH_ASKPASS`
+(+`SSH_ASKPASS_REQUIRE=force`) is the *only* non-interactive mechanism to load a
+passphrase-protected key, and `ssh-keygen -P/-N` only accept the passphrase via
+argv. So the mechanism is not a free choice — it is the single supported path.
+**Decision**: Headless (GitHub-enabled path only) — read the passphrase from
+`RUN_BASH_GITHUB_SSH_PASSPHRASE[_FILE]`, generate the key, start an **ssh-agent**
+spanning keygen→clone(`:1159`)→pull(`:1508`), load the key with a **transient
+`SSH_ASKPASS` helper** that reads the 0600 file, and **tear the agent down**
+(`ssh-agent -k`) via the EXIT trap. **Stated residuals** (documented, accepted for a
+dedicated same-uid provision box): the passphrase is transiently visible in
+`/proc/PID/cmdline` during `ssh-keygen` (no non-argv option exists), and the
+askpass helper momentarily handles the passphrase. Both are same-uid, momentary,
+and on a box the operator already controls. The GitHub-**empty** path skips key
+generation entirely (Decision 2), so this whole surface is absent there.
+**Date**: 2026-07-23
+
+## Canonical headless invocation (documented in `--help-run-headless` + docs)
+
+The **one clean, canonical way** to headlessly provision the latest repo (the
+overriding owner requirement). run.bash self-updates (clones/pulls the repo), so
+this always runs the branch-latest source.
+
+**A. Minimal — no GitHub identity (simplest; cloud/server):**
+
+```bash
+# Run as the NON-root target user (cloud-init: drop from root via runcmd).
+# GitHub explicitly empty -> HTTPS clone of the public repo, GitHub block skipped.
+RUN_BASH_HEADLESS=1 \
+RUN_BASH_USER_EMAIL=name@example.com \
+RUN_BASH_GITHUB_ACCOUNTS=none \
+RUN_BASH_VAULT_PASSWORD_FILE=/run/secrets/vault-pass \
+  bash -c "$(curl -fsSL https://raw.githubusercontent.com/LongTermSupport/fedora-desktop/HEAD/run.bash)"
+```
+
+**B. Full — with GitHub (scoped token, single account):**
+
+```bash
+RUN_BASH_HEADLESS=1 \
+RUN_BASH_USER_EMAIL=name@example.com \
+RUN_BASH_GITHUB_ACCOUNTS=<gh-username> \
+RUN_BASH_GITHUB_TOKEN_FILE=/run/secrets/gh-token \
+RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE=/run/secrets/ssh-pass \
+RUN_BASH_VAULT_PASSWORD_FILE=/run/secrets/vault-pass \
+  bash -c "$(curl -fsSL https://raw.githubusercontent.com/LongTermSupport/fedora-desktop/HEAD/run.bash)"
+```
+
+Preconditions (fail-fast if unmet): **NOPASSWD:ALL sudo**; non-root user; on cloud,
+secret files fetched **out-of-band** in `runcmd` (never `write_files`/user-data);
+token carries the full `vars/github-required-scopes.yml` + `admin:public_key`. The
+`--help-run-headless` cloud-init example shows the `runcmd` out-of-band secret fetch
+
+- drop-to-user, not a secret-bearing `write_files`.
 
 ## Success Criteria
 
