@@ -1226,6 +1226,49 @@ viewer_monitor_loop() {
           done
 }
 
+# ── Landing-zone cleanup advisory ─────────────────────────────────────────────
+# Nudge the user to clean up the FTP landing zone when a large amount of OLD
+# material has piled up there. Fires only when at least LANDING_WARN_GB GB of
+# files older than LANDING_WARN_AGE_DAYS days are sitting in the upload dir.
+# Keying on *old* files (not total size) is deliberate: a big fresh shoot never
+# trips it, so we never nag you to delete data that may not be on the remote
+# yet. Purely advisory — it prints and returns, and never deletes anything.
+# Both thresholds honour an environment override for one-off tuning.
+LANDING_WARN_GB="${LANDING_WARN_GB:-50}"
+LANDING_WARN_AGE_DAYS="${LANDING_WARN_AGE_DAYS:-7}"
+
+warn_if_landing_stale() {
+    [ -d "$UPLOAD_DIR" ] || return 0
+
+    local threshold_bytes stale_bytes
+    threshold_bytes=$(( LANDING_WARN_GB * 1024 * 1024 * 1024 ))
+
+    # Sum the sizes of files last modified more than the age threshold ago.
+    # printf "%.0f" (not `print s`, not `%d`) is deliberate: bare `print`
+    # renders a multi-GB sum in scientific notation (2.5e+09) and `%d` caps at
+    # 2^31-1 under mawk — both then break the `[ -ge ]` integer test below.
+    # "%.0f" formats the double directly: no exponent, no 32-bit cap, exact
+    # to 2^53 (far past any disk), and identical under mawk and gawk. awk
+    # yields 0 for an empty match set, so stale_bytes is always numeric. A
+    # permission-skipped entry can only undercount (a softer warning), never
+    # abort — find's exit status is masked by awk's as the pipeline tail.
+    stale_bytes=$(find "$UPLOAD_DIR" -type f -mtime +"$LANDING_WARN_AGE_DAYS" -printf '%s\n' \
+        | awk '{ s += $1 } END { printf "%.0f\n", s }')
+
+    [ "$stale_bytes" -ge "$threshold_bytes" ] || return 0
+
+    local stale_gb
+    stale_gb=$(awk -v b="$stale_bytes" 'BEGIN { printf "%.1f", b / 1073741824 }')
+
+    echo -e "  ${YELLOW}${BOLD}⚠  Landing-zone cleanup suggested${NC}"
+    echo -e "     ${stale_gb} GB of files older than ${LANDING_WARN_AGE_DAYS} days are sitting in"
+    echo -e "     ${CYAN}${UPLOAD_DIR}${NC} — likely already pushed to the remote."
+    echo -e "     Verify they're on the remote, then reclaim the space:"
+    echo -e "       rclone check ${UPLOAD_DIR} <your-remote>   # 0 differences = safe"
+    echo -e "       sudo rm -rf ${UPLOAD_DIR}/*"
+    echo ""
+}
+
 # Structured human-friendly summary of the runtime configuration. Printed
 # once just before the script enters its monitor loop, so the user can
 # verify at a glance which combination of flags is actually active —
@@ -1296,6 +1339,7 @@ print_startup_banner() {
     echo -e "    Passive:     ${CYAN}On${NC}"
     echo -e "    Destination: ${CYAN}/${NC}"
     echo ""
+    warn_if_landing_stale
     echo -e "${YELLOW}Monitoring for uploads — press Ctrl+C to stop${NC}"
     echo ""
 }
