@@ -341,3 +341,10 @@
         'Successfully installed firmware' in fwupd_result.stdout
         or 'has been updated' in fwupd_result.stdout
         or 'reboot is required' in fwupd_result.stdout | lower
+      # Firmware updating is a physical-hardware concern with no consumer on a VM /
+      # headless target: fwupd is not installed there and `fwupdmgr get-devices` (or a
+      # no-device `refresh`) exits non-zero under bare `set -e`, aborting the whole run
+      # via any_errors_fatal at play 3. Gate it off on the server profile (same pattern
+      # as the USB-audio task above). Bare-metal servers wanting firmware updates can
+      # revisit this behind an explicit opt-in probe.
+      when: provisioning_profile != 'server'

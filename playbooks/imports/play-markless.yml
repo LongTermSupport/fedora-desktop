@@ -32,8 +32,12 @@
           fi
           echo "upgrading from $installedVersion to $desiredVersion"
         fi
-        cd /home/{{ user_login }}/Downloads
-        rm -rf markless*
+        # Use a private scratch dir, not ~/Downloads: the XDG Downloads dir only
+        # exists after a graphical login, so it is absent on a headless server and
+        # the old `cd ~/Downloads` aborted the whole run there (play is scope: general).
+        work="$(mktemp -d)"
+        trap 'rm -rf "$work"' EXIT
+        cd "$work"
         wget "{{ marklessUrl }}"
 
         # Verify SHA256 checksum
