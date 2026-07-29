@@ -8,6 +8,45 @@
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
   tasks:
     # =========================================================================
+    # USER SYSTEMD MANAGER BRING-UP (prerequisite for every systemctl --user below)
+    # =========================================================================
+    # On a headless Cloud Base firstboot the provisioning user has NEVER logged in, so no
+    # user@UID.service (the per-user systemd manager) is running and /run/user/UID does not
+    # exist — every systemctl --user call below (and in play-podman.yml downstream) would
+    # fail. Enabling linger persists the manager across logouts and starts it at boot, but
+    # loginctl enable-linger only QUEUES that start job asynchronously: it does not block
+    # until the manager is up. So we follow it with an explicit systemd start of
+    # user@UID.service — the ansible.builtin.systemd module blocks on the (Type=notify) job
+    # until the manager signals READY=1, making its presence, and the private control socket
+    # the verify/handler need, a deterministic guarantee at the next task rather than a race.
+    # This is the mechanism play-rclone.yml:155-171 relies on, made cold-start-safe.
+    - name: Look up UID for the user's systemd session env
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ user_login }}"
+      tags:
+        - systemd
+        - linger
+
+    - name: Enable linger so user services survive logout and start at boot
+      become: true
+      ansible.builtin.command:
+        cmd: loginctl enable-linger {{ user_login }}
+        creates: /var/lib/systemd/linger/{{ user_login }}
+      tags:
+        - systemd
+        - linger
+
+    - name: Ensure the user systemd manager is running (closes the enable-linger async race)
+      become: true
+      ansible.builtin.systemd:
+        name: "user@{{ ansible_facts.getent_passwd[user_login][1] }}.service"
+        state: started
+      tags:
+        - systemd
+        - linger
+
+    # =========================================================================
     # SYSTEMD-OOMD MEMORY PRESSURE FIX
     # =========================================================================
     #
@@ -115,17 +154,40 @@
         - systemd
         - oomd
 
+    # Apply the notified daemon-reload NOW (handlers otherwise flush only at play end), so
+    # the verify below reads the RELOADED user.slice, not its pre-drop-in value — required
+    # for the assertion to be meaningful on the first run.
+    - name: Flush handlers to apply the user daemon-reload before verifying
+      ansible.builtin.meta: flush_handlers
+
     - name: Verify systemd-oomd Configuration
       ansible.builtin.shell: |
         set -o pipefail
         systemctl --user show user.slice | grep ManagedOOMMemoryPressure
       become: true
       become_user: "{{ user_login }}"
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
+        DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}/bus"
       register: oomd_verify
       changed_when: false
-      failed_when: false  # FAIL-FAST-OK: probe — oomd config may not be applied yet
       args:
         executable: /bin/bash
+      tags:
+        - systemd
+        - oomd
+
+    - name: Assert systemd-oomd Override Was Applied
+      ansible.builtin.assert:
+        that:
+          - "'ManagedOOMMemoryPressure=auto' in oomd_verify.stdout"
+        fail_msg: |
+          The systemd-oomd override (ManagedOOMMemoryPressure=auto) is not present in the
+          reloaded user.slice. The drop-in was written to
+          ~/.config/systemd/user/user.slice.d/50-oom-override.conf and the user daemon was
+          reloaded, but the value did not take effect — investigate the user systemd manager
+          state (systemctl --user show user.slice).
+          Verify output: {{ oomd_verify.stdout | default('(empty)') }}
       tags:
         - systemd
         - oomd
@@ -175,11 +237,19 @@
     # =========================================================================
 
   handlers:
+    # With linger enabled and user@UID.service explicitly started in this play, the user
+    # manager is guaranteed up on both profiles, so the daemon-reload no longer needs the
+    # old `ignore_errors: true` headless escape hatch (removed — a failure here now means the
+    # manager really is broken, which must fail the run). XDG_RUNTIME_DIR is what
+    # `systemctl --user` actually dials (its private socket); DBUS is kept for parity with
+    # the scope:user precedent at play-rclone.yml:203-205.
     - name: reload-systemd-user-daemon
       ansible.builtin.systemd:
         daemon_reload: true
         scope: user
       become: true
       become_user: "{{ user_login }}"
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
+        DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}/bus"
       listen: reload-systemd-user-daemon
-      ignore_errors: true  # FAIL-FAST-OK: fails during headless firstboot (no D-Bus session)

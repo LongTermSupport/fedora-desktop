@@ -20,19 +20,29 @@
         state: present
         extra_args: --user
 
-    - name: Check if user D-Bus session is available
-      ansible.builtin.command: systemctl --user status
-      register: dbus_session_check
-      changed_when: false
-      failed_when: false  # FAIL-FAST-OK: probe — D-Bus session may not exist yet
+    # The user systemd manager is brought up (linger + explicit user@UID.service start) by
+    # play-systemd-user-tweaks.yml earlier in playbook-main.yml, and linger persists it
+    # across reboots — so on a full run the manager is guaranteed up here. We resolve the UID
+    # locally so the scope:user socket enable also works when this play is run standalone (a
+    # stated repo requirement); on a box that has NEVER run the full playbook the enable
+    # fails loud rather than silently skipping — the correct fail-fast behaviour, replacing
+    # the old probe-then-skip that left a container host with no Docker-API socket.
+    - name: Look up UID for the user's systemd session env
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ user_login }}"
 
-    - name: Enable Podman Socket for Docker Compatibility (Optional)
+    - name: Enable Podman Socket for Docker Compatibility
+      become: true
+      become_user: "{{ user_login }}"
       ansible.builtin.systemd:
         name: podman.socket
         state: started
         enabled: true
         scope: user
-      when: dbus_session_check.rc == 0
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
+        DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}/bus"
 
     # =========================================================================
     # OPT-IN DESTRUCTIVE RECOVERY — wipe rootless podman storage.

@@ -124,17 +124,25 @@ non-interactive stdin — cosmetic).
 
 ### Phase 2: Correct the container host (silent misbehaves)
 
-- [ ] ⬜ **Task 2.1**: Add a `loginctl enable-linger {{ user_login }}` task (with
-  `creates: /var/lib/systemd/linger/{{ user_login }}`) before the first `systemctl --user`
-  in the core run — shape already in `play-rclone.yml`.
-- [ ] ⬜ **Task 2.2**: `play-systemd-user-tweaks.yml` — give the handler + verify task the
-  explicit `XDG_RUNTIME_DIR`/`DBUS_SESSION_BUS_ADDRESS` environment (shape in
-  `play-prevent-ssh-suspend.yml`), then **delete the `ignore_errors: true`** and turn the
-  verifier's `failed_when: false` into a real assertion.
-- [ ] ⬜ **Task 2.3**: `play-podman.yml` — with linger in place, drop the `when:` so
-  `podman.socket` is enabled unconditionally (or, minimum, make the skip a declared
-  `when: provisioning_profile != 'server'`, not an accidental probe-fail).
-- [ ] ⬜ **Task 2.4**: Run QA.
+- [x] ✅ **Task 2.1**: `play-systemd-user-tweaks.yml` — added, as the play's first three
+  tasks, a `getent` UID lookup, `loginctl enable-linger` (`creates:` on the linger marker),
+  AND an explicit `ansible.builtin.systemd: name: user@UID.service, state: started`. Per the
+  Fable design decision (`reviews/2026-07-29-phase2-design-decision-fable.md`), the explicit
+  synchronous start is what makes the Phase-2 hardening deterministic: `enable-linger` only
+  QUEUES the manager-start async, but the systemd module blocks on the Type=notify job until
+  READY=1, so `/run/user/UID` + the private socket are guaranteed present at the next task.
+- [x] ✅ **Task 2.2**: `play-systemd-user-tweaks.yml` — gave the reload handler + verify task
+  the explicit `XDG_RUNTIME_DIR` (the var `systemctl --user` actually dials) + `DBUS_SESSION_BUS_ADDRESS` environment; **deleted the core tree's lone `ignore_errors: true`**;
+  turned the verifier's `failed_when: false` into a real `assert` (`ManagedOOMMemoryPressure=auto`).
+  Added a `meta: flush_handlers` before the verify so it reads the RELOADED user.slice (handlers
+  otherwise flush at play end — the assert would trip on a first run otherwise).
+- [x] ✅ **Task 2.3**: `play-podman.yml` — deleted the `dbus_session_check` probe-then-`when`
+  anti-pattern; gave the `podman.socket` enable its own `become_user` + the same env block +
+  a defensive `getent` (standalone-runnability), so the socket is enabled unconditionally,
+  relying on T2.1's guarantee. Fails loud (not silently skips) on a never-provisioned box.
+- [ ] 🔄 **Task 2.4**: Run QA. `ansible-playbook --syntax-check` rc=0 on both edited plays;
+  no unannotated `failed_when: false`/`ignore_errors` remain (the two suppressions were
+  removed, none added). Full `qa-all.bash` deferred to HOST (no ruff here).
 
 ### Phase 3: Fail-fast edition preflight + reboot-persistence
 
