@@ -63,6 +63,10 @@
           - python3-firewall  # firewalld's Python bindings for the Ansible module
           - dnsmasq          # lxc-net launches it; the DHCP sanity gate hard-asserts it came up
           - iptables-nft     # the DOCKER-USER / MASQUERADE reconciliation shells out to `iptables`
+          # NOTE: a since-reverted Fedora 42 update once shipped iptables-nft without wiring
+          #       the /usr/bin/iptables alternatives link — if the later "Assert DOCKER-USER
+          #       chain exists" task fails command-not-found, suspect that distro packaging
+          #       regression rather than this play.
           - NetworkManager   # the nmcli probe + "reload NetworkManager" handler require it
 
     - name: Put SELinux in permissive mode, logging actions that would be blocked.
@@ -104,6 +108,21 @@
         name: firewalld
         state: started
         enabled: true
+
+    # This is Cloud Base's FIRST-EVER firewalld start (it was simply absent until the
+    # package task above installed it). On a remote, headless VM the only access path is
+    # SSH, so before we leave the daemon enabled we must guarantee the box's default zone
+    # still permits it — turning on a previously-absent firewall must never self-lockout
+    # the operator. Idempotent and a no-op on stock Fedora (the public zone already allows
+    # ssh); load-bearing on any non-stock cloud image or cloud-init firewalld drop-in. No
+    # zone key, so it operates on whatever the resolved default zone is (the zone the admin
+    # NIC actually lands in). firewalld is running by now, so immediate applies live too.
+    - name: Ensure SSH stays permitted in the default zone (no remote self-lockout)
+      ansible.posix.firewalld:
+        service: ssh
+        state: enabled
+        permanent: true
+        immediate: true
 
     # PERF-07: the firewalld module applies permanent + runtime idempotently without the
     # blanket `firewall-cmd --reload` that reprocessed every zone on every run.

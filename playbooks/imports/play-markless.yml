@@ -22,7 +22,7 @@
 
     - name: Install markless from GitHub releases
       ansible.builtin.shell: |
-        set -ex
+        set -euxo pipefail
         if [[ -f {{ marklessPath }} ]]; then
           installedVersion="$({{ marklessPath }} --version 2>/dev/null | grep -Po '[0-9.]+' || echo '')"
           desiredVersion="{{ marklessVersion }}"
