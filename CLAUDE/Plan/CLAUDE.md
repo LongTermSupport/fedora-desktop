@@ -28,7 +28,19 @@ tooling travel with it into `Completed/`.
 - testing / `acceptance.bash` (and any other plan-specific test/scratch script,
   fixtures, captured logs) — all in the plan folder.
 
-Resolve the repo root with `git rev-parse --show-toplevel`, not a fixed `../` hop.
+**Build these on [`_planlib.inc.bash`](_planlib.inc.bash)** — source it and use its primitives
+rather than hand-rolling the repo-root walk, the run log, the prompts, the change gate or the
+ansible invocation. Rules, bootstrap and skeletons:
+[`../PlanScriptStandards.md`](../PlanScriptStandards.md).
+
+> **CORRECTION**: this file previously said *"Resolve the repo root with
+> `git rev-parse --show-toplevel`, not a fixed `../` hop."* The second half was right; the
+> first half is **wrong** and caused a real failure. `git rev-parse` answers about the
+> **cwd**, not the script, so a plan script run by path from another repo resolves to that
+> repo — which is exactly what happened to Plan 00066's `triage.bash`. Use the
+> script-relative, `.git`-bounded marker walk in
+> [`../PlanScriptStandards.md`](../PlanScriptStandards.md) R1 instead; `plan_init` then
+> exports `PLAN_REPO_ROOT` and `PLAN_SCRIPT_DIR` for you.
 
 **NO project-root scripts/artifacts that are not persistently relevant and useful.**
 Permanent deliverables — a QA gate wired into `qa-all.bash`, the `tests/`

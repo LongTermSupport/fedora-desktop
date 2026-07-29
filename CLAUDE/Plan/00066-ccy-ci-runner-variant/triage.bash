@@ -1,291 +1,107 @@
 #!/usr/bin/env bash
-#
 # Plan 00066 — triage.bash
 #
-# PURPOSE: gather grounded FACTS about the host's container engine and the deployed
-# ccy launcher. Fact-finding only — it renders no verdict and changes nothing. The
-# pass/fail gate is a separate acceptance script (see CLAUDE/PlanWorkflow.md).
-#
-# WHY THIS EXISTS AND IS NOT JUST RUN BY THE AGENT: the agent works inside a podman
-# container. A nested `podman` result is not evidence about the host. An attempt to
-# answer probe D below from inside the container failed with a userns/subuid error
-# before it ever reached the device check — a non-zero exit that says nothing about
-# the question asked. Hence: host-run only.
+# PURPOSE: gather grounded FACTS about the host's container engine and the deployed ccy
+# launcher. Fact-finding only — it renders no verdict and changes nothing. The pass/fail gate
+# is a separate acceptance script (CLAUDE/PlanScriptStandards.md R9).
 #
 # RUN ON THE HOST:
-#   bash CLAUDE/Plan/00066-ccy-ci-runner-variant/triage.bash
+#   ./CLAUDE/Plan/00066-ccy-ci-runner-variant/triage.bash
 #
-# It is READ-ONLY: no image is built, nothing is installed, no config is written
-# outside the report. Every container it starts is `--rm` and runs `true`.
+# It may be run from ANY directory — that is now a property the script guarantees rather than
+# a hope. The previous version of this file resolved its repo root with
+# `git rev-parse --show-toplevel`, which answers about the CWD; run by path from lts-infra's
+# root it wrote its report into that repo and compared the deployed launcher against a path
+# which does not exist there, reporting "Could not checksum both files" instead of failing.
+# Root resolution now comes from the boundary-bounded marker walk in the library (R1), and the
+# comparison FAILS rather than shrugging when it cannot be made.
 #
-# Writes a full report to untracked/reports/ — that tree is gitignored AND
-# bind-mounted into the CCY container, so the agent reads the file directly at the
-# same repo path instead of anyone copy-pasting terminal output.
-
+# WHY THE HOST AND NOT THE CONTAINER: a nested `podman` result is not evidence about the host.
+# Answering the missing-device question from inside the CCY container failed with a
+# userns/subuid error during an image pull, before it ever reached the device check — a
+# non-zero exit that says nothing about the question asked. `plan_require_host` now enforces
+# this instead of a comment asking nicely.
+#
+# READ-ONLY: nothing is built, installed, pulled or written outside the run directory. Every
+# container started is `--rm` and runs `true`. Idempotent — re-run as often as you like; each
+# run gets its own timestamped directory, so no run clobbers a previous run's evidence.
+#
+# Usage: ./triage.bash [-h|--help]
+#
+# EXIT CODES (they agree with the text — no "reported a problem but exited 0"):
+#   0  every probe reached a definite answer
+#   1  at least one probe could not be answered; the failing leg names itself. This means the
+#      FACT-FINDING is incomplete, not that the system is broken.
+#  64  usage error
 set -euo pipefail
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
-readonly REPO_ROOT
-
-# Default: inside this repo's gitignored scratch tree, so the agent can read the
-# report at the same path it already sees. Override with PLAN00066_REPORT_DIR if
-# that is not writable by the invoking user (e.g. the clone is owned by someone
-# else). Do NOT run this script with sudo to work around a permission problem:
-# the podman probes below MUST run as the ordinary user, because the whole
-# estate is ROOTLESS podman and root has a different, empty image store — a
-# sudo run would report confident, wrong answers.
-REPORT_DIR="${PLAN00066_REPORT_DIR:-${REPO_ROOT}/untracked/reports}"
-readonly REPORT_DIR
-
-if ! mkdir -p "$REPORT_DIR" 2>&1; then
-    printf 'triage: cannot create %s\n' "$REPORT_DIR" >&2
-    printf 'triage: re-run with a writable dir, e.g.\n' >&2
-    printf '  PLAN00066_REPORT_DIR=~/plan00066 bash %s\n' "$0" >&2
-    printf 'triage: do NOT use sudo — it would probe the wrong podman store.\n' >&2
+# ── R1 bootstrap: script-relative, filesystem-only, bounded at the repo boundary ──────────
+# Copy this block verbatim into every plan script. See CLAUDE/PlanScriptStandards.md R1.
+scriptDir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+repoRoot="${scriptDir}"
+while [[ "${repoRoot}" != "/" ]] && [[ ! -e "${repoRoot}/ansible.cfg" ]]; do
+    if [[ -e "${repoRoot}/.git" ]]; then
+        printf '[FATAL] no ansible.cfg between %s and the repo root %s\n' "${scriptDir}" "${repoRoot}" >&2
+        exit 1
+    fi
+    repoRoot="$(dirname "${repoRoot}")"
+done
+[[ -e "${repoRoot}/ansible.cfg" ]] || {
+    printf '[FATAL] no ansible.cfg above %s\n' "${scriptDir}" >&2
     exit 1
+}
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../_planlib.inc.bash
+source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
+plan_init "${BASH_SOURCE[0]}"
+
+PLAN_USAGE="usage: triage.bash [-h|--help]
+
+Gathers facts about the host container engine and the deployed ccy launcher.
+Read-only, host-only, safe to re-run. Writes a report into
+<this plan folder>/triage-runs/<timestamp>/ and names it on completion."
+
+plan_mode gather
+plan_parse_common_flags "$@"
+
+# Reject unknown arguments rather than ignoring them (R12/R10 structure).
+if [[ "${#PLAN_REMAINING_ARGS[@]}" -gt 0 ]]; then
+    printf '[FATAL] unknown argument(s): %s\n' "${PLAN_REMAINING_ARGS[*]}" >&2
+    printf '%s\n' "${PLAN_USAGE}" >&2
+    exit 64 # EX_USAGE — never confusable with a real probe result
 fi
 
-REPORT="${REPORT_DIR}/plan-00066-triage.md"
+# Refuse the container BEFORE opening a log, so a wrong-environment run fails immediately and
+# leaves no half-written report to be mistaken for evidence.
+plan_require_host "it probes the host container engine, host device nodes, and the deployed /var/local/claude-yolo tree"
+
+plan_start_log auto
+
+# The report lands in the per-run directory, which plan_finish names on the way out (R10). It
+# is inside the repo, so the agent reads it at the same path the operator sees; it is
+# gitignored, so an unscrubbed report is never committed; and it is per-run, so re-running
+# never overwrites earlier evidence.
+REPORT="${PLAN_RUN_DIR}/plan-00066-triage-report.md"
 readonly REPORT
 
-if ! : > "$REPORT" 2>&1; then
-    printf 'triage: %s is not writable by %s\n' "$REPORT" "$(id -un)" >&2
-    printf 'triage: re-run with PLAN00066_REPORT_DIR=<a dir you own>\n' >&2
-    exit 1
-fi
+# The header avoids markdown backticks on purpose: inside a single-quoted printf format a
+# backtick reads as command substitution to shellcheck (SC2016), and a suppression is not an
+# option here (R11). The probe scripts emit backticked paths from their own out() helper, where
+# the value is not part of a format string.
+{
+    printf '# Plan 00066 — triage report\n\n'
+    printf 'Generated by CLAUDE/Plan/00066-ccy-ci-runner-variant/triage.bash on the HOST.\n\n'
+    printf -- '- engine under test: %s\n' "${CCY_CONTAINER_ENGINE:-podman}"
+    printf -- '- repo root (resolved from the script, not the cwd): %s\n' "${PLAN_REPO_ROOT}"
+    printf -- '- run directory: %s\n' "${PLAN_RUN_DIR}"
+} >"${REPORT}"
 
-# Diagnostics to stderr; the report is the payload (CLAUDE/StderrHygiene.md).
-say() { printf '%s\n' "$*" >&2; }
-out() { printf '%s\n' "$*" >> "$REPORT"; }
+# Legs are COMMANDS, not local functions: a function passed to plan_gather_leg by name is
+# invoked indirectly, and `shellcheck -x` would report its whole body as unreachable (SC2317)
+# — which cannot be suppressed here (R11). Each probe is its own runnable, lint-clean script.
+plan_gather_leg "container engine and device handling" \
+    bash "${PLAN_SCRIPT_DIR}/probe-engine.bash" "${REPORT}"
+plan_gather_leg "deployed launcher vs this checkout, and prompt-site census" \
+    bash "${PLAN_SCRIPT_DIR}/probe-launcher.bash" "${REPORT}"
 
-ENGINE="${CCY_CONTAINER_ENGINE:-podman}"
-readonly ENGINE
-
-: > "$REPORT"
-out "# Plan 00066 — triage report"
-out ""
-out "Generated by \`CLAUDE/Plan/00066-ccy-ci-runner-variant/triage.bash\` on the HOST."
-out "Engine under test: \`${ENGINE}\`"
-out ""
-
-say "Plan 00066 triage — writing to ${REPORT}"
-
-# ---------------------------------------------------------------------------
-# A) Engine identity
-# ---------------------------------------------------------------------------
-out "## A) Engine identity"
-out ""
-if ! command -v "$ENGINE" >/dev/null; then
-    out "- \`${ENGINE}\` is NOT on PATH. Every probe below is inconclusive."
-    say "FATAL: ${ENGINE} not found on PATH — cannot probe."
-    out ""
-    out "Triage stopped: no container engine."
-    exit 1
-fi
-out '```'
-if engine_ver="$("$ENGINE" --version 2>&1)"; then
-    out "$engine_ver"
-else
-    out "${ENGINE} --version failed: $engine_ver"
-fi
-if engine_info="$("$ENGINE" info --format '{{.Host.Security.Rootless}}' 2>&1)"; then
-    out "rootless: $engine_info"
-else
-    out "could not read rootless status: $engine_info"
-fi
-out '```'
-out ""
-
-# ---------------------------------------------------------------------------
-# B) Is there a local image we can probe with, WITHOUT pulling?
-#    Probes C/D need an image. Pulling would make this depend on egress and is
-#    not read-only in spirit. Prefer an image the host already has.
-# ---------------------------------------------------------------------------
-out "## B) Local images available for probing"
-out ""
-PROBE_IMAGE=""
-if images="$("$ENGINE" images --format '{{.Repository}}:{{.Tag}}' 2>&1)"; then
-    out '```'
-    out "$images"
-    out '```'
-    for candidate in claude-yolo:latest claude-yolo:full claude-yolo:base; do
-        if printf '%s\n' "$images" | grep -qx -- "$candidate"; then
-            PROBE_IMAGE="$candidate"
-            break
-        fi
-    done
-    if [ -z "$PROBE_IMAGE" ]; then
-        # Fall back to the first non-<none> image present.
-        first="$(printf '%s\n' "$images" | grep -v '<none>' | head -n 1 || printf '')"
-        [ -n "$first" ] && PROBE_IMAGE="$first"
-    fi
-else
-    out "Could not list images: $images"
-fi
-
-if [ -z "$PROBE_IMAGE" ]; then
-    out ""
-    out "**No local image found.** Probes C and D need one and are SKIPPED rather than"
-    out "pulling (a pull would make this probe depend on egress). Re-run after any"
-    out "\`ccy\` session has built \`claude-yolo:latest\`."
-    say "No local image — C/D skipped."
-else
-    out ""
-    out "Probe image: \`${PROBE_IMAGE}\`"
-    say "Probe image: ${PROBE_IMAGE}"
-fi
-out ""
-
-# ---------------------------------------------------------------------------
-# C) Does /dev/dri exist on this host, and does ccy's actual flag work?
-#    claude-yolo:2773 passes `--device /dev/dri:/dev/dri` UNCONDITIONALLY.
-# ---------------------------------------------------------------------------
-out "## C) /dev/dri on this host, and ccy's unconditional --device"
-out ""
-if [ -e /dev/dri ]; then
-    out "\`/dev/dri\` EXISTS. Nodes:"
-    out '```'
-    if dri_ls="$(ls -la /dev/dri 2>&1)"; then out "$dri_ls"; else out "ls failed: $dri_ls"; fi
-    out '```'
-else
-    out "\`/dev/dri\` **DOES NOT EXIST** on this host."
-    out ""
-    out "This is the shape a headless server is expected to have, and is exactly the"
-    out "case probe D decides the consequence of."
-fi
-out ""
-
-if [ -n "$PROBE_IMAGE" ]; then
-    out "Running ccy's real flag (\`--device /dev/dri:/dev/dri\`):"
-    out '```'
-    if c_out="$("$ENGINE" run --rm --device /dev/dri:/dev/dri "$PROBE_IMAGE" true 2>&1)"; then
-        out "EXIT 0 — accepted."
-        [ -n "$c_out" ] && out "$c_out"
-    else
-        c_rc=$?
-        out "EXIT ${c_rc} — REJECTED."
-        out "$c_out"
-    fi
-    out '```'
-    out ""
-fi
-
-# ---------------------------------------------------------------------------
-# D) THE CRUX. Is a MISSING device node fatal, or silently ignored?
-#    This is the one question the agent could not answer from inside a container.
-#    If fatal, ccy cannot launch on a host without /dev/dri and the flag must
-#    become conditional. If ignored, E6 is a non-issue and the plan drops it.
-# ---------------------------------------------------------------------------
-out "## D) Is a MISSING --device path fatal? (decides Plan 00066 Task 1.1)"
-out ""
-if [ -z "$PROBE_IMAGE" ]; then
-    out "SKIPPED — no local image (see B)."
-else
-    missing="/dev/plan00066-definitely-absent"
-    if [ -e "$missing" ]; then
-        out "Unexpected: \`${missing}\` exists. Probe invalid; pick another path."
-    else
-        out "Probing \`--device ${missing}:${missing}\` (path confirmed absent):"
-        out '```'
-        if d_out="$("$ENGINE" run --rm --device "${missing}:${missing}" "$PROBE_IMAGE" true 2>&1)"; then
-            out "EXIT 0 — a missing --device is IGNORED by ${ENGINE}."
-            out ""
-            out "=> E6 is NOT a blocker. ccy's unconditional --device is harmless on a"
-            out "   host with no /dev/dri."
-            [ -n "$d_out" ] && out "$d_out"
-        else
-            d_rc=$?
-            out "EXIT ${d_rc} — a missing --device is FATAL to ${ENGINE}."
-            out ""
-            out "=> E6 IS A BLOCKER. claude-yolo:2773 must guard --device on"
-            out "   [ -e /dev/dri ], exactly as the GUI mounts at 2704-2727 already do."
-            out "$d_out"
-        fi
-        out '```'
-    fi
-fi
-out ""
-
-# ---------------------------------------------------------------------------
-# E) Deployed launcher vs repo source — is the host running what we are reading?
-# ---------------------------------------------------------------------------
-out "## E) Deployed ccy vs this checkout"
-out ""
-DEPLOYED="/var/local/claude-yolo/claude-yolo"
-SOURCE="${REPO_ROOT}/files/var/local/claude-yolo/claude-yolo"
-if [ -f "$DEPLOYED" ]; then
-    if d_sum="$(sha256sum "$DEPLOYED")" && s_sum="$(sha256sum "$SOURCE")"; then
-        out '```'
-        out "deployed: $d_sum"
-        out "source:   $s_sum"
-        out '```'
-        if [ "${d_sum%% *}" = "${s_sum%% *}" ]; then
-            out ""
-            out "IDENTICAL — the plan's line-number citations describe the running launcher."
-        else
-            out ""
-            out "**DIFFERENT** — the deployed launcher is not this checkout. Every line-number"
-            out "citation in PLAN.md describes the checkout, not what runs. Reconcile before"
-            out "designing against them (\`git log\` the file, or re-run play-claude-yolo.yml)."
-        fi
-    else
-        out "Could not checksum both files."
-    fi
-else
-    out "\`${DEPLOYED}\` not present — ccy is not deployed on this host."
-fi
-out ""
-
-# ---------------------------------------------------------------------------
-# F) Prompt-site census on the DEPLOYED tree (feeds Task 1.2)
-# ---------------------------------------------------------------------------
-out "## F) Interactive prompt sites in the deployed launcher tree"
-out ""
-if [ -d /var/local/claude-yolo ]; then
-    out '```'
-    if prompts="$(grep -rn -- 'read -rp\|read -p ' /var/local/claude-yolo 2>&1)"; then
-        out "$prompts"
-        out ""
-        out "count: $(printf '%s\n' "$prompts" | grep -c .)"
-    else
-        out "no prompt sites matched (or grep failed): $prompts"
-    fi
-    out '```'
-else
-    out "Deployed tree absent — census run against the checkout instead:"
-    out '```'
-    if prompts="$(grep -rn -- 'read -rp\|read -p ' "${REPO_ROOT}/files/var/local/claude-yolo" 2>&1)"; then
-        out "$prompts"
-        out ""
-        out "count: $(printf '%s\n' "$prompts" | grep -c .)"
-    else
-        out "no prompt sites matched (or grep failed): $prompts"
-    fi
-    out '```'
-fi
-out ""
-
-# ---------------------------------------------------------------------------
-# G) Where does claude-yolo:latest come from? (feeds Task 1.3 / 3.4)
-# ---------------------------------------------------------------------------
-out "## G) Image provenance"
-out ""
-out '```'
-for tag in claude-yolo:latest claude-yolo:full claude-yolo:base; do
-    if insp="$("$ENGINE" image inspect "$tag" \
-        --format '{{.Created}} version={{index .Config.Labels "claude-yolo-version"}} hash={{index .Config.Labels "claude-yolo-dockerfile-hash"}}' 2>&1)"; then
-        out "${tag}: ${insp}"
-    else
-        out "${tag}: absent"
-    fi
-done
-out '```'
-out ""
-out "Compare \`claude-yolo-version\` above with \`REQUIRED_CONTAINER_VERSION\` in the"
-out "launcher (currently 2.22) — a mismatch forces a rebuild on next launch, which a"
-out "CI job must never do (Plan 00066 Task 3.4)."
-out ""
-
-say ""
-say "Done. Report: ${REPORT}"
-say "Paste nothing — the agent reads the file directly."
+plan_finish

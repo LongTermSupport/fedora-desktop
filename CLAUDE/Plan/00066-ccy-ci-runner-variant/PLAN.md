@@ -289,13 +289,68 @@ Everything here runs on the **HOST**. This session is inside a podman container;
 `podman` test is not evidence about the host — an attempt to check E6 that way failed for
 an unrelated userns/subuid reason and would have been mistaken for a result.
 
-- [ ] ⬜ **Task 1.1**: Resolve E6 — does an absent `/dev/dri` make `ccy` fail?
-  - [ ] ⬜ Write `triage.bash` probing: whether `/dev/dri` exists; whether
+- [ ] 🔄 **Task 1.1**: Resolve E6 — does an absent `/dev/dri` make `ccy` fail?
+  - [x] ✅ `triage.bash` probing: whether `/dev/dri` exists; whether
     `podman run --device /dev/dri` succeeds; whether `--device` with a *missing* node
-    is fatal or ignored; podman version.
-  - [ ] ⬜ Have the owner run it on the workstation, and on a headless VM if one is up.
-  - [ ] ⬜ Record the verdict in `reports/`. If fatal, `--device` must become conditional
-    — a one-line change that is otherwise a guaranteed day-one CI failure.
+    is fatal or ignored; podman version. **Rebuilt on the plan-script library**
+    (lts-infra Plan 00023 Task 3.4) after the first version shipped a defect — see below.
+  - [x] ✅ E6 **CONFIRMED A BLOCKER** by the owner's host run:
+    `EXIT 125 — Error: stat /dev/plan00066-definitely-absent: no such file or directory`.
+    A missing `--device` path is **fatal** to podman, so `claude-yolo`'s unconditional
+    `--device /dev/dri:/dev/dri` is a guaranteed day-one failure on any host without
+    `/dev/dri` — i.e. every headless server. `--device` must become conditional, exactly as
+    the GUI socket mounts at `2704-2727` already are.
+  - [ ] ⬜ Owner re-run of the rebuilt `triage.bash` on the HOST, to collect the remaining
+    facts (image provenance, deployed-vs-checkout drift, prompt census) with the probes that
+    previously mis-reported. **Needs a human** — the script now refuses to run in the
+    container, correctly.
+  - [ ] ⬜ Record the verdict in `reports/`. The E6 verdict itself is settled above.
+
+#### The first `triage.bash` was defective, and the fix is upstream of this plan
+
+The original hand-rolled `triage.bash` resolved its repo root with
+`git rev-parse --show-toplevel` — following this repo's own `PlanWorkflow.md`, which
+recommended it. `git rev-parse` answers about the **cwd**, not the script. Run by path from
+`lts-infra`'s root it resolved to *that* repo, wrote its report there, and the
+deployed-vs-checkout drift probe compared against
+`<lts-infra>/files/var/local/claude-yolo/claude-yolo` — a path that does not exist there:
+
+```
+sha256sum: /home/<user>/Projects/LTS/lts-infra/files/var/local/claude-yolo/claude-yolo:
+           No such file or directory
+```
+
+It then printed `Could not checksum both files` and carried on. The one probe meant to catch
+launcher drift degraded into a shrug.
+
+Fixing this one script would have fixed nothing, because the guidance was wrong. So the fix
+landed upstream, as **lts-infra Plan 00023**: a tested `CLAUDE/Plan/_planlib.inc.bash` in this
+repo, `CLAUDE/PlanScriptStandards.md`, and corrections to **both** places that recommended the
+defective idiom (`CLAUDE/PlanWorkflow.md` and `CLAUDE/Plan/CLAUDE.md`).
+
+What changed in the rebuilt script, beyond the root resolution:
+
+- **`plan_require_host` enforces the host-only rule.** This plan's Phase-1 preamble already
+  said a nested podman result is not evidence about the host; it was a comment asking nicely.
+  It is now a guard: run in the container, the script exits 1 naming `/run/.containerenv`, and
+  creates **no** run directory — so there is no half-written report to be mistaken for
+  evidence. Proven from `/tmp` inside the container.
+- **"Could not determine" is now a non-zero exit**, not a printed shrug. A gather leg failing
+  means the *fact-finding* was incomplete — which is the honest report — rather than a check
+  that quietly passed.
+- **The prompt census counts both `read -rp` and `read -r -p`.** The earlier census searched
+  only the first spelling, missed nine sites (the whole of `lib/token-management.bash`), and
+  reported a total as if it were complete. That correction is C3 in the round-1 block above.
+- **Probe logic moved into `probe-engine.bash` and `probe-launcher.bash`.** A leg command is
+  passed by name, so a local shell function used that way lints as unreachable (SC2317), and
+  suppressions are banned. Each probe is independently runnable and independently lint-clean.
+
+All three scripts are `bash -n` and `shellcheck -x` clean. Note that
+`./scripts/qa-all.bash` could **not** be used as evidence here: `qa-bash.bash` excludes
+`*/untracked/*` against the absolute path, and this checkout lives under
+`untracked/repos/fedora-desktop`, so it scans zero files and reports `✓ bash: 0 files OK`.
+Tracked as a finding in lts-infra Plan 00023.
+
 - [ ] ⬜ **Task 1.2**: Enumerate all 35 prompt sites into a table in `reports/`, each
   classified: *on the default launch path* vs *only reachable on an error/recovery
   path*, and *EOF-safe* vs *EOF-spins*. E3 proves the loop shape spins; this task

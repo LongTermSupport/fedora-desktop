@@ -1,0 +1,16 @@
+# Plan-script run artefacts.
+#
+# plan_start_log (CLAUDE/Plan/_planlib.inc.bash) writes each run's tee'd log — and any report
+# the run produces — to <script>-runs/<timestamp>/ inside the plan folder. Those are NEVER
+# committed, and that is a deliberate decision rather than an oversight: a plan run streams
+# live ansible output which can contain vault-decrypted values, and this repo has no run-log
+# secret scrubber. ballicom-infra commits its run logs precisely because it HAS one.
+#
+# So the log stays local, the operator reads it in place (the CCY container bind-mounts this
+# repo, so the agent reads the same path), and _plan_finalize_log prints
+# "UNSCRUBBED, gitignored" on every single run. Do not force-add one. If run logs ever need to
+# be committed here, port a scrubber FIRST and delete this rule in the same change — never the
+# other way round.
+#
+# See CLAUDE/PlanScriptStandards.md R4 and R10.
+*-runs/

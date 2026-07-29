@@ -66,9 +66,40 @@ they deploy or touch the live system — never run Ansible inside the CCY contai
 - **Testing / `acceptance.bash`** (and any other test script) — plan-specific
   verification that is not a permanent repo gate.
 
-Resolve the repo root with `git rev-parse --show-toplevel` (NOT a fixed `../`
-hop) — these scripts sit several directories deep, and the path must survive the
-move into `Completed/`.
+**Build these on the sourced library, do not hand-roll them.** Source
+[`CLAUDE/Plan/_planlib.inc.bash`](Plan/_planlib.inc.bash) and use its primitives
+(`plan_init`, `plan_mode`, `plan_require_host`, `plan_prime_sudo`,
+`plan_start_log`, `plan_gate_change`, `plan_ansible_playbook`,
+`plan_deploy_leg`/`plan_gather_leg`, `plan_finish`). The rules, the canonical
+bootstrap, and reference skeletons are in
+[**PlanScriptStandards.md**](PlanScriptStandards.md).
+
+> ### ⚠️ CORRECTION — `git rev-parse --show-toplevel` is WRONG here
+>
+> **This document previously told you to resolve the repo root with
+> `git rev-parse --show-toplevel`. Do not do that.** `git rev-parse` answers about
+> the **current working directory**, not about the script — so a plan script run
+> *by path* from somewhere else resolves to whatever repo the shell happens to be
+> sitting in.
+>
+> That is not hypothetical. Plan 00066's `triage.bash` followed this guidance, was
+> run by path from another repository's root, wrote its report into **that** repo,
+> and its deployed-vs-checkout drift probe compared against a path which does not
+> exist there — so the one check that mattered reported
+> `Could not checksum both files` instead of failing. The advice was followed
+> faithfully, which is exactly why fixing the single script would have fixed
+> nothing.
+>
+> **This repo is also routinely checked out INSIDE another one** (lts-infra keeps
+> it at `untracked/repos/fedora-desktop`), and both repos have an `ansible.cfg` at
+> their root — so root resolution must additionally stop at the repository
+> boundary, or it silently resolves to the parent repo and *appears to work*.
+>
+> **Use the bootstrap in [PlanScriptStandards.md](PlanScriptStandards.md) R1**: a
+> script-relative marker walk, filesystem-only (no `git` at all), bounded by
+> `.git`. The original reasoning below was right — the path must survive the move
+> into `Completed/` and must not be a fixed `../` hop; only the mechanism was
+> wrong.
 
 **The dividing line — transient vs. persistent:**
 
