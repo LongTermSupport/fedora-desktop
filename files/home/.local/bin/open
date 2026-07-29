@@ -1,0 +1,564 @@
+#!/usr/bin/env bash
+# open — one command to open anything, on a desktop or over SSH.
+#
+# WHY THIS EXISTS (prior art, and where it falls short):
+#
+#   xdg-open FILE      Opens with the registered default app. If there is no
+#                      default it fails — often silently, with exit code 3 and
+#                      no useful message. It offers no way to choose.
+#   gio open FILE      Same story, different binary.
+#   mimeopen FILE      perl-File-MimeInfo. This one DOES prompt with a numbered
+#                      menu when no default is registered (mimeopen -a always
+#                      asks, -d sets a new default). It is the closest existing
+#                      tool — and this script uses it for setting defaults. Its
+#                      gap: it only ever knows about GRAPHICAL .desktop apps, so
+#                      in an SSH session it happily offers to launch a GUI app
+#                      that cannot render anywhere.
+#   handlr / rifle     Not packaged in Fedora's official repos (COPR/cargo, or
+#                      part of ranger's config), so they are not an IaC-clean
+#                      dependency for this repo.
+#
+# So this wrapper adds the two things that were missing, and delegates the rest:
+#
+#   1. Session awareness. With no Wayland/X display (an SSH session, a headless
+#      server, a TTY) it never offers a GUI app — it picks from terminal
+#      viewers that are actually installed on this box.
+#   2. A chooser when it is not sure. No registered default, or an unknown file
+#      type, means a picker: fzf when available, otherwise a plain numbered
+#      menu. -a forces the picker even when a default is known.
+#
+# Usage:
+#   open [options] TARGET...
+#
+#   TARGET ...         Files, directories, or URLs.
+#
+# Options:
+#   -a, --ask          Always show the chooser, even if a default is known.
+#   -t, --terminal     Only consider terminal handlers (never launch a GUI app).
+#                      Implied when no graphical session is detected.
+#   -d, --set-default  After choosing a GUI app, register it as the default for
+#                      that MIME type (via xdg-mime default). Implies --ask.
+#   -l, --list         List the candidate handlers and exit; open nothing.
+#   -n, --dry-run      Print the command that would run; do not run it.
+#   -h, --help         Show this help and exit.
+#
+# Examples:
+#   open report.pdf              # default PDF viewer, or a chooser if unset
+#   open .                       # file manager on a desktop, dir listing on SSH
+#   open -a photo.jpg            # pick the app explicitly this time
+#   open -d photo.jpg            # pick, and remember the pick as the default
+#   open -l video.mkv            # what could open this?
+#   open https://example.com     # browser (GUI) or w3m/lynx (terminal)
+set -euo pipefail
+
+ASK=0
+SET_DEFAULT=0
+LIST_ONLY=0
+DRY_RUN=0
+FORCE_TERMINAL=0
+MAX_TRIES=3   # bounded retries on a recoverable menu-input mistake
+
+usage() {
+    echo "Usage: open [options] TARGET..."
+    echo ""
+    echo "  Open files, directories, or URLs with the right application."
+    echo "  Uses the registered default when there is one; asks with a chooser"
+    echo "  (fzf, or a numbered menu) when there is not. Never offers a GUI app"
+    echo "  when there is no graphical session — over SSH you get terminal"
+    echo "  viewers that are actually installed."
+    echo ""
+    echo "  TARGET ...         Files, directories, or URLs."
+    echo ""
+    echo "  -a, --ask          Always show the chooser."
+    echo "  -t, --terminal     Only consider terminal handlers."
+    echo "  -d, --set-default  Remember the chosen GUI app as the default (implies --ask)."
+    echo "  -l, --list         List candidate handlers and exit."
+    echo "  -n, --dry-run      Print the command instead of running it."
+    echo "  -h, --help         Show this help and exit."
+    echo ""
+    echo "Examples:"
+    echo "  open report.pdf"
+    echo "  open ."
+    echo "  open -a photo.jpg"
+    echo "  open https://example.com"
+}
+
+die() {
+    echo "open: $*" >&2
+    exit 1
+}
+
+have() {
+    command -v "$1" >/dev/null
+}
+
+# A graphical session is the only thing that makes a .desktop app runnable.
+gui_session() {
+    if [ "$FORCE_TERMINAL" -eq 1 ]; then
+        return 1
+    fi
+    [ -n "${WAYLAND_DISPLAY:-}" ] || [ -n "${DISPLAY:-}" ]
+}
+
+# The user's editor, falling back through the usual suspects.
+resolve_editor() {
+    local candidate
+    for candidate in "${VISUAL:-}" "${EDITOR:-}" nvim vim nano vi; do
+        if [ -z "$candidate" ]; then
+            continue
+        fi
+        # $EDITOR may carry arguments ("code -w"); test only the binary.
+        if have "${candidate%% *}"; then
+            printf '%s' "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# MIME type of a path. mimetype(1) (perl-File-MimeInfo) matches the same
+# freedesktop database that desktop apps register against, so it is preferred;
+# xdg-mime and file(1) are fallbacks so this still works on a minimal box.
+mime_of() {
+    local target="$1" mime=""
+    if [ -d "$target" ]; then
+        printf 'inode/directory'
+        return 0
+    fi
+    if have mimetype; then
+        if ! mime="$(mimetype --brief -- "$target")"; then
+            mime=""
+        fi
+    fi
+    if [ -z "$mime" ] && have xdg-mime; then
+        if ! mime="$(xdg-mime query filetype "$target")"; then
+            mime=""
+        fi
+    fi
+    if [ -z "$mime" ] && have file; then
+        if ! mime="$(file --brief --mime-type -- "$target")"; then
+            mime=""
+        fi
+    fi
+    if [ -z "$mime" ]; then
+        die "could not determine the file type of '$target'.
+  This needs one of: mimetype (perl-File-MimeInfo), xdg-mime (xdg-utils), or file.
+  Deploy them with: ansible-playbook playbooks/imports/optional/common/play-open-command.yml"
+    fi
+    printf '%s' "$mime"
+}
+
+# Locate a .desktop file by its ID across the XDG application directories.
+desktop_file_path() {
+    local id="$1" dir found
+    local -a data_dirs=()
+    local -a search_dirs=("${XDG_DATA_HOME:-$HOME/.local/share}/applications")
+
+    IFS=':' read -r -a data_dirs <<< "${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+    for dir in "${data_dirs[@]}"; do
+        if [ -n "$dir" ]; then
+            search_dirs+=("$dir/applications")
+        fi
+    done
+
+    for dir in "${search_dirs[@]}"; do
+        if [ ! -d "$dir" ]; then
+            continue
+        fi
+        found="$(find "$dir" -name "$id" -type f -print -quit)"
+        if [ -n "$found" ]; then
+            printf '%s' "$found"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Human-readable name from a .desktop file (the first Name= wins; later ones
+# belong to [Desktop Action] groups).
+desktop_name() {
+    local file="$1" name=""
+    if ! name="$(grep --max-count=1 '^Name=' "$file" | cut -d= -f2-)"; then
+        name=""
+    fi
+    if [ -n "$name" ]; then
+        printf '%s' "$name"
+    else
+        basename "$file" .desktop
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Candidate handlers
+#
+# Three parallel arrays. KIND is 'gui' (SPEC = path to a .desktop file) or
+# 'term' (SPEC = a bash template in which "$1" is the target — the target is
+# passed as an argument, never interpolated, so odd filenames are safe).
+# ---------------------------------------------------------------------------
+declare -a CAND_LABEL=()
+declare -a CAND_KIND=()
+declare -a CAND_SPEC=()
+
+reset_candidates() {
+    CAND_LABEL=()
+    CAND_KIND=()
+    CAND_SPEC=()
+}
+
+# add_term REQUIRED_CMD LABEL TEMPLATE — skipped when REQUIRED_CMD is absent, so
+# only handlers that exist on THIS machine are ever offered.
+add_term() {
+    local required="$1" label="$2" template="$3"
+    if [ -n "$required" ] && ! have "$required"; then
+        return 0
+    fi
+    CAND_LABEL+=("$label")
+    CAND_KIND+=("term")
+    CAND_SPEC+=("$template")
+}
+
+add_gui() {
+    local desktop_file="$1"
+    CAND_LABEL+=("$(desktop_name "$desktop_file") [GUI]")
+    CAND_KIND+=("gui")
+    CAND_SPEC+=("$desktop_file")
+}
+
+# Editor, pager, and syntax-highlighting viewers for anything text-shaped.
+add_text_viewers() {
+    local editor
+    if editor="$(resolve_editor)"; then
+        add_term "" "$editor (edit)" "$editor \"\$1\""
+    fi
+    add_term bat "bat (view, highlighted)" 'bat --paging=always -- "$1"'
+    add_term less "less (page)" 'less -- "$1"'
+}
+
+# Terminal handlers for a MIME type, most-appropriate first. Returns non-zero
+# when the type is unknown to the table — the caller treats that as "not sure,
+# so ask the human".
+add_terminal_candidates() {
+    local mime="$1" known=0
+    local before="${#CAND_LABEL[@]}"
+
+    case "$mime" in
+        inode/directory)
+            known=1
+            add_term yazi "yazi (file manager)" 'yazi "$1"'
+            add_term ranger "ranger (file manager)" 'ranger "$1"'
+            add_term nnn "nnn (file manager)" 'nnn "$1"'
+            add_term lf "lf (file manager)" 'lf "$1"'
+            add_term ls "ls (listing)" 'ls -lAh --color=always -- "$1" | less -R'
+            add_term tree "tree (recursive listing)" 'tree -C -- "$1" | less -R'
+            ;;
+        x-scheme-handler/*)
+            known=1
+            add_term w3m "w3m (browser)" 'w3m -- "$1"'
+            add_term lynx "lynx (browser)" 'lynx -- "$1"'
+            add_term links "links (browser)" 'links -- "$1"'
+            add_term curl "curl (dump)" 'curl -fsSL -- "$1" | less'
+            ;;
+        text/html|application/xhtml+xml)
+            known=1
+            add_term w3m "w3m (render)" 'w3m -- "$1"'
+            add_term lynx "lynx (render)" 'lynx -- "$1"'
+            add_text_viewers
+            ;;
+        application/pdf)
+            known=1
+            add_term pdftotext "pdftotext (text)" 'pdftotext -layout -- "$1" - | less'
+            add_term pdfinfo "pdfinfo (metadata)" 'pdfinfo -- "$1"'
+            ;;
+        image/*)
+            known=1
+            add_term chafa "chafa (terminal image)" 'chafa -- "$1"'
+            add_term viu "viu (terminal image)" 'viu -- "$1"'
+            add_term identify "identify (metadata)" 'identify -- "$1"'
+            add_term exiftool "exiftool (metadata)" 'exiftool -- "$1" | less'
+            ;;
+        audio/*|video/*)
+            known=1
+            add_term mpv "mpv (play)" 'mpv -- "$1"'
+            add_term ffplay "ffplay (play)" 'ffplay -autoexit -- "$1"'
+            add_term ffprobe "ffprobe (metadata)" 'ffprobe -hide_banner -- "$1"'
+            ;;
+        application/json)
+            known=1
+            add_term jq "jq (pretty print)" 'jq . "$1" | less -R'
+            add_text_viewers
+            ;;
+        application/zip|application/x-tar|application/gzip|application/x-gzip|\
+        application/x-bzip2|application/x-xz|application/zstd|\
+        application/x-7z-compressed|application/vnd.rar|application/x-rar|\
+        application/x-compressed-tar|application/x-archive)
+            known=1
+            add_term ouch "ouch (list contents)" 'ouch list -- "$1" | less'
+            add_term atool "atool (list contents)" 'atool --list -- "$1" | less'
+            add_term bsdtar "bsdtar (list contents)" 'bsdtar -tvf "$1" | less'
+            add_term 7z "7z (list contents)" '7z l -- "$1" | less'
+            ;;
+        application/vnd.sqlite3|application/x-sqlite3)
+            known=1
+            add_term sqlite3 "sqlite3 (shell)" 'sqlite3 "$1"'
+            ;;
+        application/x-executable|application/x-sharedlib|application/x-pie-executable)
+            known=1
+            add_term readelf "readelf (headers)" 'readelf -h -- "$1" | less'
+            add_term nm "nm (symbols)" 'nm -- "$1" | less'
+            ;;
+        text/*|application/xml|application/javascript|application/x-shellscript|\
+        application/x-perl|application/x-python|application/toml|application/yaml|\
+        application/x-yaml|application/x-desktop|message/rfc822)
+            known=1
+            add_text_viewers
+            ;;
+    esac
+
+    # A type the table knows, for which nothing capable is actually installed
+    # (mkv with no mpv, zip with no archiver), is NOT something we are confident
+    # about — fall through to the generic offer and let the human decide.
+    if [ "$known" -eq 1 ] && [ "${#CAND_LABEL[@]}" -eq "$before" ]; then
+        known=0
+    fi
+
+    if [ "$known" -eq 0 ]; then
+        # Unknown type: offer everything plausible and let the human decide.
+        add_term xxd "xxd (hex dump)" 'xxd -- "$1" | less'
+        add_term hexdump "hexdump (hex dump)" 'hexdump -C -- "$1" | less'
+        add_text_viewers
+    fi
+
+    add_term file "file (identify only)" 'file -- "$1"'
+
+    if [ "$known" -eq 1 ]; then
+        return 0
+    fi
+    return 1
+}
+
+# GUI .desktop apps registered for a MIME type, the default first.
+add_gui_candidates() {
+    local mime="$1" default_id="" id path
+    local -a seen=()
+
+    if have xdg-mime; then
+        if ! default_id="$(xdg-mime query default "$mime")"; then
+            default_id=""
+        fi
+    fi
+
+    if [ -n "$default_id" ] && path="$(desktop_file_path "$default_id")"; then
+        add_gui "$path"
+        seen+=("$default_id")
+    fi
+
+    if have gio; then
+        # `gio mime <type>` lists registered/recommended apps as tab-indented
+        # desktop IDs under localised headings; the IDs themselves are stable.
+        while read -r id; do
+            case " ${seen[*]} " in
+                *" $id "*) continue ;;
+            esac
+            if path="$(desktop_file_path "$id")"; then
+                add_gui "$path"
+                seen+=("$id")
+            fi
+        done < <(gio mime "$mime" | grep --only-matching '[[:alnum:]._+-]*\.desktop$')
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Chooser
+# ---------------------------------------------------------------------------
+
+# Echoes the chosen index (0-based) on stdout. Everything a human reads goes to
+# stderr, so --dry-run output and this index stay cleanly capturable.
+choose_candidate() {
+    local target="$1" mime="$2" total="${#CAND_LABEL[@]}" i reply selection attempt
+
+    if [ "$total" -eq 0 ]; then
+        die "no handler available for '$target' ($mime). Install a viewer, or run 'open --list'."
+    fi
+
+    # The menu is drawn on stderr and fzf draws on the controlling terminal, so
+    # both are required before we try to ask anyone anything. Without them this
+    # would hang forever on a prompt nobody can see or answer.
+    if [ ! -t 2 ] || [ ! -r /dev/tty ]; then
+        die "no default handler for '$target' ($mime), and no terminal to ask on.
+  Run 'open --list \"$target\"' to see the options, pick one explicitly with
+  'open --ask', or register a default for next time with:
+    mimeopen --ask-default \"$target\""
+    fi
+
+    if have fzf; then
+        if ! selection="$(printf '%s\n' "${CAND_LABEL[@]}" |
+            fzf --height=40% --reverse --prompt="Open $(basename "$target") with: " \
+                --header="$mime — Esc to cancel")"; then
+            die "cancelled — nothing opened."
+        fi
+        if [ -z "$selection" ]; then
+            die "cancelled — nothing opened."
+        fi
+        for i in "${!CAND_LABEL[@]}"; do
+            if [ "${CAND_LABEL[$i]}" = "$selection" ]; then
+                printf '%s' "$i"
+                return 0
+            fi
+        done
+        die "internal error: chosen entry '$selection' not found."
+    fi
+
+    echo "Open $(basename "$target") ($mime) with:" >&2
+    for i in "${!CAND_LABEL[@]}"; do
+        printf '  %2d) %s\n' "$(( i + 1 ))" "${CAND_LABEL[$i]}" >&2
+    done
+
+    attempt=1
+    while :; do
+        printf 'Choice [1-%d, q to cancel]: ' "$total" >&2
+        if ! read -r reply < /dev/tty; then
+            echo >&2
+            die "cancelled — nothing opened."
+        fi
+        case "$reply" in
+            q|Q|quit) die "cancelled — nothing opened." ;;
+            ""|*[!0-9]*) ;;
+            *)
+                if [ "$reply" -ge 1 ] && [ "$reply" -le "$total" ]; then
+                    printf '%s' "$(( reply - 1 ))"
+                    return 0
+                fi
+                ;;
+        esac
+        echo "  Not one of the options — enter a number between 1 and $total, or q to cancel." >&2
+        attempt=$(( attempt + 1 ))
+        if [ "$attempt" -gt "$MAX_TRIES" ]; then
+            die "giving up after $MAX_TRIES attempts — nothing opened."
+        fi
+    done
+}
+
+# ---------------------------------------------------------------------------
+# Execution
+# ---------------------------------------------------------------------------
+
+run_candidate() {
+    local index="$1" target="$2" mime="$3"
+    local kind="${CAND_KIND[$index]}" spec="${CAND_SPEC[$index]}" label="${CAND_LABEL[$index]}"
+
+    if [ "$DRY_RUN" -eq 1 ]; then
+        if [ "$kind" = "gui" ]; then
+            printf 'gio launch %q %q\n' "$spec" "$target"
+        else
+            printf 'bash -c %q open %q\n' "$spec" "$target"
+        fi
+        return 0
+    fi
+
+    echo "→ $target — $label" >&2
+
+    if [ "$kind" = "gui" ]; then
+        if [ "$SET_DEFAULT" -eq 1 ]; then
+            if ! have xdg-mime; then
+                die "--set-default needs xdg-mime (package: xdg-utils)."
+            fi
+            xdg-mime default "$(basename "$spec")" "$mime"
+            echo "  Registered $(basename "$spec") as the default for $mime." >&2
+        fi
+        if have gio; then
+            gio launch "$spec" "$target"
+        elif have gtk-launch; then
+            gtk-launch "$(basename "$spec")" "$target"
+        else
+            die "cannot launch a desktop app without gio (glib2) or gtk-launch (gtk3)."
+        fi
+    else
+        if [ "$SET_DEFAULT" -eq 1 ]; then
+            echo "  Note: --set-default applies to GUI apps only; '$label' is a terminal handler." >&2
+        fi
+        bash -c "$spec" open "$target"
+    fi
+}
+
+list_candidates() {
+    local target="$1" mime="$2" i
+    echo "$target ($mime)" >&2
+    if [ "${#CAND_LABEL[@]}" -eq 0 ]; then
+        echo "  (no handler available)" >&2
+        return 0
+    fi
+    for i in "${!CAND_LABEL[@]}"; do
+        printf '  %2d) %-42s %s\n' "$(( i + 1 ))" "${CAND_LABEL[$i]}" "${CAND_KIND[$i]}" >&2
+    done
+}
+
+open_target() {
+    local target="$1" mime confident=0 index
+
+    if [[ "$target" == *://* ]] || [[ "$target" == mailto:* ]]; then
+        mime="x-scheme-handler/${target%%:*}"
+    else
+        if [ ! -e "$target" ]; then
+            die "no such file or directory: '$target'"
+        fi
+        if [ ! -r "$target" ]; then
+            die "not readable: '$target'"
+        fi
+        mime="$(mime_of "$target")"
+    fi
+
+    reset_candidates
+
+    # A registered GUI default lands first, and means we know what to do.
+    if gui_session; then
+        add_gui_candidates "$mime"
+        if [ "${#CAND_LABEL[@]}" -gt 0 ]; then
+            confident=1
+        fi
+    fi
+
+    # Terminal handlers are always appended, so the chooser can offer them too.
+    # A type the table knows has a sensible top terminal handler.
+    if add_terminal_candidates "$mime"; then
+        if [ "${#CAND_LABEL[@]}" -gt 0 ]; then
+            confident=1
+        fi
+    fi
+
+    if [ "$LIST_ONLY" -eq 1 ]; then
+        list_candidates "$target" "$mime"
+        return 0
+    fi
+
+    if [ "$ASK" -eq 1 ] || [ "$confident" -eq 0 ]; then
+        index="$(choose_candidate "$target" "$mime")"
+    else
+        index=0
+    fi
+
+    run_candidate "$index" "$target" "$mime"
+}
+
+# --- argument parsing ---
+declare -a targets=()
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -h|--help) usage; exit 0 ;;
+        -a|--ask) ASK=1; shift ;;
+        -t|--terminal) FORCE_TERMINAL=1; shift ;;
+        -d|--set-default) SET_DEFAULT=1; ASK=1; shift ;;
+        -l|--list) LIST_ONLY=1; shift ;;
+        -n|--dry-run) DRY_RUN=1; shift ;;
+        --) shift; while [ "$#" -gt 0 ]; do targets+=("$1"); shift; done ;;
+        -*) die "unknown option '$1' — see 'open --help'." ;;
+        *) targets+=("$1"); shift ;;
+    esac
+done
+
+if [ "${#targets[@]}" -eq 0 ]; then
+    die "nothing to open — see 'open --help'."
+fi
+
+for target in "${targets[@]}"; do
+    open_target "$target"
+done

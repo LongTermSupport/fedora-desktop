@@ -739,6 +739,24 @@ NordVPN OpenVPN manager:
 - Uses NordVPN service credentials (stored encrypted in `localhost.yml`)
 - See [docs/nordvpn-installation.md](nordvpn-installation.md) for setup guide
 
+#### play-open-command.yml
+
+`open` — one command to open any file, directory, or URL:
+
+- Deploys `~/.local/bin/open`, plus the MIME/viewer stack it delegates to
+  (`xdg-utils`, `perl-File-MimeInfo`, `shared-mime-info`, `desktop-file-utils`,
+  `file`, `fzf`, `less`, `chafa`, `w3m`, `poppler-utils`, `bsdtar`, `jq`, `tree`)
+- Uses the registered default app when there is one — same as `xdg-open`
+- Shows a chooser when there is **not** one, or the file type is unrecognised:
+  fzf if available, otherwise a plain numbered menu (`-a` forces it either way)
+- Never offers a GUI app when there is no display — over SSH or on a headless
+  server you get terminal viewers, and only ones actually installed
+- `open .` (file manager or directory listing), `open -l FILE` (what could open
+  this?), `open -d FILE` (choose, and remember it as the default), `open -t FILE`
+  (terminal handlers only), `open -n FILE` (print the command, run nothing)
+- Works on desktop and server (`scope: general`). Fedora ships no `/usr/bin/open`
+  and `~/.local/bin` comes first in PATH, so nothing is masked
+
 #### play-photography.yml
 
 Photography tools:

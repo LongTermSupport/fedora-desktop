@@ -1,0 +1,111 @@
+#!/usr/bin/env ansible-playbook
+---
+# open — one command to open anything, on a desktop or over SSH.
+#
+# Deploys ~/.local/bin/open plus the MIME/viewer stack it delegates to.
+#
+# WHY A WRAPPER AND NOT JUST THE EXISTING TOOLS:
+#   - xdg-open / gio open   open the registered default and nothing else; with
+#                           no default registered they fail (often silently,
+#                           exit 3) and never offer a choice.
+#   - mimeopen              (perl-File-MimeInfo) DOES prompt with a numbered
+#                           menu when no default exists — the closest prior art,
+#                           and still used here for setting defaults — but it
+#                           only knows GRAPHICAL .desktop apps, so over SSH it
+#                           offers apps that cannot render anywhere.
+#   - handlr / rifle        not in Fedora's official repos, so not IaC-clean.
+#
+# The wrapper adds session awareness (terminal viewers when there is no
+# display) and a chooser (fzf, else a numbered menu) when there is no default
+# or the file type is unrecognised. Everything else is delegated.
+#
+# NOTE: this deliberately takes the name `open`. Fedora ships no /usr/bin/open,
+# and ~/.local/bin precedes /usr/bin in the user's PATH, so nothing is masked.
+# (On distros that alias open→openvt, use `openvt` directly.)
+- hosts: desktop
+  name: Open Command — universal file opener with a terminal chooser
+  become: true
+  vars:
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    open_command_binary: "/home/{{ user_login }}/.local/bin/open"
+  tasks:
+    # =========================================================================
+    # Packages
+    #
+    # Split into two groups so the intent of each is obvious:
+    #   resolution — how a file's MIME type and its registered apps are found
+    #   viewers    — the terminal handlers offered when there is no display.
+    #
+    # The script probes every handler with `command -v` before offering it, so
+    # anything NOT installed here (mpv, ranger, bat, exiftool, 7z, …) is simply
+    # picked up automatically if the user installs it later.
+    # =========================================================================
+
+    - name: Install MIME Resolution and Chooser Dependencies
+      ansible.builtin.dnf:
+        name:
+          - xdg-utils            # xdg-open, xdg-mime (default lookup + set)
+          - perl-File-MimeInfo   # mimetype (type lookup), mimeopen (set default)
+          - shared-mime-info     # the freedesktop MIME database itself
+          - desktop-file-utils   # .desktop database the app list is read from
+          - file                 # last-resort MIME fallback on a minimal box
+          - fzf                  # the good chooser (a numbered menu is used without it)
+          - less                 # pager behind most terminal handlers
+        state: present
+      tags:
+        - packages
+        - open-command
+
+    - name: Install Terminal Viewers Used When There Is No Display
+      ansible.builtin.dnf:
+        name:
+          - chafa                # images, rendered in the terminal
+          - w3m                  # HTML and http(s) URLs
+          - poppler-utils        # pdftotext / pdfinfo for PDFs
+          - bsdtar               # archive contents listing
+          - jq                   # JSON
+          - tree                 # recursive directory listing
+        state: present
+      tags:
+        - packages
+        - open-command
+
+    # =========================================================================
+    # The open command itself
+    # =========================================================================
+
+    - name: Ensure User Local Bin Directory Exists
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.local/bin"
+        state: directory
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+      tags:
+        - open-command
+
+    - name: Deploy the open Command
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/open"
+        dest: "{{ open_command_binary }}"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0755'
+      tags:
+        - open-command
+
+    - name: Open Command Ready
+      ansible.builtin.debug:
+        msg:
+          - "✓ open deployed to {{ open_command_binary }}"
+          - ""
+          - "  open FILE          default app, or a chooser when there is no default"
+          - "  open .             file manager on a desktop, directory listing over SSH"
+          - "  open -a FILE       always choose"
+          - "  open -d FILE       choose, and remember the choice as the default"
+          - "  open -l FILE       list what could open it"
+          - "  open -t FILE       terminal handlers only"
+          - "  open --help        full usage"
+      tags:
+        - open-command
