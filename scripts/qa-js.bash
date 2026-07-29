@@ -36,20 +36,36 @@ if ! command -v node >/dev/null; then
 fi
 
 # Discover repo-owned .js files. Exclude vendored/upstream/runtime trees.
+#
+# ANCHORING (Plan 00067): the repo-root-relative exclusions are anchored to "$REPO_ROOT".
+# `find -path` matches the WHOLE path, so an unanchored `*/untracked/*` excludes an entire
+# checkout that merely LIVES under a directory called untracked — which made this gate scan 0
+# files and still print "0 files OK". `.git` and `node_modules` stay unanchored on purpose:
+# they legitimately occur at any depth.
 JS_FILES=()
 while IFS= read -r -d '' file; do
     JS_FILES+=("$file")
 done < <(find "$REPO_ROOT" -type f -name "*.js" \
     ! -path "*/.git/*" \
     ! -path "*/node_modules/*" \
-    ! -path "*/.ansible/roles/*" \
-    ! -path "*/roles/vendor/*" \
-    ! -path "*/.claude/hooks-daemon/*" \
-    ! -path "*/.claude/ccy/*" \
-    ! -path "*/untracked/*" \
+    ! -path "$REPO_ROOT/.ansible/roles/*" \
+    ! -path "$REPO_ROOT/roles/vendor/*" \
+    ! -path "$REPO_ROOT/.claude/hooks-daemon/*" \
+    ! -path "$REPO_ROOT/.claude/ccy/*" \
+    ! -path "$REPO_ROOT/untracked/*" \
     -print0)
 
 TOTAL=${#JS_FILES[@]}
+
+# A gate that scanned NOTHING must not report a pass (Plan 00067, Decision 2). This repo always
+# ships JavaScript (the GNOME Shell extensions), so zero means discovery is broken.
+if [[ "$TOTAL" -eq 0 ]]; then
+    echo "✗ js: found 0 files to check under $REPO_ROOT — refusing to report a pass."
+    echo "  A zero-file scan means discovery is broken, not that the code is clean."
+    echo "  Likely cause: an exclusion pattern matching the whole checkout (they are anchored"
+    echo "  to \$REPO_ROOT precisely to prevent that), or REPO_ROOT resolving unexpectedly."
+    exit 2
+fi
 
 # node --check each file. stderr is captured to a temp file so genuine parse
 # errors are surfaced (never hidden) in stdout and the JSON output.

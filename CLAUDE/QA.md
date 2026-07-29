@@ -23,12 +23,46 @@ treated as "0 issues".
 
 | Script                   | Checks                                                                                                                                                                                                                                                                       | Files                                                                                              |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `qa-bash.bash`           | `bash -n` (always) + shellcheck (only when `shellcheck` is in PATH — silently skipped if absent). **shellcheck `error`-level findings GATE** (fail QA); `warning`/`info`/`style` are advisory.                                                                               | Repo-owned bash (excludes `roles/vendor`, `.claude/hooks-daemon`, `.claude/ccy`, `.claude/skills`) |
+| `qa-bash.bash`           | `bash -n` (always) + shellcheck (only when `shellcheck` is in PATH — silently skipped if absent, see the caveat below). **shellcheck `error`-level findings GATE** (fail QA); `warning`/`info`/`style` are advisory.                                                         | Repo-owned bash (excludes `roles/vendor`, `.claude/hooks-daemon`, `.claude/ccy`, `.claude/skills`) |
 | `qa-python.bash`         | `python3 -m py_compile` + ruff (ruff exit ≥ 2 = hard fail; no `--fix` mutation in the check path)                                                                                                                                                                            | Repo-owned Python files                                                                            |
 | `qa-patterns.bash`       | Semgrep rules from `.semgrep/bash-conventions.yml` (`\|\| echo` and other error-hiding patterns)                                                                                                                                                                             | Repo-owned bash                                                                                    |
 | `qa-ansible.bash`        | Fail-fast grep (`failed_when: false`/`ignore_errors` without same-line `# FAIL-FAST-OK:`, case-insensitive), **self-default vars** (`x: "{{ x \| default(…) }}"` — the 2.19 recursive-loop footgun `--syntax-check` can't see), **plus** playbook shebang + exec-bit hygiene | `playbooks/ tasks/ vars/ environment/ roles/` (excludes `roles/vendor`), `*.yml`/`*.yaml`          |
 | `qa-ansible-syntax.bash` | `ansible-playbook --syntax-check` on every playbook (files with a top-level `- hosts:`). Parse-only — safe in the CCY container                                                                                                                                              | `playbooks/playbook-main.yml` + standalone `playbooks/imports/**`                                  |
 | `qa-js.bash`             | `node --check` on repo JS + `eslint .` in `extensions/`                                                                                                                                                                                                                      | Repo-owned `.js` (excludes vendor/node_modules) + `extensions/`                                    |
+
+---
+
+## A gate reporting `0 files` is a FAILURE, not a pass
+
+If any gate prints `✓ <lang>: 0 files OK`, **do not read that as "the code is clean"** — it means
+file discovery found nothing, i.e. the check did not run. Each `find`-based gate therefore
+**exits 2** on a zero-file scan rather than reporting a pass (Plan 00067).
+
+The instance that prompted this: the gates' exclusions are *repo-root-relative* in intent
+(`untracked/`, `roles/vendor/`, `.claude/ccy/`, …) but were written as unanchored globs
+(`! -path "*/untracked/*"`). `find -path` matches the **whole** path it prints, so a checkout
+living under a directory called `untracked` — e.g. lts-infra vendors this repo at
+`untracked/repos/fedora-desktop` — was excluded **in its entirety**. `qa-bash.bash` scanned
+0 of 112 files and exited 0; `qa-js.bash` did the same. The mandatory pre-commit gate was a no-op
+that reported a pass.
+
+Consequences for anyone editing these scripts:
+
+- **Anchor root-relative exclusions to `$REPO_ROOT`** (`! -path "$REPO_ROOT/untracked/*"`).
+  Leave genuinely any-depth exclusions unanchored — `.git`, `node_modules`, `__pycache__`,
+  `.venv`, `venv`.
+- **Never remove the zero-file guard** to make a gate "work" somewhere. A zero count is the
+  signal, not the noise.
+- `qa-patterns.bash` needs no anchoring: semgrep's `--exclude` resolves relative to the scan
+  root, which is the behaviour the `find`-based gates now match.
+
+**Known caveat, same class, not yet fixed**: `qa-bash.bash` treats `shellcheck` as *optional*
+(absent ⇒ writes `[]` and still reports a pass) while `qa-python.bash` treats `ruff` as *required*
+(absent ⇒ `exit 2`). So a box without `shellcheck` gets a green `qa-all.bash` with no static
+analysis of its bash at all. The zero-file guard does not catch this — the file count is
+non-zero, it is the *analysis* that is missing. Tracked in Plan 00067's follow-up finding; if you
+see `✓ bash: N files OK` with no `⚠ shellcheck:` line, confirm `command -v shellcheck` before
+citing that run as evidence.
 
 ---
 

@@ -29,18 +29,28 @@ ERRORS=0
 #   .claude/ccy           — whole CCY runtime tree (snapshots, plugins, history)
 #   .claude/skills        — installed skill payloads
 #   roles/vendor          — vendored Ansible roles
+#   untracked             — the repo's own scratch tree
+#
+# ANCHORING (Plan 00067): the exclusions above are REPO-ROOT-RELATIVE and are anchored to
+# "$REPO_ROOT" for that reason. `find -path` matches the WHOLE path it prints, so an
+# unanchored `*/untracked/*` excludes an entire checkout that merely LIVES under a directory
+# called untracked — e.g. lts-infra vendors this repo at untracked/repos/fedora-desktop. That
+# made this gate scan 0 of 86 bash files and still print "0 files OK": a control that silently
+# degraded to a no-op, which is exactly what CLAUDE.md's fail-fast rule exists to prevent.
+# `.git` and `node_modules` stay UNANCHORED on purpose — they legitimately occur at any depth
+# (submodules/worktrees, nested package trees).
 BASH_FILES=()
 while IFS= read -r -d '' file; do
     BASH_FILES+=("$file")
 done < <(find "$REPO_ROOT" -type f \( -name "*.sh" -o -name "*.bash" \) \
     ! -path "*/.git/*" \
-    ! -path "*/.ansible/roles/*" \
-    ! -path "*/.claude/hooks-daemon/*" \
-    ! -path "*/.claude/ccy/*" \
-    ! -path "*/.claude/skills/*" \
-    ! -path "*/roles/vendor/*" \
+    ! -path "$REPO_ROOT/.ansible/roles/*" \
+    ! -path "$REPO_ROOT/.claude/hooks-daemon/*" \
+    ! -path "$REPO_ROOT/.claude/ccy/*" \
+    ! -path "$REPO_ROOT/.claude/skills/*" \
+    ! -path "$REPO_ROOT/roles/vendor/*" \
     ! -path "*/node_modules/*" \
-    ! -path "*/untracked/*" \
+    ! -path "$REPO_ROOT/untracked/*" \
     -print0)
 
 while IFS= read -r file; do
@@ -53,17 +63,30 @@ while IFS= read -r file; do
     fi
 done < <(find "$REPO_ROOT" -type f -executable \
     ! -path "*/.git/*" \
-    ! -path "*/.ansible/roles/*" \
-    ! -path "*/.claude/hooks-daemon/*" \
-    ! -path "*/.claude/ccy/*" \
-    ! -path "*/.claude/skills/*" \
-    ! -path "*/roles/vendor/*" \
+    ! -path "$REPO_ROOT/.ansible/roles/*" \
+    ! -path "$REPO_ROOT/.claude/hooks-daemon/*" \
+    ! -path "$REPO_ROOT/.claude/ccy/*" \
+    ! -path "$REPO_ROOT/.claude/skills/*" \
+    ! -path "$REPO_ROOT/roles/vendor/*" \
     ! -path "*/node_modules/*" \
-    ! -path "*/untracked/*" \
+    ! -path "$REPO_ROOT/untracked/*" \
     ! -name "*.sh" \
     ! -name "*.bash")
 
 TOTAL=${#BASH_FILES[@]}
+
+# A gate that scanned NOTHING must not report a pass (Plan 00067, Decision 2). This repo always
+# contains bash, so zero is never a legitimate answer — it means discovery is broken (a
+# mis-scoped exclusion, a wrong REPO_ROOT, a rename), and "✓ 0 files OK" would be a true
+# statement about the check presented as a stronger statement about the code.
+if [[ "$TOTAL" -eq 0 ]]; then
+    echo "✗ bash: found 0 files to check under $REPO_ROOT — refusing to report a pass."
+    echo "  A zero-file scan means discovery is broken, not that the code is clean."
+    echo "  Likely causes: an exclusion pattern matching the whole checkout (the exclusions"
+    echo "  above are anchored to \$REPO_ROOT precisely to prevent that), or REPO_ROOT"
+    echo "  resolving somewhere unexpected."
+    exit 2
+fi
 
 # Syntax check each file
 for file in "${BASH_FILES[@]}"; do

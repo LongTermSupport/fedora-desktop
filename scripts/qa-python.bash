@@ -25,17 +25,25 @@ if ! command -v ruff &>/dev/null; then
 fi
 
 # Discover files
+#
+# ANCHORING (Plan 00067): the repo-root-relative exclusions are anchored to "$REPO_ROOT".
+# `find -path` matches the WHOLE path it prints, so an unanchored `*/untracked/*` excludes an
+# entire checkout that merely LIVES under a directory called untracked — e.g. lts-infra vendors
+# this repo at untracked/repos/fedora-desktop. Here that defect was MASKED by the `ruff not
+# installed` exit 2 rather than avoided; qa-bash.bash had the same bug and reported a clean pass
+# over 0 of 86 files. `.git`, `node_modules`, `__pycache__`, `.venv` and `venv` stay UNANCHORED
+# on purpose — all of them legitimately occur at any depth.
 PY_FILES=()
 while IFS= read -r -d '' file; do
     PY_FILES+=("$file")
 done < <(find "$REPO_ROOT" -type f -name "*.py" \
     ! -path "*/.git/*" \
-    ! -path "*/.ansible/roles/*" \
-    ! -path "*/.claude/hooks-daemon/*" \
-    ! -path "*/.claude/ccy/plugins/*" \
-    ! -path "*/.claude/ccy/file-history/*" \
+    ! -path "$REPO_ROOT/.ansible/roles/*" \
+    ! -path "$REPO_ROOT/.claude/hooks-daemon/*" \
+    ! -path "$REPO_ROOT/.claude/ccy/plugins/*" \
+    ! -path "$REPO_ROOT/.claude/ccy/file-history/*" \
     ! -path "*/node_modules/*" \
-    ! -path "*/untracked/*" \
+    ! -path "$REPO_ROOT/untracked/*" \
     ! -path "*/__pycache__/*" \
     ! -path "*/.venv/*" \
     ! -path "*/venv/*" \
@@ -47,15 +55,25 @@ while IFS= read -r file; do
     fi
 done < <(find "$REPO_ROOT" -type f -executable \
     ! -path "*/.git/*" \
-    ! -path "*/.ansible/roles/*" \
-    ! -path "*/.claude/hooks-daemon/*" \
-    ! -path "*/.claude/ccy/plugins/*" \
-    ! -path "*/.claude/ccy/file-history/*" \
+    ! -path "$REPO_ROOT/.ansible/roles/*" \
+    ! -path "$REPO_ROOT/.claude/hooks-daemon/*" \
+    ! -path "$REPO_ROOT/.claude/ccy/plugins/*" \
+    ! -path "$REPO_ROOT/.claude/ccy/file-history/*" \
     ! -path "*/node_modules/*" \
-    ! -path "*/untracked/*" \
+    ! -path "$REPO_ROOT/untracked/*" \
     ! -name "*.py")
 
 TOTAL=${#PY_FILES[@]}
+
+# A gate that scanned NOTHING must not report a pass (Plan 00067, Decision 2). This repo always
+# contains Python (helpers/, scripts/), so zero means discovery is broken.
+if [[ "$TOTAL" -eq 0 ]]; then
+    echo "✗ python: found 0 files to check under $REPO_ROOT — refusing to report a pass."
+    echo "  A zero-file scan means discovery is broken, not that the code is clean."
+    echo "  Likely cause: an exclusion pattern matching the whole checkout (they are anchored"
+    echo "  to \$REPO_ROOT precisely to prevent that), or REPO_ROOT resolving unexpectedly."
+    exit 2
+fi
 
 # Syntax check each file
 for file in "${PY_FILES[@]}"; do
