@@ -1,9 +1,131 @@
 # Plan 00066: Extend ccy so a CI/GitHub-runner-optimised session launches cleanly
 
-**Status**: Not Started
+**Status**: In Progress
 **Created**: 2026-07-29
 **Owner**: joseph
 **Priority**: High
+
+> ## ROUND 1 CORRECTIONS — read this before the body below
+>
+> Everything from "## Overview" down is left **exactly as the round-1 reviewers saw
+> it**, so `reports/fable-review-1.md` and `reports/sonnet-scan-1.md` keep referring to a
+> real document. This block supersedes it where they conflict. Six of my own claims did
+> not survive, and one of them was the plan's central thesis.
+>
+> **C1 — the plan missed the single most consequential axis (new E10).** `ccy` runs
+> `claude --dangerously-skip-permissions` **unconditionally** (`claude-yolo:2792`), and
+> there is no `--permission-mode`, `--allowedTools` or `--disallowedTools` surface
+> anywhere in the launcher, the 7 libs, or the entrypoint. It is stronger than that: the
+> entrypoint writes `"bypassPermissionsModeAccepted": true` into `.claude.json`
+> (`entrypoint.sh:245`), so the image **pre-accepts** the bypass dialog. The consumer's
+> design is the exact inverse — `--permission-mode default` plus an allowlist, so an
+> ungranted tool is REFUSED. These are not two tunings of one launcher; they are opposite
+> security postures, and this is the axis that decides whether any of this may be pointed
+> at a pull request. Verified independently. *(fable §1)*
+>
+> **C2 — the thesis is wrong: "re-implementation" mischaracterises what the consumer
+> built.** I wrote that `actions-hub` re-implements ccy in ~1,737 lines. It does not. It
+> **reuses** the image — `ccy-baseline/Dockerfile:61` is literally `FROM claude-yolo:latest` — and **deliberately replaces** the launcher and entrypoint, with
+> the reasoning written down at `run-sandbox.sh:375-402` (including the honest note that
+> `--entrypoint /bin/bash` drops `tini`, accepted for a `--rm` short-lived container).
+> So the shared surface is the **image**; the launcher and entrypoint diverge because the
+> **trust models** diverge. Decision 1 rejected "a second launcher" and never considered
+> the third option the evidence actually supports: **a second, small, CI-shaped
+> entrypoint sharing the same base image** — which is approximately what the consumer
+> has. Decision 1 must be rescoped; the `Dockerfile.ci` idea survives, the
+> launcher-convergence framing does not. *(fable §2)*
+>
+> **C3 — E2's census was wrong, by my own method's blind spot.** I searched `read -rp`
+> and reported "35 sites across the launcher and libs" as though exhaustive. Actual:
+> **37** `read -rp` **plus 9** `read -r -p` = **46**. Every one of the 9 is in
+> `lib/token-management.bash` — 878 lines, the entire credential subsystem, which my
+> pattern missed completely because that file's house style separates the flags. Among
+> them is `select_token` (`token-management.bash:611`), which `claude-yolo:1004` calls on
+> the **default launch path**. So the earliest and most certain unattended blocker is
+> credential resolution, which E2/E3 never cite. This is the recurring failure mode
+> again — a true statement about *what one grep found* presented as a statement about
+> *how many places ccy can hang*. Verified by re-running both patterns. *(fable §3)*
+>
+> **C4 — E3 was wrong: most of those sites do NOT spin, they abort.** `claude-yolo:41`
+> sets `set -e`. My replication omitted it, so I proved a property of my own test script
+> and not of the launcher. Re-tested with `set -e` present: **exit 1 at the first
+> `read`**, no spin. Only prompts reached via an ancestor invoked as an `if`/`while`
+> *condition* spin, because bash suspends `errexit` for that whole subtree — which is the
+> two `check_*_containers_startup` container TUIs (`docker-health.bash:161`, `485`), not
+> the sites I cited (`claude-yolo:1104`, `2011`, `network-management.bash:271`,
+> `dockerfile-custom.bash:37/117/157`). The hang is real but **narrower**; the abort is
+> still a defect (an undiagnosable `exit 1` mid-banner), so Task 2.1 stands — but
+> "unattended ccy hangs" was overstated, and the two genuinely-hanging sites deserve
+> priority precisely because a concurrent same-project job is what triggers them.
+> *(sonnet §4-5, confirmed by my own re-test)*
+>
+> **C5 — a fifth capability was unnamed: credential acquisition, not just the prompts
+> around it.** There is **no path** that accepts `CLAUDE_CODE_OAUTH_TOKEN` by value;
+> `SELECTED_TOKEN` is always resolved from a file glob under `$TOKEN_DIR`, and `--token NAME` selects among *existing files*. `create_token` is an inherent human-in-a-browser
+> OAuth flow (`token-management.bash:254`) with a manual-paste retry loop behind it, and
+> its own comment concedes the recorded expiry is a 90-day guess. So CI needs (a) an
+> out-of-band provisioning story and (b) a genuinely new "take the token from the
+> environment and skip the token-file subsystem" mode — new functionality touching ~200
+> lines, not a non-interactivity fix. *(sonnet §1, fable §5)*
+>
+> **C6 — "built by Ansible, never per-job" only answers the persistent-host case.** There
+> is **no registry push or pull anywhere** in the launcher, the libs, or any play — every
+> `build`/`commit` writes to local storage only. On a genuinely ephemeral runner
+> "pre-built by Ansible" has no meaning. Task 3.4 needs an explicit
+> self-hosted-only-for-now decision, or registry support as new scope. *(sonnet §2)*
+>
+> **C7 — a concurrency defect the plan never considered.** `get_next_container_name`
+> (`lib/common.bash:583`) computes a free name by `ps -a` + increment with no lock, from a
+> `PROJECT_NAME` derived purely from `basename $PWD` + parent — no run ID. Then
+> `claude-yolo:2747` unconditionally runs `container_cmd rm -f "$CONTAINER_NAME"`, which
+> force-removes a **running** container. Two concurrent jobs for one repo can therefore
+> have the second kill the first's live container. The consumer salts with
+> `GITHUB_RUN_ID`/`RUN_ATTEMPT` (`run-sandbox.sh:222`) precisely to avoid this.
+> *(sonnet §3, fable §6)*
+>
+> **C8 — an unrelated hard dependency sits outside any egress policy.** With podman and
+> without `--no-network`, ccy pulls **`alpine`** and fetches **plain
+> `http://google.com`** in a *separate* container, exiting 1 on failure
+> (`claude-yolo:2524-2599`). A correctly-scoped allowlist (GitHub + Anthropic + npm) will
+> not contain it, so ccy hard-exits before the real container starts, for a reason an
+> operator would find bizarre. `--no-network` is therefore **mandatory** for CI — which
+> the plan never says. *(sonnet §6)*
+>
+> **C9 — Decision 2 contradicts shipped code without saying so.** I cited
+> `ssh-handling.bash:357` as the one existing `HEADLESS_MODE` guard, without reading how
+> it works: `if [ "${HEADLESS_MODE:-false}" = "true" ] || [ ! -t 0 ]`. It uses the very
+> `-t 0` inference Decision 2 forbids, and prints which branch it took. So "never infer"
+> should soften to **"never *silently* infer"** — the existing precedent is fine and the
+> absolute rule was dogma. *(fable §4)*
+>
+> **C10 — compose services leak on any failing run.** The teardown block at
+> `claude-yolo:2794-2846` is unreachable when the run exits non-zero, because `set -e`
+> has already ended the script — including the ordinary CI case of a task that
+> legitimately fails. Exit-code propagation itself is correct. *(sonnet §7)*
+>
+> **C11 — the ordering was over-serialised.** Only *proving* things unattended needs
+> Phase 2; Phases 3/4 can be **designed** in parallel, and Decision 3 already concedes
+> egress can be designed *and proven interactively* on a workstation. *(fable §8)*
+>
+> ### What this does to the plan's direction
+>
+> The goal is no longer "extend ccy so `actions-hub` deletes its stack" — C1 and C2 show
+> that framing was wrong. The honest split, which Round 2 must restate as the plan's
+> actual thesis:
+>
+> - **Shared and worth consolidating: the IMAGE.** `Dockerfile.ci` survives review and is
+>   the one piece both sides already agree on.
+> - **Irreducibly separate: the launcher/entrypoint for untrusted input.** A YOLO-by-
+>   construction launcher and a fail-closed sandbox cannot be the same artifact. The
+>   consumer's entrypoint should probably stay — the open question is whether it belongs
+>   *here*, as a second small CI entrypoint beside `entrypoint.sh`, rather than in the
+>   consumer.
+> - **Worth fixing in ccy on their own merits, for TRUSTED automation:**
+>   `--non-interactive` (C4's narrowed form), token-from-environment (C5), the
+>   concurrency defect (C7), the `google.com` preflight (C8), the compose leak (C10).
+>   None of these need the untrusted-PR threat model to justify them.
+>
+> Round 2 is required. Tasks 7.1-7.5 below carry the corrections forward.
 
 ## Overview
 
@@ -244,20 +366,64 @@ an unrelated userns/subuid reason and would have been mistaken for a result.
 
 Each round is a file in `reports/`. A round that finds nothing material ends the loop.
 
-- [ ] ⬜ **Task 6.1**: Round 1 — hostile review of Phases 1-5 (fable). Brief: attack the
+- [x] ✅ **Task 6.1**: Round 1 — hostile review of Phases 1-5 (fable). Brief: attack the
   design, not the prose. Hunt specifically for *a true statement about a check
   presented as a stronger statement about the world* — the recurring failure mode in
   this estate, and the reason Task 1.1 exists as a task rather than an assertion.
-- [ ] ⬜ **Task 6.2**: Round 1 — independent deep scan (sonnet) for what the author and
+  → `reports/fable-review-1.md`. **2 BLOCKER, 4 MAJOR, 2 MINOR** — both blockers landed
+  on the thesis, not the details.
+- [x] ✅ **Task 6.2**: Round 1 — independent deep scan (sonnet) for what the author and
   the hostile reviewer both missed. Read the actual source; do not trust this plan's
-  own citations.
-- [ ] ⬜ **Task 6.3**: Apply round-1 findings. Corrections **append**; never rewrite a
+  own citations. → `reports/sonnet-scan-1.md`. **5 CRITICAL, 2 HIGH, 2 MEDIUM**, and it
+  caught E3 being wrong — a claim the hostile reviewer had accepted.
+- [x] ✅ **Task 6.3**: Apply round-1 findings. Corrections **append**; never rewrite a
   section a reviewer has already reviewed, or their finding stops referring to a real
-  document.
+  document. → the ROUND 1 CORRECTIONS block at the head of this file, C1-C11. Each
+  correction was re-verified against source before being accepted; the body is untouched.
 - [ ] ⬜ **Task 6.4**: Repeat rounds until a round finds nothing material. Record every
   round, including the quiet one that ends the loop.
 - [ ] ⬜ **Task 6.5**: Final gate — restate the design in one page, and list what a
   **later** implementation plan must prove on real hardware before any task is ✅.
+
+### Phase 7: Round-2 restatement — carry C1-C11 into a corrected design
+
+Round 1 invalidated the thesis, so Round 2 is a restatement rather than a polish. These
+tasks **replace** the corresponding Phase 2-5 tasks above where they conflict.
+
+- [ ] ⬜ **Task 7.1**: Restate the thesis per C1/C2 — the shared surface is the **image**;
+  the launcher and entrypoint diverge because the trust models diverge. Evaluate on the
+  merits the third option Decision 1 never considered: *a second small CI entrypoint
+  beside `entrypoint.sh`, sharing the base image*.
+  - [ ] ⬜ Add **E10** (the `--dangerously-skip-permissions` axis) to the evidence table
+    with its own Decision — does `ccy` grow a permission surface at all, or is the CI path
+    explicitly "container + network boundary only"? Either answer is defensible; silence
+    is not.
+  - [ ] ⬜ State plainly whether these flags serve *trusted* automation rather than
+    replacing `run-sandbox.sh` — and if so, stop using the consumer's deletion as the
+    motivating example.
+- [ ] ⬜ **Task 7.2**: Re-run the prompt census per C3 with a pattern that also matches
+  `read -r -p`, across all seven libs (expect ~46). Give `select_token`/`create_token`
+  their own named sub-problem — they sit on the default path and are the earliest blocker.
+- [ ] ⬜ **Task 7.3**: Re-scope `--non-interactive` per C4/C9. Classify each site *spins*
+  (errexit suspended by an `if`/`while` ancestor) vs *aborts undiagnosably*; fix the two
+  spinning TUIs first. Soften "never infer" to "never **silently** infer", reconciling
+  with `ssh-handling.bash:357`, which already does precisely that.
+- [ ] ⬜ **Task 7.4**: Add the capabilities Round 1 surfaced as missing.
+  - [ ] ⬜ **Token from environment** (C5) — accept `CLAUDE_CODE_OAUTH_TOKEN` by value,
+    bypassing the token-file subsystem, plus the out-of-band provisioning story, since
+    `create_token` is an irreducibly human OAuth flow.
+  - [ ] ⬜ **Concurrency safety** (C7) — run-ID-salted container names, and scope the
+    `rm -f` safety net so it cannot reap a live sibling.
+  - [ ] ⬜ **`--no-network` mandatory for CI** (C8), or make the `alpine`/`google.com`
+    preflight conditional. State which.
+  - [ ] ⬜ **Compose teardown on failure** (C10) — `trap`-based, since `set -e` makes the
+    current trailing block unreachable on a non-zero run.
+  - [ ] ⬜ **Image distribution** (C6) — self-hosted-only decision, or registry support as
+    declared new scope.
+  - [ ] ⬜ **Workspace mutation** — decide whether a CI variant may write `.claude/ccy/`
+    into the job checkout at all (`claude-yolo:2613`), given a PR checkout is untrusted.
+- [ ] ⬜ **Task 7.5**: Re-order per C11 — Phases 3/4 designed in parallel with 2; only
+  *proving unattended* is gated on Phase 2. Then re-run the audit loop (Task 6.4).
 
 ## Dependencies
 
