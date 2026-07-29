@@ -13,11 +13,23 @@
     # Legacy upload dir from before the ftp-camera/ftp-camera naming alignment.
     # Used by the migration task below to move existing data into the new path.
     ftp_camera_upload_dir_legacy: "/srv/camera-ftp"
-    # Name of the NetworkManager connection profile to tune for hotspot
-    # mode. GNOME's WiFi-Hotspot quick-settings toggle creates a profile
-    # called "Hotspot" by default — that's what this assumes. Override in
+    # Name of the NetworkManager connection profile used for hotspot mode.
+    # This play CREATES the profile when it is absent (see the hotspot block
+    # below) and tunes it when it is present. "Hotspot" also happens to be the
+    # name GNOME's WiFi-Hotspot quick-settings toggle uses, so a profile the
+    # user already made by hand is adopted rather than duplicated. Override in
     # host_vars/localhost.yml if you've renamed it.
     ftp_camera_hotspot_connection: "Hotspot"
+    # SSID the camera connects to in hotspot mode. Broadcast publicly, so keep
+    # it functional rather than personally identifying.
+    ftp_camera_hotspot_ssid: "ftp-camera"
+
+    # NOTE: ftp_camera_hotspot_password is intentionally NOT defined here, for
+    # the same precedence reason as ftp_camera_rclone_remote below — a play var
+    # would silently outrank the user's host_vars/vault value. It is the WPA2
+    # pre-shared key for the hotspot AP and must be vaulted:
+    #   ./vault.bash set ftp_camera_hotspot_password
+    # Minimum 8 characters (WPA2 requirement, asserted below).
 
     # NOTE: ftp_camera_rclone_remote is intentionally NOT defined here.
     # Play `vars:` have HIGHER precedence than inventory host_vars, so setting
@@ -239,55 +251,175 @@
         group: root
         mode: "0644"
 
-    # Hotspot tuning: bump the NetworkManager AP profile to 2.4GHz channel 6
-    # at 40MHz width — the only legal 40MHz configuration in the GB regdomain
-    # for 2.4GHz APs, doubling theoretical PHY rate over the GNOME default
-    # of channel 1 / 20MHz. 5GHz AP is blocked on Intel CNVi cards by the
-    # IR-CONCURRENT regdomain flag (no concurrent client+AP), so 40MHz on
-    # ch6 is the best we can do on this hardware class.
+    # Hotspot profile: CREATE it if absent, then tune it for throughput.
     #
-    # The block is a no-op when no NM profile by that name exists — typical
-    # for a fresh machine that hasn't toggled the hotspot in GNOME yet. In
-    # that case we just print a one-liner pointing the user at the toggle.
-    - name: Tune hotspot connection for max 2.4GHz throughput
+    # This play used to only tune a profile the user was told to create by hand
+    # in GNOME Settings. That is a manual system change, which this repo
+    # prohibits (CLAUDE/InfrastructureAsCode.md) — and in practice it meant
+    # `ftp-camera --hotspot` failed with "connection 'Hotspot' not found" on
+    # any machine where nobody had clicked the GNOME toggle. The profile is now
+    # declared here like any other piece of system state.
+    #
+    # Tuning targets 2.4GHz channel 6 at 40MHz width — the only legal 40MHz
+    # configuration in the GB regdomain for 2.4GHz APs, doubling theoretical
+    # PHY rate over the GNOME default of channel 1 / 20MHz. 5GHz AP is blocked
+    # on Intel CNVi cards by the IR-CONCURRENT regdomain flag (no concurrent
+    # client+AP), so 40MHz on ch6 is the best this hardware class can do.
+    - name: Provision the NetworkManager hotspot AP profile
       block:
-        - name: Check whether the NetworkManager hotspot profile exists
+        - name: List NetworkManager connection profiles
           ansible.builtin.command:
             cmd: "nmcli -t -f NAME connection show"
           register: ftp_camera_nm_conns
           changed_when: false
           check_mode: false
 
-        - name: Apply band=bg, channel=6, channel-width=40MHz to the hotspot profile
+        - name: List NetworkManager devices
           ansible.builtin.command:
-            cmd: >-
-              nmcli connection modify "{{ ftp_camera_hotspot_connection }}"
-              802-11-wireless.band bg
-              802-11-wireless.channel 6
-              802-11-wireless.channel-width 40
-          when: ftp_camera_hotspot_connection in ftp_camera_nm_conns.stdout_lines
+            cmd: "nmcli -t -f DEVICE,TYPE device"
+          register: ftp_camera_nm_devices
+          changed_when: false
+          check_mode: false
+
+        # Creating the AP profile needs a concrete wifi interface to bind to,
+        # and a PSK. Each precondition is handled separately so the failure
+        # message names the one thing that is actually missing.
+        - name: Determine hotspot creation preconditions
+          ansible.builtin.set_fact:
+            ftp_camera_hotspot_exists: >-
+              {{ ftp_camera_hotspot_connection in ftp_camera_nm_conns.stdout_lines }}
+            ftp_camera_wifi_devs: >-
+              {{ ftp_camera_nm_devices.stdout_lines
+                 | select('match', '^[^:]+:wifi$') | list }}
+            ftp_camera_hotspot_psk_set: >-
+              {{ (ftp_camera_hotspot_password | default('') | length) > 0 }}
+
+        - name: Assert the hotspot PSK meets the WPA2 minimum length
+          # WPA2-PSK is defined for 8-63 character passphrases. A shorter value
+          # is accepted by nmcli at write time but the AP silently fails to
+          # start, which is far harder to diagnose than failing here.
+          ansible.builtin.assert:
+            that:
+              - (ftp_camera_hotspot_password | default('') | length) >= 8
+              - (ftp_camera_hotspot_password | default('') | length) <= 63
+            fail_msg: |
+              ftp_camera_hotspot_password must be 8-63 characters (WPA2-PSK).
+              Set it with: ./vault.bash set ftp_camera_hotspot_password
+          when: ftp_camera_hotspot_psk_set
+
+        - name: Create the hotspot AP profile
+          # pmf=1 disables Protected Management Frames. Sony camera FTP clients
+          # are WPA2-only and do not negotiate PMF; leaving it at the NM default
+          # makes the camera fail to associate on newer wpa_supplicant builds.
+          # proto/pairwise/group are pinned to plain WPA2-CCMP for the same
+          # compatibility reason — no WPA3 transition mode.
+          ansible.builtin.command:
+            argv:
+              - nmcli
+              - connection
+              - add
+              - type
+              - wifi
+              - ifname
+              - "{{ ftp_camera_wifi_devs | first | split(':') | first }}"
+              - con-name
+              - "{{ ftp_camera_hotspot_connection }}"
+              - autoconnect
+              - "no"
+              - ssid
+              - "{{ ftp_camera_hotspot_ssid }}"
+              - "802-11-wireless.mode"
+              - ap
+              - "802-11-wireless-security.key-mgmt"
+              - wpa-psk
+              - "802-11-wireless-security.proto"
+              - rsn
+              - "802-11-wireless-security.pairwise"
+              - ccmp
+              - "802-11-wireless-security.group"
+              - ccmp
+              - "802-11-wireless-security.pmf"
+              - "1"
+              - "802-11-wireless-security.psk"
+              - "{{ ftp_camera_hotspot_password }}"
+              - ipv4.method
+              - shared
+              - ipv6.method
+              - ignore
+          when:
+            - not ftp_camera_hotspot_exists
+            - ftp_camera_hotspot_psk_set
+            - ftp_camera_wifi_devs | length > 0
+          changed_when: true
+          no_log: true
+
+        - name: Apply band=bg, channel=6, channel-width=40MHz to the hotspot profile
+          # Runs for a profile this play just created AND for one the user made
+          # in GNOME, so a hand-made hotspot still gets the throughput tuning.
+          ansible.builtin.command:
+            argv:
+              - nmcli
+              - connection
+              - modify
+              - "{{ ftp_camera_hotspot_connection }}"
+              - "802-11-wireless.band"
+              - bg
+              - "802-11-wireless.channel"
+              - "6"
+              - "802-11-wireless.channel-width"
+              - "40"
+          when: ftp_camera_hotspot_exists or
+                (ftp_camera_hotspot_psk_set and ftp_camera_wifi_devs | length > 0)
           # nmcli modify writes to disk unconditionally; no idempotency check
           # short of reading every field back, which isn't worth it.
           changed_when: true
 
-        - name: Note when no hotspot profile is present yet
+        - name: Explain how to enable hotspot mode when no PSK is vaulted
+          # Not an error: the hotspot is an optional modifier of an optional
+          # play. Everything else here still installs and works. This mirrors
+          # how the play treats an unset ftp_camera_password at the top.
           ansible.builtin.debug:
             msg: |
-              NetworkManager profile '{{ ftp_camera_hotspot_connection }}' not found.
-              To create it, toggle WiFi Hotspot in GNOME Settings → Wi-Fi
-              (or run: nmcli device wifi hotspot ssid <name> password <pw>),
-              then re-run this playbook to tune it for channel 6 / 40MHz.
-          when: ftp_camera_hotspot_connection not in ftp_camera_nm_conns.stdout_lines
+              Hotspot mode is NOT configured — ftp_camera_hotspot_password is unset,
+              so no WPA2 AP profile could be created and `ftp-camera --hotspot`
+              will refuse to start.
+
+              To enable it:
+                ./vault.bash set ftp_camera_hotspot_password    # 8-63 characters
+                ansible-playbook playbooks/imports/optional/common/play-ftp-camera.yml
+
+              Everything else in this play is installed and working regardless.
+          when: not ftp_camera_hotspot_psk_set
+
+        - name: Warn when no WiFi device is present to host an AP
+          ansible.builtin.debug:
+            msg: |
+              No WiFi device found via `nmcli device`, so no hotspot AP profile
+              was created. This is expected on a desktop with wired networking
+              only; `ftp-camera --hotspot` is not usable on this machine.
+          when:
+            - ftp_camera_wifi_devs | length == 0
+            - not ftp_camera_hotspot_exists
 
         - name: Note that the tune takes effect on next hotspot activation
           ansible.builtin.debug:
             msg: |
-              Hotspot tuned: band=bg channel=6 channel-width=40MHz.
-              Bounce the connection to apply if it's currently up:
+              Hotspot profile '{{ ftp_camera_hotspot_connection }}' ready
+              (SSID {{ ftp_camera_hotspot_ssid }}, band=bg channel=6 width=40MHz).
+
+              Start it as part of a camera session:
+                ftp-camera --async-copy --hotspot
+
+              If it is currently up, bounce it to apply the tuning:
                 nmcli connection down "{{ ftp_camera_hotspot_connection }}"
                 nmcli connection up   "{{ ftp_camera_hotspot_connection }}"
-              Or toggle the hotspot off-and-on via GNOME quick settings.
-          when: ftp_camera_hotspot_connection in ftp_camera_nm_conns.stdout_lines
+
+              NOTE: Intel CNVi radios cannot be WiFi client and AP at the same
+              time, so the laptop loses its own internet while the hotspot is
+              up. --async-copy still works: files land in the local rclone VFS
+              cache and drain to the remote once you reconnect.
+          when: ftp_camera_hotspot_exists or
+                (ftp_camera_hotspot_psk_set and ftp_camera_wifi_devs | length > 0)
 
     - name: Display installation summary
       ansible.builtin.debug:
@@ -320,6 +452,10 @@
             --hotspot    Bring up/down the NM '{{ ftp_camera_hotspot_connection }}'
                          profile around the session (camera tethers directly
                          to the laptop; bypasses public WiFi).
+            --debug-ftp  Log every FTP verb the camera sends to
+                         /var/log/vsftpd.log. Use when uploads appear to
+                         succeed but the camera keeps re-sending the same
+                         frame. Verbose; diagnosis only.
           Example: ftp-camera --async-copy --view --hotspot
 
           Optional rclone push: set ftp_camera_rclone_remote in host_vars
@@ -346,14 +482,22 @@
           Note: log out and back in for group membership to take effect.
 
           Hotspot mode (security + speed on untrusted networks):
-            Toggle GNOME Settings → Wi-Fi → Hotspot ON. The camera then
-            connects directly to the laptop's AP, bypassing any public
-            WiFi. ftp-camera detects the hotspot and binds the right IP
-            automatically (it also opens FTP in the nm-shared firewall
-            zone, which is otherwise restrictive).
-            This playbook tunes the hotspot connection for 40MHz on
-            channel 6 (~2x throughput vs the GNOME 20MHz default) when
-            the profile '{{ ftp_camera_hotspot_connection }}' exists.
+            Run: ftp-camera --async-copy --hotspot
+            The camera connects directly to the laptop's AP, bypassing any
+            public WiFi. ftp-camera brings the profile up at start, binds
+            the right IP automatically, opens FTP in the otherwise-restrictive
+            nm-shared firewall zone, and takes the hotspot back down on exit.
+
+            This playbook OWNS the '{{ ftp_camera_hotspot_connection }}' profile —
+            it creates it (SSID {{ ftp_camera_hotspot_ssid }}, WPA2) and tunes it
+            for 40MHz on channel 6 (~2x throughput vs the GNOME 20MHz default).
+            Do not create it by hand. It requires a vaulted passphrase:
+              ./vault.bash set ftp_camera_hotspot_password    # 8-63 characters
+
+            NOTE: Intel CNVi radios cannot be WiFi client and AP simultaneously,
+            so the laptop loses its own internet while the hotspot is up.
+            --async-copy still works — files land in the local rclone VFS cache
+            and drain to the remote once you reconnect to a normal network.
           ============================================================
 
   handlers:

@@ -45,6 +45,14 @@ HOTSPOT_SSID=""
 # pre-existing hotspot the user toggled by hand is left alone).
 HOTSPOT_FLAG=false
 HOTSPOT_OWNED_BY_US=false
+# Diagnostic modifier: --debug-ftp appends log_ftp_protocol=YES to the RUNTIME
+# vsftpd config so every FTP verb the camera sends (and every reply it gets) is
+# recorded in /var/log/vsftpd.log. This is what distinguishes "the transfer
+# failed" from "the transfer succeeded and the camera re-sent it anyway" —
+# without the verb stream you cannot tell which, because both look identical
+# from the upload side. Runtime-only: /run is tmpfs, so it can never persist
+# into the Ansible-deployed /etc/vsftpd/vsftpd.conf.
+DEBUG_FTP=false
 # Async stats are tracked in a temp file (append-only — atomic for small
 # writes) so the background monitor and cleanup() see a consistent view.
 ASYNC_STATS_FILE=""
@@ -85,9 +93,21 @@ Modifiers (apply to FTP-server modes only; combinable):
                 profile HOTSPOT_CONNECTION points to in /etc/ftp-camera/config)
                 at start, tear it down on exit. Camera connects directly to
                 the laptop — bypasses any public WiFi. Fail-fast if the named
-                profile doesn't exist (create one via GNOME Settings → Wi-Fi).
+                profile doesn't exist (it is created by play-ftp-camera.yml).
                 If the hotspot is already up when ftp-camera starts, the flag
                 uses it as-is and leaves it alone on exit.
+                NOTE: on Intel CNVi cards the radio cannot be client and AP at
+                the same time, so the laptop loses its own internet while the
+                hotspot is up. --async-copy still works: files land in the
+                local rclone VFS cache and drain to the remote once you
+                reconnect.
+  --debug-ftp   Diagnostic. Adds log_ftp_protocol=YES to the runtime vsftpd
+                config so /var/log/vsftpd.log records every FTP verb the
+                camera sends and every reply it gets. Use this when uploads
+                appear to succeed but the camera keeps re-sending the same
+                frame — the verb stream shows whether the camera is checking
+                the file back (SIZE/LIST/MLSD) after storing it. Verbose;
+                not for routine runs.
 
 Launcher:
   Invoked with no arguments, ftp-camera opens a two-step TUI (gum or fzf) to
@@ -322,6 +342,9 @@ while [ "$#" -gt 0 ]; do
         --hotspot)
             HOTSPOT_FLAG=true
             ;;
+        --debug-ftp)
+            DEBUG_FTP=true
+            ;;
         --no-tui)
             # Silent: the script entry-point check below uses NO_ARGS to
             # decide whether to route to the launcher; --no-tui presence
@@ -377,6 +400,19 @@ if [ "$HOTSPOT_FLAG" = true ]; then
             echo "ERROR: --hotspot requires an FTP-server mode" >&2
             echo "  (default, --async, or --async-copy). The mode you picked" >&2
             echo "  exits without running the FTP server." >&2
+            exit 2
+        fi
+    done
+fi
+
+# And for --debug-ftp: it configures the vsftpd runtime config, so it only
+# means anything in a mode that actually starts vsftpd.
+if [ "$DEBUG_FTP" = true ]; then
+    for _mode in SORT_ONLY PASS_ONLY PUSH_ONLY COPY_ONLY PRUNE_ONLY; do
+        if [ "${!_mode}" = true ]; then
+            echo "ERROR: --debug-ftp requires an FTP-server mode" >&2
+            echo "  (default, --async, or --async-copy). The mode you picked" >&2
+            echo "  never starts vsftpd, so there is no protocol to trace." >&2
             exit 2
         fi
     done
@@ -1327,6 +1363,9 @@ print_startup_banner() {
         printf '  %-13s %s\n' "Rclone:"    "${RCLONE_REMOTE:-(unset)}"
         printf '  %-13s %s\n' "Mount:"     "${ASYNC_MOUNT_PATH:-(unset)}"
     fi
+    if [ "$DEBUG_FTP" = true ]; then
+        printf '  %-13s on   (FTP verb stream → /var/log/vsftpd.log)\n' "Debug:"
+    fi
     printf '  %-13s %s\n' "Upload dir:"    "$UPLOAD_DIR"
     printf '  %-13s ftp://camera@%s/\n' "FTP URL:" "$LOCAL_IP"
     echo -e "${BOLD}${GREEN}${hr}${NC}"
@@ -1745,9 +1784,16 @@ if [ "$HOTSPOT_FLAG" = true ]; then
     fi
     if ! nmcli -t -f NAME connection show | grep -qxF "$HOTSPOT_CONNECTION"; then
         echo "ERROR: NetworkManager connection '$HOTSPOT_CONNECTION' not found" >&2
-        echo "  Create it once via GNOME Settings → Wi-Fi → Hotspot, then" >&2
-        echo "  re-run play-ftp-camera.yml to tune it for 40MHz/channel 6." >&2
-        echo "  (Override the connection name via ftp_camera_hotspot_connection" >&2
+        echo "" >&2
+        echo "  play-ftp-camera.yml creates this AP profile for you, but only" >&2
+        echo "  once a WPA2 passphrase has been vaulted. Run, from the repo:" >&2
+        echo "" >&2
+        echo "    ./vault.bash set ftp_camera_hotspot_password    # 8-63 chars" >&2
+        echo "    ansible-playbook playbooks/imports/optional/common/play-ftp-camera.yml" >&2
+        echo "" >&2
+        echo "  Then re-run this command. Do NOT create the profile by hand —" >&2
+        echo "  the playbook owns it, and a hand-made one will not be tuned." >&2
+        echo "  (Override the profile name via ftp_camera_hotspot_connection" >&2
         echo "  in host_vars/localhost.yml if you've renamed it.)" >&2
         exit 1
     fi
@@ -1777,6 +1823,20 @@ echo -e "${BOLD}Starting camera FTP server...${NC}"
 # the correct LAN IP to the camera for passive mode data connections
 sudo cp /etc/vsftpd/vsftpd.conf /run/vsftpd-camera.conf
 echo "pasv_address=${LOCAL_IP}" | sudo tee -a /run/vsftpd-camera.conf > /dev/null
+
+# --debug-ftp: record the full FTP verb stream. vsftpd only honours
+# log_ftp_protocol when xferlog_std_format=NO, which the deployed config sets.
+# Appended to the RUNTIME config only, so it evaporates with /run on reboot and
+# can never drift into the Ansible-managed /etc copy.
+if [ "$DEBUG_FTP" = true ]; then
+    echo "log_ftp_protocol=YES" | sudo tee -a /run/vsftpd-camera.conf > /dev/null
+    echo -e "${YELLOW}${BOLD}--debug-ftp: FTP protocol tracing enabled.${NC}"
+    echo -e "  Every command the camera sends is logged to ${CYAN}/var/log/vsftpd.log${NC}."
+    echo -e "  This is verbose and slows the log tail — use it for diagnosis, not routine runs."
+    echo -e "  Afterwards, extract the trace with the plan triage script:"
+    echo -e "    ${CYAN}CLAUDE/Plan/00066-ftp-camera-airbnb-wifi-and-hotspot-triage/triage.bash${NC}"
+    echo ""
+fi
 
 # Ensure vsftpd's privsep chroot dir exists (wiped on reboot — /run is tmpfs)
 sudo mkdir -p /run/vsftpd/empty
@@ -1833,6 +1893,13 @@ sudo tail -F -n 0 --pid=$$ /var/log/vsftpd.log 2>/dev/null \
         /CONNECT/     { printf "  %s[conn]%s %s\n", c, n, $0; fflush(); next }
         /OK UPLOAD/   { next }   # already covered by inotifywait
         /FAIL UPLOAD/ { printf "  %s[fail]%s %s\n", r, n, $0; fflush(); next }
+        # --debug-ftp only. The PASS verb carries the FTP password as its
+        # argument, so it is dropped before anything can echo it to the
+        # terminal or into a captured report. Everything else in the verb
+        # stream is shown: seeing what the camera asks for immediately after
+        # STOR is the whole point of the flag.
+        /FTP command:.*"PASS/      { next }
+        /FTP command:|FTP response:/ { printf "  %s[verb]%s %s\n", c, n, $0; fflush(); next }
         { printf "  %s[ftp ]%s %s\n", y, n, $0; fflush() }
     ' &
 VSFTPD_LOG_PID=$!
