@@ -54,6 +54,16 @@
         name:
           - lxc
           - lxc-templates
+          # Declared dependencies. A minimal Fedora Cloud Base image ships none of
+          # these by default, yet tasks below hard-require them — so install them
+          # here rather than assume/probe (CLAUDE.md "Missing Dependencies — Fix in
+          # IaC"). Previously they were only present transitively (Server edition /
+          # weak-deps), which made this play abort the whole run on Cloud Base.
+          - firewalld        # ansible.posix.firewalld zone bind below needs the daemon
+          - python3-firewall  # firewalld's Python bindings for the Ansible module
+          - dnsmasq          # lxc-net launches it; the DHCP sanity gate hard-asserts it came up
+          - iptables-nft     # the DOCKER-USER / MASQUERADE reconciliation shells out to `iptables`
+          - NetworkManager   # the nmcli probe + "reload NetworkManager" handler require it
 
     - name: Put SELinux in permissive mode, logging actions that would be blocked.
       ansible.posix.selinux:
@@ -86,6 +96,14 @@
     # that then assigns the bridge address (the stock LXC_ADDR) at boot and races
     # lxc-net: RTNETLINK "File exists" → no dnsmasq → containers get no lease.
     # lxcbr0 is kept NM-unmanaged (see the NM-unmanaged block later in this play).
+
+    # firewalld must be running for the `immediate: true` half of the bind below to
+    # apply to the live ruleset (Cloud Base does not start it by default).
+    - name: Ensure firewalld is running
+      ansible.builtin.systemd:
+        name: firewalld
+        state: started
+        enabled: true
 
     # PERF-07: the firewalld module applies permanent + runtime idempotently without the
     # blanket `firewall-cmd --reload` that reprocessed every zone on every run.
@@ -184,73 +202,26 @@
     - name: Flush handlers to apply NM-unmanaged + restart lxc-net
       ansible.builtin.meta: flush_handlers
 
-    - name: Verify GitHub SSH access and clone LXC Bash
+    # lxc-bash is a PUBLIC repo, so clone it over HTTPS with no auth. This replaces
+    # the former vault-passphrase assert + `ssh -T git@github.com` probe + `git@`
+    # SSH clone, which hard-required a vaulted GitHub SSH passphrase and a working
+    # port-22 GitHub SSH handshake — an unnecessary dependency for a public repo
+    # that aborted the whole run on a box with no GitHub identity or with 22 blocked.
+    # lxc-bash provides shell aliases + completion only; it is not an LXC host
+    # prerequisite.
+    - name: Clone lxc-bash and wire its shell completion (public repo, HTTPS)
       become_user: "{{ user_login }}"
       block:
-        - name: Assert github_ssh_passphrase is set in vault
-          ansible.builtin.assert:
-            that:
-              - github_ssh_passphrase is defined
-              - github_ssh_passphrase | length > 0
-            fail_msg: |
-              ERROR: github_ssh_passphrase not found in vault!
+        - name: Clone lxc-bash (public, HTTPS — no GitHub auth)
+          ansible.builtin.git:
+            repo: https://github.com/LongTermSupport/lxc-bash.git
+            dest: "/home/{{ user_login }}/Projects/lxc-bash"
+            update: false   # clone once; do not fight local edits on re-run (matches old `creates:`)
 
-              This LXC play unlocks your GitHub SSH key to clone lxc-bash.
-              Add the passphrase to your vault, then re-run this playbook:
-                ./vault.bash set github_ssh_passphrase
-
-              Define it in environment/localhost/host_vars/localhost.yml.
-              All github_* keys use the same passphrase.
-
-        - name: Create passphrase file for SSH operations
-          ansible.builtin.copy:
-            content: "{{ github_ssh_passphrase }}"
-            dest: "/tmp/.lxc_ssh_pp"
-            mode: "0600"
-            owner: "{{ user_login }}"
-          no_log: true
-
-        - name: Verify GitHub SSH access
-          ansible.builtin.shell: |
-            set -euo pipefail
-            tmp_key=$(mktemp)
-            trap 'rm -f "$tmp_key"' EXIT
-            cp "/home/{{ user_login }}/.ssh/id" "$tmp_key"
-            chmod 600 "$tmp_key"
-            ssh-keygen -p -P "$(cat /tmp/.lxc_ssh_pp)" -N "" -f "$tmp_key" >/dev/null 2>&1
-            # ssh -T to GitHub exits rc 1 even on success, so failed_when below
-            # inspects stdout to decide pass/fail (failed_when overrides the rc).
-            timeout 15 ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -i "$tmp_key" -T git@github.com 2>&1
-          args:
-            executable: /bin/bash
-          register: github_ssh_check
-          changed_when: false
-          # rc 1 = GitHub responded with "Hi username!" (success)
-          failed_when: "'successfully authenticated' not in github_ssh_check.stdout"
-
-        - name: Clone LXC Bash
-          ansible.builtin.shell: |
-            set -euo pipefail
-            tmp_key=$(mktemp)
-            trap 'rm -f "$tmp_key"' EXIT
-            cp "/home/{{ user_login }}/.ssh/id" "$tmp_key"
-            chmod 600 "$tmp_key"
-            ssh-keygen -p -P "$(cat /tmp/.lxc_ssh_pp)" -N "" -f "$tmp_key" >/dev/null 2>&1
-            GIT_SSH_COMMAND="ssh -i $tmp_key -o BatchMode=yes -o StrictHostKeyChecking=accept-new" \
-              git clone git@github.com:LongTermSupport/lxc-bash.git "/home/{{ user_login }}/Projects/lxc-bash"
-          args:
-            executable: /bin/bash
-            creates: "/home/{{ user_login }}/Projects/lxc-bash"
-
-        - name: Add Aliases to bashrc file
+        - name: Source lxc-bash completion from bashrc
           ansible.builtin.lineinfile:
             line: source /home/{{ user_login }}/Projects/lxc-bash/lxc-bash-completion.bash
             path: /home/{{ user_login }}/.bashrc
-      always:
-        - name: Clean up passphrase file
-          ansible.builtin.file:
-            path: "/tmp/.lxc_ssh_pp"
-            state: absent
 
     - name: Increase System Limits
       ansible.builtin.blockinfile:

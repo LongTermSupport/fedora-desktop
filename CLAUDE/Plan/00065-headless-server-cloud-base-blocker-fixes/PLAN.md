@@ -102,17 +102,25 @@ non-interactive stdin — cosmetic).
 - [x] ✅ **Task 1.2**: `play-basic-configs.yml` — gate the fwupd task
   `when: provisioning_profile != 'server'` (precedent: the USB-audio task ~11 lines above),
   with a WHY comment (no firmware surface on a VM/headless target). `--syntax-check` rc=0.
-- [ ] ⬜ **Task 1.3**: `play-lxc-install-config.yml` — declare the deps it uses via
-  `ansible.builtin.dnf`: `firewalld` (+ `python3-firewall`, start the daemon), `dnsmasq`,
-  `iptables-nft`, `NetworkManager`. Widen the dnsmasq `fail_msg` to name both causes.
-- [ ] ⬜ **Task 1.4**: `play-lxc-install-config.yml` — switch the `lxc-bash` clone to
-  **HTTPS** (public repo), deleting the vault-passphrase assert, the passphrase temp file,
-  the `ssh -T` probe, and the `always:` cleanup (~65 lines). Removes the GitHub-SSH hard dep.
+- [x] ✅ **Task 1.3**: `play-lxc-install-config.yml` — declared the deps it uses in the
+  `Install Packages` task: `firewalld`, `python3-firewall`, `dnsmasq`, `iptables-nft`,
+  `NetworkManager` (each with a WHY comment citing "Missing Dependencies — Fix in IaC"), and
+  added an `Ensure firewalld is running` systemd task before the zone-bind (Cloud Base does
+  not start firewalld by default, and the `immediate: true` zone-bind needs the live daemon).
+  `--syntax-check` rc=0. Net −29 lines (dep list + start task, combined with 1.4).
+- [x] ✅ **Task 1.4**: `play-lxc-install-config.yml` — switched the `lxc-bash` clone to
+  **HTTPS** (public repo) via `ansible.builtin.git` + a `lineinfile` for completion, deleting
+  the vault-passphrase assert, the passphrase temp file, the `ssh -T` probe, the `git@` SSH
+  clone, and the `always:` cleanup (~65 lines → ~13). Removes the GitHub-SSH hard dep.
+  `--syntax-check` rc=0.
 - [ ] 🔄 **Task 1.5**: Run QA: `./scripts/qa-all.bash`; fix findings. NOTE: full `qa-all.bash`
   cannot run in the ballicom-infra CCY container (`ruff` not provisioned here — a
   fedora-desktop-HOST tool; missing-required-tool = hard fail by design). Per-play
-  `ansible-playbook --syntax-check` DOES run and passed for 1.1/1.2; edits touch no Python.
-  **Full `qa-all.bash` must be run on the HOST** alongside the live test.
+  `ansible-playbook --syntax-check` DOES run and passed for 1.1/1.2/1.3/1.4 — the LXC play
+  needed `ansible-galaxy collection install -r requirements.yml` first (its unchanged
+  `community.general.copr`/`.modprobe` tasks need that collection, absent by default in this
+  container); once installed, rc=0. Edits touch no Python. **Full `qa-all.bash` must be run on
+  the HOST** alongside the live test.
 
 ### Phase 2: Correct the container host (silent misbehaves)
 
