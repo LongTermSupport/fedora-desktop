@@ -85,14 +85,39 @@ fi
 while IFS= read -r line; do
     # Strip the REPO_ROOT prefix for tidier output
     rel_line="${line#"$REPO_ROOT"/}"
+
     if echo "$line" | grep -qi 'FAIL-FAST-OK'; then
-        # Justified — skip
-        :
-    else
-        echo "  ERROR (fail-fast): $rel_line"
-        FF_VIOLATIONS+=("$rel_line")
-        ERRORS=$((ERRORS + 1))
+        # Justified — skip. Checked against the WHOLE line, because the
+        # annotation legitimately lives in a trailing comment:
+        #   failed_when: false  # FAIL-FAST-OK: reason
+        continue
     fi
+
+    # Comment-only mentions are inert. Documentation that discusses these
+    # directives in prose — including a comment recording that one was
+    # REMOVED — is not a fail-fast violation, but a plain grep cannot tell
+    # the difference and flags it.
+    #
+    # The discriminator is position relative to the first '#'. A real
+    # directive is YAML, so the pattern always appears BEFORE any comment
+    # marker on its line:
+    #   ignore_errors: true          # <- pattern precedes (absent) '#'  = REAL
+    #   ignore_errors: true  # why   # <- pattern precedes '#'           = REAL
+    #   # the old ignore_errors: true escape hatch (removed)  <- follows  = PROSE
+    #
+    # So: drop everything from the first '#' onward and re-test. If the
+    # pattern no longer matches, every occurrence was inside a comment.
+    # This cannot mask a real directive — one would survive the strip.
+    content="${line#*:}"        # drop the "path:" prefix
+    content="${content#*:}"     # drop the "lineno:" prefix
+    code_part="${content%%#*}"  # keep only what precedes the first '#'
+    if ! echo "$code_part" | grep -qiE "$FF_PATTERN"; then
+        continue
+    fi
+
+    echo "  ERROR (fail-fast): $rel_line"
+    FF_VIOLATIONS+=("$rel_line")
+    ERRORS=$((ERRORS + 1))
 done < "$TMP_MATCHES"
 
 # ---------------------------------------------------------------------------
