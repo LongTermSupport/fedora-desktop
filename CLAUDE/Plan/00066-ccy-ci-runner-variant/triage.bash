@@ -26,11 +26,33 @@ set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 readonly REPO_ROOT
-REPORT_DIR="${REPO_ROOT}/untracked/reports"
+
+# Default: inside this repo's gitignored scratch tree, so the agent can read the
+# report at the same path it already sees. Override with PLAN00066_REPORT_DIR if
+# that is not writable by the invoking user (e.g. the clone is owned by someone
+# else). Do NOT run this script with sudo to work around a permission problem:
+# the podman probes below MUST run as the ordinary user, because the whole
+# estate is ROOTLESS podman and root has a different, empty image store — a
+# sudo run would report confident, wrong answers.
+REPORT_DIR="${PLAN00066_REPORT_DIR:-${REPO_ROOT}/untracked/reports}"
 readonly REPORT_DIR
-mkdir -p "$REPORT_DIR"
+
+if ! mkdir -p "$REPORT_DIR" 2>&1; then
+    printf 'triage: cannot create %s\n' "$REPORT_DIR" >&2
+    printf 'triage: re-run with a writable dir, e.g.\n' >&2
+    printf '  PLAN00066_REPORT_DIR=~/plan00066 bash %s\n' "$0" >&2
+    printf 'triage: do NOT use sudo — it would probe the wrong podman store.\n' >&2
+    exit 1
+fi
+
 REPORT="${REPORT_DIR}/plan-00066-triage.md"
 readonly REPORT
+
+if ! : > "$REPORT" 2>&1; then
+    printf 'triage: %s is not writable by %s\n' "$REPORT" "$(id -un)" >&2
+    printf 'triage: re-run with PLAN00066_REPORT_DIR=<a dir you own>\n' >&2
+    exit 1
+fi
 
 # Diagnostics to stderr; the report is the payload (CLAUDE/StderrHygiene.md).
 say() { printf '%s\n' "$*" >&2; }
