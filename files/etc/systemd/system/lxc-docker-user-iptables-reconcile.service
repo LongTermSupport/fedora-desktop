@@ -1,0 +1,17 @@
+[Unit]
+Description=Reconcile DOCKER-USER iptables rules for LXC bridge egress
+Documentation=file:///usr/local/bin/lxc-docker-user-iptables-reconcile.bash
+After=docker.service
+Requires=docker.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/lxc-docker-user-iptables-reconcile.bash
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=lxc-docker-user-iptables-reconcile
+
+[Install]
+WantedBy=multi-user.target

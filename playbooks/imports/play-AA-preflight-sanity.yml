@@ -26,6 +26,32 @@
           - ansible_facts['distribution_major_version'] | int == fedora_version | int
         fail_msg: "This project expects Fedora {{ fedora_version }}"
 
+    - name: Check for an rpm-ostree / atomic Fedora variant
+      ansible.builtin.stat:
+        path: /run/ostree-booted
+      register: _ostree_booted_marker
+
+    - name: Assert this is not an rpm-ostree / atomic Fedora image
+      ansible.builtin.assert:
+        that:
+          - not _ostree_booted_marker.stat.exists
+        fail_msg: |
+          This system is booted from an rpm-ostree / atomic Fedora image
+          (detected via /run/ostree-booted) — e.g. Silverblue, Kinoite,
+          Fedora CoreOS, Fedora IoT, or an Atomic Desktop / uBlue derivative.
+
+          fedora-desktop is built entirely on dnf/rpm package installs and
+          direct writes to /etc, both of which an ostree-managed root either
+          rejects outright or silently discards on the next boot. Running this
+          project against an atomic image WILL fail, and typically only deep
+          into the run with a confusing, misdiagnosing error — this preflight
+          exists to catch it here instead, at play 1.
+
+          Supported: Fedora Workstation, Server, and Cloud Base — this one tree
+          provisions both a desktop and a headless server (see
+          provisioning_profile below); any traditional dnf/rpm-based Fedora spin
+          works the same way. Not supported: any rpm-ostree-based variant.
+
     - name: Check provisioning_profile is a recognised value
       ansible.builtin.assert:
         that:

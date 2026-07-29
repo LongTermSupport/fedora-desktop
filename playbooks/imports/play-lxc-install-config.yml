@@ -289,66 +289,58 @@
     # IaC says so. The LXC subnet is derived from the live lxcbr0 interface
     # so a customised LXC_NETWORK still works.
     #
-    # Caveat: these rules are runtime-only — they vanish on host reboot or on
-    # a Docker daemon restart (which flushes DOCKER-USER). Re-running this
-    # playbook restores them.
+    # Persistence: the ACCEPT/MASQUERADE rules are runtime-only kernel state that
+    # vanishes on host reboot and on a Docker daemon restart (which flushes
+    # DOCKER-USER). A shared reconcile script + a systemd unit bound to
+    # docker.service (PartOf=) re-apply them on every boot and every docker
+    # restart — see the "Deploy DOCKER-USER iptables reconciliation" tasks below.
     - name: Assert DOCKER-USER iptables chain exists (Docker must run before LXC)
       ansible.builtin.command: iptables -n -L DOCKER-USER
       changed_when: false
       tags: [lxc_iptables]
 
-    - name: Derive LXC subnet CIDR from live lxcbr0 interface
-      ansible.builtin.shell: |
-        set -euo pipefail
-        ip -o -4 route show dev lxcbr0 proto kernel | awk '{print $1}' | head -n1
-      args:
-        executable: /bin/bash
-      register: lxc_subnet_cidr
-      changed_when: false
+    # The DOCKER-USER ACCEPT rules + the LXC-subnet MASQUERADE rule are applied by
+    # a single shared, idempotent script (probe-then-insert via `iptables -C`), which
+    # is ALSO run at boot / on docker restart by the systemd unit below. Keeping the
+    # rule logic in one script (not duplicated inline here and in the unit) is what
+    # stops the live-apply path and the persistence path from silently drifting apart.
+    - name: Deploy DOCKER-USER iptables reconciliation script
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/usr/local/bin/lxc-docker-user-iptables-reconcile.bash"
+        dest: /usr/local/bin/lxc-docker-user-iptables-reconcile.bash
+        owner: root
+        group: root
+        mode: "0755"
       tags: [lxc_iptables]
 
-    - name: Validate LXC subnet CIDR was derived
-      ansible.builtin.assert:
-        that:
-          - lxc_subnet_cidr.stdout | length > 0
-          - "'/' in lxc_subnet_cidr.stdout"
-        fail_msg: "Could not derive lxcbr0 subnet from `ip route show dev lxcbr0 proto kernel`. Is lxc-net running and lxcbr0 up?"
+    - name: Apply DOCKER-USER iptables rules now (this session)
+      ansible.builtin.command: /usr/local/bin/lxc-docker-user-iptables-reconcile.bash
+      register: _lxc_iptables_reconcile
+      changed_when: "'LXC-IPTABLES-RECONCILE-CHANGED' in _lxc_iptables_reconcile.stdout"
       tags: [lxc_iptables]
 
-    - name: Probe iptables ACCEPT rule (container → internet) in DOCKER-USER
-      ansible.builtin.command: "iptables -C DOCKER-USER -i lxcbr0 -j ACCEPT"
-      register: iptables_accept_out
-      changed_when: false
-      failed_when: false  # FAIL-FAST-OK: probe-then-act — rc explicitly checked below
+    # PartOf=docker.service makes systemd re-run this unit whenever docker restarts
+    # (which flushes DOCKER-USER); WantedBy=multi-user.target + Requires/After pull it
+    # in — and order it after — docker at boot. This is the persist-across-reboot and
+    # persist-across-docker-restart path; the task above is the immediate-apply path.
+    - name: Deploy DOCKER-USER iptables reconciliation systemd unit (reboot/docker-restart persistence)
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/etc/systemd/system/lxc-docker-user-iptables-reconcile.service"
+        dest: /etc/systemd/system/lxc-docker-user-iptables-reconcile.service
+        owner: root
+        group: root
+        mode: "0644"
       tags: [lxc_iptables]
 
-    - name: Insert iptables ACCEPT rule (container → internet)
-      ansible.builtin.command: "iptables -I DOCKER-USER -i lxcbr0 -j ACCEPT"
-      when: iptables_accept_out.rc != 0
-      tags: [lxc_iptables]
-
-    - name: Probe iptables ACCEPT rule (internet → container) in DOCKER-USER
-      ansible.builtin.command: "iptables -C DOCKER-USER -o lxcbr0 -j ACCEPT"
-      register: iptables_accept_in
-      changed_when: false
-      failed_when: false  # FAIL-FAST-OK: probe-then-act — rc explicitly checked below
-      tags: [lxc_iptables]
-
-    - name: Insert iptables ACCEPT rule (internet → container)
-      ansible.builtin.command: "iptables -I DOCKER-USER -o lxcbr0 -j ACCEPT"
-      when: iptables_accept_in.rc != 0
-      tags: [lxc_iptables]
-
-    - name: Probe iptables MASQUERADE rule for LXC subnet
-      ansible.builtin.command: "iptables -t nat -C POSTROUTING -s {{ lxc_subnet_cidr.stdout }} ! -o lxcbr0 -j MASQUERADE"
-      register: iptables_masquerade
-      changed_when: false
-      failed_when: false  # FAIL-FAST-OK: probe-then-act — rc explicitly checked below
-      tags: [lxc_iptables]
-
-    - name: Insert iptables MASQUERADE rule for LXC subnet
-      ansible.builtin.command: "iptables -t nat -I POSTROUTING -s {{ lxc_subnet_cidr.stdout }} ! -o lxcbr0 -j MASQUERADE"
-      when: iptables_masquerade.rc != 0
+    # state: started (not restarted) — ANS-09 convention (see lxc.service above): the
+    # immediate-apply task already reconciled this session, so the unit only needs to be
+    # enabled + started at least once, not bounced on every Ansible run.
+    - name: Enable + start the DOCKER-USER iptables reconciliation unit
+      ansible.builtin.systemd:
+        name: lxc-docker-user-iptables-reconcile.service
+        daemon_reload: true
+        enabled: true
+        state: started
       tags: [lxc_iptables]
 
     # ── Sanity Checks ──────────────────────────────────────────────────────────

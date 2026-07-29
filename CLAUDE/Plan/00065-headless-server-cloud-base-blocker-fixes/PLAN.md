@@ -146,21 +146,48 @@ non-interactive stdin — cosmetic).
 
 ### Phase 3: Fail-fast edition preflight + reboot-persistence
 
-- [ ] ⬜ **Task 3.1**: `play-AA-preflight-sanity.yml` — add an edition/flavour assertion that
-  fails loud on an unsupported image (design the concrete signal; `VERSION_ID` is ruled out).
-- [ ] ⬜ **Task 3.2**: `play-lxc-install-config.yml` F8 — persist the DOCKER-USER rules
-  (firewalld direct/policy `permanent: true`, or a oneshot unit `After=docker.service`) so
-  container egress survives reboot.
+- [x] ✅ **Task 3.1**: `play-AA-preflight-sanity.yml` — added a `stat`+`assert` that fails
+  loud at play 1 on an **rpm-ostree / atomic** Fedora image (Silverblue/Kinoite/CoreOS/IoT/
+  uBlue). Signal = `/run/ostree-booted` (boot-truth marker of an ostree-managed root — the
+  actual failure mechanism, since dnf/rpm + `/etc` writes break there), NOT a `VARIANT_ID`
+  allowlist: `/run/ostree-booted` cannot false-reject Workstation/Server/Cloud and needs no
+  per-spin maintenance. Design: `reviews/2026-07-29-phase3-design-decision-fable.md` D1.
+- [x] ✅ **Task 3.2**: `play-lxc-install-config.yml` F8 — persist the DOCKER-USER ACCEPT +
+  MASQUERADE rules across reboot AND docker restart via a systemd oneshot unit
+  `lxc-docker-user-iptables-reconcile.service` (`After=/Requires=/PartOf=docker.service`,
+  `WantedBy=multi-user.target`) driven by ONE shared idempotent script
+  (`files/usr/local/bin/lxc-docker-user-iptables-reconcile.bash`) that BOTH Ansible (immediate
+  apply) and the unit (boot + docker-restart persistence) invoke. Chose this over firewalld
+  direct rules (can't resync after docker flushes DOCKER-USER — solves only the reboot half)
+  and iptables-save/restore (snapshots Docker's own dynamic chains — wrong abstraction). The
+  inline derive/validate/3×probe-insert block was replaced by deploy-script → apply-now →
+  deploy-unit → enable+start. Design: `reviews/2026-07-29-phase3-design-decision-fable.md` D2.
+  **HOST-test-warranting** (design flagged, not a confident one-shot): the `PartOf=`
+  restart-propagation onto a `Type=oneshot` unit and the docker-chain-creation-before-active
+  ordering assumption must be exercised live (reboot + `systemctl restart docker` + container
+  egress checks) — folded into Phase 4's HOST criteria below.
 - [ ] ⬜ **Task 3.3**: (optional) enhancement gating — desktop multimedia + GUI/audio dev
-  headers behind `when: provisioning_profile != 'server'`.
-- [ ] ⬜ **Task 3.4**: Run QA.
+  headers behind `when: provisioning_profile != 'server'`. Deferred (enhancement, not a
+  blocker; needs its own `play-rpm-fusion.yml`/`play-python.yml` task audit).
+- [ ] 🔄 **Task 3.4**: Run QA. `ansible-playbook --syntax-check` rc=0 on both edited plays;
+  `bash -n` + shellcheck (present in this container) both PASS on the new reconcile script.
+  Full `qa-all.bash` deferred to HOST (no ruff here).
 
 ### Phase 4: Review + hand-off (HOST-run test)
 
 - [ ] ⬜ **Task 4.1**: Adversarial review pass over all play edits (this repo cannot run
   Ansible in the CCY container — QA is syntax/lint only); persist review notes in this folder.
 - [ ] ⬜ **Task 4.2**: Commit (do NOT push — hand to the human to push + run the HOST test:
-  the first `run.bash` server-profile execution on a fresh Cloud Base VM).
+  the first `run.bash` server-profile execution on a fresh Cloud Base VM). Beyond "reaches
+  ALL DONE", the HOST test MUST exercise the F8 persistence unit (design-flagged as
+  not-a-confident-one-shot):
+  1. `reboot` with an LXC container configured → confirm container outbound connectivity
+     **without re-running Ansible**.
+  2. `systemctl restart docker` with a container running → `journalctl -u lxc-docker-user-iptables-reconcile.service` shows a fresh successful run and
+     `iptables -n -L DOCKER-USER` shows the ACCEPT rules again → confirm container egress.
+  3. Confirm the ostree preflight (T3.1) does NOT reject the Cloud Base target (it must pass).
+     If a boot-ordering timing gap appears, the likely fix is a bounded `ExecStartPre=` wait
+     (`until iptables -n -L DOCKER-USER`, capped) — confirm live, do not assume.
 
 ### Phase 5: Server-recommended optional-play bundle (feature)
 
