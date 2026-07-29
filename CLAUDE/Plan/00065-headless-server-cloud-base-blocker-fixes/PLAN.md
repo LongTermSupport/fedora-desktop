@@ -209,29 +209,46 @@ one keyword away.
   natural order). Single source of truth; composes with explicit tokens via de-dup; the
   `.bundle` extension is invisible to every `find -name "*.yml"`. Design:
   `reviews/2026-07-29-phase5-bundle-design-fable.md` D1.
-- [x] ✅ **Task 5.2**: Curated **12** plays, EACH read + verified `scope: general` +
+
+- [x] ✅ **Task 5.2**: Curated **11** plays, EACH read + verified `scope: general` +
   headless-safe: `play-golang`, `play-rust-dev`, `play-distrobox`, `play-network-tools`,
   `play-rclone`, `play-open-command`, `play-compression-helpers`, `play-disk-reclaim`,
-  `play-advanced-kernel-management`, `play-container-watch`, `play-claude-devtools`,
-  `play-collaboration`. **`play-lastpass` EXCLUDED as NOT headless-safe** (unconditional
+  `play-advanced-kernel-management`, `play-container-watch`,
+  `play-collaboration`. (`play-claude-devtools` was initially included, then **dropped** —
+  unpinned third-party-HEAD supply-chain/reliability risk; see Task 5.5.)
+  **`play-lastpass` EXCLUDED as NOT headless-safe** (unconditional
   `pause` prompts, no non-interactive branch — would hang/abort a headless run); `play-ddev`,
   `play-nordvpn-openvpn`, `play-cloudflare-warp`, `play-cloudflare-dns` excluded as
   opinionated/vendor/VPN. Design D2 has the per-play validation table.
+
 - [x] ✅ **Task 5.3**: Wired `run.bash` `hl_run_optional_playbooks()` (expansion+de-dup block
   before the resolver; function comment updated), bumped `RUN_BASH_VERSION` 1.10.0 → 1.11.0
   with a changelog line, added the `--help-run-headless` entry, and documented in
   `docs/headless-server-install.md` + `docs/headless-provisioning.md`. Interactive menu
   deliberately NOT wired (its `A) Run all` already covers Common Optional — YAGNI). `bash -n`
+
   - shellcheck (error-level) clean.
+
 - [x] ✅ **Task 5.4**: QA (in-container). `bash -n` + `shellcheck -S error` (and default-level,
   via the review) PASS on `run.bash`; the manifest is plain text (no `.yml`/bash/py — no QA
   stage touches it, and it is not matched by any `find -name "*.yml"`). The mandated adversarial
   review over the `run.bash` change ran (`reviews/2026-07-29-phase5-impl-review-fable.md`,
   SOUND-WITH-FIXES): the manifest-parse trailing-newline gotcha + a changelog accuracy note were
   applied and re-validated (harness proves 2/2 parse with no trailing newline). Full `qa-all.bash`
-  still deferred to HOST (no ruff here). **Advisory for the operator**: `play-claude-devtools`
-  builds an unpinned third-party HEAD (`matt1398/claude-devtools`) — pre-existing, now a server
-  default; pin or drop if undesirable.
+  still deferred to HOST (no ruff here) — **now RESOLVED**: with `ruff` added to the CCY image,
+  the full `qa-all.bash` was run in-container and passes green (267 files, all six stages).
+
+- [x] ✅ **Task 5.5**: `play-claude-devtools` pin-or-drop decision → **DROPPED from the bundle.**
+  It clones an UNPINNED third-party **personal** repo (`github.com/matt1398/claude-devtools`)
+  with `update: true` and builds+runs a container image from whatever HEAD is at run time. In a
+  headless run a failing optional play ABORTS the whole provisioning (fail-loud contract), so a
+  broken / force-pushed / deleted upstream would turn a session-viewer convenience into a
+  **server-provisioning failure** — unacceptable in a curated baseline. Pinning was rejected: it
+  neither removes the supply-chain trust nor the pin-maintenance burden, and a safe known-good SHA
+  cannot be chosen for a personal repo sight-unseen. The play is **untouched and still available as
+  an explicit opt-in** (add `play-claude-devtools` to `RUN_BASH_OPTIONAL_PLAYBOOKS` by hand); only
+  the risky auto-default is removed. Bundle now 11 plays; the exclusion is documented inline in
+  `server-recommended.bundle`.
 
 > Note: this is the **upstream, generic** notion of "server-recommended". A downstream
 > consumer can still append its own org-specific plays via an explicit
