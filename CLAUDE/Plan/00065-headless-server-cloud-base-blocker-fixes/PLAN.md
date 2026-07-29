@@ -175,8 +175,14 @@ non-interactive stdin — cosmetic).
 
 ### Phase 4: Review + hand-off (HOST-run test)
 
-- [ ] ⬜ **Task 4.1**: Adversarial review pass over all play edits (this repo cannot run
-  Ansible in the CCY container — QA is syntax/lint only); persist review notes in this folder.
+- [x] ✅ **Task 4.1**: Adversarial review pass over all play edits (this repo cannot run
+  Ansible in the CCY container — QA is syntax/lint only); review notes persisted in `reviews/`.
+  Done in three tracked Fable passes — Phase 1 impl (`…phase1-play-edits-review-fable.md`,
+  SOUND-WITH-FIXES → firewalld SSH-lockout guard + 2 NITs applied), Phase 2/3 design
+  (`…phase2-design-decision-fable.md`, `…phase3-design-decision-fable.md`), and Phase 2/3 impl
+  (`…phase23-impl-review-fable.md`, SOUND-WITH-FIXES → `--tags oomd` fact-tag fix + stdout hygiene
+  - 3 NITs applied). No blocker survived; every finding applied and re-validated (`--syntax-check`
+    rc=0, shellcheck clean).
 - [ ] ⬜ **Task 4.2**: Commit (do NOT push — hand to the human to push + run the HOST test:
   the first `run.bash` server-profile execution on a fresh Cloud Base VM). Beyond "reaches
   ALL DONE", the HOST test MUST exercise the F8 persistence unit (design-flagged as

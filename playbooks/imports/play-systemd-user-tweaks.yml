@@ -25,6 +25,7 @@
         database: passwd
         key: "{{ user_login }}"
       tags:
+        - always
         - systemd
         - linger
 
@@ -34,15 +35,17 @@
         cmd: loginctl enable-linger {{ user_login }}
         creates: /var/lib/systemd/linger/{{ user_login }}
       tags:
+        - always
         - systemd
         - linger
 
     - name: Ensure the user systemd manager is running (closes the enable-linger async race)
       become: true
       ansible.builtin.systemd:
-        name: "user@{{ ansible_facts.getent_passwd[user_login][1] }}.service"
+        name: "user@{{ ansible_facts['getent_passwd'][user_login][1] }}.service"
         state: started
       tags:
+        - always
         - systemd
         - linger
 
@@ -160,10 +163,11 @@
     - name: Flush handlers to apply the user daemon-reload before verifying
       ansible.builtin.meta: flush_handlers
 
+    # Query the single property directly (no `| grep`) so this task has ONE failure
+    # surface — it fails only if `systemctl --user` itself cannot reach the manager;
+    # the value check is the assert below, which carries the actionable message.
     - name: Verify systemd-oomd Configuration
-      ansible.builtin.shell: |
-        set -o pipefail
-        systemctl --user show user.slice | grep ManagedOOMMemoryPressure
+      ansible.builtin.command: systemctl --user show user.slice --property=ManagedOOMMemoryPressure
       become: true
       become_user: "{{ user_login }}"
       environment:
@@ -171,8 +175,6 @@
         DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}/bus"
       register: oomd_verify
       changed_when: false
-      args:
-        executable: /bin/bash
       tags:
         - systemd
         - oomd

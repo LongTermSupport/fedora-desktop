@@ -21,13 +21,20 @@ set -euo pipefail
 
 readonly bridge=lxcbr0
 
-if ! iptables -n -L DOCKER-USER; then
+# Capture the probe output rather than letting the chain dump land on stdout ahead of
+# the parsed marker line (StderrHygiene: stdout is the payload a caller captures). On
+# failure the captured reason (stderr+stdout) is re-emitted to stderr, then we abort.
+if ! chain_dump="$(iptables -n -L DOCKER-USER 2>&1)"; then
+    echo "$chain_dump" >&2
     echo "lxc-docker-user-iptables-reconcile: DOCKER-USER chain does not exist" \
          "(is docker.service actually up?) — refusing to proceed" >&2
     exit 1
 fi
 
-subnet_cidr="$(ip -o -4 route show dev "$bridge" proto kernel | awk '{print $1}' | head -n1)"
+# awk 'NR==1{...}' (not `| head -n1`) reads all of ip's output before finishing, so ip
+# never gets SIGPIPE — which under `set -o pipefail` would otherwise abort the script
+# on a multi-route lxcbr0 before the friendly empty-check below could run.
+subnet_cidr="$(ip -o -4 route show dev "$bridge" proto kernel | awk 'NR==1{print $1}')"
 if [ -z "$subnet_cidr" ]; then
     echo "lxc-docker-user-iptables-reconcile: could not derive ${bridge} subnet" \
          "from 'ip route show dev ${bridge} proto kernel' — is lxc-net running?" >&2
