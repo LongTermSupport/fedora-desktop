@@ -1,0 +1,18 @@
+# server-recommended bundle (Plan 00065 Phase 5) — see
+# CLAUDE/Plan/00065-headless-server-cloud-base-blocker-fixes/PLAN.md Phase 5.
+# One play basename per line. Full-line '#' comments and blank lines ignored.
+# Every play here MUST be scope: general AND headless-safe (no unconditional GUI
+# dependency, no interactive prompt reachable in a headless run). run.bash expands
+# the reserved token 'server-recommended' in RUN_BASH_OPTIONAL_PLAYBOOKS to this list.
+play-golang.yml
+play-rust-dev.yml
+play-distrobox.yml
+play-network-tools.yml
+play-rclone.yml
+play-open-command.yml
+play-compression-helpers.yml
+play-disk-reclaim.yml
+play-advanced-kernel-management.yml
+play-container-watch.yml
+play-claude-devtools.yml
+play-collaboration.yml

@@ -187,7 +187,7 @@ export RUN_BASH_VAULT_PASSWORD_FILE="/run/secrets/vault-pass"
 export RUN_BASH_HOSTNAME="my-server"                  # only applied if box is still 'fedora'
 export RUN_BASH_PROVISIONING_PROFILE="server"         # or omit to auto-detect
 export RUN_BASH_CONFIG_SOURCE="none"                  # or hosts/<name>.yml from your private config repo
-export RUN_BASH_OPTIONAL_PLAYBOOKS="none"             # or "play-docker.yml play-podman.yml"
+export RUN_BASH_OPTIONAL_PLAYBOOKS="none"             # "server-recommended" (curated bundle), "play-docker.yml play-podman.yml", or "none"
 export RUN_BASH_RESTORE_PROJECTS=0                    # 1 = restore projects from config manifest
 export RUN_BASH_REBOOT=0                              # 1 = reboot at the end
 ENV

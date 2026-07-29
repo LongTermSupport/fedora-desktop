@@ -201,22 +201,33 @@ Today `RUN_BASH_OPTIONAL_PLAYBOOKS` requires the operator to hand-list plays. Ad
 "recommended for a server" set selectable in one shot, so a stock headless dev/server box is
 one keyword away.
 
-- [ ] ⬜ **Task 5.1**: Design the selection mechanism — a named bundle keyword
-  (`server-recommended`) that `run.bash` expands, and/or a per-play "server-recommended"
-  marker the resolver reads. Prefer one source of truth; must remain overridable/extendable
-  by an explicit play list.
-- [ ] ⬜ **Task 5.2**: Curate the **generically** server-useful set (dev toolchains + CLI
-  helpers that make sense on ANY headless Fedora server — NOT org-specific picks). Candidate:
-  `play-golang`, `play-rust-dev`, `play-distrobox`, `play-network-tools`, `play-rclone`,
-  `play-open-command`, `play-compression-helpers`, `play-disk-reclaim`,
+- [x] ✅ **Task 5.1**: Mechanism = a **tracked manifest file**
+  `playbooks/imports/optional/server-recommended.bundle` (one `play-*.yml` basename per line,
+  `#`-comments ignored) that `run.bash` expands the reserved `server-recommended` token into,
+  BEFORE the existing per-token resolver. Chosen over a hardcoded bash array (couples curation
+  to `RUN_BASH_VERSION` churn) and a per-play marker (scatters membership across N files, no
+  natural order). Single source of truth; composes with explicit tokens via de-dup; the
+  `.bundle` extension is invisible to every `find -name "*.yml"`. Design:
+  `reviews/2026-07-29-phase5-bundle-design-fable.md` D1.
+- [x] ✅ **Task 5.2**: Curated **12** plays, EACH read + verified `scope: general` +
+  headless-safe: `play-golang`, `play-rust-dev`, `play-distrobox`, `play-network-tools`,
+  `play-rclone`, `play-open-command`, `play-compression-helpers`, `play-disk-reclaim`,
   `play-advanced-kernel-management`, `play-container-watch`, `play-claude-devtools`,
-  `play-collaboration` (tmate). Deliberately exclude opinionated/credentialed ones
-  (`play-lastpass`, `play-ddev`) and VPN clients — those stay explicit opt-ins. All must be
-  `scope: general` (a `gnome` play in the bundle would silently no-op on server).
-- [ ] ⬜ **Task 5.3**: Wire `run.bash` to accept the bundle keyword; document it in
-  `--help-run-headless` + `docs/headless-*.md`. Every bundle play must itself be headless-safe
-  (Phases 1-3 are a prerequisite — no point recommending a play that aborts the run).
-- [ ] ⬜ **Task 5.4**: Run QA.
+  `play-collaboration`. **`play-lastpass` EXCLUDED as NOT headless-safe** (unconditional
+  `pause` prompts, no non-interactive branch — would hang/abort a headless run); `play-ddev`,
+  `play-nordvpn-openvpn`, `play-cloudflare-warp`, `play-cloudflare-dns` excluded as
+  opinionated/vendor/VPN. Design D2 has the per-play validation table.
+- [x] ✅ **Task 5.3**: Wired `run.bash` `hl_run_optional_playbooks()` (expansion+de-dup block
+  before the resolver; function comment updated), bumped `RUN_BASH_VERSION` 1.10.0 → 1.11.0
+  with a changelog line, added the `--help-run-headless` entry, and documented in
+  `docs/headless-server-install.md` + `docs/headless-provisioning.md`. Interactive menu
+  deliberately NOT wired (its `A) Run all` already covers Common Optional — YAGNI). `bash -n`
+  - shellcheck (error-level) clean.
+- [ ] 🔄 **Task 5.4**: Run QA. `bash -n` + `shellcheck -S error` PASS on `run.bash`; the
+  manifest is plain text (no `.yml`/bash/py — no QA stage touches it, and it is not matched by
+  any `find -name "*.yml"`). Full `qa-all.bash` deferred to HOST (no ruff here). An adversarial
+  review pass over the `run.bash` change (per `CLAUDE/Plan/CLAUDE.md` state-changing-script
+  rule) precedes the HOST test.
 
 > Note: this is the **upstream, generic** notion of "server-recommended". A downstream
 > consumer can still append its own org-specific plays via an explicit

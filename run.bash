@@ -3,7 +3,7 @@
 ## Setup
 ## !! BUMP THIS VERSION ON EVERY CHANGE TO THIS FILE — NO EXCEPTIONS !!
 ## !! If you forget, there is NO WAY to tell which version is running !!
-RUN_BASH_VERSION="1.10.0"  # Feature (Plan 00063) slice 2: headless PREFLIGHT — headless_preflight validates+resolves all RUN_BASH_* input up front (non-root check, NOPASSWD-sudo probe, required email/accounts, secret *_FILE resolution with V3.10 guardrails: file-precedence, both-set/unreadable/literal-on-cloud fail-fast, literal-elsewhere warn, unset literals before first child), set -u-safe secret-file EXIT trap. v1.9.1: defer the GitHub-empty ('none') path per round-3 decision — headless v1 requires a single GitHub account + token file (fail fast on 'none'); help + acceptance aligned. v1.9.2: require RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE in v1 — the login SSH key stays passphrase-protected (D6), mirroring the interactive no-empty-passphrase rule, since headless loads it non-interactively via ssh-agent/SSH_ASKPASS (D5). v1.9.3: begin the EXECUTION slice — add hl_abort (BIG LOUD banner, exit 1) for headless execution failures, and a headless backstop at the top of every shared interactive prompt helper (confirm/promptForValue/promptChoice/promptSecretConfirmed/promptDefault/prompt_verified_vault_password/prompt_github_accounts_yaml) so a headless run that ever reaches a prompt fails LOUD instead of hanging (fail-fast rule 11). v1.9.4: GitHub/SSH execution mechanics — hl_ssh_agent_start (ssh-agent + transient 0700 SSH_ASKPASS reading a 0600 passphrase file, V3.13), hl_ssh_agent_stop (kill after last git op, V3.12), hl_cleanup EXIT trap (shred secret files + backstop agent kill, V3.11); headless branches for keygen (-P from resolved passphrase + agent load), hostname (RUN_BASH_HOSTNAME or leave default), gh token auth (gh auth login --with-token from stdin + git_protocol=ssh). All fail LOUD via hl_abort. v1.9.5: localhost.yml assembly — hl_write_localhost_yml (idempotent keep, else RUN_BASH_CONFIG_SOURCE pull from the private config repo, else FRESH from RUN_BASH_* identity + github_accounts), hl_pull_config_source (private-repo gate + LOUD 404), hl_reconcile_vault (D6: provided-or-fail, verify against encrypted values, NEVER auto-generate over !vault); headless branch for github_ssh_passphrase (reuse resolved passphrase, vault-encrypt). Interactive config/vault blocks wrapped under `if HEADLESS != true`. v1.10.0: FLIP the honest-stop — headless now flows through the FULL body (gh-account-setup gets RUN_BASH_HEADLESS + fails LOUD on any interactive gh web/scope-refresh; main playbook gets RUN_BASH_PROVISIONING_PROFILE passthrough + D7 loud-fatal on failure; optional playbooks via RUN_BASH_OPTIONAL_PLAYBOOKS; projects restore via RUN_BASH_RESTORE_PROJECTS; reboot via RUN_BASH_REBOOT). END-TO-END execution is HOST-verified on a real server (Phase 3) — in-container this is bash -n + shellcheck + preflight acceptance only.
+RUN_BASH_VERSION="1.11.0"  # Feature (Plan 00063) slice 2: headless PREFLIGHT — headless_preflight validates+resolves all RUN_BASH_* input up front (non-root check, NOPASSWD-sudo probe, required email/accounts, secret *_FILE resolution with V3.10 guardrails: file-precedence, both-set/unreadable/literal-on-cloud fail-fast, literal-elsewhere warn, unset literals before first child), set -u-safe secret-file EXIT trap. v1.9.1: defer the GitHub-empty ('none') path per round-3 decision — headless v1 requires a single GitHub account + token file (fail fast on 'none'); help + acceptance aligned. v1.9.2: require RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE in v1 — the login SSH key stays passphrase-protected (D6), mirroring the interactive no-empty-passphrase rule, since headless loads it non-interactively via ssh-agent/SSH_ASKPASS (D5). v1.9.3: begin the EXECUTION slice — add hl_abort (BIG LOUD banner, exit 1) for headless execution failures, and a headless backstop at the top of every shared interactive prompt helper (confirm/promptForValue/promptChoice/promptSecretConfirmed/promptDefault/prompt_verified_vault_password/prompt_github_accounts_yaml) so a headless run that ever reaches a prompt fails LOUD instead of hanging (fail-fast rule 11). v1.9.4: GitHub/SSH execution mechanics — hl_ssh_agent_start (ssh-agent + transient 0700 SSH_ASKPASS reading a 0600 passphrase file, V3.13), hl_ssh_agent_stop (kill after last git op, V3.12), hl_cleanup EXIT trap (shred secret files + backstop agent kill, V3.11); headless branches for keygen (-P from resolved passphrase + agent load), hostname (RUN_BASH_HOSTNAME or leave default), gh token auth (gh auth login --with-token from stdin + git_protocol=ssh). All fail LOUD via hl_abort. v1.9.5: localhost.yml assembly — hl_write_localhost_yml (idempotent keep, else RUN_BASH_CONFIG_SOURCE pull from the private config repo, else FRESH from RUN_BASH_* identity + github_accounts), hl_pull_config_source (private-repo gate + LOUD 404), hl_reconcile_vault (D6: provided-or-fail, verify against encrypted values, NEVER auto-generate over !vault); headless branch for github_ssh_passphrase (reuse resolved passphrase, vault-encrypt). Interactive config/vault blocks wrapped under `if HEADLESS != true`. v1.10.0: FLIP the honest-stop — headless now flows through the FULL body (gh-account-setup gets RUN_BASH_HEADLESS + fails LOUD on any interactive gh web/scope-refresh; main playbook gets RUN_BASH_PROVISIONING_PROFILE passthrough + D7 loud-fatal on failure; optional playbooks via RUN_BASH_OPTIONAL_PLAYBOOKS; projects restore via RUN_BASH_RESTORE_PROJECTS; reboot via RUN_BASH_REBOOT). END-TO-END execution is HOST-verified on a real server (Phase 3) — in-container this is bash -n + shellcheck + preflight acceptance only. v1.11.0: Feature (Plan 00065 Phase 5) — RUN_BASH_OPTIONAL_PLAYBOOKS accepts the reserved keyword 'server-recommended', expanded from the tracked manifest playbooks/imports/optional/server-recommended.bundle into its listed plays before the existing per-token resolver runs; composes with explicit tokens via de-dup, unknown-token/failure handling unchanged.
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -365,8 +365,10 @@ hl_reconcile_vault() {
 
 # hl_run_optional_playbooks — headless replacement for the interactive optional-playbook
 # menu. Runs exactly the plays named in RUN_BASH_OPTIONAL_PLAYBOOKS (space/comma list of
-# play-foo.yml | foo | play-foo), in order; 'none'/unset skips the whole section. Any
-# unknown name or failing play aborts LOUD (a server run must not silently under-provision).
+# play-foo.yml | foo | play-foo), in order; 'none'/unset skips the whole section. The
+# reserved token 'server-recommended' expands to the curated, generic dev/server bundle in
+# playbooks/imports/optional/server-recommended.bundle (composes with explicit tokens).
+# Any unknown name or failing play aborts LOUD (a server run must not silently under-provision).
 hl_run_optional_playbooks() {
   local spec="${RUN_BASH_OPTIONAL_PLAYBOOKS:-none}"
   if [[ -z "$spec" || "$spec" == "none" ]]; then
@@ -382,7 +384,43 @@ hl_run_optional_playbooks() {
   mapfile -t _all_optional < <(find playbooks/imports/optional -name "*.yml" -type f | sort)
   local -a _reqs
   IFS=' ,' read -ra _reqs <<< "$spec"
-  local req pb base found name
+
+  # Expand the server-recommended bundle keyword (Plan 00065 Phase 5) into its
+  # manifest-listed plays, then de-dup so a play named by both the bundle and an
+  # explicit token only runs once. Expansion happens BEFORE the per-token resolution
+  # loop below, so composing with explicit tokens ("server-recommended play-ddev.yml")
+  # and the unknown-token abort are both inherited for free — nothing below changes.
+  local _bundle_file="playbooks/imports/optional/server-recommended.bundle"
+  local -a _expanded=()
+  local req _line
+  for req in "${_reqs[@]}"; do
+    [[ -z "$req" ]] && continue
+    if [[ "$req" == "server-recommended" ]]; then
+      if [[ ! -f "$_bundle_file" ]]; then
+        hl_abort "optional playbooks" \
+          "RUN_BASH_OPTIONAL_PLAYBOOKS requested 'server-recommended' but ${_bundle_file} is missing" \
+          "the ~/Projects/fedora-desktop checkout may be stale/corrupt — re-clone, or drop 'server-recommended' from the list"
+      fi
+      while IFS= read -r _line; do
+        [[ -z "$_line" || "$_line" == \#* ]] && continue
+        _expanded+=("$_line")
+      done < "$_bundle_file"
+    else
+      _expanded+=("$req")
+    fi
+  done
+
+  # De-dup, preserving first-seen order.
+  local -a _reqs_deduped=()
+  local -A _seen=()
+  for req in "${_expanded[@]}"; do
+    [[ -n "${_seen[$req]:-}" ]] && continue
+    _seen[$req]=1
+    _reqs_deduped+=("$req")
+  done
+  _reqs=("${_reqs_deduped[@]}")
+
+  local pb base found name
   for req in "${_reqs[@]}"; do
     [[ -z "$req" ]] && continue
     found=""
@@ -520,6 +558,11 @@ NON-SECRET CONFIG (plain RUN_BASH_* env)
   RUN_BASH_CONFIG_SOURCE=...       Config-repo host file to import, or 'none'.
   RUN_BASH_PROVISIONING_PROFILE=   Force desktop|server (default: auto-detect).
   RUN_BASH_OPTIONAL_PLAYBOOKS=...  Space/comma list of optional plays, or 'none'.
+                                   'server-recommended' expands to a curated, generic
+                                   dev/server bundle (see
+                                   playbooks/imports/optional/server-recommended.bundle);
+                                   combine with explicit plays, e.g.
+                                   "server-recommended play-ddev.yml".
   RUN_BASH_RESTORE_PROJECTS=0|1    Restore projects from config manifest.
   RUN_BASH_REBOOT=0|1              Reboot at end.
 

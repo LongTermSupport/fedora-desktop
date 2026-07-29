@@ -46,19 +46,19 @@ the exact fix — a headless run never blocks waiting on a prompt that can't be 
 
 ### Non-secret configuration (plain `RUN_BASH_*`)
 
-| Variable                        | Meaning                                                               | Required            |
-| ------------------------------- | --------------------------------------------------------------------- | ------------------- |
-| `RUN_BASH_HEADLESS=1`           | Force headless mode.                                                  | —                   |
-| `RUN_BASH_USER_EMAIL`           | Git email.                                                            | **Yes**             |
-| `RUN_BASH_GITHUB_ACCOUNTS`      | Single GitHub username (v1). `alias:user` also accepted.              | **Yes**             |
-| `RUN_BASH_USER_LOGIN`           | System login.                                                         | No (current user)   |
-| `RUN_BASH_USER_NAME`            | Full name.                                                            | No (= login)        |
-| `RUN_BASH_HOSTNAME`             | Hostname to set when the box is still named `fedora`.                 | No (leaves default) |
-| `RUN_BASH_CONFIG_SOURCE`        | `hosts/<name>.yml` to import from the private config repo, or `none`. | No (`none` = fresh) |
-| `RUN_BASH_PROVISIONING_PROFILE` | Force `desktop`/`server`.                                             | No (auto-detect)    |
-| `RUN_BASH_OPTIONAL_PLAYBOOKS`   | Space/comma list of optional plays (`play-foo.yml`/`foo`), or `none`. | No (`none`)         |
-| `RUN_BASH_RESTORE_PROJECTS`     | `1` to restore projects from the config manifest.                     | No (off)            |
-| `RUN_BASH_REBOOT`               | `1` to reboot at the end.                                             | No (off)            |
+| Variable                        | Meaning                                                                                                                                                                                                                                                     | Required            |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
+| `RUN_BASH_HEADLESS=1`           | Force headless mode.                                                                                                                                                                                                                                        | —                   |
+| `RUN_BASH_USER_EMAIL`           | Git email.                                                                                                                                                                                                                                                  | **Yes**             |
+| `RUN_BASH_GITHUB_ACCOUNTS`      | Single GitHub username (v1). `alias:user` also accepted.                                                                                                                                                                                                    | **Yes**             |
+| `RUN_BASH_USER_LOGIN`           | System login.                                                                                                                                                                                                                                               | No (current user)   |
+| `RUN_BASH_USER_NAME`            | Full name.                                                                                                                                                                                                                                                  | No (= login)        |
+| `RUN_BASH_HOSTNAME`             | Hostname to set when the box is still named `fedora`.                                                                                                                                                                                                       | No (leaves default) |
+| `RUN_BASH_CONFIG_SOURCE`        | `hosts/<name>.yml` to import from the private config repo, or `none`.                                                                                                                                                                                       | No (`none` = fresh) |
+| `RUN_BASH_PROVISIONING_PROFILE` | Force `desktop`/`server`.                                                                                                                                                                                                                                   | No (auto-detect)    |
+| `RUN_BASH_OPTIONAL_PLAYBOOKS`   | Space/comma list of optional plays (`play-foo.yml`/`foo`), or `none`. The keyword `server-recommended` expands to a curated, generic dev/server bundle ([manifest](../playbooks/imports/optional/server-recommended.bundle)); combines with explicit plays. | No (`none`)         |
+| `RUN_BASH_RESTORE_PROJECTS`     | `1` to restore projects from the config manifest.                                                                                                                                                                                                           | No (off)            |
+| `RUN_BASH_REBOOT`               | `1` to reboot at the end.                                                                                                                                                                                                                                   | No (off)            |
 
 ### Secrets — prefer `0600` file pointers
 
