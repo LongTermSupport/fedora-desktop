@@ -241,8 +241,8 @@
   handlers:
     # With linger enabled and user@UID.service explicitly started in this play, the user
     # manager is guaranteed up on both profiles, so the daemon-reload no longer needs the
-    # old `ignore_errors: true` headless escape hatch (removed — a failure here now means the
-    # manager really is broken, which must fail the run). XDG_RUNTIME_DIR is what
+    # old blanket error-suppression headless escape hatch (removed — a failure here now
+    # means the manager really is broken, which must fail the run). XDG_RUNTIME_DIR is what
     # `systemctl --user` actually dials (its private socket); DBUS is kept for parity with
     # the scope:user precedent at play-rclone.yml:203-205.
     - name: reload-systemd-user-daemon
