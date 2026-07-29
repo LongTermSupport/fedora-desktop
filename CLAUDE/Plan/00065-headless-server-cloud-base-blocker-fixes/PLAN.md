@@ -223,11 +223,15 @@ one keyword away.
   `docs/headless-server-install.md` + `docs/headless-provisioning.md`. Interactive menu
   deliberately NOT wired (its `A) Run all` already covers Common Optional — YAGNI). `bash -n`
   - shellcheck (error-level) clean.
-- [ ] 🔄 **Task 5.4**: Run QA. `bash -n` + `shellcheck -S error` PASS on `run.bash`; the
-  manifest is plain text (no `.yml`/bash/py — no QA stage touches it, and it is not matched by
-  any `find -name "*.yml"`). Full `qa-all.bash` deferred to HOST (no ruff here). An adversarial
-  review pass over the `run.bash` change (per `CLAUDE/Plan/CLAUDE.md` state-changing-script
-  rule) precedes the HOST test.
+- [x] ✅ **Task 5.4**: QA (in-container). `bash -n` + `shellcheck -S error` (and default-level,
+  via the review) PASS on `run.bash`; the manifest is plain text (no `.yml`/bash/py — no QA
+  stage touches it, and it is not matched by any `find -name "*.yml"`). The mandated adversarial
+  review over the `run.bash` change ran (`reviews/2026-07-29-phase5-impl-review-fable.md`,
+  SOUND-WITH-FIXES): the manifest-parse trailing-newline gotcha + a changelog accuracy note were
+  applied and re-validated (harness proves 2/2 parse with no trailing newline). Full `qa-all.bash`
+  still deferred to HOST (no ruff here). **Advisory for the operator**: `play-claude-devtools`
+  builds an unpinned third-party HEAD (`matt1398/claude-devtools`) — pre-existing, now a server
+  default; pin or drop if undesirable.
 
 > Note: this is the **upstream, generic** notion of "server-recommended". A downstream
 > consumer can still append its own org-specific plays via an explicit
