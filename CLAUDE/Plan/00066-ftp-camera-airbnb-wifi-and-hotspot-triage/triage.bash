@@ -89,6 +89,32 @@ show_selinux_denials() {
     fi
 }
 
+# Any wifi profile configured as an access point, under ANY name. Catches the
+# case where the hotspot still exists but was renamed, which would look
+# identical to "deleted" from ftp-camera's point of view (it matches on name).
+show_ap_profiles_on_disk() {
+    local store="/etc/NetworkManager/system-connections"
+    if ! sudo test -d "$store"; then
+        echo "(no $store on this machine)"
+        return 0
+    fi
+    # grep rc=1 means "no AP profiles", which is DATA, not a failure.
+    if ! sudo grep -l 'mode=ap' "$store"/* ; then
+        echo "(no profile on disk is configured as an access point)"
+    fi
+}
+
+# NetworkManager logs profile add/remove. The journal may have rotated past
+# the event, in which case this is silent — absence here is NOT evidence the
+# deletion did not happen.
+show_nm_profile_events() {
+    if ! sudo journalctl -u NetworkManager --no-pager --since "30 days ago" \
+        --grep 'ifcfg-rh|keyfile|connection (added|removed|updated)|Hotspot'; then
+        echo "(no matching NetworkManager profile events in the retained journal;"
+        echo " the journal may simply have rotated past them)"
+    fi
+}
+
 show_firewall_openings() {
     echo "services:"
     sudo firewall-cmd --list-services
@@ -133,6 +159,15 @@ echo
 probe "all NM connection profiles" nmcli -t -f NAME,TYPE,DEVICE connection show
 probe "active NM connections" nmcli -t -f NAME,TYPE,DEVICE connection show --active
 probe "wifi devices and their state" nmcli -t -f DEVICE,TYPE,STATE device
+
+# The owner reports --hotspot working previously, so the profile is not simply
+# absent-since-forever: something removed it. These probes look for the
+# residue. This matters beyond curiosity — if a process is actively deleting
+# the profile, declaring it in Ansible fixes today and not tomorrow.
+probe "on-disk NM connection store (timestamps show when profiles were written)" \
+    sudo ls -la --time-style=long-iso /etc/NetworkManager/system-connections/
+probe "any AP-mode profile on disk, whatever it is named" show_ap_profiles_on_disk
+probe "NetworkManager add/delete events still in the journal" show_nm_profile_events
 probe "does the radio advertise AP mode?" show_ap_capability
 probe "regulatory domain (governs 40MHz + AP concurrency)" iw reg get
 probe "ftp-camera config (which profile name --hotspot expects)" cat "$CONFIG_FILE"

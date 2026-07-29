@@ -26,26 +26,34 @@ A third, smaller defect appeared in the same session output:
 landing-zone advisory and the end-of-session upload summary both walk the
 upload tree as the invoking user and hit a subdirectory they cannot read.
 
-Issue 2's root cause is **confirmed from source** and fixed in this plan.
-Issue 1's cause is **not yet confirmed**; this plan builds the triage to
+Issue 2's **IaC gap** is established by reading the source and is fixed in
+this plan — the play requires a profile it never creates. Why the profile is
+missing *on this machine* is a separate, still-open question (see the
+correction below); the fix does not depend on the answer.
+
+Issue 1's cause is **not confirmed at all**; this plan builds the triage to
 establish it and only then applies a fix.
+
+**No triage has been run at the time of writing.** Everything above and below
+is derived from reading the repo source and from the terminal output the owner
+pasted. Nothing in this plan has touched the host.
 
 ## Context & Background
 
 ### Confirmed facts (from the reported session output)
 
-| #   | Fact                                                                                              | Source                                            |
-| --- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| F1  | Mode was `async-copy`, hotspot off, viewer off                                                    | startup banner                                    |
-| F2  | Camera reached the FTP control channel repeatedly — ~10 `CONNECT` + `OK LOGIN` pairs in 8 minutes | vsftpd log lines                                  |
-| F3  | **Zero `FAIL LOGIN`, zero `FAIL UPLOAD` lines** in the whole session                              | the wrapper's awk prints both in red; none appear |
-| F4  | Uploads *completed* — `sort` only fires off vsftpd's `OK UPLOAD` line, and it fired 8 times       | `async_monitor_loop()`                            |
-| F5  | Every one of those 8 sorts was the **same frame**, `DSC06824` (.JPG x4, .ARW x4)                  | sort/copy lines                                   |
-| F6  | `CONNECT` to `OK LOGIN` latency ranged 2 s to 15 s                                                | timestamps                                        |
-| F7  | A late `DSC06824.ARW` arrived with **no readable EXIF date** and was left in the upload root      | `skip … (no EXIF date, left in place)`            |
-| F8  | Camera sessions **overlap** — e.g. `CONNECT` 22:53:27 while the 22:53:06 session was still live   | timestamps + distinct pids                        |
-| F9  | `/srv/ftp-camera/.cache` is unreadable by the invoking user                                       | `find: … Permission denied`, printed twice        |
-| F10 | No NetworkManager profile named `Hotspot` exists on the machine                                   | `--hotspot` fail-fast message                     |
+| #   | Fact                                                                                                                                                                               | Source                                            |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| F1  | Mode was `async-copy`, hotspot off, viewer off                                                                                                                                     | startup banner                                    |
+| F2  | Camera reached the FTP control channel repeatedly — ~10 `CONNECT` + `OK LOGIN` pairs in 8 minutes                                                                                  | vsftpd log lines                                  |
+| F3  | **Zero `FAIL LOGIN`, zero `FAIL UPLOAD` lines** in the whole session                                                                                                               | the wrapper's awk prints both in red; none appear |
+| F4  | Uploads *completed* — `sort` only fires off vsftpd's `OK UPLOAD` line, and it fired 8 times                                                                                        | `async_monitor_loop()`                            |
+| F5  | Every one of those 8 sorts was the **same frame**, `DSC06824` (.JPG x4, .ARW x4)                                                                                                   | sort/copy lines                                   |
+| F6  | `CONNECT` to `OK LOGIN` latency ranged 2 s to 15 s                                                                                                                                 | timestamps                                        |
+| F7  | A late `DSC06824.ARW` arrived with **no readable EXIF date** and was left in the upload root                                                                                       | `skip … (no EXIF date, left in place)`            |
+| F8  | Camera sessions **overlap** — e.g. `CONNECT` 22:53:27 while the 22:53:06 session was still live                                                                                    | timestamps + distinct pids                        |
+| F9  | `/srv/ftp-camera/.cache` is unreadable by the invoking user                                                                                                                        | `find: … Permission denied`, printed twice        |
+| F10 | No NetworkManager profile named `Hotspot` exists **at the time of the failure**. This says nothing about whether one existed previously — see the correction under "Issue 2" below | `--hotspot` fail-fast message                     |
 
 **F3 is the load-bearing fact.** The FTP layer never failed once. "The Airbnb
 WiFi is too weak/lossy" does not survive contact with the log: a lossy link
@@ -74,7 +82,9 @@ causing the camera to *re-send frames that already transferred successfully*.
 
 H1 and H2 are cleanly separable by a single decisive probe (see Phase 1).
 
-### Confirmed root cause — issue 2 (hotspot)
+### Issue 2 (hotspot) — what is actually established, and what is not
+
+**Established by reading the source** (no host data needed):
 
 `ftp-camera --hotspot` requires a NetworkManager profile named by
 `HOTSPOT_CONNECTION` (default `Hotspot`) to **already exist**, and fails fast
@@ -86,10 +96,29 @@ when it does not. `play-ftp-camera.yml` only ever *tunes* that profile:
 ```
 
 …and when the profile is absent it prints a `debug` message telling the user
-to go and create it by hand in GNOME Settings. That is a **manual system
-change**, which this repo prohibits outright
-(`CLAUDE/InfrastructureAsCode.md`). The profile has therefore never existed on
-this machine (F10), so `--hotspot` has never been able to work.
+to go and create it by hand in GNOME Settings. So the feature depends on a
+**manual system change**, which this repo prohibits outright
+(`CLAUDE/InfrastructureAsCode.md`). That is a genuine IaC gap regardless of
+anything else, and the fix (the play creating the profile) stands on it alone.
+
+**NOT established — a correction.** An earlier revision of this plan went on
+to assert that the profile "has therefore never existed on this machine" and
+that `--hotspot` "has never been able to work". That does not follow from F10
+and is contradicted by the owner, who reports it working on this machine and
+certainly on others. F10 says only that the profile is absent **now**.
+
+The reverse is in fact more likely: GNOME's Wi-Fi Hotspot quick-settings
+toggle creates a profile called exactly `Hotspot` — the play's own comment
+says so and depends on it. Anyone who has used that toggle once would have a
+working `--hotspot` until something removed the profile.
+
+That reframes the open question. It is not "why did this never work" but
+**"what deleted a profile that used to exist"** — a `nmcli connection delete`,
+a GNOME hotspot toggle-off on some versions, a NetworkManager upgrade, or a
+`/etc/NetworkManager/system-connections/` clean-up. Triage now probes for
+this (see Task 1.5); the answer does not change the fix, but a profile that
+silently disappears once can disappear again, and declaring it in Ansible is
+only a durable remedy if nothing is actively deleting it.
 
 ## Goals
 
@@ -126,6 +155,13 @@ this machine (F10), so `--hotspot` has never been able to work.
   not, H1 is confirmed and H2 is refuted.
 - [ ] ⬜ **Task 1.4**: Record the verdict in the journal, promoting the
   surviving hypothesis to a fact with its evidence.
+- [ ] 🔄 **Task 1.5**: Establish what happened to the `Hotspot` profile.
+  The owner reports it working before, so it is not a case of "never
+  existed". Probe the on-disk connection store
+  (`/etc/NetworkManager/system-connections/`), timestamps of any
+  surviving files, and the NetworkManager journal for an add/delete
+  event. If something is actively deleting the profile, declaring it in
+  Ansible fixes today's failure but not tomorrow's.
 
 ### Phase 2: Fix the retry loop (gated on Phase 1 verdict)
 
@@ -213,4 +249,4 @@ Ansible-deployed, so this stays inside the IaC boundary.
 
 ## Delivery & Milestones
 
-- Plan scaffolded; issue 2 root cause confirmed from source
+- Plan scaffolded; issue 2 IaC gap established from source (no host triage run)
