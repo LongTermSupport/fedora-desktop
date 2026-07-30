@@ -1,4 +1,17 @@
-# Plan 00066: Extend ccy so a CI/GitHub-runner-optimised session launches cleanly
+# Plan 00068: Extend ccy so a CI/GitHub-runner-optimised session launches cleanly
+
+> **RENUMBERED 00066 → 00068 (2026-07-30).** This plan was scaffolded as 00066 on its own
+> branch while `F44` independently took 00066 for `00066-ftp-camera-airbnb-wifi-and-hotspot-triage`.
+> Both are real plans with real history; the collision would surface the moment the branches meet,
+> and the plan-QA `no-new-collisions` / `row-folder-bijection` checks would reject it. This plan
+> moved because its owner (this agent) was asked to, and because the ftp-camera plan is already
+> merged into the default branch — moving the merged one would rewrite shared history.
+> 00067 was unavailable (`Completed/00067-qa-gates-inert-in-nested-checkout`), so 00068 it is.
+>
+> The git branch is still named `plan-00066-ccy-ci-runner`. That is left alone deliberately:
+> renaming a pushed branch churns refs for no benefit, and a branch name is not a plan artefact.
+> **`JOURNAL/` bodies also still say 00066** — they are append-only by rule, so they are corrected
+> by this note and by a new dated entry, never by rewriting what was written.
 
 **Status**: In Progress
 **Created**: 2026-07-29
@@ -169,7 +182,7 @@ hostile-audited design and a task breakdown that a later plan executes.
 - **Not a second launcher.** See Decision 1 — a forked `ccy-ci-runner` script is the
   thing this plan exists to avoid.
 - **No changes to Plan 00065's files.** Another agent is active in this repo on the
-  Cloud Base blockers. This plan touches `CLAUDE/Plan/00066-*/` only.
+  Cloud Base blockers. This plan touches `CLAUDE/Plan/00068-*/` only.
 
 ## Context & Background
 
@@ -295,7 +308,7 @@ an unrelated userns/subuid reason and would have been mistaken for a result.
     is fatal or ignored; podman version. **Rebuilt on the plan-script library**
     (lts-infra Plan 00023 Task 3.4) after the first version shipped a defect — see below.
   - [x] ✅ E6 **CONFIRMED A BLOCKER** by the owner's host run:
-    `EXIT 125 — Error: stat /dev/plan00066-definitely-absent: no such file or directory`.
+    `EXIT 125 — Error: stat /dev/plan00068-definitely-absent: no such file or directory`.
     A missing `--device` path is **fatal** to podman, so `claude-yolo`'s unconditional
     `--device /dev/dri:/dev/dri` is a guaranteed day-one failure on any host without
     `/dev/dri` — i.e. every headless server. `--device` must become conditional, exactly as
@@ -483,11 +496,14 @@ tasks **replace** the corresponding Phase 2-5 tasks above where they conflict.
 ## Dependencies
 
 - **Coordination:** another agent is active in this repo on Plan 00065 (Cloud Base
-  blockers). This plan is confined to `CLAUDE/Plan/00066-*/` and on branch
-  `plan-00066-ccy-ci-runner`, so it cannot collide with that work.
+  blockers). This plan is confined to `CLAUDE/Plan/00068-*/` and on branch
+  `plan-00066-ccy-ci-runner` (branch name retains the pre-renumber number, see the header note),
+  so it cannot collide with that work.
 - **Counter note:** `hooksdaemon.latestPlanNumber` was stale at 63 while 00065 existed
   (00064/00065 arrived via `git pull` from another clone). Reconciled to 65 per
-  `mkplan.bash`'s own drift-guard message before scaffolding; this plan is 00066.
+  `mkplan.bash`'s own drift-guard message before scaffolding; this plan was scaffolded as 00066
+  and is now **00068** (renumbered — see the header note; the counter did not protect against a
+  concurrent branch taking the same number).
 - **Consumes:** the measured results from lts-infra Plan 00015 (egress probes V4-V9) and
   Plan 00022 (the re-implementation audit).
 - **Blocks:** the `actions-hub` deletion of `run-claude-sandboxed` + `ccy-baseline`.
@@ -520,6 +536,8 @@ tasks **replace** the corresponding Phase 2-5 tasks above where they conflict.
 
 <!-- Curated milestones + delivery commit hashes only (git is the SSoT for
      "when" — do not add dates). The blow-by-blow activity log lives in
-     JOURNAL/00066-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
+     JOURNAL/00068-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
-- Scaffolded on branch `plan-00066-ccy-ci-runner`; failsafe recovery cron `ffc583d1`.
+- Scaffolded on branch `plan-00066-ccy-ci-runner` as plan 00066; renumbered to **00068** on
+  2026-07-30 to clear a collision with `F44`'s `00066-ftp-camera-…`. Failsafe recovery cron
+  `ffc583d1`.

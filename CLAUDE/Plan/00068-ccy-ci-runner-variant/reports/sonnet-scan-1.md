@@ -1,4 +1,7 @@
-# Independent Deep Scan — Plan 00066 (ccy CI-runner variant)
+# Independent Deep Scan — Plan 00068 (ccy CI-runner variant)
+
+<!-- Renumbered 00066 → 00068 on 2026-07-30 to clear a collision with F44's
+     00066-ftp-camera-… . This report's findings are unchanged. -->
 
 **Scope**: read `claude-yolo` (2847 lines, in full), all 7 `lib/*.bash`, `entrypoint.sh`,
 `Dockerfile`, `Dockerfile.project-template`, `playbooks/imports/play-claude-yolo.yml`, then

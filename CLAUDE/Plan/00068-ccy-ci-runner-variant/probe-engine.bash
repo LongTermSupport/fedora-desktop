@@ -153,7 +153,7 @@ out ""
 if [[ -z "${PROBE_IMAGE}" ]]; then
     out "UNANSWERED — no local image (see above). This is not a pass."
 else
-    missing="/dev/plan00066-definitely-absent"
+    missing="/dev/plan00068-definitely-absent"
     if [[ -e "${missing}" ]]; then
         out "Unexpected: \`${missing}\` exists, so this probe is invalid. Pick another path."
         INCOMPLETE=1

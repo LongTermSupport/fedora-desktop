@@ -1,4 +1,7 @@
-# Plan 00066 — Hostile Review, Round 1 (fable)
+# Plan 00068 — Hostile Review, Round 1 (fable)
+
+<!-- Renumbered 00066 → 00068 on 2026-07-30 to clear a collision with F44's
+     00066-ftp-camera-… . This report's findings are unchanged. -->
 
 Scope per the brief: attack the design, verify every citation against the actual
 source (not the plan's word for it), hunt for "a true statement about a check
