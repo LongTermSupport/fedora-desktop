@@ -125,9 +125,17 @@ destination. Pre-warm runs only in async modes (default mode may have stale
 files in the root we don't want to surface).
 
 Async modes do the same EXIF-based sort the closing pass does, but as soon
-as each upload completes — no end-of-session bulk move. Triggering is
-gated on vsftpd's "OK UPLOAD" log entry, so partial/aborted transfers
-are NEVER sorted or copied; they sit in the upload root for inspection.
+as each upload completes — no end-of-session bulk move.
+
+Completeness: every file is structurally verified before it is sorted or
+copied, in ALL modes. vsftpd's "OK UPLOAD" is NOT proof the file arrived
+whole — in FTP the client signals end-of-file on STOR by closing the data
+connection, so a link that drops that connection mid-transfer looks exactly
+like a clean finish and gets logged OK with whatever bytes arrived. JPEGs
+are checked for their SOI/EOI markers; ARW and video are validated with
+exiftool. A fragment is left in the upload root and never enters the
+library. If the camera re-sends the same frame endlessly, truncation is
+why — it has never managed to complete one.
 --async-copy then copies each sorted file into the local rclone mount
 (same write-through path --copy uses) via a tmp-then-rename so a crash
 mid-copy can't leave a truncated file masquerading as complete; the VFS
@@ -516,6 +524,81 @@ get_exif_date() {
         | awk 'NF{print; exit}' || true
 }
 
+# Verify a received file is structurally complete.
+#
+# WHY THIS EXISTS: vsftpd's "OK UPLOAD" does NOT mean the file arrived intact.
+# In FTP the client signals end-of-file on a STOR by closing the data
+# connection, so a link that drops that connection mid-transfer presents to the
+# server as a cleanly closed data socket — indistinguishable from a normal
+# finish. vsftpd logs OK UPLOAD with whatever bytes arrived. FAIL UPLOAD fires
+# only on a *reset*, not a *close*.
+#
+# Confirmed in Plan 00066: 23 logins, 14 "OK UPLOAD", 0 "FAIL UPLOAD", and
+# every one of those 14 was a fragment — the same ARW recorded at 3738736,
+# 2240056 and 1849096 bytes against a true size of tens of MB. Those fragments
+# were sorted into the dated tree and, under --async-copy, pushed to the remote.
+# Silent corruption of the library is a worse failure than a visible retry loop,
+# and it is not specific to a bad network — it is what happens whenever a
+# transfer is interrupted.
+#
+# Exit codes:
+#   0 — complete
+#   1 — definitely truncated or corrupt
+#   2 — cannot determine (no validator available for this type)
+verify_file_complete() {
+    local file="$1"
+    local ext="${file##*.}"
+
+    # Zero bytes is never a complete photo, whatever the extension.
+    [ -s "$file" ] || return 1
+
+    case "${ext,,}" in
+        jpg | jpeg)
+            # JPEG is explicitly delimited: SOI (ffd8) at the start, EOI (ffd9)
+            # at the end. A truncated JPEG loses its EOI. This is exact — no
+            # heuristics and no guessing at expected sizes.
+            local soi
+            soi=$(head -c 2 "$file" | od -An -tx1 | tr -d ' \n')
+            [ "$soi" = "ffd8" ] || return 1
+
+            # Normally EOI is the final two bytes. Some writers append padding,
+            # so if the exact tail does not match, scan the last 64 bytes before
+            # calling it truncated — padding is legitimate, a missing EOI is not.
+            local eoi
+            eoi=$(tail -c 2 "$file" | od -An -tx1 | tr -d ' \n')
+            [ "$eoi" = "ffd9" ] && return 0
+            if tail -c 64 "$file" | od -An -tx1 | tr -d ' \n' | grep -q 'ffd9'; then
+                return 0
+            fi
+            return 1
+            ;;
+        arw | mp4 | mov)
+            # Sony ARW is TIFF-based and the video containers are atom-based;
+            # both carry internal offset/length structures that a truncation
+            # breaks. exiftool validates those, and it is already a hard
+            # dependency of the sort path, so this costs nothing extra.
+            #
+            # Note a truncated ARW still yields a readable capture date — the
+            # EXIF sits in the leading IFD — so the sort's own date lookup is
+            # NOT a completeness signal. That is exactly how fragments got
+            # filed under the right date in the first place.
+            command -v exiftool > /dev/null || return 2
+            local validation
+            if ! validation=$(exiftool -validate -warning -error -a -s3 "$file" 2>&1); then
+                return 1
+            fi
+            if printf '%s' "$validation" \
+                | grep -qiE 'truncat|corrupt|bad offset|bad format|missing.*end|premature'; then
+                return 1
+            fi
+            return 0
+            ;;
+        *)
+            return 2
+            ;;
+    esac
+}
+
 # Refuse a RCLONE_REMOTE that points at a media subfolder rather than the
 # library root. The local sort places files into photos/ and videos/ subtrees
 # so a single rclone copy must target the library root for both to land
@@ -677,7 +760,7 @@ get_local_ip() {
 # Sort uploaded files into YYYY/MM/DD/(JPG|RAW)/ based on EXIF DateTimeOriginal
 sort_uploads() {
     local dir="${1:-$UPLOAD_DIR}"
-    local moved=0 skipped=0
+    local moved=0 skipped=0 truncated=0
 
     if [ ! -d "$dir" ]; then
         echo "ERROR: Upload directory not found: $dir" >&2
@@ -732,6 +815,20 @@ sort_uploads() {
             class_dir="$VIDEO_DIR_NAME"
         fi
 
+        # Same completeness gate the async path uses. Default mode sorts at
+        # Ctrl+C, so without this the closing pass would sweep every truncated
+        # fragment left by a flaky link straight into the dated tree — the
+        # exact silent corruption Plan 00066 found.
+        local verify_rc=0
+        verify_file_complete "$file" || verify_rc=$?
+        if [ "$verify_rc" -eq 1 ]; then
+            local psize
+            psize=$(stat -c %s "$file" 2>&1) || psize="?"
+            echo -e "  ${RED}partial${NC}  $(basename "$file")  (truncated at ${psize} bytes — left in place)" >&2
+            truncated=$((truncated + 1))
+            continue
+        fi
+
         local date_path
         date_path=$(get_exif_date "$file" "$class")
 
@@ -752,6 +849,14 @@ sort_uploads() {
     sudo find "$dir" -mindepth 1 -type d -empty -delete 2>/dev/null
 
     echo ""
+    if [ "$truncated" -gt 0 ]; then
+        echo -e "${RED}${BOLD}${truncated} file(s) were TRUNCATED in transfer and left in place.${NC}"
+        echo -e "  These are fragments, not photos — the link dropped the data"
+        echo -e "  connection mid-transfer and the FTP server could not tell that"
+        echo -e "  from a normal end-of-file. They were NOT added to the library."
+        echo -e "  Re-shoot the transfer on a better link, or use ${CYAN}--hotspot${NC}."
+        echo ""
+    fi
     echo -e "${BOLD}Sort complete:${NC} ${CYAN}${moved}${NC} moved, ${CYAN}${skipped}${NC} skipped"
 }
 
@@ -1484,6 +1589,24 @@ process_async_upload() {
     local ts
     ts=$(date '+%H:%M:%S')
 
+    # Completeness gate. "OK UPLOAD" only tells us the data connection closed,
+    # not that the file arrived whole (see verify_file_complete). A fragment
+    # must never be sorted into the library or copied to the remote — leave it
+    # in the landing zone, where the camera's retry will overwrite it with a
+    # better attempt.
+    local verify_rc=0
+    verify_file_complete "$filepath" || verify_rc=$?
+    if [ "$verify_rc" -eq 1 ]; then
+        local partial_size
+        partial_size=$(stat -c %s "$filepath" 2>&1) || partial_size="?"
+        echo -e "  [${CYAN}${ts}${NC}] ${RED}partial${NC}  ${basename}  (truncated at ${partial_size} bytes — NOT sorted; camera will retry)" >&2
+        _async_stat_inc truncated
+        return 0
+    fi
+    if [ "$verify_rc" -eq 2 ]; then
+        echo -e "  [${CYAN}${ts}${NC}] ${YELLOW}unverified${NC}  ${basename}  (no completeness check for this type)"
+    fi
+
     local sorted_path sort_rc=0
     sorted_path=$(sort_one_file "$filepath") || sort_rc=$?
 
@@ -1677,8 +1800,9 @@ cleanup() {
     # by process_async_upload. The monitor was killed above, so writes are
     # finished and the read is consistent.
     if [ "$ASYNC_MODE" = true ] && [ -n "$ASYNC_STATS_FILE" ] && [ -f "$ASYNC_STATS_FILE" ]; then
-        local a_moved a_skipped a_errored a_copied a_copy_errored
+        local a_moved a_skipped a_errored a_copied a_copy_errored a_truncated
         a_moved=$(awk '/^moved$/{c++} END{print c+0}' "$ASYNC_STATS_FILE")
+        a_truncated=$(awk '/^truncated$/{c++} END{print c+0}' "$ASYNC_STATS_FILE")
         a_skipped=$(awk '/^skipped$/{c++} END{print c+0}' "$ASYNC_STATS_FILE")
         a_errored=$(awk '/^errored$/{c++} END{print c+0}' "$ASYNC_STATS_FILE")
         a_copied=$(awk '/^copied$/{c++} END{print c+0}' "$ASYNC_STATS_FILE")
@@ -1687,6 +1811,12 @@ cleanup() {
         echo ""
         echo -e "${BOLD}Async summary:${NC}"
         echo -e "  Sorted: ${CYAN}${a_moved}${NC}  Skipped: ${CYAN}${a_skipped}${NC}  Sort errors: ${CYAN}${a_errored}${NC}"
+        if [ "$a_truncated" -gt 0 ]; then
+            echo -e "  ${RED}Truncated (rejected): ${a_truncated}${NC}"
+            echo -e "  ${YELLOW}The link dropped the data connection mid-transfer on those.${NC}"
+            echo -e "  ${YELLOW}They were kept out of the library. If the camera keeps re-sending${NC}"
+            echo -e "  ${YELLOW}the same frame, this is why: it never completes one.${NC}"
+        fi
         if [ "$ASYNC_COPY_MODE" = true ]; then
             echo -e "  Copied: ${CYAN}${a_copied}${NC}  Copy errors: ${CYAN}${a_copy_errored}${NC}"
             if [ "$a_copy_errored" -gt 0 ]; then
