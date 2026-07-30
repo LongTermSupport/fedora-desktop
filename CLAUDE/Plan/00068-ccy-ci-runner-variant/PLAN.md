@@ -387,6 +387,46 @@
 > the label read is `:99` — not `:77`/`:79`. Verified directly. The mechanism D5 describes is
 > unaffected; D5's substantive retraction stands.
 >
+> **D9 — SELF-FOUND while Round 4 ran: the corrections were never propagated into the six
+> reports, and D5 had already named the two files.** D7 caught under-propagation inside PLAN.md.
+> This is the same defect one layer out, and larger: **not one of the six documents in
+> `reports/` carried any correction note at all** — zero mentions of D6, or of any supersession.
+> A reader following PLAN.md's own link into `reports/phase2-non-interactive.md` or
+> `reports/round2-restatement.md` landed in pre-D6 framing with nothing indicating it had moved.
+>
+> Three concrete instances, all now fixed:
+>
+> - **`round2-restatement.md:267` and `phase3-image-layering.md:192` still asserted the exact
+>   claim D5 retracted** — that CI runs as a different user than provisioning. D5's own text names
+>   both files as carrying the echo (*"echoed in `phase3-image-layering.md` and
+>   `round2-restatement.md` §4.1"*). The correction was written, the two files it named were not
+>   touched. Round 3 re-verified D5's retraction as correct and did not notice the retracted text
+>   was still live. Both now carry the correct argument (state outside the image cannot travel
+>   with it, be read from a checkout, or be trusted not to drift) marked *[corrected per D5]*.
+> - **`round2-restatement.md` §4.1 still demanded "the three things"**, item 1 being the
+>   build-and-exit mode **D6 retracted**. Now struck through and marked, and the count corrected
+>   to two.
+> - **`CLAUDE/Plan/README.md`'s index row** still summarised the plan as of Round 2, framing the
+>   launcher as CI-relevant with no mention of D6 — a directory outside any sweep of the plan
+>   folder. Rewritten (commit `9aa60cb`).
+>
+> **Method note, because it is the reason this was findable at all:** every correction above was
+> applied as a **same-line-count** in-place edit, verified with `git show HEAD:<path> | wc -l`
+> against the working file. `round2-restatement.md` stays 341 lines and
+> `phase3-image-layering.md` stays 263, so every `file:line` citation in Rounds 2–4 still
+> resolves. That is the constraint that makes correcting a falsehood compatible with the
+> append-only discipline: the discipline exists so reviews keep pointing at real text, and a
+> banner inserted at the top of a document would have broken more than it fixed.
+>
+> **Why this keeps happening.** Appending a correction is cheap; propagating it is the work. Each
+> appended correction leaves behind a fan-out of derived text — the plan body, six reports, the
+> Success Criteria, the README — that already summarised the superseded thesis. The thesis has now
+> moved three times, so the fan-out compounds. D7 and D9 are the same defect at two radii, and the
+> honest reading is that the propagation step has been skipped every single time it was required.
+>
+> Also corrected here: the audit-loop Success Criterion still read *"Round 2 has not reported"*
+> when Rounds 2 and 3 had both reported and been applied.
+>
 > **The loop is STILL not quiet.** Round 4 required (Task 6.4).
 
 > **The loop is NOT quiet.** Round 2 found material problems, so a Round 3 is required (Task 6.4).
@@ -1290,9 +1330,11 @@ tasks **replace** the corresponding Phase 2-5 tasks above where they conflict.
 
 - [ ] ⬜ The audit loop has run to a quiet round, with every round on disk in `reports/`.
 
-  Round 1 (`fable-review-1.md`, `sonnet-scan-1.md`) and Round 3's classification are on disk.
-  Round 2 dispatched against all five new documents. **Not yet quiet** — a round that finds
-  nothing material has not happened, and Round 2 has not reported.
+  Rounds 1–3 are all on disk (`fable-review-1.md`, `sonnet-scan-1.md`, `fable-review-2.md`,
+  `fable-review-3.md`, plus `prompt-classification-round3.md`); Round 4 is dispatched and its
+  report will land as `fable-review-4.md`. **Not yet quiet** — every round so far has found
+  material problems (Round 2: 2 BLOCKER + 2 MAJOR → D1–D4; Round 3: 2 BLOCKER + 1 MINOR → D6–D8),
+  so a round that finds nothing material has still not happened.
 
 - [ ] 🚫 **No source file outside this plan folder has been modified.**
 

@@ -188,10 +188,10 @@ present?* — answerable by `image inspect` alone, for any tag, with no `FROM`-p
 
 That also removes a defect that exists today independent of CI: the staleness state currently
 lives in `$HOME/.cache/claude-yolo-${PROJECT_NAME}-dockerfile-hash` (`claude-yolo:1454`), which is
-**host-user-local**. Two users on one machine each believe different things about the same shared
-image, and a provisioning user cannot answer the question at all for the user that runs jobs — the
-precise question CI asks, and the reason `lts-infra` reimplemented the whole decision in Ansible
-against a label (`tasks/runner-ccy-project-image.yml`).
+state **outside the image**. It cannot travel with the image, cannot be read from a checkout, and
+can silently drift from what it claims to describe — delete the image, keep the cache, and the
+cache now lies. That is the question CI asks, and the reason `lts-infra` reimplemented the whole
+decision in Ansible against a label (`tasks/runner-ccy-project-image.yml`). *[corrected per D5]*
 
 ---
 

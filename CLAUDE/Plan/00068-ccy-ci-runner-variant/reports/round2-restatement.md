@@ -256,17 +256,17 @@ project Dockerfile's md5 changed (`:1471`, `:1495`), when the base image version
 `lts-infra`'s `tasks/runner-ccy-project-image.yml` reimplements that decision in Ansible —
 sha256 instead of md5, an image **label** instead of a `~/.cache` file — and its own header calls
 the situation out. `lts-infra` Plan 00026 Task 3.3 slates that file for deletion as a
-duplicate. **For that deletion to be possible, this plan must provide the three things the
-Ansible version has and `ccy` does not:**
+duplicate — a premise D6 re-opened. **This plan must provide what the Ansible version has and
+`ccy` does not — originally three items; D6 retracted item 1, leaving two:**
 
-1. **A non-interactive build mode** that resolves and builds the project image and then exits,
-   without launching a session, without prompting, and without the 46 prompt sites of
-   Task 7.3's classification on the path.
+1. ~~**A non-interactive build mode** that resolves and builds the project image and then exits.~~
+   **RETRACTED BY D6** — nothing invokes the launcher at provision time either; Ansible calls
+   `podman build` directly. The list below is therefore **two** things, not three.
 2. **A build identity readable from the image**, not from `$HOME/.cache`. `ccy` records staleness
-   in `$HOME/.cache/claude-yolo-${PROJECT_NAME}-dockerfile-hash` (`claude-yolo:1454`) — a
-   **host-user-local** file. CI runs as a different user than provisioning, and the check must be
-   answerable from the image itself. An OCI `LABEL` carrying the Dockerfile digest is the fix, and
-   is what the Ansible version already does.
+   in `$HOME/.cache/claude-yolo-${PROJECT_NAME}-dockerfile-hash` (`claude-yolo:1454`) — state
+   **outside the image**. CI answers the question from a checkout plus the image, and never has
+   host-local cache state available at all *[corrected per D5]*. An OCI `LABEL` carrying the
+   Dockerfile digest is the fix, and is what the Ansible version already does.
 3. **A way to run a command in the image without the desktop entrypoint** — currently every
    caller hand-rolls `--entrypoint /bin/bash`, and §1.1 shows two codebases getting that wrong.
 
