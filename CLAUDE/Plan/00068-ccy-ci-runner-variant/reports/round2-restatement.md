@@ -339,3 +339,22 @@ a complete one.
 - **Decision 4 is a design decision, not a proof of safety.** It says a permission surface should
   not be built in `ccy`; it does not say the container-plus-network boundary is sufficient for any
   particular workload. That judgement is per-workload and belongs to whoever points a job at it.
+
+---
+
+## ⚠ CORRECTIONS APPLIED AFTER THIS DOCUMENT WAS WRITTEN
+
+This report is preserved as written (line numbers are cited by later review rounds). The
+correction blocks at the head of [../PLAN.md](../PLAN.md) are AUTHORITATIVE where they differ.
+Appended per **D9**, which found that none of the six reports carried any correction note.
+
+- **D6 retracts §4.1 item 1** (a non-interactive build-and-exit mode). Nothing invokes the
+  `claude-yolo` launcher at provision time either — Ansible calls `podman build` directly — so
+  **the launcher is never on the CI path at all**. §4.1 now reads as two items, not three.
+- **D5 corrected inline at `:267`**: the "CI runs as a different user than provisioning" premise
+  is false (`runner_user: "runner"` is the same identity for both). The conclusion — build
+  identity belongs in an image `LABEL` — is unaffected; the correct argument is that state outside
+  the image cannot travel with it or be read from a checkout.
+- **Decisions 4, 5 and 6 stand.** D2 withdrew one citation supporting Decision 4 (the lts-infra
+  containment proofs answer escape and destination, not the confused-deputy threat); the decision
+  itself was not retracted.

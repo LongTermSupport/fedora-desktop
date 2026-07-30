@@ -174,3 +174,19 @@ impossible to add silently. It does not prove the absence of a hang.
 - **Nothing is implemented, and the promotion in 2.3 is a specification.** The tooling exists and
   works, but it currently reads `claude-yolo` sources from *this checkout* by a plan-relative walk;
   promoting it means re-rooting that resolution, which is a real change and not a file move.
+
+---
+
+## ⚠ CORRECTIONS APPLIED AFTER THIS DOCUMENT WAS WRITTEN
+
+This report is preserved as written (line numbers are cited by later review rounds). The
+correction blocks at the head of [../PLAN.md](../PLAN.md) are AUTHORITATIVE where they differ.
+Appended per **D9**, which found that none of the six reports carried any correction note.
+
+- **This entire document is DESKTOP-ONLY hardening per D6.** Its CI justification is gone: D1
+  narrowed Phase 2 to serving a non-interactive build-and-exit mode, and D6 then retracted that
+  mode entirely, having verified provisioning builds with `podman build` directly.
+- **This is a demotion, not a cancellation.** The work stands on its own merits — a launcher that
+  hangs at a TTY-less prompt is a real defect, the 46-site census and call-graph classification
+  are correct, and Task 2.3's regression gate is worth promoting. What must stop is presenting
+  any of it as a CI enabler.

@@ -234,3 +234,18 @@ reuse its shape rather than invent a parallel one.
 - **Task 5.1's rename has a blast radius not measured here**: `--network` may appear in projects'
   `ccy.env` files and in saved launch configs (`claude-yolo:2613`'s `save_launch_config`). The
   deprecation path is specified; the population is not surveyed.
+
+---
+
+## ⚠ CORRECTIONS APPLIED AFTER THIS DOCUMENT WAS WRITTEN
+
+This report is preserved as written (line numbers are cited by later review rounds). The
+correction blocks at the head of [../PLAN.md](../PLAN.md) are AUTHORITATIVE where they differ.
+Appended per **D9**, which found that none of the six reports carried any correction note.
+
+- **D1 and D3 rescoped Tasks 4.1, 5.1 and 5.3**; the pointer notes are in PLAN.md at those tasks.
+- **`--no-network` does not isolate the container** (R11) — it skips the egress preflight only.
+  Any text here treating it as an isolation control is superseded.
+- The pasta measurements (`pasta:-T,3128`, `--map-host-loopback`, the mutual-exclusion finding)
+  are the **consumer's**, taken on its runner, and are **not re-measured under `ccy`**. See
+  `hardware-proof-checklist.md` group C — C3 is the load-bearing one.

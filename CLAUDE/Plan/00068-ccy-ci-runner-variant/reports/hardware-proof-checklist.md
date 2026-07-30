@@ -87,3 +87,16 @@ The specific failure to guard against is the one this plan has now caught five t
 text: *a true statement about a check presented as a stronger statement about the world.* Reading
 `claude-yolo:2514-2517` correctly tells you what the code does; it does not tell you what a
 container on a real host can reach. Both are needed, and only one of them is in this repo.
+
+---
+
+## ⚠ CORRECTIONS APPLIED AFTER THIS DOCUMENT WAS WRITTEN
+
+This report is preserved as written (line numbers are cited by later review rounds). The
+correction blocks at the head of [../PLAN.md](../PLAN.md) are AUTHORITATIVE where they differ.
+Appended per **D9**, which found that none of the six reports carried any correction note.
+
+- **E2 ("a token supplied by value") is now desktop-only** per D6 — it gates the unattended items
+  in group B, but no CI job reaches the launcher. The B-group probes remain worth running.
+- Everything else here is unaffected: this document is a list of open questions, and the
+  corrections since have only added to it.

@@ -261,3 +261,19 @@ registry support becomes new, declared scope; it is not a gap being quietly left
   `claude-yolo:base`" is about runtime state and should be confirmed, not assumed.
 - **Nothing here has been built or run.** This plan remains design-only by explicit owner
   instruction.
+
+---
+
+## ⚠ CORRECTIONS APPLIED AFTER THIS DOCUMENT WAS WRITTEN
+
+This report is preserved as written (line numbers are cited by later review rounds). The
+correction blocks at the head of [../PLAN.md](../PLAN.md) are AUTHORITATIVE where they differ.
+Appended per **D9**, which found that none of the six reports carried any correction note.
+
+- **D5 corrected inline at `:192`**: the "a provisioning user cannot answer the question for the
+  user that runs jobs" premise is false — they are the same user. The conclusion (staleness
+  identity belongs in an image `LABEL`) is unaffected and rests on the stronger argument that
+  `$HOME/.cache` is state outside the image.
+- **D6 is consistent with this document, not against it.** Task 3.4's specification here — that it
+  mirrors the existing direct `podman build` technique — is what proved D1's provision-time claim
+  wrong. §0.1 and §0.2 (the `claude-yolo:full` and `claude-yolo:base` corrections) stand.

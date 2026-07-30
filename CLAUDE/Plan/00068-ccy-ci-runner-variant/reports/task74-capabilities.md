@@ -191,3 +191,15 @@ survivable, and Phase 2 cannot demonstrate anything unattended until it exists.
   so desktop use is byte-identical" is the requirement; whether the name-collision loop at
   `common.bash:596-616` behaves identically under an empty identifier has not been traced line by
   line.
+
+---
+
+## ⚠ CORRECTIONS APPLIED AFTER THIS DOCUMENT WAS WRITTEN
+
+This report is preserved as written (line numbers are cited by later review rounds). The
+correction blocks at the head of [../PLAN.md](../PLAN.md) are AUTHORITATIVE where they differ.
+Appended per **D9**, which found that none of the six reports carried any correction note.
+
+- **C7, C8 and C10 are DESKTOP-ONLY** per D6/D7. C8's "`--no-network` mandatory for CI" framing is
+  retracted twice over: `--no-network` does not isolate (R11), and the launcher is not on the CI
+  path at all (D6). They remain worth doing on desktop merits.
