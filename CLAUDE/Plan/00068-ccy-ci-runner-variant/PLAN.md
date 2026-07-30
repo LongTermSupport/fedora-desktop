@@ -150,6 +150,81 @@
 >
 > Round 2 is required. Tasks 7.1-7.5 below carry the corrections forward.
 
+> ## ROUND 2 — the restated thesis, and the decisions Round 1 demanded
+>
+> Full document, with every citation re-read from source rather than carried over:
+> [reports/round2-restatement.md](reports/round2-restatement.md). Summarised here; the report
+> governs where they differ.
+>
+> **The governing input is an owner steer** (verbatim): \*"allow each project to have its OWN ccy
+> runner in the NORMAL WAY - dockerfile customisation, custom tooling etc etc - its perfect / BUT
+>
+> - CI need safety and MCP etc - it needs either adhoc or full blown customisation"\*.
+>
+> **R1 — the steer settles Task 3.3.** The per-project `.claude/ccy/Dockerfile` seam is the
+> mechanism and is not to be replaced. The "mandatory platform overlay for the general case"
+> branch is dead; it survives only for untrusted checkouts, which is a different plan.
+>
+> **R2 — `ccy` is THREE layers, and the steer is about exactly one.** Image / entrypoint /
+> launcher. The steer is an **image** mechanism, so it delivers **tooling** — which is what it
+> was built for and is genuinely excellent at. Safety lives entirely in the other two layers.
+>
+> **R3 — the entrypoint is INSIDE the image, so you cannot take one without the other.**
+> `Dockerfile:215` sets `ENTRYPOINT`; none of the three project-facing templates declares one, so
+> a project image built the normal way runs the **desktop** entrypoint — `GH_TOKEN`-or-die, `gh auth login`, the checkout symlink, the trust flags. Confirmed three independent ways, including
+> two live productions failures in other repos (report §1.1). This is the structural reason half
+> the steer cannot be satisfied by the mechanism the steer endorses.
+>
+> **R4 — E10, and it is stronger than C1 stated.** `ccy` asserts "this workspace is trusted" in
+> **four** places, not one: `claude-yolo:2792` (`--dangerously-skip-permissions`, unconditional),
+> `entrypoint.sh:245` (`bypassPermissionsModeAccepted`), `entrypoint.sh:257-263`
+> (`hasTrustDialogAccepted`, unconditional), and `entrypoint.sh:269-274` — which **sources
+> `/workspace/.claude/ccy/ccy.env` as shell** and then `exec`s `CCY_CLAUDE_WRAPPER` from it
+> (`:280-282`). The last is new to this plan: **the checked-out tree controls the command that
+> runs.** So the posture is not a loose default a flag could tighten; it is a coherent, deliberate
+> trust model whose premise is that the operator owns the workspace.
+>
+> **R5 — Decision 4: `ccy` does NOT grow a permission surface.** C1 required this be answered.
+> Two opposite postures in one artifact is the defect C2 already found; a launcher flag would not
+> reach the entrypoint half anyway; and the estate already has stronger containment one trust
+> boundary up (lts-infra `RUNNER-VM-DESIGN.md` §5.4/§6.4). **The price, stated: `ccy` in CI is for
+> TRUSTED automation only, and is not a replacement for the consumer's sandbox.** This plan stops
+> using that repo's deletion as its motivating example.
+>
+> **R6 — Decision 5: the trusted-only scope is asserted, not documented.** A required
+> caller-supplied declaration with no default and no inference from `GITHUB_EVENT_NAME`; absence
+> is a hard stop. Inference would be the banned `_armed` shape.
+>
+> **R7 — Decision 6: a second, small CI entrypoint beside `entrypoint.sh` — ADOPT.** The third
+> option Decision 1 never considered. It fixes the problem at the layer it lives in (R3), and it
+> is the correction for a defect now made three times by three codebases hand-rolling
+> `--entrypoint /bin/bash`. Scoped deliberately: *prepare nothing, assert nothing about trust,
+> exec what you were told*. It is **not** the consumer's fail-closed sandbox — Decision 4 declined
+> that.
+>
+> **R8 — "ad-hoc or full-blown" resolves per capability, and two of four fit neither.** Tooling:
+> done already. MCP: both routes viable, both need net-new wiring (E4 re-confirmed — zero matches).
+> Permissions: neither route. Egress: ad-hoc only, being a runtime property.
+>
+> **R9 — the split is by TIME, not by feature.** Image build belongs at **provision** time
+> (Ansible, wide egress armed for that window only); job time runs an already-built image. This
+> closes **C6**: the runner is JIT-ephemeral *registration* on a *persistent* VM, so a
+> provision-time build is coherent, and **registry support is declared out of scope** — confirmed
+> costless, since searching the launcher and all 7 libs for engine `push`/`pull` returns zero.
+>
+> **R10 — three concrete gaps block lts-infra deleting its duplicate** (its Plan 00026 Task 3.3):
+> a non-interactive build-and-exit mode; a build identity readable **from the image** (a `LABEL`,
+> not `$HOME/.cache/claude-yolo-*-dockerfile-hash` at `claude-yolo:1454`, which is host-user-local
+> and cannot answer CI's question); and a supported way to run a command without the desktop
+> entrypoint. The second is a real defect independent of CI.
+>
+> **R11 — `--no-network` does not isolate, and that is worse than the `--network` trap.** C8's
+> "mandatory" conclusion holds (preflight is fatal: `claude-yolo:2529`, `exit 1` at `:2597`), but
+> at `:2514-2517` the flag merely leaves `NETWORK_FLAG` empty, so podman's default network still
+> applies. There is no `--network none` in the codebase. **Task 5.1's naming problem is therefore
+> three-way**, and `--no-network` is the dangerous one because its name is a safety promise it
+> does not keep.
+
 ## Overview
 
 `ccy` is this repo's Claude-Code container launcher. It is built for one situation: a
@@ -468,18 +543,44 @@ Each round is a file in `reports/`. A round that finds nothing material ends the
 Round 1 invalidated the thesis, so Round 2 is a restatement rather than a polish. These
 tasks **replace** the corresponding Phase 2-5 tasks above where they conflict.
 
-- [ ] ⬜ **Task 7.1**: Restate the thesis per C1/C2 — the shared surface is the **image**;
+- [x] ✅ **Task 7.1**: Restate the thesis per C1/C2 — the shared surface is the **image**;
   the launcher and entrypoint diverge because the trust models diverge. Evaluate on the
   merits the third option Decision 1 never considered: *a second small CI entrypoint
   beside `entrypoint.sh`, sharing the base image*.
 
-  - [ ] ⬜ Add **E10** (the `--dangerously-skip-permissions` axis) to the evidence table
+  **DONE — [reports/round2-restatement.md](reports/round2-restatement.md)**, summarised as
+  R1–R11 in the ROUND 2 block at the head of this file.
+
+  The restatement is sharper than "the shared surface is the image", because the image turns
+  out to *contain* the entrypoint (`Dockerfile:215`; no `ENTRYPOINT` in any of the three
+  project-facing templates). So the three-layer split — image / entrypoint / launcher — is the
+  load-bearing structure, and it is what makes half the owner's ask unreachable from the
+  mechanism the owner endorses. That is R2/R3 and it is the whole finding.
+
+  The third option is **adopted** (Decision 6), on a merit Decision 1 could not have seen:
+  it is the correction for a defect three separate codebases have now made independently,
+  each hand-rolling `--entrypoint /bin/bash` and two of them getting it wrong.
+
+  - [x] ✅ Add **E10** (the `--dangerously-skip-permissions` axis) to the evidence table
     with its own Decision — does `ccy` grow a permission surface at all, or is the CI path
     explicitly "container + network boundary only"? Either answer is defensible; silence
     is not.
-  - [ ] ⬜ State plainly whether these flags serve *trusted* automation rather than
+
+    **E10 recorded (R4); Decision 4 = NO, it does not.** C1 named one citation; there are
+    **four**, and the fourth — `entrypoint.sh:269-274` sourcing the workspace's own `ccy.env`
+    as shell, then `exec`ing `CCY_CLAUDE_WRAPPER` from it (`:280-282`) — means the checked-out
+    tree controls the command that runs. That reframes the posture from "a loose default" to
+    "a coherent trust model", which is what makes declining a permission surface the *right*
+    answer rather than the lazy one.
+
+  - [x] ✅ State plainly whether these flags serve *trusted* automation rather than
     replacing `run-sandbox.sh` — and if so, stop using the consumer's deletion as the
     motivating example.
+
+    **Stated (R5): trusted automation only.** The consumer's deletion is no longer the
+    motivating example; the motivating example is lts-infra's duplicate staleness-gate, which
+    R10 shows is blocked on three concrete, nameable gaps. Decision 5 makes the scope an
+    asserted precondition rather than a documented intention.
 
 - [x] ✅ **Task 7.2**: Re-run the prompt census per C3 with a pattern that also matches
   `read -r -p`, across all seven libs (expect ~46). Give `select_token`/`create_token`
