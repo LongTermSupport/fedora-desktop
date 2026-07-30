@@ -472,19 +472,80 @@ Tracked as a finding in lts-infra Plan 00023.
 
 ### Phase 3: Design the image layering + CI variant
 
-- [ ] ⬜ **Task 3.1**: Specify `Dockerfile.ci` as a stage/file `FROM claude-yolo:full`:
+> **Phase 3 delivered — [reports/phase3-image-layering.md](reports/phase3-image-layering.md).**
+> It opens with two corrections to this plan's own premises, both found while trying to specify
+> against them:
+>
+> - **`claude-yolo:full` does not exist.** It is a Dockerfile *stage* (`Dockerfile:231`), never a
+>   tag; the `full` stage is published as **`claude-yolo:latest`** (`common.bash:564-565`,
+>   `claude-yolo:107`). Zero matches for `claude-yolo:full` across `files/`, `playbooks/`, `docs/`.
+>   The name was invented in Decision 1, repeated into Task 3.1, and passed Round 1 unchallenged.
+> - **Ansible never builds `claude-yolo:base`** (`play-claude-yolo.yml:338-343`, no `--target`
+>   anywhere in the play), yet three project-facing documents offer `FROM claude-yolo:base` as a
+>   supported choice. It is produced only by a *launcher-triggered* build, which a provisioned box
+>   has no reason to run. **A documented base whose existence depends on rebuild history** — and
+>   the precedent for exactly how not to introduce `claude-yolo:ci`.
+
+- [x] ✅ **Task 3.1**: Specify `Dockerfile.ci` as a stage/file `FROM claude-yolo:full`:
   what it adds (MCP server binaries, pinned by checksum), and what it must NOT add.
-- [ ] ⬜ **Task 3.2**: Specify how a project selects it, and prove on paper that an
+
+  **DONE** — and the task's own `FROM` is corrected to `claude-yolo:latest` per the note above.
+  A separate **file**, not a fourth stage: the main Dockerfile's hash feeds `DOCKERFILE_HASH` and
+  `validate_container_version` (`common.bash:466-469`), so a stage would make CI-tooling churn
+  rebuild every desktop user's image. Adds exactly two things — the MCP binary pinned by sha256,
+  and the Decision 6 CI entrypoint. Must NOT add: credentials, project toolchain, egress or
+  permission policy (both runtime), or an `ENTRYPOINT` override — it *ships* the CI entrypoint,
+  it does not make it the default.
+
+- [x] ✅ **Task 3.2**: Specify how a project selects it, and prove on paper that an
   existing `.claude/ccy/Dockerfile` (`FROM claude-yolo:latest`) is unaffected.
-- [ ] ⬜ **Task 3.3**: Address the platform-vs-repo layer problem the consumer hit: is a
+
+  **DONE.** Selection is `FROM claude-yolo:ci` in the project's own Dockerfile — no new flag, the
+  seam the owner endorsed used for a different base. Non-interference proven from the resolution
+  path: the rebuild decision reads four inputs (`claude-yolo:1487-1529`) and a new tag changes
+  none; `:1478` reads the base version from a hard-coded `"claude-yolo:latest"`. **Two residuals
+  recorded rather than glossed** — a project directory named `ci` would collide with the shared
+  tag (guard proposed), and that same hard-coded `:1478` means a `ci`-based project image is
+  staleness-checked against the *wrong* base. The second is a real gap this design introduces,
+  and it is handed to 3.3 rather than left implicit.
+
+- [x] ✅ **Task 3.3**: Address the platform-vs-repo layer problem the consumer hit: is a
   `ccy`-owned overlay applied on top of a project's Dockerfile warranted, or is that
   complexity only justified for untrusted-checkout CI? **Argue both sides** — the
   answer is not obvious and getting it wrong in either direction is expensive.
-  - [ ] ⬜ Cover the version-gate interaction: `REQUIRED_CONTAINER_VERSION`
+
+  **DONE — no overlay**, settled by the owner steer (R1). Both sides resolve the same way *given
+  Decision 4*, and that dependency is stated as the honest caveat: reverse Decision 4 and the
+  overlay returns immediately, because an untrusted Dockerfile cannot be allowed to define the
+  layer asserting the platform's own invariants.
+
+  - [x] ✅ Cover the version-gate interaction: `REQUIRED_CONTAINER_VERSION`
     (`claude-yolo:39`) currently gates one base; state how it behaves with a variant.
-- [ ] ⬜ **Task 3.4**: Specify how the CI image is built by **Ansible**, never per-job.
+
+    **DONE, and it is the one real design problem in Phase 3.** Three options; (A) parse the
+    project Dockerfile's `FROM` — rejected, fragile and ambiguous under multi-stage; (B) gate
+    `ci` on `REQUIRED_CONTAINER_VERSION` — rejected, re-couples CI churn to the desktop rebuild
+    cycle that 3.1 split apart; **(C) move the staleness identity into an image LABEL** —
+    adopted. C is R10's item 2 and fixes the gate as a side effect. It also kills a defect that
+    exists today independent of CI: staleness lives in
+    `$HOME/.cache/claude-yolo-${PROJECT_NAME}-dockerfile-hash` (`claude-yolo:1454`), which is
+    **host-user-local**, so a provisioning user cannot answer the question for the user that runs
+    jobs — precisely the question CI asks.
+
+- [x] ✅ **Task 3.4**: Specify how the CI image is built by **Ansible**, never per-job.
   E8 (daily npm auto-update) and the consumer's build-time release fetch both need
   egress that a locked-down job must not have.
+
+  **DONE.** Five steps mirroring the working `claude-yolo:latest` build, each inside an
+  **arm → build → drop** egress window with the drop in an `always:` block so the wide posture
+  cannot outlive a failed build. Step 5 fixes the `claude-yolo:base` gap above — adding a third
+  history-dependent tag while leaving the second broken would be indefensible.
+
+  **E8 resolves for free and that is worth saying out loud**: the auto-update lives in the
+  *launcher* (`claude-yolo:1254`, `:1343`), and R9's by-time split means the launcher does not run
+  at job time — so E8 never fires in CI. `CCY_AUTO_UPDATE=0` is explicitly **not** the answer: a
+  job that needed it would already be running the launcher, which is the actual defect. That
+  variable is the plausible-looking fix that would have hidden the real problem.
 
 ### Phase 4: Design MCP injection
 
