@@ -225,6 +225,88 @@
 > three-way**, and `--no-network` is the dangerous one because its name is a safety promise it
 > does not keep.
 
+> ## ROUND 2 CORRECTIONS — read before the Round-2 block above
+>
+> [reports/fable-review-2.md](reports/fable-review-2.md): **2 BLOCKER + 2 MAJOR**. The five Round-2
+> documents are left exactly as the reviewer saw them, so the review keeps referring to real
+> documents (Task 6.3's method). This block supersedes them where they conflict.
+>
+> Both claimed corrections were independently confirmed (`claude-yolo:full` never existed; Ansible
+> never builds `claude-yolo:base`), as were E10's four citations, R11, the OCI-inheritance claim
+> and every consumer-repo citation. What did not survive is structural.
+>
+> **D1 — BLOCKER: I never said who invokes the CI entrypoint, and the two answers are not
+> interchangeable.** I identified this fork early and then wrote five documents without ever
+> settling it. Task 3.1's own words — *"Selection is the caller's, explicitly"* — imply a raw
+> caller-side `podman run --entrypoint`, with **no `claude-yolo` involvement**. The reviewer is
+> right that this orphans work.
+>
+> **The answer is BOTH, split by TIME — which R9 already established and I failed to carry into
+> Phases 2/4/5:**
+>
+> | Phase              | Who invokes                                | `claude-yolo` involved?    |
+> | ------------------ | ------------------------------------------ | -------------------------- |
+> | **Provision time** | Ansible, to build the project image        | **yes** — build-and-exit   |
+> | **Job time**       | the caller's own `podman run --entrypoint` | **no** — never on the argv |
+>
+> Consequences I must accept rather than argue with:
+>
+> - **Phase 5's `--egress` as a `claude-yolo` flag is orphaned for the CI path.** A job that never
+>   invokes the launcher never passes it. CI egress is the **caller's own podman argv**, exactly as
+>   the consumer already does. Phase 5 is *not wasted* — Decision 3 scoped `--egress` as
+>   desktop-useful and not CI-gated, and that half stands — but Task 5.3's "under the Decision 6 CI
+>   entrypoint" framing implied a ccy-enforced allowlist that does not exist. **Mis-scoped, not
+>   wrong.**
+> - **Task 7.4's C7 / C8 / C10 are session-launch defects a CI job never reaches.** They remain
+>   real *desktop* defects and stay in scope as such; they are no longer CI-motivated.
+> - **Phase 2 keeps a narrower justification**: the non-interactive **build-and-exit** mode
+>   (R10 item 1), invoked by Ansible. That is materially smaller than "unattended `ccy` can hang",
+>   and the plan should stop implying the larger one.
+>
+> **D2 — BLOCKER: Decision 4's safety citation defends the wrong threat.** I cited `lts-infra`
+> `RUNNER-VM-DESIGN.md` §5.4/§6.4. §6.4 proves **hypervisor-escape** protection; §5.4 restricts
+> **which destinations** are reachable. Round 1's C1 was neither: it is a **confused-deputy** risk —
+> a live write-capable `GH_TOKEN` misused *at a destination the allowlist already permits*, since
+> `api.github.com` is on every plausible allowlist. Neither cited section touches it. Worse, the
+> citation smuggles an assumption: those controls belong to one purpose-built VM, and **`ccy`
+> neither requires nor checks for them** — it runs on a laptop or a plain cloud VM just as well.
+>
+> **Taking remedy (a): the RUNNER-VM-DESIGN citation is WITHDRAWN from Decision 4.** The decision
+> rests solely on the trusted-only scope (R5), which is self-sufficient. **The residual, stated:
+> if the trust declaration is ever wrong, there is no defence-in-depth inside `ccy` against a live
+> `GH_TOKEN` being misused — on any host.** That is the price of Decision 4, and it is larger than
+> the price I first wrote down.
+>
+> **D3 — MAJOR: Task 4.1's declarative MCP route contradicts Decision 6.** Decision 6 says the CI
+> entrypoint omits the §2 trust assertions — of which **row 4 is `ccy.env` sourcing**. Task 4.1
+> then puts the declarative MCP route *in `ccy.env`*, citing the desktop entrypoint's sourcing
+> code. Both cannot hold.
+>
+> **Resolved: the CI entrypoint does NOT source `ccy.env`.** Decision 6 stands as written — row 4
+> is exactly as strong a trust assertion as rows 2–3, and keeping it would gut the decision. So
+> **the `ccy.env` declarative route is DESKTOP-ONLY**, alongside `--mcp`. The CI path gets an
+> explicit **environment-variable contract supplied by the caller**, mirroring the consumer's own
+> required-environment contract. Phase 4 must be re-read with that split.
+>
+> **D4 — MAJOR: Decision 5 is an unverified self-attestation, and my own Task 4.2 principle
+> convicts it.** Task 4.2 rejects the consumer's tool-matrix because *"a control that fires without
+> discriminating is worse than absent, because its presence invites reliance."* Decision 5's flag
+> **fires** (it gates startup) and **discriminates nothing** — nothing checks that a caller passing
+> it is telling the truth. I applied the principle to someone else's design and not to my own.
+>
+> **Stated plainly, as it should have been: the trust declaration is an unverified attestation
+> whose only enforcement is that the caller typed the word.** The residual is accepted — `ccy`'s
+> desktop trust model is built the same way — but it is recorded, not dressed up as closing C1.
+>
+> **And my "no inference from `GITHUB_EVENT_NAME`" over-reached.** The no-armed-flags rule bans
+> *deriving* the decision from environment state. It does not ban *cross-checking* an
+> already-explicit declaration against observable state. Those are different, and I collapsed them.
+> A `pull_request_target`-from-a-fork event that arrives *with* the trusted flag is a
+> declaration/environment **disagreement**, and warning or refusing on it is defence-in-depth, not
+> the banned shape. Re-opened as an option.
+>
+> **The loop is NOT quiet.** Round 2 found material problems, so a Round 3 is required (Task 6.4).
+
 ## Overview
 
 `ccy` is this repo's Claude-Code container launcher. It is built for one situation: a
@@ -765,8 +847,23 @@ Each round is a file in `reports/`. A round that finds nothing material ends the
   document. → the ROUND 1 CORRECTIONS block at the head of this file, C1-C11. Each
   correction was re-verified against source before being accepted; the body is untouched.
 
-- [ ] ⬜ **Task 6.4**: Repeat rounds until a round finds nothing material. Record every
+- [ ] 🔄 **Task 6.4**: Repeat rounds until a round finds nothing material. Record every
   round, including the quiet one that ends the loop.
+
+  **Round 2 run and applied** — [reports/fable-review-2.md](reports/fable-review-2.md),
+  **2 BLOCKER + 2 MAJOR**, carried into the ROUND 2 CORRECTIONS block as D1–D4. **The loop is
+  NOT quiet; Round 3 is required.**
+
+  Both BLOCKERs are structural and both are mine. **D1** — I identified the "who invokes the CI
+  entrypoint" fork early, then wrote five documents without settling it; the answer (both, split
+  by time) was already implied by R9 and I failed to carry it into Phases 2/4/5, which orphans
+  `--egress`-as-a-launcher-flag for the CI path and narrows Phase 2's justification. **D2** — my
+  containment citation answered *escape* and *destination*, not the **confused-deputy** threat
+  that Round 1's C1 was actually about; citation withdrawn, and Decision 4's true price recorded.
+
+  **D4 is the one worth remembering**: Task 4.2 rejects the consumer's tool-matrix as "a control
+  that fires without discriminating", and Decision 5's trust flag does exactly that. I applied
+  the principle to someone else's design and not to my own, in the same document.
 
 - [ ] 🔄 **Task 6.5**: Final gate — restate the design in one page, and list what a
   **later** implementation plan must prove on real hardware before any task is ✅.
