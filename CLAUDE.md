@@ -147,21 +147,22 @@ If `git status` shows plan files modified by your session, decide before committ
 
 ## CLAUDE/ Topic Files Index
 
-| File                            | Content                                                                    |
-| ------------------------------- | -------------------------------------------------------------------------- |
-| @CLAUDE/ContainerRules.md       | CCY container detection, version bump, ctrl+z patch                        |
-| @CLAUDE/ContainerEngines.md     | Podman/Docker/LXC role split; when to use which; security trade-offs       |
-| @CLAUDE/InfrastructureAsCode.md | Ansible-only workflow, prohibited manual actions                           |
-| @CLAUDE/AnsibleStyle.md         | Playbook structure, markers, packages, services, variables                 |
-| @CLAUDE/SecurityRules.md        | Public repo warning, vault management, pre-commit checks                   |
-| @CLAUDE/ExampleValues.md        | Reserved example IPs/emails/hostnames the secret scanner whitelists        |
-| @CLAUDE/QA.md                   | QA scripts reference, what to run when                                     |
-| @CLAUDE/DebugCommands.md        | Non-interactive command rules for user diagnostics                         |
-| @CLAUDE/InteractiveScripts.md   | Human-friendly interactive script rules (validate strictly, retry on loop) |
-| @CLAUDE/StderrHygiene.md        | Diagnostics → stderr; stdout is the captured payload (bash + Python)       |
-| @CLAUDE/GnomeShell.md           | GNOME Shell extension development (Wayland, ESLint, APIs)                  |
-| @CLAUDE/PlanWorkflow.md         | Planning workflow and plan document structure                              |
-| @CLAUDE/AgentNotes.md           | Working practices and project gotchas (feedback + project knowledge)       |
+| File                            | Content                                                                     |
+| ------------------------------- | --------------------------------------------------------------------------- |
+| @CLAUDE/ContainerRules.md       | CCY container detection, version bump, ctrl+z patch                         |
+| @CLAUDE/ContainerEngines.md     | Podman/Docker/LXC role split; when to use which; security trade-offs        |
+| @CLAUDE/InfrastructureAsCode.md | Ansible-only workflow, prohibited manual actions                            |
+| @CLAUDE/AnsibleStyle.md         | Playbook structure, markers, packages, services, variables                  |
+| @CLAUDE/SecurityRules.md        | Public repo warning, vault management, pre-commit checks                    |
+| @CLAUDE/ExampleValues.md        | Reserved example IPs/emails/hostnames the secret scanner whitelists         |
+| @CLAUDE/QA.md                   | QA scripts reference, what to run when                                      |
+| @CLAUDE/DebugCommands.md        | Non-interactive command rules for user diagnostics                          |
+| @CLAUDE/InteractiveScripts.md   | Human-friendly interactive script rules (validate strictly, retry on loop)  |
+| @CLAUDE/StderrHygiene.md        | Diagnostics → stderr; stdout is the captured payload (bash + Python)        |
+| @CLAUDE/GnomeShell.md           | GNOME Shell extension development (Wayland, ESLint, APIs)                   |
+| @CLAUDE/PlanWorkflow.md         | Planning workflow and plan document structure                               |
+| @CLAUDE/PlanTriage.md           | How to establish facts: plan-local triage scripts (probes go IN the script) |
+| @CLAUDE/AgentNotes.md           | Working practices and project gotchas (feedback + project knowledge)        |
 
 ## User Documentation
 

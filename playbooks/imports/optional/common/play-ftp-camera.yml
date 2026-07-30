@@ -96,12 +96,13 @@
             state: absent
           failed_when: false  # FAIL-FAST-OK: legacy context may already be removed
 
-    - name: Install vsftpd, inotify-tools, and gum (TUI launcher)
+    - name: Install vsftpd, inotify-tools, gum (TUI launcher), and tcpdump
       ansible.builtin.package:
         name:
           - vsftpd         # FTP server
           - inotify-tools  # File system event monitoring (used by ftp-camera wrapper)
           - gum            # Two-step launcher TUI for argument-free `ftp-camera` invocation
+          - tcpdump        # FTP control-channel capture for triage (see CLAUDE/PlanTriage.md)
         state: present
       tags: packages
 

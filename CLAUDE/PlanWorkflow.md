@@ -60,7 +60,10 @@ they deploy or touch the live system — never run Ansible inside the CCY contai
 
 - **`deploy.bash`** — runs the plan's Ansible command(s) (e.g.
   `ansible-playbook playbooks/imports/.../play-foo.yml`). A thin, idempotent wrapper.
-- **`triage.bash`** — confirms things are OK. Run it **at planning stage** (to
+- **`triage.bash`** — gathers grounded facts. **Every diagnostic probe belongs
+  in this script — never hand the user a one-off command to run in chat.**
+  Full reference, patterns and checklist: [PlanTriage.md](PlanTriage.md).
+  Run it **at planning stage** (to
   capture the current/broken state) **and/or after `deploy.bash`** (to verify the
   change landed). Read-only / non-destructive; safe to re-run.
 - **Testing / `acceptance.bash`** (and any other test script) — plan-specific

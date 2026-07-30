@@ -31,14 +31,74 @@ set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 
-UPLOAD_DIR="$(getent passwd camera | cut -d: -f6)"
-if [ -z "$UPLOAD_DIR" ]; then
-    echo "ERROR: 'camera' user not found — run play-ftp-camera.yml first" >&2
-    exit 1
-fi
-
 VSFTPD_LOG="/var/log/vsftpd.log"
 CONFIG_FILE="/etc/ftp-camera/config"
+
+# ── Args ─────────────────────────────────────────────────────────────────────
+# Default is the passive report. --capture additionally records the FTP
+# control channel while a live ftp-camera session runs, because the verb
+# stream is the only thing that distinguishes the remaining hypotheses and no
+# amount of after-the-fact log reading substitutes for it.
+CAPTURE_SECONDS=0
+
+usage() {
+    cat <<'EOF'
+Usage: triage.bash [--capture [SECONDS]]
+
+  (no args)            Passive report only. Read-only, changes nothing.
+  --capture [SECONDS]  ALSO record the FTP control channel for SECONDS
+                       (default 180) before producing the report.
+
+--capture requires a live ftp-camera session — start one in another
+terminal first, then run this. It fails fast if vsftpd is not running,
+because a capture with no traffic in it is worse than no capture (it
+looks like evidence of absence).
+
+The FTP password is filtered out of the trace before anything is written
+to disk.
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --capture)
+            CAPTURE_SECONDS=180
+            # Optional numeric argument. Anything non-numeric is the next
+            # flag (or a typo), so leave it for the loop to handle.
+            if [ "${2:-}" ] && [ -z "${2//[0-9]/}" ]; then
+                CAPTURE_SECONDS="$2"
+                shift
+            fi
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "ERROR: unknown argument: $1" >&2
+            echo "Run 'triage.bash --help' for usage" >&2
+            exit 2
+            ;;
+    esac
+    shift
+done
+
+# Resolved AFTER arg parsing so --help works on a machine that has never run
+# play-ftp-camera.yml.
+#
+# `getent passwd camera` exits 2 when the key is absent. Under `set -e` with
+# pipefail, doing this as a bare pipeline assignment killed the script at that
+# line with rc=2 and printed nothing — so the friendly error below was
+# unreachable on exactly the machines that needed it. Probe, then check.
+UPLOAD_DIR=""
+if _passwd_line="$(getent passwd camera)"; then
+    UPLOAD_DIR="$(printf '%s' "$_passwd_line" | cut -d: -f6)"
+fi
+if [ -z "$UPLOAD_DIR" ]; then
+    echo "ERROR: 'camera' user not found — run play-ftp-camera.yml first" >&2
+    echo "  ansible-playbook playbooks/imports/optional/common/play-ftp-camera.yml" >&2
+    exit 1
+fi
 
 REPORTS_DIR="$REPO_ROOT/untracked/reports"
 mkdir -p "$REPORTS_DIR"
@@ -115,6 +175,101 @@ show_nm_profile_events() {
     fi
 }
 
+# Record the FTP control channel while a live camera session runs.
+#
+# Port 21 is plaintext, so a packet capture yields the same verb stream that
+# vsftpd's log_ftp_protocol=YES gives — without needing the wrapper redeployed
+# first. This is the ONLY probe that separates the remaining hypotheses, all
+# of which produce an identical upload-side log:
+#
+#   camera sends SIZE/LIST/MLSD after STOR and is answered 550
+#       -> the sort moved the file out from under it
+#   session goes silent after STOR, no 226 ever delivered
+#       -> the control connection died mid-transfer
+#   camera closes at a consistent interval regardless of progress
+#       -> client-side timeout
+#
+# Read-only with respect to system state: captures packets, writes one text
+# file under untracked/. Starts and stops nothing.
+capture_ftp_control() {
+    local seconds="$1"
+    local trace="$REPORTS_DIR/ftp-control-trace.txt"
+
+    echo "──────── 0. FTP CONTROL-CHANNEL CAPTURE ────────"
+    echo
+
+    if ! command -v tcpdump > /dev/null; then
+        echo "ERROR: tcpdump is not installed." >&2
+        echo "  It is declared in play-ftp-camera.yml. Deploy it with:" >&2
+        echo "    ansible-playbook playbooks/imports/optional/common/play-ftp-camera.yml" >&2
+        echo "  Do NOT install it by hand — the host's tool inventory is owned" >&2
+        echo "  by Ansible (CLAUDE.md, 'Missing Dependencies')." >&2
+        return 1
+    fi
+
+    # A capture containing no traffic reads as evidence of absence, which is
+    # worse than no capture. Refuse rather than write a misleading empty file.
+    if ! systemctl is-active --quiet vsftpd; then
+        echo "ERROR: vsftpd is not running — there is no FTP traffic to capture." >&2
+        echo "" >&2
+        echo "  Start a camera session in ANOTHER terminal first:" >&2
+        echo "    ftp-camera --no-tui" >&2
+        echo "  wait until the camera is transferring, then re-run:" >&2
+        echo "    $0 --capture" >&2
+        return 1
+    fi
+
+    echo "Capturing the FTP control channel for ${seconds}s."
+    echo "Leave the camera transferring while this runs — one or two upload"
+    echo "cycles is enough to be conclusive."
+    echo
+
+    # The PASS verb carries the FTP password in cleartext. It is filtered
+    # BEFORE anything reaches disk, so the trace never holds the credential,
+    # even transiently.
+    local rc=0
+    if ! sudo timeout "$seconds" \
+            tcpdump -i any -nn -A -s0 'tcp port 21' 2>&1 \
+            | grep -v '^PASS ' > "$trace"; then
+        rc=$?
+    fi
+
+    # timeout exits 124 when the window elapses — that is the SUCCESS path
+    # here. grep exits 1 when it wrote nothing, which is handled by the
+    # emptiness check in analyse_ftp_trace. Anything else is worth reporting.
+    if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ] && [ "$rc" -ne 1 ]; then
+        echo "  NOTE: capture pipeline exited rc=$rc — trace may be incomplete" >&2
+    fi
+
+    echo "Capture written to: $trace"
+    echo
+}
+
+# Extract the verb/response stream from a capture, in order. This is the
+# payload of the whole exercise — everything else in this report is context.
+analyse_ftp_trace() {
+    local trace="$REPORTS_DIR/ftp-control-trace.txt"
+    local verbs='(USER|TYPE|PASV|EPSV|PORT|STOR|RETR|LIST|MLSD|NLST|SIZE|MDTM|DELE|RNFR|RNTO|CWD|PWD|QUIT|FEAT|SYST|NOOP|ABOR|REST|APPE)'
+
+    if [ ! -s "$trace" ]; then
+        echo "  (no capture present — re-run this script with --capture while"
+        echo "   an ftp-camera session is live)"
+        return 0
+    fi
+
+    echo "### FTP verbs and responses, in order"
+    echo "###   READ THIS FOR: what the camera does after each STOR."
+    echo "###     SIZE/LIST/MLSD answered 550 -> the sort moved the file away"
+    echo "###     nothing at all, no 226      -> control connection died"
+    echo "###     consistent cutoff interval  -> camera-side timeout"
+    grep -aoE "${verbs}[^\r]*|[1-5][0-9][0-9][ -][^\r]*" "$trace"
+    echo
+
+    echo "### verb frequency (a STOR count far above the file count = re-sending)"
+    grep -aoE "${verbs}" "$trace" | sort | uniq -c | sort -rn
+    echo
+}
+
 show_firewall_openings() {
     echo "services:"
     sudo firewall-cmd --list-services
@@ -138,6 +293,14 @@ echo " user:   $(id -un) (uid $(id -u))   host: $(uname -n)"
 echo " upload: $UPLOAD_DIR"
 echo "════════════════════════════════════════════════════════════"
 echo
+
+# ── Section 0: live capture (only with --capture) ────────────────────────────
+# Runs first so the rest of the report describes the state the capture was
+# taken in. A capture failure is fatal: the user explicitly asked for one, and
+# silently producing the passive report instead would look like it worked.
+if [ "$CAPTURE_SECONDS" -gt 0 ]; then
+    capture_ftp_control "$CAPTURE_SECONDS"
+fi
 
 # ── Section 1: network state ─────────────────────────────────────────────────
 # Establishes which IP ftp-camera would advertise as pasv_address and whether
@@ -237,8 +400,14 @@ else
     sudo tail -n 60 "$VSFTPD_LOG"
     echo
 
-    # Only present once --debug-ftp has been used. Shows the exact verbs the
-    # camera sends after STOR — the H1-vs-H2 discriminator.
+    # The decisive evidence. Present whenever --capture has been run at least
+    # once; summarised here so it lands in the same report as its context.
+    echo "──────── 4b. FTP CONTROL-CHANNEL TRACE ────────"
+    echo
+    analyse_ftp_trace
+
+    # Alternative source for the same verb stream, if the deployed wrapper was
+    # run with --debug-ftp instead of using --capture.
     echo "### FTP protocol trace, if --debug-ftp was enabled for a session"
     if sudo grep -q 'FTP command' "$VSFTPD_LOG"; then
         echo "  (protocol logging IS present — commands the camera sent:)"
