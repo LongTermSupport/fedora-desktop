@@ -319,8 +319,9 @@
 >
 > **The conclusion is unaffected, and the correct argument is simpler and stronger:** CI answers
 > the question from a **checkout plus the image** — `sha256sum .claude/ccy/Dockerfile`
-> (`.github/workflows/ci.yml:77`) compared against the image label
-> (`ci.yml:79`) — and never has host-local cache state available to it at all. `$HOME/.cache`
+> (`actions-hub/.github/workflows/ci.yml:97`) compared against the image label
+> (`ci.yml:99`) — and never has host-local cache state available to it at all.
+> *(Line numbers corrected per D8; I first wrote `:77`/`:79`.)* `$HOME/.cache`
 > is state *outside* the image: it cannot travel with the image, cannot be read from a checkout,
 > and can silently drift from the image it claims to describe (delete the image, keep the cache,
 > and the cache now lies). That is why the identity belongs in a `LABEL`.
@@ -330,6 +331,64 @@
 > image cannot travel with it" is abstract — and vividness is what carried it through three
 > documents unchecked. The check that would have caught it was one `grep` for `runner_user`.
 >
+> ## ROUND 3 CORRECTIONS — D6–D8
+>
+> [reports/fable-review-3.md](reports/fable-review-3.md): **2 BLOCKER + 1 MINOR**, verdict
+> *material findings: yes*. Both blockers confirmed independently before being accepted.
+>
+> **D6 — BLOCKER: D1's provision-time row is WRONG, and I am retracting it.** D1 answered "who
+> invokes the CI entrypoint" with *both, split by time* — Ansible invoking `claude-yolo`
+> build-and-exit at provision time, the caller invoking the container at job time. **The
+> provision-time half is false.**
+>
+> Verified myself rather than taken on the review's word: nothing invokes the `claude-yolo`
+> **launcher** anywhere on the runner path. `play-claude-yolo.yml:338-343` is Ansible calling
+> `{{ container_engine }} build` **directly**; `lts-infra`'s `runner-ccy-project-image.yml:172-195`
+> is `runuser -u runner -- podman build …`, also direct. `runner-ccy-base-image.yml` *fetches and
+> reads* the script (`:119`, `:141`) to check version coupling — and never runs it. Task 3.4's own
+> specification says it **mirrors** that existing direct-build technique, so the plan's own
+> delivered design already contradicted D1's table.
+>
+> The review's second proof is the one I should have seen: in `claude-yolo`, credential resolution
+> runs **unconditionally before every build path** — `select_token`/`create_token` (~`:900-1150`,
+> incl. the `validate_token` API round-trip at `:1057`) precede the first-time build (`:1424`), the
+> version-gate rebuild (`:1436`), the project-image staleness rebuild (`:1487-1529`) and even the
+> existing `--rebuild` (`:1378`). So a build-and-exit mode would have to bypass ~16 credential
+> prompts, which **no document specifies**. "Build-and-exit" appears three times as a requirement
+> and **zero** times as a design.
+>
+> **Consequences, taken in full:**
+>
+> - **`claude-yolo` is never invoked on the CI path at all** — not at job time, not at provision
+>   time. D1's table collapses to one row.
+> - **R10 item 1 (a non-interactive build-and-exit mode) is RETRACTED.** It is not needed. Items 2
+>   (the image `LABEL` identity) and 3 (the CI entrypoint) are what `ccy` must supply.
+> - **Phase 2 (`--non-interactive`) and token-by-value lose their CI justification entirely** and
+>   become **desktop-only hardening**. They remain worth doing on their own merits — a launcher
+>   that hangs at a TTY-less prompt is a real defect — but the plan must stop selling them as CI
+>   enablers. This is the third consecutive round in which the CI framing shrank, and that is the
+>   finding, not an embarrassment to be smoothed over.
+> - **A question this raises for `lts-infra`, flagged not settled**: if provisioning legitimately
+>   builds with `podman build` directly, then `runner-ccy-project-image.yml` may not be "a
+>   reimplementation of what ccy does natively" at all — it is an ordinary provisioning build. What
+>   is genuinely duplicated is only the *staleness decision*, and the remedy is a shared identity
+>   **convention** (the `LABEL`), not deleting the file. lts-infra Plan 00026 Task 3.3's premise
+>   should be re-examined against this; it is that repo's call, not this plan's.
+>
+> **D7 — BLOCKER: the propagation commit missed one of the four locations D1 named, and its commit
+> message was about propagation.** `1fb9efd` added pointer notes to Tasks 4.1, 5.1 and 5.3, saying
+> *"a reader scanning to Task 5.1 would see 'DONE' and no hint…"*. D1 names a fourth by number —
+> Task 7.4's C7/C8/C10 — and a fifth area, Phase 2. Neither got a note. So C8's sub-item still read
+> **"`--no-network` mandatory for CI"** one screen below the correction retracting it. Fixed now,
+> properly, in both places. I did the exact thing the commit message described as the defect.
+>
+> **D8 — MINOR: D5's citation was off by twenty lines**, in a correction whose subject was citation
+> discipline. `sha256sum .claude/ccy/Dockerfile` is `actions-hub/.github/workflows/ci.yml:97` and
+> the label read is `:99` — not `:77`/`:79`. Verified directly. The mechanism D5 describes is
+> unaffected; D5's substantive retraction stands.
+>
+> **The loop is STILL not quiet.** Round 4 required (Task 6.4).
+
 > **The loop is NOT quiet.** Round 2 found material problems, so a Round 3 is required (Task 6.4).
 
 ## Overview
@@ -606,6 +665,18 @@ Tracked as a finding in lts-infra Plan 00023.
 > **Phase 2 delivered — [reports/phase2-non-interactive.md](reports/phase2-non-interactive.md).**
 > Phase 2 was written before Round 3 measured anything, so the document restates Task 2.1 before
 > answering it.
+>
+> **RESCOPED BY D1 AND D6 (Rounds 2–3): Phase 2 is now DESKTOP-ONLY hardening.** Its CI
+> justification is gone. D1 narrowed it to "the non-interactive build-and-exit mode invoked by
+> Ansible"; **D6 then retracted that mode entirely**, having verified that provisioning builds
+> with `podman build` directly and never invokes the launcher at all. Nothing in Phase 2 is
+> reached by a CI job.
+>
+> The work stands on its own merits — a launcher that hangs at a TTY-less prompt is a real defect,
+> the 46-site census and call-graph classification are correct, and the regression gate in Task 2.3
+> is worth promoting. But `phase2-non-interactive.md` still frames the apparatus as serving "an
+> unattended launch" generically, and the plan must stop presenting any of it as a CI enabler.
+> Recorded here because D7 caught this location being missed once already.
 
 - [x] ✅ **Task 2.1**: For every site from Task 1.2, specify which of the three
   outcomes (satisfy / default+log / fail-fast) applies, and for fail-fast the exact
@@ -1086,6 +1157,18 @@ tasks **replace** the corresponding Phase 2-5 tasks above where they conflict.
   **SPECIFIED — [reports/task74-capabilities.md](reports/task74-capabilities.md).** "Add" reads
   as "specify" here: this plan changes no code by explicit owner instruction (Non-Goals), so each
   item below is a statement of required behaviour handed to the implementation plan.
+
+  > **RESCOPED BY D1 AND D6 (Rounds 2–3).** `claude-yolo` is **never invoked on the CI path** —
+  > not at job time, and (per D6) not at provision time either. So **C7, C8 and C10 below are
+  > DESKTOP-ONLY defects**: they live in the launcher's session-launch path, which a CI job never
+  > executes. They remain real and worth fixing; they are simply no longer CI-motivated, and the
+  > sub-item headings below still carry their original CI framing. **Item 1 (token-by-value) is
+  > likewise desktop-only now** — D6 retracts R10's build-and-exit mode, which was its last CI
+  > justification. Item 5 (C6) and item 6 (workspace mutation) are unaffected.
+  >
+  > This note is here because D1 named Task 7.4 by number and the propagation commit `1fb9efd`
+  > missed it — see D7. C8's heading below literally reads "mandatory for CI" one screen beneath
+  > the correction retracting that.
 
   - [x] ✅ **Token from environment** (C5) — accept `CLAUDE_CODE_OAUTH_TOKEN` by value,
     bypassing the token-file subsystem, plus the out-of-band provisioning story, since
