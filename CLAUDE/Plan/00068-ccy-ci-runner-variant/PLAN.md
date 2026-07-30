@@ -462,6 +462,7 @@ tasks **replace** the corresponding Phase 2-5 tasks above where they conflict.
   the launcher and entrypoint diverge because the trust models diverge. Evaluate on the
   merits the third option Decision 1 never considered: *a second small CI entrypoint
   beside `entrypoint.sh`, sharing the base image*.
+
   - [ ] ⬜ Add **E10** (the `--dangerously-skip-permissions` axis) to the evidence table
     with its own Decision — does `ccy` grow a permission surface at all, or is the CI path
     explicitly "container + network boundary only"? Either answer is defensible; silence
@@ -469,14 +470,48 @@ tasks **replace** the corresponding Phase 2-5 tasks above where they conflict.
   - [ ] ⬜ State plainly whether these flags serve *trusted* automation rather than
     replacing `run-sandbox.sh` — and if so, stop using the consumer's deletion as the
     motivating example.
-- [ ] ⬜ **Task 7.2**: Re-run the prompt census per C3 with a pattern that also matches
+
+- [x] ✅ **Task 7.2**: Re-run the prompt census per C3 with a pattern that also matches
   `read -r -p`, across all seven libs (expect ~46). Give `select_token`/`create_token`
   their own named sub-problem — they sit on the default path and are the earliest blocker.
+
+  **DONE — [reports/prompt-census-round2.md](reports/prompt-census-round2.md). C3 confirmed:
+  37 → 46, and the predicted ~46 is exact.**
+
+  **The miscount is the least interesting part.** All 9 missed prompts are in
+  `lib/token-management.bash`, and that file was **100% invisible** to the Round-1 pattern — not
+  undercounted, unseen. It uses `read -r -p` exclusively, so a pattern requiring `-rp` found
+  nothing and reported **zero**. A file with nine blocking prompts on the default path looked
+  exactly like a file with none. That is this repo's recurring failure shape — a control that
+  silently becomes a no-op — living inside the census itself.
+
+  **The named sub-problem is worse than "more prompts".** `token-management.bash:322` is a
+  `while true` whose only exits are a valid token or an explicit `n`. On EOF — guaranteed on
+  every runner — `read` leaves the variable empty, the `Try again?` read also EOFs, empty is
+  neither `n` nor `N`, and it `continue`s: **it spins forever, emitting output**. The `while true`
+  ancestor also suspends `errexit`, so `set -e` cannot rescue it. It burns a JIT slot until the
+  job times out, with no diagnosable cause.
+
+  **This changes a Task 7.4 priority.** `create_token` is an irreducibly human OAuth flow, and it
+  is on the default path when no token is pre-provisioned. So accepting `CLAUDE_CODE_OAUTH_TOKEN`
+  **by value** (C5) is not one capability among six — it is the *only* way the default path is
+  survivable unattended, and should be treated as a prerequisite.
+
+  Also superseded: every task text quoting "35 prompts" now reads 46. And the census pattern is
+  itself a known-fragile control — whatever re-runs it must be asserted against a file known to
+  contain `read -r -p`, so a pattern matching nothing can never again report a clean sweep.
+
+  Claimed by inspection only: that these prompts exist, and that the `:322` loop spins on EOF by
+  its control flow. Nothing was executed — confirming the spin empirically belongs to the HOST
+  triage run.
+
 - [ ] ⬜ **Task 7.3**: Re-scope `--non-interactive` per C4/C9. Classify each site *spins*
   (errexit suspended by an `if`/`while` ancestor) vs *aborts undiagnosably*; fix the two
   spinning TUIs first. Soften "never infer" to "never **silently** infer", reconciling
   with `ssh-handling.bash:357`, which already does precisely that.
+
 - [ ] ⬜ **Task 7.4**: Add the capabilities Round 1 surfaced as missing.
+
   - [ ] ⬜ **Token from environment** (C5) — accept `CLAUDE_CODE_OAUTH_TOKEN` by value,
     bypassing the token-file subsystem, plus the out-of-band provisioning story, since
     `create_token` is an irreducibly human OAuth flow.
@@ -490,6 +525,7 @@ tasks **replace** the corresponding Phase 2-5 tasks above where they conflict.
     declared new scope.
   - [ ] ⬜ **Workspace mutation** — decide whether a CI variant may write `.claude/ccy/`
     into the job checkout at all (`claude-yolo:2613`), given a PR checkout is untrusted.
+
 - [ ] ⬜ **Task 7.5**: Re-order per C11 — Phases 3/4 designed in parallel with 2; only
   *proving unattended* is gated on Phase 2. Then re-run the audit loop (Task 6.4).
 
