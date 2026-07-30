@@ -754,18 +754,37 @@ Each round is a file in `reports/`. A round that finds nothing material ends the
   this estate, and the reason Task 1.1 exists as a task rather than an assertion.
   → `reports/fable-review-1.md`. **2 BLOCKER, 4 MAJOR, 2 MINOR** — both blockers landed
   on the thesis, not the details.
+
 - [x] ✅ **Task 6.2**: Round 1 — independent deep scan (sonnet) for what the author and
   the hostile reviewer both missed. Read the actual source; do not trust this plan's
   own citations. → `reports/sonnet-scan-1.md`. **5 CRITICAL, 2 HIGH, 2 MEDIUM**, and it
   caught E3 being wrong — a claim the hostile reviewer had accepted.
+
 - [x] ✅ **Task 6.3**: Apply round-1 findings. Corrections **append**; never rewrite a
   section a reviewer has already reviewed, or their finding stops referring to a real
   document. → the ROUND 1 CORRECTIONS block at the head of this file, C1-C11. Each
   correction was re-verified against source before being accepted; the body is untouched.
+
 - [ ] ⬜ **Task 6.4**: Repeat rounds until a round finds nothing material. Record every
   round, including the quiet one that ends the loop.
-- [ ] ⬜ **Task 6.5**: Final gate — restate the design in one page, and list what a
+
+- [ ] 🔄 **Task 6.5**: Final gate — restate the design in one page, and list what a
   **later** implementation plan must prove on real hardware before any task is ✅.
+
+  - [x] ✅ **The hardware-proof list** —
+    [reports/hardware-proof-checklist.md](reports/hardware-proof-checklist.md). Five groups:
+    (A) claims made from code paths that runtime state could contradict — **A1, whether
+    `claude-yolo:base` exists on a provisioned box, is load-bearing and would retract Phase 3
+    §0.2 if it comes back present**; (B) behaviour classified but never executed, where **B4
+    (does `--no-network` actually leave the container networked?) would shrink Task 5.1 back to a
+    naming problem if it comes back the other way**; (C) the consumer's measurements reused but
+    never re-measured under `ccy`, of which **C3 is the one to re-measure first** since it is the
+    only borrowed claim driving a hard failure; (D) the three-probe egress battery; (E)
+    prerequisites, both of which are blocked.
+
+  - [ ] ⬜ **The one-page restatement** — deliberately held until Round 2 reports, since that is
+    the half an audit finding could invalidate. The checklist above is stable either way: a
+    hostile finding would *add* to it rather than change it.
 
 ### Phase 7: Round-2 restatement — carry C1-C11 into a corrected design
 
