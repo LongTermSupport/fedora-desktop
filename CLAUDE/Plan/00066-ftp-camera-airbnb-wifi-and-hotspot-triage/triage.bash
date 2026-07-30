@@ -224,14 +224,37 @@ capture_ftp_control() {
     echo "cycles is enough to be conclusive."
     echo
 
-    # The PASS verb carries the FTP password in cleartext. It is filtered
-    # BEFORE anything reaches disk, so the trace never holds the credential,
-    # even transiently.
+    # The PASS verb carries the FTP password in cleartext. Redact it BEFORE
+    # anything reaches disk.
+    #
+    # The first attempt at this used `grep -v '^PASS '` and LEAKED THE
+    # PASSWORD INTO THE REPORT. tcpdump -A does not put the payload on its own
+    # line — it appends it to the packet header line:
+    #
+    #   ... length 16: FTP: PASS hunter2
+    #
+    # so a start-of-line anchor never matched. Redact by substitution
+    # anywhere in the line rather than dropping anchored lines: it cannot be
+    # defeated by payload position, and it preserves the verb sequence (the
+    # whole point of the capture) instead of punching holes in it.
     local rc=0
     if ! sudo timeout "$seconds" \
             tcpdump -i any -nn -A -s0 'tcp port 21' 2>&1 \
-            | grep -v '^PASS ' > "$trace"; then
+            | awk '{ gsub(/PASS [^ \r]*/, "PASS <redacted>"); print }' > "$trace"; then
         rc=$?
+    fi
+
+    # Belt and braces. A redaction bug is a credential on disk, so verify
+    # rather than trust — and destroy the file if the check fails, because a
+    # leaked secret outweighs any diagnostic value the trace has.
+    if grep -aqE 'PASS [^<]' "$trace"; then
+        rm -f "$trace"
+        echo "ERROR: redaction check FAILED — cleartext credential detected." >&2
+        echo "  The trace has been deleted rather than left on disk." >&2
+        echo "  This is a bug in capture_ftp_control(); fix the redaction" >&2
+        echo "  before capturing again, and rotate the FTP password:" >&2
+        echo "    ./vault.bash set ftp_camera_password" >&2
+        return 1
     fi
 
     # timeout exits 124 when the window elapses — that is the SUCCESS path

@@ -168,8 +168,47 @@ fi
 
 ### Secrets never reach the report
 
-The report is a file. Filter credentials *before* anything is written, not
-after — a trace of a plaintext protocol will contain the password otherwise.
+The report is a file. Redact credentials *before* anything is written, not
+after — a trace of a plaintext protocol contains the password otherwise.
+
+**Redact by substitution, never by dropping anchored lines.** This is a real
+leak that happened in Plan 00066, not a hypothetical. The filter was:
+
+```bash
+| grep -v '^PASS '          # WRONG — leaked the password
+```
+
+which looks right and is useless, because `tcpdump -A` does not put the
+payload on its own line. It appends it to the packet header:
+
+```
+... length 16: FTP: PASS hunter2
+```
+
+so a start-of-line anchor never matched, and the credential went to disk.
+Substitute anywhere in the line instead:
+
+```bash
+| awk '{ gsub(/PASS [^ \r]*/, "PASS <redacted>"); print }'
+```
+
+Substitution cannot be defeated by payload position, and it preserves the
+surrounding record rather than punching holes in the evidence.
+
+**Then verify, and destroy the file if the check fails.** A redaction bug is a
+credential on disk; the diagnostic value of the trace never outweighs that:
+
+```bash
+if grep -aqE 'PASS [^<]' "$trace"; then
+    rm -f "$trace"
+    echo "ERROR: redaction check FAILED — cleartext credential detected." >&2
+    echo "  Trace deleted. Fix the redaction, and rotate the credential." >&2
+    return 1
+fi
+```
+
+General rule: **assume your redaction is wrong and check it.** Write the
+verification at the same time as the filter, not after something goes wrong.
 
 ### A missing tool is an IaC gap
 
