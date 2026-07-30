@@ -1021,15 +1021,60 @@ tasks **replace** the corresponding Phase 2-5 tasks above where they conflict.
 
 ## Success Criteria
 
-- [ ] Every claim in this plan is either cited to a file:line or explicitly marked
+- [x] ✅ Every claim in this plan is either cited to a file:line or explicitly marked
   unverified with a named probe that resolves it.
-- [ ] Task 1.1's `/dev/dri` question is answered by a host run, not by inference.
-- [ ] The four capabilities each have a specified interface, and it is stated which are
+
+  Each Round-2 report closes with an explicit "what this does not settle" section. Three claims
+  are marked unverified with their resolving command: `claude-yolo:base`'s absence on a real host
+  (`podman image ls claude-yolo`), the pasta measurements (the consumer's, on its runner, not
+  re-measured under ccy), and end-to-end confirmation of the spins.
+
+- [x] ✅ Task 1.1's `/dev/dri` question is answered by a host run, not by inference.
+
+  Answered by the owner's host run: `EXIT 125 — Error: stat /dev/plan00068-definitely-absent: no such file or directory`. A missing `--device` path is fatal, so the unconditional
+  `--device /dev/dri:/dev/dri` at `claude-yolo:2773` is a guaranteed day-one failure on any
+  headless server.
+
+- [x] ✅ The four capabilities each have a specified interface, and it is stated which are
   CI-only and which are generally useful.
-- [ ] A reader can say what happens to an existing `.claude/ccy/Dockerfile` — proven by
+
+  Non-interactivity (Phase 2), image layering (Phase 3), MCP (Task 4.1), egress (Task 5.1/5.2).
+  CI-only: none of the four — egress is explicitly desktop-usable (Decision 3), MCP explicitly so
+  (Task 4.3), and only *where the MCP binary comes from* is CI-specific.
+
+- [x] ✅ A reader can say what happens to an existing `.claude/ccy/Dockerfile` — proven by
   reading the resolution path, not assumed.
-- [ ] The audit loop has run to a quiet round, with every round on disk in `reports/`.
-- [ ] **No source file outside this plan folder has been modified.**
+
+  Task 3.2, from the four rebuild inputs at `claude-yolo:1487-1529` and the hard-coded
+  `"claude-yolo:latest"` at `:1478` — with two residuals recorded rather than glossed.
+
+- [ ] ⬜ The audit loop has run to a quiet round, with every round on disk in `reports/`.
+
+  Round 1 (`fable-review-1.md`, `sonnet-scan-1.md`) and Round 3's classification are on disk.
+  Round 2 dispatched against all five new documents. **Not yet quiet** — a round that finds
+  nothing material has not happened, and Round 2 has not reported.
+
+- [ ] 🚫 **No source file outside this plan folder has been modified.**
+
+  **NOT MET, and the failure is this plan's own bookkeeping rather than a slip in this session.**
+  Commit `73396b3`, under this plan's number, added **1,667 lines across six files outside the
+  plan folder**: `CLAUDE/Plan/_planlib.inc.bash` (710), `scripts/test-planlib.bash` (623),
+  `CLAUDE/PlanScriptStandards.md` (271), plus `CLAUDE/PlanWorkflow.md`, `CLAUDE/Plan/CLAUDE.md`
+  and `CLAUDE/Plan/.gitignore`. That work is legitimate and documented in this file — it is the
+  plan-script library, governed by lts-infra Plan 00023 — but it landed on this branch under
+  *this* plan's number, which is exactly what this criterion forbids. Plan 00067's
+  `da6de33` is also on the branch, though that is a different plan's work and not attributable
+  here.
+
+  **The Non-Goal it exists to protect IS met, and provably**: *"Not one line of `claude-yolo`,
+  the libs, the Dockerfiles, or the plays."* `git diff --name-only F44...HEAD -- files/ playbooks/`
+  is **empty**.
+
+  So the criterion's *intent* holds and its *wording* does not. Recorded rather than ticked,
+  because a criterion quietly reinterpreted to match what happened is not a criterion. The
+  correct remedy is a wording fix that says what was meant — no changes to `files/`, `playbooks/`,
+  or `scripts/` — plus an honest note that the plan-system work was mis-attributed to this plan
+  number instead of being committed under 00023's.
 
 ## Risks & Mitigations
 
