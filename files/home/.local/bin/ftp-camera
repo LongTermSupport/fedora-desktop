@@ -136,6 +136,13 @@ are checked for their SOI/EOI markers; ARW and video are validated with
 exiftool. A fragment is left in the upload root and never enters the
 library. If the camera re-sends the same frame endlessly, truncation is
 why — it has never managed to complete one.
+
+Weak-link advisory: when transfers truncate, the same frame keeps arriving,
+or throughput drops below LINK_SLOW_KBS (default 500 KB/s), ftp-camera says
+so once and tells you to move the camera next to the router. Camera
+transmitters are much weaker than a laptop's, so a link that looks fine on
+the laptop can still be too weak for the camera. Tune with the environment
+variables LINK_SLOW_KBS, LINK_REPEAT_THRESHOLD and LINK_RATE_MIN_BYTES.
 --async-copy then copies each sorted file into the local rclone mount
 (same write-through path --copy uses) via a tmp-then-rename so a crash
 mid-copy can't leave a truncated file masquerading as complete; the VFS
@@ -888,8 +895,8 @@ sort_uploads() {
         echo -e "  These are fragments, not photos — the link dropped the data"
         echo -e "  connection mid-transfer and the FTP server could not tell that"
         echo -e "  from a normal end-of-file. They were NOT added to the library."
-        echo -e "  Re-shoot the transfer on a better link, or use ${CYAN}--hotspot${NC}."
         echo ""
+        warn_weak_link "${truncated} file(s) arrived truncated during this session"
     fi
     echo -e "${BOLD}Sort complete:${NC} ${CYAN}${moved}${NC} moved, ${CYAN}${skipped}${NC} skipped"
 }
@@ -1493,6 +1500,64 @@ viewer_monitor_loop() {
 LANDING_WARN_GB="${LANDING_WARN_GB:-50}"
 LANDING_WARN_AGE_DAYS="${LANDING_WARN_AGE_DAYS:-7}"
 
+# ── Weak-link advisory ────────────────────────────────────────────────────────
+# Camera WiFi transmitters are low-power: a small antenna on a battery budget,
+# far weaker than a laptop's. A few metres or one wall between camera and router
+# is routinely the difference between clean transfers and an endless retry loop
+# (Plan 00066 — moving the camera next to the router fixed it outright).
+#
+# Fires on three signals. The first two are exact and need no calibration:
+#
+#   truncated  — a file arrived incomplete, so the data connection dropped
+#                mid-transfer. Proof of a bad link, not an inference.
+#   repeats    — the same filename keeps arriving, so the camera has never
+#                had one accepted and is retrying forever.
+#   slow       — measured transfer rate below LINK_SLOW_KBS. This one IS a
+#                threshold, so it is deliberately the weakest trigger and only
+#                consulted for files big enough that per-transfer overhead does
+#                not dominate the measurement.
+#
+# Shown once per session: it is advice, not an alarm, and repeating it on every
+# frame would bury the upload log it is trying to explain.
+LINK_SLOW_KBS="${LINK_SLOW_KBS:-500}"
+LINK_REPEAT_THRESHOLD="${LINK_REPEAT_THRESHOLD:-3}"
+LINK_RATE_MIN_BYTES="${LINK_RATE_MIN_BYTES:-1000000}"
+LINK_WARN_SHOWN=false
+LINK_SEEN_FILE=""
+
+warn_weak_link() {
+    local reason="$1"
+    [ "$LINK_WARN_SHOWN" = true ] && return 0
+    LINK_WARN_SHOWN=true
+
+    echo "" >&2
+    echo -e "  ${YELLOW}${BOLD}⚠  Weak camera link — move the camera closer to the router${NC}" >&2
+    echo -e "     ${BOLD}Place the camera as physically close to the router as you can.${NC}" >&2
+    echo -e "     Ideally right next to it, line of sight, no walls between." >&2
+    echo "" >&2
+    echo -e "     Detected: ${CYAN}${reason}${NC}" >&2
+    echo "" >&2
+    echo -e "     The camera's transmitter is far weaker than the laptop's, so a" >&2
+    echo -e "     link the laptop finds fine can still be too weak for the camera." >&2
+    echo -e "     When it is, the data connection drops mid-transfer, the file" >&2
+    echo -e "     arrives truncated, and the camera re-sends the same frame" >&2
+    echo -e "     forever without ever reaching the next one." >&2
+    echo "" >&2
+    echo -e "     Alternatives if you cannot move it: ${CYAN}--hotspot${NC} (camera connects" >&2
+    echo -e "     straight to this laptop), or a card reader for a large backlog." >&2
+    echo "" >&2
+}
+
+# Record an arrival and report how many times this basename has now been seen.
+# Append-only, one short line per event — atomic under PIPE_BUF, same approach
+# as the async stats file.
+_link_note_arrival() {
+    local name="$1"
+    [ -n "$LINK_SEEN_FILE" ] || { echo 1; return; }
+    echo "$name" >> "$LINK_SEEN_FILE"
+    grep -c -x -F "$name" "$LINK_SEEN_FILE"
+}
+
 warn_if_landing_stale() {
     [ -d "$UPLOAD_DIR" ] || return 0
 
@@ -1608,6 +1673,8 @@ print_startup_banner() {
 # file never kills the monitoring loop.
 process_async_upload() {
     local filepath="$1"
+    # vsftpd's ", <bytes> bytes, <rate>Kbyte/sec" tail, when the caller has it.
+    local meta="${2:-}"
     local basename
     basename=$(basename "$filepath")
 
@@ -1628,6 +1695,29 @@ process_async_upload() {
     # must never be sorted into the library or copied to the remote — leave it
     # in the landing zone, where the camera's retry will overwrite it with a
     # better attempt.
+    # Weak-link signals, evaluated before the completeness gate consumes the
+    # file. Repeats and rate are only observable here, at arrival.
+    local seen_count
+    seen_count=$(_link_note_arrival "$basename")
+    if [ "$seen_count" -ge "$LINK_REPEAT_THRESHOLD" ]; then
+        warn_weak_link "${basename} has now arrived ${seen_count} times — the camera is re-sending because no attempt has completed"
+    fi
+
+    # Rate check. Only for files large enough that per-transfer overhead does
+    # not dominate, so a small JPEG cannot masquerade as a weak link.
+    if [ -n "$meta" ]; then
+        local xfer_bytes xfer_rate
+        xfer_bytes=$(printf '%s' "$meta" | grep -oE '[0-9]+ bytes' | grep -oE '^[0-9]+') || xfer_bytes=""
+        xfer_rate=$(printf '%s' "$meta" | grep -oE '[0-9.]+Kbyte/sec' | grep -oE '^[0-9.]+') || xfer_rate=""
+        if [ -n "$xfer_bytes" ] && [ -n "$xfer_rate" ] \
+                && [ "$xfer_bytes" -ge "$LINK_RATE_MIN_BYTES" ]; then
+            # Float compare via awk — the rate is fractional.
+            if awk -v r="$xfer_rate" -v t="$LINK_SLOW_KBS" 'BEGIN { exit !(r < t) }'; then
+                warn_weak_link "transfer ran at ${xfer_rate} KB/s (below ${LINK_SLOW_KBS} KB/s)"
+            fi
+        fi
+    fi
+
     local verify_rc=0
     verify_file_complete "$filepath" || verify_rc=$?
     if [ "$verify_rc" -eq 1 ]; then
@@ -1635,6 +1725,7 @@ process_async_upload() {
         partial_size=$(stat -c %s "$filepath" 2>&1) || partial_size="?"
         echo -e "  [${CYAN}${ts}${NC}] ${RED}partial${NC}  ${basename}  (truncated at ${partial_size} bytes — NOT sorted; camera will retry)" >&2
         _async_stat_inc truncated
+        warn_weak_link "${basename} arrived truncated — the data connection dropped mid-transfer"
         return 0
     fi
     if [ "$verify_rc" -eq 2 ]; then
@@ -1710,14 +1801,17 @@ process_async_upload() {
 # Failed transfers leave a partial file in the upload root for the user
 # to inspect — never sorted, never sent to the remote.
 async_monitor_loop() {
+    # Field 5 of the quote-split line carries ", <bytes> bytes, <rate>Kbyte/sec"
+    # — vsftpd measures the transfer rate for us, so the weak-link advisory
+    # gets a real throughput number for free rather than timing it ourselves.
     sudo tail -F -n 0 --pid=$$ /var/log/vsftpd.log 2>/dev/null \
-        | awk -F'"' '/OK UPLOAD: Client/ {print $4; fflush()}' \
-        | while IFS= read -r fname; do
+        | awk -F'"' '/OK UPLOAD: Client/ {printf "%s\t%s\n", $4, $5; fflush()}' \
+        | while IFS=$'\t' read -r fname meta; do
             [ -n "$fname" ] || continue
             # vsftpd logs paths relative to the camera user's chroot, which
             # is the upload dir. Prepend so the absolute path matches what
             # the rest of the script expects.
-            process_async_upload "${UPLOAD_DIR}/${fname#/}"
+            process_async_upload "${UPLOAD_DIR}/${fname#/}" "$meta"
           done
 }
 
@@ -1829,6 +1923,7 @@ cleanup() {
         fi
     fi
     rm -f "$START_MARKER"
+    [ -n "$LINK_SEEN_FILE" ] && rm -f "$LINK_SEEN_FILE"
 
     # Async-mode summary: counts come from the append-only stats file written
     # by process_async_upload. The monitor was killed above, so writes are
@@ -1987,6 +2082,11 @@ if [ "$ASYNC_MODE" = true ]; then
         ASYNC_COPY_FAILED_FILE=$(mktemp)
     fi
 fi
+
+# Arrival log backing the weak-link repeat detector. Async modes see every
+# arrival through process_async_upload; default mode has no per-arrival hook,
+# so its weak-link signal comes from the truncation count in the closing sort.
+LINK_SEEN_FILE=$(mktemp)
 
 # Validate viewer prerequisites BEFORE starting vsftpd so a viewer-mode run
 # with no geeqie or no display server doesn't expose the FTP port and then
