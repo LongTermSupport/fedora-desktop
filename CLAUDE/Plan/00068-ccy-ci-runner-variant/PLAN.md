@@ -822,24 +822,84 @@ tasks **replace** the corresponding Phase 2-5 tasks above where they conflict.
   - [ ] ⬜ Requires a CCY version bump when the launcher/libs are edited
     (`CLAUDE/ContainerRules.md`), and QA on the HOST.
 
-- [ ] ⬜ **Task 7.4**: Add the capabilities Round 1 surfaced as missing.
+- [x] ✅ **Task 7.4**: Add the capabilities Round 1 surfaced as missing.
 
-  - [ ] ⬜ **Token from environment** (C5) — accept `CLAUDE_CODE_OAUTH_TOKEN` by value,
+  **SPECIFIED — [reports/task74-capabilities.md](reports/task74-capabilities.md).** "Add" reads
+  as "specify" here: this plan changes no code by explicit owner instruction (Non-Goals), so each
+  item below is a statement of required behaviour handed to the implementation plan.
+
+  - [x] ✅ **Token from environment** (C5) — accept `CLAUDE_CODE_OAUTH_TOKEN` by value,
     bypassing the token-file subsystem, plus the out-of-band provisioning story, since
     `create_token` is an irreducibly human OAuth flow.
-  - [ ] ⬜ **Concurrency safety** (C7) — run-ID-salted container names, and scope the
+
+    **C5 holds — and the evidence contains a trap.** `CLAUDE_CODE_OAUTH_TOKEN` has **twelve**
+    occurrences, one of them on the `podman run` argv (`claude-yolo:2777`), so a grep says the
+    capability exists. It does not: the variable is an **output** channel ccy populates
+    (`:2756`, from `$CLAUDE_OAUTH_TOKEN`, set only at `:1033`/`:1135` as `$(cat "$SELECTED_TOKEN")`
+    — a **file**), never an **input** a caller can fill. *The recurring failure mode running
+    backwards*: a true statement about a grep would be a false statement about the world. Anyone
+    "fixing" C5 by pointing at `:2777` has read the arrow the wrong way.
+
+    Confirmed as the **prerequisite**, not one item of six: Round 3 showed `select_token` *spins*
+    on EOF, on the default path, so an unattended launch hangs at credential resolution before
+    anything else this plan designs is reached.
+
+  - [x] ✅ **Concurrency safety** (C7) — run-ID-salted container names, and scope the
     `rm -f` safety net so it cannot reap a live sibling.
-  - [ ] ⬜ **`--no-network` mandatory for CI** (C8), or make the `alpine`/`google.com`
+
+    **Confirmed verbatim** (`lib/common.bash:583-595` — no lock; `claude-yolo:2747` — unconditional
+    `rm -f`). Spec is **two** independent changes, because they are two faults: scope the `rm -f`
+    to non-running containers (which preserves the corrupt-storage case it was written for), *and*
+    admit a caller-supplied run identifier (not inferred from `GITHUB_RUN_ID` — that is the
+    derive-from-environment shape). Fixing either alone leaves a live hole.
+
+  - [x] ✅ **`--no-network` mandatory for CI** (C8), or make the `alpine`/`google.com`
     preflight conditional. State which.
-  - [ ] ⬜ **Compose teardown on failure** (C10) — `trap`-based, since `set -e` makes the
+
+    **Both — and the sub-item's framing was incomplete.** The preflight is fatal
+    (`claude-yolo:2529`, `exit 1` at `:2597`), so C8's "mandatory" holds. But `--no-network` does
+    **not** isolate (`:2514-2517` — no `--network` argument is passed at all), so a design that
+    treats it as isolation inherits a hole. It answers *skip the preflight* and nothing else.
+    Spec: rename per Task 5.1 **and** make the preflight conditional on its own terms — a probe
+    validating a *chosen* network must not run when egress is proxy-mediated, where it measures
+    the wrong thing and fails on the right answer.
+
+  - [x] ✅ **Compose teardown on failure** (C10) — `trap`-based, since `set -e` makes the
     current trailing block unreachable on a non-zero run.
-  - [ ] ⬜ **Image distribution** (C6) — self-hosted-only decision, or registry support as
+
+    **Confirmed unreachable — but "trap-based" is the wrong fix and would cause a regression.**
+    A trap already exists: `trap cleanup EXIT` (`claude-yolo:1716`), the only one in the tree. It
+    fires reliably; `cleanup()` (`:1695-1715`) simply does not touch compose — it restores stty,
+    removes `$CONFIG_TEMP`, prints the debug log. **A second `trap … EXIT` REPLACES the first**,
+    so adding one would silently discard the temp-dir cleanup and the stty restore. Spec: move
+    the teardown *into* `cleanup()`, and make it non-interactive-safe — the current block prompts,
+    and a prompt on the exit path is a hang at the worst possible moment.
+
+  - [x] ✅ **Image distribution** (C6) — self-hosted-only decision, or registry support as
     declared new scope.
-  - [ ] ⬜ **Workspace mutation** — decide whether a CI variant may write `.claude/ccy/`
+
+    **Decided: self-hosted only, registry declared out of scope** (argument in Phase 3 Task 3.4).
+    Costless to state — zero engine `push`/`pull` matches across the launcher and all seven libs,
+    so there is no half-built path left to rot.
+
+  - [x] ✅ **Workspace mutation** — decide whether a CI variant may write `.claude/ccy/`
     into the job checkout at all (`claude-yolo:2613`), given a PR checkout is untrusted.
 
-- [ ] ⬜ **Task 7.5**: Re-order per C11 — Phases 3/4 designed in parallel with 2; only
+    **Decided: no**, and by evidence rather than preference. `.claude/ccy/` is not merely written
+    (`entrypoint.sh:185`, `:195`, `:204-226`, `:230-237`; `claude-yolo:2613`) — it is also
+    **read and executed** (`entrypoint.sh:269-274` sources `ccy.env`; `:280-282` `exec`s
+    `CCY_CLAUDE_WRAPPER` from it). Read-write *and* execution-bearing. This and Decision 4's
+    trusted-only scope are the same decision seen from two directions.
+
+- [x] ✅ **Task 7.5**: Re-order per C11 — Phases 3/4 designed in parallel with 2; only
   *proving unattended* is gated on Phase 2. Then re-run the audit loop (Task 6.4).
+
+  **DONE, and demonstrated rather than asserted** — Phases 3, 4 and 5 were designed in this
+  session *without* Phase 2 existing, which is C11's claim shown rather than argued. Revised
+  order: **token-by-value → Phase 2 → unattended proof**, with Phases 3/4/5 parallel throughout.
+  Token-by-value moves *ahead* of Phase 2 rather than being one of its sites: it is not a
+  non-interactivity fix, and Phase 2 can demonstrate nothing unattended until it exists.
+  Audit loop (Task 6.4) re-run dispatched against all four new documents.
 
 ## Dependencies
 
