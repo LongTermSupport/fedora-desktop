@@ -14,5 +14,14 @@ play-compression-helpers.yml
 play-disk-reclaim.yml
 play-advanced-kernel-management.yml
 play-container-watch.yml
-play-claude-devtools.yml
 play-collaboration.yml
+#
+# DELIBERATELY EXCLUDED — play-claude-devtools.yml:
+#   It clones an UNPINNED third-party personal repo (github.com/matt1398/
+#   claude-devtools) with `update: true` and builds+runs a container image from
+#   whatever HEAD is at run time. In a headless run a failing optional play
+#   ABORTS the whole provisioning (fail-loud contract), so a broken/moved/deleted
+#   upstream would turn a session-viewer convenience into a server-provisioning
+#   failure — unacceptable in a curated baseline. It stays available as an
+#   EXPLICIT opt-in: add `play-claude-devtools` to RUN_BASH_OPTIONAL_PLAYBOOKS by
+#   hand if you want it. See Plan 00065 Phase 5.
