@@ -549,32 +549,110 @@ Tracked as a finding in lts-infra Plan 00023.
 
 ### Phase 4: Design MCP injection
 
-- [ ] ⬜ **Task 4.1**: Specify the interface (`--mcp <name>`? a `ccy.env` declaration?
+> **Phases 4 and 5 delivered — [reports/phase45-mcp-and-egress.md](reports/phase45-mcp-and-egress.md).**
+> Designed together because both are **runtime** properties, so neither is reachable from the
+> mechanism the owner's steer endorses (restatement §3) and both must be launcher/entrypoint
+> surface or nothing.
+
+- [x] ✅ **Task 4.1**: Specify the interface (`--mcp <name>`? a `ccy.env` declaration?
   both?), and where the config is written given the entrypoint already symlinks
   `/root/.claude` → `/workspace/.claude/ccy` (`entrypoint.sh:183-195`).
-- [ ] ⬜ **Task 4.2**: Decide whether tool-level restriction (the consumer's
+
+  **DONE — both, because the owner asked for both**: `--mcp <name>` (ad-hoc/desktop) and an
+  `MCP` declaration in `ccy.env` (declarative/tracked) *select* servers; a baked binary
+  (`Dockerfile.ci` or the project image) *supplies* them.
+
+  **The config must NOT go in the symlinked location.** `entrypoint.sh:195` means anything under
+  `/root/.claude` lands in the checkout — which both mutates the job's tree and makes the config
+  an input the checkout controls, i.e. E10 row 4 in a second costume. Spec: a container-local
+  path, passed via `--mcp-config`, regenerated per launch. Not state.
+
+  **Two hard assertions specified**, the second copied deliberately from the consumer
+  (`entrypoint.sh:133-137`, rationale at `:114-115`): assert the running `claude` actually
+  advertises `--mcp-config`/`--strict-mcp-config`, and assert a declared server's binary exists.
+  **ccy needs this more than the consumer does** — it auto-updates Claude Code daily in place
+  (E8), so its CLI is a moving target *by its own design*, and a silently-unrecognised flag would
+  yield a session with no MCP servers and no error.
+
+  Also decided: ccy passes `--strict-mcp-config` whenever it passes `--mcp-config`, so a
+  checkout's `.mcp.json` cannot silently merge into a session ccy claims to have configured
+  (`entrypoint.sh:213-214` records the semantics).
+
+- [x] ✅ **Task 4.2**: Decide whether tool-level restriction (the consumer's
   `tool-matrix.sh` + checked vocabulary) belongs in `ccy` or stays consumer policy.
   **Default to "stays out"** unless there is a general case — `ccy`'s job is to wire a
   server, not to own one consumer's authorisation matrix.
-- [ ] ⬜ **Task 4.3**: State how this serves the ad-hoc desktop case the owner asked
+
+  **DONE — stays out**, and Decision 4 makes it structural rather than a preference. The
+  consumer's matrix serves `--permission-mode default` + `--allowedTools`; without that
+  fail-closed posture a tool allowlist is decoration — it narrows the MCP server's tools while
+  `--dangerously-skip-permissions` leaves everything else ungated. **A control that fires
+  without discriminating**, which is worse than absent because its presence invites reliance.
+
+- [x] ✅ **Task 4.3**: State how this serves the ad-hoc desktop case the owner asked
   about ("inject MCP into a standard ccy session"), not just CI.
+
+  **DONE.** `--mcp` is a launcher flag with no CI dependency and `ccy.env` predates this plan —
+  Decision 3's principle (a generally-useful capability must not be gated behind the CI variant)
+  applied to Phase 4. The only CI-specific part is where the *binary* comes from.
 
 ### Phase 5: Design egress restriction
 
-- [ ] ⬜ **Task 5.1**: Specify `--egress`. Resolve the `--network` naming collision from
+- [x] ✅ **Task 5.1**: Specify `--egress`. Resolve the `--network` naming collision from
   E5 head-on: two flags whose names suggest the same axis and act oppositely is a
   trap. Propose either a rename (with a deprecation path) or names that cannot be
   confused.
-- [ ] ⬜ **Task 5.2**: Specify the mechanism, reusing the consumer's *measured* result
+
+  **DONE, and the task under-scoped its own problem twice.** It is three-way, not two (R11:
+  `--no-network` does not narrow anything). And more seriously — **it is not a naming problem at
+  all, it is a capability conflict.** The consumer measured that `--network pasta:…` and
+  `--network <name>` are mutually exclusive (`pasta-loopback-forward-probe.sh:42`); both occupy
+  podman's single `--network` argument. So a session **cannot** have both compose-service
+  attachment and proxy-forwarded egress, and any design that renames the flags and stops there
+  ships a launcher that silently drops one of the two.
+
+  Spec: `--egress` + `--network` together is a **hard error** naming the conflict, never a
+  precedence rule. Renames for honesty with a deprecation path: `--network` → `--attach-network`,
+  `--no-network` → `--no-network-detect`. Real isolation, if ever wanted, is a *third* flag
+  mapping to `--network none` — it does not exist today and must not be conjured by renaming
+  something that never did it.
+
+- [x] ✅ **Task 5.2**: Specify the mechanism, reusing the consumer's *measured* result
   (`pasta:-T,<port>` forwarding container loopback to a host proxy) rather than
   re-deriving it. Record why `--map-host-loopback` was rejected: it was measured to
   expose the host's entire loopback.
-- [ ] ⬜ **Task 5.3**: Reconcile with E7 — the entrypoint cannot start without reaching
+
+  **DONE** — `pasta:-T,3128` per `policy/egress.sh:46-47`, plus `--http-proxy=true` injection.
+  `--map-host-loopback` rejected on the recorded V8/V9 measurements (`egress.sh:18-22`;
+  `pasta-loopback-forward-probe.sh:22-33`): podman's defaults already expose nothing, and
+  `--map-host-loopback` exposes the host's **entire** loopback to obtain one proxy port. The
+  probes read the live pasta argv rather than trusting docs, which is what makes the numbers
+  reusable here.
+
+- [x] ✅ **Task 5.3**: Reconcile with E7 — the entrypoint cannot start without reaching
   GitHub — and with E8's npm fetch. State the minimum allowlist for a container that
   merely boots.
-- [ ] ⬜ **Task 5.4**: Specify the proof. An egress control asserted but not measured is
+
+  **DONE.** Under the **desktop** entrypoint: **`api.github.com`** — three fatal touchpoints
+  (`entrypoint.sh:14-17`, `:33-36`, `:53-56`) plus one soft (`:111`, falls back at `:130-133`).
+  E8 is not in the boot set at all (launcher-side; never runs at job time — Phase 3).
+
+  **Under the Decision 6 CI entrypoint the minimum boot allowlist is EMPTY** — it prepares
+  nothing and authenticates nothing. A previously-unstated payoff of Decision 6: it takes GitHub
+  off the *boot* path, so egress policy is decided by what the workload needs rather than by what
+  session-prep demands.
+
+- [x] ✅ **Task 5.4**: Specify the proof. An egress control asserted but not measured is
   worth nothing; a `triage.bash` must show a denied host actually refused **by the
   proxy** and an allowed host reaching through.
+
+  **DONE — three probes, not two.** Allowed-through (a real status code; `401`/`404` counts),
+  denied **by the proxy** (a `403` *from squid*, explicitly not a timeout — a timeout proves only
+  that something failed, the weaker claim that gets mistaken for the stronger), and the
+  bypass attempt DROPPED by the uid fence. Without the third, the first two prove only that the
+  proxy works *when used*. Reuses the shape of `lts-infra`'s `RUNNER-VM-DESIGN.md` §9 T1/T2
+  rather than inventing a parallel battery. Must not run nested (Task 1.1's rule), and each probe
+  asserts a *specific* outcome rather than merely non-zero.
 
 ### Phase 6: Audit / fix loop — tracked to files
 
