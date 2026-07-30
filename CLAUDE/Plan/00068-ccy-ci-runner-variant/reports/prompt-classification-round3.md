@@ -129,6 +129,31 @@ including prompt site `:2818`. Quote state now carries across lines. This is the
 the `grep`-has-no-`\t` defect: the tool was syntactically fine and silently computed the wrong
 answer, and only an invariant that could fail (stack balance at EOF) exposed it.
 
+## Reconciliation with C3 and C4
+
+The Round-1 corrections block contains two statements that cannot both be complete, and this
+classification resolves which.
+
+- **C4 is right about the mechanism.** It says spins happen where an ancestor is "invoked as an
+  `if`/`while` *condition*, because bash suspends `errexit` for that whole subtree". That is
+  correct, and it is *sharper* than Task 7.3's paraphrase of it ("errexit suspended by an
+  `if`/`while` **ancestor**"), which drops the word *condition* and thereby inverts the meaning.
+  This report refines C4 rather than contradicting it: the suspending context is any of
+  `if`/`while`/`until` **condition**, `&&`/`||` non-final position, or `!`, and it propagates
+  transitively through bare calls beneath it.
+- **C4's enumeration is incomplete.** It names only the two `check_*_containers_startup` TUIs
+  (`docker-health.bash:161`, `:485`). There are **five** paths — it misses `select_token` /
+  `create_token` and both routes into `_do_compose_start`.
+- **C4 and C3 were in tension.** C3 says `select_token` on the default launch path is "the
+  earliest and most certain unattended blocker"; C4 says only the two container TUIs spin. Both
+  were written from the same evidence base. The resolution: `select_token` **does** spin — every
+  call site guards it with `||` (`claude-yolo:1004`, `:1117`) — so C3's blocker is also a hang,
+  and C4 simply had not walked that call path. C4's count of 2 should read **5**.
+
+C4's negative claims all hold: `claude-yolo:1104`, `:2011`, `network-management.bash:271`, and
+`dockerfile-custom.bash:37/117/157` do **not** spin. The first two are top-level code under the
+script's own `set -e`; the last four sit in functions called bare.
+
 ## What this does not claim
 
 Nothing in `ccy` was executed — the mechanism experiment above is a synthetic reproduction of

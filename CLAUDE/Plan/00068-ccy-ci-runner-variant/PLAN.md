@@ -72,6 +72,16 @@
 > priority precisely because a concurrent same-project job is what triggers them.
 > *(sonnet §4-5, confirmed by my own re-test)*
 >
+> > **REFINED by Task 7.3** —
+> > [reports/prompt-classification-round3.md](reports/prompt-classification-round3.md). C4's
+> > *mechanism* is right and its negative claims all hold. Its **count of 2 should read 5**:
+> > it never walked the call path into `select_token` / `create_token`, which every call site
+> > guards with `||` — so C3's "earliest and most certain unattended blocker" is *also* a
+> > hang, resolving the tension between C3 and C4. The suspending context is an
+> > `if`/`while`/`until` **condition**, an `&&`/`||` non-final position, or `!` — and it
+> > propagates transitively into bare calls beneath it, which is why a bare call site proves
+> > nothing on its own.
+>
 > **C5 — a fifth capability was unnamed: credential acquisition, not just the prompts
 > around it.** There is **no path** that accepts `CLAUDE_CODE_OAUTH_TOKEN` by value;
 > `SELECTED_TOKEN` is always resolved from a file glob under `$TOKEN_DIR`, and `--token NAME` selects among *existing files*. `create_token` is an inherent human-in-a-browser
