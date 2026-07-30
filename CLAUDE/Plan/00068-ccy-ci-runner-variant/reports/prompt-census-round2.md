@@ -69,8 +69,30 @@ explicit token; `create_token()` is what runs when there is no token to select. 
 runner with no pre-provisioned token reaches `create_token` before it reaches anything this plan
 was originally scoped to fix.
 
-**One of them spins forever rather than failing.** `token-management.bash:322` opens a
-`while true`, and inside it:
+> **CORRECTION (2026-07-30, same day).** The paragraph below originally said the `while true`
+> ancestor "suspends `errexit`", and attributed the spin to `create_token`. **Both were wrong**,
+> and the error was found by executing bash rather than reasoning about it. A loop *body* does
+> NOT suspend errexit — only a *condition* context does. What actually determines spin-vs-abort
+> is the **call context of the enclosing function**. Measured:
+>
+> ```
+> f() { while true; do read -r -p "x: " v; ...; done; }
+> ( f )      < /dev/null   -> rc=1, no iterations   ABORTS
+> f || { … } < /dev/null   -> "SPUN 5x"             SPINS
+> ```
+>
+> So the real spinner is **`select_token`**, which `claude-yolo:1004` and `:1117` invoke as
+> `select_token "$TOKEN_DIR" "container" || { … }` — the `||` suspends errexit through the whole
+> function body. `create_token` called bare (`claude-yolo:897`, `:1000`, …) **aborts** on EOF.
+> The corrected analysis is below; the headline conclusion is unchanged — there IS an EOF spin on
+> the default path, inside the file the census could not see.
+
+**One of them spins forever rather than failing — `select_token`, at `:610`.** It opens a
+`while true` whose only exits are a recognised selection or a `return`; an empty selection prints
+`Invalid selection: (empty)` and `continue`s. Because every call site guards it with `||`,
+errexit is suspended, the EOF-failed `read` does not abort, and the loop runs forever.
+
+**`create_token:322` is the same shape but a different verdict.** Its own `while true`:
 
 ```bash
 while true; do
@@ -85,14 +107,21 @@ while true; do
     ...
 ```
 
-On EOF (no TTY — every CI runner): `read` returns non-zero and leaves `manual_token` empty →
-the empty branch fires → the `Try again?` read also EOFs → `retry` is empty → empty is neither
-`n` nor `N` → `continue` → **loop forever, emitting output the whole time**. The `while true`
-ancestor also suspends `errexit`, so `set -e` cannot rescue it.
+On EOF the control flow is identical — `read` fails leaving `manual_token` empty, the empty
+branch fires, the `Try again?` read also EOFs, `retry` is empty, empty is neither `n` nor `N`, so
+it `continue`s. **But whether that spins depends entirely on who called it:**
 
-Note the shape of the bug: the loop's *only* exit paths are a valid token or an explicit `n`.
-EOF is neither, and EOF is the one thing guaranteed on a runner. A hang is worse than a crash —
-it burns a JIT runner slot and the job dies on timeout with no diagnosable cause.
+| Call site                                                | Context                                     | Verdict on EOF                |
+| -------------------------------------------------------- | ------------------------------------------- | ----------------------------- |
+| `claude-yolo:897/:907/:970/:1000/:1015/:1111`            | bare                                        | **ABORTS** (errexit kills it) |
+| `token-management.bash:639/:656` (inside `select_token`) | inherits `select_token`'s suspended errexit | **SPINS**                     |
+
+So the same source line is a spin or an abort depending on the path that reached it. That is the
+finding Task 7.3 needs, and it is why "classify each site" cannot be done by looking at the site.
+
+Both verdicts are bad, differently. A **hang** burns a JIT runner slot until the job times out,
+with no diagnosable cause. An **abort** at least terminates — but `set -e` kills the script with
+no message about *why*, which is the "aborts undiagnosably" class C4 names.
 
 ## Consequences for the plan
 
@@ -110,7 +139,9 @@ it burns a JIT runner slot and the job dies on timeout with no diagnosable cause
 
 ## What this report does not claim
 
-Only that these prompts *exist* and that the `:322` loop spins on EOF by inspection of its
+Only that these prompts *exist*, and that spin-vs-abort follows the call context by inspection of
+the call sites plus the executed bash experiment above. Nothing in `ccy` itself was run. The old
+wording claimed the `:322` loop spins on EOF by inspection of its
 control flow. Nothing here was executed — `ccy` needs a real engine, and the nested-podman attempt
 already failed for an unrelated userns reason. Confirming the spin empirically belongs to the
 HOST triage run.

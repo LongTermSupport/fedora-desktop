@@ -485,12 +485,26 @@ tasks **replace** the corresponding Phase 2-5 tasks above where they conflict.
   exactly like a file with none. That is this repo's recurring failure shape — a control that
   silently becomes a no-op — living inside the census itself.
 
-  **The named sub-problem is worse than "more prompts".** `token-management.bash:322` is a
-  `while true` whose only exits are a valid token or an explicit `n`. On EOF — guaranteed on
-  every runner — `read` leaves the variable empty, the `Try again?` read also EOFs, empty is
-  neither `n` nor `N`, and it `continue`s: **it spins forever, emitting output**. The `while true`
-  ancestor also suspends `errexit`, so `set -e` cannot rescue it. It burns a JIT slot until the
-  job times out, with no diagnosable cause.
+  **The named sub-problem is worse than "more prompts" — and my first statement of it was
+  wrong.** I originally wrote that `create_token:322`'s `while true` suspends `errexit` and spins.
+  Executing bash disproved it: a loop *body* does not suspend errexit, only a *condition* does.
+  What decides spin-vs-abort is the **call context of the enclosing function**:
+
+  ```
+  f() { while true; do read -r -p "x: " v; ...; done; }
+  ( f )      < /dev/null   -> rc=1, zero iterations   ABORTS
+  f || { … } < /dev/null   -> "SPUN 5x"               SPINS
+  ```
+
+  So the real spinner is **`select_token:610`**, because `claude-yolo:1004` and `:1117` call it as
+  `select_token … || { … }` — the `||` suspends errexit through the entire function body, the
+  EOF-failed `read` does not abort, an empty selection prints `Invalid selection: (empty)` and
+  `continue`s, forever. `create_token` called bare **aborts** instead — and aborts *undiagnosably*,
+  which is C4's other class. Reached *via* `select_token` it inherits the suspension and spins.
+
+  **The same source line is therefore a spin or an abort depending on the path that reached it**,
+  which is the substance of Task 7.3 and the reason "classify each site" cannot be done by looking
+  at the site.
 
   **This changes a Task 7.4 priority.** `create_token` is an irreducibly human OAuth flow, and it
   is on the default path when no token is pre-provisioned. So accepting `CLAUDE_CODE_OAUTH_TOKEN`
