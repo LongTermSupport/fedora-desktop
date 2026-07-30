@@ -305,6 +305,31 @@
 > declaration/environment **disagreement**, and warning or refusing on it is defence-in-depth, not
 > the banned shape. Re-opened as an option.
 >
+> **D5 — SELF-FOUND, and it is the sixth instance of the recurring failure mode, in my own text.**
+> Not from a review. While briefing Round 3 I was prompted to doubt a claim I had made three
+> times, checked it, and it is **wrong**.
+>
+> I argued for Option C (staleness identity in an image `LABEL`) partly on this:
+> *"a provisioning user cannot answer the question for the user that runs jobs — precisely the
+> question CI asks"* (Task 3.3; echoed in `phase3-image-layering.md` and `round2-restatement.md`
+> §4.1). **They are the same user.** `lts-infra`'s build runs `runuser -u {{ runner_user }}`
+> (`tasks/runner-ccy-project-image.yml:90,107,176,258,324`) and `runner_user: "runner"`
+> (`environment/dc-proxmox/group_vars/all/runner.yml:114`) — which is also the user CI jobs run
+> as. So the two-users premise is false and that clause proves nothing.
+>
+> **The conclusion is unaffected, and the correct argument is simpler and stronger:** CI answers
+> the question from a **checkout plus the image** — `sha256sum .claude/ccy/Dockerfile`
+> (`.github/workflows/ci.yml:77`) compared against the image label
+> (`ci.yml:79`) — and never has host-local cache state available to it at all. `$HOME/.cache`
+> is state *outside* the image: it cannot travel with the image, cannot be read from a checkout,
+> and can silently drift from the image it claims to describe (delete the image, keep the cache,
+> and the cache now lies). That is why the identity belongs in a `LABEL`.
+>
+> I am recording this at length because of *how* it happened: the false clause was more
+> **vivid** than the true one — "two users disagree" is a concrete story, "state outside the
+> image cannot travel with it" is abstract — and vividness is what carried it through three
+> documents unchecked. The check that would have caught it was one `grep` for `runner_user`.
+>
 > **The loop is NOT quiet.** Round 2 found material problems, so a Round 3 is required (Task 6.4).
 
 ## Overview
