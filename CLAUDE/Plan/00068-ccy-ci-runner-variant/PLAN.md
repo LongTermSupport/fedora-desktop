@@ -750,6 +750,11 @@ Tracked as a finding in lts-infra Plan 00023.
   checkout's `.mcp.json` cannot silently merge into a session ccy claims to have configured
   (`entrypoint.sh:213-214` records the semantics).
 
+  > **SUPERSEDED IN PART BY D3 (Round 2).** The `ccy.env` declarative route is **desktop-only** —
+  > the CI entrypoint does not source `ccy.env` (that is E10 row 4, which Decision 6 omits). The
+  > CI path needs a caller-supplied **environment-variable contract** instead, which this task
+  > does not specify. The flag and config-location halves stand.
+
 - [x] ✅ **Task 4.2**: Decide whether tool-level restriction (the consumer's
   `tool-matrix.sh` + checked vocabulary) belongs in `ccy` or stays consumer policy.
   **Default to "stays out"** unless there is a general case — `ccy`'s job is to wire a
@@ -789,6 +794,11 @@ Tracked as a finding in lts-infra Plan 00023.
   mapping to `--network none` — it does not exist today and must not be conjured by renaming
   something that never did it.
 
+  > **RESCOPED BY D1 (Round 2).** These are `claude-yolo` **launcher** flags, and a CI job never
+  > invokes the launcher — it runs the container directly. So this task's deliverable is **desktop
+  > and provision-time only**; CI egress is the caller's own podman argv. The mutual-exclusion
+  > finding and the renames stand on their own merits for the desktop path.
+
 - [x] ✅ **Task 5.2**: Specify the mechanism, reusing the consumer's *measured* result
   (`pasta:-T,<port>` forwarding container loopback to a host proxy) rather than
   re-deriving it. Record why `--map-host-loopback` was rejected: it was measured to
@@ -813,6 +823,12 @@ Tracked as a finding in lts-infra Plan 00023.
   nothing and authenticates nothing. A previously-unstated payoff of Decision 6: it takes GitHub
   off the *boot* path, so egress policy is decided by what the workload needs rather than by what
   session-prep demands.
+
+  > **REFRAMED BY D1 (Round 2).** "Under the Decision 6 CI entrypoint" implied some ccy layer
+  > *enforces* an allowlist. It does not — no ccy code is on a CI job's path. The finding is still
+  > true and still useful, but as a statement about what the **caller's** allowlist must contain:
+  > with the desktop entrypoint it must include `api.github.com` merely to boot; with the CI
+  > entrypoint it need contain nothing at all.
 
 - [x] ✅ **Task 5.4**: Specify the proof. An egress control asserted but not measured is
   worth nothing; a `triage.bash` must show a denied host actually refused **by the
