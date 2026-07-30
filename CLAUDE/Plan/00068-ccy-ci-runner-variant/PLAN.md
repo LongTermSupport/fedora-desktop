@@ -515,14 +515,62 @@ tasks **replace** the corresponding Phase 2-5 tasks above where they conflict.
   itself a known-fragile control — whatever re-runs it must be asserted against a file known to
   contain `read -r -p`, so a pattern matching nothing can never again report a clean sweep.
 
-  Claimed by inspection only: that these prompts exist, and that the `:322` loop spins on EOF by
-  its control flow. Nothing was executed — confirming the spin empirically belongs to the HOST
-  triage run.
+  Claimed by inspection only: that these prompts exist. **Superseded by Task 7.3** — the
+  spin/abort mechanism was subsequently *executed* rather than inferred, and the `:322` loop
+  turns out to spin only when reached via `select_token`; called bare it aborts. `ccy` itself
+  still has not been run, so confirming the spin end-to-end remains a HOST triage item.
 
-- [ ] ⬜ **Task 7.3**: Re-scope `--non-interactive` per C4/C9. Classify each site *spins*
-  (errexit suspended by an `if`/`while` ancestor) vs *aborts undiagnosably*; fix the two
-  spinning TUIs first. Soften "never infer" to "never **silently** infer", reconciling
-  with `ssh-handling.bash:357`, which already does precisely that.
+- [ ] 🔄 **Task 7.3**: Re-scope `--non-interactive` per C4/C9. Classify each site *spins* vs
+  *aborts undiagnosably*; fix the spinning TUIs. Soften "never infer" to "never **silently**
+  infer", reconciling with `ssh-handling.bash:357`, which already does precisely that.
+
+  > **This task's own wording was wrong and is corrected here.** It said the discriminator is
+  > "errexit suspended by an `if`/`while` **ancestor**". A loop *body* does not suspend
+  > `errexit` — only a *condition* does. The discriminator is the **call context of the
+  > enclosing function**, propagated transitively: `outer || …` suspends `errexit` through
+  > `outer`'s whole body *and* through anything `outer` calls bare. Measured, not reasoned.
+
+  - [x] ✅ **Classification complete** —
+    [reports/prompt-classification-round3.md](reports/prompt-classification-round3.md),
+    reproducible via [analysis/classify-prompts.bash](analysis/classify-prompts.bash) (exits 1
+    if any invariant breaks; mutation-tested in both directions).
+
+    | Verdict                     | Sites |
+    | --------------------------- | ----: |
+    | ABORTS only                 |    32 |
+    | SPINS only                  |     6 |
+    | SPINS **or** ABORTS by path |     6 |
+    | Falls through, or aborts    |     1 |
+    | GUARDED — never reached     |     1 |
+
+    Three findings change the remaining work:
+
+    1. **There are five spin paths across four functions, not "two spinning TUIs"** —
+       `select_token`, `create_token` (beneath it), `show_zombie_container_tui`,
+       `check_project_containers_startup`, `_do_compose_start`.
+    2. **The same source line gets different verdicts by path.** `create_token`'s seven
+       prompts ABORT when called bare from `claude-yolo`, and SPIN when reached via
+       `select_token` (which every call site guards with `||`). Classification is a property
+       of the call graph, not of the site — so "fix each site" is not a well-formed unit of
+       work; the fix belongs at the entry points.
+    3. **`ssh-handling.bash:357` is the only guarded prompt of all 46.** It detects
+       non-interactivity, *announces* the inference, and proceeds. The correct pattern is
+       already in the codebase and used **once out of 46 opportunities** — so "never
+       *silently* infer" is not a new mechanism to design, it is an existing one to apply.
+
+  - [ ] ⬜ Fix the five spin paths — a spin needs *both* a suspended call context *and* an
+    unbounded loop with no EOF exit; removing either breaks it. Prefer the
+    `ssh-handling.bash:357` shape (detect non-interactive, announce, proceed or fail loudly)
+    over adding EOF checks to 46 individual `read`s.
+
+  - [ ] ⬜ Make the 32 abort sites diagnosable — today `set -e` kills the script with no
+    message naming the prompt.
+
+  - [ ] ⬜ Soften "never infer" to "never **silently** infer" in the design text, citing
+    `ssh-handling.bash:357` as the reference implementation.
+
+  - [ ] ⬜ Requires a CCY version bump when the launcher/libs are edited
+    (`CLAUDE/ContainerRules.md`), and QA on the HOST.
 
 - [ ] ⬜ **Task 7.4**: Add the capabilities Round 1 surfaced as missing.
 
