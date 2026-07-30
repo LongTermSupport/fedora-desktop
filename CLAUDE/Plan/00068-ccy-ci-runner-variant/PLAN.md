@@ -466,9 +466,33 @@ Tracked as a finding in lts-infra Plan 00023.
   residual risk Task 2.3 records for the regression guard, for the same reason. Confirming a spin
   end-to-end remains a HOST triage item.
 
-- [ ] ⬜ **Task 1.3**: Confirm what `play-claude-yolo.yml` deploys and whether the image
+- [x] ✅ **Task 1.3**: Confirm what `play-claude-yolo.yml` deploys and whether the image
   is built by Ansible or on first `ccy` run — this decides where `claude-yolo:ci`
   gets built and whether a CI job ever builds an image (it must not).
+
+  **DONE. Ansible builds it** (`play-claude-yolo.yml:338-343`, `-t claude-yolo:latest`), verified
+  at `:347`. The first `ccy` run does **not** — it only rebuilds if `validate_container_version`
+  fails (`claude-yolo:1436`), which on a freshly-provisioned box it does not.
+
+  **The build context is ASSEMBLED at `/opt/claude-yolo` from TWO source trees**, which is the
+  non-obvious part and the thing that decides where `Dockerfile.ci` goes:
+
+  | From                           | What                                                                                      |
+  | ------------------------------ | ----------------------------------------------------------------------------------------- |
+  | `files/var/local/claude-yolo/` | `Dockerfile` (`:86`), `entrypoint.sh` (`:98`), ctrl+z patch (`:110`), `plugins/` (`:122`) |
+  | `files/opt/claude-yolo/`       | `ccy-startup-info.txt` (`:147`), `docs/` (`:158`), `skills/` (`:187`)                     |
+
+  This resolves something that looks broken on inspection: the `Dockerfile`'s
+  `COPY docs/…` and `COPY skills/…` reference paths that do **not** exist beside it in
+  `files/var/local/claude-yolo/`. They work only because the play assembles the context first.
+
+  Separately deployed (not build context): the launcher to `/var/local/` (`:280`), the libs
+  (`:230`), bashrc includes (`:292`, `:301`), and the token/projects directories (`:317`, `:325`).
+
+  **Consequence for `claude-yolo:ci`**: adding `Dockerfile.ci` to `files/var/local/claude-yolo/` is
+  *not sufficient* — the play must also copy it into the assembled context and add a build task.
+  And per Phase 3 §0.2 that same change must fix `claude-yolo:base`, which the play never builds
+  at all despite three documents offering it.
 
 ### Phase 2: Design `--non-interactive`
 
