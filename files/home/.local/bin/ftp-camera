@@ -583,12 +583,46 @@ verify_file_complete() {
             # NOT a completeness signal. That is exactly how fragments got
             # filed under the right date in the first place.
             command -v exiftool > /dev/null || return 2
+
+            # DEFINITIVE test first, where the tags allow it. ARW is TIFF: the
+            # IFDs record where each data strip starts and how long it is. If
+            # any strip is declared to end beyond the actual end of file, bytes
+            # are provably missing. No judgement, no pattern matching — and it
+            # cannot false-positive on a valid file, because a valid file's
+            # strips are all inside it.
+            local sizes
+            if sizes=$(exiftool -s3 -a -FileSize# -StripOffsets -StripByteCounts "$file" 2>&1); then
+                if printf '%s\n' "$sizes" | awk '
+                    NR == 1 { fsize = $1 + 0; next }
+                    # Offsets and byte-counts arrive as parallel space- or
+                    # comma-separated lists; pair them up positionally.
+                    { gsub(/,/, " "); n = split($0, a, " ")
+                      if (off_n == 0) { for (i = 1; i <= n; i++) off[i] = a[i] + 0; off_n = n }
+                      else            { for (i = 1; i <= n; i++) len[i] = a[i] + 0; len_n = n }
+                    }
+                    END {
+                        if (fsize == 0 || off_n == 0 || len_n == 0) exit 1
+                        for (i = 1; i <= off_n && i <= len_n; i++)
+                            if (off[i] + len[i] > fsize) exit 0   # provably short
+                        exit 1
+                    }'; then
+                    return 1
+                fi
+            fi
+
+            # Fallback: exiftool's own structural validation. Deliberately
+            # narrow — only unambiguous truncation wording counts. Broader
+            # terms ("bad format", "corrupt") show up for benign maker-note
+            # quirks in perfectly good Sony files, and rejecting every ARW on
+            # this network would be its own outage. Anything short of an
+            # explicit truncation report is reported as UNVERIFIED (2) rather
+            # than assumed bad.
             local validation
             if ! validation=$(exiftool -validate -warning -error -a -s3 "$file" 2>&1); then
-                return 1
+                return 2
             fi
             if printf '%s' "$validation" \
-                | grep -qiE 'truncat|corrupt|bad offset|bad format|missing.*end|premature'; then
+                | grep -qiE 'truncat|premature|unexpected end|missing .*end of'; then
                 return 1
             fi
             return 0
