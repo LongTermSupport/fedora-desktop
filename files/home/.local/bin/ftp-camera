@@ -1525,6 +1525,43 @@ LINK_RATE_MIN_BYTES="${LINK_RATE_MIN_BYTES:-1000000}"
 LINK_WARN_SHOWN=false
 LINK_SEEN_FILE=""
 
+# Read the LAPTOP's WiFi band and signal strength into globals.
+#
+# IMPORTANT LIMITATION, and the reason there is no "you are not on 5GHz" alarm:
+# this describes THIS MACHINE's link, not the camera's. The camera associates
+# with the router, not with us, so its band, signal and rate are invisible from
+# here. Most routers also publish one SSID for both bands and steer clients
+# independently, so the laptop can sit on 5GHz while the camera is on 2.4GHz.
+# Treat these numbers as context for the advice, never as a measurement of the
+# camera's link.
+#
+# The exception is --hotspot: there this laptop IS the access point, so
+# `iw dev <dev> station dump` reports the camera's real signal and TX rate.
+WIFI_BAND=""        # "2.4", "5", "6", or "" if unknown
+WIFI_FREQ_MHZ=""
+WIFI_SIGNAL_DBM=""
+detect_wifi_band() {
+    command -v iw > /dev/null || return 0
+    local dev
+    dev=$(get_wifi_device) || return 0
+    [ -n "$dev" ] || return 0
+
+    local link
+    link=$(iw dev "$dev" link 2>&1) || return 0
+
+    WIFI_FREQ_MHZ=$(printf '%s\n' "$link" | awk '/freq:/ {print int($2); exit}')
+    WIFI_SIGNAL_DBM=$(printf '%s\n' "$link" | awk '/signal:/ {print $2; exit}')
+
+    [ -n "$WIFI_FREQ_MHZ" ] || return 0
+    if [ "$WIFI_FREQ_MHZ" -lt 3000 ]; then
+        WIFI_BAND="2.4"
+    elif [ "$WIFI_FREQ_MHZ" -lt 5926 ]; then
+        WIFI_BAND="5"
+    else
+        WIFI_BAND="6"
+    fi
+}
+
 warn_weak_link() {
     local reason="$1"
     [ "$LINK_WARN_SHOWN" = true ] && return 0
@@ -1543,8 +1580,36 @@ warn_weak_link() {
     echo -e "     arrives truncated, and the camera re-sends the same frame" >&2
     echo -e "     forever without ever reaching the next one." >&2
     echo "" >&2
-    echo -e "     Alternatives if you cannot move it: ${CYAN}--hotspot${NC} (camera connects" >&2
-    echo -e "     straight to this laptop), or a card reader for a large backlog." >&2
+    # Band-specific advice. Deliberately NOT a "you should be on 5GHz" rule:
+    # 5GHz is faster but attenuates harder with distance and through walls, so
+    # for a weak transmitter it is frequently the worse choice — which is
+    # exactly the case that produced this advisory.
+    if [ -n "$WIFI_BAND" ]; then
+        echo -e "     This laptop is on ${CYAN}${WIFI_BAND}GHz${NC} (${WIFI_FREQ_MHZ} MHz), signal ${CYAN}${WIFI_SIGNAL_DBM:-?} dBm${NC}." >&2
+        echo -e "     ${YELLOW}That is the LAPTOP's link, not the camera's${NC} — the camera talks to" >&2
+        echo -e "     the router, not to us, and band-steering can put the two on" >&2
+        echo -e "     different bands under the same SSID." >&2
+        echo "" >&2
+    fi
+
+    echo -e "     If you cannot move it closer:" >&2
+    case "$WIFI_BAND" in
+        5 | 6)
+            echo -e "       • ${CYAN}Try the camera on 2.4GHz.${NC} ${WIFI_BAND}GHz is faster but has" >&2
+            echo -e "         much shorter range and poorer wall penetration, so for a" >&2
+            echo -e "         weak transmitter it is usually the worse trade — a slower" >&2
+            echo -e "         link that completes beats a faster one that truncates." >&2
+            ;;
+        2.4)
+            echo -e "       • You are already on 2.4GHz, which is the better band for" >&2
+            echo -e "         range, so a band change will not help. Distance or" >&2
+            echo -e "         interference is the remaining variable." >&2
+            ;;
+    esac
+    echo -e "       • ${CYAN}--hotspot${NC} — the camera connects straight to this laptop," >&2
+    echo -e "         which also lets ftp-camera read the camera's REAL signal" >&2
+    echo -e "         strength, since this machine becomes the access point." >&2
+    echo -e "       • A card reader, if the backlog is large." >&2
     echo "" >&2
 }
 
@@ -1650,6 +1715,13 @@ print_startup_banner() {
     fi
     if [ "$DEBUG_FTP" = true ]; then
         printf '  %-13s on   (FTP verb stream → /var/log/vsftpd.log)\n' "Debug:"
+    fi
+    # Laptop-side link context. Labelled explicitly, because the number that
+    # actually matters — the camera's signal — is not visible from here unless
+    # this machine is the access point.
+    if [ -n "$WIFI_BAND" ]; then
+        printf '  %-13s %sGHz (%s MHz), %s dBm  [this laptop, not the camera]\n' \
+            "WiFi:" "$WIFI_BAND" "$WIFI_FREQ_MHZ" "${WIFI_SIGNAL_DBM:-?}"
     fi
     printf '  %-13s %s\n' "Upload dir:"    "$UPLOAD_DIR"
     printf '  %-13s ftp://camera@%s/\n' "FTP URL:" "$LOCAL_IP"
@@ -2165,6 +2237,9 @@ fi
 # Probe NetworkManager once for an active hotspot so subsequent
 # get_local_ip / firewall / banner steps share consistent state.
 detect_hotspot
+
+# Laptop-side band/signal, for the banner and to tailor the weak-link advice.
+detect_wifi_band
 
 LOCAL_IP=$(get_local_ip)
 
