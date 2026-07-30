@@ -449,26 +449,92 @@ All three scripts are `bash -n` and `shellcheck -x` clean. Note that
 `untracked/repos/fedora-desktop`, so it scans zero files and reports `✓ bash: 0 files OK`.
 Tracked as a finding in lts-infra Plan 00023.
 
-- [ ] ⬜ **Task 1.2**: Enumerate all 35 prompt sites into a table in `reports/`, each
+- [x] ✅ **Task 1.2**: Enumerate all 35 prompt sites into a table in `reports/`, each
   classified: *on the default launch path* vs *only reachable on an error/recovery
   path*, and *EOF-safe* vs *EOF-spins*. E3 proves the loop shape spins; this task
   establishes **which** sites a CI job would actually hit.
+
+  **DISCHARGED by [reports/prompt-classification-round3.md](reports/prompt-classification-round3.md)**
+  — 46 sites, not 35, each classified EOF-spins vs aborts, reproducibly, by tooling whose
+  invariants can fail.
+
+  **One axis is answered only partially, and inherently so.** The default-path-vs-error-path split
+  this task asks for is a *runtime reachability* question, and Round 3 deliberately limits its
+  reachability claims to what the call graph shows unconditionally (`select_token`/`create_token`
+  sit on the default path when no token is pre-provisioned). Whether a given CI job reaches the
+  compose or zombie-container paths depends on runtime state no static analysis models — the same
+  residual risk Task 2.3 records for the regression guard, for the same reason. Confirming a spin
+  end-to-end remains a HOST triage item.
+
 - [ ] ⬜ **Task 1.3**: Confirm what `play-claude-yolo.yml` deploys and whether the image
   is built by Ansible or on first `ccy` run — this decides where `claude-yolo:ci`
   gets built and whether a CI job ever builds an image (it must not).
 
 ### Phase 2: Design `--non-interactive`
 
-- [ ] ⬜ **Task 2.1**: For every site from Task 1.2, specify which of the three
+> **Phase 2 delivered — [reports/phase2-non-interactive.md](reports/phase2-non-interactive.md).**
+> Phase 2 was written before Round 3 measured anything, so the document restates Task 2.1 before
+> answering it.
+
+- [x] ✅ **Task 2.1**: For every site from Task 1.2, specify which of the three
   outcomes (satisfy / default+log / fail-fast) applies, and for fail-fast the exact
   message and the flag that answers it.
-- [ ] ⬜ **Task 2.2**: Decide the interaction with `--headless` and `--prompt`
+
+  **DONE — and the task's own unit of work is wrong, per Round 3.** "For every site" cannot be
+  answered: `create_token`'s seven prompts ABORT reached bare and SPIN reached via `select_token`.
+  Same lines, two verdicts. The deliverable is **entry-point decisions**, and there are far fewer
+  than 46.
+
+  Outcomes assigned by cause: **(i)** credential resolution is *removed* from the unattended path
+  by token-by-value, not guarded (7 sites, and the earliest blocker); **(ii)** default+announce at
+  the three container/compose entry points where "do not start it" is safe and statable;
+  **(iii)** fail fast naming the **flag**, not the prompt — a CI operator cannot act on "the
+  launcher asked something".
+
+  **Decision 2 revised here: "never infer" → "never *silently* infer"** (C9). An inference is
+  permitted when announced on stderr with what and why, and a safe statable default.
+  `ssh-handling.bash:362` is the reference implementation, not a latent bug.
+
+- [x] ✅ **Task 2.2**: Decide the interaction with `--headless` and `--prompt`
   (orthogonal? does `--non-interactive` imply anything?) and state it explicitly.
-- [ ] ⬜ **Task 2.3**: Specify the regression guard. A prompt added later must not
+
+  **DONE.** Orthogonal axes — `--headless` is a *Claude Code invocation* mode
+  (`claude-yolo:2626-2628`, `:2694-2699`, requires `--prompt` at `:728-740`); `--non-interactive`
+  is a *launcher* mode. `--non-interactive` does **not** imply `--headless` (that would force
+  `--prompt` on a caller who wants a live TTY afterwards). `--headless` **does** imply
+  `--non-interactive`, **announced** — it already declares no human is driving, and a launcher
+  that then blocks contradicts the declaration.
+
+  **Cost stated rather than buried**: this changes behaviour for existing `--headless` users at a
+  TTY, whose existence C4 established. The announcement makes it visible on the run where it
+  first bites; that is the mitigation, not a claim the change is free.
+
+- [x] ✅ **Task 2.3**: Specify the regression guard. A prompt added later must not
   silently reintroduce a hang — propose a QA gate wired into `qa-all.bash` that fails
   when a `read -rp` exists on a path reachable under `--non-interactive` without a
   guard. Note honestly whether this is statically decidable, and if only partially,
   what the residual risk is.
+
+  **DONE — partially decidable, and the tooling already exists.** `analysis/classify-prompts.bash`
+
+  - `bashctx.py` + `fnmap.py` (397 lines) already compute it, exit 1 on any failed invariant, and
+    are mutation-tested. They already carry the Task 7.2 lesson as an assertion (`:83-84`): the
+    census pattern is checked against a file *known* to use `read -r -p`, so a pattern matching
+    nothing can never again report a clean sweep.
+
+  **Decidable**: is it a prompt site; which function encloses it (validated by re-parse); is that
+  function reachable from a suspending context (transitive); is it in an unbounded loop.
+  **Not decidable**: whether a *given job* reaches it at runtime. Further gaps named: indirect
+  dispatch is invisible to a static call graph, and a prompt in an unwalked sourced file would be
+  missed — which is exactly how `token-management.bash` escaped the Round-1 census.
+
+  Honest framing: the gate makes new spins and new unguarded default-path prompts impossible to
+  add **silently**. It does not prove the absence of a hang.
+
+  **Promotion is part of finishing this plan, not a follow-up.** This repo's own
+  `CLAUDE/PlanWorkflow.md` names "a permanent QA gate wired into `qa-all.bash`" as the persistent
+  case; left in `CLAUDE/Plan/00068-*/` the gate dies when the plan is archived. Seed it as a
+  **ratchet** (stale baseline entries must fail too, or it only grows).
 
 ### Phase 3: Design the image layering + CI variant
 
@@ -816,8 +882,20 @@ tasks **replace** the corresponding Phase 2-5 tasks above where they conflict.
   - [ ] ⬜ Make the 32 abort sites diagnosable — today `set -e` kills the script with no
     message naming the prompt.
 
-  - [ ] ⬜ Soften "never infer" to "never **silently** infer" in the design text, citing
+  - [x] ✅ Soften "never infer" to "never **silently** infer" in the design text, citing
     `ssh-handling.bash:357` as the reference implementation.
+
+    **DONE — Decision 2 revised in [reports/phase2-non-interactive.md](reports/phase2-non-interactive.md)**
+    (Task 2.1). The permitted shape: announced on stderr, states what was inferred and why, takes
+    a safe and statable default. Silent inference stays banned. The guard is at
+    `ssh-handling.bash:362` (Round 3's re-read; C9 and the earlier task text both cite `:357`,
+    which is the enclosing `if`).
+
+    **The two implementation sub-items above are now SPECIFIED but remain open**, correctly — this
+    plan changes no code. Phase 2 gives them their design: guard the five **entry points** rather
+    than 46 `read`s (a spin needs both a suspended context and an unbounded loop, so breaking
+    either suffices), and make the abort sites diagnosable via outcome (iii), whose message must
+    name the **flag** rather than the prompt.
 
   - [ ] ⬜ Requires a CCY version bump when the launcher/libs are edited
     (`CLAUDE/ContainerRules.md`), and QA on the HOST.
