@@ -55,10 +55,28 @@ pasted. Nothing in this plan has touched the host.
 | F9  | `/srv/ftp-camera/.cache` is unreadable by the invoking user                                                                                                                        | `find: … Permission denied`, printed twice        |
 | F10 | No NetworkManager profile named `Hotspot` exists **at the time of the failure**. This says nothing about whether one existed previously — see the correction under "Issue 2" below | `--hotspot` fail-fast message                     |
 
-**F3 is the load-bearing fact.** The FTP layer never failed once. "The Airbnb
-WiFi is too weak/lossy" does not survive contact with the log: a lossy link
-would produce aborted data connections and `FAIL UPLOAD` entries. Something is
-causing the camera to *re-send frames that already transferred successfully*.
+**What F3 does and does not support — a second correction.** An earlier
+revision called F3 "the load-bearing fact" and concluded that "the Airbnb WiFi
+is too weak/lossy does not survive contact with the log". That over-reads it.
+
+What F3 supports: no **data-channel** transfer failed. vsftpd writes
+`FAIL UPLOAD` when a `STOR`'s data connection breaks mid-transfer, and there
+are none.
+
+What F3 does **not** support: that the network is fine. `OK UPLOAD` is written
+once the *data* transfer completes; the `226 Transfer complete` that tells the
+camera so travels afterwards on the *control* connection. If the control
+connection is dead by then — AP dropping an idle socket during a long
+transfer, NAT timeout, client power-save — vsftpd still logs `OK UPLOAD` and
+the camera still never learns the transfer succeeded, so it retries. That
+produces this exact log signature with zero failure lines, on a genuinely
+flaky network.
+
+So the sound version of the claim is narrower: **the camera is re-sending
+frames whose data reached the server.** Why it does not know that is precisely
+what is unresolved — and a network cause is back in contention, not excluded.
+It also fits F6 (2-15 s auth latency) and the owner's report that the same
+setup works elsewhere, better than a pure code cause does.
 
 ### Hypotheses (NOT confirmed — do not act on these as fact)
 
@@ -73,14 +91,48 @@ causing the camera to *re-send frames that already transferred successfully*.
   (F8) `STOR` the same path concurrently, interleaving writes into one
   corrupt file.
 - **H2: Sony FTP client-side transfer timeout.** The camera gives up waiting
-  for the `226` completion response and re-queues the frame. Would also fit
-  F5/F6, but does not explain why vsftpd logged the transfer as OK.
+  for the `226` completion response and re-queues the frame. Fits F5/F6, and
+  — contrary to what an earlier revision of this plan said — is entirely
+  consistent with vsftpd logging the transfer as OK, because `OK UPLOAD` is
+  written when the data completes, before the camera has been told.
+- **H2b (now co-primary with H1): the control connection dies during the
+  transfer, so the `226` never reaches the camera.** A congested or
+  power-saving AP drops the idle control socket while the data channel is
+  busy with an 80 MB ARW. vsftpd completes the `STOR`, logs `OK UPLOAD`, then
+  cannot deliver the completion reply. The camera retries. This is the
+  network explanation, in the only form the log actually permits — and it is
+  strengthened by F8 (overlapping sessions: the camera keeps opening new
+  control connections rather than reusing one) and by the owner's report that
+  the identical setup works on other networks.
+  H1 and H2b are distinguished by the verb stream: H1 shows a post-`STOR`
+  `SIZE`/`LIST`/`MLSD` receiving a negative answer; H2b shows the session
+  simply going silent after `STOR`, with no further verbs at all.
 - **H3: `.cache` (F9) is unrelated noise** — cosmetic stderr leakage from
   `warn_if_landing_stale()` and the cleanup summary, not a transfer fault.
 - **H4: control-channel latency (F6) is vsftpd reverse-DNS / PAM delay**,
   not radio congestion.
 
-H1 and H2 are cleanly separable by a single decisive probe (see Phase 1).
+H1, H2 and H2b are separable by a single probe — the FTP verb stream (see
+Phase 1) — which is why `--debug-ftp` remains the right next move regardless
+of which is favoured today.
+
+### Unverified premises in this plan's own analysis
+
+Flagged explicitly, because each was initially treated as given:
+
+- **P1: that more frames were waiting to transfer.** The phrase "never
+  progresses past the first frame" assumes there was a second frame to
+  progress to. Nothing establishes how many new images were on the card. If
+  only one frame was shot, the repeated uploads are still anomalous, but
+  "stuck on the first of many" is the wrong description and points at the
+  wrong mechanism. **Cheap to settle — ask the owner.**
+- **P2: that the camera verifies its uploads at all.** H1 requires it. No
+  source, manual reference or observation here establishes that Sony's FTP
+  client issues a post-`STOR` check. It is an assumed capability, and if it is
+  wrong, H1 collapses entirely.
+- **P3: that the camera's own FTP settings were unchanged.** The Sony FTP
+  menu carries auto-transfer and per-image transfer-status behaviour that
+  could produce re-sends independently of anything server-side.
 
 ### Issue 2 (hotspot) — what is actually established, and what is not
 
