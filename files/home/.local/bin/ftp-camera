@@ -569,6 +569,87 @@ detect_hotspot() {
     HOTSPOT_SSID="$ssid"
 }
 
+# Echo the first WiFi device NetworkManager knows about; empty if there is none.
+get_wifi_device() {
+    nmcli -t -f DEVICE,TYPE device \
+        | awk -F: '$2 == "wifi" { print $1; exit }'
+}
+
+# Confirm the WiFi hardware can actually act as an access point BEFORE we try
+# to bring a hotspot up.
+#
+# Not every card can. Where a card cannot, no amount of NetworkManager
+# configuration helps, and the failure surfaces as a confusing "the profile
+# activated but nothing can connect" rather than an honest "this hardware
+# does not do AP mode". Checking here converts that into a clear statement.
+#
+# Two independent sources, because the nmcli property name has varied across
+# releases: NetworkManager's own WIFI-PROPERTIES.AP first, then the driver's
+# advertised interface modes via `iw list`. Only a definite "no" from a source
+# that answered is treated as fatal — an unanswerable probe warns and
+# continues, because refusing on a failed *query* would be worse than letting
+# the subsequent `nmcli connection up` fail loudly on its own.
+assert_hotspot_supported() {
+    local dev
+    dev=$(get_wifi_device)
+    if [ -z "$dev" ]; then
+        echo "ERROR: --hotspot needs a WiFi device — NetworkManager reports none." >&2
+        echo "  This machine has no radio that could host an access point." >&2
+        return 1
+    fi
+
+    local ap_supported="" probe
+    if probe=$(nmcli -g WIFI-PROPERTIES.AP device show "$dev" 2>&1); then
+        case "${probe,,}" in
+            *yes*) ap_supported=yes ;;
+            *no*)  ap_supported=no ;;
+        esac
+    fi
+
+    # Fall back to the driver's own capability list when nmcli was unhelpful.
+    if [ -z "$ap_supported" ] && command -v iw > /dev/null; then
+        if probe=$(iw list 2>&1); then
+            if printf '%s\n' "$probe" \
+                | grep -A 12 'Supported interface modes' \
+                | grep -qw 'AP'; then
+                ap_supported=yes
+            else
+                ap_supported=no
+            fi
+        fi
+    fi
+
+    case "$ap_supported" in
+        yes)
+            echo -e "${GREEN}Hotspot capability: '${dev}' supports AP mode.${NC}" >&2
+            ;;
+        no)
+            echo "ERROR: WiFi device '$dev' does not support AP mode." >&2
+            echo "" >&2
+            echo "  This is a hardware/driver limitation, not a configuration" >&2
+            echo "  problem — the driver does not advertise AP capability, so" >&2
+            echo "  --hotspot cannot work on this machine however it is set up." >&2
+            echo "  Options: use the normal network, or a USB WiFi adapter that" >&2
+            echo "  does support AP mode." >&2
+            return 1
+            ;;
+        *)
+            echo "  Note: could not determine whether '$dev' supports AP mode" >&2
+            echo "  (neither nmcli nor iw gave a usable answer). Continuing —" >&2
+            echo "  if the hardware cannot do it, activation below will fail." >&2
+            ;;
+    esac
+
+    # Separate from AP support, and the reason the laptop goes offline: most
+    # single-radio cards (Intel CNVi especially) cannot be client and AP at
+    # once. Stated rather than probed — parsing `iw list` interface
+    # combinations reliably is fiddly, and a misparse would be worse than a
+    # plain caveat. triage.bash captures the full `iw list` for the real answer.
+    echo -e "${YELLOW}  Note: a single-radio card cannot be WiFi client and AP at once,${NC}" >&2
+    echo -e "${YELLOW}  so this laptop will likely drop its own internet while the${NC}" >&2
+    echo -e "${YELLOW}  hotspot is up. Uploads still cache locally and drain later.${NC}" >&2
+}
+
 get_local_ip() {
     # When a hotspot is active, the laptop's WiFi card is in AP mode and
     # the default route is typically absent (Intel cards can't do
@@ -1782,6 +1863,12 @@ if [ "$HOTSPOT_FLAG" = true ]; then
         echo "ERROR: --hotspot needs nmcli (NetworkManager CLI)" >&2
         exit 1
     fi
+
+    # Hardware capability first: "this card cannot do AP mode" is a more
+    # fundamental answer than "the profile is missing", and reporting it in
+    # that order stops the user chasing a config fix for a hardware limit.
+    assert_hotspot_supported || exit 1
+
     if ! nmcli -t -f NAME connection show | grep -qxF "$HOTSPOT_CONNECTION"; then
         echo "ERROR: NetworkManager connection '$HOTSPOT_CONNECTION' not found" >&2
         echo "" >&2

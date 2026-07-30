@@ -116,16 +116,56 @@ H1, H2 and H2b are separable by a single probe — the FTP verb stream (see
 Phase 1) — which is why `--debug-ftp` remains the right next move regardless
 of which is favoured today.
 
+### Facts added by the owner (2026-07-30)
+
+| #   | Fact                                                                                                                            | Effect on the analysis                                                                                    |
+| --- | ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| F11 | **170+ frames were queued** on the card                                                                                         | Settles premise P1. "Stuck on the first of many" is the correct description; there was a real queue       |
+| F12 | The owner ran **`rm -rf` on the upload dir** to reclaim space. The `.cache` message dates from then. It still worked afterwards | Explains F9's origin. The `rm -rf` destroyed owner/group/mode, ACLs and SELinux context                   |
+| F13 | The problem occurs **only on this specific WiFi**; the same setup works elsewhere                                               | **Decisive for ranking.** The code is identical everywhere, so a purely code-side cause cannot explain it |
+
+**F13 demotes H1 and promotes the network hypotheses.** H1 (async `mv` defeats
+the camera's verification) is a property of the code, which does not change
+between networks — so if H1 were the mechanism, this would fail at home too.
+It does not. H1 is not dead (it could be a latent contributor that only bites
+once retries start overlapping) but it can no longer be the primary.
+
+### H3 — bandwidth contention, the hypothesis F13 actually fits
+
+Newly raised, and the best fit for "only this WiFi" plus "it connects fine but
+is wildly unstable":
+
+In `--async-copy`, every completed upload is immediately `cp`'d into the
+rclone mount, and the VFS then uploads it to Google Drive. **That upload
+travels over the same radio and the same AP the camera is transmitting on.**
+WiFi is half-duplex with airtime shared across clients, so the laptop is
+simultaneously:
+
+- receiving ~12+ GB from the camera (F11: 170+ frames of JPG + ARW), and
+- re-transmitting those same bytes upstream to Drive.
+
+On a home AP with few clients this is absorbed. On a congested guest AP shared
+with other tenants it is not: airtime collapses, transfers stretch to minutes,
+and a stretched transfer is exactly the condition under which the idle control
+connection gets reclaimed (H2b) and the camera re-sends (F5).
+
+It also explains the 2-15 s auth latency (F6) — logins queueing behind
+saturated airtime — and the overlapping sessions (F8).
+
+**Prediction, testable for free with no deploy:** `--async` (sort, no copy) or
+default mode should be dramatically more stable on this network than
+`--async-copy`, because neither generates competing upstream traffic. If that
+holds, the fix is operational — capture first, push afterwards — and the
+existing `--async` mode already implements it. No new code required.
+
 ### Unverified premises in this plan's own analysis
 
 Flagged explicitly, because each was initially treated as given:
 
-- **P1: that more frames were waiting to transfer.** The phrase "never
-  progresses past the first frame" assumes there was a second frame to
-  progress to. Nothing establishes how many new images were on the card. If
-  only one frame was shot, the repeated uploads are still anomalous, but
-  "stuck on the first of many" is the wrong description and points at the
-  wrong mechanism. **Cheap to settle — ask the owner.**
+- **P1: that more frames were waiting to transfer.** ✅ **RESOLVED by F11** —
+  the owner confirms 170+ frames were queued. The "stuck on the first of many"
+  description is accurate, and the volume itself becomes evidence: 170 frames
+  of JPG + ARW is ~12 GB, which is what makes H3's airtime argument bite.
 - **P2: that the camera verifies its uploads at all.** H1 requires it. No
   source, manual reference or observation here establishes that Sony's FTP
   client issues a post-`STOR` check. It is an assumed capability, and if it is
@@ -244,14 +284,53 @@ only a durable remedy if nothing is actively deleting it.
 - [x] ✅ **Task 3.5**: Run QA: `./scripts/qa-all.bash`.
 - [ ] 🔄 **Task 3.6**: (HOST) vault the PSK, run the play, confirm
   `ftp-camera --hotspot` brings the AP up and the camera associates.
+- [x] ✅ **Task 3.7**: Check AP-mode support before attempting a hotspot.
+  Owner asked for this directly, having wondered whether this specific
+  laptop can host an AP at all. `assert_hotspot_supported()` resolves the
+  WiFi device, queries NetworkManager's `WIFI-PROPERTIES.AP`, falls back
+  to the driver's advertised interface modes via `iw list`, and fails
+  fast with a hardware-limitation message on a definite "no". An
+  unanswerable probe warns and continues rather than refusing on a failed
+  query. Also states the single-radio client/AP concurrency caveat.
 
-### Phase 4: Landing-zone permission noise
+### Phase 4: Landing-zone permission noise — cause known (F12)
 
-- [ ] ⬜ **Task 4.1**: Using the Task 1.1 facts about `.cache` ownership and
-  mode, fix the cause (ownership/ACL in the playbook, or exclude the path
-  in the walk). **Not** by redirecting stderr to `/dev/null` — that is an
-  error-hiding pattern this repo prohibits.
-- [ ] ⬜ **Task 4.2**: Run QA: `./scripts/qa-all.bash`.
+The owner ran `rm -rf` on the upload dir to reclaim space, and the `.cache`
+message dates from exactly then. That removes the directory's owner/group,
+mode, POSIX ACLs and SELinux label in one go — everything
+`play-ftp-camera.yml` sets up. Whatever recreated the tree afterwards did so
+with defaults the invoking user cannot fully read, hence `find`'s
+`Permission denied`.
+
+**The repair already exists and needs no new code.** Re-running the play
+restores every one of those properties: it recreates the directory
+`owner=camera group=camera mode=0775`, re-applies the `{{ user_login }}` ACL
+and the default ACL, re-asserts the `public_content_rw_t` fcontext and runs
+`restorecon -R`.
+
+- [ ] 🔄 **Task 4.1**: (HOST) re-run `play-ftp-camera.yml` and confirm the
+  `find: … Permission denied` message is gone. This is also the deploy step
+  for Phases 1 and 3, so it happens once and covers all three.
+- [ ] ⬜ **Task 4.2**: If the message survives the play, `.cache` is being
+  recreated by something the play does not own — use triage section 5
+  (owner/mode/ACL/SELinux/contents) to identify the writer and fix it there.
+  **Not** by redirecting stderr to `/dev/null`; that is an error-hiding
+  pattern this repo prohibits.
+- [ ] ⬜ **Task 4.3**: Consider whether the play should be resilient to the
+  landing zone being cleared by hand — reclaiming space that way is a
+  legitimate thing to do, and it should not leave the tool degraded until
+  someone thinks to re-run Ansible.
+
+### Phase 5: Stability on a congested network (H3)
+
+- [ ] 🔄 **Task 5.1**: (HOST, free, no deploy) Run a capture session with
+  `--async` instead of `--async-copy` on the problem network. If stability
+  improves markedly, H3 is confirmed and the remedy is operational, not a
+  code change — `--async` already exists.
+- [ ] ⬜ **Task 5.2**: If H3 confirms, document the capture-then-push
+  workflow for congested networks in the play summary and `--help`, and
+  consider whether `--async-copy` should warn when it detects a busy or
+  weak link rather than silently competing with itself for airtime.
 
 ## Technical Decisions
 
