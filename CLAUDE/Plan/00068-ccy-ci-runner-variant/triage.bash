@@ -23,8 +23,8 @@
 # this instead of a comment asking nicely.
 #
 # EFFECT ON THE HOST — stated precisely, because "read-only" stopped being true:
-#   - probe-engine.bash and probe-launcher.bash are READ-ONLY. Nothing is built, installed or
-#     pulled; every container started is `--rm` and runs `true`.
+#   - probe-engine.bash, probe-launcher.bash and probe-network.bash are READ-ONLY. Nothing is
+#     built, installed or pulled; every container started is `--rm` and runs `true`.
 #   - probe-label.bash BUILDS three throwaway label-only images from `FROM scratch` (no pull,
 #     no network, no filesystem layers), inspects them, and REMOVES them on exit. It refuses
 #     to run rather than reuse or overwrite a tag that already exists, so it cannot clobber
@@ -68,8 +68,9 @@ plan_init "${BASH_SOURCE[0]}"
 
 PLAN_USAGE="usage: triage.bash [-h|--help]
 
-Gathers facts about the host container engine, the deployed ccy launcher, and
-the image-label reader the LABEL convention rests on.
+Gathers facts about the host container engine, the deployed ccy launcher, the
+--network flag interaction, and the image-label reader the LABEL convention
+rests on.
 
 Host-only, safe to re-run. Read-only EXCEPT the label leg, which builds three
 throwaway 'FROM scratch' label-only images and removes them on exit; it refuses
@@ -118,6 +119,8 @@ plan_gather_leg "container engine and device handling" \
     bash "${PLAN_SCRIPT_DIR}/probe-engine.bash" "${REPORT}"
 plan_gather_leg "deployed launcher vs this checkout, and prompt-site census" \
     bash "${PLAN_SCRIPT_DIR}/probe-launcher.bash" "${REPORT}"
+plan_gather_leg "network flag interaction (hardware-proof group C)" \
+    bash "${PLAN_SCRIPT_DIR}/probe-network.bash" "${REPORT}"
 # Group F. Runs last because it is the only leg that builds anything: if an earlier leg fails,
 # the host is left exactly as it was found.
 plan_gather_leg "image-label reader behaviour (hardware-proof group F)" \

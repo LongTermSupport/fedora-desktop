@@ -55,6 +55,20 @@ problem.
 interaction rests on it, and it is the only borrowed claim that drives a *hard failure* rather
 than a warning.
 
+> **C3 now has a probe** — [`../probe-network.bash`](../probe-network.bash), wired in as a
+> `triage.bash` leg. The design point is the baselines, not the combination: it runs each
+> `--network` flag **alone** as well as together, in **both orders**, because a failing
+> combination is equally consistent with pasta simply being unavailable on the host, and
+> because "rejected" and "last flag wins" are different behaviours one ordering cannot
+> distinguish. If either single-flag baseline fails the probe reports C3 **UNANSWERED** rather
+> than banking the convenient reading. It also enumerates the outcome where the flags turn out
+> **not** to be exclusive — which would invalidate Task 5.1's hard-error specification, and is
+> the result most worth having.
+>
+> **C1 and C2 remain borrowed and unverified, deliberately.** Both need a listener on the host
+> to mean anything, and a probe that opens host sockets is no longer read-only. Recorded as
+> open rather than closed by a probe that measured something adjacent and easier.
+
 ## D. The proof battery that must exist before egress may be called a control
 
 Specified in `phase45-mcp-and-egress.md` Task 5.4. Three probes, and **each must assert a specific

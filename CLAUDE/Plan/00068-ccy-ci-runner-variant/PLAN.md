@@ -679,6 +679,12 @@ an unrelated userns/subuid reason and would have been mistaken for a result.
     facts (image provenance, deployed-vs-checkout drift, prompt census) with the probes that
     previously mis-reported. **Needs a human** — the script now refuses to run in the
     container, correctly.
+  - [x] ✅ `probe-network.bash` written and wired in, settling **group C's C3** — the borrowed
+    claim the checklist calls *"the one to re-measure first"*, and the only one driving a hard
+    failure (Task 5.1). It runs each `--network` flag alone as well as combined, in both
+    orders, so that a failing combination cannot be misread as exclusivity when the real cause
+    is pasta being unavailable. C1 and C2 stay open: both need a host listener, and a probe
+    that opens host sockets is no longer read-only.
   - [x] ✅ `probe-label.bash` written and wired in as `triage.bash`'s third leg, so that the
     same host run also settles **hardware-proof group F** — the `LABEL` reader behaviour the
     whole convention spec rests on. Written, lint-clean, and its container refusal verified
