@@ -1034,6 +1034,24 @@ Tracked as a finding in lts-infra Plan 00023.
   probes read the live pasta argv rather than trusting docs, which is what makes the numbers
   reusable here.
 
+  > **OUTSTANDING OBLIGATION added by D21 — this task is ticked but now owes one concrete item.**
+  > **`api.github.com` must be in the default desktop `--egress` allowlist.** If it is omitted,
+  > `entrypoint.sh:111`'s fetch fails and `:130-133` silently downgrades that session's SSH
+  > host-key checking from GitHub's pinned keys to `StrictHostKeyChecking accept-new`. Severity is
+  > MINOR (it needs an on-path attacker at first use; no key material is disclosed) — but it is a
+  > security control degrading to a stderr line, which is the wrong shape under this repo's
+  > fail-fast rule.
+  >
+  > Recorded **here**, at the task that owes it, and not only in the D21 correction block —
+  > because the obligation living solely in a correction block is precisely the propagation defect
+  > this plan has now recorded seven times (D7, D9, D11, D12, D14, D22, and this). I went looking
+  > for it on the strength of that record and it was there.
+  >
+  > Note this task's tick is **not** being withdrawn: Task 5.2's deliverable was to *specify the
+  > mechanism*, which it did correctly. The allowlist *contents* are a distinct item, and the
+  > honest bookkeeping is an outstanding obligation on a completed task rather than a retroactive
+  > un-tick.
+
 - [x] ✅ **Task 5.3**: Reconcile with E7 — the entrypoint cannot start without reaching
   GitHub — and with E8's npm fetch. State the minimum allowlist for a container that
   merely boots.
