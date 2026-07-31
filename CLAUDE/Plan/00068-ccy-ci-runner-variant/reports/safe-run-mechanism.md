@@ -103,11 +103,6 @@ more in CI than on the desktop, because `ps` output reaches logs. What is droppe
 *resolves* a credential — the CI caller supplies it; the mechanism never prompts, reads a keyring, or
 touches `~/.claude-tokens/`.
 
-> **Corrected.** This section and the argv sketch above previously named `ANTHROPIC_API_KEY`. That
-> variable **does not appear anywhere in ccy** — the credential is `CLAUDE_CODE_OAUTH_TOKEN`. The
-> sketch also described the pass-through as "by value", which is backwards: `-e VAR` without `=` is
-> precisely the by-*name* form whose purpose is to keep the value out of argv.
-
 **Preconditions are asserted before anything starts** — see
 [ci-required-config.md](ci-required-config.md) for the full required-configuration set, the
 collect-all-then-abort preflight contract, and the failure output format.
