@@ -208,8 +208,19 @@ for tag in claude-yolo:latest claude-yolo:full claude-yolo:base; do
 done
 out '```'
 out ""
-out "Compare \`claude-yolo-version\` above with \`REQUIRED_CONTAINER_VERSION\` in the launcher —"
-out "a mismatch forces a rebuild on the next launch, which a CI job must never do."
+out "Compare \`claude-yolo-version\` above with \`REQUIRED_CONTAINER_VERSION\` in the launcher."
+out "A mismatch — of the version OR the Dockerfile md5, either alone is enough"
+out "(\`common.bash:472-476\`) — makes ccy rebuild on the next launch."
+out ""
+out "**That is ccy working correctly, not a problem to design around.** The image is built"
+out "from the ccy Dockerfile; a stale image SHOULD be rebuilt. This runner IS the ccy system"
+out "and inherits that behaviour deliberately — the same rebuild the operator already relies"
+out "on at the desktop."
+out ""
+out "The only thing worth planning for is scheduling: the first run after a Dockerfile change"
+out "spends the build before it starts work. Note the build is a host-side \`podman build\`"
+out "(\`common.bash:556\`), so the agent container's \`--network\` restrictions do not apply to"
+out "it — restricting the running container's egress does not constrain the build."
 
 if [[ "${INCOMPLETE}" -ne 0 ]]; then
     printf '[INCOMPLETE] at least one engine probe could not be answered; see %s\n' "${REPORT}" >&2

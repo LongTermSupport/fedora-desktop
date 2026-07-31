@@ -18,6 +18,27 @@ the handful of hard-coded desktop assumptions inside `ccy` made conditional.
 
 This is a **design plan**. Nothing in it has been executed, and it implements nothing.
 
+### Standing principle — the design IS ccy. Do not build beside it.
+
+**The runner is the ccy system, behaving normally.** Project Dockerfile customisation, the
+image rebuild when that Dockerfile changes, the daily update, the token flow — these are the
+product, not obstacles to route around. The only permitted changes are the two above: make the
+prompts non-interactive, and make the desktop-only assumptions conditional.
+
+**Context that sets the threat model: this is private runner infrastructure for private,
+self-owned repositories.** It is not multi-tenant CI executing untrusted pull requests. Do not
+import constraints from that world — hermetic builds, pinned-everything reproducibility,
+never-touch-the-network — unless the owner asks for them.
+
+**The test before adding any mechanism:** name the existing ccy behaviour it replaces, and
+state why that behaviour cannot do the job. *If that sentence cannot be written truthfully,
+the mechanism is not needed.*
+
+This has been violated repeatedly, most recently by treating ccy's version/hash rebuild as a
+hazard a CI job "must never" trigger. A stale Dockerfile SHOULD rebuild — that is ccy working.
+The claim was withdrawn (`JOURNAL/00068-Journal-26-07-31.md`, 22:30), and it is recorded here
+because the failure recurs faster than it is remembered.
+
 ## Architecture
 
 | Concern                            | Provided by                                        |
