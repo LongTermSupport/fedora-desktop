@@ -208,8 +208,17 @@ ENV DEVCONTAINER=true
 # This env var gates the jfq() warning hook in Claude Code's cli.js
 ENV DISABLE_INSTALLATION_CHECKS=1
 
-# Note: USER directive is NOT set here - we use --user flag at runtime
-# This allows dynamic UID/GID mapping to match the host user
+# Note: no USER directive, so the container runs as uid 0 INSIDE the container.
+#
+# That is safe only because ccy requires a ROOTLESS engine, where the user
+# namespace maps container uid 0 to the unprivileged host user who launched it.
+# The launcher asserts this against the engine's own report before starting
+# anything (engine_assert_rootless, lib/common.bash) and refuses otherwise.
+#
+# This comment previously read "we use --user flag at runtime". No --user flag is
+# passed: DOCKER_FLAGS is only ever -i/-it (claude-yolo:2696/:2698) and the run
+# invocation has none. The userns mapping — not a --user flag — is what provides
+# the host-side identity.
 
 # Use tini as PID 1 to properly handle signals and reap zombie processes
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]
