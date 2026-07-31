@@ -1,6 +1,6 @@
 # Plan 00070: documentation drift audit
 
-**Status**: In Progress
+**Status**: Complete (2026-07-31)
 **Created**: 2026-07-31
 **Owner**: joseph
 **Priority**: Medium
@@ -15,7 +15,8 @@ The defect is **drift** — docs describing a past state of the code — not slo
 the newer docs are disciplined; the older docs were never re-read after the changes that invalidated
 them.
 
-**Nothing has been fixed.** This plan holds the findings and tracks the remediation.
+**All 23 confirmed findings are fixed**, all six suspected are resolved, and the drift is now
+mechanically detectable by `scripts/qa-docs.bash` rather than only corrected.
 
 ## Goals
 
@@ -92,7 +93,7 @@ exist. Incompleteness misleads by omission; these mislead by instruction.
 
 ### Phase 4 — Resolve the suspected six
 
-- [ ] 🔄 **Task 4.1**: Resolve S1–S6 to confirmed or dismissed.
+- [x] ✅ **Task 4.1**: All six resolved to confirmed or dismissed.
   - [x] ✅ **S3 dismissed** — the vars are real but documented in both places the doc points at
     (`docs/headless-provisioning.md:54-55`, `run.bash:517-518`), and the doc defers explicitly.
   - [x] ✅ **S4 confirmed and escalated** into finding 12 — **every** size in the model table is
@@ -100,9 +101,16 @@ exist. Incompleteness misleads by omission; these mislead by instruction.
     propagates to the quoted cache range at `:77` and `:752`.
   - [x] ✅ **S6 dismissed** — both child docs are linked directly from `docs/README.md:295-296`;
     the intermediate index is redundant.
-  - [ ] ⬜ **S1, S2, S5 need the owner's intent, not more grepping.** All three ask the same
-    question: was the omission a decision or an oversight? S2 has a real cost either way — a reader
-    who copy-pastes the simplified `podman run` loses `--replace`/`--name` collision handling.
+  - [x] ✅ **S1 confirmed** — and the intent question dissolved. The path appeared at **eight**
+    sites, not one, and a relative path is correct in CCY *and* on the host, so no ruling was
+    needed. The sweep also found an **eighth instance of finding 6** (`npm run lint` surviving in
+    `workspace-names-overview/README.md:192`) — Phase 2 had fixed `extensions/CLAUDE.md` and
+    stopped.
+  - [x] ✅ **S2 confirmed** — not a simplification but a wrong factual claim: the doc says
+    "`ccdt` runs:" and shows a command it does not run. Fixed by showing the real one and
+    explaining `--replace` (collision handling) and `--init` (Ctrl+C).
+  - [x] ✅ **S5 dismissed as an omission, confirmed as a scope defect.** The play is correctly
+    excluded; the defect was that nothing said so. Fixed by stating the scope.
 
 ### Phase 5 — Stop the drift recurring
 

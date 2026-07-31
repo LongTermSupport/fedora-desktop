@@ -246,7 +246,7 @@ Both 404 on GitHub.
 
 ---
 
-## Suspected — three resolved, three need the owner
+## Suspected — all six resolved
 
 **S3, S4 and S6 have been resolved** by checks that needed nothing but the tree. S1, S2 and S5 turn
 on what the author *meant*, which no amount of grepping settles — they need the owner.
@@ -257,19 +257,54 @@ on what the author *meant*, which no amount of grepping settles — they need th
 | S4  | **Confirmed and escalated** — folded into finding 12, which it makes substantially worse. Every size in the table is wrong, not just one, and `tiny` is out by ~1.9×.                                                                                                                                                          |
 | S6  | **Dismissed.** `docs/README.md:295-296` links both child docs directly. `features/README.md` is a redundant intermediate index; nothing points at it and nothing needs to.                                                                                                                                                     |
 
-The three below are unresolved, and stay that way until the owner rules.
+### S1, S2, S5 — resolved by the owner, and two needed no ruling
 
-Recorded so they are not lost, explicitly **not** established.
+Presented to the owner with the evidence. **All six suspected findings are now closed.**
 
-| #   | Suspicion                                                                                                             | Why it is not confirmed                                  |
-| --- | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| S1  | `docs/development.md:246` hardcodes `/workspace/extensions`, a CCY-container-only path, in a doc that clones anywhere | `CLAUDE/QA.md` uses the same wording — may be deliberate |
-| S2  | `docs/features/claude-devtools.md`'s `podman run` reproduction omits `--init`, `--replace`, `--name`                  | plausibly a readability simplification; intent unknown   |
-| S5  | `playbooks/dev/play-collect-diagnostics.yml` absent from the catalog                                                  | self-identifies as dev-only; exclusion may be intended   |
+#### S1 ✔ Confirmed — and the intent question dissolved
 
-All three are the same question in different clothes: **was the omission a decision or an
-oversight?** S2 is the one with a real cost either way — a reader who copy-pastes the simplified
-`podman run` loses `--replace` and `--name`, so container-name collisions stop being handled.
+The suspicion undercounted: `/workspace/extensions` appeared at **eight** sites, not one —
+`docs/development.md:246`, `CLAUDE/QA.md:85` and `:138`, `extensions/CLAUDE.md` ×3, and
+`extensions/workspace-names-overview@fedora-desktop/README.md` ×2.
+
+`docs/development.md` contradicts itself: `:42-43` tells you to `git clone … && cd fedora-desktop`
+— anywhere — then `:246` gives a command that only works if the repo is at `/workspace`, which it
+only is inside a CCY container.
+
+**"Was `/workspace` deliberate for agent docs?" turned out not to matter.** A relative path is
+correct in CCY *and* on the host, for humans *and* agents, and the repo already used that form.
+Fixed at all eight sites.
+
+The sweep for the remaining sites also found an **eighth instance of finding 6** —
+`workspace-names-overview/README.md:192` still said `npm run lint`, the command `CLAUDE/QA.md:82`
+forbids by name. Phase 2 had fixed `extensions/CLAUDE.md` and stopped there.
+
+#### S2 ✔ Confirmed — not a simplification, a wrong factual claim
+
+`claude-devtools.md:142` says **"`ccdt` runs:"** and then shows a command `ccdt` does not run.
+Against `ccdt:173-181`, three flags are missing, and **none of them is mentioned anywhere in the
+document**:
+
+| Flag        | What it does                                                                                        |
+| ----------- | --------------------------------------------------------------------------------------------------- |
+| `--name`    | per-project name from `derive_container_name` (`ccdt:129-148`): `~/.claude` → `host_ccdt`           |
+| `--replace` | the name is deterministic, so **without this the second run fails** "container name already in use" |
+| `--init`    | real PID 1 that forwards signals — the script prints "Press Ctrl+C to stop" three lines above       |
+
+The omitted flags are exactly the ones making the documented run/stop/re-run loop work. Fixed by
+showing the real command and explaining each flag, so they read as design rather than noise.
+
+#### S5 ✔ Dismissed as an omission, confirmed as a **scope** defect
+
+The play self-identifies at its own line 3: *"Repo-development playbook — NOT part of the standard
+configuration run."* Excluding it from a user-facing catalogue is correct.
+
+The defect is that `docs/playbooks.md` calls itself a "Complete catalog" and mentions
+`playbooks/dev/` **zero** times, so a reader cannot tell "absent because dev-only" from "absent
+because forgotten". That distinction is not academic — findings 2 and 9 in this audit *were* the
+second case and looked identical from outside.
+
+Fixed by stating the scope rather than cataloguing the play, so the absence reads as a decision.
 
 ---
 

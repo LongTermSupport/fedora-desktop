@@ -2,6 +2,18 @@
 
 Complete catalog of available features and how to use them.
 
+> **Scope**: this catalogues the playbooks you **provision a machine with** —
+> `playbooks/playbook-main.yml` and everything under `playbooks/imports/`.
+>
+> `playbooks/dev/` is **deliberately excluded**. Those are repo-development playbooks that
+> operate on this repository rather than configuring your desktop — e.g.
+> `play-collect-diagnostics.yml`, which gathers a host diagnostic snapshot into
+> `untracked/diagnostics/` so the playbooks themselves can be audited. They are documented in
+> [playbooks/dev/CLAUDE.md](../playbooks/dev/CLAUDE.md).
+>
+> This note exists so an absence here reads as a **decision**. A playbook missing from this
+> catalogue without one has historically meant it was forgotten, not excluded.
+
 ## Quick Navigation
 
 **Just installed?** Start with [Optional Playbooks](#optional-playbooks) to see what you can add.

@@ -89,7 +89,7 @@ extension.js:     Keybinding → does transcription inline → handles clipboard
 **MANDATORY**: After making ANY changes to extension JavaScript files, you MUST run ESLint:
 
 ```bash
-cd /workspace/extensions && node_modules/.bin/eslint .
+cd extensions && node_modules/.bin/eslint .
 ```
 
 Invoke the **binary directly**, not `npm run lint` — the hooks daemon's
@@ -278,7 +278,7 @@ GNOME Shell's internal APIs (anything with `_` prefix) are **not stable** and ma
 1. **Make changes** to extension JavaScript
 2. **Run ESLint** immediately:
    ```bash
-   cd /workspace/extensions && node_modules/.bin/eslint .
+   cd extensions && node_modules/.bin/eslint .
    ```
 3. **Fix any errors** before proceeding
 4. **Deploy** via Ansible playbook
@@ -290,7 +290,7 @@ GNOME Shell's internal APIs (anything with `_` prefix) are **not stable** and ma
 For some issues, ESLint can auto-fix:
 
 ```bash
-cd /workspace/extensions && node_modules/.bin/eslint . --fix
+cd extensions && node_modules/.bin/eslint . --fix
 ```
 
 **Note:** Auto-fix won't fix blocking operations - those require manual refactoring to async patterns.

@@ -82,7 +82,7 @@ citing that run as evidence.
 Run ESLint via the binary directly (NOT `npm run lint` — blocked by hooks):
 
 ```bash
-cd /workspace/extensions && node_modules/.bin/eslint speech-to-text@fedora-desktop/extension.js
+cd extensions && node_modules/.bin/eslint speech-to-text@fedora-desktop/extension.js
 ```
 
 ---
@@ -135,7 +135,7 @@ For changes to `ccy-ctrl-z-patch.js`, run the dedicated patch QA script:
 | Changed files         | QA command                                                                  |
 | --------------------- | --------------------------------------------------------------------------- |
 | Bash or Python files  | `./scripts/qa-all.bash`                                                     |
-| Extension JavaScript  | `cd /workspace/extensions && node_modules/.bin/eslint <file>`               |
+| Extension JavaScript  | `cd extensions && node_modules/.bin/eslint <file>`                          |
 | `ccy-ctrl-z-patch.js` | `./scripts/qa-ctrl-z-patch.bash`                                            |
 | Ansible playbooks     | `./scripts/qa-all.bash` (runs `qa-ansible.bash` + `qa-ansible-syntax.bash`) |
 
