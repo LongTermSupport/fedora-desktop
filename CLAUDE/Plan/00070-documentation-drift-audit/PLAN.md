@@ -106,11 +106,21 @@ exist. Incompleteness misleads by omission; these mislead by instruction.
 
 ### Phase 5 — Stop the drift recurring
 
-- [ ] ⬜ **Task 5.1**: Decide whether any of this is mechanically checkable. Candidates: every
-  playbook in `playbook-main.yml` appears in `docs/playbooks.md`; every `CLAUDE/*.md` has an index
-  row; internal `#anchor` links resolve. **Decide, do not assume** — a link checker that silently
-  matches nothing is exactly the failure this repo already has a written rule about
-  (`CLAUDE/QA.md:38`).
+- [x] ✅ **Task 5.1**: **Decided: yes, and built.** All three candidates are mechanically
+  checkable, and each would have caught a real finding in this audit — that was the bar, not
+  "seems useful". Shipped as `scripts/qa-docs.bash`, the seventh JSON-merged gate in
+  `qa-all.bash`, backed by the stdlib-only helper `helpers/docs/link_check.py` with **42 unit
+  tests**.
+
+  | Check                                                                           | Would have caught  |
+  | ------------------------------------------------------------------------------- | ------------------ |
+  | link targets exist; `#anchor`s match a real heading                             | 13, 17, 19, 21, 22 |
+  | every `playbook-main.yml` import named in both `playbooks.md`/`architecture.md` | 2                  |
+  | every `CLAUDE/*.md` has an index row                                            | 3                  |
+
+  The zero-file trap named in the task is handled: `link_check.main` exits **2** on an empty
+  scope, on a zero-`import_playbook` parse, and on zero topic files, and the gate refuses to
+  translate any of those into a pass.
 
 ## Technical Decisions
 
@@ -131,6 +141,23 @@ the topic file that owns the fact, never a copy — one source of truth per fact
 
 **Date**: 2026-07-31
 
+### Decision 2 — the docs gate excludes `CLAUDE/Plan/**` on principle, not for convenience
+
+The sweep found ~60 broken anchors in `CLAUDE/Plan/00049-full-repo-audit/` and 7 in Plan 00068's
+journal. Gating on those would have made the new gate red on arrival, so the exclusion needs to
+be justified by something other than that it makes the gate green.
+
+It is: **a core gate that sweeps plan content is a core→plan dependency.** Archiving a plan
+would then change core CI's verdict without a single core file changing — and plan folders are
+explicitly ephemeral. Scoping core gates to core paths is the standing rule; plan markdown is
+linted by the plan QA tooling, which is where that belongs.
+
+The excluded findings are **recorded, not discarded** — see the report's "Out of scope" section.
+Plan 00068's journal defects must be corrected by a new dated entry, never an edit, because
+journals are append-only.
+
+**Date**: 2026-07-31
+
 ## Dependencies
 
 - **Blocks**: nothing.
@@ -142,18 +169,23 @@ the topic file that owns the fact, never a copy — one source of truth per fact
 ## Success Criteria
 
 - [x] ✅ Every finding is recorded with a `path:line` citation and a verification marker.
-- [ ] ⬜ The four harmful docs no longer teach a command or pattern that fails.
-- [ ] ⬜ Every confirmed finding is fixed or declined with a stated reason.
-- [ ] ⬜ QA passes (`./scripts/qa-all.bash`) — note it is **already red** at HEAD for two unrelated
-  reasons; those must not be conflated with this plan's changes.
+- [x] ✅ The **five** harmful docs no longer teach a command or pattern that fails (finding 18
+  joined the original four during Phase 3).
+- [x] ✅ Every confirmed finding is fixed. 17 original + 6 found while fixing = **23**, all
+  closed. The only open items are S1/S2/S5, which turn on the owner's intent, not on evidence.
+- [x] ✅ QA passes (`./scripts/qa-all.bash` → rc 0, 488 files). The two unrelated failures noted
+  here were fixed under **Plan 00071** before this plan's changes landed, so nothing was
+  conflated.
+- [x] ✅ The drift is now mechanically detectable, not just fixed — `qa-docs.bash` proven to fail
+  `qa-all.bash` on a broken anchor and to pass when restored.
 
 ## Risks & Mitigations
 
-| Risk                                                      | Impact | Probability | Mitigation                                                            |
-| --------------------------------------------------------- | ------ | ----------- | --------------------------------------------------------------------- |
-| A "fix" is written from the doc rather than from the code | H      | M           | Every fix reads the source first — the audit's own method             |
-| Fixed docs re-drift on the next code change               | H      | H           | Task 5.1 — mechanical checks, where they can be made to actually fail |
-| A finding is wrong and a correct doc gets "fixed"         | M      | L           | 11 of 17 re-verified; the other 6 marked ○ and re-checked before edit |
+| Risk                                                      | Impact | Probability | Mitigation                                                                 |
+| --------------------------------------------------------- | ------ | ----------- | -------------------------------------------------------------------------- |
+| A "fix" is written from the doc rather than from the code | H      | M           | Every fix reads the source first — the audit's own method                  |
+| Fixed docs re-drift on the next code change               | H      | H           | **Closed** — `qa-docs.bash` gates every commit; 10 discriminating controls |
+| A finding is wrong and a correct doc gets "fixed"         | M      | L           | 11 of 17 re-verified; the other 6 marked ○ and re-checked before edit      |
 
 ## Delivery & Milestones
 

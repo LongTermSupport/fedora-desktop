@@ -1,6 +1,7 @@
 ---
 paths:
   - "scripts/qa-*.bash"
+  - "helpers/docs/**"
   - "ruff.toml"
   - ".ruff-version"
   - ".semgrep/**"
@@ -46,8 +47,14 @@ read by `.claude/ccy/Dockerfile` and `.github/workflows/qa.yml` and **asserted**
 `scripts/qa-python.bash`. Bumping it means owning the triage of whatever the new defaults
 add, and rebuilding the ccy image.
 
-## Known gap
+## Known gap — now partly closed
 
-**These gates have no tests of their own.** Every fix so far was proven with a hand-built
-fixture that was then discarded. If you are here to change one, consider whether the
-fixture should become permanent.
+Most gates still have **no tests of their own**; fixes were proven with hand-built fixtures
+that were then discarded. If you are here to change one, consider whether the fixture should
+become permanent.
+
+`qa-docs.bash` is the exception and the model: its logic lives in the stdlib-only helper
+[helpers/docs/link_check.py](../../helpers/docs/link_check.py) with 42 unit tests at
+`tests/helpers/docs/test_link_check.py`, which CI runs. Its slug cases are pinned against
+anchors observed working in rendered documents — because that checker's **first**
+implementation was wrong in the same way as the defects it hunts, and under-reported by 32.

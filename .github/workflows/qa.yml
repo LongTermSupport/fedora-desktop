@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   qa-all:
-    name: qa-all.bash (6 stages)
+    name: qa-all.bash (8 gates)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
