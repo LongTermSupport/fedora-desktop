@@ -143,6 +143,57 @@ The symlink is a direct MCP-into-desktop path. Dropping it is now a constraint, 
    owner offered it as acceptable; the layered design does not need it, and YAGNI says do not build
    the extension until a project wants CI-only extra tooling. Noted as available, not designed.
 
+## D32 — who builds the per-project CI image, and when, is unspecified
+
+Asked by the owner as two confirmations: *does changing the project ccy Dockerfile trigger a rebuild
+before the CI workload runs*, and *does a subsequent CI workload launch quickly from the saved
+image*. Neither can be confirmed, and the reasons are worth separating.
+
+**On desktop both are true**, and the mechanism is not in dispute:
+
+| Behaviour                   | Evidence                                                                 |
+| --------------------------- | ------------------------------------------------------------------------ |
+| Dockerfile change ⇒ rebuild | `claude-yolo:1471` hashes it, `:1496`/`:1498` compare and rebuild        |
+| Unchanged ⇒ no build        | `:1528` — *"Using cached project image (Dockerfile and base unchanged)"* |
+
+**In CI none of it applies**, for reasons that stack:
+
+1. `claude-yolo` is not on the CI path at all (Task 3.4: *"the launcher does not run at job time"*),
+   so `:1471`/`:1496`/`:1528` never execute.
+2. The comparison state is host-user-local — `$HOME/.cache/claude-yolo-<project>-dockerfile-hash`
+   (`:1454`) — so it cannot travel with an image or be read from a checkout. This is the defect
+   deliverable 1 exists to fix; the LABEL spec names its reader as *"a CI job with only a checkout
+   and a container engine"*.
+3. Nothing is implemented. No labels are written by anything today.
+4. **F1 is the specific hazard here.** An absent label read as `""` on both sides compares equal and
+   reports FRESH — which delivers a fast launch *and* no rebuild on change. The two questions trade
+   against each other under exactly the defect the checklist calls the most consequential.
+5. Whether the runner keeps an image store between jobs is an `lts-infra` property and `lts-infra`
+   is not checked out (Tier C).
+
+**The specification gap.** Task 3.4 specifies the **shared base** image as built by *Ansible, never
+per-job*, because the build needs egress a locked-down job must not have. That is coherent for an
+image with no per-project content. It cannot hold for `.claude/ccy/Dockerfile`, which is a
+**per-commit file in the repository**: Ansible provisioning does not re-run per commit, so either the
+image is rebuilt per job — contradicting Task 3.4 and widening egress at job time — or a PR that
+changes the project Dockerfile **runs against the previous tooling, silently**.
+
+**This is pre-existing, not introduced by D31.** Under the original layering the per-project image
+also had to be built somewhere in CI and no task covered it; Task 3.4 covers only the shared base.
+D31 makes the gap more visible and gives it a second layer. Stated so the correction is not credited
+with finding a problem it partly enlarged.
+
+**Options, for decision:**
+
+| Option                | Approach                                                                                                          | Cost                                                                                                                     |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| A                     | Rebuild at job time inside a temporary `arm → build → drop` egress window                                         | Contradicts Task 3.4 and widens egress at job time — the thing CI lockdown exists to prevent                             |
+| **B** *(recommended)* | Two-phase: an image-prep step with wider egress resolves staleness and builds; the locked-down job then only runs | Preserves both properties **and** the lockdown, and reuses the estate's existing arm→build→drop shape. More moving parts |
+| C                     | Job fails loudly when the image is stale; operator re-provisions                                                  | Fail-fast and never silently stale, but poor developer experience on every Dockerfile change                             |
+
+Whichever is chosen, the staleness comparison itself is already specified — fact 2 of the LABEL
+convention, with **absent label ⇒ STALE**, which is what stops option B degrading into F1.
+
 ## Status
 
 Design only, and **unbuilt** — as with everything else in this plan. It changes what the

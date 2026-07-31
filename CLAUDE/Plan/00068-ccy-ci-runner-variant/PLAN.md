@@ -1090,6 +1090,30 @@ Tracked as a finding in lts-infra Plan 00023.
   job that needed it would already be running the launcher, which is the actual defect. That
   variable is the plausible-looking fix that would have hidden the real problem.
 
+  > **D32 — this task covers the SHARED base only; the per-project image in CI is unspecified.**
+  > *"Built by Ansible, never per-job"* is coherent for an image with no per-project content. It
+  > cannot hold for `.claude/ccy/Dockerfile`, which is a **per-commit file in the repository**:
+  > Ansible provisioning does not re-run per commit. So either the image is rebuilt per job —
+  > contradicting this task and widening egress at job time, the exact thing CI lockdown exists to
+  > prevent — or **a PR that changes the project Dockerfile runs against the previous tooling,
+  > silently**.
+  >
+  > **Pre-existing, not introduced by D31.** The per-project image had to be built somewhere in CI
+  > under the original layering too, and no task covered it. D31 makes it visible and adds a second
+  > layer to it; it does not get credit for finding a problem it partly enlarged.
+  >
+  > Raised by the owner asking for two confirmations — *does a project Dockerfile change trigger a
+  > rebuild before the CI workload*, and *does a subsequent workload launch quickly from the saved
+  > image*. On desktop both hold (`claude-yolo:1471`/`:1496` and `:1528`). In CI **neither can be
+  > confirmed**: the launcher is not on that path, the comparison state is host-user-local
+  > (`:1454`), nothing is implemented, and **F1 is precisely this hazard** — an absent label read as
+  > empty on both sides reports FRESH, delivering the fast launch while silently skipping the
+  > rebuild. The two questions trade against each other under that one defect.
+  >
+  > Three options tabled in [reports/ci-layering-corrected.md](reports/ci-layering-corrected.md)
+  > (§D32); **B — a two-phase image-prep step** is recommended because it preserves both properties
+  > *and* the lockdown, reusing the estate's existing arm → build → drop shape. Not decided here.
+
 ### Phase 4: Design MCP injection
 
 > **Phases 4 and 5 delivered — [reports/phase45-mcp-and-egress.md](reports/phase45-mcp-and-egress.md).**
