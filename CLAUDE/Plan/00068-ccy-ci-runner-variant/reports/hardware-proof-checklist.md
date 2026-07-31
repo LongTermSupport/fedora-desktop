@@ -32,12 +32,12 @@ mistaken for evidence.
 
 ## B. Behaviour classified but never executed
 
-| #   | Claim                                                                 | How to settle it                                                                                 |
-| --- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| B1  | `select_token` **spins** on EOF (does not abort)                      | `ccy --headless --prompt x < /dev/null` with ≥2 token files present; observe hang vs exit        |
-| B2  | The 32 abort sites abort **undiagnosably**                            | same, with exactly one token file; capture stdout/stderr and confirm no message names the prompt |
-| B3  | The `alpine`/`google.com` preflight is reached and is fatal           | run with a network whose egress is restricted; expect the `exit 1` at `claude-yolo:2597`         |
-| B4  | `--no-network` skips the preflight but leaves the container networked | `ccy --no-network`, then from inside the container attempt any outbound connection               |
+| #   | Claim                                                                                              | How to settle it                                                                                                                                                                               |
+| --- | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| B1  | `select_token` **spins** on EOF (does not abort)                                                   | `ccy --headless --prompt x < /dev/null` with ≥2 token files present; observe hang vs exit                                                                                                      |
+| B2  | The 32 abort sites abort **undiagnosably**                                                         | same, with exactly one token file; capture stdout/stderr and confirm no message names the prompt                                                                                               |
+| B3  | The preflight is fatal **when a network is selected** — and is SKIPPED ENTIRELY when none is (D16) | two runs: (a) podman default — expect `exit 1` at `claude-yolo:2597` on restricted egress; (b) **Docker with no `--network`, no compose, no auto-connect** — expect the preflight never to run |
+| B4  | `--no-network` skips the preflight but leaves the container networked                              | `ccy --no-network`, then from inside the container attempt any outbound connection                                                                                                             |
 
 B1 and B4 are the two that would change a decision if they came back the other way. B4 in
 particular: if `--no-network` *does* isolate, R11 is wrong and Task 5.1 shrinks back to a naming

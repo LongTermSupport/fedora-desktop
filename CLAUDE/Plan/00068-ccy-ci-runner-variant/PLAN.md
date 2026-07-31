@@ -876,6 +876,23 @@ Tracked as a finding in lts-infra Plan 00023.
   permission policy (both runtime), or an `ENTRYPOINT` override — it *ships* the CI entrypoint,
   it does not make it the default.
 
+  > **A motivation for the CI entrypoint that was found late, filed here per D23.** Because
+  > `Dockerfile.ci` deliberately does *not* override `ENTRYPOINT`, selection stays with the caller
+  > — and a caller who gets that wrong runs the **desktop** entrypoint. That is not hypothetical:
+  > the consumer did exactly this in production (`round2-restatement.md:61-68`;
+  > `run-sandbox.sh:375-402`, *"The platform's entrypoint was never reached"*).
+  >
+  > The newly-traced consequence (D20/D21) is that such a caller on a restricted network also
+  > inherits `entrypoint.sh:111`'s failure path, silently downgrading SSH host-key checking to
+  > `StrictHostKeyChecking accept-new` (`:130-133`). So the cost of mis-selecting the entrypoint is
+  > not merely "the wrong prep runs" — it includes a quiet security downgrade.
+  >
+  > **This strengthens Decision 6 rather than complicating it**: a named, shipped CI entrypoint
+  > exists precisely so callers stop hand-rolling `--entrypoint`, and this is a concrete harm from
+  > the hand-rolling. It is deliberately **not** an argument for making `Dockerfile.ci` override
+  > `ENTRYPOINT` — that would silently change behaviour for anything pulling the tag expecting ccy
+  > semantics, which the bullet above rejects for good reason.
+
 - [x] ✅ **Task 3.2**: Specify how a project selects it, and prove on paper that an
   existing `.claude/ccy/Dockerfile` (`FROM claude-yolo:latest`) is unaffected.
 
@@ -1613,7 +1630,15 @@ tasks **replace** the corresponding Phase 2-5 tasks above where they conflict.
   > `round2-restatement.md:61-68` records the consumer doing exactly that in production
   > (`run-sandbox.sh:375-402`, *"The platform's entrypoint was never reached"*). Such a caller, on
   > a restricted network, would hit this downgrade. That is an argument **for** Decision 6, not an
-  > obligation on Tasks 5.1/5.2, and it is recorded as a `Dockerfile.ci`/Decision 6 motivation.
+  > obligation on Tasks 5.1/5.2.
+  >
+  > > **D23 — this sentence originally ended "…and it is recorded as a `Dockerfile.ci`/Decision 6
+  > > motivation." It was not.** The residual existed only in this correction block; nothing at
+  > > Task 3.1 or Decision 6 carried it. A correction asserting in the present tense that it had
+  > > filed something, when it had not, is the failure mode operating on the *record of the failure
+  > > mode* — a true statement about an intention presented as a statement about an action. Now
+  > > actually recorded at Task 3.1, and the claim here replaced with a pointer.
+  > > **Twelfth instance.**
   >
   > **D22 — MINOR: `label-convention-spec.md` §2 still asserts the pre-D17 confidence.** It reads
   > *"it is only acceptable because it **comes with** a migration that removes the second one"* —
