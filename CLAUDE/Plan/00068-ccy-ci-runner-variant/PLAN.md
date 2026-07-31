@@ -107,6 +107,13 @@ truthfully, the mechanism is not needed.
 
 ## Technical Decisions
 
+> **Numbering — read before citing.** `Decision 5` and `Decision 6` name **different
+> propositions** here and in `reports/round2-restatement.md`, and `D6` is a third thing again (a
+> review finding in `JOURNAL/`). The Round-2 findings `R1`–`R11` were deleted from this file at
+> `9a53608` while five reports still cited them by number — the same mistake Phase 3 below
+> deliberately avoids. All three schemes are resolved in
+> [reports/finding-numbers-key.md](reports/finding-numbers-key.md).
+
 ### Decision 1 — Ansible provides the VM and its config; the project provides the image; CI fires `ccy`
 
 **Date**: 2026-07-31. Supersedes the earlier "ccy-owned CI base image built by Ansible" direction,
