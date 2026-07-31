@@ -1,10 +1,10 @@
 # Playbooks Directory
 
-**Ansible style rules and patterns:** @../CLAUDE/AnsibleStyle.md
+**Ansible style rules and patterns:** [CLAUDE/AnsibleStyle.md](../CLAUDE/AnsibleStyle.md)
 
-**Deployment workflow (edit → playbook → deploy → test):** @../CLAUDE/InfrastructureAsCode.md
+**Deployment workflow (edit → playbook → deploy → test):** [CLAUDE/InfrastructureAsCode.md](../CLAUDE/InfrastructureAsCode.md)
 
-**Complex logic belongs in a tested helper, not a shell block:** @../helpers/CLAUDE.md
+**Complex logic belongs in a tested helper, not a shell block:** [helpers/CLAUDE.md](../helpers/CLAUDE.md)
 
 ## Complex Logic → TDD Helper (in stone)
 
@@ -22,7 +22,7 @@ time (`failed at splitting arguments, either an unbalanced jinja2 block or quote
 whole class of breakage, and is invoked with `command:` + `argv:` (which bypasses
 `split_args`) plus `chdir: "{{ root_dir }}"`. Helpers are **stdlib-only** (no
 venv, no pip) — full pattern, rationale, and test layout in
-@../helpers/CLAUDE.md. First example: `helpers/pyenv/` driving
+[helpers/CLAUDE.md](../helpers/CLAUDE.md). First example: `helpers/pyenv/` driving
 `playbooks/imports/play-python.yml`.
 
 ## Executable Playbooks Requirement

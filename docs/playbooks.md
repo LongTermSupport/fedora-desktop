@@ -1013,7 +1013,7 @@ Template:
   name: Your Feature Name
   become: true  # If root required
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
   vars_files:
     - "{{ root_dir }}/vars/fedora-version.yml"  # If version-specific
   tasks:

@@ -3,7 +3,7 @@
 Home for non-trivial logic extracted out of Ansible playbooks (and other glue),
 written in Python and driven by tests.
 
-**Cross-references:** @../playbooks/CLAUDE.md · @../CLAUDE/AnsibleStyle.md
+**Cross-references:** [playbooks/CLAUDE.md](../playbooks/CLAUDE.md) · [CLAUDE/AnsibleStyle.md](../CLAUDE/AnsibleStyle.md)
 
 ## The Rule (in stone)
 
@@ -64,7 +64,7 @@ Python helper sidesteps that entire class of breakage.
   without parsing free-form output.
 - Drive external tools directly via environment (e.g. `PYENV_ROOT`) rather than
   `source ~/.bash_profile` — that also avoids the Fedora `BASHRCSOURCED` nounset
-  trap (see @../CLAUDE/AnsibleStyle.md).
+  trap (see [CLAUDE/AnsibleStyle.md](../CLAUDE/AnsibleStyle.md)).
 
 ## Tests (TDD, required)
 
@@ -73,8 +73,15 @@ Python helper sidesteps that entire class of breakage.
   daemon's TDD handler blocks creating a source file before its test exists.
 - Put the repo root on `sys.path`, then import the namespace package (ruff
   ignores `E402` for `tests/**`).
-- Run: `python3 -m unittest discover -s tests` (or a specific module, e.g.
+- Run: **`./scripts/qa-helper-tests.bash`** (or a specific module, e.g.
   `python3 -m unittest tests.helpers.pyenv.test_resolver`).
+
+> **Do NOT use `python3 -m unittest discover -s tests`.** It reports
+> `Ran 0 tests … OK` and exits **0** — a false pass. These are namespace packages
+> with no `__init__.py`, so `discover` cannot import the start dir and silently
+> collects nothing. `qa-helper-tests.bash` enumerates `tests/helpers/**/test_*.py`
+> and runs them by explicit module name, and fails when it finds none. This
+> document recommended `discover` until Plan 00070 measured it.
 
 ## Fail fast
 

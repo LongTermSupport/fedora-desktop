@@ -184,7 +184,7 @@ Create in `playbooks/imports/optional/` under the appropriate category (`common/
 - hosts: desktop
   name: My Custom Configuration
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
   tasks:
     - name: My task
       # Your tasks here

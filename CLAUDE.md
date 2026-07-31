@@ -10,7 +10,7 @@
 - **Only edit and commit** — then tell the user to deploy on their HOST system
 - CCY version bump required when modifying `files/var/local/claude-yolo/claude-yolo`
 
-**Full container rules and ctrl+z patch details:** @CLAUDE/ContainerRules.md
+**Full container rules and ctrl+z patch details:** [CLAUDE/ContainerRules.md](CLAUDE/ContainerRules.md)
 
 ### Fail Fast — HARD RULE
 
@@ -29,7 +29,7 @@
 
 This is a public repository. Never commit personal information, credentials, hardcoded paths, or sensitive data. Always use Ansible variables, placeholders, and Vault encryption.
 
-**Full security rules, vault management, and pre-commit checks:** @CLAUDE/SecurityRules.md
+**Full security rules, vault management, and pre-commit checks:** [CLAUDE/SecurityRules.md](CLAUDE/SecurityRules.md)
 
 ### Infrastructure as Code — No Manual Operations
 
@@ -37,7 +37,7 @@ ALL system changes MUST go through Ansible playbooks. Never perform manual file 
 
 **STRICT IAC — NO MANUAL FIX. DO NOT SUGGEST A MANUAL/QUICK FIX, EVEN AS A "do this now" shortcut alongside the playbook. ONLY IAC: fix it in the playbook and tell the user to run the playbook. Nothing else.**
 
-**Full IaC workflow (edit → playbook → deploy → test):** @CLAUDE/InfrastructureAsCode.md
+**Full IaC workflow (edit → playbook → deploy → test):** [CLAUDE/InfrastructureAsCode.md](CLAUDE/InfrastructureAsCode.md)
 
 ### Missing Dependencies — Fail Fast, Fix in IaC
 
@@ -57,19 +57,19 @@ The host's tool inventory is owned by Ansible. A missing tool is an IaC gap, not
 
 Run `./scripts/qa-all.bash` before every commit touching Bash or Python files. Run ESLint for extension JavaScript. Run `./scripts/qa-ctrl-z-patch.bash` for CCY patch changes.
 
-**Full QA reference (scripts, what they check, limitations):** @CLAUDE/QA.md
+**Full QA reference (scripts, what they check, limitations):** [CLAUDE/QA.md](CLAUDE/QA.md)
 
 ### Debug Commands: Always Non-Interactive
 
 When providing diagnostic commands to users, always use `--no-pager`, `| cat`, or `| head`. Never open pagers or editors.
 
-**Full rules and examples:** @CLAUDE/DebugCommands.md
+**Full rules and examples:** [CLAUDE/DebugCommands.md](CLAUDE/DebugCommands.md)
 
 ### Interactive Scripts: Human-Friendly, Standardised
 
 Scripts a human runs and is prompted by (extensionless executables and executed `*.bash` files under `files/home/.local/bin/`) MUST follow the standard UX rules: **strict validation, friendly recovery** — validate strictly, but on a recoverable input mistake show a clear error and **re-prompt in a bounded loop** instead of aborting. Reserve hard aborts for genuinely unrecoverable states. Sourced libraries and non-interactive/Ansible-invoked helpers are out of scope (those stay fully non-interactive and fail fast).
 
-**Full rules, scope, and canonical patterns:** @CLAUDE/InteractiveScripts.md
+**Full rules, scope, and canonical patterns:** [CLAUDE/InteractiveScripts.md](CLAUDE/InteractiveScripts.md)
 
 ### Stderr Hygiene: Diagnostics to stderr, stdout is the payload
 
@@ -83,7 +83,7 @@ embedded `shell:` blocks, `scripts/`, and `helpers/` Python (parsed marker lines
 = stdout; diagnostics = stderr). Help/status/report commands whose entire job is
 to print for a human are the exception — their text IS the payload.
 
-**Full rule, decision procedure, patterns, and review checklist:** @CLAUDE/StderrHygiene.md
+**Full rule, decision procedure, patterns, and review checklist:** [CLAUDE/StderrHygiene.md](CLAUDE/StderrHygiene.md)
 
 ### Container Engines: Podman First
 
@@ -95,7 +95,7 @@ to print for a human are the exception — their text IS the payload.
 
 New playbooks needing a container engine must use the `container_engine` variable (default `podman`), not hardcode an engine.
 
-**Full role split, coexistence, and FAQ:** @CLAUDE/ContainerEngines.md
+**Full role split, coexistence, and FAQ:** [CLAUDE/ContainerEngines.md](CLAUDE/ContainerEngines.md)
 
 ---
 
@@ -111,7 +111,7 @@ New playbooks needing a container engine must use the `container_engine` variabl
 
 ## Ansible Style
 
-**Full Ansible style rules (playbook structure, markers, packages, services, variables, tasks):** @CLAUDE/AnsibleStyle.md
+**Full Ansible style rules (playbook structure, markers, packages, services, variables, tasks):** [CLAUDE/AnsibleStyle.md](CLAUDE/AnsibleStyle.md)
 
 ---
 
@@ -145,23 +145,49 @@ If `git status` shows plan files modified by your session, decide before committ
 
 ---
 
+## Path-Triggered Rules — these load themselves
+
+The topic files below are linked, **not** `@`-imported: an `@`-import is re-inlined into
+every session whether or not it is relevant, while a link costs nothing until followed.
+
+So that nothing is missed by not being resident, `.claude/rules/*.md` carry `paths:` globs
+and load **on demand** whenever a matching file is touched. Each rule is a thin pointer to
+the topic file that owns the fact — never a copy.
+
+| Touching…                                                    | Loads                  | Which points at                                 |
+| ------------------------------------------------------------ | ---------------------- | ----------------------------------------------- |
+| `playbooks/`, `tasks/`, `vars/`, `environment/`, any `*.yml` | `ansible-editing.md`   | AnsibleStyle, InfrastructureAsCode, helpers     |
+| any `*.bash`, `scripts/`, `files/**/bin/`                    | `bash-scripts.md`      | StderrHygiene, InteractiveScripts, QA           |
+| `files/var/local/claude-yolo/`                               | `ccy-version-bump.md`  | ContainerRules — **the mandatory version bump** |
+| `helpers/`, `tests/helpers/`, any `*.py`                     | `python-helpers.md`    | helpers/CLAUDE.md, the ruff pin                 |
+| `environment/`, `vault.bash`, `*_vars/`                      | `secrets-and-vault.md` | SecurityRules, ExampleValues                    |
+| `extensions/`, gnome-shell dirs                              | `gnome-extensions.md`  | GnomeShell, the ESLint requirement              |
+| `scripts/qa-*.bash`, `ruff.toml`, workflows                  | `qa-gates.md`          | QA.md, and how these gates have failed before   |
+
+**When you add a fact that only matters for certain paths, add it to the rule, not here.**
+`CLAUDE.md` is resident in every session; the rules are not.
+
 ## CLAUDE/ Topic Files Index
 
-| File                            | Content                                                                    |
-| ------------------------------- | -------------------------------------------------------------------------- |
-| @CLAUDE/ContainerRules.md       | CCY container detection, version bump, ctrl+z patch                        |
-| @CLAUDE/ContainerEngines.md     | Podman/Docker/LXC role split; when to use which; security trade-offs       |
-| @CLAUDE/InfrastructureAsCode.md | Ansible-only workflow, prohibited manual actions                           |
-| @CLAUDE/AnsibleStyle.md         | Playbook structure, markers, packages, services, variables                 |
-| @CLAUDE/SecurityRules.md        | Public repo warning, vault management, pre-commit checks                   |
-| @CLAUDE/ExampleValues.md        | Reserved example IPs/emails/hostnames the secret scanner whitelists        |
-| @CLAUDE/QA.md                   | QA scripts reference, what to run when                                     |
-| @CLAUDE/DebugCommands.md        | Non-interactive command rules for user diagnostics                         |
-| @CLAUDE/InteractiveScripts.md   | Human-friendly interactive script rules (validate strictly, retry on loop) |
-| @CLAUDE/StderrHygiene.md        | Diagnostics → stderr; stdout is the captured payload (bash + Python)       |
-| @CLAUDE/GnomeShell.md           | GNOME Shell extension development (Wayland, ESLint, APIs)                  |
-| @CLAUDE/PlanWorkflow.md         | Planning workflow and plan document structure                              |
-| @CLAUDE/AgentNotes.md           | Working practices and project gotchas (feedback + project knowledge)       |
+Each of these is the single source of truth for its subject. Follow the row you need.
+
+| File                                                      | Content                                                                    |
+| --------------------------------------------------------- | -------------------------------------------------------------------------- |
+| [ContainerRules.md](CLAUDE/ContainerRules.md)             | CCY container detection, version bump, ctrl+z patch                        |
+| [ContainerEngines.md](CLAUDE/ContainerEngines.md)         | Podman/Docker/LXC role split; when to use which; security trade-offs       |
+| [InfrastructureAsCode.md](CLAUDE/InfrastructureAsCode.md) | Ansible-only workflow, prohibited manual actions                           |
+| [AnsibleStyle.md](CLAUDE/AnsibleStyle.md)                 | Playbook structure, markers, packages, services, variables                 |
+| [SecurityRules.md](CLAUDE/SecurityRules.md)               | Public repo warning, vault management, pre-commit checks                   |
+| [ExampleValues.md](CLAUDE/ExampleValues.md)               | Reserved example IPs/emails/hostnames the secret scanner whitelists        |
+| [QA.md](CLAUDE/QA.md)                                     | QA scripts reference, what to run when                                     |
+| [DebugCommands.md](CLAUDE/DebugCommands.md)               | Non-interactive command rules for user diagnostics                         |
+| [InteractiveScripts.md](CLAUDE/InteractiveScripts.md)     | Human-friendly interactive script rules (validate strictly, retry on loop) |
+| [StderrHygiene.md](CLAUDE/StderrHygiene.md)               | Diagnostics → stderr; stdout is the captured payload (bash + Python)       |
+| [GnomeShell.md](CLAUDE/GnomeShell.md)                     | GNOME Shell extension development (Wayland, ESLint, APIs)                  |
+| [PlanWorkflow.md](CLAUDE/PlanWorkflow.md)                 | Planning workflow and plan document structure                              |
+| [PlanJournalling.md](CLAUDE/PlanJournalling.md)           | `JOURNAL/` entry grammar and the append-only discipline                    |
+| [PlanScriptStandards.md](CLAUDE/PlanScriptStandards.md)   | Plan-folder orchestrator rules (R1–R14) and `_planlib.inc.bash`            |
+| [AgentNotes.md](CLAUDE/AgentNotes.md)                     | Working practices and project gotchas (feedback + project knowledge)       |
 
 ## User Documentation
 

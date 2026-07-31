@@ -53,18 +53,23 @@ exist. Incompleteness misleads by omission; these mislead by instruction.
 
 ### Phase 2 — Fix the four harmful docs
 
-- [ ] ⬜ **Task 2.1**: Replace the `inventory_dir` pattern in all four docs (finding 1).
-- [ ] ⬜ **Task 2.2**: Point `helpers/CLAUDE.md:76` at `./scripts/qa-helper-tests.bash` (finding 5).
-- [ ] ⬜ **Task 2.3**: Fix the NordVPN play's `set` → `replace`, and reconcile the third workflow in
-  `docs/nordvpn-installation.md` (finding 4).
-- [ ] ⬜ **Task 2.4**: Reconcile `extensions/CLAUDE.md` with `CLAUDE/QA.md:71` (finding 6).
+- [x] ✅ **Task 2.1**: `inventory_dir` replaced in all four docs (finding 1). Verified: zero
+  occurrences remain anywhere under `docs/`.
+- [x] ✅ **Task 2.2**: `helpers/CLAUDE.md` now points at `./scripts/qa-helper-tests.bash`, with an
+  explicit callout that `discover` reports `Ran 0 tests … OK` and exits 0 (finding 5).
+- [x] ✅ **Task 2.3**: NordVPN play now says `replace`, not `set` (finding 4). `vault.bash:173`
+  **already told the user to use `replace`** — only the playbook's own message was wrong.
+  `docs/nordvpn-installation.md` reconciled onto the same command, keeping the raw
+  `ansible-vault encrypt_string` form as a documented alternative with its downsides named.
+- [x] ✅ **Task 2.4**: `extensions/CLAUDE.md` uses the eslint binary at all three sites, matching
+  `CLAUDE/QA.md:71` (finding 6). `eslint .` exits 0.
 
 ### Phase 3 — Fix the omissions and staleness
 
 - [ ] ⬜ **Task 3.1**: Add `play-mask-intel-lpmd.yml` to `docs/architecture.md` and
   `docs/playbooks.md` (finding 2); add the four missing optional playbooks (finding 9).
-- [ ] ⬜ **Task 3.2**: Index `PlanJournalling.md` and `PlanScriptStandards.md` in `CLAUDE.md`
-  (finding 3).
+- [x] ✅ **Task 3.2**: `PlanJournalling.md` and `PlanScriptStandards.md` indexed in `CLAUDE.md`
+  (finding 3). All 15 topic files now have a row.
 - [ ] ⬜ **Task 3.3**: Correct the two mischaracterised playbooks, and check whether the
   `Enable LXD Copr Repository` task name is itself wrong (finding 10).
 - [ ] ⬜ **Task 3.4**: Rewrite `docs/fast-file-manager.md` — delete the non-existent tracker feature,
@@ -100,13 +105,21 @@ exist. Incompleteness misleads by omission; these mislead by instruction.
 
 ## Technical Decisions
 
-### Decision 1 — the `@`-import question is the owner's, not this plan's
+### Decision 1 — `@`-imports removed, but ONLY because path-triggered rules replace them
 
-Finding 7 says `CLAUDE.md`'s 22 `@CLAUDE/*.md` imports contradict the doc-organisation policy stated
-in the same file, at a measured cost of ~108,900 bytes inlined into every session.
+**Owner-approved and actioned.** All 22 `@CLAUDE/*.md` imports in `CLAUDE.md` became plain links,
+as did the 11 in the nested `*/CLAUDE.md` files — 33 in total, zero remaining.
 
-**This plan does not act on it.** Changing `CLAUDE.md`'s structure changes what every future session
-sees, and it was a peer review — not the owner — that raised it. Recorded for the owner's decision.
+**The owner attached a condition, and it is the important half of this decision:** removing the
+imports is only safe if `.claude/rules/*.md` with `paths:` globs make the same documents load
+**on demand**, so that editing Ansible still triggers reading the Ansible rules. Without that, this
+change would not have saved context — it would have silently removed guidance.
+
+`.claude/rules/` **did not exist in this repo**; the rules I had previously seen belong to the outer
+lts-infra checkout. Seven were created: `ansible-editing`, `bash-scripts`, `ccy-version-bump`,
+`python-helpers`, `secrets-and-vault`, `gnome-extensions`, `qa-gates`. Each is a **thin pointer** to
+the topic file that owns the fact, never a copy — one source of truth per fact still holds.
+
 **Date**: 2026-07-31
 
 ## Dependencies

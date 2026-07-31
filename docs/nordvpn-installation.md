@@ -37,12 +37,18 @@ On first run the playbook appends them in plaintext to
 `environment/localhost/host_vars/localhost.yml`. Encrypt them immediately afterwards:
 
 ```bash
-ansible-vault encrypt_string 'your-service-username' --name 'nordvpn_username'
-ansible-vault encrypt_string 'your-service-password' --name 'nordvpn_password'
+./vault.bash replace nordvpn_username
+./vault.bash replace nordvpn_password
 ```
 
-Replace the plaintext values in `localhost.yml` with the resulting `!vault |` blocks.
-See `CLAUDE/SecurityRules.md` for the full variable-level vault workflow.
+`replace` encrypts each value **in place**, so there is nothing to paste by hand. Use
+`replace` and not `set` — `set` appends a new variable and refuses when one already
+exists, which it will, because the playbook just wrote both in plaintext.
+
+The raw `ansible-vault encrypt_string 'value' --name 'nordvpn_username'` form still
+works if you prefer it, but it puts the secret in your shell history and leaves you to
+swap the `!vault |` block in yourself. See `CLAUDE/SecurityRules.md` for the full
+variable-level vault workflow.
 
 If credentials are already present in `localhost.yml` (as `nordvpn_username` /
 `nordvpn_password`), the prompt is skipped.
