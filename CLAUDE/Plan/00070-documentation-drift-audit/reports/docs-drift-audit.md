@@ -173,13 +173,30 @@ Meanwhile the play's real behaviour — `remember-recent-files=false` plus delet
 
 **Fix**: delete the tracker sections; document what the play actually does.
 
-### 12 ○ The Whisper model table is stale
+### 12 ✔ The Whisper model table is wrong in both dimensions
 
-`docs/features/speech-to-text.md` lists tiny/base/small/medium/large-v3.
-`extensions/speech-to-text@fedora-desktop/extension.js:74-83` also offers `auto`, `large-v2`,
-`large-v3-turbo` and further English-only variants.
+**Upgraded from ○ to ✔, and from "stale" to "wrong", by resolving S4.** The table at
+`docs/features/speech-to-text.md:152-156` is not merely missing rows — **every size in it disagrees
+with the source**, and the missing rows are the majority of the model list.
 
-**Fix**: regenerate the table from `_whisperModels`.
+`extension.js:74-88` defines **12** models. The doc lists **5**. Missing: `auto`, `large-v2`,
+`large-v3-turbo`, and all four English-only variants (`tiny.en`, `base.en`, `small.en`, `medium.en`).
+
+Sizes, doc vs `_whisperModels`:
+
+| Model      | Doc   | `extension.js` | Delta         |
+| ---------- | ----- | -------------- | ------------- |
+| `tiny`     | 40MB  | ~75MB          | **~1.9× out** |
+| `base`     | 150MB | ~142MB         | close         |
+| `small`    | 500MB | ~466MB         | close         |
+| `medium`   | 1.5GB | ~1.5GB         | ✓             |
+| `large-v3` | 2.9GB | ~3GB           | close         |
+
+The `tiny` figure is the one that matters, because it propagates: the doc quotes the cache range as
+"40MB (tiny) to 2.9GB (large-v3)" at `:77` and again at `:752`, so the wrong low end appears three
+times. A reader sizing a disk budget from the smallest model is told roughly half the real figure.
+
+**Fix**: regenerate the whole table from `_whisperModels`, and correct the range at `:77` and `:752`.
 
 ### 13 ✔ `README.md`'s security-guidelines link is broken
 
@@ -229,18 +246,30 @@ Both 404 on GitHub.
 
 ---
 
-## Suspected — not confirmed
+## Suspected — three resolved, three need the owner
+
+**S3, S4 and S6 have been resolved** by checks that needed nothing but the tree. S1, S2 and S5 turn
+on what the author *meant*, which no amount of grepping settles — they need the owner.
+
+| #   | Resolution                                                                                                                                                                                                                                                                                                                     |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| S3  | **Dismissed.** `RUN_BASH_USER_LOGIN` / `RUN_BASH_USER_NAME` are real (`run.bash:143-144`) and documented in two places the reader is pointed at — `docs/headless-provisioning.md:54-55` and `run.bash:517-518`'s own `--help`. `headless-server-install.md` calls its example non-exhaustive and defers explicitly. Not drift. |
+| S4  | **Confirmed and escalated** — folded into finding 12, which it makes substantially worse. Every size in the table is wrong, not just one, and `tiny` is out by ~1.9×.                                                                                                                                                          |
+| S6  | **Dismissed.** `docs/README.md:295-296` links both child docs directly. `features/README.md` is a redundant intermediate index; nothing points at it and nothing needs to.                                                                                                                                                     |
+
+The three below are unresolved, and stay that way until the owner rules.
 
 Recorded so they are not lost, explicitly **not** established.
 
-| #   | Suspicion                                                                                                             | Why it is not confirmed                                       |
-| --- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| S1  | `docs/development.md:246` hardcodes `/workspace/extensions`, a CCY-container-only path, in a doc that clones anywhere | `CLAUDE/QA.md` uses the same wording — may be deliberate      |
-| S2  | `docs/features/claude-devtools.md`'s `podman run` reproduction omits `--init`, `--replace`, `--name`                  | plausibly a readability simplification; intent unknown        |
-| S3  | `docs/headless-server-install.md`'s example vars omit `RUN_BASH_USER_LOGIN` / `RUN_BASH_USER_NAME`                    | the doc calls its example non-exhaustive and defers elsewhere |
-| S4  | Whisper model **size** figures may disagree with `extension.js` (~500MB vs ~466MB)                                    | not enumerated past `large-v3-turbo`                          |
-| S5  | `playbooks/dev/play-collect-diagnostics.yml` absent from the catalog                                                  | self-identifies as dev-only; exclusion may be intended        |
-| S6  | `docs/features/README.md` is not linked from `docs/README.md`                                                         | no written rule requires it                                   |
+| #   | Suspicion                                                                                                             | Why it is not confirmed                                  |
+| --- | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| S1  | `docs/development.md:246` hardcodes `/workspace/extensions`, a CCY-container-only path, in a doc that clones anywhere | `CLAUDE/QA.md` uses the same wording — may be deliberate |
+| S2  | `docs/features/claude-devtools.md`'s `podman run` reproduction omits `--init`, `--replace`, `--name`                  | plausibly a readability simplification; intent unknown   |
+| S5  | `playbooks/dev/play-collect-diagnostics.yml` absent from the catalog                                                  | self-identifies as dev-only; exclusion may be intended   |
+
+All three are the same question in different clothes: **was the omission a decision or an
+oversight?** S2 is the one with a real cost either way — a reader who copy-pastes the simplified
+`podman run` loses `--replace` and `--name`, so container-name collisions stop being handled.
 
 ---
 

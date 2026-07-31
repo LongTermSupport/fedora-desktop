@@ -78,8 +78,17 @@ exist. Incompleteness misleads by omission; these mislead by instruction.
 
 ### Phase 4 — Resolve the suspected six
 
-- [ ] ⬜ **Task 4.1**: Resolve S1–S6 to confirmed or dismissed. S1, S2 and S5 need the owner's
-  intent, not more grepping.
+- [ ] 🔄 **Task 4.1**: Resolve S1–S6 to confirmed or dismissed.
+  - [x] ✅ **S3 dismissed** — the vars are real but documented in both places the doc points at
+    (`docs/headless-provisioning.md:54-55`, `run.bash:517-518`), and the doc defers explicitly.
+  - [x] ✅ **S4 confirmed and escalated** into finding 12 — **every** size in the model table is
+    wrong, not one, and `tiny` is out by ~1.9× (40MB documented, ~75MB real), a figure that
+    propagates to the quoted cache range at `:77` and `:752`.
+  - [x] ✅ **S6 dismissed** — both child docs are linked directly from `docs/README.md:295-296`;
+    the intermediate index is redundant.
+  - [ ] ⬜ **S1, S2, S5 need the owner's intent, not more grepping.** All three ask the same
+    question: was the omission a decision or an oversight? S2 has a real cost either way — a reader
+    who copy-pastes the simplified `podman run` loses `--replace`/`--name` collision handling.
 
 ### Phase 5 — Stop the drift recurring
 
