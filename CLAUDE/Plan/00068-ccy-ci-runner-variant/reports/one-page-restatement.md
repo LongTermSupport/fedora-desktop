@@ -52,7 +52,9 @@ the CI path at all** — provisioning calls `podman build` directly, and job tim
 >   this plan's real value accumulated.**
 > - **Phase 3 needs re-doing rather than patching.** "How would a project add a new tool for CI?"
 >   has no answer under an Ansible-built image, and that is a direct contradiction of the founding
->   steer this plan exists to serve.
+>   steer this plan exists to serve. **Done: [safe-run-mechanism.md](safe-run-mechanism.md)** — a
+>   small Ansible-deployed runner that hardens `podman run` for a project-built image, with the CI
+>   entrypoint **bind-mounted from the VM** so no image anywhere changes.
 > - The MCP-on-desktop problem **disappears**: a project that wants MCP puts it in its own CI
 >   Dockerfile, and desktop never sees it. D31's overlay is withdrawn; **Task 3.3's "no overlay"
 >   decision stands.**

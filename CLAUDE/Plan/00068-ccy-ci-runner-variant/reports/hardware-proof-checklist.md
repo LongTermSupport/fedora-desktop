@@ -173,7 +173,16 @@ surfaced three claims that the design now rests on and nobody has measured.
 | G2  | `claude` with no `/root/.claude.json` blocks on onboarding rather than proceeding                        | run the image with the desktop entrypoint's state-writing steps omitted; capture output                                  | Items 15/16 of the spec's disposition table are unnecessary if it does not block — and the spec is wrong if it does not                       |
 | G3  | `claude` with `hasCompletedOnboarding` set but `hasTrustDialogAccepted` unset blocks on the trust prompt | same, with only the onboarding key written                                                                               | Distinguishes which of the two writes is load-bearing; both are currently specified as required                                               |
 
-> **G1 is RETIRED if D31 is accepted.** [ci-layering-corrected.md](ci-layering-corrected.md) makes
+> **G1 IS LIVE. The retirement below was conditional on D31, and D31 has been WITHDRAWN (D33).**
+> Under [safe-run-mechanism.md](safe-run-mechanism.md) the project image is `FROM claude-yolo:latest`
+> and therefore **inherits the desktop `ENTRYPOINT`** (`Dockerfile:215`). CI *must* override it — or
+> a job runs `entrypoint.sh`, including `ccy.env` sourced from the branch under test. Overriding is
+> exactly what drops `tini`, so G1 returns as the safe-run mechanism's problem and its measurement
+> matters again. Recording the flip-flop rather than editing the history flat: this obligation went
+> live → conditionally retired → live, and a stale retirement banner is precisely the propagation
+> defect this plan exists to catalogue.
+>
+> ~~**G1 is RETIRED if D31 is accepted.**~~ [ci-layering-corrected.md](ci-layering-corrected.md) makes
 > the CI image a per-project **leaf**, which sets its own
 > `ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/ccy-ci-entrypoint.sh"]`. No caller override is
 > involved, so `tini` is preserved by construction and there is nothing to measure. G1 stays live
