@@ -60,7 +60,7 @@ podman run --rm \
     -v "${CHECKOUT}:/workspace"                            # the job checkout
     -v "${CI_ENTRYPOINT}:/usr/local/bin/ccy-ci-entrypoint.sh:ro"   # from the VM, never from the image
     -w /workspace \
-    -e ANTHROPIC_API_KEY -e GH_TOKEN                       # by value from the caller, pass-through shape
+    -e CLAUDE_CODE_OAUTH_TOKEN -e GH_TOKEN                 # by NAME — value never enters argv
     --entrypoint /usr/bin/tini \
     "${PROJECT_IMAGE}" \
     -- /usr/local/bin/ccy-ci-entrypoint.sh "$@"            # arbitrary command, not hard-coded claude
@@ -96,9 +96,21 @@ from `basename $PWD` — and `:2747` then unconditionally `rm -f`s that name, wh
 **running** container. Two concurrent jobs for one repo would have the second kill the first. That is
 C7, already confirmed; the mechanism must not reuse this function.
 
-**Tokens pass by value from the caller's environment.** The `-e VAR` pass-through shape at `:2782-2783`
-is already right and is kept. What is dropped is everything that *resolves* a credential — the CI
-caller supplies it, the mechanism never prompts, reads a keyring, or touches `~/.claude-tokens/`.
+**Tokens pass by NAME from the caller's environment.** `-e CLAUDE_CODE_OAUTH_TOKEN` with no `=value`
+(`:2777`) — podman reads the value from the ambient environment, so the secret never enters argv or
+the process table. `lib/token-management.bash:107` records this as deliberate (BSH-09). It matters
+more in CI than on the desktop, because `ps` output reaches logs. What is dropped is everything that
+*resolves* a credential — the CI caller supplies it; the mechanism never prompts, reads a keyring, or
+touches `~/.claude-tokens/`.
+
+> **Corrected.** This section and the argv sketch above previously named `ANTHROPIC_API_KEY`. That
+> variable **does not appear anywhere in ccy** — the credential is `CLAUDE_CODE_OAUTH_TOKEN`. The
+> sketch also described the pass-through as "by value", which is backwards: `-e VAR` without `=` is
+> precisely the by-*name* form whose purpose is to keep the value out of argv.
+
+**Preconditions are asserted before anything starts** — see
+[ci-required-config.md](ci-required-config.md) for the full required-configuration set, the
+collect-all-then-abort preflight contract, and the failure output format.
 
 ## What the CI entrypoint does — and why it is not "nothing"
 

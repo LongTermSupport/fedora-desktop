@@ -33,8 +33,10 @@ The governing decision. Everything else follows from it.
 
 1. **A safe run mechanism** — an Ansible-deployed runner that hardens `podman run` for a
    project-built image: egress posture, run-ID-salted container naming, workspace mount, `tini` as
-   PID 1, no writes into the checkout, arbitrary command (not hard-coded `claude`).
-   → [reports/safe-run-mechanism.md](reports/safe-run-mechanism.md)
+   PID 1, no writes into the checkout, arbitrary command (not hard-coded `claude`). Asserts every
+   precondition and aborts before any container starts.
+   → [reports/safe-run-mechanism.md](reports/safe-run-mechanism.md),
+   [reports/ci-required-config.md](reports/ci-required-config.md)
 2. **A CI entrypoint** — bind-mounted read-only from the VM, so no image anywhere changes. Performs
    no network I/O and no authentication; writes only the minimum local state (`hasCompletedOnboarding`,
    `bypassPermissionsModeAccepted`, `hasTrustDialogAccepted`) without which a TTY-less `claude` blocks
@@ -168,6 +170,11 @@ as cancelled rather than deleted because `reports/fable-review-*.md` cite them.
 - [x] ✅ **Task 3.6**: Specify the CI entrypoint's contents →
   [reports/ci-entrypoint-spec.md](reports/ci-entrypoint-spec.md). Disposition of all 18 desktop
   entrypoint behaviours.
+- [x] ✅ **Task 3.7**: Establish the required CI configuration and the fail-fast preflight that
+  asserts it → [reports/ci-required-config.md](reports/ci-required-config.md). 15 preconditions
+  across three layers (VM / JOB / PROJECT), each with its assertion and remediation. Preflight
+  collects every failure, prints them with expected/found/layer/fix plus a secret-free context block,
+  and aborts with `EX_CONFIG` (78) before any container starts.
 
 ### Phase 4 — MCP injection
 
