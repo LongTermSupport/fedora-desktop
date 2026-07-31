@@ -83,7 +83,7 @@ outcome, not merely non-zero**:
 document here closes with its own "what this does not settle", and this checklist is the union of
 those sections made actionable.
 
-The specific failure to guard against is the one this plan has now caught five times in its own
+The specific failure to guard against is the one this plan has now caught seven times in its own
 text: *a true statement about a check presented as a stronger statement about the world.* Reading
 `claude-yolo:2514-2517` correctly tells you what the code does; it does not tell you what a
 container on a real host can reach. Both are needed, and only one of them is in this repo.
@@ -105,11 +105,11 @@ Appended per **D9**, which found that none of the six reports carried any correc
 
 ## F. Added by the `LABEL` convention spec (D10 / [label-convention-spec.md](label-convention-spec.md))
 
-| #  | Claim                                                                                    | Command that settles it                                                                             | Why it matters                                                                                        |
-| -- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| F1 | An **absent** label yields an empty string from `--format '{{index .Config.Labels "…"}}'` rather than an error | build an image with no such label, then inspect it                                                  | **The load-bearing one.** If both sides compute empty, the staleness check compares `""` to `""` and reports FRESH — a check that fires and does not discriminate |
-| F2 | A project image built before the convention is treated as STALE, not as a pass           | run the comparison against a pre-convention project image; expect a rebuild trigger                 | This is F1's consequence, and it is what makes the migration self-healing rather than silently broken |
-| F3 | `claude-yolo:latest` actually carries `claude-yolo-version` on a provisioned box          | `podman image inspect claude-yolo:latest --format '{{index .Config.Labels "claude-yolo-version"}}'` | Fact 3's *wanted* side reads this label; if it is empty the base-version check degrades to a no-op   |
+| #   | Claim                                                                                                          | Command that settles it                                                                             | Why it matters                                                                                                                                                    |
+| --- | -------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| F1  | An **absent** label yields an empty string from `--format '{{index .Config.Labels "…"}}'` rather than an error | build an image with no such label, then inspect it                                                  | **The load-bearing one.** If both sides compute empty, the staleness check compares `""` to `""` and reports FRESH — a check that fires and does not discriminate |
+| F2  | A project image built before the convention is treated as STALE, not as a pass                                 | run the comparison against a pre-convention project image; expect a rebuild trigger                 | This is F1's consequence, and it is what makes the migration self-healing rather than silently broken                                                             |
+| F3  | `claude-yolo:latest` actually carries `claude-yolo-version` on a provisioned box                               | `podman image inspect claude-yolo:latest --format '{{index .Config.Labels "claude-yolo-version"}}'` | Fact 3's *wanted* side reads this label; if it is empty the base-version check degrades to a no-op                                                                |
 
 **F1 is the single most consequential unproven claim in the specification**, for the same reason
 group D exists: a control that always passes looks identical to a control that works, right up
