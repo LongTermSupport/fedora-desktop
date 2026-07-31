@@ -175,6 +175,14 @@ as cancelled rather than deleted because `reports/fable-review-*.md` cite them.
   across three layers (VM / JOB / PROJECT), each with its assertion and remediation. Preflight
   collects every failure, prints them with expected/found/layer/fix plus a secret-free context block,
   and aborts with `EX_CONFIG` (78) before any container starts.
+- [x] ✅ **Task 3.8**: Establish the CI credential lifecycle →
+  [reports/ci-credential-lifecycle.md](reports/ci-credential-lifecycle.md). **The assumed "update the
+  vaulted string, run ansible" process does not exist** — there is no vaulted Claude credential
+  (checked: 18 vars, 8 vaulted, none for Claude), `play-claude-yolo.yml:311-327` creates only the
+  token *directories*, and tokens are files made by an interactive `ccy --create-token` device flow.
+  No `gh secret` IaC exists anywhere. Specified: dedicated CI token → vaulted by path →
+  Ansible pushes it to a GitHub secret via `gh secret set` on stdin → workflow `env:` → J5 asserts it.
+  The runner never decrypts vault.
 
 ### Phase 4 — MCP injection
 
@@ -218,6 +226,13 @@ as cancelled rather than deleted because `reports/fable-review-*.md` cite them.
 2. **Does "more locked down" reopen Decision 4** for CI specifically?
 3. **Where the CI entrypoint lives** — recommended: bind-mounted from the VM, which keeps desktop
    byte-identical and lets the mechanism own the `podman run` argv.
+4. **Create a dedicated CI OAuth token** (`ccy --create-token`). Interactive device flow, so a human
+   action. Blocks the whole credential path — see Task 3.8.
+5. **Secret scope** — repo-level on `LongTermSupport/fedora-desktop`, or org-level shared across
+   repos. Org widens blast radius; repo multiplies rotation work.
+6. **Expiry visibility** — a GitHub secret carries no expiry metadata, so an expired CI token fails
+   deep inside `claude` with nothing naming the cause. Store expiry as a separate non-sensitive
+   GitHub *variable* so the preflight can assert it, or catch it only at push time?
 
 ## Proof obligations — outstanding
 
