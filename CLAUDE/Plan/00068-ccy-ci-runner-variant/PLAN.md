@@ -194,9 +194,12 @@ deleted because `reports/fable-review-*.md` cite them by number.
 
 - [x] ✅ **Task 7.1**: Restate the thesis; add E10.
 - [x] ✅ **Task 7.2**: Re-run the prompt census with a corrected pattern.
-- [ ] ⬜ **Task 7.3**: Re-scope `--non-interactive` per C4/C9. **Un-deferred by Decision 3 — this is
-  the core work.** Classification complete; the three fix items (five spin paths, 32 abort sites,
-  version bump) are implementation and belong to the implementation plan.
+- [x] ✅ **Task 7.3**: Re-scope `--non-interactive` per C4/C9. Un-deferred by Decision 3, then
+  discharged by Task 2.4. **Its own framing is superseded**: it split the work into "five spin
+  paths" and "32 abort sites" as separate fix items. Measurement shows they are **one** problem —
+  a guard that `exit`s cannot spin whatever the caller's errexit state — so one primitive covers
+  both. What remains (the primitive, the 46 call-site edits, the version bump) is implementation
+  and belongs to the implementation plan.
 - [x] ✅ **Task 7.4**: Capabilities → `reports/task74-capabilities.md`. Concurrency-safe naming (C7),
   `--no-network` for CI (C8), compose teardown (C10), and **CI must not write `.claude/ccy/` into the
   checkout** — that path is read *and executed* (`entrypoint.sh:269-274`).
