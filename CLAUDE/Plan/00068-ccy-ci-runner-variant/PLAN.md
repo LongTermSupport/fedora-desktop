@@ -161,12 +161,18 @@ A runtime property, useful on the desktop too, specified independently.
 
 ### Phase 1 — Ground the unverified claims (host run, no nesting)
 
-- [ ] 🔄 **Task 1.1**: Resolve E6 and collect the remaining host facts.
-  - [x] ✅ E6 **confirmed a blocker** by the owner's host run: `EXIT 125 — stat /dev/…: no such file or directory`. A missing `--device` path is fatal to podman.
+- [x] ✅ **Task 1.1**: Resolve E6 and collect the remaining host facts. → `reports/host-run-verdicts.md`
+  - [x] ✅ E6 **confirmed a blocker**: a missing `--device` path is fatal to podman (`exit 125`,
+    `stat /dev/…: no such file or directory`), and `ccy` passes `--device /dev/dri` unconditionally
+    (`claude-yolo:2773`). Fix is the conditional shape `GUI_MOUNTS` already uses (`:2703-2727`).
   - [x] ✅ `probe-engine.bash`, `probe-launcher.bash`, `probe-network.bash`, `probe-label.bash`
     written, linted, wired into `triage.bash`.
-  - [ ] ⬜ **Owner runs `./triage.bash` on the HOST.** Blocked on a human.
-  - [ ] ⬜ Record the verdict in `reports/`.
+  - [x] ✅ **Owner ran `./triage.bash` on the HOST — twice.** Run `20260731-214921` is superseded
+    (two probes measured the wrong thing); `20260731-225344` reports `all legs OK`.
+  - [x] ✅ **C3 CONFIRMED by direct measurement** — both single-flag baselines accepted (exit 0),
+    both orderings of the combination refused by the engine (exit 125, two distinct messages, so
+    not last-flag-wins). Task 5.1's hard error is now grounded rather than borrowed.
+  - [x] ✅ Verdicts recorded in `reports/host-run-verdicts.md`.
 - [x] ✅ **Task 1.2**: Enumerate all 35 prompt sites → `reports/prompt-census-round2.md`.
 - [x] ✅ **Task 1.3**: Confirm what `play-claude-yolo.yml` deploys and how the image is built.
 
@@ -245,19 +251,23 @@ deleted because `reports/fable-review-*.md` cite them by number.
 
 Nothing in this plan has been executed. Full list: `reports/hardware-proof-checklist.md`.
 
-| ID    | Claim                                                | How it gets settled                 |
-| ----- | ---------------------------------------------------- | ----------------------------------- |
-| E1    | Task 1.1's host facts                                | `triage.bash` — owner run           |
-| C3    | `--network pasta:…` / `--network <name>` exclusivity | `probe-network.bash` — same run     |
-| B1–B4 | Spin-vs-abort behaviour of the launcher              | interactive; needs real quota       |
-| C1/C2 | pasta port-forwarding and loopback exposure          | needs a host listener; borrowed     |
-| F1–F4 | Label-reader behaviour                               | **not blockers** (Decision 2)       |
-| G1    | `--entrypoint` drops `tini`                          | **moot** — `ccy` never overrides it |
+| ID    | Claim                                                | How it gets settled                              |
+| ----- | ---------------------------------------------------- | ------------------------------------------------ |
+| E1    | Task 1.1's host facts                                | ✅ **SETTLED** — host run `20260731-225344`      |
+| E6    | `--device /dev/dri` is fatal when the node is absent | ✅ **SETTLED** — `exit 125`, confirmed blocker   |
+| C3    | `--network pasta:…` / `--network <name>` exclusivity | ✅ **SETTLED** — first direct measurement        |
+| F1–F4 | Label-reader behaviour                               | ✅ measured; **not blockers** (Decision 2)       |
+| B1–B4 | Spin-vs-abort behaviour of the launcher              | ⬜ interactive; needs real quota                 |
+| C1/C2 | pasta port-forwarding and loopback exposure          | ⬜ needs a host listener; **borrowed, unproven** |
+| G1    | `--entrypoint` drops `tini`                          | **moot** — `ccy` never overrides it              |
+
+Verdicts and the superseded first run: `reports/host-run-verdicts.md`.
 
 ## Dependencies
 
-- **Blocked on**: the owner's host run of `triage.bash`; `lts-infra` not checked out, which makes a
-  class of cross-repo citations unverifiable.
+- **Blocked on**: `lts-infra` not checked out, which makes a class of cross-repo citations
+  unverifiable (`reports/cross-repo-citation-status.md`, Tier C). ~~The owner's host run of
+  `triage.bash`~~ — **done**, `20260731-225344`.
 - **Blocks**: the ccy CI implementation plan, not yet created.
 
 ## Success Criteria
@@ -267,7 +277,7 @@ Nothing in this plan has been executed. Full list: `reports/hardware-proof-check
 - [x] ✅ The audit loop ran to a quiet round, every round on disk.
 - [x] ✅ Desktop ccy is provably unaffected when the new flags are absent.
 - [x] ✅ The fully non-interactive contract is specified site by site (Task 2.4).
-- [ ] ⬜ Task 1.1's host facts are answered by a run, not by inference.
+- [x] ✅ Task 1.1's host facts are answered by a run, not by inference.
 
 ## Risks & Mitigations
 
