@@ -85,7 +85,7 @@ did not cite:
 | --- | ----------------------- | ------------------------------------------------------------------------------- |
 | 1   | `claude-yolo:2792`      | `claude --dangerously-skip-permissions "${CLAUDE_CMD_ARGS[@]}"` — unconditional |
 | 2   | `entrypoint.sh:240-252` | writes `"bypassPermissionsModeAccepted": true` into `/root/.claude.json`        |
-| 3   | `entrypoint.sh:257-263` | sets `projects["/workspace"].hasTrustDialogAccepted = true`, unconditionally    |
+| 3   | `entrypoint.sh:255-263` | sets `projects["/workspace"].hasTrustDialogAccepted = true`, unconditionally    |
 | 4   | `entrypoint.sh:269-274` | **sources `/workspace/.claude/ccy/ccy.env` as shell**, inside the container     |
 
 Row 4 is new to this plan and it is the one that decides §5. `ccy.env` is a file **in the
@@ -120,11 +120,11 @@ Task 7.1 required that this be decided rather than left silent. It is decided: *
   fix that *looks* like a permission surface is worse than none, because it invites someone to
   rely on it — this repo's own recurring finding, and `lts-infra`'s
   `.claude/rules/bash-standards.md` §9 in one sentence.
-- The estate already has the containment this buys, one trust boundary higher up. `lts-infra`'s
-  `docs/RUNNER-VM-DESIGN.md` §6.4 proves the runner VM cannot reach the hypervisor, any other
-  guest, or the PVE API, via five already-armed controls; §5.4 adds the L2 CONNECT-allowlist
-  proxy and the uid-fenced nftables policy. That is a boundary that survives full guest-root
-  compromise. A permission matrix inside the container does not.
+- ~~The estate already has the containment this buys, one trust boundary higher up.~~
+  **CITATION WITHDRAWN per D2** — `RUNNER-VM-DESIGN.md` §6.4/§5.4 answer *escape* and
+  *destination*; they do not answer the **confused-deputy** threat (a live write-capable token
+  misused at a destination the allowlist already permits). Decision 4 stands on its other
+  grounds; this bullet no longer supports it. Also **Tier C**: unverifiable here (D19).
 
 **The consequence must be stated plainly, because it is the honest half:** this means `ccy` in CI
 is for **trusted automation only** — the org's own code, on its own commits. It is *not* a
