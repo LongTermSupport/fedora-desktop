@@ -1729,11 +1729,19 @@ tasks **replace** the corresponding Phase 2-5 tasks above where they conflict.
 
 - [x] ✅ The audit loop has run to a quiet round, with every round on disk in `reports/`.
 
-  Rounds 1–4 are all on disk (`fable-review-1.md`, `sonnet-scan-1.md`, `fable-review-2.md`,
-  `fable-review-3.md`, `fable-review-4.md`, plus `prompt-classification-round3.md`).
-  **Not yet quiet** — every round so far has found material problems (Round 2: 2 BLOCKER +
-  2 MAJOR → D1–D4; Round 3: 2 BLOCKER + 1 MINOR → D6–D8; Round 4: 1 BLOCKER + 2 MAJOR + 1 MINOR
-  → D10–D13), plus D5 and D9 found without a review. Round 5 dispatched.
+  **MET.** All seven rounds are on disk: `fable-review-1.md`, `sonnet-scan-1.md`,
+  `fable-review-2.md` … `fable-review-7.md`, plus `sonnet-scan-1.md` and
+  `prompt-classification-round3.md`. Rounds 1–6 each found material problems; **Round 7 returned
+  `MATERIAL FINDINGS: no`**, which is the quiet round this criterion asks for. Full round-by-round
+  table and the two caveats on what "quiet" does and does not mean are recorded at **Task 6.4**.
+
+  > **This evidence block was stale at the moment the box was ticked** — it still read *"Rounds
+  > 1–4 are all on disk … **Not yet quiet** … Round 5 dispatched."* So a ✅ criterion carried a
+  > body asserting it was unmet. Eleventh instance of the propagation defect and the most direct
+  > yet: not a correction that failed to reach a distant document, but a tick and its own
+  > justification, three lines apart, contradicting each other. Recorded rather than silently
+  > overwritten, because the plan's tally of this defect is only useful if it includes the
+  > instances committed while cataloguing it.
 
 - [ ] 🚫 **No source file outside this plan folder has been modified.**
 
@@ -1756,6 +1764,36 @@ tasks **replace** the corresponding Phase 2-5 tasks above where they conflict.
   correct remedy is a wording fix that says what was meant — no changes to `files/`, `playbooks/`,
   or `scripts/` — plus an honest note that the plan-system work was mis-attributed to this plan
   number instead of being committed under 00023's.
+
+  > **D25 — the remedy prescribed one paragraph above does not work, and nobody checked it
+  > before writing it down.** It proposes rewording to *"no changes to `files/`, `playbooks/`, or
+  > `scripts/`"*. I ran it: **`scripts/` has four modified files on this branch**, so the reworded
+  > criterion would be **just as unmet as the original**.
+  >
+  > | File                                                   | Commit    | Whose work       |
+  > | ------------------------------------------------------ | --------- | ---------------- |
+  > | `scripts/qa-bash.bash`, `qa-js.bash`, `qa-python.bash` | `da6de33` | **Plan 00067**   |
+  > | `scripts/test-planlib.bash`                            | `73396b3` | Plan 00066/00023 |
+  >
+  > This is the recurring failure mode again, in the one place left that had escaped it: a
+  > remedy asserted to work, presented as the fix, **never executed even once**. A single
+  > `git diff --name-only F44...HEAD -- scripts/` would have caught it. The note was written in
+  > the same breath as the honest admission that the criterion was unmet, which is what made it
+  > feel finished.
+  >
+  > **What is actually true.** Only two paths on this branch are genuinely untouched, and they are
+  > exactly the ones the protecting Non-Goal names: **`files/` and `playbooks/`** — core `ccy`
+  > IaC, provably empty under `git diff`. `scripts/` is not clean and cannot be made clean by
+  > rewording, because three of its four files belong to **Plan 00067**, a different plan whose
+  > work legitimately shares this branch.
+  >
+  > **Therefore the criterion stays 🚫 NOT MET and should NOT be reworded.** Any wording broad
+  > enough to be true here ("no changes to `files/` or `playbooks/`") is just the Non-Goal
+  > restated, and a Success Criterion that duplicates a Non-Goal adds nothing. The honest
+  > disposition is: **this criterion was mis-specified at birth** — it assumed a branch carrying
+  > one plan's work, on a branch that carries three. Its intent is fully met and independently
+  > recorded by the Non-Goal; the criterion itself should be **retired by the implementation
+  > plan**, not repaired here.
 
 ## Risks & Mitigations
 
