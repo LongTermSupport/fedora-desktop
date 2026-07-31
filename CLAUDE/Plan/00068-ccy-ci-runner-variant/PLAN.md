@@ -1512,6 +1512,44 @@ tasks **replace** the corresponding Phase 2-5 tasks above where they conflict.
   > **D16 ninth** (the preflight's conditional reachability), **D17 tenth**. Recorded because a
   > miscounted tally is the same species of error as the one being counted.
   >
+  > **D20 — the three Tier-B reachability traces are DONE, and one of them is a new security
+  > finding that the plan's own egress design would trigger.** D19's inventory
+  > ([reports/cross-repo-citation-status.md](reports/cross-repo-citation-status.md)) named three
+  > untraced guards in this workspace and said they needed no external dependency. Traced all
+  > three rather than leaving them listed.
+  >
+  > **(1) `entrypoint.sh:269-274`/`:280-282` — CONFIRMS E10 row 4, and strengthens it.** The
+  > sourcing is guarded by `[ -f /workspace/.claude/ccy/ccy.env ]` (`:270`) and the wrapper `exec`
+  > by `[[ -n "${CCY_CLAUDE_WRAPPER:-}" ]]` (`:280`). Both are conditional — **and both conditions
+  > are satisfied by the checkout itself**, which under the untrusted-PR threat model is
+  > attacker-controlled. A guard an attacker can satisfy at will is not a mitigation. Note further
+  > that `. "$_ccy_env_file"` (`:273`) is arbitrary shell execution in-container *before* the
+  > wrapper is even considered, so E10 row 4 is stronger than "controls the command that runs".
+  > Decision 4's scope is unaffected and better supported.
+  >
+  > **(2) `entrypoint.sh:111` — NEW FINDING, and it is this plan's own named pattern.** The fetch
+  > is unguarded, but its failure path is: `github_meta` empty ⇒ `github_ssh_keys` empty ⇒ the
+  > `else` at `:130-133` fires, which appends **`StrictHostKeyChecking accept-new`**. So when
+  > `api.github.com` is unreachable, the container **downgrades from pinned GitHub host keys to
+  > trust-on-first-use** and carries on.
+  >
+  > **An egress-restricted CI environment is exactly the condition that triggers it** — and
+  > egress restriction is what Tasks 5.1/5.2 of this plan design. Unless `api.github.com` is on
+  > the allowlist, the plan's own egress work silently converts host-key pinning into TOFU. It is
+  > announced (`:131` writes to stderr) but it is **not fatal**, which under this repo's #1
+  > fail-fast rule is the wrong shape for a security control degrading: a warning in a CI log is
+  > not a stop. Two consequences, both now owed by Phase 5: **the allowlist must include
+  > `api.github.com`**, and **the fallback should be fatal when the caller declares CI**, rather
+  > than degrading quietly.
+  >
+  > **(3) `claude-yolo:2747` — clears.** Unconditional, reached on every launch. No conditionality
+  > to state.
+  >
+  > **Two of three traces changed something, on guards nobody had read.** D16 found the first by
+  > this method, D20(2) the second. That is a hit rate high enough to say the reachability
+  > standard is not bookkeeping — it is finding real defects, and the remaining Tier-C set cannot
+  > be put through it at all while `lts-infra` is absent.
+  >
   > **The loop is STILL not quiet.** Round 6 required (Task 6.4).
 
 - [x] ✅ Task 1.1's `/dev/dri` question is answered by a host run, not by inference.
