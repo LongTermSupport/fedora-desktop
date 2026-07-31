@@ -48,8 +48,10 @@ migrate onto them.**
 | 3    | `claude-yolo-project-base-version`      | the `claude-yolo-version` of the base at build time   |
 
 This is a third *name*, which D10 warned against — so the warning is answered explicitly rather
-than ignored: **it is only acceptable because it comes with a migration that removes the second
-one** (§5). A new key that leaves the old key in place is what D10 forbids, and is not what this
+than ignored: **it is only acceptable *if* a migration removing the second one is scheduled and
+carried out** (§5). *(Corrected per D22: this read "because it **comes with** a migration",
+present-tense, as though the condition were already satisfied. Per the status correction at the end
+of this document, nothing currently schedules that migration.)* A new key that leaves the old key in place is what D10 forbids, and is not what this
 specifies.
 
 ## 3. The algorithm decision — sha256, not ccy's md5-16

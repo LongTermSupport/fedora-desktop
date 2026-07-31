@@ -1550,7 +1550,61 @@ tasks **replace** the corresponding Phase 2-5 tasks above where they conflict.
   > standard is not bookkeeping — it is finding real defects, and the remaining Tier-C set cannot
   > be put through it at all while `lts-infra` is absent.
   >
-  > **The loop is STILL not quiet.** Round 6 required (Task 6.4).
+  > ______________________________________________________________________
+  >
+  > ## ROUND 6 CORRECTIONS — D21–D22
+  >
+  > [reports/fable-review-6.md](reports/fable-review-6.md): **1 BLOCKER + 1 MINOR**, verdict
+  > *material findings: yes*. Both confirmed from source before acceptance.
+  >
+  > **D21 — BLOCKER: D20(2)'s CI attribution is WRONG, and it contradicts this plan's own Task 5.3
+  > inside the same document.** D20(2) said an egress-restricted **CI** environment is exactly what
+  > triggers `entrypoint.sh:111`'s fallback, and billed Phase 5 for an allowlist entry plus a
+  > "fatal when the caller declares CI" remedy.
+  >
+  > **The code trace is correct and stands** — `:111` is unguarded, a failed fetch empties
+  > `github_ssh_keys`, and `:130-133` appends `StrictHostKeyChecking accept-new` non-fatally. What
+  > is false is *where it applies*. Under **Decision 6** the CI entrypoint is a separate script and
+  > `entrypoint.sh` never runs; **Task 5.3 already says so in terms** — *"Under the Decision 6 CI
+  > entrypoint the minimum boot allowlist is EMPTY"* — and **D1 already rescoped Task 5.1's
+  > `--egress` to desktop and provision-time only**, so CI egress is the caller's own `podman`
+  > argv and cannot interact with this path at all. I traced the two guards *inside* the file and
+  > never traced the outer question the plan had answered twice: **is this file reachable from CI?**
+  > The reachability standard applied one level too shallow — which is a sharper failure than the
+  > one D16 caught, because the guard here is not a line of code but a design decision two rounds
+  > earlier in the document I was writing in.
+  >
+  > **Eleventh instance** of the recurring failure mode, and the second I have produced *while
+  > hunting it*.
+  >
+  > **Corrected claim.** This is a **desktop-only** finding: when a desktop `--egress` session's
+  > allowlist omits `api.github.com`, that session's SSH host-key checking silently downgrades from
+  > GitHub's pinned keys to trust-on-first-use. Phase 5 owes **one** thing, not two:
+  > `api.github.com` belongs in **Task 5.2's default desktop allowlist**. The "fatal when the
+  > caller declares CI" remedy is **withdrawn** — there is no CI invocation of this file to gate.
+  >
+  > **Severity, stated honestly rather than assumed maximal** (Round 6 is right to press this):
+  > the downgrade matters only against an on-path attacker intercepting the *first* SSH connection
+  > to `github.com`. It discloses no key material and weakens no cipher. Round 1 rated the same
+  > line MINOR (`reports/fable-review-1.md:353-375`) and nothing since changes that on the merits.
+  > I inflated it by attaching it to CI.
+  >
+  > **One residual Round 6 did not claim, added because it is the honest remainder rather than a
+  > rescue of my finding.** Decision 6 is *designed, not implemented*. Until it ships, a CI caller
+  > that mishandles `--entrypoint` runs the **desktop** entrypoint — which is not hypothetical:
+  > `round2-restatement.md:61-68` records the consumer doing exactly that in production
+  > (`run-sandbox.sh:375-402`, *"The platform's entrypoint was never reached"*). Such a caller, on
+  > a restricted network, would hit this downgrade. That is an argument **for** Decision 6, not an
+  > obligation on Tasks 5.1/5.2, and it is recorded as a `Dockerfile.ci`/Decision 6 motivation.
+  >
+  > **D22 — MINOR: `label-convention-spec.md` §2 still asserts the pre-D17 confidence.** It reads
+  > *"it is only acceptable because it **comes with** a migration that removes the second one"* —
+  > present tense, condition satisfied. D17 established the migration is specified but
+  > **unscheduled and outside this plan's power to schedule**. D17 fixed the title and the closing
+  > status table and left this sentence, one screen above. **The propagation defect again**, in the
+  > document whose own correction section describes the mechanism. Fixed at source.
+  >
+  > **The loop is STILL not quiet.** Round 7 required (Task 6.4).
 
 - [x] ✅ Task 1.1's `/dev/dri` question is answered by a host run, not by inference.
 

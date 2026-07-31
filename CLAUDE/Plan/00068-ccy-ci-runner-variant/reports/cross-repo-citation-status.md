@@ -87,8 +87,10 @@ make an unconditional-sounding claim conditional, and that trace has not been ru
    be re-read, and D15's reachability standard can be applied to the two retractions that currently
    rest on unverifiable evidence.
 2. ~~**Trace the three Tier B guards** — doable now, no external dependency.~~ **DONE (D20)** —
-   see the resolved table at the end. Two of the three changed something, including a security
-   downgrade this plan's own egress design would trigger.
+   see the resolved table at the end. Two of the three changed something, including a **desktop**
+   SSH host-key downgrade that Task 5.2's `--egress` allowlist would trigger if it omits
+   `api.github.com` *(scope corrected per D21 — this was first written as a CI finding, which it
+   is not)*.
 
 Until (1), no round of the audit loop can ground a finding that turns on `lts-infra`, and any
 review that appears to do so is reasoning from this plan's own prior text rather than from source.
@@ -104,3 +106,27 @@ review that appears to do so is reasoning from this plan's own prior text rather
 | `claude-yolo:2747`                 | Clears — unconditional                                                                                        |
 
 Tier B is now empty. **Tier C remains, and is only clearable by checking out `lts-infra`.**
+
+---
+
+## Correction to the Tier B result (D21)
+
+The `entrypoint.sh:111` row above is recorded as a **NEW FINDING**. That stands as a *code trace*
+but its scope was wrong, and Round 6 corrected it:
+
+> The finding is **desktop-only**. Under Decision 6 the CI entrypoint is a separate script and
+> `entrypoint.sh` never runs on the CI path — Task 5.3 already states the CI boot allowlist is
+> EMPTY, and D1 rescoped Task 5.1's `--egress` to desktop/provision-time. The trace was correct;
+> the attribution to CI was not.
+
+**The methodological point, which is why this is recorded here and not only in PLAN.md:** the
+reachability standard was applied to the two guards *inside* the file and not to the outer question
+— *is this file reachable from the path the claim describes?* A tier table that classifies
+citations by **whether their source is readable** does not, on its own, prompt that second question.
+Both are needed:
+
+| Question                                     | Answered by                    |
+| -------------------------------------------- | ------------------------------ |
+| Can I read the source?                       | This document's tier table     |
+| Does the cited line run on the claimed path? | D15's reachability standard    |
+| **Is the enclosing file on that path?**      | **Neither — this was the gap** |
