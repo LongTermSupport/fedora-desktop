@@ -119,11 +119,12 @@ Appended per **D9**, which found that none of the six reports carried any correc
 
 ## F. Added by the `LABEL` convention spec (D10 / [label-convention-spec.md](label-convention-spec.md))
 
-| #   | Claim                                                                                                          | Command that settles it                                                                             | Why it matters                                                                                                                                                    |
-| --- | -------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| F1  | An **absent** label yields an empty string from `--format '{{index .Config.Labels "…"}}'` rather than an error | build an image with no such label, then inspect it                                                  | **The load-bearing one.** If both sides compute empty, the staleness check compares `""` to `""` and reports FRESH — a check that fires and does not discriminate |
-| F2  | A project image built before the convention is treated as STALE, not as a pass                                 | run the comparison against a pre-convention project image; expect a rebuild trigger                 | This is F1's consequence, and it is what makes the migration self-healing rather than silently broken                                                             |
-| F3  | `claude-yolo:latest` actually carries `claude-yolo-version` on a provisioned box                               | `podman image inspect claude-yolo:latest --format '{{index .Config.Labels "claude-yolo-version"}}'` | Fact 3's *wanted* side reads this label; if it is empty the base-version check degrades to a no-op                                                                |
+| #   | Claim                                                                                                                               | Command that settles it                                                                                                         | Why it matters                                                                                                                                                                                                  |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| F1  | An **absent** label yields an empty string from `--format '{{index .Config.Labels "…"}}'` rather than an error                      | build an image with no such label, then inspect it                                                                              | **The load-bearing one.** If both sides compute empty, the staleness check compares `""` to `""` and reports FRESH — a check that fires and does not discriminate                                               |
+| F2  | A project image built before the convention is treated as STALE, not as a pass                                                      | run the comparison against a pre-convention project image; expect a rebuild trigger                                             | This is F1's consequence, and it is what makes the migration self-healing rather than silently broken                                                                                                           |
+| F4  | A child image **inherits** its parent's `LABEL` values (so `claude-yolo:ci` carries `claude-yolo-version` from `latest`, unchanged) | build a labelled `FROM scratch` image, build a child `FROM` it that adds a different label, read the parent's key off the child | Load-bearing for **D30 §4.2**. If labels are inherited, reading `claude-yolo-version` off a `:ci` base returns the parent's value and the staleness check cannot discriminate. If they are not, §4.2 evaporates |
+| F3  | `claude-yolo:latest` actually carries `claude-yolo-version` on a provisioned box                                                    | `podman image inspect claude-yolo:latest --format '{{index .Config.Labels "claude-yolo-version"}}'`                             | Fact 3's *wanted* side reads this label; if it is empty the base-version check degrades to a no-op                                                                                                              |
 
 **F1 is the single most consequential unproven claim in the specification**, for the same reason
 group D exists: a control that always passes looks identical to a control that works, right up
@@ -191,8 +192,16 @@ subsequent reader; worse, it gets mistaken for a decision.
 | C     | `probe-network.bash`             | **C3 covered.** C1/C2 need a host listener, so they stay borrowed                           |
 | D     | —                                | **Premature.** Needs proxy infrastructure that does not exist yet                           |
 | E     | `probe-launcher.bash` (E1)       | E1 covered; E2 is a credential the owner supplies, not a measurement                        |
-| F     | `probe-label.bash`               | **Covered**                                                                                 |
+| F     | `probe-label.bash`               | **F1–F3 covered.** F4 (label inheritance) added later and not wired — see the note below    |
 | G     | —                                | **G1 measurable and not yet wired; G2/G3 are group-B-shaped — see below**                   |
+
+**F4 and G1 are both cheap, read-only, and deliberately not wired in yet — stated as a policy so it
+is not re-decided ad hoc each time.** F4 needs one extra `FROM scratch` build in a script that
+already builds three; G1 needs an image inspection and one `--rm` run. Both are one leg each. The
+reason to hold is that `triage.bash` has **not yet been run once**, and a script that grows a leg
+every time someone thinks of a question never gets run at all — the additions stop being coverage
+and become churn. They are wired in together when the entrypoint work is picked up, and the run
+that has been outstanding since Task 1.1 goes first.
 
 **Why group B has no probe, stated rather than skipped.** B1–B4 all require actually running
 `ccy`, and two properties make that unsafe to hand over as a script:

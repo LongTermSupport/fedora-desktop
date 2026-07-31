@@ -42,10 +42,15 @@ dependency, and would leave ccy's own labels split across two naming styles
 **Decision: ccy defines the canonical keys in its existing unprefixed style, and the consumers
 migrate onto them.**
 
-| Fact | Canonical key                           | Value                                                 |
-| ---- | --------------------------------------- | ----------------------------------------------------- |
-| 2    | `claude-yolo-project-dockerfile-sha256` | full lowercase hex sha256 of `.claude/ccy/Dockerfile` |
-| 3    | `claude-yolo-project-base-version`      | the `claude-yolo-version` of the base at build time   |
+| Fact | Canonical key                           | Value                                                                     |
+| ---- | --------------------------------------- | ------------------------------------------------------------------------- |
+| 2    | `claude-yolo-project-dockerfile-sha256` | full lowercase hex sha256 of `.claude/ccy/Dockerfile`                     |
+| 3    | `claude-yolo-project-base-version`      | the `claude-yolo-version` of the base at build time                       |
+| 4    | `claude-yolo-project-base-image`        | **which** base it was built from — the literal tag, e.g. `claude-yolo:ci` |
+
+**Fact 4 was added by D30 and is not optional.** Facts 2 and 3 answer "has the Dockerfile changed"
+and "has the base moved". Neither answers **which base** — and without that, "has the base moved"
+has no well-defined referent the moment more than one base exists. See §4.1.
 
 This is a third *name*, which D10 warned against — so the warning is answered explicitly rather
 than ignored: **it is only acceptable *if* a migration removing the second one is scheduled and
@@ -77,9 +82,13 @@ Reasons, in order of weight:
 **Writer.** Whoever builds the project image, at build time, via `--label`:
 
 ```
+# BASE is the tag this project's Dockerfile actually builds FROM — claude-yolo:latest
+# for a desktop project, claude-yolo:ci for a CI one. The builder knows it; it must not
+# be assumed. See §4.1 (D30).
 podman build \
   --label claude-yolo-project-dockerfile-sha256="$(sha256sum .claude/ccy/Dockerfile | awk '{print $1}')" \
-  --label claude-yolo-project-base-version="$(podman image inspect claude-yolo:latest \
+  --label claude-yolo-project-base-image="${BASE}" \
+  --label claude-yolo-project-base-version="$(podman image inspect "${BASE}" \
       --format '{{index .Config.Labels "claude-yolo-version"}}')" \
   -t claude-yolo:<project> -f .claude/ccy/Dockerfile .
 ```
@@ -93,10 +102,97 @@ lts-infra's provisioning task, and a CI job with only a checkout and a container
 
 **Comparison.** The image is stale if **either** differs:
 
-| Check | Wanted (from checkout / base)                       | Have (from the project image's labels)  |
-| ----- | --------------------------------------------------- | --------------------------------------- |
-| 2     | `sha256sum .claude/ccy/Dockerfile`                  | `claude-yolo-project-dockerfile-sha256` |
-| 3     | `claude-yolo-version` label on `claude-yolo:latest` | `claude-yolo-project-base-version`      |
+| Check | Wanted (from checkout / base)                                                  | Have (from the project image's labels)  |
+| ----- | ------------------------------------------------------------------------------ | --------------------------------------- |
+| 2     | `sha256sum .claude/ccy/Dockerfile`                                             | `claude-yolo-project-dockerfile-sha256` |
+| 4     | the base this checkout's Dockerfile builds `FROM`                              | `claude-yolo-project-base-image`        |
+| 3     | `claude-yolo-version` label on **the image named by check 4**, not on `latest` | `claude-yolo-project-base-version`      |
+
+Check 4 runs **first**: if the project has switched base (desktop → CI, or back), the image is
+stale regardless of versions, and check 3 has no meaningful referent until check 4 agrees.
+
+### 4.1 Why fact 4 exists — D30
+
+The staleness check is hard-coded to one base, in the implementation *and* in the first draft of
+this specification:
+
+- `claude-yolo:1477` — `container_cmd image inspect "claude-yolo:latest"`, a literal, not derived
+  from the project's `FROM` line. The user-facing message at `:1505` even states the assumption
+  outright: *"Project images inherit from claude-yolo:latest."*
+- this document's own writer snippet, before this correction, inspected `claude-yolo:latest` too.
+
+That assumption is true today because `latest` is the only base. **Task 3.2 makes it false**: a
+project opts into CI by writing `FROM claude-yolo:ci`, and nothing else in the design changes. The
+consequence:
+
+> `Dockerfile.ci` changes — a new MCP binary, a new CI entrypoint — while `claude-yolo:latest` is
+> untouched. `current_base_version` and `previous_base_version` are both read from `latest`, both
+> unchanged, so they compare **equal** and no rebuild fires. The project image silently keeps the
+> **old CI entrypoint**, indefinitely.
+
+This is F1's shape: a check that runs, returns a confident answer, and cannot discriminate the case
+it exists to catch. It is worse than F1 in one respect — F1 fails on images built *before* the
+convention, a transitional population that shrinks; this one fails permanently, on exactly the
+images the CI work is for.
+
+**How it survived — and it is not that nobody noticed.** The record is better than that, and the
+failure is subtler for it:
+
+1. **Task 3.2 found it and named it**, in its own DONE block: *"that same hard-coded `:1478` means a
+   `ci`-based project image is staleness-checked against the wrong base … handed to 3.3 rather than
+   left implicit."*
+2. **Task 3.3 picked the handoff up** and adopted *"(C) move the staleness identity into an image
+   `LABEL`"*, going on to identify a second host-local cache file — the base version — that
+   *"no round and neither consumer had named"*.
+3. **This document then specified both facts as labels** — and hard-coded `claude-yolo:latest` in
+   its own writer, exactly as the implementation does.
+
+So the correction propagated, the handoff was accepted, and the work was done. Option C fixed
+**where the base version is stored** (host-local cache → image label) and never touched **which base
+it refers to**, which was the residual actually handed over. "Staleness identity moved into a
+`LABEL`" reads as though it subsumes "staleness measured against the wrong base"; it does not.
+
+That makes this a distinct species from the plan's other propagation instances, which were failures
+to carry a correction forward. This one carried forward correctly into a remedy that addressed the
+adjacent half — the most expensive kind, because every review sees a closed loop. Surfaced by the
+owner asking whether projects would have to keep two Dockerfiles in sync.
+
+**Why the fix is a recorded identity rather than parsing `FROM`.** The builder already knows which
+base it used — it is building from it. Parsing the project's `FROM` line means handling multi-stage
+builds, `ARG`-substituted tags and comments, and would be a second source of truth that can disagree
+with what was actually built. Recording it is one label and no new code paths, which is the
+project's stated preference.
+
+### 4.2 The inherited-label trap — fact 4 alone is not sufficient
+
+Recording *which* base fixes which **image** to inspect. It does not fix which **key** to read, and
+that is a second instance of the same failure.
+
+Task 3.1 specifies that `Dockerfile.ci` carries its own `LABEL claude-yolo-ci-version`, gated
+independently of `REQUIRED_CONTAINER_VERSION` — deliberately, so CI-tooling churn does not force a
+rebuild on every desktop user. But **OCI labels are inherited by child images unless overridden**.
+So `claude-yolo:ci` carries *both*: its own `claude-yolo-ci-version`, and `claude-yolo-version`
+inherited unchanged from `claude-yolo:latest`.
+
+A reader that inspects the right image (`claude-yolo:ci`, per fact 4) but reads `claude-yolo-version`
+therefore gets **the parent's version**, which does not move when `Dockerfile.ci` changes. The check
+discriminates no better than before — the defect simply moved one level in.
+
+**Two ways out, and this needs a decision rather than an assumption:**
+
+| Option                                                                                                                                                                                                 | Cost                                                                                                                                                                                            |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **A — one canonical key.** Every base image sets `claude-yolo-version` to *its own* value; `Dockerfile.ci` overrides the inherited one. The reader always reads one key off the image named by fact 4. | `claude-yolo-ci-version` becomes redundant as a gate (keep it as human-readable if wanted). Does not disturb `validate_container_version`, which inspects `claude-yolo:latest` and never `:ci`. |
+| **B — per-base key.** The reader maps base tag → version key (`latest` → `claude-yolo-version`, `ci` → `claude-yolo-ci-version`).                                                                      | A branch per base, growing with every future base — the "fewest code paths" rule argues against it, and a base added later without a matching branch degrades silently to the D30 failure.      |
+
+**A is recommended**, on the project's own stated preference for the fewest code paths and for
+failing loudly rather than degrading. It is recorded as a recommendation, not a decision: it edits
+Task 3.1's specified label scheme, and that belongs to whoever picks the work up.
+
+> **Unproven — F4.** That a child image inherits its parent's `LABEL` values is documented OCI
+> behaviour that this plan has **not measured**, and the entire argument above rests on it. If
+> labels turned out *not* to be inherited, §4.2 evaporates and fact 4 alone suffices. Recorded in
+> [hardware-proof-checklist.md](hardware-proof-checklist.md) as **F4**.
 
 **A missing label must be treated as STALE, never as a pass.** An image built before this
 convention has neither key, and `podman image inspect --format '{{index .Config.Labels "…"}}'`

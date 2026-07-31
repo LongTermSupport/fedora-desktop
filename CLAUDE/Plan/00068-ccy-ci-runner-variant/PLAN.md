@@ -959,6 +959,30 @@ Tracked as a finding in lts-infra Plan 00023.
   staleness-checked against the *wrong* base. The second is a real gap this design introduces,
   and it is handed to 3.3 rather than left implicit.
 
+  > **D30 — the handoff was accepted and the remedy fixed the adjacent half.** 3.3 took this up and
+  > adopted "(C) move the staleness identity into an image LABEL", which became
+  > [reports/label-convention-spec.md](reports/label-convention-spec.md). That moved **where** the
+  > base version is stored — host-local cache file → image label — and left **which base** it refers
+  > to hard-coded to `claude-yolo:latest`, in the implementation (`claude-yolo:1477`) *and* in the
+  > new spec's own writer. So a `:ci`-based project image still compares two values read from
+  > `latest`: they agree, no rebuild fires, and the project silently keeps the **old CI entrypoint**.
+  > F1's shape — a check that runs and cannot discriminate — but permanent rather than transitional.
+  >
+  > Not a missed handoff, which is what the plan's other fifteen propagation instances are. The
+  > correction propagated, was accepted, and the work was done; it addressed the adjacent half while
+  > reading as though it subsumed this one. Every review since has seen a closed loop.
+  >
+  > Fixed in the spec by **fact 4** (`claude-yolo-project-base-image` — record the base, never assume
+  > it) plus **§4.2**, which shows fact 4 alone is insufficient: OCI labels are inherited, so
+  > `claude-yolo:ci` carries `claude-yolo-version` from its parent unchanged, and reading that key off
+  > the right image still returns the wrong answer. Two options tabled, A recommended; the choice
+  > edits Task 3.1's label scheme and belongs to whoever picks the work up. New proof obligation
+  > **F4** (label inheritance) — the whole of §4.2 rests on it and it is unmeasured.
+  >
+  > Surfaced by the owner asking whether projects would have to maintain a separate `Dockerfile.ci`
+  > and keep tooling in sync. They would not — one project Dockerfile, one changed `FROM` line — but
+  > the question walked straight into what that changed `FROM` line breaks.
+
 - [x] ✅ **Task 3.3**: Address the platform-vs-repo layer problem the consumer hit: is a
   `ccy`-owned overlay applied on top of a project's Dockerfile warranted, or is that
   complexity only justified for untrusted-checkout CI? **Argue both sides** — the
