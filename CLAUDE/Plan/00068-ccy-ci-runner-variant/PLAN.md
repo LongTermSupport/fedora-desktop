@@ -1403,6 +1403,28 @@ tasks **replace** the corresponding Phase 2-5 tasks above where they conflict.
   (`podman image ls claude-yolo`), the pasta measurements (the consumer's, on its runner, not
   re-measured under ccy), and end-to-end confirmation of the spins.
 
+  > **D15 — this criterion is MET AS WORDED and is insufficient, which D10 proved.** The claim
+  > *"CI answers the staleness question from a checkout plus the image"* **was** cited to a
+  > `file:line` (`actions-hub/ci.yml:97`,`:99`). The citation was accurate: those lines say
+  > exactly that. The claim was still false, because **the lines have never executed** — the file
+  > returns at the baseline path (`:91-95`) and that repo ships no `.claude/ccy/Dockerfile`.
+  >
+  > So the criterion's own test — *is it cited?* — passes on a citation to dead code. **The plan's
+  > anti-hallucination gate has the exact defect the plan was written to catch**: a true statement
+  > about a check (a citation exists and is accurate) presented as a stronger statement about the
+  > world (therefore the claim is grounded). Eighth instance, and the first one located in the
+  > quality gate itself rather than in the material it governs.
+  >
+  > **The criterion should read**: *every claim is either cited to a `file:line` that is
+  > **reachable on the path the claim describes**, or explicitly marked unverified with a named
+  > probe.* Reachability, not just accuracy. For a citation into a conditional branch that is the
+  > difference between evidence and decoration — and it is cheap to check: read the enclosing
+  > guard, not only the line.
+  >
+  > Recorded rather than silently re-ticked. The tick stays because the criterion as written was
+  > genuinely met; what is wrong is the criterion, and pretending otherwise would be the same
+  > move this plan keeps catching.
+
 - [x] ✅ Task 1.1's `/dev/dri` question is answered by a host run, not by inference.
 
   Answered by the owner's host run: `EXIT 125 — Error: stat /dev/plan00068-definitely-absent: no such file or directory`. A missing `--device` path is fatal, so the unconditional
