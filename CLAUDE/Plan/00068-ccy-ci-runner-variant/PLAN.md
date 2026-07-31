@@ -429,6 +429,77 @@
 >
 > **The loop is STILL not quiet.** Round 4 required (Task 6.4).
 
+> ## ROUND 4 CORRECTIONS — D10–D13
+>
+> [reports/fable-review-4.md](reports/fable-review-4.md): **1 BLOCKER + 2 MAJOR + 1 MINOR**,
+> verdict *material findings: yes*. Every finding re-verified from source before acceptance.
+>
+> **D10 — BLOCKER: the surviving thesis is under-specified on the `LABEL` half, and the evidence
+> offered for it is dead code. This is the SEVENTH instance of the recurring failure mode.**
+>
+> After three rounds of shrinkage the plan claims `ccy` owes CI exactly two things: an image
+> `LABEL` identity and a CI entrypoint. Decision 6 (the entrypoint) survives Round 4 intact. The
+> `LABEL` half does not.
+>
+> *(a) The plan never names a key, and two incompatible conventions are already in production.*
+> Verified directly:
+>
+> | Convention                    | Where                                                      | Algorithm                                                  |
+> | ----------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------- |
+> | `claude-yolo-dockerfile-hash` | ccy's own base image (`Dockerfile:248`)                    | **md5, truncated to 16 chars** (`common.bash:469`, `:552`) |
+> | `lts.ccy.dockerfile-sha256`   | lts-infra's project-image task + actions-hub (`ci.yml:99`) | **full sha256**                                            |
+>
+> Different key, different algorithm, different truncation. Task 3.3's Option C names **no key at
+> all**, so implementing it as currently written would create a **third** convention — in a plan
+> whose entire justification for the `LABEL` is that a shared identity convention is what lets
+> lts-infra stop duplicating the staleness decision. Specifying the convention *is* the
+> deliverable; the plan currently specifies the idea of one.
+>
+> *(b) The cited proof has never executed, and three passes missed it.* D5's replacement argument,
+> D6 and R10 all cite `actions-hub/.github/workflows/ci.yml:97`/`:99` as showing that CI answers
+> the staleness question from a checkout plus the image. **That branch is unreachable in that
+> repo.** `ci.yml:91-95` returns at the baseline path when `.claude/ccy/Dockerfile` is absent, and
+> actions-hub has no `.claude/ccy/` directory at all (verified on its `main`, `7da52b0`). The
+> repo's own comment at `ci.yml:82-86` states it outright: *"This repo ships NO
+> `.claude/ccy/Dockerfile`, so it resolves to the baseline every time. The stale-image branch is
+> carried anyway."*
+>
+> So the citation reads the code correctly and says nothing about what CI does — the exact meta-bug
+> this plan has now caught seven times, in its most refined form yet. It survived **D5** (which
+> introduced it), **D8** (which "corrected" its line numbers, making a dead-code citation
+> *more precisely* aimed), and **fable-review-3's independent re-verification of D5**. None of the
+> three read the four lines of comment immediately above the cited lines.
+>
+> **What this does and does not retract.** D5's *conclusion* — build identity belongs in an image
+> `LABEL` — stands, because its argument never depended on the citation: state outside the image
+> cannot travel with it, cannot be read from a checkout, and can drift from what it describes. What
+> is withdrawn is the claim that this is **proven in production by the consumer**. It is not
+> proven; it is a design the consumer wrote and has never run. Same shape as D2: citation
+> withdrawn, decision intact. The honest status of the `LABEL` half is *specified in principle,
+> unspecified in fact, and unproven in practice*.
+>
+> **D11 — MAJOR: Task 7.5 is a FOURTH propagation-gap location for D6.** Its revised ordering —
+> *"token-by-value → Phase 2 → unattended proof"* — still presents both as sequenced delivery
+> work with no note that D6 made them desktop-only. D7 fixed Task 7.4 and Phase 2's intro; this is
+> the same defect, third time of asking. Note added at the task.
+>
+> **D12 — MAJOR: the "four capabilities" Success Criterion is stale post-D6.** It records
+> *"CI-only: none of the four"*, which frames Phase 2 as merely *not CI-exclusive*, like egress and
+> MCP. D6 gave Phase 2 **zero** CI relevance — a materially different and stronger fact that the
+> criterion's wording obscures. Corrected.
+>
+> **D13 — MINOR: `entrypoint.sh:257-263` is the right block cited two lines short** — the
+> unconditional trust assertion begins at its comment on `:255`. E10's other three citations and
+> D8's line-number fix re-verified exact.
+>
+> **A consequence of D9's own method, recorded rather than glossed.** D9 preserved line counts in
+> the two reports it edited, so their citations still resolve — but it *inserted* ~35 lines into
+> `PLAN.md`, so Round 4's citations into `PLAN.md` (not into the reports or source) are shifted by
+> that amount. The discipline was applied where it was reasoned about and not where it was not.
+> Round 5 should cite `PLAN.md` by task number rather than line.
+>
+> **The loop is STILL not quiet.** Round 5 required (Task 6.4).
+
 > **The loop is NOT quiet.** Round 2 found material problems, so a Round 3 is required (Task 6.4).
 
 ## Overview
@@ -1283,6 +1354,13 @@ tasks **replace** the corresponding Phase 2-5 tasks above where they conflict.
   non-interactivity fix, and Phase 2 can demonstrate nothing unattended until it exists.
   Audit loop (Task 6.4) re-run dispatched against all four new documents.
 
+  > **RESCOPED BY D6, recorded per D11.** Both items in this ordering — token-by-value and
+  > Phase 2 — are **desktop-only hardening**. Nothing in this sequence is reached by a CI job,
+  > because the `claude-yolo` launcher is not on the CI path at all. The *ordering* is still
+  > correct (token-by-value genuinely must precede any unattended proof); only its framing as CI
+  > delivery work is retracted. This was the fourth location D6 needed and the third time this
+  > propagation step was missed.
+
 ## Dependencies
 
 - **Coordination:** another agent is active in this repo on Plan 00065 (Cloud Base
@@ -1322,6 +1400,13 @@ tasks **replace** the corresponding Phase 2-5 tasks above where they conflict.
   CI-only: none of the four — egress is explicitly desktop-usable (Decision 3), MCP explicitly so
   (Task 4.3), and only *where the MCP binary comes from* is CI-specific.
 
+  **Corrected per D12.** "CI-only: none of the four" is true but understates what D6 established
+  about one of them. Egress and MCP are *usable on both* desktop and CI. **Phase 2 is
+  desktop-only** — not merely "not CI-exclusive" but of **zero** CI relevance, since the launcher
+  is never on the CI path. Three of the four are dual-use; the fourth is desktop-only. The
+  original wording flattened that distinction, which is exactly the kind of true-but-weaker
+  statement this plan keeps catching.
+
 - [x] ✅ A reader can say what happens to an existing `.claude/ccy/Dockerfile` — proven by
   reading the resolution path, not assumed.
 
@@ -1330,11 +1415,11 @@ tasks **replace** the corresponding Phase 2-5 tasks above where they conflict.
 
 - [ ] ⬜ The audit loop has run to a quiet round, with every round on disk in `reports/`.
 
-  Rounds 1–3 are all on disk (`fable-review-1.md`, `sonnet-scan-1.md`, `fable-review-2.md`,
-  `fable-review-3.md`, plus `prompt-classification-round3.md`); Round 4 is dispatched and its
-  report will land as `fable-review-4.md`. **Not yet quiet** — every round so far has found
-  material problems (Round 2: 2 BLOCKER + 2 MAJOR → D1–D4; Round 3: 2 BLOCKER + 1 MINOR → D6–D8),
-  so a round that finds nothing material has still not happened.
+  Rounds 1–4 are all on disk (`fable-review-1.md`, `sonnet-scan-1.md`, `fable-review-2.md`,
+  `fable-review-3.md`, `fable-review-4.md`, plus `prompt-classification-round3.md`).
+  **Not yet quiet** — every round so far has found material problems (Round 2: 2 BLOCKER +
+  2 MAJOR → D1–D4; Round 3: 2 BLOCKER + 1 MINOR → D6–D8; Round 4: 1 BLOCKER + 2 MAJOR + 1 MINOR
+  → D10–D13), plus D5 and D9 found without a review. Round 5 dispatched.
 
 - [ ] 🚫 **No source file outside this plan folder has been modified.**
 
