@@ -16,10 +16,10 @@
 
 ## What qa-all.bash Runs
 
-`qa-all.bash` runs six stages and merges their JSON into `/tmp/qa-results.json`. A
-missing **required** tool makes a stage (and the whole run) exit `2`; a real
-analyser crash (e.g. ruff/shellcheck exit ≥ 2) is a hard failure, never silently
-treated as "0 issues".
+`qa-all.bash` runs **seven** gates. Six merge their JSON into `/tmp/qa-results.json`;
+the seventh runs separately (see below). A missing **required** tool makes a stage
+(and the whole run) exit `2`; a real analyser crash (e.g. ruff/shellcheck exit ≥ 2)
+is a hard failure, never silently treated as "0 issues".
 
 | Script                   | Checks                                                                                                                                                                                                                                                                       | Files                                                                                              |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
@@ -29,6 +29,16 @@ treated as "0 issues".
 | `qa-ansible.bash`        | Fail-fast grep (`failed_when: false`/`ignore_errors` without same-line `# FAIL-FAST-OK:`, case-insensitive), **self-default vars** (`x: "{{ x \| default(…) }}"` — the 2.19 recursive-loop footgun `--syntax-check` can't see), **plus** playbook shebang + exec-bit hygiene | `playbooks/ tasks/ vars/ environment/ roles/` (excludes `roles/vendor`), `*.yml`/`*.yaml`          |
 | `qa-ansible-syntax.bash` | `ansible-playbook --syntax-check` on every playbook (files with a top-level `- hosts:`). Parse-only — safe in the CCY container                                                                                                                                              | `playbooks/playbook-main.yml` + standalone `playbooks/imports/**`                                  |
 | `qa-js.bash`             | `node --check` on repo JS + `eslint .` in `extensions/`                                                                                                                                                                                                                      | Repo-owned `.js` (excludes vendor/node_modules) + `extensions/`                                    |
+
+### The seventh gate — `qa-nokill-containerwatch.bash`
+
+`qa-all.bash:90` also runs `qa-nokill-containerwatch.bash`, and it **can fail the run**.
+It is invoked outside the JSON merge deliberately: it emits plain text, and folding it into
+the jq merge would corrupt the combined document.
+
+It enforces the container-watch watchdog's defining guarantee — that it **reports only** and
+never kills or throttles a process. The play that deploys it (`play-container-watch.yml`) is
+reporting-only by design; this gate is what keeps it that way as the code changes.
 
 ---
 

@@ -273,6 +273,102 @@ oversight?** S2 is the one with a real cost either way — a reader who copy-pas
 
 ---
 
+## Found while fixing (Phase 3) — six more, one of them harmful
+
+Fixing the recorded findings surfaced defects the audit's five read-only passes missed. Each is
+recorded here with the same citation discipline; all six are **fixed**.
+
+### 18 ✔ `docs/playbooks.md` described an uninstaller as an installer
+
+The catalog entry for `play-cloudflare-warp.yml` read "Cloudflare WARP client from official
+repository", "Automatic registration and connection", "Zero-trust network access".
+
+The play **removes** WARP. `cloudflare_warp_uninstall: true` is its default and the install branch
+is dead by design: the stable RPM hard-requires `webkit2gtk3`, retired in Fedora 44, making the
+package uninstallable **and blocking the F43 → F44 distupgrade**.
+
+This belongs in the harmful class with findings 1/4/5/6 — a reader wanting WARP runs a play that
+uninstalls it. It was missed because the audit checked whether catalog entries **exist**, not
+whether they still describe the play's current direction.
+
+### 19 ✔ A fourth broken link — finding 17 undercounted
+
+`docs/README.md:314` → `installation.md#prerequisites`. No such heading exists; the nearest is
+`### System Requirements`. Found only by checking **every** anchor mechanically rather than the
+ones a reader happened to try.
+
+### 20 ✔ Stale plan number in three live docs, one of them a broken link
+
+This plan's sibling was scaffolded as 00066 and renumbered to **00068** (documented in its own
+journal). Live references were never updated:
+
+- `CLAUDE/PlanScriptStandards.md:231` — a **link** to `Plan/00066-ccy-ci-runner-variant/triage.bash`,
+  a path that does not exist
+- `CLAUDE/PlanScriptStandards.md:18`, `CLAUDE/PlanWorkflow.md:85`, `CLAUDE/Plan/CLAUDE.md:40` — prose
+- `CLAUDE/Plan/_planlib.inc.bash:19`, `scripts/test-planlib.bash:123` — code comments
+
+All corrected to 00068. **`JOURNAL/` bodies were deliberately left alone** — they are append-only,
+and the renumber is already recorded there as a dated entry.
+
+### 21 ✔ `README.md` advertised a removed feature through a dead anchor
+
+`README.md:152` offered a "Playwright testing environment" linking
+`docs/containerization.md#playwright-distrobox-automated`. That heading does not exist, and
+`git ls-files | grep -i playwright` returns **nothing** — `play-distrobox-playwright.yml` is gone.
+The capability now lives in CCY's built-in `agent-browser`, which is what
+`containerization.md`'s "Example 2: Browser Automation Testing" documents. Repointed there.
+
+### 22 ✔ Two more anchors that never matched
+
+- `docs/features/README.md:54` → `#custom-dockerfiles-for-ccy`; the heading is `## Custom Dockerfiles`
+- `CLAUDE/AgentNotes.md:45` → `#…-pass-fail-gate`; the heading is `pass/fail`, and GitHub deletes the
+  slash rather than converting it to a hyphen, giving `passfail`
+
+### 23 ✔ Source naming bug behind finding 10
+
+`play-lxc-install-config.yml:48` was named **`Enable LXD Copr Repository`** while enabling
+`ganto/lxc4` and installing only `lxc` / `lxc-templates`. Measured: the string `lxd` appeared
+**once** in the whole file — in that task name. The doc's "Installs LXC and LXD packages" was
+inherited from it.
+
+Renamed to `Enable LXC Copr Repository` with a comment recording why, per
+[CLAUDE.md](../../../../CLAUDE.md)'s rule that a thing is named for what it is. This is the
+audit's only **source** change: the doc could not be made correct while the code it described
+carried the wrong name.
+
+## The mechanical sweep — what a checker found that five read-only passes did not
+
+A link/anchor checker run over all tracked markdown examined **299 files, 803 relative links and
+382 anchors**. Findings 19, 21, 22 came from it, and it independently re-confirmed 13 and 17.
+
+Two lessons worth more than the findings:
+
+- **The checker was wrong on its first run**, and its own bug was the same class as the defects it
+  hunts. It collapsed whitespace runs (`\s+` → `-`), but GitHub replaces **each** space
+  individually, so a heading like `Fail Fast — HARD RULE` slugs to `fail-fast--hard-rule` with a
+  **double** hyphen. Fixing it raised the count 48 → 80. The fix was validated against
+  author-written anchors that could be seen rendered — `#3-kickstart-luks--btrfs-partitioning`
+  (heading "LUKS + Btrfs") **passes only under the corrected rule**.
+- **The audit's own new report contained two broken links**, written this session:
+  `reports/ci-required-config.md` cited `.claude/rules/no-armed-flags.md` and
+  `.claude/rules/bash-standards.md`. Those are the **outer lts-infra checkout's** rules — this repo
+  is vendored at `untracked/repos/fedora-desktop` inside it and has neither file. The depth was
+  wrong too (`../../../` resolves to `CLAUDE/`, not the repo root). Both replaced with this repo's
+  own [CLAUDE.md § Fail Fast](../../../../CLAUDE.md#fail-fast--hard-rule) and a plain statement of
+  the `sysexits.h` convention.
+
+### Out of scope, recorded so they are not lost
+
+- **`CLAUDE/Plan/00049-full-repo-audit/triage.md` has ~60 anchors broken by the same double-hyphen
+  rule** — every finding-heading containing `—` or `: `. That plan's navigation is largely
+  non-functional on GitHub. Its own plan, not this one.
+- **`CLAUDE/Plan/00068-…/JOURNAL/00068-Journal-26-07-30.md` links `reports/<name>.md` from inside
+  `JOURNAL/`**, so all seven resolve to `JOURNAL/reports/…` and 404. The reports all exist; the
+  links need `../reports/`. Journal files are **append-only**, so this must be corrected by a new
+  dated entry, not an edit.
+
+---
+
 ## Checked and clean
 
 The coverage ledger — what was verified and found accurate, so the audit's reach is known:

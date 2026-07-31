@@ -15,7 +15,7 @@ fail-fast rule still applies in full. This document adds the orchestrator-specif
 
 ## Why this exists
 
-`triage.bash` for **Plan 00066** resolved its repo root with
+`triage.bash` for **Plan 00068** (scaffolded as 00066, renumbered) resolved its repo root with
 `git rev-parse --show-toplevel`, because [PlanWorkflow.md](PlanWorkflow.md) said to. That
 command answers about the **cwd**, not about the script. Run by path from another repo's
 root it resolved to that repo, wrote its report there, and the probe meant to catch
@@ -228,7 +228,7 @@ without extending that test.
 
 The bootstrap block is identical everywhere and elided as `<BOOTSTRAP>`; copy it verbatim from
 R1. A working, lint-clean example lives at
-[`Plan/00066-ccy-ci-runner-variant/triage.bash`](Plan/00066-ccy-ci-runner-variant/triage.bash).
+[`Plan/00068-ccy-ci-runner-variant/triage.bash`](Plan/00068-ccy-ci-runner-variant/triage.bash).
 
 ```bash
 #!/usr/bin/env bash

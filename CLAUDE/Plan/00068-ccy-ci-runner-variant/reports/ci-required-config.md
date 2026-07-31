@@ -7,7 +7,8 @@ assertion lives inside `ccy`, and most of them already do.
 Every precondition is **asserted**, never summarised. No `<thing>_armed` boolean is derived from
 whether a credential happens to exist; no `| default('')` is applied to a credential, because that
 converts UNDEFINED into EMPTY and blinds the check.
-See [.claude/rules/no-armed-flags.md](../../../.claude/rules/no-armed-flags.md).
+See [CLAUDE.md § Fail Fast — HARD RULE](../../../../CLAUDE.md#fail-fast--hard-rule), which bans the
+"skip and warn" pattern by name.
 
 Nothing here has been executed. The plan implements nothing.
 
@@ -121,7 +122,7 @@ the first, wrong-value adds the second.
 
 ## 3. Exit codes
 
-Per [.claude/rules/bash-standards.md](../../../.claude/rules/bash-standards.md) §9 — distinct
+Following the `sysexits.h` convention — distinct
 states get distinct codes, and `EX_USAGE` (64) is reserved so it can never be confused with a real
 result.
 

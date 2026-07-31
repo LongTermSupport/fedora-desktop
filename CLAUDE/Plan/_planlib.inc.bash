@@ -16,7 +16,7 @@
 #   Donor of the concept:    ballicom-infra's CLAUDE/Plan/_planlib.bash
 #
 # THE INCIDENT THIS EXISTS TO PREVENT
-#   Plan 00066's triage.bash resolved its repo root with
+#   Plan 00068's triage.bash resolved its repo root with
 #   `git rev-parse --show-toplevel` — following this repo's own PlanWorkflow.md,
 #   which recommended it. `git rev-parse` is CWD-relative, NOT script-relative.
 #   The operator ran the script by path from a DIFFERENT repo's root, so it

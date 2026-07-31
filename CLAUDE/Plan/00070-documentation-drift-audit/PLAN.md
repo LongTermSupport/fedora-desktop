@@ -8,7 +8,8 @@
 ## Overview
 
 A read-only audit of the project's documentation against the tree it describes found **17 confirmed
-defects and 6 suspected**. Full report: [reports/docs-drift-audit.md](reports/docs-drift-audit.md).
+defects and 6 suspected**. Fixing them surfaced **six more** (findings 18–23), one of them in the
+harmful class. Full report: [reports/docs-drift-audit.md](reports/docs-drift-audit.md).
 
 The defect is **drift** — docs describing a past state of the code — not sloppiness. The code and
 the newer docs are disciplined; the older docs were never re-read after the changes that invalidated
@@ -40,6 +41,7 @@ exist. Incompleteness misleads by omission; these mislead by instruction.
 | 5   | `helpers/CLAUDE.md:76`               | `python3 -m unittest discover -s tests`  | runs **0 tests**, prints `OK`, exits 0          |
 | 4   | `play-nordvpn-openvpn.yml:125-134`   | `./vault.bash set <var>`                 | always fails — the play just wrote that var     |
 | 6   | `extensions/CLAUDE.md`               | `npm run lint`                           | the command `CLAUDE/QA.md:71` forbids by name   |
+| 18  | `docs/playbooks.md` WARP entry       | "installs Cloudflare WARP"               | the play **uninstalls** it — found in Phase 3   |
 
 ## Tasks
 
@@ -66,20 +68,27 @@ exist. Incompleteness misleads by omission; these mislead by instruction.
 
 ### Phase 3 — Fix the omissions and staleness
 
-- [ ] ⬜ **Task 3.1**: Add `play-mask-intel-lpmd.yml` to `docs/architecture.md` and
-  `docs/playbooks.md` (finding 2); add the four missing optional playbooks (finding 9).
+- [x] ✅ **Task 3.1**: `play-mask-intel-lpmd.yml` added to both docs (finding 2) — the numbered
+  list in `architecture.md` now matches `playbook-main.yml` at all **31** entries. All four missing
+  optional playbooks catalogued (finding 9).
 - [x] ✅ **Task 3.2**: `PlanJournalling.md` and `PlanScriptStandards.md` indexed in `CLAUDE.md`
   (finding 3). All 15 topic files now have a row.
-- [ ] ⬜ **Task 3.3**: Correct the two mischaracterised playbooks, and check whether the
-  `Enable LXD Copr Repository` task name is itself wrong (finding 10).
-- [ ] ⬜ **Task 3.4**: Rewrite `docs/fast-file-manager.md` — delete the non-existent tracker feature,
-  document the recently-used-files fix (finding 11).
-- [ ] ⬜ **Task 3.5**: Fix the three broken links (findings 13, 17).
-- [ ] ⬜ **Task 3.6**: Document the seventh QA gate (finding 8); regenerate the Whisper model table
-  (finding 12); add the missing directories to the architecture tree (finding 15); reword the vault
-  password file description (finding 16).
-- [ ] ⬜ **Task 3.7**: Add a `provisioning_profile` / `scope` section to `docs/architecture.md`
-  (finding 14).
+- [x] ✅ **Task 3.3**: Both mischaracterised playbooks corrected (finding 10). The
+  `Enable LXD Copr Repository` task name **was itself wrong** — `lxd` appeared exactly once in the
+  whole play, in that name — and is now `Enable LXC Copr Repository` (finding 23). Adding the
+  missing catalog entries also exposed a **third** mischaracterisation, finding 18.
+- [x] ✅ **Task 3.4**: `docs/fast-file-manager.md` rewritten. Zero `tracker` references remain, and
+  `disable_tracker` is gone from the whole repo; the real recently-used-files fix is documented
+  with its cause (finding 11).
+- [x] ✅ **Task 3.5**: Broken links fixed — **four**, not three. Finding 17 undercounted;
+  `installation.md#prerequisites` was also dead (finding 19).
+- [x] ✅ **Task 3.6**: Seventh QA gate documented with the reason it sits outside the JSON merge
+  (finding 8); Whisper table regenerated from `_whisperModels` — **12** models, not 5, and the
+  cache range corrected at both sites (finding 12); `CLAUDE/`, `helpers/`, `files/opt`, `files/usr`
+  added to the architecture tree (finding 15); vault password file reworded to **plaintext** with
+  the reason (finding 16).
+- [x] ✅ **Task 3.7**: `provisioning_profile` / `scope` section added to `docs/architecture.md`,
+  including the server-biased detection and the zero-flag default (finding 14).
 
 ### Phase 4 — Resolve the suspected six
 

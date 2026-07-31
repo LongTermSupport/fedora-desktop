@@ -82,7 +82,7 @@ bootstrap, and reference skeletons are in
 > *by path* from somewhere else resolves to whatever repo the shell happens to be
 > sitting in.
 >
-> That is not hypothetical. Plan 00066's `triage.bash` followed this guidance, was
+> That is not hypothetical. Plan 00068's `triage.bash` followed this guidance, was
 > run by path from another repository's root, wrote its report into **that** repo,
 > and its deployed-vs-checkout drift probe compared against a path which does not
 > exist there — so the one check that mattered reported

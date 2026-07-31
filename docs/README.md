@@ -311,10 +311,10 @@ distrobox enter dev
 
 **Installation & Setup**
 
-- [Prerequisites](installation.md#prerequisites)
+- [System requirements](installation.md#system-requirements)
 - [Quick install](installation.md#quick-install)
 - [Manual installation](installation.md#manual-installation)
-- [Post-installation](installation.md#post-installation)
+- [Verifying installation](installation.md#verifying-installation)
 - [Post-upgrade repair (after `dnf system-upgrade`)](post-upgrade.md)
 - [Troubleshooting](installation.md#troubleshooting)
 
@@ -334,7 +334,7 @@ distrobox enter dev
 ## Troubleshooting Quick Links
 
 - **Installation fails:** [Installation troubleshooting](installation.md#troubleshooting)
-- **Version mismatch:** [Version troubleshooting](installation.md#version-mismatch)
+- **Version mismatch:** [Version troubleshooting](installation.md#version-mismatch-error)
 - **Container issues:** [Container troubleshooting](containerization.md#troubleshooting)
 - **Configuration errors:** [Configuration debugging](configuration.md#troubleshooting-configuration)
 - **Playbook debugging:** [Testing guide](development.md#debugging)

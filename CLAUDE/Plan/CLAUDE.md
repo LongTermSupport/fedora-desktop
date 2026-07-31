@@ -37,7 +37,7 @@ ansible invocation. Rules, bootstrap and skeletons:
 > `git rev-parse --show-toplevel`, not a fixed `../` hop."* The second half was right; the
 > first half is **wrong** and caused a real failure. `git rev-parse` answers about the
 > **cwd**, not the script, so a plan script run by path from another repo resolves to that
-> repo — which is exactly what happened to Plan 00066's `triage.bash`. Use the
+> repo — which is exactly what happened to Plan 00068's `triage.bash`. Use the
 > script-relative, `.git`-bounded marker walk in
 > [`../PlanScriptStandards.md`](../PlanScriptStandards.md) R1 instead; `plan_init` then
 > exports `PLAN_REPO_ROOT` and `PLAN_SCRIPT_DIR` for you.

@@ -47,7 +47,9 @@ fedora-desktop/
 │           └── archived/         # Deprecated playbooks
 │
 ├── docs/                         # User-facing documentation
+├── CLAUDE/                       # Agent topic docs (style, QA, security, plans)
 ├── extensions/                   # GNOME Shell extensions source
+├── helpers/                      # Stdlib-only Python helpers (TDD'd, CI-tested)
 ├── tasks/                        # Standalone Ansible task files
 ├── tests/                        # Test suite
 ├── fedora-install/               # Fedora installation helpers (ISO/kickstart)
@@ -55,6 +57,8 @@ fedora-desktop/
 ├── files/                        # Static configuration files
 │   ├── etc/                     # System configs
 │   ├── home/                    # User configs
+│   ├── opt/                     # Opt-tree payloads
+│   ├── usr/                     # /usr payloads
 │   └── var/                     # Variable data
 │
 ├── scripts/                      # Utility scripts
@@ -90,38 +94,72 @@ The bootstrap script:
 03. **play-basic-configs.yml**: System packages and base configuration
 04. **play-prevent-ssh-suspend.yml**: Prevent SSH session suspend
 05. **play-network-wait-tuning.yml**: Network startup tuning
-06. **play-systemd-user-tweaks.yml**: Systemd user session tweaks
-07. **play-nvm-install.yml**: Node Version Manager setup
-08. **play-git-configure-and-tools.yml**: Git configuration and tools
-09. **play-git-hooks-security.yml**: Security pre-commit hooks
-10. **play-firefox.yml**: Firefox browser configuration
-11. **play-github-cli-multi.yml**: GitHub CLI multi-account support
-12. **play-ms-fonts.yml**: Microsoft fonts installation
-13. **play-rpm-fusion.yml**: Third-party repository setup
-14. **play-browsers.yml**: Additional browser setup
-15. **play-toolbox-install.yml**: JetBrains Toolbox
-16. **play-docker.yml**: Rootful Docker (compatibility engine for DDEV)
-17. **play-lxc-install-config.yml**: LXC container support
+06. **play-mask-intel-lpmd.yml**: Mask `intel_lpmd.service` where it only adds boot noise
+    - No-op on hosts where the unit is absent (e.g. AMD), so it imports unconditionally.
+07. **play-systemd-user-tweaks.yml**: Systemd user session tweaks
+08. **play-nvm-install.yml**: Node Version Manager setup
+09. **play-git-configure-and-tools.yml**: Git configuration and tools
+10. **play-git-hooks-security.yml**: Security pre-commit hooks
+11. **play-firefox.yml**: Firefox browser configuration
+12. **play-github-cli-multi.yml**: GitHub CLI multi-account support
+13. **play-ms-fonts.yml**: Microsoft fonts installation
+14. **play-rpm-fusion.yml**: Third-party repository setup
+15. **play-browsers.yml**: Additional browser setup
+16. **play-toolbox-install.yml**: JetBrains Toolbox
+17. **play-docker.yml**: Rootful Docker (compatibility engine for DDEV)
+18. **play-lxc-install-config.yml**: LXC container support
     - **Ordering constraint**: LXC runs _after_ Docker so the `DOCKER-USER`
       iptables chain exists when LXC reconciles outbound connectivity.
       See the "Reconcile iptables" block in `play-lxc-install-config.yml`.
-18. **play-podman.yml**: Rootless Podman (default container engine)
-19. **play-python.yml**: Python/pyenv setup
-20. **play-claude-yolo.yml**: CCY (Claude container wrapper) installation
+19. **play-podman.yml**: Rootless Podman (default container engine)
+20. **play-python.yml**: Python/pyenv setup
+21. **play-claude-yolo.yml**: CCY (Claude container wrapper) installation
     - **Ordering constraint**: CCY must run _before_ `play-claude-code.yml`
       because the `cc` wrapper sources CCY lib files at runtime, and
       `play-claude-code.yml` asserts the lib is present before deploying it.
       See `CLAUDE/Plan/00048-cc-token-source-parity`.
-21. **play-claude-code.yml**: Claude Code CLI and `cc` wrapper
-22. **play-comms.yml**: Communication applications
-23. **play-gnome-shell.yml**: GNOME Shell configuration
-24. **play-gnome-shell-extensions.yml**: GNOME Shell extensions
-25. **play-markless.yml**: Markless tool setup
-26. **play-terminal-emulators.yml**: Terminal emulator configuration
-27. **play-vscode.yml**: Visual Studio Code
-28. **play-vpn.yml**: VPN configuration
-29. **play-gsettings.yml**: GNOME settings
-30. **play-ZZ-repo-cleanup.yml**: Post-run repository cleanup
+22. **play-claude-code.yml**: Claude Code CLI and `cc` wrapper
+23. **play-comms.yml**: Communication applications
+24. **play-gnome-shell.yml**: GNOME Shell configuration
+25. **play-gnome-shell-extensions.yml**: GNOME Shell extensions
+26. **play-markless.yml**: Markless tool setup
+27. **play-terminal-emulators.yml**: Terminal emulator configuration
+28. **play-vscode.yml**: Visual Studio Code
+29. **play-vpn.yml**: VPN configuration
+30. **play-gsettings.yml**: GNOME settings
+31. **play-ZZ-repo-cleanup.yml**: Post-run repository cleanup
+
+### Desktop or server — the `provisioning_profile` / `scope` pair
+
+**This repo provisions both a Fedora desktop and a headless Fedora server from the same source
+tree.** That is the defining architectural constraint, and it is what the `scope` line in every
+play exists to serve.
+
+Which target is being built is auto-detected with **zero flags** into `provisioning_profile`
+(`environment/localhost/group_vars/desktop.yml`), from `systemctl get-default`:
+
+| `systemctl get-default` | `provisioning_profile` |
+| ----------------------- | ---------------------- |
+| `graphical.target`      | `desktop`              |
+| anything else           | `server`               |
+
+The detection is **server-biased when uncertain** — a box that cannot prove it is a desktop is
+provisioned as a server, so GUI work is never done on a headless host by accident.
+
+Override for testing or CI (extra-vars have the highest precedence, so the lookup is skipped
+entirely rather than merely outvoted):
+
+```bash
+./run.bash -e provisioning_profile=desktop
+./run.bash -e provisioning_profile=server
+```
+
+**Every play declares a `scope`** in its play-level `vars:` block — `general | gnome | server`.
+A play whose scope does not match the detected profile ends immediately via a two-task guard
+that is byte-identical everywhere (the QA gate compares the text). `general` plays run on both.
+
+Full rules: [CLAUDE/AnsibleStyle.md](../CLAUDE/AnsibleStyle.md) §Provisioning Profile Self-Guard.
+Per-playbook behaviour: [playbooks.md](playbooks.md#desktop-vs-headless-server-provisioning).
 
 ### 3. Optional Components
 
@@ -172,4 +210,5 @@ Static files are organized by destination:
 - SSH key generation and management
 - Passwordless sudo configuration
 - GitHub CLI multi-account support
-- Encrypted vault password file (gitignored)
+- Vault password file (**plaintext**, gitignored) — it holds the key that decrypts the vaulted
+  values, so it is by definition not itself encrypted

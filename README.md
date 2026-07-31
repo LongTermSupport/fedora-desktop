@@ -149,7 +149,7 @@ Choose what you need from these curated playbooks:
 - Docker (rootless) for application containers
 - Distrobox for seamless development environments
 - Docker-in-LXC for isolated project testing
-- [Playwright testing environment](docs/containerization.md#playwright-distrobox-automated) (automated browser setup)
+- [Browser automation testing](docs/containerization.md#example-2-browser-automation-testing) (via CCY's built-in `agent-browser`)
 
 **Programming Languages**
 
@@ -242,4 +242,4 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ---
 
-**Note:** This is a public repository. Never commit personal information, API keys, or secrets. Use Ansible Vault for sensitive data. See the [security guidelines](CLAUDE.md#-public-repository-warning) for details.
+**Note:** This is a public repository. Never commit personal information, API keys, or secrets. Use Ansible Vault for sensitive data. See the [security guidelines](CLAUDE/SecurityRules.md#public-repository-warning) for details.

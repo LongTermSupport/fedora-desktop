@@ -51,7 +51,7 @@ Feature documentation that lives outside this directory:
 
 Documentation for these features is planned:
 
-- **CCY (Claude Code YOLO)**: Containerised Claude Code with token management (interim notes in [Containerization Guide](../containerization.md#custom-dockerfiles-for-ccy))
+- **CCY (Claude Code YOLO)**: Containerised Claude Code with token management (interim notes in [Containerization Guide](../containerization.md#custom-dockerfiles))
 
 ---
 

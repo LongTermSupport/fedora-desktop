@@ -45,7 +45,11 @@
           Rootless Podman does NOT need to precede LXC — it uses
           slirp4netns/pasta and does not touch host iptables.
 
-    - name: Enable LXD Copr Repository
+    # Named for what it is: ganto/lxc4 is an LXC 4.x repo and the only packages
+    # taken from it are `lxc` / `lxc-templates`. It was called "LXD Copr" until
+    # Plan 00070, and that name was the source of docs/playbooks.md claiming
+    # this play installs LXD. No LXD package has ever appeared here.
+    - name: Enable LXC Copr Repository
       community.general.copr:
         name: "ganto/lxc4"
 

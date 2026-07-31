@@ -120,7 +120,7 @@ make_repo() {
 
 # ── R1: repo-root resolution — the incident this library exists to prevent ────────────────
 #
-# Plan 00066's triage.bash used `git rev-parse --show-toplevel` (which THIS repo's
+# Plan 00068's triage.bash used `git rev-parse --show-toplevel` (which THIS repo's
 # PlanWorkflow.md recommended), and that is CWD-relative. Run by path from a different repo's
 # root it resolved to that repo, wrote its report there, and the deployed-vs-checkout probe
 # compared against a path that does not exist. These cases pin the replacement behaviour.
