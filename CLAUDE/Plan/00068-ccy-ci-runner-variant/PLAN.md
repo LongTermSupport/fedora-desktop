@@ -947,6 +947,20 @@ Tracked as a finding in lts-infra Plan 00023.
   > Recorded as proof obligations **G1–G3** in
   > [reports/hardware-proof-checklist.md](reports/hardware-proof-checklist.md).
 
+  > **D31 — the layer sits above the project image, and that retires G1.** Under
+  > [reports/ci-layering-corrected.md](reports/ci-layering-corrected.md) the CI image is a per-project
+  > **leaf** (`claude-yolo-ci:<project>`), not a shared base. Nothing pulls a leaf expecting ccy
+  > desktop semantics, so this task's objection to overriding `ENTRYPOINT` — *"it would silently
+  > change behaviour for anything that pulls this tag"* — is sound for a shared base and vacuous for
+  > a leaf. The leaf therefore sets `ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/ccy-ci-entrypoint.sh"]`
+  > directly: **`tini` is preserved by construction (G1 evaporates)** and callers stop hand-rolling
+  > `--entrypoint` because there is nothing left to hand-roll — which is Decision 6's stated goal,
+  > reached properly rather than by asking callers to be careful.
+  >
+  > What this task got right and keeps: a separate **file** rather than a stage, so the main
+  > Dockerfile's hash is untouched. What changes is only what it is `FROM` — the resolved project
+  > image, not `claude-yolo:latest`.
+
 - [x] ✅ **Task 3.2**: Specify how a project selects it, and prove on paper that an
   existing `.claude/ccy/Dockerfile` (`FROM claude-yolo:latest`) is unaffected.
 
@@ -980,8 +994,29 @@ Tracked as a finding in lts-infra Plan 00023.
   > **F4** (label inheritance) — the whole of §4.2 rests on it and it is unmeasured.
   >
   > Surfaced by the owner asking whether projects would have to maintain a separate `Dockerfile.ci`
-  > and keep tooling in sync. They would not — one project Dockerfile, one changed `FROM` line — but
-  > the question walked straight into what that changed `FROM` line breaks.
+  > and keep tooling in sync. The answer given at the time — *"no, one project Dockerfile, one
+  > changed `FROM` line"* — was true and **missed the point**, which D31 below corrects: that one
+  > changed `FROM` line is in the project's ONLY Dockerfile, so it changes the DESKTOP image too.
+
+  > **D31 — this whole task's selection mechanism is disqualified, and D30 with it.** The owner then
+  > stated the governing constraint: **desktop ccy must not be degraded in any way — no context
+  > bloat, no MCP, nothing.** `.claude/ccy/Dockerfile` is the project's only Dockerfile
+  > (`claude-yolo:1452`), consumed at `:1457`, producing the image `:1633` selects for the
+  > **interactive desktop session**. So "a project opts into CI by writing `FROM claude-yolo:ci`"
+  > means *every desktop developer on that project gets the GitHub MCP in every session,
+  > permanently*. That is disqualifying, and it disqualifies the direction rather than the details.
+  >
+  > **D30's fix is therefore moot rather than wrong.** Fact 4 and §4.2 correctly repair a staleness
+  > check for project images built `FROM claude-yolo:ci` — a thing that must now never exist. Under
+  > D31 no project image is ever `FROM` anything but `claude-yolo:latest`, so the hard-coded literal
+  > at `claude-yolo:1477` is **correct**, and D30 evaporates rather than being fixed. The §4.2
+  > label-inheritance analysis survives as a general rule (each layer writes uniquely-named keys;
+  > never read a key you might have inherited) and **F4 stays worth measuring**.
+  >
+  > Corrected design: [reports/ci-layering-corrected.md](reports/ci-layering-corrected.md) — the CI
+  > payload layers **above** the project image (`claude-yolo-ci:<project>`), never beneath it.
+  > Desktop never builds it. The tag-collision residual above evaporates too: no shared `:ci` tag
+  > exists, and a separate repository namespace cannot collide with `claude-yolo:<anything>`.
 
 - [x] ✅ **Task 3.3**: Address the platform-vs-repo layer problem the consumer hit: is a
   `ccy`-owned overlay applied on top of a project's Dockerfile warranted, or is that
@@ -992,6 +1027,24 @@ Tracked as a finding in lts-infra Plan 00023.
   Decision 4*, and that dependency is stated as the honest caveat: reverse Decision 4 and the
   overlay returns immediately, because an untrusted Dockerfile cannot be allowed to define the
   layer asserting the platform's own invariants.
+
+  > **D31 — the corrected design IS an overlay on the project image, and this task rejected one.**
+  > Stated head-on rather than slipped past, because a proposal that quietly reverses a ✅ decision
+  > is exactly what seven review rounds are supposed to catch.
+  >
+  > The distinction claimed, for the owner to accept or reject: this task rejected a **security**
+  > overlay — a ccy-owned layer asserting platform invariants over an untrusted project Dockerfile —
+  > and the rejection rests on Decision 4. [reports/ci-layering-corrected.md](reports/ci-layering-corrected.md)
+  > proposes a **payload-separation** overlay, whose only job is keeping CI-only material (MCP, the
+  > CI entrypoint) out of the desktop image. Same mechanism, different purpose, and the
+  > desktop-purity constraint leaves no alternative: any design that puts the CI payload *beneath*
+  > the project image reaches desktop through `claude-yolo:1457`/`:1633`.
+  >
+  > Two things also reopen the security half, and neither is settled here: this task's own caveat
+  > (*"reverse Decision 4 and the overlay returns immediately"*), and the owner's new steer that
+  > **CI should be more restricted, more locked down** — which sits awkwardly beside
+  > `--dangerously-skip-permissions` and should not be treated as settled merely because Decision 4
+  > is recorded ✅.
 
   - [x] ✅ Cover the version-gate interaction: `REQUIRED_CONTAINER_VERSION`
     (`claude-yolo:39`) currently gates one base; state how it behaves with a variant.

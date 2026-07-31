@@ -38,13 +38,26 @@ the CI path at all** — provisioning calls `podman build` directly, and job tim
    Specified in [ci-entrypoint-spec.md](ci-entrypoint-spec.md) — which, until D29, this deliverable
    did not have: seven rounds specified how it is shipped and selected and never what it contains.
 
+> **The governing constraint, added after the above and overriding it where they conflict (D31):**
+> **desktop ccy must not be degraded in any way — no context bloat, no MCP, nothing.** MCP's cost is
+> not image size, it is tool surface in every interactive session's context. This disqualifies the
+> layering the plan had specified, in which a project opts into CI by changing the `FROM` line of the
+> same Dockerfile that builds its desktop image. Corrected shape — CI layers **above** the project
+> image as a per-project leaf, `claude-yolo-ci:<project>`, which desktop never builds:
+> [ci-layering-corrected.md](ci-layering-corrected.md). It retires D30 and G1 and reopens Task 3.3.
+
 ## What is NOT in scope, and why
 
 - **No permission surface** (Decision 4). `ccy`'s posture is a coherent four-point trust model whose
   premise is that the operator owns the workspace — not a loose default a flag could tighten. The
   price is stated: **`ccy` in CI is for trusted automation only**, and it is not a replacement for a
   fail-closed sandbox for untrusted checkouts.
-- **No overlay on project Dockerfiles** — the existing per-project seam is the mechanism.
+- ~~**No overlay on project Dockerfiles** — the existing per-project seam is the mechanism.~~
+  **Reopened by D31.** The seam is a *project-wide* choice, not a CI-time one: `.claude/ccy/Dockerfile`
+  is the project's only Dockerfile and also builds the desktop image, so routing CI through it puts
+  MCP on desktop. The corrected design layers the CI payload **above** the project image
+  ([ci-layering-corrected.md](ci-layering-corrected.md)) — which is an overlay, stated as such and
+  pending decision.
 - **Phase 2 (`--non-interactive`) and token-by-value are desktop-only hardening.** Real defects
   worth fixing; no longer CI enablers.
 

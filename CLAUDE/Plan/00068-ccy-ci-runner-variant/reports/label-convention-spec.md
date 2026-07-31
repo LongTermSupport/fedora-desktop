@@ -52,6 +52,15 @@ migrate onto them.**
 and "has the base moved". Neither answers **which base** — and without that, "has the base moved"
 has no well-defined referent the moment more than one base exists. See §4.1.
 
+> **SUPERSEDED BY D31, pending decision.** Fact 4 exists to make staleness correct for a project
+> image built `FROM claude-yolo:ci`. The owner's desktop-purity constraint disqualifies that
+> arrangement outright — a project's only Dockerfile also builds its desktop image, so flipping its
+> `FROM` puts MCP on desktop. Under
+> [ci-layering-corrected.md](ci-layering-corrected.md) the CI payload layers **above** the project
+> image, no project image is ever `FROM` anything but `claude-yolo:latest`, the hard-coded literal at
+> `claude-yolo:1477` becomes **correct**, and fact 4 is unnecessary. Kept here, not deleted, until
+> D31 is accepted or rejected — and §4.2 survives regardless, as the general rule stated at its end.
+
 This is a third *name*, which D10 warned against — so the warning is answered explicitly rather
 than ignored: **it is only acceptable *if* a migration removing the second one is scheduled and
 carried out** (§5). *(Corrected per D22: this read "because it **comes with** a migration",
