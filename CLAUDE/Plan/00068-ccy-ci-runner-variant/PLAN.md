@@ -929,6 +929,24 @@ Tracked as a finding in lts-infra Plan 00023.
   > `ENTRYPOINT` — that would silently change behaviour for anything pulling the tag expecting ccy
   > semantics, which the bullet above rejects for good reason.
 
+  > **D29 — the CI entrypoint had a mechanism and no artifact, for seven rounds.** Everything
+  > above specifies how the entrypoint is *shipped* and *selected*. Nothing specified what the file
+  > contains, or what it is called — Round 2 had to write `--entrypoint /opt/claude-yolo/<ci-entrypoint>`
+  > with a literal placeholder (`fable-review-2.md:38`), and guessed the wrong directory besides
+  > (the desktop entrypoint is at `/usr/local/bin/`, `Dockerfile:184`). Round 4 nonetheless recorded
+  > it as *"well specified"* and *"the one half of 'the two things' that is not hand-waved"*
+  > (`fable-review-4.md:180-190`) on evidence covering only shipping and selection. **A true
+  > statement about the mechanism, presented as a stronger statement about the deliverable** — this
+  > plan's signature defect, one level up from a citation; and structurally D27 again, two siblings
+  > named as a pair with work done on one. Deliverable 1 had a 189-line spec throughout.
+  >
+  > Closed by [reports/ci-entrypoint-spec.md](reports/ci-entrypoint-spec.md): name and path, the
+  > disposition of all 18 desktop behaviours, and the `tini` finding — `Dockerfile:215` makes `tini`
+  > PID 1, and `--entrypoint` replaces the whole vector, so the selection mechanism this task
+  > endorses **silently drops it**, costing zombie reaping and signal forwarding on cancelled jobs.
+  > Recorded as proof obligations **G1–G3** in
+  > [reports/hardware-proof-checklist.md](reports/hardware-proof-checklist.md).
+
 - [x] ✅ **Task 3.2**: Specify how a project selects it, and prove on paper that an
   existing `.claude/ccy/Dockerfile` (`FROM claude-yolo:latest`) is unaffected.
 
@@ -1113,10 +1131,17 @@ Tracked as a finding in lts-infra Plan 00023.
   (`entrypoint.sh:14-17`, `:33-36`, `:53-56`) plus one soft (`:111`, falls back at `:130-133`).
   E8 is not in the boot set at all (launcher-side; never runs at job time — Phase 3).
 
-  **Under the Decision 6 CI entrypoint the minimum boot allowlist is EMPTY** — it prepares
-  nothing and authenticates nothing. A previously-unstated payoff of Decision 6: it takes GitHub
+  **Under the Decision 6 CI entrypoint the minimum boot allowlist is EMPTY** — it performs no
+  network I/O and no authentication. A previously-unstated payoff of Decision 6: it takes GitHub
   off the *boot* path, so egress policy is decided by what the workload needs rather than by what
   session-prep demands.
+
+  This sentence previously read *"it prepares nothing and authenticates nothing"*, which was a
+  correct **allowlist** claim reused as a **behaviour** claim. Preparing local state needs no
+  network: `entrypoint.sh:240-263` writes onboarding, bypass-permissions and workspace-trust flags,
+  and an entrypoint that genuinely prepared nothing would leave a CI job blocking on prompts with
+  no TTY — the group-B spin this plan exists to prevent. The allowlist half is unaffected. Full
+  disposition of all 18 desktop behaviours: [reports/ci-entrypoint-spec.md](reports/ci-entrypoint-spec.md) (D29).
 
   > **REFRAMED BY D1 (Round 2).** "Under the Decision 6 CI entrypoint" implied some ccy layer
   > *enforces* an allowlist. It does not — no ccy code is on a CI job's path. The finding is still

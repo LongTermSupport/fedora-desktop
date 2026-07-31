@@ -153,6 +153,31 @@ Two caveats, stated because this checklist exists to stop exactly this kind of s
 
 ---
 
+## G. Added by the CI entrypoint spec (D29 / [ci-entrypoint-spec.md](ci-entrypoint-spec.md))
+
+Deliverable 2 of "the two things" had a mechanism but no artifact specification. Specifying it
+surfaced three claims that the design now rests on and nobody has measured.
+
+| ID  | Claim                                                                                                    | How to settle it                                                                                                         | Why it matters                                                                                                                                |
+| --- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| G1  | `--entrypoint` replaces the **entire** `ENTRYPOINT` vector, so a caller silently loses `tini`            | `podman image inspect claude-yolo:latest --format '{{.Config.Entrypoint}}'`, then run with an override and observe PID 1 | `Dockerfile:215` makes `tini` PID 1. If it is dropped, cancelled CI jobs hang and zombies accumulate — and the published caller form is wrong |
+| G2  | `claude` with no `/root/.claude.json` blocks on onboarding rather than proceeding                        | run the image with the desktop entrypoint's state-writing steps omitted; capture output                                  | Items 15/16 of the spec's disposition table are unnecessary if it does not block — and the spec is wrong if it does not                       |
+| G3  | `claude` with `hasCompletedOnboarding` set but `hasTrustDialogAccepted` unset blocks on the trust prompt | same, with only the onboarding key written                                                                               | Distinguishes which of the two writes is load-bearing; both are currently specified as required                                               |
+
+**G1 is measurable cheaply and read-only** — image inspection plus one `--rm` run — and is the
+natural fourth leg of `triage.bash` whenever the entrypoint work is next picked up. It is recorded
+here rather than wired in now because the owner has not yet run the three legs that already exist,
+and adding legs to an unrun script is churn rather than coverage.
+
+**G2 and G3 are group-B-shaped and inherit group B's conclusion.** Telling "blocked on a prompt"
+from "ran and was killed by `timeout`" needs captured output, a real session and real quota — the
+same two properties that make B1–B4 unsafe to hand over. They are an interactive investigation with
+the owner, not a script. The specification states plainly what changes if either comes back the
+other way, which is the honest alternative to closing them with a probe that measured something
+adjacent and easier.
+
+---
+
 ## Coverage map — which groups have a probe, and why the rest do not
 
 Written after F and C were given probes, so that the groups still without one are *recorded as
@@ -167,6 +192,7 @@ subsequent reader; worse, it gets mistaken for a decision.
 | D     | —                                | **Premature.** Needs proxy infrastructure that does not exist yet                           |
 | E     | `probe-launcher.bash` (E1)       | E1 covered; E2 is a credential the owner supplies, not a measurement                        |
 | F     | `probe-label.bash`               | **Covered**                                                                                 |
+| G     | —                                | **G1 measurable and not yet wired; G2/G3 are group-B-shaped — see below**                   |
 
 **Why group B has no probe, stated rather than skipped.** B1–B4 all require actually running
 `ccy`, and two properties make that unsafe to hand over as a script:

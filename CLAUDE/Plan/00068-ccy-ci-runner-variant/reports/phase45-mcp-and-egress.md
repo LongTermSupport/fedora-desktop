@@ -185,10 +185,19 @@ token. E8's npm fetch is *not* in the boot set — it is launcher-side and, per 
 at job time.
 
 **Under the Decision 6 CI entrypoint the minimum boot allowlist is EMPTY**, because none of rows
-1–4 exist: it prepares nothing, authenticates nothing, and asserts nothing about trust. That is a
-concrete, previously-unstated payoff of Decision 6 — it removes GitHub from the *boot* path
-entirely, so egress policy is decided purely by what the workload needs rather than by what
-session-prep demands. A job that never talks to GitHub can have an allowlist that never mentions it.
+1–4 exist: it performs no network I/O and no authentication. That is a concrete, previously-unstated
+payoff of Decision 6 — it removes GitHub from the *boot* path entirely, so egress policy is decided
+purely by what the workload needs rather than by what session-prep demands. A job that never talks
+to GitHub can have an allowlist that never mentions it.
+
+> **CORRECTED (D29).** This read *"it prepares nothing, authenticates nothing, and asserts nothing
+> about trust"*. The allowlist conclusion is unaffected — rows 1–4 are all network rows — but the
+> trust clause was **wrong**, and wrong in the direction that breaks the design: `entrypoint.sh:257`
+> sets `hasTrustDialogAccepted`, and a CI entrypoint that asserts nothing about trust leaves a
+> TTY-less job blocking on the trust dialog. Trust assertion is local state and costs no egress, so
+> the CI entrypoint both keeps the empty allowlist **and** must write it. This was the strongest
+> statement of the conflation — the other two sites said only "prepares nothing".
+> See [ci-entrypoint-spec.md](ci-entrypoint-spec.md).
 
 The **runtime** allowlist is a different set and belongs to the workload, not to ccy. The estate's
 version is in `lts-infra`'s `RUNNER-VM-DESIGN.md` §5.6.

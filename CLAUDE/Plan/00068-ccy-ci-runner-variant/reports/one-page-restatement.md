@@ -35,6 +35,8 @@ the CI path at all** — provisioning calls `podman build` directly, and job tim
    version it was built against), the second of which had no convention in any repo.
 2. **A CI entrypoint** shipped in the image and selected explicitly, so callers stop hand-rolling
    `--entrypoint` — a defect three codebases have hand-rolled and two got wrong in production.
+   Specified in [ci-entrypoint-spec.md](ci-entrypoint-spec.md) — which, until D29, this deliverable
+   did not have: seven rounds specified how it is shipped and selected and never what it contains.
 
 ## What is NOT in scope, and why
 
@@ -48,11 +50,11 @@ the CI path at all** — provisioning calls `podman build` directly, and job tim
 
 ## Honest status — three parts, not one
 
-| Aspect                                     | Status                                                                        |
-| ------------------------------------------ | ----------------------------------------------------------------------------- |
-| **Design**                                 | Specified — keys, algorithm, writer, reader, comparison, entrypoint mechanism |
-| **The `LABEL`'s convention-proliferation** | **Contingent** — needs a migration in two repos this plan cannot schedule     |
-| **Behaviour in reality**                   | **Unproven** — nothing here has been run                                      |
+| Aspect                                     | Status                                                                                                                                                                                                                                                              |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Design**                                 | Specified — deliverable 1: keys, algorithm, writer, reader, comparison; deliverable 2: name, path, all 18 behaviours, caller form (D29). This row previously read "entrypoint **mechanism**" — true, and read by everyone as though the artifact were specified too |
+| **The `LABEL`'s convention-proliferation** | **Contingent** — needs a migration in two repos this plan cannot schedule                                                                                                                                                                                           |
+| **Behaviour in reality**                   | **Unproven** — nothing here has been run                                                                                                                                                                                                                            |
 
 **Nothing in this plan has been executed.** Every claim is from source reading. The hardware-proof
 checklist ([hardware-proof-checklist.md](hardware-proof-checklist.md)) lists what must be
