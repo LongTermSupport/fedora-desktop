@@ -30,8 +30,11 @@ Everything below is what `ccy` must gain so that third row works unattended.
 
 ## What CI needs from `ccy`
 
-1. **A fully non-interactive mode.** Every prompt site either takes its value from config/env or
-   **fails fast and loud** with enough context to diagnose it. No spinning, no silent defaults.
+1. **A fully non-interactive mode.** Every prompt site either takes an announced default or
+   **fails fast and loud**, naming the flag that answers it. No spinning, no silent defaults.
+   Specified site by site in `reports/ci-required-config.md` (Task 2.4). One guarded primitive
+   covers all 46 sites — a guard that `exit`s cannot spin whatever the caller's errexit state,
+   which is measured, so the 5 spin paths and the 32 undiagnosable aborts are one problem.
 2. **Conditional desktop assumptions.** `--device /dev/dri` is unconditional (`claude-yolo:2773`) and
    fatal on a headless runner — E6, confirmed by the owner's host run. GUI and SSH mounts need the
    same treatment.
@@ -44,14 +47,16 @@ Everything below is what `ccy` must gain so that third row works unattended.
 
 Recorded because this plan specified replacements for all four before checking:
 
-| Concern               | Existing mechanism                                                   |
-| --------------------- | -------------------------------------------------------------------- |
-| Per-project tooling   | `.claude/ccy/Dockerfile` — the seam `ccy` already has                |
-| Image staleness       | `podman build` — it *is* the staleness check                         |
-| Token persistence     | `~/.claude-tokens/ccy/tokens/`, `ccy --create-token`, `select_token` |
-| Running the container | `ccy` itself — `--headless --prompt`, plus `CLAUDE_ARGS` passthrough |
+| Concern                     | Existing mechanism                                                                    |
+| --------------------------- | ------------------------------------------------------------------------------------- |
+| Per-project tooling         | `.claude/ccy/Dockerfile` — the seam `ccy` already has                                 |
+| Image staleness             | `podman build` — it *is* the staleness check                                          |
+| Token persistence           | `~/.claude-tokens/ccy/tokens/`, `ccy --create-token`, `select_token`                  |
+| Running the container       | `ccy` itself — `--headless --prompt`, plus `CLAUDE_ARGS` passthrough                  |
+| Base-image version mismatch | `validate_container_version` (`common.bash:456`) at `claude-yolo:1436` — **rebuilds** |
+| Project image build         | `claude-yolo:1457-1528` — builds and caches on Dockerfile hash + base version         |
 
-**Working rule, adopted after four instances**: before specifying a mechanism, name the existing
+**Working rule, adopted after six instances**: before specifying a mechanism, name the existing
 thing it replaces and state why that thing cannot do the job. If that statement cannot be written
 truthfully, the mechanism is not needed.
 
@@ -108,6 +113,22 @@ only.**
 
 A runtime property, useful on the desktop too, specified independently.
 
+### Decision 6 — the fail-fast contract reuses ccy's shapes; new exit codes only on new branches
+
+**Date**: 2026-07-31. Three parts:
+
+1. **No new message format.** `claude-yolo:728-740` (absent value) and `common.bash:503-516`
+   (wrong value) become mandatory. The `[VM]`/`[JOB]`/`[PROJECT]` **tag is dropped** — nothing
+   consumes it, and a concrete remediation carries the same information. The taxonomy survives as
+   an authoring rule: every message names a remediation actionable by exactly one owner.
+2. **Exit codes 64 (`EX_USAGE`) and 78 (`EX_CONFIG`) are emitted only from branches that exist
+   only under `--non-interactive`.** No existing `exit` is renumbered, so desktop stays
+   byte-identical. The code is also what keeps GitHub-specific knowledge out of `ccy` — the
+   workflow maps 78 to an annotation itself.
+3. **Credential resolution is guarded, not removed.** This supersedes Phase 2's outcome (i), which
+   assumed CI was not a fedora-desktop VM. It is one, so ccy's token store is already present and
+   token-by-value (Task 7.4 item 1) is no longer load-bearing for CI.
+
 ## Tasks
 
 ### Phase 1 — Ground the unverified claims (host run, no nesting)
@@ -126,9 +147,13 @@ A runtime property, useful on the desktop too, specified independently.
 - [x] ✅ **Task 2.1**: Classify every prompt site → `reports/phase2-non-interactive.md`.
 - [x] ✅ **Task 2.2**: Specify interaction with `--headless` and `--prompt`.
 - [x] ✅ **Task 2.3**: Specify the regression guard for prompts added later.
-- [ ] ⬜ **Task 2.4**: Specify the fail-fast contract — what each site asserts, the message format,
-  and the exit codes. Source material in `reports/ci-required-config.md`, which must be re-scoped
-  from "a separate preflight" to "assertions inside `ccy`".
+- [x] ✅ **Task 2.4**: The fail-fast contract, site by site → `reports/ci-required-config.md`,
+  re-scoped from "a separate preflight" to "assertions inside `ccy`". Of the 15 preconditions it
+  used to specify, **4 survive**: 7 are already asserted or handled by `ccy`, 4 are moot, and 1 is
+  YAGNI. Adds no new message format — `claude-yolo:728-740` and `common.bash:503-516` are the two
+  mandatory shapes. 46 sites classified into: already correct (1), source default reusable (4),
+  source default **wrong for CI** (4), structurally safe (2), fail fast (35), safe default
+  announced (3+).
 
 ### Phase 3 — RETRACTED
 
@@ -210,14 +235,14 @@ Nothing in this plan has been executed. Full list: `reports/hardware-proof-check
 - [x] ✅ A reader can say what happens to an existing `.claude/ccy/Dockerfile`: **nothing**.
 - [x] ✅ The audit loop ran to a quiet round, every round on disk.
 - [x] ✅ Desktop ccy is provably unaffected when the new flags are absent.
-- [ ] ⬜ The fully non-interactive contract is specified site by site (Task 2.4).
+- [x] ✅ The fully non-interactive contract is specified site by site (Task 2.4).
 - [ ] ⬜ Task 1.1's host facts are answered by a run, not by inference.
 
 ## Risks & Mitigations
 
 | Risk                                                            | Impact | Probability | Mitigation                                                         |
 | --------------------------------------------------------------- | ------ | ----------- | ------------------------------------------------------------------ |
-| A mechanism is specified that already exists                    | H      | H           | **Materialised 4×.** Apply the working rule above before designing |
+| A mechanism is specified that already exists                    | H      | H           | **Materialised 6×.** Apply the working rule above before designing |
 | A design defect survives because reviews audit self-consistency | H      | H           | **Materialised 3×.** Audit against the owner's steer               |
 | Non-interactive mode changes desktop behaviour                  | H      | M           | Flags absent ⇒ byte-identical; Task 2.3's regression guard         |
 | Concurrent jobs for one repo kill each other's containers       | H      | M           | Run-ID-salted names; never `get_next_container_name` (C7)          |
