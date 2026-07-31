@@ -1226,9 +1226,21 @@ Each round is a file in `reports/`. A round that finds nothing material ends the
     only borrowed claim driving a hard failure; (D) the three-probe egress battery; (E)
     prerequisites, both of which are blocked.
 
-  - [ ] ⬜ **The one-page restatement** — deliberately held until Round 2 reports, since that is
-    the half an audit finding could invalidate. The checklist above is stable either way: a
-    hostile finding would *add* to it rather than change it.
+  - [x] ✅ **The one-page restatement** — *(this is a STALE DUPLICATE of the sub-item ticked
+    three lines above, which links the delivered document. It was the original placeholder,
+    written while the restatement was still held, and it was never resolved when the real
+    entry was written above it.)*
+
+    > **D26 — a delivered deliverable still reported as outstanding, in the same task.**
+    > Found by enumerating every unticked box in this file rather than trusting my own
+    > summary of what was left, after the previous "blocked only on human input" claim turned
+    > out to be false. Task 6.5 was ✅ with a ⬜ child asserting its own deliverable was
+    > pending — the same three-lines-apart self-contradiction as the audit-loop criterion,
+    > and the **thirteenth** instance of the propagation defect.
+    >
+    > Resolved rather than deleted, because a plan whose tally of its own bookkeeping
+    > failures is tidied away undercounts them — which is precisely how this one survived a
+    > seven-round hostile audit that read this task as complete.
 
 ### Phase 7: Round-2 restatement — carry C1-C11 into a corrected design
 
@@ -1323,9 +1335,23 @@ tasks **replace** the corresponding Phase 2-5 tasks above where they conflict.
   turns out to spin only when reached via `select_token`; called bare it aborts. `ccy` itself
   still has not been run, so confirming the spin end-to-end remains a HOST triage item.
 
-- [ ] 🔄 **Task 7.3**: Re-scope `--non-interactive` per C4/C9. Classify each site *spins* vs
+- [ ] ⏸️ **Task 7.3**: Re-scope `--non-interactive` per C4/C9. Classify each site *spins* vs
   *aborts undiagnosably*; fix the spinning TUIs. Soften "never infer" to "never **silently**
   infer", reconciling with `ssh-handling.bash:357`, which already does precisely that.
+
+  > **D28 — the parent inherited its children's problem.** All three sub-items are now ⏸️
+  > DEFERRED (D27) and the rest are ✅, so **nothing under this task is actionable in this
+  > plan** — yet it was still 🔄, which the status table defines as *"currently being worked
+  > on"*. The design half is genuinely complete: the classification is done and reproducible,
+  > and Decision 2 is revised. What the task's own wording still asks for beyond that —
+  > *"fix the spinning TUIs"* — is a `claude-yolo` edit the Non-Goals forbid in terms.
+  >
+  > Fifteenth instance, and the one that shows the defect climbs: three sibling items were
+  > deferred one at a time, and the parent aggregating them kept asserting active work
+  > throughout. Contrast **Task 1.1**, deliberately left 🔄 — its remaining work is a host run
+  > that will genuinely resume, not an edit this plan may never make. The two look identical
+  > as icons and are entirely different as states, which is the whole reason to be exact
+  > about which one is which.
 
   > **This task's own wording was wrong and is corrected here.** It said the discriminator is
   > "errexit suspended by an `if`/`while` **ancestor**". A loop *body* does not suspend
@@ -1381,8 +1407,21 @@ tasks **replace** the corresponding Phase 2-5 tasks above where they conflict.
     > Note this is **also desktop-only** per D6 — Phase 2 and everything under it lost its CI
     > justification when the launcher left the CI path.
 
-  - [ ] ⬜ Make the 32 abort sites diagnosable — today `set -e` kills the script with no
-    message naming the prompt.
+  - [ ] ⏸️ **DEFERRED to the implementation plan — not executable here.** Make the 32 abort
+    sites diagnosable; today `set -e` kills the script with no message naming the prompt.
+
+    > **D27 — the deferral was applied to one of two sibling items.** The spin-path item above
+    > was converted from ⬜ to ⏸️ on the reasoning that, left ⬜, it *"read as outstanding work
+    > someone could pick up **in this plan**, which would breach that Non-Goal"*. That
+    > reasoning covers this item identically — it is the same forbidden edit to the same file
+    > — and the paragraph below even calls them **"the two implementation sub-items above"**,
+    > grouping them explicitly. Only one was converted.
+    >
+    > Fourteenth instance of the propagation defect, and the cleanest example of its shape
+    > yet: not a correction that failed to reach a distant document, but one applied to the
+    > instance in front of me and not to its sibling four lines away, with a sentence naming
+    > them as a pair in between. The countermeasure this plan already wrote — *after writing a
+    > correction, grep for what else it governs* — would have caught it; it was not run.
 
   - [x] ✅ Soften "never infer" to "never **silently** infer" in the design text, citing
     `ssh-handling.bash:357` as the reference implementation.
@@ -1399,8 +1438,10 @@ tasks **replace** the corresponding Phase 2-5 tasks above where they conflict.
     either suffices), and make the abort sites diagnosable via outcome (iii), whose message must
     name the **flag** rather than the prompt.
 
-  - [ ] ⬜ Requires a CCY version bump when the launcher/libs are edited
-    (`CLAUDE/ContainerRules.md`), and QA on the HOST.
+  - [ ] ⏸️ **DEFERRED with the two items above** — requires a CCY version bump when the
+    launcher/libs are edited (`CLAUDE/ContainerRules.md`), and QA on the HOST. It is a
+    precondition *on* the forbidden edit, so it cannot become actionable before the edit it
+    guards does. Converted in the same pass as D27 rather than left as the third sibling.
 
 - [x] ✅ **Task 7.4**: Add the capabilities Round 1 surfaced as missing.
 
