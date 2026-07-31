@@ -150,3 +150,40 @@ Two caveats, stated because this checklist exists to stop exactly this kind of s
   corrected in the same change rather than left to rot.
 - **Written is not run.** Its container refusal is verified; every measurement above is still
   **unmeasured** until the owner runs it on the host. A probe that exists is not evidence.
+
+---
+
+## Coverage map — which groups have a probe, and why the rest do not
+
+Written after F and C were given probes, so that the groups still without one are *recorded as
+uncovered* rather than merely absent from the script. An unexplained gap gets re-derived by every
+subsequent reader; worse, it gets mistaken for a decision.
+
+| Group | Probe                            | Status                                                                                      |
+| ----- | -------------------------------- | ------------------------------------------------------------------------------------------- |
+| A     | `probe-engine.bash` (provenance) | **Covered.** Its image-provenance section already prints exactly what A1, A2 and A4 ask for |
+| B     | —                                | **Not automatable safely — see below**                                                      |
+| C     | `probe-network.bash`             | **C3 covered.** C1/C2 need a host listener, so they stay borrowed                           |
+| D     | —                                | **Premature.** Needs proxy infrastructure that does not exist yet                           |
+| E     | `probe-launcher.bash` (E1)       | E1 covered; E2 is a credential the owner supplies, not a measurement                        |
+| F     | `probe-label.bash`               | **Covered**                                                                                 |
+
+**Why group B has no probe, stated rather than skipped.** B1–B4 all require actually running
+`ccy`, and two properties make that unsafe to hand over as a script:
+
+- **The discriminating signal is not the exit code.** A spin bounded by `timeout` exits 124 — and
+  so does a run that *did not* spin and instead launched a real Claude session that `timeout` then
+  killed. The two outcomes are distinguishable only by inspecting captured output, so the probe
+  would have to launch a real container and a real session to learn anything, consuming quota and
+  producing side effects on the owner's machine.
+- **B1 and B2 need a specific token-file population** (≥2 files for B1, exactly 1 for B2). Creating
+  or removing those files means a script manipulating the owner's credential store — which this
+  plan will not do, by the same rule that keeps it from handling plaintext credentials.
+
+Group B is therefore an **interactive investigation with the owner**, not a hand-over script. That
+is a real remaining gap, and B1 and B4 are the two the checklist already identifies as able to
+change a decision if they come back the other way.
+
+**Why group D has no probe.** It specifies the proof battery that must exist *before egress may be
+called a control* — three probes against a proxy that has not been built. It is a requirement on a
+future implementation, not a measurement available on today's host.
