@@ -1424,6 +1424,35 @@ tasks **replace** the corresponding Phase 2-5 tasks above where they conflict.
   > Recorded rather than silently re-ticked. The tick stays because the criterion as written was
   > genuinely met; what is wrong is the criterion, and pretending otherwise would be the same
   > move this plan keeps catching.
+  >
+  > **D16 — the new standard applied immediately, and it found a ninth instance on the first
+  > citation checked.** D15 is worth nothing as a recorded principle, so I audited the plan's
+  > load-bearing citations for *reachability* rather than accuracy. The first one failed.
+  >
+  > C8 and `task74-capabilities.md:85-90` assert that the `alpine`/`google.com` preflight *"runs
+  > before Claude starts and is fatal"*, citing `claude-yolo:2529` and the `exit 1` at `:2597`.
+  > Both citations are accurate. **The branch is conditionally reachable, and the plan states the
+  > property unconditionally.**
+  >
+  > Traced: `NETWORK_FLAG` initialises empty (`:1796`) and is set only by an explicit `--network`
+  > (`:1807`), a compose network (`:1843`, `:1922`), a persisted network (`:1905`), auto-connect
+  > (`:2120`, `:2274`, `:2309`, `:2345`, `:2454`), or the **podman-only** default at `:2514-2516`.
+  > The preflight is then gated on `[[ -n "$SELECTED_NETWORK" ]]` (`:2525`). So on **Docker with
+  > no explicit network, no compose and no auto-connect**, `SELECTED_NETWORK` is empty, the guard
+  > fails, and `exit 1` at `:2597` is **unreachable** — a second way to skip the preflight that
+  > the plan never names, alongside the `--no-network` route it does.
+  >
+  > **Scope, stated honestly rather than inflated.** `container_engine: podman` is the repo
+  > default (`vars/container-defaults.yml:10`) and the runner uses podman, so in this estate's
+  > actual configuration the preflight *is* reached and C8's conclusion survives. What does not
+  > survive is the *reasoning*: "the preflight is fatal" is an engine-conditional property being
+  > used as an unconditional one. A reader porting this to a Docker host inherits a stated
+  > guarantee that silently does not hold there.
+  >
+  > **Corrected claim**: *the preflight is fatal **when a network is selected** — which is always
+  > under podman-by-default, and never under Docker without an explicit `--network`, compose
+  > network or auto-connect.* Hardware item **B3** should assert the condition, not just the
+  > outcome.
 
 - [x] ✅ Task 1.1's `/dev/dri` question is answered by a host run, not by inference.
 
