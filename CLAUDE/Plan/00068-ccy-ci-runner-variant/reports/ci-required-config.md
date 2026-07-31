@@ -193,8 +193,9 @@ is the only way to proceed.
 
 ### 4.3 Site-by-site — 46 sites, 12 owners
 
-Sites and owners computed by `analysis/fnmap.py`; totals reconcile with the 46 of
-[prompt-census-round2.md](prompt-census-round2.md).
+Sites and owners were computed mechanically from the source, not by hand; the table below is
+that output. The tooling and the raw census were removed in the 2026-07-31 truncation (git has
+them) — this table is the surviving product.
 
 **The flag that answers a prompt almost always already exists** (`claude-yolo:135-169`): `--token`,
 `--ssh-key`, `--no-ssh`, `--network`, `--no-network`, `--disable-custom-docker`, `--prompt`. The
@@ -266,7 +267,7 @@ The assertion:
 The "exactly one valid token" case is a **default, announced** — it is the only choice available,
 which is the same justification `ssh-handling.bash:358` uses.
 
-**This supersedes Phase 2's outcome (i).** [phase2-non-interactive.md](phase2-non-interactive.md)
+**This supersedes Phase 2's earlier outcome (i)**, which
 said credential resolution would be *removed* from the unattended path by Task 7.4's
 "token by value". That followed from CI not being a fedora-desktop VM. It is one, ccy's store is
 already there (`play-claude-yolo.yml:311-327`), so the branch is **guarded, not removed**, and
@@ -351,7 +352,7 @@ Each converts a misconfiguration into a silent behaviour change:
 | ---------------------------------------------------------------------------------- | ----------------------------------------------------------- |
 | `exit` under suspended errexit terminates the shell                                | **measured** (synthetic reproduction of the call shape)     |
 | No prompt-bearing function is invoked in `$( )`                                    | **measured** — search across all 12 owners returned nothing |
-| 46 sites / 12 owners / the per-site mapping                                        | **measured** — `analysis/`, all invariants held             |
+| 46 sites / 12 owners / the per-site mapping                                        | **measured** mechanically from source; all invariants held  |
 | E6 is fatal on a headless host                                                     | **confirmed** by the owner's host run                       |
 | The `${var:-DEFAULT}` lines in (b)/(c) are reached on EOF once the read is guarded | not executed — inferred from the source, needs the host run |
 | Which of these sites a given CI job actually reaches                               | **not statically decidable** — Task 2.3 states this limit   |

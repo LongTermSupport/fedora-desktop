@@ -22,17 +22,13 @@
 # non-zero exit that says nothing about the question asked. `plan_require_host` now enforces
 # this instead of a comment asking nicely.
 #
-# EFFECT ON THE HOST — stated precisely, because "read-only" stopped being true:
-#   - probe-engine.bash, probe-launcher.bash and probe-network.bash are READ-ONLY. Nothing is
-#     built, installed or pulled; every container started is `--rm` and runs `true`.
-#   - probe-label.bash BUILDS three throwaway label-only images from `FROM scratch` (no pull,
-#     no network, no filesystem layers), inspects them, and REMOVES them on exit. It refuses
-#     to run rather than reuse or overwrite a tag that already exists, so it cannot clobber
-#     anything real. No pre-existing image, file or setting is modified.
-# This header previously said "nothing is built" for the whole script. Adding the label leg
-# made that false, and a document asserting a property its own code contradicts is the exact
-# defect this plan has spent seven review rounds cataloguing — so it is corrected here rather
-# than left for a reader to trip over.
+# EFFECT ON THE HOST: every leg is READ-ONLY. Nothing is built, installed or pulled; every
+# container started is `--rm` and runs `true`.
+#
+# There was a fourth leg, probe-label.bash, which built three throwaway `FROM scratch` images
+# to measure the label reader. It has been removed along with the LABEL identity convention it
+# served (Decision 2): `podman build` is the staleness check, so the question it answered is
+# no longer asked. Its results are recorded in reports/host-run-verdicts.md §3.
 #
 # Idempotent — re-run as often as you like; each run gets its own timestamped directory, so no
 # run clobbers a previous run's evidence.
@@ -121,9 +117,7 @@ plan_gather_leg "deployed launcher vs this checkout, and prompt-site census" \
     bash "${PLAN_SCRIPT_DIR}/probe-launcher.bash" "${REPORT}"
 plan_gather_leg "network flag interaction (hardware-proof group C)" \
     bash "${PLAN_SCRIPT_DIR}/probe-network.bash" "${REPORT}"
-# Group F. Runs last because it is the only leg that builds anything: if an earlier leg fails,
-# the host is left exactly as it was found.
-plan_gather_leg "image-label reader behaviour (hardware-proof group F)" \
-    bash "${PLAN_SCRIPT_DIR}/probe-label.bash" "${REPORT}"
+# NOTE: the group-F label leg was removed with the LABEL convention (Decision 2). Its results
+# are preserved in reports/host-run-verdicts.md §3.
 
 plan_finish
