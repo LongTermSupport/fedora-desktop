@@ -74,13 +74,9 @@ the pure function, and fails loud with a remediation naming what to do.
 
 ### Phase 1 — Implement
 
-- [x] ✅ **Task 1.1**: Add the pure `engine_rootless_verdict()` to
-  `files/var/local/claude-yolo/lib/common-pure.bash` — **not** `common.bash` as first written
-  here. `common.bash` calls `exit 1` at file scope when the engine is not on `PATH` (`:36-40`),
-  so a test sourcing it would need a container engine installed to test a function whose whole
-  point is that it needs none. `common-pure.bash` exists for exactly this ("safe to source from
-  any host shell without triggering a podman-check exit"). The querying wrapper
-  `engine_assert_rootless()` does live in `common.bash`, where `container_cmd` is.
+- [x] ✅ **Task 1.1**: Pure `engine_rootless_verdict()` in `lib/common-pure.bash` (which is
+  sourceable with no engine present); querying wrapper `engine_assert_rootless()` in
+  `lib/common.bash`, with `container_cmd`.
 - [x] ✅ **Task 1.2**: Replace `claude-yolo:1185-1208` with the assertion; delete the
   context-name check and the "no check needed" comment.
 - [x] ✅ **Task 1.3**: Bump `CCY_VERSION` (minor — new guard) in the same commit, per
