@@ -135,12 +135,21 @@ if [[ -n "${PROBE_IMAGE}" ]]; then
     out ""
     out "Running ccy's real flag (\`--device /dev/dri:/dev/dri\`):"
     out '```'
-    if cOut="$("${ENGINE}" run --rm --device /dev/dri:/dev/dri "${PROBE_IMAGE}" true 2>&1)"; then
+    # `--entrypoint true` is LOAD-BEARING. `true` as the COMMAND does not replace an
+    # ENTRYPOINT, and the ccy image has one — so the first run of this probe reported
+    # "EXIT 1 — REJECTED" for a flag podman had ACCEPTED, the non-zero coming from
+    # entrypoint.sh dying on a missing GH_TOKEN. Only 125 means the engine refused.
+    if cOut="$("${ENGINE}" run --rm --entrypoint true --device /dev/dri:/dev/dri "${PROBE_IMAGE}" 2>&1)"; then
         out "EXIT 0 — accepted."
         if [[ -n "${cOut}" ]]; then out "${cOut}"; fi
     else
         cRc=$?
-        out "EXIT ${cRc} — REJECTED."
+        if [[ "${cRc}" -eq 125 ]]; then
+            out "EXIT ${cRc} — REJECTED by ${ENGINE} (the engine refused the command line)."
+        else
+            out "EXIT ${cRc} — the container RAN and then exited non-zero. The flag was"
+            out "ACCEPTED; this says nothing about --device support."
+        fi
         out "${cOut}"
     fi
     out '```'
@@ -160,12 +169,21 @@ else
     else
         out "Probing \`--device ${missing}:${missing}\` (path confirmed absent):"
         out '```'
-        if dOut="$("${ENGINE}" run --rm --device "${missing}:${missing}" "${PROBE_IMAGE}" true 2>&1)"; then
+        # Same entrypoint override as above. This particular case happened to be safe
+        # without it — podman rejects a missing --device at 125 BEFORE any container runs,
+        # so the entrypoint never executed — but relying on that is relying on luck.
+        if dOut="$("${ENGINE}" run --rm --entrypoint true --device "${missing}:${missing}" "${PROBE_IMAGE}" 2>&1)"; then
             out "EXIT 0 — a missing --device is IGNORED by ${ENGINE}."
             if [[ -n "${dOut}" ]]; then out "${dOut}"; fi
         else
             dRc=$?
-            out "EXIT ${dRc} — a missing --device is FATAL to ${ENGINE}."
+            if [[ "${dRc}" -eq 125 ]]; then
+                out "EXIT ${dRc} — a missing --device is FATAL to ${ENGINE}."
+            else
+                out "EXIT ${dRc} — INCONCLUSIVE: the container ran, so the engine accepted the"
+                out "missing path. Expected 125 (engine refusal) or 0 (ignored)."
+                INCOMPLETE=1
+            fi
             out "${dOut}"
         fi
         out '```'

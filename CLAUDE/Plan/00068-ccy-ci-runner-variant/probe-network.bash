@@ -106,16 +106,33 @@ out "Probe image: \`${PROBE_IMAGE}\` (runs \`true\`; every container is \`--rm\`
 out ""
 
 # ── the runner ────────────────────────────────────────────────────────────────────────────
+# `--entrypoint true` is LOAD-BEARING, not tidiness. Passing `true` as the COMMAND does not
+# replace an ENTRYPOINT — the ccy image sets
+#   ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]
+# so `true` arrived as an argument entrypoint.sh ignores, and the container died on
+# `ERROR: GH_TOKEN environment variable not set` (exit 1). The first run of this probe read
+# that as "the network flag was rejected" and declared C3 UNANSWERED, when podman had in fact
+# accepted the flag, built the network and started the container. Overriding the entrypoint
+# is what makes a non-zero exit mean what this probe claims it means.
 RUN_RC=0
 RUN_OUT=""
 run_case() {
     RUN_OUT=""
-    if RUN_OUT="$("${ENGINE}" run --rm "$@" "${PROBE_IMAGE}" true 2>&1)"; then
+    if RUN_OUT="$("${ENGINE}" run --rm --entrypoint true "$@" "${PROBE_IMAGE}" 2>&1)"; then
         RUN_RC=0
     else
         RUN_RC=$?
     fi
     return 0
+}
+
+# The engine rejecting the COMMAND LINE and the container running-then-failing are different
+# facts, and only the first says anything about flag support. podman/docker reserve 125 for
+# "the engine itself failed before the container ran"; anything else is the container's own
+# status. Discriminating here means a future image with a surprising entrypoint degrades to
+# a visibly-unusable probe instead of a confident wrong answer.
+engine_rejected() {
+    [[ "$1" -eq 125 ]]
 }
 
 report_case() {
@@ -124,8 +141,14 @@ report_case() {
     run_case "$@"
     if [[ "${RUN_RC}" -eq 0 ]]; then
         out "- **${label}** → exit 0 (accepted)"
+    elif engine_rejected "${RUN_RC}"; then
+        out "- **${label}** → exit ${RUN_RC} (**${ENGINE} rejected the command line**)"
+        out "  \`\`\`"
+        out "  ${RUN_OUT}"
+        out "  \`\`\`"
     else
-        out "- **${label}** → exit ${RUN_RC} (rejected)"
+        out "- **${label}** → exit ${RUN_RC} (**container RAN, then exited non-zero** — this is"
+        out "  NOT a statement about the flag; the engine accepted it and started the container)"
         out "  \`\`\`"
         out "  ${RUN_OUT}"
         out "  \`\`\`"
@@ -165,11 +188,23 @@ if [[ "${pastaAloneRc}" -ne 0 ]] || [[ "${podmanAloneRc}" -ne 0 ]]; then
     out "(pasta alone: exit ${pastaAloneRc}; podman alone: exit ${podmanAloneRc}), so a failure"
     out "of the combination cannot be attributed to exclusivity. This is not a refutation of"
     out "C3 and must not be recorded as one — it is the measurement not being available here."
+    out ""
+    out "Check WHICH failure this is before acting on it. A baseline that exits 125 is"
+    out "\`${ENGINE}\` refusing the flag, which is the real blocker. A baseline that exits"
+    out "anything else means the container **ran** — the flag was fine and something inside"
+    out "failed, which says nothing about networking and is a bug in this probe, not the host."
     INCOMPLETE=1
+elif engine_rejected "${bothRc1}" && engine_rejected "${bothRc2}"; then
+    out "Both singles succeeded and **both orderings of the combination were rejected by"
+    out "\`${ENGINE}\` itself** (exit 125 each — the engine refused the command line before any"
+    out "container ran). That is the pattern C3 asserts, reproduced under this engine — the"
+    out "first direct measurement of it rather than a claim borrowed from another repo's runner."
 elif [[ "${bothRc1}" -ne 0 ]] && [[ "${bothRc2}" -ne 0 ]]; then
-    out "Both singles succeeded and **both orderings of the combination were rejected**. That"
-    out "is the pattern C3 asserts, reproduced under this engine — the first direct measurement"
-    out "of it rather than a claim borrowed from another repo's runner."
+    out "Both singles succeeded and both orderings exited non-zero, but **at least one was not"
+    out "an engine rejection** (first: exit ${bothRc1}; second: exit ${bothRc2}; only 125 means"
+    out "\`${ENGINE}\` refused the command line). A container that ran and then failed does not"
+    out "demonstrate flag exclusivity, so C3 is NOT established by this result."
+    INCOMPLETE=1
 elif [[ "${bothRc1}" -eq 0 ]] && [[ "${bothRc2}" -eq 0 ]]; then
     out "Both singles succeeded and **both orderings of the combination were ACCEPTED**. C3 as"
     out "borrowed is not reproduced here: the flags are not mutually exclusive under this"
