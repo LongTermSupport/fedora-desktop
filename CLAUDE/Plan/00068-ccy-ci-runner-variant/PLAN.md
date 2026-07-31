@@ -679,7 +679,37 @@ an unrelated userns/subuid reason and would have been mistaken for a result.
     facts (image provenance, deployed-vs-checkout drift, prompt census) with the probes that
     previously mis-reported. **Needs a human** — the script now refuses to run in the
     container, correctly.
+  - [x] ✅ `probe-label.bash` written and wired in as `triage.bash`'s third leg, so that the
+    same host run also settles **hardware-proof group F** — the `LABEL` reader behaviour the
+    whole convention spec rests on. Written, lint-clean, and its container refusal verified
+    here (`[FATAL] refusing to run inside a container`, exit 1, **no report file left
+    behind**); it is *running* it that needs the host, not writing it.
   - [ ] ⬜ Record the verdict in `reports/`. The E6 verdict itself is settled above.
+
+> **Group F was unrunnable until now, and nothing said so.** The checklist gained group F
+> when the `LABEL` spec was written (D10), naming **F1** *"the single most consequential
+> unproven claim in the specification"* — but the two probe scripts on disk predate that
+> spec by a day and cannot answer any of it. So the plan carried a load-bearing open
+> question whose only stated remedy was a script that did not exist. This is the propagation
+> defect in its most ordinary form: a correction that created work, filed correctly, and
+> never wired to the thing that would do it.
+>
+> `probe-label.bash` measures rather than asserts. It builds three throwaway `FROM scratch`
+> label-only images — none, one unrelated label, both canonical keys — because *an image
+> with no labels at all may present a nil map to the Go template, which is a different code
+> path from a non-nil map missing the key*, and only the second resembles a real project
+> image. It then **executes both comparison shapes**: the naive one, to see whether the
+> two-empties no-op actually reproduces, and the prescribed non-empty-assertion one. The
+> positive control (a label whose value is known) is there because a reader that returns
+> empty for *everything* would make every row above it meaningless —
+> `.claude/rules/bash-standards.md` §9's rule that a control which fires is not necessarily
+> a control that discriminates.
+>
+> Note what this does **not** do: it renders no verdict on whether the spec should change
+> (R9 — that belongs in an acceptance gate). And if F1 comes back *"errors instead of
+> returning empty"*, the spec is not simply vindicated — its mandatory non-empty assertion
+> would be guarding a case that cannot arise, which is a different correction from the one
+> the spec anticipates.
 
 #### The first `triage.bash` was defective, and the fix is upstream of this plan
 

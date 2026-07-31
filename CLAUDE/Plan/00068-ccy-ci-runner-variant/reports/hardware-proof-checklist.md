@@ -114,3 +114,25 @@ Appended per **D9**, which found that none of the six reports carried any correc
 **F1 is the single most consequential unproven claim in the specification**, for the same reason
 group D exists: a control that always passes looks identical to a control that works, right up
 until it is needed.
+
+### F now has an executable probe (appended after the fact)
+
+Group F was added by the `LABEL` spec, one day after `probe-engine.bash` and
+`probe-launcher.bash` were written — so for its whole life it named the most consequential open
+question in the specification and had **nothing on disk able to answer it**. That gap is closed
+by [`../probe-label.bash`](../probe-label.bash), wired in as `triage.bash`'s third leg.
+
+| Item | How the probe settles it                                                                                                                                                                                                                                |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| F1   | Builds three `FROM scratch` label carriers — **no labels** (nil map), **one unrelated label** (non-nil map, key absent — what a real pre-convention image looks like), **both keys** (control) — and records exit code and **byte count** for each read |
+| F2   | **Executes both comparison shapes** against the pre-convention image: the naive one, to see whether the two-empties no-op actually reproduces, and the prescribed non-empty-assertion one                                                               |
+| F3   | Reads `claude-yolo-version` off the real `claude-yolo:latest`, with absence recorded as a finding rather than a failure                                                                                                                                 |
+
+Two caveats, stated because this checklist exists to stop exactly this kind of slippage:
+
+- **It is the one probe in this plan that is not read-only.** It builds and removes three
+  images, and refuses to run rather than reuse or overwrite a tag that already exists.
+  `triage.bash`'s header claimed "nothing is built" for the whole script; that claim was
+  corrected in the same change rather than left to rot.
+- **Written is not run.** Its container refusal is verified; every measurement above is still
+  **unmeasured** until the owner runs it on the host. A probe that exists is not evidence.
