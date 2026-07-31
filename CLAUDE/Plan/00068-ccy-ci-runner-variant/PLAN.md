@@ -907,9 +907,25 @@ Tracked as a finding in lts-infra Plan 00023.
     cycle that 3.1 split apart; **(C) move the staleness identity into an image LABEL** —
     adopted. C is R10's item 2 and fixes the gate as a side effect. It also kills a defect that
     exists today independent of CI: staleness lives in
-    `$HOME/.cache/claude-yolo-${PROJECT_NAME}-dockerfile-hash` (`claude-yolo:1454`), which is
-    **host-user-local**, so a provisioning user cannot answer the question for the user that runs
-    jobs — precisely the question CI asks.
+    `$HOME/.cache/claude-yolo-${PROJECT_NAME}-dockerfile-hash` (`claude-yolo:1454`), which is state
+    **outside the image** — it cannot travel with the image, cannot be read from a checkout, and
+    can drift from what it describes. *[corrected per D5; see D14]*
+
+    > **D14 — this was the ORIGIN of the clause D5 retracted, and D9 fixed only its echoes.**
+    > D5 named three locations: *"(Task 3.3; echoed in `phase3-image-layering.md` and
+    > `round2-restatement.md` §4.1)"*. D9 corrected the two echoes and left the original standing
+    > here — the one D5 named **first**. Fifth instance of the propagation defect, and the most
+    > pointed: the correction's own text listed the locations in order and the first was skipped.
+    >
+    > **Option C is now actually specified** — see
+    > [reports/label-convention-spec.md](reports/label-convention-spec.md), which closes D10's
+    > half (a). It names the keys, the algorithm, the writer, the reader, the comparison and the
+    > migration that retires `lts.ccy.dockerfile-sha256` rather than adding a third live
+    > convention. It also identifies a fact **no round and neither consumer had named**: the
+    > rebuild decision reads a *second* host-local cache file, the base version the project image
+    > was built against (`claude-yolo:1455`, compared at `:1499`), for which no `LABEL` convention
+    > exists anywhere. A spec covering only the Dockerfile hash would have passed every review so
+    > far and left half the decision in `$HOME`.
 
 - [x] ✅ **Task 3.4**: Specify how the CI image is built by **Ansible**, never per-job.
   E8 (daily npm auto-update) and the consumer's build-time release fetch both need
