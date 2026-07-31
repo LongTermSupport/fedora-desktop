@@ -1121,8 +1121,38 @@ Each round is a file in `reports/`. A round that finds nothing material ends the
   document. → the ROUND 1 CORRECTIONS block at the head of this file, C1-C11. Each
   correction was re-verified against source before being accepted; the body is untouched.
 
-- [ ] 🔄 **Task 6.4**: Repeat rounds until a round finds nothing material. Record every
+- [x] ✅ **Task 6.4**: Repeat rounds until a round finds nothing material. Record every
   round, including the quiet one that ends the loop.
+
+  > **CLOSED — Round 7 is the quiet round** ([reports/fable-review-7.md](reports/fable-review-7.md),
+  > *MATERIAL FINDINGS: no*). Seven rounds, all on disk:
+  >
+  > | Round | Findings                        | Corrections |
+  > | ----- | ------------------------------- | ----------- |
+  > | 1     | invalidated the original thesis | C1–C11      |
+  > | 2     | 2 BLOCKER + 2 MAJOR             | D1–D4       |
+  > | 3     | 2 BLOCKER + 1 MINOR             | D6–D8       |
+  > | 4     | 1 BLOCKER + 2 MAJOR + 1 MINOR   | D10–D13     |
+  > | 5     | 1 BLOCKER + 1 MINOR             | D17–D18     |
+  > | 6     | 1 BLOCKER + 1 MINOR             | D21–D22     |
+  > | 7     | **none**                        | —           |
+  >
+  > Plus **D5, D9, D14, D15, D16, D19, D20, D23, D24 found without a review** — nine of the
+  > twenty-four, and the last four by a *mechanical sweep* rather than by noticing.
+  >
+  > **Two caveats recorded rather than glossed, because a quiet round is exactly where a plan
+  > flatters itself.**
+  >
+  > 1. **Round 7 reviewed a moving target.** Its brief pinned HEAD at `1febd68`; by the time it
+  >    started, D23 had landed and D24's fix was uncommitted in the working tree. It verified both
+  >    as correct rather than treating them as its own findings, and hunted a thirteenth instance
+  >    without success. It did not see the privacy redaction (`d5153b9`) — not design material.
+  >    A quiet round on a frozen tree would be stronger evidence than this is.
+  > 2. **A quiet round means no reviewer found anything, not that nothing is there.** The plan's
+  >    largest unverifiable surface — every `lts-infra` citation, including one half of D6's proof
+  >    and all of D5's — **cannot be audited in this workspace at all** (D19). Round 7 was
+  >    explicitly scoped away from it. The loop is quiet over Tier A/B material only, and that
+  >    limit is the honest reading.
 
   **Round 2 run and applied** — [reports/fable-review-2.md](reports/fable-review-2.md),
   **2 BLOCKER + 2 MAJOR**, carried into the ROUND 2 CORRECTIONS block as D1–D4. **The loop is
@@ -1139,8 +1169,15 @@ Each round is a file in `reports/`. A round that finds nothing material ends the
   that fires without discriminating", and Decision 5's trust flag does exactly that. I applied
   the principle to someone else's design and not to my own, in the same document.
 
-- [ ] 🔄 **Task 6.5**: Final gate — restate the design in one page, and list what a
+- [x] ✅ **Task 6.5**: Final gate — restate the design in one page, and list what a
   **later** implementation plan must prove on real hardware before any task is ✅.
+
+  - [x] ✅ **The one-page restatement** —
+    [reports/one-page-restatement.md](reports/one-page-restatement.md). Deliberately held from
+    Round 2 until the loop went quiet, because it is the half an audit finding could invalidate —
+    and it would have been invalidated four separate times had it been written earlier. It states
+    the three layers, the **two** things `ccy` owes CI, what is out of scope and why, and the
+    three-part honest status (design specified / proliferation contingent / behaviour unproven).
 
   - [x] ✅ **The hardware-proof list** —
     [reports/hardware-proof-checklist.md](reports/hardware-proof-checklist.md). Five groups:
@@ -1675,7 +1712,7 @@ tasks **replace** the corresponding Phase 2-5 tasks above where they conflict.
   Task 3.2, from the four rebuild inputs at `claude-yolo:1487-1529` and the hard-coded
   `"claude-yolo:latest"` at `:1478` — with two residuals recorded rather than glossed.
 
-- [ ] ⬜ The audit loop has run to a quiet round, with every round on disk in `reports/`.
+- [x] ✅ The audit loop has run to a quiet round, with every round on disk in `reports/`.
 
   Rounds 1–4 are all on disk (`fable-review-1.md`, `sonnet-scan-1.md`, `fable-review-2.md`,
   `fable-review-3.md`, `fable-review-4.md`, plus `prompt-classification-round3.md`).
