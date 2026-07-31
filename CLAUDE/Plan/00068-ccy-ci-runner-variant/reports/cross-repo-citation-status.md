@@ -1,8 +1,8 @@
 # Plan 00068 — which of this plan's citations can be stood behind TODAY (D19)
 
-D19 found that **`lts-infra` is not checked out in this workspace**. `ls /workspace/untracked/repos/`
-returns `actions-hub`, `ai-tools`, `ballicom-infra`, `fedora-desktop`, `lts-photo`, `marketing` —
-no `lts-infra`.
+D19 found that **`lts-infra` is not checked out in this workspace**. Listing
+`/workspace/untracked/repos/` shows this repo and `actions-hub` (both cited below) alongside
+several unrelated checkouts, but **no `lts-infra` directory**.
 
 This plan's headline discipline is *"every claim is either cited to a `file:line` or explicitly
 marked unverified with a named probe"* (Success Criterion 1, and see D15 on why that wording was
@@ -63,10 +63,11 @@ about what `runner-ccy-project-image.yml` does.
 - `actions-hub/.github/workflows/ci.yml:82-99` — **cited as unreachable**, which is itself the
   verified finding (D10)
 
-## Tier B — in this workspace, reachability not yet traced
+## Tier B — the three guards that needed tracing *(now DONE — results at the end, D20)*
 
 D16 traced the preflight (`claude-yolo:2529`/`:2597`) and found it engine-conditional on the first
-attempt. The same trace has **not** been done for:
+attempt. The same trace had not been done for the three below when this document was written; all
+three have since been traced and **two changed something**:
 
 - `entrypoint.sh:111` (the `api.github.com/meta` fetch, described as soft-fail with a fallback at
   `:130-133`) — is the fallback path actually reached, or is the soft-fail claim untraced?
@@ -85,8 +86,9 @@ make an unconditional-sounding claim conditional, and that trace has not been ru
 1. **Check out `lts-infra` into this workspace** — then every Tier C row becomes Tier A/B and can
    be re-read, and D15's reachability standard can be applied to the two retractions that currently
    rest on unverifiable evidence.
-2. **Trace the three Tier B guards** — doable now, no external dependency. This is the next
-   groundable unit of work in the plan and does not need anyone's input.
+2. ~~**Trace the three Tier B guards** — doable now, no external dependency.~~ **DONE (D20)** —
+   see the resolved table at the end. Two of the three changed something, including a security
+   downgrade this plan's own egress design would trigger.
 
 Until (1), no round of the audit loop can ground a finding that turns on `lts-infra`, and any
 review that appears to do so is reasoning from this plan's own prior text rather than from source.
@@ -95,10 +97,10 @@ review that appears to do so is reasoning from this plan's own prior text rather
 
 ## Tier B — RESOLVED (D20). All three traced.
 
-| Guard                                        | Result                                                                                                            |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `entrypoint.sh:269-274`/`:280-282`           | **Confirms E10 row 4 and strengthens it** — both guards are satisfiable by the (attacker-controlled) checkout      |
-| `entrypoint.sh:111` → `:130-133`             | **NEW FINDING** — unreachable `api.github.com` ⇒ `StrictHostKeyChecking accept-new`; see D20(2)                    |
-| `claude-yolo:2747`                           | Clears — unconditional                                                                                            |
+| Guard                              | Result                                                                                                        |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `entrypoint.sh:269-274`/`:280-282` | **Confirms E10 row 4 and strengthens it** — both guards are satisfiable by the (attacker-controlled) checkout |
+| `entrypoint.sh:111` → `:130-133`   | **NEW FINDING** — unreachable `api.github.com` ⇒ `StrictHostKeyChecking accept-new`; see D20(2)               |
+| `claude-yolo:2747`                 | Clears — unconditional                                                                                        |
 
 Tier B is now empty. **Tier C remains, and is only clearable by checking out `lts-infra`.**

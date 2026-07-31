@@ -1490,8 +1490,8 @@ tasks **replace** the corresponding Phase 2-5 tasks above where they conflict.
   > than it can bear; the asymmetry table stands, the precedent claim is narrowed.
   >
   > **D19 — SELF-FOUND, and it undercuts a broad class of this plan's evidence: `lts-infra` is NOT
-  > CHECKED OUT in this workspace.** `ls /workspace/untracked/repos/` returns `actions-hub`,
-  > `ai-tools`, `ballicom-infra`, `fedora-desktop`, `lts-photo`, `marketing` — no `lts-infra`.
+  > CHECKED OUT in this workspace.** Listing `/workspace/untracked/repos/` shows this repo and
+  > `actions-hub` alongside several unrelated checkouts, but **no `lts-infra` directory**.
   >
   > Every `lts-infra` citation in this plan — `runner-ccy-project-image.yml:172-195`, `:287-300`,
   > `runner-ccy-base-image.yml:119`, `:141`, `runner.yml:114` — was read in an **earlier session**
