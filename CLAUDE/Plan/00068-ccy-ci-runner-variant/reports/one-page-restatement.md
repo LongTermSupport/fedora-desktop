@@ -38,6 +38,25 @@ the CI path at all** — provisioning calls `podman build` directly, and job tim
    Specified in [ci-entrypoint-spec.md](ci-entrypoint-spec.md) — which, until D29, this deliverable
    did not have: seven rounds specified how it is shipped and selected and never what it contains.
 
+> # ⚠ SUPERSEDED BY D33 — read [project-drives-the-image.md](project-drives-the-image.md) first
+>
+> **"The two things" below are wrong, and the ownership model underneath them was wrong.** The owner
+> has corrected it: **Ansible provides the VM; the PROJECT drives the image; we provide a safe
+> mechanism for running project podman containers as CI workloads.**
+>
+> - **Deliverable 1 (the `LABEL` convention) is retired** — `podman build` already answers staleness.
+>   It only looked necessary because Task 3.4 assumed the image was built out of band by Ansible.
+> - **Deliverable 2 (the CI entrypoint) survives**, and so does everything in Phases 4/5 and Task
+>   7.4 — the MCP interface, `--egress` and its proof, concurrency safety, and the decision that CI
+>   must not write `.claude/ccy/` into the checkout. **That is the safe mechanism, and it is where
+>   this plan's real value accumulated.**
+> - **Phase 3 needs re-doing rather than patching.** "How would a project add a new tool for CI?"
+>   has no answer under an Ansible-built image, and that is a direct contradiction of the founding
+>   steer this plan exists to serve.
+> - The MCP-on-desktop problem **disappears**: a project that wants MCP puts it in its own CI
+>   Dockerfile, and desktop never sees it. D31's overlay is withdrawn; **Task 3.3's "no overlay"
+>   decision stands.**
+
 > **The governing constraint, added after the above and overriding it where they conflict (D31):**
 > **desktop ccy must not be degraded in any way — no context bloat, no MCP, nothing.** MCP's cost is
 > not image size, it is tool surface in every interactive session's context. This disqualifies the

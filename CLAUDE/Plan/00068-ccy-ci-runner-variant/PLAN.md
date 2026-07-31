@@ -1018,6 +1018,18 @@ Tracked as a finding in lts-infra Plan 00023.
   > Desktop never builds it. The tag-collision residual above evaporates too: no shared `:ci` tag
   > exists, and a separate repository namespace cannot collide with `claude-yolo:<anything>`.
 
+  > **D33 — D31 is WITHDRAWN, and this task's direction is wrong rather than its details.** The
+  > owner corrected the ownership model: **the project drives the image.** A project that wants the
+  > GitHub MCP puts it in its own CI Dockerfile, so there is no ccy-owned CI payload to place either
+  > above or below the project image — **the MCP-on-desktop problem disappears rather than being
+  > solved by layering.** D31's overlay is unnecessary and is withdrawn; **Task 3.3's "no overlay"
+  > decision stands unreversed.**
+  >
+  > D30 is moot with it: with no ccy-owned base for a project to build `FROM`, the hard-coded literal
+  > at `claude-yolo:1477` is simply correct. Selecting a CI base — this task's whole subject — is not
+  > a thing that needs specifying, because there is no ccy-owned CI base.
+  > See [reports/project-drives-the-image.md](reports/project-drives-the-image.md).
+
 - [x] ✅ **Task 3.3**: Address the platform-vs-repo layer problem the consumer hit: is a
   `ccy`-owned overlay applied on top of a project's Dockerfile warranted, or is that
   complexity only justified for untrusted-checkout CI? **Argue both sides** — the
@@ -1045,6 +1057,16 @@ Tracked as a finding in lts-infra Plan 00023.
   > **CI should be more restricted, more locked down** — which sits awkwardly beside
   > `--dangerously-skip-permissions` and should not be treated as settled merely because Decision 4
   > is recorded ✅.
+
+  > **D33 — the question is withdrawn; this task's answer stands.** D31 proposed a payload-separation
+  > overlay because a ccy-owned CI payload had to go *somewhere* without reaching desktop. Under the
+  > corrected ownership model there is no ccy-owned CI payload at all — the project puts its CI
+  > tooling and MCP in its own Dockerfile — so nothing needs overlaying. **This task's "no overlay"
+  > decision is not reversed, and was not wrong.** The pressure to reverse it came entirely from
+  > Phase 3's mistaken premise that ccy owns the CI image.
+  >
+  > The security half of the caveat is untouched and still live: reverse Decision 4 (untrusted
+  > checkouts) and the overlay question returns on its own merits, independent of any of this.
 
   - [x] ✅ Cover the version-gate interaction: `REQUIRED_CONTAINER_VERSION`
     (`claude-yolo:39`) currently gates one base; state how it behaves with a variant.
@@ -1113,6 +1135,25 @@ Tracked as a finding in lts-infra Plan 00023.
   > Three options tabled in [reports/ci-layering-corrected.md](reports/ci-layering-corrected.md)
   > (§D32); **B — a two-phase image-prep step** is recommended because it preserves both properties
   > *and* the lockdown, reusing the estate's existing arm → build → drop shape. Not decided here.
+
+  > **D33 — this task is wrong at the OWNERSHIP level, and D32 above was asking the wrong question.**
+  > *"Built by Ansible, never per-job"* takes control of the image away from the project. D32 treated
+  > the consequence as scheduling — *when* does the rebuild happen — and tabled three options for it.
+  > The owner's question settles the axis in one line: **"so how would a project add a new tool for
+  > CI purposes?"** Ansible-built: it cannot, it files a change against this repo and waits for a
+  > re-provision. Project-driven: it edits its own Dockerfile.
+  >
+  > That is a direct contradiction of the founding steer this plan exists to serve — *"each project
+  > has its OWN ccy runner in the NORMAL WAY — dockerfile customisation, custom tooling"*. Seven
+  > review rounds did not catch it because each round audited the design against itself rather than
+  > against the steer.
+  >
+  > **The egress reasoning survives, relocated.** Build needs registry and package egress by nature;
+  > the workload run is locked down. That is a distinction between *phases of the job* — the same
+  > arm → build → drop shape — not a reason to move ownership to provisioning.
+  >
+  > Corrected model: [reports/project-drives-the-image.md](reports/project-drives-the-image.md).
+  > **Ansible provides the VM; the project drives the image; we provide the safe run mechanism.**
 
 ### Phase 4: Design MCP injection
 

@@ -119,6 +119,14 @@ Appended per **D9**, which found that none of the six reports carried any correc
 
 ## F. Added by the `LABEL` convention spec (D10 / [label-convention-spec.md](label-convention-spec.md))
 
+> **⚠ F1–F4 ARE NO LONGER CI BLOCKERS (D33).** The `LABEL` convention is retired as a CI deliverable:
+> `podman build` already answers staleness, and the convention only looked necessary while the image
+> was assumed to be built out of band by Ansible. With **the project driving the image**, none of
+> F1–F4 gates anything in CI. They are left recorded because they remain true statements about
+> label-reader behaviour, and because the desktop launcher's own out-of-image staleness state is a
+> real pre-existing defect that someone may later choose to fix this way.
+> See [project-drives-the-image.md](project-drives-the-image.md).
+
 | #   | Claim                                                                                                                               | Command that settles it                                                                                                         | Why it matters                                                                                                                                                                                                  |
 | --- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | F1  | An **absent** label yields an empty string from `--format '{{index .Config.Labels "…"}}'` rather than an error                      | build an image with no such label, then inspect it                                                                              | **The load-bearing one.** If both sides compute empty, the staleness check compares `""` to `""` and reports FRESH — a check that fires and does not discriminate                                               |

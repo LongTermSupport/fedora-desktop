@@ -7,6 +7,35 @@ that avoids creating a third.
 
 Every fact below was read from source for this document.
 
+> # ⚠ RETIRED AS A CI DELIVERABLE BY D33
+>
+> **The container engine already answers the question this convention was invented to answer.**
+> `podman build` *is* the staleness check: it rebuilds exactly the layers whose inputs changed and
+> is a cache hit otherwise. "A project Dockerfile change triggers a rebuild" and "the next run starts
+> quickly" are native properties of `build`.
+>
+> This convention only appeared necessary because Task 3.4 assumed the CI image was built **out of
+> band by Ansible** — once the image is built somewhere the checkout is not, something else must
+> answer *"is this current?"*. The owner has since corrected the ownership model: **the project
+> drives the image**, building it in its own job. The invented question does not arise, so neither
+> does the convention. See [project-drives-the-image.md](project-drives-the-image.md).
+>
+> **What dies with it**: fact 4 (D30), §4.2's inheritance analysis as a *requirement*, and F1–F4 as
+> CI blockers.
+>
+> **What survives**:
+>
+> - §4.2's rule — *each layer writes uniquely-named labels; never read a key you might have
+>   inherited* — as general guidance for anyone who does use labels, since inheritance is invisible
+>   to `image inspect`.
+> - The observation in §4.1/D30 that ccy's **desktop** staleness state lives outside the image
+>   (`$HOME/.cache/…`, `claude-yolo:1454`) and therefore cannot travel or be read from a checkout.
+>   That is a real, pre-existing **desktop** defect. It is not something ccy owes CI, and the
+>   no-desktop-churn constraint puts it outside this plan.
+>
+> The document is kept rather than deleted because the analysis is correct within its assumption,
+> and because the assumption it rests on is exactly what the correction is about.
+
 ---
 
 ## 1. What is labelled today — and Round 4's framing needs one correction
