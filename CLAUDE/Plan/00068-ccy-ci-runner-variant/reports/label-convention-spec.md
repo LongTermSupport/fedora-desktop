@@ -1,4 +1,4 @@
-# Plan 00068 — the image `LABEL` convention, specified (closes D10 half (a))
+# Plan 00068 — the image `LABEL` convention, specified in design (D10 half (a) NOT closed — see the status correction at the end)
 
 D10 found that this plan has been specifying the *idea* of a `LABEL` convention rather than a
 convention. Task 3.3's Option C names no key. Two conventions already exist in production. This
@@ -104,8 +104,11 @@ unknowns. That is the plan's own recurring failure mode expressed as code: a che
 does not discriminate. **The comparison must therefore assert that the wanted value is non-empty
 before comparing**, and treat an empty have-value as a rebuild trigger.
 
-**This requirement is not novel — ccy already does the equivalent for fact 1, and reading how
-tells you exactly which of the two new checks is dangerous.** `common.bash:478-481` treats an
+**ccy does something adjacent for fact 1, and reading how tells you exactly which of the two new
+checks is dangerous — but it is NOT the same shape, so it cannot be cited as "already solved".**
+*(Narrowed per D18: an earlier version of this paragraph claimed the requirement "is not novel",
+which leaned on the precedent harder than it bears — the existing guard covers a missing
+**image**, not a missing **label on a present image**, which is precisely this hazard.)* `common.bash:478-481` treats an
 `unknown` hash as a *migration* and rebuilds (`:487-498`), i.e. absent identity ⇒ rebuild, never
 ⇒ pass. That guard keys on the literal `unknown` produced by the `|| echo "unknown"` fallback at
 `:466`, which fires when `image inspect` **fails** — not when the image exists but lacks the
@@ -156,3 +159,29 @@ exist now.
   comparison, and confirm it reports STALE.
 - **Whether any existing box has project images without these labels** is a matter of rebuild
   history, exactly as with `claude-yolo:base` (Phase 3 §0.2), and is answerable only on a host.
+
+---
+
+## ⚠ STATUS CORRECTION (D17) — this specification does NOT close D10
+
+PLAN.md Task 3.3 originally reported this document as *"closes D10's half (a)"*. **That is
+retracted.** §5's own rejection condition is unresolved: steps 3–4 (both consumers switching keys,
+then deleting `lts.ccy.dockerfile-sha256`) are actions in `lts-infra` and `actions-hub`, which this
+plan's Non-Goals forbid touching, and **nothing anywhere schedules them**. As written today,
+adopting this spec *creates* a third live key alongside the one it means to retire.
+
+**Honest three-part status, matching what D10 itself used for the proof half:**
+
+| Aspect                              | Status                                                                      |
+| ----------------------------------- | --------------------------------------------------------------------------- |
+| Design (keys, algorithm, I/O)       | **Specified** — §2–§4                                                       |
+| Convention-proliferation risk (D10) | **Contingent** — depends on a migration this plan cannot schedule           |
+| Behaviour in reality                | **Unproven** — nothing here has been run; see §6 and hardware-proof group F |
+
+**Prerequisite before this spec may be adopted**: a companion tracking item in `lts-infra`'s and
+`actions-hub`'s own plans covering steps 3–4. Until that exists, this is a design on the shelf, not
+a closed risk.
+
+**Additional caveat (D19)**: `lts-infra` is **not checked out in this workspace**, so every claim
+in this document about what `runner-ccy-project-image.yml` does was read in an earlier session and
+**cannot be re-verified here**. Those claims are *previously verified, not currently verifiable*.

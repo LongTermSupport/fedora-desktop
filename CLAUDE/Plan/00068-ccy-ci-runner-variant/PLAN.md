@@ -917,9 +917,9 @@ Tracked as a finding in lts-infra Plan 00023.
     > here — the one D5 named **first**. Fifth instance of the propagation defect, and the most
     > pointed: the correction's own text listed the locations in order and the first was skipped.
     >
-    > **Option C is now actually specified** — see
-    > [reports/label-convention-spec.md](reports/label-convention-spec.md), which closes D10's
-    > half (a). It names the keys, the algorithm, the writer, the reader, the comparison and the
+    > **Option C's DESIGN is now specified** — see
+    > [reports/label-convention-spec.md](reports/label-convention-spec.md). *(This originally read
+    > "closes D10's half (a)". **Retracted by D17** — it does not close it; see below.)* It names the keys, the algorithm, the writer, the reader, the comparison and the
     > migration that retires `lts.ccy.dockerfile-sha256` rather than adding a third live
     > convention. It also identifies a fact **no round and neither consumer had named**: the
     > rebuild decision reads a *second* host-local cache file, the base version the project image
@@ -1453,6 +1453,66 @@ tasks **replace** the corresponding Phase 2-5 tasks above where they conflict.
   > under podman-by-default, and never under Docker without an explicit `--network`, compose
   > network or auto-connect.* Hardware item **B3** should assert the condition, not just the
   > outcome.
+  >
+  > ______________________________________________________________________
+  >
+  > ## ROUND 5 CORRECTIONS — D17–D19
+  >
+  > [reports/fable-review-5.md](reports/fable-review-5.md): **1 BLOCKER + 1 MINOR + 1 unverified
+  > note**, verdict *material findings: yes*. Both findings confirmed from source before acceptance.
+  >
+  > **D17 — BLOCKER: D14 claimed the spec "closes D10's half (a)". It does not, and the spec says
+  > so itself.** `label-convention-spec.md` §5 ends with its own rejection condition: *"If step 4
+  > is not scheduled, this specification should be rejected — a third live convention is strictly
+  > worse than the two that exist now."* Step 4 deletes `lts.ccy.dockerfile-sha256`, and step 3
+  > (both consumers switching keys) precedes it. **Both are actions in `lts-infra` and
+  > `actions-hub` — repos this plan's own Non-Goals forbid touching** — and I confirmed nothing
+  > anywhere schedules them. So as written today, adopting this spec **creates** a third live key
+  > alongside the one it means to retire, which is exactly what D10 warned against.
+  >
+  > §2 of the spec is honest about the condition in isolation. **D14 dropped it when reporting the
+  > outcome upward.** That is the failure mode again, transposed from code to plan-document
+  > reporting: a true statement about the *design* ("the convention is now specified") presented as
+  > a stronger statement about the *risk* ("D10's half (a) is closed").
+  >
+  > **Corrected status, in the same three parts D10 used for the proof half:** the `LABEL`
+  > convention is **specified in design**, **contingent in practice** (on a migration this plan
+  > cannot schedule), and **unproven in fact** (nothing has been run). Task 3.3 corrected at
+  > source.
+  >
+  > **D18 — MINOR: §4's non-empty assertion is a stated requirement without a specified
+  > mechanism.** The Writer subsection gives concrete `podman build --label …` shell; the
+  > Comparison subsection gives no equivalent — no pseudocode showing where the assertion sits
+  > relative to the two lookups. Round 5 also correctly notes that `common.bash:463-466`'s
+  > `|| echo "unknown"` precedent covers the *missing-image* case and **not** the
+  > *missing-label-on-a-present-image* case this spec's own hazard describes — so it cannot be
+  > cited as "already solved this shape". My own note added at 07:15 leaned on that precedent more
+  > than it can bear; the asymmetry table stands, the precedent claim is narrowed.
+  >
+  > **D19 — SELF-FOUND, and it undercuts a broad class of this plan's evidence: `lts-infra` is NOT
+  > CHECKED OUT in this workspace.** `ls /workspace/untracked/repos/` returns `actions-hub`,
+  > `ai-tools`, `ballicom-infra`, `fedora-desktop`, `lts-photo`, `marketing` — no `lts-infra`.
+  >
+  > Every `lts-infra` citation in this plan — `runner-ccy-project-image.yml:172-195`, `:287-300`,
+  > `runner-ccy-base-image.yml:119`, `:141`, `runner.yml:114` — was read in an **earlier session**
+  > and cannot be re-verified now. That includes **one half of D6's central proof**. I have
+  > restated several of them in this session (in D6's text, in the README index row, in commit
+  > messages) in the present tense, as though checked. They were not checked here.
+  >
+  > This is not a claim that they are wrong — the ones I can cross-check against `actions-hub` and
+  > this repo hold up, and Round 3 verified them when the repo was present. It is a claim about
+  > **status**: they are *previously verified, not currently verifiable*, and D15's new
+  > reachability standard **cannot be applied to any of them** in this environment. A plan whose
+  > headline discipline is "cited or explicitly unverified" should say which of its citations it
+  > can still stand behind today. Marked here rather than quietly carried.
+  >
+  > **Instance count, reconciled honestly.** Round 5 calls its BLOCKER the *eighth* instance of the
+  > recurring failure mode. It was dispatched before D15 and D16 existed and so could not see them.
+  > The running count is: six before D5, **D10 seventh**, **D15 eighth** (the criterion itself),
+  > **D16 ninth** (the preflight's conditional reachability), **D17 tenth**. Recorded because a
+  > miscounted tally is the same species of error as the one being counted.
+  >
+  > **The loop is STILL not quiet.** Round 6 required (Task 6.4).
 
 - [x] ✅ Task 1.1's `/dev/dri` question is answered by a host run, not by inference.
 
