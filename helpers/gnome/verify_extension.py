@@ -52,8 +52,12 @@ def _metadata_shell_versions(extensions_dir: str, uuid: str) -> list[str]:
 
 def _shell_major(env: dict[str, str]) -> str | None:
     """Running GNOME major (e.g. "50"), or None if gnome-shell is unavailable."""
+    # check=False is deliberate and the returncode is checked on the next line:
+    # "gnome-shell is not installed / no session" is a RESULT this function
+    # reports as None, not an error to raise. This is the probe-then-check
+    # pattern (CLAUDE.md), not error hiding — nothing is swallowed.
     result = subprocess.run(
-        ["gnome-shell", "--version"], text=True, capture_output=True, env=env
+        ["gnome-shell", "--version"], text=True, capture_output=True, env=env, check=False
     )
     if result.returncode != 0 or not result.stdout.strip():
         return None
@@ -64,8 +68,11 @@ def _shell_major(env: dict[str, str]) -> str | None:
 
 def _live_state(uuid: str, env: dict[str, str]) -> tuple[bool, str | None]:
     """Return (session_available, state). gnome-extensions exits non-zero with no session."""
+    # check=False is deliberate — see _shell_major above. A non-zero exit here
+    # means "no live session", which is exactly what this function returns as
+    # session_available=False; the returncode is checked on the next line.
     result = subprocess.run(
-        ["gnome-extensions", "info", uuid], text=True, capture_output=True, env=env
+        ["gnome-extensions", "info", uuid], text=True, capture_output=True, env=env, check=False
     )
     if result.returncode != 0:
         return False, None

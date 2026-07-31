@@ -28,9 +28,19 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 ENV PATH="/root/.local/bin:${PATH}"
 
 # Install Ansible testing and linting tools using pipx
+#
+# ruff is PINNED (Plan 00071). Its enabled ruleset is its DEFAULT set, and that
+# default grows with each release — 0.16.0 enables UP, BLE, SIM, DTZ, B and more,
+# far beyond the historical E4/E7/E9/F. An unpinned ruff therefore silently
+# tightens the gate on a schedule nobody in this repo controls, and main goes red
+# without a commit. The version is the single source of truth in /.ruff-version;
+# scripts/qa-python.bash asserts the installed ruff matches it, so a drift here
+# fails loudly rather than changing the verdict.
+COPY .ruff-version /tmp/.ruff-version
 RUN pipx install ansible-lint && \
     pipx install yamllint && \
-    pipx install ruff
+    pipx install "ruff==$(cat /tmp/.ruff-version)" && \
+    rm -f /tmp/.ruff-version
 
 # Install jmespath library for Ansible json_query filter
 # This is a library dependency, not a CLI tool, so use pip.

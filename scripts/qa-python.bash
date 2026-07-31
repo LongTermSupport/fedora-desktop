@@ -24,6 +24,41 @@ if ! command -v ruff &>/dev/null; then
     exit 2
 fi
 
+# Assert the ruff VERSION, not just its presence (Plan 00071).
+#
+# This gate does not enumerate `select` — the enforced ruleset IS ruff's default
+# set. That is deliberate (pinning a copy of the list would rot against upstream)
+# but it makes the verdict a function of the ruff VERSION: 0.16.0's default
+# enables UP, BLE, SIM, DTZ, B and more, far beyond the historical E4/E7/E9/F.
+# So an unpinned ruff silently tightens the gate whenever upstream ships, and
+# main goes red with no commit behind it — which is exactly what happened.
+#
+# ruff reaches this repo three ways, and only two are pinnable from here:
+#   .claude/ccy/Dockerfile            pipx install ruff==$(cat .ruff-version)  [pinned]
+#   .github/workflows/qa.yml          pip install ruff==$(cat .ruff-version)   [pinned]
+#   playbooks/imports/play-python.yml dnf: ruff                                [Fedora's]
+# The dnf one tracks whatever Fedora ships and CANNOT be pinned from here.
+# Asserting the version is what makes that divergence LOUD instead of silent:
+# a host whose ruff differs is told so, rather than quietly getting another answer.
+RUFF_VERSION_FILE="$REPO_ROOT/.ruff-version"
+if [[ ! -f "$RUFF_VERSION_FILE" ]]; then
+    echo "✗ python: $RUFF_VERSION_FILE is missing — it is the single source of truth" >&2
+    echo "  for the pinned ruff version, and every install site reads it." >&2
+    exit 2
+fi
+RUFF_EXPECTED="$(tr -d '[:space:]' < "$RUFF_VERSION_FILE")"
+RUFF_ACTUAL="$(ruff --version | awk '{print $2}')"
+if [[ "$RUFF_ACTUAL" != "$RUFF_EXPECTED" ]]; then
+    echo "✗ python: ruff version mismatch — this gate's verdict is version-dependent." >&2
+    echo "    expected : $RUFF_EXPECTED  (.ruff-version)" >&2
+    echo "    found    : $RUFF_ACTUAL  ($(command -v ruff))" >&2
+    echo "" >&2
+    echo "  The enforced ruleset is ruff's DEFAULT set, so a different version is a" >&2
+    echo "  different gate. Either match the pin, or bump .ruff-version deliberately" >&2
+    echo "  and triage what the new defaults add (then rebuild the ccy image)." >&2
+    exit 2
+fi
+
 # Discover files
 #
 # ANCHORING (Plan 00067): the repo-root-relative exclusions are anchored to "$REPO_ROOT".
@@ -33,35 +68,40 @@ fi
 # installed` exit 2 rather than avoided; qa-bash.bash had the same bug and reported a clean pass
 # over 0 of 86 files. `.git`, `node_modules`, `__pycache__`, `.venv` and `venv` stay UNANCHORED
 # on purpose — all of them legitimately occur at any depth.
+#
+# THE TWO PASSES MUST SHARE ONE EXCLUSION LIST (Plan 00071). They did not: the
+# shebang pass was missing __pycache__, .venv and venv, so `.claude/untracked/venv/bin/pip`
+# — a third-party console script with a `#!...python` line and no `.py` extension —
+# was linted as if it were repo-owned code. The extension pass excluded it correctly,
+# which is exactly why the gap was invisible: the same directory was half-excluded.
+# Keep PY_EXCLUDES as the single source of truth for both.
+#
+# `.claude/ccy/*` and `.claude/skills/*` are excluded WHOLE, matching qa-bash.bash:48-50.
+# This gate previously excluded only ccy/plugins and ccy/file-history, so it linted the
+# vendored CCY supervisor that a daemon upgrade overwrites.
+PY_EXCLUDES=(
+    ! -path "*/.git/*"
+    ! -path "$REPO_ROOT/.ansible/roles/*"
+    ! -path "$REPO_ROOT/.claude/hooks-daemon/*"
+    ! -path "$REPO_ROOT/.claude/ccy/*"
+    ! -path "$REPO_ROOT/.claude/skills/*"
+    ! -path "*/node_modules/*"
+    ! -path "$REPO_ROOT/untracked/*"
+    ! -path "*/__pycache__/*"
+    ! -path "*/.venv/*"
+    ! -path "*/venv/*"
+)
+
 PY_FILES=()
 while IFS= read -r -d '' file; do
     PY_FILES+=("$file")
-done < <(find "$REPO_ROOT" -type f -name "*.py" \
-    ! -path "*/.git/*" \
-    ! -path "$REPO_ROOT/.ansible/roles/*" \
-    ! -path "$REPO_ROOT/.claude/hooks-daemon/*" \
-    ! -path "$REPO_ROOT/.claude/ccy/plugins/*" \
-    ! -path "$REPO_ROOT/.claude/ccy/file-history/*" \
-    ! -path "*/node_modules/*" \
-    ! -path "$REPO_ROOT/untracked/*" \
-    ! -path "*/__pycache__/*" \
-    ! -path "*/.venv/*" \
-    ! -path "*/venv/*" \
-    -print0)
+done < <(find "$REPO_ROOT" -type f -name "*.py" "${PY_EXCLUDES[@]}" -print0)
 
 while IFS= read -r file; do
     if head -n1 "$file" 2>/dev/null | grep -q "^#!/.*python"; then
         PY_FILES+=("$file")
     fi
-done < <(find "$REPO_ROOT" -type f -executable \
-    ! -path "*/.git/*" \
-    ! -path "$REPO_ROOT/.ansible/roles/*" \
-    ! -path "$REPO_ROOT/.claude/hooks-daemon/*" \
-    ! -path "$REPO_ROOT/.claude/ccy/plugins/*" \
-    ! -path "$REPO_ROOT/.claude/ccy/file-history/*" \
-    ! -path "*/node_modules/*" \
-    ! -path "$REPO_ROOT/untracked/*" \
-    ! -name "*.py")
+done < <(find "$REPO_ROOT" -type f -executable "${PY_EXCLUDES[@]}" ! -name "*.py")
 
 TOTAL=${#PY_FILES[@]}
 

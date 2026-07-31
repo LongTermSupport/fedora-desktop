@@ -82,17 +82,59 @@ if [[ $grep_rc -ge 2 ]]; then
     exit 2
 fi
 
+# Strip a YAML comment from a grep result line, so a pattern match that lies
+# entirely inside a comment is not reported as a violation.
+#
+# WHY (Plan 00071): the grep above scans RAW lines, so a comment DOCUMENTING the
+# removal of an anti-pattern trips the check that exists to ban it —
+# play-systemd-user-tweaks.yml:242 reads "# old `ignore_errors: true` headless
+# escape hatch (removed — a failure here now means the manager really is broken)"
+# and was reported as a fail-fast violation. A gate that punishes writing down
+# WHY the anti-pattern is absent teaches people to delete the explanation.
+#
+# A YAML comment starts at a '#' that is at the start of the line or preceded by
+# whitespace. '#' inside a quoted string is NOT a comment; that case is not
+# handled, and does not need to be — it would require a line that both quotes a
+# '#' and contains a fail-fast directive.
+ff_strip_comment() {
+    awk '{
+        for (i = 1; i <= length($0); i++) {
+            c = substr($0, i, 1)
+            prev = (i == 1) ? "" : substr($0, i - 1, 1)
+            if (c == "#" && (i == 1 || prev == " " || prev == "\t")) {
+                print substr($0, 1, i - 1)
+                next
+            }
+        }
+        print $0
+    }' <<< "$1"
+}
+
 while IFS= read -r line; do
     # Strip the REPO_ROOT prefix for tidier output
     rel_line="${line#"$REPO_ROOT"/}"
+
+    # The FAIL-FAST-OK annotation is itself written in a trailing comment, so it
+    # MUST be looked for on the full line — before any comment stripping.
     if echo "$line" | grep -qi 'FAIL-FAST-OK'; then
         # Justified — skip
-        :
-    else
-        echo "  ERROR (fail-fast): $rel_line"
-        FF_VIOLATIONS+=("$rel_line")
-        ERRORS=$((ERRORS + 1))
+        continue
     fi
+
+    # grep prints path:lineno:content — isolate the content so the path (which
+    # can legitimately contain '#') is never mistaken for a comment.
+    ff_content="${line#*:}"
+    ff_content="${ff_content#*:}"
+    ff_code="$(ff_strip_comment "$ff_content")"
+
+    if ! grep -qiE "$FF_PATTERN" <<< "$ff_code"; then
+        # The match was inside a comment — documentation, not a directive.
+        continue
+    fi
+
+    echo "  ERROR (fail-fast): $rel_line"
+    FF_VIOLATIONS+=("$rel_line")
+    ERRORS=$((ERRORS + 1))
 done < "$TMP_MATCHES"
 
 # ---------------------------------------------------------------------------

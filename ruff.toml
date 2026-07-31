@@ -1,10 +1,43 @@
 # Ruff configuration for fedora-desktop project
 # https://docs.astral.sh/ruff/configuration/
+#
+# THE RULESET IS RUFF'S BUILT-IN DEFAULT, AND THAT IS A VERSION-COUPLED CHOICE.
+# `select` is deliberately NOT enumerated: the default set is large, and pinning a
+# copy of it here would rot silently against upstream. The *version* is pinned
+# instead — `/.ruff-version` is the single source of truth, read by
+# `.claude/ccy/Dockerfile` and `.github/workflows/qa.yml`, and ASSERTED by
+# `scripts/qa-python.bash` so a host with a different ruff fails loudly rather
+# than quietly returning a different verdict.
+#
+# Note the default set is much broader than ruff's historical `E4,E7,E9,F`:
+# 0.16.0 enables UP, BLE, SIM, DTZ, B, RUF and more. Whoever bumps the pin owns
+# re-running `./scripts/qa-all.bash` and triaging whatever the new defaults add.
+# (A previous version of this comment claimed the rule set was "E, F, W". It was
+# wrong by roughly 350 rules, and that wrongness is what let an unpinned ruff turn
+# main red with no commit behind it — Plan 00071.)
 
 [lint]
-# Use default rule set (E, F, W)
 
 [lint.per-file-ignores]
-# Test files commonly modify sys.path before imports
+# Test files commonly modify sys.path before imports.
 "**/tests/*.py" = ["E402"]
 "**/tests/**/*.py" = ["E402"]
+
+# clip-scan: two `except Exception` handlers that are CORRECT, not error hiding.
+#
+# This is an exemption for a deliberate design decision, not (like the N999 case
+# elsewhere in this estate) a cause external to the repo — so it is stated plainly
+# rather than dressed up as forced.
+#
+#   :471  the raw-decode fallback. It RECORDS the exception into `last_error` and
+#         returns it to the caller; nothing is swallowed. It must stay blind
+#         because rawpy/LibRaw and Pillow raise a wide, lazily-imported set of
+#         types, and a narrow catch would abort an entire batch scan the first
+#         time one corrupt file raised something unanticipated.
+#   :895  the top-level crash handler. It prints a full traceback and exits 1 —
+#         textbook correct, and `Exception` (not `BaseException`) correctly lets
+#         KeyboardInterrupt through to the handler above it.
+#
+# Both satisfy this repo's actual rule — errors are never SILENTLY suppressed.
+# BLE001 cannot see the difference, so it is disabled for this file only.
+"files/home/.local/bin/clip-scan" = ["BLE001"]

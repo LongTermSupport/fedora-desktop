@@ -22,15 +22,15 @@ from helpers.displaylink_recovery.recovery import (
 
 
 def _state(**overrides) -> SystemState:
-    defaults = dict(
-        heads=[],
-        service_active=True,
-        mutter_corruption_detected=False,
-        attempted_service_restart=False,
-        attempted_usb_reauth=False,
-        attempted_module_reload=False,
-        drm_client_active=True,
-    )
+    defaults = {
+        "heads": [],
+        "service_active": True,
+        "mutter_corruption_detected": False,
+        "attempted_service_restart": False,
+        "attempted_usb_reauth": False,
+        "attempted_module_reload": False,
+        "drm_client_active": True,
+    }
     defaults.update(overrides)
     return SystemState(**defaults)
 

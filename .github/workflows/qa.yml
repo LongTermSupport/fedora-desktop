@@ -42,7 +42,10 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
-          pip install ruff semgrep ansible
+          # ruff is pinned from the single source of truth (.ruff-version, Plan 00071):
+          # its enabled ruleset IS its default set, which grows every release, so an
+          # unpinned ruff reddens main with no commit behind it.
+          pip install "ruff==$(cat .ruff-version)" semgrep ansible
           shellcheck --version
           ruff --version
           semgrep --version
