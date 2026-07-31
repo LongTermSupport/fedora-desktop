@@ -1325,10 +1325,25 @@ tasks **replace** the corresponding Phase 2-5 tasks above where they conflict.
        already in the codebase and used **once out of 46 opportunities** — so "never
        *silently* infer" is not a new mechanism to design, it is an existing one to apply.
 
-  - [ ] ⬜ Fix the five spin paths — a spin needs *both* a suspended call context *and* an
-    unbounded loop with no EOF exit; removing either breaks it. Prefer the
-    `ssh-handling.bash:357` shape (detect non-interactive, announce, proceed or fail loudly)
-    over adding EOF checks to 46 individual `read`s.
+  - [ ] ⏸️ **DEFERRED to the implementation plan — not executable here.** Fix the five spin
+    paths: a spin needs *both* a suspended call context *and* an unbounded loop with no EOF exit,
+    so removing either breaks it. Prefer the `ssh-handling.bash:357` shape (detect
+    non-interactive, announce, proceed or fail loudly) over adding EOF checks to 46 individual
+    `read`s.
+
+    > **Why this is deferred rather than open.** It is a code change to `claude-yolo`, which this
+    > plan's Non-Goals forbid in terms: *"No code changes in this plan. Not one line of
+    > `claude-yolo`, the libs, the Dockerfiles, or the plays. Explicit owner instruction."* Left
+    > as ⬜ it read as outstanding work someone could pick up **in this plan**, which would breach
+    > that Non-Goal — a design-only plan carrying an implementation task it is forbidden to do.
+    >
+    > The *design* half is complete and is the deliverable: the classification is done and
+    > reproducible, the unit of work is identified (entry points, not sites — finding 2), and the
+    > pattern to apply already exists in the codebase (`ssh-handling.bash:357`, finding 3). What
+    > remains is typing it, under a plan permitted to type.
+    >
+    > Note this is **also desktop-only** per D6 — Phase 2 and everything under it lost its CI
+    > justification when the launcher left the CI path.
 
   - [ ] ⬜ Make the 32 abort sites diagnosable — today `set -e` kills the script with no
     message naming the prompt.
