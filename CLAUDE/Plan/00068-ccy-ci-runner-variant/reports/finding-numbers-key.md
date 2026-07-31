@@ -71,7 +71,7 @@ unaltered. The status column is this document's contribution; the quoted text is
 | `R7`  | A second, small CI entrypoint — ADOPT                    | **RETRACTED** — `PLAN.md` Task 3.6; `ccy` uses its own entrypoint      | `round2-restatement.md` §2 D6    |
 | `R8`  | "Ad-hoc or full-blown" resolves per capability           | **Stands**                                                             | `round2-restatement.md` §3, §3.1 |
 | `R9`  | **The split is by TIME, not by feature**                 | **Stands** — and see the note below                                    | `round2-restatement.md` §4       |
-| `R10` | Three gaps block lts-infra deleting its duplicate        | **Item 1 RETRACTED by `D6`**; items 2 and 3 stand                      | `round2-restatement.md` §4.1     |
+| `R10` | Three gaps block lts-infra deleting its duplicate        | **All three retired for this plan** — see the note below               | `round2-restatement.md` §4.1     |
 | `R11` | `--no-network` does not isolate                          | **Stands** — carried by Task 7.4 (C8)                                  | `round2-restatement.md` §6       |
 
 > **Note on `R9`.** The owner's steer of 2026-07-31 — *"the ccy image is built from the ccy
@@ -80,6 +80,26 @@ unaltered. The status column is this document's contribution; the quoted text is
 > §4 describes the provision-time build as *"exactly the owner's 'normal way', executed by the
 > machine that will run the jobs."* Same Dockerfile, same staleness logic, same rebuild — run while
 > the egress window is open rather than at job time, when squid refuses it.
+
+> **Note on `R10` — do not read this row as live work.** All three items are retired *for this
+> plan*, each for a different reason, and the middle one is the easiest to resurrect by mistake.
+>
+> 1. **Non-interactive build-and-exit mode** — **retracted by `D6`**. Nothing invokes the
+>    launcher at provision time either; Ansible calls `podman build` directly.
+> 2. **Build identity readable from the image (an OCI `LABEL`)** — **retired as a CI deliverable
+>    by `D33`**, which is `PLAN.md` Decision 2 and a Non-Goal. `podman build` *is* the staleness
+>    check; the convention only looked necessary while the image was assumed to be built out of
+>    band. **The underlying defect is still real** — staleness state in
+>    `$HOME/.cache/claude-yolo-*-dockerfile-hash` (`claude-yolo:1454`) cannot answer *"was this
+>    image built from this Dockerfile?"* for anyone but that user — but
+>    `project-drives-the-image.md:44-47` places it precisely: *"a real, pre-existing **desktop**
+>    question … not something ccy owes CI, and the owner's no-desktop-churn constraint means it is
+>    not this plan's business."*
+> 3. **A way to run a command without the desktop entrypoint** — its basis was `R7`/Decision 6,
+>    **retracted by Task 3.6**: CI invokes `ccy`, which uses its own entrypoint.
+>
+> This row was first written here as *"items 2 and 3 stand"*, which was wrong in the direction
+> this plan always errs — presenting retired scope as outstanding work.
 
 ### The recovered text
 
