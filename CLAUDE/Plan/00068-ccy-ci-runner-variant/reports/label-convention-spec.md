@@ -104,6 +104,30 @@ unknowns. That is the plan's own recurring failure mode expressed as code: a che
 does not discriminate. **The comparison must therefore assert that the wanted value is non-empty
 before comparing**, and treat an empty have-value as a rebuild trigger.
 
+**This requirement is not novel — ccy already does the equivalent for fact 1, and reading how
+tells you exactly which of the two new checks is dangerous.** `common.bash:478-481` treats an
+`unknown` hash as a *migration* and rebuilds (`:487-498`), i.e. absent identity ⇒ rebuild, never
+⇒ pass. That guard keys on the literal `unknown` produced by the `|| echo "unknown"` fallback at
+`:466`, which fires when `image inspect` **fails** — not when the image exists but lacks the
+label, where `--format` yields an empty string and exits 0. Fact 1 is safe from that gap anyway,
+because its *wanted* side is always an `md5sum` of a file on disk and so is never empty: one side
+non-empty is sufficient to force the mismatch.
+
+**The two new checks are not symmetric in this respect, and only one of them is exposed:**
+
+| Check | Can the *wanted* side be empty?                                                                   | Exposed to the two-empties no-op? |
+| ----- | ------------------------------------------------------------------------------------------------- | --------------------------------- |
+| 2     | No — `sha256sum` of a file that must exist for a project build to happen at all                   | **No**                            |
+| 3     | **Yes** — it reads a *label* (`claude-yolo-version` on `claude-yolo:latest`), which can be absent | **YES**                           |
+
+So check 3 is the one that can silently degrade to a no-op: a base image missing
+`claude-yolo-version` yields `""` on the wanted side, a project image missing
+`claude-yolo-project-base-version` yields `""` on the have side, they compare equal, and the
+staleness check reports FRESH while knowing nothing. The non-empty assertion is therefore
+**mandatory on check 3 specifically** and is belt-and-braces on check 2. This is why
+hardware-proof item **F3** (confirm `claude-yolo:latest` actually carries `claude-yolo-version` on
+a provisioned box) is a prerequisite for check 3 being a control at all rather than decoration.
+
 ## 5. Migration — how this ends with one convention rather than three
 
 1. ccy's launcher writes both new labels at build time, and reads them in preference to the cache
