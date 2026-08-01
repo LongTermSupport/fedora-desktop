@@ -74,10 +74,26 @@ This plan is only about **what `ccy` must gain to be launchable unattended**.
    `:2751` and passed with `-e GH_TOKEN`; what is missing is honouring a value that is already
    set. Blocks lts-infra Plan 00030 Task 2.11, which is the end state for per-project credentials.
 
-   **This does not remove the SSH key.** ccy is SSH-first by design: the key is how it learns
-   *which account it is* (`ssh-handling.bash:304`, `:341`, failing at `:382-394` if the key
-   authenticates to nothing), and key 0 defines the container identity. A CI mode that supplies
-   a token still has to say what happens to that identity probe.
+   **Owner's shape: a token-first mode, opt-in and CI-default.** Checked, and it is a smaller
+   change than "ccy is SSH-first" suggests, because **the container already tolerates it**:
+
+   - `entrypoint.sh:39` guards the identity cross-check on `[ -n "$GITHUB_USERNAME" ]` and
+     `:59` guards SSH setup on `[ -n "$SSH_KEY_PATHS" ]`. Both simply **skip** when empty.
+     Nothing in the image requires a key.
+   - `GITHUB_USERNAME` does not need the SSH probe: `gh api user --jq .login` derives it from the
+     token, and **ccy already makes exactly that call** at `ssh-handling.bash:475` — as a
+     *cross-check*. Token-first promotes it from verification to source.
+   - The runner pre-seeds the checkout, so ccy never needs to clone; a push would use HTTPS with
+     the token rather than SSH.
+
+   So the whole blocker is launcher-side: `build_ssh_mounts_and_validate` runs unconditionally
+   at `claude-yolo:870` and hard-fails when it cannot derive a token. Token-first = supply
+   `GH_TOKEN`, derive the username from it, skip the SSH path. **No image change, no entrypoint
+   change.**
+
+   It is also the better desktop story for anyone without the `play-github-cli-multi.yml`
+   setup — so per Decision 3's principle, it is a general capability that CI defaults to, not a
+   CI-only branch.
 
 6. **Unattended-launch hygiene** — four cited defects, in Task 3.3, plus the concurrency
    question the owner raised (Task 3.3.1).
@@ -110,6 +126,29 @@ non-interactive, and make the desktop-only assumptions conditional.
 **Threat model: private runner infrastructure for private, self-owned repositories.** Not
 multi-tenant CI running untrusted pull requests. Do not import constraints from that world
 unless the owner asks.
+
+### Accepted, stated risk — the Claude OAuth token is readable inside every container
+
+Raised by the owner, 2026-08-01, and **it is a global `ccy` property, not a CI one**. The token
+is exported and passed as an environment variable (`claude-yolo:2750`, `-e CLAUDE_CODE_OAUTH_TOKEN` at `:2771`), so **any process inside the container can read it** — a
+`postinstall` script, a test helper, anything reachable from `$PWD`. The desktop is exposed
+identically: same env var, same `--dangerously-skip-permissions`, and desktops run `npm install`
+constantly.
+
+**It is not fixable by hiding it.** Claude Code must hold the credential to authenticate, so any
+process that can read the process's environment or memory can have it. Passing by env rather than
+argv (which `:2745-2749` deliberately does, since argv is world-readable via `/proc`) closes the
+*other-user* hole, not the *inside-the-container* one.
+
+**The available control is blast radius, and ccy already has it**: the token store is a pool of
+named, dated tokens (`~/.claude-tokens/ccy/tokens/NAME.YYYY-MM-DD.token`, `--token`,
+`select_token`) with expiry surfaced by `colorize_expiry`. So **a dedicated CI token** means a
+compromise is revoked without killing the human's desktop sessions, and the dating bounds the
+window. That is a provisioning decision, not a code change.
+
+Recorded here so it is a decision rather than an oversight. CI does raise the *likelihood* — it
+runs fresh dependency code unattended, on a schedule, with nobody watching the output — without
+changing the *mechanism*.
 
 ## Goals
 
