@@ -60,7 +60,26 @@ This plan is only about **what `ccy` must gain to be launchable unattended**.
    push**, while still being able to run the suite and read. This reverses Decision 4 on the
    owner's instruction; see Decision 9, which is where the sharp edge is.
 
-5. **Unattended-launch hygiene** — four cited defects, in Task 3.3, plus the concurrency
+5. **Accept a pre-set `GH_TOKEN` instead of always deriving one.** Today `ccy` has exactly two
+   ways to obtain it, and **neither takes one from the caller**:
+
+   | Path       | Source                                    |
+   | ---------- | ----------------------------------------- |
+   | SSH keys   | `gh-token-<alias>` host shell function    |
+   | `--no-ssh` | `gh auth token` (`ssh-handling.bash:496`) |
+
+   `build_ssh_mounts_and_validate` runs **unconditionally** (`claude-yolo:870`; only *discovery*
+   is gated on `--no-ssh`), so a runner that has minted a per-repo, one-hour, `contents: read`
+   token has no way to hand it over. The plumbing already exists — `GH_TOKEN` is exported at
+   `:2751` and passed with `-e GH_TOKEN`; what is missing is honouring a value that is already
+   set. Blocks lts-infra Plan 00030 Task 2.11, which is the end state for per-project credentials.
+
+   **This does not remove the SSH key.** ccy is SSH-first by design: the key is how it learns
+   *which account it is* (`ssh-handling.bash:304`, `:341`, failing at `:382-394` if the key
+   authenticates to nothing), and key 0 defines the container identity. A CI mode that supplies
+   a token still has to say what happens to that identity probe.
+
+6. **Unattended-launch hygiene** — four cited defects, in Task 3.3, plus the concurrency
    question the owner raised (Task 3.3.1).
 
 **Not required: `--egress`** — dropped on the owner's decision (Decision 8).
