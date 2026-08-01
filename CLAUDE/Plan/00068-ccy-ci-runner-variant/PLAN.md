@@ -385,9 +385,41 @@ plan's most-repeated failure. The scope below is the owner's, settled 2026-08-01
   | Run         | a fixed flag set                                          | no `/dev/dri`, no GUI, no preflight  |
   | Exit        | the container's status                                    | not the compose block's (Task 3.3.4) |
 
-  Deliberately **not** on this path: network auto-detection and the compose negotiation
-  (`:1789-2498`), `save_launch_config` (`:2607`), the leftover-container `rm -f` (`:2741`), the
-  `stty` handling (`:2726-2729`), and the post-run compose teardown (`:2789+`).
+  > **CORRECTED immediately (owner, 2026-08-01)**: *"i would not assume that CI doesn't need
+  > compose or podman network stuff"*. This task first listed compose and networking under "not
+  > on this path". **Wrong, and it was an assumption rather than a finding** — a project whose
+  > `ci.bash` needs postgres or redis needs the services up *and* the ccy container attached to
+  > their network. That is ordinary CI, not desktop convenience.
+
+  **Compose and networking are CI requirements.** What CI drops is the *negotiation*, not the
+  capability — and `ccy` already splits along that line almost perfectly
+  (`lib/network-management.bash`):
+
+  | Keep — mechanism, no prompts                                               | Drop — discovery and negotiation                  |
+  | -------------------------------------------------------------------------- | ------------------------------------------------- |
+  | `get_expected_network_name` `:10`, `has_compose_files` `:448`              | the project-name-matching heuristic               |
+  | `_compose_already_running` `:613`, `network_has_running_containers` `:427` | the cross-engine mismatch wizard (`:1973-2243`)   |
+  | `ensure_network_dns` `:703`, `connect_to_network` `:98`                    | the "select network [0-N]" menus (`:271`, `:274`) |
+  | `_do_compose_start` `:505` — one confirmation at `:546`                    | that confirmation; `offer_compose_start` `:667`   |
+
+  So the compose *start* is one `read -rp` away from being CI-ready, and teardown already tracks
+  `CCY_COMPOSE_WAS_STARTED` — exactly the right shape, since CI must tear down what it started
+  and leave pre-existing services alone.
+
+  **Two things this forces into the design:**
+
+  1. **The network must be known before `podman run`** — `--network` is a create-time argument,
+     so `ci.bash` cannot start compose from inside the container and then join it. Either ccy
+     resolves and starts compose *before* launching, or it uses `connect_to_network` (`:98`) to
+     attach the running container afterwards. Both exist; pick one deliberately.
+  2. **CI declares rather than discovers.** The natural home is the project's `.claude/ccy/` —
+     and unlike egress rules, this is **not** a security boundary. A project describing its own
+     test dependencies is the same category as its `Dockerfile`; a project declaring its own
+     egress allowlist would be granting itself privilege. The seams differ because the trust
+     directions differ.
+
+  Still not on this path: `save_launch_config` (`:2607`), the leftover-container `rm -f`
+  (`:2741`), and the `stty` handling (`:2726-2729`).
 
   Then re-derive requirement 1 against it: of the 46 census sites, how many does this flow
   actually reach? That number, not 46, is the guard work.
