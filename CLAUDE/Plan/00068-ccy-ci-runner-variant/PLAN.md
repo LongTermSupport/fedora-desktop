@@ -41,17 +41,29 @@ This plan is only about **what `ccy` must gain to be launchable unattended**.
 2. **Conditional desktop assumptions.** Two of them, both unconditional and both fatal on a
    headless, egress-restricted runner:
 
-   - `--device /dev/dri` (`claude-yolo:2767`) — measured, `exit 125`.
-   - **the internet preflight** (`:2518-2593`) — `podman run --rm --network … alpine wget http://google.com`, and `exit 1` on failure. It needs an unpinned `alpine` pull *and*
-     egress to `google.com`, neither of which a squid-allowlisted runner grants. Found while
-     designing Phase 3; it is the same defect class as `/dev/dri` and just as fatal.
+   - `--device /dev/dri` (`claude-yolo:2767`) — measured, `exit 125`. **Unconditionally fatal**
+     on a headless runner; unaffected by any egress decision.
+   - **the internet preflight** (`:2518-2593`) — `podman run --rm --network … alpine wget http://google.com`, then a bare `exit 1`. It needs an unpinned `alpine` pull *and* egress
+     to `google.com`. **Decision 8 defuses this**: with unfettered egress both succeed, so it
+     drops from fatal to merely wasteful (an image pull and a round trip per launch). It is
+     recorded because it is the tripwire that fires the moment anyone re-restricts egress, and
+     because a bare `exit 1` on a connectivity check is the wrong shape regardless.
 
    GUI and SSH mounts need the same treatment. Fix shape already exists: `GUI_MOUNTS` at
    `:2697-2721`.
 
-3. **Nothing else.** MCP injection and `--egress` were requirements until Phase 3 applied the
-   working rule below to them; both are retired (Decisions 7 and 8). What remains is
-   **unattended-launch hygiene** — four cited defects, specified in Task 3.3.
+3. **MCP injection** — required. The runner's allowlist already provisions for a GitHub MCP
+   server (`runner.yml:210-211`, `:251-253`); ccy has no MCP code at all. Specified in
+   `reports/mcp-and-egress.md`.
+
+4. **A restricted tool surface for CI** — the agent must be **unable to modify the checkout or
+   push**, while still being able to run the suite and read. This reverses Decision 4 on the
+   owner's instruction; see Decision 9, which is where the sharp edge is.
+
+5. **Unattended-launch hygiene** — four cited defects, in Task 3.3, plus the concurrency
+   question the owner raised (Task 3.3.1).
+
+**Not required: `--egress`** — dropped on the owner's decision (Decision 8).
 
 ## Already solved — do not rebuild
 
@@ -85,6 +97,7 @@ unless the owner asks.
 - Specify a fully non-interactive mode that fails fast and loud.
 - Make every unconditional desktop assumption conditional — the two known fatal ones, and any
   found by the audit the risk table now demands.
+- Give CI an MCP interface (Decision 7) and a restricted tool surface (Decision 9).
 - Keep desktop `ccy` byte-identical when the new flags are absent.
 
 ## Non-Goals
@@ -92,7 +105,10 @@ unless the owner asks.
 - **No implementation.** No file outside this plan folder is modified.
 - No separate CI runner, CI image, CI entrypoint, or CI credential path.
 - No `LABEL` identity convention (Decision 2).
-- No permission surface (Decision 4).
+- **No `--egress`** (Decision 8) — and no assumption, either way, about what the runner's own
+  egress posture becomes as a result. That is lts-infra's to decide.
+- No permission surface **on the desktop** — Decision 4 stands there, and is reversed only for
+  CI by Decision 9.
 
 ## Technical Decisions
 
@@ -112,44 +128,100 @@ Retracts the earlier classification of it as "desktop-only hardening", which fol
 assuming the launcher was not on the CI path. **CI invokes `ccy`, so the launcher IS the CI
 path** and its prompt sites are the blocker.
 
-### Decision 4 — no permission surface
+### Decision 4 — no permission surface — **REVERSED for CI by Decision 9**
 
 `ccy` runs `claude --dangerously-skip-permissions` unconditionally (`claude-yolo:2792`). Its
 posture is a trust model premised on the operator owning the workspace. Price stated: **trusted
 automation only.**
-**Open**: the "CI should be more locked down" steer may reopen this for CI specifically.
+
+That remains the **desktop** posture and is unchanged. The "CI should be more locked down" steer
+did reopen it, and the owner closed it: see Decision 9.
 
 ### Decision 5 — egress restriction is independent of CI
 
 A runtime property, useful on the desktop too.
 
-### Decision 7 — MCP needs no ccy mechanism; the requirement is retired
+### Decision 7 — MCP injection is REQUIRED
 
-`grep -rn -i mcp` over the whole deployed tree returns **nothing**. There is no mechanism to
-extend — and none is needed. `$PWD` is mounted at `/workspace` (`:1771`) and is the working
-directory (`:2784`), so a repo's committed `.mcp.json` is already in front of Claude Code.
-**The project drives its MCP config exactly as it drives its `Dockerfile`.** The working rule
-asks for a truthful statement of why the existing thing cannot do the job; it cannot be
-written, so the requirement goes. Two residuals, neither load-bearing today:
+An earlier version of this decision retired it, arguing the repo's own committed `.mcp.json` is
+the existing mechanism. **Retracted on the owner's correction**, for two reasons:
 
-- **No env passthrough for an MCP server's secret.** The `-e` list at `:2771-2783` is fixed;
-  `CCY_EXTRA_MOUNTS` (`:1780`) covers mounts, and has no env counterpart. Build it when a repo
-  actually needs one — that is a one-line array, not a design.
-- **Unverified**: whether Claude Code prompts to approve a project-scoped MCP server despite
-  `--dangerously-skip-permissions` and the pre-accepted trust dialog (`entrypoint.sh:257-262`).
-  If it does, it is a **prompt site** and belongs in the `--non-interactive` census, not here.
+1. **The estate already provisions for it.** `runner.yml:210-211` names *"the MCP GitHub
+   server"* as something the runtime allowlist exists to serve, and `:251-253` keeps
+   `registry.npmjs.org` allowlisted specifically so that server can be fetched — with a note to
+   drop it once the server is pre-bundled into the ccy baseline image.
+2. **`.mcp.json` is the wrong seam for CI.** It makes the capability something the
+   repo-under-test grants *itself*, and the server needs a token ccy has no way to deliver —
+   the `-e` list at `:2771-2783` is fixed and `CCY_EXTRA_MOUNTS` (`:1780`) has no env
+   counterpart. That gap was found and then filed as a non-load-bearing residual; it is the
+   crux.
 
-### Decision 8 — `--egress` is not built for CI; the runner already owns egress
+Interface, config location, `--strict-mcp-config`, and the flag-existence assertion:
+`reports/mcp-and-egress.md`. The rule that matters most: **the config must not be written under
+`/root/.claude`**, which `entrypoint.sh:183-195` symlinks into the checkout.
 
-The existing thing is the runner VM's egress layers (squid allowlist + nftables, lts-infra).
-They are **outside the job's control**; a launcher flag is **inside** it — anything that can
-launch `ccy` can drop the flag. Adding a weaker control in the weaker place, duplicating one
-that already works, is not a gain. Decision 5 said egress restriction is independent of CI;
-the conclusion that follows is that it is **out of this plan's scope**.
+**Still unverified**: whether Claude Code prompts to approve a project-scoped MCP server. Under
+Decision 9 this stops being hypothetical, because CI no longer passes
+`--dangerously-skip-permissions`.
 
-C3 is not wasted: it is the binding constraint for whoever does build `--egress` later —
-`--network pasta:…` and `--network <name>` are mutually exclusive, and ccy's `--network`
-already means "join this named network" (`:534`, `:1794-1884`), defaulting to `--network podman` under podman (`:2508-2510`). The flag must hard-error, never silently drop one.
+### Decision 8 — `--egress` is DROPPED; ccy gets unfettered egress at launch
+
+**Owner's decision, 2026-08-01**, and not for the reason this plan reached on its own.
+
+An earlier version argued `--egress` was redundant because the runner's layers already owned
+egress. **That was factually wrong** and is retracted: squid binds `127.0.0.1:3128` and the
+fence drops podman's subuid range (`60-runner-egress-fence.nft.j2:54`), so a ccy container
+reaches neither the proxy nor the internet. `--egress` would have been the container's *only*
+route in, not a duplicate of it.
+
+The owner's reason is cost/benefit, and it holds:
+
+- **ccy needs unfettered access at launch — structurally, not incidentally.** The daily Claude
+  Code auto-update fetches from npm (`claude-yolo:1254`, `:1343`); the preflight pulls `alpine`
+  from Docker Hub and requires `google.com` (`:2518-2593`); rebuilds need the wide build tier.
+  Squeezing that through a CONNECT allowlist means an allowlist that tracks ccy's internals.
+- **What the allowlist buys is narrower than it looks.** It genuinely stops commodity
+  supply-chain malware phoning home to a random host — real, since npm/pip/go packages execute
+  at install time. It does **not** stop a deliberate adversary: `github.com` and
+  `api.anthropic.com` must be allowlisted, and either is a fine exfiltration channel. It
+  protects against the opportunistic case only.
+- **The operational cost is measured.** 660 denied `.actions.githubusercontent.com` CONNECTs
+  left runners registered-but-offline; 212 refusals across five Azure shards made every job's
+  logs unretrievable (`runner.yml:218-248`).
+
+**The safety story moves to Decision 9** — egress control traded for tool control, which is the
+tighter lever here: an agent that cannot write or push cannot turn a compromised dependency into
+a repo change, whatever it can reach.
+
+**Consequence for lts-infra**: the runner's egress posture becomes an open question *there*.
+Not this plan's to close, and nothing in fedora-desktop should assume either answer. C3 is
+retained in `reports/mcp-and-egress.md` for whoever revisits it.
+
+### Decision 9 — CI runs with a restricted tool surface, not `--dangerously-skip-permissions`
+
+**Owner's decision, 2026-08-01. Reverses Decision 4 for CI** and retires the "tool-level
+restriction stays OUT" position in `reports/mcp-and-egress.md`, which was reasoned *from*
+Decision 4.
+
+Intent: for CI, triage and review the agent is **read-only with respect to the repository** — it
+may run the suite and read, but not modify the checkout, commit, or push.
+
+**The sharp edge, to be settled before this is built.** `--dangerously-skip-permissions`
+(`claude-yolo:2792`) *bypasses* an allowlist rather than composing with it, so CI must not pass
+it. The question is then what an ungranted tool does:
+
+- if it is **refused**, the design works;
+- if it **prompts**, a TTY-less job **hangs** — the exact non-interactive failure this plan
+  exists to prevent, reintroduced by the safety feature.
+
+That is Claude CLI behaviour, it is **unverified**, and ccy auto-updates the CLI daily so it can
+change underneath us. The flag-existence-and-behaviour assertion in `reports/mcp-and-egress.md`
+is therefore load-bearing, not defensive.
+
+**"Read-only" cannot be literal for `push`/`pull_request`**, because Plan 00030 has the agent
+run `./.claude/ccy/ci.bash`, which needs Bash. The coherent line: *execute the suite and read
+the tree; never write to it, commit, or push.* For `issues`/`issue_comment`, where `ci.bash`
+does not run, a genuinely narrower surface is available.
 
 ### Decision 6 — the fail-fast contract reuses ccy's shapes; new exit codes only on new branches
 
@@ -182,14 +254,28 @@ already means "join this named network" (`:534`, `:1794-1884`), defaulting to `-
 ### Phase 3 — Re-specify the remaining scope against the current architecture
 
 The earlier specifications were written when the launcher was believed to be off the CI path
-and the image built out of band. Both premises are gone, so the specs went with them. Redone
-against the current architecture, **two of the three requirements do not survive contact with
-the working rule** — and the third grew a blocker nobody had looked for.
+and the image built out of band. Both premises are gone. A first pass then retired MCP and
+`--egress` on the strength of this plan's working rule; **the owner reversed both**, correctly —
+the working rule was applied without also auditing against the owner's steer, which is this
+plan's most-repeated failure. The scope below is the owner's, settled 2026-08-01.
 
-- [x] ✅ **Task 3.1**: MCP injection — **retired, no ccy change** (Decision 7).
+- [x] ✅ **Task 3.1**: MCP injection — **required** (Decision 7). Design restored to
+  `reports/mcp-and-egress.md` with its three dead premises marked; PLAN.md is authoritative
+  where they differ. Outstanding sub-question: the missing env passthrough for the MCP server's
+  token, which is what makes `.mcp.json` insufficient rather than merely awkward.
 
-- [x] ✅ **Task 3.2**: `--egress` — **out of scope; the runner VM already owns egress**
-  (Decision 8). C3 is retained as the constraint on any future build.
+- [x] ✅ **Task 3.2**: `--egress` — **dropped by the owner** (Decision 8), and the earlier
+  "the runner already owns egress" reasoning retracted as factually wrong. ccy gets unfettered
+  egress at launch. C3 retained for any future revisit.
+
+- [ ] ⬜ **Task 3.4**: The CI tool surface (Decision 9). Two things, and the first gates the
+  second:
+
+  1. **Verify what an ungranted tool does** without `--dangerously-skip-permissions` — refuse,
+     or prompt. If it prompts, a TTY-less job hangs and the whole approach needs a different
+     mechanism. This is a behaviour test against the real CLI, not a documentation read.
+  2. Specify the per-event surfaces: `push`/`pull_request` (may run `ci.bash` and read; no
+     write, commit or push) and `issues`/`issue_comment` (narrower — no `ci.bash`).
 
 - [x] ✅ **Task 3.3**: Unattended-launch hygiene — four defects, each cited, each with a fix
   that is a guard rather than a new subsystem:
@@ -199,19 +285,28 @@ the working rule** — and the third grew a blocker nobody had looked for.
      then runs `container_cmd rm -f "$CONTAINER_NAME"` as a leftover-cleanup safety net. Two
      jobs for one repo can both read `ps -a` before either container exists, both choose
      `<repo>_yolo`, and **the second one's `rm -f` destroys the first job's running
-     container** — a green job and a mysteriously dead one. Fix: non-interactive mode
-     **requires** a caller-supplied `--container-name` and never calls the `rm -f` net on it.
-     A unique name cannot have leftovers; if it exists anyway that is a collision to fail on,
-     not to bulldoze.
+     container** — a green job and a mysteriously dead one.
+
+     **The owner's fix is better than mine, and fixes more**: serialise the jobs. `ccy`'s side
+     still takes a caller-supplied `--container-name` and never `rm -f`s it (cheap, and it makes
+     the race unreachable rather than merely unlikely), but the primary control belongs on the
+     runner — see lts-infra Plan 00030 Task 2.8. The reason it fixes more: Plan 00030 gives each
+     repo **one** checkout, so two concurrent jobs for that repo `git checkout` different SHAs
+     **in the same working tree**. That is two jobs corrupting each other's source, and no
+     container-naming fix touches it. `runner_instances: 4` today, so this is live, not
+     theoretical.
+
   2. **ccy dirties the job checkout before the agent starts.** `save_launch_config` (`:2607`,
      body at `:368-392`) writes `.claude/ccy/.last-launch.conf` — with a timestamp, so it
      differs every run — into the **working tree the job is about to test**. Fix: skip the
      write under non-interactive. Same class: `entrypoint.sh:183-195` symlinks
      `/root/.claude` → `/workspace/.claude/ccy`, putting session state in the checkout too;
      that one is open question 3, because it is load-bearing for session persistence.
+
   3. **Compose teardown prompts after the container exits** (`:2789` onwards, gated on
      `CCY_COMPOSE_WAS_STARTED`). A prompt after the work is done still hangs the job. Fix:
      under non-interactive, act on an announced default; never prompt.
+
   4. **ccy's exit status is not the container's.** `set -e` is on (`:41`) and the compose
      block follows `container_cmd run` (`:2764`), so a failing container aborts ccy before
      teardown and a passing one lets the compose block set the final status. CI survives this
@@ -220,20 +315,22 @@ the working rule** — and the third grew a blocker nobody had looked for.
 
 ### Phase 4 — Hand off to implementation
 
-**The design is complete; the handoff is not, and deliberately so.** Task 4.1 is gated on the
-three owner decisions below. Two of them change what gets built: if Decision 4 reopens, CI
-grows a permission surface that does not exist today; if `ccy.env` sourcing is gated off, the
-entrypoint changes. Writing an implementation plan before those are answered means writing one
-that is wrong in a way that will not be visible until it is half built.
+**Gated on Task 3.4's measurement, not on a decision.** The owner has now settled the scope
+(Decisions 7, 8, 9). What is not settled is whether an ungranted tool refuses or prompts — and
+that single fact decides whether Decision 9's approach works at all or needs replacing. An
+implementation plan written before it is answered would be wrong in a way that stays invisible
+until it is half built.
 
 - [ ] ⬜ **Task 4.1**: Create the implementation plan. This plan specifies; it does not build.
 
 ## Open decisions — owner
 
-1. **Does "more locked down" reopen Decision 4** for CI specifically?
+1. ~~Does "more locked down" reopen Decision 4?~~ **Closed 2026-08-01 — yes; Decision 9.**
 2. **`ccy.env` sourcing** (`entrypoint.sh:269-274`) executes shell from the checkout.
-   Acceptable under trusted-automation-only, or gated off in non-interactive mode?
-3. **The `/root/.claude` → `/workspace` symlink** (`:185-195`) puts session state in the job
+   Acceptable under trusted-automation-only, or gated off in non-interactive mode? Decision 9
+   sharpens this: a CI agent that may not write the repo can still be handed arbitrary shell
+   *from* the repo, which is a wider hole than the one being closed.
+3. **The `/root/.claude` → `/workspace` symlink** (`:183-195`) puts session state in the job
    checkout. Same question.
 
 ## Proof obligations
@@ -245,13 +342,20 @@ that is wrong in a way that will not be visible until it is half built.
 | C3    | `--network pasta:…` / `--network <name>` exclusivity | ✅ settled — first direct measurement        |
 | B1–B4 | Spin-vs-abort behaviour of the launcher              | ⬜ interactive; needs real quota             |
 | C1/C2 | pasta port-forwarding and loopback exposure          | ⬜ needs a host listener; borrowed, unproven |
-| E7    | The internet preflight is fatal on the runner        | ⬜ **read, not measured — see below**        |
+| E7    | The internet preflight is fatal on the runner        | ⬜ moot under Decision 8 — see below         |
+| E8    | An ungranted tool REFUSES rather than prompting      | ⬜ **gates Decision 9 and Task 4.1**         |
 
-**E7 cannot be settled by `triage.bash`.** The host has unrestricted egress and a warm image
-cache, so the preflight passes there and that result says nothing about the runner. What is
-established is only what the code says: `:2523` needs an `alpine` pull and a 200 from
-`http://google.com`, and `:2591` is a bare `exit 1`. Whether the runner's squid allowlist
-denies either is a **fact about the runner**, and it has to be measured on the runner. Logged
+**E8 is now the load-bearing unknown.** If an ungranted tool prompts instead of refusing, a
+TTY-less CI job hangs and Decision 9 needs a different mechanism entirely. It is measurable
+cheaply and directly — run the real CLI without `--dangerously-skip-permissions`, with a
+deliberately ungranted tool, and observe. Do not settle it from documentation; ccy auto-updates
+the CLI daily, so the answer must come from the binary that will actually run.
+
+**E7 is defused, not answered.** Decision 8 gives ccy unfettered egress, so the preflight's
+`alpine` pull and `google.com` fetch both succeed and it stops being fatal. It stays on this
+list because it is the tripwire that fires the moment anyone re-restricts egress. Note also that
+`triage.bash` could never have settled it: the host has open egress and a warm image cache, so
+the preflight passes there regardless of what the runner would do. Logged
 against lts-infra Plan 00030, whose open question 1 already asks the adjacent question about
 build-time egress.
 
@@ -271,7 +375,9 @@ Re-run the probes any time: `./triage.bash` on the HOST.
 - [x] ✅ Task 1.1's host facts are answered by a run, not by inference.
 - [x] ✅ Every surviving report describes a live mechanism.
 - [x] ✅ MCP, `--egress` and the unattended-launch capabilities are resolved against the
-  current architecture — two retired with a stated reason, one specified defect by defect.
+  current architecture, and by the owner rather than by this plan's internal reasoning.
+- [ ] ⬜ E8 is measured: an ungranted tool refuses rather than prompting (Task 3.4).
+- [ ] ⬜ The CI tool surface is specified per event.
 
 ## Risks & Mitigations
 
