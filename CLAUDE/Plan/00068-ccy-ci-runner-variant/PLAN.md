@@ -62,6 +62,9 @@ This plan is only about **what `ccy` must gain to be launchable unattended**.
    we know which sites a CI flow must *replace* rather than skip. But the deliverable is the
    flow, not 46 guards.
 
+   **Now derived** (`reports/ci-flow.md`): the flow reaches **≈6** of the 46, all of them
+   credential resolution. The guarded primitive is still the right mechanism; it has six callers.
+
 2. **Desktop assumptions a CI flow simply does not make.** Under the old framing these needed to
    become conditional; under the right one, the CI flow never performs them. Recorded because
    each is still a decision that must be made explicitly:
@@ -374,9 +377,13 @@ plan's most-repeated failure. The scope below is the owner's, settled 2026-08-01
   "the runner already owns egress" reasoning retracted as factually wrong. ccy gets unfettered
   egress at launch. C3 retained for any future revisit.
 
-- [ ] ⬜ **Task 3.5**: **Specify the CI flow itself** — the deliverable the invented "only
-  conditionals" rule was preventing, and now the centre of this plan. What the flow does, in
-  order, and what it deliberately omits:
+- [x] ✅ **Task 3.5**: **The CI flow** → `reports/ci-flow.md`. Eight steps, each naming what it
+  reuses and what it never enters. **Requirement 1 re-derived: ≈6 reachable prompt sites, not
+  46** — all credential resolution, all answered by one rule (an unresolvable `--token` fails
+  fast naming the flag). Marked in the report as a *derivation* from the census grouping, not a
+  measurement: confirm by instrumenting the CI path before implementing.
+
+  Summary of the flow, expanded in the report:
 
   | Step        | Reuses                                                    | Notes                                |
   | ----------- | --------------------------------------------------------- | ------------------------------------ |
