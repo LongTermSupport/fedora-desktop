@@ -33,13 +33,38 @@ This plan is only about **what `ccy` must gain to be launchable unattended**.
 
 ## What CI needs from `ccy`
 
-1. **A fully non-interactive mode.** Every prompt site either takes an announced default or
-   **fails fast and loud**, naming the flag that answers it. No spinning, no silent defaults.
-   Specified site by site in `reports/ci-required-config.md`. One guarded primitive covers all
-   46 sites — a guard that `exit`s cannot spin whatever the caller's errexit state.
+> ## The framing correction that governs everything below
+>
+> **Owner, 2026-08-01**: *"i suggested a long time ago that we engineer a CI flavour for ccy.
+> ccy functionality is up for grabs, we can change it, we can have a special ci mode that is
+> special and different to normal mode."*
+>
+> This plan has been conflating two different constraints and enforcing the wrong one:
+>
+> - **"Do not build a parallel CI product beside ccy"** — still binding. That is what Decision 1
+>   retracted, and the reason holds: the abandoned design removed the project's ability to supply
+>   its own `Dockerfile`, which is the whole seam.
+> - **"Do not change ccy's behaviour"** — **never the instruction**, and the source of the
+>   distortion. It turned every CI need into a conditional bolted onto the desktop path.
+>
+> **A CI mode is a different flow through the launcher, sharing its libraries — not the desktop
+> flow with guards on it.** The requirements below are re-read in that light; where the old
+> framing changed the answer, it is marked.
 
-2. **Conditional desktop assumptions.** Two of them, both unconditional and both fatal on a
-   headless, egress-restricted runner:
+1. **A CI flow, not 46 guarded prompts.** `reports/ci-required-config.md` specified a fail-fast
+   guard at each of 46 prompt sites. **That count is an artefact of the wrong constraint** — it
+   is what you get from insisting CI walk the desktop's interactive discovery path. A CI mode
+   does not reach most of those sites at all: it resolves the image, resolves credentials from
+   what it was handed, runs the container with a fixed flag set, and exits with the container's
+   status. Straight line, no negotiation.
+
+   The census stays valuable — it is the inventory of what the desktop path does, and it is how
+   we know which sites a CI flow must *replace* rather than skip. But the deliverable is the
+   flow, not 46 guards.
+
+2. **Desktop assumptions a CI flow simply does not make.** Under the old framing these needed to
+   become conditional; under the right one, the CI flow never performs them. Recorded because
+   each is still a decision that must be made explicitly:
 
    - `--device /dev/dri` (`claude-yolo:2767`) — measured, `exit 125`. **Unconditionally fatal**
      on a headless runner; unaffected by any egress decision.
@@ -117,11 +142,26 @@ Recorded because this plan specified replacements for all of these before checki
 thing it replaces and state why that thing cannot do the job. If that statement cannot be
 written truthfully, the mechanism is not needed.
 
-## Standing principle — the design IS ccy. Do not build beside it.
+## Standing principle — do not build BESIDE ccy. Changing ccy is fine.
 
-Project Dockerfile customisation, the rebuild when it changes, the daily update, the token
-flow — these are the product. The only permitted changes are the two above: make the prompts
-non-interactive, and make the desktop-only assumptions conditional.
+Project `Dockerfile` customisation, the rebuild when it changes, the token store — **these are
+the product, and a CI mode uses them rather than reimplementing them.** That is what "do not
+build beside it" means, and it is the whole content of Decision 1.
+
+> **CORRECTED 2026-08-01.** This section previously read *"The only permitted changes are the two
+> above: make the prompts non-interactive, and make the desktop-only assumptions conditional."*
+> **That was never the owner's constraint** — it was invented here, and it is why the design kept
+> arriving at conditionals bolted onto the desktop path (46 prompt guards being the clearest
+> symptom). `ccy`'s functionality is up for grabs. A CI mode may be genuinely different from
+> normal mode.
+
+**The two constraints that are real:**
+
+1. **Reuse the seams, do not duplicate them** — image resolution and build, the project
+   `Dockerfile`, the token store. Reimplementing any of those is the failure Decision 1 named.
+2. **Do not regress the desktop.** This is a *safety* property, not a design constraint on CI:
+   the desktop path must keep working, which is satisfied by testing it, not by refusing to add a
+   second path.
 
 **Threat model: private runner infrastructure for private, self-owned repositories.** Not
 multi-tenant CI running untrusted pull requests. Do not import constraints from that world
@@ -152,16 +192,24 @@ changing the *mechanism*.
 
 ## Goals
 
-- Specify a fully non-interactive mode that fails fast and loud.
-- Make every unconditional desktop assumption conditional — the two known fatal ones, and any
-  found by the audit the risk table now demands.
-- Give CI an MCP interface (Decision 7) and a restricted tool surface (Decision 9).
-- Keep desktop `ccy` byte-identical when the new flags are absent.
+- **Specify a CI mode** — a distinct flow through the launcher: resolve image, resolve
+  credentials from what it was handed, run, exit with the container's status. It reuses the
+  libraries and the image/token seams; it does not walk the desktop's discovery path.
+- Token-first credentials (requirement 5), MCP (Decision 7), a restricted tool surface
+  (Decision 9), and no desktop-only device/GUI/preflight assumptions.
+- **Do not regress the desktop.** A safety property to be *tested*, not a constraint that forces
+  CI through the desktop's code path.
 
 ## Non-Goals
 
 - **No implementation.** No file outside this plan folder is modified.
-- No separate CI runner, CI image, CI entrypoint, or CI credential path.
+- **No parallel CI product.** A CI mode inside `ccy`, sharing `lib/*.bash` and the image/token
+  seams — not a second launcher, and never a reimplementation of image staleness or the project
+  `Dockerfile` (Decision 1).
+  > **CORRECTED 2026-08-01.** This previously read *"No separate CI runner, CI image, CI
+  > entrypoint, or CI credential path."* Two of those are now wrong: requirement 5 **is** a CI
+  > credential path (token-first), and whether the CI flow shares the desktop entrypoint is a
+  > design question, not a prohibition. Only the *parallel product* was ever the problem.
 - No `LABEL` identity convention (Decision 2).
 - **No `--egress`** (Decision 8) — and no assumption, either way, about what the runner's own
   egress posture becomes as a result. That is lts-infra's to decide.
@@ -326,6 +374,24 @@ plan's most-repeated failure. The scope below is the owner's, settled 2026-08-01
   "the runner already owns egress" reasoning retracted as factually wrong. ccy gets unfettered
   egress at launch. C3 retained for any future revisit.
 
+- [ ] ⬜ **Task 3.5**: **Specify the CI flow itself** — the deliverable the invented "only
+  conditionals" rule was preventing, and now the centre of this plan. What the flow does, in
+  order, and what it deliberately omits:
+
+  | Step        | Reuses                                                    | Notes                                |
+  | ----------- | --------------------------------------------------------- | ------------------------------------ |
+  | Image       | `build_container_with_hash`, `validate_container_version` | the product; unchanged               |
+  | Credentials | the token store; **token-first** (requirement 5)          | no SSH probe, no `gh-token-<alias>`  |
+  | Run         | a fixed flag set                                          | no `/dev/dri`, no GUI, no preflight  |
+  | Exit        | the container's status                                    | not the compose block's (Task 3.3.4) |
+
+  Deliberately **not** on this path: network auto-detection and the compose negotiation
+  (`:1789-2498`), `save_launch_config` (`:2607`), the leftover-container `rm -f` (`:2741`), the
+  `stty` handling (`:2726-2729`), and the post-run compose teardown (`:2789+`).
+
+  Then re-derive requirement 1 against it: of the 46 census sites, how many does this flow
+  actually reach? That number, not 46, is the guard work.
+
 - [ ] ⬜ **Task 3.4**: The CI tool surface (Decision 9). Two things, and the first gates the
   second:
 
@@ -439,10 +505,11 @@ Re-run the probes any time: `./triage.bash` on the HOST.
 
 ## Risks & Mitigations
 
-| Risk                                                            | Impact | Probability | Mitigation                                                                                                     |
-| --------------------------------------------------------------- | ------ | ----------- | -------------------------------------------------------------------------------------------------------------- |
-| A mechanism is specified that already exists                    | H      | H           | **Materialised 6×.** Apply the working rule above before designing                                             |
-| A design defect survives because reviews audit self-consistency | H      | H           | **Materialised 3×.** Audit against the owner's steer                                                           |
-| Non-interactive mode changes desktop behaviour                  | H      | M           | Flags absent ⇒ byte-identical                                                                                  |
-| Concurrent jobs for one repo kill each other's containers       | H      | M           | Task 3.3.1 — caller-supplied name, and no `rm -f` on it                                                        |
-| A desktop assumption is fatal on the runner and nobody looked   | H      | M           | **Materialised 2×** (`/dev/dri`, the preflight). Audit every unconditional host assumption before implementing |
+| Risk                                                            | Impact | Probability | Mitigation                                                                                                                                                                     |
+| --------------------------------------------------------------- | ------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A mechanism is specified that already exists                    | H      | H           | **Materialised 6×.** Apply the working rule above before designing                                                                                                             |
+| A design defect survives because reviews audit self-consistency | H      | H           | **Materialised 3×.** Audit against the owner's steer                                                                                                                           |
+| A CI mode regresses the desktop path                            | H      | M           | Test the desktop path. Do NOT mitigate by refusing to add a second path — that is the constraint that distorted this plan                                                      |
+| **This plan invents a constraint the owner never set**          | H      | H           | **Materialised.** "Only conditionals, keep desktop byte-identical" was self-imposed and produced 46 prompt guards. Before accepting a constraint, quote where the owner set it |
+| Concurrent jobs for one repo kill each other's containers       | H      | M           | Task 3.3.1 — caller-supplied name, and no `rm -f` on it                                                                                                                        |
+| A desktop assumption is fatal on the runner and nobody looked   | H      | M           | **Materialised 2×** (`/dev/dri`, the preflight). Audit every unconditional host assumption before implementing                                                                 |
