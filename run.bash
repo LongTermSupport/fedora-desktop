@@ -3,7 +3,7 @@
 ## Setup
 ## !! BUMP THIS VERSION ON EVERY CHANGE TO THIS FILE — NO EXCEPTIONS !!
 ## !! If you forget, there is NO WAY to tell which version is running !!
-RUN_BASH_VERSION="1.10.0"  # Feature (Plan 00063) slice 2: headless PREFLIGHT — headless_preflight validates+resolves all RUN_BASH_* input up front (non-root check, NOPASSWD-sudo probe, required email/accounts, secret *_FILE resolution with V3.10 guardrails: file-precedence, both-set/unreadable/literal-on-cloud fail-fast, literal-elsewhere warn, unset literals before first child), set -u-safe secret-file EXIT trap. v1.9.1: defer the GitHub-empty ('none') path per round-3 decision — headless v1 requires a single GitHub account + token file (fail fast on 'none'); help + acceptance aligned. v1.9.2: require RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE in v1 — the login SSH key stays passphrase-protected (D6), mirroring the interactive no-empty-passphrase rule, since headless loads it non-interactively via ssh-agent/SSH_ASKPASS (D5). v1.9.3: begin the EXECUTION slice — add hl_abort (BIG LOUD banner, exit 1) for headless execution failures, and a headless backstop at the top of every shared interactive prompt helper (confirm/promptForValue/promptChoice/promptSecretConfirmed/promptDefault/prompt_verified_vault_password/prompt_github_accounts_yaml) so a headless run that ever reaches a prompt fails LOUD instead of hanging (fail-fast rule 11). v1.9.4: GitHub/SSH execution mechanics — hl_ssh_agent_start (ssh-agent + transient 0700 SSH_ASKPASS reading a 0600 passphrase file, V3.13), hl_ssh_agent_stop (kill after last git op, V3.12), hl_cleanup EXIT trap (shred secret files + backstop agent kill, V3.11); headless branches for keygen (-P from resolved passphrase + agent load), hostname (RUN_BASH_HOSTNAME or leave default), gh token auth (gh auth login --with-token from stdin + git_protocol=ssh). All fail LOUD via hl_abort. v1.9.5: localhost.yml assembly — hl_write_localhost_yml (idempotent keep, else RUN_BASH_CONFIG_SOURCE pull from the private config repo, else FRESH from RUN_BASH_* identity + github_accounts), hl_pull_config_source (private-repo gate + LOUD 404), hl_reconcile_vault (D6: provided-or-fail, verify against encrypted values, NEVER auto-generate over !vault); headless branch for github_ssh_passphrase (reuse resolved passphrase, vault-encrypt). Interactive config/vault blocks wrapped under `if HEADLESS != true`. v1.10.0: FLIP the honest-stop — headless now flows through the FULL body (gh-account-setup gets RUN_BASH_HEADLESS + fails LOUD on any interactive gh web/scope-refresh; main playbook gets RUN_BASH_PROVISIONING_PROFILE passthrough + D7 loud-fatal on failure; optional playbooks via RUN_BASH_OPTIONAL_PLAYBOOKS; projects restore via RUN_BASH_RESTORE_PROJECTS; reboot via RUN_BASH_REBOOT). END-TO-END execution is HOST-verified on a real server (Phase 3) — in-container this is bash -n + shellcheck + preflight acceptance only.
+RUN_BASH_VERSION="1.11.0"  # Feature (Plan 00063) slice 2: headless PREFLIGHT — headless_preflight validates+resolves all RUN_BASH_* input up front (non-root check, NOPASSWD-sudo probe, required email/accounts, secret *_FILE resolution with V3.10 guardrails: file-precedence, both-set/unreadable/literal-on-cloud fail-fast, literal-elsewhere warn, unset literals before first child), set -u-safe secret-file EXIT trap. v1.9.1: defer the GitHub-empty ('none') path per round-3 decision — headless v1 requires a single GitHub account + token file (fail fast on 'none'); help + acceptance aligned. v1.9.2: require RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE in v1 — the login SSH key stays passphrase-protected (D6), mirroring the interactive no-empty-passphrase rule, since headless loads it non-interactively via ssh-agent/SSH_ASKPASS (D5). v1.9.3: begin the EXECUTION slice — add hl_abort (BIG LOUD banner, exit 1) for headless execution failures, and a headless backstop at the top of every shared interactive prompt helper (confirm/promptForValue/promptChoice/promptSecretConfirmed/promptDefault/prompt_verified_vault_password/prompt_github_accounts_yaml) so a headless run that ever reaches a prompt fails LOUD instead of hanging (fail-fast rule 11). v1.9.4: GitHub/SSH execution mechanics — hl_ssh_agent_start (ssh-agent + transient 0700 SSH_ASKPASS reading a 0600 passphrase file, V3.13), hl_ssh_agent_stop (kill after last git op, V3.12), hl_cleanup EXIT trap (shred secret files + backstop agent kill, V3.11); headless branches for keygen (-P from resolved passphrase + agent load), hostname (RUN_BASH_HOSTNAME or leave default), gh token auth (gh auth login --with-token from stdin + git_protocol=ssh). All fail LOUD via hl_abort. v1.9.5: localhost.yml assembly — hl_write_localhost_yml (idempotent keep, else RUN_BASH_CONFIG_SOURCE pull from the private config repo, else FRESH from RUN_BASH_* identity + github_accounts), hl_pull_config_source (private-repo gate + LOUD 404), hl_reconcile_vault (D6: provided-or-fail, verify against encrypted values, NEVER auto-generate over !vault); headless branch for github_ssh_passphrase (reuse resolved passphrase, vault-encrypt). Interactive config/vault blocks wrapped under `if HEADLESS != true`. v1.10.0: FLIP the honest-stop — headless now flows through the FULL body (gh-account-setup gets RUN_BASH_HEADLESS + fails LOUD on any interactive gh web/scope-refresh; main playbook gets RUN_BASH_PROVISIONING_PROFILE passthrough + D7 loud-fatal on failure; optional playbooks via RUN_BASH_OPTIONAL_PLAYBOOKS; projects restore via RUN_BASH_RESTORE_PROJECTS; reboot via RUN_BASH_REBOOT). END-TO-END execution is HOST-verified on a real server (Phase 3) — in-container this is bash -n + shellcheck + preflight acceptance only. v1.11.0 (Plan 00073): headless no longer REQUIRES NOPASSWD:ALL — RUN_BASH_SUDO_PASSWORD[_FILE] is a second, equally supported credential. Preflight asserts one of the two (D1) and decides HL_SUDO_OPTS once; hl_sudo_askpass_start writes a 0600 password file + 0700 SUDO_ASKPASS helper (the sudo twin of hl_ssh_agent_start, shredded by the same EXIT trap) and hl_sudo_probe_password PROVES the password authenticates in preflight rather than mid-provision; every privileged call site goes through _sudo (D2), which is byte-identical to bare `sudo` whenever HL_SUDO_OPTS is empty — i.e. on every pre-existing path; the two ansible invocations gain a third branch using ansible-core's native --become-password-file (D3). D5: `sudo -k -n true` remains a WEAK probe (a command-scoped rule passes `true`, fails `dnf`) and the password probe is exactly as weak — ALL-scoped sudo stays the documented requirement for BOTH credentials.
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -120,6 +120,61 @@ hl_resolve_secret() {
   printf -v "$_out" '%s' "$_result"
 }
 
+# _sudo — the ONE way this script runs a privileged command (Plan 00073 D2).
+# HL_SUDO_OPTS is EMPTY on every pre-existing path (interactive, and headless with
+# NOPASSWD:ALL), so those runs emit byte-identical sudo argv and this wrapper is inert.
+# It becomes (-A) only when a headless run resolved a sudo password in preflight,
+# routing sudo to the askpass helper instead of a prompt there is no TTY to answer.
+#
+# NOT `sudo "${HL_SUDO_OPTS[@]:-}"`: on an empty array that expands to one EMPTY STRING
+# argument — `sudo "" dnf …` — which fails. The array is initialised in main before any
+# call site, so the plain expansion is already set -u-safe (bash 4.4+; Fedora ships 5.x).
+_sudo() {
+  sudo "${HL_SUDO_OPTS[@]}" "$@"
+}
+
+# hl_sudo_askpass_start — make this user's sudo password available NON-INTERACTIVELY via
+# a 0600 password file plus a 0700 SUDO_ASKPASS helper that reads it (D1). This is the
+# sudo twin of hl_ssh_agent_start: `sudo -A` consumes SUDO_ASKPASS exactly as ssh-add
+# consumes SSH_ASKPASS, so the mechanism is one this script already relies on. Both temp
+# files are registered in HL_SECRET_FILES and shredded by the existing hl_cleanup EXIT
+# trap — D4 needs no new cleanup.
+#
+# DELIBERATE DIFFERENCE from hl_ssh_agent_start: the helper is written with the file PATH
+# interpolated (printf %q) rather than reading an exported variable at askpass RUNTIME.
+# The path is not secret — the password never enters the helper's text either way, which
+# is the property the quoted heredoc exists to buy. What interpolating buys instead is
+# independence from whether sudo propagates the caller's environment to the askpass child.
+# That is unverifiable in a container, and getting it wrong would fail SILENTLY: an unset
+# var means `cat ""`, an empty password, and a wrong-password error that blames the
+# operator's file. ssh-add's env propagation is proven on this path; sudo's is not, so
+# this does not assume it.
+hl_sudo_askpass_start() {
+  HL_SUDO_PW_FILE="$(mktemp)" && chmod 600 "$HL_SUDO_PW_FILE"
+  printf '%s' "$HL_SUDO_PASSWORD" > "$HL_SUDO_PW_FILE"
+  HL_SUDO_ASKPASS="$(mktemp)" && chmod 700 "$HL_SUDO_ASKPASS"
+  printf '#!/usr/bin/env bash\ncat -- %q\n' "$HL_SUDO_PW_FILE" > "$HL_SUDO_ASKPASS"
+  HL_SECRET_FILES+=("$HL_SUDO_PW_FILE" "$HL_SUDO_ASKPASS")
+  export SUDO_ASKPASS="$HL_SUDO_ASKPASS"
+}
+
+# hl_sudo_probe_password — PROVE the supplied password actually authenticates, HERE in
+# preflight, rather than discovering it at the first dnf. For an unattended run this is
+# not optional: a wrong password with no probe means sudo asks the helper, gets the same
+# wrong answer three times, and the run dies mid-provision with the operator not watching.
+#
+# What it proves and no more (D5): that the password AUTHENTICATES. Not that this user may
+# run dnf — a command-scoped sudoers rule passes `true` and fails `dnf`, which is exactly
+# the weakness Plan 00063 V3.7 recorded for the NOPASSWD probe. The new probe inherits it
+# rather than fixing it, and says so instead of letting a reader assume otherwise.
+hl_sudo_probe_password() {
+  local _out
+  if ! _out="$(sudo -k -A true 2>&1)"; then
+    headless_fail "RUN_BASH_SUDO_PASSWORD did not authenticate (sudo said: ${_out:-no reason given})." \
+      "Check the file holds THIS user's login password and that the user has ALL-scoped sudo (a command-scoped rule is not supported)."
+  fi
+}
+
 # headless_preflight — validate every precondition + resolve every RUN_BASH_* value
 # BEFORE any provisioning action, so an unattended run fails fast (never hangs) on a
 # missing/unsafe input. Populates HL_* globals (non-exported: not visible to child
@@ -181,21 +236,54 @@ headless_preflight() {
   [[ -n "$HL_GITHUB_SSH_PASSPHRASE" ]] || headless_fail "RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE is required (the login SSH key must stay passphrase-protected)." \
     "Provide a 0600 file holding the SSH key passphrase (loaded via ssh-agent for the clone; never passed on argv to a child)."
 
+  # Sudo password (Plan 00073) — OPTIONAL, and only one of the two sudo credentials.
+  # Resolved through the same machinery as the other three secrets so it inherits every
+  # V3.10 guardrail (file-precedence, both-set, unreadable, literal-on-cloud) for free.
+  # Resolved BEFORE the unset below, which drops the literal form.
+  hl_resolve_secret SUDO_PASSWORD HL_SUDO_PASSWORD
+
   # V3.10(e): drop any LITERAL secret env vars so children (dnf, gh, ansible) do not
   # inherit them via /proc/PID/environ. The *_FILE path vars are not secret and stay.
-  unset RUN_BASH_VAULT_PASSWORD RUN_BASH_GITHUB_TOKEN RUN_BASH_GITHUB_SSH_PASSPHRASE
+  unset RUN_BASH_VAULT_PASSWORD RUN_BASH_GITHUB_TOKEN RUN_BASH_GITHUB_SSH_PASSPHRASE \
+    RUN_BASH_SUDO_PASSWORD
 
-  # NOPASSWD:ALL sudo (V3.7): the first direct sudo (dnf) runs with no TTY. Probe
-  # with -k so a cached timestamp cannot yield a false pass. Capture stderr (no
-  # error-hiding redirect) so the failure reason is shown. Last precondition — after
-  # the cheaper config checks so the most common mistake (missing env) reports first.
+  # Sudo credential (D1): this run must hold ONE of two — NOPASSWD:ALL, or a password
+  # from RUN_BASH_SUDO_PASSWORD_FILE. Asserted, not summarised. Probe with -k so a cached
+  # timestamp cannot yield a false pass, and capture stderr (no error-hiding redirect) so
+  # the real reason is reported. Last precondition, after the cheaper config checks, so
+  # the most common mistake (missing env) still reports first.
+  #
+  # HL_SUDO_OPTS is an option set decided ONCE — not a skip-gate. Nothing anywhere says
+  # `if <flag>; then <do the work>`: every privileged call site runs unconditionally
+  # through _sudo, and the array only decides HOW sudo is invoked. There is no `:-`
+  # default on the password either, so an unset value raises rather than silently
+  # becoming empty.
+  #
+  # V3.7 CARRIED FORWARD EXPLICITLY (D5): `sudo -k -n true` is a WEAK probe — a
+  # command-scoped NOPASSWD rule passes `true` and still fails `dnf`. The password probe
+  # is exactly as weak: it proves the password authenticates, not that this user may run
+  # dnf. ALL-scoped sudo remains the documented requirement for BOTH credentials; a
+  # command-scoped rule is unsupported, now stated rather than implied.
   local _sudo_probe
-  if ! _sudo_probe="$(sudo -k -n true 2>&1)"; then
-    headless_fail "Passwordless (NOPASSWD:ALL) sudo is required (sudo: ${_sudo_probe:-a password is required})." \
-      "Grant NOPASSWD:ALL to this user (the default cloud user has it), or run interactively."
+  if _sudo_probe="$(sudo -k -n true 2>&1)"; then
+    HL_SUDO_OPTS=()
+  elif [[ -n "$HL_SUDO_PASSWORD" ]]; then
+    hl_sudo_askpass_start
+    hl_sudo_probe_password
+    HL_SUDO_OPTS=(-A)
+  else
+    headless_fail "This user has neither passwordless sudo nor a supplied sudo password (sudo: ${_sudo_probe:-a password is required})." \
+      "Either grant NOPASSWD:ALL (the default cloud user has it), or set RUN_BASH_SUDO_PASSWORD_FILE to a 0600 file holding this user's sudo password."
   fi
 
-  echo -e "${GREEN}${CHECK} Headless preflight OK${NC} — user=${HL_USER_LOGIN} (${HL_USER_NAME}) email=${HL_USER_EMAIL} github=${HL_GITHUB_ACCOUNTS}" >&2
+  # Report WHICH sudo credential was proven, not just that preflight passed — the two
+  # paths are indistinguishable from the outside and this is the only place the choice
+  # is visible in an unattended run's log.
+  local _sudo_cred="NOPASSWD:ALL"
+  if [[ "${#HL_SUDO_OPTS[@]}" -gt 0 ]]; then
+    _sudo_cred="password (RUN_BASH_SUDO_PASSWORD_FILE)"
+  fi
+  echo -e "${GREEN}${CHECK} Headless preflight OK${NC} — user=${HL_USER_LOGIN} (${HL_USER_NAME}) email=${HL_USER_EMAIL} github=${HL_GITHUB_ACCOUNTS} sudo=${_sudo_cred}" >&2
 }
 
 # hl_cleanup — EXIT-trap cleanup for a headless run: shred every 0600 secret file and,
@@ -429,6 +517,13 @@ main() {
   # empty array is a harmless no-op for rm -f, never an unbound-variable error.
   HL_SECRET_FILES=()
   HL_SSH_AGENT_PID=""   # set by hl_ssh_agent_start; kept empty so hl_cleanup is set -u-safe
+  # Sudo option set for _sudo (Plan 00073 D2). EMPTY = plain `sudo`, which is EVERY
+  # pre-existing path; headless_preflight sets (-A) only when a sudo password was
+  # supplied. Declared HERE, before any call site, so "${HL_SUDO_OPTS[@]}" is always a
+  # SET array under set -u — the reason _sudo can use the plain expansion rather than
+  # "${arr[@]:-}", which would pass an empty string as sudo's first argument.
+  HL_SUDO_OPTS=()
+  HL_SUDO_PW_FILE=""    # set by hl_sudo_askpass_start; also Ansible's --become-password-file
   trap hl_cleanup EXIT
 
 # Flags
@@ -476,7 +571,8 @@ Requirements:
   - Fedora Linux (version must match the branch)
   - Network connectivity (GitHub, DNF repos)
   - Must NOT be run as root (uses sudo internally; headless: run as the non-root
-    target user with NOPASSWD sudo)
+    target user holding EITHER NOPASSWD:ALL sudo OR ordinary password sudo with
+    RUN_BASH_SUDO_PASSWORD_FILE — see --help-run-headless)
 USAGE
       exit 0
       ;;
@@ -500,8 +596,12 @@ TRIGGER
   set no RUN_BASH_* to avoid tripping headless.)
 
 PRECONDITIONS (fail fast if unmet — never hangs)
-  * NOPASSWD:ALL sudo (the default cloud user has it; a password-sudo Server does
-    not — configure NOPASSWD or run interactively).
+  * ALL-scoped sudo, held EITHER of two ways — exactly one is required:
+      - NOPASSWD:ALL (the default cloud user has it), or
+      - ordinary password sudo + RUN_BASH_SUDO_PASSWORD_FILE (a 0600 file holding
+        this user's password). Proven in preflight, not at the first dnf.
+    Both are ALL-scoped. A COMMAND-scoped sudoers rule is NOT supported: it passes
+    the `true` probe and then fails on `dnf`, so it would abort mid-provision.
   * Run as the NON-root target user (cloud-init runcmd is root; drop to the user).
   * GitHub is mandatory in headless v1: set RUN_BASH_GITHUB_ACCOUNTS to a single
     account AND provide RUN_BASH_GITHUB_TOKEN_FILE AND
@@ -530,8 +630,16 @@ SECRETS — prefer 0600 FILE POINTERS (recommended), literal env supported but r
   RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE=/path  SSH key passphrase (file); REQUIRED
                                              in v1 (the login key stays passphrase-
                                              protected, loaded via ssh-agent).
+  RUN_BASH_SUDO_PASSWORD_FILE=/path          This user's sudo password (file).
+                                             REQUIRED only when the user does NOT
+                                             have NOPASSWD:ALL; ignored when it
+                                             does. Consumed by sudo via a transient
+                                             0700 SUDO_ASKPASS helper and by Ansible
+                                             via --become-password-file — never on
+                                             argv, never in a child's environment.
+                                             Shredded on every exit path.
   Literal equivalents (RUN_BASH_VAULT_PASSWORD, _GITHUB_TOKEN,
-  _GITHUB_SSH_PASSPHRASE) are accepted but:
+  _GITHUB_SSH_PASSPHRASE, _SUDO_PASSWORD) are accepted but:
     * REFUSED on a detected cloud box (cloud-init user-data persists them in the
       metadata service, world-readable indefinitely) -> use the *_FILE form.
     * warned loudly otherwise; setting BOTH a literal and its *_FILE is an error.
@@ -556,6 +664,10 @@ CANONICAL INVOCATION (run as the non-root user)
        RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE=/run/secrets/ssh-pass \
        RUN_BASH_VAULT_PASSWORD_FILE=/run/secrets/vault-pass \
          ./run.bash
+
+  On a box WITHOUT NOPASSWD:ALL, add the sudo password file — everything else is
+  identical, and the run stays fully unattended:
+       RUN_BASH_SUDO_PASSWORD_FILE=/run/secrets/sudo-pass \
 
 CLOUD-INIT (Fedora Cloud) — fetch secrets OUT-OF-BAND, never in write_files
   write_files embeds content INSIDE user-data (served by the metadata service
@@ -1200,11 +1312,20 @@ run_playbook_with_issue_option(){
   # but ansible become runs in its own tty (Fedora tty_tickets) and can't use
   # that cache, so it fails with "premature end of stream waiting for become
   # success". Detecting real NOPASSWD here routes password sudo to --ask-become-pass.
-  if sudo -k -n true 2>/dev/null; then
-    exit_code=0
+  #
+  # Plan 00073 D3 adds the third branch FIRST: a non-empty HL_SUDO_OPTS means a headless
+  # run resolved a sudo password in preflight, so hand Ansible the same 0600 file via its
+  # native --become-password-file (non-interactive; --ask-become-pass would hang with no
+  # TTY). Checked before the probe so `sudo -k` never runs on that path and never discards
+  # the timestamp the preflight probe just established.
+  local _sudo_probe=""
+  exit_code=0
+  if [[ "${#HL_SUDO_OPTS[@]}" -gt 0 ]]; then
+    "$playbook" --become-password-file "$HL_SUDO_PW_FILE" || exit_code=$?
+  elif _sudo_probe="$(sudo -k -n true 2>&1)"; then
     "$playbook" || exit_code=$?
   else
-    exit_code=0
+    info "sudo needs a password — Ansible will prompt for it (sudo: ${_sudo_probe:-a password is required})"
     "$playbook" --ask-become-pass || exit_code=$?
   fi
   
@@ -1482,7 +1603,7 @@ info "Installing: git, python3, python3-pip, python3-libdnf5, grubby, jq, openss
 # H3: do NOT swallow dnf output. Under set -e a dnf failure here used to abort the
 # run in total silence (output went to /dev/null). Let dnf print so a failure has
 # a visible cause; set -e then stops the run with the error on screen.
-sudo dnf -y install \
+_sudo dnf -y install \
   git \
   python3 \
   python3-pip \
@@ -1495,13 +1616,13 @@ completed
 
 title "Checking for Legacy Grub Configurations"
 info "Checking for old cgroup settings"
-if sudo grubby --info=ALL 2>/dev/null | grep -q "systemd.unified_cgroup_hierarchy"; then
+if _sudo grubby --info=ALL 2>/dev/null | grep -q "systemd.unified_cgroup_hierarchy"; then
   warning "Found legacy cgroup configuration, removing..."
-  sudo grubby --update-kernel=ALL --remove-args="systemd.unified_cgroup_hierarchy=0"
-  sudo grubby --update-kernel=ALL --remove-args="systemd.unified_cgroup_hierarchy=1"
-  
+  _sudo grubby --update-kernel=ALL --remove-args="systemd.unified_cgroup_hierarchy=0"
+  _sudo grubby --update-kernel=ALL --remove-args="systemd.unified_cgroup_hierarchy=1"
+
   # Verify the removal worked
-  if sudo grubby --info=ALL 2>/dev/null | grep -q "systemd.unified_cgroup_hierarchy"; then
+  if _sudo grubby --info=ALL 2>/dev/null | grep -q "systemd.unified_cgroup_hierarchy"; then
     error "Failed to remove cgroup configuration - may need manual intervention"
     echo -e "${YELLOW}${INFO} To manually remove, run:${NC}"
     echo -e "   sudo grubby --update-kernel=ALL --remove-args='systemd.unified_cgroup_hierarchy=0'"
@@ -1518,7 +1639,7 @@ title "Setting up Ansible Environment"
 # Fix ownership before running pipx.
 if [[ -d ~/.local ]] && [[ "$(stat -c%U ~/.local)" != "$(whoami)" ]]; then
     info "Fixing ~/.local ownership (was created by root)"
-    sudo chown -R "$(id -u):$(id -g)" ~/.local
+    _sudo chown -R "$(id -u):$(id -g)" ~/.local
 fi
 mkdir -p ~/.local/bin ~/.local/share ~/.local/state
 info "Installing Ansible and dependencies via pipx"
@@ -1593,7 +1714,7 @@ if [[ "$(hostname)" == "fedora" ]]; then
     # Headless: set from RUN_BASH_HOSTNAME if given; otherwise leave the default
     # (optional — not every server needs a custom hostname). No prompt.
     if [[ -n "${RUN_BASH_HOSTNAME:-}" ]]; then
-      if ! _hn_out="$(sudo hostnamectl set-hostname "$RUN_BASH_HOSTNAME" 2>&1)"; then
+      if ! _hn_out="$(_sudo hostnamectl set-hostname "$RUN_BASH_HOSTNAME" 2>&1)"; then
         hl_abort "set hostname" "could not set hostname to '${RUN_BASH_HOSTNAME}'" "hostnamectl said: ${_hn_out}"
       fi
       unset _hn_out
@@ -1605,19 +1726,19 @@ if [[ "$(hostname)" == "fedora" ]]; then
     echo "found default hostname, please choose a new one"
     echo "(your machine hostname, eg my-laptop, my-fedora etc)"
     hostname=$(promptDefault "Hostname: " "" 1)
-    sudo hostnamectl set-hostname "$hostname"
+    _sudo hostnamectl set-hostname "$hostname"
   fi
 fi
 
 title "Installing Github CLI"
-sudo dnf -y install 'dnf-command(config-manager)'
+_sudo dnf -y install 'dnf-command(config-manager)'
 # Check if gh-cli repo already exists before adding
-if ! sudo dnf repolist | grep -q "gh-cli"; then
-  sudo dnf config-manager addrepo --from-repofile=https://cli.github.com/packages/rpm/gh-cli.repo
+if ! _sudo dnf repolist | grep -q "gh-cli"; then
+  _sudo dnf config-manager addrepo --from-repofile=https://cli.github.com/packages/rpm/gh-cli.repo
 else
   echo "GitHub CLI repository already configured"
 fi
-sudo dnf -y install gh
+_sudo dnf -y install gh
 completed
 
 title "GitHub Authentication Setup"
@@ -2210,12 +2331,23 @@ fi
 # but ansible become runs in its own tty (Fedora tty_tickets) and can't use
 # that cache, so it fails with "premature end of stream waiting for become
 # success". Detecting real NOPASSWD here routes password sudo to --ask-become-pass.
-if sudo -k -n true 2>/dev/null; then
+#
+# Plan 00073 D3 adds the third branch FIRST: a non-empty HL_SUDO_OPTS means a headless run
+# resolved a sudo password in preflight, so hand Ansible the same 0600 file via its native
+# --become-password-file (non-interactive; --ask-become-pass would hang with no TTY).
+# Checked before the probe so `sudo -k` never runs on that path and never discards the
+# timestamp the preflight probe just established.
+_main_sudo_probe=""
+if [[ "${#HL_SUDO_OPTS[@]}" -gt 0 ]]; then
+  echo -e "${CYAN}${INFO} Headless: Ansible BECOME password supplied via --become-password-file${NC}"
+  ./playbooks/playbook-main.yml "${_main_pb_args[@]}" --become-password-file "$HL_SUDO_PW_FILE" || main_exit_code=$?
+elif _main_sudo_probe="$(sudo -k -n true 2>&1)"; then
   ./playbooks/playbook-main.yml "${_main_pb_args[@]}" || main_exit_code=$?
 else
-  echo -e "${YELLOW}${INFO} sudo needs a password — Ansible will now prompt you for it (BECOME password)${NC}"
+  echo -e "${YELLOW}${INFO} sudo needs a password — Ansible will now prompt you for it (BECOME password; sudo: ${_main_sudo_probe:-a password is required})${NC}"
   ./playbooks/playbook-main.yml "${_main_pb_args[@]}" --ask-become-pass || main_exit_code=$?
 fi
+unset _main_sudo_probe
 
 if [[ $main_exit_code -eq 0 ]]; then
   completed
@@ -2623,14 +2755,14 @@ if [[ "$HEADLESS" == "true" ]]; then
   # cleanly and leave the box up so the operator/orchestrator controls the reboot.
   if [[ "${RUN_BASH_REBOOT:-0}" == "1" ]]; then
     success "Headless provisioning complete — rebooting now (RUN_BASH_REBOOT=1)"
-    sudo reboot now
+    _sudo reboot now
   else
     success "Headless provisioning complete! Reboot when convenient (set RUN_BASH_REBOOT=1 to auto-reboot)."
     exit 0
   fi
 elif confirm "Ready to reboot now?" n; then
   echo -e "${YELLOW}${INFO} Rebooting system...${NC}"
-  sudo reboot now
+  _sudo reboot now
 else
   success "Installation complete!"
   echo -e "${YELLOW}${INFO} Remember to reboot your system when convenient${NC}"

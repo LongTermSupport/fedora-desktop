@@ -37,17 +37,21 @@ It never hangs on a prompt and never reports success on failure.
 
 ## Prerequisites (hard requirements)
 
-| Requirement                   | Why                                                               | How to check                                         |
-| ----------------------------- | ----------------------------------------------------------------- | ---------------------------------------------------- |
-| Fresh Fedora Server/Cloud     | The version must match the repo branch (e.g. F44 = Fedora 44).    | `cat /etc/fedora-release`                            |
-| A **non-root** target user    | `run.bash` refuses to run as root (it uses `sudo` internally).    | `whoami` (must not be `root`)                        |
-| **`NOPASSWD:ALL` sudo**       | Headless `sudo`/Ansible `become` cannot answer a password prompt. | `sudo -k -n true` (must exit 0, silently)            |
-| Network access                | GitHub, DNF repos, Ansible Galaxy.                                | `curl -fsS https://github.com >/dev/null && echo ok` |
-| A GitHub account + scoped PAT | GitHub is mandatory in headless v1.                               | see Step 2a                                          |
+| Requirement                   | Why                                                                                                                                                                      | How to check                                             |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------- |
+| Fresh Fedora Server/Cloud     | The version must match the repo branch (e.g. F44 = Fedora 44).                                                                                                           | `cat /etc/fedora-release`                                |
+| A **non-root** target user    | `run.bash` refuses to run as root (it uses `sudo` internally).                                                                                                           | `whoami` (must not be `root`)                            |
+| **ALL-scoped sudo**           | Headless `sudo`/Ansible `become` cannot answer a prompt, so the credential must be supplied. Either `NOPASSWD:ALL` **or** password sudo + `RUN_BASH_SUDO_PASSWORD_FILE`. | `sudo -k -n true` (exit 0 = NOPASSWD); otherwise Step 0b |
+| Network access                | GitHub, DNF repos, Ansible Galaxy.                                                                                                                                       | `curl -fsS https://github.com >/dev/null && echo ok`     |
+| A GitHub account + scoped PAT | GitHub is mandatory in headless v1.                                                                                                                                      | see Step 2a                                              |
 
 > **Cloud images** (Fedora Cloud, most cloud-init distros) already create a non-root
-> user with `NOPASSWD` sudo — you are running as it. On a plain **Fedora Server**
-> install you may need to grant `NOPASSWD` yourself (Step 0).
+> user with `NOPASSWD` sudo — you are running as it, and Step 0b does not apply.
+
+> **A COMMAND-scoped sudoers rule is not supported, by either route.** `sudo -k -n true`
+> passes on a rule that only permits `/bin/true`, and the run then dies at the first
+> `dnf`. Both credentials must be `ALL`-scoped. The probe cannot detect this — it is a
+> known limitation, stated rather than implied.
 
 ---
 
@@ -60,14 +64,39 @@ whoami            # must NOT print 'root'
 sudo -k -n true && echo "NOPASSWD sudo: OK" || echo "NOPASSWD sudo: MISSING"
 ```
 
-If it prints `MISSING`, grant passwordless sudo to your user once (run this part with
-a password, then re-check):
+If it prints `OK`, you are done — skip to Step 1. If it prints `MISSING`, pick **one**
+of the two routes below.
+
+### Step 0a — grant `NOPASSWD:ALL` (simplest)
 
 ```bash
 echo "$(whoami) ALL=(ALL) NOPASSWD:ALL" | sudo tee "/etc/sudoers.d/90-$(whoami)-nopasswd"
 sudo chmod 0440 "/etc/sudoers.d/90-$(whoami)-nopasswd"
 sudo -k -n true && echo "NOPASSWD sudo: OK"
 ```
+
+### Step 0b — keep password sudo, supply the password in a file
+
+Prefer this when the user must **not** hold permanent passwordless root — for example a
+CI box where a locked-down account reaches this user through a single `NOPASSWD` rule,
+and a `NOPASSWD:ALL` here would complete the ladder to root.
+
+```bash
+sudo install -d -m 0700 -o "$(whoami)" -g "$(whoami)" /run/secrets   # tmpfs — RAM-backed
+install -m 0600 /dev/null /run/secrets/sudo-pass
+read -rs -p 'sudo password: ' p; echo; printf '%s' "$p" > /run/secrets/sudo-pass; unset p
+```
+
+Then add `RUN_BASH_SUDO_PASSWORD_FILE=/run/secrets/sudo-pass` to the invocation in
+Step 3. `run.bash` proves the password authenticates during preflight — before any
+provisioning action — so a wrong password fails in seconds, not mid-install.
+
+**Be clear about what this buys.** *During* the run the two routes are equivalent:
+anything running as this user can reach root either way. The gain is in the **steady
+state** (no permanent passwordless root once the run ends) and in the **failure mode**
+— a sudoers file that fails to be removed leaves passwordless root forever, whereas a
+password file on tmpfs that fails to be shredded dies at the next boot and never
+touched persistent storage.
 
 ---
 
@@ -183,6 +212,9 @@ export RUN_BASH_GITHUB_TOKEN_FILE="/run/secrets/gh-token"
 export RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE="/run/secrets/ssh-pass"
 export RUN_BASH_VAULT_PASSWORD_FILE="/run/secrets/vault-pass"
 
+# ── Sudo credential: ONLY if this user does NOT have NOPASSWD:ALL (Step 0b) ──
+# export RUN_BASH_SUDO_PASSWORD_FILE="/run/secrets/sudo-pass"
+
 # ── Optional (sensible defaults shown; delete any you don't need) ────────────
 export RUN_BASH_HOSTNAME="my-server"                  # only applied if box is still 'fedora'
 export RUN_BASH_PROVISIONING_PROFILE="server"         # or omit to auto-detect
@@ -243,14 +275,15 @@ non-zero exit code:
 
 Common first-run failures and their fix:
 
-| Banner STEP                               | Cause                                            | Fix                                                            |
-| ----------------------------------------- | ------------------------------------------------ | -------------------------------------------------------------- |
-| `Headless run cannot proceed` (preflight) | A required var/secret is missing or unsafe.      | Read the WHY — it names the exact `RUN_BASH_*` to set.         |
-| Passwordless sudo required                | Target user lacks `NOPASSWD:ALL`.                | Step 0.                                                        |
-| GitHub token auth                         | PAT rejected or under-scoped.                    | Recreate the PAT with all required scopes (Step 2a).           |
-| load login SSH key into ssh-agent         | Wrong SSH passphrase file.                       | Ensure `/run/secrets/ssh-pass` matches the key's passphrase.   |
-| vault reconcile                           | Vault password does not decrypt existing config. | Provide the correct vault password (Step 2c).                  |
-| main playbook                             | An Ansible task failed.                          | Scroll up to the failing task's output; fix the cause; re-run. |
+| Banner STEP                                              | Cause                                                                                                                  | Fix                                                                                |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `Headless run cannot proceed` (preflight)                | A required var/secret is missing or unsafe.                                                                            | Read the WHY — it names the exact `RUN_BASH_*` to set.                             |
+| `neither passwordless sudo nor a supplied sudo password` | Target user has no usable sudo credential.                                                                             | Step 0a (grant `NOPASSWD:ALL`) **or** Step 0b (set `RUN_BASH_SUDO_PASSWORD_FILE`). |
+| `RUN_BASH_SUDO_PASSWORD did not authenticate`            | The supplied password is wrong for this user, or the user is not in sudoers at all — the banner quotes what sudo said. | Fix the file from Step 0b; check `sudo -v` works by hand.                          |
+| GitHub token auth                                        | PAT rejected or under-scoped.                                                                                          | Recreate the PAT with all required scopes (Step 2a).                               |
+| load login SSH key into ssh-agent                        | Wrong SSH passphrase file.                                                                                             | Ensure `/run/secrets/ssh-pass` matches the key's passphrase.                       |
+| vault reconcile                                          | Vault password does not decrypt existing config.                                                                       | Provide the correct vault password (Step 2c).                                      |
+| main playbook                                            | An Ansible task failed.                                                                                                | Scroll up to the failing task's output; fix the cause; re-run.                     |
 
 Because the whole run is fail-loud, an LLM agent driving the box can capture the banner
 and act on the `WHY`/`DEBUG` lines directly.
@@ -323,6 +356,10 @@ read -rs -p 'SSH key passphrase: '   _ssh;  echo; printf '%s' "$_ssh" > /run/sec
 read -rs -p 'Ansible vault password: ' _v;   echo; printf '%s' "$_v"   > /run/secrets/vault-pass; unset _v
 chmod 600 /run/secrets/gh-token /run/secrets/ssh-pass /run/secrets/vault-pass
 
+# 2b. ONLY if this user lacks NOPASSWD:ALL — uncomment both lines here and the export below
+# read -rs -p 'sudo password: '        _sp;   echo; printf '%s' "$_sp"  > /run/secrets/sudo-pass
+# chmod 600 /run/secrets/sudo-pass; unset _sp
+
 # 3 + 4. config + run
 export RUN_BASH_HEADLESS=1
 export RUN_BASH_USER_EMAIL="$GIT_EMAIL"
@@ -330,6 +367,7 @@ export RUN_BASH_GITHUB_ACCOUNTS="$GH_USERNAME"
 export RUN_BASH_GITHUB_TOKEN_FILE=/run/secrets/gh-token
 export RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE=/run/secrets/ssh-pass
 export RUN_BASH_VAULT_PASSWORD_FILE=/run/secrets/vault-pass
+# export RUN_BASH_SUDO_PASSWORD_FILE=/run/secrets/sudo-pass   # only with step 2b above
 export RUN_BASH_PROVISIONING_PROFILE=server
 exec ~/run.bash
 ```

@@ -3,29 +3,34 @@
 # Plan 00073 — acceptance tests for headless install with a SUDO PASSWORD.
 #
 # PURPOSE
-#   Exercise the headless preflight's SUDO CREDENTIAL gates as a NON-root user,
-#   asserting each bad input aborts non-zero with a message that names the fix.
-#   Plan 00063's acceptance.bash covers the config/secret gates; this covers only
-#   what Plan 00073 adds, plus one regression assertion that 00063's final gate
-#   still fires.
+#   Two groups, deliberately separated by what they need to be meaningful:
+#
+#   A. INERTNESS (no sudo binary needed) — the argv `_sudo` builds. This is the
+#      container-measurable half of Success Criterion 2: the change must be inert on
+#      every pre-existing path.
+#   B. CREDENTIAL GATES (a real sudo binary needed) — each bad input must abort
+#      non-zero with a message naming the fix. Plan 00063's acceptance.bash covers the
+#      config/secret gates; this covers what Plan 00073 adds, plus one regression
+#      assertion that 00063's final gate still fires.
+#
+#   Group B REFUSES rather than reports when sudo is absent — see the block below.
 #
 # WHERE TO RUN
-#   Anywhere — including a CCY container. It reaches no host, runs no Ansible and
-#   changes no state (gather mode). It is the in-container half of Phase 3.
+#   Anywhere. It reaches no host, runs no Ansible and changes no state (gather mode).
+#   In a CCY container only group A can run; group B needs a box with sudo installed.
 #
 # WHAT A GREEN RUN DOES NOT PROVE — read before trusting it.
-#   The drop user (`nobody`) is not in sudoers AT ALL, so every case here fails at
-#   the credential gate. That proves the gates fire and say the right thing. It
-#   proves NOTHING about whether a CORRECT password actually obtains privilege,
-#   because a container has no sudoers entry to authenticate against. Plan 00063
-#   hit exactly this and wrote it down: "END-TO-END execution is HOST-verified on
-#   a real server — in-container this is bash -n + shellcheck + preflight
-#   acceptance only." Task 3.3 is the host run; this is not a substitute for it.
+#   The drop user (`nobody`) is not in sudoers AT ALL, so every group-B case fails at the
+#   credential gate. That proves the gates fire and say the right thing. It proves NOTHING
+#   about whether a CORRECT password actually obtains privilege, because a container has
+#   no sudoers entry to authenticate against. Plan 00063 hit exactly this and wrote it
+#   down: "END-TO-END execution is HOST-verified on a real server — in-container this is
+#   bash -n + shellcheck + preflight acceptance only." Task 3.3 is the host run; this is
+#   not a substitute for it.
 #
 # IDEMPOTENCE
-#   Read-only and re-runnable. Every case aborts in preflight BEFORE any
-#   provisioning action (no dnf, no clone, no ansible). Fixtures are mktemp files
-#   removed on exit.
+#   Read-only and re-runnable. Every case aborts in preflight BEFORE any provisioning
+#   action (no dnf, no clone, no ansible). Fixtures are mktemp files removed on exit.
 #
 # USAGE
 #   ./CLAUDE/Plan/00073-headless-sudo-password-file/acceptance.bash [-h|--help]
@@ -48,10 +53,10 @@ plan_init "${BASH_SOURCE[0]}"
 
 PLAN_USAGE="Usage: acceptance.bash [-h|--help] [-y|--yes] [--check]
 
-Plan 00073 acceptance: the headless preflight's sudo-credential gates.
-Read-only; reaches no host; safe in a container. A green run proves the GATES
-fire — NOT that a correct password obtains privilege (that is Task 3.3, on a
-real host)."
+Plan 00073 acceptance: _sudo argv inertness, and the headless sudo-credential gates.
+Read-only; reaches no host; safe in a container. The gate legs REFUSE (non-zero) where
+sudo is not installed. A green run proves the GATES fire — NOT that a correct password
+obtains privilege (that is Task 3.3, on a real host)."
 
 plan_mode gather
 plan_parse_common_flags "$@"
@@ -85,92 +90,111 @@ fi
 # shellcheck source=_acceptance-cases.inc.bash
 source "${scriptDir}/_acceptance-cases.inc.bash"
 
-if ! _probe="$(drop_run true 2>&1)"; then
-  printf '[FATAL] cannot drop to %s here (%s) — this harness needs an unprivileged\n' \
-    "${DROP_USER}" "${_probe:-unknown reason}" >&2
-  printf '        identity to exercise the gates. Run it where runuser/sudo is available.\n' >&2
-  exit 1
-fi
+# Fixtures. `readable` is 0644 so $DROP_USER can read it; `unreadable` is 0600 owned by
+# the invoking user, so it EXISTS but $DROP_USER cannot open it — the case that must not
+# silently degrade to "no password supplied". SUDO_STUB_DIR holds the fake `sudo` the
+# inertness legs measure against, plus the negative-control probe.
+readable_secret="$(mktemp)"; printf 'sekret\n' > "${readable_secret}"; chmod 0644 "${readable_secret}"
+unreadable_secret="$(mktemp)"; printf 'sekret\n' > "${unreadable_secret}"; chmod 0600 "${unreadable_secret}"
+SUDO_STUB_DIR="$(mktemp -d)"
+trap 'rm -rf "${readable_secret}" "${unreadable_secret}" "${SUDO_STUB_DIR}"' EXIT
+make_sudo_stub "${SUDO_STUB_DIR}"
 
-# ── UNKNOWN IS A REFUSAL, not a pass ────────────────────────────────────────────────
-# `sudo` must actually EXIST for these gates to mean anything. Measured on the first RED
-# run of this harness: in a CCY container sudo is not installed, so run.bash's probe dies
-# with "sudo: command not found" and EVERY case produces byte-identical output — including
-# the regression case, which "passed" because the string NOPASSWD appears in a message
-# emitted for entirely the wrong reason.
+# The negative control's probe, in a quoted heredoc so nothing expands here — it must
+# reach bash verbatim to exercise the idiom under test.
+colondash_probe="${SUDO_STUB_DIR}/colondash-probe.bash"
+cat > "${colondash_probe}" <<'COLONDASH_PROBE'
+set -u
+e=()
+sudo "${e[@]:-}" dnf
+COLONDASH_PROBE
+
+# ── GROUP A: _sudo inertness (D2) — no sudo binary required ─────────────────────────
+
+# The load-bearing one. EMPTY HL_SUDO_OPTS must produce argv identical to bare `sudo`,
+# because that is every interactive run and every NOPASSWD headless run.
+plan_gather_leg "empty HL_SUDO_OPTS -> byte-identical sudo argv" \
+  expect_sudo_argv '[dnf][-y][install][git]' '' dnf -y install git
+
+# And the new path adds exactly one option, in front.
+plan_gather_leg "password HL_SUDO_OPTS -> sudo -A + the same command" \
+  expect_sudo_argv '[-A][dnf][-y][install][git]' '-A' dnf -y install git
+
+# Negative control: prove the idiom _sudo deliberately avoids really would break.
+plan_gather_leg "the empty-array ':-' fallback would inject an empty argument" \
+  expect_colondash_would_break "${colondash_probe}"
+
+# ── GROUP B: the credential gates — a REAL sudo binary required ─────────────────────
 #
-# That is a control that FIRES without DISCRIMINATING (bash-standards §9), and it is the
-# most dangerous possible state for a test harness: it would have reported green after the
-# implementation landed while proving nothing about it. Refusing here is the same decision
-# Plan 00072 made for the rootless-engine guard — an environment whose answer cannot be
-# obtained is not an environment that has given a safe answer.
+# UNKNOWN IS A REFUSAL, not a pass. Measured on the first RED run of this harness: in a
+# CCY container sudo is not installed, so run.bash's probe dies with "sudo: command not
+# found" and EVERY case produces byte-identical output — including the regression case,
+# which "passed" because the string NOPASSWD appears in a message emitted for entirely the
+# wrong reason. That is a control that FIRES without DISCRIMINATING (bash-standards §9),
+# in the very thing whose job is discrimination: it would have reported green after the
+# implementation landed while proving nothing about it.
+#
 # `bash -c` and not a bare `command -v`: `command` is a SHELL BUILTIN, so
 # `env -i … command -v sudo` fails with "env: 'command': No such file or directory"
 # REGARDLESS of whether sudo exists — a probe that refuses everywhere, which is the same
-# fires-without-discriminating defect the paragraph above describes. Caught by reading the
-# refusal's stated reason rather than its exit code.
-if ! _sudo_present="$(drop_run env -i PATH="/usr/bin:/bin:/usr/sbin:/sbin" bash -c 'command -v sudo' 2>&1)"; then
-  printf '[FATAL] sudo is not available to %s here (%s).\n' "${DROP_USER}" "${_sudo_present:-not found}" >&2
-  printf '        Every case would fail with "sudo: command not found" and produce IDENTICAL\n' >&2
-  printf '        output, so this harness could not tell its gates apart — a green result\n' >&2
-  printf '        would be meaningless. Run it where sudo is installed (Plan 00073 Task 3.3\n' >&2
-  printf '        covers the real host); refusing rather than reporting.\n' >&2
-  exit 1
+# fires-without-discriminating defect. Caught by reading the refusal's stated reason
+# rather than its exit code.
+_gate_block=""
+if ! _probe="$(drop_run true 2>&1)"; then
+  _gate_block="cannot drop to ${DROP_USER} here (${_probe:-unknown reason}) — the gates need an unprivileged identity"
+elif ! _sudo_present="$(drop_run env -i PATH="/usr/bin:/bin:/usr/sbin:/sbin" bash -c 'command -v sudo' 2>&1)"; then
+  _gate_block="sudo is not available to ${DROP_USER} here (${_sudo_present:-not found}) — every case would fail with \"sudo: command not found\" and produce IDENTICAL output, so the gates could not be told apart"
 fi
 
-# Fixtures. `readable` is 0644 so $DROP_USER can read it; `unreadable` is 0600 owned by
-# the invoking user, so it EXISTS but $DROP_USER cannot open it — the case that must not
-# silently degrade to "no password supplied".
-readable_secret="$(mktemp)"; printf 'sekret\n' > "${readable_secret}"; chmod 0644 "${readable_secret}"
-unreadable_secret="$(mktemp)"; printf 'sekret\n' > "${unreadable_secret}"; chmod 0600 "${unreadable_secret}"
-trap 'rm -f "${readable_secret}" "${unreadable_secret}"' EXIT
+if [[ -n "${_gate_block}" ]]; then
+  plan_gather_leg "credential gates NOT EVALUATED" \
+    refuse "${_gate_block}. Run on a host with sudo installed (Plan 00073 Task 3.3); refusing rather than reporting."
+else
+  # The config prefix every sudo-gate case needs, so preflight REACHES the sudo gate
+  # instead of aborting earlier on a missing email/account/token (Plan 00063's gates).
+  VALID_CONFIG=(
+    RUN_BASH_USER_EMAIL=name@example.com
+    RUN_BASH_GITHUB_ACCOUNTS=alice
+    RUN_BASH_GITHUB_TOKEN_FILE="${readable_secret}"
+    RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE="${readable_secret}"
+    RUN_BASH_VAULT_PASSWORD_FILE="${readable_secret}"
+  )
 
-# The config prefix every sudo-gate case needs, so preflight REACHES the sudo gate instead
-# of aborting earlier on a missing email/account/token (Plan 00063's gates).
-VALID_CONFIG=(
-  RUN_BASH_USER_EMAIL=name@example.com
-  RUN_BASH_GITHUB_ACCOUNTS=alice
-  RUN_BASH_GITHUB_TOKEN_FILE="${readable_secret}"
-  RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE="${readable_secret}"
-  RUN_BASH_VAULT_PASSWORD_FILE="${readable_secret}"
-)
+  # REGRESSION (Plan 00063 gate 10). Valid config with NEITHER credential must still fail
+  # at the sudo gate. This plan changes the message (it now names both remedies) but it
+  # must still say NOPASSWD, because that remains one of the two ways to satisfy the gate.
+  plan_gather_leg "regression: no credential still hits the sudo gate" \
+    expect_fail "NOPASSWD" "${VALID_CONFIG[@]}"
 
-# ── REGRESSION (Plan 00063 gate 10) ──────────────────────────────────────────────────
-# Valid config with NEITHER credential must still fail at the sudo gate. This plan
-# changes the message (it now names both remedies) but it must still say NOPASSWD,
-# because that remains one of the two ways to satisfy the gate.
-plan_gather_leg "regression: no credential still hits the sudo gate" \
-  expect_fail "NOPASSWD" "${VALID_CONFIG[@]}"
+  # 1. Neither credential ⇒ the message must name the NEW remedy too. A user with password
+  #    sudo reading the old message is told to do the one thing this plan exists to avoid.
+  plan_gather_leg "neither credential names the password-file remedy" \
+    expect_fail "RUN_BASH_SUDO_PASSWORD_FILE" "${VALID_CONFIG[@]}"
 
-# ── NEW: Plan 00073 gates ────────────────────────────────────────────────────────────
+  # 2. *_FILE set but unreadable ⇒ hard fail. Must NOT fall back to "no password supplied"
+  #    and then report the NOPASSWD message, which sends the user to fix the wrong thing.
+  plan_gather_leg "unreadable sudo password file" \
+    expect_fail "is not a readable file" "${VALID_CONFIG[@]}" \
+    RUN_BASH_SUDO_PASSWORD_FILE="${unreadable_secret}"
 
-# 1. Neither credential ⇒ the message must name the NEW remedy too. A user with password
-#    sudo reading the old message is told to do the one thing this plan exists to avoid.
-plan_gather_leg "neither credential names the password-file remedy" \
-  expect_fail "RUN_BASH_SUDO_PASSWORD_FILE" "${VALID_CONFIG[@]}"
+  # 3. Both literal and file forms set ⇒ hard fail, matching the guardrail the other three
+  #    secrets already carry (Plan 00063 V3.10).
+  plan_gather_leg "both sudo password forms set" \
+    expect_fail "Both RUN_BASH_SUDO_PASSWORD" "${VALID_CONFIG[@]}" \
+    RUN_BASH_SUDO_PASSWORD=lit RUN_BASH_SUDO_PASSWORD_FILE="${readable_secret}"
 
-# 2. *_FILE set but unreadable ⇒ hard fail. Must NOT fall back to "no password supplied"
-#    and then report the NOPASSWD message, which sends the user to fix the wrong thing.
-plan_gather_leg "unreadable sudo password file" \
-  expect_fail "is not a readable file" "${VALID_CONFIG[@]}" \
-  RUN_BASH_SUDO_PASSWORD_FILE="${unreadable_secret}"
+  # 4. A readable password file whose password does not authenticate ⇒ fail naming SUDO'S
+  #    OWN reason, not a generic message. For $DROP_USER the real reason is "not in the
+  #    sudoers file" rather than a bad password — which is exactly why the message must
+  #    report what sudo said instead of guessing. Asserting the bare word "sudo" would pass
+  #    on almost any output, so assert the marker the implementation must emit.
+  plan_gather_leg "wrong sudo password reports sudo's own reason" \
+    expect_fail "sudo said:" "${VALID_CONFIG[@]}" \
+    RUN_BASH_SUDO_PASSWORD_FILE="${readable_secret}"
+fi
 
-# 3. Both literal and file forms set ⇒ hard fail, matching the guardrail the other three
-#    secrets already carry (Plan 00063 V3.10).
-plan_gather_leg "both sudo password forms set" \
-  expect_fail "Both RUN_BASH_SUDO_PASSWORD" "${VALID_CONFIG[@]}" \
-  RUN_BASH_SUDO_PASSWORD=lit RUN_BASH_SUDO_PASSWORD_FILE="${readable_secret}"
-
-# 4. A readable password file whose password does not authenticate ⇒ fail naming SUDO'S
-#    OWN reason, not a generic message. For $DROP_USER the real reason is "not in the
-#    sudoers file" rather than a bad password — which is exactly why the message must
-#    report what sudo said instead of guessing. Asserting the bare word "sudo" would pass
-#    on almost any output, so assert the marker the implementation must emit.
-plan_gather_leg "wrong sudo password reports sudo's own reason" \
-  expect_fail "sudo said:" "${VALID_CONFIG[@]}" \
-  RUN_BASH_SUDO_PASSWORD_FILE="${readable_secret}"
-
-printf '\nREMINDER: a green run proves the GATES fire. It does NOT prove a correct password\n'
-printf 'obtains privilege — that needs the host run (Plan 00073 Task 3.3).\n'
+printf '\nREMINDER: green group A proves the change is inert on the pre-existing path.\n'
+printf 'Green group B proves the GATES fire. NEITHER proves a correct password obtains\n'
+printf 'privilege — that needs the host run (Plan 00073 Task 3.3).\n'
 
 plan_finish

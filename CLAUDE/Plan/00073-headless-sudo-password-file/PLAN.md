@@ -195,32 +195,80 @@ This plan does not fix that, and must not pretend to. Two consequences:
 
 ### Phase 2: implementation
 
-- [ ] ⬜ **Task 2.1**: `RUN_BASH_SUDO_PASSWORD_FILE` resolution inside the existing `*_FILE` secret
-  machinery — the same file-precedence, both-set, unreadable and literal-on-cloud guardrails the
-  other three secrets already get (V3.10).
-- [ ] ⬜ **Task 2.2**: `hl_sudo_askpass_start` + the preflight branch (D1), modelled directly on
-  `hl_ssh_agent_start`, quoted heredoc included.
-- [ ] ⬜ **Task 2.3**: The `_sudo` wrapper (D2) and the 12 call sites in `:1485`–`:1620`.
-- [ ] ⬜ **Task 2.4**: The three-branch Ansible invocations (D3) at `:1203` and `:2213`.
-- [ ] ⬜ **Task 2.5**: `RUN_BASH_VERSION` bump, `--help` text, and `docs/headless-server-install.md`
-  — the prerequisites table gains the alternative and the troubleshooting row at `:249` stops
-  being a dead end.
+- [x] ✅ **Task 2.1**: `RUN_BASH_SUDO_PASSWORD_FILE` resolved through the existing
+  `hl_resolve_secret`, so it inherits the file-precedence, both-set, unreadable and
+  literal-on-cloud guardrails (V3.10) rather than re-implementing them. Resolved *before* the
+  `unset` of literal secrets, and added to that `unset` list.
+- [x] ✅ **Task 2.2**: `hl_sudo_askpass_start` + `hl_sudo_probe_password` + the three-way preflight
+  branch (D1). One DELIBERATE difference from `hl_ssh_agent_start`, argued in the code: the helper
+  interpolates the file **path** (`printf %q`) instead of reading an exported variable at askpass
+  runtime. The path is not secret either way — what it buys is independence from whether sudo
+  propagates the caller's environment to the askpass child, which is unverifiable in a container
+  and would fail **silently** (unset var → `cat ""` → empty password → a wrong-password error
+  blaming the operator's file). ssh-add's propagation is proven on this path; sudo's is not.
+- [x] ✅ **Task 2.3**: The `_sudo` wrapper (D2) and **14** call sites, not 12 — see the finding
+  below. Preflight also now reports *which* credential it proved (`sudo=NOPASSWD:ALL` /
+  `sudo=password (…)`), because the two paths are otherwise indistinguishable in an unattended log.
+- [x] ✅ **Task 2.4**: The three-branch Ansible invocations (D3). The new branch is checked
+  **first**, so `sudo -k` never runs on the password path and never discards the timestamp the
+  preflight probe just established. Both sites also stopped hiding the probe's stderr behind
+  `2>/dev/null` — it is captured and now appears in the "sudo needs a password" message.
+- [x] ✅ **Task 2.5**: `RUN_BASH_VERSION` → 1.11.0, `--help` + `--help-run-headless`,
+  `docs/headless-server-install.md` (Step 0 split into 0a/0b, two new troubleshooting rows) and
+  `docs/headless-provisioning.md` (preconditions + secret table). The `:249` row is no longer a
+  dead end.
+
+> **The call-site count was 12; the correct count was 14.** The plan's table categorised
+> `sudo reboot now` (×2) separately as *"already skipped when `RUN_BASH_REBOOT=0`"*. That is true,
+> and it is not a reason to leave them — with `RUN_BASH_REBOOT=1` on a password-sudo box they would
+> hang on a prompt, which is precisely the failure this plan exists to remove. A true statement
+> about the default configuration, used to justify a conclusion about all configurations.
 
 ### Phase 3: prove it
 
-- [ ] ⬜ **Task 3.1**: `./scripts/qa-all.bash` green.
-- [ ] ⬜ **Task 3.2**: `acceptance.bash` green, in-container.
-- [ ] ⬜ **Task 3.3**: **HOST verification on a real password-sudo box.** Plan 00063's own note is
-  both the precedent and the warning: *"END-TO-END execution is HOST-verified on a real server
-  (Phase 3) — in-container this is `bash -n` + shellcheck + preflight acceptance only."*
-  In-container green is NOT evidence this works; a container cannot exercise `sudo` against a real
-  sudoers file.
+- [x] ✅ **Task 3.1**: `./scripts/qa-all.bash` green — 488 files, exit 0, and the shellcheck issue
+  count **unchanged at 105**, which is the number that matters (a clean exit with a risen count
+  would mean this change added debt the gate tolerates).
+- [x] ✅ **Task 3.2**: Group A (`_sudo` argv inertness) green in-container, and **proven to
+  discriminate** — see below. Group B (the credential gates) **refuses** here rather than
+  reporting: sudo is not installed in a CCY container, so it moves to Task 3.3 by necessity, not
+  by choice. The harness exits non-zero while that is true, so nothing downstream can read this
+  run as a verification.
+- [ ] ⬜ **Task 3.3**: **HOST verification on a real password-sudo box** — group B green, plus a
+  real end-to-end run. Plan 00063's own note is both the precedent and the warning: *"END-TO-END
+  execution is HOST-verified on a real server (Phase 3) — in-container this is `bash -n` +
+  shellcheck + preflight acceptance only."* A container cannot exercise `sudo` against a real
+  sudoers file, so nothing in Phase 3 so far is evidence that a correct password obtains privilege.
+
+> **Success Criterion 2 is now measured rather than asserted.** "A NOPASSWD run behaves
+> byte-identically" reduces, in a container, to one checkable claim: the argv `_sudo` builds. The
+> leg extracts the **shipped** `_sudo` from `run.bash` (a copy would prove only that the copy
+> works), runs it against a stub `sudo` first on `PATH`, and renders argv as `[a][b][c]` —
+> bracketed, because the defect being excluded is an EMPTY argument, which in any other rendering
+> vanishes into whitespace and makes `sudo "" dnf …` look identical to a correct call.
+>
+> **Discrimination proven by perturbation, not assumed.** Swapping `"${HL_SUDO_OPTS[@]}"` for the
+> `[@]:-` idiom in a fixture fails **only** the empty-opts leg, with exactly the predicted
+> `[][dnf][-y][install][git]`; the `-A` leg still passes (the fallback is harmless on a non-empty
+> array); and deleting `_sudo` entirely trips the extraction guard with its own distinct message
+> instead of passing. That surgical signature — one leg, predicted output — is what §9 asks for,
+> as against the uniform-wrong-exit-code shape that proves nothing. A third leg asserts the
+> `[@]:-` claim directly, so the comment justifying `_sudo`'s shape is tested rather than trusted.
 
 ## Open questions — owner
 
 1. **Should a non-`ALL` sudo scope be accepted?** No, per D5 — but worth confirming, because it is
    the difference between "password sudo is supported" and "password sudo with full scope is
    supported", and only the second is true.
+2. **A pre-existing false negative found while editing, deliberately NOT changed here.**
+   `run.bash`'s legacy-cgroup check is `_sudo grubby --info=ALL 2>/dev/null | grep -q …`. When
+   `grubby` *fails*, stderr is discarded, stdout is empty, the `grep` finds nothing, and the script
+   reports `No legacy cgroup configuration found` — a check that could not look, reporting what a
+   check that looked and found nothing reports. Same family as everything else in this plan.
+   Fixing it means changing control flow on the **interactive** path too (abort where it currently
+   continues), and a box with no bootloader would then fail a previously-working install. That is a
+   separate decision with its own regression risk, so it is raised rather than bundled under this
+   plan's banner. Worth its own plan.
 
 ## Dependencies
 
@@ -233,11 +281,16 @@ This plan does not fix that, and must not pretend to. Two consequences:
 ## Success Criteria
 
 - [ ] ⬜ A headless run completes unattended on a box with password sudo and no `NOPASSWD` entry.
-- [ ] ⬜ A headless run on a NOPASSWD box behaves **byte-identically** to before — proven, not
-  assumed, because the whole change must be inert on the existing path.
-- [ ] ⬜ Missing both credentials fails loud and names both remedies.
-- [ ] ⬜ The password never appears on argv, in a child's environment as a literal, or on
-  persistent storage.
+  (Task 3.3 — a container cannot show this.)
+- [x] ✅ A headless run on a NOPASSWD box behaves **byte-identically** to before — the argv half is
+  proven and proven to discriminate (Task 3.2); the remaining half is that no other code path
+  changed, which the three-branch Ansible edits keep true by checking the new branch first.
+- [ ] ⬜ Missing both credentials fails loud and names both remedies. (Written; the leg asserting
+  it is in group B, so it is unverified until Task 3.3.)
+- [x] ✅ The password never appears on argv, in a child's environment as a literal, or on
+  persistent storage — file-only via `hl_resolve_secret`, `RUN_BASH_SUDO_PASSWORD` added to the
+  literal `unset`, both temp files registered in `HL_SECRET_FILES` for the existing EXIT-trap
+  shred, and only the non-secret *path* is written into the askpass helper.
 - [ ] ⬜ Verified on a real host, not only in a container.
 
 ## Risks & Mitigations
