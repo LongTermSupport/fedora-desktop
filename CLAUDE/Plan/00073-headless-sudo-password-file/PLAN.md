@@ -162,16 +162,36 @@ This plan does not fix that, and must not pretend to. Two consequences:
 
 ### Phase 1: tests first
 
-- [ ] ⬜ **Task 1.1**: Plan-local `acceptance.bash`, modelled on Plan 00063's (129 lines, 10
-  preflight fail-fast gates, runs in-container). New gates: neither credential ⇒ loud fail;
-  password file unreadable ⇒ loud fail; password present but wrong ⇒ loud fail naming sudo's own
-  reason; both credentials present ⇒ NOPASSWD wins and the file goes unused; `HL_SUDO_OPTS` empty
-  on every pre-existing path. Written **before** the implementation — the must-fail cases are the
-  point.
-- [ ] ⬜ **Task 1.2**: Negative control for the harness itself. Perturb ONE thing (a message's
-  text, not its existence) and confirm **only** the expected gate fails and the count matches.
-  Deleting a line proves nothing: a syntax error fails every assertion at once, which looks like
-  success.
+- [x] ✅ **Task 1.1**: Plan-local `acceptance.bash` — written **before** the implementation, and
+  currently **RED by design**: 1 regression leg passes, the 4 new gates fail because the feature
+  does not exist yet. Built on `_planlib.inc.bash` (`plan_mode gather`, `plan_gather_leg` per
+  case, `plan_finish` owning the exit code) per R1/R10, unlike Plan 00063's, which predates the
+  standard and still uses the banned `git rev-parse --show-toplevel`.
+  Leg logic is split into `_acceptance-cases.inc.bash` — ShellCheck cannot see through
+  `plan_gather_leg "<name>" expect_fail …` and reported all 14 lines as SC2317; suppression is
+  banned, so the structural carve-out the standards name ("leg logic split out to avoid SC2317")
+  is the fix. `shellcheck -x` clean; `bash -n` clean **with empty stderr**, which is the check
+  that matters since `bash -n` can print a diagnostic and still exit 0.
+- [x] ✅ **Task 1.2**: Discrimination proven — and it caught two real defects in the harness
+  itself before either could mislead. See the finding below; the harness now **refuses to run**
+  where it cannot discriminate, rather than reporting.
+
+> **The harness could not tell its own cases apart, and one leg passed for the wrong reason.**
+> The first RED run failed all four new gates — correct — but every case emitted *byte-identical*
+> output: `sudo: command not found`. **`sudo` is not installed in a CCY container at all.** So the
+> regression leg's "PASS" was a **false pass**: it asserts the message contains `NOPASSWD`, and it
+> did — in a message produced because the binary was missing, not because a credential was.
+> After implementation this harness would have kept reporting green while proving nothing.
+> That is "a control that FIRES is not necessarily a control that DISCRIMINATES", in a test
+> harness, which is the worst place for it. Fixed by refusing outright when `sudo` is absent —
+> the same *unknown is a refusal* decision Plan 00072 made for the rootless-engine guard.
+>
+> **Then the refusal probe was itself broken in the same class.** `env -i … command -v sudo`
+> fails with `env: 'command': No such file or directory` because `command` is a shell BUILTIN —
+> so it would have refused everywhere, including on boxes where sudo exists. Caught only by
+> reading the refusal's *stated reason* instead of its exit code. Now `bash -c 'command -v sudo'`,
+> and proven to discriminate by positive and negative control: finds `bash` (rc=0, prints
+> `/usr/bin/bash`), does not find `sudo` (rc=1, empty).
 
 ### Phase 2: implementation
 
