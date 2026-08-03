@@ -183,7 +183,9 @@ runs, and the test stubs them.
 - [x] ✅ **Task 3.2**: `./scripts/qa-all.bash` green — 493 files, exit 0, shellcheck issue count
   **unchanged at 105**. Plan 00073's harness re-run too: still 3/3 on group A, group B still
   refusing, so the comment edits did not break its `_sudo` extraction.
-- [ ] ⬜ **Task 3.3**: Host verification — a real `run.bash` on a real box still passes this step.
+- [ ] ⬜ **Task 3.3**: Host verification — **owner confirmed (2026-08-03) this rides along with the
+  lts-infra box install**, so it needs no separate exercise: the next real `run.bash` there is the
+  regression check. A real `run.bash` on a real box still passes this step.
   Unlike Plan 00073's Task 3.3 this is a **regression** check, not the proof of the feature: the
   four states are exhaustive and the stub drives all of them, so the logic is fully proven
   in-container. What a host adds is confidence that real `grubby` output lands in the state the
