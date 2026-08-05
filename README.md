@@ -125,6 +125,7 @@ The main playbook configures these essentials without any interaction:
 - GitHub CLI (gh) for repository management
 - Node.js 20 via NVM
 - Claude Code CLI
+- **[CCY — Claude Code YOLO](docs/ccy.md)**: Claude Code in a rootless container with permission prompts disabled
 - JetBrains Toolbox
 
 **Container Platform**
@@ -139,6 +140,25 @@ The main playbook configures these essentials without any interaction:
 - Enhanced history (20K lines)
 - Docker helper functions
 - Passwordless sudo for your user
+
+### Agentic Development with CCY
+
+`ccy` runs [Claude Code](https://claude.com/claude-code) inside a disposable, rootless
+Podman container with `--dangerously-skip-permissions` — so the agent works without
+stopping to ask permission for every action, while the filesystem it can damage is
+limited to the project you launched it in.
+
+```bash
+cd /path/to/your-project
+ccy
+```
+
+It brings a named OAuth token pool kept separate from desktop Claude Code, per-project
+container images, read-only SSH key mounting for `git push`, container-network
+attachment, and an optional supervisor that compacts long sessions before they stall.
+
+**Read the [CCY guide](docs/ccy.md) before relying on the isolation** — it documents the
+threat model and exactly what the container can and cannot reach.
 
 ### Optional Add-Ons
 
@@ -183,6 +203,7 @@ See [Playbooks Reference](docs/playbooks.md) for the complete list with usage ex
 
 Comprehensive guides are available in the [docs/](docs/) directory:
 
+- **[CCY — Claude Code YOLO](docs/ccy.md)** - Containerised Claude Code: security model, tokens, per-project images, supervisor
 - **[Installation Guide](docs/installation.md)** - Step-by-step setup instructions
 - **[Headless Server Install](docs/headless-server-install.md)** - Unattended IaC runbook for Fedora Server/Cloud (download → secrets → vars file → run)
 - **[Headless / Unattended Provisioning](docs/headless-provisioning.md)** - The full `RUN_BASH_*` contract, trigger rules, and security model
