@@ -1038,10 +1038,37 @@ copy_to_mount() {
 
     local rc_addr="localhost:${RCLONE_RC_PORT:-5572}"
 
-    # Verify RC endpoint is reachable before starting the copy
-    if ! rclone rc --url="http://${rc_addr}" core/pid > /dev/null 2>&1; then
+    # RC credentials, when the mount has them (Plan 00067). vfs/stats and
+    # core/stats answer unauthenticated, so the copy works with or without this;
+    # core/stats-reset is gated and only resets the counters once authenticated.
+    # Passed to every call so this keeps working if rclone ever gates the rest.
+    # Read rather than sourced, so a config file cannot execute code. Client
+    # flags are --user/--pass; the unit takes RCLONE_RC_USER/RCLONE_RC_PASS.
+    local rc_auth_file="$HOME/.config/rclone/rc-auth.env"
+    local -a rc_auth=()
+    if [ -r "$rc_auth_file" ]; then
+        local rc_user rc_pass
+        rc_user=$(awk -F= '$1 == "RCLONE_RC_USER" { print $2 }' "$rc_auth_file")
+        rc_pass=$(awk -F= '$1 == "RCLONE_RC_PASS" { print $2 }' "$rc_auth_file")
+        if [ -n "$rc_user" ] && [ -n "$rc_pass" ]; then
+            rc_auth=(--user "$rc_user" --pass "$rc_pass")
+        fi
+    fi
+
+    # Verify the RC endpoint is reachable before starting the copy.
+    #
+    # Probe core/stats — the very endpoint the progress loop below polls, and
+    # one rclone answers WITHOUT authentication. Do NOT probe core/pid here:
+    # rclone gates core/pid behind --rc-no-auth, so a mount that serves this
+    # function perfectly well (vfs/stats and core/stats are both auth-free)
+    # would still fail the preflight with HTTP 403 "authentication must be set
+    # up on the rc server". That mismatch — probing an auth-gated endpoint the
+    # function never uses — made --copy refuse to run at all.
+    if ! rclone rc "${rc_auth[@]}" --url="http://${rc_addr}" core/stats > /dev/null 2>&1; then
         echo "ERROR: rclone remote control not responding at ${rc_addr}" >&2
-        echo "  Mount may not have --rc enabled — re-run play-rclone.yml" >&2
+        echo "  Confirm the mount is running and was started with --rc:" >&2
+        echo "    systemctl --user status rclone-<remote> --no-pager -l" >&2
+        echo "  If --rc is missing from its ExecStart, re-run play-rclone.yml" >&2
         return 1
     fi
 
@@ -1056,7 +1083,12 @@ copy_to_mount() {
 
     # Reset rclone counters so the displayed bytes/transfers/ETA reflect
     # only this copy, not whatever the mount accumulated since boot.
-    rclone rc --url="http://${rc_addr}" core/stats-reset > /dev/null 2>&1 || true
+    #
+    # Best-effort by design: unlike core/stats, core/stats-reset is auth-gated,
+    # so on a mount without --rc-no-auth (or RC credentials) it returns 403 and
+    # the counters keep their prior totals. The copy and its progress display
+    # still work — the byte/ETA figures just include earlier mount activity.
+    rclone rc "${rc_auth[@]}" --url="http://${rc_addr}" core/stats-reset > /dev/null 2>&1 || true
 
     # Copy files through mount — lands in VFS cache and triggers async upload
     if ! cp -r "$UPLOAD_DIR"/. "$dest_path"/; then
@@ -1083,11 +1115,11 @@ copy_to_mount() {
 
     while true; do
         local vfs_json core_json
-        vfs_json=$(rclone rc --url="http://${rc_addr}" vfs/stats 2>/dev/null) || {
+        vfs_json=$(rclone rc "${rc_auth[@]}" --url="http://${rc_addr}" vfs/stats 2>/dev/null) || {
             echo "ERROR: Lost connection to rclone RC at ${rc_addr}" >&2
             return 1
         }
-        core_json=$(rclone rc --url="http://${rc_addr}" core/stats 2>/dev/null) || {
+        core_json=$(rclone rc "${rc_auth[@]}" --url="http://${rc_addr}" core/stats 2>/dev/null) || {
             echo "ERROR: Lost connection to rclone RC at ${rc_addr}" >&2
             return 1
         }

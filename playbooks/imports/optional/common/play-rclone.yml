@@ -247,12 +247,52 @@
       when: rclone_mounts is defined
       tags: rclone, mounts
 
-    # --rc-no-auth is safe here because --rc-addr binds to localhost only:
-    # the RC API is reachable only from this host. Rclone (since v1.62)
-    # requires auth on the RC server by default and rejects every call
-    # (including core/pid and core/stats) with "authentication must be set
-    # up …" — which breaks ftp-camera --copy, rclone-cache-warm, and
-    # rclone-tail, all of which expect an unauthenticated loopback RC.
+    # RC authentication (Plan 00067). This play previously passed --rc-no-auth,
+    # justified as safe because --rc-addr binds to localhost only. That premise
+    # is wrong: loopback is NOT a user boundary — every local uid can reach
+    # 127.0.0.1, and rclone documents RC access as equivalent to shell access as
+    # the rclone user (core/command runs OS commands, config/dump reads back the
+    # remote credentials). On a box with a service account such as the camera FTP
+    # user, plus a main user holding passwordless sudo, no-auth turns a service
+    # compromise into root and cloud credentials.
+    #
+    # It also bought very little: vfs/stats and core/stats — which is all
+    # ftp-camera --copy, rclone-tail and rclone-cache-status need — are served
+    # WITHOUT auth. Only vfs/refresh (rclone-cache-warm) and core/stats-reset are
+    # gated, so we authenticate properly instead of disabling auth wholesale.
+    #
+    # The secret is generated on the host, never committed (public repo), and is
+    # passed via EnvironmentFile rather than ExecStart so it stays out of the
+    # unit file and out of ps output. Rclone maps flags to RCLONE_<FLAG> env
+    # vars, so RCLONE_RC_USER/RCLONE_RC_PASS drive the server side --rc-user and
+    # --rc-pass. Clients use the differently-named --user and --pass flags.
+    - name: Generate the rclone RC password store (once, then reused)
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.config/rclone/.rc-pass"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0600'
+        state: touch
+        modification_time: preserve
+        access_time: preserve
+      tags: rclone, rc-auth
+
+    # The password lookup writes the value on first use and reads it back on
+    # every later run, so the credential is stable across playbook runs.
+    # ascii_letters + digits only: an EnvironmentFile value is parsed by systemd,
+    # so punctuation is avoided rather than escaped.
+    - name: Deploy the rclone RC credential file
+      ansible.builtin.copy:
+        dest: "/home/{{ user_login }}/.config/rclone/rc-auth.env"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0600'
+        content: |
+          RCLONE_RC_USER=rclone-rc
+          RCLONE_RC_PASS={{ lookup('ansible.builtin.password', '/home/' + user_login + '/.config/rclone/.rc-pass', length=32, chars=['ascii_letters', 'digits']) }}
+      no_log: true
+      tags: rclone, rc-auth
+
     - name: Create systemd user service for each rclone mount
       ansible.builtin.copy:
         dest: "/home/{{ user_login }}/.config/systemd/user/rclone-{{ item.name }}.service"
@@ -275,9 +315,12 @@
           # the restart loop eventually succeeds out-of-band. 5 minutes
           # is generous headroom for any reasonably sized cache.
           TimeoutStartSec=300
+          # RCLONE_RC_USER / RCLONE_RC_PASS — keeps the RC credential out of
+          # ExecStart, so it appears in neither this unit file nor ps output.
+          EnvironmentFile=%h/.config/rclone/rc-auth.env
           {% if item.memory_high is defined %}MemoryHigh={{ item.memory_high }}
           {% endif %}{% if item.memory_max is defined %}MemoryMax={{ item.memory_max }}
-          {% endif %}ExecStart=/usr/bin/rclone mount --config=%h/.config/rclone/rclone.conf --vfs-cache-mode {{ item.cache_mode | default('full') }} --vfs-cache-max-size {{ item.cache_max_size | default('100G') }} --vfs-cache-max-age {{ item.cache_max_age | default('8760h') }} --vfs-write-back {{ item.vfs_write_back | default('5s') }} --log-level {{ item.log_level | default('INFO') }}{{ ' --read-only' if item.read_only | default(false) else '' }} --rc --rc-addr=localhost:{{ item.rc_port | default('5572') }} --rc-no-auth --allow-other {{ item.remote }} {{ item.mountpoint }}
+          {% endif %}ExecStart=/usr/bin/rclone mount --config=%h/.config/rclone/rclone.conf --vfs-cache-mode {{ item.cache_mode | default('full') }} --vfs-cache-max-size {{ item.cache_max_size | default('100G') }} --vfs-cache-max-age {{ item.cache_max_age | default('8760h') }} --vfs-write-back {{ item.vfs_write_back | default('5s') }} --log-level {{ item.log_level | default('INFO') }}{{ ' --read-only' if item.read_only | default(false) else '' }} --rc --rc-addr=localhost:{{ item.rc_port | default('5572') }} --allow-other {{ item.remote }} {{ item.mountpoint }}
           ExecStop=/bin/fusermount3 -u {{ item.mountpoint }}
           Restart=on-failure
           RestartSec=10
