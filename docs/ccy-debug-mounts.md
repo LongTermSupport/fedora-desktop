@@ -63,3 +63,8 @@ flag through it:
 ./scripts/desktop-symlinks --token mytoken
 ./scripts/desktop-symlinks --debug
 ```
+
+## See Also
+
+- [CCY guide](ccy.md) — the full CCY system: security model, tokens, per-project
+  configuration, the supervisor, and the complete flag reference

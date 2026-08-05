@@ -372,6 +372,10 @@ ls ~/   # Your actual home directory
 
 ## Custom Dockerfiles
 
+> This section covers project-specific images for CCY. For CCY itself — installation,
+> the security model, tokens, networking, the supervisor, and the full flag reference —
+> see the [CCY guide](ccy.md).
+
 `ccy` supports project-specific container customization through custom Dockerfiles. This allows you to extend the base container with additional tools, languages, and dependencies needed for your specific project.
 
 ### When to Use Custom Dockerfiles

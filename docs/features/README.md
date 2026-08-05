@@ -42,16 +42,9 @@ that recent Claude Code updates replaced with opaque summaries.
 
 Feature documentation that lives outside this directory:
 
+- **[CCY (Claude Code YOLO)](../ccy.md)**: Containerised Claude Code with `--dangerously-skip-permissions` — security model, token pool, per-project images, supervisor
 - **[GitHub Multi-Account](../github-multi-account.md)**: Complete multi-account workflow guide — SSH keys, OAuth tokens, per-account git configuration
 - **[Nord VPN Manager](../nordvpn-installation.md)**: Interactive OpenVPN connection chooser via NetworkManager
-
----
-
-## Coming Soon
-
-Documentation for these features is planned:
-
-- **CCY (Claude Code YOLO)**: Containerised Claude Code with token management (interim notes in [Containerization Guide](../containerization.md#custom-dockerfiles-for-ccy))
 
 ---
 

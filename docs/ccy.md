@@ -1,0 +1,628 @@
+# CCY — Claude Code YOLO
+
+`ccy` runs [Claude Code](https://claude.com/claude-code) inside a disposable, rootless
+Podman container with `--dangerously-skip-permissions` enabled — so the agent works
+without stopping to ask permission for every file write and every command, while the
+filesystem it can damage is limited to the project you launched it in.
+
+That is the whole idea in one sentence: **YOLO mode is only reasonable if it is
+contained, so contain it.**
+
+- **On the host**, Claude Code asks before each action, because a mistake reaches your
+  whole home directory.
+- **In CCY**, it does not need to ask, because a filesystem mistake reaches
+  `/workspace` — the one project directory you launched it from — and the container is
+  thrown away afterwards.
+
+Containment is not total, and the limits matter: the container also holds your SSH key,
+your GitHub token, and unrestricted network access. Read
+[The Security Model](#the-security-model) before you rely on it.
+
+CCY also carries the surrounding machinery that makes this practical day to day: a named
+OAuth token pool separate from desktop Claude Code, per-project container images, SSH
+keys mounted read-only for `git push`, container-network attachment for talking to your
+app's services, and an optional in-container supervisor that compacts long sessions
+before they stall.
+
+This guide covers CCY itself. Adjacent topics have their own homes — custom Dockerfiles,
+extra debug mounts, the engine choice, and the rules for agents working inside a
+container — all linked from [See Also](#see-also) at the end.
+
+---
+
+## Quick Start
+
+> Assumes CCY is already installed. It ships with `playbook-main.yml`; to install it on
+> its own see [Installation](#installation) below.
+
+```bash
+cd /path/to/your-project
+ccy
+```
+
+The first launch in a project will ask you to pick an SSH key and to create a token (see
+[Tokens](#tokens)). After that, `ccy` starts in a couple of seconds.
+
+```bash
+ccy                                  # start a session in the current directory
+ccy "implement the search endpoint"  # start with an opening instruction
+ccy --resume                         # resume the previous conversation
+ccy --top                            # manage/stop running CCY containers
+ccy --help                           # full flag list (plus claude's own --help)
+```
+
+`ccy` is a shell alias to `/var/local/claude-yolo/claude-yolo`, defined in a bashrc
+include deployed by Ansible. Anything `ccy` does not recognise is validated against
+Claude Code's own `--help` and forwarded — so `--resume`, `--model` and friends are
+Claude Code's flags, not CCY's, and pass straight through. Use `--` to force-forward a
+flag without validation.
+
+---
+
+## Installation
+
+CCY is a **core** part of this repo — `playbooks/playbook-main.yml` installs it. To
+install or update it on its own:
+
+```bash
+ansible-playbook playbooks/imports/play-claude-yolo.yml
+```
+
+**Prerequisites** (the playbook asserts these and fails with instructions if missing):
+
+| Requirement                 | Notes                                                                                   |
+| --------------------------- | --------------------------------------------------------------------------------------- |
+| A container engine (Podman) | `ansible-playbook playbooks/imports/play-podman.yml`                                    |
+| `podman-compose`            | Same playbook — needed for compose-network integration                                  |
+| The engine is reachable     | Rootless Podman needs no daemon; verify with `podman ps` (an empty table, not an error) |
+
+The default engine comes from `container_engine` in `vars/container-defaults.yml`
+(`podman`). Override per shell with `export CCY_CONTAINER_ENGINE=docker`, or per launch
+with `ccy --engine docker`. Podman is strongly preferred — see
+[Container Engines](../CLAUDE/ContainerEngines.md).
+
+**What the playbook deploys**
+
+| Path                                   | Purpose                                            |
+| -------------------------------------- | -------------------------------------------------- |
+| `/var/local/claude-yolo/claude-yolo`   | The launcher (host-side)                           |
+| `/var/local/claude-yolo/lib/*.bash`    | Shared libraries (SSH, tokens, networking, health) |
+| `/opt/claude-yolo/Dockerfile`          | Base image build context                           |
+| `/opt/claude-yolo/entrypoint.sh`       | In-container entrypoint                            |
+| `/opt/claude-yolo/docs/`               | Guides readable *from inside* the container        |
+| `/opt/claude-yolo/custom-dockerfiles/` | Project Dockerfile templates                       |
+| `~/.claude-tokens/ccy/tokens/`         | The named token pool                               |
+
+The playbook then builds the base image, tagged `claude-yolo:latest`.
+
+---
+
+## What Happens When You Run `ccy`
+
+Understanding this sequence makes almost every question about CCY answer itself. This is
+the real order the launcher executes in.
+
+1. **Host checks.** The container engine is verified, the project's `.claude/ccy/`
+   directory is checked for accidentally-committed state (see
+   [State](#state-and-the-claudeccy-directory)), and
+   `.claude/ccy/allowed-hostnames` — if present — is matched against the current
+   hostname.
+2. **SSH selection.** You pick a key (or pass `--ssh-key` / `--no-ssh`). It is mounted
+   **read-only**, and a matching `gh` token is resolved.
+3. **Token selection.** A long-lived OAuth token is chosen from the pool and its expiry
+   checked; an expired one forces a renewal prompt. It is passed in as an environment
+   variable.
+4. **Safety guard.** The launcher refuses to continue if you are running as root.
+5. **Version check.** If the base image's version label is older than the launcher's
+   `REQUIRED_CONTAINER_VERSION`, a rebuild is forced. Claude Code inside the image is
+   also updated if it is behind — see [Keeping CCY Current](#keeping-ccy-current).
+6. **Image resolution.** If `.claude/ccy/Dockerfile` exists, the image becomes
+   `claude-yolo:<project-name>` and is rebuilt when the Dockerfile's hash changes.
+   Otherwise the base `claude-yolo:latest` is used.
+7. **Network.** Any project compose network is detected and offered, or attached with
+   `--network`.
+8. **Launch.** The container starts with your project bind-mounted at `/workspace`.
+9. **Entrypoint.** Inside, `/root/.claude` is symlinked to `/workspace/.claude/ccy/`,
+   `.claude/ccy/ccy.env` is sourced if present, and `claude` is exec'd — optionally
+   wrapped by a [supervisor](#the-supervisor).
+
+`<project-name>` is your project directory's name, lowercased with unusual characters
+replaced by `_`. If the parent directory is not a generic container (`projects`, `repos`,
+`work`, `src`, `code`, `dev`, `home`), it is prefixed too — so `~/Projects/my-app`
+becomes `my-app`, but `~/clients/acme/my-app` becomes `acme-my-app`.
+
+The container itself is ephemeral. Everything that must survive lives in
+`/workspace/.claude/`, which is your project directory on the host.
+
+---
+
+## The Security Model
+
+CCY disables Claude Code's permission prompts. That is a deliberate trade: instead of
+gating each action, the isolation bounds where the damage from any action can land.
+
+**Threat model.** This design contains an agent's own mistakes and over-broad actions
+inside a disposable filesystem boundary. It is **not** a sandbox against a deliberately
+adversarial process, a container or kernel escape, or a prompt-injection or
+supply-chain attack that exfiltrates the credentials it is given over the network. Those
+risks are bounded and named below, not eliminated.
+
+### What the container CAN reach
+
+| Exposed                                 | How                                                                                        |
+| --------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Your project directory                  | Bind-mounted read/write at `/workspace`                                                    |
+| One or more SSH private keys            | Mounted **read-only** at `/root/.ssh/key_N` (individual keys, not all of `~/.ssh`)         |
+| A Claude OAuth token                    | Environment variable — no credential files are mounted                                     |
+| A GitHub token for `gh`                 | Environment variable, from your existing `gh` login                                        |
+| Your git identity                       | A read-only copy of `~/.gitconfig`, to set `user.name` / `user.email`                      |
+| Your Wayland or X11 display socket      | Mounted read-only and auto-detected, so the agent can open browser windows on your desktop |
+| The host GPU render device              | `--device /dev/dri` — always attached, for accelerated browser rendering                   |
+| The network                             | Normal outbound; optionally a named container network                                      |
+| Anything you add via `CCY_EXTRA_MOUNTS` | Explicit opt-in — see [debug mounts](ccy-debug-mounts.md)                                  |
+
+### What it CANNOT reach
+
+| Not exposed                 | Why                                                                                                                             |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Your home directory         | Not mounted. Other projects, `~/Documents`, `~/.ssh` as a whole, browser profiles — invisible                                   |
+| Desktop Claude Code's state | `~/.claude/` on the host is never read or modified; CCY's tokens live under `~/.claude-tokens/ccy/`                             |
+| Root on the host            | Podman is rootless — the container's `root` is your unprivileged user in a user namespace, so files it creates are owned by you |
+| The container/host boundary | No `--privileged`, no added capabilities, and no Docker/Podman socket is mounted                                                |
+| The host system             | No host `systemctl`, no host package manager                                                                                    |
+
+### What this means in practice
+
+The realistic worst case is **damage to this project's working tree and git history**,
+plus **anything your mounted SSH key and `gh` token can reach on GitHub** — which,
+unless you use a project-scoped deploy key or token, is not limited to this one repo.
+
+The residual risks worth naming honestly:
+
+- **Your SSH key is in there** (read-only), and its push access is not limited to this
+  repository. Use a dedicated key if that matters, or `--no-ssh` when you do not need
+  git remote access.
+- **Your Claude and GitHub tokens are live inside the container.** Combined with
+  unrestricted network access, a misled or compromised agent process could exfiltrate
+  them, not merely misuse them locally.
+- **Uncommitted work in the project can be destroyed.** Commit before long unattended
+  runs.
+- **The display socket is not confined the way the filesystem is.** A process with it
+  can open windows and interact with your live desktop session while the container runs.
+
+For projects where CCY should never run, or should only run on one machine, see
+[allowed-hostnames](#3-allowed-hostnames--restricting-where-ccy-can-run).
+
+---
+
+## State and the `.claude/ccy/` Directory
+
+Claude Code's **user-level** state — history, sessions, tasks, its own databases — is
+redirected into `/workspace/.claude/ccy/` via the `/root/.claude` symlink. Because
+`/workspace` is your project, that state is project-local: each project has its own
+history and its own sessions.
+
+**Project-level** Claude Code config — `settings.json`, `agents/`, `hooks/`, `commands/`
+at the top of `.claude/` — lives directly in the bind-mounted project and is unaffected
+by the symlink.
+
+```
+.claude/
+├── ccy/
+│   ├── Dockerfile           # TRACK — project container definition
+│   ├── ccy.env              # TRACK — per-project CCY config (see below)
+│   ├── claude-supervise.py  # TRACK — vendored supervisor, if deployed
+│   ├── allowed-hostnames    # TRACK — host restrictions, if used
+│   ├── .gitignore           # generated; whitelists the tracked files above
+│   ├── history.jsonl        # runtime state — not tracked
+│   ├── sessions/ tasks/ …   # runtime state — not tracked
+│   └── …
+├── agents/                  # TRACK — custom subagents
+├── hooks/ commands/         # TRACK — hooks and slash commands
+└── settings.json            # runtime preferences
+```
+
+CCY generates `.claude/ccy/.gitignore` so runtime state stays out of git while the
+handful of files that *should* be shared with your team are whitelisted.
+
+It also enforces this: if any file under `.claude/ccy/` **other than** the known-safe
+whitelist (`.gitignore`, `Dockerfile`, `allowed-hostnames`, `ccy.env`,
+`claude-supervise*`) is tracked in git, CCY prints a security alert and **refuses to
+start** until you untrack it. Session history and token metadata committed by accident
+are exactly what this catches.
+
+---
+
+## Tokens
+
+CCY authenticates with **long-lived OAuth tokens** (`sk-ant-oat01-…`), the same kind used
+in GitHub Actions. `ccy --create-token` drives Claude Code's own `claude setup-token`
+flow for you and saves the result — you never need to run `setup-token` by hand.
+
+Tokens are stored in a pool completely separate from desktop Claude Code:
+
+```
+~/.claude-tokens/ccy/tokens/NAME.YYYY-MM-DD.token
+```
+
+The expiry date is in the filename, so the launcher checks it before every session and
+forces a renewal when a token is expired or expiring today.
+
+```bash
+ccy --create-token           # create and name a new token
+ccy --list-tokens            # list tokens and expiry dates
+ccy --token work             # use a specific named token for this session
+ccy --update-token=work      # replace one (e.g. invalidated before expiry)
+ccy --export-token           # interactive: pick token(s) to export
+ccy --export-token work      # export a specific token
+```
+
+Named tokens let you keep separate Claude accounts for separate contexts — a personal
+account and a work account, say — and pick per project or per session.
+
+`--export-token` writes a self-contained import script, so you can move a token onto a
+second workstation without repeating the `setup-token` browser flow there.
+
+**`~/.claude/` on the host is never touched.** Desktop Claude Code and CCY do not share
+credentials or state.
+
+---
+
+## Command Reference
+
+Run `ccy --help` for the authoritative list — it also prints Claude Code's own help from
+inside the image. Flags not listed here (`--resume`, `--model`, …) are Claude Code's and
+are forwarded unchanged.
+
+### Session
+
+| Flag              | Effect                                                                |
+| ----------------- | --------------------------------------------------------------------- |
+| `ccy`             | Start a session in the current directory                              |
+| `ccy "task"`      | Start an interactive session with an opening instruction              |
+| `--prompt "text"` | Start with a preseeded prompt                                         |
+| `--headless`      | Run non-interactively — requires `--prompt` (not the positional form) |
+| `--supervise`     | Wrap `claude` in the in-container supervisor                          |
+| `--top`           | Container manager: list and stop running CCY containers               |
+| `--debug`         | Interactive debug-layer selection (CCY, entrypoint, Claude Code)      |
+| `--`              | End of CCY options; everything after is forwarded raw to `claude`     |
+
+### Image and updates
+
+| Flag                      | Effect                                                     |
+| ------------------------- | ---------------------------------------------------------- |
+| `--rebuild`               | Full clean rebuild (always builds without cache)           |
+| `--rebuild=claude`        | Fast: npm-update Claude Code in the base image only        |
+| `--rebuild=project`       | npm update **and** rebuild the project image               |
+| `--custom`                | Create/edit a project Dockerfile from a template           |
+| `--custom-docker`         | AI-guided Dockerfile creation                              |
+| `--disable-custom-docker` | Skip the project image — useful to fix a broken Dockerfile |
+
+### Auth, SSH and network
+
+| Flag               | Effect                                                             |
+| ------------------ | ------------------------------------------------------------------ |
+| `--token NAME`     | Use a specific named token                                         |
+| `--create-token`   | Create a new named token                                           |
+| `--update-token=N` | Replace an existing named token                                    |
+| `--list-tokens`    | List tokens with expiry                                            |
+| `--export-token`   | Export token(s) as a portable import script                        |
+| `--ssh-key PATH`   | Mount a specific key (repeatable)                                  |
+| `--no-ssh`         | Mount no key (git push will not work)                              |
+| `--github-443`     | Route GitHub SSH over `ssh.github.com:443` when port 22 is blocked |
+| `--network NET`    | Auto-connect to a container network on launch                      |
+| `--no-network`     | Skip network auto-detection                                        |
+| `--connect [NET]`  | Connect an already-running container to a network                  |
+
+### Engine and policy
+
+| Flag              | Effect                                                             |
+| ----------------- | ------------------------------------------------------------------ |
+| `--engine ENGINE` | `podman` (default) or `docker`                                     |
+| `--prevent`       | Disable CCY for this project (writes `never` to allowed-hostnames) |
+| `--version`, `-v` | Show the CCY version                                               |
+| `--help`, `-h`    | Full help                                                          |
+
+---
+
+## Per-Project Configuration
+
+Three tracked files in `.claude/ccy/` shape how CCY behaves for a project. Commit them so
+your whole team gets the same environment.
+
+### 1. `Dockerfile` — project-specific tools
+
+The base image ships a general-purpose toolset — see
+[what's included](containerization.md#custom-dockerfiles). When your project needs more
+(a specific Python version, Go, PHP, a database client), add `.claude/ccy/Dockerfile`:
+
+```bash
+ccy --custom          # pick a template (Ansible / Go / generic)
+ccy --custom-docker   # AI-guided: Claude inspects the project and proposes tools
+```
+
+The image is cached as `claude-yolo:<project-name>` and rebuilt automatically when the
+Dockerfile changes. The full workflow, templates and cache-mount patterns are documented
+in [containerization.md](containerization.md#custom-dockerfiles).
+
+### 2. `ccy.env` — per-project environment
+
+Sourced by the entrypoint **inside the container**, immediately before `claude` runs:
+
+```bash
+# .claude/ccy/ccy.env
+export CCY_CLAUDE_WRAPPER="${CCY_CLAUDE_WRAPPER:-/workspace/.claude/ccy/claude-supervise.py --arm --}"
+```
+
+Two properties matter:
+
+- **It is never sourced on the host.** A project's `ccy.env` cannot execute host code —
+  cloning an untrusted repo does not hand it your host shell.
+- **Host settings win.** The `${VAR:-default}` idiom means a value set on the host, or by
+  `ccy --supervise`, overrides the project default; an empty value falls through to the
+  project's.
+
+### 3. `allowed-hostnames` — restricting where CCY can run
+
+Optional. If the file does not exist, CCY runs anywhere. If it exists, the current
+hostname must match an entry or CCY exits.
+
+```bash
+ccy --prevent                                          # disable CCY here entirely (writes 'never')
+echo "$(hostname)" >> .claude/ccy/allowed-hostnames    # allow this machine
+echo "build-server-*" >> .claude/ccy/allowed-hostnames # globs are supported
+rm .claude/ccy/allowed-hostnames                       # remove the restriction
+```
+
+`*` alone allows any host (documents intent without blocking); `never` alone disables CCY
+unconditionally. Comments (`#`) and blank lines are ignored.
+
+---
+
+## The Supervisor
+
+This is the piece that turns CCY from "a safe sandbox" into something that can run long,
+unattended sessions — and it is the least obvious part of the system, because it is
+supplied by the [hooks daemon](https://github.com/Edmonds-Commerce-Limited/claude-code-hooks-daemon)
+rather than by CCY itself.
+
+### The problem it solves
+
+A long Claude Code session eventually fills its context window. Historically that meant a
+session degraded or stalled until a human noticed and ran `/compact`. If you are running
+an agent overnight or across a large refactor, "until a human notices" is the weak link.
+
+### What it does
+
+`claude-supervise.py` is a standalone, stdlib-only **PTY supervisor**. CCY exec's it
+instead of `claude`, and it spawns `claude` on a pseudo-terminal, forwarding
+stdin/stdout and window resizes transparently — you cannot tell it is there.
+
+From that position it does two useful things:
+
+1. **Automatic compaction.** On each idle poll it reads the context sidecar — a small
+   status file the hooks daemon writes recording how much of the session's context
+   budget is left. When that status goes **red** while the session is idle, it injects
+   `/compact` and then `continue`. The session is compacted and resumed instead of
+   stalling. This is best-effort and bounded by a cooldown and an injection cap; once
+   the cap is exhausted the session still needs a human.
+2. **Terminal-key guarding.** `Ctrl+Z` (SUSP) is stripped from forwarded input as a
+   second line of defence alongside the image-level patch (see
+   [the ctrl+z patch](#the-ctrlz-patch)), and `SIGTSTP`/`SIGQUIT` are swallowed if ever
+   delivered. `Ctrl+C` deliberately still works.
+
+It is deliberately dependency-free — it imports nothing from the hooks daemon and runs
+under the container's system `python3` — so a broken hooks-daemon venv cannot break every
+`ccy` launch.
+
+### Turning it on
+
+**Per project (recommended).** This requires the hooks daemon to already be installed in
+the project (see `.claude/hooks-daemon/CLAUDE/LLM-INSTALL.md`, or the `hooks-daemon`
+skill). It is driven by `.claude/hooks-daemon.yaml`:
+
+```yaml
+ccy:
+  deploy_supervisor: true
+```
+
+| Value      | Behaviour                                                                                        |
+| ---------- | ------------------------------------------------------------------------------------------------ |
+| `true`     | On install/upgrade, deploy `claude-supervise.py` into `.claude/ccy/` and **arm** it              |
+| *(absent)* | Same as `true` — deploys and arms. Not a safe no-op; the daemon recommends setting it explicitly |
+| `false`    | Never deploy or arm (the only real opt-out)                                                      |
+
+Arming means writing a `CCY_CLAUDE_WRAPPER` export into `ccy.env`. It is idempotent and
+respects you — an existing `CCY_CLAUDE_WRAPPER` (set *or* commented out to disable) is
+left alone.
+
+**Per launch.**
+
+```bash
+ccy --supervise
+```
+
+This sets and forwards a default `CCY_CLAUDE_WRAPPER` of bare `claude-supervise --`. The
+base image does **not** vendor a `claude-supervise` binary on `PATH`, so bare
+`--supervise` fails loudly unless you have exported an absolute path yourself:
+
+```bash
+export CCY_CLAUDE_WRAPPER="/path/to/claude-supervise.py --arm --"
+```
+
+In practice, use the per-project method above — it gives you a real supervisor at a known
+path.
+
+**Unset, nothing changes.** With no `CCY_CLAUDE_WRAPPER` anywhere, the entrypoint exec's
+`claude` directly — byte-for-byte the old behaviour.
+
+### Dry-run vs armed
+
+The supervisor takes a mode flag:
+
+| Mode        | Behaviour                                                                                                                                    |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--dry-run` | The script's own default. Injects a harmless **visible marker** instead of compacting — lets you confirm the trigger path fires as expected. |
+| `--arm`     | Injects the real `/compact` (and `continue`).                                                                                                |
+
+**Note the asymmetry:** although `--dry-run` is the script's default, the per-project
+deploy writes an **already-armed** line, so a project set up via `deploy_supervisor`
+starts in `--arm`, not dry-run. To watch the harmless marker first, edit
+`.claude/ccy/ccy.env` and swap `--arm` for `--dry-run` before your first session, then
+switch back once you have seen it fire.
+
+### Keeping it healthy
+
+The daemon's `ccy_supervisor_integrity` check runs at session start and warns — never
+blocks — about brick-risky setups: a missing or non-executable `claude-supervise.py`, a
+git-ignored supervisor that teammates will not receive, `deploy_supervisor: false` while
+the supervisor is armed (which silently freezes it at a stale version), or a running
+supervisor older than the one now on disk. Act on those warnings — a supervisor that
+fails to start prevents the session from starting at all.
+
+---
+
+## Networking
+
+When your agent needs to reach your app's database or services, attach the container to
+the same network:
+
+```bash
+ccy --network myproject_default   # attach at launch
+ccy --no-network                  # skip auto-detection entirely
+ccy --connect                     # interactive: attach an already-running container
+ccy --connect myproject_default   # attach a running container to a specific network
+```
+
+CCY auto-detects a project compose network and offers it, and can start the compose
+services if they are not already up. `--connect` is run from a *second* terminal while a
+session is live — useful when you realise mid-session that the agent needs database
+access.
+
+---
+
+## SSH and GitHub
+
+On launch you pick which SSH private key to mount. It is mounted read-only at
+`/root/.ssh/key_N`, and CCY resolves the matching GitHub account and token so `gh` works
+inside the container.
+
+```bash
+ccy --ssh-key ~/.ssh/id_ed25519_work   # specific key (repeatable)
+ccy --no-ssh                           # no key at all
+ccy --github-443                       # tunnel GitHub SSH over port 443
+```
+
+`--github-443` is for networks that block outbound port 22 — it routes Git-over-SSH via
+`ssh.github.com:443`. You can also enable it host-wide with `export GITHUB_SSH_443=1`
+before launching; CCY inherits that and shows it in the launch banner, and falls back to
+443 automatically when port 22 fails. Full background:
+[github-ssh-over-443.md](github-ssh-over-443.md).
+
+For juggling several GitHub identities, see
+[github-multi-account.md](github-multi-account.md).
+
+---
+
+## Extra Mounts
+
+`CCY_EXTRA_MOUNTS` appends read-only bind mounts for debugging host state that is not
+part of the project:
+
+```bash
+export CCY_EXTRA_MOUNTS="-v $HOME/.local/bin:/host-bin:ro"
+ccy
+```
+
+Full details and the `scripts/desktop-symlinks` wrapper:
+[ccy-debug-mounts.md](ccy-debug-mounts.md).
+
+---
+
+## Keeping CCY Current
+
+### Two version numbers
+
+| Version                      | Meaning                                       |
+| ---------------------------- | --------------------------------------------- |
+| `CCY_VERSION`                | The host launcher script's version            |
+| `REQUIRED_CONTAINER_VERSION` | The minimum image version that launcher needs |
+
+When the launcher requires a newer image than you have, the next `ccy` triggers a
+one-time rebuild automatically. You do not normally manage this by hand.
+
+The launcher also carries a **self-hash guard**: if its content changes without a version
+bump, it says so. Contributors must bump `CCY_VERSION` when editing the script — a
+pre-commit hook enforces it. See
+[ContainerRules.md](../CLAUDE/ContainerRules.md#ccy-version-bump-requirement).
+
+### Claude Code auto-update
+
+Once per 24 hours, per image, CCY compares the bundled Claude Code against npm and runs a
+fast in-place update when behind. It is a no-op when current, soft-fails offline, and the
+second session on the same day costs nothing.
+
+```bash
+export CCY_AUTO_UPDATE=0   # notify only, never update automatically
+ccy --rebuild=claude       # force the fast update now
+```
+
+### The ctrl+z patch
+
+Claude Code's terminal UI intercepts `Ctrl+Z` and sends itself `SIGSTOP` — unrecoverable
+in a container with no shell to run `fg` in. The image build patches this out and the
+entrypoint sets `CCY_DISABLE_SUSPEND=1`.
+
+Because it patches a minified upstream binary, the patch can stop matching after a Claude
+Code release. It soft-fails rather than breaking the build, and writes a sentinel that
+makes the container print a warning at launch. Repair details and the QA gate
+(`./scripts/qa-ctrl-z-patch.bash`) are owned by
+[ContainerRules.md](../CLAUDE/ContainerRules.md#known-fragile-patch-ink-ctrlz-sigstop-suppression).
+
+---
+
+## Troubleshooting
+
+| Symptom                                     | Cause / fix                                                                                                          |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `ccy: command not found`                    | Shell has not picked up the bashrc include. Open a new shell, or run the playbook.                                   |
+| Refuses to start, mentions hostname         | `.claude/ccy/allowed-hostnames` restricts this project. Add your hostname or remove the file.                        |
+| Refuses to start, "sensitive files tracked" | Runtime state under `.claude/ccy/` has been committed. Untrack it (`git rm --cached`) and re-launch.                 |
+| Container image build fails                 | CCY prints an AI-assisted fix prompt. Recover with `ccy --disable-custom-docker` to get a session in the base image. |
+| Token expired / rejected                    | `ccy --update-token=NAME`, or `ccy --create-token` for a fresh one.                                                  |
+| `git push` fails inside the container       | No key mounted, or the wrong one. Relaunch and select the right key, or use `--ssh-key`.                             |
+| Git-over-SSH hangs on a restricted network  | Port 22 blocked — use `ccy --github-443`.                                                                            |
+| Agent cannot reach the database             | Not on the network. `ccy --network <net>`, or `ccy --connect` from another terminal.                                 |
+| Warning about the ctrl+z patch at launch    | The patch soft-failed against a new Claude Code. See [the ctrl+z patch](#the-ctrlz-patch).                           |
+| Session stalls with a full context window   | Enable [the supervisor](#the-supervisor) so it compacts automatically.                                               |
+| Stale/orphaned containers                   | `ccy --top` to list and stop them.                                                                                   |
+| Need to see what CCY itself is doing        | `ccy --debug` for interactive debug-layer selection.                                                                 |
+
+---
+
+## Working Inside a CCY Container
+
+Two things are worth knowing if you (or an agent) are working *in* a session:
+
+- **This repo's rule: edit and commit only.** Never run Ansible playbooks from inside the
+  container — it does not have the target users, groups, or system state. Deployment
+  happens on the host. See [ContainerRules.md](../CLAUDE/ContainerRules.md).
+
+- **The container documents itself.** An agent inside a session can read:
+
+  ```bash
+  cat /opt/claude-yolo/docs/CCY-GUIDE.txt          # container internals, file locations
+  cat /opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt # Dockerfile authoring guide
+  ```
+
+---
+
+## See Also
+
+- [Containerization Technologies](containerization.md#custom-dockerfiles) — the
+  custom-Dockerfile workflow and what the base image includes
+- [CCY Debug Mounts](ccy-debug-mounts.md) — read-only host access for debugging
+- [Claude Devtools (`ccdt`)](features/claude-devtools.md) — the separate helper for
+  inspecting Claude Code sessions
+- [Container Engines](../CLAUDE/ContainerEngines.md) — why Podman is the default
+- [Container Rules](../CLAUDE/ContainerRules.md) — agent rules, version bumps, ctrl+z patch

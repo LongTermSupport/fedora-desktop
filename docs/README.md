@@ -91,6 +91,22 @@ Comprehensive comparison and usage guide:
 
 ---
 
+### I want to run Claude Code safely without permission prompts
+
+**[CCY — Claude Code YOLO](ccy.md)**
+
+Containerised Claude Code running with `--dangerously-skip-permissions`:
+
+- What the container does and does not expose (the security model)
+- Named OAuth token pool, separate from desktop Claude Code
+- Per-project container images, networks, and SSH key handling
+- The supervisor: automatic compaction so long sessions do not stall
+- Full flag reference and troubleshooting
+
+**Time to read:** 15 minutes | **Daily driver for agent work**
+
+---
+
 ### I want to customize my setup
 
 **[Configuration Guide](configuration.md)**
@@ -210,6 +226,23 @@ distrobox create --name dev --image ubuntu:22.04
 distrobox enter dev
 ```
 
+### CCY (Claude Code in a container)
+
+```bash
+# Start a session in the current project
+ccy
+
+# Token management
+ccy --create-token
+ccy --list-tokens
+
+# Rebuild after changing .claude/ccy/Dockerfile
+ccy --rebuild
+
+# Manage running CCY containers
+ccy --top
+```
+
 ## Project File Structure
 
 ```
@@ -273,6 +306,14 @@ distrobox enter dev
 - [Docker (rootful)](containerization.md#docker)
 - [Distrobox integration](containerization.md#distrobox)
 - [Docker-in-LXC](containerization.md#advanced-docker-in-lxc)
+
+**CCY (Claude Code YOLO)**
+
+- [CCY guide](ccy.md) — Containerised Claude Code with permission prompts disabled
+- [Security model](ccy.md#the-security-model) — What the container can and cannot reach
+- [Tokens](ccy.md#tokens) — Named OAuth token pool
+- [Command reference](ccy.md#command-reference) — Every flag
+- [The supervisor](ccy.md#the-supervisor) — Automatic compaction for long sessions
 - [CCY debug mounts](ccy-debug-mounts.md) — Mounting host directories into CCY containers
 
 **DDEV**
@@ -311,10 +352,10 @@ distrobox enter dev
 
 **Installation & Setup**
 
-- [Prerequisites](installation.md#prerequisites)
+- [Prerequisites](installation.md#before-you-begin)
 - [Quick install](installation.md#quick-install)
 - [Manual installation](installation.md#manual-installation)
-- [Post-installation](installation.md#post-installation)
+- [Verifying installation](installation.md#verifying-installation)
 - [Post-upgrade repair (after `dnf system-upgrade`)](post-upgrade.md)
 - [Troubleshooting](installation.md#troubleshooting)
 
@@ -334,7 +375,7 @@ distrobox enter dev
 ## Troubleshooting Quick Links
 
 - **Installation fails:** [Installation troubleshooting](installation.md#troubleshooting)
-- **Version mismatch:** [Version troubleshooting](installation.md#version-mismatch)
+- **Version mismatch:** [Version troubleshooting](installation.md#version-mismatch-error)
 - **Container issues:** [Container troubleshooting](containerization.md#troubleshooting)
 - **Configuration errors:** [Configuration debugging](configuration.md#troubleshooting-configuration)
 - **Playbook debugging:** [Testing guide](development.md#debugging)
