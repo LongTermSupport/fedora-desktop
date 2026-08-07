@@ -19,7 +19,7 @@ This playbook implements multiple optimizations:
 1. **Installs PCManFM** - Lightweight, fast GTK file manager as Nautilus alternative
 2. **Configures GTK Portal** - Forces use of faster GTK file chooser in browsers
 3. **Applies GSK_RENDERER Fix** - Fixes Fedora 41/42 GTK4 app startup delays
-4. **Optionally Disables Tracker** - Stops GNOME indexing service that slows file operations
+4. **Disables Recently-Used File History** - Removes the GNOME recent-files list that grows unbounded
 5. **Optionally Disables Thumbnails** - Removes thumbnail generation overhead
 
 ## Installation
@@ -35,7 +35,7 @@ This applies:
 - ✓ PCManFM installation
 - ✓ GTK portal configuration
 - ✓ GSK_RENDERER=ngl fix
-- ✓ Tracker disabled (improves performance, rarely used)
+- ✓ Recently-used file history disabled
 - ✓ Thumbnails enabled (useful for images/videos)
 
 ### Customization (Host-Level Configuration)
@@ -47,20 +47,17 @@ The playbook has sensible defaults, but you can override them in your host confi
 vim environment/localhost/host_vars/localhost.yml
 
 # Add these variables to customize behavior:
-fast_file_manager_disable_tracker: false      # Keep tracker if you use GNOME search
 fast_file_manager_disable_thumbnails: true    # Disable for max performance
-fast_file_manager_apply_gsk_fix: true        # Usually leave enabled
+fast_file_manager_apply_gsk_fix: true         # Usually leave enabled
 ```
 
 **Default values** (if not overridden in host_vars):
 
-- `disable_tracker: true` - Disabled by default (rarely used, slows file ops)
-- `disable_thumbnails: false` - Enabled by default (useful for images/videos)
+- `disable_thumbnails: false` - Thumbnails kept by default (useful for images/videos)
 - `apply_gsk_fix: true` - Enabled by default (fixes Fedora 41/42 slowness)
 
 ⚠️ **Configuration trade-offs:**
 
-- `disable_tracker: false` - Keeps GNOME Activities file search, but slows file operations
 - `disable_thumbnails: true` - No image previews, but faster folder browsing
 
 ## Activation
@@ -87,7 +84,6 @@ killall chrome firefox
 
 - `xdg-desktop-portal.service` - Restarted
 - `xdg-desktop-portal-gnome.service` - Restarted
-- `tracker-*.service` - Stopped/masked (if `disable_tracker: true`)
 
 ### Packages Installed
 
@@ -151,17 +147,10 @@ systemctl --user restart xdg-desktop-portal-gnome.service
 xdg-mime default org.gnome.Nautilus.desktop inode/directory
 ```
 
-### Re-enable Tracker
+### Re-enable Recently-Used File History
 
 ```bash
-systemctl --user unmask tracker-extract-3.service \
-    tracker-miner-fs-3.service \
-    tracker-miner-rss-3.service \
-    tracker-writeback-3.service \
-    tracker-xdg-portal-3.service \
-    tracker-miner-fs-control-3.service
-
-systemctl --user start tracker-miner-fs-3.service
+gsettings set org.gnome.desktop.privacy remember-recent-files true
 ```
 
 ### Remove GSK_RENDERER Fix

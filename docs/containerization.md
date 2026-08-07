@@ -182,8 +182,8 @@ docker run -d -p 8080:80 nginx
 # Build an image
 docker build -t myapp:latest .
 
-# Use compose for multi-container apps
-docker-compose up -d
+# Use compose for multi-container apps (the docker-compose-plugin CLI)
+docker compose up -d
 
 # View running containers
 docker ps
@@ -192,7 +192,7 @@ docker ps
 docker exec -it container_name bash
 
 # Clean up
-docker-compose down
+docker compose down
 docker system prune -a
 ```
 
@@ -437,7 +437,7 @@ This is the key thing to understand. When `ccy` starts, it looks for a Dockerfil
 
 **What's already included in the base image:**
 
-- Node.js 20, npm, Python 3, git, gh CLI, Claude Code (latest)
+- Node.js (current LTS), npm, Python 3, git, gh CLI, Claude Code (latest)
 - Development tools: ripgrep, jq, yq, vim
 - agent-browser CLI for token-efficient browser automation via Chromium
 
@@ -741,7 +741,7 @@ ssh ubuntu@<staging-ip>
 # Configure web server, database, services...
 
 # Docker: Run individual services
-docker-compose up -d  # Start postgres, redis, nginx
+docker compose up -d  # Start postgres, redis, nginx
 
 # Distrobox: Development tools
 distrobox enter nodejs-dev

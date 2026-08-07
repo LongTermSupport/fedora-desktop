@@ -69,9 +69,7 @@ See `CLAUDE/SecurityRules.md` ("Vault Management") for the full workflow.
 Automatically configured in `/etc/dnf/dnf.conf`:
 
 ```ini
-fastestmirror=True
 max_parallel_downloads=10
-deltarpm=True
 ```
 
 ### Bash Environment
@@ -98,11 +96,14 @@ Ed25519 keys generated at:
 SSH config for LXC containers in `~/.ssh/config`:
 
 ```
-Host lxc-*
-    StrictHostKeyChecking no
-    UserKnownHostsFile /dev/null
-    User root
+Host "10.0.*.*"
+    IdentityFile ~/.ssh/id_lxc
+    UserKnownHostsFile=/dev/null
+    StrictHostKeyChecking=no
 ```
+
+The `Host` pattern matches the LXC bridge subnet (`10.0.x.x`), and the containers are
+reached with the dedicated `~/.ssh/id_lxc` key.
 
 ### Git Configuration
 
@@ -118,15 +119,19 @@ Bash Git Prompt with Solarized theme in:
 - `~/.bash-git-prompt/`
 - Loaded in `.bashrc`
 
-## Optional Features Configuration
+## Core Feature Configuration
+
+These plays are imported by `playbook-main.yml` and run automatically on every
+provisioning run — there is nothing to enable.
 
 ### Docker
 
-After running `play-docker.yml`:
+`play-docker.yml` installs Docker as a **rootful** compatibility engine (Podman remains
+the rootless default — see [Container Engines](../CLAUDE/ContainerEngines.md)):
 
-- User added to docker group
+- User added to the `docker` group
 - Systemd service enabled
-- Docker compose installed
+- `docker-compose-plugin` installed, providing `docker compose`
 
 ### GitHub Multi-Account
 
@@ -148,6 +153,17 @@ ansible-playbook playbooks/imports/play-github-cli-multi.yml
 See the full guide for the complete workflow, commands, and troubleshooting:
 [GitHub Multi-Account Management](github-multi-account.md).
 
+### GNOME Settings
+
+`play-gsettings.yml` applies:
+
+- Disable the Caps Lock key (via xkb-options)
+- Disable middle-click closing tabs in the Ptyxis terminal
+
+## Optional Features Configuration
+
+These require running their playbook explicitly.
+
 ### LastPass Accounts
 
 Configure in `host_vars/localhost.yml`:
@@ -162,17 +178,9 @@ lastpass_accounts:
 
 HD audio setup (`play-hd-audio.yml`) configures:
 
-- PipeWire sample rate: 192000 Hz
+- PipeWire default sample rate: 48000 Hz, with dynamic switching allowed up to 192000 Hz
 - Bluetooth codecs: LDAC, aptX HD
 - Low latency settings
-
-### GNOME Settings
-
-Custom settings via `play-gsettings.yml`:
-
-- Window management
-- Keyboard shortcuts
-- Desktop behavior
 
 ## Adding Custom Configurations
 
@@ -184,7 +192,7 @@ Create in `playbooks/imports/optional/` under the appropriate category (`common/
 - hosts: desktop
   name: My Custom Configuration
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
   tasks:
     - name: My task
       # Your tasks here

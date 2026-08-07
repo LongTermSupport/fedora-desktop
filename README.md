@@ -114,7 +114,7 @@ The main playbook configures these essentials without any interaction:
 
 **System Foundations**
 
-- Optimized DNF configuration (10 parallel downloads, fastest mirror)
+- Optimized DNF configuration (10 parallel downloads)
 - Essential packages (vim, wget, htop, bash-completion, ripgrep)
 - Microsoft fonts for document compatibility
 - RPM Fusion repositories (free and non-free)
@@ -122,22 +122,32 @@ The main playbook configures these essentials without any interaction:
 **Development Environment**
 
 - Git with bash-git-prompt (Solarized theme)
-- GitHub CLI (gh) for repository management
-- Node.js 20 via NVM
+- GitHub CLI (gh), including multi-account support
+- Node.js (latest LTS) via NVM
+- Python with pyenv, PDM, and Hugging Face tools
 - Claude Code CLI
 - **[CCY — Claude Code YOLO](docs/ccy.md)**: Claude Code in a rootless container with permission prompts disabled
-- JetBrains Toolbox
+- VS Code (from the Microsoft repository) and JetBrains Toolbox
 
 **Container Platform**
 
+- Podman (rootless) — the default engine
+- Docker (rootful) — compatibility engine for tools such as DDEV
 - LXC with networking configured
 - SSH keys for container access
 - Firewall rules for container networking
+
+**Desktop Applications**
+
+- Firefox with managed enterprise policies
+- Slack (via Flatpak)
+- WireGuard tools and OpenVPN NetworkManager integration
 
 **Shell Experience**
 
 - Custom bash prompt with error state indicators
 - Enhanced history (20K lines)
+- [Kitty terminal](docs/kitty.md) with managed configuration and keybindings
 - Docker helper functions
 - Passwordless sudo for your user
 
@@ -172,19 +182,16 @@ as DDEV) are both installed by the main playbook — see
 
 - Distrobox for seamless development environments
 - Docker-in-LXC for isolated project testing
-- [Playwright testing environment](docs/containerization.md#playwright-distrobox-automated) (automated browser setup)
 - [DDEV](docs/ddev.md) for local PHP/CMS development (Drupal, WordPress, Laravel, Magento)
 - [UniFi Network Controller](docs/UnifiSetupGuide.md) self-hosted in a Podman container
 
 **Programming Languages**
 
-- Python with pyenv, PDM, Hugging Face tools
 - Go compiler and tools
 - Rust toolchain
 
 **IDEs & Editors**
 
-- VS Code with Microsoft repository
 - PyCharm Community (via Toolbox)
 - Enhanced Vim configuration (already included)
 
@@ -197,14 +204,11 @@ as DDEV) are both installed by the main playbook — see
 
 **Productivity Tools**
 
-- [Speech-to-Text](docs/features/speech-to-text.md) — GPU-accelerated voice typing across the whole desktop
+- [Speech-to-Text](docs/features/speech-to-text.md) — voice typing across the whole desktop (GPU-accelerated, falls back to CPU)
 - [Claude DevTools (`ccdt`)](docs/features/claude-devtools.md) — web UI for Claude Code session logs
 - [Fast File Manager](docs/fast-file-manager.md) — `lf`-based terminal file manager
-- [Kitty terminal](docs/kitty.md) — managed config, keybindings, URL copy workflow
-- Flatpak applications (Slack, etc.)
-- Firefox with profile switcher
 - LastPass CLI
-- VPN clients (WireGuard, Cloudflare WARP, [NordVPN](docs/nordvpn-installation.md))
+- Extra VPN clients: Cloudflare WARP, [NordVPN](docs/nordvpn-installation.md)
 
 See [Playbooks Reference](docs/playbooks.md) for the complete list with usage examples.
 
@@ -296,4 +300,4 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ---
 
-**Note:** This is a public repository. Never commit personal information, API keys, or secrets. Use Ansible Vault for sensitive data. See the [security guidelines](CLAUDE.md#-public-repository-warning) for details.
+**Note:** This is a public repository. Never commit personal information, API keys, or secrets. Use Ansible Vault for sensitive data. See the [security guidelines](CLAUDE/SecurityRules.md) for details.

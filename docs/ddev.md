@@ -10,7 +10,7 @@ ansible-playbook playbooks/imports/optional/common/play-ddev.yml
 
 This installs:
 
-- **mkcert** — local HTTPS certificate authority (from Fedora repos)
+- **mkcert** — local HTTPS certificate authority (bundled with the DDEV RPM; Fedora's standalone `mkcert` package is removed first because it conflicts file-for-file)
 - **DDEV** — via the official yum repository at `pkg.ddev.com`
 
 **Prerequisite:** Rootful Docker must be installed first:

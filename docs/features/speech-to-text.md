@@ -62,9 +62,16 @@ The Speech-to-Text extension adds system-wide voice input to Fedora. Press **Ins
 ### Required
 
 - **Fedora 44** (this branch)
-- **NVIDIA GPU** with CUDA support (GTX 10-series or newer recommended)
-- **NVIDIA drivers installed** via `play-nvidia.yml`
 - **Active internet** for initial model downloads (cached afterwards)
+
+### Recommended
+
+- **NVIDIA GPU** with CUDA support (GTX 10-series or newer), with drivers installed via
+  `play-nvidia.yml`
+
+A GPU is not strictly required: `faster-whisper-transcribe.py` catches the CUDA
+initialisation failure and falls back to CPU (`int8`) automatically. Transcription is
+considerably slower that way, but it works.
 
 ### Hardware Recommendations
 
@@ -181,8 +188,8 @@ stt_language: de  # German
 
 Enable real-time transcription in extension settings:
 
-1. Click extension icon in top bar
-2. Select **"Streaming mode (instant)"**
+1. Click the extension icon in the top bar → **Settings...**
+2. Under **Streaming Mode**, enable the **"Streaming mode"** switch
 
 **First-time streaming setup:**
 
@@ -231,9 +238,11 @@ Enable real-time transcription in extension settings:
 
 Click the extension icon in the top bar to access:
 
-- **Mode selection**: Batch (default) or Streaming (instant)
-- **Quick settings**: Model info, configuration tips
-- **Extension preferences**: Opens GNOME Settings
+- **Auto-paste at cursor** and **Debug Logging** — quick toggles
+- **Copy Last Transcription**, **View Debug Log...**, **Create Article...**
+- **Manage Whisper Models...**, **Server Manager...**
+- **Settings...** — opens the extension's own Preferences window (language, model,
+  streaming mode, Claude Code post-processing)
 
 ### Batch Mode (Default)
 
@@ -256,7 +265,7 @@ Output: Hello world, this is a test.
 
 **Best for**: Long dictation, seeing words as you speak
 
-Enable via extension menu: **Settings → Streaming mode (instant)**
+Enable via the extension menu: **Settings... → Streaming Mode → Streaming mode**
 
 ```
 You: Press Insert → Start speaking "The quick brown fox..."
@@ -385,12 +394,12 @@ Prompt templates are stored in `~/.config/speech-to-text/`:
 
 ### Claude Model Selection
 
-Configure via playbook host vars or command-line:
+Configure in the extension's Preferences window, or per-invocation on the command line.
+There is no Ansible host variable for this setting:
 
-```yaml
-# Host vars (permanent)
-claude_stt_model: sonnet  # sonnet (default), opus, haiku
-```
+1. Click the extension icon in the top bar → **Settings...**
+2. Under **Claude Code Post-Processing**, set **Claude model** (`sonnet` is the default;
+   `opus` and `haiku` are also available)
 
 ```bash
 # Command-line (temporary)
@@ -409,15 +418,23 @@ wsi --claude-process --claude-model opus --claude-style natural
 
 The extension icon indicates current status:
 
-| Icon | Status            | Meaning                                  |
-| ---- | ----------------- | ---------------------------------------- |
-| 🎤   | Recording         | Listening to your voice (Insert to stop) |
-| ⚙️   | Processing        | Transcribing audio                       |
-| 🤖   | Claude Processing | AI enhancement (corporate mode)          |
-| 💬   | Claude Processing | AI enhancement (natural mode)            |
-| ✅   | Success           | Transcription complete                   |
-| ⚠️   | Error             | Something went wrong (check logs)        |
-| ⏸️   | Idle              | Ready for next recording                 |
+The panel shows a single microphone icon whose **colour** carries the state (it swaps to
+a loading icon while transcribing):
+
+| Appearance           | Status     | Meaning                                  |
+| -------------------- | ---------- | ---------------------------------------- |
+| Default colour       | Idle       | Ready                                    |
+| Orange               | Preparing  | Starting up                              |
+| Red                  | Recording  | Listening to your voice (Insert to stop) |
+| Orange, loading icon | Processing | Transcribing audio                       |
+| Green (2 seconds)    | Success    | Transcription delivered                  |
+| Red (2 seconds)      | Error      | Check the debug log                      |
+
+In Claude post-processing modes the panel **label** is additionally prefixed with
+`🤖 REC` (corporate) or `💬 REC` (natural).
+| ✅ | Success | Transcription complete |
+| ⚠️ | Error | Something went wrong (check logs) |
+| ⏸️ | Idle | Ready for next recording |
 
 **Desktop notifications** also show:
 

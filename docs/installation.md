@@ -196,7 +196,7 @@ The main playbook installs and configures:
 - bash-git-prompt with Solarized theme
 - GitHub CLI (gh)
 - SSH keys (Ed25519 at `~/.ssh/id`)
-- Node.js 20 via NVM
+- Node.js (latest LTS) via NVM
 - Claude Code CLI
 - JetBrains Toolbox
 
@@ -250,7 +250,8 @@ ansible desktop -m ping
 
 # Check installed Node.js version
 node --version
-# Expected: v20.x.x
+# Expected: the current Node.js LTS release — the playbook tracks NVM's
+# lts/* alias rather than pinning a major version
 
 # Check Git configuration
 git config --global user.name

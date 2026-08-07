@@ -126,7 +126,7 @@ The two must agree. If they disagree, the local symref is stale — re-run the
   name: Descriptive Name  # Clear, action-oriented
   become: true  # Only if needed
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
   vars_files:
     - "{{ root_dir }}/vars/fedora-version.yml"  # If version-dependent
   tasks:
@@ -290,7 +290,7 @@ See `CLAUDE/QA.md` for full details on what each check covers.
   name: Feature Description
   become: true  # If needed
   vars:
-    root_dir: "{{ inventory_dir }}/../../"
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
 ```
 
 4. Document in `docs/playbooks.md`
