@@ -131,12 +131,42 @@ control not responding". Two independent faults were found:
   carries `--rc-no-auth`, every unit loads the `EnvironmentFile`, the credential
   is `0600` with both keys, unauthenticated `config/dump` is refused,
   authenticated calls succeed, and the client scripts work.
-- [ ] ⬜ **Task 3.4**: (HOST) Run `deploy.bash` → `play-rclone.yml`. **Must not
+- [x] ✅ **Task 3.4**: (HOST) Run `deploy.bash` → `play-rclone.yml`. **Must not
   run while an `ftp-camera --copy` is in flight** — it restarts the mount and
   would interrupt the VFS write-back queue. `deploy.bash` now enforces this
   itself: it refuses to start if it finds a running `ftp-camera` process, and
-  refuses to run inside the CCY container at all.
-- [ ] ⬜ **Task 3.5**: (HOST) Run `acceptance.bash`; confirm it exits 0.
+  refuses to run inside the CCY container at all. **Ran on the HOST**; the unit
+  was rendered correctly (no `--rc-no-auth`, `EnvironmentFile` present) but the
+  credential it deployed was empty — see Task 3.6.
+- [x] ✅ **Task 3.5**: (HOST) Run `acceptance.bash` — **NOT ACCEPTED, 7 passed,
+  2 failed.** The gate did its job: it caught a broken deploy that every other
+  signal reported as successful.
+
+### Phase 4: Fix the two bugs acceptance exposed
+
+- [x] ✅ **Task 4.1**: `play-rclone.yml` generated an **empty** RC password. A
+  `file: state: touch` task created `.rc-pass` empty *before* the
+  `ansible.builtin.password` lookup ran; that lookup only generates when the
+  store is **absent** and otherwise reads the value back, so an empty store
+  yields an empty password forever. Removed the pre-touch, added stat +
+  `state: absent` recovery for an already-empty store, moved the owner/mode
+  enforcement to *after* the lookup, and added a hard `assert` that the store is
+  non-empty so the play fails fast instead of deploying an RC that refuses
+  everyone.
+- [x] ✅ **Task 4.2**: The play never restarted the mounts. The final systemd
+  task uses `state: started` (a no-op on a running unit) and `daemon_reload`
+  only re-reads definitions — so a changed `ExecStart` or `EnvironmentFile` sat
+  on disk while systemd kept the old command line and environment until reboot.
+  Added a `restart rclone mounts` handler notified by both the unit-file copy
+  and the credential copy. The play had no handlers at all before this.
+- [x] ✅ **Task 4.3**: Fixed two defects in `acceptance.bash` itself — it
+  conflated "key absent" with "key present but empty" (producing a
+  self-contradicting report), and check 4 was a **false pass** because a
+  completely broken RC refuses everyone and therefore satisfies "unauthenticated
+  access is refused". It now reports per key, prints the `.rc-pass` byte size,
+  and cross-checks check 4 against whether authenticated access works.
+- [ ] ⬜ **Task 4.4**: (HOST) Re-run `deploy.bash`, then `acceptance.bash`;
+  confirm it exits 0.
 
 ## Technical Decisions
 

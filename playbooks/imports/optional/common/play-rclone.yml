@@ -266,21 +266,36 @@
     # unit file and out of ps output. Rclone maps flags to RCLONE_<FLAG> env
     # vars, so RCLONE_RC_USER/RCLONE_RC_PASS drive the server side --rc-user and
     # --rc-pass. Clients use the differently-named --user and --pass flags.
-    - name: Generate the rclone RC password store (once, then reused)
-      ansible.builtin.file:
+    # The password lookup GENERATES a value only when the store file is ABSENT;
+    # if the file already exists it reads the value back, which is what makes the
+    # credential stable across runs. An EMPTY store is therefore read back as an
+    # EMPTY password — it is never regenerated.
+    #
+    # This play used to `state: touch` the store into existence here, BEFORE the
+    # lookup ran, so every deploy rendered `RCLONE_RC_PASS=` with no value. The
+    # mount then started with --rc-user set and --rc-pass empty, and the RC
+    # refused every request, authenticated or not (Plan 00067). Never pre-create
+    # the store; let the lookup own its creation and fix the mode afterwards.
+    - name: Stat the rclone RC password store
+      ansible.builtin.stat:
         path: "/home/{{ user_login }}/.config/rclone/.rc-pass"
-        owner: "{{ user_login }}"
-        group: "{{ user_login }}"
-        mode: '0600'
-        state: touch
-        modification_time: preserve
-        access_time: preserve
+      register: _rc_pass_store
       tags: rclone, rc-auth
 
-    # The password lookup writes the value on first use and reads it back on
-    # every later run, so the credential is stable across playbook runs.
+    # Recovery for a host already left in the broken state by the old task: an
+    # empty store would otherwise be read back as an empty password forever.
+    - name: Remove an empty rclone RC password store so it regenerates
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.config/rclone/.rc-pass"
+        state: absent
+      when:
+        - _rc_pass_store.stat.exists
+        - _rc_pass_store.stat.size == 0
+      tags: rclone, rc-auth
+
     # ascii_letters + digits only: an EnvironmentFile value is parsed by systemd,
-    # so punctuation is avoided rather than escaped.
+    # so punctuation is avoided rather than escaped. Rendering this task is what
+    # triggers the lookup, and so what creates the store on a first run.
     - name: Deploy the rclone RC credential file
       ansible.builtin.copy:
         dest: "/home/{{ user_login }}/.config/rclone/rc-auth.env"
@@ -291,6 +306,44 @@
           RCLONE_RC_USER=rclone-rc
           RCLONE_RC_PASS={{ lookup('ansible.builtin.password', '/home/' + user_login + '/.config/rclone/.rc-pass', length=32, chars=['ascii_letters', 'digits']) }}
       no_log: true
+      notify: restart rclone mounts
+      tags: rclone, rc-auth
+
+    # The lookup creates the store with the controller umask and the invoking
+    # user, so ownership and mode are pinned here rather than before it.
+    - name: Secure the rclone RC password store
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.config/rclone/.rc-pass"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: '0600'
+        state: file
+      tags: rclone, rc-auth
+
+    - name: Re-stat the rclone RC password store
+      ansible.builtin.stat:
+        path: "/home/{{ user_login }}/.config/rclone/.rc-pass"
+      register: _rc_pass_after
+      tags: rclone, rc-auth
+
+    # Fail fast rather than deploying a mount whose RC refuses everything. The
+    # store is the lookup source, so a non-empty store means the rendered
+    # RCLONE_RC_PASS was non-empty too.
+    - name: Assert the rclone RC password was generated
+      ansible.builtin.assert:
+        that:
+          - _rc_pass_after.stat.exists
+          - _rc_pass_after.stat.size > 0
+        fail_msg: |
+          The rclone RC password store is missing or empty:
+            /home/{{ user_login }}/.config/rclone/.rc-pass
+
+          rc-auth.env would render RCLONE_RC_PASS with no value, and the mount
+          would serve an RC that refuses every request — including authenticated
+          ones — so rclone-cache-warm and ftp-camera --copy would both break.
+
+          Delete the empty store and re-run this play so the password lookup
+          regenerates it.
       tags: rclone, rc-auth
 
     - name: Create systemd user service for each rclone mount
@@ -329,6 +382,7 @@
           WantedBy=default.target
       loop: "{{ rclone_mounts }}"
       when: rclone_mounts is defined
+      notify: restart rclone mounts
       tags: rclone, mounts
 
     - name: Reload systemd user daemon, enable and start rclone mount services
@@ -512,3 +566,28 @@
           No mounts configured - define rclone_mounts in host_vars/localhost.yml
           then re-run this playbook.
           {% endif %}
+
+  handlers:
+    # `state: started` is a no-op on an already-running unit, and daemon-reload
+    # only re-reads unit definitions — neither restarts the process. So a changed
+    # ExecStart or a changed EnvironmentFile would sit on disk while systemd kept
+    # running the OLD command line and the OLD environment until the next boot.
+    # That is how an empty RCLONE_RC_PASS survived a "successful" deploy
+    # (Plan 00067). Restart only when something actually changed.
+    #
+    # A restart interrupts the VFS write-back queue, so this must not run during
+    # an upload. The plan-local deploy.bash enforces that by refusing to start
+    # while an ftp-camera process is alive.
+    - name: restart rclone mounts
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.systemd:
+        name: "rclone-{{ item.name }}.service"
+        state: restarted
+        daemon_reload: true
+        scope: user
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}"
+        DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ ansible_facts['getent_passwd'][user_login][1] }}/bus"
+      loop: "{{ rclone_mounts }}"
+      when: rclone_mounts is defined

@@ -172,14 +172,35 @@ else
     else
         fail "credential file is mode $mode, expected 600"
     fi
-    if [ -n "$RC_USER" ] && [ -n "$RC_PASS" ]; then
-        pass "credential file has both RCLONE_RC_USER and RCLONE_RC_PASS"
-        echo "        RCLONE_RC_USER = $RC_USER"
-        echo "        RCLONE_RC_PASS = <set, ${#RC_PASS} chars>"
+    # Report each key separately, and distinguish ABSENT from PRESENT-BUT-EMPTY.
+    # Collapsing those two into one message produced a self-contradicting report
+    # ("missing RCLONE_RC_PASS" directly above a list showing RCLONE_RC_PASS
+    # present) that cost a diagnostic round-trip.
+    for key in RCLONE_RC_USER RCLONE_RC_PASS; do
+        if ! grep -q "^${key}=" "$RC_AUTH_FILE"; then
+            fail "$key is absent from the credential file"
+        elif [ "$key" = "RCLONE_RC_USER" ] && [ -z "$RC_USER" ]; then
+            fail "$key is present but EMPTY"
+        elif [ "$key" = "RCLONE_RC_PASS" ] && [ -z "$RC_PASS" ]; then
+            fail "$key is present but EMPTY — the password lookup returned nothing"
+            echo "        The play's password store is read back, not regenerated,"
+            echo "        when it already exists. An EMPTY store yields an empty"
+            echo "        password, and the RC then refuses every request."
+            echo "        Check:  wc -c ~/.config/rclone/.rc-pass"
+            echo "        Fix:    delete it if empty, then re-run play-rclone.yml"
+        else
+            pass "$key is present and non-empty"
+        fi
+    done
+    [ -n "$RC_USER" ] && echo "        RCLONE_RC_USER = $RC_USER"
+    [ -n "$RC_PASS" ] && echo "        RCLONE_RC_PASS = <set, ${#RC_PASS} chars>"
+
+    # The store is the lookup's source of truth; its size is the direct evidence.
+    RC_PASS_STORE="$HOME/.config/rclone/.rc-pass"
+    if [ -e "$RC_PASS_STORE" ]; then
+        echo "        password store: $RC_PASS_STORE is $(stat -c '%s' "$RC_PASS_STORE") bytes"
     else
-        fail "credential file is missing RCLONE_RC_USER and/or RCLONE_RC_PASS"
-        echo "        keys present:"
-        awk -F= '/^[A-Z_]+=/ { print "          " $1 }' "$RC_AUTH_FILE"
+        echo "        password store: $RC_PASS_STORE does not exist"
     fi
 fi
 echo
@@ -208,11 +229,13 @@ echo
 
 # --- 4: the security fix -----------------------------------------------------
 echo "## 4. Unauthenticated access is refused"
+UNAUTH_REFUSED=0
 if unauth_out="$(rclone rc --url="http://localhost:${PORT}" config/dump 2>&1)"; then
     fail "config/dump answered WITHOUT credentials — the RC is still open"
     echo "        (this endpoint returns the remote's OAuth token)"
     echo "        response was ${#unauth_out} bytes — NOT shown, it contains secrets"
 else
+    UNAUTH_REFUSED=1
     pass "config/dump refused without credentials"
     echo "        refusal reason: $(printf '%s' "$unauth_out" | tr '\n' ' ')"
 fi
@@ -220,12 +243,14 @@ echo
 
 # --- 5: the capability kept --------------------------------------------------
 echo "## 5. Authenticated access works"
+AUTH_OK=0
 if [ -z "$RC_USER" ] || [ -z "$RC_PASS" ]; then
     fail "cannot test authenticated access — no credential available"
 else
     if reason="$(rclone rc --user "$RC_USER" --pass "$RC_PASS" \
         --url="http://localhost:${PORT}" core/stats 2>&1)"; then
         pass "authenticated core/stats succeeded"
+        AUTH_OK=1
     else
         fail "authenticated core/stats failed: $(printf '%s' "$reason" | tr '\n' ' ')"
         echo "        A 401 here with a correct-looking credential file usually"
@@ -240,6 +265,15 @@ else
     else
         fail "authenticated vfs/refresh failed: $(printf '%s' "$reason" | tr '\n' ' ')"
     fi
+fi
+
+# Check 4 on its own is NOT evidence that auth is configured correctly: an RC
+# that is simply broken refuses everyone, and would pass it. The refusal only
+# means what it is supposed to mean when authenticated access also works.
+if [ "$UNAUTH_REFUSED" -eq 1 ] && [ "$AUTH_OK" -eq 0 ]; then
+    echo "  NOTE  check 4's PASS is NOT meaningful on this run: the RC refused"
+    echo "        the unauthenticated call AND the authenticated one, so it is"
+    echo "        refusing everybody rather than enforcing a credential."
 fi
 echo
 
