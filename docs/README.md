@@ -333,6 +333,7 @@ ccy --top
 
 **Features**
 
+- [Feature documentation index](features/README.md) — all feature guides in one place
 - [Speech-to-Text](features/speech-to-text.md) — Press-and-hold Insert key transcription with auto-paste
 - [Claude Devtools](features/claude-devtools.md) — `ccdt` helper for Claude Code development containers
 

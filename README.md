@@ -166,10 +166,15 @@ Choose what you need from these curated playbooks:
 
 **Containerization** ([learn more](docs/containerization.md))
 
-- Docker (rootless) for application containers
+Podman (rootless, the default engine) and Docker (rootful, for tools that need it such
+as DDEV) are both installed by the main playbook — see
+[Container Engines](CLAUDE/ContainerEngines.md) for which to reach for. Optional on top:
+
 - Distrobox for seamless development environments
 - Docker-in-LXC for isolated project testing
 - [Playwright testing environment](docs/containerization.md#playwright-distrobox-automated) (automated browser setup)
+- [DDEV](docs/ddev.md) for local PHP/CMS development (Drupal, WordPress, Laravel, Magento)
+- [UniFi Network Controller](docs/UnifiSetupGuide.md) self-hosted in a Podman container
 
 **Programming Languages**
 
@@ -192,26 +197,54 @@ Choose what you need from these curated playbooks:
 
 **Productivity Tools**
 
+- [Speech-to-Text](docs/features/speech-to-text.md) — GPU-accelerated voice typing across the whole desktop
+- [Claude DevTools (`ccdt`)](docs/features/claude-devtools.md) — web UI for Claude Code session logs
+- [Fast File Manager](docs/fast-file-manager.md) — `lf`-based terminal file manager
+- [Kitty terminal](docs/kitty.md) — managed config, keybindings, URL copy workflow
 - Flatpak applications (Slack, etc.)
 - Firefox with profile switcher
 - LastPass CLI
-- VPN clients (WireGuard, Cloudflare WARP)
+- VPN clients (WireGuard, Cloudflare WARP, [NordVPN](docs/nordvpn-installation.md))
 
 See [Playbooks Reference](docs/playbooks.md) for the complete list with usage examples.
 
 ## Documentation
 
-Comprehensive guides are available in the [docs/](docs/) directory:
+Comprehensive guides are available in the [docs/](docs/) directory — start at the
+[documentation index](docs/README.md) if you are not sure where to look.
 
-- **[CCY — Claude Code YOLO](docs/ccy.md)** - Containerised Claude Code: security model, tokens, per-project images, supervisor
+**Installing and upgrading**
+
 - **[Installation Guide](docs/installation.md)** - Step-by-step setup instructions
 - **[Headless Server Install](docs/headless-server-install.md)** - Unattended IaC runbook for Fedora Server/Cloud (download → secrets → vars file → run)
 - **[Headless / Unattended Provisioning](docs/headless-provisioning.md)** - The full `RUN_BASH_*` contract, trigger rules, and security model
-- **[Playbooks Reference](docs/playbooks.md)** - Complete list of what you can install
-- **[Configuration Guide](docs/configuration.md)** - Customize your setup
-- **[Containerization Guide](docs/containerization.md)** - LXC vs Docker vs Distrobox explained
+- **[Post-Upgrade Repair](docs/post-upgrade.md)** - Checklist after a major Fedora version upgrade
+
+**Tools and features**
+
+- **[CCY — Claude Code YOLO](docs/ccy.md)** - Containerised Claude Code: security model, tokens, per-project images, supervisor
+- **[CCY Debug Mounts](docs/ccy-debug-mounts.md)** - Read-only host access from inside a CCY container
+- **[Speech-to-Text](docs/features/speech-to-text.md)** - Press-and-hold voice typing with auto-paste
+- **[Claude DevTools (`ccdt`)](docs/features/claude-devtools.md)** - Visualise Claude Code session logs in a web UI
+- **[Fast File Manager](docs/fast-file-manager.md)** - `lf`-based terminal file manager
+- **[Kitty Terminal](docs/kitty.md)** - Managed configuration, keybindings, URL copy workflow
+
+**Containers and local development**
+
+- **[Containerization Guide](docs/containerization.md)** - Podman, Docker, LXC and Distrobox explained
+- **[DDEV](docs/ddev.md)** - Local PHP/CMS development environments
+- **[UniFi Network Controller](docs/UnifiSetupGuide.md)** - Self-hosted controller for whole-house WiFi roaming
+
+**Accounts and networking**
+
 - **[GitHub Multi-Account Management](docs/github-multi-account.md)** - Multiple GitHub identities, SSH keys, and per-account helpers
 - **[GitHub SSH over Port 443](docs/github-ssh-over-443.md)** - Keep Git-over-SSH working on networks that block port 22
+- **[NordVPN Installation](docs/nordvpn-installation.md)** - OpenVPN-based setup via NetworkManager
+
+**Reference and contributing**
+
+- **[Playbooks Reference](docs/playbooks.md)** - Complete list of what you can install
+- **[Configuration Guide](docs/configuration.md)** - Customize your setup
 - **[Architecture Overview](docs/architecture.md)** - How the project is structured
 - **[Development Guide](docs/development.md)** - Contributing and development workflow
 
