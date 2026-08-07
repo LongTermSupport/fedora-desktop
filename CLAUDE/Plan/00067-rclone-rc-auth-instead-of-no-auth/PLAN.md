@@ -123,16 +123,20 @@ control not responding". Two independent faults were found:
 ### Phase 3: QA, deploy, verify
 
 - [x] ✅ **Task 3.1**: Run QA: `./scripts/qa-all.bash`
-- [ ] ⬜ **Task 3.2**: Write `triage.bash` — read-only endpoint auth matrix probe
+- [x] ✅ **Task 3.2**: Write `triage.bash` — read-only endpoint auth matrix probe
   (per `CLAUDE/PlanTriage.md`), reporting which endpoints answer and which
-  clients can authenticate. Must redact the RC password by substitution.
-- [ ] ⬜ **Task 3.3**: Write `acceptance.bash` — the pass/fail gate: unit has no
-  `--rc-no-auth`, unauthenticated `core/command` is refused, and each of the
-  four client scripts works.
-- [ ] ⬜ **Task 3.4**: (HOST) `deploy.bash` → `play-rclone.yml`. **Must not run
-  while an `ftp-camera --copy` is in flight** — it restarts the mount and
-  would interrupt the VFS write-back queue.
-- [ ] ⬜ **Task 3.5**: Run `acceptance.bash`; confirm all four clients work.
+  clients can authenticate. Redacts the RC password by substitution and
+  **verifies** the redaction, deleting the report if the secret leaked.
+- [x] ✅ **Task 3.3**: Write `acceptance.bash` — the pass/fail gate: no unit
+  carries `--rc-no-auth`, every unit loads the `EnvironmentFile`, the credential
+  is `0600` with both keys, unauthenticated `config/dump` is refused,
+  authenticated calls succeed, and the client scripts work.
+- [ ] ⬜ **Task 3.4**: (HOST) Run `deploy.bash` → `play-rclone.yml`. **Must not
+  run while an `ftp-camera --copy` is in flight** — it restarts the mount and
+  would interrupt the VFS write-back queue. `deploy.bash` now enforces this
+  itself: it refuses to start if it finds a running `ftp-camera` process, and
+  refuses to run inside the CCY container at all.
+- [ ] ⬜ **Task 3.5**: (HOST) Run `acceptance.bash`; confirm it exits 0.
 
 ## Technical Decisions
 
