@@ -72,3 +72,11 @@ FORCE-PUSH-REQUIRED.md
 
 # ClaudeMdInjector backup (session artifact, never commit)
 .CLAUDE.md.pre-inject
+
+# Plan-local script output (triage/acceptance/deploy reports).
+# The LOGS live in the plan folder so they travel with the plan (see
+# CLAUDE/PlanWorkflow.md "Plan-Local Scripts & Artifacts"), but they are NOT
+# committed: they are dumps of live host state — unit files, mount points,
+# container names, private IPs, SSIDs — and this is a public repository. The
+# pre-commit secret scanner would reject most of them anyway.
+CLAUDE/Plan/**/logs/

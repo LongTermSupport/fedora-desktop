@@ -26,10 +26,10 @@ output".
   gets a different set of commands and a different answer.
 - **The output goes to a terminal, not a file.** It then has to be copy-pasted
   back, which is lossy, truncated, and tedious for the user.
-- **An agent cannot read a terminal.** `triage.bash` writes into
-  `untracked/reports/`, which is gitignored *and* bind-mounted into the CCY
-  container — so the agent reads the report at the same repo-relative path,
-  with no copy-paste at all.
+- **An agent cannot read a terminal.** `triage.bash` writes into its **own plan
+  folder** (`CLAUDE/Plan/NNNNN-name/logs/`), which is inside the repo and so is
+  bind-mounted into the CCY container — the agent reads the report at the same
+  repo-relative path, with no copy-paste at all.
 - **They accumulate silently.** Five commands in chat is knowledge that
   evaporates when the session ends. Five probes in a script is a diagnostic
   the plan owns.
@@ -67,13 +67,21 @@ a live system, mid-incident. Say so in the header comment.
 Packet captures, `find`, `stat`, `systemctl status`, `journalctl` are all
 fine. Anything with a side effect is not triage.
 
-### It writes its own report
+### It writes its own report — into the plan folder
+
+**Plan script output belongs in the plan folder**, not in a shared repo-wide
+reports tree. It is plan-local scratch like every other plan artifact, so it
+travels with the plan into `Completed/` and is obvious to anyone reading the
+plan. This is the same rule `PlanWorkflow.md` states for scripts and fixtures —
+logs are not an exception.
+
+Resolve the directory from **the script's own location**, not from the repo
+root and never a fixed `../` hop, so the path keeps working after the plan is
+archived:
 
 ```bash
-REPO_ROOT="$(git rev-parse --show-toplevel)"   # NOT a fixed ../ hop — the
-                                               # script must survive the move
-                                               # into Completed/
-REPORTS_DIR="$REPO_ROOT/untracked/reports"
+PLAN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPORTS_DIR="$PLAN_DIR/logs"
 mkdir -p "$REPORTS_DIR"
 LOG="$REPORTS_DIR/<plan-topic>-triage.log"
 exec > >(tee "$LOG") 2>&1
@@ -81,6 +89,13 @@ exec > >(tee "$LOG") 2>&1
 
 Fixed filename, so the latest run is always at a predictable path. `tee` to a
 file — never to `/dev/null`.
+
+`CLAUDE/Plan/**/logs/` is **gitignored**. The logs live with the plan on disk
+but are never committed: they are dumps of live host state — unit files, mount
+points, container names, private IPs, SSIDs — and this is a public repository.
+(The pre-commit secret scanner would reject most of them anyway.) Being inside
+the repo is what makes them readable from the CCY container; being ignored is
+what keeps them off GitHub.
 
 ### The `probe()` helper
 
@@ -266,8 +281,10 @@ profile exists *now*" is not "no profile has *ever* existed".
 - [ ] Every diagnostic question answered by a probe in `triage.bash`, not a
   chat command
 - [ ] Read-only; safe to re-run on a live system
-- [ ] Writes its report to `untracked/reports/<topic>-triage.log`
-- [ ] `git rev-parse --show-toplevel` for the repo root, not `../`
+- [ ] Writes its report to `<plan folder>/logs/<topic>-triage.log` — plan-local,
+  never a shared repo-wide reports tree
+- [ ] Log dir resolved from the script's own location (`BASH_SOURCE[0]`), not
+  `../` and not the repo root, so it survives the move into `Completed/`
 - [ ] `probe()` used; no `2>/dev/null`, no `|| true`
 - [ ] Probe helpers are functions, not `bash -c` strings
 - [ ] `--help` works before any environment resolution

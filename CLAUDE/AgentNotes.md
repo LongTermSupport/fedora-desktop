@@ -30,10 +30,13 @@ CCY sessions + 2 container stacks) acting on a guess is dangerous.
 - **Establish ground truth with plan-local triage scripting**, not from memory.
   Write a read-only, re-runnable `triage.bash` in the plan folder that gathers
   the exact data points a decision needs. Have it **write its own report into
-  `untracked/reports/`** — that tree is gitignored *and* bind-mounted into the
-  CCY container, so the agent reads the report directly at the same repo path
-  (no copy-paste of terminal output). `untracked/` is the repo's scratch area
-  (`untracked/.gitignore` is `*` / `!.gitignore`).
+  that same plan folder** (`CLAUDE/Plan/NNNNN-name/logs/`, resolved from
+  `BASH_SOURCE[0]` so it survives archiving). Being inside the repo means the
+  CCY bind-mount makes it readable by the agent at the same repo path (no
+  copy-paste of terminal output); `CLAUDE/Plan/**/logs/` is gitignored so live
+  host state never reaches this public repo. **Not** a shared repo-wide reports
+  tree — plan output is plan-local, like every other plan artifact. See
+  [PlanTriage.md](PlanTriage.md).
 - **Separate fact from hypothesis, always.** Keep confirmed facts and unconfirmed
   hypotheses in different buckets in the plan; never let a hypothesis harden into
   an asserted cause.

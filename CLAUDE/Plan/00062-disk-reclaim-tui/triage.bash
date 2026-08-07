@@ -28,10 +28,13 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 STORAGE="$HOME/.local/share/containers/storage"
 TEMPDIRS="$STORAGE/overlay/tempdirs"
 
-# Write the full report into the repo's gitignored reports dir AND to the
-# terminal. Fixed filename = latest run; readable by the agent at
-# untracked/reports/reclaim-podman-triage.log. tee to a file (never /dev/null).
-REPORTS_DIR="$REPO_ROOT/untracked/reports"
+# Write the full report into THIS plan's gitignored logs/ dir AND to the
+# terminal. Fixed filename = latest run. The report lives in the plan folder so
+# it travels with the plan into Completed/; the dir is resolved from the
+# script's own location, not the repo root, so that move does not break it.
+# tee to a file (never /dev/null).
+PLAN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPORTS_DIR="$PLAN_DIR/logs"
 mkdir -p "$REPORTS_DIR"
 LOG="$REPORTS_DIR/reclaim-podman-triage.log"
 exec > >(tee "$LOG") 2>&1

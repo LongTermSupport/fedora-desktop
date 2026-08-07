@@ -9,7 +9,7 @@
 # --help, which changes nothing. It does NOT run `rclone-cache-warm --fast`
 # (that would issue a real vfs/refresh) — the operator is told to do that.
 #
-# Writes a REDACTED report to untracked/reports/ so the failure can be read
+# Writes a REDACTED report into this plan's logs/ so the failure can be read
 # without copy-pasting a terminal. The RC password is substituted out before
 # anything is written, and the finished report is checked for leakage.
 #
@@ -37,7 +37,7 @@ Exits 0 only if ALL of these hold:
 
 Exits 1 with a numbered list of what failed otherwise.
 
-Writes: untracked/reports/rclone-rc-auth-acceptance.log  (RC password redacted)
+Writes: <this plan folder>/logs/rclone-rc-auth-acceptance.log  (password redacted)
 EOF
             exit 0
             ;;
@@ -71,8 +71,12 @@ redact() {
     fi
 }
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
-REPORTS_DIR="$REPO_ROOT/untracked/reports"
+# The report lives in THIS plan's folder, so it travels with the plan into
+# Completed/. Resolved from the script's own location, not the repo root, so
+# that move does not break it. Plan logs/ dirs are gitignored — this is a
+# public repo and the report is a dump of live host state.
+PLAN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPORTS_DIR="$PLAN_DIR/logs"
 mkdir -p "$REPORTS_DIR"
 LOG="$REPORTS_DIR/rclone-rc-auth-acceptance.log"
 
@@ -305,7 +309,7 @@ echo "Fix by re-running the playbook (never by editing the unit by hand):"
 echo "  ansible-playbook playbooks/imports/optional/common/play-rclone.yml"
 echo
 echo "Report: $LOG"
-echo "  This file is inside the repo, so an agent can read it directly —"
+echo "  This file is inside the plan folder, so an agent can read it directly —"
 echo "  no need to copy-paste terminal output."
 echo "=============================================================="
 verify_no_secret

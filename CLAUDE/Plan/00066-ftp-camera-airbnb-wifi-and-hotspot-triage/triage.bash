@@ -100,7 +100,12 @@ if [ -z "$UPLOAD_DIR" ]; then
     exit 1
 fi
 
-REPORTS_DIR="$REPO_ROOT/untracked/reports"
+# The report lives in THIS plan's folder so it travels with the plan into
+# Completed/. Resolved from the script's own location, not the repo root, so
+# that move does not break it. Plan logs/ dirs are gitignored — this report is
+# a dump of live host state (NICs, IPs, SSIDs) and this is a public repo.
+PLAN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPORTS_DIR="$PLAN_DIR/logs"
 mkdir -p "$REPORTS_DIR"
 LOG="$REPORTS_DIR/ftp-camera-triage.log"
 exec > >(tee "$LOG") 2>&1

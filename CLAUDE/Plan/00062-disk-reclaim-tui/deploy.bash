@@ -17,9 +17,11 @@ set -euo pipefail
 # stderr = human status; stdout = the play's own output (via tee). No caller
 # captures stdout, so mirroring the play output there is correct.
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
-PLAY="$REPO_ROOT/CLAUDE/Plan/00062-disk-reclaim-tui/podman-store-repair.yml"
-REPORTS_DIR="$REPO_ROOT/untracked/reports"
+# Plan-local paths resolve from the script's own location, so they survive the
+# move into Completed/. Plan logs/ dirs are gitignored (public repo, host state).
+PLAN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLAY="$PLAN_DIR/podman-store-repair.yml"
+REPORTS_DIR="$PLAN_DIR/logs"
 LOG="$REPORTS_DIR/podman-store-repair-run.log"
 
 if [ ! -f "$PLAY" ]; then

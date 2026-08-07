@@ -32,7 +32,7 @@ Reports, without changing anything:
   * an endpoint auth matrix: which RC endpoints answer unauthenticated, which
     answer authenticated, and which refuse both
 
-Writes: untracked/reports/rclone-rc-auth-triage.log
+Writes: <this plan folder>/logs/rclone-rc-auth-triage.log
 EOF
             exit 0
             ;;
@@ -45,8 +45,13 @@ EOF
 done
 
 # --- environment -------------------------------------------------------------
-REPO_ROOT="$(git rev-parse --show-toplevel)"
-REPORTS_DIR="$REPO_ROOT/untracked/reports"
+# The report lives in THIS plan's folder, so it travels with the plan into
+# Completed/ and is obvious to anyone reading the plan. Resolved from the
+# script's own location rather than the repo root, so the move does not break
+# it. Plan logs/ dirs are gitignored — this is a public repo and the report is
+# a dump of live host state.
+PLAN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPORTS_DIR="$PLAN_DIR/logs"
 mkdir -p "$REPORTS_DIR"
 LOG="$REPORTS_DIR/rclone-rc-auth-triage.log"
 
