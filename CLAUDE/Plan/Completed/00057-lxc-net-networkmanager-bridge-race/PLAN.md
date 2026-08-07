@@ -1,6 +1,6 @@
 # Plan 00057: lxc-net vs NetworkManager bridge-ownership race
 
-**Status**: In Progress
+**Status**: Complete (2026-08-07)
 **Created**: 2026-07-03
 **Owner**: Claude Code Agent
 **Priority**: High
@@ -154,14 +154,24 @@ of whether NM manages the device.
 
 ## Success Criteria
 
-- [ ] `triage.bash` exits 0 on a healthy host and non-zero on the broken state.
-- [ ] After deploy: `systemctl is-active lxc-net` = active, `/run/lxc/network_up`
+- [x] ✅ `triage.bash` exits 0 on a healthy host and non-zero on the broken state.
+  **Both directions observed on the HOST**: 9 failures pre-deploy (T3.1), 0
+  failures post-deploy (T3.3).
+- [x] ✅ After deploy: `systemctl is-active lxc-net` = active, `/run/lxc/network_up`
   present, `dnsmasq` bound on `lxcbr0`, running containers hold leases.
-- [ ] `lxcbr0` shows as **unmanaged** by NetworkManager (any saved `lxcbr0`
-  profile is inert and cannot reactivate).
-- [ ] Playbook sanity gate fails fast if DHCP did not come up.
-- [ ] QA passes (`./scripts/qa-all.bash`) and `ansible-playbook --syntax-check`
-  is clean.
+  Confirmed in T3.3 — all 5 running containers held leases.
+- [x] ✅ `lxcbr0` shows as **unmanaged** by NetworkManager (any saved `lxcbr0`
+  profile is inert and cannot reactivate). Confirmed in T3.3.
+- [x] ✅ Playbook sanity gate fails fast if DHCP did not come up. The gate is an
+  `assert` on `_lxcnet_network_up.stat.exists` plus `systemctl is-active lxc-net`
+  (`play-lxc-install-config.yml`, "Sanity — lxc-net …" tasks). **Scope note**: it
+  ran on the HOST and *passed* (T3.2), so the positive path is observed; the
+  failure path is verified by construction (a hard `assert`, no
+  `failed_when: false`) rather than by having been tripped, because the play's
+  own fix tasks run before the gate and leave the host healthy. The degraded
+  state itself was reproduced independently by `triage.bash` in T3.1.
+- [x] ✅ QA passes (`./scripts/qa-all.bash`) and `ansible-playbook --syntax-check`
+  is clean — green at T1.2 and T2.5 (352 files, 74 playbooks).
 
 ## Risks & Mitigations
 
@@ -208,3 +218,29 @@ of whether NM manages the device.
   single `nmcli device connect eth0` inside that container triggered a fresh
   DISCOVER and it leased `…148` immediately. On a clean boot with this fix in
   place, `lxc-net` starts before the containers, so no nudge is needed.
+
+### 2026-08-07 (closed out — status flipped, no new work)
+
+Flipped to **Complete**. No implementation or deployment happened today; this
+entry only corrects the plan's record, which had lagged the code by a month.
+
+- **The "Push/PR blocked" note above is stale.** It was true on 2026-07-03, but
+  the work did land: `68ec666` ("Plan 00057: fix lxc-net vs NetworkManager
+  bridge race + add deploy.bash") is on `F44`. Verified on the branch rather
+  than assumed — `files/etc/NetworkManager/conf.d/99-lxc-unmanaged.conf` is
+  present, and the NM-unmanaged tasks, the `lxc-net` enable, and the
+  DHCP-readiness assert are all in `play-lxc-install-config.yml`. The original
+  note is left in place rather than rewritten, since it was accurate when
+  written.
+- **Task 2.2 re-verified.** A grep for `nmcli connection modify lxcbr0` still
+  returns a hit, which looks like the removal was missed. It is not: the only
+  remaining occurrence is inside the explanatory comment saying we deliberately
+  do **not** do this. The task itself is gone.
+- **Why this sat In Progress**: every task was ✅ and the HOST deploy verified
+  back on 2026-07-03, but the Success Criteria checkboxes were never ticked and
+  the status line was never flipped — pure clerical lag, caught by the
+  `staleness-nag` plan-QA sweep, not by any new failure.
+- Success criteria are now ticked with the evidence that supports each one. One
+  carries a scope note: the playbook sanity gate was observed passing, not
+  failing, so its failure path is verified by construction (a hard `assert`)
+  rather than by having been tripped.
