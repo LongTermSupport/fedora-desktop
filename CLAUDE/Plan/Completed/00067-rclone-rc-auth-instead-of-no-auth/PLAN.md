@@ -1,6 +1,6 @@
 # Plan 00067: rclone rc auth instead of no auth
 
-**Status**: In Progress
+**Status**: Complete (2026-08-08)
 **Created**: 2026-07-30
 **Owner**: joseph
 **Priority**: Medium
@@ -165,8 +165,12 @@ control not responding". Two independent faults were found:
   completely broken RC refuses everyone and therefore satisfies "unauthenticated
   access is refused". It now reports per key, prints the `.rc-pass` byte size,
   and cross-checks check 4 against whether authenticated access works.
-- [ ] ⬜ **Task 4.4**: (HOST) Re-run `deploy.bash`, then `acceptance.bash`;
-  confirm it exits 0.
+- [x] ✅ **Task 4.4**: (HOST) Re-run `deploy.bash`, then `acceptance.bash` —
+  **ACCEPTED, 11 passed, 0 failed** (2026-08-08 07:53). Both fixes are confirmed
+  by evidence in the report, not by inference: `.rc-pass` is **33 bytes** where
+  it was previously empty (so the lookup regenerated it), and the unit's
+  `active since` is 07:52:52, seconds before the run — the new handler restarted
+  it, which the old `state: started` never did.
 
 ## Technical Decisions
 
@@ -193,13 +197,30 @@ add risk and management burden for no portability gain.
 
 ## Success Criteria
 
-- [ ] No mount unit contains `--rc-no-auth`
-- [ ] Unauthenticated `core/command` and `config/dump` are refused (403)
-- [ ] Authenticated `vfs/refresh` succeeds — `rclone-cache-warm` works
-- [ ] `ftp-camera --copy`, `rclone-tail`, `rclone-cache-status` all work
-- [ ] `~/.config/rclone/rc-auth.env` is mode `0600` and the secret appears in no
-  committed file, no unit file, and no `ps` output
-- [ ] QA passes (`./scripts/qa-all.bash`)
+All verified by `acceptance.bash` on the HOST — **ACCEPTED, 11 passed, 0 failed**
+(`logs/rclone-rc-auth-acceptance.log`, 2026-08-08 07:53).
+
+- [x] ✅ No mount unit contains `--rc-no-auth`
+- [x] ✅ Unauthenticated `config/dump` is refused — **401**, not the 403 guessed
+  when this criterion was written. The refusal is meaningful *because*
+  authenticated calls succeed on the same run; a broken RC refuses everyone and
+  would satisfy this check on its own (that false pass is now cross-checked).
+  `core/command` was **not** probed — it executes OS commands, so firing it at a
+  live mount to prove a point is not worth it; it is gated by the same global
+  `--rc-user`/`--rc-pass` as `config/dump`.
+- [x] ✅ Authenticated `vfs/refresh` succeeds. **Scope note**: this is the
+  endpoint `rclone-cache-warm --fast` needs, and it was exercised directly with
+  credentials. The script itself was run only as `--help` — `--fast` issues a
+  real `vfs/refresh` against the mount, so it is left for the operator.
+- [x] ✅ `rclone-tail` and `rclone-cache-status` run (both `--help`; both use
+  only auth-free `vfs/stats`, unchanged by this plan). **`ftp-camera --copy` was
+  not exercised** — it moves real data. Its RC calls are `core/stats` (auth-free)
+  and `core/stats-reset` (gated by the same credential now proven working).
+- [x] ✅ `~/.config/rclone/rc-auth.env` is mode `0600`; the secret is in no
+  committed file (`CLAUDE/Plan/**/logs/` is gitignored and the report redacts by
+  substitution then verifies), no unit file, and no `ps` output — it reaches
+  rclone via `EnvironmentFile=`, never `ExecStart`.
+- [x] ✅ QA passes (`./scripts/qa-all.bash`) — 423 files, `--syntax-check` clean.
 
 ## Risks & Mitigations
 
