@@ -207,6 +207,49 @@ satisfies that principle when it does not.
 
 Repo-specific traps and conventions (the `project`-type notes).
 
+### Never pre-create a file that a generator expects to own
+
+`lookup('ansible.builtin.password', <path>, …)` **generates** a secret only when
+`<path>` is **absent**. If the file exists it reads the value back — that is what
+makes the credential stable across runs. So an **empty** store is read back as an
+**empty password**, forever, and is never regenerated.
+
+**Why:** Plan 00067 hit exactly this. `play-rclone.yml` had a `file: state: touch`
+task creating `.rc-pass` (to pin mode `0600`) immediately *before* the lookup ran.
+Every deploy therefore rendered `RCLONE_RC_PASS=` with no value; rclone started
+with `--rc-user` set and `--rc-pass` empty and its RC refused **every** request,
+authenticated or not, for a week. Nothing surfaced it: the play ran green, the
+unit file was correct, the service was active. Only a plan-local `acceptance.bash`
+caught it — and only because it tested non-emptiness rather than presence.
+
+**How to apply:**
+
+- Let the lookup create its own store. Pin `owner`/`mode` in a task that runs
+  **after** it, never before.
+- Add a recovery step for hosts already broken: `stat` the store and
+  `state: absent` it when `size == 0`, so the lookup regenerates. Without this a
+  re-run reads the empty file back and stays broken.
+- **Assert the generated artifact is non-empty** and fail the play if not. Fail
+  fast beats deploying a credential that silently disables the thing it secures.
+- The general shape to watch for: *any* guard that treats **existence** as
+  "already generated". `creates:` and `when: not <stat>.exists` both do. A
+  zero-byte file satisfies them and permanently suppresses regeneration.
+
+**Audit status (2026-08-09):** swept the repo for other instances. The repo has
+exactly **one** `ansible.builtin.password` lookup (the rclone one, now fixed) and
+exactly one other `state: touch` (`/etc/lxc/dhcp.conf`, which `lineinfile` then
+populates — an empty file is a valid starting state there, not a generation
+guard). **No second instance of the self-inflicted bug exists.** Several
+credential generators do guard on existence rather than non-emptiness — the LXC
+`id_lxc` key, ddev's `mkcert` CA, the NVIDIA MOK key, and the GitHub SSH keys
+(`when: not item.stat.exists`) — but none of them is pre-created by another task,
+and each generator writes a complete artifact or fails, so the play cannot inflict
+the empty state on itself. External truncation could still wedge them; that is
+noted, not fixed, because rewriting working credential code for a hypothetical is
+speculative. One wart worth knowing: if a GitHub key file were empty, the
+passphrase-verify step reports *"The key has a different passphrase"* — a
+misleading diagnosis, though its remediation (delete the key and re-run) is right.
+
 ### Ansible 2.19 shell-block parser checks quote balance across comments
 
 This repo's host runs `ansible-core 2.19+`. Its argument splitter does a
