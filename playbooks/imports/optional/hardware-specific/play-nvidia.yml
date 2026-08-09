@@ -227,6 +227,26 @@
         path: /etc/pki/akmods/certs/public_key.der
       register: akmods_mok_key
 
+    # The enrollment tasks below gate on `.stat.exists` alone, so a zero-byte key
+    # would pass that gate, make `mokutil --test-key` fail into its
+    # `failed_when: false` probe, and SILENTLY skip enrollment — leaving unsigned
+    # NVIDIA modules that Secure Boot refuses to load, with no error anywhere.
+    # `creates:` above would also never regenerate it. Fail loudly instead.
+    - name: Assert the akmods MOK key is non-empty
+      ansible.builtin.assert:
+        that:
+          - akmods_mok_key.stat.exists
+          - akmods_mok_key.stat.size > 0
+        fail_msg: |
+          /etc/pki/akmods/certs/public_key.der is missing or empty, but Secure Boot
+          is enabled — so akmods modules must be signed with it to load at all.
+
+          The `creates:` guard means re-running this play will NOT regenerate it.
+
+          Delete it and re-run:
+            sudo rm -f /etc/pki/akmods/certs/public_key.der
+      when: "'SecureBoot enabled' in secure_boot_state.stdout"
+
     - name: Check if MOK is already enrolled
       ansible.builtin.shell: mokutil --test-key /etc/pki/akmods/certs/public_key.der
       register: mok_enrolled

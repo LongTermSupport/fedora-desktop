@@ -351,6 +351,29 @@
           register: ssh_key_status
           loop: "{{ github_accounts | default({}) | dict2items }}"
 
+        # Must run BEFORE the passphrase probe: an empty key fails that probe
+        # too, and would otherwise be misreported as a wrong passphrase. The
+        # generation guard below tests only that the file EXISTS, so a zero-byte
+        # key suppresses regeneration permanently (the Plan 00067 failure shape).
+        - name: Fail fast if an existing SSH key file is empty
+          ansible.builtin.fail:
+            msg: |
+              SSH key ~/.ssh/github_{{ item.item.key }} exists but is EMPTY (0 bytes).
+              That is not a usable key, and it is not a passphrase problem — it is
+              most likely a truncated or interrupted write.
+
+              Key generation is guarded on the file EXISTING, so an empty file
+              silently suppresses regeneration on every future run.
+
+              To fix, delete it and re-run this playbook:
+                rm -f ~/.ssh/github_{{ item.item.key }} ~/.ssh/github_{{ item.item.key }}.pub
+          when:
+            - item.stat.exists
+            - item.stat.size == 0
+          loop: "{{ ssh_key_status.results }}"
+          loop_control:
+            label: "{{ item.item.key }}"
+
         - name: Create passphrase file for SSH key operations
           ansible.builtin.copy:
             content: "{{ github_ssh_passphrase }}"
@@ -376,8 +399,9 @@
         - name: Fail fast if existing keys have wrong passphrase
           ansible.builtin.fail:
             msg: |
-              SSH key ~/.ssh/github_{{ item.item.item.key }} exists but the vault
-              passphrase does not unlock it. The key has a different passphrase.
+              SSH key ~/.ssh/github_{{ item.item.item.key }} exists and is non-empty
+              (emptiness was ruled out earlier) but the vault passphrase does not
+              unlock it — so it either has a different passphrase or is corrupt.
 
               To fix, delete the key and re-run this playbook:
                 rm ~/.ssh/github_{{ item.item.item.key }} ~/.ssh/github_{{ item.item.item.key }}.pub
@@ -400,6 +424,31 @@
           no_log: true
           when: not item.stat.exists
           loop: "{{ ssh_key_status.results }}"
+          loop_control:
+            label: "{{ item.item.key }}"
+
+        - name: Re-stat SSH keys after generation
+          ansible.builtin.stat:
+            path: "/home/{{ user_login }}/.ssh/github_{{ item.key }}"
+          register: ssh_key_final
+          loop: "{{ github_accounts | default({}) | dict2items }}"
+          loop_control:
+            label: "{{ item.key }}"
+
+        # Fail rather than chmod 0600 an empty file and carry on as if the key
+        # were real — a zero-byte key would then block regeneration forever.
+        - name: Assert every SSH key was generated non-empty
+          ansible.builtin.assert:
+            that:
+              - item.stat.exists
+              - item.stat.size > 0
+            fail_msg: |
+              SSH key ~/.ssh/github_{{ item.item.key }} is missing or empty after
+              the generation step. Do not re-run before deleting it: generation is
+              guarded on the file existing, so a zero-byte key is never replaced.
+
+                rm -f ~/.ssh/github_{{ item.item.key }} ~/.ssh/github_{{ item.item.key }}.pub
+          loop: "{{ ssh_key_final.results }}"
           loop_control:
             label: "{{ item.item.key }}"
 

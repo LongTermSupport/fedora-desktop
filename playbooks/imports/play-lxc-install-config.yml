@@ -140,6 +140,26 @@
       args:
         creates: "/home/{{ user_login }}/.ssh/id_lxc"
 
+    - name: Stat the LXC SSH key
+      ansible.builtin.stat:
+        path: "/home/{{ user_login }}/.ssh/id_lxc"
+      register: _id_lxc
+
+    # `creates:` tests only that the path EXISTS, so a zero-byte key would
+    # suppress regeneration on every future run while silently breaking every
+    # container login. Fail loudly instead (the Plan 00067 failure shape).
+    - name: Assert the LXC SSH key is non-empty
+      ansible.builtin.assert:
+        that:
+          - _id_lxc.stat.exists
+          - _id_lxc.stat.size > 0
+        fail_msg: |
+          ~/.ssh/id_lxc is missing or empty. Container SSH will not work, and the
+          `creates:` guard above means re-running this play will NOT regenerate it.
+
+          Delete it and re-run:
+            rm -f ~/.ssh/id_lxc ~/.ssh/id_lxc.pub
+
     - name: Set up SSH Config for LXC Containers
       ansible.builtin.blockinfile:
         marker: "# {mark} LXC Containers Insecure Key"

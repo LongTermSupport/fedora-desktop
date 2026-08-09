@@ -106,6 +106,29 @@
       args:
         creates: "/home/{{ user_login }}/.local/share/mkcert/rootCA.pem"
 
+    - name: Stat the mkcert root CA
+      ansible.builtin.stat:
+        path: "/home/{{ user_login }}/.local/share/mkcert/rootCA.pem"
+      register: _mkcert_ca
+
+    # `creates:` tests only that the path EXISTS, so a zero-byte CA would
+    # suppress reinstallation forever while every ddev HTTPS site failed to
+    # verify. Fail loudly instead (the Plan 00067 failure shape).
+    - name: Assert the mkcert root CA is non-empty
+      ansible.builtin.assert:
+        that:
+          - _mkcert_ca.stat.exists
+          - _mkcert_ca.stat.size > 0
+        fail_msg: |
+          The mkcert root CA is missing or empty:
+            ~/.local/share/mkcert/rootCA.pem
+
+          ddev HTTPS certificates cannot be trusted without it, and the `creates:`
+          guard above means re-running this play will NOT regenerate it.
+
+          Delete the mkcert store and re-run:
+            rm -rf ~/.local/share/mkcert
+
     # ddev version probes Docker internally; sg activates the docker group
     # without requiring a session restart.
     - name: Verify DDEV Installation

@@ -239,16 +239,32 @@ caught it — and only because it tested non-emptiness rather than presence.
 exactly **one** `ansible.builtin.password` lookup (the rclone one, now fixed) and
 exactly one other `state: touch` (`/etc/lxc/dhcp.conf`, which `lineinfile` then
 populates — an empty file is a valid starting state there, not a generation
-guard). **No second instance of the self-inflicted bug exists.** Several
-credential generators do guard on existence rather than non-emptiness — the LXC
-`id_lxc` key, ddev's `mkcert` CA, the NVIDIA MOK key, and the GitHub SSH keys
-(`when: not item.stat.exists`) — but none of them is pre-created by another task,
-and each generator writes a complete artifact or fails, so the play cannot inflict
-the empty state on itself. External truncation could still wedge them; that is
-noted, not fixed, because rewriting working credential code for a hypothetical is
-speculative. One wart worth knowing: if a GitHub key file were empty, the
-passphrase-verify step reports *"The key has a different passphrase"* — a
-misleading diagnosis, though its remediation (delete the key and re-run) is right.
+guard). **No second instance of the self-inflicted bug exists.**
+
+Four credential generators guarded on existence rather than non-emptiness. None
+is pre-created by another task, so no play can inflict the empty state on itself
+— but external truncation would wedge each one permanently, since the guard then
+suppresses regeneration forever. All four now carry a `stat` + `assert` that the
+artifact is non-empty, with a `fail_msg` naming the file to delete:
+
+| Play                          | Artifact                               | What an empty file did before                                                            |
+| ----------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `play-github-cli-multi.yml`   | `~/.ssh/github_<alias>`                | misreported as *"different passphrase"*; then `chmod 0600` on an empty file, carrying on |
+| `play-lxc-install-config.yml` | `~/.ssh/id_lxc`                        | every container login broken, never regenerated                                          |
+| `play-ddev.yml`               | `~/.local/share/mkcert/rootCA.pem`     | ddev HTTPS certs untrusted, CA never reinstalled                                         |
+| `play-nvidia.yml`             | `/etc/pki/akmods/certs/public_key.der` | **silently skipped MOK enrollment** — see below                                          |
+
+The NVIDIA one was the worst and is the reason this was worth doing rather than
+filing as hypothetical: the enrollment tasks gate on `.stat.exists` alone, so an
+empty key passed the gate, made `mokutil --test-key` fail into its
+`failed_when: false` probe, and skipped enrollment **with no error anywhere** —
+leaving unsigned modules that Secure Boot refuses to load. That is precisely the
+skip-and-continue the repo's #1 rule prohibits.
+
+`play-github-cli-multi.yml` also gained an empty-key check that runs *before* the
+passphrase probe (an empty key fails that probe too, so it was being reported as
+a passphrase mismatch), and its passphrase failure message now says the key is
+non-empty but unopenable — different passphrase **or** corrupt.
 
 ### Ansible 2.19 shell-block parser checks quote balance across comments
 
