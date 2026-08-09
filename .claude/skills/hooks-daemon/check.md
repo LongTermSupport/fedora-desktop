@@ -63,4 +63,4 @@ Hook registration:
 - The audit is **advisory** — it always exits `0` and never blocks.
 - It reuses the SessionStart handlers' own check logic, so the report and the
   (quiet) session-start advisories stay in sync — a single source of truth.
-- Equivalent direct call: `$PYTHON -m claude_code_hooks_daemon.daemon.cli check`.
+- Equivalent direct call: `.claude/hooks-daemon/bin/hooks-daemon check`.

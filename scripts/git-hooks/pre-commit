@@ -206,9 +206,17 @@ for FILE in "${STAGED_FILE_LIST[@]}"; do
             */home/*)
                 # Drop the repository files/home/ directory structure (not system paths)
                 # and explicit placeholder home paths.
+                #
+                # `etc` is not a username: the hooks daemon generates
+                # .claude/HOOKS-DAEMON.md with the root_recursion_guard summary
+                # "rooted at ``/``/home/etc" — a backtick-mangled rendering of the
+                # dangerous-roots list (/, /home, /etc). Without this the generated
+                # file blocks every daemon-upgrade commit. Deliberately narrow: only
+                # a system directory name that can never be a home directory is
+                # listed, so `root` is NOT here.
                 MATCH_LINES=$(echo "$MATCH_LINES" \
                     | grep -vE "files/home/(bashrc-includes|[a-z-]+)" \
-                    | grep -vE "/home/(<user>|\\{\\{ ?user_login ?\\}\\}|\\\$USER|\\\$\\{USER\\}|ansible|runner|deploy|build|user)\\b" || true)
+                    | grep -vE "/home/(<user>|\\{\\{ ?user_login ?\\}\\}|\\\$USER|\\\$\\{USER\\}|ansible|runner|deploy|build|user|etc)\\b" || true)
                 ;;
         esac
 

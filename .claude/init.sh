@@ -275,8 +275,8 @@ fi
 #
 # Plan 00103 Decision 2: when none of the above resolve, fail loudly with
 # return 5 + stderr directive. The pre-v3.7.0 unversioned legacy
-# `untracked/venv/bin/python` is no longer accepted as a silent fallback —
-# it hid the v3.9.0 field-bug regression where operators saw "venv not
+# `untracked/venv/bin/python` is no longer a silent fallback  # python-var-guidance-exempt: names the retired path to document its rejection
+# — it hid the v3.9.0 field-bug regression where operators saw "venv not
 # found" while the real cause was a 3.9-vs-3.11 `import tomllib` crash.
 #
 # Plan 00103 Decision 3 Rule A: no `${VAR:-python3}` parameter expansion —
@@ -997,6 +997,12 @@ def fail(error_type, error_details):
         # finding 3). (The non-status path logs stderr inside emit_error_json.)
         print(f'HOOKS DAEMON ERROR [{error_type}]: {error_details}', file=sys.stderr)
         print('⚠️ NO STATUS DATA')
+    elif response_mode == 'worktree':
+        # WorktreeCreate stdout is parsed as a path; a transport failure has no
+        # valid path to offer. Fail creation cleanly (non-zero) with the reason
+        # on stderr rather than emitting '{}' (which becomes a bad path).
+        print(f'HOOKS DAEMON ERROR [{error_type}]: {error_details}', file=sys.stderr)
+        sys.exit(1)
     else:
         emit_error_json(event_name, error_type, error_details)
     sys.exit(0)
@@ -1012,6 +1018,24 @@ def render_status(output):
     if isinstance(data, dict) and data.get('text'):
         return data['text']
     return '⚠️ NO STATUS DATA'
+
+def print_worktree(output):
+    '''WorktreeCreate: Claude Code parses this hook's stdout as the created
+    worktree PATH (not JSON), so print the raw .worktreePath the daemon returns.
+    If the daemon produced no path (no handler / error), FAIL the creation
+    cleanly with a non-zero exit rather than echoing '{}' — Claude Code would
+    take '{}' literally as the path '/<cwd>/{}' (the original Plan 00188 bug).'''
+    try:
+        data = json.loads(output)
+    except Exception:
+        data = None
+    path = data.get('worktreePath') if isinstance(data, dict) else None
+    if path:
+        print(path)
+        sys.exit(0)
+    print('HOOKS DAEMON: WorktreeCreate produced no worktree path '
+          '(is the worktree_create handler enabled?)', file=sys.stderr)
+    sys.exit(1)
 
 # Read the raw hook_input payload from stdin (preserves control characters).
 raw = sys.stdin.read()
@@ -1062,6 +1086,8 @@ try:
     output = response.decode('utf-8').rstrip('\n')
     if response_mode == 'status':
         print(render_status(output))
+    elif response_mode == 'worktree':
+        print_worktree(output)  # prints raw path + exits (0 on success, 1 if none)
     else:
         print(output)
     sys.exit(0)

@@ -315,11 +315,13 @@ cat > "$plan_file" <<PLAN
 
 - [ ] <!-- criterion that must be met -->
 
-## Notes & Updates
+## Delivery & Milestones
 
-### $created
+<!-- Curated milestones + delivery commit hashes only (git is the SSoT for
+     "when" — do not add dates). The blow-by-blow activity log lives in
+     JOURNAL/$padded-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
-- Plan scaffolded.
+- <!-- milestone or delivery commit hash -->
 PLAN
 fi
 

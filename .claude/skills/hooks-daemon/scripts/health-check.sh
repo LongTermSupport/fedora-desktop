@@ -166,7 +166,7 @@ echo "════════════════════════�
     echo "❌ Daemon status check failed"
     echo ""
     echo "Try restarting the daemon:"
-    echo "  $PYTHON -m claude_code_hooks_daemon.daemon.cli restart"
+    echo "  $DAEMON_DIR/bin/hooks-daemon restart"
     exit 1
 }
 
@@ -186,7 +186,7 @@ if [ -f "$CONFIG_FILE" ]; then
         echo "⚠️  Config validation: FAILED"
         echo ""
         echo "Run for details:"
-        echo "  $PYTHON -m claude_code_hooks_daemon.daemon.cli config-validate $CONFIG_FILE"
+        echo "  $DAEMON_DIR/bin/hooks-daemon config-validate $CONFIG_FILE"
     fi
 else
     echo "❌ Config file missing: $CONFIG_FILE"
@@ -223,7 +223,7 @@ echo ""
 echo "✓ Health check complete"
 echo ""
 echo "For detailed logs:"
-echo "  $PYTHON -m claude_code_hooks_daemon.daemon.cli logs"
+echo "  $DAEMON_DIR/bin/hooks-daemon logs"
 echo ""
 echo "To restart daemon:"
-echo "  $PYTHON -m claude_code_hooks_daemon.daemon.cli restart"
+echo "  $DAEMON_DIR/bin/hooks-daemon restart"

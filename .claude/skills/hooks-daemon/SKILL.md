@@ -68,6 +68,19 @@ bounce.)
 
 See [regen-docs.md](regen-docs.md) for details.
 
+### Plan QA
+
+Lint and sweep the plan tree on demand — the same checks the edit-time lint,
+commit gate and session sweep run automatically:
+
+```bash
+.claude/hooks-daemon/bin/hooks-daemon plan-qa --sweep          # whole tree (exit 1 on findings)
+.claude/hooks-daemon/bin/hooks-daemon plan-qa --lint <PLAN.md> # one plan document
+.claude/hooks-daemon/bin/hooks-daemon plan-qa --check-staged   # what the commit gate will say
+```
+
+See [plan-qa.md](plan-qa.md) for details.
+
 ### Check Health & Status
 
 Verify daemon is running correctly:
@@ -208,7 +221,7 @@ case "$SUBCOMMAND" in
         bash "$SKILL_DIR/scripts/daemon-cli.sh" regenerate-docs "$@"
         ;;
 
-    logs|status|restart|handlers|validate-config|bug-report|check|release-notes)
+    logs|status|restart|handlers|config-validate|bug-report|check|release-notes)
         # Forward to daemon CLI wrapper
         bash "$SKILL_DIR/scripts/daemon-cli.sh" "$SUBCOMMAND" "$@"
         ;;

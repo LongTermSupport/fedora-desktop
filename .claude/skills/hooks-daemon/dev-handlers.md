@@ -120,10 +120,10 @@ Improve code quality while keeping tests green:
 
 ```bash
 # Restart daemon to load handler
-$PYTHON -m claude_code_hooks_daemon.daemon.cli restart
+.claude/hooks-daemon/bin/hooks-daemon restart
 
 # Verify handler loaded
-$PYTHON -m claude_code_hooks_daemon.daemon.cli handlers | grep my_custom
+.claude/hooks-daemon/bin/hooks-daemon handlers | grep my_custom
 
 # Test with real hook events
 # (trigger the scenario your handler intercepts)
@@ -170,13 +170,13 @@ Choose priority based on handler type:
 
 ```bash
 # Run project handler tests
-$PYTHON -m claude_code_hooks_daemon.daemon.cli test-project-handlers --verbose
+.claude/hooks-daemon/bin/hooks-daemon test-project-handlers --verbose
 
 # Validate handlers load correctly
-$PYTHON -m claude_code_hooks_daemon.daemon.cli validate-project-handlers
+.claude/hooks-daemon/bin/hooks-daemon validate-project-handlers
 
 # Generate acceptance test playbook (includes project handlers)
-$PYTHON -m claude_code_hooks_daemon.daemon.cli generate-playbook > /tmp/playbook.md
+.claude/hooks-daemon/bin/hooks-daemon generate-playbook > /tmp/playbook.md
 ```
 
 ## Examples

@@ -1,6 +1,6 @@
 # Plan 00046: localhost.yml Leak Guard Hook Handler
 
-**Status**: ⬜ Not Started
+**Status**: Not Started
 **Created**: 2026-05-26
 **Owner**: joseph
 **Priority**: High (safety follow-up to today's leak incident)
@@ -89,7 +89,7 @@ maintains by hand.
 - Test convention: `.claude/hooks/handlers/<event>/tests/test_<name>.py`
 - Front-controller daemon dispatches via `.claude/hooks/<event>` bash entry
 - Daemon must be restarted after any handler change
-  (`$PYTHON -m claude_code_hooks_daemon.daemon.cli restart`)
+  (`.claude/hooks-daemon/bin/hooks-daemon restart`)
 
 ## Tasks
 
@@ -261,11 +261,11 @@ inside the container. These steps must be run by the user on the
 host after the implementation phase commits land.
 
 - [ ] ⬜ **Restart the hooks daemon** (host):
-  `$PYTHON -m claude_code_hooks_daemon.daemon.cli restart`
+  `.claude/hooks-daemon/bin/hooks-daemon restart`
 - [ ] ⬜ **Confirm daemon is RUNNING and the new handler loaded** (host):
-  - `$PYTHON -m claude_code_hooks_daemon.daemon.cli status` → expect
+  - `.claude/hooks-daemon/bin/hooks-daemon status` → expect
     `RUNNING`
-  - `$PYTHON -m claude_code_hooks_daemon.daemon.cli logs 2>&1 | grep -i localhost_yml_leak_guard` → expect to see the
+  - `.claude/hooks-daemon/bin/hooks-daemon logs 2>&1 | grep -i localhost_yml_leak_guard` → expect to see the
     handler being registered during startup
   - If the daemon refuses to start, the handler's
     `get_acceptance_tests()` is the most common culprit — must

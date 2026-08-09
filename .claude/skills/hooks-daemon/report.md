@@ -29,19 +29,19 @@ Gather ALL of the following. Save raw output to shell variables or temp files fo
 #### 2a. Daemon status and health
 
 ```bash
-$PYTHON -m claude_code_hooks_daemon.daemon.cli status 2>&1
+.claude/hooks-daemon/bin/hooks-daemon status 2>&1
 ```
 
 #### 2b. Daemon logs (last 200 lines)
 
 ```bash
-$PYTHON -m claude_code_hooks_daemon.daemon.cli logs 2>&1
+.claude/hooks-daemon/bin/hooks-daemon logs 2>&1
 ```
 
 #### 2c. Loaded handlers
 
 ```bash
-$PYTHON -m claude_code_hooks_daemon.daemon.cli handlers 2>&1
+.claude/hooks-daemon/bin/hooks-daemon handlers 2>&1
 ```
 
 #### 2d. Configuration file
@@ -63,7 +63,7 @@ git status
 
 ```bash
 echo "Hostname: $HOSTNAME"
-echo "Python: $($PYTHON --version 2>&1)"
+.claude/hooks-daemon/bin/hooks-daemon health   # resolved interpreter + version
 echo "OS: $(uname -a)"
 echo "Container: ${YOLO_CONTAINER:-not detected}"
 ```

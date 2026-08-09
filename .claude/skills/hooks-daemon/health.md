@@ -72,7 +72,7 @@ See logs for details: /hooks-daemon logs
 **Fix:**
 
 ```bash
-$PYTHON -m claude_code_hooks_daemon.daemon.cli restart
+.claude/hooks-daemon/bin/hooks-daemon restart
 ```
 
 ### DEGRADED MODE
@@ -111,14 +111,14 @@ $PYTHON -m claude_code_hooks_daemon.daemon.cli restart
 For detailed diagnostics when reporting issues:
 
 ```bash
-# Generate diagnostic report
-$PYTHON -m claude_code_hooks_daemon.daemon.cli status --verbose
+# Generate diagnostic report (health is the detailed view; status is a summary)
+.claude/hooks-daemon/bin/hooks-daemon health
 
 # Check handler registry
-$PYTHON -m claude_code_hooks_daemon.daemon.cli handlers
+.claude/hooks-daemon/bin/hooks-daemon handlers
 
-# Validate configuration
-$PYTHON -m claude_code_hooks_daemon.daemon.cli validate-config
+# Validate configuration (config-validate takes the config path)
+.claude/hooks-daemon/bin/hooks-daemon config-validate .claude/hooks-daemon.yaml
 ```
 
 ## Troubleshooting

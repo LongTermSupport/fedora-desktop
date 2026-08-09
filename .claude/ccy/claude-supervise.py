@@ -92,7 +92,7 @@ if TYPE_CHECKING:
 # (see CLAUDE/development/RELEASING.md). Display-only for the banner and the
 # runtime status file; staleness detection (Plan 00164 Phase 3) uses a content
 # hash of THIS file so it is correct even between version bumps.
-__version__ = "3.46.0"
+__version__ = "3.51.0"
 
 # Absolute path to THIS running script — hashed for staleness detection so the
 # daemon can tell when the on-disk supervisor differs from the running one.
@@ -102,6 +102,16 @@ _READ_CHUNK_SIZE = 4096
 _FALLBACK_WINSIZE = struct.pack("HHHH", 24, 80, 0, 0)
 _LOG_SUBDIRECTORY = "supervise"
 _LOG_FILENAME = "decision.log"
+# Plan 00181: a red-but-idle session ticks every ~1-2s indefinitely, each tick
+# potentially appending a NOOP-reason line, so decision.log is an unbounded
+# disk time-bomb. Front-cap it: when it exceeds _DECISION_LOG_MAX_BYTES after a
+# write, drop the oldest bytes so only the newest _DECISION_LOG_RETAIN_BYTES
+# (whole lines) survive. RETAIN < MAX gives hysteresis so a log sitting at the
+# ceiling is not rewritten on every single append. This mirrors the daemon's
+# utils.retention.cap_log_file, reimplemented inline because the standalone
+# supervisor cannot import daemon modules.
+_DECISION_LOG_MAX_BYTES = 4 * 1024 * 1024
+_DECISION_LOG_RETAIN_BYTES = 2 * 1024 * 1024
 # Runtime identity file the running supervisor writes for staleness detection
 # (Plan 00164 Phase 3). Lives in the same 'supervise' subdir as the decision log.
 _SUPERVISOR_STATUS_FILENAME = "supervisor-status.json"
@@ -541,6 +551,7 @@ class DecisionLog:
         timestamp = datetime.now(UTC).isoformat()
         with self._path.open("a", encoding="utf-8") as handle:
             handle.write(f"{timestamp} {message}\n")
+        self._cap_if_needed()
         # A real action line breaks the NOOP-dedup run: the next identical NOOP
         # reason must re-log (it describes a fresh post-action observation).
         self._last_noop_message = None
@@ -567,7 +578,38 @@ class DecisionLog:
         timestamp = datetime.now(UTC).isoformat()
         with self._path.open("a", encoding="utf-8") as handle:
             handle.write(f"{timestamp} {message}\n")
+        self._cap_if_needed()
         self._last_noop_message = message
+
+    def _cap_if_needed(self) -> None:
+        """Front-truncate the log to below the byte ceiling, keeping newest lines.
+
+        Best-effort disk-bomb guard (Plan 00181): a capping failure must NEVER
+        crash a supervisor tick or lose the line just written, so IO errors are
+        reported to stderr and swallowed rather than propagated. The successful
+        path drops the oldest bytes and the (now partial) leading line so only
+        the newest ``_DECISION_LOG_RETAIN_BYTES`` of WHOLE lines remain.
+        """
+        try:
+            size = self._path.stat().st_size
+        except OSError:
+            return
+        if size <= _DECISION_LOG_MAX_BYTES:
+            return
+        try:
+            with self._path.open("rb") as handle:
+                handle.seek(max(0, size - _DECISION_LOG_RETAIN_BYTES))
+                tail = handle.read()
+            # Drop the partial first line so the file starts on a line boundary.
+            newline = tail.find(b"\n")
+            kept = tail[newline + 1 :] if newline != -1 else tail
+            tmp = self._path.with_name(self._path.name + ".retain.tmp")
+            tmp.write_bytes(kept)
+            tmp.replace(self._path)
+        except OSError as exc:
+            # FAIL LOUD but not FATAL: surface the cap failure without aborting
+            # the supervision loop (the appended line is already safely on disk).
+            sys.stderr.write(f"[claude-supervise] decision.log cap failed: {exc}\n")
 
 
 # ---------------------------------------------------------------------------
@@ -668,6 +710,14 @@ _SESSION_ENV_PREFIX = b"CLAUDE_CODE_SESSION_ID="
 # a foreign terminal. Keeps ids learned during active work available on later
 # idle ticks (when no descendant currently exposes the env var).
 _own_session_ids_cache: set[str] = set()
+# Plan 00182: throttle the expensive full-/proc environ scan. Once our session
+# ids are learned they persist in the accumulate-set above, so re-scanning every
+# worker tick (poll interval 2s) was the latency source that could push a tick
+# past the 2s worker read timeout and trigger the stale-reply desync. Re-scan at
+# most once per TTL; an EMPTY cache always forces a scan so discovery is never
+# starved (fail-safe: a supervisor that has not yet found its session must look).
+_OWN_SESSION_SCAN_TTL_SECONDS = 30.0
+_own_session_ids_last_scan: float | None = None
 
 
 def _session_ids_from_environ(environ: bytes) -> set[str]:
@@ -708,9 +758,29 @@ def resolve_own_session_ids(proc_root: Path | None = None) -> frozenset[str]:
     return frozenset(found)
 
 
-def cached_own_session_ids(proc_root: Path | None = None) -> frozenset[str]:
-    """Union-accumulate and return the supervisor's own-session-id set."""
-    _own_session_ids_cache.update(resolve_own_session_ids(proc_root))
+def cached_own_session_ids(
+    proc_root: Path | None = None, *, now: float | None = None
+) -> frozenset[str]:
+    """Union-accumulate and return the supervisor's own-session-id set.
+
+    Plan 00182: the full /proc environ scan is throttled to
+    ``_OWN_SESSION_SCAN_TTL_SECONDS`` once at least one id is known -- most ticks
+    then return the accumulated set without touching /proc, keeping the worker
+    tick well under its read timeout. An EMPTY cache always re-scans so a
+    supervisor that has not yet discovered its own session is never starved.
+    ``now`` (monotonic seconds) is injectable for tests; production uses the
+    monotonic clock.
+    """
+    global _own_session_ids_last_scan
+    current = time.monotonic() if now is None else now
+    due = (
+        not _own_session_ids_cache
+        or _own_session_ids_last_scan is None
+        or (current - _own_session_ids_last_scan) >= _OWN_SESSION_SCAN_TTL_SECONDS
+    )
+    if due:
+        _own_session_ids_cache.update(resolve_own_session_ids(proc_root))
+        _own_session_ids_last_scan = current
     return frozenset(_own_session_ids_cache)
 
 
@@ -830,6 +900,13 @@ class TickFacts:
     # 00164 Phase 4 fix). The worker loads it before deciding so it never runs on
     # divergent state; None on the in-process path (the machine is already live).
     machine_state: dict[str, object] | None = None
+    # Per-request correlation id (Plan 00182). The host stamps a monotonically
+    # increasing id on each worker request; the worker echoes it back on the
+    # matching TickOutcome. The host drops any reply whose id does not match the
+    # current request, so a reply left buffered by a timed-out (slow) tick can
+    # never be consumed on a LATER tick and injected out of turn. 0 on the
+    # in-process path (no worker, no correlation needed).
+    tick_id: int = 0
 
 
 @dataclass(frozen=True)
@@ -856,6 +933,11 @@ class TickOutcome:
     # Set only for NOOP ticks NOT already covered by `deferred_log`. None on
     # action ticks. Kept out of the state machine (host-side dedup owns volume).
     noop_reason_log: str | None = None
+    # Correlation id echoed from the originating TickFacts (Plan 00182). The
+    # worker copies the request's ``tick_id`` onto its reply so the host can
+    # discard a stale reply from a previously timed-out tick. 0 on the
+    # in-process path and on legacy replies without the field.
+    tick_id: int = 0
 
 
 def _coerce_float(value: object) -> float:
@@ -1512,6 +1594,21 @@ class CompactStateMachine:
         # True when the current AWAIT was entered by a HUMAN /compact (not the
         # supervisor's own inject) -- suppresses the supervisor ESC flush.
         self._await_is_human = False
+        # Plan 00183: dry-run fires ONCE per session, once only. A dry-run marker
+        # is a no-op on the environment (no real /compact), so context stays red
+        # and the machine would re-decide to act every episode -- flooding the
+        # session with fake prompts. This latch is set on the first dry-run
+        # injection and suppresses every one thereafter for the process lifetime.
+        self._dry_run_fired = False
+
+    @property
+    def dry_run_fired(self) -> bool:
+        """True once a dry-run marker has been injected this session (Plan 00183)."""
+        return self._dry_run_fired
+
+    def mark_dry_run_fired(self) -> None:
+        """Latch the dry-run once-only fuse for the process lifetime (Plan 00183)."""
+        self._dry_run_fired = True
 
     def export_state(self) -> dict[str, object]:
         """Serialise the mutable per-episode state (Plan 00164 Phase 4 fix).
@@ -1529,6 +1626,7 @@ class CompactStateMachine:
             "compaction_handled": self._compaction_handled,
             "escapes_sent": self._escapes_sent,
             "await_is_human": self._await_is_human,
+            "dry_run_fired": self._dry_run_fired,
         }
 
     def import_state(self, state: dict[str, object]) -> None:
@@ -1549,6 +1647,8 @@ class CompactStateMachine:
             self._escapes_sent = _coerce_int(state["escapes_sent"])
         if "await_is_human" in state:
             self._await_is_human = bool(state["await_is_human"])
+        if "dry_run_fired" in state:
+            self._dry_run_fired = bool(state["dry_run_fired"])
 
     def evaluate(
         self,
@@ -2044,6 +2144,22 @@ def decide_once(
         foreground_ambiguous=foreground_ambiguous,
     )
     payload = _resolve_payload(evaluation.decision, dry_run=dry_run, now_wall=facts.now_wall)
+    # Plan 00183: dry-run fires ONCE per session, once only. A dry-run marker is a
+    # no-op on the environment (no real /compact), so context stays red and the
+    # machine re-decides to act every episode -- and each marker is Enter-submitted,
+    # so it lands as a real prompt that wakes the agent. Left unlatched this floods
+    # the session (MONITOR -> WOULD_COMPACT -> AWAIT -> WOULD_ESCAPE x N -> ...).
+    # After the FIRST would-be injection we latch OFF for the process lifetime: one
+    # visible demonstration, then silence. Armed mode never latches -- real
+    # compaction feedback resolves each episode there. The latch rides in the
+    # machine state so it round-trips through the policy worker (Plan 00164 P4).
+    dry_run_latched_log: str | None = None
+    if dry_run and payload is not None:
+        if machine.dry_run_fired:
+            payload = None
+            dry_run_latched_log = f"{_NOOP_LOG_PREFIX}: dry-run already fired once this session"
+        else:
+            machine.mark_dry_run_fired()
     # The raw ESC is an interrupt key, not a line -- inject it WITHOUT a trailing
     # Enter. Every other payload (compact / continue / markers) is a line.
     submit = not (evaluation.decision is Decision.WOULD_ESCAPE and not dry_run)
@@ -2074,6 +2190,10 @@ def decide_once(
         and not _is_benign_not_red(reading)
     ):
         noop_reason_log = f"{_NOOP_LOG_PREFIX}: {evaluation.reason}{_noop_band_suffix(reading)}"
+    # A dry-run suppression is not a NOOP decision (the machine still WOULD act),
+    # so the block above skips it -- surface it explicitly for decision.log.
+    if dry_run_latched_log is not None:
+        noop_reason_log = dry_run_latched_log
     return TickOutcome(
         decision_value=evaluation.decision.value,
         reason=evaluation.reason,
@@ -2091,13 +2211,28 @@ def _apply_decision(
     *,
     master_writer: Callable[[bytes], None],
     log: DecisionLog | None,
+    host_state: str | None = None,
 ) -> None:
     """Perform a :class:`TickOutcome` on the PTY (host side, Plan 00164 P4).
 
     Injects the payload (if any), logs it, and consumes the compaction signal
     only AFTER a successful resume injection — mirroring the original inline
     behaviour of ``_poll_once`` exactly.
+
+    Plan 00182 defence-in-depth: ``host_state`` is the host's authoritative
+    ``SupervisorState`` value BEFORE this outcome is adopted. If the host is
+    already ``AWAIT_COMPACTING`` a ``WOULD_COMPACT`` outcome is stale/impossible
+    (a compaction is already in flight) -- injecting it would stack a second
+    ``/compact``, so it is suppressed and logged rather than performed. The
+    in-process path passes ``None`` (single live machine -- no desync possible).
     """
+    if (
+        host_state == SupervisorState.AWAIT_COMPACTING.value
+        and outcome.decision_value == Decision.WOULD_COMPACT.value
+    ):
+        if log is not None:
+            log.write_noop("noop: stale /compact suppressed (host already awaiting compaction)")
+        return
     if outcome.payload is not None:
         _perform_injection(master_writer, outcome.payload, submit=outcome.submit)
         if log is not None:
@@ -2183,6 +2318,7 @@ def _facts_to_json(facts: TickFacts) -> str:
             "human_compact_submitted": facts.human_compact_submitted,
             "work_idle": facts.work_idle,
             "machine_state": facts.machine_state,
+            "tick_id": facts.tick_id,
         }
     )
 
@@ -2196,6 +2332,7 @@ def _facts_from_json(line: str) -> TickFacts:
         human_compact_submitted=bool(data["human_compact_submitted"]),
         work_idle=bool(data["work_idle"]),
         machine_state=data.get("machine_state"),
+        tick_id=int(data.get("tick_id", 0)),
     )
 
 
@@ -2210,6 +2347,7 @@ def _outcome_to_json(outcome: TickOutcome) -> str:
             "deferred_log": outcome.deferred_log,
             "machine_state": outcome.machine_state,
             "noop_reason_log": outcome.noop_reason_log,
+            "tick_id": outcome.tick_id,
         }
     )
 
@@ -2225,6 +2363,7 @@ def _outcome_from_json(line: str) -> TickOutcome:
         deferred_log=data["deferred_log"],
         machine_state=data.get("machine_state"),
         noop_reason_log=data.get("noop_reason_log"),
+        tick_id=int(data.get("tick_id", 0)),
     )
 
 
@@ -2274,7 +2413,10 @@ def run_worker(
             # the whole purpose is to contain ANY unexpected decision failure.
             append_worker_error("decide_once failed:\n" + traceback.format_exc())
             outcome = _worker_error_noop()
-        out_stream.write(_outcome_to_json(outcome) + "\n")
+        # Plan 00182: echo the request's correlation id so the host can match
+        # this reply to the tick that produced it and drop any stale reply left
+        # buffered by an earlier timed-out tick.
+        out_stream.write(_outcome_to_json(replace(outcome, tick_id=facts.tick_id)) + "\n")
         out_stream.flush()
     return 0
 
@@ -2318,6 +2460,11 @@ class PolicyWorker:
         self._proc: subprocess.Popen[str] | None = None
         self._err_stream: TextIO | None = None
         self._source_fingerprint = self._current_fingerprint()
+        # Plan 00182: monotonically increasing per-request correlation id. The
+        # worker echoes it back; `decide` drops any reply whose id does not match
+        # the current request, so a stale reply buffered by a timed-out tick is
+        # never injected out of turn.
+        self._tick_id = 0
 
     def _current_fingerprint(self) -> str | None:
         """Best-effort source hash of the on-disk supervisor (None on error)."""
@@ -2360,29 +2507,50 @@ class PolicyWorker:
         return self._proc is not None and self._proc.poll() is None
 
     def decide(self, facts: TickFacts) -> TickOutcome | None:
-        """Ask the worker for a decision; None on any failure (host falls back)."""
+        """Ask the worker for a decision; None on any failure (host falls back).
+
+        Plan 00182: each request carries a unique ``tick_id`` the worker echoes
+        back. A reply whose id does not match the current request is a stale
+        reply left buffered by an earlier timed-out (slow) tick -- it is drained
+        and discarded, NEVER returned. Without this, a slow tick's late
+        ``WOULD_COMPACT`` reply would be read on the NEXT tick and injected on
+        top of a still-queued ``/compact``, stacking two compactions.
+        """
         proc = self._proc
         if proc is None or proc.stdin is None or proc.stdout is None or proc.poll() is not None:
             return None
+        self._tick_id += 1
+        tick_id = self._tick_id
         try:
-            proc.stdin.write(_facts_to_json(facts) + "\n")
+            proc.stdin.write(_facts_to_json(replace(facts, tick_id=tick_id)) + "\n")
             proc.stdin.flush()
         except (OSError, ValueError):
             return None
-        # Bounded wait: a hung worker must not stall the PTY host for a whole tick.
-        ready, _, _ = select.select([proc.stdout], [], [], self._read_timeout)
-        if not ready:
-            return None
-        try:
-            line = proc.stdout.readline()
-        except (OSError, ValueError):
-            return None
-        if not line:
-            return None
-        try:
-            return _outcome_from_json(line)
-        except (ValueError, KeyError):
-            return None
+        # Bounded wait: a hung worker must not stall the PTY host for a whole
+        # tick. Drain stale replies (from earlier timed-out ticks) until the
+        # reply matching THIS request arrives or the deadline passes.
+        deadline = time.monotonic() + self._read_timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            ready, _, _ = select.select([proc.stdout], [], [], remaining)
+            if not ready:
+                return None
+            try:
+                line = proc.stdout.readline()
+            except (OSError, ValueError):
+                return None
+            if not line:
+                return None
+            try:
+                outcome = _outcome_from_json(line)
+            except (ValueError, KeyError):
+                return None
+            if outcome.tick_id == tick_id:
+                return outcome
+            # Stale reply from a previously timed-out tick -- discard and keep
+            # reading for the reply that matches this request.
 
     def reload_if_stale(self) -> bool:
         """Respawn the worker if the on-disk supervisor code has changed.
@@ -2702,7 +2870,15 @@ def supervise(
                 )
             )
         if outcome is not None:
-            _apply_decision(outcome, master_writer=_write_master, log=log)
+            # Plan 00182: pass the host's authoritative PRE-tick state so a stale
+            # WOULD_COMPACT reply (worker still MONITOR, host already awaiting)
+            # is suppressed instead of stacking a second /compact.
+            _apply_decision(
+                outcome,
+                master_writer=_write_master,
+                log=log,
+                host_state=machine.state.value,
+            )
             # Adopt the worker's post-tick state so `machine` remains the single
             # source of truth; a later in-process fallback tick then cannot
             # diverge and inject a duplicate /compact (Plan 00164 Phase 4 fix).

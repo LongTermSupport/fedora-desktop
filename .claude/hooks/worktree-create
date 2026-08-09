@@ -19,9 +19,8 @@ if ! ensure_daemon; then
     exit 0  # Exit 0 so Claude processes the JSON response
 fi
 
-# Plan 00156: no jq. send_request_stdin wraps the raw stdin hook_input into
-# {event, hook_input} itself (the python3 transport it already spawns). The
-# payload stays on stdin — control-character safe; only the hardcoded event-name
-# literal is passed as an argument.
-# send_request_stdin handles socket errors internally and outputs JSON on failure.
-send_request_stdin "WorktreeCreate"
+# Plan 00188: "worktree" response mode. Claude Code parses this hook's stdout as
+# the created worktree PATH, so the transport extracts .worktreePath from the
+# daemon response and prints it RAW (never '{}', which would become a bad path).
+# send_request_stdin handles socket errors internally (non-zero exit on failure).
+send_request_stdin "WorktreeCreate" "worktree"

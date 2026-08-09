@@ -21,7 +21,7 @@ Upgrade the Claude Code Hooks Daemon and commit the result atomically.
 3. **Verify daemon RUNNING**:
 
    ```bash
-   $PYTHON -m claude_code_hooks_daemon.daemon.cli status
+   .claude/hooks-daemon/bin/hooks-daemon status
    ```
 
 4. **Reconcile project docs with truth-changes** (skip on `--force`
@@ -30,7 +30,7 @@ Upgrade the Claude Code Hooks Daemon and commit the result atomically.
    Load the truth-changes for the range you just crossed:
 
    ```bash
-   $PYTHON -m claude_code_hooks_daemon.daemon.cli check-truth-changes \
+   .claude/hooks-daemon/bin/hooks-daemon check-truth-changes \
        --from ${from_version} --to ${to_version}
    ```
 
@@ -61,7 +61,7 @@ Upgrade the Claude Code Hooks Daemon and commit the result atomically.
    recommended for the range you crossed so a new feature never ships dormant:
 
    ```bash
-   $PYTHON -m claude_code_hooks_daemon.daemon.cli check-config-migrations \
+   .claude/hooks-daemon/bin/hooks-daemon check-config-migrations \
        --from ${from_version} --to ${to_version}
    ```
 
@@ -110,4 +110,4 @@ Upgrade the Claude Code Hooks Daemon and commit the result atomically.
    ```
 
 If the daemon is not RUNNING after upgrade, do NOT commit — investigate
-first (`$PYTHON -m claude_code_hooks_daemon.daemon.cli logs`).
+first (`.claude/hooks-daemon/bin/hooks-daemon logs`).

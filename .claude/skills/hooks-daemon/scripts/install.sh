@@ -111,7 +111,10 @@ _installation_is_healthy() {
     # standalone in a client project BEFORE the daemon source tree (and
     # scripts/lib/resolve_venv.sh) exists. This is a lightweight health probe,
     # not venv resolution for use, so it globs directly.
-    for py in "$dir"/untracked/venv-*/bin/python "$dir"/untracked/venv/bin/python; do
+    # Probes BOTH layouts on purpose: the retired pre-v3.7.0 path is listed so
+    # an old-but-working install is detected as healthy (and so left alone)
+    # rather than silently re-cloned over.
+    for py in "$dir"/untracked/venv-*/bin/python "$dir"/untracked/venv/bin/python; do  # python-var-guidance-exempt: deliberate dual-layout probe
         if [ -x "$py" ] && "$py" -c "import claude_code_hooks_daemon" > "$probe_out" 2> "$probe_out"; then
             rm -f "$probe_out"
             return 0

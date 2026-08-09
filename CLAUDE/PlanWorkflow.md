@@ -125,8 +125,34 @@ automatically whenever a plan is created.
 ## Plan Document Structure
 
 Every `PLAN.md` follows this shape. **Do not include effort estimates, durations, target
-dates, or a timeline** — the `plan_time_estimates` handler blocks that content in
-`CLAUDE/Plan/*.md`. Plans describe *what* and *why*, not *when*.
+dates, or a timeline** — the `plan_time_estimates` handler blocks that content in plan
+documents. Plans describe *what* and *why*, not *when*.
+
+**Journal day-files are exempt** from that rule. A journal records what *did* happen, so
+an elapsed duration there is a historical fact, not a forward estimate — write it freely.
+The exemption is by location as well as name: anything under a `JOURNAL/` directory is
+journal territory, whatever its filename.
+
+### PLAN.md has enforced size limits
+
+A `PLAN.md` is re-read in full at the start of every session that touches the plan, so its
+size is a **recurring context cost**. The daemon enforces tiers on the plan document only:
+advisory past ~18 KB or 350 lines, a louder warning past ~25 KB or 500 lines, and edits are
+**blocked** past ~35 KB or 900 lines. Only an edit that *grows* an oversized file is
+blocked — shrinking is silent, and ticking a checkbox merely advises, so an over-long plan
+can always be refactored down.
+
+`JOURNAL/` day-files and this directory's `README.md` index are exempt at any size.
+
+**Deleting content is not the remedy.** There are exactly two:
+
+1. **Relocate** the narrative into the plan's `JOURNAL/` day-file — append-only and
+   unbounded by design. This is almost always the right move.
+2. **Split the plan** if the task tree itself is the bulk. An over-scoped plan is not fixed
+   by better journalling.
+
+A commit that shrinks a `PLAN.md` by 2,000+ bytes without staging a journal entry is
+flagged, because that shape usually means content was destroyed rather than moved.
 
 ```markdown
 # Plan XXXXX: [Plan Title]
