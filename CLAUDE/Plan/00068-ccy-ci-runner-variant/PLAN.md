@@ -86,7 +86,8 @@ This plan is only about **what `ccy` must gain to be launchable unattended**.
 
 4. **A restricted tool surface for CI** — the agent must be **unable to modify the checkout or
    push**, while still being able to run the suite and read. This reverses Decision 4 on the
-   owner's instruction; see Decision 9, which is where the sharp edge is.
+   owner's instruction. The mechanism is `--disallowedTools` composed with
+   `--dangerously-skip-permissions`, measured rather than assumed — see Decision 9.
 
 5. **Accept a pre-set `GH_TOKEN` instead of always deriving one.** Today `ccy` has exactly two
    ways to obtain it, and **neither takes one from the caller**:
@@ -269,9 +270,18 @@ Interface, config location, `--strict-mcp-config`, and the flag-existence assert
 `reports/mcp-and-egress.md`. The rule that matters most: **the config must not be written under
 `/root/.claude`**, which `entrypoint.sh:183-195` symlinks into the checkout.
 
-**Still unverified**: whether Claude Code prompts to approve a project-scoped MCP server. Under
-Decision 9 this stops being hypothetical, because CI no longer passes
-`--dangerously-skip-permissions`.
+**Still unverified, and back to hypothetical**: whether Claude Code prompts to approve a
+project-scoped MCP server. This previously read *"under Decision 9 this stops being hypothetical,
+because CI no longer passes `--dangerously-skip-permissions`"* — that premise is gone, since the
+mechanism now composes with the flag rather than replacing it (Decision 9, measured 2026-08-10),
+so CI keeps `bypassPermissions` and any approval prompt is bypassed with it. Worth measuring for
+the desktop case; it no longer threatens a TTY-less job.
+
+**What DOES need asserting for MCP is the opposite of a prompt**: that every `mcp__*` tool named
+in a class's list actually exists in the server that will run. An unconfigured or misnamed MCP
+tool is silently inert — measured downstream, where earlier revisions named several tools that do
+not exist under those names. Assert against the server's captured vocabulary, not a hand-kept
+list.
 
 ### Decision 8 — `--egress` is DROPPED; ccy gets unfettered egress at launch
 
@@ -306,26 +316,49 @@ a repo change, whatever it can reach.
 Not this plan's to close, and nothing in fedora-desktop should assume either answer. C3 is
 retained in `reports/mcp-and-egress.md` for whoever revisits it.
 
-### Decision 9 — CI runs with a restricted tool surface, not `--dangerously-skip-permissions`
+### Decision 9 — CI runs with a restricted tool surface
 
-**Owner's decision, 2026-08-01. Reverses Decision 4 for CI** and retires the "tool-level
-restriction stays OUT" position in `reports/mcp-and-egress.md`, which was reasoned *from*
-Decision 4.
+**Reverses Decision 4 for CI** and retires the "tool-level restriction stays OUT" position in
+`reports/mcp-and-egress.md`, which was reasoned *from* Decision 4.
 
 Intent: for CI, triage and review the agent is **read-only with respect to the repository** — it
 may run the suite and read, but not modify the checkout, commit, or push.
 
-**The sharp edge, to be settled before this is built.** `--dangerously-skip-permissions`
-(`claude-yolo:2792`) *bypasses* an allowlist rather than composing with it, so CI must not pass
-it. The question is then what an ungranted tool does:
+> **ATTRIBUTION CORRECTED 2026-08-10.** This previously read *"Owner's decision, 2026-08-01"*
+> over the whole decision, mechanism included. The record supports less than that, and the
+> difference is load-bearing rather than bibliographic. **The intent is the owner's** — the
+> governing steer is *"CI need safety and MCP etc"*, which supports "CI should be more locked
+> down" directly. **The mechanism was this plan's derivation from it**: no verbatim owner text
+> selects *how*. Labelling a derived mechanism as the owner's decision put it beyond an agent's
+> authority to revise, which is what kept the option below out of view — see the journal entry
+> of 2026-08-10. This plan's own risk table lists *"invents a constraint the owner never set"*
+> as having materialised four times; this is the fifth and the first wearing the owner's name.
 
-- if it is **refused**, the design works;
-- if it **prompts**, a TTY-less job **hangs** — the exact non-interactive failure this plan
-  exists to prevent, reintroduced by the safety feature.
+**The mechanism: `--disallowedTools`, composed WITH `--dangerously-skip-permissions`.** Measured
+2026-08-10 (journal), against the real CLI:
 
-That is Claude CLI behaviour, it is **unverified**, and ccy auto-updates the CLI daily so it can
-change underneath us. The flag-existence-and-behaviour assertion in `reports/mcp-and-egress.md`
-is therefore load-bearing, not defensive.
+| flags                                                                  | `permissionMode`    | tools | `Bash`/`Edit`/`Write` |
+| ---------------------------------------------------------------------- | ------------------- | ----- | --------------------- |
+| `--dangerously-skip-permissions`                                       | `bypassPermissions` | 29    | present               |
+| `--dangerously-skip-permissions` + `--disallowedTools Bash,Edit,Write` | `bypassPermissions` | 28    | **ABSENT**            |
+
+The two flags do different jobs. **`--allowedTools` governs permission** (what proceeds without
+a prompt) and does not remove anything — asking for two tools yields **31**, more than the
+default 29. **`--disallowedTools` governs availability** and takes the tool out of the session
+entirely, *while* `--dangerously-skip-permissions` is passed. So the earlier framing — that
+skip-permissions bypasses restriction rather than composing with it — holds only for the
+allowlist half, and the half this decision needs is the one that composes.
+
+That dissolves E8 instead of answering it: keeping `--dangerously-skip-permissions` means there
+is no prompt to hang on, so *"refuses or prompts?"* never has to be settled. The
+flag-**existence** assertion in `reports/mcp-and-egress.md` stays load-bearing — ccy auto-updates
+the CLI daily, so a build that silently lacks `--disallowedTools` would run with the boundary
+absent rather than reported.
+
+**Sizing a restriction by counting tools gives a wrong answer.** 29 − 3 = 26, but the measured
+count is 28: removing `Bash` *adds* `Glob` and `Grep`, because the CLI substitutes narrower tools
+for a withdrawn capability. Any assertion written against a count will be wrong for a reason
+nobody thinks to look for. Assert on the tool *names* absent from the session.
 
 **"Read-only" cannot be literal for `push`/`pull_request`**, because Plan 00030 has the agent
 run `./.claude/ccy/ci.bash`, which needs Bash. The coherent line: *execute the suite and read
@@ -431,14 +464,22 @@ plan's most-repeated failure. The scope below is the owner's, settled 2026-08-01
   Then re-derive requirement 1 against it: of the 46 census sites, how many does this flow
   actually reach? That number, not 46, is the guard work.
 
-- [ ] ⬜ **Task 3.4**: The CI tool surface (Decision 9). Two things, and the first gates the
-  second:
+- [ ] ⬜ **Task 3.4**: The CI tool surface (Decision 9). **No longer gated** — its first half
+  was *"verify what an ungranted tool does without `--dangerously-skip-permissions`"*, and that
+  question is dissolved rather than answered: `--disallowedTools` composes with
+  skip-permissions, so the flag stays and there is no prompt to hang on (Decision 9, measured
+  2026-08-10). What remains is the half that was always the useful one:
 
-  1. **Verify what an ungranted tool does** without `--dangerously-skip-permissions` — refuse,
-     or prompt. If it prompts, a TTY-less job hangs and the whole approach needs a different
-     mechanism. This is a behaviour test against the real CLI, not a documentation read.
-  2. Specify the per-event surfaces: `push`/`pull_request` (may run `ci.bash` and read; no
+  1. Specify the per-event surfaces: `push`/`pull_request` (may run `ci.bash` and read; no
      write, commit or push) and `issues`/`issue_comment` (narrower — no `ci.bash`).
+  2. Derive every layer from **one** per-class list rather than maintaining parallel lists that
+     can disagree, and assert the tool *names* absent from the session — never a tool **count**,
+     which is wrong for a non-obvious reason (Decision 9).
+  3. **Prefer an allowlist wherever the vocabulary is not ours.** A denylist over a large
+     server-side tool surface fails **OPEN** on a typo, and that is measured rather than
+     theoretical: earlier revisions downstream denied several tool names that do not exist,
+     while the real write primitive was not listed at all. An allowlist fails closed on the same
+     typo.
 
 - [x] ✅ **Task 3.3**: Unattended-launch hygiene — four defects, each cited, each with a fix
   that is a guard rather than a new subsystem:
@@ -478,11 +519,11 @@ plan's most-repeated failure. The scope below is the owner's, settled 2026-08-01
 
 ### Phase 4 — Hand off to implementation
 
-**Gated on Task 3.4's measurement, not on a decision.** The owner has now settled the scope
-(Decisions 7, 8, 9). What is not settled is whether an ungranted tool refuses or prompts — and
-that single fact decides whether Decision 9's approach works at all or needs replacing. An
-implementation plan written before it is answered would be wrong in a way that stays invisible
-until it is half built.
+**UNGATED as of 2026-08-10.** This phase waited on a measurement that has now been taken, and the
+answer removed the blocker rather than clearing it: `--disallowedTools` composes with
+`--dangerously-skip-permissions`, so the refuse-vs-prompt question never has to be settled
+(Decision 9). The owner settled the scope (Decisions 7, 8, 9); the mechanism is now settled by
+evidence. Nothing outstanding here justifies holding the implementation plan.
 
 - [ ] ⬜ **Task 4.1**: Create the implementation plan. This plan specifies; it does not build.
 
@@ -506,13 +547,20 @@ until it is half built.
 | B1–B4 | Spin-vs-abort behaviour of the launcher              | ⬜ interactive; needs real quota             |
 | C1/C2 | pasta port-forwarding and loopback exposure          | ⬜ needs a host listener; borrowed, unproven |
 | E7    | The internet preflight is fatal on the runner        | ⬜ moot under Decision 8 — see below         |
-| E8    | An ungranted tool REFUSES rather than prompting      | ⬜ **gates Decision 9 and Task 4.1**         |
+| E8    | An ungranted tool REFUSES rather than prompting      | ✅ moot — DISSOLVED 2026-08-10, see below    |
+| E9    | `--disallowedTools` composes with skip-permissions   | ✅ settled — measured 2026-08-10             |
 
-**E8 is now the load-bearing unknown.** If an ungranted tool prompts instead of refusing, a
-TTY-less CI job hangs and Decision 9 needs a different mechanism entirely. It is measurable
-cheaply and directly — run the real CLI without `--dangerously-skip-permissions`, with a
-deliberately ungranted tool, and observe. Do not settle it from documentation; ccy auto-updates
-the CLI daily, so the answer must come from the binary that will actually run.
+**E8 is DISSOLVED, which is different from answered — and the distinction is the useful part.**
+It asked what an ungranted tool does *without* `--dangerously-skip-permissions`. E9 measured that
+`--disallowedTools` composes **with** that flag, so CI never has to drop it, so there is no
+prompt for a TTY-less job to hang on. The question stops being load-bearing without ever being
+settled. Kept on this list rather than deleted, because a reader who finds it missing will
+re-derive it; a reader who finds it struck through with E9 beside it will not.
+
+E8 was written as *the* blocker on Task 4.1 and it was never the right question — it followed
+from assuming the two restriction flags behave the same way under skip-permissions, and they do
+not. The generalisable lesson: **when a plan is gated on a behaviour, measure the behaviour
+before designing around either branch.** Both branches here were wrong.
 
 **E7 is defused, not answered.** Decision 8 gives ccy unfettered egress, so the preflight's
 `alpine` pull and `google.com` fetch both succeed and it stops being fatal. It stays on this
@@ -539,7 +587,8 @@ Re-run the probes any time: `./triage.bash` on the HOST.
 - [x] ✅ Every surviving report describes a live mechanism.
 - [x] ✅ MCP, `--egress` and the unattended-launch capabilities are resolved against the
   current architecture, and by the owner rather than by this plan's internal reasoning.
-- [ ] ⬜ E8 is measured: an ungranted tool refuses rather than prompting (Task 3.4).
+- [x] ✅ The restriction mechanism is settled by measurement, not by assumption: E9 — measured
+  2026-08-10 — and E8 dissolved with it.
 - [ ] ⬜ The CI tool surface is specified per event.
 
 ## Risks & Mitigations
