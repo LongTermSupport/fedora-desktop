@@ -70,17 +70,22 @@ infinite rebuild loops) and bumping `CCY_VERSION` if `claude-yolo` itself change
 
 ### Phase 1: Research (evidence gathering)
 
-- [ ] 🔄 **Task 1.1**: Landscape scan across four independent search angles
-  - [ ] 🔄 Agent-native headless browsers → `research/scan-agent-native.md`
-  - [ ] 🔄 Alternative rendering engines (WebKit/Gecko/Servo/Ladybird) → `research/scan-alt-engines.md`
-  - [ ] 🔄 DOM+JS runtimes and slim Chromium builds → `research/scan-js-runtimes.md`
-  - [ ] 🔄 Terminal browsers and agent scraping CLIs → `research/scan-cli-crawlers.md`
-- [ ] 🔄 **Task 1.2**: Establish integration constraints from the repo source →
+- [x] ✅ **Task 1.1**: Landscape scan across four independent search angles
+  - [x] ✅ Agent-native headless browsers → `research/scan-agent-native.md`
+  - [x] ✅ Alternative rendering engines (WebKit/Gecko/Servo/Ladybird) → `research/scan-alt-engines.md`
+  - [x] ✅ DOM+JS runtimes and slim Chromium builds → `research/scan-js-runtimes.md`
+  - [x] ✅ Terminal browsers and agent scraping CLIs → `research/scan-cli-crawlers.md`
+- [x] ✅ **Task 1.2**: Establish integration constraints from the repo source →
   `research/integration-constraints.md`
 - [ ] 🔄 **Task 1.3**: Deep dive per surviving candidate → `research/candidate-<slug>.md`
   (engine, JS fidelity, footprint, maturity, licence, Debian 12 install, agent ergonomics, risks)
-- [ ] 🔄 **Task 1.4**: Completeness critique — unverified claims, contradictions, unsearched
+- [ ] ⬜ **Task 1.4**: Completeness critique — unverified claims, contradictions, unsearched
   option classes → `research/completeness-critique.md`
+- [x] ✅ **Task 1.5**: Measure the engines **in this container** rather than trusting
+  published figures — `triage.bash`, reporting to `logs/browser-engine-triage.log`.
+  Lightpanda 0.3.6 matched Chromium 150 on all 8 JS-capability fixtures (incl. `fetch`,
+  ES modules, shadow DOM, a React 18 client render) at 379 ms / 1 process / ~25 MB peak
+  RSS vs 1177 ms / 15 processes / ~1345 MB.
 
 ### Phase 2: Decision gate
 
