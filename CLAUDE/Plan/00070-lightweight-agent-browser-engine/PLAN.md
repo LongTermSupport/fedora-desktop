@@ -120,8 +120,14 @@ infinite rebuild loops) and bumping `CCY_VERSION` if `claude-yolo` itself change
   `docs/playbooks.md`, `docs/containerization.md`, `docs/ccy-changelog.md`
 - [x] ✅ **Task 3.5**: QA green (425 files); Dockerfile-generated wrapper and config
   replayed through `sh -n`, `shellcheck` and `jq` rather than assumed correct
-- [ ] ⬜ **Task 3.6**: HOST verification — rebuild the image and re-run `triage.bash`
-  inside it, confirming the installed binary works with no `--executable-path` override
+- [ ] 🔄 **Task 3.6**: HOST verification — deploy, then re-run `triage.bash` **inside a
+  fresh `ccy` session**; its new section 7 checks the deployed integration with no
+  `--executable-path` / `--config` overrides
+  - [x] ✅ Script hard-fails with the right guidance when run on the host by mistake —
+    the first host run hit the missing-tool branch and was told to edit the Dockerfile,
+    which was the wrong fix for the wrong problem
+  - [ ] ⬜ Section 7 reports PRESENT for binary, config and wrapper, and
+    `agent-browser-lite` returns `MARKER-DOM` with no overrides
 
 ## Dependencies
 

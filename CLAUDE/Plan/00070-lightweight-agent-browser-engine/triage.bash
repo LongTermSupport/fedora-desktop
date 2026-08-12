@@ -98,6 +98,12 @@ PORT=8737
 # the very RSS numbers this script exists to measure.
 close_sessions() {
     local out
+    # The EXIT trap calls this even when the script bails out early, so on a host run
+    # it would otherwise append a confusing "agent-browser: command not found" note
+    # underneath the real error. Nothing was opened, so there is nothing to close.
+    if ! command -v agent-browser > /dev/null; then
+        return 0
+    fi
     if out="$(agent-browser close --all 2>&1)"; then
         return 0
     fi
@@ -130,6 +136,28 @@ echo " Plan 00070 — browser engine triage"
 echo " host: $(uname -srm)   date: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 echo "==============================================================================="
 echo
+
+# --- where am I? -----------------------------------------------------------------
+#
+# This script measures the browsers inside the CCY IMAGE, so it is meaningless on the
+# host — none of these tools exist there. Check location BEFORE the dependency gate:
+# otherwise a host run trips the "missing tool" branch and gets told to go and edit the
+# Dockerfile, which is the wrong fix for the wrong problem. (That is exactly what
+# happened on the first host run of this script.)
+if [ ! -f /run/.containerenv ] && [ ! -f /.dockerenv ]; then
+    echo "ERROR: this is the HOST, not a CCY container." >&2
+    echo "  This script measures the browser engines inside the CCY image, so it has" >&2
+    echo "  to run in there. On the host, agent-browser does not exist at all." >&2
+    echo >&2
+    echo "  Run it inside CCY instead:" >&2
+    echo "    cd ~/Projects/fedora-desktop && ccy" >&2
+    echo "    # then, at the Claude prompt or a shell inside the container:" >&2
+    echo "    /workspace/CLAUDE/Plan/00070-lightweight-agent-browser-engine/triage.bash" >&2
+    echo >&2
+    echo "  If the container has not been rebuilt for Lightpanda yet, deploy first:" >&2
+    echo "    ansible-playbook playbooks/imports/play-claude-yolo.yml" >&2
+    exit 1
+fi
 
 # --- dependency gate: a missing tool is an IaC gap, never a skip ---------------
 
@@ -632,12 +660,54 @@ check_screenshot_truthful lightpanda
 echo
 close_sessions
 
+# --- 7. deployed integration ------------------------------------------------------
+
+echo "## 7. Deployed integration (Plan 00070 Phase 3)"
+echo
+echo "### READ THIS FOR: whether the IMAGE actually ships Lightpanda. Everything above"
+echo "###   drives a binary from a probe cache via --executable-path, which proves the"
+echo "###   engine works but says nothing about whether the Dockerfile installed it."
+echo "###   This section uses NO overrides — exactly what an agent would type."
+echo
+
+deployed_check() {
+    local label="$1" path="$2"
+    if [ -e "$path" ]; then
+        printf '  %-28s PRESENT  %s\n' "$label" "$path"
+    else
+        printf '  %-28s ABSENT   %s\n' "$label" "$path"
+    fi
+}
+
+deployed_check "lightpanda binary" /usr/local/bin/lightpanda
+deployed_check "lightpanda config" /root/.agent-browser/lightpanda.json
+deployed_check "agent-browser-lite wrapper" /usr/local/bin/agent-browser-lite
+echo
+
+if command -v agent-browser-lite > /dev/null; then
+    probe "agent-browser-lite, no overrides: open fixture" \
+        agent-browser-lite open "http://127.0.0.1:$PORT/dom.html"
+    probe "agent-browser-lite, no overrides: rendered text (expect MARKER-DOM)" \
+        agent-browser-lite get text body
+    close_sessions
+    probe "installed lightpanda version" /usr/local/bin/lightpanda version
+else
+    echo "  agent-browser-lite is NOT on PATH — this image predates Plan 00070's"
+    echo "  Dockerfile change (container 2.23). Deploy on the HOST and start a fresh"
+    echo "  ccy session, which rebuilds the image:"
+    echo "    ansible-playbook playbooks/imports/play-claude-yolo.yml"
+    echo
+    echo "  Sections 1-6 above are still valid — they drive the engine binary directly."
+fi
+echo
+
 echo "==============================================================================="
 echo " END OF REPORT"
 echo
 echo " READ FIRST: section 4 (JS fidelity matrix). It is the deciding evidence."
 echo " Section 3 sizes the prize; section 4 says whether the prize is real;"
-echo " section 6 says where the cheap engine stops and Chromium must take over."
+echo " section 6 says where the cheap engine stops and Chromium must take over;"
+echo " section 7 says whether the image actually ships it yet."
 echo " No verdict is rendered here — see PLAN.md Phase 2 for the decision gate."
 echo " Full log: $LOG"
 echo "==============================================================================="
