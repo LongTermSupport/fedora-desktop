@@ -33,7 +33,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.22"
+LABEL claude-yolo-version="2.23"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 # NOTE: the claude-yolo-dockerfile-hash LABEL is set at the END of the final `full` stage
 # (PERF-02) so a Dockerfile edit — which changes DOCKERFILE_HASH — only invalidates that
@@ -162,6 +162,64 @@ RUN mkdir -p /root/.agent-browser && \
   "headed": true,\n\
   "args": "--enable-features=UseOzonePlatform,--ozone-platform=wayland,--no-sandbox,--disable-gpu,--disable-software-rasterizer,--disable-dev-shm-usage"\n\
 }' > /root/.agent-browser/config.json
+
+# Install Lightpanda — a SECOND browser engine, driven by the agent-browser we already
+# have. agent-browser ships a native `--engine lightpanda` flag; all that is missing from
+# the image is the binary, so this is a download rather than a parallel browser stack.
+#
+# Why it earns its place (measured in a CCY container, not vendor claims — see
+# CLAUDE/Plan/00070-lightweight-agent-browser-engine/logs/browser-engine-triage.log):
+# on the same page via the same CLI, Lightpanda 0.3.6 returned identical text in
+# 379 ms / 1 process / ~25 MB peak RSS where Chromium 150 took 1177 ms / 15 processes /
+# ~1345 MB, and it matched Chromium on all 8 JS-capability fixtures — fetch(), ES
+# modules, custom elements + shadow DOM, and a React 18 client render included.
+#
+# What it CANNOT do: there is no CSS layout or paint pipeline. `screenshot` exits 0 and
+# writes a placeholder PNG; `get box` exits 0 and returns fabricated geometry. Both fail
+# SILENTLY, which is why Chromium stays the default and this engine is opt-in via
+# agent-browser-lite. See the browsing skill for the rule the agent follows.
+#
+# The checksum is the sha256 GitHub publishes for this exact release asset, so a
+# re-tagged or substituted artifact fails the build rather than shipping quietly.
+ARG LIGHTPANDA_VERSION="0.3.6"
+ARG LIGHTPANDA_SHA256="e438c0ad44e0f6916c14cf13beb003512c60438d8fd200738d2e596e73f652d6"
+RUN curl -fsSL -o /tmp/lightpanda \
+    "https://github.com/lightpanda-io/browser/releases/download/${LIGHTPANDA_VERSION}/lightpanda-x86_64-linux" \
+    && echo "${LIGHTPANDA_SHA256}  /tmp/lightpanda" | sha256sum -c - \
+    && install -m 0755 /tmp/lightpanda /usr/local/bin/lightpanda \
+    && rm -f /tmp/lightpanda \
+    && lightpanda version
+
+# Lightpanda needs its OWN agent-browser config. The Chromium config written above sets
+# "headed": true and Chromium-specific "args", and the Lightpanda code path rejects both
+# outright ("Headed mode is not supported with Lightpanda", "Custom Chrome arguments are
+# not supported with Lightpanda") — so without this file the engine is unreachable even
+# once the binary exists. Note that env vars do NOT rescue it: AGENT_BROWSER_HEADED=false
+# was measured failing to override "headed": true from the config file, despite the
+# documented precedence, so a separate --config is the only mechanism that works.
+RUN printf '%s\n' \
+    '{' \
+    '  "engine": "lightpanda",' \
+    '  "executablePath": "/usr/local/bin/lightpanda",' \
+    '  "headed": false' \
+    '}' > /root/.agent-browser/lightpanda.json
+
+# agent-browser-lite — the Lightpanda engine as one word instead of a long --config flag.
+# A pure passthrough: it adds a config file and nothing else, so every agent-browser
+# subcommand, flag and exit code behaves identically, and stdout stays the wrapped
+# command's alone.
+RUN printf '%s\n' \
+    '#!/bin/sh' \
+    '# agent-browser, driven by the Lightpanda engine instead of Chromium.' \
+    '#' \
+    '# Use for: reading pages, extracting text/markdown, scraping, JS-rendered SPAs.' \
+    '# Do NOT use for: screenshots, PDFs, element geometry, or anything visual —' \
+    '# Lightpanda has no layout/paint pipeline and fails SILENTLY (exit 0 plus a' \
+    '# placeholder image or fabricated coordinates). Use plain agent-browser there.' \
+    'exec agent-browser --config /root/.agent-browser/lightpanda.json "$@"' \
+    > /usr/local/bin/agent-browser-lite \
+    && chmod 755 /usr/local/bin/agent-browser-lite \
+    && sh -n /usr/local/bin/agent-browser-lite
 
 # Stub for common typo: agentbrowser → agent-browser
 RUN printf '#!/bin/sh\necho "Command not found: agentbrowser" >&2\necho "Did you mean: agent-browser" >&2\nexit 1\n' \

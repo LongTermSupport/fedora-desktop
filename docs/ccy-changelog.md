@@ -17,6 +17,39 @@ Two version numbers move independently — see
 
 ---
 
+## 3.30.0 (container 2.23)
+
+Added a **second browser engine**: Lightpanda 0.3.6, reachable as `agent-browser-lite`.
+
+`agent-browser` already had a native `--engine lightpanda` flag — only the binary was
+missing from the image, so this is a pinned download plus a config file, not a parallel
+browser stack. Measured in a CCY container on the same page through the same CLI:
+
+| Engine     | Wall time | Processes | Peak RSS |
+| ---------- | --------- | --------- | -------- |
+| Chromium   | 1177 ms   | 15        | ~1345 MB |
+| Lightpanda | 379 ms    | 1         | ~25 MB   |
+
+JavaScript fidelity is equal, not reduced: Lightpanda matched Chromium on all eight
+capability fixtures tested — `fetch()`, ES modules with private fields, custom elements
+with shadow DOM, and a React 18 client-side render — and returned equal or more text on
+real pages.
+
+**Chromium remains the default and is unchanged.** Lightpanda has no layout or paint
+pipeline and, crucially, fails *silently* outside its scope: `screenshot` exits 0 while
+writing a placeholder image, and `get box` exits 0 while returning fabricated geometry
+(`height: 100000000`). Because an agent checking the exit code would be misled, the cheap
+engine is opt-in per invocation rather than a default, and the browsing skill teaches the
+boundary: content → `agent-browser-lite`, pixels or geometry → `agent-browser`.
+
+Also replaced the `browsing` skill's command reference. Its 730 lines of
+`COMMANDLINE-USAGE.md` / `EXAMPLES.md` documented an `agent-browser run "navigate …"`
+syntax that the CLI no longer has — all 97 examples would have failed with
+`Unknown command: run`. agent-browser now ships its own version-matched skills, so the
+skill points at `agent-browser skills get core --full` instead of keeping a copy that
+drifts. The play removes the two obsolete files from the build context, since the copy
+task only ever added files and the Dockerfile copies the whole directory.
+
 ## 3.29.0
 
 Dropped the `CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION` forwarding added in 3.28.0 — it was dead

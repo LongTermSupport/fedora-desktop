@@ -22,8 +22,10 @@ CLI TOOLS (pre-installed):
   Database:         sqlite3
   Shell/debug:      vim, nano, htop, tree, less, fzf, shellcheck, unzip, bash-completion
   Runtimes:         Node.js 20 + npm, Python 3 + pip
-  Browser:          agent-browser (token-efficient Chromium automation)
-                    — run 'agent-browser --help' for usage
+  Browser:          agent-browser      (Chromium — screenshots, pixels, geometry)
+                    agent-browser-lite (Lightpanda — same CLI, ~50x less memory;
+                                        text/DOM/scraping only, cannot do pixels)
+                    — run 'agent-browser skills get core --full' for the reference
 
 DOCUMENTATION (read these to understand this environment):
 • Full system guide:    cat /opt/claude-yolo/docs/CCY-GUIDE.txt

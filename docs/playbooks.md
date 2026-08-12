@@ -342,13 +342,28 @@ pipx install ruff
 **What's installed**:
 
 - git, gh, ripgrep, jq, yq, vim, python, Node.js (current LTS), Claude Code
-- **agent-browser CLI**: Token-efficient browser automation via Chromium (no Playwright needed)
+- **agent-browser CLI**: Token-efficient browser automation (no Playwright needed), driving
+  **two engines** — Chromium, and Lightpanda via the `agent-browser-lite` wrapper
 
 **Key features of agent-browser**:
 
 - 93% context reduction for multi-page flows vs traditional DOM inspection
 - Headed mode support (`--headed` flag) for visual debugging
 - Reference-based selection (`@e1`, `@e2`) from compact accessibility snapshots
+- Version-matched built-in docs: `agent-browser skills get core --full`
+
+**Two engines, one CLI**:
+
+| Command              | Engine     | Per page fetch                 | Use for                                                       |
+| -------------------- | ---------- | ------------------------------ | ------------------------------------------------------------- |
+| `agent-browser`      | Chromium   | ~1.2 s, 15 procs, ~1345 MB RSS | Screenshots, PDFs, geometry, visual checks                    |
+| `agent-browser-lite` | Lightpanda | ~0.4 s, 1 proc, ~25 MB RSS     | Reading, text/markdown extraction, scraping, JS-rendered SPAs |
+
+Lightpanda executes JavaScript with the same fidelity as Chromium (verified against
+`fetch()`, ES modules, custom elements + shadow DOM and a React 18 client render) but has
+**no layout or paint pipeline**. It fails *silently* outside that scope: `screenshot`
+exits 0 while writing a placeholder image, and `get box` exits 0 while returning
+fabricated geometry. Pick the engine by the task; do not rely on the exit code.
 
 **Usage**:
 
@@ -360,12 +375,15 @@ ccy --create-token
 cd ~/Projects/my-project
 ccy
 
-# Inside CCY — browser automation ready to use
-agent-browser --help              # Comprehensive built-in docs
+# Inside CCY — cheap engine for content
+agent-browser-lite open https://example.com && agent-browser-lite get text body
+
+# Full Chromium for anything visual
 agent-browser --headed open https://example.com
 agent-browser snapshot -i         # Get @refs for elements
 agent-browser click @e5           # Click using reference
 agent-browser fill @e3 "test"     # Fill form fields
+agent-browser screenshot /tmp/page.png
 ```
 
 **Token efficiency example**:

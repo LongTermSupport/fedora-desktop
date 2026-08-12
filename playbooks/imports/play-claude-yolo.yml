@@ -193,9 +193,28 @@
         group: root
         mode: "0644"
       loop:
+        # SKILL.md is deliberately the only file here. The command reference used to be
+        # duplicated into COMMANDLINE-USAGE.md and EXAMPLES.md, which drifted so far that
+        # all 97 of their examples used an `agent-browser run "..."` syntax the CLI no
+        # longer has. agent-browser ships its own version-matched skills
+        # (`agent-browser skills get core --full`), so the skill now points at those.
         - "{{ root_dir }}/files/opt/claude-yolo/skills/browsing/SKILL.md"
-        - "{{ root_dir }}/files/opt/claude-yolo/skills/browsing/COMMANDLINE-USAGE.md"
-        - "{{ root_dir }}/files/opt/claude-yolo/skills/browsing/EXAMPLES.md"
+      tags:
+        - scripts
+        - skills
+
+    - name: Remove Obsolete Browsing Skill Files from Docker Build Context
+      become: true
+      ansible.builtin.file:
+        path: "/opt/claude-yolo/skills/browsing/{{ item }}"
+        state: absent
+      loop:
+        - COMMANDLINE-USAGE.md
+        - EXAMPLES.md
+      # The copy task above only ever ADDS files, so deleting these from the repo would
+      # otherwise leave stale copies in the build context on every host that has already
+      # deployed them — and the Dockerfile COPYs the whole directory, so the removed,
+      # wrong documentation would keep shipping into the image indefinitely.
       tags:
         - scripts
         - skills
@@ -461,7 +480,7 @@
           - "   • Container: claude-yolo:latest"
           - "   • Alias: ccy"
           - "   • Tokens: ~/.claude-tokens/ccy/"
-          - "   • Browser: agent-browser (Chromium) built in"
+          - "   • Browsers: agent-browser (Chromium) + agent-browser-lite (Lightpanda)"
           - "   • Wayland display forwarding: automatic"
           - ""
           - "🚀 Quick Start"
@@ -474,7 +493,9 @@
           - "    ccy"
           - ""
           - "  Browser automation (inside CCY container):"
-          - "    agent-browser --help"
+          - "    agent-browser skills get core --full   # version-matched reference"
+          - "    agent-browser-lite open <url>          # cheap engine: text/DOM/scraping"
+          - "    agent-browser open <url>               # full Chromium: pixels, geometry"
           - ""
           - "💡 Token Management"
           - ""

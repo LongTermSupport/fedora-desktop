@@ -60,9 +60,26 @@ DATABASE:
   sqlite3      — SQLite CLI (inspect databases common in web/mobile apps)
 
 BROWSER AUTOMATION:
-  agent-browser CLI (token-efficient Chromium automation)
-  Chromium (system install with Wayland/X11 support)
-  Browser windows appear on host desktop when Wayland is available
+  One CLI, two engines. Same commands either way — pick by what you need.
+
+  agent-browser        Chromium. Full browser: screenshots, PDFs, element
+                       geometry, visual checks. Headed against the host's
+                       Wayland socket, so windows appear on the host desktop.
+                       ~1.2s and ~1.3GB RSS across 15 processes per page.
+
+  agent-browser-lite   Lightpanda. DOM + JavaScript with no layout or paint:
+                       reading pages, extracting text/markdown, scraping,
+                       JS-rendered SPAs. ~0.4s and ~25MB RSS in one process.
+
+  Prefer agent-browser-lite for content, agent-browser for pixels. Lightpanda
+  matches Chromium on JS execution (fetch, ES modules, shadow DOM, React
+  client renders all verified) but has NO renderer, and it fails SILENTLY:
+  `screenshot` exits 0 while writing a placeholder image, and `get box`
+  exits 0 while returning fabricated geometry. Choose by the task, not by
+  checking the exit code afterwards.
+
+  Command reference (always matched to the installed version):
+    agent-browser skills get core --full
 
 PROJECT-SPECIFIC TOOLS (if a custom Dockerfile exists for this project):
   Whatever the project's .claude/ccy/Dockerfile installs.
@@ -142,7 +159,9 @@ INSIDE THE CONTAINER:
   /root/.claude/skills/                Built-in skills (e.g. browsing/)
   /opt/claude-yolo/                    CCY system files
   /opt/claude-yolo/docs/               CCY documentation
-  /root/.agent-browser/config.json     agent-browser Chromium config
+  /root/.agent-browser/config.json     agent-browser Chromium config (headed, Wayland)
+  /root/.agent-browser/lightpanda.json Lightpanda config, used by agent-browser-lite
+  /usr/local/bin/lightpanda            Lightpanda engine binary
 
 ON THE HOST (not accessible from container):
   /var/local/claude-yolo/claude-yolo   CCY wrapper script

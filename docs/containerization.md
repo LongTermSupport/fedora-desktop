@@ -439,7 +439,9 @@ This is the key thing to understand. When `ccy` starts, it looks for a Dockerfil
 
 - Node.js (current LTS), npm, Python 3, git, gh CLI, Claude Code (latest)
 - Development tools: ripgrep, jq, yq, vim
-- agent-browser CLI for token-efficient browser automation via Chromium
+- agent-browser CLI for token-efficient browser automation, driving two engines:
+  Chromium (`agent-browser`) and Lightpanda (`agent-browser-lite`, ~50x less memory,
+  text/DOM only)
 
 ### Example Workflow
 
@@ -759,6 +761,8 @@ cd ~/Projects/my-project
 ccy  # ✅ Podman-based (default engine), isolated, headed browser mode
 # agent-browser is pre-installed — ask Claude to navigate, screenshot, test
 # Browser windows appear on your desktop via Wayland forwarding
+# agent-browser-lite runs the same commands on Lightpanda instead: ~50x less
+# memory for reading/scraping, but no screenshots (it has no renderer)
 ```
 
 ### Example 3: Multi-Distro Testing

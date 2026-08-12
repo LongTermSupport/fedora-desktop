@@ -89,14 +89,39 @@ infinite rebuild loops) and bumping `CCY_VERSION` if `claude-yolo` itself change
 
 ### Phase 2: Decision gate
 
-- [ ] ⬜ **Task 2.1**: Triage the research and select one engine; record the decision and the
-  reason each runner-up lost, in `## Technical Decisions` below
-- [ ] ⬜ **Task 2.2**: Write the agent decision rule (when to use the light engine vs Chromium)
-- [ ] ⬜ **Task 2.3**: Fill in Phase 3 with the concrete integration tasks for the chosen engine
+- [x] ✅ **Task 2.1**: Triage the research and select one engine; record the decision and the
+  reason each runner-up lost → Decision 1 below (Lightpanda 0.3.6)
+- [x] ✅ **Task 2.2**: Write the agent decision rule → Decision 2 below (Chromium stays
+  default; Lightpanda opt-in, because it fails silently outside its competence)
+- [x] ✅ **Task 2.3**: Fill in Phase 3 with the concrete integration tasks
 
 ### Phase 3: Integration
 
-Deliberately left empty until Task 2.3 — the tasks depend on which engine wins.
+- [x] ✅ **Task 3.1**: Install Lightpanda in the CCY image
+  - [x] ✅ Dockerfile layer: pinned 0.3.6 binary, verified against upstream's published
+    sha256, installed to `/usr/local/bin/lightpanda`
+  - [x] ✅ Ship `/root/.agent-browser/lightpanda.json` — the shipped Chromium config
+    (`headed: true` + ozone `args`) is **rejected outright** by the Lightpanda path, so a
+    separate config is required, not optional
+  - [x] ✅ Ship `agent-browser-lite` — a passthrough wrapper so the engine is one word
+    rather than a long `--config` flag
+- [x] ✅ **Task 3.2**: Version bumps that must move together
+  - [x] ✅ Dockerfile `LABEL claude-yolo-version` 2.22 → 2.23
+  - [x] ✅ `REQUIRED_CONTAINER_VERSION` 2.22 → 2.23 (mismatch = infinite rebuild loop)
+  - [x] ✅ `CCY_VERSION` 3.29.0 → 3.30.0, with a `docs/ccy-changelog.md` entry
+- [x] ✅ **Task 3.3**: Teach the agent the decision rule in the `browsing` skill
+  - [x] ✅ Replaced the stale CLI reference — 730 lines across `COMMANDLINE-USAGE.md` and
+    `EXAMPLES.md` taught `agent-browser run "navigate …"`, which errors with
+    `Unknown command: run`; the skill now points at `agent-browser skills get core --full`
+  - [x] ✅ Added the engine-choice rule and the silent-failure warnings
+  - [x] ✅ Play removes the two obsolete files from the build context (the copy task only
+    ever added files, and the Dockerfile copies the whole directory)
+- [x] ✅ **Task 3.4**: Surface it — startup banner, `ccy-startup-info.txt`, `CCY-GUIDE.txt`,
+  `docs/playbooks.md`, `docs/containerization.md`, `docs/ccy-changelog.md`
+- [x] ✅ **Task 3.5**: QA green (425 files); Dockerfile-generated wrapper and config
+  replayed through `sh -n`, `shellcheck` and `jq` rather than assumed correct
+- [ ] ⬜ **Task 3.6**: HOST verification — rebuild the image and re-run `triage.bash`
+  inside it, confirming the installed binary works with no `--executable-path` override
 
 ## Dependencies
 
@@ -104,7 +129,64 @@ Deliberately left empty until Task 2.3 — the tasks depend on which engine wins
 
 ## Technical Decisions
 
-To be recorded at the Phase 2 decision gate.
+### Decision 1: Adopt Lightpanda, via the flag `agent-browser` already has
+
+**Context**: pick one lightweight JS-executing engine to complement Chromium.
+
+**Options considered**:
+
+| Candidate               | Why it lost                                                                                                                                                           |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `chrome-headless-shell` | Not a second engine — the same Blink/V8 in slimmer packaging. Real win (~355 MB vs ~1204 MB RSS) but it is *tuning what we ship*, so it is a follow-up, not this plan |
+| Playwright WebKit       | Not lightweight: 293 MB measured, ~227 MB RSS per tab, 720 MB of official Linux deps                                                                                  |
+| WPE WebKit + Cog        | The exact stack researched is being deprecated by its own maintainer                                                                                                  |
+| Firefox/Gecko headless  | Heaviest of the three mainstream engines; WebDriver BiDi diverges from the CDP our tooling speaks                                                                     |
+| eLinks                  | JS is partial and buggy on every backend, and no Debian package ships a JS-enabled build                                                                              |
+| Ladybird, Blitz, Servo  | Pre-alpha, or no JS at all, or no automation surface                                                                                                                  |
+| jsdom / happy-dom       | Libraries, not drivable browsers; happy-dom had a VM-escape RCE (CVE-2025-61927) on exactly this attack surface                                                       |
+| Hosted browser APIs     | Move the cost off-image but add a network dependency, per-request cost and egress of page content — rejected for a local dev container                                |
+
+**Decision**: **Lightpanda 0.3.6**, exposed through `agent-browser`'s existing
+`--engine lightpanda`. Decisive evidence is measured in this container
+(`logs/browser-engine-triage.log`), not published benchmarks:
+
+- Matched Chromium on **all 8** JS-capability fixtures — `fetch()`, ES modules with
+  private fields, custom elements + shadow DOM, and a React 18 client render included.
+- 379 ms / 1 process / ~25 MB peak RSS vs 1177 ms / 15 processes / ~1345 MB.
+- Equal or better text extraction on real pages (more text than Chromium on both the
+  Wikipedia article and `react.dev`).
+
+It also has by far the smallest integration surface: the engine is already wired into
+the CLI we ship, so this is a binary plus a config file, not a parallel browser stack.
+
+**Overruling the research on one point, deliberately**: a scan agent disqualified
+Lightpanda for "does not render the DOM at all". The underlying fact is right — there is
+no CSS layout or paint — but the conclusion does not follow for our use. It builds the
+DOM and runs the JavaScript, which is what text extraction, scraping and SPA reading
+need, and the measurements above show it doing exactly that. The limitation is real but
+narrower than "cannot render": it cannot produce **pixels or geometry**.
+
+**Date**: 2026-08-12
+
+### Decision 2: Chromium stays the default; Lightpanda is opt-in per invocation
+
+**Context**: which engine should an agent get when it does not choose?
+
+Lightpanda fails **silently** outside its competence, which makes a cheap-by-default
+rule dangerous:
+
+- `screenshot` returns **rc=0** with `✓ Screenshot saved` and writes a placeholder PNG
+  reading "Lightpanda has no graphical rendering engine". An agent checking the exit
+  status believes it has a screenshot of the page.
+- `get box` returns **rc=0** with fabricated geometry (`height: 100000000`).
+
+**Decision**: `agent-browser` keeps Chromium as its default and existing behaviour is
+untouched. Lightpanda is reached explicitly via `agent-browser-lite`, and the skill
+teaches the boundary: text/DOM/scraping → lite; anything involving pixels, geometry or
+visual correctness → Chromium. A wrong default here produces confidently wrong output,
+which is worse than a slow one.
+
+**Date**: 2026-08-12
 
 ## Success Criteria
 

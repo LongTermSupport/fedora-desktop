@@ -133,7 +133,7 @@ echo
 
 # --- dependency gate: a missing tool is an IaC gap, never a skip ---------------
 
-for tool in agent-browser curl python3 timeout; do
+for tool in agent-browser curl python3 timeout convert; do
     if ! command -v "$tool" > /dev/null; then
         echo "ERROR: '$tool' is not installed in this container." >&2
         echo "  The CCY image is built by files/var/local/claude-yolo/Dockerfile." >&2
@@ -413,6 +413,17 @@ window.addEventListener('load', function () {
 </body>
 HTML
 
+# Flat, unmistakable colours so a screenshot can be checked by histogram rather than
+# by eye — see check_screenshot_truthful().
+cat > "$FIXTURES/vis.html" <<'HTML'
+<!doctype html><meta charset=utf-8><title>vis</title>
+<body style="background:#ffffff">
+<h1 style="color:#cc0000;font-size:48px">VISIBLE HEADING</h1>
+<p style="color:#006600;font-size:24px">Some green body text for the render test.</p>
+<div style="width:300px;height:120px;background:#0000cc"></div>
+</body>
+HTML
+
 python3 -m http.server "$PORT" --directory "$FIXTURES" --bind 127.0.0.1 > "$WORK/http.log" 2>&1 &
 SERVER_PID=$!
 sleep 2
@@ -516,11 +527,117 @@ for site in \
     echo
 done
 
+# --- 6. capability boundaries ----------------------------------------------------
+
+echo "## 6. Capability boundaries"
+echo
+echo "### READ THIS FOR: what the light engine CANNOT do. The scan research describes"
+echo "###   Lightpanda as DOM-only with no layout/render pipeline. If true, anything"
+echo "###   that needs pixels (screenshot, pdf) or box geometry should fail, while"
+echo "###   DOM-level work (snapshot refs, clicking, eval) should still work. This"
+echo "###   section is what the agent-facing decision rule gets written from."
+echo
+
+capability() {
+    local engine="$1" label="$2"
+    shift 2
+    local out rc
+    local -a pre
+    mapfile -t pre < <(engine_prefix "$engine")
+
+    if out="$(timeout 90 agent-browser "${pre[@]}" "$@" 2>&1)"; then rc=0; else rc=$?; fi
+    printf '  %-11s %-22s rc=%-3d %s\n' "$engine" "$label" "$rc" \
+        "$(printf '%s' "$out" | tr '\n' ' ' | cut -c1-110)"
+}
+
+for engine in chromium lightpanda; do
+    echo "### $engine"
+    close_sessions
+    capability "$engine" "open fixture" open "http://127.0.0.1:$PORT/dom.html"
+    capability "$engine" "eval JS" eval "document.title"
+    capability "$engine" "get text" get text body
+    capability "$engine" "get html" get html body
+    capability "$engine" "snapshot (a11y tree)" snapshot -i
+    capability "$engine" "get box (geometry)" get box body
+    capability "$engine" "screenshot (pixels)" screenshot "$WORK/shot-$engine.png"
+    capability "$engine" "pdf (paged layout)" pdf "$WORK/out-$engine.pdf"
+    if [ -f "$WORK/shot-$engine.png" ]; then
+        printf '  %-11s %-22s produced %s bytes\n' "$engine" "screenshot file" \
+            "$(wc -c < "$WORK/shot-$engine.png")"
+    else
+        printf '  %-11s %-22s NO FILE PRODUCED\n' "$engine" "screenshot file"
+    fi
+    echo
+done
+close_sessions
+
+# A screenshot that exits 0 and writes a PNG has NOT necessarily captured the page.
+# Verify the PIXELS: vis.html paints three unmistakable flat colours, so the render is
+# truthful only if those exact colours appear in the image. This check exists because
+# `screenshot` on a DOM-only engine was observed returning rc=0 with a cheerful
+# "✓ Screenshot saved" while writing a placeholder image instead of the page — a
+# failure invisible to any agent that trusts the exit status.
+echo "### screenshot CORRECTNESS (does the PNG actually depict the page?)"
+echo "###   vis.html paints #CC0000 heading, #006600 text, #0000CC box. All three"
+echo "###   must appear in a truthful render. rc=0 alone proves nothing here."
+echo
+
+check_screenshot_truthful() {
+    local engine="$1"
+    local shot hist found colour dims ncolours out
+    local -a pre
+    mapfile -t pre < <(engine_prefix "$engine")
+    shot="$WORK/vis-$engine.png"
+
+    close_sessions
+    if ! out="$(timeout 90 agent-browser "${pre[@]}" open "http://127.0.0.1:$PORT/vis.html" 2>&1)"; then
+        printf '  %-11s open failed: %s\n' "$engine" \
+            "$(printf '%s' "$out" | tr '\n' ' ' | cut -c1-100)"
+        return 0
+    fi
+    if ! out="$(timeout 90 agent-browser "${pre[@]}" screenshot "$shot" 2>&1)"; then
+        printf '  %-11s screenshot failed: %s\n' "$engine" \
+            "$(printf '%s' "$out" | tr '\n' ' ' | cut -c1-100)"
+        return 0
+    fi
+
+    printf '  %-11s screenshot reported: %s\n' "$engine" \
+        "$(printf '%s' "$out" | tr '\n' ' ' | cut -c1-70)"
+
+    if [ ! -f "$shot" ]; then
+        printf '  %-11s NO PNG WRITTEN despite success being reported\n' "$engine"
+        return 0
+    fi
+
+    hist="$(convert "$shot" -format %c -depth 8 histogram:info:-)"
+    dims="$(identify -format '%wx%h' "$shot")"
+    ncolours="$(printf '%s\n' "$hist" | wc -l)"
+    found=0
+    for colour in CC0000 006600 0000CC; do
+        if printf '%s' "$hist" | grep -qi "#$colour"; then
+            found=$((found + 1))
+        fi
+    done
+
+    printf '  %-11s %s  page colours present: %d/3  distinct colours: %s\n' \
+        "$engine" "$dims" "$found" "$ncolours"
+    if [ "$found" -lt 3 ]; then
+        printf '      ^^ NOT A TRUTHFUL RENDER despite rc=0. Dominant colours: %s\n' \
+            "$(printf '%s\n' "$hist" | sort -rn | head -3 | tr -s ' ' | tr '\n' ' ')"
+    fi
+}
+
+check_screenshot_truthful chromium
+check_screenshot_truthful lightpanda
+echo
+close_sessions
+
 echo "==============================================================================="
 echo " END OF REPORT"
 echo
 echo " READ FIRST: section 4 (JS fidelity matrix). It is the deciding evidence."
-echo " Section 3 sizes the prize; section 4 says whether the prize is real."
+echo " Section 3 sizes the prize; section 4 says whether the prize is real;"
+echo " section 6 says where the cheap engine stops and Chromium must take over."
 echo " No verdict is rendered here — see PLAN.md Phase 2 for the decision gate."
 echo " Full log: $LOG"
 echo "==============================================================================="

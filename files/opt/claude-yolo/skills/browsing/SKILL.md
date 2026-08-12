@@ -1,193 +1,101 @@
 ---
 name: browsing
-description: Use when you need to automate browser tasks — teaches agent-browser CLI for launching Chromium, navigating pages, extracting content, clicking elements, and filling forms
+description: Use when you need to browse or automate the web — teaches which of CCY's two browser engines to use (lightweight Lightpanda vs full Chromium) and where to get the version-matched command reference
 allowed-tools: Bash
 ---
 
-# Browser Automation with agent-browser
+# Browser Automation in CCY
 
-## Overview
+CCY ships **one CLI, `agent-browser`, driving two different browser engines**. Choosing
+the right one is the whole job of this skill; the command syntax is identical either way.
 
-Use `agent-browser` to control Chromium for web automation tasks. It is a CLI tool that manages the full browser lifecycle — no external browser process needed.
+**Announce:** "I'm using the browsing skill to automate the browser."
 
-**Announce:** "I'm using the browsing skill with agent-browser to automate Chrome."
+## Get the command reference from the CLI itself
 
-## When to Use
-
-- Navigating websites and extracting content
-- Filling and submitting forms
-- Taking screenshots of pages or elements
-- Multi-step web workflows
-- Acceptance testing of web applications
-
-## Quick Reference
+Do **not** learn the commands from a copy in this repo. `agent-browser` ships its own
+skills, always matched to the installed version:
 
 ```bash
-# Navigate and extract page content
-agent-browser run "navigate https://example.com; extract text"
-
-# Take a screenshot
-agent-browser run "navigate https://example.com; screenshot /tmp/page.png"
-
-# Click an element
-agent-browser run "navigate https://example.com; click '#submit-button'"
-
-# Fill a login form
-agent-browser run "navigate https://example.com/login; type '#email' 'user@example.com'; type '#password' 'secret'; click 'button[type=submit]'"
+agent-browser skills get core --full   # full command reference + patterns
+agent-browser skills list              # electron, slack, dogfood, ...
 ```
 
-## Commands
+Read that before running anything. This file deliberately does not restate it — a
+hand-maintained copy drifts, and the previous version of this skill taught a
+`agent-browser run "navigate …; extract text"` syntax that no longer exists at all.
 
-### Navigation
+## Which engine?
+
+| Engine                              | Command              | Cost per page fetch                  |
+| ----------------------------------- | -------------------- | ------------------------------------ |
+| **Lightpanda** — DOM + JS, no paint | `agent-browser-lite` | ~379 ms, 1 process, ~25 MB RSS       |
+| **Chromium** — full browser         | `agent-browser`      | ~1177 ms, 15 processes, ~1345 MB RSS |
+
+Both run JavaScript with the same fidelity. Measured in a CCY container, Lightpanda
+matched Chromium on `fetch()`, ES modules, custom elements + shadow DOM, and a React 18
+client-side render, and returned equal or more page text on real sites.
+
+### Use `agent-browser-lite` (Lightpanda) for
+
+- Reading a page, extracting text or markdown
+- Scraping, including JavaScript-rendered SPAs
+- Checking whether a page contains something
+- Anything where you want the page's **content**
+
+### Use `agent-browser` (Chromium) for
+
+- **Screenshots, PDFs, visual checks** — anything about pixels
+- **Element geometry** (`get box`), layout, or CSS-computed positions
+- Clicking through a flow where visual state matters
+- Anything `agent-browser-lite` got wrong (fall back freely — same syntax)
+
+## The trap: Lightpanda fails silently
+
+Lightpanda has **no layout or paint pipeline**. It does not error when you ask for pixels
+— it returns success and gives you something useless:
 
 ```bash
-# Navigate to URL
-agent-browser run "navigate https://example.com"
+$ agent-browser-lite screenshot /tmp/page.png
+✓ Screenshot saved to /tmp/page.png      # exit 0 ...
+# ... and the PNG says "Lightpanda has no graphical rendering engine"
 
-# Wait for element before proceeding
-agent-browser run "navigate https://example.com; wait-for '.content-loaded'"
-
-# Wait for text to appear
-agent-browser run "navigate https://example.com; wait-text 'Welcome'"
+$ agent-browser-lite get box body
+height: 100000000                        # exit 0, fabricated geometry
 ```
 
-### Content Extraction
+**Exit status will not warn you.** If the task involves pixels or geometry, choose
+`agent-browser` up front — do not check the return code and assume it worked.
+
+## Quick reference
+
+Identical for both commands; swap `agent-browser` for `agent-browser-lite` to go cheap.
+The browser persists between invocations via a daemon, so chain with `&&`:
 
 ```bash
-# Extract page as markdown (best for reading content)
-agent-browser run "navigate https://example.com; extract markdown"
+# Read a page's rendered content (cheap engine)
+agent-browser-lite open https://example.com && agent-browser-lite get text body
 
-# Extract plain text
-agent-browser run "navigate https://example.com; extract text"
+# NOTE: `read <url>` does NOT render — it is an HTTP fetch plus text extraction.
+# For anything JavaScript-dependent, use `open` then `get text`.
+agent-browser-lite read https://example.com    # fine for static/markdown docs only
 
-# Extract specific element only
-agent-browser run "navigate https://example.com; extract text 'h1'"
+# Inspect and interact (full engine)
+agent-browser open https://example.com && agent-browser snapshot -i
+agent-browser click @e2
+agent-browser fill @e3 "user@example.com"
 
-# Get an attribute value
-agent-browser run "navigate https://example.com; attr 'a.download' href"
+# Screenshot — Chromium only
+agent-browser open https://example.com && agent-browser screenshot /tmp/page.png
 
-# Execute JavaScript and return result
-agent-browser run "navigate https://example.com; eval 'document.title'"
+# Finish up
+agent-browser close --all
 ```
 
-### Interaction
+## Notes
 
-```bash
-# Click element by CSS selector
-agent-browser run "navigate https://example.com; click 'button.submit'"
-
-# Type into input field
-agent-browser run "navigate https://example.com; type '#search' 'my query'"
-
-# Select dropdown option
-agent-browser run "navigate https://example.com; select 'select[name=country]' 'GB'"
-```
-
-### Screenshots
-
-```bash
-# Full page screenshot
-agent-browser run "navigate https://example.com; screenshot /tmp/page.png"
-
-# Screenshot of specific element
-agent-browser run "navigate https://example.com; screenshot /tmp/header.png '#header'"
-```
-
-## Common Patterns
-
-### Login and Navigate
-
-```bash
-agent-browser run "
-  navigate https://app.example.com/login;
-  wait-for 'input[name=email]';
-  type 'input[name=email]' 'user@example.com';
-  type 'input[name=password]' 'secret';
-  click 'button[type=submit]';
-  wait-text 'Dashboard';
-  extract markdown
-"
-```
-
-### Scrape a List
-
-```bash
-agent-browser run "
-  navigate https://example.com/products;
-  wait-for '.product-list';
-  extract text '.product-list'
-"
-```
-
-### Multi-Step Form
-
-```bash
-agent-browser run "
-  navigate https://example.com/checkout;
-  type '#name' 'Test User';
-  type '#email' 'test@example.com';
-  select '#country' 'GB';
-  click '#next-step';
-  wait-for '#payment-section';
-  screenshot /tmp/payment.png
-"
-```
-
-## Tips
-
-**Always wait before interaction** — pages need time to load:
-
-```bash
-# BAD — may fail if page is slow
-navigate https://example.com; click '#button'
-
-# GOOD — wait first
-navigate https://example.com; wait-for '#button'; click '#button'
-```
-
-**Use specific CSS selectors** — avoid selectors that match multiple elements:
-
-```bash
-# BAD
-click 'button'
-
-# GOOD
-click 'button[type=submit]'
-click '#login-button'
-```
-
-**Chain commands with semicolons** — operations run in sequence in a single call.
-
-**Inspect before interacting** — if unsure of selectors, extract HTML first:
-
-```bash
-agent-browser run "navigate https://example.com; extract html"
-```
-
-## Headless vs Headed Mode
-
-The container defaults to headed mode with Wayland support (configured in `/root/.agent-browser/config.json`). Browser windows appear on the host desktop when Wayland is available.
-
-For explicit headless operation:
-
-```bash
-agent-browser --headless run "navigate https://example.com; extract text"
-```
-
-## Troubleshooting
-
-**Browser fails to start:**
-- Try headless mode: `agent-browser --headless run "..."`
-- Check display: `echo $WAYLAND_DISPLAY $DISPLAY`
-
-**Element not found:**
-- Use `extract html` to inspect the actual page structure
-- Add `wait-for` before interacting with dynamic content
-
-**Screenshot is blank:**
-- Add `wait-for 'body'` before the screenshot step
-
-## Further Reading
-
-See [COMMANDLINE-USAGE.md](COMMANDLINE-USAGE.md) for the full command reference.
-See [EXAMPLES.md](EXAMPLES.md) for more worked examples.
+- `agent-browser-lite` is a passthrough wrapper: it selects the Lightpanda engine via a
+  dedicated config file and changes nothing else. Every subcommand and flag behaves the
+  same.
+- Chromium here is **headed** against the host's Wayland socket, so a real window can
+  appear. Lightpanda is always headless.
