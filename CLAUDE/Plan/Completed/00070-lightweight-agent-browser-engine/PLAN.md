@@ -239,3 +239,7 @@ which is worse than a slow one.
   symlink on every container start, and the two engines shared one daemon namespace so
   switching engines failed. Both fixed for container 2.25; re-runs to ACCEPTED only
   after a host rebuild
+- **ACCEPTED on container 2.25** — 23/23, four consecutive runs. The gate takes the best
+  of four screenshot captures (removing a paint race that also made the Lightpanda
+  boundary assertion unsound) and retries a known Chromium launch flake once while
+  reporting that it did so

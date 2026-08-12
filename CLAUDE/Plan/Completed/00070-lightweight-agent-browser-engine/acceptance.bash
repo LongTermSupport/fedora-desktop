@@ -423,22 +423,44 @@ render_marker_noclose() {
     printf '%s' "$out" | grep -q "$marker"
 }
 
+
+# One retry per call, and it is REPORTED when used.
+#
+# Launching Chromium in this container fails occasionally with "Could not
+# configure browser: Failed to connect" — measured 0/12 trials in isolation
+# (36 launches) but roughly 1-in-2 across a FULL gate run, so it is a
+# cumulative-load flake in agent-browser/Chromium, not something the engine
+# split introduced. A gate that cries wolf every other run gets ignored, but
+# swallowing the retry silently would hide a real degradation, so a retried
+# call still passes AND prints that it needed retrying. A genuine regression
+# (e.g. the namespace flag removed) fails both attempts, every round.
+retry_render() {
+    if render_marker_noclose "$@"; then
+        return 0
+    fi
+    RETRY_NOTE="$RETRY_NOTE
+         (retried after: $(snippet "$RENDER_OUT"))"
+    sleep 3
+    render_marker_noclose "$@"
+}
+
 interleave_ok=1
 interleave_note=""
+RETRY_NOTE=""
 for round in 1 2 3; do
-    if ! render_marker_noclose agent-browser-lite dom.html MARKER-DOM; then
+    if ! retry_render agent-browser-lite dom.html MARKER-DOM; then
         interleave_ok=0
         interleave_note="round $round lite: rc=$RENDER_RC $(snippet "$RENDER_OUT")"
         break
     fi
-    if ! render_marker_noclose agent-browser dom.html MARKER-DOM --headed false; then
+    if ! retry_render agent-browser dom.html MARKER-DOM --headed false; then
         interleave_ok=0
         interleave_note="round $round chromium: rc=$RENDER_RC $(snippet "$RENDER_OUT")"
         break
     fi
 done
 if [ "$interleave_ok" -eq 1 ]; then
-    pass "the engines interleave freely (3 rounds, no teardown between them)"
+    pass "the engines interleave freely (3 rounds, no teardown between them)$RETRY_NOTE"
 else
     fail "the engines interleave freely (3 rounds, no teardown between them)" "$interleave_note"
 fi
@@ -452,8 +474,9 @@ echo "   ever fixes that, these assertions fail ON PURPOSE — the skill would b
 echo "   teaching a warning that is no longer true, and must be rewritten."
 echo
 
-# Returns 0 when the PNG genuinely depicts the page (all three flat colours present).
-screenshot_truthful() {
+# ONE capture attempt. Echoes how many of the page's three flat colours the PNG
+# contains (0-3), or "err:<reason>" if the capture itself did not complete.
+capture_colours() {
     local cmd="$1"
     shift
     local shot hist found colour out
@@ -462,16 +485,20 @@ screenshot_truthful() {
 
     close_sessions
     if ! out="$(timeout 90 "$cmd" "$@" open "http://127.0.0.1:$PORT/vis.html" 2>&1)"; then
-        SHOT_NOTE="open failed: $(snippet "$out")"
-        return 2
+        echo "err:open ($(snippet "$out"))"
+        return 0
+    fi
+    if ! out="$(timeout 90 "$cmd" "$@" wait 1500 2>&1)"; then
+        echo "err:wait ($(snippet "$out"))"
+        return 0
     fi
     if ! out="$(timeout 90 "$cmd" "$@" screenshot "$shot" 2>&1)"; then
-        SHOT_NOTE="screenshot rc!=0: $(snippet "$out")"
-        return 2
+        echo "err:screenshot ($(snippet "$out"))"
+        return 0
     fi
     if [ ! -f "$shot" ]; then
-        SHOT_NOTE="no PNG written despite success being reported"
-        return 1
+        echo 0
+        return 0
     fi
 
     hist="$(convert "$shot" -format %c -depth 8 histogram:info:-)"
@@ -481,21 +508,56 @@ screenshot_truthful() {
             found=$((found + 1))
         fi
     done
-    SHOT_NOTE="page colours present: $found/3"
-    [ "$found" -eq 3 ]
+    echo "$found"
 }
 
-if screenshot_truthful agent-browser --headed false; then
-    pass "agent-browser screenshot truthfully depicts the page ($SHOT_NOTE)"
+# BEST of N attempts, because `open` returns before Chromium has necessarily
+# painted and a fixed settle wait does not close the window under load (a 1500ms
+# wait still produced 1/3 on one full-gate run). Taking the best attempt removes
+# the race from BOTH assertions below, and it makes the Lightpanda one STRONGER
+# rather than weaker: it must fail to render on *every* attempt, so a pass can no
+# longer be an artifact of capturing too early.
+#
+# Sets the globals BEST_COLOURS and SHOT_TRACE rather than echoing a value: a
+# command substitution runs in a SUBSHELL, so a trace assigned inside one would
+# never reach the caller (it cost a run of "SHOT_TRACE: unbound variable" to
+# remember that).
+best_colours() {
+    local attempts="$1"
+    shift
+    local attempt result
+    BEST_COLOURS=0
+    SHOT_TRACE=""
+    for attempt in $(seq 1 "$attempts"); do
+        result="$(capture_colours "$@")"
+        SHOT_TRACE="$SHOT_TRACE #$attempt=$result"
+        case "$result" in
+            [0-9]*)
+                if [ "$result" -gt "$BEST_COLOURS" ]; then BEST_COLOURS="$result"; fi
+                if [ "$BEST_COLOURS" -eq 3 ]; then break; fi
+                ;;
+        esac
+    done
+}
+
+best_colours 4 agent-browser --headed false
+chrome_best="$BEST_COLOURS"
+if [ "$chrome_best" -eq 3 ]; then
+    pass "agent-browser screenshot truthfully depicts the page (3/3 colours; attempts:$SHOT_TRACE)"
 else
-    fail "agent-browser screenshot truthfully depicts the page" "$SHOT_NOTE"
+    fail "agent-browser screenshot truthfully depicts the page" \
+        "best was $chrome_best/3 over 4 attempts:$SHOT_TRACE"
 fi
 
-if screenshot_truthful agent-browser-lite; then
+# Inverted on purpose: Lightpanda must NOT render. Four attempts, so a pass means
+# "never rendered", not "we happened to look too early".
+best_colours 4 agent-browser-lite
+lite_best="$BEST_COLOURS"
+if [ "$lite_best" -eq 3 ]; then
     fail "agent-browser-lite screenshot is still a placeholder (skill warning accurate)" \
-        "it now renders truthfully — the browsing skill's warning is STALE and must be rewritten"
+        "it now renders truthfully (attempts:$SHOT_TRACE) — the browsing skill's warning is STALE and must be rewritten"
 else
-    pass "agent-browser-lite screenshot is still a placeholder (skill warning accurate) — $SHOT_NOTE"
+    pass "agent-browser-lite screenshot is still a placeholder (skill warning accurate) — best $lite_best/3 over 4 attempts:$SHOT_TRACE"
 fi
 
 # The exit status is the trap the skill exists to warn about: it must stay 0.
