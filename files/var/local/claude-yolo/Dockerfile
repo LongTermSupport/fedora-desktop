@@ -33,7 +33,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.24"
+LABEL claude-yolo-version="2.25"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 # NOTE: the claude-yolo-dockerfile-hash LABEL is set at the END of the final `full` stage
 # (PERF-02) so a Dockerfile edit — which changes DOCKERFILE_HASH — only invalidates that
@@ -205,9 +205,18 @@ RUN printf '%s\n' \
     '}' > /root/.agent-browser/lightpanda.json
 
 # agent-browser-lite — the Lightpanda engine as one word instead of a long --config flag.
-# A pure passthrough: it adds a config file and nothing else, so every agent-browser
-# subcommand, flag and exit code behaves identically, and stdout stays the wrapped
-# command's alone.
+# A passthrough: every agent-browser subcommand, flag and exit code behaves identically,
+# and stdout stays the wrapped command's alone.
+#
+# --namespace is NOT cosmetic, it is what makes the two engines coexist. agent-browser
+# keeps a per-namespace daemon, and a daemon is bound to the engine it was started with.
+# Sharing the default namespace means the FIRST engine used wins until its daemon is
+# fully down, so an agent that reads a page with the light engine and then reaches for
+# Chromium gets "Custom Chrome arguments (--args) are not supported with Lightpanda"
+# (reproduced 3/3 in acceptance) — and `close --all` does not fix it, because the close
+# returns before the daemon has gone. That directly contradicts the browsing skill's
+# "fall back freely, the syntax is identical". A dedicated namespace gives each engine
+# its own daemon socket, so the two interleave in any order with no closes at all.
 RUN printf '%s\n' \
     '#!/bin/sh' \
     '# agent-browser, driven by the Lightpanda engine instead of Chromium.' \
@@ -216,7 +225,11 @@ RUN printf '%s\n' \
     '# Do NOT use for: screenshots, PDFs, element geometry, or anything visual —' \
     '# Lightpanda has no layout/paint pipeline and fails SILENTLY (exit 0 plus a' \
     '# placeholder image or fabricated coordinates). Use plain agent-browser there.' \
-    'exec agent-browser --config /root/.agent-browser/lightpanda.json "$@"' \
+    '#' \
+    '# --namespace keeps this engine on its own daemon socket; without it the two' \
+    '# engines fight over one daemon and whichever ran first wins. Do not remove it.' \
+    'exec agent-browser --namespace lightpanda \' \
+    '    --config /root/.agent-browser/lightpanda.json "$@"' \
     > /usr/local/bin/agent-browser-lite \
     && chmod 755 /usr/local/bin/agent-browser-lite \
     && sh -n /usr/local/bin/agent-browser-lite
@@ -252,9 +265,16 @@ COPY docs/CCY-GUIDE.txt /opt/claude-yolo/docs/CCY-GUIDE.txt
 RUN chmod 444 /opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt \
               /opt/claude-yolo/docs/CCY-GUIDE.txt
 
-# Copy Claude Code skills for browser automation
-RUN mkdir -p /root/.claude/skills
-COPY skills/browsing/ /root/.claude/skills/browsing/
+# Claude Code skills for browser automation.
+#
+# STAGED under /opt/claude-yolo/, NOT written straight to /root/.claude/skills/.
+# entrypoint.sh replaces /root/.claude with a symlink to /workspace/.claude/ccy so
+# sessions persist in the project — and it `rm -rf`s the real directory first. Anything
+# baked into /root/.claude at build time is therefore DELETED on every container start,
+# which is exactly what happened to this skill: it shipped in the image and no agent
+# could ever load it. The entrypoint installs it after the symlink exists, the same way
+# the PHPantom plugin is handled.
+COPY skills/browsing/ /opt/claude-yolo/skills/browsing/
 
 # Set workspace directory
 WORKDIR /workspace

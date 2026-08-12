@@ -17,6 +17,34 @@ Two version numbers move independently — see
 
 ---
 
+## 3.30.2 (container 2.25)
+
+Two defects found by the new acceptance gate
+(`CLAUDE/Plan/Completed/00070-lightweight-agent-browser-engine/acceptance.bash`), which
+asserts what a live container *delivers* rather than what the repo *contains*. Both were
+invisible to every earlier check because both fail silently.
+
+**The browsing skill never reached the agent.** The Dockerfile baked it into
+`/root/.claude/skills/browsing/`, and `entrypoint.sh` then `rm -rf`s `/root/.claude` and
+replaces it with a symlink to `/workspace/.claude/ccy` so sessions persist per project.
+The skill was therefore deleted on every single container start — it shipped in the image
+and no agent could ever load it. This predates the second engine, but it made Plan
+00070's central deliverable (the rule telling the agent which engine to pick) inert.
+Skills are now staged at `/opt/claude-yolo/skills/` and installed by the entrypoint
+*after* the symlink exists, the same way the PHPantom plugin already worked. The copy is
+unconditional, so a rebuilt image always delivers current guidance.
+
+**The two engines fought over one daemon.** `agent-browser` keeps a per-namespace daemon
+that is bound to the engine it started with, and both engines were using the default
+namespace. Reading a page with `agent-browser-lite` and then reaching for Chromium failed
+with `Custom Chrome arguments (--args) are not supported with Lightpanda` — reproduced
+3/3 — and `close --all` did not cure it, because the close returns before the daemon has
+gone. That directly contradicted the skill's "fall back freely, the syntax is identical".
+`agent-browser-lite` now passes `--namespace lightpanda`, giving each engine its own
+daemon socket; the two interleave in any order with no teardown at all (verified 6/6
+alternating calls). The engines keep separate sessions as a result, so re-`open` the URL
+after switching — the skill says so.
+
 ## 3.30.1 (container 2.24)
 
 Reworked the browsing skill's engine-choice rule around **whether the user needs to see

@@ -236,6 +236,25 @@ else
     echo "✓ PHPantom LSP plugin already present"
 fi
 
+# Install the CCY built-in skills from their staging area in the image.
+#
+# This MUST run after the /root/.claude symlink above: the Dockerfile cannot write
+# them to /root/.claude/skills/ directly, because the symlink step rm -rf's that
+# directory on every start. Copied UNCONDITIONALLY (unlike the plugin above, which is
+# install-once) so a rebuilt image always delivers current guidance — these are
+# image-owned content, not user state, and a stale skill teaching a stale rule is the
+# failure mode this whole path exists to prevent.
+CCY_SKILLS_SRC="/opt/claude-yolo/skills"
+if [ -d "$CCY_SKILLS_SRC" ]; then
+    mkdir -p /root/.claude/skills
+    cp -r "$CCY_SKILLS_SRC/." /root/.claude/skills/
+    echo "✓ CCY skills installed: $(find /root/.claude/skills -mindepth 1 -maxdepth 1 -printf '%f ')"
+else
+    echo "ERROR: $CCY_SKILLS_SRC is missing from the image — skills cannot be installed." >&2
+    echo "  The image is built by files/var/local/claude-yolo/Dockerfile." >&2
+    exit 1
+fi
+
 # Create .claude.json if it doesn't exist (preserves existing state in project)
 if [ ! -f /root/.claude.json ]; then
     cat > /root/.claude.json <<'EOF'

@@ -110,8 +110,11 @@ agent-browser close --all
 ## Notes
 
 - `agent-browser-lite` is a passthrough wrapper: it selects the Lightpanda engine via a
-  dedicated config file and changes nothing else. Every subcommand and flag behaves the
-  same.
+  dedicated config file, and puts it on its own daemon namespace. Every subcommand and
+  flag behaves the same.
+- The two engines therefore keep **separate browser sessions**. Interleave them in any
+  order without closing anything — but remember that a page you opened with one engine
+  is not open in the other, so re-`open` the URL after switching.
 - Chromium here is **headed** against the host's Wayland socket, so a real window appears
   on the user's desktop. Treat that as a benefit to reach for when the user is present,
   not a cost to avoid — `--headed false` is for unattended work.

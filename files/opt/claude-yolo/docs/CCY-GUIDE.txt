@@ -89,6 +89,11 @@ BROWSER AUTOMATION:
   `get box` exits 0 while returning fabricated geometry. Choose by the task,
   not by checking the exit code afterwards.
 
+  The two engines run on separate daemon namespaces, so they keep separate
+  browser sessions. Interleave them in any order without closing anything —
+  but a page opened in one is not open in the other, so re-`open` after
+  switching.
+
   Command reference (always matched to the installed version):
     agent-browser skills get core --full
 

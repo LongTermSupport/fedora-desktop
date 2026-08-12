@@ -233,3 +233,9 @@ which is worse than a slow one.
   integration check)
 - Verified in the rebuilt image (container 2.23): section 7 all PRESENT,
   `agent-browser-lite` returns `MARKER-DOM` with no overrides
+- `acceptance.bash` — the pass/fail gate. First run against container 2.24 was
+  **REJECTED** (15 pass / 4 fail) and exposed two silent defects that presence checks
+  could not see: the browsing skill was deleted from `/root/.claude` by the entrypoint
+  symlink on every container start, and the two engines shared one daemon namespace so
+  switching engines failed. Both fixed for container 2.25; re-runs to ACCEPTED only
+  after a host rebuild
