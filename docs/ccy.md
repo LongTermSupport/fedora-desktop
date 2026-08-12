@@ -323,6 +323,41 @@ are forwarded unchanged.
 | `--version`, `-v` | Show the CCY version                                               |
 | `--help`, `-h`    | Full help                                                          |
 
+### Claude Code environment CCY sets
+
+CCY forwards a few Claude Code environment defaults into the container. Each uses the
+`${VAR:-default}` idiom, so exporting the variable on the host before launching overrides
+it; a project `ccy.env` that sets it explicitly overrides both, because the entrypoint
+sources that file after this environment is forwarded.
+
+| Variable                                | CCY default | Why                                                          |
+| --------------------------------------- | ----------- | ------------------------------------------------------------ |
+| `CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION` | `10000`     | Claude Code's own default is 200 — see below                 |
+| `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`  | `1`         | Enables the agent-teams features CCY sessions use            |
+| `MAX_THINKING_TOKENS`                   | *(unset)*   | Forwarded only if you export it; CCY does not impose a value |
+| `TERM` / `COLORTERM`                    | inherited   | Falls back to `xterm` / `truecolor` if unset on the host     |
+| `FORCE_COLOR`                           | `1`         | Keeps colour output intact inside the container              |
+
+**The sub-agent ceiling is worth understanding.** `CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION`
+is a *cumulative lifetime counter* — the total number of sub-agents spawned across the
+whole session — not a limit on how many run at once. Concurrency is capped separately
+(roughly `min(16, cores − 2)`), and *that* is the guard protecting CPU, memory and API
+rate limits. A raw lifetime count protects nothing; it only ceilings how much a session may
+delegate before it stops being allowed to delegate at all.
+
+Claude Code's default of 200 is fine for a short interactive session and a poor fit for the
+long unattended sessions CCY exists to run. Such a session legitimately fans out to many
+short-lived sub-agents — QA runners, parallel issue triage, read-only code archaeology —
+and accumulates 200 spawns over hours of ordinary work. When it hits the wall mid-task,
+every further delegation fails and the work falls back into the driver's own (expensive)
+context, which is the opposite of what sub-agents are for. CCY therefore ships a generous
+default. Lower it per project if you want a tighter runaway backstop:
+
+```bash
+# .claude/ccy/ccy.env
+export CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION=500
+```
+
 ---
 
 ## Per-Project Configuration
