@@ -2,7 +2,32 @@
 # https://docs.astral.sh/ruff/configuration/
 
 [lint]
-# Use default rule set (E, F, W)
+# DECLARE THE RULE SET EXPLICITLY. Do not go back to relying on ruff's built-in
+# default.
+#
+# This file previously carried only the comment "Use default rule set (E, F, W)"
+# and no `select`, which made the gate whatever the installed ruff happened to
+# default to. That was stable by luck until ruff 0.16 widened its defaults: a CCY
+# image rebuild picked up ruff 0.16.2, dozens of rules the repo had never opted
+# into switched on, and `qa-all.bash` went red with 40 findings across 17
+# untouched files. The comment had also never been true — the old default was
+# E4/E7/E9 + F, so E5 (line length) was never enforced despite "E" being claimed.
+#
+# The set below is exactly what the repo was passing before, now stated rather
+# than inherited, so the gate is reproducible across ruff versions and QA breaks
+# only when the CODE changes.
+select = ["E4", "E7", "E9", "F"]
+
+# Deliberately NOT enabled, and why — revisit as a considered decision, not by
+# accident:
+#   E5   (line length)  — 209 pre-existing findings; never enforced here.
+#   BLE  (blind except) — would encode the repo's no-bare-except rule, but 1 of
+#                         the 3 findings is in .claude/ccy/claude-supervise.py,
+#                         which is daemon-owned and overwritten on upgrade, so it
+#                         is not ours to fix.
+#   PLW1510 (subprocess check=) — helpers/CLAUDE.md already mandates this and the
+#                         helpers now comply explicitly; enabling it repo-wide is
+#                         a policy call for the owner.
 
 [lint.per-file-ignores]
 # Test files commonly modify sys.path before imports

@@ -52,8 +52,10 @@ def _metadata_shell_versions(extensions_dir: str, uuid: str) -> list[str]:
 
 def _shell_major(env: dict[str, str]) -> str | None:
     """Running GNOME major (e.g. "50"), or None if gnome-shell is unavailable."""
+    # check=False is deliberate: a non-zero exit means gnome-shell is not available,
+    # which this function reports as None rather than treating as an error.
     result = subprocess.run(
-        ["gnome-shell", "--version"], text=True, capture_output=True, env=env
+        ["gnome-shell", "--version"], text=True, capture_output=True, env=env, check=False
     )
     if result.returncode != 0 or not result.stdout.strip():
         return None
@@ -64,8 +66,14 @@ def _shell_major(env: dict[str, str]) -> str | None:
 
 def _live_state(uuid: str, env: dict[str, str]) -> tuple[bool, str | None]:
     """Return (session_available, state). gnome-extensions exits non-zero with no session."""
+    # check=False is deliberate: gnome-extensions exits non-zero when there is no
+    # session, which is reported as "session unavailable" rather than raised.
     result = subprocess.run(
-        ["gnome-extensions", "info", uuid], text=True, capture_output=True, env=env
+        ["gnome-extensions", "info", uuid],
+        text=True,
+        capture_output=True,
+        env=env,
+        check=False,
     )
     if result.returncode != 0:
         return False, None
