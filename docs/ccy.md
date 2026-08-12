@@ -330,33 +330,52 @@ CCY forwards a few Claude Code environment defaults into the container. Each use
 it; a project `ccy.env` that sets it explicitly overrides both, because the entrypoint
 sources that file after this environment is forwarded.
 
-| Variable                                | CCY default | Why                                                          |
-| --------------------------------------- | ----------- | ------------------------------------------------------------ |
-| `CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION` | `10000`     | Claude Code's own default is 200 — see below                 |
-| `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`  | `1`         | Enables the agent-teams features CCY sessions use            |
-| `MAX_THINKING_TOKENS`                   | *(unset)*   | Forwarded only if you export it; CCY does not impose a value |
-| `TERM` / `COLORTERM`                    | inherited   | Falls back to `xterm` / `truecolor` if unset on the host     |
-| `FORCE_COLOR`                           | `1`         | Keeps colour output intact inside the container              |
+| Variable                               | CCY default | Why                                                          |
+| -------------------------------------- | ----------- | ------------------------------------------------------------ |
+| `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` | `1`         | Enables the agent-teams features CCY sessions use            |
+| `MAX_THINKING_TOKENS`                  | *(unset)*   | Forwarded only if you export it; CCY does not impose a value |
+| `TERM` / `COLORTERM`                   | inherited   | Falls back to `xterm` / `truecolor` if unset on the host     |
+| `FORCE_COLOR`                          | `1`         | Keeps colour output intact inside the container              |
 
-**The sub-agent ceiling is worth understanding.** `CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION`
-is a *cumulative lifetime counter* — the total number of sub-agents spawned across the
-whole session — not a limit on how many run at once. Concurrency is capped separately
-(roughly `min(16, cores − 2)`), and *that* is the guard protecting CPU, memory and API
-rate limits. A raw lifetime count protects nothing; it only ceilings how much a session may
-delegate before it stops being allowed to delegate at all.
+CCY deliberately sets **no** sub-agent fan-out limits — the section below explains why.
 
-Claude Code's default of 200 is fine for a short interactive session and a poor fit for the
-long unattended sessions CCY exists to run. Such a session legitimately fans out to many
-short-lived sub-agents — QA runners, parallel issue triage, read-only code archaeology —
-and accumulates 200 spawns over hours of ordinary work. When it hits the wall mid-task,
-every further delegation fails and the work falls back into the driver's own (expensive)
-context, which is the opposite of what sub-agents are for. CCY therefore ships a generous
-default. Lower it per project if you want a tighter runaway backstop:
+### Sub-agent limits in long unattended sessions
+
+Long autonomous sessions delegate heavily: QA runners, parallel triage sweeps, read-only
+code archaeology. Three separate Claude Code dials govern that fan-out, and only two of
+them still exist:
+
+| Dial                                    | Default | Can it be turned off?                    | Status                                       |
+| --------------------------------------- | ------- | ---------------------------------------- | -------------------------------------------- |
+| `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`  | `20`    | No — adjustable only                     | Live (v2.1.217+)                             |
+| `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`  | `3`     | No — `1` disables *nesting*, not the cap | Live (v2.1.219+ default; `1` in 2.1.217–218) |
+| `CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION` | —       | n/a                                      | **Removed in v2.1.224 — now a no-op**        |
+
+The third one was the problem dial. Between v2.1.212 and v2.1.223 it capped the
+*cumulative lifetime* count of sub-agents a session could ever spawn at 200 — not how many
+ran at once. A session that delegated steadily for hours accumulated 200 spawns doing
+ordinary work, hit the wall mid-task, and could not delegate again for the rest of its
+life; the work fell back into the driver's own expensive context. `/clear` reset the budget,
+which is no help to an unattended session whose whole value is its accumulated context.
+
+Anthropic removed it in v2.1.224: *"Removed the 200-subagent-per-session spawn cap;
+long-running sessions no longer refuse new agents (concurrency and depth limits still
+apply)."* CCY tracks Claude Code `@latest`, so CCY sessions are past that version and the
+variable does nothing — do not set it.
+
+The two surviving dials are the ones worth tuning, and both are the right *kind* of guard:
+concurrency protects CPU, memory and API rate limits at any instant, and depth bounds
+recursive fan-out. Neither penalises a session simply for living a long time. Raise the
+concurrency cap per project if your box can take it:
 
 ```bash
 # .claude/ccy/ccy.env
-export CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION=500
+export CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS=32
 ```
+
+One sibling cap of the *old* design is still live: `CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION`
+(default 200) is a cumulative session-lifetime count of WebSearch calls, raisable to any
+value but not disableable. A research-heavy unattended session can exhaust it the same way.
 
 ---
 
@@ -590,6 +609,10 @@ The launcher also carries a **self-hash guard**: if its content changes without 
 bump, it says so. Contributors must bump `CCY_VERSION` when editing the script — a
 pre-commit hook enforces it. See
 [ContainerRules.md](../CLAUDE/ContainerRules.md#ccy-version-bump-requirement).
+
+Release notes for both version numbers live in [the CCY changelog](ccy-changelog.md). The
+one-line comment on the `CCY_VERSION` line describes only the current release — the rebuild
+banner prints it verbatim, so it must stay short.
 
 ### Claude Code auto-update
 

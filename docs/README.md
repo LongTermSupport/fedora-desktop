@@ -314,6 +314,7 @@ ccy --top
 - [Tokens](ccy.md#tokens) — Named OAuth token pool
 - [Command reference](ccy.md#command-reference) — Every flag
 - [The supervisor](ccy.md#the-supervisor) — Automatic compaction for long sessions
+- [CCY changelog](ccy-changelog.md) — Release notes for the launcher and container image
 - [CCY debug mounts](ccy-debug-mounts.md) — Mounting host directories into CCY containers
 
 **DDEV**
