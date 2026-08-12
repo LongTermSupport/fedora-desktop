@@ -71,12 +71,23 @@ BROWSER AUTOMATION:
                        reading pages, extracting text/markdown, scraping,
                        JS-rendered SPAs. ~0.4s and ~25MB RSS in one process.
 
-  Prefer agent-browser-lite for content, agent-browser for pixels. Lightpanda
-  matches Chromium on JS execution (fetch, ES modules, shadow DOM, React
-  client renders all verified) but has NO renderer, and it fails SILENTLY:
-  `screenshot` exits 0 while writing a placeholder image, and `get box`
-  exits 0 while returning fabricated geometry. Choose by the task, not by
-  checking the exit code afterwards.
+  Choosing, in order:
+
+    1. Does the user want or need to SEE this happening? Chromium is headed,
+       so the window appears on their desktop — that visibility is the point,
+       not overhead. If they are present and the work is about a web page
+       (design, UI testing, debugging a layout), let them watch: use
+       agent-browser and do NOT pass --headed false.
+    2. Otherwise, does it need pixels or geometry at all?
+         no  -> agent-browser-lite
+         yes, but unattended -> agent-browser --headed false
+
+  Lightpanda matches Chromium on JS execution (fetch, ES modules, shadow DOM,
+  React client renders all verified), so the choice is about visibility and
+  pixels, never about whether the JavaScript will run. It has NO renderer and
+  fails SILENTLY: `screenshot` exits 0 while writing a placeholder image, and
+  `get box` exits 0 while returning fabricated geometry. Choose by the task,
+  not by checking the exit code afterwards.
 
   Command reference (always matched to the installed version):
     agent-browser skills get core --full

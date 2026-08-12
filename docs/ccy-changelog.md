@@ -17,6 +17,32 @@ Two version numbers move independently — see
 
 ---
 
+## 3.30.1 (container 2.24)
+
+Reworked the browsing skill's engine-choice rule around **whether the user needs to see
+what is happening**.
+
+3.30.0 framed the choice as content vs pixels, which quietly treated headed Chromium as a
+cost to be avoided. That is backwards. The Chromium window appears on the user's desktop
+through Wayland forwarding, and when someone is sitting there working on a web page, being
+able to watch is often the most valuable thing the browser does — they catch the wrong
+page, the missed cookie banner or the broken layout before the agent does.
+
+The rule is now two questions in order:
+
+1. **Does the user want or need to see this?** If they are present and the work is about
+   the page itself (design, UI testing, debugging a layout) → `agent-browser`, headed,
+   and do not pass `--headed false`.
+2. **Otherwise, does it need pixels or geometry at all?** No → `agent-browser-lite`.
+   Yes but unattended (batch runs, nobody watching) → `agent-browser --headed false`.
+
+Since both engines run JavaScript with equal fidelity, the choice is only ever about
+visibility and pixels — never about whether the page will actually work. The skill also
+now tells the agent to state which engine it picked and why when the answer is unclear, so
+the user can redirect it before the work is done rather than after.
+
+Skill and guide text are baked into the image, so this ships as container 2.24.
+
 ## 3.30.0 (container 2.23)
 
 Added a **second browser engine**: Lightpanda 0.3.6, reachable as `agent-browser-lite`.

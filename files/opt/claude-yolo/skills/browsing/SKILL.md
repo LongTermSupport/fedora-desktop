@@ -25,7 +25,32 @@ Read that before running anything. This file deliberately does not restate it �
 hand-maintained copy drifts, and the previous version of this skill taught a
 `agent-browser run "navigate …; extract text"` syntax that no longer exists at all.
 
-## Which engine?
+## Which engine? Ask two questions, in this order
+
+### 1. Does the user want or need to SEE this happening?
+
+Chromium here is **headed** — the window appears on the user's desktop through Wayland
+forwarding. That visibility is a **feature, not overhead**. If the user is sitting there
+and the work is about a web page, letting them watch is often the most valuable thing the
+browser does: they spot the wrong page, the missed cookie banner, or the broken layout
+before you do.
+
+So ask it explicitly, and default to *yes* when the user is clearly present and engaged
+with the page itself. Being able to see what you are doing is worth far more than the
+extra second.
+
+Answer **yes** → `agent-browser` (headed is already the default; do not pass `--headed false`).
+
+### 2. If not, does the task need pixels or geometry at all?
+
+Answer **no** → `agent-browser-lite`. Answer **yes, but nobody is watching** →
+`agent-browser --headed false`.
+
+| Situation                                                               | Use                            |
+| ----------------------------------------------------------------------- | ------------------------------ |
+| Web design, UI testing, debugging a layout — **and the user is around** | `agent-browser` (headed)       |
+| Reading, extracting text/markdown, scraping, checking a page's content  | `agent-browser-lite`           |
+| Screenshots/PDFs/geometry, unattended (batch runs, no one watching)     | `agent-browser --headed false` |
 
 | Engine                              | Command              | Cost per page fetch                  |
 | ----------------------------------- | -------------------- | ------------------------------------ |
@@ -34,21 +59,11 @@ hand-maintained copy drifts, and the previous version of this skill taught a
 
 Both run JavaScript with the same fidelity. Measured in a CCY container, Lightpanda
 matched Chromium on `fetch()`, ES modules, custom elements + shadow DOM, and a React 18
-client-side render, and returned equal or more page text on real sites.
+client-side render, and returned equal or more page text on real sites. So the choice is
+about **visibility and pixels**, never about whether the JavaScript will run.
 
-### Use `agent-browser-lite` (Lightpanda) for
-
-- Reading a page, extracting text or markdown
-- Scraping, including JavaScript-rendered SPAs
-- Checking whether a page contains something
-- Anything where you want the page's **content**
-
-### Use `agent-browser` (Chromium) for
-
-- **Screenshots, PDFs, visual checks** — anything about pixels
-- **Element geometry** (`get box`), layout, or CSS-computed positions
-- Clicking through a flow where visual state matters
-- Anything `agent-browser-lite` got wrong (fall back freely — same syntax)
+Fall back freely: if `agent-browser-lite` gets something wrong, rerun it with
+`agent-browser` — the syntax is identical.
 
 ## The trap: Lightpanda fails silently
 
@@ -97,5 +112,10 @@ agent-browser close --all
 - `agent-browser-lite` is a passthrough wrapper: it selects the Lightpanda engine via a
   dedicated config file and changes nothing else. Every subcommand and flag behaves the
   same.
-- Chromium here is **headed** against the host's Wayland socket, so a real window can
-  appear. Lightpanda is always headless.
+- Chromium here is **headed** against the host's Wayland socket, so a real window appears
+  on the user's desktop. Treat that as a benefit to reach for when the user is present,
+  not a cost to avoid — `--headed false` is for unattended work.
+- Lightpanda is always headless; it has no window to show and cannot be made to have one.
+- If you are unsure whether the user wants to watch, say which engine you are using and
+  why in one short line, so they can redirect you before the work is done rather than
+  after.
