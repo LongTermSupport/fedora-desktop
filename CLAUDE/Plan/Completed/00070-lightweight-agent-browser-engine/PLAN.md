@@ -1,6 +1,6 @@
 # Plan 00070: Lightweight Agent Browser Engine for CCY
 
-**Status**: In Progress
+**Status**: Complete (2026-08-12)
 **Created**: 2026-08-12
 **Owner**: joseph
 **Priority**: Medium
@@ -120,14 +120,15 @@ infinite rebuild loops) and bumping `CCY_VERSION` if `claude-yolo` itself change
   `docs/playbooks.md`, `docs/containerization.md`, `docs/ccy-changelog.md`
 - [x] ✅ **Task 3.5**: QA green (425 files); Dockerfile-generated wrapper and config
   replayed through `sh -n`, `shellcheck` and `jq` rather than assumed correct
-- [ ] 🔄 **Task 3.6**: HOST verification — deploy, then re-run `triage.bash` **inside a
-  fresh `ccy` session**; its new section 7 checks the deployed integration with no
-  `--executable-path` / `--config` overrides
-  - [x] ✅ Script hard-fails with the right guidance when run on the host by mistake —
-    the first host run hit the missing-tool branch and was told to edit the Dockerfile,
-    which was the wrong fix for the wrong problem
-  - [ ] ⬜ Section 7 reports PRESENT for binary, config and wrapper, and
-    `agent-browser-lite` returns `MARKER-DOM` with no overrides
+- [x] ✅ **Task 3.6**: Verified in the rebuilt image (container 2.23)
+  - [x] ✅ Section 7 reports PRESENT for binary, config and wrapper; `agent-browser-lite`
+    returns `MARKER-DOM` with **no overrides**; installed `lightpanda version` = 0.3.6
+  - [x] ✅ Re-confirmed post-rebuild: 8/8 JS fidelity both engines; Lightpanda
+    469 ms / 1 proc / ~22 MB vs Chromium 1243 ms / 15 procs / ~1389 MB; the screenshot
+    correctness check still catches Lightpanda's untruthful render (0/3 page colours)
+  - [x] ✅ `triage.bash` is now **host-runnable**, matching this repo's plan-script
+    convention: a host run re-executes the same file inside the running CCY container
+    (auto-detected, `--container` to override) instead of refusing
 
 ## Dependencies
 
@@ -221,4 +222,14 @@ which is worse than a slow one.
      "when" — do not add dates). The blow-by-blow activity log lives in
      JOURNAL/00070-Journal-YY-MM-DD.md. -->
 
-- Plan created; research workflow dispatched
+- `f811688` — plan created; research workflow dispatched (11 agents, 4 scan angles +
+  5 deep dives + completeness critique)
+- `e2dd75b` — `triage.bash`: measured both engines in-container; Lightpanda matched
+  Chromium on all 8 JS fidelity fixtures
+- `b300146` — integration: Lightpanda 0.3.6 in the Dockerfile, `agent-browser-lite`,
+  paired version bumps, browsing skill rewritten (730 stale lines removed)
+- `680326b` — plan index row updated with the decision and its evidence
+- `a73f7a8` — fixed `triage.bash` misdirecting a host run; added section 7 (deployed
+  integration check)
+- Verified in the rebuilt image (container 2.23): section 7 all PRESENT,
+  `agent-browser-lite` returns `MARKER-DOM` with no overrides

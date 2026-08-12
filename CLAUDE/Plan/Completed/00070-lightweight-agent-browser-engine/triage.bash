@@ -30,6 +30,7 @@ set -euo pipefail
 
 LP_VERSION="0.3.6"
 SKIP_DOWNLOAD=0
+CONTAINER=""
 
 usage() {
     cat <<'USAGE'
@@ -38,16 +39,26 @@ Plan 00070 triage — browser engine facts for the CCY container.
 Usage:
   triage.bash [options]
 
+RUN IT FROM THE HOST, like every other plan script in this repo. The browsers it
+measures only exist inside the CCY image, so a host run automatically re-executes
+this same script inside a running CCY container (the repo is bind-mounted there at
+/workspace, so it is the very same file). Running it inside a container also works
+and skips the dispatch.
+
 Options:
+  --container <name>   Use this CCY container instead of auto-detecting
   --lp-version <ver>   Lightpanda release to probe (default: 0.3.6)
   --no-download        Fail instead of fetching Lightpanda if it is not cached
   -h, --help           Show this help
 
 Output:
   Writes a full report to <plan folder>/logs/browser-engine-triage.log
-  (that directory is gitignored — it captures live container state).
+  (that directory is gitignored — it captures live container state). The plan
+  folder is inside the repo, so a report written inside the container lands on
+  the host at the same path.
 
-Requires: agent-browser, curl, python3, timeout. Network access.
+Requires, inside the container: agent-browser, curl, python3, timeout, convert.
+Requires, on the host: podman (or docker) with a CCY container running.
 USAGE
 }
 
@@ -59,6 +70,14 @@ while [ $# -gt 0 ]; do
                 exit 1
             fi
             LP_VERSION="$2"
+            shift 2
+            ;;
+        --container)
+            if [ $# -lt 2 ]; then
+                echo "ERROR: --container needs a value." >&2
+                exit 1
+            fi
+            CONTAINER="$2"
             shift 2
             ;;
         --no-download)
@@ -76,9 +95,75 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+PLAN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# --- host dispatch: run from the host, measure inside the container ---------------
+#
+# Plan scripts in this repo are HOST-run (CLAUDE/Plan/CLAUDE.md), but the browsers
+# this one measures exist only inside the CCY image. Rather than refuse — an earlier
+# version did, and told the user to go and edit the Dockerfile, which was the wrong
+# fix for the wrong problem — a host run re-executes THIS SAME FILE inside a running
+# CCY container. The repo is bind-mounted there at /workspace, so it is literally the
+# same script, and the report it writes into the plan's logs/ appears on the host at
+# the same path.
+if [ ! -f /run/.containerenv ] && [ ! -f /.dockerenv ]; then
+    engine=""
+    for candidate in podman docker; do
+        if command -v "$candidate" > /dev/null; then
+            engine="$candidate"
+            break
+        fi
+    done
+    if [ -z "$engine" ]; then
+        echo "ERROR: neither podman nor docker is on PATH — cannot reach a CCY container." >&2
+        echo "  Podman is installed by playbooks/imports/play-podman.yml." >&2
+        exit 1
+    fi
+
+    repo_root="$(git -C "$PLAN_DIR" rev-parse --show-toplevel)"
+    project="$(basename "$repo_root")"
+    script_in_container="/workspace/${PLAN_DIR#"$repo_root"/}/$(basename "${BASH_SOURCE[0]}")"
+
+    if [ -z "$CONTAINER" ]; then
+        # CCY containers are named <project>_yolo[_N] and built from a claude-yolo:*
+        # image. Prefer one belonging to THIS repo so a multi-project box does not get
+        # measured through the wrong container.
+        running="$("$engine" ps --format '{{.Names}} {{.Image}}')"
+        mine="$(printf '%s\n' "$running" | awk -v p="^${project}_yolo" '$1 ~ p {print $1}')"
+        if [ -z "$mine" ]; then
+            mine="$(printf '%s\n' "$running" | awk '$2 ~ /claude-yolo/ {print $1}')"
+            if [ -n "$mine" ]; then
+                echo "NOTE: no ${project}_yolo container running; falling back to any CCY container." >&2
+            fi
+        fi
+        count="$(printf '%s\n' "$mine" | grep -c .)"
+        if [ "$count" -eq 0 ]; then
+            echo "ERROR: no running CCY container found — nothing to measure." >&2
+            echo "  Start one, then re-run this script from the host:" >&2
+            echo "    cd $repo_root && ccy" >&2
+            echo >&2
+            echo "  If the image predates Plan 00070 (container 2.23), deploy first:" >&2
+            echo "    ansible-playbook playbooks/imports/play-claude-yolo.yml" >&2
+            exit 1
+        fi
+        if [ "$count" -gt 1 ]; then
+            echo "ERROR: several CCY containers are running; pick one with --container:" >&2
+            printf '%s\n' "$mine" | while IFS= read -r name; do
+                printf '    %s\n' "$name" >&2
+            done
+            exit 1
+        fi
+        CONTAINER="$mine"
+    fi
+
+    echo "Host run — dispatching into CCY container '$CONTAINER' via $engine." >&2
+    echo "  (the browsers only exist in there; the report lands in this plan's logs/)" >&2
+    exec "$engine" exec "$CONTAINER" "$script_in_container" \
+        --lp-version "$LP_VERSION" ${SKIP_DOWNLOAD:+--no-download}
+fi
+
 # --- environment ---
 
-PLAN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPORTS_DIR="$PLAN_DIR/logs"
 mkdir -p "$REPORTS_DIR"
 LOG="$REPORTS_DIR/browser-engine-triage.log"
@@ -137,29 +222,10 @@ echo " host: $(uname -srm)   date: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 echo "==============================================================================="
 echo
 
-# --- where am I? -----------------------------------------------------------------
-#
-# This script measures the browsers inside the CCY IMAGE, so it is meaningless on the
-# host — none of these tools exist there. Check location BEFORE the dependency gate:
-# otherwise a host run trips the "missing tool" branch and gets told to go and edit the
-# Dockerfile, which is the wrong fix for the wrong problem. (That is exactly what
-# happened on the first host run of this script.)
-if [ ! -f /run/.containerenv ] && [ ! -f /.dockerenv ]; then
-    echo "ERROR: this is the HOST, not a CCY container." >&2
-    echo "  This script measures the browser engines inside the CCY image, so it has" >&2
-    echo "  to run in there. On the host, agent-browser does not exist at all." >&2
-    echo >&2
-    echo "  Run it inside CCY instead:" >&2
-    echo "    cd ~/Projects/fedora-desktop && ccy" >&2
-    echo "    # then, at the Claude prompt or a shell inside the container:" >&2
-    echo "    /workspace/CLAUDE/Plan/00070-lightweight-agent-browser-engine/triage.bash" >&2
-    echo >&2
-    echo "  If the container has not been rebuilt for Lightpanda yet, deploy first:" >&2
-    echo "    ansible-playbook playbooks/imports/play-claude-yolo.yml" >&2
-    exit 1
-fi
-
 # --- dependency gate: a missing tool is an IaC gap, never a skip ---------------
+#
+# Reaching here means we ARE inside a container (a host run dispatched above), so a
+# missing tool really is a gap in the image, and the Dockerfile really is the fix.
 
 for tool in agent-browser curl python3 timeout convert; do
     if ! command -v "$tool" > /dev/null; then
