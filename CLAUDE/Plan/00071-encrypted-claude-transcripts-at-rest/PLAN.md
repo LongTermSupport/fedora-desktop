@@ -101,13 +101,15 @@ realised breach. The plan rests on that framing.
 
 ### Phase 0: Ground truth (HOST triage — blocks every design decision)
 
-- [ ] ⬜ **Task 0.1**: Write plan-local `triage.bash` — read-only, re-runnable, `probe()` helper,
+- [x] ✅ **Task 0.1**: Write plan-local `triage.bash` — read-only, re-runnable, `probe()` helper,
   logs to `<plan>/logs/` resolved from `BASH_SOURCE[0]`, `--help` before any environment
-  resolution, **`command grep` only**
+  resolution, real grep binary resolved via `type -P` with a canary self-test on that exact
+  code path
 - [ ] ⬜ **Task 0.2**: Probe SELinux mode and container booleans (`getenforce`, `getsebool -a`,
-  `ausearch -m AVC`)
-- [ ] ⬜ **Task 0.3**: Probe backup/sync coverage of the project tree — **this finding largely
-  decides whether Phase 2 is worth building**
+  `ausearch -m AVC`) — only needed if Phase 2 is ever revived
+- [x] ✅ **Task 0.3**: Backup/sync coverage of the project tree — **answered by the owner: no
+  backups are run.** This removes the one scenario where encryption beats the existing LUKS,
+  and closes the Phase 2 gate
 - [ ] ⬜ **Task 0.4**: Census the desktop `~/.claude/projects/` store — never measured, and it has
   no container boundary
 - [ ] ⬜ **Task 0.5**: Probe rootless `podman run --tmpfs /root/.claude` and assert `findmnt`
@@ -122,10 +124,14 @@ realised breach. The plan rests on that framing.
 
 ### Phase 1: Blast-radius reduction (ship unconditionally)
 
-- [ ] ⬜ **Task 1.1**: `umask 077` in `entrypoint.sh` before state creation, and in the desktop
+- [x] ✅ **Task 1.1**: `umask 077` in `entrypoint.sh` before state creation, and in the desktop
   `cc` wrapper
-- [ ] ⬜ **Task 1.2**: New `playbooks/imports/play-claude-state-hygiene.yml` (`scope: general`)
-  with a recursive `mode: "u=rwX,go="` reconciliation over both stores
+- [x] ✅ **Task 1.2**: New `playbooks/imports/play-claude-state-hygiene.yml` (`scope: general`),
+  imported from `playbook-main.yml` after both launchers. Repairs the desktop store with
+  `find -perm /077 -exec chmod go=` (owner bits preserved — a blanket `chmod 600` would strip
+  the execute bit from 129 plugin/skill scripts) and **asserts** the store is closed
+  afterwards. Per-project CCY stores are repaired by a launcher preflight instead, since only
+  the launcher knows the project directory
 - [ ] ⬜ **Task 1.3**: Deploy `/etc/claude-code/managed-settings.json` — pins `cleanupPeriodDays`
   and adds `permissions.deny` rules for `.env*`, `*.pem`, `id_*`, `vault-pass.secret`
 - [ ] ⬜ **Task 1.4**: Bake the same managed settings into the CCY image; `entrypoint.sh` asserts
@@ -145,7 +151,7 @@ realised breach. The plan rests on that framing.
   new play from `playbook-main.yml`
 - [ ] ⬜ **Task 1.12**: Add a systemd **user** timer for the desktop store (precedent:
   `container-watch.timer`)
-- [ ] ⬜ **Task 1.13**: Bump `CCY_VERSION` → 3.31.0 and `REQUIRED_CONTAINER_VERSION` → 2.26 +
+- [x] ✅ **Task 1.13**: Bump `CCY_VERSION` → 3.31.0 and `REQUIRED_CONTAINER_VERSION` → 2.26 +
   Dockerfile label
 - [ ] ⬜ **Task 1.14**: Write `acceptance.bash` — 0 other-readable files, scanner canary detected,
   sealed session round-trips byte-identically, wrong passphrase changes nothing,
@@ -157,32 +163,23 @@ realised breach. The plan rests on that framing.
 
 ### Phase 2: Decision gate — live-state encryption
 
-- [ ] ⬜ **Task 2.1**: Record the gate decision — proceed only if Task 0.3 confirms the tree is
-  backed up/synced, **or** the user explicitly accepts the between-sessions scenario as
-  sufficient justification
-- [ ] ⬜ **Task 2.2**: If proceeding, confirm Task 0.5 cleared `--tmpfs`; if not, evaluate
+**GATE CLOSED.** The owner runs no backups, so the copy-exfiltration scenario — the only one
+where encrypting this directory beats the LUKS already on the disk — does not apply here. The
+remaining benefit (an infostealer sweeping `.claude` *between* sessions) does not justify a
+FUSE mount, a launch-time passphrase ceremony, or a data-loss surface. Phase 3 stays unbuilt
+unless the backup situation changes or the owner accepts that narrower case explicitly.
+
+- [x] ✅ **Task 2.1**: Gate decision recorded — **do not build live-state encryption**
+- [ ] ❌ **Task 2.2**: If proceeding, confirm Task 0.5 cleared `--tmpfs`; if not, evaluate
   gocryptfs *inside* the container and record the reasoning. Host-side gocryptfs stays rejected
-- [ ] ⬜ **Task 2.3**: Empirically prove Claude Code tolerates the candidate filesystem —
+- [ ] ❌ **Task 2.3**: Empirically prove Claude Code tolerates the candidate filesystem —
   `flock` on `daemon.lock`, `sessions/` liveness, and a 250-char path — **before** any code
 
-### Phase 3: Live-state encryption (only if Phase 2 clears)
+### Phase 3: Live-state encryption (NOT BUILT — Phase 2 gate closed)
 
-- [ ] ⬜ **Task 3.1**: Replace `entrypoint.sh:183-195` (including the `rm -rf /root/.claude`
-  branch, which would destroy live state under a mount) with a **two-way** `findmnt` assertion
-- [ ] ⬜ **Task 3.2**: Add the `--tmpfs` mount; pass the identity as a bind-mounted file, never
-  via `-e` or argv
-- [ ] ⬜ **Task 3.3**: Restore-at-start and interval-seal using **Phase 1's `ccy-seal`** — no
-  bespoke store engine
-- [ ] ⬜ **Task 3.4**: Shred the identity inside the container after restore, leaving only the
-  public key where untrusted agent code runs
-- [ ] ⬜ **Task 3.5**: Exit-time seal-freshness check — a stale seal reports the lost window
-  loudly and exits non-zero
-- [ ] ⬜ **Task 3.6**: Launch passphrase prompt — `read -rs` from `/dev/tty`, stderr prompts,
-  `MAX_TRIES=3`, EOF cancels cleanly, **no fallback to unencrypted mode ever**
-- [ ] ⬜ **Task 3.7**: Extend `acceptance.bash` — kill-mid-append round-trip, 250-char path,
-  measured append and `load_tail` performance gates
-- [ ] ⬜ **Task 3.8**: Version bumps again; QA; document the ceremony, key backup, recovery, and
-  what key loss costs
+Not restated here — the full eight-task breakdown is retained verbatim as the design of record
+in [`research/synthesis.md`](research/synthesis.md) ("Phased Task Breakdown", Phase 3), so a
+future revisit does not restart from nothing without costing context every session now.
 
 ## Success Criteria
 
@@ -233,4 +230,8 @@ Blocking Phase 2; Phase 1 proceeds regardless.
 
 - Plan opened; research workflow `wf_487ae6c4-73e` dispatched — d5985e6
 - Research complete (11 agents, 0 errors); recommendation recorded; full artefacts in
-  [`research/`](research/)
+  [`research/`](research/) — a81ae3a
+- Phase 2 gate closed (owner runs no backups); `umask 077` in both launchers, launcher
+  preflight repair, and `play-claude-state-hygiene.yml` landed. Repair proven in this repo's
+  own store: 887/990 files and 331/348 dirs group/other-readable → **0/0**, with all 129
+  owner-execute bits preserved. CCY 3.31.0, container 2.26

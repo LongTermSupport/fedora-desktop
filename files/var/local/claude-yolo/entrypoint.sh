@@ -5,6 +5,23 @@
 
 set -e
 
+# Every file Claude Code writes under /workspace/.claude/ccy is session state:
+# full conversation transcripts, verbatim pre-edit file bodies in file-history/,
+# shell snapshots, prompt history. Anthropic documents that this state is NOT
+# encrypted at rest and that OS file permissions are its only protection
+# (code.claude.com/docs/en/claude-directory, "Plaintext storage").
+#
+# The default umask (022) therefore makes every one of those files readable by
+# every local user, forever. Plan 00071 measured 887 of 990 files and 331 of 348
+# directories carrying group/other bits before this line existed. Set it here,
+# before anything creates state, so the posture is correct by construction
+# rather than by periodic repair.
+#
+# 077 = owner keeps rwx; group and other get nothing. Execute bits on files that
+# need them are unaffected, because umask only ever clears bits the creator asks
+# for — it cannot add them.
+umask 077
+
 # Enable debug mode if requested (for entrypoint layer only)
 if [ "$DEBUG_ENTRYPOINT" = "true" ]; then
     set -x

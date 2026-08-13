@@ -1,0 +1,142 @@
+#!/usr/bin/env ansible-playbook
+---
+# Claude Code writes its full session state — conversation transcripts, verbatim
+# pre-edit file bodies in file-history/, shell snapshots, prompt history — as
+# plaintext. Anthropic documents that this state is NOT encrypted at rest and
+# that OS file permissions are its only protection:
+#   https://code.claude.com/docs/en/claude-directory  ("Plaintext storage")
+#
+# Nothing set a umask in either launcher, so the default 022 left that state
+# group/other-readable. Plan 00071 measured 887 of 990 files and 331 of 348
+# directories carrying group/other bits in a single project store.
+#
+# Two halves, and BOTH are needed:
+#   - going forward: `umask 077` in files/var/local/claude-yolo/entrypoint.sh
+#     and files/var/local/claude-code/cc, so new state is correct by construction
+#   - already on disk: this play, which repairs the legacy files those umasks
+#     came too late for
+#
+# Scope note: this play owns the DESKTOP store (~/.claude), which is at a known
+# path. Per-project CCY stores (<project>/.claude/ccy) live wherever the user
+# keeps their projects, so they are repaired by the ccy launcher's preflight at
+# every launch instead of guessed at from here.
+#
+# See CLAUDE/Plan/00071-encrypted-claude-transcripts-at-rest/PLAN.md
+- hosts: desktop
+  name: Claude Code State Hygiene
+  become: false
+  vars:
+    # Project root, anchored on ansible.cfg's location (never moves from the repo root).
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: general # general | gnome | server — see CLAUDE/AnsibleStyle.md
+    claude_desktop_state_dir: "{{ ansible_env.HOME }}/.claude"
+  tasks:
+    - name: Check Whether the Desktop Claude Code State Directory Exists
+      ansible.builtin.stat:
+        path: "{{ claude_desktop_state_dir }}"
+      register: claude_state_dir
+
+    # Probe-then-fail pattern: find's exit status is inspected explicitly below,
+    # so a genuine error still stops the play.
+    - name: Find Claude Code State Entries With Group or Other Permissions
+      ansible.builtin.command:
+        # argv (list form) bypasses Ansible 2.19's split_args parser entirely, so
+        # find's parentheses and -perm argument need no shell quoting.
+        #
+        # -perm /077 matches any entry with ANY group or other bit set, so a
+        # re-run after the repair matches nothing — this is what makes the play
+        # idempotent without a `creates:` guard.
+        #
+        # -type f/-type d deliberately EXCLUDES symlinks: chmod on a symlink
+        # applies to its target, which may live outside this tree.
+        argv:
+          - find
+          - "{{ claude_desktop_state_dir }}"
+          - (
+          - -type
+          - f
+          - -o
+          - -type
+          - d
+          - )
+          - -perm
+          - /077
+          - -print
+      register: claude_state_offenders
+      changed_when: false
+      when: claude_state_dir.stat.exists
+
+    - name: Report How Many Claude Code State Entries Need Repair
+      ansible.builtin.debug:
+        msg: >-
+          {{ claude_state_offenders.stdout_lines | length }} entr(ies) under
+          {{ claude_desktop_state_dir }} are group/other-accessible and will be
+          restricted to the owner.
+      when:
+        - claude_state_dir.stat.exists
+        - claude_state_offenders.stdout_lines | length > 0
+
+    - name: Strip Group and Other Permissions From Claude Code State
+      ansible.builtin.command:
+        # `chmod go=` removes group/other bits and leaves OWNER bits untouched.
+        # This matters: a blanket `chmod 600` would strip the execute bit from
+        # every executable in the tree (129 of them in the store Plan 00071
+        # measured — plugin and skill scripts, plus backups of executable files).
+        argv:
+          - find
+          - "{{ claude_desktop_state_dir }}"
+          - (
+          - -type
+          - f
+          - -o
+          - -type
+          - d
+          - )
+          - -perm
+          - /077
+          - -exec
+          - chmod
+          - go=
+          - "{}"
+          - +
+      changed_when: true
+      when:
+        - claude_state_dir.stat.exists
+        - claude_state_offenders.stdout_lines | length > 0
+
+    - name: Verify No Claude Code State Entry Remains Group or Other Accessible
+      ansible.builtin.command:
+        argv:
+          - find
+          - "{{ claude_desktop_state_dir }}"
+          - (
+          - -type
+          - f
+          - -o
+          - -type
+          - d
+          - )
+          - -perm
+          - /077
+          - -print
+      register: claude_state_remaining
+      changed_when: false
+      when: claude_state_dir.stat.exists
+
+    # Fail fast: a repair that silently left files exposed would be worse than
+    # no repair at all, because the report would say the store is closed.
+    - name: Assert the Claude Code State Repair Actually Closed the Store
+      ansible.builtin.assert:
+        that:
+          - claude_state_remaining.stdout_lines | length == 0
+        fail_msg: |
+          {{ claude_state_remaining.stdout_lines | length }} entr(ies) under
+          {{ claude_desktop_state_dir }} are STILL group/other-accessible after
+          the repair ran. Do not treat this store as protected.
+
+          First entries:
+          {{ claude_state_remaining.stdout_lines[:10] | join('\n') }}
+        success_msg: >-
+          {{ claude_desktop_state_dir }} is owner-only
+          ({{ claude_state_offenders.stdout_lines | length }} entr(ies) repaired).
+      when: claude_state_dir.stat.exists

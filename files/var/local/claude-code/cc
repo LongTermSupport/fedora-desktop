@@ -16,6 +16,15 @@
 
 set -e
 
+# Desktop Claude Code writes the same plaintext session state as the container
+# does, to ~/.claude/ — transcripts, file-history/, shell-snapshots/, prompt
+# history — and it is protected by file permissions alone (Anthropic,
+# code.claude.com/docs/en/claude-directory, "Plaintext storage"). The default
+# umask (022) leaves all of it readable by every local user. See Plan 00071 and
+# the matching umask in ccy's entrypoint.sh: the desktop store has no container
+# boundary at all, so omitting it here would leave the larger hole open.
+umask 077
+
 # Defensive stubs: token-management.bash's container-mode renew/create paths
 # reference $GH_TOKEN and $IMAGE_NAME. We never trigger those paths in host
 # mode (mode="host" disables them), but pre-export empty stubs anyway so that
