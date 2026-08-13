@@ -113,6 +113,29 @@ For changes to `ccy-ctrl-z-patch.js`, run the dedicated patch QA script:
 - ❌ **Runtime API incompatibilities** — e.g., calling a library method with parameters it no longer accepts
 - ❌ **Import errors** — missing dependencies only fail at runtime
 - ❌ **Logic errors** — code that runs but produces wrong results
+- ❌ **Everything judgement-shaped** — work put in the wrong place in the IaC graph, a
+  new playbook that should have been an edit to an existing one, names that describe a
+  mood rather than a behaviour, a missing version bump, plan/docs drift, a self-test
+  that does not exercise the code path it vouches for, or a real identifier about to be
+  posted to a public surface. **Use the `qa-reviewer` agent for these** — see below.
+
+---
+
+## The `qa-reviewer` Agent — Required Before Marking a Plan Complete
+
+`qa-all.bash` is mechanical: syntax, lint, greps, playbook parsing. It passes green on
+changes that are structurally wrong. `.claude/agents/qa-reviewer.md` is the holistic
+gate for that class of defect.
+
+**Run it as the final step of every plan, and to review any PR or branch diff:**
+
+> Use the qa-reviewer agent to review this plan's changes before I mark it Complete.
+
+It is **read-only** — it reports findings with `file:line` evidence and a verdict
+(BLOCK / FIX-BEFORE-MERGE / PASS WITH NITS / PASS); it never edits. Its checklist is
+built from this repo's own rules and the mistakes already made here (recorded in
+`CLAUDE/AgentNotes.md`), so it grows as new ones are found — when a defect gets past
+it, add that case to the agent rather than only fixing the instance.
 
 **For Python files that use external libraries** (like `wsi-stream` using RealtimeSTT):
 

@@ -313,7 +313,13 @@ proper plan, migrate the tasks, and reference the plan in your work.
    `playbook-main.yml`"), not "work on Docker".
 4. **Execute** — mark the plan 🔄, work tasks in order, update status in real time, run
    QA before each commit, and reference the plan in commit messages.
-5. **Complete** — verify all success criteria, confirm QA passes, mark tasks ✅, set the
+5. **Review** — **run the `qa-reviewer` agent over the plan's full diff. This is a
+   required final step, not an optional extra.** `qa-all.bash` is mechanical and passes
+   green on work that is structurally wrong — misplaced in the IaC graph, a new playbook
+   that should have been an edit, a missing version bump, plan/docs drift, a self-test
+   that does not exercise what it vouches for. Resolve every BLOCK and
+   FIX-BEFORE-MERGE finding before step 6. See `CLAUDE/QA.md`.
+6. **Complete** — verify all success criteria, confirm QA passes, mark tasks ✅, set the
    plan to Complete with a completion date, and move the folder to `Completed/` when
    appropriate.
 
@@ -378,6 +384,9 @@ cancelled plans.
 4. **Update task status in real time** as you work.
 5. **Run `./scripts/qa-all.bash` before commits** that touch Bash/Python/Ansible
    (ESLint for extension JS, `qa-ctrl-z-patch.bash` for the CCY patch).
-6. **Reference the plan** in every related commit for traceability.
-7. **Respect the CCY container boundary** — edit and commit only; deploy on the HOST.
-8. **Document blockers immediately**; do not silently stop or work around a failure.
+6. **Run the `qa-reviewer` agent before marking a plan Complete** — required, and the
+   only gate that catches structural/convention defects. When something gets past it,
+   add that case to `.claude/agents/qa-reviewer.md` rather than only fixing the instance.
+7. **Reference the plan** in every related commit for traceability.
+8. **Respect the CCY container boundary** — edit and commit only; deploy on the HOST.
+9. **Document blockers immediately**; do not silently stop or work around a failure.
