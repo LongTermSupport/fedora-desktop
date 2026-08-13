@@ -102,29 +102,34 @@ The playbook then builds the base image, tagged `claude-yolo:latest`.
 Understanding this sequence makes almost every question about CCY answer itself. This is
 the real order the launcher executes in.
 
-1. **Host checks.** The container engine is verified, the project's `.claude/ccy/`
-   directory is checked for accidentally-committed state (see
-   [State](#state-and-the-claudeccy-directory)), and
-   `.claude/ccy/allowed-hostnames` — if present — is matched against the current
-   hostname.
-2. **SSH selection.** You pick a key (or pass `--ssh-key` / `--no-ssh`). It is mounted
-   **read-only**, and a matching `gh` token is resolved.
-3. **Token selection.** A long-lived OAuth token is chosen from the pool and its expiry
-   checked; an expired one forces a renewal prompt. It is passed in as an environment
-   variable.
-4. **Safety guard.** The launcher refuses to continue if you are running as root.
-5. **Version check.** If the base image's version label is older than the launcher's
-   `REQUIRED_CONTAINER_VERSION`, a rebuild is forced. Claude Code inside the image is
-   also updated if it is behind — see [Keeping CCY Current](#keeping-ccy-current).
-6. **Image resolution.** If `.claude/ccy/Dockerfile` exists, the image becomes
-   `claude-yolo:<project-name>` and is rebuilt when the Dockerfile's hash changes.
-   Otherwise the base `claude-yolo:latest` is used.
-7. **Network.** Any project compose network is detected and offered, or attached with
-   `--network`.
-8. **Launch.** The container starts with your project bind-mounted at `/workspace`.
-9. **Entrypoint.** Inside, `/root/.claude` is symlinked to `/workspace/.claude/ccy/`,
-   `.claude/ccy/ccy.env` is sourced if present, and `claude` is exec'd — optionally
-   wrapped by a [supervisor](#the-supervisor).
+01. **Host checks.** The container engine is verified, the project's `.claude/ccy/`
+    directory is checked for accidentally-committed state (see
+    [State](#state-and-the-claudeccy-directory)), and
+    `.claude/ccy/allowed-hostnames` — if present — is matched against the current
+    hostname.
+02. **SSH selection.** You pick a key (or pass `--ssh-key` / `--no-ssh`). It is mounted
+    **read-only**, and a matching `gh` token is resolved.
+03. **Token selection.** A long-lived OAuth token is chosen from the pool and its expiry
+    checked; an expired one forces a renewal prompt. It is passed in as an environment
+    variable.
+04. **Safety guard.** The launcher refuses to continue if you are running as root.
+05. **Version check.** If the base image's version label is older than the launcher's
+    `REQUIRED_CONTAINER_VERSION`, a rebuild is forced. Claude Code inside the image is
+    also updated if it is behind — see [Keeping CCY Current](#keeping-ccy-current).
+06. **Image resolution.** If `.claude/ccy/Dockerfile` exists, the image becomes
+    `claude-yolo:<project-name>` and is rebuilt when the Dockerfile's hash changes.
+    Otherwise the base `claude-yolo:latest` is used.
+07. **Network.** Any project compose network is detected and offered, or attached with
+    `--network`.
+08. **State permission repair.** Any file or directory under the project's `.claude/`
+    tree carrying group or other permissions is restricted to you, and the count is
+    reported. See [State](#state-and-the-claudeccy-directory). This is advisory — it never
+    blocks a launch — and it runs on **every** launch by design.
+09. **Launch.** The container starts with your project bind-mounted at `/workspace`.
+10. **Entrypoint.** Inside, the umask is set to `077` so all new session state is
+    owner-only, `/root/.claude` is symlinked to `/workspace/.claude/ccy/`,
+    `.claude/ccy/ccy.env` is sourced if present, and `claude` is exec'd — optionally
+    wrapped by a [supervisor](#the-supervisor).
 
 `<project-name>` is your project directory's name, lowercased with unusual characters
 replaced by `_`. If the parent directory is not a generic container (`projects`, `repos`,
@@ -230,6 +235,38 @@ whitelist (`.gitignore`, `Dockerfile`, `allowed-hostnames`, `ccy.env`,
 `claude-supervise*`) is tracked in git, CCY prints a security alert and **refuses to
 start** until you untrack it. Session history and token metadata committed by accident
 are exactly what this catches.
+
+### Permissions — this state is plaintext
+
+Everything above is stored **unencrypted**. Anthropic documents this directly: session
+files are not encrypted at rest and OS file permissions are their only protection
+([Plaintext storage](https://code.claude.com/docs/en/claude-directory)). The material is
+sensitive in practice — full conversation transcripts, verbatim copies of files Claude
+read before editing them (`file-history/`), shell snapshots, and every prompt you have
+typed (`history.jsonl`, which Claude Code's retention sweep never deletes).
+
+CCY therefore does two things, and both are needed:
+
+- **`umask 077` inside the container**, so every file Claude Code creates is owner-only
+  from the start. Without it the default `022` leaves all of the above readable by every
+  local user.
+- **A repair pass on every launch** over the whole project `.claude/` tree, clearing group
+  and other permissions from anything that has them. Owner bits are left alone, so
+  executables keep working, and symlinks are skipped.
+
+The repair is **not** a one-off migration, and must not be removed once the umask has
+shipped. The hooks daemon sets `os.umask(0)` when it daemonizes and writes archived
+transcripts to `.claude/hooks-daemon/untracked/transcripts/` at mode `0666` — it
+overwrites its own umask rather than inheriting the container's, so nothing but the repair
+pass restricts those files, and it re-creates them continuously.
+
+This protects against another local user reading your state, and against a copy of the
+project tree leaking it — `.gitignore` stops git, but does nothing for `rsync`, `restic`,
+`borg`, Dropbox or Syncthing, and `.claude/ccy/` sits **inside** the working tree. It does
+**not** protect against anything running as you. If an attacker has code execution under
+your account while a session is live, they read this state exactly as Claude Code does.
+For that threat the answer is to keep secrets out of the context in the first place, and
+to shorten retention (`cleanupPeriodDays`), not file permissions.
 
 ---
 

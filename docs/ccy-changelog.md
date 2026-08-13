@@ -17,6 +17,53 @@ Two version numbers move independently — see
 
 ---
 
+## 3.31.1 (container 2.26)
+
+Scope fix on the state repair introduced in 3.31.0, found by the new `qa-reviewer` agent.
+
+**There is a third transcript store, and it is world-writable.** The hooks daemon's
+`pre_compact` transcript archiver writes verbatim conversation archives to
+`.claude/hooks-daemon/untracked/transcripts/` — 8.3 MB of them in the repo this was found
+in, at mode `0666` inside a `0777` directory. The daemon calls `os.umask(0)` when it
+daemonizes, so **no umask in `entrypoint.sh` can ever reach it**: it does not fail to
+inherit the launcher's umask, it deliberately overwrites its own.
+
+The 3.31.0 preflight covered only `$PWD/.claude/ccy`, so the repair reported success while
+that material stayed open one directory away. The preflight now covers the whole
+`$PWD/.claude` tree. This is safe for git, which records only the execute bit — clearing
+group/other read bits produces no diff on tracked files.
+
+**The repair is permanent, not a migration.** Because the daemon re-creates world-writable
+files continuously (observed reappearing within the same minute as a repair), the
+launch-time pass must keep running even after the umask ships. Do not remove it.
+
+## 3.31.0 (container 2.26)
+
+Claude Code's session state is plaintext, and Anthropic documents that OS file permissions
+are its only protection ([Plaintext storage](https://code.claude.com/docs/en/claude-directory)).
+Neither launcher set a umask, so the default `022` left all of it group/other-readable —
+887 of 990 files and 331 of 348 directories in the store this was measured in, including
+verbatim pre-edit file bodies under `file-history/`. Note that `projects/`, the directory
+holding the transcripts, was already `700`: the exposure was everywhere *except* the
+obvious place.
+
+Two halves, both required:
+
+- **`umask 077`** in `entrypoint.sh` (container) and `/var/local/claude-code/cc` (desktop),
+  so new state is owner-only by construction. The desktop store matters most — it has no
+  container boundary at all.
+- **A launch-time repair pass**, because the umask does nothing for state already on disk.
+  It clears group/other bits while leaving owner bits untouched, so execute permissions
+  survive; a blanket `600` would have broken 129 plugin and skill scripts. Symlinks are
+  excluded, since `chmod` through one applies to its target. It is advisory: it reports and
+  repairs but never blocks a launch.
+
+The desktop store's equivalent repair lives in `play-claude-code.yml`, which already
+deploys the `cc` wrapper that creates it.
+
+Container 2.26 is required because `entrypoint.sh` is image content — until the image is
+rebuilt, the umask is not in effect and the repair decays between launches.
+
 ## 3.30.2 (container 2.25)
 
 Two defects found by the new acceptance gate

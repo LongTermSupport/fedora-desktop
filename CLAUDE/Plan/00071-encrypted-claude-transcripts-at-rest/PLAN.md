@@ -92,17 +92,13 @@ realised breach. The plan rests on that framing.
 
 ## Options Considered
 
-| Option                                   | Verdict           | Why                                                                                |
-| ---------------------------------------- | ----------------- | ---------------------------------------------------------------------------------- |
-| Do nothing                               | ❌ reject         | Leaves 879 world-readable files and an unpinned retention sweep                    |
-| `CLAUDE_CODE_SKIP_PROMPT_HISTORY=1`      | ⚠️ opt-in only    | True zero-plaintext, but kills `/resume` and starves the daemon                    |
-| Redaction hooks                          | ❌ reject         | Universal `@file` bypass; writes are async                                         |
-| fscrypt                                  | ❌ impossible     | btrfs has no merged fscrypt support                                                |
-| LUKS loopback image                      | ❌ reject         | Needs CAP_SYS_ADMIN — sudo/polkit prompt per launch                                |
-| eCryptfs / EncFS / CryFS                 | ❌ reject         | Unmaintained / audited-insecure / unaudited; eCryptfs silently breaks CC           |
-| **A** — host gocryptfs (CryptView)       | ❌ reject         | Host-wide `user_allow_other` downgrade; 3 unverified SELinux/podman premises       |
-| **B** — tmpfs + sealed store (SEALSTORE) | ⚠️ shape kept     | Shape adopted; its bespoke segment/manifest engine rejected as a data-loss surface |
-| **C** — blast-radius reduction           | ✅ **ship first** | Fixes the only measured hole; no mount, no cap, no FUSE, cannot break the daemon   |
+Nine options were scored; the full table is in
+[`research/synthesis.md`](research/synthesis.md) ("Options Considered"). Summary: fscrypt is
+impossible on btrfs, LUKS-loopback needs `CAP_SYS_ADMIN`, eCryptfs/EncFS/CryFS are
+unmaintained or audited-insecure, redaction hooks all carry the `@file` bypass, host-side
+gocryptfs demands a host-wide `user_allow_other` downgrade, and the tmpfs design's bespoke
+store engine is a data-loss surface. **Blast-radius reduction won** — it fixes the only
+measured hole and cannot break the daemon's byte-offset reads.
 
 ## Tasks
 
@@ -166,8 +162,10 @@ realised breach. The plan rests on that framing.
   sealed session round-trips byte-identically, wrong passphrase changes nothing,
   managed-settings parses with both keys
 - [ ] ⬜ **Task 1.15**: Run `./scripts/qa-all.bash` and fix all findings
-- [ ] ⬜ **Task 1.16**: Write `docs/claude-state-hygiene.md`, index it, add `docs/ccy.md`
-  troubleshooting rows — leading with the honest scorecard, not the feature
+- [x] ✅ **Task 1.16**: Docs updated where the change actually landed rather than in a new
+  file: `docs/ccy-changelog.md` entries for 3.31.0/3.31.1, `docs/ccy.md` launcher step list
+  (new step 8, umask in step 10), and a new "Permissions — this state is plaintext" section
+  leading with the honest scorecard, including what this does *not* defend against
 - [ ] ⬜ **Task 1.17**: (HOST) run `deploy.bash` → `triage.bash` → `acceptance.bash`
 
 ### Phase 2: Decision gate — live-state encryption
