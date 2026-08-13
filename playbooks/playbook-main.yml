@@ -34,10 +34,6 @@
 # deploying the wrapper. See CLAUDE/Plan/00048-cc-token-source-parity.
 - import_playbook: imports/play-claude-yolo.yml
 - import_playbook: imports/play-claude-code.yml
-# Must run AFTER both launchers are deployed: it repairs the permissions on
-# state those launchers created before they carried a umask.
-# See CLAUDE/Plan/00071-encrypted-claude-transcripts-at-rest.
-- import_playbook: imports/play-claude-state-hygiene.yml
 - import_playbook: imports/play-comms.yml
 - import_playbook: imports/play-gnome-shell.yml
 - import_playbook: imports/play-gnome-shell-extensions.yml

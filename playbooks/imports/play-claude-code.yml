@@ -13,6 +13,9 @@
     # ccy moved ahead. The native updater's channel is sticky: cc's per-launch
     # `claude update` only ever reaches the head of whichever channel is set here.
     claude_code_version: "latest"
+    # Desktop Claude Code's plaintext session store. Container (ccy) sessions
+    # keep their state per-project instead, so ccy's launcher repairs those.
+    claude_state_dir: "{{ ansible_env.HOME }}/.claude"
   tasks:
     # cc wrapper sources ccy's lib at runtime. play-claude-yolo MUST run
     # first (see playbook-main.yml import order). Fail at deploy time
@@ -123,6 +126,104 @@
         owner: root
         group: root
         mode: "0755"
+
+    # Claude Code writes its session state — full conversation transcripts,
+    # verbatim pre-edit file bodies in file-history/, shell snapshots, prompt
+    # history — as plaintext under ~/.claude. Anthropic documents that this
+    # state is NOT encrypted at rest and that OS file permissions are its only
+    # protection:
+    #   https://code.claude.com/docs/en/claude-directory  ("Plaintext storage")
+    #
+    # The cc wrapper above now sets a restrictive umask, so state created from
+    # here on is owner-only. These three tasks repair the state that was written
+    # before that umask existed. Plan 00071 measured 887 of 990 files and 331 of
+    # 348 directories carrying group/other bits in a single store.
+    #
+    # See CLAUDE/Plan/00071-encrypted-claude-transcripts-at-rest/PLAN.md
+    - name: Check Whether the Claude Code State Directory Exists
+      ansible.builtin.stat:
+        path: "{{ claude_state_dir }}"
+      register: claude_state
+
+    # Probe-then-act: find's output is inspected explicitly by the tasks below,
+    # so a genuine error still stops the play.
+    - name: Find Claude Code State Entries With Group or Other Permissions
+      ansible.builtin.command:
+        # argv (list form) bypasses Ansible 2.19's split_args parser entirely,
+        # so find's parentheses need no shell quoting.
+        #
+        # -perm /077 matches any entry with ANY group or other bit set, so a
+        # re-run after the repair matches nothing — that is what makes this
+        # idempotent without a `creates:` guard.
+        #
+        # -type f/-type d deliberately EXCLUDES symlinks: chmod on a symlink
+        # applies to its target, which may live outside this tree.
+        argv:
+          - find
+          - "{{ claude_state_dir }}"
+          - (
+          - -type
+          - f
+          - -o
+          - -type
+          - d
+          - )
+          - -perm
+          - /077
+          - -print
+      register: claude_state_offenders
+      changed_when: false
+      when: claude_state.stat.exists
+
+    - name: Restrict Claude Code State to the Owner
+      ansible.builtin.command:
+        # `chmod go=` removes group/other bits and leaves OWNER bits untouched.
+        # This matters: a blanket restrictive mode would strip the execute bit
+        # from every executable in the tree (129 of them in the store Plan 00071
+        # measured — plugin and skill scripts, plus backups of executables).
+        argv:
+          - find
+          - "{{ claude_state_dir }}"
+          - (
+          - -type
+          - f
+          - -o
+          - -type
+          - d
+          - )
+          - -perm
+          - /077
+          - -exec
+          - chmod
+          - go=
+          - "{}"
+          - +
+      changed_when: true
+      when:
+        - claude_state.stat.exists
+        - claude_state_offenders.stdout_lines | length > 0
+
+    # Fail fast: a repair that silently left files exposed is worse than no
+    # repair, because the summary would report the store as protected.
+    - name: Assert No Claude Code State Entry Is Group or Other Accessible
+      ansible.builtin.command:
+        argv:
+          - find
+          - "{{ claude_state_dir }}"
+          - (
+          - -type
+          - f
+          - -o
+          - -type
+          - d
+          - )
+          - -perm
+          - /077
+          - -print
+      register: claude_state_remaining
+      changed_when: false
+      failed_when: claude_state_remaining.stdout_lines | length > 0
+      when: claude_state.stat.exists
 
     - name: Configure Claude Code Shell Integration
       ansible.builtin.blockinfile:

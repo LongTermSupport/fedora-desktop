@@ -126,12 +126,14 @@ realised breach. The plan rests on that framing.
 
 - [x] ✅ **Task 1.1**: `umask 077` in `entrypoint.sh` before state creation, and in the desktop
   `cc` wrapper
-- [x] ✅ **Task 1.2**: New `playbooks/imports/play-claude-state-hygiene.yml` (`scope: general`),
-  imported from `playbook-main.yml` after both launchers. Repairs the desktop store with
-  `find -perm /077 -exec chmod go=` (owner bits preserved — a blanket `chmod 600` would strip
-  the execute bit from 129 plugin/skill scripts) and **asserts** the store is closed
-  afterwards. Per-project CCY stores are repaired by a launcher preflight instead, since only
-  the launcher knows the project directory
+- [x] ✅ **Task 1.2**: Repair the desktop store **inside `play-claude-code.yml`**, which already
+  owns it (it deploys the `cc` wrapper). Uses `find -perm /077 -exec chmod go=` — owner bits
+  preserved, since a blanket restrictive mode would strip the execute bit from 129 plugin/skill
+  scripts — and `failed_when` asserts the store is closed afterwards. Per-project CCY stores are
+  repaired by a launcher preflight instead, since only the launcher knows the project directory.
+  A separate `play-claude-state-hygiene.yml` was written first and then **deleted**: same
+  `hosts`/`become`/`scope`, no independent lifecycle, so per `CLAUDE/AgentNotes.md` it was
+  bureaucratic separation rather than a real play
 - [ ] ⬜ **Task 1.3**: Deploy `/etc/claude-code/managed-settings.json` — pins `cleanupPeriodDays`
   and adds `permissions.deny` rules for `.env*`, `*.pem`, `id_*`, `vault-pass.secret`
 - [ ] ⬜ **Task 1.4**: Bake the same managed settings into the CCY image; `entrypoint.sh` asserts
