@@ -158,10 +158,13 @@ measured hole and cannot break the daemon's byte-offset reads.
   `container-watch.timer`)
 - [x] ✅ **Task 1.13**: Bump `CCY_VERSION` → 3.31.0 and `REQUIRED_CONTAINER_VERSION` → 2.26 +
   Dockerfile label
-- [ ] ⬜ **Task 1.14**: Write `acceptance.bash` — 0 other-readable files, scanner canary detected,
-  sealed session round-trips byte-identically, wrong passphrase changes nothing,
-  managed-settings parses with both keys
-- [ ] ⬜ **Task 1.15**: Run `./scripts/qa-all.bash` and fix all findings
+- [x] ✅ **Task 1.14**: Write `acceptance.bash` — renders a verdict (unlike `triage.bash`) and
+  never repairs, since a gate that fixes what it measures can never fail. Seven checks:
+  scanner canary, project store closed, **daemon archive closed** (the store the plan missed),
+  execute bits preserved, desktop store closed, **umask actually deployed**, version coherence.
+  The umask check is decisive — it separates "repaired" from "will stay repaired". Sealer
+  assertions dropped (not built). Correctly **FAILS** until the HOST deploy + rebuild
+- [x] ✅ **Task 1.15**: Run `./scripts/qa-all.bash` and fix all findings
 - [x] ✅ **Task 1.16**: Docs updated where the change actually landed rather than in a new
   file: `docs/ccy-changelog.md` entries for 3.31.0/3.31.1, `docs/ccy.md` launcher step list
   (new step 8, umask in step 10), and a new "Permissions — this state is plaintext" section
