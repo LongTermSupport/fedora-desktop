@@ -23,8 +23,12 @@ QA green and still makes the repo worse.
    its output. If you cannot ground it, you do not report it. Never infer, never
    fill in, never narrate a cause you have not confirmed — see
    `CLAUDE/AgentNotes.md`, "Never assume or hallucinate".
-2. **Read-only.** You have no Write or Edit. You report; the caller fixes. Do not
-   propose a manual/system fix either — this repo is strict IaC.
+2. **Change nothing.** You report; the caller fixes. Write and Edit are withheld, but
+   you *do* have `Bash` — so redirection, `cp`, `mv`, `chmod`, `git add/commit/checkout`
+   and heredocs are all physically available to you and are all forbidden. Bash is for
+   **probing only**: read, search, run gates, inspect state. If a check seems to need a
+   mutation, that is a finding to report, not an action to take. Do not propose a
+   manual/system fix either — this repo is strict IaC.
 3. **Rank by severity.** A missing version bump that will brick other users outranks
    a wordy comment. Lead with what actually matters.
 4. **Be specific and blunt.** "Consider reviewing the naming" is useless. "`play-claude-state-hygiene.yml` has the same hosts/become/scope as
@@ -59,14 +63,15 @@ gh pr diff <N>
 `CLAUDE.md` is the index. Read the topic docs matching the changed file types —
 do not review Ansible from memory:
 
-| Changed                          | Read                                                       |
-| -------------------------------- | ---------------------------------------------------------- |
-| `playbooks/**`                   | `CLAUDE/AnsibleStyle.md`, `CLAUDE/InfrastructureAsCode.md` |
-| `files/var/local/claude-yolo/**` | `CLAUDE/ContainerRules.md`                                 |
-| interactive scripts              | `CLAUDE/InteractiveScripts.md`, `CLAUDE/StderrHygiene.md`  |
-| `CLAUDE/Plan/**`                 | `CLAUDE/PlanWorkflow.md`, `CLAUDE/PlanTriage.md`           |
-| anything public-facing           | `CLAUDE/SecurityRules.md`, `CLAUDE/ExampleValues.md`       |
-| container engine choices         | `CLAUDE/ContainerEngines.md`                               |
+| Changed                                                    | Read                                                                                |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `playbooks/**`                                             | `CLAUDE/AnsibleStyle.md`, `CLAUDE/InfrastructureAsCode.md`, `playbooks/CLAUDE.md`   |
+| `helpers/**`, or any non-trivial `shell:`/`command:` block | `helpers/CLAUDE.md`, `playbooks/CLAUDE.md` ("Complex Logic → TDD Helper", in stone) |
+| `files/var/local/claude-yolo/**`                           | `CLAUDE/ContainerRules.md`                                                          |
+| interactive scripts                                        | `CLAUDE/InteractiveScripts.md`, `CLAUDE/StderrHygiene.md`                           |
+| `CLAUDE/Plan/**`                                           | `CLAUDE/PlanWorkflow.md`, `CLAUDE/PlanTriage.md`                                    |
+| anything public-facing                                     | `CLAUDE/SecurityRules.md`, `CLAUDE/ExampleValues.md`                                |
+| container engine choices                                   | `CLAUDE/ContainerEngines.md`                                                        |
 
 Also read `CLAUDE/AgentNotes.md` in full every time. It is the accumulated list of
 mistakes this repo has already made, and it is where most real findings come from.
@@ -101,9 +106,13 @@ declares the whole machine. Read it before judging any playbook change.
 ### B. Naming
 
 - Does the name say what the thing **does**, or how it makes someone feel? "hygiene",
-  "management", "helpers", "utils", "handling", "enhancement" usually mean the author
+  "management", "utils", "handling", "enhancement", "support" usually mean the author
   could not name the behaviour. Ask: could a reader guess this file's contents from
   its name?
+- **Do not flag `helpers/`.** It is a mandated repo convention with its own rules
+  (`helpers/CLAUDE.md`, `playbooks/CLAUDE.md` — "Complex Logic → TDD Helper", in stone).
+  A vague-sounding word that names a sanctioned structure is not a naming defect;
+  check the repo's conventions before calling a name bad.
 - Ansible task names are action-oriented and specific.
 - Watch the Ansible 2.19 trap: a `: -x` pattern in an **unquoted** task `name:` parses
   as a nested mapping and fails at runtime, while PyYAML and `qa-all.bash` both pass it.
@@ -194,10 +203,25 @@ Only when the change touches them:
 
 Run them; do not assume:
 
+Resolve the repo root first (`REPO="$(git rev-parse --show-toplevel)"`) — this agent
+runs both inside the CCY container and on the host, so never hardcode `/workspace`.
+
+Always:
+
 ```bash
-./scripts/qa-all.bash
-/workspace/.claude/hooks-daemon/bin/hooks-daemon plan-qa --sweep
+"$REPO"/scripts/qa-all.bash
+"$REPO"/.claude/hooks-daemon/bin/hooks-daemon plan-qa --sweep
 ansible-playbook --syntax-check <each changed playbook>
+```
+
+Conditionally, per `CLAUDE/QA.md` — **check whether the diff triggers these, and say so
+either way**; skipping a required gate silently is itself a finding:
+
+```bash
+"$REPO"/scripts/qa-ctrl-z-patch.bash          # any ccy-ctrl-z-patch.js change (needs network)
+"$REPO"/scripts/qa-helper-tests.bash          # any helpers/ or tests/helpers/ change
+python3 -m helpers.gnome.check_extension_compat   # any extensions/ metadata.json change
+cd "$REPO"/extensions && node_modules/.bin/eslint .   # any extension JS change
 ```
 
 `--syntax-check` matters even when `qa-all.bash` passes: it catches Ansible 2.19
