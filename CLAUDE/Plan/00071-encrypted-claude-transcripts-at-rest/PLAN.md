@@ -27,12 +27,19 @@ most of the work:
 3. **Encrypting the live file would break this repo's own guardrails.** The hooks daemon reads
    transcripts by byte offset (`core/transcript_reader.py`), which the Stop handlers depend on.
 
-So the plan ships **blast-radius reduction first and unconditionally**, and puts live-state
-encryption behind a host-run triage gate — where the deciding question is whether anything
-actually backs up or syncs the project tree, since that is the one scenario where encryption
-beats the LUKS already present.
+So the plan ships **blast-radius reduction first and unconditionally**, and gated live-state
+encryption on whether anything backs up or syncs the project tree — the one scenario where
+encryption beats the LUKS already present. It does not, so that gate is closed.
 
-Two stores are in scope, not one. CCY does **not** bind-mount the host `~/.claude`;
+**Three** stores are in scope. The third was found by the `qa-reviewer` agent and is the
+worst of them: the hooks daemon's `pre_compact` transcript archiver writes verbatim
+conversation archives to `.claude/hooks-daemon/untracked/transcripts/` at mode **0666 inside a
+0777 directory** — world-*writable*. The daemon calls `os.umask(0)` when it daemonizes
+(`daemon/cli.py:575`; live process reports `Umask: 0000`), so **no umask in `entrypoint.sh`
+can ever reach it.** That makes the launch-time repair permanent infrastructure rather than a
+one-off migration: a writer exists that re-creates world-writable files continuously.
+
+CCY does **not** bind-mount the host `~/.claude`;
 `entrypoint.sh:195` symlinks `/root/.claude` to `/workspace/.claude/ccy`, so container state
 lands *inside the project working tree* — which makes CCY strictly **more** exposed to
 copy-based exfiltration than the desktop store, because `.gitignore` does nothing for rsync,
@@ -233,7 +240,9 @@ Blocking Phase 2; Phase 1 proceeds regardless.
 - Plan opened; research workflow `wf_487ae6c4-73e` dispatched — d5985e6
 - Research complete (11 agents, 0 errors); recommendation recorded; full artefacts in
   [`research/`](research/) — a81ae3a
-- Phase 2 gate closed (owner runs no backups); `umask 077` in both launchers, launcher
-  preflight repair, and `play-claude-state-hygiene.yml` landed. Repair proven in this repo's
-  own store: 887/990 files and 331/348 dirs group/other-readable → **0/0**, with all 129
-  owner-execute bits preserved. CCY 3.31.0, container 2.26
+- Phase 2 gate closed (owner runs no backups); `umask 077` in both launchers, a launch-time
+  repair preflight, and the desktop-store repair folded into `play-claude-code.yml`.
+  CCY 3.31.0, container 2.26
+- First `qa-reviewer` run returned **BLOCK** and found the third store (see Overview). Repair
+  scope widened from `.claude/ccy` to the whole project `.claude` tree. Repair measurements are
+  point-in-time and decay until the umask deploys — current numbers live in `JOURNAL/`

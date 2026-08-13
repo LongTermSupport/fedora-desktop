@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.31.0"  # Claude state hygiene: umask 077 in entrypoint + launch-time repair of legacy group/other-readable state, container 2.26
+CCY_VERSION="3.31.1"  # Launch-time state repair widened to the whole .claude tree: the hooks daemon sets umask(0) and writes world-writable transcript archives no entrypoint umask can reach, container 2.26
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1668,7 +1668,24 @@ echo "✓ State: /workspace/.claude/ (project-level, persists in git repo)"
 # is the code path EVERY session traverses, so a hard gate here would be a far
 # worse failure than the exposure it is fixing.
 repair_project_state_permissions() {
-    local state_dir="$PWD/.claude/ccy"
+    # Scope is the WHOLE project .claude tree, not just .claude/ccy.
+    #
+    # There is a third transcript store: the hooks daemon's pre_compact
+    # transcript_archiver writes verbatim conversation archives to
+    # .claude/hooks-daemon/untracked/transcripts/. The daemon calls os.umask(0)
+    # when it daemonizes, so those land at 0666 inside a 0777 directory — and no
+    # umask in entrypoint.sh can ever reach them, because the daemon overwrites
+    # its own umask rather than inheriting ours.
+    #
+    # That also makes this repair LOAD-BEARING AND PERMANENT, not a one-off
+    # migration: a writer exists that re-creates world-writable files after every
+    # repair, so this must run on every launch. Do not "optimise" it away once
+    # the umask has shipped.
+    #
+    # Widening to $PWD/.claude is safe for git: git records only the execute bit
+    # (100644 vs 100755), so clearing group/other read bits produces no diff on
+    # tracked files.
+    local state_dir="$PWD/.claude"
     [ -d "$state_dir" ] || return 0
 
     local offenders
