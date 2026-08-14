@@ -124,7 +124,12 @@ measured hole and cannot break the daemon's byte-offset reads.
   Relocating the store needs an exported `CCY_STATE_DIR` threaded through all 13 first.
   Blocker recorded, not scheduled — nothing in this plan now requires the store to move
   (see JOURNAL 26-08-14 for the per-file breakdown)
-- [ ] ⬜ **Task 0.8**: Probe whether Claude Code writes sensitive data outside its config dir
+- [x] ✅ **Task 0.8**: Does Claude Code write outside its config dir? — **yes**:
+  `/tmp/claude-0/**` (scratchpad + backgrounded-task output) and
+  `/tmp/claude-config-import/gitconfig`. `/tmp` is 1777, so these are protected by their
+  own modes alone — currently 0700/0600, but **only because of the umask** (same mkdir is
+  0755 under 022). The launcher sweep is scoped to `$PWD/.claude` and never touches `/tmp`,
+  so there the umask is the *sole* control, with no repair path
 - [ ] ⬜ **Task 0.9**: Record Phase 0 results in `JOURNAL/`, separating F-numbered facts from
   H-numbered hypotheses with their refuting observation
 
@@ -133,13 +138,11 @@ measured hole and cannot break the daemon's byte-offset reads.
 - [x] ✅ **Task 1.1**: `umask 077` in `entrypoint.sh` before state creation, and in the desktop
   `cc` wrapper
 - [x] ✅ **Task 1.2**: Repair the desktop store **inside `play-claude-code.yml`**, which already
-  owns it (it deploys the `cc` wrapper). Uses `find -perm /077 -exec chmod go=` — owner bits
-  preserved, since a blanket restrictive mode would strip the execute bit from 129 plugin/skill
-  scripts — and `failed_when` asserts the store is closed afterwards. Per-project CCY stores are
-  repaired by a launcher preflight instead, since only the launcher knows the project directory.
-  A separate `play-claude-state-hygiene.yml` was written first and then **deleted**: same
-  `hosts`/`become`/`scope`, no independent lifecycle, so per `CLAUDE/AgentNotes.md` it was
-  bureaucratic separation rather than a real play
+  owns it. `find -perm /077 -exec chmod go=` preserves owner bits (a blanket mode would strip
+  execute from 129 plugin/skill scripts); `failed_when` asserts it afterwards. Per-project CCY
+  stores are repaired by a launcher preflight, since only the launcher knows the project dir.
+  A separate `play-claude-state-hygiene.yml` was written then **deleted** — no independent
+  lifecycle, so bureaucratic separation rather than a real play
 - [ ] ⬜ **Task 1.3**: Deploy `/etc/claude-code/managed-settings.json` — pins `cleanupPeriodDays`
   and adds `permissions.deny` rules for `.env*`, `*.pem`, `id_*`, `vault-pass.secret`
 - [ ] ⬜ **Task 1.4**: Bake the same managed settings into the CCY image; `entrypoint.sh` asserts
@@ -169,10 +172,10 @@ measured hole and cannot break the daemon's byte-offset reads.
   not file modes — containment comes from the ancestor chain, and the old criterion was
   unpassable on a live session. Negative-tested (JOURNAL 26-08-14)
 - [x] ✅ **Task 1.15**: Run `./scripts/qa-all.bash` and fix all findings
-- [x] ✅ **Task 1.16**: Docs updated where the change actually landed rather than in a new
-  file: `docs/ccy-changelog.md` entries for 3.31.0/3.31.1, `docs/ccy.md` launcher step list
-  (new step 8, umask in step 10), and a new "Permissions — this state is plaintext" section
-  leading with the honest scorecard, including what this does *not* defend against
+- [x] ✅ **Task 1.16**: Docs updated where the change landed, not in a new file:
+  `docs/ccy-changelog.md` (3.31.0/3.31.1), `docs/ccy.md` launcher steps, and a
+  "Permissions — this state is plaintext" section leading with what it does *not* defend
+  against
 - [x] ✅ **Task 1.17**: (HOST) deploy + verify — **done 26-08-14**. Both plays deployed,
   container rebuilt to 2.26; `umask 0077` live and every `.claude` directory owner-only.
   Gate: **PASS, 6 checks, 0 failures**
