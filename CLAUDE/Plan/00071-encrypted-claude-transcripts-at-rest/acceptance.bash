@@ -25,17 +25,34 @@ USAGE:
 
 CHECKS (each is PASS/FAIL; any FAIL exits non-zero):
     1. scanner self-test        the census primitive can see a planted canary
-    2. project store closed     no group/other bits under <project>/.claude
-    3. daemon archive closed    .claude/hooks-daemon/untracked/transcripts/ is owner-only
+    2. project store contained  every DIRECTORY under <project>/.claude is owner-only
+    3. daemon archive contained .claude/hooks-daemon/untracked/transcripts/ is owner-only
     4. execute bits preserved   the repair did not strip owner-execute anywhere
-    5. desktop store closed     no group/other bits under ~/.claude   (HOST only)
+    5. desktop store contained  every DIRECTORY under ~/.claude is owner-only  (HOST only)
     6. umask deployed           the running process tree has umask 077 (CONTAINER only)
     7. version coherence        Dockerfile label == REQUIRED_CONTAINER_VERSION
 
-WHY CHECK 6 MATTERS: the repair is point-in-time. Until the umask is actually
-in force, new state is created group/other-readable and the store drifts back
-open between launches. A pass on checks 2-3 with a fail on 6 means "repaired,
-but it will not stay repaired".
+WHY DIRECTORIES, NOT FILES: reaching a file requires search (+x) permission on
+EVERY ancestor directory. An owner-only directory chain therefore makes its
+contents unreachable by other users whatever the individual file modes are.
+Directory mode is the control that actually holds; per-file mode is not.
+
+This distinction is not academic — two writers create group/other-readable
+files continuously and NEITHER is governed by our umask:
+
+  - Claude Code's file-history/ preserves each snapshot's SOURCE file mode
+    (a 0644 repo file snapshots 0644; a 0600 secret snapshots 0600). That is
+    reasonable behaviour, and umask cannot override an explicit mode.
+  - The hooks daemon calls os.umask(0) and writes 0666 (upstream bug).
+
+An earlier version of this gate failed on any group/other FILE bit. That made
+it unpassable on a live session while reporting exposure that did not exist.
+Open files are now reported as informational when the directory chain contains
+them, and the gate fails only when containment is genuinely broken.
+
+WHY CHECK 6 STILL MATTERS: the umask is defence in depth. It keeps
+default-created state owner-only, so a single directory-mode slip does not
+immediately expose file contents.
 
 EXIT: 0 = every applicable check passed. 1 = at least one failed.
 EOF
@@ -93,8 +110,42 @@ skip() {
     printf '  [SKIP] %s — %s\n' "$1" "$2"
 }
 
-count_open() {
-    find "$1" \( -type f -o -type d \) -perm "$OPEN_PERM" -printf '.' | wc -c
+note() {
+    printf '  [NOTE] %s\n' "$1"
+    if [ -n "${2:-}" ]; then
+        printf '         %s\n' "$2"
+    fi
+}
+
+# Directories are the control: without +x on every ancestor, a file is
+# unreachable regardless of its own mode.
+count_open_dirs() {
+    find "$1" -type d -perm "$OPEN_PERM" -printf '.' | wc -c
+}
+
+# Files are reported, not gated — see "WHY DIRECTORIES, NOT FILES" in --help.
+count_open_files() {
+    find "$1" -type f -perm "$OPEN_PERM" -printf '.' | wc -c
+}
+
+# Shared reporting for a state store: fail only on broken containment.
+report_store() {
+    local label="$1" root="$2" remedy="$3"
+    local open_dirs open_files
+    open_dirs="$(count_open_dirs "$root")"
+    open_files="$(count_open_files "$root")"
+
+    if [ "$open_dirs" -ne 0 ]; then
+        fail "$open_dirs director(ies) under $root are group/other-accessible" \
+            "Containment is broken — files below them are reachable by other local users. $remedy"
+        return
+    fi
+
+    pass "$label: every directory under $root is owner-only, so its contents are unreachable"
+    if [ "$open_files" -gt 0 ]; then
+        note "$open_files file(s) below it carry group/other bits — contained, not exposed." \
+            "Expected: file-history/ mirrors source modes; the hooks daemon writes 0666 (os.umask(0)). Neither is umask-governed; both are held by the 0700 chain."
+    fi
 }
 
 echo "=========================================================="
@@ -123,16 +174,11 @@ fi
 echo
 
 # --- 2. Project store -----------------------------------------------------
-echo "### 2. project store closed"
+echo "### 2. project store contained"
 PROJECT_STORE="$REPO_ROOT/.claude"
 if [ -d "$PROJECT_STORE" ]; then
-    open_count="$(count_open "$PROJECT_STORE")"
-    if [ "$open_count" -eq 0 ]; then
-        pass "no group/other-accessible entries under $PROJECT_STORE"
-    else
-        fail "$open_count entr(ies) under $PROJECT_STORE are group/other-accessible" \
-            "Run ccy (its preflight repairs this), or: find '$PROJECT_STORE' \\( -type f -o -type d \\) -perm $OPEN_PERM -exec chmod go= {} +"
-    fi
+    report_store "project store" "$PROJECT_STORE" \
+        "Run ccy (its preflight repairs this), or: find '$PROJECT_STORE' -type d -perm $OPEN_PERM -exec chmod go= {} +"
 else
     skip "project store" "no $PROJECT_STORE directory"
 fi
@@ -142,16 +188,24 @@ echo
 # Called out separately from check 2 because this is the store the plan
 # originally missed entirely, and the one no umask can protect: the hooks
 # daemon calls os.umask(0) and re-creates these files continuously.
-echo "### 3. daemon transcript archive closed"
+echo "### 3. daemon transcript archive contained"
+# Checked separately from the store as a whole because this is the one directory
+# the daemon itself creates 0777 (mkdir under os.umask(0)) — the single place
+# where containment is actively broken by another process rather than merely
+# left loose. Its contents are verbatim conversation archives.
 ARCHIVE="$PROJECT_STORE/hooks-daemon/untracked/transcripts"
 if [ -d "$ARCHIVE" ]; then
     archive_mode="$(stat -c '%a' "$ARCHIVE")"
-    archive_open="$(count_open "$ARCHIVE")"
-    if [ "$archive_open" -eq 0 ] && [ "$archive_mode" = "700" ]; then
-        pass "archive is owner-only (dir mode $archive_mode, 0 open entries)"
+    archive_open_files="$(count_open_files "$ARCHIVE")"
+    if [ "$archive_mode" = "700" ]; then
+        pass "archive directory is owner-only (mode $archive_mode)"
+        if [ "$archive_open_files" -gt 0 ]; then
+            note "$archive_open_files archived file(s) carry group/other bits — contained by the 0700 directory." \
+                "The daemon writes them 0666; see untracked/hooks-daemon-umask.md."
+        fi
     else
-        fail "archive is exposed (dir mode $archive_mode, $archive_open open entr(ies))" \
-            "These are verbatim conversation archives. The daemon writes them 0666 by design."
+        fail "archive directory is mode $archive_mode, expected 700" \
+            "These are verbatim conversation archives and this directory is reachable by other local users. The daemon creates it 0777 under os.umask(0) — see untracked/hooks-daemon-umask.md."
     fi
 else
     skip "daemon archive" "no $ARCHIVE (nothing archived yet)"
@@ -178,15 +232,10 @@ fi
 echo
 
 # --- 5. Desktop store (HOST only) ----------------------------------------
-echo "### 5. desktop store closed"
+echo "### 5. desktop store contained"
 if [ -d "$HOME/.claude" ] && [ ! -L "$HOME/.claude" ]; then
-    desktop_open="$(count_open "$HOME/.claude")"
-    if [ "$desktop_open" -eq 0 ]; then
-        pass "no group/other-accessible entries under $HOME/.claude"
-    else
-        fail "$desktop_open entr(ies) under $HOME/.claude are group/other-accessible" \
-            "Deploy it: ansible-playbook $REPO_ROOT/playbooks/imports/play-claude-code.yml"
-    fi
+    report_store "desktop store" "$HOME/.claude" \
+        "Deploy it: ansible-playbook $REPO_ROOT/playbooks/imports/play-claude-code.yml"
 else
     skip "desktop store" "not present here (inside CCY, /root/.claude is a symlink into the project store)"
 fi

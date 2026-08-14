@@ -119,8 +119,11 @@ measured hole and cannot break the daemon's byte-offset reads.
   reports tmpfs
 - [ ] ⬜ **Task 0.6**: Probe host swap backing — plaintext tmpfs pages must not swap to an
   unencrypted device
-- [ ] ⬜ **Task 0.7**: Find every consumer that hardcodes `.claude/ccy` (blocks any
-  `entrypoint.sh:195` change)
+- [x] ✅ **Task 0.7**: Find every consumer that hardcodes `.claude/ccy` — **112 literal
+  occurrences across 13 code files, no canonical variable, several CWD-relative.**
+  Relocating the store needs an exported `CCY_STATE_DIR` threaded through all 13 first.
+  Blocker recorded, not scheduled — nothing in this plan now requires the store to move
+  (see JOURNAL 26-08-14 for the per-file breakdown)
 - [ ] ⬜ **Task 0.8**: Probe whether Claude Code writes sensitive data outside its config dir
 - [ ] ⬜ **Task 0.9**: Record Phase 0 results in `JOURNAL/`, separating F-numbered facts from
   H-numbered hypotheses with their refuting observation
@@ -160,16 +163,19 @@ measured hole and cannot break the daemon's byte-offset reads.
   Dockerfile label
 - [x] ✅ **Task 1.14**: Write `acceptance.bash` — renders a verdict (unlike `triage.bash`) and
   never repairs, since a gate that fixes what it measures can never fail. Seven checks:
-  scanner canary, project store closed, **daemon archive closed** (the store the plan missed),
-  execute bits preserved, desktop store closed, **umask actually deployed**, version coherence.
-  The umask check is decisive — it separates "repaired" from "will stay repaired". Sealer
-  assertions dropped (not built). Correctly **FAILS** until the HOST deploy + rebuild
+  scanner canary, project store contained, **daemon archive contained** (the store the plan
+  missed), execute bits preserved, desktop store contained, **umask deployed**, version
+  coherence. Sealer assertions dropped. **Corrected 26-08-14**: gated on *directory* modes,
+  not file modes — containment comes from the ancestor chain, and the old criterion was
+  unpassable on a live session. Negative-tested (JOURNAL 26-08-14)
 - [x] ✅ **Task 1.15**: Run `./scripts/qa-all.bash` and fix all findings
 - [x] ✅ **Task 1.16**: Docs updated where the change actually landed rather than in a new
   file: `docs/ccy-changelog.md` entries for 3.31.0/3.31.1, `docs/ccy.md` launcher step list
   (new step 8, umask in step 10), and a new "Permissions — this state is plaintext" section
   leading with the honest scorecard, including what this does *not* defend against
-- [ ] ⬜ **Task 1.17**: (HOST) run `deploy.bash` → `triage.bash` → `acceptance.bash`
+- [x] ✅ **Task 1.17**: (HOST) deploy + verify — **done 26-08-14**. Both plays deployed,
+  container rebuilt to 2.26; `umask 0077` live and every `.claude` directory owner-only.
+  Gate: **PASS, 6 checks, 0 failures**
 
 ### Phase 2: Decision gate — live-state encryption
 
