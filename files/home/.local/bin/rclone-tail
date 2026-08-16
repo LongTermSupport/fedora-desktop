@@ -19,6 +19,27 @@
 
 set -euo pipefail
 
+# The rclone remote control requires authentication (see rclone-rc-auth.bash).
+# Resolved from this script's own directory rather than PATH, so it keeps
+# working when the script is invoked by absolute path.
+#
+# A missing library must NOT abort at load time: `--help` has to work on
+# exactly the broken machine that needs diagnosing (InteractiveScripts rule 10).
+# Define a stub instead, so the failure surfaces at the first RC call, naming
+# the play to run.
+_RC_LIB="$(dirname "$(readlink -f "$0")")/rclone-rc-auth.bash"
+if [ -r "$_RC_LIB" ]; then
+    # shellcheck source=/dev/null
+    . "$_RC_LIB"
+else
+    rclone_rc() {
+        echo "ERROR: rclone RC helper library not found: $_RC_LIB" >&2
+        echo "  It is deployed by play-rclone.yml. Deploy it with:" >&2
+        echo "    ansible-playbook playbooks/imports/optional/common/play-rclone.yml" >&2
+        return 1
+    }
+fi
+
 INTERVAL=5
 ONCE=false
 FILTER=""
@@ -111,15 +132,32 @@ discover_mounts() {
 # Stdout (failure): ERR|<reason>
 query_stats() {
     local rc_addr="$1"
-    local vfs_json core_json
-    if ! vfs_json=$(rclone rc --url="http://${rc_addr}" vfs/stats 2>/dev/null); then
-        echo "ERR|rc unreachable"
+    local vfs_json core_json reason err_file
+    # stderr is captured to a file rather than folded into stdout, so a warning
+    # on a SUCCESSFUL call cannot corrupt the JSON payload. The reason is kept
+    # because a 401 from the authenticated RC (Plan 00067) is a completely
+    # different problem from a mount that is not listening.
+    err_file=$(mktemp)
+    if ! vfs_json=$(rclone_rc --url="http://${rc_addr}" vfs/stats 2> "$err_file"); then
+        reason=$(cat "$err_file")
+        rm -f "$err_file"
+        case "$reason" in
+            *401* | *Unauthorized*) echo "ERR|rc rejected credentials (401)" ;;
+            *credential*) echo "ERR|rc credential missing" ;;
+            *) echo "ERR|rc unreachable" ;;
+        esac
         return
     fi
-    if ! core_json=$(rclone rc --url="http://${rc_addr}" core/stats 2>/dev/null); then
-        echo "ERR|rc unreachable"
+    if ! core_json=$(rclone_rc --url="http://${rc_addr}" core/stats 2> "$err_file"); then
+        reason=$(cat "$err_file")
+        rm -f "$err_file"
+        case "$reason" in
+            *401* | *Unauthorized*) echo "ERR|rc rejected credentials (401)" ;;
+            *) echo "ERR|rc unreachable" ;;
+        esac
         return
     fi
+    rm -f "$err_file"
     if ! python3 - "$vfs_json" "$core_json" <<'PY' 2>/dev/null
 import json, sys
 vfs = json.loads(sys.argv[1])

@@ -93,6 +93,22 @@ if ! nokill_out="$(bash "$SCRIPT_DIR/qa-nokill-containerwatch.bash" 2>&1)"; then
     exit 1
 fi
 
+# Deployed-drift gate (Plan 00072): a repo-owned user script that was changed
+# but never deployed means the host is running different code from the one QA
+# just passed. Like the no-kill gate above, deliberately NOT a jq-merged stage
+# — it inspects the HOST, not the source tree, and self-skips where there is no
+# host to inspect (CCY container, clean CI checkout).
+drift_out=""
+if ! drift_out="$(bash "$SCRIPT_DIR/qa-deployed-drift.bash" 2>&1)"; then
+    echo "$drift_out" >&2
+    echo "✗ QA FAILED: repo-owned scripts differ from their deployed copies" >&2
+    exit 1
+fi
+# Print the pass line too. A gate whose only visible output is a failure is
+# indistinguishable from a gate that is not running — and "a check that silently
+# does nothing" is precisely the defect Plan 00072 exists to fix.
+echo "$drift_out"
+
 # Merge JSON from all checks
 STATUS="pass"
 [[ $FAILED -gt 0 ]] && STATUS="fail"

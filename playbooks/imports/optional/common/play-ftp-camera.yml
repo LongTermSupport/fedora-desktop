@@ -213,6 +213,16 @@
         state: stopped
       failed_when: false  # FAIL-FAST-OK: vsftpd may not be running on first install
 
+    # CROSS-PLAY DEPENDENCY (Plan 00072): ftp-camera's --copy / --async-copy
+    # modes source files/home/.local/bin/rclone-rc-auth.bash, which is deployed
+    # by play-rclone.yml, NOT by this play. The library is deliberately owned
+    # there because every other consumer of it is an rclone helper; duplicating
+    # the copy task here would give two plays a claim on one file.
+    #
+    # This play does not assert its presence: the FTP-server, --sort and --pass
+    # modes never touch the rclone RC and must keep working on a machine with no
+    # rclone at all. ftp-camera therefore carries a stub that fails, naming
+    # play-rclone.yml, only when a copy mode actually needs the library.
     - name: Install ftp-camera wrapper script
       ansible.builtin.copy:
         src: "{{ root_dir }}/files/home/.local/bin/ftp-camera"

@@ -30,6 +30,46 @@ treated as "0 issues".
 | `qa-ansible-syntax.bash` | `ansible-playbook --syntax-check` on every playbook (files with a top-level `- hosts:`). Parse-only — safe in the CCY container                                                                                                                                              | `playbooks/playbook-main.yml` + standalone `playbooks/imports/**`                                  |
 | `qa-js.bash`             | `node --check` on repo JS + `eslint .` in `extensions/`                                                                                                                                                                                                                      | Repo-owned `.js` (excludes vendor/node_modules) + `extensions/`                                    |
 
+Two further gates run inside `qa-all.bash` as **hard, non-structural** checks —
+they are deliberately not jq-merged stages, so they cannot disturb the positional
+`.[0]..[5]` JSON merge. Either one fails the whole run immediately:
+
+| Gate                            | Checks                                                                                     |
+| ------------------------------- | ------------------------------------------------------------------------------------------ |
+| `qa-nokill-containerwatch.bash` | the container-watch watchdog has gained no process-termination call site                   |
+| `qa-deployed-drift.bash`        | every repo-owned `files/home/.local/bin/` script matches its deployed `~/.local/bin/` copy |
+
+### `qa-deployed-drift.bash` — the repo and the host must agree
+
+This is the one QA check whose subject is the **host** rather than the source
+tree. It exists because Plan 00067 fixed `files/home/.local/bin/ftp-camera` in the
+repo and never ran the play that deploys it — the repo said "fixed", the machine
+ran the old build, and it surfaced weeks later as a camera session that would not
+copy. No source-reading check can see that: the source was correct.
+
+It compares each repo-owned script against its deployed copy and, on a mismatch,
+names the play to run — derived by searching the playbooks for the file's `src:`
+path, not from a hand-maintained table. A file is checked **only when a deployed
+copy already exists**, so a machine that never installed a feature is never
+nagged. It self-skips in the CCY container and in a clean CI checkout, where
+there is no deployed state to compare against.
+
+**This changes when you run QA.** The table below says "before every commit", and
+that is still right — but on the HOST this gate makes the repo's documented
+`edit → playbook → deploy → test` order (see
+[InfrastructureAsCode.md](InfrastructureAsCode.md)) **enforced** rather than
+merely recommended: a changed script must be deployed before `qa-all.bash` will
+pass. That is the intended sequence, not an obstruction — QA is a pre-*commit*
+gate, and the workflow already puts deploy and test ahead of commit. If you are
+mid-edit and want the other stages, run the deploy first; do not work around the
+gate.
+
+Run it alone with:
+
+```bash
+./scripts/qa-deployed-drift.bash
+```
+
 ---
 
 ## GNOME Shell Extension JavaScript

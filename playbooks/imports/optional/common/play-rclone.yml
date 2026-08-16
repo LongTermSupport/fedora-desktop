@@ -256,16 +256,23 @@
     # user, plus a main user holding passwordless sudo, no-auth turns a service
     # compromise into root and cloud credentials.
     #
-    # It also bought very little: vfs/stats and core/stats — which is all
-    # ftp-camera --copy, rclone-tail and rclone-cache-status need — are served
-    # WITHOUT auth. Only vfs/refresh (rclone-cache-warm) and core/stats-reset are
-    # gated, so we authenticate properly instead of disabling auth wholesale.
+    # EVERY RC ENDPOINT IS GATED ONCE A CREDENTIAL IS SET (Plan 00072).
+    # Plan 00067 landed this change believing vfs/stats and core/stats "answer
+    # unauthenticated" and that only vfs/refresh needed a migrated client. That
+    # is false — rclone gates the whole rc surface, and an unauthenticated call
+    # gets HTTP 401. Every un-migrated client (ftp-camera --copy, rclone-tail,
+    # rclone-cache-status) broke silently and stayed broken for weeks, because
+    # each reported the 401 as "rc unreachable". Clients now share one credential
+    # helper, files/home/.local/bin/rclone-rc-auth.bash — if you add another RC
+    # caller, source that; do not hand-copy a credential block.
     #
     # The secret is generated on the host, never committed (public repo), and is
     # passed via EnvironmentFile rather than ExecStart so it stays out of the
     # unit file and out of ps output. Rclone maps flags to RCLONE_<FLAG> env
     # vars, so RCLONE_RC_USER/RCLONE_RC_PASS drive the server side --rc-user and
-    # --rc-pass. Clients use the differently-named --user and --pass flags.
+    # --rc-pass. Clients use the differently-named --user and --pass flags, i.e.
+    # RCLONE_USER/RCLONE_PASS — which is how the helper passes them, keeping the
+    # password out of ps output on the client side too.
     # The password lookup GENERATES a value only when the store file is ABSENT;
     # if the file already exists it reads the value back, which is what makes the
     # credential stable across runs. An EMPTY store is therefore read back as an
@@ -437,6 +444,19 @@
     # =========================================================================
     # Utility scripts
     # =========================================================================
+
+    # Sourced by every script that calls the RC. Must be deployed BEFORE its
+    # consumers so a partial run never leaves a script whose library is absent.
+    - name: Deploy rclone RC credential helper library
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/home/.local/bin/rclone-rc-auth.bash"
+        dest: "/home/{{ user_login }}/.local/bin/rclone-rc-auth.bash"
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        # Sourced, never executed — 0644 documents that and keeps it out of
+        # tab-completion for commands.
+        mode: '0644'
+      tags: rclone, rc-auth
 
     - name: Deploy rclone-cache-status utility script
       ansible.builtin.copy:

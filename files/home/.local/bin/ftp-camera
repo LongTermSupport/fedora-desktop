@@ -4,6 +4,31 @@ set -e
 # ftp-camera — start FTP server for Sony A7V camera uploads
 # Deployed by: playbooks/imports/optional/common/play-ftp-camera.yml
 
+# The rclone remote control requires authentication, so --copy / --async-copy
+# cannot talk to a mount without the credential (see rclone-rc-auth.bash).
+# Resolved from this script's own directory rather than PATH, so it keeps
+# working when the script is invoked by absolute path. Deployed by
+# play-rclone.yml, hence the separate error message: a machine can have this
+# script without ever having installed rclone.
+_RC_LIB="$(dirname "$(readlink -f "$0")")/rclone-rc-auth.bash"
+if [ -r "$_RC_LIB" ]; then
+    # shellcheck source=/dev/null
+    . "$_RC_LIB"
+else
+    # Not fatal at load time — the FTP-server and --sort modes never touch the
+    # RC. Define a stub so the copy modes fail with the play to run rather than
+    # with "rclone_rc: command not found".
+    rclone_rc() {
+        echo "ERROR: rclone RC helper library not found: $_RC_LIB" >&2
+        echo "  The copy modes need it. Deploy it with:" >&2
+        echo "    ansible-playbook playbooks/imports/optional/common/play-rclone.yml" >&2
+        return 1
+    }
+    rclone_rc_available() {
+        rclone_rc
+    }
+fi
+
 # Resolve upload directory from the camera FTP user's home directory
 # (set by play-ftp-camera.yml via ftp_camera_upload_dir variable)
 UPLOAD_DIR=$(getent passwd camera | cut -d: -f6)
@@ -1038,37 +1063,23 @@ copy_to_mount() {
 
     local rc_addr="localhost:${RCLONE_RC_PORT:-5572}"
 
-    # RC credentials, when the mount has them (Plan 00067). vfs/stats and
-    # core/stats answer unauthenticated, so the copy works with or without this;
-    # core/stats-reset is gated and only resets the counters once authenticated.
-    # Passed to every call so this keeps working if rclone ever gates the rest.
-    # Read rather than sourced, so a config file cannot execute code. Client
-    # flags are --user/--pass; the unit takes RCLONE_RC_USER/RCLONE_RC_PASS.
-    local rc_auth_file="$HOME/.config/rclone/rc-auth.env"
-    local -a rc_auth=()
-    if [ -r "$rc_auth_file" ]; then
-        local rc_user rc_pass
-        rc_user=$(awk -F= '$1 == "RCLONE_RC_USER" { print $2 }' "$rc_auth_file")
-        rc_pass=$(awk -F= '$1 == "RCLONE_RC_PASS" { print $2 }' "$rc_auth_file")
-        if [ -n "$rc_user" ] && [ -n "$rc_pass" ]; then
-            rc_auth=(--user "$rc_user" --pass "$rc_pass")
-        fi
-    fi
-
-    # Verify the RC endpoint is reachable before starting the copy.
+    # Verify the RC endpoint answers an AUTHENTICATED call before starting the
+    # copy. rclone gates every rc endpoint once --rc-user/--rc-pass are set
+    # (Plan 00067), so the credential is not optional — rclone_rc supplies it
+    # and fails with the play to run when it is missing.
     #
-    # Probe core/stats — the very endpoint the progress loop below polls, and
-    # one rclone answers WITHOUT authentication. Do NOT probe core/pid here:
-    # rclone gates core/pid behind --rc-no-auth, so a mount that serves this
-    # function perfectly well (vfs/stats and core/stats are both auth-free)
-    # would still fail the preflight with HTTP 403 "authentication must be set
-    # up on the rc server". That mismatch — probing an auth-gated endpoint the
-    # function never uses — made --copy refuse to run at all.
-    if ! rclone rc "${rc_auth[@]}" --url="http://${rc_addr}" core/stats > /dev/null 2>&1; then
-        echo "ERROR: rclone remote control not responding at ${rc_addr}" >&2
+    # Probe core/stats: the very endpoint the progress loop below polls. An
+    # earlier version probed core/pid, which rclone refuses on a mount with no
+    # authentication configured at all, so a working mount failed the preflight.
+    # Probing what the function actually uses avoids that whole class of
+    # mismatch in both directions.
+    if ! rclone_rc_available "http://${rc_addr}"; then
+        echo "ERROR: rclone remote control did not answer at ${rc_addr}" >&2
         echo "  Confirm the mount is running and was started with --rc:" >&2
         echo "    systemctl --user status rclone-<remote> --no-pager -l" >&2
-        echo "  If --rc is missing from its ExecStart, re-run play-rclone.yml" >&2
+        echo "  If --rc is missing from its ExecStart, or the call was refused" >&2
+        echo "  with HTTP 401, re-run play-rclone.yml — it writes both the unit" >&2
+        echo "  and the RC credential file." >&2
         return 1
     fi
 
@@ -1081,14 +1092,18 @@ copy_to_mount() {
     echo -e "  Files:  ${CYAN}${file_count}${NC}"
     echo ""
 
-    # Reset rclone counters so the displayed bytes/transfers/ETA reflect
-    # only this copy, not whatever the mount accumulated since boot.
+    # Reset rclone counters so the displayed bytes/transfers/ETA reflect only
+    # this copy, not whatever the mount accumulated since boot.
     #
-    # Best-effort by design: unlike core/stats, core/stats-reset is auth-gated,
-    # so on a mount without --rc-no-auth (or RC credentials) it returns 403 and
-    # the counters keep their prior totals. The copy and its progress display
-    # still work — the byte/ETA figures just include earlier mount activity.
-    rclone rc "${rc_auth[@]}" --url="http://${rc_addr}" core/stats-reset > /dev/null 2>&1 || true
+    # Cosmetic, so a failure must not abort the copy: if the reset is refused
+    # the figures merely include earlier mount activity. The reason is still
+    # reported rather than swallowed — a 401 here is the first sign that the
+    # credential has drifted from the unit's.
+    local reset_err
+    if ! reset_err=$(rclone_rc --url="http://${rc_addr}" core/stats-reset 2>&1 > /dev/null); then
+        echo "  NOTE: could not reset rclone counters (${reset_err})." >&2
+        echo "        Progress figures below include earlier mount activity." >&2
+    fi
 
     # Copy files through mount — lands in VFS cache and triggers async upload
     if ! cp -r "$UPLOAD_DIR"/. "$dest_path"/; then
@@ -1113,16 +1128,32 @@ copy_to_mount() {
     local prev_bytes=0
     local prev_time=$wait_start
 
+    # Scratch file for rclone's stderr, reused for every poll. The --copy path
+    # clears the script's EXIT trap before reaching here, so it is removed
+    # explicitly on each way out of the loop rather than left to a handler that
+    # will not run. The wait can be long and the documented way to bail is
+    # Ctrl+C, so a local signal trap covers that path too.
+    local rc_err_file
+    rc_err_file=$(mktemp)
+    trap 'rm -f "$rc_err_file"' INT TERM
+
     while true; do
         local vfs_json core_json
-        vfs_json=$(rclone rc "${rc_auth[@]}" --url="http://${rc_addr}" vfs/stats 2>/dev/null) || {
-            echo "ERROR: Lost connection to rclone RC at ${rc_addr}" >&2
+        # stderr goes to a file rather than being folded into stdout, so a
+        # warning on a successful call cannot corrupt the JSON the parser below
+        # consumes — and the reason survives when the call does fail.
+        if ! vfs_json=$(rclone_rc --url="http://${rc_addr}" vfs/stats 2> "$rc_err_file"); then
+            echo "ERROR: rclone RC at ${rc_addr} stopped answering:" >&2
+            cat "$rc_err_file" >&2
+            rm -f "$rc_err_file"
             return 1
-        }
-        core_json=$(rclone rc "${rc_auth[@]}" --url="http://${rc_addr}" core/stats 2>/dev/null) || {
-            echo "ERROR: Lost connection to rclone RC at ${rc_addr}" >&2
+        fi
+        if ! core_json=$(rclone_rc --url="http://${rc_addr}" core/stats 2> "$rc_err_file"); then
+            echo "ERROR: rclone RC at ${rc_addr} stopped answering:" >&2
+            cat "$rc_err_file" >&2
+            rm -f "$rc_err_file"
             return 1
-        }
+        fi
 
         # Extract: VFS uploadsInProgress/uploadsQueued/erroredFiles (the
         # authoritative signal for completion when copying through a mount),
@@ -1149,6 +1180,7 @@ print(f"{in_progress}|{queued}|{errored}|{bytes_done}|{total_bytes}|{done_count}
 PY
         ) || {
             echo "ERROR: Failed to parse rclone stats" >&2
+            rm -f "$rc_err_file"
             return 1
         }
 
@@ -1169,6 +1201,7 @@ PY
                 if [ "$errored" -gt 0 ]; then
                     echo -e "  ${RED}${errored} file(s) errored during upload — see rclone log${NC}" >&2
                 fi
+                rm -f "$rc_err_file"
                 break
             fi
         else
@@ -1198,6 +1231,9 @@ PY
         echo -e "  [${CYAN}${elapsed_human}${NC}] queued: ${CYAN}${queued}${NC} · active: ${CYAN}${in_progress}${NC} · done: ${CYAN}${done_count}/${total_count}${NC} (${bytes_human}/${total_bytes_human}) · ${GREEN}${rate_human}${NC} · ETA ${YELLOW}${eta_human}${NC}"
         sleep 5
     done
+    # Loop is done and the file is already removed; drop the trap so it cannot
+    # fire later against a stale path.
+    trap - INT TERM
 
     echo ""
 
