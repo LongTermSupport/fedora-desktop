@@ -187,21 +187,29 @@ it, add that case to the agent rather than only fixing the instance.
 
 ## Example Workflow
 
+For a file under `files/home/.local/bin/`, deploy BEFORE running QA — the
+deployed-drift gate compares the repo against the host, so it fails by design
+while a changed script is still undeployed:
+
 ```bash
 # 1. Make changes
 vim files/home/.local/bin/wsi-stream
 
-# 2. Run QA
-./scripts/qa-all.bash
-
-# 3. If QA passes, deploy and TEST the actual script (on HOST, not in CCY container)
+# 2. Deploy and TEST the actual script (on HOST, not in CCY container)
 ansible-playbook playbooks/imports/optional/common/play-speech-to-text.yml
 ~/.local/bin/wsi-stream --help  # Verify it imports/runs
+
+# 3. Run QA — now the repo and the host agree
+./scripts/qa-all.bash
 
 # 4. Only then commit
 git add files/home/.local/bin/wsi-stream
 git commit -m "fix: update wsi-stream"
 ```
+
+For changes that deploy nothing to `~/.local/bin/` (playbooks, `scripts/`,
+`helpers/`, extension JS), the order does not matter — run QA whenever, as long
+as it passes before the commit.
 
 ## Rules Summary
 

@@ -73,9 +73,19 @@ fi
 # literal path reports those as orphaned, which is worse than unhelpful: it
 # tells you to go looking for a play that does exist.
 owning_play() {
-    local basename="$1" hit
-    # Tier 1: a literal src: path naming this file.
-    if hit=$(grep -rl --include='*.yml' -- "files/home/.local/bin/$basename" \
+    local basename="$1" hit escaped
+    # Regex-escape the basename: several helpers contain a dot (rclone-rc-auth.bash)
+    # and an unescaped one would match any character.
+    escaped=${basename//./\\.}
+    # Tier 1: an actual `src:` DECLARATION naming this file.
+    #
+    # Anchored to `src:` rather than matching the bare path anywhere in the file:
+    # a play that merely MENTIONS the path in a comment — e.g. play-ftp-camera.yml
+    # documenting its cross-play dependency on this library — was otherwise
+    # reported as deploying it, sending the reader to a play that does no such
+    # thing. The trailing boundary stops `ftp-camera` matching `ftp-camera-foo`.
+    if hit=$(grep -rlE --include='*.yml' -- \
+        "src:.*files/home/\.local/bin/${escaped}([\"' ]|\$)" \
         "$REPO_ROOT/playbooks"); then
         # A file can legitimately be deployed by more than one play; list all.
         printf '%s\n' "$hit" | while IFS= read -r p; do

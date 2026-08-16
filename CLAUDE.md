@@ -539,9 +539,9 @@ Bash commands that change directory into `.claude/hooks-daemon/` (or `cd` into a
 **Run daemon CLI from the project root instead** — it always works regardless of cwd:
 
 ```
-/workspace/.claude/hooks-daemon/bin/hooks-daemon status
-/workspace/.claude/hooks-daemon/bin/hooks-daemon restart
-/workspace/.claude/hooks-daemon/bin/hooks-daemon logs
+<repo-root>/.claude/hooks-daemon/bin/hooks-daemon status
+<repo-root>/.claude/hooks-daemon/bin/hooks-daemon restart
+<repo-root>/.claude/hooks-daemon/bin/hooks-daemon logs
 ```
 
 If you need to inspect daemon source for debugging, use `Read` from the project root with the absolute path — never `cd` in. Do NOT edit anything inside `.claude/hooks-daemon/`; changes will be overwritten on the next upgrade.
@@ -553,7 +553,7 @@ Before making a `git commit` in the hooks daemon repository, this handler advise
 **Why**: Unit tests alone don't catch import errors. A handler that fails to import silently disables protection without any test-time error. Daemon restart is the definitive check.
 
 **Run before committing** (in this repo only):
-`/workspace/.claude/hooks-daemon/bin/hooks-daemon restart` then verify status shows RUNNING.
+`<repo-root>/.claude/hooks-daemon/bin/hooks-daemon restart` then verify status shows RUNNING.
 
 ### Pipe Blocker
 
@@ -641,7 +641,7 @@ commit with a TODO list of what the commit must also contain.
   of the two you just did
 
 Check the staged tree any time without committing:
-`/workspace/.claude/hooks-daemon/bin/hooks-daemon plan-qa --check-staged`.
+`<repo-root>/.claude/hooks-daemon/bin/hooks-daemon plan-qa --check-staged`.
 Commits inside nested/vendor repos or foreign worktrees are exempt.
 
 ## plan_qa_edit — PLAN.md writes are linted in real time
@@ -696,7 +696,7 @@ with history in git rather than in the file body.
 
 Grandfathered plans in `plan_workflow.qa.legacy_plan_allowlist`
 only ever advise. Lint any file on demand:
-`/workspace/.claude/hooks-daemon/bin/hooks-daemon plan-qa --lint <file>`.
+`<repo-root>/.claude/hooks-daemon/bin/hooks-daemon plan-qa --lint <file>`.
 
 ## plan_time_estimates — plans describe WHAT, not WHEN
 
@@ -772,7 +772,7 @@ A PostToolUse advisory that fires when a Bash call backgrounds a process (`run_i
 
 When you background a long-lived process:
 
-- Create a non-durable recurring **watchdog cron** (CronCreate, durable:false) whose prompt runs `/workspace/.claude/hooks-daemon/bin/hooks-daemon harvest-background` and acts on any runaway — this covers the idle/compaction window a tool-call hook cannot. Do NOT wait for the cron; keep working.
+- Create a non-durable recurring **watchdog cron** (CronCreate, durable:false) whose prompt runs `<repo-root>/.claude/hooks-daemon/bin/hooks-daemon harvest-background` and acts on any runaway — this covers the idle/compaction window a tool-call hook cannot. Do NOT wait for the cron; keep working.
 - Check on demand: run `harvest-background` (exit 1 == runaways surfaced).
 - Reap a runaway by its **process group**: `kill -- -<pgid>` (not just the pid).
 - Keep a wanted long task: note `KEEP_RUNNING_BECAUSE="reason"`.
@@ -796,7 +796,7 @@ After every `Write` or `Edit` of a `.md` or `.markdown` file, the content is re-
 **Ad-hoc formatting of existing files:**
 
 ```
-/workspace/.claude/hooks-daemon/bin/hooks-daemon format-markdown <path>
+<repo-root>/.claude/hooks-daemon/bin/hooks-daemon format-markdown <path>
 ```
 
 ## recovery_cron_advisor — failsafe recovery cron lifecycle advisory
@@ -902,7 +902,7 @@ On every new session this handler audits hook configuration across `.claude/sett
 ### Remediation
 
 - **Hooks in `settings.local.json`**: move each `hooks` entry to `settings.json`, then delete the `hooks` key from `settings.local.json`. Confirm no duplicates remain.
-- **Legacy-style commands**: replace them with a project-level handler. Run `/workspace/.claude/hooks-daemon/bin/hooks-daemon init-project-handlers` to scaffold `.claude/project-handlers/`, port the logic into a handler class, then restore the daemon wrapper in `settings.json`. The daemon will auto-discover the new handler on restart.
+- **Legacy-style commands**: replace them with a project-level handler. Run `<repo-root>/.claude/hooks-daemon/bin/hooks-daemon init-project-handlers` to scaffold `.claude/project-handlers/`, port the logic into a handler class, then restore the daemon wrapper in `settings.json`. The daemon will auto-discover the new handler on restart.
 - **Missing hooks**: by default this handler SELF-HEALS — it merges the full wired registration set into `settings.json` on session start (additive; preserves `permissions`/`env`/`statusLine` and any custom hooks; one-shot backup to `settings.json.bak.pre-registration-repair`), so the flood stops without a reinstall. Opt out with `handlers.session_start.hook_registration_checker.options.auto_repair_registrations: false`, then re-run the installer or add the missing `{event_name}` entry manually.
 - **Duplicate hooks**: a hook registered in both files fires twice. Keep the `settings.json` entry and remove the duplicate in `settings.local.json`.
 
@@ -919,7 +919,7 @@ its exact remediation) as part of your plan housekeeping, then
 re-check with:
 
 ```
-/workspace/.claude/hooks-daemon/bin/hooks-daemon plan-qa --sweep
+<repo-root>/.claude/hooks-daemon/bin/hooks-daemon plan-qa --sweep
 ```
 
 The CLI exits 1 while findings remain (CI-able). Single-file lint:
@@ -934,7 +934,7 @@ At session start, when the plan workflow is enabled but the daemon-owned `mkplan
 **Fix**: (re)deploy the assets on demand —
 
 ```
-/workspace/.claude/hooks-daemon/bin/hooks-daemon deploy-plan-workflow
+<repo-root>/.claude/hooks-daemon/bin/hooks-daemon deploy-plan-workflow
 ```
 
 The deploy is idempotent (fills gaps only, never overwrites client-owned files). Silent when `mkplan.bash` is present or the workflow is disabled.
@@ -946,9 +946,9 @@ At session start this handler reports any **project handlers** (`.claude/project
 ### When you see `🚨 PROJECT PROTECTION DEGRADED 🚨`
 
 1. **Do not assume normal guardrails are in force.** The listed handlers are OFF for this session.
-2. **Diagnose** each failure: `/workspace/.claude/hooks-daemon/bin/hooks-daemon validate-project-handlers` names the file, the missing method, and the daemon version that introduced it.
+2. **Diagnose** each failure: `<repo-root>/.claude/hooks-daemon/bin/hooks-daemon validate-project-handlers` names the file, the missing method, and the daemon version that introduced it.
 3. **Fix** the handler(s) — usually adding a required method stub (e.g. `get_claude_md`) that a daemon upgrade made mandatory.
-4. **Restart the daemon** (`/workspace/.claude/hooks-daemon/bin/hooks-daemon restart`). The alert reflects the *running* daemon, so it clears only after a restart reloads the fixed handlers — fixing the file alone is not enough.
+4. **Restart the daemon** (`<repo-root>/.claude/hooks-daemon/bin/hooks-daemon restart`). The alert reflects the *running* daemon, so it clears only after a restart reloads the fixed handlers — fixing the file alone is not enough.
 
 The handler is silent when every project handler loads, so seeing this alert always means real action is required.
 

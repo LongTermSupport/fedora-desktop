@@ -1135,7 +1135,10 @@ copy_to_mount() {
     # Ctrl+C, so a local signal trap covers that path too.
     local rc_err_file
     rc_err_file=$(mktemp)
-    trap 'rm -f "$rc_err_file"' INT TERM
+    # The handler MUST exit. A trap that only cleans up returns control to the
+    # script, so bash resumes the loop and Ctrl+C stops aborting the wait —
+    # which is the documented way to bail out of a long copy. 130 = 128 + SIGINT.
+    trap 'rm -f "$rc_err_file"; exit 130' INT TERM
 
     while true; do
         local vfs_json core_json
