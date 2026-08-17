@@ -58,25 +58,39 @@ version 2.1.233, build `f8d5756`) and one live probe.
 | F3  | Limit kinds present: `five_hour`, `seven_day`, `seven_day_opus`, `seven_day_sonnet`, `seven_day_overage_included`, plus `org_spend_cap_reached`                                                      | string table in `claude.exe`                           |
 | F4  | The route exists — an unauthenticated `GET` returns HTTP **429** `rate_limit_error`, not 404                                                                                                         | live probe from the CCY container                      |
 | F5  | There is **no** supported CLI route: `claude --help` lists no `usage` subcommand, and the statusline `rate_limits` block is documented as populated only *after* the first API response of a session | `claude --help`; statusline schema doc in `claude.exe` |
+| F6  | With an `Authorization: Bearer` header present the endpoint returns a real **auth verdict** — a bogus bearer gets **401**, not the IP-level 429 of F4                                                | live probe, 5 synthetic bearers                        |
 
 F5 is why this plan reads an internal endpoint at all: nothing supported reports
 the figure before a session starts.
 
+F6 matters for the gate below: because a bearer produces 401 rather than the
+shared-IP 429, a real token on the HOST yields an unambiguous answer — 200 or 401,
+with no third "can't tell" outcome to re-run around.
+
 ### Open questions
 
-| ID  | Question                                                                                                                          | How it gets answered      |
-| --- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
-| Q1  | Does a stored long-lived `sk-ant-oat01-…` setup-token authenticate to `/api/oauth/usage`, or is it scoped to `/v1/messages` only? | `triage.bash` on the HOST |
-| Q2  | What is the exact JSON envelope — a bare array, or an object wrapping one?                                                        | `triage.bash` on the HOST |
-| Q3  | Does the endpoint answer per-**token**, or per-**account** (two tokens for one account reporting one figure)?                     | `triage.bash` on the HOST |
+| ID  | Question                                                                                                                          | How it gets answered                               |
+| --- | --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| Q1  | Does a stored long-lived `sk-ant-oat01-…` setup-token authenticate to `/api/oauth/usage`, or is it scoped to `/v1/messages` only? | `triage.bash`, or `ccy --list-tokens`, on the HOST |
+| Q2  | What is the exact JSON envelope — a bare array, or an object wrapping one?                                                        | `triage.bash` on the HOST                          |
+| Q3  | Does the endpoint answer per-**token**, or per-**account** (two tokens for one account reporting one figure)?                     | comparing rows in either, on the HOST              |
 
 Q1 is the gate. Everything downstream is dead if it comes back 401/403, and the
-correct outcome in that case is to record the finding and cancel the plan — not
-to reach for a workaround.
+correct outcome in that case is to strip the feature back out and cancel — not to
+reach for a workaround, and not to leave a permanently-dim row on every launch.
 
-**This plan asserts no cause and ships no code until `triage.bash` has run on the
-HOST.** The container cannot answer Q1: it holds no token and no
-`~/.claude/.credentials.json`.
+**Q2 is de-risked rather than blocking.** The renderer never assumes an envelope:
+it walks the whole document for any object carrying both `kind` and `percent`, so
+it works against `{"rate_limits":[…]}`, a bare array, or anything else that keeps
+the field names Claude Code's own mapper relies on. Verified against three
+fixtures including an error body. Only the field names need to hold.
+
+The container cannot answer Q1 itself: it holds no token and no
+`~/.claude/.credentials.json`. The code shipped ahead of that answer at the
+owner's direction (see Decision 1) — which is safe here precisely because the
+feature is decoration that degrades visibly: if Q1 comes back 401, every row
+reads `usage: not authorised` and nothing else changes. Task 4.3 then removes it
+rather than leaving that in place.
 
 ## Tasks
 
@@ -99,43 +113,74 @@ HOST.** The container cannot answer Q1: it holds no token and no
 - [ ] ⬜ **Task 2.2**: If Q1 succeeds — write the confirmed response schema into this
   plan before any parsing code is written
 
-### Phase 3: On-demand usage reporting
+### Phase 3: Usage in the menu, on by default
 
-- [ ] ⬜ **Task 3.1**: Add a usage fetch helper to
+- [x] ✅ **Task 3.1**: Add the fetch/cache/render core to
   `files/var/local/claude-yolo/lib/token-management.bash`, passing the token via
   `curl --config -` on stdin so it never reaches argv (the BSH-09 rule already
   applied in `validate_token()`)
-- [ ] ⬜ **Task 3.2**: Surface it in `list_tokens()` / a `--token-usage` flag —
-  off the interactive launch path, so a broken endpoint breaks a diagnostic
-  command rather than every launch
-- [ ] ⬜ **Task 3.3**: Bump `CCY_VERSION` and the `token-management.bash` header
-  version (required for any change under `files/var/local/claude-yolo/`)
-- [ ] ⬜ **Task 3.4**: Run `./scripts/qa-all.bash`
+- [x] ✅ **Task 3.2**: Annotate `select_token()` rows and `list_tokens()` with
+  5-hour and weekly utilisation, fanning the fetches out in parallel
+- [x] ✅ **Task 3.3**: Cache under `~/.claude-tokens/ccy/usage-cache/` with a TTL,
+  storing only the rendered line — never the raw response
+- [x] ✅ **Task 3.4**: Colour the line by its worst percentage, in pure bash
+- [x] ✅ **Task 3.5**: `CCY_TOKEN_USAGE=0` kill switch, plus `CCY_USAGE_TTL`,
+  `CCY_USAGE_TIMEOUT`, `CCY_USAGE_CONNECT_TIMEOUT` overrides, all documented in
+  `ccy --help`
+- [x] ✅ **Task 3.6**: Bump `CCY_VERSION` (3.32.0) and the `token-management.bash`
+  header version (1.7.0)
+- [x] ✅ **Task 3.7**: Measure cold/warm/failure paths and confirm a broken
+  endpoint still renders the menu
+- [x] ✅ **Task 3.8**: Run `./scripts/qa-all.bash`
 
-### Phase 4: Selection-menu annotation
+### Phase 4: Confirm on the HOST
 
-- [ ] ⬜ **Task 4.1**: Cache each token's usage under `$CCY_ROOT` with a short TTL,
-  so repeat launches cost no network call
-- [ ] ⬜ **Task 4.2**: Annotate the `select_token()` rows with 5-hour and weekly
-  utilisation, fetching in parallel and falling back to `usage: unavailable`
-- [ ] ⬜ **Task 4.3**: Confirm the menu still renders promptly with the endpoint
-  unreachable (simulate by pointing the fetch at an unroutable host)
-- [ ] ⬜ **Task 4.4**: Run `./scripts/qa-all.bash`, then the `qa-reviewer` agent
+- [ ] 🔄 **Task 4.1**: Deploy `play-claude-code.yml` on the HOST — **HOST action**
+- [ ] ⬜ **Task 4.2**: Run `ccy --list-tokens` and record the real status per token.
+  A `200` answers Q1 yes; `usage: not authorised` on every row answers it no
+- [ ] ⬜ **Task 4.3**: If Q1 is no — strip the feature back out rather than leaving
+  a permanently-dim row on every launch; record the finding and cancel
+- [ ] ⬜ **Task 4.4**: If Q1 is yes — confirm the rendered line against the real
+  envelope, and record the confirmed schema here
+- [ ] ⬜ **Task 4.5**: Run the `qa-reviewer` agent over the full diff
 
 ## Technical Decisions
 
-### Decision 1: On-demand command before menu integration
+### Decision 1: On by default in the menu — revised after measurement
 
-**Context**: The obvious implementation annotates `select_token()` directly.
-**Options considered**:
+**Context**: The first draft of this plan sequenced an on-demand command ahead of
+menu integration, on the argument that N HTTPS calls to an undocumented endpoint
+should not sit on the path of the most-run interactive command. The owner asked
+to try it on by default and fall back to human-triggered only if it proved slow.
+That reframed the question from a judgement call to a measurable one.
 
-- (A) Annotate the launch menu straight away — best UX, but puts N HTTPS calls to
-  an undocumented endpoint on the path of the most-run interactive command.
-- (B) On-demand command first, menu annotation second behind a cache.
+**Measured** (this container, real endpoint, 5 tokens, menu render wall-clock):
 
-**Decision**: B. The endpoint is internal and will change without notice; when it
-does, the blast radius should be a diagnostic command, not every `ccy` launch.
-Phase 4 remains in scope — it is sequenced, not dropped.
+| Path                        | Wall   | Over baseline                        |
+| --------------------------- | ------ | ------------------------------------ |
+| Feature disabled (baseline) | 142 ms | —                                    |
+| Cold — full fetch of 5      | 513 ms | +371 ms                              |
+| Warm — cache hit            | 222 ms | +80 ms                               |
+| Unroutable endpoint         | ~2.2 s | bounded by connect-timeout, parallel |
+
+**Decision**: on by default. +371 ms once per TTL window and +80 ms warm is not a
+perceptible cost on an interactive menu the user is about to read anyway, and the
+figure is most valuable at exactly the moment of choosing. The original concern is
+answered by construction rather than by sequencing: the fetch is parallel, bounded
+by a connect-timeout, cached, and every failure path renders a dim `usage: …` note
+instead of blocking. `CCY_TOKEN_USAGE=0` turns it off outright.
+**Date**: 2026-08-17
+
+### Decision 1a: Parse once at fetch time, not per row at render time
+
+**Context**: The first implementation cached the raw JSON and ran `jq` per row.
+Measured, that made a **cache hit almost as slow as a cold fetch** (239 ms warm vs
+268 ms cold, 2 tokens) — `jq` startup, ~40 ms a time, dominated everything.
+**Decision**: render inside the parallel fetch worker and cache the finished line.
+The display path now touches no `jq`, no `curl`, and no subprocess beyond reading
+two small files; `colorize_usage` finds its worst percentage in pure bash for the
+same reason. Side benefit: the raw response is never written to disk, so account
+details in the payload do not outlive the fetch.
 **Date**: 2026-08-17
 
 ### Decision 2: A failed usage fetch must not fail the launch
