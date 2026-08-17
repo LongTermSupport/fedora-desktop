@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.32.0"  # Plan 00073: token selection menu and --list-tokens now show each account's 5-hour and weekly usage limits, fetched in parallel from GET /api/oauth/usage with a TTL cache; CCY_TOKEN_USAGE=0 disables
+CCY_VERSION="3.33.0"  # Plan 00073: token usage limits (added 3.32.0) removed — setup-tokens get 403 "does not meet scope requirement user:profile" from /api/oauth/usage, so the figure is unobtainable with the credential ccy stores
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -148,7 +148,7 @@ Options:
   --token NAME           Use specific named token
   --create-token         Create a new named token
   --update-token=NAME    Replace an existing named token (e.g. invalidated before expiry)
-  --list-tokens          List available tokens, with each account's usage limits
+  --list-tokens          List available tokens
   --export-token [NAME]  Export token(s) as portable import script (interactive if no name)
   --network NETWORK      Auto-connect to specified container network on launch
   --no-network           Skip network auto-detection
@@ -227,17 +227,6 @@ Token Management:
   Long-lived OAuth tokens (sk-ant-oat01-...) created via 'claude setup-token'
   Expiry checked on launch - forces recreation when expired or expiring today
   Desktop Claude Code (~/.claude/) is NEVER modified
-
-Token Usage Limits:
-  The selection menu shows each account's 5-hour and weekly utilisation, so you
-  can pick an account that still has headroom. Fetched in parallel and cached in
-  ~/.claude-tokens/ccy/usage-cache/, so it costs about one round trip and
-  nothing at all on a repeat launch within the TTL.
-  Env overrides: CCY_TOKEN_USAGE=0 disables it entirely
-                 CCY_USAGE_TTL=<seconds>     cache lifetime (default 180)
-                 CCY_USAGE_TIMEOUT=<seconds> per-fetch timeout (default 4)
-  A fetch that fails never blocks a launch - the row shows why (e.g.
-  "usage: not authorised", "usage: unreachable") and selection carries on.
 
 State Management:
   Claude Code state (history, todos, settings) persists in /workspace/.claude/

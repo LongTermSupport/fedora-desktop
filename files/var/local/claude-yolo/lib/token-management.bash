@@ -2,10 +2,13 @@
 # Token Management Library
 # Token operations for claude-yolo (ccy)
 #
-# Version: 1.7.0 - Plan 00073: per-token usage limits (5-hour / weekly) shown in
-#                  the selection menu and --list-tokens, fetched in parallel from
-#                  GET /api/oauth/usage with a short TTL cache. Set
-#                  CCY_TOKEN_USAGE=0 to disable.
+# Version: 1.8.0 - Plan 00073: per-token usage limits REMOVED (added in 1.7.0).
+#                  The stored sk-ant-oat01 setup-tokens cannot read them:
+#                  GET /api/oauth/usage and /api/oauth/profile both answer 403
+#                  "OAuth token does not meet scope requirement user:profile"
+#                  for every token. The scope is fixed when `claude setup-token`
+#                  mints the token, so no client-side change can obtain it.
+#                  Do not re-add a call to those routes with a setup-token.
 #          1.6.0 - BSH-04 (PIPESTATUS for setup-token), BSH-05 (CREATED_TOKEN_FILE
 #                  contract so create/renew flows continue or exit cleanly),
 #                  BSH-09 (tokens passed by env NAME, never in container argv),
@@ -39,308 +42,6 @@ colorize_expiry() {
     fi
 }
 
-# ==============================================================================
-# Per-token usage limits (Plan 00073)
-# ==============================================================================
-#
-# Claude Code reports a subscription's 5-hour and weekly utilisation via
-# GET /api/oauth/usage. Nothing supported exposes it before a session starts —
-# there is no `claude usage` subcommand, and the statusline `rate_limits` block
-# is only populated after a session's first API response — so the token menu
-# reads that endpoint directly.
-#
-# It is an INTERNAL, unversioned endpoint. Everything here is therefore written
-# to degrade VISIBLY (a "usage: …" note saying what went wrong) and never to
-# block a launch: the figure is decoration on a menu, like the expiry colour,
-# not an operation whose failure makes the launch wrong. A malformed token, a
-# missing jq, or an unwritable cache still say so out loud.
-#
-# Measured cost (5 tokens, parallel): ~200 ms cold, ~0 warm. Sequential would be
-# ~815 ms, which is why the fetch fans out.
-#
-# Set CCY_TOKEN_USAGE=0 to switch the whole feature off.
-
-CCY_USAGE_ENDPOINT="${CCY_USAGE_ENDPOINT:-https://api.anthropic.com/api/oauth/usage}"
-CCY_USAGE_TIMEOUT="${CCY_USAGE_TIMEOUT:-4}"
-# Split from the total budget on purpose: the common broken-network case is a
-# connection that never establishes, and waiting the full 4 s for that stalls
-# every launch on a flaky link. A slow-but-working response still gets the whole
-# CCY_USAGE_TIMEOUT.
-CCY_USAGE_CONNECT_TIMEOUT="${CCY_USAGE_CONNECT_TIMEOUT:-2}"
-CCY_USAGE_TTL="${CCY_USAGE_TTL:-180}"
-
-# jq program that turns a usage response into one compact display line.
-#
-# Deliberately envelope-agnostic: it walks the whole document for any object
-# carrying both `kind` and `percent`, so it works whether the payload is
-# {"rate_limits":[…]} or a bare array. The exact envelope is not documented
-# anywhere and may change; the field names are the stable part (Claude Code's
-# own mapper reads kind/percent/resets_at/scope.model.display_name).
-# SC2016: $now and $e are jq variables, not shell ones — single quotes are
-# required here, not an oversight.
-# shellcheck disable=SC2016
-_CCY_USAGE_JQ='
-def lbl:
-  if   . == "five_hour" then "5h"
-  elif . == "seven_day" then "wk"
-  elif startswith("seven_day_") then "wk-" + .[10:]
-  else . end;
-def secs:
-  if   type == "number" then . - $now
-  elif type == "string" then ((try fromdateiso8601 catch null) // null) as $e
-       | if $e == null then null else $e - $now end
-  else null end;
-def human:
-  if   . == null or . <= 0 then ""
-  elif . < 3600   then " r" + ((./60)|floor|tostring) + "m"
-  elif . < 172800 then " r" + ((./3600)|floor|tostring) + "h"
-  else                 " r" + ((./86400)|floor|tostring) + "d" end;
-[.. | objects | select(has("kind") and has("percent"))]
-| map("\(.kind|lbl) \(.percent|round)%\(.resets_at? | secs | human)")
-| join(" · ")
-'
-
-# Cache location: a sibling of the token dir, so it inherits the same private
-# ~/.claude-tokens/ccy/ home for both ccy and cc.
-_usage_cache_dir() {
-    printf '%s/usage-cache' "$(dirname "$1")"
-}
-
-usage_enabled() {
-    [ "${CCY_TOKEN_USAGE:-1}" != "0" ]
-}
-
-# Fetches ONE token's usage and renders it, writing two cache files:
-#   $2.status   the HTTP status (or 000 when no response was received at all)
-#   $2.summary  the finished display line (empty unless the status was 200)
-#
-# Rendering happens HERE, inside the parallel worker, rather than at display
-# time. jq costs ~40 ms per invocation — for 5 tokens that is more than the
-# whole network round trip, and doing it per-row on every menu render made the
-# cached path almost as slow as the uncached one (measured: 239 ms warm vs
-# 268 ms cold). Parsing once, in parallel, makes a cache hit free.
-#
-# Only the rendered line is persisted — the raw response is never written to
-# disk, so account details in the payload do not outlive the fetch.
-#
-# The token is handed to curl through --config on STDIN so it never appears in
-# argv — the same rule validate_token() follows (BSH-09), because argv is
-# world-readable via /proc/<pid>/cmdline.
-#
-# Every failure is RECORDED (as a status) rather than raised, and both files are
-# always created, so a fan-out worker can never abort a caller running `set -e`
-# and can never leave a half-written cache entry behind. Always returns 0.
-_usage_fetch_one() {
-    local token="$1" out_prefix="$2"
-    local body code="000" line=""
-
-    body="$(mktemp)"
-    printf '' > "$out_prefix.summary"
-
-    if code="$(printf 'header = "Authorization: Bearer %s"\n' "$token" \
-        | curl --config - \
-               --silent \
-               --request GET \
-               --header 'Content-Type: application/json' \
-               --connect-timeout "$CCY_USAGE_CONNECT_TIMEOUT" \
-               --max-time "$CCY_USAGE_TIMEOUT" \
-               --output "$body" \
-               --write-out '%{http_code}' \
-               "$CCY_USAGE_ENDPOINT")"; then
-        :
-    else
-        # curl itself failed (DNS, TLS, connection refused, timeout). 000 is
-        # curl's own convention for "no HTTP response was received", and it is
-        # what --write-out reports in that case too.
-        code="000"
-    fi
-
-    if [ "$code" = "200" ] && command -v jq > /dev/null; then
-        if line="$(jq -r --argjson now "$(date +%s)" "$_CCY_USAGE_JQ" "$body")"; then
-            printf '%s' "$line" > "$out_prefix.summary"
-        else
-            code="unparseable"
-        fi
-    fi
-
-    printf '%s\n' "$code" > "$out_prefix.status"
-    rm -f "$body"
-    chmod 600 "$out_prefix.summary" "$out_prefix.status"
-    return 0
-}
-
-# Refreshes the cache for every given token file, fanning the fetches out in
-# parallel so N tokens cost roughly one round trip rather than N.
-#
-# Args: $1 = token_dir, $2.. = token file paths
-usage_prime_cache() {
-    local token_dir="$1"; shift
-    usage_enabled || return 0
-    command -v curl > /dev/null || return 0
-
-    local cache_dir
-    cache_dir="$(_usage_cache_dir "$token_dir")"
-    mkdir -p "$cache_dir"
-    chmod 700 "$cache_dir"
-
-    local now pids=() token_file filename token_name status mtime age
-    now="$(date +%s)"
-
-    for token_file in "$@"; do
-        filename="$(basename "$token_file")"
-        token_name="${filename%.*.token}"
-        status="$cache_dir/$token_name.status"
-
-        # Fresh enough? Skip the network entirely — this is the whole point of
-        # the cache, and it must cost nothing but a stat.
-        if [ -f "$status" ] && [ -f "$cache_dir/$token_name.summary" ]; then
-            if mtime="$(stat -c %Y "$status")"; then
-                age=$(( now - mtime ))
-                if [ "$age" -ge 0 ] && [ "$age" -lt "$CCY_USAGE_TTL" ]; then
-                    continue
-                fi
-            fi
-        fi
-
-        (
-            # Fan-out worker. Unconditionally exits 0: its job is to RECORD an
-            # outcome in the cache, and a worker that died would otherwise take
-            # the caller's `set -e` — and the whole menu — down with it. That is
-            # not hypothetical: an unreachable endpoint used to abort the render
-            # and print no token list at all.
-            # $$-suffixed prefix so two concurrent ccy launches cannot scribble
-            # over each other's part-files.
-            token="$(cat "$token_file")"
-            if [ -n "$token" ]; then
-                _usage_fetch_one "$token" "$cache_dir/$token_name.$$"
-                mv -f "$cache_dir/$token_name.$$.summary" \
-                      "$cache_dir/$token_name.summary"
-                mv -f "$cache_dir/$token_name.$$.status" \
-                      "$cache_dir/$token_name.status"
-            fi
-            exit 0
-        ) &
-        pids+=("$!")
-    done
-
-    if [ ${#pids[@]} -gt 0 ]; then
-        local pid
-        for pid in "${pids[@]}"; do
-            if ! wait "$pid"; then
-                # A worker died without publishing. Its cache entry is simply
-                # left as it was, so the row reports "not fetched" (or a stale
-                # value) rather than the menu failing. Nothing to clean up: the
-                # part-files are inside the private cache dir.
-                continue
-            fi
-        done
-    fi
-    return 0
-}
-
-# Echoes a one-line usage summary for a token name, or a "usage: …" note saying
-# why there isn't one. Never empty, never silent about a failure.
-#
-# Stdout is the payload (this is a value a caller captures); nothing else is
-# written there.
-# Pure cache read — no jq, no curl, no subprocess beyond the file reads. This is
-# what keeps a warm menu render indistinguishable from the old one.
-usage_summary_for() {
-    local token_dir="$1" token_name="$2"
-    local cache_dir status code line
-
-    usage_enabled || { printf ''; return 0; }
-
-    # A missing tool here is an IaC gap, not a runtime condition to shrug at —
-    # both are declared in play-claude-code.yml, the same play that deploys this
-    # library. Name the remedy rather than rendering a bare blank.
-    if ! command -v curl > /dev/null; then
-        printf 'usage: needs curl (run play-claude-code.yml)'
-        return 0
-    fi
-    if ! command -v jq > /dev/null; then
-        printf 'usage: needs jq (run play-claude-code.yml)'
-        return 0
-    fi
-
-    cache_dir="$(_usage_cache_dir "$token_dir")"
-    status="$cache_dir/$token_name.status"
-
-    if [ ! -f "$status" ]; then
-        printf 'usage: not fetched'
-        return 0
-    fi
-
-    code="$(cat "$status")"
-    case "$code" in
-        200) ;;
-        000) printf 'usage: unreachable'; return 0 ;;
-        401|403)
-            # The interesting failure: the stored setup-token is not accepted
-            # on this endpoint. Say so plainly rather than showing a blank —
-            # this is the answer to the question Plan 00073 is gated on.
-            printf 'usage: not authorised'
-            return 0
-            ;;
-        429)          printf 'usage: rate limited'; return 0 ;;
-        unparseable)  printf 'usage: unparseable';  return 0 ;;
-        *)            printf 'usage: HTTP %s' "$code"; return 0 ;;
-    esac
-
-    line=""
-    if [ -f "$cache_dir/$token_name.summary" ]; then
-        line="$(cat "$cache_dir/$token_name.summary")"
-    fi
-    if [ -z "$line" ]; then
-        printf 'usage: no limits reported'
-        return 0
-    fi
-
-    printf '%s' "$line"
-    return 0
-}
-
-# Wraps a usage summary in a colour keyed to the highest percentage in it, so a
-# nearly-exhausted account is obvious at a glance. Mirrors colorize_expiry().
-colorize_usage() {
-    local summary="$1"
-    local RED='\033[31m' ORANGE='\033[38;5;208m' GREEN='\033[32m'
-    local DIM='\033[2m' RESET='\033[0m'
-
-    case "$summary" in
-        '') return 0 ;;
-        usage:*) printf "${DIM}%s${RESET}" "$summary"; return 0 ;;
-    esac
-
-    # Pure bash, deliberately: the obvious `grep | tr | sort | head` costs four
-    # processes per row, which measured at ~39 ms per token — on the CACHED
-    # path, where there is otherwise no work to do at all. A here-string and a
-    # loop spawn nothing.
-    local -a parts=()
-    local part worst=-1
-    read -r -a parts <<< "$summary"
-    for part in "${parts[@]}"; do
-        case "$part" in
-            *%)
-                part="${part%\%}"
-                if [[ "$part" =~ ^[0-9]+$ ]] && [ "$part" -gt "$worst" ]; then
-                    worst="$part"
-                fi
-                ;;
-        esac
-    done
-
-    if [ "$worst" -lt 0 ]; then
-        printf '%s' "$summary"
-    elif [ "$worst" -ge 85 ]; then
-        printf "${RED}%s${RESET}" "$summary"
-    elif [ "$worst" -ge 50 ]; then
-        printf "${ORANGE}%s${RESET}" "$summary"
-    else
-        printf "${GREEN}%s${RESET}" "$summary"
-    fi
-}
-
 # Function to list available tokens
 # Args: $1 = token_dir, $2 = tool_name (for display)
 list_tokens() {
@@ -367,18 +68,6 @@ list_tokens() {
     local today
     today=$(date +%Y-%m-%d)
 
-    # Fan the usage fetches out before rendering anything, so N tokens cost one
-    # round trip rather than N (measured: ~200 ms for 5, vs ~815 ms sequential).
-    local all_tokens=()
-    for token_file in "$token_dir"/*.token; do
-        if [ -f "$token_file" ]; then
-            all_tokens+=("$token_file")
-        fi
-    done
-    if [ ${#all_tokens[@]} -gt 0 ]; then
-        usage_prime_cache "$token_dir" "${all_tokens[@]}"
-    fi
-
     for token_file in "$token_dir"/*.token; do
         if [ -f "$token_file" ]; then
             local filename
@@ -396,15 +85,9 @@ list_tokens() {
                     status="⚠ Expires TODAY"
                 fi
 
-                local usage_line
-                usage_line="$(usage_summary_for "$token_dir" "$token_name")"
-
                 echo "  • $token_name"
                 echo "    File: $token_file"
                 echo "    Expires: $(colorize_expiry "$expiry_date") ($status)"
-                if [ -n "$usage_line" ]; then
-                    echo "    Usage:   $(colorize_usage "$usage_line")"
-                fi
             else
                 echo "  • $filename"
                 echo "    File: $token_file"
@@ -884,30 +567,18 @@ select_token() {
     echo "Available tokens:"
     echo ""
 
-    # One parallel fan-out for the whole menu, before the first row is drawn.
-    # Only the VALID tokens are fetched — an expired one cannot be launched, so
-    # its usage figure would be latency spent on a row nobody can choose.
-    usage_prime_cache "$token_dir" "${valid_tokens[@]}"
-
     for i in "${!valid_tokens[@]}"; do
         local token_file="${valid_tokens[$i]}"
         local filename
         filename=$(basename "$token_file")
         local token_name="${filename%.*.token}"
-        local usage_line usage_suffix=""
-
-        usage_line="$(usage_summary_for "$token_dir" "$token_name")"
-        if [ -n "$usage_line" ]; then
-            usage_suffix="  $(colorize_usage "$usage_line")"
-        fi
 
         # Extract expiry
         if [[ "$filename" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2})\.token$ ]]; then
             local expiry_date="${BASH_REMATCH[1]}"
-            printf '  %s) %s (expires: %s)%s\n' \
-                "$((i+1))" "$token_name" "$(colorize_expiry "$expiry_date")" "$usage_suffix"
+            echo "  $((i+1))) $token_name (expires: $(colorize_expiry "$expiry_date"))"
         else
-            printf '  %s) %s%s\n' "$((i+1))" "$token_name" "$usage_suffix"
+            echo "  $((i+1))) $token_name"
         fi
     done
 

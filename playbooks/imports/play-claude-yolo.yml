@@ -277,6 +277,19 @@
         - scripts
         - cleanup
 
+    # Clean up the token usage-limit cache written by CCY 3.32.0 (Plan 00073).
+    # That feature was removed in 3.33.0 — stored setup-tokens get 403
+    # "does not meet scope requirement user:profile" from /api/oauth/usage — so
+    # the cache is dead state in the user's home. Runs as the user, not root:
+    # the directory lives under their ~/.claude-tokens/.
+    - name: Remove Obsolete Token Usage-Limit Cache From Host
+      ansible.builtin.file:
+        path: "{{ ansible_env.HOME }}/.claude-tokens/ccy/usage-cache"
+        state: absent
+      tags:
+        - scripts
+        - cleanup
+
     # Remove old symlinks and dead files (cleanup from previous versions)
     - name: Remove Old Symlink in /usr/local/bin
       become: true
