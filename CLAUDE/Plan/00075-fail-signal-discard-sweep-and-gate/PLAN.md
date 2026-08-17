@@ -105,8 +105,13 @@ Both are mechanical but bulky, and mixing a refactor into the commit that
 introduces a gate makes the gate unreviewable. Neither is a blocker.
 
 - [ ] ⬜ **Task 4.1**: Raise the `qa-bash.bash` shellcheck bar from `error` to
-  `warning` — 26 findings, 16 of them SC2155 (`local x=$(cmd)` masks the status),
-  which **is** this defect class
+  `warning`. **Re-counted after the Phase 3 fixes: 18 findings, not the 26 quoted
+  earlier** — SC2155 ×12 (`local x=$(cmd)` masks the status, which **is** this
+  defect class), SC2034 ×5, SC2088 ×1. Ten of the twelve are in one file
+  (`files/var/local/docker-in-lxc`), and several are live instances rather than
+  style: `:259` derives a project id from a `git remote` capture whose status is
+  masked, `:292`/`:368` use an empty `lxc-info` IP when the container is not
+  running. Smaller and higher-value than it looked
 - [ ] ⬜ **Task 4.2**: Widen `bash-capture-discards-status` beyond
   `files/var/local/claude-yolo/**` — 31 remaining findings, to be triaged tree by
   tree rather than blanket-annotated
