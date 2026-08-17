@@ -17,6 +17,40 @@ Two version numbers move independently — see
 
 ---
 
+## 3.36.0 (container 2.26)
+
+**A GitHub outage no longer blocks launch with a bogus configuration error.**
+
+After picking an SSH key, CCY cross-checks that the `gh-token-<alias>` token belongs to
+the same account the key authenticates as — a mismatch means the `github_accounts` mapping
+disagrees with the key registrations. The check ran:
+
+```bash
+token_user=$(GH_TOKEN="$GH_TOKEN" gh api user --jq .login 2>/dev/null)
+```
+
+and compared whatever came back, **discarding the exit status**. When GitHub answers 502,
+it returns a JSON error body, `gh` writes that body to stdout, and the whole blob was
+treated as an account name. The result was a mangled report — with the error JSON spliced
+into the middle of the sentence — telling the user their `github_accounts` mapping was
+wrong and to go and edit `localhost.yml`. The mapping was fine. GitHub was down. A check
+that misdiagnoses an outage as a config error is worse than no check.
+
+The lookup is now retried (3 attempts, backing off) and its answer **validated as a GitHub
+login** before any comparison. That validation is what catches the genuinely nasty variant:
+an error body returned with a *zero* exit status, which checking the status alone would
+still let through.
+
+When the API cannot be reached, CCY now says so, quotes what GitHub actually replied,
+points at githubstatus.com, and offers an explicit override:
+
+```bash
+CCY_SKIP_TOKEN_OWNER_CHECK=1 ccy
+```
+
+The override is deliberately explicit rather than a silent fallback: it skips a real safety
+check, so it should be a decision, not a default.
+
 ## 3.35.0 (container 2.26)
 
 **The usage display is now bars, and says what it means.** 3.34.0 rendered a compact line

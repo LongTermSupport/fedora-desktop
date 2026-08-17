@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.35.0"  # Plan 00074: usage display rewritten as aligned coloured bars with reset times in plain words ("resets in 4 hours"). CCY_USAGE_DEBUG=1 shows the raw API value; CCY_USAGE_SCALE=fraction switches the interpretation if utilisation turns out to be 0-1 rather than 0-100.
+CCY_VERSION="3.36.0"  # Fix: a GitHub API outage no longer blocks launch with a bogus "token owner does not match" report — the owner lookup is retried and validated as a login before comparison, and an unavailable API says so and offers CCY_SKIP_TOKEN_OWNER_CHECK=1. Plan 00074 (3.35.0): usage display as aligned coloured bars, CCY_USAGE_DEBUG/CCY_USAGE_SCALE.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

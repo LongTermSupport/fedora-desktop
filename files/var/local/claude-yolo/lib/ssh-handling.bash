@@ -2,7 +2,13 @@
 # SSH Handling Library
 # Shared SSH key operations for claude-yolo (ccy)
 #
-# Version: 1.0.1
+# Version: 1.1.0 - The token-owner cross-check no longer misreports a GitHub
+#                  outage as a configuration error. `gh api user` is retried and
+#                  its answer validated as a login before being compared; a
+#                  failure now says GitHub is unavailable and offers
+#                  CCY_SKIP_TOKEN_OWNER_CHECK=1 rather than telling the user to
+#                  go and edit localhost.yml.
+#          1.0.1
 
 # Read the project's git remote URL — origin if present, else first remote.
 # Echoes the URL on stdout (or empty when the cwd isn't a git repo or has no
@@ -304,6 +310,59 @@ _github_probe_user() {
         "git@${host}" 2>&1 | grep -oP "Hi \K[^!]+"
 }
 
+# Echoes the GitHub login that a token belongs to. Retries, and VALIDATES that
+# the answer actually looks like a login.
+#
+# Both halves matter, and neither was here before. The caller used to run
+#
+#     token_user=$(GH_TOKEN=… gh api user --jq .login 2>/dev/null)
+#
+# and compare whatever came back — discarding the exit status entirely. During a
+# GitHub blip the API answers 502 with a JSON body, gh writes that body to
+# stdout, and the blob was then treated as an account name. The result was a
+# mangled report telling the user their github_accounts mapping was wrong and to
+# go and edit localhost.yml. The mapping was fine; GitHub was down. A check that
+# misdiagnoses an outage as a config error is worse than no check.
+#
+# Results come back in GLOBALS, not on stdout, and deliberately so: a caller
+# using `login=$(resolve_token_owner_login …)` would run this in a subshell,
+# where the failure detail assigned below could never reach it — the caller
+# would print "(no output)" in place of the diagnosis, which is the whole point
+# of the message. Globals match how the rest of this file returns values
+# (SSH_KEYS, GITHUB_USERNAME, GH_TOKEN).
+#
+# Args: $1 = token
+# Sets: TOKEN_OWNER_LOGIN on success, TOKEN_OWNER_LOOKUP_ERROR on failure
+# Returns: 0 on success, 1 on failure
+TOKEN_OWNER_LOGIN=""
+TOKEN_OWNER_LOOKUP_ERROR=""
+resolve_token_owner_login() {
+    local token="$1"
+    local out attempt
+    local attempts="${CCY_TOKEN_OWNER_ATTEMPTS:-3}"
+
+    TOKEN_OWNER_LOGIN=""
+    TOKEN_OWNER_LOOKUP_ERROR=""
+
+    for (( attempt = 1; attempt <= attempts; attempt++ )); do
+        if out="$(GH_TOKEN="$token" gh api user --jq .login 2>&1)"; then
+            # A login is the only acceptable answer. A JSON error body, an HTML
+            # error page, or empty output all mean the lookup did not succeed —
+            # whatever the exit status claimed.
+            if [[ "$out" =~ ^[A-Za-z0-9][A-Za-z0-9-]*$ ]]; then
+                TOKEN_OWNER_LOGIN="$out"
+                return 0
+            fi
+        fi
+        TOKEN_OWNER_LOOKUP_ERROR="$out"
+        if [ "$attempt" -lt "$attempts" ]; then
+            sleep "${CCY_TOKEN_OWNER_RETRY_DELAY:-$attempt}"
+        fi
+    done
+
+    return 1
+}
+
 # Function to build SSH mounts and validate GitHub connection
 # Args: $1 = tool_name (for display)
 # Requires: SSH_KEYS global array
@@ -471,9 +530,35 @@ build_ssh_mounts_and_validate() {
             # the SSH key registrations. Fail here on the host with a clear
             # error rather than letting the container entrypoint surface it
             # after image build, which is slower and less obvious.
-            local token_user
-            token_user=$(GH_TOKEN="$GH_TOKEN" gh api user --jq .login 2>/dev/null)
-            if [ -n "$token_user" ] && [ "$token_user" != "$GITHUB_USERNAME" ]; then
+            local token_user=""
+            if resolve_token_owner_login "$GH_TOKEN"; then
+                token_user="$TOKEN_OWNER_LOGIN"
+            fi
+
+            if [ -z "$token_user" ]; then
+                print_error "Could not verify which account this token belongs to"
+                echo ""
+                echo "  GitHub's API did not return a usable answer after 3 attempts."
+                echo "  What it said:"
+                echo ""
+                printf '    %s\n' "${TOKEN_OWNER_LOOKUP_ERROR:-(no output)}"
+                echo ""
+                echo "This is almost always GitHub being briefly unavailable, NOT a"
+                echo "problem with your keys or your configuration. Check"
+                echo "https://www.githubstatus.com/ and try again shortly."
+                echo ""
+                echo "The cross-check being skipped here only confirms that the token"
+                echo "from ${token_func} belongs to the same account as the SSH key."
+                echo "To launch anyway without it:"
+                echo ""
+                echo "  CCY_SKIP_TOKEN_OWNER_CHECK=1 ccy"
+                echo ""
+                if [ -z "${CCY_SKIP_TOKEN_OWNER_CHECK:-}" ]; then
+                    return 1
+                fi
+                echo "CCY_SKIP_TOKEN_OWNER_CHECK is set — continuing unverified."
+                token_user="(unverified)"
+            elif [ "$token_user" != "$GITHUB_USERNAME" ]; then
                 print_error "Token owner does not match SSH-detected account"
                 echo ""
                 echo "  SSH key ${SSH_KEYS[0]} authenticates as: $GITHUB_USERNAME"
