@@ -52,9 +52,47 @@ if ! echo "$TEMP_TOKEN" | gh auth login --with-token 2>&1; then
     exit 1
 fi
 
-# Verify the authenticated account matches the expected GitHub username
+# Verify the authenticated account matches the expected GitHub username.
+#
+# The lookup is retried and its answer VALIDATED as a login before comparison.
+# This is the container-side twin of the host check in lib/ssh-handling.bash, and
+# it had the identical defect (CCY 3.36.0 fixed the host, this fixes here): the
+# exit status was discarded, so when GitHub answered 502 the JSON error body —
+# which gh writes to stdout — became "the authenticated user" and the container
+# refused to start, blaming the user's gh-token configuration. The configuration
+# was fine; GitHub was down.
 if [ -n "$GITHUB_USERNAME" ]; then
-    AUTHENTICATED_USER=$(gh api user --jq .login 2>/dev/null)
+    AUTHENTICATED_USER=""
+    GH_LOOKUP_ERROR=""
+    for attempt in 1 2 3; do
+        if AUTH_OUT="$(gh api user --jq .login 2>&1)"; then
+            # Only a login is an acceptable answer. An error body, an HTML page,
+            # or empty output all mean the lookup failed, whatever gh's status
+            # said.
+            if printf '%s' "$AUTH_OUT" | grep -qE '^[A-Za-z0-9][A-Za-z0-9-]*$'; then
+                AUTHENTICATED_USER="$AUTH_OUT"
+                break
+            fi
+        fi
+        GH_LOOKUP_ERROR="$AUTH_OUT"
+        if [ "$attempt" -lt 3 ]; then
+            sleep "$attempt"
+        fi
+    done
+
+    if [ -z "$AUTHENTICATED_USER" ]; then
+        echo "ERROR: Could not verify which account this token belongs to" >&2
+        echo "" >&2
+        echo "GitHub's API did not return a usable answer after 3 attempts." >&2
+        echo "What it said:" >&2
+        echo "  ${GH_LOOKUP_ERROR:-(no output)}" >&2
+        echo "" >&2
+        echo "This is almost always GitHub being briefly unavailable, NOT a problem" >&2
+        echo "with your token or configuration. Check https://www.githubstatus.com/" >&2
+        echo "and retry." >&2
+        exit 1
+    fi
+
     if [ "$AUTHENTICATED_USER" != "$GITHUB_USERNAME" ]; then
         echo "ERROR: Token authentication mismatch" >&2
         echo "Expected: $GITHUB_USERNAME" >&2

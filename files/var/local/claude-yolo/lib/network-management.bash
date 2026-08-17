@@ -37,7 +37,7 @@ get_expected_network_name() {
     # PRIORITY 3: Try to get repo name from git remote
     if git rev-parse --git-dir > /dev/null 2>&1; then
         local repo_url
-        repo_url=$(git config --get remote.origin.url 2>/dev/null || echo "")
+        repo_url=$(git config --get remote.origin.url 2>/dev/null) || repo_url=""
         if [ -n "$repo_url" ]; then
             # Extract repo name from URL (handles both HTTP and SSH formats)
             local repo_name
@@ -227,9 +227,18 @@ connect_to_network() {
         local best_match=""
         local best_match_index=""
 
-        # Get expected network name (folder-name-network or repo-name-network)
-        local expected_network
-        expected_network=$(get_expected_network_name)
+        # Get expected network name (folder-name-network or repo-name-network).
+        #
+        # get_expected_network_name() returns 1 to mean "this name does not exist
+        # yet" while still echoing the name — a documented, expected outcome. As a
+        # plain assignment under errexit that status ABORTED the function, so
+        # `ccy --connect` with no argument printed its banner and "Available
+        # networks:" and then died without listing one, on exactly the projects
+        # someone runs --connect to set up. Take the name, read the status.
+        local expected_network=""
+        if ! expected_network=$(get_expected_network_name); then
+            : # name still echoed; a non-zero status only means "not created yet"
+        fi
 
         while IFS= read -r net; do
             # Skip default networks
@@ -330,9 +339,19 @@ connect_to_network() {
 
         for container in "${matching_containers[@]}"; do
             echo "  → $container"
-            local error_output
-            error_output=$(container_cmd network connect "$network_name" "$container" 2>&1)
-            local exit_code=$?
+            # Put the call in a condition so errexit is suspended and the
+            # status survives. Previously the assignment failed the moment
+            # `network connect` returned non-zero and the shell exited right
+            # there — making the "already connected" branch below, the error
+            # report, and the whole summary unreachable. Re-running
+            # `ccy --connect` on an already-connected container is the most
+            # common repeat invocation, and it exited silently.
+            local error_output exit_code
+            if error_output=$(container_cmd network connect "$network_name" "$container" 2>&1); then
+                exit_code=0
+            else
+                exit_code=$?
+            fi
 
             if [ $exit_code -eq 0 ]; then
                 echo "    ✓ Connected successfully!"
@@ -374,9 +393,14 @@ connect_to_network() {
         echo "Connecting $container_name to $network_name..."
         echo ""
 
-        local error_output
-        error_output=$(container_cmd network connect "$network_name" "$container_name" 2>&1)
-        local exit_code=$?
+        # Same as the multi-container path above: condition, not bare
+        # assignment, so a non-zero status is data rather than a silent exit.
+        local error_output exit_code
+        if error_output=$(container_cmd network connect "$network_name" "$container_name" 2>&1); then
+            exit_code=0
+        else
+            exit_code=$?
+        fi
 
         if [ $exit_code -eq 0 ]; then
             echo "✓ Connected successfully!"
@@ -404,7 +428,7 @@ connect_to_network() {
             echo ""
             echo "Container networks:"
             local networks_json
-            networks_json=$(container_cmd inspect "$container_name" --format '{{json .NetworkSettings.Networks}}' 2>/dev/null)
+            networks_json=$(container_cmd inspect "$container_name" --format '{{json .NetworkSettings.Networks}}' 2>/dev/null)  # FAIL-FAST-OK: diagnostic display only; empty prints "(none)" plus "This is unusual", which is the right prompt whether the container has no networks or could not be inspected
             if [ "$networks_json" = "null" ] || [ -z "$networks_json" ]; then
                 echo "  (none - container has no network connections)"
                 echo ""
@@ -433,7 +457,10 @@ network_has_running_containers() {
 
     # Get containers attached to this network
     local container_count
-    container_count=$(container_cmd network inspect "$network_name" --format '{{len .Containers}}' 2>/dev/null || echo "0")
+    # Explicit fallback rather than `|| echo`: a failed inspect and a genuinely
+    # empty network both yield 0 here, but the assignment now says so plainly
+    # instead of laundering the failure through a substituted value.
+    container_count=$(container_cmd network inspect "$network_name" --format '{{len .Containers}}' 2>/dev/null) || container_count=0
 
     if [[ "$container_count" -gt 0 ]]; then
         return 0
@@ -713,18 +740,35 @@ ensure_network_dns() {
         return 0
     fi
 
-    # Check if network has dns_enabled (only those use aardvark-dns)
-    local dns_enabled
-    dns_enabled=$(container_cmd network inspect "$network_name" --format '{{.DNSEnabled}}' 2>/dev/null)
+    # Check if network has dns_enabled (only those use aardvark-dns).
+    #
+    # The status is checked rather than discarded. Previously a failed inspect
+    # produced empty output, which is != "true", so the function returned 0 —
+    # reporting "no fix needed" when in truth it had been unable to look. That is
+    # a silent skip of a repair, which this repo's first rule prohibits.
+    local dns_enabled inspect_err
+    if ! dns_enabled="$(container_cmd network inspect "$network_name" --format '{{.DNSEnabled}}' 2>&1)"; then
+        inspect_err="$dns_enabled"
+        echo "  Warning: could not inspect network '$network_name' — DNS check skipped." >&2
+        echo "  ${CONTAINER_ENGINE} said: ${inspect_err:-(no output)}" >&2
+        return 1
+    fi
 
     if [[ "$dns_enabled" != "true" ]]; then
         # Network doesn't use aardvark-dns, no fix needed
         return 0
     fi
 
-    # Check current DNS servers on the network
+    # Check current DNS servers on the network.
+    # Status checked: a failed inspect used to read as "no DNS servers
+    # configured", which sent the function on to CHANGE the network based on a
+    # read that never happened.
     local current_dns
-    current_dns=$(container_cmd network inspect "$network_name" --format '{{json .NetworkDNSServers}}' 2>/dev/null)
+    if ! current_dns="$(container_cmd network inspect "$network_name" --format '{{json .NetworkDNSServers}}' 2>&1)"; then
+        echo "  Warning: could not read DNS servers for '$network_name' — not modifying it." >&2
+        echo "  ${CONTAINER_ENGINE} said: ${current_dns:-(no output)}" >&2
+        return 1
+    fi
 
     # If DNS servers already configured, nothing to do
     if [[ -n "$current_dns" ]] && [[ "$current_dns" != "null" ]] && [[ "$current_dns" != "[]" ]]; then

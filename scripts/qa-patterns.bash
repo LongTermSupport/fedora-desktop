@@ -60,6 +60,11 @@ semgrep \
     --exclude '.ansible/roles' \
     --exclude '.claude/ccy/plugins' \
     --exclude '.claude/ccy/file-history' \
+    `# Upstream trees, matching qa-bash.bash's exclusions: replaced wholesale on` \
+    `# every hooks-daemon upgrade, so a local fix there would be overwritten.` \
+    `# Their findings are reported upstream instead of gated here.` \
+    --exclude '.claude/hooks-daemon' \
+    --exclude '.claude/skills' \
     "$REPO_ROOT" 2>"$TMP_SEMGREP_ERR" || rc=$?
 
 # rc >= 2 means semgrep itself failed (not just "found something")

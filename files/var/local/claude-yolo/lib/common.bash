@@ -187,8 +187,24 @@ check_ccy_gitignore_safety() {
     # ═══════════════════════════════════════════════════════════════════════════
 
     # Get list of tracked files in .claude/ccy/
+    #
+    # The status is checked, and a failure is fatal rather than defaulted.
+    # Previously `2>/dev/null || echo ""` turned "git could not be asked" into
+    # the same empty value as "nothing is tracked" — so on a dubious-ownership
+    # repo (git's safe.directory refusal), a corrupt index, or a broken GIT_DIR,
+    # this security gate reported ALL CLEAR and CCY launched with session data
+    # and .last-launch.conf possibly tracked. A gate that cannot run must never
+    # report a pass; that is the whole point of it existing.
     local tracked_files
-    tracked_files=$(git ls-files "$ccy_dir" 2>/dev/null || echo "")
+    if ! tracked_files=$(git ls-files "$ccy_dir" 2>&1); then
+        print_error "Could not check for tracked files in $ccy_dir"
+        echo "" >&2
+        echo "git said: ${tracked_files:-(no output)}" >&2
+        echo "" >&2
+        echo "This check protects against committing session data and secrets." >&2
+        echo "It cannot be skipped: resolve the git error above and re-run." >&2
+        return 1
+    fi
 
     if [ -z "$tracked_files" ]; then
         # Nothing tracked - check if Dockerfile exists but is being ignored
@@ -461,9 +477,9 @@ validate_container_version() {
     # Get version and hash from built image
     local image_version image_hash current_hash
     image_version=$(container_cmd image inspect "$image_name" \
-        --format '{{index .Config.Labels "claude-yolo-version"}}' 2>/dev/null || echo "0")
+        --format '{{index .Config.Labels "claude-yolo-version"}}' 2>/dev/null || echo "0")  # FAIL-FAST-OK: "0" is a checked sentinel meaning "no/unlabelled image", which correctly triggers a rebuild
     image_hash=$(container_cmd image inspect "$image_name" \
-        --format '{{index .Config.Labels "claude-yolo-dockerfile-hash"}}' 2>/dev/null || echo "unknown")
+        --format '{{index .Config.Labels "claude-yolo-dockerfile-hash"}}' 2>/dev/null || echo "unknown")  # FAIL-FAST-OK: "unknown" is a checked sentinel that forces a rebuild rather than asserting a hash match
 
     # Calculate current Dockerfile hash (16 char md5, like CCY_HASH)
     current_hash=$(md5sum "$dockerfile_path" | cut -d' ' -f1 | cut -c1-16)

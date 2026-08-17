@@ -115,17 +115,33 @@ print_header() {
 generate_summary() {
     local json_file="$1"
 
-    # Check if JSON file is empty or has no issues
-    local issue_count=$(jq 'length' "$json_file" 2>/dev/null || echo "0")
+    # Check if JSON file is empty or has no issues.
+    #
+    # jq's status is checked rather than defaulted to "0". `|| echo "0"` meant a
+    # jq failure — malformed or truncated report JSON — produced a count of zero
+    # and this linter announced "No ansible-lint violations found!" because its
+    # own parser had broken. A checker that reports clean when it could not read
+    # its input is the worst version of this bug: the green tick is the output.
+    local issue_count
+    if ! issue_count=$(jq 'length' "$json_file" 2>&1); then
+        echo "ERROR: could not parse lint report $json_file" >&2
+        echo "  jq said: ${issue_count:-(no output)}" >&2
+        return 2
+    fi
 
     if [ "$issue_count" -eq 0 ]; then
         echo -e "${GREEN}✓ No ansible-lint violations found!${NC}"
         return 0
     fi
 
-    # Check severity levels - only fail on major issues
-    local major_count=$(jq '[.[] | select(.severity == "major")] | length' "$json_file" 2>/dev/null || echo "0")
-    local minor_count=$(jq '[.[] | select(.severity == "minor")] | length' "$json_file" 2>/dev/null || echo "0")
+    # Check severity levels - only fail on major issues.
+    # Same reasoning: a parse failure must not read as "no major issues".
+    local major_count minor_count
+    if ! major_count=$(jq '[.[] | select(.severity == "major")] | length' "$json_file" 2>&1) \
+       || ! minor_count=$(jq '[.[] | select(.severity == "minor")] | length' "$json_file" 2>&1); then
+        echo "ERROR: could not count severities in $json_file" >&2
+        return 2
+    fi
 
     # Count total violations
     local total_violations="$issue_count"
@@ -198,7 +214,11 @@ run_fix_mode() {
     if ansible-lint -f json "$TARGET_PATH" 2>/dev/null > "${OUTPUT_JSON}.before"; then
         BEFORE_COUNT=0
     else
-        BEFORE_COUNT=$(jq 'length' "${OUTPUT_JSON}.before" 2>/dev/null || echo "0")
+        # Status checked: a jq failure must not read as "zero findings".
+        if ! BEFORE_COUNT=$(jq 'length' "${OUTPUT_JSON}.before" 2>&1); then
+            echo "ERROR: could not parse ${OUTPUT_JSON}.before — cannot report a count" >&2
+            BEFORE_COUNT="?"
+        fi
     fi
     echo "Found $BEFORE_COUNT violation(s) before fix"
     echo ""
@@ -226,7 +246,11 @@ run_fix_mode() {
     if ansible-lint -f json "$TARGET_PATH" 2>/dev/null > "$OUTPUT_JSON"; then
         AFTER_COUNT=0
     else
-        AFTER_COUNT=$(jq 'length' "$OUTPUT_JSON" 2>/dev/null || echo "0")
+        # Status checked: a jq failure must not read as "zero findings".
+        if ! AFTER_COUNT=$(jq 'length' "$OUTPUT_JSON" 2>&1); then
+            echo "ERROR: could not parse $OUTPUT_JSON — cannot report a count" >&2
+            AFTER_COUNT="?"
+        fi
     fi
 
     # Calculate fixed count

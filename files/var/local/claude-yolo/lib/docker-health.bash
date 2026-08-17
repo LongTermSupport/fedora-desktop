@@ -17,7 +17,7 @@ find_zombie_containers() {
 
     # Get all running containers matching the suffix pattern
     local containers
-    containers=$(container_cmd ps --filter "name=_${suffix}" --format '{{.Names}}' 2>/dev/null)
+    containers=$(container_cmd ps --filter "name=_${suffix}" --format '{{.Names}}' 2>/dev/null)  # FAIL-FAST-OK: a failed listing reads as "no containers" and this function then returns 0 without acting; it never repairs or deletes on the strength of it
 
     if [ -z "$containers" ]; then
         return 0  # No containers found
@@ -28,7 +28,7 @@ find_zombie_containers() {
 
         # Check if this container was started with -it (TTY mode)
         local has_tty
-        has_tty=$(container_cmd inspect --format '{{.Config.Tty}}' "$container_name" 2>/dev/null)
+        has_tty=$(container_cmd inspect --format '{{.Config.Tty}}' "$container_name" 2>/dev/null)  # FAIL-FAST-OK: absent reads as "not a TTY container", which only suppresses the orphan check — it cannot cause a container to be acted on
 
         if [ "$has_tty" = "true" ]; then
             # Check if there's a container run process still attached
@@ -75,17 +75,35 @@ find_stale_containers() {
 
 # Get detailed stats for a container
 # Args: container_name
-# Returns: formatted stats string
+# Returns: ALWAYS 0, echoing either real stats or "unknown|unknown|unknown".
+#
+# The contract is deliberately total, because all three callers are table
+# renderers that need a row for every container:
+#
+#   stats=$(get_container_stats "$container")
+#
+# That is a plain assignment inside a plainly-called function, so `errexit` is
+# live. The previous `return 1` therefore did not produce the "unknown" row the
+# fallback string exists for — it killed the caller. `ccy --top` printed its
+# header and exited silently the first time podman could not report on a
+# container (one that exited between the `ps` and the `stats`, or a cgroup setup
+# where stats are unavailable).
+#
+# An earlier pass through this file annotated the line below FAIL-FAST-OK on the
+# reasoning that "emptiness is handled on the next line, so the failure is
+# surfaced". That reasoning was wrong: it read the function in isolation and
+# missed that the caller's context turns the return into an abort. Recorded
+# because the annotation looked perfectly sound.
 get_container_stats() {
     local container_name="$1"
 
     # Get stats in one call
     local stats
-    stats=$(container_cmd stats --no-stream --format '{{.CPUPerc}}|{{.MemUsage}}|{{.PIDs}}' "$container_name" 2>/dev/null)
+    stats=$(container_cmd stats --no-stream --format '{{.CPUPerc}}|{{.MemUsage}}|{{.PIDs}}' "$container_name" 2>/dev/null)  # FAIL-FAST-OK: unavailable stats are a normal, rendered outcome ("unknown"), not a failure to propagate — see the contract above
 
     if [ -z "$stats" ]; then
         echo "unknown|unknown|unknown"
-        return 1
+        return 0
     fi
 
     echo "$stats"
@@ -344,7 +362,7 @@ show_container_top() {
         # Check if zombie (no container run process attached)
         local status="active"
         local has_tty
-        has_tty=$(container_cmd inspect --format '{{.Config.Tty}}' "$container" 2>/dev/null)
+        has_tty=$(container_cmd inspect --format '{{.Config.Tty}}' "$container" 2>/dev/null)  # FAIL-FAST-OK: feeds a status-table label only; a failed inspect leaves the row reading "active" instead of "orphan?"
         if [ "$has_tty" = "true" ]; then
             if ! pgrep -f "${CONTAINER_ENGINE} run.*--name[= ]${container}( |$)" >/dev/null 2>&1; then
                 status="orphan?"
@@ -412,9 +430,25 @@ show_container_top() {
                     echo "Invalid input. Enter container numbers, 'a' for all, 'r' to refresh, or 'q' to quit."
                 else
                     echo ""
-                    # Show updated list
-                    local remaining
-                    remaining=$(container_cmd ps --filter "name=_${suffix}" --format '{{.Names}}' 2>/dev/null | wc -l)
+                    # Show updated list.
+                    # `wc -l` always succeeds, so the old form reported ZERO
+                    # containers whenever the engine query FAILED — printing
+                    # "✓ All CCY containers stopped" as reassurance derived from
+                    # a query that never ran. Check the ps status itself.
+                    local remaining remaining_out
+                    if ! remaining_out="$(container_cmd ps --filter "name=_${suffix}" --format '{{.Names}}' 2>&1)"; then
+                        echo "⚠ Could not list containers — cannot confirm they stopped." >&2
+                        echo "  ${CONTAINER_ENGINE} said: ${remaining_out:-(no output)}" >&2
+                        return 1
+                    fi
+                    # Not `grep -c .`: grep exits 1 on zero matches, so under
+                    # `set -e` an empty (correct, all-stopped) result would abort
+                    # the function — the same defect class, reintroduced.
+                    if [ -z "$remaining_out" ]; then
+                        remaining=0
+                    else
+                        remaining=$(printf '%s\n' "$remaining_out" | wc -l)
+                    fi
                     if [ "$remaining" -eq 0 ]; then
                         echo "✓ All CCY containers stopped"
                         return 0

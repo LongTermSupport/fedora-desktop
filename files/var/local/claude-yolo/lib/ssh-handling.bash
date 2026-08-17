@@ -512,12 +512,25 @@ build_ssh_mounts_and_validate() {
                 return 1
             fi
 
-            # Get the token for the specific account
-            GH_TOKEN=$($token_func 2>/dev/null)
-            if [ -z "$GH_TOKEN" ]; then
+            # Get the token for the specific account.
+            #
+            # The status is checked, not discarded: if the function fails and
+            # writes its complaint to stdout, an emptiness test alone would let
+            # that complaint through AS THE TOKEN, and the failure would surface
+            # later as a baffling auth error instead of here as a clear one.
+            local token_err=""
+            if ! GH_TOKEN="$("$token_func" 2>&1)"; then
+                token_err="$GH_TOKEN"
+                GH_TOKEN=""
+            fi
+            if [ -z "$GH_TOKEN" ] || [ -n "$token_err" ]; then
+                GH_TOKEN=""
                 print_error "Failed to retrieve token for account: $GITHUB_USERNAME"
                 echo ""
-                echo "Function $token_func returned no token."
+                echo "Function $token_func returned no usable token."
+                if [ -n "$token_err" ]; then
+                    echo "It said: $token_err"
+                fi
                 echo "Account is not authenticated with gh CLI."
                 echo ""
                 echo "Fix: ansible-playbook playbooks/imports/optional/common/play-github-cli-multi.yml"
@@ -577,10 +590,18 @@ build_ssh_mounts_and_validate() {
             echo "✓ SSH key → $GITHUB_USERNAME ✓ gh token → $token_user (via $token_func)"
         fi
     else
-        # No GitHub username detected - fall back to default token
-        GH_TOKEN=$(gh auth token 2>/dev/null)
+        # No GitHub username detected - fall back to default token.
+        # Status checked rather than discarded: `gh auth token` prints its
+        # complaint on failure, and an emptiness test alone would accept that
+        # complaint as the token.
+        local auth_err=""
+        if ! GH_TOKEN="$(gh auth token 2>&1)"; then
+            auth_err="$GH_TOKEN"
+            GH_TOKEN=""
+        fi
 
-        if [ -z "$GH_TOKEN" ]; then
+        if [ -z "$GH_TOKEN" ] || [ -n "$auth_err" ]; then
+            GH_TOKEN=""
             print_error "Not authenticated with GitHub CLI"
             echo ""
             echo "Run: gh auth login"

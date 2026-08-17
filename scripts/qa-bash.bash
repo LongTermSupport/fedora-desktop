@@ -29,6 +29,11 @@ ERRORS=0
 #   .claude/ccy           — whole CCY runtime tree (snapshots, plugins, history)
 #   .claude/skills        — installed skill payloads
 #   roles/vendor          — vendored Ansible roles
+#   .semgrep              — annotated rule FIXTURES. Deliberately full of the
+#                           broken patterns the rules must catch, so linting it
+#                           reports faults that are the point of the file. It is
+#                           validated by `semgrep --test` in qa-patterns.bash,
+#                           which is the check that actually belongs to it.
 BASH_FILES=()
 while IFS= read -r -d '' file; do
     BASH_FILES+=("$file")
@@ -39,6 +44,7 @@ done < <(find "$REPO_ROOT" -type f \( -name "*.sh" -o -name "*.bash" \) \
     ! -path "*/.claude/ccy/*" \
     ! -path "*/.claude/skills/*" \
     ! -path "*/roles/vendor/*" \
+    ! -path "*/.semgrep/*" \
     ! -path "*/node_modules/*" \
     ! -path "*/untracked/*" \
     -print0)
@@ -58,12 +64,25 @@ done < <(find "$REPO_ROOT" -type f -executable \
     ! -path "*/.claude/ccy/*" \
     ! -path "*/.claude/skills/*" \
     ! -path "*/roles/vendor/*" \
+    ! -path "*/.semgrep/*" \
     ! -path "*/node_modules/*" \
     ! -path "*/untracked/*" \
     ! -name "*.sh" \
     ! -name "*.bash")
 
 TOTAL=${#BASH_FILES[@]}
+
+# A discovery that finds nothing is a BROKEN GATE, not a clean repo. Without
+# this, a bad exclusion or a wrong REPO_ROOT makes every loop below iterate zero
+# times and the script prints "✓ bash: 0 files OK" — reporting PASS having
+# checked nothing. That is the same defect class this gate exists to catch,
+# applied to the gate itself (Plan 00075).
+if [[ $TOTAL -eq 0 ]]; then
+    echo "✗ bash: file discovery found 0 bash files under $REPO_ROOT" >&2
+    echo "  This repo always has bash files, so the discovery is broken —" >&2
+    echo "  reporting a pass here would vouch for code nothing had read." >&2
+    exit 2
+fi
 
 # Syntax check each file
 for file in "${BASH_FILES[@]}"; do
@@ -78,7 +97,25 @@ for file in "${BASH_FILES[@]}"; do
     fi
 done
 
-# Shellcheck (optional, captures JSON if available)
+# The shellcheck analyser is REQUIRED, not optional (Plan 00075).
+# (This comment must not begin with the tool's name — a line starting
+# "# shellcheck ..." is parsed as a directive and fails SC1072/SC1073.)
+#
+# It used to be skipped when absent, writing an empty findings array — so on any
+# machine without shellcheck this stage reported a clean pass having run no
+# static analysis at all. A gate that cannot fail is worse than no gate, because
+# the green tick is read as evidence. This now matches how qa-patterns.bash
+# treats semgrep and qa-python.bash treats ruff: a missing analyser is an IaC
+# gap (fix the playbook), never a runtime condition to shrug at.
+if ! command -v shellcheck >/dev/null; then
+    echo "ERROR: shellcheck not found — this gate cannot report a pass without it." >&2
+    echo "  It is installed by playbooks/imports/play-devtools.yml." >&2
+    echo "  Deploy it: ansible-playbook playbooks/imports/play-devtools.yml" >&2
+    echo "  Do NOT install it by hand." >&2
+    exit 2
+fi
+
+# Shellcheck (captures JSON)
 #
 # Crash handling (probe-then-fail): shellcheck rc 0 (clean) or 1 (findings) is
 # normal data; rc>=2 is an invocation error. We invoke shellcheck directly on the
@@ -88,7 +125,9 @@ done
 # exclusion list keeps the file count well within ARG_MAX, so xargs is unneeded.
 # jq must also succeed. This guarantees the gate cannot silently green-light a
 # commit when its own analyser failed.
-if command -v shellcheck >/dev/null && [[ $TOTAL -gt 0 ]]; then
+{
+    # Presence and a non-zero file count are both guaranteed above — this block
+    # is unconditional so there is no path on which the analyser is skipped.
     # An `if` head suppresses `set -e` for the pipeline (shellcheck exits 1 when it
     # has findings — expected, not an error) while still populating PIPESTATUS, so
     # we can inspect the real exit codes below instead of aborting prematurely.
@@ -116,6 +155,15 @@ if command -v shellcheck >/dev/null && [[ $TOTAL -gt 0 ]]; then
     fi
     sc_count=$(jq 'length' "$TMP_SC")
     # Gate on error-level findings only; warning/info/style stay advisory.
+    #
+    # Plan 00075 measured what raising this bar would cost, so the choice is
+    # informed rather than inherited: across 125 repo-owned bash files there are
+    # 0 error, 26 warning, 79 info and 0 style findings. Sixteen of the 26
+    # warnings are SC2155 ("Declare and assign separately to avoid masking return
+    # values") — which IS the defect class Plan 00075 exists to stop, currently
+    # reported as advisory noise. Raising to `warning` therefore costs ~26 fixes
+    # and is tracked as a plan task; it is staged separately from the semgrep
+    # rules so this commit does not mix a new gate with a bulk refactor.
     sc_error_count=$(jq '[.[] | select(.level == "error")] | length' "$TMP_SC")
     if [[ "$sc_count" -gt 0 ]]; then
         echo "⚠ shellcheck: $sc_count issues (see $MERGED_JSON_OUT .checks.bash.shellcheck_diagnostics)"
@@ -124,9 +172,7 @@ if command -v shellcheck >/dev/null && [[ $TOTAL -gt 0 ]]; then
         echo "✗ shellcheck: $sc_error_count error-level finding(s) — gating"
         ERRORS=$((ERRORS + 1))
     fi
-else
-    printf '[]' > "$TMP_SC"
-fi
+}
 
 # Write JSON
 # Use --slurpfile for shellcheck data — avoids ARG_MAX when JSON is large (754+ issues).

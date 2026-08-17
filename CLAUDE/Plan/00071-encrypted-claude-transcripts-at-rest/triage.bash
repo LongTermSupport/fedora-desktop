@@ -173,7 +173,7 @@ scanner_self_test() {
     # Show the trap explicitly, for the record.
     echo
     echo "for comparison, the shell's own grep resolves to:"
-    type grep || echo "(grep is not a shell function here)"
+    type grep || echo "(grep is not a shell function here)"  # FAIL-FAST-OK: a report line — `type` failing IS the finding this probe exists to record
 
     rm -rf "$canary_dir"
     return "$rc"

@@ -535,7 +535,8 @@ enter_container() {
 
     # Get GitHub token
     info "Getting GitHub token..."
-    local gh_token=$(gh auth token 2>/dev/null || echo "")
+    local gh_token
+    gh_token=$(gh auth token 2>/dev/null) || gh_token=""
 
     if [ -z "$gh_token" ]; then
         warn "No GitHub token available (gh not authenticated)"

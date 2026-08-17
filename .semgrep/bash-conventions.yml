@@ -7,11 +7,139 @@ rules:
   # RIGHT: VAR=$(cmd) # let it fail
   #
   # See CLAUDE.md: "Fail Fast" and "No error hiding" principles.
+  # BROKEN UNTIL PLAN 00075. This rule was `pattern: $CMD || echo $MSG`, where
+  # `$CMD` binds a bare command WORD — so it matched `cmd || echo x` and nothing
+  # else. Every real-world occurrence has arguments (`git ls-files foo || echo`),
+  # and every one of them was invisible. All 16 sites in the ccy libraries went
+  # unreported for the rule's entire life, including a security gate
+  # (`common.bash`) that used the pattern to convert "git could not be asked"
+  # into "nothing sensitive is tracked".
+  #
+  # The rule reported zero findings and was read as evidence there were none.
+  # Regex, like the sibling `bash-error-hiding-or-true` rule, which is why that
+  # one has always worked.
   - id: bash-error-hiding-pipe-echo
-    pattern: $CMD || echo $MSG
+    patterns:
+      - pattern-regex: '\|\|[ \t]*echo\b'
+      # A comment is not code. Caught by the fixture immediately: a comment
+      # explaining this very rule quotes `|| echo` and was flagged as a
+      # violation of it. Any file that documents the pattern would trip it.
+      - pattern-not-regex: '(?m)^[ \t]*#[^\n]*$'
+      # A `&& echo … || echo …` ternary is a value expression, not error hiding.
+      - pattern-not-regex: '(?m)^[^\n]*&&[ \t]*echo[^\n]*\|\|[ \t]*echo[^\n]*$'
+      # Same explicit, greppable escape as the other fail-fast rules.
+      - pattern-not-regex: '(?m)^[^\n]*#[ \t]*FAIL-FAST-OK:[^\n]*$'
     message: >
-      Error hiding: '$CMD || echo' swallows the failure of $CMD.
-      Use: if ! $CMD; then echo 'ERROR: ...' >&2; exit 1; fi
+      Error hiding: '|| echo' swallows the command's failure and substitutes a
+      value the code then trusts. Use 'if ! cmd; then echo "ERROR: ..." >&2;
+      exit 1; fi', or 'var=$(cmd) || var=""' for an explicit fallback.
+    # Repo-owned trees only — `.claude/init.sh` and `.claude/skills/` are
+    # upstream hooks-daemon files, replaced wholesale on every upgrade, so a fix
+    # there would be overwritten. Their findings are reported upstream instead.
+    paths:
+      include:
+        - 'files/**'
+        - 'scripts/**'
+        - 'helpers/**'
+        - 'extensions/**'
+        - 'fedora-install/**'
+        - 'CLAUDE/Plan/**'
+    languages: [bash]
+    severity: ERROR
+    metadata:
+      category: correctness
+      confidence: HIGH
+
+  # Rule: ban reading $? after a block terminator
+  #
+  # WRONG: if out=$(cmd); then ...; fi
+  #        rc=$?                      ← ALWAYS 0
+  # RIGHT: if out=$(cmd); then ...; else rc=$?; ...; fi
+  #
+  # After `if cmd; then …; fi` with no else, `$?` is the status of the *`if`
+  # statement*, which succeeded — not of its condition. So a failed condition
+  # reads back as success. Same for `done`, `esac`, and a function's closing `}`.
+  #
+  # This is not theoretical and not caught by anything else: Plan 00074's
+  # prototype.bash reported every legitimate grep no-match as
+  # "grep failed (exit 0)" because of exactly this. shellcheck does NOT flag it,
+  # even with --enable=all (verified) — SC2181 covers the `[ $? -eq 0 ]` idiom,
+  # not status read from the wrong scope.
+  #
+  # Matches an assignment or test consuming $? on the line after a terminator,
+  # skipping blank and comment lines between them.
+  - id: bash-status-after-block
+    patterns:
+      - pattern-regex: '(?m)^[ \t]*(fi|done|esac|\})[ \t]*$\n(?:[ \t]*(#[^\n]*)?\n)*[ \t]*(local[ \t]+|declare[ \t]+)?[A-Za-z_][A-Za-z0-9_]*=\$\?'
+    message: >
+      Reading $? after fi/done/esac/} gives the status of the BLOCK, not of the
+      command inside it — after a successful `if`, it is always 0. Capture the
+      status where it is produced: 'if cmd; then ...; else rc=$?; fi', or
+      'cmd; rc=$?' with no block in between.
+    # Repo-owned trees only. `.claude/init.sh` (upstream hooks-daemon, replaced
+    # wholesale on every daemon upgrade) carries a live instance of this bug —
+    # `resolve_venv_python` failing returns 0, so the caller believes the python
+    # was resolved. Patching it here would be overwritten on the next upgrade, so
+    # it is reported upstream rather than silenced or locally hacked.
+    paths:
+      include:
+        - 'files/**'
+        - 'scripts/**'
+        - 'helpers/**'
+        - 'extensions/**'
+        - 'fedora-install/**'
+        - 'CLAUDE/Plan/**'
+    languages: [bash]
+    severity: ERROR
+    metadata:
+      category: correctness
+      confidence: HIGH
+
+  # Rule: ban capturing a command's output with its stderr AND its status discarded
+  #
+  # WRONG: user=$(gh api user --jq .login 2>/dev/null)
+  #        if [ "$user" != "$expected" ]; then ...   ← error body becomes data
+  # RIGHT: if ! user=$(gh api user --jq .login 2>&1); then handle; fi
+  # RIGHT: user=$(cmd 2>/dev/null) || user=""        ← explicit fallback
+  #
+  # This is the shape that took ccy down during a GitHub outage (CCY 3.36.0):
+  # the API answered 502, gh wrote its JSON error body to STDOUT, the exit status
+  # was thrown away, and the blob was compared as if it were an account name. The
+  # user was told their configuration was wrong. It was not — GitHub was down.
+  #
+  # A failure laundered into data is worse than an error: an error points at the
+  # cause, a confident wrong answer points somewhere else entirely.
+  #
+  # Deliberately narrow to stay high-confidence — it does NOT match when the line
+  # carries an explicit fallback (`|| var=""`) or when the assignment is itself
+  # the condition of if/while/until, because in both cases the status IS handled.
+  - id: bash-capture-discards-status
+    patterns:
+      - pattern-regex: '(?m)^[ \t]*(local[ \t]+|declare[ \t]+|export[ \t]+)?[A-Za-z_][A-Za-z0-9_]*=["'']?\$\((?:[^()\n]|\((?:[^()\n])*\))*2>[ \t]*/dev/null(?:[^()\n]|\((?:[^()\n])*\))*\)["'']?[ \t]*$'
+      # A line carrying `||` has handled the failure — either an explicit
+      # fallback (`var=$(cmd) || var=""`) or an in-substitution default. Those
+      # belong to the error-hiding rules above, not to this one; matching them
+      # here would double-report and, in the fixture, contradict the annotation.
+      - pattern-not-regex: '(?m)^[^\n]*\|\|[^\n]*$'
+      # Escape hatch, matching the repo-wide convention for the fail-fast rules
+      # in Ansible: a genuine case is ANNOTATED with its reason on the same line,
+      # so the decision is explicit, greppable, and reviewable — never silent.
+      - pattern-not-regex: '(?m)^[^\n]*#[ \t]*FAIL-FAST-OK:[^\n]*$'
+    # SCOPED, deliberately. A repo-wide sweep found 42 instances of this shape;
+    # gating all of them at once would only get the gate switched off. It is
+    # enforced first where the incident happened and where the blast radius is
+    # largest — the ccy libraries, which run on every launch on every machine.
+    # Widening is tracked in Plan 00075, one tree at a time, each with its
+    # findings triaged rather than blanket-annotated.
+    paths:
+      include:
+        - 'files/var/local/claude-yolo/**'
+    message: >
+      This captures a command's output with stderr silenced and its exit status
+      discarded, so a failure becomes DATA the code then trusts. If the command
+      fails and writes an error to stdout, that error becomes the value.
+      Use 'if ! var=$(cmd 2>&1); then ...; fi' to handle the failure, or
+      'var=$(cmd 2>/dev/null) || var=""' for an explicit fallback.
     languages: [bash]
     severity: ERROR
     metadata:
