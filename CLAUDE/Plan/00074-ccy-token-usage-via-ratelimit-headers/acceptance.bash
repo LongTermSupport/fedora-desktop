@@ -25,10 +25,18 @@ USAGE:
 
 CHECKS:
     1. The deployed library matches the repo library byte for byte
-    2. The deployed library carries the 1.10.0 version header
-    3. The deployed launcher reports CCY_VERSION 3.35.0
+    2. The deployed library version matches the REPO's version header
+    3. The deployed launcher CCY_VERSION matches the REPO's CCY_VERSION
     4. The deployed library actually defines the usage functions and the
        `u)` menu option — not just a matching checksum
+
+    Checks 2 and 3 compare against whatever the repo currently declares. They
+    are deliberately NOT pinned to a literal version: this script was pinned to
+    CCY_VERSION 3.35.0, the ssh-handling fix took the launcher to 3.36.0, and a
+    perfectly good deploy then failed with "an older launcher is deployed" and
+    told the user to re-run the deploy that had just worked. A check that goes
+    stale reports a confident wrong answer and sends you away from the cause —
+    the exact class Plan 00075 exists to stop.
 
 EXIT:
     0 = every check passed; start ccy and press `u`
@@ -51,10 +59,60 @@ fi
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 REPO_LIB="$REPO_ROOT/files/var/local/claude-yolo/lib/token-management.bash"
+REPO_CCY="$REPO_ROOT/files/var/local/claude-yolo/claude-yolo"
 DEPLOYED_LIB="/var/local/claude-yolo/lib/token-management.bash"
 DEPLOYED_CCY="/var/local/claude-yolo/claude-yolo"
 
 FAILED=0
+
+# Read a `# Version: X.Y.Z - description` header. Echoes the version on stdout;
+# non-zero (with nothing on stdout) when the file has no such header, so the
+# caller can say "unreadable" rather than silently comparing empty strings.
+lib_version() {
+    local file="$1" line
+    [ -f "$file" ] || return 1
+    if ! line="$(grep -m1 '^# Version: ' "$file")"; then
+        return 1
+    fi
+    line="${line#"# Version: "}"
+    printf '%s' "${line%% *}"
+}
+
+# Read the CCY_VERSION="X.Y.Z" assignment. Same contract as lib_version().
+ccy_version() {
+    local file="$1" line
+    [ -f "$file" ] || return 1
+    if ! line="$(grep -m1 '^CCY_VERSION=' "$file")"; then
+        return 1
+    fi
+    line="${line#*\"}"
+    printf '%s' "${line%%\"*}"
+}
+
+# Compare a deployed file's version against the repo's, reporting BOTH values.
+# The old checks printed only "not 3.35.0", which does not say what is actually
+# on the host — so a stale expectation and a genuinely old deploy looked
+# identical, and both got the same wrong remedy.
+check_version() {
+    local label="$1" reader="$2" repo_file="$3" deployed_file="$4"
+    local want got
+
+    if ! want="$("$reader" "$repo_file")"; then
+        fail "cannot read the version from the repo file $repo_file"
+        return 0
+    fi
+    if ! got="$("$reader" "$deployed_file")"; then
+        fail "cannot read the deployed $label version from $deployed_file"
+        echo "     Remedy: run deploy.bash" >&2
+        return 0
+    fi
+    if [ "$got" = "$want" ]; then
+        pass "$got (matches the repo)"
+    else
+        fail "deployed $label is $got, the repo declares $want"
+        echo "     Remedy: run deploy.bash" >&2
+    fi
+}
 
 fail() {
     echo "  ✗ $1" >&2
@@ -81,24 +139,14 @@ else
 fi
 echo ""
 
-# 2 — version header
+# 2 — library version, against the repo rather than a literal
 echo "2. Deployed library version"
-if [ -f "$DEPLOYED_LIB" ] && grep -q '^# Version: 1\.10\.0' "$DEPLOYED_LIB"; then
-    pass "1.10.0"
-else
-    fail "not 1.10.0 — an older library is deployed"
-    echo "     Remedy: run deploy.bash" >&2
-fi
+check_version library lib_version "$REPO_LIB" "$DEPLOYED_LIB"
 echo ""
 
-# 3 — launcher version
+# 3 — launcher version, against the repo rather than a literal
 echo "3. Deployed launcher version"
-if [ -f "$DEPLOYED_CCY" ] && grep -q '^CCY_VERSION="3\.35\.0"' "$DEPLOYED_CCY"; then
-    pass "CCY_VERSION 3.35.0"
-else
-    fail "not 3.35.0 — an older launcher is deployed"
-    echo "     Remedy: run deploy.bash" >&2
-fi
+check_version launcher ccy_version "$REPO_CCY" "$DEPLOYED_CCY"
 echo ""
 
 # 4 — the feature is really present, not merely a matching checksum
