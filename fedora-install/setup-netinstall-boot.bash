@@ -81,9 +81,9 @@ get_version_from_file() {
 # Detect the host's VC keymap for vconsole.keymap= kernel parameter
 detect_host_vconsole_keymap() {
     local keymap
-    keymap=$(localectl status 2>/dev/null | awk '/VC Keymap:/{print $3}')
+    keymap=$(localectl status 2>/dev/null | awk '/VC Keymap:/{print $3}')  # FAIL-FAST-OK: absence falls through to /etc/vconsole.conf below, then to the ${keymap:-us} default
     if [[ -z "$keymap" ]] || [[ "$keymap" == "n/a" ]]; then
-        keymap=$(grep '^KEYMAP=' /etc/vconsole.conf 2>/dev/null | cut -d= -f2 | tr -d '"')
+        keymap=$(grep '^KEYMAP=' /etc/vconsole.conf 2>/dev/null | cut -d= -f2 | tr -d '"')  # FAIL-FAST-OK: last link in the chain; an empty result becomes the documented ${keymap:-us} default
     fi
     echo "${keymap:-us}"
 }
@@ -91,7 +91,7 @@ detect_host_vconsole_keymap() {
 # Detect the host's X11 layout for kickstart keyboard --xlayouts=
 detect_host_x11_layout() {
     local layout
-    layout=$(localectl status 2>/dev/null | awk '/X11 Layout:/{print $3}')
+    layout=$(localectl status 2>/dev/null | awk '/X11 Layout:/{print $3}')  # FAIL-FAST-OK: absence falls through to the vconsole keymap below, then to the ${layout:-us} default
     if [[ -z "$layout" ]] || [[ "$layout" == "n/a" ]]; then
         layout=$(detect_host_vconsole_keymap)
     fi
@@ -121,7 +121,7 @@ find_dm_name() {
 find_luks_backing_partition() {
     local dm_name="$1"
     local backing
-    backing=$(cryptsetup status "$dm_name" 2>/dev/null | awk '/device:/{print $2}')
+    backing=$(cryptsetup status "$dm_name" 2>/dev/null | awk '/device:/{print $2}')  # FAIL-FAST-OK: empty is checked on the next line and dies; the value is never used unchecked
     if [[ -z "$backing" ]]; then
         die "Cannot determine backing device for LUKS: $dm_name"
     fi
@@ -133,7 +133,7 @@ find_parent_disk() {
     local partition="$1"
     local parent
     # lsblk may return multiple lines (e.g. partition then disk); take the last
-    parent=$(lsblk -no PKNAME "$partition" 2>/dev/null | tail -1)
+    parent=$(lsblk -no PKNAME "$partition" 2>/dev/null | tail -1)  # FAIL-FAST-OK: empty is checked on the next line and dies; the value is never used unchecked
     if [[ -z "$parent" ]]; then
         die "Cannot determine parent disk for: $partition"
     fi
@@ -259,13 +259,26 @@ prompt_luks_passphrase() {
     echo "" >&2
     # Verify the passphrase works
     if ! printf '%s' "$passphrase" | cryptsetup open --test-passphrase "/dev/mapper/${dm_name}" --type luks2 2>/dev/null; then
-        # --test-passphrase on dm path may not work; try backing device
-        local backing
-        backing=$(cryptsetup status "$dm_name" 2>/dev/null | awk '/device:/{print $2}')
-        if [[ -n "$backing" ]]; then
-            if ! printf '%s' "$passphrase" | cryptsetup open --test-passphrase "$backing" 2>/dev/null; then
-                die "Invalid LUKS passphrase"
-            fi
+        # --test-passphrase on the dm path may not work; try the backing device.
+        #
+        # This used to read `backing=$(cryptsetup status … | awk …)` guarded by
+        # `if [[ -n "$backing" ]]`, with no else. So when cryptsetup could not
+        # report — the awk pipeline hid its status, and an empty result was
+        # indistinguishable from success — BOTH verification attempts were
+        # skipped and the function returned the passphrase as though it had been
+        # checked. Verifying the passphrase is the entire purpose of this
+        # function; "could not verify" must never read as "verified".
+        local status_out backing
+        if ! status_out=$(cryptsetup status "$dm_name" 2>&1); then
+            die "Cannot verify the LUKS passphrase: cryptsetup could not report on ${dm_name}." \
+                "cryptsetup said: ${status_out}"
+        fi
+        backing=$(printf '%s\n' "$status_out" | awk '/device:/{print $2}')
+        if [[ -z "$backing" ]]; then
+            die "Cannot verify the LUKS passphrase: no backing device listed for ${dm_name}."
+        fi
+        if ! printf '%s' "$passphrase" | cryptsetup open --test-passphrase "$backing" 2>/dev/null; then
+            die "Invalid LUKS passphrase"
         fi
     fi
     printf '%s' "$passphrase"
@@ -381,7 +394,7 @@ create_fdinst_partition() {
 
     # Get current LUKS partition end sector
     local part_line
-    part_line=$(parted -ms "$disk" unit s print 2>/dev/null | grep "^${luks_part_num}:")
+    part_line=$(parted -ms "$disk" unit s print 2>/dev/null | grep "^${luks_part_num}:")  # FAIL-FAST-OK: empty is checked on the next line and dies before any partition is touched
     if [[ -z "$part_line" ]]; then
         die "Cannot find partition ${luks_part_num} in parted output"
     fi
@@ -1076,7 +1089,7 @@ GRUBEOF
         if [[ "$iso_size" -lt "$MIN_ISO_SIZE" ]]; then
             echo "  FAIL: ${netinstall_name} too small (${iso_size} bytes)" >&2; errors=$(( errors + 1 ))
         else
-            iso_type=$(file "$netinstall_path" 2>/dev/null)
+            iso_type=$(file "$netinstall_path" 2>/dev/null)  # FAIL-FAST-OK: a validator: empty fails the ISO 9660 check below and is reported as FAIL, which is the correct verdict when the type cannot be read
             if ! echo "$iso_type" | grep -qi "ISO 9660"; then
                 echo "  FAIL: ${netinstall_name} not a valid ISO (file says: ${iso_type})" >&2; errors=$(( errors + 1 ))
             else
@@ -1096,7 +1109,7 @@ GRUBEOF
         if [[ "$sq_size" -lt "$MIN_SQUASHFS_SIZE" ]]; then
             echo "  FAIL: ${squashfs_name} too small (${sq_size} bytes)" >&2; errors=$(( errors + 1 ))
         else
-            sq_type=$(file "$squashfs_path" 2>/dev/null)
+            sq_type=$(file "$squashfs_path" 2>/dev/null)  # FAIL-FAST-OK: a validator: empty fails the squashfs/erofs check below and is reported as FAIL, which is the correct verdict when the type cannot be read
             # Accept squashfs or erofs — Fedora switched Live images from squashfs to erofs
             if ! echo "$sq_type" | grep -qiE "(squashfs|erofs)"; then
                 echo "  FAIL: ${squashfs_name} not a valid filesystem image (file says: ${sq_type})" >&2; errors=$(( errors + 1 ))

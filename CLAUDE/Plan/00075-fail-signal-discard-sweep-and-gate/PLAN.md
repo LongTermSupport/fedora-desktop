@@ -116,9 +116,31 @@ introduces a gate makes the gate unreviewable. Neither is a blocker.
   Two were live bugs, not style: `docker-in-lxc` built its container name from a
   `git remote` capture that silently became empty outside a repo, and provisioned
   against an empty `lxc-info` IP
-- [ ] ⬜ **Task 4.2**: Widen `bash-capture-discards-status` beyond
-  `files/var/local/claude-yolo/**` — 31 remaining findings, to be triaged tree by
-  tree rather than blanket-annotated
+
+- [x] ✅ **Task 4.2**: Widen `bash-capture-discards-status` to `fedora-install/**`
+  — the highest-stakes tree in the repo (it repartitions a disk and handles
+  LUKS). 8 sites triaged as correctly handled and annotated; **1 real bug fixed**:
+  `prompt_luks_passphrase()` skipped BOTH passphrase checks when
+  `cryptsetup status` could not report, returning it as though verified.
+  Also **repaired the rule itself** — its `$` anchored straight after the closing
+  paren, so any trailing comment evaded it and the `FAIL-FAST-OK` exclusion was
+  decorative. Pinned with a fixture case
+
+- [ ] ⬜ **Task 4.3**: Widen to `scripts/**` — 15 findings, concentrated in two
+  status-report scripts. Deliberately staged: probing and printing "not
+  available" is their design, but not all are benign — `nvidia-status.bash`
+  reports *"no MOK keys enrolled"* when `mokutil` is simply absent, sending
+  someone to re-enrol a key they already have. Each site needs a "could not
+  check" state distinct from "absent", which is per-site design rather than a
+  mechanical edit
+
+- [ ] ⬜ **Task 4.4**: Report upstream to the hooks-daemon: `lint_on_edit` honours
+  neither a per-handler `options.exclude_paths` nor the project-wide
+  `daemon.exclude_paths` (both tried, neither works), so a deliberately-invalid
+  test fixture cannot be exempted and prints a wall of findings on every edit.
+  Also `.claude/init.sh:310` — `resolve_venv_python` failing returns 0, a live
+  instance of this plan's own class. Neither may be patched locally: both are
+  overwritten on daemon upgrade
 
 ## Technical Decisions
 

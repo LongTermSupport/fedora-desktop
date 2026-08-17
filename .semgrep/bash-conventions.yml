@@ -115,7 +115,13 @@ rules:
   # the condition of if/while/until, because in both cases the status IS handled.
   - id: bash-capture-discards-status
     patterns:
-      - pattern-regex: '(?m)^[ \t]*(local[ \t]+|declare[ \t]+|export[ \t]+)?[A-Za-z_][A-Za-z0-9_]*=["'']?\$\((?:[^()\n]|\((?:[^()\n])*\))*2>[ \t]*/dev/null(?:[^()\n]|\((?:[^()\n])*\))*\)["'']?[ \t]*$'
+      # The trailing `(#[^\n]*)?` is load-bearing. Without it the `$` anchored
+      # immediately after the closing paren, so ANY trailing comment evaded the
+      # rule — `var=$(cmd 2>/dev/null)  # just a note` was silently unmatched,
+      # which made the FAIL-FAST-OK exclusion below decorative rather than the
+      # thing that grants the exemption. Verified with a probe: the commented
+      # line was not reported until this was added.
+      - pattern-regex: '(?m)^[ \t]*(local[ \t]+|declare[ \t]+|export[ \t]+)?[A-Za-z_][A-Za-z0-9_]*=["'']?\$\((?:[^()\n]|\((?:[^()\n])*\))*2>[ \t]*/dev/null(?:[^()\n]|\((?:[^()\n])*\))*\)["'']?[ \t]*(#[^\n]*)?$'
       # A line carrying `||` has handled the failure — either an explicit
       # fallback (`var=$(cmd) || var=""`) or an in-substitution default. Those
       # belong to the error-hiding rules above, not to this one; matching them
@@ -125,15 +131,30 @@ rules:
       # in Ansible: a genuine case is ANNOTATED with its reason on the same line,
       # so the decision is explicit, greppable, and reviewable — never silent.
       - pattern-not-regex: '(?m)^[^\n]*#[ \t]*FAIL-FAST-OK:[^\n]*$'
-    # SCOPED, deliberately. A repo-wide sweep found 42 instances of this shape;
-    # gating all of them at once would only get the gate switched off. It is
-    # enforced first where the incident happened and where the blast radius is
-    # largest — the ccy libraries, which run on every launch on every machine.
-    # Widening is tracked in Plan 00075, one tree at a time, each with its
+    # SCOPED, deliberately, and widened one tree at a time with each tree's
     # findings triaged rather than blanket-annotated.
+    #
+    # `files/var/local/claude-yolo/**` — where the incident happened, and the
+    # largest blast radius: it runs on every launch on every machine.
+    #
+    # `fedora-install/**` — added next because it is the highest-stakes tree in
+    # the repo: it repartitions a disk and handles LUKS. Triage found 8 sites
+    # correctly handled (empty → `die`, or → a documented default) and annotated
+    # them, plus **one real bug**: `prompt_luks_passphrase()` skipped BOTH
+    # passphrase checks when `cryptsetup status` could not report, and returned
+    # the passphrase as though it had been verified.
+    #
+    # `scripts/**` is deliberately NOT included yet — see Plan 00075 Task 4.3.
+    # Its 15 findings are concentrated in two status-report scripts, where
+    # probing and printing "not available" is the design. But they are not all
+    # benign: `nvidia-status.bash` reports "no MOK keys enrolled" when `mokutil`
+    # is simply absent, which sends someone to re-enrol a key they already have.
+    # Each site needs a "could not check" state distinct from "absent" — real
+    # per-site design, not a mechanical edit, so it is staged rather than rushed.
     paths:
       include:
         - 'files/var/local/claude-yolo/**'
+        - 'fedora-install/**'
     message: >
       This captures a command's output with stderr silenced and its exit status
       discarded, so a failure becomes DATA the code then trusts. If the command

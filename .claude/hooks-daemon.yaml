@@ -118,7 +118,15 @@ handlers:
   # PostToolUse handlers (run after tool execution)
   post_tool_use:
     validate_eslint_on_write: {enabled: true, priority: 10}  # Run ESLint after JS/TS file writes
-    lint_on_edit: {enabled: true, priority: 25}              # Language-aware lint after Write/Edit
+    # Language-aware lint after Write/Edit.
+    # NOTE: this handler flags .semgrep/bash-conventions.bash wholesale, because
+    # every line of that fixture is a deliberate anti-pattern. Both exemption
+    # routes were TRIED and neither is honoured by lint_on_edit: a per-handler
+    # options.exclude_paths, and the project-wide daemon.exclude_paths. The edits
+    # still land — the handler reports but does not actually prevent the write —
+    # so this is noise to expect on that one file, not a broken gate. Reported
+    # upstream rather than worked around by disabling the handler.
+    lint_on_edit: {enabled: true, priority: 25}
     bash_error_detector: {enabled: true, priority: 50}       # Detect bash errors in output
 
   # PermissionRequest - Auto-approve decisions

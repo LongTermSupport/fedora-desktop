@@ -8,6 +8,19 @@
 # pair them (a tests/ subdir crashes semgrep's matcher). It is intentionally
 # full of error-hiding patterns; semgrep skips dot-directories in normal scans,
 # so qa-patterns.bash never flags this file.
+#
+# For the same reason the repo's own gates exempt it:
+#   1. qa-bash.bash discovery excludes .semgrep/
+#   2. qa-patterns.bash passes --exclude '.semgrep'
+#
+# The hooks daemon's lint_on_edit does NOT exempt it, and cannot be made to:
+# both a per-handler options.exclude_paths and the project-wide
+# daemon.exclude_paths were tried and neither is honoured (verified, not
+# assumed — the inert config was removed rather than left in place claiming an
+# effect it does not have). So editing this file prints a wall of shellcheck
+# findings every time. The edits still land; it is noise, not a blocked write.
+#
+# Do NOT "fix" the findings in this file. They ARE the tests.
 
 # --- bash-error-hiding-pipe-echo ---
 
@@ -147,3 +160,14 @@ fi
 
 # ok: bash-capture-discards-status
 kept_stderr=$(gh api user --jq .login 2>&1)
+
+# A trailing comment is NOT a justification. The rule's regex once anchored `$`
+# straight after the closing paren, so any comment at all evaded it and the
+# FAIL-FAST-OK exclusion below was decorative. Caught with a probe, fixed, and
+# pinned here so it cannot regress.
+# ruleid: bash-capture-discards-status
+commented_but_unjustified=$(gh api user --jq .login 2>/dev/null)  # just a note
+
+# Only the explicit, greppable annotation grants the exemption.
+# ok: bash-capture-discards-status
+annotated_var=$(gh api user --jq .login 2>/dev/null)  # FAIL-FAST-OK: absence is the expected case here
