@@ -141,10 +141,16 @@ else
     for pat in "${targets[@]}"; do
         # Expand a leading ~/ ourselves — a quoted glob arg skips shell tilde
         # expansion, so '~/.ssh/id_*' would otherwise keep its literal tilde.
-        case "$pat" in
-            "~/"*) pat="${HOME}/${pat#\~/}" ;;
-            "~")   pat="${HOME}" ;;
-        esac
+        # Written as prefix tests rather than a `case "~/"*)` pattern: the
+        # quoted tilde is correct there (an UNquoted one in a case pattern is
+        # tilde-expanded by bash, which would break the match), but it reads as
+        # the SC2088 "tilde does not expand in quotes" mistake. Same behaviour,
+        # no ambiguity for a reader or a linter.
+        if [ "$pat" = "~" ]; then
+            pat="${HOME}"
+        elif [ "${pat#\~/}" != "$pat" ]; then
+            pat="${HOME}/${pat#\~/}"
+        fi
         matched=0
         for f in $pat; do
             [ -e "$f" ] || continue

@@ -208,8 +208,11 @@ render_tick() {
     ts=$(date +'%H:%M:%S')
     echo -e "${BOLD}=== ${ts} ===${NC}"
 
-    local name rc_addr remote target
-    while IFS='|' read -r name rc_addr remote target; do
+    # `_` for the remote field: it must be READ so `target` lands in the right
+    # variable, but nothing here uses it. Naming it `remote` claimed a use it
+    # did not have.
+    local name rc_addr target
+    while IFS='|' read -r name rc_addr _ target; do
         if [[ -z "$rc_addr" ]]; then
             echo -e "  ${CYAN}${name}${NC}  ${DIM}(no --rc; cannot query)${NC}"
             continue

@@ -154,22 +154,30 @@ fi
         exit 2
     fi
     sc_count=$(jq 'length' "$TMP_SC")
-    # Gate on error-level findings only; warning/info/style stay advisory.
+    # Gate on error AND warning; info/style stay advisory.
     #
-    # Plan 00075 measured what raising this bar would cost, so the choice is
-    # informed rather than inherited: across 125 repo-owned bash files there are
-    # 0 error, 26 warning, 79 info and 0 style findings. Sixteen of the 26
-    # warnings are SC2155 ("Declare and assign separately to avoid masking return
-    # values") — which IS the defect class Plan 00075 exists to stop, currently
-    # reported as advisory noise. Raising to `warning` therefore costs ~26 fixes
-    # and is tracked as a plan task; it is staged separately from the semgrep
-    # rules so this commit does not mix a new gate with a bulk refactor.
-    sc_error_count=$(jq '[.[] | select(.level == "error")] | length' "$TMP_SC")
+    # Raised from error-only in Plan 00075, after measuring the cost rather than
+    # guessing at it. The deciding finding: **SC2155 is this repo's own defect
+    # class**. `local x=$(cmd)` makes `local` the command whose status is
+    # reported, so the substitution's failure is discarded — the exact shape that
+    # took ccy down during a GitHub outage, sitting in the advisory bucket where
+    # nobody reads it. Twelve of the eighteen warnings were SC2155, and several
+    # were live: `docker-in-lxc` derived a container name from a `git remote`
+    # capture that silently became empty outside a repo, and used an empty
+    # `lxc-info` IP for a container that was not running.
+    #
+    # info/style stay advisory deliberately — 79 findings dominated by SC2016
+    # (single-quoted `$` in a string, usually intentional) and SC2012 (`ls`
+    # instead of `find`). Gating those would trade a real signal for noise, and a
+    # noisy gate gets switched off.
+    sc_gating_count=$(jq '[.[] | select(.level == "error" or .level == "warning")] | length' "$TMP_SC")
     if [[ "$sc_count" -gt 0 ]]; then
         echo "⚠ shellcheck: $sc_count issues (see $MERGED_JSON_OUT .checks.bash.shellcheck_diagnostics)"
     fi
-    if [[ "$sc_error_count" -gt 0 ]]; then
-        echo "✗ shellcheck: $sc_error_count error-level finding(s) — gating"
+    if [[ "$sc_gating_count" -gt 0 ]]; then
+        echo "✗ shellcheck: $sc_gating_count error/warning-level finding(s) — gating"
+        jq -r '.[] | select(.level == "error" or .level == "warning")
+               | "    \(.file):\(.line) SC\(.code) (\(.level)) \(.message)"' "$TMP_SC"
         ERRORS=$((ERRORS + 1))
     fi
 }
