@@ -212,6 +212,59 @@ fetch_usage() {
     fi
 }
 
+# Is the host actually RUNNING the code this repo contains? A menu that shows no
+# usage line at all is not an endpoint answer — it means the usage code never
+# ran, which is either an undeployed library or the kill switch. Distinguishing
+# those two from "the token was refused" is the whole point of this section.
+report_deployment_state() {
+    local repo_root repo_lib host_lib host_ccy
+
+    echo "CCY_TOKEN_USAGE = ${CCY_TOKEN_USAGE:-(unset — feature enabled)}"
+    echo "CCY_USAGE_TTL   = ${CCY_USAGE_TTL:-(unset — default 180)}"
+    echo ""
+
+    host_lib=/var/local/claude-yolo/lib/token-management.bash
+    host_ccy=/var/local/claude-yolo/claude-yolo
+
+    if [ -f "$host_lib" ]; then
+        echo "deployed lib : $host_lib"
+        echo "  version    : $(grep -m1 '^# Version:' "$host_lib")"
+        if grep -q 'usage_prime_cache' "$host_lib"; then
+            echo "  usage code : PRESENT"
+        else
+            echo "  usage code : ABSENT — this host is running a pre-1.7.0 library."
+            echo "               Deploy it: CLAUDE/Plan/00073-*/deploy.bash"
+        fi
+    else
+        echo "deployed lib : MISSING ($host_lib)"
+    fi
+    echo ""
+
+    if [ -f "$host_ccy" ]; then
+        echo "deployed ccy : $(grep -m1 '^CCY_VERSION=' "$host_ccy" | cut -d'#' -f1)"
+    else
+        echo "deployed ccy : MISSING ($host_ccy)"
+    fi
+
+    if repo_root="$(git rev-parse --show-toplevel)"; then
+        repo_lib="$repo_root/files/var/local/claude-yolo/lib/token-management.bash"
+        if [ -f "$repo_lib" ]; then
+            echo ""
+            echo "repo lib     : $repo_lib"
+            echo "  version    : $(grep -m1 '^# Version:' "$repo_lib")"
+            if [ -f "$host_lib" ]; then
+                if diff -q "$repo_lib" "$host_lib" > /dev/null; then
+                    echo "  vs deployed: IDENTICAL"
+                else
+                    echo "  vs deployed: DIFFERENT — the host is running older code."
+                    echo "               Deploy it: CLAUDE/Plan/00073-*/deploy.bash"
+                fi
+            fi
+        fi
+    fi
+    return 0
+}
+
 # Q2: the envelope. Print the JSON *structure* (paths and value types), which is
 # what the parser has to be written against.
 describe_json_shape() {
@@ -257,6 +310,7 @@ trap cleanup EXIT
 
     probe "curl version" curl --version
     probe "claude version" claude --version
+    probe "deployment state (is the new code even running?)" report_deployment_state
 
     for token_file in "${token_files[@]}"; do
         filename="$(basename "$token_file")"
@@ -297,6 +351,12 @@ trap cleanup EXIT
     echo "================================================================================"
     echo "VERDICT INPUTS — READ THIS FIRST"
     echo "================================================================================"
+    echo ""
+    echo "Q0  Is the new code even deployed?"
+      echo "      See 'deployment state' above. If 'usage code : ABSENT' or"
+      echo "      'vs deployed: DIFFERENT', the host is running an older library"
+      echo "      and ccy's menu will show NO usage line at all — which is not an"
+      echo "      answer to Q1. Run this plan's deploy.bash first, then re-check."
     echo ""
     echo "Q1  Does a stored setup-token authenticate?"
     echo "      Look at every 'GET /api/oauth/usage' section above."

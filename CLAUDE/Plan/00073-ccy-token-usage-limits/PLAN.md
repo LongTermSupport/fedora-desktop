@@ -135,14 +135,28 @@ rather than leaving that in place.
 
 ### Phase 4: Confirm on the HOST
 
-- [ ] 🔄 **Task 4.1**: Deploy `play-claude-code.yml` on the HOST — **HOST action**
+- [x] ✅ **Task 4.0**: Add `deploy.bash` naming the correct play. The first attempt
+  named `play-claude-code.yml`, which only *asserts* the lib exists and deploys
+  none of it — it ran green while the host kept the old library
+- [ ] 🔄 **Task 4.1**: Run `deploy.bash` (→ `play-claude-yolo.yml`, which owns both
+  `lib/token-management.bash` and the `claude-yolo` wrapper) — **HOST action**
 - [ ] ⬜ **Task 4.2**: Run `ccy --list-tokens` and record the real status per token.
-  A `200` answers Q1 yes; `usage: not authorised` on every row answers it no
+  A `200` answers Q1 yes; `usage: not authorised` on every row answers it no.
+  **No `Usage:` line at all is not an answer** — it means the new library is not
+  running; `triage.bash` now reports deployment state to tell those apart
 - [ ] ⬜ **Task 4.3**: If Q1 is no — strip the feature back out rather than leaving
   a permanently-dim row on every launch; record the finding and cancel
 - [ ] ⬜ **Task 4.4**: If Q1 is yes — confirm the rendered line against the real
   envelope, and record the confirmed schema here
 - [ ] ⬜ **Task 4.5**: Run the `qa-reviewer` agent over the full diff
+
+### Phase 5: Follow-up recorded, not yet actioned
+
+- [ ] ⬜ **Task 5.1**: `scripts/qa-deployed-drift.bash` (Plan 00072) compares only
+  `files/home/.local/bin/` against its deployed copies. It does not cover
+  `files/var/local/claude-yolo/`, which is why an undeployed library here was
+  invisible to QA. Widening it would have caught this class of confusion at
+  commit time — **owner's call**, since it changes a gate another plan owns
 
 ## Technical Decisions
 
