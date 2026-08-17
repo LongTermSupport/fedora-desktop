@@ -99,31 +99,31 @@ busy account leaves it open and means probing a busier one still.
 - [x] ✅ **Task 1.4**: Run `prototype.bash` on the HOST — **Q1 answered yes** (F13,
   F14, F15, F16)
 
-### Phase 2: Decision gate 🔄
+### Phase 2: Decision gate ✅
 
 - [x] ✅ **Task 2.1**: Cancel-on-refusal branch — **not triggered**; the request
   succeeded rather than hitting a second scope wall
 - [x] ✅ **Task 2.2**: Header names and value formats recorded — resets are epoch
   seconds, utilisation is a **float** (F16), and the set is wider than assumed
   (F15)
-- [ ] 🔄 **Task 2.3**: Settle Q2 — probe a heavily-used account to fix the
-  utilisation scale. **HOST action**, one `--arm curl` request
+- [x] ✅ **Task 2.3**: Q2 deferred by owner decision, not left open — see
+  Decision 4. Ships on the percent reading with a `<1%` guard
 
-### Phase 3: Human-triggered display in the selector
+### Phase 3: Human-triggered display in the selector 🔄
 
-- [ ] ⬜ **Task 3.1**: Add a `u) Show usage (one API call per account)` option to
-  `select_token()`, with the cost stated in the option text itself
-- [ ] ⬜ **Task 3.2**: On press, fetch in parallel (Plan 00073 measured 203 ms for
-  5 tokens) and **redraw the selector** with a usage column
-- [ ] ⬜ **Task 3.3**: Reuse the 00073 machinery from `git show 53a5a10` — parallel
-  fan-out, render-once-at-fetch, worst-percentage colouring, visible degradation
-- [ ] ⬜ **Task 3.3b**: Apply the F15/F16 findings — lead the colouring with
-  `-representative-claim` (the bucket actually binding) rather than inferring it,
-  and treat utilisation as a float at whatever scale Q2 settles on
-- [ ] ⬜ **Task 3.4**: Cache the result for the lifetime of the menu, so a second
-  press does not spend a second round of quota
-- [ ] ⬜ **Task 3.5**: Bump `CCY_VERSION` and the `token-management.bash` header
-- [ ] ⬜ **Task 3.6**: `./scripts/qa-all.bash`, then the `qa-reviewer` agent
+- [x] ✅ **Task 3.1**: `u) Show usage limits (costs 1 small API call per account)`
+  added to `select_token()`, cost stated in the option text itself
+- [x] ✅ **Task 3.2**: On press, fetches in parallel and **redraws the selector**
+  with a usage column; the option then disappears so it cannot be double-spent
+- [x] ✅ **Task 3.3**: 00073 machinery reused — parallel fan-out, render-at-fetch,
+  worst-percentage colouring, visible degradation, worker that cannot abort the
+  menu. jq dropped entirely: headers parse in pure bash in a single pass
+- [x] ✅ **Task 3.4**: Cached with a 15-minute TTL. Long on purpose — in 00073 a
+  miss cost latency, here it costs quota
+- [x] ✅ **Task 3.5**: `CCY_VERSION` 3.34.0, `token-management.bash` 1.9.0
+- [x] ✅ **Task 3.6**: `./scripts/qa-all.bash` green
+- [ ] 🔄 **Task 3.7**: Deploy on the HOST and confirm against real accounts —
+  **HOST action**, `deploy.bash`
 
 ## Technical Decisions
 
@@ -157,14 +157,27 @@ a control, so this is tested rather than asserted.
 down the allowance that actually matters to the user.
 **Date**: 2026-08-17
 
+### Decision 4: Ship on the percent reading rather than hold for Q2
+
+**Context**: Q2 (is utilisation 0-100 or 0-1?) could not be settled from the
+near-idle account probed, and settling it needs one more billed request.
+**Decision**: ship. The owner's steer was explicit — the spend in question is a
+few Haiku requests, and holding a finished feature for it is disproportionate.
+Mitigations rather than a guess left bare: the scale lives behind `_usage_pct()`
+alone, so flipping it is a one-function change; and a value that is non-zero but
+rounds to zero renders `<1%`, not `0%`, so the display never claims an account is
+untouched when it is not. If real accounts show implausible figures, that is the
+signal to flip it.
+**Date**: 2026-08-17
+
 ## Success Criteria
 
 - [x] Q1 answered from a HOST run, not inference
-- [ ] Q2 (utilisation scale) settled from an observed value, not inference
-- [ ] Either cancelled with the refusal recorded, or usage shown on demand
-- [ ] No token value ever appears in a process argv or a committed file
-- [ ] Nothing fetches usage without an explicit human action
-- [ ] The per-press cost is visible in the UI, not buried in docs
+- [x] Q2 handled — deferred with mitigations (Decision 4), not silently guessed
+- [x] Either cancelled with the refusal recorded, or usage shown on demand
+- [x] No token value ever appears in a process argv or a committed file
+- [x] Nothing fetches usage without an explicit human action
+- [x] The per-press cost is visible in the UI, not buried in docs
 - [ ] `./scripts/qa-all.bash` passes; `qa-reviewer` clean
 
 ## Risks & Mitigations
@@ -187,3 +200,4 @@ down the allowance that actually matters to the user.
 - `prototype.bash` verified against three stub response shapes
 - **Q1 answered on the HOST: the approach works.** Where 00073 died on a scope
   refusal, this route returns 200 with the full unified header set
+- Shipped in CCY 3.34.0 / `token-management.bash` 1.9.0 — awaiting HOST deploy

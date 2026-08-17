@@ -277,12 +277,16 @@
         - scripts
         - cleanup
 
-    # Clean up the token usage-limit cache written by CCY 3.32.0 (Plan 00073).
-    # That feature was removed in 3.33.0 — stored setup-tokens get 403
-    # "does not meet scope requirement user:profile" from /api/oauth/usage — so
-    # the cache is dead state in the user's home. Runs as the user, not root:
-    # the directory lives under their ~/.claude-tokens/.
-    - name: Remove Obsolete Token Usage-Limit Cache From Host
+    # Drop the usage cache on every deploy. Entries written by CCY 3.32.0's
+    # /api/oauth/usage reader (Plan 00073) hold a different summary format to the
+    # rate-limit-header reader that replaced it in 3.34.0 (Plan 00074), and a
+    # stale entry would render as a wrong or empty usage column until it aged
+    # out. Unconditional rather than version-gated because it is free to redo:
+    # the cache is a quota-saving optimisation with a 15-minute life, rebuilt on
+    # demand the next time the user presses `u`, so there is nothing to preserve
+    # across a deploy that might have changed the format again.
+    # Runs as the user, not root — the directory is under ~/.claude-tokens/.
+    - name: Discard Stale Token Usage Cache From Host
       ansible.builtin.file:
         path: "{{ ansible_env.HOME }}/.claude-tokens/ccy/usage-cache"
         state: absent

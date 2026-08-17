@@ -297,6 +297,38 @@ ccy --export-token work      # export a specific token
 Named tokens let you keep separate Claude accounts for separate contexts — a personal
 account and a work account, say — and pick per project or per session.
 
+### Seeing usage limits before you pick
+
+When several accounts are in play, the useful question at selection time is *which one
+still has headroom*. The token menu answers it on request:
+
+```
+  1) work     (expires: 2026-11-02)
+  2) personal (expires: 2026-12-14)
+
+  u) Show usage limits (costs 1 small API call per account)
+```
+
+Press `u` and the menu redraws with each account's 5-hour and weekly utilisation and how
+long until each resets, coloured green/orange/red by the worse of the two:
+
+```
+  1) work     (expires: 2026-11-02)  —  5h 91% r2h · wk 63% r3d
+  2) personal (expires: 2026-12-14)  —  5h 12% r4h · wk <1% r6d
+```
+
+**It is never fetched automatically, and the reason is the cost.** These figures are only
+available as rate-limit headers on a real API response, so reading them means making a
+genuine billed request per account — one that consumes a sliver of the very allowance it
+reports. A launch-time fetch would spend quota you never asked to spend, so it is a
+keypress instead. The request uses Haiku with a one-character prompt, and the weekly
+buckets are per-model, so it does not touch your Opus or Sonnet allowances.
+
+The result is cached for 15 minutes, so pressing `u` again in the same sitting costs
+nothing. An account that cannot be read shows a dim note (`usage: not authorised`,
+`usage: unreachable`) and the other rows still render. Set `CCY_TOKEN_USAGE=0` to remove
+the option entirely.
+
 `--export-token` writes a self-contained import script, so you can move a token onto a
 second workstation without repeating the `setup-token` browser flow there.
 

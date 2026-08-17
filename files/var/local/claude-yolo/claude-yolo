@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.33.0"  # Plan 00073: token usage limits (added 3.32.0) removed — setup-tokens get 403 "does not meet scope requirement user:profile" from /api/oauth/usage, so the figure is unobtainable with the credential ccy stores
+CCY_VERSION="3.34.0"  # Plan 00074: token usage limits are back, on demand — press "u" in the selector to fetch each account's 5h/weekly utilisation from the /v1/messages rate-limit response headers (the route a setup-token can actually reach) and redraw the menu. Never automatic: each fetch is a billed request.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

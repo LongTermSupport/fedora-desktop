@@ -17,6 +17,46 @@ Two version numbers move independently — see
 
 ---
 
+## 3.34.0 (container 2.26)
+
+**Usage limits in the token menu, on request.** Press `u` at token selection and each
+account's 5-hour and weekly utilisation appears next to it, with reset countdowns and
+green/orange/red colouring. See
+[Seeing usage limits before you pick](ccy.md#seeing-usage-limits-before-you-pick).
+
+**Why it is a keypress and not automatic.** The figures are only available as
+`anthropic-ratelimit-unified-*` headers on a real API response, so reading them costs a
+genuine billed request per account — one that consumes a sliver of the allowance it
+reports. Fetching at launch would spend quota nobody asked to spend. The probe uses Haiku
+with a one-character prompt and `max_tokens: 1`; the weekly buckets are per-model, so the
+Opus and Sonnet allowances are untouched. Results cache for 15 minutes, so a second press
+in the same sitting is free. `CCY_TOKEN_USAGE=0` removes the option.
+
+An account that cannot be read degrades to a dim note and the other rows still render —
+the fetch runs in workers that record their outcome rather than raising, so a dead network
+can never take the menu (and the launch) down with it.
+
+Utilisation arrives as a float whose scale is undocumented. A non-zero value that rounds
+to zero renders `<1%` rather than `0%`, so the display never claims an account is
+untouched when it is not.
+
+## 3.33.0 (container 2.26)
+
+**Reverts 3.32.0.** Superseded within the day by 3.34.0 above; neither 3.32.0 nor this
+release was ever deployed.
+
+The 3.32.0 feature read usage from `GET /api/oauth/usage`, which is free to call. It does
+not work with the credential CCY stores: every `sk-ant-oat01` setup-token gets
+`403 — "OAuth token does not meet scope requirement user:profile"`, from that route and
+from `/api/oauth/profile` alike. The scope is fixed when `claude setup-token` mints the
+token, so no client-side change can obtain it. Do not re-add a call to those routes with a
+setup-token.
+
+## 3.32.0 (container 2.26)
+
+**Per-token usage limits in `--list-tokens`, fetched automatically at launch.** Removed in
+3.33.0 — see above.
+
 ## 3.31.1 (container 2.26)
 
 Scope fix on the state repair introduced in 3.31.0, found by the new `qa-reviewer` agent.

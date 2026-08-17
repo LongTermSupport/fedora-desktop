@@ -2,7 +2,13 @@
 # Token Management Library
 # Token operations for claude-yolo (ccy)
 #
-# Version: 1.8.0 - Plan 00073: per-token usage limits REMOVED (added in 1.7.0).
+# Version: 1.9.0 - Plan 00074: per-token usage limits RESTORED, on demand only.
+#                  Read from the anthropic-ratelimit-unified-* RESPONSE HEADERS
+#                  on POST /v1/messages, which a setup-token CAN reach — not the
+#                  403-ing status route below. Press `u` in the selector; never
+#                  automatic, because each fetch is a billed request against the
+#                  allowance it reports.
+#          1.8.0 - Plan 00073: per-token usage limits REMOVED (added in 1.7.0).
 #                  The stored sk-ant-oat01 setup-tokens cannot read them:
 #                  GET /api/oauth/usage and /api/oauth/profile both answer 403
 #                  "OAuth token does not meet scope requirement user:profile"
@@ -39,6 +45,329 @@ colorize_expiry() {
         printf "${ORANGE}%s${RESET}" "$expiry_date"
     else
         printf "${GREEN}%s${RESET}" "$expiry_date"
+    fi
+}
+
+# ─── Per-account usage limits (Plan 00074) ──────────────────────────────────
+#
+# HUMAN-TRIGGERED ONLY. Pressing `u` in the token selector fetches each
+# account's 5-hour and weekly utilisation and redraws the menu with it.
+#
+# It must not become automatic. Plan 00073 tried the free status route
+# (GET /api/oauth/usage) and every stored setup-token was refused on scope. The
+# figures are reachable only as anthropic-ratelimit-unified-* RESPONSE HEADERS
+# on /v1/messages, so reading them costs a real, billed request that consumes a
+# sliver of the allowance it reports. Fetching at launch would spend quota
+# nobody asked to spend.
+#
+# Haiku, max_tokens=1, one character of input: the weekly buckets are per-model,
+# so probing with the cheapest model leaves the Opus/Sonnet allowances alone.
+#
+# Set CCY_TOKEN_USAGE=0 to remove the option from the menu entirely.
+
+CCY_USAGE_ENDPOINT="${CCY_USAGE_ENDPOINT:-https://api.anthropic.com/v1/messages}"
+CCY_USAGE_MODEL="${CCY_USAGE_MODEL:-claude-haiku-4-5-20251001}"
+CCY_USAGE_TIMEOUT="${CCY_USAGE_TIMEOUT:-20}"
+CCY_USAGE_CONNECT_TIMEOUT="${CCY_USAGE_CONNECT_TIMEOUT:-5}"
+# Long TTL on purpose. In Plan 00073 a cache miss cost latency; here it costs
+# QUOTA, so pressing `u` twice in one sitting must not bill twice.
+CCY_USAGE_TTL="${CCY_USAGE_TTL:-900}"
+
+_usage_cache_dir() {
+    printf '%s/usage-cache' "$(dirname "$1")"
+}
+
+usage_enabled() {
+    [ "${CCY_TOKEN_USAGE:-1}" != "0" ]
+}
+
+# Formats a reset epoch as a compact countdown (" r2h"), or nothing if it has
+# already passed. Rounds to NEAREST, not floor: floor is a full unit wrong the
+# moment any time has passed, rendering a reset exactly 3 days out as "r2d".
+_usage_fmt_reset() {
+    local epoch="$1" now="$2" delta
+    [[ "$epoch" =~ ^[0-9]+$ ]] || return 0
+    delta=$(( epoch - now ))
+    [ "$delta" -gt 0 ] || return 0
+    if [ "$delta" -lt 3600 ]; then
+        printf ' r%dm' $(( (delta + 30) / 60 ))
+    elif [ "$delta" -lt 172800 ]; then
+        printf ' r%dh' $(( (delta + 1800) / 3600 ))
+    else
+        printf ' r%dd' $(( (delta + 43200) / 86400 ))
+    fi
+}
+
+# Renders one utilisation value as a percentage.
+#
+# The API sends a float. A value that is non-zero but rounds to zero is shown as
+# "<1%" rather than "0%" — "0%" would claim the account is untouched, which is a
+# different statement from "barely touched".
+_usage_pct() {
+    local v="$1"
+    [[ "$v" =~ ^[0-9]+(\.[0-9]+)?$ ]] || return 1
+    local p
+    p="$(printf '%.0f' "$v")"
+    if [ "$p" = "0" ] && [[ "$v" =~ [1-9] ]]; then
+        printf '<1%%'
+    else
+        printf '%s%%' "$p"
+    fi
+}
+
+# Turns a dumped response-header file into one compact display line, e.g.
+#   5h 37% r2h · wk 83% r3d
+#
+# Pure bash, single pass over the file — no jq, no grep, no subprocess. Plan
+# 00073 measured jq at ~40 ms per call, which for 5 tokens cost more than the
+# network round trip it was parsing.
+_usage_render_line() {
+    local file="$1" now="$2"
+    local line name value u5="" u7="" r5="" r7="" out=""
+
+    while IFS= read -r line; do
+        line="${line%$'\r'}"
+        case "$line" in
+            [Aa]nthropic-[Rr]atelimit-unified-*) ;;
+            *) continue ;;
+        esac
+        name="${line%%:*}"
+        value="${line#*:}"
+        value="${value# }"
+        case "${name,,}" in
+            anthropic-ratelimit-unified-5h-utilization) u5="$value" ;;
+            anthropic-ratelimit-unified-7d-utilization) u7="$value" ;;
+            anthropic-ratelimit-unified-5h-reset)       r5="$value" ;;
+            anthropic-ratelimit-unified-7d-reset)       r7="$value" ;;
+        esac
+    done < "$file"
+
+    if [ -n "$u5" ] && out="$(_usage_pct "$u5")"; then
+        out="5h $out$(_usage_fmt_reset "$r5" "$now")"
+    else
+        out=""
+    fi
+    if [ -n "$u7" ]; then
+        local wk
+        if wk="$(_usage_pct "$u7")"; then
+            [ -n "$out" ] && out="$out · "
+            out="${out}wk $wk$(_usage_fmt_reset "$r7" "$now")"
+        fi
+    fi
+
+    printf '%s' "$out"
+}
+
+# Fetches ONE account's usage and renders it, writing two cache files:
+#   $2.status   the HTTP status (000 when no response was received at all)
+#   $2.summary  the finished display line (empty when no headers came back)
+#
+# Rendering happens HERE, inside the parallel worker, so a cache hit costs
+# nothing but a file read at display time.
+#
+# Only the rendered line is persisted — the response body is never written to
+# disk, so account details in the payload do not outlive the fetch.
+#
+# The token reaches curl through --config on STDIN so it never appears in argv
+# (BSH-09), which is world-readable via /proc/<pid>/cmdline.
+#
+# Every failure is RECORDED as a status rather than raised, and both files are
+# always created, so a fan-out worker can never abort a caller running `set -e`.
+# Always returns 0.
+_usage_fetch_one() {
+    local token="$1" out_prefix="$2"
+    local hdr body code="000" line=""
+
+    hdr="$(mktemp)"; body="$(mktemp)"
+    printf '' > "$out_prefix.summary"
+
+    if code="$(printf 'header = "Authorization: Bearer %s"\n' "$token" \
+        | curl --config - \
+               --silent \
+               --request POST \
+               --header 'content-type: application/json' \
+               --header 'anthropic-version: 2023-06-01' \
+               --header 'anthropic-beta: oauth-2025-04-20' \
+               --data "{\"model\":\"$CCY_USAGE_MODEL\",\"max_tokens\":1,\"messages\":[{\"role\":\"user\",\"content\":\".\"}]}" \
+               --dump-header "$hdr" \
+               --connect-timeout "$CCY_USAGE_CONNECT_TIMEOUT" \
+               --max-time "$CCY_USAGE_TIMEOUT" \
+               --output "$body" \
+               --write-out '%{http_code}' \
+               "$CCY_USAGE_ENDPOINT")"; then
+        :
+    else
+        # curl itself failed (DNS, TLS, refused, timeout). 000 is curl's own
+        # convention for "no HTTP response was received".
+        code="000"
+    fi
+
+    # Render on ANY status that carried the headers, not just 200. A 429 is
+    # precisely when the numbers matter most, and it carries them too.
+    line="$(_usage_render_line "$hdr" "$(date +%s)")"
+    if [ -n "$line" ]; then
+        printf '%s' "$line" > "$out_prefix.summary"
+    fi
+
+    printf '%s\n' "$code" > "$out_prefix.status"
+    rm -f "$hdr" "$body"
+    chmod 600 "$out_prefix.summary" "$out_prefix.status"
+    return 0
+}
+
+# Refreshes the cache for every given token file, fanning the fetches out in
+# parallel so N accounts cost roughly one round trip rather than N.
+#
+# Args: $1 = token_dir, $2.. = token file paths
+usage_prime_cache() {
+    local token_dir="$1"; shift
+    usage_enabled || return 0
+    command -v curl > /dev/null || return 0
+
+    local cache_dir
+    cache_dir="$(_usage_cache_dir "$token_dir")"
+    mkdir -p "$cache_dir"
+    chmod 700 "$cache_dir"
+
+    local now pids=() token_file filename token_name status mtime age
+    now="$(date +%s)"
+
+    for token_file in "$@"; do
+        filename="$(basename "$token_file")"
+        token_name="${filename%.*.token}"
+        status="$cache_dir/$token_name.status"
+
+        # Fresh enough? Skip the network — and, here, skip spending quota.
+        if [ -f "$status" ] && [ -f "$cache_dir/$token_name.summary" ]; then
+            if mtime="$(stat -c %Y "$status")"; then
+                age=$(( now - mtime ))
+                if [ "$age" -ge 0 ] && [ "$age" -lt "$CCY_USAGE_TTL" ]; then
+                    continue
+                fi
+            fi
+        fi
+
+        (
+            # Fan-out worker. Unconditionally exits 0: its job is to RECORD an
+            # outcome, and a worker that died would otherwise take the caller's
+            # `set -e` — and the whole menu — down with it. Not hypothetical: in
+            # Plan 00073 an unreachable endpoint aborted the render and printed
+            # no token list at all.
+            # $$-suffixed prefix so two concurrent ccy launches cannot scribble
+            # over each other's part-files.
+            token="$(cat "$token_file")"
+            if [ -n "$token" ]; then
+                _usage_fetch_one "$token" "$cache_dir/$token_name.$$"
+                mv -f "$cache_dir/$token_name.$$.summary" \
+                      "$cache_dir/$token_name.summary"
+                mv -f "$cache_dir/$token_name.$$.status" \
+                      "$cache_dir/$token_name.status"
+            fi
+            exit 0
+        ) &
+        pids+=("$!")
+    done
+
+    if [ ${#pids[@]} -gt 0 ]; then
+        local pid
+        for pid in "${pids[@]}"; do
+            if ! wait "$pid"; then
+                # A worker died without publishing. Its cache entry is left as
+                # it was, so the row reports "not fetched" rather than the menu
+                # failing. Nothing to clean up — part-files live in the private
+                # cache dir.
+                continue
+            fi
+        done
+    fi
+    return 0
+}
+
+# Echoes a one-line usage summary for a token name, or a "usage: …" note saying
+# why there isn't one. Never empty, never silent about a failure.
+#
+# Pure cache read — no curl, no subprocess beyond the file reads.
+usage_summary_for() {
+    local token_dir="$1" token_name="$2"
+    local cache_dir status code line=""
+
+    usage_enabled || { printf ''; return 0; }
+
+    # A missing tool here is an IaC gap, not a runtime condition to shrug at.
+    # curl is declared in play-claude-code.yml — name the remedy.
+    if ! command -v curl > /dev/null; then
+        printf 'usage: needs curl (run play-claude-code.yml)'
+        return 0
+    fi
+
+    cache_dir="$(_usage_cache_dir "$token_dir")"
+    status="$cache_dir/$token_name.status"
+
+    if [ ! -f "$status" ]; then
+        printf 'usage: not fetched'
+        return 0
+    fi
+
+    if [ -f "$cache_dir/$token_name.summary" ]; then
+        line="$(cat "$cache_dir/$token_name.summary")"
+    fi
+
+    # The headers win when present — a 429 carrying real numbers is more useful
+    # than the words "rate limited".
+    if [ -n "$line" ]; then
+        printf '%s' "$line"
+        return 0
+    fi
+
+    code="$(cat "$status")"
+    case "$code" in
+        000)      printf 'usage: unreachable' ;;
+        401|403)  printf 'usage: not authorised' ;;
+        429)      printf 'usage: rate limited' ;;
+        200)      printf 'usage: no limits reported' ;;
+        *)        printf 'usage: HTTP %s' "$code" ;;
+    esac
+    return 0
+}
+
+# Wraps a usage summary in a colour keyed to the highest percentage in it, so a
+# nearly-exhausted account is obvious at a glance. Mirrors colorize_expiry().
+colorize_usage() {
+    local summary="$1"
+    local RED='\033[31m' ORANGE='\033[38;5;208m' GREEN='\033[32m'
+    local DIM='\033[2m' RESET='\033[0m'
+
+    case "$summary" in
+        '') return 0 ;;
+        usage:*) printf "${DIM}%s${RESET}" "$summary"; return 0 ;;
+    esac
+
+    # Pure bash, deliberately: the obvious `grep | tr | sort | head` costs four
+    # processes per row, measured at ~39 ms per token on the CACHED path where
+    # there is otherwise no work to do at all.
+    local -a parts=()
+    local part worst=-1
+    read -r -a parts <<< "$summary"
+    for part in "${parts[@]}"; do
+        case "$part" in
+            '<1%') [ "$worst" -lt 0 ] && worst=0 ;;
+            *%)
+                part="${part%\%}"
+                if [[ "$part" =~ ^[0-9]+$ ]] && [ "$part" -gt "$worst" ]; then
+                    worst="$part"
+                fi
+                ;;
+        esac
+    done
+
+    if [ "$worst" -lt 0 ]; then
+        printf '%s' "$summary"
+    elif [ "$worst" -ge 85 ]; then
+        printf "${RED}%s${RESET}" "$summary"
+    elif [ "$worst" -ge 50 ]; then
+        printf "${ORANGE}%s${RESET}" "$summary"
+    else
+        printf "${GREEN}%s${RESET}" "$summary"
     fi
 }
 
@@ -555,6 +884,14 @@ select_token() {
         return 1
     fi
 
+    # Usage is off until the user asks for it — see the Plan 00074 note above
+    # usage_prime_cache(). The menu is redrawn once it has been fetched.
+    local usage_fetched=0
+
+    # Redraw loop: every path out of the inner prompt either returns or asks for
+    # a redraw, so the menu is reprinted only when its content actually changed.
+    while true; do
+
     echo ""
     echo "════════════════════════════════════════════════════════════════════════════════"
     if [ "$mode" = "host" ]; then
@@ -573,12 +910,22 @@ select_token() {
         filename=$(basename "$token_file")
         local token_name="${filename%.*.token}"
 
+        local usage_col=""
+        if [ "$usage_fetched" -eq 1 ]; then
+            local usage_line
+            usage_line="$(usage_summary_for "$token_dir" "$token_name")"
+            if [ -n "$usage_line" ]; then
+                usage_col="  —  $(colorize_usage "$usage_line")"
+            fi
+        fi
+
         # Extract expiry
         if [[ "$filename" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2})\.token$ ]]; then
             local expiry_date="${BASH_REMATCH[1]}"
-            echo "  $((i+1))) $token_name (expires: $(colorize_expiry "$expiry_date"))"
+            printf '  %s) %s (expires: %s)%s\n' \
+                "$((i+1))" "$token_name" "$(colorize_expiry "$expiry_date")" "$usage_col"
         else
-            echo "  $((i+1))) $token_name"
+            printf '  %s) %s%s\n' "$((i+1))" "$token_name" "$usage_col"
         fi
     done
 
@@ -596,12 +943,21 @@ select_token() {
         echo ""
         echo "  d) Desktop (use host ~/.claude/ OAuth — current cc default)"
     fi
+
+    # The cost is stated in the option itself, not buried in docs: pressing this
+    # spends quota, and the user is entitled to know that before pressing it.
+    local usage_hint=""
+    if usage_enabled && [ "$usage_fetched" -eq 0 ]; then
+        echo ""
+        echo "  u) Show usage limits (costs 1 small API call per account)"
+        usage_hint=", u"
+    fi
     echo ""
 
     # Build prompt hint
     local prompt_hint
     if [ "$mode" = "host" ]; then
-        prompt_hint="1-${#valid_tokens[@]}, d"
+        prompt_hint="1-${#valid_tokens[@]}, d${usage_hint}"
     else
         local renew_hint=""
         if [ ${#expired_names[@]} -gt 0 ]; then
@@ -611,9 +967,10 @@ select_token() {
                 renew_hint=", r1-r${#expired_names[@]}"
             fi
         fi
-        prompt_hint="0-${#valid_tokens[@]}${renew_hint}"
+        prompt_hint="0-${#valid_tokens[@]}${renew_hint}${usage_hint}"
     fi
 
+    local redraw=0
     while true; do
         read -r -p "Select token [${prompt_hint}]: " selection
         echo ""
@@ -623,6 +980,15 @@ select_token() {
             echo "Please enter one of: ${prompt_hint}"
             echo ""
             continue
+        fi
+
+        # Fetch usage on demand, then redraw the menu with a usage column.
+        if [ "$selection" = "u" ] && usage_enabled && [ "$usage_fetched" -eq 0 ]; then
+            echo "Fetching usage for ${#valid_tokens[@]} account(s)..."
+            usage_prime_cache "$token_dir" "${valid_tokens[@]}"
+            usage_fetched=1
+            redraw=1
+            break
         fi
 
         # Host mode: Desktop fallback
@@ -685,6 +1051,12 @@ select_token() {
             echo "Please enter one of: ${prompt_hint}"
             echo ""
         fi
+    done
+
+    # Only a usage fetch reaches here — every other outcome returned above.
+    if [ "$redraw" -ne 1 ]; then
+        return 1
+    fi
     done
 }
 
