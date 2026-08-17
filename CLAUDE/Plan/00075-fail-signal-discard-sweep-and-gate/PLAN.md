@@ -126,13 +126,20 @@ introduces a gate makes the gate unreviewable. Neither is a blocker.
   paren, so any trailing comment evaded it and the `FAIL-FAST-OK` exclusion was
   decorative. Pinned with a fixture case
 
-- [ ] ⬜ **Task 4.3**: Widen to `scripts/**` — 15 findings, concentrated in two
-  status-report scripts. Deliberately staged: probing and printing "not
-  available" is their design, but not all are benign — `nvidia-status.bash`
-  reports *"no MOK keys enrolled"* when `mokutil` is simply absent, sending
-  someone to re-enrol a key they already have. Each site needs a "could not
-  check" state distinct from "absent", which is per-site design rather than a
-  mechanical edit
+- [x] ✅ **Task 4.3**: Widen to `scripts/**`. Every site now has a "could not
+  check" state distinct from "absent", verified by running both scripts with the
+  probed tools replaced by failing stubs:
+
+  - a missing `mokutil` no longer reports *"no MOK keys enrolled"*
+  - **Secure Boot state itself** no longer reports *"Disabled"* when it could not
+    be read — found only by running the script, because that line uses `2>&1`
+    and the gate never saw it
+  - an unreadable journal no longer reports a green ✅ *"no errors found"* (both
+    scripts had this)
+  - a failed `glxinfo` no longer prints a red ❌ blaming the driver for a query
+    that never ran
+  - `dkms` missing no longer gives the same verdict as `dkms` running and finding
+    nothing
 
 - [ ] ⬜ **Task 4.4**: Report upstream to the hooks-daemon: `lint_on_edit` honours
   neither a per-handler `options.exclude_paths` nor the project-wide

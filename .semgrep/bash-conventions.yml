@@ -144,17 +144,19 @@ rules:
     # passphrase checks when `cryptsetup status` could not report, and returned
     # the passphrase as though it had been verified.
     #
-    # `scripts/**` is deliberately NOT included yet — see Plan 00075 Task 4.3.
-    # Its 15 findings are concentrated in two status-report scripts, where
-    # probing and printing "not available" is the design. But they are not all
-    # benign: `nvidia-status.bash` reports "no MOK keys enrolled" when `mokutil`
-    # is simply absent, which sends someone to re-enrol a key they already have.
-    # Each site needs a "could not check" state distinct from "absent" — real
-    # per-site design, not a mechanical edit, so it is staged rather than rushed.
+    # `scripts/**` — the two status-report scripts. Probing and printing "not
+    # available" IS their design, but that is exactly what made them dangerous:
+    # a probe that could not RUN was reported as a finding of absence. Each site
+    # now has a "could not check" state distinct from "absent", so:
+    #   - a missing mokutil no longer reports "no MOK keys enrolled"
+    #   - an unreadable journal no longer reports a green "no errors found"
+    #   - a failed glxinfo no longer blames the driver for a query that never ran
+    # The ones where the probe's failure genuinely IS the answer are annotated.
     paths:
       include:
         - 'files/var/local/claude-yolo/**'
         - 'fedora-install/**'
+        - 'scripts/**'
     message: >
       This captures a command's output with stderr silenced and its exit status
       discarded, so a failure becomes DATA the code then trusts. If the command

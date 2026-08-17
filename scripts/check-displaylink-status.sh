@@ -93,8 +93,23 @@ echo ""
 echo -e "${BLUE}${BOLD}3. KERNEL MODULE STATUS${NC}"
 echo -e "${BLUE}────────────────────────${NC}"
 
-DKMS_STATUS=$(dkms status 2>/dev/null | grep evdi)
-if [ -n "$DKMS_STATUS" ]; then
+# dkms's own status is captured before the grep, because the grep's status is
+# about matching evdi, not about whether dkms could be asked at all. Without
+# this, a missing dkms reported the same "not built" verdict as a dkms that ran
+# and found no evdi module - sending someone to rebuild a module when the real
+# problem is that the tool is not installed.
+DKMS_OK=1
+if ! DKMS_ALL=$(dkms status 2>/dev/null); then
+    echo -e "  ${YELLOW}⚠${NC}  DKMS compilation: ${BOLD}Could not check${NC} - dkms is unavailable or failed"
+    DKMS_ALL=""
+    DKMS_OK=0
+fi
+DKMS_STATUS=$(printf '%s\n' "$DKMS_ALL" | grep evdi)
+if [ "$DKMS_OK" -eq 0 ]; then
+    # No verdict to give — printing "evdi module not found" underneath the
+    # warning above would answer a question that was never asked successfully.
+    echo -e "      (no DKMS verdict - the query above failed)"
+elif [ -n "$DKMS_STATUS" ]; then
     if echo "$DKMS_STATUS" | grep -q "installed"; then
         print_status 0 "DKMS compilation: ${BOLD}$DKMS_STATUS${NC}"
     else
@@ -123,10 +138,10 @@ echo ""
 echo -e "${BLUE}${BOLD}4. SERVICE STATUS${NC}"
 echo -e "${BLUE}──────────────────${NC}"
 
-SERVICE_STATUS=$(systemctl is-active displaylink-driver 2>/dev/null)
+SERVICE_STATUS=$(systemctl is-active displaylink-driver 2>/dev/null)  # FAIL-FAST-OK: is-active PRINTS the state (active/inactive/failed) and exits non-zero for anything but active; the text is the payload
 if [ "$SERVICE_STATUS" = "active" ]; then
     print_status 0 "DisplayLink service: ${BOLD}Running${NC}"
-    UPTIME=$(systemctl show displaylink-driver -p ActiveEnterTimestamp --value 2>/dev/null)
+    UPTIME=$(systemctl show displaylink-driver -p ActiveEnterTimestamp --value 2>/dev/null)  # FAIL-FAST-OK: reached only when the service is active, and emptiness is explicitly checked on the next line
     if [ -n "$UPTIME" ]; then
         echo -e "      Started: $UPTIME"
     fi
@@ -134,8 +149,11 @@ else
     print_status 1 "DisplayLink service: ${BOLD}$SERVICE_STATUS${NC}"
 fi
 
-SERVICE_ENABLED=$(systemctl is-enabled displaylink-driver 2>/dev/null)
-echo -e "      Boot startup: ${BOLD}$SERVICE_ENABLED${NC}"
+# systemctl PRINTS the state (disabled/masked/static) as its payload, so a
+# non-zero status carries no extra information here. The :-unknown fallback
+# covers the one case where it prints nothing at all: the unit does not exist.
+SERVICE_ENABLED=$(systemctl is-enabled displaylink-driver 2>/dev/null)  # FAIL-FAST-OK: the printed state is the payload, see above
+echo -e "      Boot startup: ${BOLD}${SERVICE_ENABLED:-unknown (no such unit?)}${NC}"
 
 DLM_PROCESS=$(pgrep -f DisplayLinkManager)
 if [ -n "$DLM_PROCESS" ]; then
@@ -149,14 +167,26 @@ echo ""
 echo -e "${BLUE}${BOLD}5. GRAPHICS INTEGRATION${NC}"
 echo -e "${BLUE}────────────────────────${NC}"
 
-DRI_COUNT=$(ls /dev/dri/card* 2>/dev/null | wc -l)
+# Counted from the glob itself rather than by parsing `ls`: an unmatched glob
+# stays literal in bash, so the -e test is what distinguishes "no devices" from
+# "one device". No subshell, no status to discard.
+DRI_CARDS=(/dev/dri/card*)
+DRI_COUNT=0
+if [ -e "${DRI_CARDS[0]}" ]; then
+    DRI_COUNT=${#DRI_CARDS[@]}
+fi
 if [ "$DRI_COUNT" -gt 0 ]; then
     print_status 0 "DRI devices: ${BOLD}$DRI_COUNT card devices${NC} available"
 else
     print_status 1 "DRI devices: ${BOLD}No card devices found${NC}"
 fi
 
-RENDER_COUNT=$(ls /dev/dri/renderD* 2>/dev/null | wc -l)
+# Same glob-counting approach as the card devices above.
+RENDER_NODES=(/dev/dri/renderD*)
+RENDER_COUNT=0
+if [ -e "${RENDER_NODES[0]}" ]; then
+    RENDER_COUNT=${#RENDER_NODES[@]}
+fi
 if [ "$RENDER_COUNT" -gt 0 ]; then
     print_status 0 "Render nodes: ${BOLD}$RENDER_COUNT render nodes${NC} for acceleration"
 else
@@ -183,8 +213,14 @@ echo ""
 echo -e "${BLUE}${BOLD}7. RECENT SERVICE LOGS${NC}"
 echo -e "${BLUE}───────────────────────${NC}"
 
-RECENT_ERRORS=$(journalctl -u displaylink-driver -p err -n 5 --no-pager 2>/dev/null)
-if [ -z "$RECENT_ERRORS" ]; then
+# journalctl's status is checked so an unreadable journal (no permission, no
+# persistent journal, journald not running) cannot be reported as a green
+# "None found". Absence of evidence is not evidence of absence, least of all in
+# the section someone reads to find out what went wrong.
+if ! RECENT_ERRORS=$(journalctl -u displaylink-driver -p err -n 5 --no-pager 2>/dev/null); then
+    echo -e "  ${YELLOW}⚠${NC}  Recent errors: ${BOLD}Could not read the journal${NC}"
+    echo -e "      Not the same as 'no errors' - try re-running with sudo"
+elif [ -z "$RECENT_ERRORS" ]; then
     print_status 0 "Recent errors: ${BOLD}None found${NC}"
 else
     echo -e "  ${YELLOW}⚠${NC}  Recent errors found:"

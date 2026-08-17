@@ -51,13 +51,31 @@ if [[ $CHECK_ONLY -eq 0 ]]; then
     echo -e "${BLUE}───────────────────────────${NC}"
 fi
 
-SB_STATE=$(mokutil --sb-state 2>&1)
+# Keyed on what mokutil actually SAYS, not on the absence of the "enabled"
+# string. Previously anything other than "SecureBoot enabled" was reported as
+# "Secure Boot: Disabled" — including mokutil not being installed, or failing on
+# a machine with no EFI variables. That asserted Secure Boot was OFF without
+# ever establishing it, and the whole MOK section below then reported
+# "Not needed", making a false all-clear out of a failed query.
+#
+# Note this line escaped the bash-capture-discards-status gate because it uses
+# 2>&1 rather than 2>/dev/null. The gate catches a shape; it does not replace
+# reading the code.
+SB_RC=0
+SB_STATE=$(mokutil --sb-state 2>&1) || SB_RC=$?
+SECURE_BOOT_KNOWN=1
 if echo "$SB_STATE" | grep -q "SecureBoot enabled"; then
     echo -e "  ${GREEN}✅${NC} Secure Boot: ${BOLD}Enabled${NC}"
     SECURE_BOOT=1
-else
+elif echo "$SB_STATE" | grep -q "SecureBoot disabled"; then
     print_warning "Secure Boot: ${BOLD}Disabled${NC}"
     SECURE_BOOT=0
+else
+    print_warning "Secure Boot: ${BOLD}Could not determine${NC} (mokutil exit $SB_RC)"
+    print_info "Output: ${SB_STATE:-(none)}"
+    print_info "This is NOT the same as 'disabled' — the state is unknown"
+    SECURE_BOOT=0
+    SECURE_BOOT_KNOWN=0
 fi
 
 # Check for akmods MOK key enrollment
@@ -77,19 +95,38 @@ if [ -f /etc/pki/akmods/certs/public_key.der ]; then
 else
     # Method 2: Check if ANY MOK keys are enrolled (may be enrolled from earlier Fedora version)
     if [ "$SECURE_BOOT" -eq 1 ]; then
-        ENROLLED_COUNT=$(mokutil --list-enrolled 2>/dev/null | grep -c "^SHA1 Fingerprint:")
-        if [ "$ENROLLED_COUNT" -gt 0 ]; then
-            print_warning "akmods key file not found, but ${BOLD}$ENROLLED_COUNT MOK key(s) enrolled${NC}"
-            print_info "Keys may be from previous Fedora version or manual enrollment"
-            # If modules are actually loaded with Secure Boot, the key MUST be enrolled
-            # We'll verify this later by checking loaded modules
-            MOK_ENROLLED=2  # Mark as "uncertain but possible"
+        # mokutil's own status is captured BEFORE the grep, because the grep's
+        # status is about matching, not about whether the query ran. Previously
+        # `$(mokutil … | grep -c …)` gave 0 both when no keys were enrolled and
+        # when mokutil was missing or failed — and the script then reported
+        # "no MOK keys enrolled". For a Secure Boot diagnostic that is a wrong
+        # answer that sends someone to re-enrol a key they may already have.
+        if ! MOK_LIST=$(mokutil --list-enrolled 2>/dev/null); then
+            print_warning "akmods MOK Key: ${BOLD}Could not check${NC} — mokutil is unavailable or failed"
+            print_info "This is NOT the same as 'no keys enrolled' — the query did not run"
+            MOK_ENROLLED=2  # uncertain, exactly as when keys are found but unverifiable
+            ENROLLED_COUNT=0
         else
-            print_status 1 "akmods MOK Key: ${BOLD}Not found and no MOK keys enrolled${NC}"
+            ENROLLED_COUNT=$(printf '%s\n' "$MOK_LIST" | grep -c "^SHA1 Fingerprint:")
+            if [ "$ENROLLED_COUNT" -gt 0 ]; then
+                print_warning "akmods key file not found, but ${BOLD}$ENROLLED_COUNT MOK key(s) enrolled${NC}"
+                print_info "Keys may be from previous Fedora version or manual enrollment"
+                # If modules are actually loaded with Secure Boot, the key MUST be enrolled
+                # We'll verify this later by checking loaded modules
+                MOK_ENROLLED=2  # Mark as "uncertain but possible"
+            else
+                print_status 1 "akmods MOK Key: ${BOLD}Not found and no MOK keys enrolled${NC}"
+            fi
         fi
-    else
+    elif [ "$SECURE_BOOT_KNOWN" -eq 1 ]; then
         print_info "akmods MOK Key: Not needed (Secure Boot disabled)"
         MOK_ENROLLED=1  # Not needed, so consider it "OK"
+    else
+        # Secure Boot state is UNKNOWN, so "not needed" would be a guess. Saying
+        # the key is fine because we could not read the Secure Boot state is
+        # precisely the false all-clear this section is meant to avoid.
+        print_warning "akmods MOK Key: ${BOLD}Cannot say${NC} — Secure Boot state is unknown"
+        MOK_ENROLLED=2  # uncertain
     fi
 fi
 [[ $CHECK_ONLY -eq 0 ]] && echo ""
@@ -140,8 +177,8 @@ MODULES_OK=0
 
 # Check if nvidia module exists
 if modinfo nvidia &>/dev/null; then
-    NVIDIA_VERSION=$(modinfo -F version nvidia 2>/dev/null)
-    print_status 0 "nvidia module built: ${BOLD}Version $NVIDIA_VERSION${NC}"
+    NVIDIA_VERSION=$(modinfo -F version nvidia 2>/dev/null)  # FAIL-FAST-OK: the enclosing `if modinfo nvidia` already established the module resolves
+    print_status 0 "nvidia module built: ${BOLD}Version ${NVIDIA_VERSION:-unknown}${NC}"
     MODULE_EXISTS=1
 else
     print_status 1 "nvidia module: ${BOLD}Not found${NC} (module not built yet)"
@@ -211,16 +248,34 @@ OPENGL_OK=0
 HYBRID_GRAPHICS=0
 
 if command -v glxinfo &>/dev/null; then
-    GL_VENDOR=$(glxinfo 2>/dev/null | grep "OpenGL vendor" | cut -d: -f2 | xargs)
-    GL_RENDERER=$(glxinfo 2>/dev/null | grep "OpenGL renderer" | cut -d: -f2 | xargs)
-    GL_VERSION=$(glxinfo 2>/dev/null | grep "OpenGL version" | cut -d: -f2 | xargs)
+    # glxinfo is PRESENT but can still fail — no display, no GL context, a
+    # headless or SSH session. Its status is therefore checked, and it is run
+    # ONCE rather than three times. Previously three separate captures discarded
+    # the status, so a failed query left all three empty and the script printed
+    # "OpenGL vendor:  (expected: NVIDIA Corporation)" with a red cross —
+    # reporting a driver fault when the truth was "there is nothing to query".
+    GLXINFO_OK=1
+    if ! GLXINFO_OUT=$(glxinfo 2>/dev/null); then
+        print_warning "OpenGL: ${BOLD}Could not query${NC} — glxinfo is installed but failed"
+        print_info "Usually no display/GL context (headless or SSH session), not a driver fault"
+        GLXINFO_OUT=""
+        GLXINFO_OK=0
+    fi
+    GL_VENDOR=$(printf '%s\n' "$GLXINFO_OUT" | grep "OpenGL vendor" | cut -d: -f2 | xargs)
+    GL_RENDERER=$(printf '%s\n' "$GLXINFO_OUT" | grep "OpenGL renderer" | cut -d: -f2 | xargs)
+    GL_VERSION=$(printf '%s\n' "$GLXINFO_OUT" | grep "OpenGL version" | cut -d: -f2 | xargs)
 
     # Detect hybrid graphics (Intel/AMD iGPU + NVIDIA dGPU)
     if (echo "$GL_RENDERER" | grep -Eqi "intel|radeon|amd") && [ "$DRIVER_OK" -eq 1 ]; then
         HYBRID_GRAPHICS=1
     fi
 
-    if echo "$GL_VENDOR" | grep -qi "nvidia"; then
+    if [ "$GLXINFO_OK" -eq 0 ]; then
+        # No verdict to give. Printing "OpenGL vendor:  (expected: NVIDIA
+        # Corporation)" with a red cross here blamed the driver for a query that
+        # never ran — the failure is already reported above.
+        print_info "OpenGL vendor/renderer: not reported (the query above failed)"
+    elif echo "$GL_VENDOR" | grep -qi "nvidia"; then
         print_status 0 "OpenGL vendor: ${BOLD}$GL_VENDOR${NC}"
         echo -e "      Renderer: ${BOLD}$GL_RENDERER${NC}"
         echo -e "      Version: ${BOLD}$GL_VERSION${NC}"
@@ -255,13 +310,13 @@ VULKAN_OK=0
 if command -v vulkaninfo &>/dev/null; then
     # Check if vulkaninfo can run without errors
     if vulkaninfo --summary &>/dev/null; then
-        VULKAN_DEVICES=$(vulkaninfo --summary 2>/dev/null | grep -A1 "GPU" | grep "deviceName" | cut -d= -f2 | xargs)
+        VULKAN_DEVICES=$(vulkaninfo --summary 2>/dev/null | grep -A1 "GPU" | grep "deviceName" | cut -d= -f2 | xargs)  # FAIL-FAST-OK: guarded by both `command -v vulkaninfo` and a successful `vulkaninfo --summary` above
         if echo "$VULKAN_DEVICES" | grep -qi "nvidia"; then
             print_status 0 "Vulkan runtime: ${BOLD}Working${NC}"
             echo -e "      GPU: ${BOLD}$VULKAN_DEVICES${NC}"
 
             # Get Vulkan version
-            VK_VERSION=$(vulkaninfo --summary 2>/dev/null | grep "apiVersion" | head -1 | cut -d= -f2 | xargs)
+            VK_VERSION=$(vulkaninfo --summary 2>/dev/null | grep "apiVersion" | head -1 | cut -d= -f2 | xargs)  # FAIL-FAST-OK: same guards, and emptiness is explicitly checked on the next line
             if [ -n "$VK_VERSION" ]; then
                 echo -e "      API Version: ${BOLD}$VK_VERSION${NC}"
             fi
@@ -328,8 +383,15 @@ if [[ $CHECK_ONLY -eq 0 ]]; then
     echo -e "${BLUE}──────────────────────${NC}"
 fi
 
-RECENT_ERRORS=$(journalctl -k -p err -g nvidia -n 5 --no-pager 2>/dev/null)
-if [ -z "$RECENT_ERRORS" ]; then
+# A false all-clear is the worst outcome for a diagnostic, so journalctl's status
+# is checked. Unreadable journal (no permission, no persistent journal, journald
+# not running) used to yield an empty string and print "Recent errors: None
+# found" with a green tick — reporting the absence of evidence as evidence of
+# absence, on the one section someone reads to find out what went wrong.
+if ! RECENT_ERRORS=$(journalctl -k -p err -g nvidia -n 5 --no-pager 2>/dev/null); then
+    print_warning "Recent errors: ${BOLD}Could not read the kernel journal${NC}"
+    print_info "Not the same as 'no errors' — try: sudo $0"
+elif [ -z "$RECENT_ERRORS" ]; then
     print_status 0 "Recent errors: ${BOLD}None found${NC}"
 else
     print_warning "Recent kernel errors found:"
