@@ -59,13 +59,34 @@ version 2.1.233, build `f8d5756`) and one live probe.
 | F4  | The route exists — an unauthenticated `GET` returns HTTP **429** `rate_limit_error`, not 404                                                                                                         | live probe from the CCY container                      |
 | F5  | There is **no** supported CLI route: `claude --help` lists no `usage` subcommand, and the statusline `rate_limits` block is documented as populated only *after* the first API response of a session | `claude --help`; statusline schema doc in `claude.exe` |
 | F6  | With an `Authorization: Bearer` header present the endpoint returns a real **auth verdict** — a bogus bearer gets **401**, not the IP-level 429 of F4                                                | live probe, 5 synthetic bearers                        |
+| F7  | The feature is confirmed **deployed and running** on the HOST: `ccy --list-tokens` renders a `Usage:` line per token                                                                                 | HOST run after `deploy.bash`                           |
+| F8  | First real HOST run: **3 tokens → 401, 1 token → 429**, from one 4-way parallel burst                                                                                                                | HOST `ccy --list-tokens`                               |
 
 F5 is why this plan reads an internal endpoint at all: nothing supported reports
 the figure before a session starts.
 
-F6 matters for the gate below: because a bearer produces 401 rather than the
-shared-IP 429, a real token on the HOST yields an unambiguous answer — 200 or 401,
-with no third "can't tell" outcome to re-run around.
+F6 was expected to make the gate unambiguous — a bearer produces 401 rather than
+the shared-IP 429, so a real token should answer 200 or 401 and nothing else.
+
+**F8 broke that expectation and is not yet resolved.** Three of four tokens were
+refused outright, but one returned 429, which F6 says a *credentialed* request
+should not do. Two readings, and they point opposite ways:
+
+- the burst is ours — `usage_prime_cache` fires all four in parallel, and a
+  single IP can be throttled *before* the credential is evaluated (consistent
+  with F4, where an uncredentialed request also got 429); or
+- that token passed auth and then met a per-account limit — which would mean
+  some tokens **are** accepted, and Q1 is not a flat no.
+
+The 429 token is also the odd one out by vintage (expiry 2026-10-04 against
+2026-09-08 for the other three), so a format or scope difference is plausible.
+
+**Q1 therefore remains open.** Declaring it "no" on 3-of-4 would be asserting a
+cause from a sample that contains its own counter-example. `triage.bash` settles
+it: it probes sequentially (removing our own burst as a variable), retries once
+after a pause on any 429, and adds a `/api/oauth/profile` status-only probe that
+separates "not an OAuth-route credential at all" from "/usage specifically
+refuses it".
 
 ### Open questions
 
@@ -138,12 +159,13 @@ rather than leaving that in place.
 - [x] ✅ **Task 4.0**: Add `deploy.bash` naming the correct play. The first attempt
   named `play-claude-code.yml`, which only *asserts* the lib exists and deploys
   none of it — it ran green while the host kept the old library
-- [ ] 🔄 **Task 4.1**: Run `deploy.bash` (→ `play-claude-yolo.yml`, which owns both
-  `lib/token-management.bash` and the `claude-yolo` wrapper) — **HOST action**
-- [ ] ⬜ **Task 4.2**: Run `ccy --list-tokens` and record the real status per token.
-  A `200` answers Q1 yes; `usage: not authorised` on every row answers it no.
-  **No `Usage:` line at all is not an answer** — it means the new library is not
-  running; `triage.bash` now reports deployment state to tell those apart
+- [x] ✅ **Task 4.1**: Run `deploy.bash` (→ `play-claude-yolo.yml`, which owns both
+  `lib/token-management.bash` and the `claude-yolo` wrapper) — deployed, F7
+- [x] ✅ **Task 4.2**: Run `ccy --list-tokens` — gave F8 (3×401, 1×429), which is
+  **not** a settled answer to Q1
+- [ ] 🔄 **Task 4.2b**: Run `triage.bash` on the HOST to resolve F8: sequential
+  probes, one retry after a pause on any 429, and the `/api/oauth/profile` route
+  discriminator — **HOST action**
 - [ ] ⬜ **Task 4.3**: If Q1 is no — strip the feature back out rather than leaving
   a permanently-dim row on every launch; record the finding and cancel
 - [ ] ⬜ **Task 4.4**: If Q1 is yes — confirm the rendered line against the real
@@ -152,6 +174,11 @@ rather than leaving that in place.
 
 ### Phase 5: Follow-up recorded, not yet actioned
 
+- [ ] ⬜ **Task 5.0**: If Q1 turns out partly yes, revisit the parallel burst:
+  firing N requests at once may trip an IP throttle and render a spurious
+  `usage: rate limited`. Options if it proves real — small stagger between
+  workers, or a single `curl --next` chain (measured at 416 ms for 5, versus
+  203 ms parallel: slower, but one connection and one request stream)
 - [ ] ⬜ **Task 5.1**: `scripts/qa-deployed-drift.bash` (Plan 00072) compares only
   `files/home/.local/bin/` against its deployed copies. It does not cover
   `files/var/local/claude-yolo/`, which is why an undeployed library here was

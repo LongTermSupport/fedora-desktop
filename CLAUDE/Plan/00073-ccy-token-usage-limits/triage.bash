@@ -27,6 +27,7 @@ set -euo pipefail
 
 ONLY_TOKEN=""
 SHOW_RAW_BODY=1
+RETRY_PAUSE=5
 
 usage() {
     cat <<'EOF'
@@ -91,6 +92,7 @@ LOG="$REPORTS_DIR/token-usage-triage.log"
 
 TOKEN_DIR="${CCY_TOKEN_DIR:-$HOME/.claude-tokens/ccy/tokens}"
 USAGE_URL="https://api.anthropic.com/api/oauth/usage"
+PROFILE_URL="https://api.anthropic.com/api/oauth/profile"
 
 if [ -f /.dockerenv ] || [ -d /workspace/.claude ]; then
     echo "ERROR: this looks like a CCY container." >&2
@@ -192,12 +194,11 @@ describe_token_shape() {
     echo "length: ${#token} chars"
 }
 
-# The whole point of the exercise: does this credential open the endpoint?
-# Token goes to curl via --config on stdin so it never lands in argv/ps.
-fetch_usage() {
-    local token="$1" body_file="$2"
-    local http_code
-    http_code="$(printf 'header = "Authorization: Bearer %s"\n' "$token" \
+# One authenticated GET. Token goes to curl via --config on stdin so it never
+# lands in argv/ps. Echoes the status; writes the body to $3.
+_one_get() {
+    local token="$1" url="$2" body_file="$3"
+    printf 'header = "Authorization: Bearer %s"\n' "$token" \
         | curl --config - \
                --silent --show-error \
                --request GET \
@@ -205,11 +206,57 @@ fetch_usage() {
                --max-time 15 \
                --output "$body_file" \
                --write-out '%{http_code}' \
-               "$USAGE_URL")"
+               "$url"
+}
+
+# The whole point of the exercise: does this credential open the endpoint?
+#
+# Retries once on 429, after a pause, because a 429 is NOT a verdict. ccy fetches
+# every token in one parallel burst, and a burst from a single IP can be throttled
+# before the credential is ever evaluated — which is exactly what produced one
+# unexplained "usage: rate limited" row among three 401s on the first HOST run.
+# A token that answers 401 on the retry was always going to be refused; one that
+# answers 200 was accepted and merely throttled. Probing SEQUENTIALLY here (this
+# whole script is a serial loop) removes the burst as a variable in the first
+# place; the retry covers a throttle that is not ours.
+fetch_usage() {
+    local token="$1" body_file="$2"
+    local http_code
+    http_code="$(_one_get "$token" "$USAGE_URL" "$body_file")"
     echo "http_status: $http_code"
+
+    if [ "$http_code" = "429" ]; then
+        echo "NOTE: 429 is not an auth verdict — pausing ${RETRY_PAUSE}s and retrying once."
+        sleep "$RETRY_PAUSE"
+        http_code="$(_one_get "$token" "$USAGE_URL" "$body_file")"
+        echo "http_status_after_retry: $http_code"
+    fi
+
     if [ "$http_code" != "200" ]; then
         echo "NOTE: non-200 — see the body below for the refusal reason."
     fi
+}
+
+# Discriminator: is this credential rejected by /usage specifically, or is it not
+# an OAuth-route credential at all? /api/oauth/profile is a different route
+# behind the same auth. Status ONLY is reported — never the body, which carries
+# the account email; there is no reason to put that on disk to answer this.
+probe_profile_route() {
+    local token="$1"
+    local body http_code
+    body="$(mktemp)"
+    http_code="$(_one_get "$token" "$PROFILE_URL" "$body")"
+    rm -f "$body"
+    echo "profile_route_http_status: $http_code  (body deliberately not captured)"
+    echo ""
+    echo "  Read together with the /usage status above:"
+    echo "    profile 200 + usage 401 -> token IS valid on OAuth routes; /usage"
+    echo "                               specifically refuses it. Feature is dead"
+    echo "                               for this token type, but for a narrower"
+    echo "                               reason than 'the token is not OAuth'."
+    echo "    profile 401 + usage 401 -> setup-tokens are not OAuth-route"
+    echo "                               credentials at all. Q1 = NO, clearly."
+    echo "    profile 200 + usage 200 -> it works; the 401s were something else."
 }
 
 # Is the host actually RUNNING the code this repo contains? A menu that shows no
@@ -340,6 +387,7 @@ trap cleanup EXIT
         : > "$TMP_BODY"
         probe "GET /api/oauth/usage" fetch_usage "$token" "$TMP_BODY"
         probe "response shape (Q2)" describe_json_shape "$TMP_BODY"
+        probe "GET /api/oauth/profile — route discriminator" probe_profile_route "$token"
 
         if [ "$SHOW_RAW_BODY" -eq 1 ]; then
             echo "### response body (redacted)"
@@ -359,12 +407,20 @@ trap cleanup EXIT
       echo "      answer to Q1. Run this plan's deploy.bash first, then re-check."
     echo ""
     echo "Q1  Does a stored setup-token authenticate?"
-    echo "      Look at every 'GET /api/oauth/usage' section above."
-    echo "      http_status 200        -> yes; Plan 00073 Phase 3 proceeds."
-    echo "      http_status 401 / 403  -> no; the token is scoped to /v1/messages."
-    echo "                                Record it and CANCEL the plan. Do not"
-    echo "                                engineer around a scoped credential."
-    echo "      http_status 429        -> rate limited, not an auth answer. Re-run later."
+    echo "      Look at every 'GET /api/oauth/usage' section above. These probes"
+    echo "      are SEQUENTIAL, unlike ccy's parallel burst, so a 429 here is not"
+    echo "      self-inflicted — and any 429 was retried once after a pause."
+    echo "      http_status 200        -> yes; the feature works. Confirm the"
+    echo "                                envelope against the shape report."
+    echo "      http_status 401 / 403  -> no; the token is not accepted here."
+    echo "                                Strip the feature back out and cancel."
+    echo "                                Do not engineer around a scoped credential."
+    echo "      429 even after retry   -> still not a verdict. Re-run later, or use"
+    echo "                                --token NAME to probe just that one."
+    echo ""
+    echo "      Then read the 'profile route discriminator' beneath each token: it"
+    echo "      separates 'this is not an OAuth-route credential at all' from"
+    echo "      '/usage specifically refuses it'."
     echo ""
     echo "Q2  What is the envelope?"
     echo "      The 'response shape' sections list every leaf path and its type."
