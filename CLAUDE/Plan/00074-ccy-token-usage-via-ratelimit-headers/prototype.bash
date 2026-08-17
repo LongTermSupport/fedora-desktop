@@ -324,23 +324,41 @@ arm_claude() {
         return 0
     fi
 
-    local dbg out rc hits
+    local dbg out rc hits workdir
     dbg="$(mktemp)"; out="$(mktemp)"
+    # Run from an empty directory, NOT the repo. Invoked inside the checkout, the
+    # CLI would load this project's CLAUDE.md and hooks daemon — inflating the
+    # very input-token cost this arm exists to measure, and risking a hook that
+    # stalls the run. An empty cwd makes the control a control.
+    workdir="$(mktemp -d)"
 
+    # BSH-09: token by NAME in the environment, never in argv.
     local CLAUDE_CODE_OAUTH_TOKEN="$TOKEN"
     export CLAUDE_CODE_OAUTH_TOKEN
 
-    if claude -p "." \
+    # `--tools ""` is the CLI's documented way to disable all built-in tools.
+    # Bounded so a stalled CLI cannot hang the whole prototype; 124 = timed out.
+    if (cd "$workdir" && timeout 120 claude -p "." \
             --model "$CLI_MODEL" \
             --tools "" \
             --debug \
-            --debug-file "$dbg" \
-            > "$out" 2>&1; then
+            --debug-file "$dbg") > "$out" 2>&1; then
         rc=0
     else
         rc=$?
     fi
     unset CLAUDE_CODE_OAUTH_TOKEN
+    # rmdir would fail (and abort under set -e) the moment the CLI drops a
+    # .claude/ in there. Guarded on non-empty so this can only ever remove the
+    # mktemp -d created two dozen lines above.
+    if [ -n "$workdir" ] && [ -d "$workdir" ]; then
+        rm -rf -- "$workdir"
+    fi
+
+    if [ "$rc" -eq 124 ]; then
+        echo "NOTE: the CLI arm timed out after 120s (exit 124)."
+        echo "      That is a control-arm failure only — ARM 1 above is the result."
+    fi
 
     echo "exit_status: $rc"
     echo ""
