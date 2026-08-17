@@ -122,8 +122,13 @@ busy account leaves it open and means probing a busier one still.
   miss cost latency, here it costs quota
 - [x] ✅ **Task 3.5**: `CCY_VERSION` 3.34.0, `token-management.bash` 1.9.0
 - [x] ✅ **Task 3.6**: `./scripts/qa-all.bash` green
-- [ ] 🔄 **Task 3.7**: Deploy on the HOST and confirm against real accounts —
-  **HOST action**, `deploy.bash`
+- [x] ✅ **Task 3.7**: `acceptance.bash` — verifies the deploy landed (deployed
+  library `cmp`s to the repo, versions match, usage functions and `u)` option
+  really present). Closes the 00073 wrong-play gap that
+  `qa-deployed-drift.bash` cannot see, since it covers only
+  `files/home/.local/bin/`
+- [ ] 🔄 **Task 3.8**: Deploy on the HOST, run `acceptance.bash`, then press `u`
+  against real accounts — **HOST action**
 
 ## Technical Decisions
 
