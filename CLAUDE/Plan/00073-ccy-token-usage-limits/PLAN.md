@@ -86,9 +86,11 @@ HOST.** The container cannot answer Q1: it holds no token and no
   menu shows today (name + colourised expiry only)
 - [x] ✅ **Task 1.2**: Confirm from the shipped binary how Claude Code fetches usage,
   and that no supported CLI route exists (F1–F5)
-- [ ] ⬜ **Task 1.3**: Write `triage.bash` — probe every stored token against
-  `/api/oauth/usage`, report HTTP status and response shape, redact the bearer
-- [ ] ⬜ **Task 1.4**: Run `triage.bash` on the HOST and record Q1/Q2/Q3 in the journal
+- [x] ✅ **Task 1.3**: Write `triage.bash` — probe every stored token against
+  `/api/oauth/usage`, report HTTP status and response shape, redact the bearer.
+  Exercised end to end against a stub endpoint; shellcheck-clean
+- [ ] 🔄 **Task 1.4**: Run `triage.bash` on the HOST and record Q1/Q2/Q3 in the
+  journal — **HOST action, blocked on the container boundary**
 
 ### Phase 2: Decision gate
 
@@ -175,3 +177,4 @@ is a `2>/dev/null` that hides *why* the fetch failed.
      JOURNAL/00073-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
 - Facts F1–F5 established from the shipped binary and one live probe
+- `933b731` — plan + `triage.bash` (HOST run pending; Q1 unanswered)
