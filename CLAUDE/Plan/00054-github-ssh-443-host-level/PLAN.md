@@ -1,6 +1,6 @@
 # Plan 00054: Host-level GitHub SSH-over-443, unified with CCY
 
-**Status**: In Progress (implementation + QA complete; HOST deploy + live test pending)
+**Status**: Dormant (blocked on a HOST deploy + live test; implementation and QA are complete — 44 of 45 tasks done, no code work remains)
 **Created**: 2026-06-16
 **Owner**: joseph / Claude
 **Priority**: Medium
