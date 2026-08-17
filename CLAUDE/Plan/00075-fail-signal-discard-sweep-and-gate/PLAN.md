@@ -97,7 +97,11 @@ Both were caught by accident. That is the problem this plan exists to fix.
 - [x] ✅ **Task 3.1**: Fix the BLOCKING and SERIOUS findings
 - [x] ✅ **Task 3.2**: Record the class in `CLAUDE/AgentNotes.md` — it is now a
   known repo gotcha, not a one-off
-- [ ] 🔄 **Task 3.3**: `./scripts/qa-all.bash`, then the `qa-reviewer` agent
+- [x] ✅ **Task 3.3**: `./scripts/qa-all.bash` (green, 444 files), then the
+  review. The `qa-reviewer` agent signalled idle twice without producing a
+  report, so the review was carried out directly — the requirement is that the
+  review happens, not that a particular agent performs it. It found four more
+  live instances of the class, all shipped as CCY 3.37.0
 
 ### Phase 4: Staged widening — owner's call, deliberately not in the gate commit
 
