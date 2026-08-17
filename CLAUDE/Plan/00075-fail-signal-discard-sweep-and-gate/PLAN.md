@@ -65,37 +65,51 @@ Both were caught by accident. That is the problem this plan exists to fix.
 
 ## Tasks
 
-### Phase 1: Sweep 🔄
+### Phase 1: Sweep ✅
 
-- [ ] 🔄 **Task 1.1**: `files/var/local/claude-yolo/` — the ccy wrapper and libs
-- [ ] 🔄 **Task 1.2**: `files/home/.local/bin/` and other deployed scripts
-- [ ] 🔄 **Task 1.3**: `scripts/`, `helpers/`, `playbooks/`, plan-local scripts —
+- [x] ✅ **Task 1.1**: `files/var/local/claude-yolo/` — the ccy wrapper and libs
+- [x] ✅ **Task 1.2**: `files/home/.local/bin/` and other deployed scripts
+- [x] ✅ **Task 1.3**: `scripts/`, `helpers/`, `playbooks/`, plan-local scripts —
   including **QA gates that cannot fail**, which is the highest-value target: a
   gate that reports PASS on unchecked code is the same defect class applied to
   the safety net itself
-- [ ] ⬜ **Task 1.4**: Triage all findings — BLOCKING / SERIOUS / MINOR, with the
+- [x] ✅ **Task 1.4**: Triage all findings — BLOCKING / SERIOUS / MINOR, with the
   false positives explicitly dismissed rather than silently dropped
 
-### Phase 2: Gate
+### Phase 2: Gate ✅
 
-- [ ] 🔄 **Task 2.1**: Establish what today's tooling actually catches, with
-  evidence, and the exact gap
-- [ ] ⬜ **Task 2.2**: Real shellcheck numbers per severity and per SC code — the
-  decision input for whether the gate can be raised today or needs a cleanup
-  pass first
-- [ ] ⬜ **Task 2.3**: Implement the gate. Semgrep rules in
-  `.semgrep/bash-conventions.yml` and/or a raised shellcheck bar in
-  `qa-bash.bash`, wired into `qa-all.bash` so it fails a build
-- [ ] ⬜ **Task 2.4**: Prove the gate catches BOTH incidents — check the exact
-  pre-fix code in as a fixture and confirm the gate rejects it. A gate that does
-  not catch the bug that motivated it is theatre
+- [x] ✅ **Task 2.1**: Establish what today's tooling actually catches, with
+  evidence, and the exact gap. Found `bash-error-hiding-pipe-echo` had **never
+  matched anything real** — `pattern: $CMD || echo $MSG` binds a bare command
+  word, so all 16 live sites were invisible and the zero was read as clean
+- [x] ✅ **Task 2.2**: Real shellcheck numbers per severity and per SC code —
+  125 files: 0 error / 26 warning / 79 info / 0 style; SC2155 ×16 is this class
+- [x] ✅ **Task 2.3**: Implement the gate — `bash-status-after-block` and
+  `bash-capture-discards-status` added, `bash-error-hiding-pipe-echo` repaired,
+  shellcheck made **required** in `qa-bash.bash` (absent ⇒ exit 2, no free pass)
+- [x] ✅ **Task 2.4**: Prove the gate catches BOTH incidents — the exact pre-fix
+  code is checked in as annotated fixtures in `.semgrep/bash-conventions.bash`,
+  and `qa-patterns.bash` runs `semgrep --test` before scanning, so a rule that
+  stops matching is a hard failure rather than a quiet zero
 
-### Phase 3: Fix and close
+### Phase 3: Fix and close 🔄
 
-- [ ] ⬜ **Task 3.1**: Fix the BLOCKING and SERIOUS findings
-- [ ] ⬜ **Task 3.2**: Record the class in `CLAUDE/AgentNotes.md` — it is now a
+- [x] ✅ **Task 3.1**: Fix the BLOCKING and SERIOUS findings
+- [x] ✅ **Task 3.2**: Record the class in `CLAUDE/AgentNotes.md` — it is now a
   known repo gotcha, not a one-off
-- [ ] ⬜ **Task 3.3**: `./scripts/qa-all.bash`, then the `qa-reviewer` agent
+- [ ] 🔄 **Task 3.3**: `./scripts/qa-all.bash`, then the `qa-reviewer` agent
+
+### Phase 4: Staged widening — owner's call, deliberately not in the gate commit
+
+Both are mechanical but bulky, and mixing a refactor into the commit that
+introduces a gate makes the gate unreviewable. Neither is a blocker.
+
+- [ ] ⬜ **Task 4.1**: Raise the `qa-bash.bash` shellcheck bar from `error` to
+  `warning` — 26 findings, 16 of them SC2155 (`local x=$(cmd)` masks the status),
+  which **is** this defect class
+- [ ] ⬜ **Task 4.2**: Widen `bash-capture-discards-status` beyond
+  `files/var/local/claude-yolo/**` — 31 remaining findings, to be triaged tree by
+  tree rather than blanket-annotated
 
 ## Technical Decisions
 

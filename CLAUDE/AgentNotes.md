@@ -207,6 +207,70 @@ satisfies that principle when it does not.
 
 Repo-specific traps and conventions (the `project`-type notes).
 
+### A discarded failure signal becomes data — and then becomes a confident wrong answer
+
+**The class** (Plan 00075): *a command's failure is silently converted into data,
+and that data is then used to make a decision or reported to the user as fact.*
+
+The problem is not that something broke. It is that the breakage was laundered
+into a confident wrong answer, which is **strictly worse than an error** — an
+error sends you to the real cause, a wrong answer sends you somewhere else
+entirely. Both incidents below were found by accident, weeks apart.
+
+**Four faces, only two of which any linter sees:**
+
+1. **Capture with the status discarded.** `user=$(gh api user --jq .login 2>/dev/null)`
+   — GitHub answered 502, `gh` wrote its JSON error body to **stdout**, the status
+   was thrown away, and the blob was compared as if it were an account name. ccy
+   refused to launch and told the user their `localhost.yml` mapping was wrong. It
+   was not; GitHub was down. (CCY 3.36.0, `ssh-handling.bash` + `entrypoint.sh`.)
+2. **`$?` read after a block terminator.** After `if cmd; then …; fi` with no
+   `else`, `$?` is the status of the **`if` statement**, which succeeded — never of
+   its condition. Same for `done`, `esac`, and a function's closing `}`. Plan
+   00074's prototype reported every legitimate `grep` no-match as
+   *"grep failed (exit 0)"*. **shellcheck does not catch this even with
+   `--enable=all`** (verified) — SC2181 covers `[ $? -eq 0 ]`, not status read from
+   the wrong scope.
+3. **A fallback that answers the question it was asked.** `tracked=$(git ls-files "$d" || echo "")`
+   then `[ -z "$tracked" ]` ⇒ "nothing sensitive is tracked". That is a *security*
+   gate in `common.bash`, and "git could not be asked" was reading as the all-clear.
+   `scripts/lint` had five of these (`jq … || echo "0"`), so a parse failure made
+   the linter announce *"✓ No ansible-lint violations found!"* — a checker
+   reporting clean because its own parser broke. **QA gates are the highest-value
+   place to look for this**: the green tick is the entire output.
+4. **A meaningful status destroyed by the call context.** No static rule finds
+   this one — it needs the call graph. `stats=$(get_container_stats "$c")` is a
+   plain assignment in a plainly-called function, so `errexit` is live: the
+   function's `return 1` did not produce the "unknown" fallback row it was written
+   for, it killed `ccy --top` mid-render. Likewise `x=$(cmd 2>&1)` followed by
+   `exit_code=$?` — errexit kills the assignment before `$?` is ever read, making
+   the whole error-handling branch dead code.
+
+**The gate** (`.semgrep/bash-conventions.yml`, run by `./scripts/qa-all.bash`)
+catches faces 1–3 mechanically: `bash-capture-discards-status`,
+`bash-status-after-block`, `bash-error-hiding-pipe-echo`,
+`bash-error-hiding-or-true`. Genuine exceptions carry a same-line
+`# FAIL-FAST-OK: <reason>`. Face 4 is a review question, not a rule.
+
+**How to apply:**
+
+- Put the call in a **condition** — `if ! out=$(cmd 2>&1); then …; fi`. That both
+  preserves the status and suspends `errexit`, fixing faces 1 and 4 at once.
+- For an intentional fallback, be explicit and separate: `var=$(cmd) || var=""`.
+  Never bury the default inside the substitution.
+- Capture `$?` where it is **produced** (`else rc=$?`), never after a terminator.
+- A function returning a meaningful non-zero status must **say so at its
+  definition**, and every call site must be in a condition or read the status.
+  Prefer a *total* contract (`return 0` with a sentinel value) where callers only
+  want a display string.
+- **Before writing a `FAIL-FAST-OK`, check the call sites.** Mine on
+  `docker-health.bash:84` claimed "the failure is surfaced, not absorbed" and was
+  wrong — the `return 1` propagated into three plain assignments under `errexit`
+  and killed the caller. The reasoning read the function in isolation and looked
+  entirely sound.
+- Beware "fixes" that reintroduce it: `grep -c .` exits 1 on zero matches, so it
+  aborts under `set -e` in exactly the **correct** case.
+
 ### Never pre-create a file that a generator expects to own
 
 `lookup('ansible.builtin.password', <path>, …)` **generates** a secret only when
