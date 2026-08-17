@@ -2,7 +2,13 @@
 # Claude YOLO Docker Health Library
 # Handles zombie container detection, overlay2 migration, and docker health checks
 #
-# Version: 1.1.0 - Container engine abstraction (docker/podman support)
+# Version: 1.2.0 - Plan 00075: get_container_stats() made a total contract
+#                  (returns 0 with an "unknown" sentinel instead of a status that
+#                  errexit turned into a dead `ccy --top`), and the three bare
+#                  inspect/ps captures given explicit fallbacks so a container
+#                  exiting mid-scan can no longer truncate the zombie list or
+#                  kill the status table.
+#          1.1.0 - Container engine abstraction (docker/podman support)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ZOMBIE CONTAINER DETECTION
@@ -17,7 +23,11 @@ find_zombie_containers() {
 
     # Get all running containers matching the suffix pattern
     local containers
-    containers=$(container_cmd ps --filter "name=_${suffix}" --format '{{.Names}}' 2>/dev/null)  # FAIL-FAST-OK: a failed listing reads as "no containers" and this function then returns 0 without acting; it never repairs or deletes on the strength of it
+    # Explicit fallback, NOT a bare capture. Under the caller's `set -e` a bare
+    # `containers=$(cmd)` aborts this function when the engine cannot be asked —
+    # it does not leave an empty string. The old annotation here claimed the
+    # empty-string behaviour it did not have. Make the claim true instead.
+    containers=$(container_cmd ps --filter "name=_${suffix}" --format '{{.Names}}' 2>/dev/null) || containers=""
 
     if [ -z "$containers" ]; then
         return 0  # No containers found
@@ -28,7 +38,11 @@ find_zombie_containers() {
 
         # Check if this container was started with -it (TTY mode)
         local has_tty
-        has_tty=$(container_cmd inspect --format '{{.Config.Tty}}' "$container_name" 2>/dev/null)  # FAIL-FAST-OK: absent reads as "not a TTY container", which only suppresses the orphan check — it cannot cause a container to be acted on
+        # A container can exit between the `ps` above and this inspect — a real
+        # race, and the reason for the explicit fallback: a bare capture would
+        # abort mid-loop under errexit and SILENTLY TRUNCATE the zombie list,
+        # losing every container after the one that vanished.
+        has_tty=$(container_cmd inspect --format '{{.Config.Tty}}' "$container_name" 2>/dev/null) || has_tty=""
 
         if [ "$has_tty" = "true" ]; then
             # Check if there's a container run process still attached
@@ -99,7 +113,13 @@ get_container_stats() {
 
     # Get stats in one call
     local stats
-    stats=$(container_cmd stats --no-stream --format '{{.CPUPerc}}|{{.MemUsage}}|{{.PIDs}}' "$container_name" 2>/dev/null)  # FAIL-FAST-OK: unavailable stats are a normal, rendered outcome ("unknown"), not a failure to propagate — see the contract above
+    # Belt and braces, and NOT the thing that fixed the dead `ccy --top`.
+    # Measured, not assumed: a failing bare capture inside a function invoked as
+    # `$(fn)` does NOT abort it — errexit bites on the CALLER's plain assignment
+    # when this function propagates a non-zero, which is why removing the old
+    # `return 1` is what actually fixed the symptom. The fallback is here so the
+    # total contract above holds however this function comes to be called.
+    stats=$(container_cmd stats --no-stream --format '{{.CPUPerc}}|{{.MemUsage}}|{{.PIDs}}' "$container_name" 2>/dev/null) || stats=""
 
     if [ -z "$stats" ]; then
         echo "unknown|unknown|unknown"
@@ -111,10 +131,15 @@ get_container_stats() {
 
 # Get container uptime/age
 # Args: container_name
-# Returns: human-readable uptime string
+# Returns: human-readable uptime string, or "unknown" if the engine cannot say.
+# CONTRACT: total — always exits 0. Callers use it as `uptime=$(...)` in a plain
+# assignment under errexit, so a propagated non-zero would kill the caller rather
+# than produce a row. Same reasoning as get_container_stats() above.
 get_container_uptime() {
     local container_name="$1"
-    container_cmd ps --filter "name=^${container_name}$" --format '{{.RunningFor}}' 2>/dev/null
+    local uptime
+    uptime=$(container_cmd ps --filter "name=^${container_name}$" --format '{{.RunningFor}}' 2>/dev/null) || uptime=""
+    printf '%s\n' "${uptime:-unknown}"
 }
 
 # Show zombie container management TUI
@@ -362,7 +387,11 @@ show_container_top() {
         # Check if zombie (no container run process attached)
         local status="active"
         local has_tty
-        has_tty=$(container_cmd inspect --format '{{.Config.Tty}}' "$container" 2>/dev/null)  # FAIL-FAST-OK: feeds a status-table label only; a failed inspect leaves the row reading "active" instead of "orphan?"
+        # Same race as find_zombie_containers(), but this one is NOT in a
+        # subshell — it renders the `ccy --top` table directly. A bare capture
+        # here killed the whole table the first time a container exited while it
+        # was being listed. With the fallback the row simply reads "active".
+        has_tty=$(container_cmd inspect --format '{{.Config.Tty}}' "$container" 2>/dev/null) || has_tty=""
         if [ "$has_tty" = "true" ]; then
             if ! pgrep -f "${CONTAINER_ENGINE} run.*--name[= ]${container}( |$)" >/dev/null 2>&1; then
                 status="orphan?"

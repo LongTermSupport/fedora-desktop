@@ -2,7 +2,12 @@
 # Network Management Library
 # Shared Docker network operations for claude-yolo (ccy)
 #
-# Version: 1.7.0 - Skip compose start prompt when services already running
+# Version: 1.8.0 - Plan 00075: three errexit call-site fixes — `ccy --connect`
+#                  with no argument no longer dies before listing the networks,
+#                  the "already connected" branch and its error report are no
+#                  longer dead code, and the connect-failure diagnostic survives
+#                  a container that has gone away.
+#          1.7.0 - Skip compose start prompt when services already running
 
 # Get the expected network name for the current project
 # Returns: network-name based on folder name, or repo name as fallback
@@ -428,7 +433,13 @@ connect_to_network() {
             echo ""
             echo "Container networks:"
             local networks_json
-            networks_json=$(container_cmd inspect "$container_name" --format '{{json .NetworkSettings.Networks}}' 2>/dev/null)  # FAIL-FAST-OK: diagnostic display only; empty prints "(none)" plus "This is unusual", which is the right prompt whether the container has no networks or could not be inspected
+            # This is the ERROR-REPORTING path — we are here because the connect
+            # failed. A bare capture aborted the function under errexit exactly
+            # when the container had gone away, swallowing the diagnostic at the
+            # moment it was needed. The fallback prints "(none)", which is the
+            # right prompt whether the container has no networks or cannot be
+            # inspected at all.
+            networks_json=$(container_cmd inspect "$container_name" --format '{{json .NetworkSettings.Networks}}' 2>/dev/null) || networks_json=""
             if [ "$networks_json" = "null" ] || [ -z "$networks_json" ]; then
                 echo "  (none - container has no network connections)"
                 echo ""

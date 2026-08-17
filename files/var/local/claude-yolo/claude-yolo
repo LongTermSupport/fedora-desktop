@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.36.0"  # Fix: a GitHub API outage no longer blocks launch with a bogus "token owner does not match" report — the owner lookup is retried and validated as a login before comparison, and an unavailable API says so and offers CCY_SKIP_TOKEN_OWNER_CHECK=1. Plan 00074 (3.35.0): usage display as aligned coloured bars, CCY_USAGE_DEBUG/CCY_USAGE_SCALE.
+CCY_VERSION="3.37.0"  # Fix: `ccy --top` no longer dies mid-table, and the zombie scan no longer truncates, when a container exits while being listed — four bare captures whose exit status errexit turned into an aborted function now carry explicit fallbacks. See docs/ccy-changelog.md. Previously (3.36.0): a GitHub API outage no longer blocks launch with a bogus "token owner does not match" report — the owner lookup is retried and validated as a login before comparison, and an unavailable API says so and offers CCY_SKIP_TOKEN_OWNER_CHECK=1. Plan 00074 (3.35.0): usage display as aligned coloured bars, CCY_USAGE_DEBUG/CCY_USAGE_SCALE.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

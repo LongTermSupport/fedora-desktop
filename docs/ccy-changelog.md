@@ -17,6 +17,31 @@ Two version numbers move independently — see
 
 ---
 
+## 3.37.0 (container 2.26)
+
+**`ccy --top` no longer dies mid-table when a container exits while it is being listed.**
+
+Four captures in the container libraries read a command's output while discarding its
+exit status. Under the launcher's `set -e`, a bare `var=$(cmd)` does not leave an empty
+string when `cmd` fails — it **aborts the enclosing function**. Every one of these had a
+comment claiming the empty-string behaviour it did not have:
+
+| Site                              | What actually happened                                                                        |
+| --------------------------------- | --------------------------------------------------------------------------------------------- |
+| `docker-health.bash` status table | a container exiting between the listing and the `inspect` killed the whole `ccy --top` render |
+| `docker-health.bash` zombie scan  | the same race silently **truncated** the zombie list — every container after it was lost      |
+| `docker-health.bash` engine query | an engine that could not be asked aborted the scan rather than reporting nothing found        |
+| `network-management.bash`         | the `--connect` failure diagnostic vanished exactly when the container had gone away          |
+
+All four now carry an explicit `|| var=""` fallback, so the documented behaviour and the
+real behaviour agree. The last one matters most: it is the error-reporting path, so the
+failure suppressed the report of the failure.
+
+Found by the review pass for Plan 00075, which exists for this defect class — a command's
+failure silently becoming data, or in this case silently becoming a dead function.
+
+---
+
 ## 3.36.0 (container 2.26)
 
 **A GitHub outage no longer blocks launch with a bogus configuration error.**
