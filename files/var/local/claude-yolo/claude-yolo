@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.34.0"  # Plan 00074: token usage limits are back, on demand — press "u" in the selector to fetch each account's 5h/weekly utilisation from the /v1/messages rate-limit response headers (the route a setup-token can actually reach) and redraw the menu. Never automatic: each fetch is a billed request.
+CCY_VERSION="3.35.0"  # Plan 00074: usage display rewritten as aligned coloured bars with reset times in plain words ("resets in 4 hours"). CCY_USAGE_DEBUG=1 shows the raw API value; CCY_USAGE_SCALE=fraction switches the interpretation if utilisation turns out to be 0-1 rather than 0-100.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

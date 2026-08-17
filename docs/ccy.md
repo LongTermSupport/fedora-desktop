@@ -309,13 +309,21 @@ still has headroom*. The token menu answers it on request:
   u) Show usage limits (costs 1 small API call per account)
 ```
 
-Press `u` and the menu redraws with each account's 5-hour and weekly utilisation and how
-long until each resets, coloured green/orange/red by the worse of the two:
+Press `u` and the menu redraws with a bar per limit — green, orange or red by how much is
+used — and the reset time in plain words:
 
 ```
-  1) work     (expires: 2026-11-02)  —  5h 91% r2h · wk 63% r3d
-  2) personal (expires: 2026-12-14)  —  5h 12% r4h · wk <1% r6d
+  1) work       expires 2026-11-02
+       5-hour limit   ██████████████████░░   91%   resets in 2 hours
+       weekly limit   █████████████░░░░░░░   63%   resets in 3 days
+
+  2) personal   expires 2026-12-14
+       5-hour limit   ██░░░░░░░░░░░░░░░░░░   12%   resets in 4 hours
+       weekly limit   ░░░░░░░░░░░░░░░░░░░░   <1%   resets in 6 days
 ```
+
+A figure that is non-zero but rounds to zero shows `<1%` rather than `0%`, so the display
+never claims an account is untouched when it is merely barely touched.
 
 **It is never fetched automatically, and the reason is the cost.** These figures are only
 available as rate-limit headers on a real API response, so reading them means making a
@@ -325,9 +333,20 @@ keypress instead. The request uses Haiku with a one-character prompt, and the we
 buckets are per-model, so it does not touch your Opus or Sonnet allowances.
 
 The result is cached for 15 minutes, so pressing `u` again in the same sitting costs
-nothing. An account that cannot be read shows a dim note (`usage: not authorised`,
-`usage: unreachable`) and the other rows still render. Set `CCY_TOKEN_USAGE=0` to remove
-the option entirely.
+nothing. An account that cannot be read says so on its own row and the others still
+render. Set `CCY_TOKEN_USAGE=0` to remove the option entirely.
+
+**If every account reads `0%` or `<1%` when you know they are busy**, the API is
+expressing utilisation as a fraction (`0`–`1`) rather than a percentage. That scale is
+undocumented, so it is a switch rather than an assumption:
+
+```bash
+CCY_USAGE_DEBUG=1 ccy        # each line then also shows the raw value the API sent
+CCY_USAGE_SCALE=fraction ccy # interpret utilisation as 0-1 instead of 0-100
+```
+
+Set `CCY_USAGE_SCALE` in your shell profile once you know which is right. Nothing else in
+the display depends on it.
 
 `--export-token` writes a self-contained import script, so you can move a token onto a
 second workstation without repeating the `setup-token` browser flow there.

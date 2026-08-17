@@ -17,6 +17,30 @@ Two version numbers move independently — see
 
 ---
 
+## 3.35.0 (container 2.26)
+
+**The usage display is now bars, and says what it means.** 3.34.0 rendered a compact line
+per account — `5h <1% r4h · wk <1% r6d`. It was unreadable: `r4h` means nothing unless you
+already know, and the compression bought columns nobody needed. Replaced with a bar per
+limit, coloured green/orange/red by how much is used against a dim track, aligned across
+accounts, and the reset time written out — "resets in 4 hours", "resets in 20 minutes".
+
+```
+  1) work       expires 2026-11-02
+       5-hour limit   ██████████████████░░   91%   resets in 2 hours
+       weekly limit   █████████████░░░░░░░   63%   resets in 3 days
+```
+
+**Two new switches for the undocumented utilisation scale.** The API sends a float and
+does not say whether it is a percentage (`0`–`100`) or a fraction (`0`–`1`) — a 100×
+difference. `CCY_USAGE_DEBUG=1` shows the raw value the API sent next to each bar, using
+the figures already fetched rather than spending another request; `CCY_USAGE_SCALE=fraction`
+switches the interpretation. The scale is read in exactly one function, so this stays a
+switch rather than an assumption spread through the renderer.
+
+The cache now holds the values rather than a pre-rendered line, since the bars need the
+numbers. Cache format changed, so the deploy discards any existing cache.
+
 ## 3.34.0 (container 2.26)
 
 **Usage limits in the token menu, on request.** Press `u` at token selection and each

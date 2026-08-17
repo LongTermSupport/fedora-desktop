@@ -25,8 +25,8 @@ USAGE:
 
 CHECKS:
     1. The deployed library matches the repo library byte for byte
-    2. The deployed library carries the 1.9.0 version header
-    3. The deployed launcher reports CCY_VERSION 3.34.0
+    2. The deployed library carries the 1.10.0 version header
+    3. The deployed launcher reports CCY_VERSION 3.35.0
     4. The deployed library actually defines the usage functions and the
        `u)` menu option — not just a matching checksum
 
@@ -83,20 +83,20 @@ echo ""
 
 # 2 — version header
 echo "2. Deployed library version"
-if [ -f "$DEPLOYED_LIB" ] && grep -q '^# Version: 1\.9\.0' "$DEPLOYED_LIB"; then
-    pass "1.9.0"
+if [ -f "$DEPLOYED_LIB" ] && grep -q '^# Version: 1\.10\.0' "$DEPLOYED_LIB"; then
+    pass "1.10.0"
 else
-    fail "not 1.9.0 — an older library is deployed"
+    fail "not 1.10.0 — an older library is deployed"
     echo "     Remedy: run deploy.bash" >&2
 fi
 echo ""
 
 # 3 — launcher version
 echo "3. Deployed launcher version"
-if [ -f "$DEPLOYED_CCY" ] && grep -q '^CCY_VERSION="3\.34\.0"' "$DEPLOYED_CCY"; then
-    pass "CCY_VERSION 3.34.0"
+if [ -f "$DEPLOYED_CCY" ] && grep -q '^CCY_VERSION="3\.35\.0"' "$DEPLOYED_CCY"; then
+    pass "CCY_VERSION 3.35.0"
 else
-    fail "not 3.34.0 — an older launcher is deployed"
+    fail "not 3.35.0 — an older launcher is deployed"
     echo "     Remedy: run deploy.bash" >&2
 fi
 echo ""
@@ -104,7 +104,7 @@ echo ""
 # 4 — the feature is really present, not merely a matching checksum
 echo "4. Usage feature is wired into the deployed library"
 if [ -f "$DEPLOYED_LIB" ]; then
-    for symbol in usage_prime_cache usage_summary_for _usage_pct colorize_usage; do
+    for symbol in usage_prime_cache usage_render_block _usage_bar _usage_bucket_line; do
         if grep -q "^${symbol}()" "$DEPLOYED_LIB"; then
             pass "$symbol() defined"
         else
@@ -134,6 +134,6 @@ echo ""
 echo "  Usage columns appear      -> done."
 echo "  EVERY row 0% or <1% while the accounts are busy"
 echo "                            -> the utilisation scale is 0-1, not 0-100."
-echo "                               Multiply by 100 in _usage_pct() in"
-echo "                               files/var/local/claude-yolo/lib/token-management.bash"
-echo "                               and redeploy. Nothing else depends on it."
+echo "                               Confirm:  CCY_USAGE_DEBUG=1 ccy  then press u"
+echo "                               to see the raw value the API sent, then set"
+echo "                               CCY_USAGE_SCALE=fraction. Nothing else depends on it."

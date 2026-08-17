@@ -75,15 +75,20 @@ which is exactly what a one-line menu column should lead with.
 
 | ID  | Question                                                                                                                  | How it gets answered             |
 | --- | ------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
-| Q2  | What is the **scale** of `-utilization` — a percentage (`0`–`100`) or a fraction (`0`–`1`)? `0.02` is either 0.02% or 2%. | Probe a **heavily-used** account |
+| Q2  | What is the **scale** of `-utilization` — a percentage (`0`–`100`) or a fraction (`0`–`1`)? `0.02` is either 0.02% or 2%. | `CCY_USAGE_DEBUG=1`, no extra spend |
 
 Q2 is not cosmetic: guessing wrong misreports usage by 100×, in the direction
 that matters (showing `0%` to someone who is actually at 2%, or `2%` to someone
 at 0.02%). The near-idle account probed cannot discriminate — both readings fit.
 
 **The discriminator is one-way and cheap**: any observed value **greater than 1**
-proves the `0`–`100` scale, because a fraction cannot exceed 1. A value ≤ 1 on a
-busy account leaves it open and means probing a busier one still.
+proves the `0`–`100` scale, because a fraction cannot exceed 1.
+
+**Strong evidence for the fraction reading arrived from the deploy**: all four of
+the owner's accounts — all in active use — rendered `<1%` on both buckets. Four
+busy accounts below 1% is not credible. Not flipped on that inference alone;
+`CCY_USAGE_DEBUG=1` shows the value as the API sent it, using the fetch already
+paid for, and `CCY_USAGE_SCALE=fraction` switches the reading with no refetch.
 
 ## Tasks
 
@@ -127,8 +132,25 @@ busy account leaves it open and means probing a busier one still.
   really present). Closes the 00073 wrong-play gap that
   `qa-deployed-drift.bash` cannot see, since it covers only
   `files/home/.local/bin/`
-- [ ] 🔄 **Task 3.8**: Deploy on the HOST, run `acceptance.bash`, then press `u`
-  against real accounts — **HOST action**
+- [x] ✅ **Task 3.8**: Deployed on the HOST; all four accounts rendered. Feature
+  confirmed working against real accounts
+
+### Phase 4: Legible display 🔄
+
+- [x] ✅ **Task 4.1**: Replace the compressed one-liner (`5h <1% r4h · wk <1% r6d`)
+  with per-limit bars, coloured fill on a dim track, aligned across accounts
+- [x] ✅ **Task 4.2**: Spell reset times out — "resets in 4 hours", not `r4h`,
+  with singular/plural handled
+- [x] ✅ **Task 4.3**: Cache the values rather than a rendered line; interpret the
+  scale at DISPLAY time so `CCY_USAGE_SCALE` applies to cached data without a
+  refetch (a refetch would cost quota)
+- [x] ✅ **Task 4.4**: `CCY_USAGE_DEBUG=1` shows the value as the API sent it,
+  settling Q2 from the fetch the user already paid for
+- [x] ✅ **Task 4.5**: Retarget `acceptance.bash` — it checked for symbols this
+  rewrite removed, so it would have failed a correct deploy
+- [x] ✅ **Task 4.6**: `CCY_VERSION` 3.35.0, lib 1.10.0, docs + changelog
+- [ ] 🔄 **Task 4.7**: Redeploy, then `CCY_USAGE_DEBUG=1 ccy` and press `u` to
+  settle Q2 from an observed value — **HOST action**
 
 ## Technical Decisions
 
@@ -205,4 +227,7 @@ signal to flip it.
 - `prototype.bash` verified against three stub response shapes
 - **Q1 answered on the HOST: the approach works.** Where 00073 died on a scope
   refusal, this route returns 200 with the full unified header set
-- Shipped in CCY 3.34.0 / `token-management.bash` 1.9.0 — awaiting HOST deploy
+- Shipped in CCY 3.34.0 / `token-management.bash` 1.9.0; deployed and confirmed
+  working against real accounts
+- Display rewritten as aligned coloured bars in CCY 3.35.0 / lib 1.10.0 after the
+  first version proved unreadable (`r4h`)

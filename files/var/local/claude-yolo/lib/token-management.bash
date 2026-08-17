@@ -2,7 +2,13 @@
 # Token Management Library
 # Token operations for claude-yolo (ccy)
 #
-# Version: 1.9.0 - Plan 00074: per-token usage limits RESTORED, on demand only.
+# Version: 1.10.0 - Plan 00074: usage display rewritten as aligned, coloured bars
+#                  with the reset time spelled out in words ("resets in 4 hours",
+#                  not "r4h"). Cache now holds the VALUES rather than a rendered
+#                  line, because the bars need the numbers. CCY_USAGE_SCALE is
+#                  the single switch for the undocumented utilisation scale, and
+#                  CCY_USAGE_DEBUG shows the raw value so it can be settled.
+#          1.9.0 - Plan 00074: per-token usage limits RESTORED, on demand only.
 #                  Read from the anthropic-ratelimit-unified-* RESPONSE HEADERS
 #                  on POST /v1/messages, which a setup-token CAN reach — not the
 #                  403-ing status route below. Press `u` in the selector; never
@@ -81,49 +87,127 @@ usage_enabled() {
     [ "${CCY_TOKEN_USAGE:-1}" != "0" ]
 }
 
-# Formats a reset epoch as a compact countdown (" r2h"), or nothing if it has
-# already passed. Rounds to NEAREST, not floor: floor is a full unit wrong the
-# moment any time has passed, rendering a reset exactly 3 days out as "r2d".
-_usage_fmt_reset() {
-    local epoch="$1" now="$2" delta
+# Width of the utilisation bar, in cells.
+CCY_USAGE_BAR_WIDTH="${CCY_USAGE_BAR_WIDTH:-20}"
+
+# Spells a reset time out in words — "resets in 4 hours", "resets in 20 minutes".
+# Deliberately NOT abbreviated: the first version rendered this as "r4h", which
+# is unreadable unless you already know what it means, and saving eight columns
+# in a menu bought nothing.
+#
+# Rounds to NEAREST, not floor. Floor is a full unit wrong the moment any time
+# has passed, showing a reset exactly 3 days out as "2 days".
+_usage_human_reset() {
+    local epoch="$1" now="$2" delta n unit
     [[ "$epoch" =~ ^[0-9]+$ ]] || return 0
     delta=$(( epoch - now ))
-    [ "$delta" -gt 0 ] || return 0
-    if [ "$delta" -lt 3600 ]; then
-        printf ' r%dm' $(( (delta + 30) / 60 ))
-    elif [ "$delta" -lt 172800 ]; then
-        printf ' r%dh' $(( (delta + 1800) / 3600 ))
-    else
-        printf ' r%dd' $(( (delta + 43200) / 86400 ))
+    if [ "$delta" -le 0 ]; then
+        printf 'resetting now'
+        return 0
     fi
+
+    if [ "$delta" -lt 5400 ]; then
+        n=$(( (delta + 30) / 60 )); unit="minute"
+    elif [ "$delta" -lt 172800 ]; then
+        n=$(( (delta + 1800) / 3600 )); unit="hour"
+    else
+        n=$(( (delta + 43200) / 86400 )); unit="day"
+    fi
+    [ "$n" -eq 1 ] || unit="${unit}s"
+    printf 'resets in %d %s' "$n" "$unit"
 }
 
-# Renders one utilisation value as a percentage.
-#
-# The API sends a float. A value that is non-zero but rounds to zero is shown as
-# "<1%" rather than "0%" — "0%" would claim the account is untouched, which is a
-# different statement from "barely touched".
-_usage_pct() {
+# Echoes the whole-number percentage for a normalised (0-100) utilisation value,
+# or fails when the value is not a number.
+_usage_pct_int() {
     local v="$1"
     [[ "$v" =~ ^[0-9]+(\.[0-9]+)?$ ]] || return 1
-    local p
-    p="$(printf '%.0f' "$v")"
+    printf '%.0f' "$v"
+}
+
+# Echoes the percentage as it is displayed, right-aligned in 4 columns.
+#
+# A value that is non-zero but rounds to zero shows "<1%", never "0%" — "0%"
+# claims the account is untouched, which is a different statement from "barely
+# touched".
+_usage_pct_label() {
+    local v="$1" p
+    p="$(_usage_pct_int "$v")" || return 1
     if [ "$p" = "0" ] && [[ "$v" =~ [1-9] ]]; then
-        printf '<1%%'
+        printf '%4s' '<1%'
     else
-        printf '%s%%' "$p"
+        printf '%3s%%' "$p"
     fi
 }
 
-# Turns a dumped response-header file into one compact display line, e.g.
-#   5h 37% r2h · wk 83% r3d
+# Draws a proportional bar, filled portion coloured by how much is used and the
+# remainder in a dim track — the same visual grammar as the Claude Code status
+# line, so it reads without explanation.
+_usage_bar() {
+    local p="$1"
+    local width="$CCY_USAGE_BAR_WIDTH"
+    local RED='\033[31m' ORANGE='\033[38;5;208m' GREEN='\033[32m'
+    local TRACK='\033[90m' RESET='\033[0m'
+
+    [ "$p" -ge 0 ] 2>/dev/null || p=0
+    [ "$p" -le 100 ] || p=100
+
+    local filled
+    filled=$(( (p * width + 50) / 100 ))
+    [ "$filled" -le "$width" ] || filled="$width"
+
+    local colour="$GREEN"
+    if [ "$p" -ge 85 ]; then
+        colour="$RED"
+    elif [ "$p" -ge 50 ]; then
+        colour="$ORANGE"
+    fi
+
+    local bar_full="" bar_empty="" i
+    for (( i = 0; i < filled; i++ )); do bar_full="${bar_full}█"; done
+    for (( i = filled; i < width; i++ )); do bar_empty="${bar_empty}░"; done
+
+    printf "${colour}%s${TRACK}%s${RESET}" "$bar_full" "$bar_empty"
+}
+
+# Renders one bucket as a full, aligned, self-explanatory line:
 #
-# Pure bash, single pass over the file — no jq, no grep, no subprocess. Plan
-# 00073 measured jq at ~40 ms per call, which for 5 tokens cost more than the
-# network round trip it was parsing.
-_usage_render_line() {
-    local file="$1" now="$2"
-    local line name value u5="" u7="" r5="" r7="" out=""
+#        5-hour limit   ███████░░░░░░░░░░░░░   34%   resets in 4 hours
+#
+# Args: $1 = label, $2 = normalised percent, $3 = reset epoch, $4 = now
+_usage_bucket_line() {
+    local label="$1" raw="$2" reset="$3" now="$4"
+    local value p pct_label reset_text raw_note=""
+
+    # Interpret the scale here, not in the cache — see _usage_extract.
+    value="$(_usage_normalise "$raw")"
+    p="$(_usage_pct_int "$value")" || return 1
+    pct_label="$(_usage_pct_label "$value")"
+    reset_text="$(_usage_human_reset "$reset" "$now")"
+
+    # CCY_USAGE_DEBUG exposes the number as the API sent it. It exists because
+    # the scale of `-utilization` is undocumented (Plan 00074, Q2) and this is
+    # how it gets settled without spending an extra request: the raw value is
+    # already in the cache from the fetch the user asked for.
+    if [ -n "${CCY_USAGE_DEBUG:-}" ]; then
+        raw_note="   [API sent ${raw}]"
+    fi
+
+    printf '       %-14s %b %s   %s%s\n' \
+        "$label" "$(_usage_bar "$p")" "$pct_label" "$reset_text" "$raw_note"
+}
+
+# Extracts the four values we display from a dumped response-header file and
+# echoes them as one tab-separated cache record: u5 r5 u7 r7.
+#
+# Utilisation is NORMALISED to 0-100 here, at the single point of entry, so no
+# display code has to know about the scale. See CCY_USAGE_SCALE.
+#
+# Pure bash, single pass — no jq, no grep, no subprocess. Plan 00073 measured jq
+# at ~40 ms per call, more than the network round trip it was parsing.
+_usage_extract() {
+    local file="$1"
+    local line name value u5="" u7="" r5="" r7=""
 
     while IFS= read -r line; do
         line="${line%$'\r'}"
@@ -142,20 +226,32 @@ _usage_render_line() {
         esac
     done < "$file"
 
-    if [ -n "$u5" ] && out="$(_usage_pct "$u5")"; then
-        out="5h $out$(_usage_fmt_reset "$r5" "$now")"
-    else
-        out=""
-    fi
-    if [ -n "$u7" ]; then
-        local wk
-        if wk="$(_usage_pct "$u7")"; then
-            [ -n "$out" ] && out="$out · "
-            out="${out}wk $wk$(_usage_fmt_reset "$r7" "$now")"
-        fi
+    if [ -z "$u5" ] && [ -z "$u7" ]; then
+        return 1
     fi
 
-    printf '%s' "$out"
+    # Stored EXACTLY as the API sent it. Normalising here would make
+    # CCY_USAGE_DEBUG's "raw" a lie under CCY_USAGE_SCALE=fraction, and would
+    # freeze the scale into the cache — so flipping the switch would need a
+    # refetch, which costs quota. Interpreting at display time means the switch
+    # takes effect on data already in hand.
+    printf '%s\t%s\t%s\t%s' "$u5" "$r5" "$u7" "$r7"
+}
+
+# Converts a raw utilisation value to a 0-100 percentage.
+#
+# CCY_USAGE_SCALE says how the API expresses it, and is the ONLY place that
+# knows: "percent" (the value is already 0-100) or "fraction" (0-1, multiply by
+# 100). The scale is not documented anywhere, so this is a single switch rather
+# than an assumption scattered through the renderer.
+_usage_normalise() {
+    local v="$1"
+    [[ "$v" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { printf '%s' "$v"; return 0; }
+    if [ "${CCY_USAGE_SCALE:-percent}" = "fraction" ]; then
+        printf '%s' "$(awk -v x="$v" 'BEGIN { printf "%.4f", x * 100 }')"
+        return 0
+    fi
+    printf '%s' "$v"
 }
 
 # Fetches ONE account's usage and renders it, writing two cache files:
@@ -202,10 +298,14 @@ _usage_fetch_one() {
         code="000"
     fi
 
-    # Render on ANY status that carried the headers, not just 200. A 429 is
-    # precisely when the numbers matter most, and it carries them too.
-    line="$(_usage_render_line "$hdr" "$(date +%s)")"
-    if [ -n "$line" ]; then
+    # Keep values from ANY status that carried the headers, not just 200. A 429
+    # is precisely when the numbers matter most, and it carries them too.
+    #
+    # The cache holds the VALUES, not a rendered line: the display draws bars and
+    # needs the numbers. Rendering at fetch time made sense in Plan 00073 only
+    # because parsing then cost a jq process; it is pure bash now, so there is
+    # nothing to amortise and a value cache is the more useful thing to keep.
+    if line="$(_usage_extract "$hdr")"; then
         printf '%s' "$line" > "$out_prefix.summary"
     fi
 
@@ -283,20 +383,30 @@ usage_prime_cache() {
     return 0
 }
 
-# Echoes a one-line usage summary for a token name, or a "usage: …" note saying
-# why there isn't one. Never empty, never silent about a failure.
+# Prints the indented usage block for one account — two bar lines when the
+# figures are known, otherwise a single dim line saying why they are not.
 #
-# Pure cache read — no curl, no subprocess beyond the file reads.
-usage_summary_for() {
+#        5-hour limit   ███████░░░░░░░░░░░░░   34%   resets in 4 hours
+#        weekly limit   ██░░░░░░░░░░░░░░░░░░    8%   resets in 6 days
+#
+# Never silent about a failure: an account that could not be read says so on its
+# own row rather than vanishing or, worse, rendering as though it were idle.
+#
+# Pure cache read — no curl, no network.
+usage_render_block() {
     local token_dir="$1" token_name="$2"
-    local cache_dir status code line=""
+    local DIM='\033[2m' RESET='\033[0m'
+    local cache_dir status code record="" now
+    local u5 r5 u7 r7
 
-    usage_enabled || { printf ''; return 0; }
+    usage_enabled || return 0
+
+    _usage_note() { printf "       ${DIM}usage unavailable — %s${RESET}\n" "$1"; }
 
     # A missing tool here is an IaC gap, not a runtime condition to shrug at.
     # curl is declared in play-claude-code.yml — name the remedy.
     if ! command -v curl > /dev/null; then
-        printf 'usage: needs curl (run play-claude-code.yml)'
+        _usage_note "needs curl (run play-claude-code.yml)"
         return 0
     fi
 
@@ -304,71 +414,46 @@ usage_summary_for() {
     status="$cache_dir/$token_name.status"
 
     if [ ! -f "$status" ]; then
-        printf 'usage: not fetched'
+        _usage_note "not fetched"
         return 0
     fi
 
     if [ -f "$cache_dir/$token_name.summary" ]; then
-        line="$(cat "$cache_dir/$token_name.summary")"
+        record="$(cat "$cache_dir/$token_name.summary")"
     fi
 
-    # The headers win when present — a 429 carrying real numbers is more useful
-    # than the words "rate limited".
-    if [ -n "$line" ]; then
-        printf '%s' "$line"
+    # Real figures win over the status word — a 429 carrying numbers is more
+    # useful than being told "rate limited".
+    if [ -z "$record" ]; then
+        code="$(cat "$status")"
+        case "$code" in
+            000)      _usage_note "could not reach the API" ;;
+            401|403)  _usage_note "this token was not authorised to read it" ;;
+            429)      _usage_note "rate limited" ;;
+            200)      _usage_note "the API reported no limits" ;;
+            *)        _usage_note "HTTP $code" ;;
+        esac
         return 0
     fi
 
-    code="$(cat "$status")"
-    case "$code" in
-        000)      printf 'usage: unreachable' ;;
-        401|403)  printf 'usage: not authorised' ;;
-        429)      printf 'usage: rate limited' ;;
-        200)      printf 'usage: no limits reported' ;;
-        *)        printf 'usage: HTTP %s' "$code" ;;
-    esac
-    return 0
-}
+    IFS=$'\t' read -r u5 r5 u7 r7 <<< "$record"
+    now="$(date +%s)"
 
-# Wraps a usage summary in a colour keyed to the highest percentage in it, so a
-# nearly-exhausted account is obvious at a glance. Mirrors colorize_expiry().
-colorize_usage() {
-    local summary="$1"
-    local RED='\033[31m' ORANGE='\033[38;5;208m' GREEN='\033[32m'
-    local DIM='\033[2m' RESET='\033[0m'
-
-    case "$summary" in
-        '') return 0 ;;
-        usage:*) printf "${DIM}%s${RESET}" "$summary"; return 0 ;;
-    esac
-
-    # Pure bash, deliberately: the obvious `grep | tr | sort | head` costs four
-    # processes per row, measured at ~39 ms per token on the CACHED path where
-    # there is otherwise no work to do at all.
-    local -a parts=()
-    local part worst=-1
-    read -r -a parts <<< "$summary"
-    for part in "${parts[@]}"; do
-        case "$part" in
-            '<1%') [ "$worst" -lt 0 ] && worst=0 ;;
-            *%)
-                part="${part%\%}"
-                if [[ "$part" =~ ^[0-9]+$ ]] && [ "$part" -gt "$worst" ]; then
-                    worst="$part"
-                fi
-                ;;
-        esac
+    # A bucket line fails only when the API sent something that is not a number.
+    # Say so on the row rather than dropping it — a silently missing bucket reads
+    # as "this account has no weekly limit", which would be a lie.
+    local bucket
+    for bucket in "5-hour limit:$u5:$r5" "weekly limit:$u7:$r7"; do
+        local label="${bucket%%:*}" rest="${bucket#*:}"
+        local value="${rest%%:*}" reset="${rest#*:}"
+        if [ -z "$value" ]; then
+            continue
+        fi
+        if ! _usage_bucket_line "$label" "$value" "$reset" "$now"; then
+            _usage_note "$label: the API sent a value that is not a number"
+        fi
     done
-
-    if [ "$worst" -lt 0 ]; then
-        printf '%s' "$summary"
-    elif [ "$worst" -ge 85 ]; then
-        printf "${RED}%s${RESET}" "$summary"
-    elif [ "$worst" -ge 50 ]; then
-        printf "${ORANGE}%s${RESET}" "$summary"
-    else
-        printf "${GREEN}%s${RESET}" "$summary"
-    fi
+    return 0
 }
 
 # Function to list available tokens
@@ -904,28 +989,38 @@ select_token() {
     echo "Available tokens:"
     echo ""
 
+    # Column width from the longest name, so the expiry dates line up instead of
+    # ragged-right after names of different lengths.
+    local name_width=0 _f _n
+    for _f in "${valid_tokens[@]}"; do
+        _n="$(basename "$_f")"
+        _n="${_n%.*.token}"
+        [ "${#_n}" -gt "$name_width" ] && name_width="${#_n}"
+    done
+
     for i in "${!valid_tokens[@]}"; do
         local token_file="${valid_tokens[$i]}"
         local filename
         filename=$(basename "$token_file")
         local token_name="${filename%.*.token}"
 
-        local usage_col=""
-        if [ "$usage_fetched" -eq 1 ]; then
-            local usage_line
-            usage_line="$(usage_summary_for "$token_dir" "$token_name")"
-            if [ -n "$usage_line" ]; then
-                usage_col="  —  $(colorize_usage "$usage_line")"
-            fi
+        # Blank line BETWEEN blocks, not after the last one — a trailing blank
+        # plus the options block's own leading blank reads as a gap, not a break.
+        if [ "$usage_fetched" -eq 1 ] && [ "$i" -gt 0 ]; then
+            echo ""
         fi
 
         # Extract expiry
         if [[ "$filename" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2})\.token$ ]]; then
             local expiry_date="${BASH_REMATCH[1]}"
-            printf '  %s) %s (expires: %s)%s\n' \
-                "$((i+1))" "$token_name" "$(colorize_expiry "$expiry_date")" "$usage_col"
+            printf '  %s) %-*s   expires %b\n' \
+                "$((i+1))" "$name_width" "$token_name" "$(colorize_expiry "$expiry_date")"
         else
-            printf '  %s) %s%s\n' "$((i+1))" "$token_name" "$usage_col"
+            printf '  %s) %s\n' "$((i+1))" "$token_name"
+        fi
+
+        if [ "$usage_fetched" -eq 1 ]; then
+            usage_render_block "$token_dir" "$token_name"
         fi
     done
 

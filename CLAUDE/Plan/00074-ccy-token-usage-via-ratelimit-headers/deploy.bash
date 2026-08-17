@@ -22,8 +22,8 @@ WHAT IT RUNS:
     ansible-playbook playbooks/imports/play-claude-yolo.yml
 
     That play owns both artifacts this plan changed:
-      /var/local/claude-yolo/lib/token-management.bash   (usage machinery, 1.9.0)
-      /var/local/claude-yolo/claude-yolo                 (CCY_VERSION 3.34.0)
+      /var/local/claude-yolo/lib/token-management.bash   (usage machinery, 1.10.0)
+      /var/local/claude-yolo/claude-yolo                 (CCY_VERSION 3.35.0)
 
     It also drops any stale usage cache, and rebuilds the container image — a
     fast layer-cache hit when the Dockerfile is unchanged, as it is here.
@@ -36,17 +36,24 @@ AFTER DEPLOYING — start ccy and look at the token menu:
     No "u)" line at all
         -> the OLD library is still deployed. Re-run this script.
 
-    Press u. Each row should gain a usage column:
+    Press u. Each account should gain a pair of bars:
 
-      1) <account>  (expires: ...)  —  5h 37% r2h · wk 63% r3d
+      1) <account>   expires 2026-11-02
+           5-hour limit   ██████████████░░░░░░   68%   resets in 2 hours
+           weekly limit   █████░░░░░░░░░░░░░░░   26%   resets in 3 days
 
-    "usage: not authorised" / "unreachable" on a row
-        -> that account could not be read; the others still render. Not fatal.
+    "usage unavailable — ..." under an account
+        -> that one could not be read; the others still render. Not fatal.
 
-    EVERY row showing 0% or <1% while the accounts are genuinely busy
-        -> the utilisation scale is 0-1, not 0-100 (Q2 in PLAN.md). The fix is
-           one function: multiply by 100 in _usage_pct() in token-management.bash.
-           Nothing else in the renderer depends on the scale.
+    EVERY account showing 0% or <1% while they are genuinely busy
+        -> the utilisation scale is 0-1, not 0-100 (Q2 in PLAN.md). Confirm it
+           without spending anything extra:
+
+             CCY_USAGE_DEBUG=1 ccy     then press u
+
+           Each line then also shows the raw value the API sent. If those are
+           fractions, run with CCY_USAGE_SCALE=fraction (and set it in your
+           shell profile). Nothing else in the renderer depends on the scale.
 EOF
 }
 
