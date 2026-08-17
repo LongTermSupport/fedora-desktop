@@ -265,8 +265,24 @@ render_menu_line() {
 
     if [ -z "$line" ]; then
         echo "  (no utilisation headers — nothing to render)"
+        return 0
+    fi
+
+    echo "  ccy would show:   $TOKEN_NAME  ->  $line"
+    echo ""
+    # Q2: the rendered percent assumes utilisation is on a 0-100 scale. If it is
+    # really a 0-1 fraction the display is wrong by 100x, and rounding hides it
+    # (0.02 renders as "0%" under both readings). Show the raw values and say so,
+    # so the ambiguity cannot be lost between the header dump and the product.
+    echo "  raw utilisation:  5h=${u5:-<absent>}  7d=${u7:-<absent>}"
+    if awk -v a="${u5:-0}" -v b="${u7:-0}" 'BEGIN { exit !(a > 1 || b > 1) }'; then
+        echo "  Q2 SETTLED: a value above 1 proves the 0-100 (percent) scale —"
+        echo "              a fraction cannot exceed 1. The render above is correct."
     else
-        echo "  ccy would show:   $TOKEN_NAME  ->  $line"
+        echo "  Q2 OPEN: every value is <= 1, so the scale is still ambiguous —"
+        echo "           0.02 is either 0.02% or 2%, a 100x difference. This"
+        echo "           account is too idle to discriminate. Re-run against the"
+        echo "           BUSIEST account: prototype.bash --arm curl --token NAME"
     fi
 }
 

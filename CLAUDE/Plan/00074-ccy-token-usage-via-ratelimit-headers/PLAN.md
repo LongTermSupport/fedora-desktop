@@ -59,18 +59,35 @@ F12 matters for the mechanism choice: there is no debug or print path that
 surfaces these headers, so the CLI cannot be the vehicle. Only a direct HTTP
 call exposes them.
 
+### Q1 — ANSWERED YES (HOST run)
+
+| ID  | Fact                                                                                                                                                                                                                                               | Source         |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| F13 | A bare `POST /v1/messages` (`max_tokens: 1`) with a stored `oat01` setup-token returns **200** and carries the full `anthropic-ratelimit-unified-*` header set                                                                                     | HOST prototype |
+| F14 | **F12 confirmed empirically**: `claude -p --tools "" --debug --debug-file` exited 0 and produced a 17 KB debug log containing **no** unified header. The CLI is not a viable vehicle — curl is the only route                                      | HOST prototype |
+| F15 | The response carries **more than the four headers assumed**: per-bucket `-5h-status` / `-7d-status`, a `-representative-claim` naming the binding bucket (`five_hour`), plus `-fallback-percentage`, `-overage-status`, `-overage-disabled-reason` | HOST prototype |
+| F16 | Utilisation values are **floats, not integers** (`0.0`, `0.02` observed) — the renderer's `%.0f` assumption held only because the probed account was near-idle                                                                                     | HOST prototype |
+
+F15 is a bonus: `-representative-claim` says which bucket is actually binding,
+which is exactly what a one-line menu column should lead with.
+
 ### Open question
 
-| ID  | Question                                                                                                            | How it gets answered   |
-| --- | ------------------------------------------------------------------------------------------------------------------- | ---------------------- |
-| Q1  | Does a bare `POST /v1/messages` with a stored setup-token succeed, and does the response carry the unified headers? | `prototype.bash`, HOST |
+| ID  | Question                                                                                                                  | How it gets answered             |
+| --- | ------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| Q2  | What is the **scale** of `-utilization` — a percentage (`0`–`100`) or a fraction (`0`–`1`)? `0.02` is either 0.02% or 2%. | Probe a **heavily-used** account |
 
-A 403 naming a scope would kill this the same way 00073 died. A 4xx complaining
-about the *request shape* is fixable and must not be mistaken for the former.
+Q2 is not cosmetic: guessing wrong misreports usage by 100×, in the direction
+that matters (showing `0%` to someone who is actually at 2%, or `2%` to someone
+at 0.02%). The near-idle account probed cannot discriminate — both readings fit.
+
+**The discriminator is one-way and cheap**: any observed value **greater than 1**
+proves the `0`–`100` scale, because a fraction cannot exceed 1. A value ≤ 1 on a
+busy account leaves it open and means probing a busier one still.
 
 ## Tasks
 
-### Phase 1: Prototype 🔄
+### Phase 1: Prototype ✅
 
 - [x] ✅ **Task 1.1**: Confirm the mechanism from the binary (F11, F12) — establish
   that `claude -p` cannot surface headers, so a direct call is required
@@ -79,14 +96,18 @@ about the *request shape* is fixable and must not be mistaken for the former.
   would show, not just a header dump
 - [x] ✅ **Task 1.3**: Verify against stubs: headers present, 403, and
   200-without-headers all render legibly. Two bugs found and fixed this way
-- [ ] 🔄 **Task 1.4**: Run `prototype.bash` on the HOST — **HOST action**
+- [x] ✅ **Task 1.4**: Run `prototype.bash` on the HOST — **Q1 answered yes** (F13,
+  F14, F15, F16)
 
-### Phase 2: Decision gate
+### Phase 2: Decision gate 🔄
 
-- [ ] ⬜ **Task 2.1**: If the headers do not come back — record why and cancel. Do
-  not engineer around a second scope refusal
-- [ ] ⬜ **Task 2.2**: If they do — record the confirmed header names and value
-  formats (integer vs float percent, epoch vs ISO reset) before writing the code
+- [x] ✅ **Task 2.1**: Cancel-on-refusal branch — **not triggered**; the request
+  succeeded rather than hitting a second scope wall
+- [x] ✅ **Task 2.2**: Header names and value formats recorded — resets are epoch
+  seconds, utilisation is a **float** (F16), and the set is wider than assumed
+  (F15)
+- [ ] 🔄 **Task 2.3**: Settle Q2 — probe a heavily-used account to fix the
+  utilisation scale. **HOST action**, one `--arm curl` request
 
 ### Phase 3: Human-triggered display in the selector
 
@@ -96,6 +117,9 @@ about the *request shape* is fixable and must not be mistaken for the former.
   5 tokens) and **redraw the selector** with a usage column
 - [ ] ⬜ **Task 3.3**: Reuse the 00073 machinery from `git show 53a5a10` — parallel
   fan-out, render-once-at-fetch, worst-percentage colouring, visible degradation
+- [ ] ⬜ **Task 3.3b**: Apply the F15/F16 findings — lead the colouring with
+  `-representative-claim` (the bucket actually binding) rather than inferring it,
+  and treat utilisation as a float at whatever scale Q2 settles on
 - [ ] ⬜ **Task 3.4**: Cache the result for the lifetime of the menu, so a second
   press does not spend a second round of quota
 - [ ] ⬜ **Task 3.5**: Bump `CCY_VERSION` and the `token-management.bash` header
@@ -135,7 +159,8 @@ down the allowance that actually matters to the user.
 
 ## Success Criteria
 
-- [ ] Q1 answered from a HOST run, not inference
+- [x] Q1 answered from a HOST run, not inference
+- [ ] Q2 (utilisation scale) settled from an observed value, not inference
 - [ ] Either cancelled with the refusal recorded, or usage shown on demand
 - [ ] No token value ever appears in a process argv or a committed file
 - [ ] Nothing fetches usage without an explicit human action
@@ -144,12 +169,13 @@ down the allowance that actually matters to the user.
 
 ## Risks & Mitigations
 
-| Risk                                              | Impact | Probability | Mitigation                                                                            |
-| ------------------------------------------------- | ------ | ----------- | ------------------------------------------------------------------------------------- |
-| Setup-token also refused on `/v1/messages`        | H      | L           | Q1 gate; a scope refusal cancels the plan. Low: this is the scope such tokens are for |
-| 200 but no unified headers (plan/threshold-gated) | H      | M           | Prototype distinguishes it from a refusal and says to re-run before concluding        |
-| Users press it habitually and burn quota          | M      | M           | Cost stated in the option text; result cached for the menu's lifetime                 |
-| Request shape wrong, read as a scope refusal      | M      | M           | Prototype prints the body and calls out the difference explicitly                     |
+| Risk                                            | Impact | Probability | Mitigation                                                                       |
+| ----------------------------------------------- | ------ | ----------- | -------------------------------------------------------------------------------- |
+| ~~Setup-token also refused on `/v1/messages`~~  | —      | —           | **Retired** — F13: the HOST run returned 200 with the full header set            |
+| ~~200 but no unified headers~~                  | —      | —           | **Retired** — F13: the headers were present                                      |
+| Utilisation scale misread, misreporting by 100× | H      | M           | Q2 gate: no renderer ships until a value > 1 is observed and the scale is proven |
+| Users press it habitually and burn quota        | M      | M           | Cost stated in the option text; result cached for the menu's lifetime            |
+| Request shape wrong, read as a scope refusal    | M      | M           | Prototype prints the body and calls out the difference explicitly                |
 
 ## Delivery & Milestones
 
@@ -159,3 +185,5 @@ down the allowance that actually matters to the user.
 
 - Supersedes Plan 00073's Task 5.2; 00073 stays Cancelled
 - `prototype.bash` verified against three stub response shapes
+- **Q1 answered on the HOST: the approach works.** Where 00073 died on a scope
+  refusal, this route returns 200 with the full unified header set
