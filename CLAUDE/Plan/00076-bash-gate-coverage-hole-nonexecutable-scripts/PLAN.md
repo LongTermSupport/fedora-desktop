@@ -163,9 +163,11 @@ that state — and so were `rclone-tail` and `rclone-cache-status`, which the
   Fixed, file removed from the exception list, and the first finding it then
   reported was a real defect at line 704
 - [ ] ⬜ **Task 4.3b**: `rclone-tail` and `rclone-cache-status` — cause **not**
-  established. Each reduces to two segments either of which fixes the file, so it
-  is an interaction. The shared embedded-Python heredoc inside an `if` condition
-  was the obvious suspect and **parses in isolation** — dead end, not a cause
+  established, but its *shape* now is: each file reduces to two functions, and
+  **either alone parses while the two together do not**. So it is not a single
+  construct — the embedded-Python-heredoc suspect parses in isolation too. Next
+  hypothesis to test is a parser complexity/recovery budget rather than a
+  grammar gap
 - [ ] ⬜ **Task 4.4**: The 12 `PartialParsing` files. Cause **not** established.
   The reported ranges do sit on `${var:-(text)}` occurrences (parentheses in a
   default value), but that construct **parses in isolation** — as do extglob and
