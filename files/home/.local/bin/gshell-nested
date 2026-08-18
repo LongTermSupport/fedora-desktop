@@ -105,7 +105,12 @@ echo "Checking for existing nested GNOME Shell sessions..."
 NESTED_PIDS=$(ps aux | grep 'gnome-shell --nested --wayland' | grep -v grep | awk '{print $2}')
 if [ -n "$NESTED_PIDS" ]; then
     echo "Found existing nested sessions, killing: $NESTED_PIDS"
-    echo "$NESTED_PIDS" | xargs kill 2>/dev/null || true
+    # A PID found a moment ago can exit before kill reaches it, so a failure
+    # here is usually benign — but "already gone" and "permission denied" are
+    # different answers and `|| true` reported them identically. Say which.
+    if ! kill_err=$(echo "$NESTED_PIDS" | xargs kill 2>&1); then
+        echo "  note: some nested sessions could not be signalled: $kill_err" >&2
+    fi
     sleep 1
 fi
 

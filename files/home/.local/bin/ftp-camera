@@ -551,9 +551,14 @@ get_exif_date() {
     else
         tags=(-CreateDate -MediaCreateDate)
     fi
-    # `|| true`: exiftool exits non-zero when none of the requested tags exist.
-    exiftool -s3 -d '%Y/%m/%d' "${tags[@]}" "$file" 2>/dev/null \
-        | awk 'NF{print; exit}' || true
+    # exiftool exits non-zero when none of the requested tags exist, and this
+    # function's contract is "print the date, or print nothing" — so an empty
+    # result IS the answer, not a failure to report. Said in a branch rather
+    # than with `|| true`, which would read as "any failure, ignored".
+    if ! exiftool -s3 -d '%Y/%m/%d' "${tags[@]}" "$file" 2>/dev/null \
+        | awk 'NF{print; exit}'; then
+        : # no such tag on this file — empty output is the answer
+    fi
 }
 
 # Verify a received file is structurally complete.
@@ -1334,7 +1339,13 @@ prune_orphan_raws() {
 
     echo ""
     local reply=""
-    read -r -p "Delete these files? [y/N] " reply || true
+    # EOF (Ctrl-D, or no TTY) leaves reply empty, which the test below treats as
+    # a decline — the safe answer. Written as an explicit branch rather than
+    # `|| true`, which discards read's status without saying what it means.
+    if ! read -r -p "Delete these files? [y/N] " reply; then
+        reply=""
+        echo "" >&2
+    fi
     if [[ ! "$reply" =~ ^[Yy]$ ]]; then
         echo -e "${YELLOW}Aborted — no files removed.${NC}"
         return 0
@@ -1983,16 +1994,24 @@ cleanup() {
         # pipeline; kill its children first so the upstream tail and awk
         # can't keep writing to a stats file we're about to read. In
         # default mode this is a no-op (inotifywait has no children).
-        # `|| true`: pkill -P returns 1 when no children exist (the default-
-        # mode case), which would trip `set -e` and abort cleanup before
-        # vsftpd/firewall teardown — that's the bug that left the FTP
-        # server running and the prompt showing "General error" after Ctrl+C.
-        pkill -P "$MONITOR_PID" 2>/dev/null || true
+        # pkill -P returns 1 when no children exist (the default-mode case), and
+        # under `set -e` that used to abort cleanup before vsftpd/firewall
+        # teardown — the bug that left the FTP server running and the prompt
+        # showing "General error" after Ctrl+C. Asking pgrep FIRST keeps that
+        # fixed while leaving a genuine pkill failure fatal, which `|| true`
+        # could not: it discarded both cases identically.
+        if pgrep -P "$MONITOR_PID" > /dev/null; then
+            pkill -P "$MONITOR_PID"
+        fi
         kill "$MONITOR_PID"
-        # `|| true`: wait returns non-zero for signal-killed processes,
-        # which is the normal path here. Required so the final
-        # _async_stat_inc write lands before we awk the stats file below.
-        wait "$MONITOR_PID" 2>/dev/null || true
+        # wait returns the child's status, and non-zero for a signal-killed
+        # process is the normal path here — we just killed it. There is nothing
+        # to act on, so the branch says that rather than a bare `|| true` which
+        # would read as "any failure, ignored". Waiting at all is what lets the
+        # final _async_stat_inc write land before the stats file is read below.
+        if ! wait "$MONITOR_PID" 2>/dev/null; then
+            : # signal-killed, as expected
+        fi
     fi
 
     if [ -n "$VSFTPD_LOG_PID" ] && ps -p "$VSFTPD_LOG_PID" > /dev/null; then
@@ -2119,10 +2138,14 @@ cleanup() {
             echo ""
             echo -e "${BOLD}Background uploads (rclone mount continues after exit):${NC}"
             if command -v rclone-tail > /dev/null; then
-                # One-shot snapshot; `|| true`: rclone-tail exits non-zero
-                # if no matching mount or RC unreachable, which we don't
-                # want to abort the rest of cleanup.
-                rclone-tail --once "$_remote_name" || true
+                # One-shot snapshot. rclone-tail exits non-zero when there is no
+                # matching mount or its RC is unreachable, and that must not
+                # abort the rest of cleanup — but "no uploads pending" and "I
+                # could not ask" are different things to tell someone watching
+                # their photos upload, and `|| true` printed neither.
+                if ! rclone-tail --once "$_remote_name"; then
+                    echo -e "  ${YELLOW}could not read upload status — no matching mount, or the rclone RC is unreachable${NC}"
+                fi
                 echo -e "  Watch live:            ${CYAN}rclone-tail ${_remote_name}${NC}"
             else
                 echo -e "  ${YELLOW}rclone-tail not installed — re-run play-rclone.yml to get it${NC}"

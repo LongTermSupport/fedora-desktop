@@ -339,7 +339,13 @@ connect_vpn() {
         current=$(cat "$STATE_FILE")
         if [ -n "$current" ] && [ "$current" != "$config_name" ]; then
             log "Disconnecting current connection: $current"
-            nmcli connection down "$NM_PREFIX$current" 2>/dev/null || true
+            # The recorded connection may already be down, which is fine — but
+            # that is not the same as nmcli refusing, and `|| true` reported both
+            # as nothing at all. Keep going either way, having said which.
+            local down_err
+            if ! down_err=$(nmcli connection down "$NM_PREFIX$current" 2>&1); then
+                log_debug "  could not bring down $NM_PREFIX$current: $down_err"
+            fi
         fi
     fi
 
@@ -399,8 +405,12 @@ switch_vpn() {
         return 1
     fi
 
-    # Disconnect current (if any)
-    disconnect_vpn || true
+    # Disconnect current (if any). Switching proceeds regardless — there may be
+    # nothing connected — but a disconnect that genuinely failed is worth saying,
+    # because the new connection is about to be brought up alongside it.
+    if ! disconnect_vpn; then
+        log_debug "  nothing to disconnect, or disconnect reported a problem"
+    fi
 
     # Connect to new
     connect_vpn "$config_name"
@@ -449,15 +459,31 @@ cleanup_old() {
         return 0
     fi
 
-    local count=0
-    echo "$connections" | while read conn; do
+    # Three defects here, all of a kind: the loop ran in a pipeline subshell so
+    # `count` never survived it, each delete's status was discarded by
+    # `|| true`, and the closing line then announced "Removed all nordvpn
+    # connections" whether or not a single one had been removed. A here-string
+    # keeps the loop in this shell, and the counts are now what actually
+    # happened.
+    local count=0 failed=0 conn delete_err
+    while IFS= read -r conn; do
+        [ -n "$conn" ] || continue
         echo "  Removing: $conn"
-        nmcli connection delete "$conn" 2>/dev/null || true
-        count=$((count + 1))
-    done
+        if delete_err=$(nmcli connection delete "$conn" 2>&1); then
+            count=$((count + 1))
+        else
+            failed=$((failed + 1))
+            log_error "  Could not remove $conn: $delete_err"
+        fi
+    done <<< "$connections"
 
     rm -f "$STATE_FILE"
-    echo "Removed all nordvpn connections"
+
+    if [ "$failed" -gt 0 ]; then
+        log_error "Removed $count connection(s); $failed could not be removed"
+        return 1
+    fi
+    echo "Removed $count nordvpn connection(s)"
 }
 
 interactive_chooser() {
@@ -620,7 +646,12 @@ main() {
 
     # Get command
     local command="${1:-}"
-    shift || true
+    # `shift` fails when there is nothing left to shift, which is a normal call
+    # (`nord` with no command). Guard on the count rather than discarding the
+    # status: the condition says which case this is.
+    if [ "$#" -gt 0 ]; then
+        shift
+    fi
 
     if [ -z "$command" ]; then
         # No command provided - run interactive chooser

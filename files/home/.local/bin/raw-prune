@@ -127,7 +127,13 @@ fi
 # ── Confirm ───────────────────────────────────────────────────────────────────
 if [ "$YES" != true ]; then
     reply=""
-    read -r -p "Delete these files? [y/N] " reply || true
+    # EOF (Ctrl-D, or no TTY) leaves reply empty, which the test below treats as
+    # a decline — the safe answer. Explicit branch rather than `|| true`, which
+    # discards read's status without saying what it means.
+    if ! read -r -p "Delete these files? [y/N] " reply; then
+        reply=""
+        echo "" >&2
+    fi
     if [[ ! "$reply" =~ ^[Yy]$ ]]; then
         echo -e "${YELLOW}Aborted — no files removed.${NC}"
         exit 0
@@ -144,8 +150,13 @@ for f in "${orphans[@]}"; do
     fi
 done
 
-# Tidy up directories that became empty after the prune.
-find "$SEARCH_DIR" -mindepth 1 -type d -empty -delete 2>/dev/null || true
+# Tidy up directories that became empty after the prune. Best-effort — the files
+# are already gone and a left-behind empty directory is cosmetic — but a failure
+# is reported rather than discarded, so "why are these still here?" has an
+# answer.
+if ! prune_err=$(find "$SEARCH_DIR" -mindepth 1 -type d -empty -delete 2>&1); then
+    echo -e "  ${YELLOW}note${NC}  some empty directories could not be removed: $prune_err" >&2
+fi
 
 echo ""
 echo -e "${BOLD}Prune complete:${NC} ${CYAN}${removed}${NC} of ${CYAN}${count}${NC} files removed (${CYAN}${total_human}${NC} freed)"

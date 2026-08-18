@@ -184,8 +184,13 @@ notify_state() {
         return
     fi
 
-    # Send notification via gdbus so we can replace it
-    # Using a fixed app name ensures replacement works
+    # Send notification via gdbus so we can replace it.
+    # Using a fixed app name ensures replacement works.
+    #
+    # An explicit fallback rather than `|| true`: a desktop that refuses the
+    # notification must not stop a transcription, but the failure is noted at
+    # debug level instead of vanishing, and `result` is emptied so the ID
+    # extraction below cannot read a partial reply.
     local result
     result=$(gdbus call --session \
         --dest org.freedesktop.Notifications \
@@ -198,7 +203,10 @@ notify_state() {
         "$message" \
         '[]' \
         '{}' \
-        3000 2>/dev/null) || true
+        3000 2>/dev/null) || {
+        result=""
+        log_debug "Desktop notification was not accepted (gdbus call failed)"
+    }
 
     # Extract notification ID for replacement
     if [[ "$result" =~ \(uint32\ ([0-9]+),\) ]]; then
@@ -671,8 +679,13 @@ notify_state "RECORDING" "Recording... (Insert to stop)"
 TIMER_PID=$!
 log_debug "30-second timer started with PID $TIMER_PID"
 
-# Wait for recording to complete (or be killed)
-wait $REC_PID || true
+# Wait for recording to complete (or be killed). A non-zero status is the normal
+# path — the timer above sends SIGINT — so it is recorded rather than discarded:
+# `|| true` threw away the one number that distinguishes "stopped by the timer"
+# from "the recorder died".
+REC_STATUS=0
+wait $REC_PID || REC_STATUS=$?
+log_debug "Recorder $REC_PID exited with status $REC_STATUS"
 
 # Cancel the timer if recording stopped early
 if kill -0 "$TIMER_PID" 2>/dev/null; then

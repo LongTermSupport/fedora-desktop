@@ -218,7 +218,12 @@ EOF
 
 case "${1:-scan}" in
     scan|"")
-        shift 2>/dev/null || true
+        # `lan-scan` with no arguments reaches here with $# = 0, where `shift`
+        # fails. Guard on the count instead of discarding the status — that also
+        # retires the 2>/dev/null that was hiding shift's own message.
+        if [ "$#" -gt 0 ]; then
+            shift
+        fi
         cmd_scan "$@"
         ;;
     find-nas)
