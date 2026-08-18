@@ -73,6 +73,39 @@ Resolve the repo root with `git rev-parse --show-toplevel` (NOT a fixed `../`
 hop) — these scripts sit several directories deep, and the path must survive the
 move into `Completed/`.
 
+### All three write their own log — not just `triage.bash`
+
+**Every plan-local script tees its full output into its own plan's `logs/`
+directory.** This was written down for `triage.bash` and quietly skipped for the
+other two, which left a failed deploy existing only in the operator's terminal
+scrollback — so the only way it could reach an agent was by being copy-pasted
+back by hand, the precise workflow [PlanTriage.md](PlanTriage.md) exists to
+eliminate. A deploy that fails, and an acceptance gate that returns a verdict,
+are exactly the output worth keeping.
+
+```bash
+# After argument parsing (so `--help` never creates directories), before the work:
+PLAN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+mkdir -p "$PLAN_DIR/logs"
+LOG="$PLAN_DIR/logs/deploy.log"        # or triage.log / acceptance.log
+exec > >(tee "$LOG") 2>&1
+echo "Logging this run to: $LOG" >&2
+```
+
+- Resolve `PLAN_DIR` from **`BASH_SOURCE[0]`**, never from the repo root, so the
+  path keeps working after the plan is archived.
+- Use a **fixed filename** so the latest run is always at a predictable path.
+- `CLAUDE/Plan/**/logs/` is **gitignored** (`.gitignore`). That combination is
+  the whole point: the log sits inside the repo, so it is readable from a CCY
+  container at the same repo-relative path with no copy-paste — while never
+  reaching this public repo, which matters because deploy and triage output
+  names hosts, units, private addresses and home directories.
+- Put the block **after** option parsing and any `--list`/`--help` branch, and
+  verify that `--help` still works without creating a `logs/` directory.
+- The case to check is the **failing** one: a script that writes to both streams
+  and then exits non-zero must keep its exit code, and its final `VERDICT:` line
+  must still reach the file.
+
 **The dividing line — transient vs. persistent:**
 
 - **Transient (→ plan folder):** anything whose usefulness ends with the plan —

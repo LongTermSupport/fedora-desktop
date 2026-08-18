@@ -90,6 +90,13 @@ exec > >(tee "$LOG") 2>&1
 Fixed filename, so the latest run is always at a predictable path. `tee` to a
 file — never to `/dev/null`.
 
+**This is not triage-only.** `deploy.bash` and `acceptance.bash` write their own
+log the same way, for the same reason — a failed deploy or a `VERDICT: FAIL`
+that exists only in terminal scrollback has to be copy-pasted back by hand,
+which is what this document exists to stop. The shared rule and its
+verification checklist live in
+[PlanWorkflow.md](PlanWorkflow.md#all-three-write-their-own-log--not-just-triagebash).
+
 `CLAUDE/Plan/**/logs/` is **gitignored**. The logs live with the plan on disk
 but are never committed: they are dumps of live host state — unit files, mount
 points, container names, private IPs, SSIDs — and this is a public repository.
