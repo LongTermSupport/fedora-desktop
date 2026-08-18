@@ -61,6 +61,31 @@ where the incident that started Plan 00075 happened**.
 
 All 27 pass `bash -n`, so nothing is currently broken at parse level.
 
+### The census above counted only shellcheck — the real total is ~92
+
+`qa-patterns.bash` (semgrep) is blinded by the *same* execute-bit rule, so its
+rules were never applied to these files either. Re-measured by extracting each
+rule's own `pattern-regex` and `pattern-not-regex` from
+`.semgrep/bash-conventions.yml` and applying them directly, so the count comes
+from the shipped rules rather than a hand-written approximation:
+
+| Rule                           | Hidden findings |
+| ------------------------------ | --------------- |
+| `bash-error-hiding-pipe-echo`  | 22              |
+| `bash-error-hiding-or-true`    | 16              |
+| `bash-capture-discards-status` | 14              |
+| `bash-test-discards-status`    | 6               |
+| **semgrep total**              | **58**          |
+
+**58 semgrep + 34 shellcheck ≈ 92**, not 34. `bash-error-hiding-or-true` matters
+most of those: it has **no `FAIL-FAST-OK` escape by design**, because it mirrors
+the write-time blocker — every one of its 16 needs rewriting into an explicit
+reporting form, not annotating.
+
+Recording the correction rather than quietly restating the number: the original
+34 was measured with one tool and presented as the size of the job, which is the
+same shape of error this plan is about.
+
 ## Goals
 
 - Make gate coverage independent of file mode and filename. A script is bash

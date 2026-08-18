@@ -65,7 +65,8 @@ ensure_log_dir() {
 }
 
 log_to_file() {
-    local log_line="[$(date '+%Y-%m-%dT%H:%M:%S')] [NORD] $*"
+    local log_line
+    log_line="[$(date '+%Y-%m-%dT%H:%M:%S')] [NORD] $*"
     ensure_log_dir
     echo "$log_line" >> "$LOG_FILE"
 }
@@ -169,9 +170,11 @@ list_configs() {
     local count=0
     for file in "$OVPN_DIR"/*.ovpn; do
         if [ -f "$file" ]; then
-            local file_base=$(basename "$file" .ovpn)
+            local file_base
+            file_base=$(basename "$file" .ovpn)
             # Strip common NordVPN suffixes for display
-            local display_name=$(echo "$file_base" | sed 's/\.nordvpn\.com\.\(udp\|tcp\)$//')
+            local display_name
+            display_name=$(echo "$file_base" | sed 's/\.nordvpn\.com\.\(udp\|tcp\)$//')
             echo "  $display_name"
             count=$((count + 1))
         fi
@@ -197,7 +200,8 @@ list_connections() {
     echo "Imported NetworkManager connections:"
     echo ""
 
-    local connections=$(nmcli -t -f NAME connection show | grep "^$NM_PREFIX" || true)
+    local connections
+    connections=$(nmcli -t -f NAME connection show | grep "^$NM_PREFIX" || true)
 
     if [ -z "$connections" ]; then
         echo "  (none)"
@@ -258,7 +262,8 @@ import_config() {
     fi
 
     # Find the imported connection name (NetworkManager may name it differently)
-    local nm_name=$(nmcli -t -f NAME connection show | grep -F "$(basename "$ovpn_file" .ovpn)" | head -1)
+    local nm_name
+    nm_name=$(nmcli -t -f NAME connection show | grep -F "$(basename "$ovpn_file" .ovpn)" | head -1)
 
     if [ -z "$nm_name" ]; then
         log_error "Could not find imported connection"
@@ -271,13 +276,38 @@ import_config() {
         nmcli connection modify "$nm_name" connection.id "$NM_PREFIX$config_name"
     fi
 
-    # Configure connection to use credentials file
-    local username=$(head -1 "$CREDENTIALS_FILE")
-    local password=$(tail -1 "$CREDENTIALS_FILE")
+    # Configure connection to use credentials file.
+    #
+    # These reads used to be `local username=$(head -1 ...)`, which reports
+    # `local`'s status rather than `head`'s (SC2155). An unreadable or empty
+    # credentials file therefore produced an EMPTY username and password, which
+    # were then written into the connection — and the write's own failure was
+    # swallowed by `|| true`. The result was a NetworkManager profile configured
+    # with blank credentials that fails to authenticate later, with nothing
+    # anywhere saying why.
+    local username password
+    if ! username=$(head -1 "$CREDENTIALS_FILE" 2>&1); then
+        log_error "Cannot read credentials from $CREDENTIALS_FILE: $username"
+        return 1
+    fi
+    if ! password=$(tail -1 "$CREDENTIALS_FILE" 2>&1); then
+        log_error "Cannot read credentials from $CREDENTIALS_FILE: $password"
+        return 1
+    fi
+    if [ -z "$username" ] || [ -z "$password" ]; then
+        log_error "Credentials file is incomplete: $CREDENTIALS_FILE"
+        log_error "  Expected the username on line 1 and the password on line 2."
+        return 1
+    fi
 
-    nmcli connection modify "$NM_PREFIX$config_name" \
+    local modify_err
+    if ! modify_err=$(nmcli connection modify "$NM_PREFIX$config_name" \
         +vpn.data "username=$username" \
-        +vpn.secrets "password=$password" 2>/dev/null || true
+        +vpn.secrets "password=$password" 2>&1); then
+        log_error "Could not attach credentials to $NM_PREFIX$config_name"
+        log_error "  nmcli said: $modify_err"
+        return 1
+    fi
 
     log "Imported: $NM_PREFIX$config_name"
     return 0
@@ -305,7 +335,8 @@ connect_vpn() {
 
     # Disconnect current if any
     if [ -f "$STATE_FILE" ]; then
-        local current=$(cat "$STATE_FILE")
+        local current
+        current=$(cat "$STATE_FILE")
         if [ -n "$current" ] && [ "$current" != "$config_name" ]; then
             log "Disconnecting current connection: $current"
             nmcli connection down "$NM_PREFIX$current" 2>/dev/null || true
@@ -331,10 +362,11 @@ connect_vpn() {
 
 disconnect_vpn() {
     # Check for active nordvpn connections
-    local active=$(nmcli -t -f NAME,TYPE,STATE connection show --active | \
-                   grep ":vpn:activated" | \
-                   grep "^$NM_PREFIX" | \
-                   cut -d: -f1 || true)
+    local active
+    active=$(nmcli -t -f NAME,TYPE,STATE connection show --active | \
+             grep ":vpn:activated" | \
+             grep "^$NM_PREFIX" | \
+             cut -d: -f1 || true)
 
     if [ -z "$active" ]; then
         log "No active VPN connection"
@@ -376,21 +408,24 @@ switch_vpn() {
 
 status_vpn() {
     # Check for active nordvpn connections
-    local active=$(nmcli -t -f NAME,TYPE,STATE connection show --active | \
-                   grep ":vpn:activated" | \
-                   grep "^$NM_PREFIX" | \
-                   cut -d: -f1 || true)
+    local active
+    active=$(nmcli -t -f NAME,TYPE,STATE connection show --active | \
+             grep ":vpn:activated" | \
+             grep "^$NM_PREFIX" | \
+             cut -d: -f1 || true)
 
     if [ -n "$active" ]; then
         local config_name="${active#$NM_PREFIX}"
         echo "Connected: $config_name"
 
         # Show public IP
-        local ip=$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null || echo "unknown")
+        local ip
+        ip=$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null) || ip="unknown"
         echo "Public IP: $ip"
 
         # Show connection device
-        local device=$(nmcli -t -f NAME,DEVICE connection show --active | grep "^$active:" | cut -d: -f2)
+        local device
+        device=$(nmcli -t -f NAME,DEVICE connection show --active | grep "^$active:" | cut -d: -f2)
         if [ -n "$device" ]; then
             echo "Device: $device"
         fi
@@ -406,7 +441,8 @@ status_vpn() {
 cleanup_old() {
     echo "Removing all nordvpn-* connections from NetworkManager..."
 
-    local connections=$(nmcli -t -f NAME connection show | grep "^$NM_PREFIX" || true)
+    local connections
+    connections=$(nmcli -t -f NAME connection show | grep "^$NM_PREFIX" || true)
 
     if [ -z "$connections" ]; then
         echo "No nordvpn connections found"
@@ -429,8 +465,10 @@ interactive_chooser() {
     local configs=()
     for file in "$OVPN_DIR"/*.ovpn; do
         if [ -f "$file" ]; then
-            local file_base=$(basename "$file" .ovpn)
-            local display_name=$(echo "$file_base" | sed 's/\.nordvpn\.com\.\(udp\|tcp\)$//')
+            local file_base
+            file_base=$(basename "$file" .ovpn)
+            local display_name
+            display_name=$(echo "$file_base" | sed 's/\.nordvpn\.com\.\(udp\|tcp\)$//')
             configs+=("$display_name")
         fi
     done
@@ -443,10 +481,11 @@ interactive_chooser() {
     fi
 
     # Check if currently connected
-    local active=$(nmcli -t -f NAME,TYPE,STATE connection show --active | \
-                   grep ":vpn:activated" | \
-                   grep "^$NM_PREFIX" | \
-                   cut -d: -f1 || true)
+    local active
+    active=$(nmcli -t -f NAME,TYPE,STATE connection show --active | \
+             grep ":vpn:activated" | \
+             grep "^$NM_PREFIX" | \
+             cut -d: -f1 || true)
 
     if [ -n "$active" ]; then
         # Already connected - offer switch/disconnect/cancel

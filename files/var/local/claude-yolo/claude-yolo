@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.37.0"  # Fix: `ccy --top` no longer dies mid-table, and the zombie scan no longer truncates, when a container exits while being listed — four bare captures whose exit status errexit turned into an aborted function now carry explicit fallbacks. See docs/ccy-changelog.md. Previously (3.36.0): a GitHub API outage no longer blocks launch with a bogus "token owner does not match" report — the owner lookup is retried and validated as a login before comparison, and an unavailable API says so and offers CCY_SKIP_TOKEN_OWNER_CHECK=1. Plan 00074 (3.35.0): usage display as aligned coloured bars, CCY_USAGE_DEBUG/CCY_USAGE_SCALE.
+CCY_VERSION="3.37.1"  # Plan 00076: remove three write-only variables (CONFIG_LOADED, HOST_GID, PODMAN_DEFAULT_DETECTED) — assigned in six places, read in none. No behaviour change; found only because this file had never been linted (Plan 00076: extensionless + mode 644 made it invisible to shellcheck and semgrep alike). Previously (3.37.0): `ccy --top` no longer dies mid-table, and the zombie scan no longer truncates, when a container exits while being listed — four bare captures whose exit status errexit turned into an aborted function now carry explicit fallbacks. See docs/ccy-changelog.md. Previously (3.36.0): a GitHub API outage no longer blocks launch with a bogus "token owner does not match" report — the owner lookup is retried and validated as a login before comparison, and an unavailable API says so and offers CCY_SKIP_TOKEN_OWNER_CHECK=1. Plan 00074 (3.35.0): usage display as aligned coloured bars, CCY_USAGE_DEBUG/CCY_USAGE_SCALE.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,15 +26,32 @@ else
     exit 1
 fi
 
-# Load specialized libraries
+# Load specialized libraries.
+#
+# Presence is still checked in a loop, so a missing library fails exactly as it
+# did before, naming the file. The `source` calls are then written out one per
+# line so that each carries a `# shellcheck source=` directive: with a computed
+# `$lib.bash` filename shellcheck cannot resolve any of them, and reported five
+# unfollowable sources as SC1090 instead of actually checking the libraries this
+# script's every function comes from. Same load order, same failure, real
+# cross-file analysis.
 for lib in token-management ssh-handling network-management dockerfile-custom docker-health; do
-    if [ -f "$SCRIPT_DIR/lib/$lib.bash" ]; then
-        source "$SCRIPT_DIR/lib/$lib.bash"
-    else
+    if [ ! -f "$SCRIPT_DIR/lib/$lib.bash" ]; then
         print_error "Required library not found: $SCRIPT_DIR/lib/$lib.bash"
         exit 1
     fi
 done
+
+# shellcheck source=lib/token-management.bash
+source "$SCRIPT_DIR/lib/token-management.bash"
+# shellcheck source=lib/ssh-handling.bash
+source "$SCRIPT_DIR/lib/ssh-handling.bash"
+# shellcheck source=lib/network-management.bash
+source "$SCRIPT_DIR/lib/network-management.bash"
+# shellcheck source=lib/dockerfile-custom.bash
+source "$SCRIPT_DIR/lib/dockerfile-custom.bash"
+# shellcheck source=lib/docker-health.bash
+source "$SCRIPT_DIR/lib/docker-health.bash"
 
 # IMPORTANT: When modifying the Dockerfile, ALWAYS increment REQUIRED_CONTAINER_VERSION!
 # This ensures users automatically rebuild when critical container changes are made.
@@ -300,7 +317,11 @@ load_launch_config() {
         return 1  # No config, use interactive
     fi
 
-    # Source config
+    # Source config. `source=/dev/null` states a fact rather than silencing a
+    # check: .last-launch.conf is user runtime state written at launch, not a
+    # file in this repo, so there is nothing for shellcheck to follow. The
+    # failure IS handled — the `||` branch below reports and resets it.
+    # shellcheck source=/dev/null
     source "$config_file" 2>/dev/null || {
         echo "Warning: Config file corrupted, reconfiguring..." >&2
         rm -f "$config_file"
@@ -802,16 +823,18 @@ if [ "$CUSTOM_DOCKER_MODE" = true ]; then
     exit 0
 fi
 
-# Try to load previous launch configuration (if no flags specified)
-CONFIG_LOADED=false
-
+# Try to load previous launch configuration (if no flags specified).
+#
+# There is no CONFIG_LOADED flag: it was set in three places and read in none.
+# Accepting the quick-launch config takes effect by populating SPECIFIED_TOKEN /
+# SSH_KEYS / SPECIFIED_NETWORK below, and declining takes effect by leaving them
+# empty so the interactive prompts run. The flag tracked that state a second
+# time without anything consulting it.
 if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
    [[ -z "$SPECIFIED_TOKEN" ]] && [[ -z "$SPECIFIED_NETWORK" ]] && \
    [[ "$NO_NETWORK_MODE" = false ]]; then
     # No flags provided - try to load config
     if load_launch_config ".claude/ccy"; then
-        CONFIG_LOADED=true
-
         echo ""
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo "Quick Launch Available"
@@ -847,9 +870,10 @@ if [[ "$NO_SSH_MODE" = false ]] && [[ ${#SSH_KEYS[@]} -eq 0 ]] && \
                     break
                     ;;
                 N|n|No|no)
+                    # Declining simply leaves SPECIFIED_* unset, so the normal
+                    # interactive prompts run below.
                     echo "Reconfiguring with interactive prompts..."
                     echo ""
-                    CONFIG_LOADED=false
                     break
                     ;;
                 *)
@@ -1175,9 +1199,11 @@ if [ "$TOKEN_VALIDATION_FAILED" = true ]; then
 fi
 echo ""
 
-# Get current user's UID and GID for proper file ownership
+# Current user's UID, for the never-run-as-root check below. There is no
+# HOST_GID: it was captured under a comment about "proper file ownership" and
+# then never used by anything — the container's ownership mapping does not read
+# it. Removed rather than left as a hint at a mechanism that does not exist.
 HOST_UID=$(id -u)
-HOST_GID=$(id -g)
 
 # Safety check: Never run as root (UID 0)
 if [ "$HOST_UID" -eq 0 ]; then
@@ -2430,15 +2456,12 @@ if [ ${#MATCHING_NETWORKS[@]} -gt 0 ] && [ -z "$SPECIFIED_NETWORK" ]; then
 else
     # No matching networks - offer to connect to ANY available network
     ALL_NETWORKS=()
-    PODMAN_DEFAULT_DETECTED=false
+    # No PODMAN_DEFAULT_DETECTED flag: it was assigned here and in the loop, and
+    # never read anywhere, so the inner `if` existed only to set it.
     while IFS= read -r net; do
         # Skip default networks
         if [[ "$net" != "bridge" ]] && [[ "$net" != "host" ]] && [[ "$net" != "none" ]]; then
             ALL_NETWORKS+=("$net")
-            # Detect Podman's default network (not project-specific)
-            if [[ "$net" == "podman" ]]; then
-                PODMAN_DEFAULT_DETECTED=true
-            fi
         fi
     done < <(container_cmd network ls --format "{{.Name}}" 2>/dev/null)
 

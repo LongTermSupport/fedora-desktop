@@ -17,6 +17,33 @@ Two version numbers move independently — see
 
 ---
 
+## 3.37.1 (container 2.26)
+
+**Housekeeping, from the first time this file was ever linted.**
+
+No behaviour change. The launcher had never been examined by any of the repo's bash
+gates — it is extensionless and was committed mode `0644`, and every gate identifies
+bash by filename extension or execute bit. `qa-bash.bash` looks for `*.sh`/`*.bash`
+**or** an executable file with a shebang, so it matched neither branch; semgrep is
+stricter still, refusing to read the shebang of a non-executable file at all
+(`target_manager.py:1024`), so it never even classified the file as bash. See
+Plan 00076.
+
+What linting it found:
+
+| Change                                                              | Why                                                                                                                                                                                            |
+| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Removed `CONFIG_LOADED`                                             | Assigned in three places, read in none. Quick-launch takes effect by populating `SPECIFIED_TOKEN`/`SSH_KEYS`/`SPECIFIED_NETWORK`; the flag tracked that a second time and nothing consulted it |
+| Removed `HOST_GID`                                                  | Captured under a comment about "proper file ownership" and never used. `HOST_UID` is still read, for the never-run-as-root check                                                               |
+| Removed `PODMAN_DEFAULT_DETECTED`                                   | Assigned twice, read never — the inner `if` in the network scan existed only to set it                                                                                                         |
+| Library loading unrolled from a `for` loop into five `source` lines | With a computed `$lib.bash` filename shellcheck can resolve none of them. Each line now carries a `# shellcheck source=` directive, so the five libraries are actually analysed                |
+
+Load order is unchanged, and a missing library still fails naming the file — now
+*before* anything is sourced rather than part-way through, so a partial load is no
+longer possible. Verified both paths against a stub library tree.
+
+---
+
 ## 3.37.0 (container 2.26)
 
 **`ccy --top` no longer dies mid-table when a container exits while it is being listed.**
