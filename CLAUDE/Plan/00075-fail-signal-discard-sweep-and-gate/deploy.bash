@@ -79,12 +79,27 @@ if [ -f /.dockerenv ] || [ -d /workspace/.claude ]; then
 fi
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-cd "$REPO_ROOT"
 
 if [ "$LIST_ONLY" -eq 1 ]; then
     usage
     exit 0
 fi
+
+# Capture the run into this plan's own logs/ directory. Without it the only
+# record of a deploy is the operator's terminal scrollback, which means a
+# failure has to be copy-pasted back by hand — exactly what PlanTriage.md exists
+# to avoid. Resolved from the script's own location (so it survives the move
+# into Completed/) and before the cd below. CLAUDE/Plan/**/logs/ is gitignored:
+# the log sits inside the repo, so it is readable at the same path from a CCY
+# container, but never reaches this public repo — Ansible output names hosts,
+# units and home directories.
+PLAN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+mkdir -p "$PLAN_DIR/logs"
+LOG="$PLAN_DIR/logs/deploy.log"
+exec > >(tee "$LOG") 2>&1
+echo "Logging this run to: $LOG" >&2
+
+cd "$REPO_ROOT"
 
 # Every play is checked to exist BEFORE any of them runs. A missing play part-way
 # through leaves the host half-deployed, which is the state this plan's own

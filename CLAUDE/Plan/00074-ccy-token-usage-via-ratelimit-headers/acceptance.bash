@@ -57,6 +57,19 @@ if [ -f /.dockerenv ] || [ -d /workspace/.claude ]; then
     exit 1
 fi
 
+# Capture the verdict into this plan's own logs/ directory. A pass/fail gate
+# whose result only exists in terminal scrollback has to be copy-pasted back by
+# hand to be acted on. Resolved from the script's own location so it survives
+# the move into Completed/; CLAUDE/Plan/**/logs/ is gitignored, so the log is
+# readable inside the repo (and therefore from a CCY container) without ever
+# reaching this public repo.
+PLAN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+mkdir -p "$PLAN_DIR/logs"
+LOG="$PLAN_DIR/logs/acceptance.log"
+exec > >(tee "$LOG") 2>&1
+echo "Logging this run to: $LOG" >&2
+echo "" >&2
+
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 REPO_LIB="$REPO_ROOT/files/var/local/claude-yolo/lib/token-management.bash"
 REPO_CCY="$REPO_ROOT/files/var/local/claude-yolo/claude-yolo"
