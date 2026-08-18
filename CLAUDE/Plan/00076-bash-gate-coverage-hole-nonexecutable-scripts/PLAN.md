@@ -169,9 +169,10 @@ that state — and so were `rclone-tail` and `rclone-cache-status`, which the
 - [ ] ⬜ **Task 4.4**: The 12 `PartialParsing` files. Cause **not** established.
   The reported ranges do sit on `${var:-(text)}` occurrences (parentheses in a
   default value), but that construct **parses in isolation** — as do extglob and
-  the arithmetic forms — so, like 4.3b, the failure is contextual. Worst case is
-  `scripts/git-hooks/pre-commit`, where an ~86-line span of a secret scanner is
-  outside the analysed region
+  the arithmetic forms — so, like 4.3b, the failure is contextual. The largest
+  span, `scripts/git-hooks/pre-commit` 266–352, is almost entirely the **body of
+  an embedded Python heredoc**, which bash rules would not apply to anyway — so
+  the practical loss there is far smaller than the line count suggests
 
 ### Phase 5: Review
 
