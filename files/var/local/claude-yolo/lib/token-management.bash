@@ -468,7 +468,7 @@ list_tokens() {
     echo "════════════════════════════════════════════════════════════════════════════════"
     echo ""
 
-    if [ ! -d "$token_dir" ] || [ -z "$(ls -A "$token_dir"/*.token 2>/dev/null)" ]; then
+    if [ ! -d "$token_dir" ] || [ -z "$(ls -A "$token_dir"/*.token 2>/dev/null)" ]; then  # FAIL-FAST-OK: an unmatched glob IS "no tokens" — the only answer this asks for
         echo "No tokens found in: $token_dir"
         echo ""
         echo "Create a token with: ccy --create-token"

@@ -328,7 +328,11 @@ container_exists() {
 
 container_is_running() {
     local name="$1"
-    [ "$(sudo lxc-info -n "$name" -s 2>/dev/null | awk '{print $2}')" = "RUNNING" ]
+    # A predicate: "is it running". An absent container and an lxc-info that
+    # cannot answer both mean "not running" for the caller's purposes, and the
+    # callers act by trying to start it — so a genuine failure surfaces loudly
+    # there rather than being absorbed here.
+    [ "$(sudo lxc-info -n "$name" -s 2>/dev/null | awk '{print $2}')" = "RUNNING" ]  # FAIL-FAST-OK: see above — not-running is the correct answer either way
 }
 
 wait_for_container_network() {
