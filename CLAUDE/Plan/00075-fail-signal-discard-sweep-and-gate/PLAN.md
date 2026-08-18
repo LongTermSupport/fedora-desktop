@@ -162,11 +162,13 @@ creates the impression of coverage.
 
 ## Success Criteria
 
-- [ ] Both incident code samples are rejected by the new gate, proven with a
-  fixture
-- [ ] Every BLOCKING finding fixed or explicitly accepted with a recorded reason
-- [ ] `./scripts/qa-all.bash` fails on a reintroduction of the class
-- [ ] No existing gate weakened to accommodate the new one
+- [x] Both incident code samples are rejected by the new gate, proven with a
+  fixture — the exact pre-fix code is checked in as `# ruleid:` cases
+- [x] Every BLOCKING finding fixed or explicitly accepted with a recorded reason
+- [x] `./scripts/qa-all.bash` fails on a reintroduction of the class — proven by
+  injecting a fresh SC2155 (`rc=1`, naming file and line) and removing it again
+- [x] No existing gate weakened to accommodate the new one — shellcheck was
+  raised from `error` to `warning` and made **required**, not relaxed
 
 ## Risks & Mitigations
 
@@ -184,3 +186,15 @@ creates the impression of coverage.
 
 - Motivating fixes already shipped: CCY 3.36.0 (`b770441`), Plan 00074
   `prototype.bash`
+- Gate built, and the pre-existing gate that had never matched anything
+  repaired: `6cec534`
+- Class recorded as a repo gotcha: `12ee7ec`
+- Four more live instances found by review, shipped as CCY 3.37.0: `c01d322`
+- Phase 4 widening — shellcheck raised to `warning` (`d24d0ee`),
+  `fedora-install/**` (`ff668d4`), `scripts/**` (`a0d9a3d`)
+- Upstream report drafted for Task 4.4: `264e178`
+- Host deploy steps captured in a plan-local `deploy.bash`: `caed354`
+
+**Remaining**: Task 4.4 only — posting the drafted report to the hooks-daemon
+tracker. Outward-facing, so it is the owner's to send; the text is written and
+scrubbed in `upstream-report.md`.
