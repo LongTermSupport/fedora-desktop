@@ -493,7 +493,7 @@ while [ $# -gt 0 ]; do
             ;;
         -n|--netapi)
             IPnPORT="$WHOST:$WPORT"
-            http_code=$(curl -s -o /dev/null -w '%{http_code}' "$IPnPORT" 2>/dev/null)
+            http_code=$(curl -s -o /dev/null -w '%{http_code}' "$IPnPORT" 2>/dev/null)  # FAIL-FAST-OK: the -z branch below names empty as "connection failed" and exits 1
             if [[ -z "$http_code" ]] || [[ ! "$http_code" =~ ^2 ]]; then
                 log_error "Can't connect to whisper.cpp server at $IPnPORT (HTTP: ${http_code:-connection failed})"
                 exit 1
@@ -702,7 +702,7 @@ if [ ! -f "$ramf" ] || [ ! -s "$ramf" ]; then
 fi
 
 if [ -f "$ramf" ]; then
-    size=$(du -h "$ramf" 2>/dev/null | cut -f1)
+    size=$(du -h "$ramf" 2>/dev/null | cut -f1)  # FAIL-FAST-OK: used only in the debug log below, inside a branch that already proved the file exists
     log_debug "Audio file size: $size"
 else
     log_error "Audio file not created: $ramf"
@@ -720,8 +720,20 @@ else
 fi
 mv "${ramf}.resampled.wav" "$ramf"
 
-# Check audio duration and pad if needed (whisper requires min 1 second)
-audio_duration=$(soxi -D "$ramf" 2>/dev/null | cut -d. -f1)
+# Check audio duration and pad if needed (whisper requires min 1 second).
+#
+# The status is checked because an unreadable duration and a duration of zero
+# used to look identical: both left the variable empty, and the `-n` test below
+# then skipped the padding step silently. Skipping is still the right fallback —
+# it is better to attempt transcription than to abort — but a soxi that could
+# not run now says so instead of disabling the minimum-length guarantee quietly.
+audio_duration=""
+if soxi_out=$(soxi -D "$ramf" 2>&1); then
+    audio_duration="${soxi_out%%.*}"
+else
+    log_error "Could not read the audio duration (soxi): $soxi_out"
+    log_error "  Skipping the minimum-length pad; transcription may reject short audio."
+fi
 log_debug "Audio duration: ${audio_duration}s"
 
 if [ -n "$audio_duration" ] && [ "$audio_duration" -lt 1 ]; then
@@ -763,7 +775,7 @@ elif command -v "$WHISPERFILE" &>/dev/null; then
 
     # Run transcription (batch mode - fast enough that streaming display isn't needed)
     set +e  # Temporarily disable errexit
-    str="$("$WHISPERFILE" "$ramf" 2>/dev/null)"
+    str="$("$WHISPERFILE" "$ramf" 2>/dev/null)"  # FAIL-FAST-OK: errexit is suspended around this deliberately and $? is read on the very next line
     whisper_exit=$?
     set -e  # Re-enable errexit
 

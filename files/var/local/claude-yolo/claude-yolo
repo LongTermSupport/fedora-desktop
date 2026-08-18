@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.37.1"  # Plan 00076: remove three write-only variables (CONFIG_LOADED, HOST_GID, PODMAN_DEFAULT_DETECTED) — assigned in six places, read in none. No behaviour change; found only because this file had never been linted (Plan 00076: extensionless + mode 644 made it invisible to shellcheck and semgrep alike). Previously (3.37.0): `ccy --top` no longer dies mid-table, and the zombie scan no longer truncates, when a container exits while being listed — four bare captures whose exit status errexit turned into an aborted function now carry explicit fallbacks. See docs/ccy-changelog.md. Previously (3.36.0): a GitHub API outage no longer blocks launch with a bogus "token owner does not match" report — the owner lookup is retried and validated as a login before comparison, and an unavailable API says so and offers CCY_SKIP_TOKEN_OWNER_CHECK=1. Plan 00074 (3.35.0): usage display as aligned coloured bars, CCY_USAGE_DEBUG/CCY_USAGE_SCALE.
+CCY_VERSION="3.37.2"  # Plan 00076: a Docker context that cannot be QUERIED is no longer reported as a context that is not rootless — the same misreport shape as the GitHub outage fixed in 3.36.0. Previously (3.37.1): remove three write-only variables (CONFIG_LOADED, HOST_GID, PODMAN_DEFAULT_DETECTED) — assigned in six places, read in none. No behaviour change; found only because this file had never been linted (Plan 00076: extensionless + mode 644 made it invisible to shellcheck and semgrep alike). Previously (3.37.0): `ccy --top` no longer dies mid-table, and the zombie scan no longer truncates, when a container exits while being listed — four bare captures whose exit status errexit turned into an aborted function now carry explicit fallbacks. See docs/ccy-changelog.md. Previously (3.36.0): a GitHub API outage no longer blocks launch with a bogus "token owner does not match" report — the owner lookup is retried and validated as a login before comparison, and an unavailable API says so and offers CCY_SKIP_TOKEN_OWNER_CHECK=1. Plan 00074 (3.35.0): usage display as aligned coloured bars, CCY_USAGE_DEBUG/CCY_USAGE_SCALE.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -85,7 +85,7 @@ check_allowed_hostname || exit 1
 
 # Migration: detect and offer to remove old session directories (v2.x -> v3.x)
 if [ -d ".claude/ccy/sessions" ]; then
-    session_count=$(find .claude/ccy/sessions -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
+    session_count=$(find .claude/ccy/sessions -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)  # FAIL-FAST-OK: wc always yields a number, and 0 means "no migration needed" — the safe default
     if [ "$session_count" -gt 0 ]; then
         echo ""
         echo "════════════════════════════════════════════════════════════════════════════════"
@@ -1217,7 +1217,20 @@ fi
 # Podman is rootless by default when run as non-root user
 # Docker requires explicit rootless context setup
 if [ "$CONTAINER_ENGINE" = "docker" ]; then
-    DOCKER_CONTEXT=$(container_cmd context inspect 2>/dev/null | grep -o '"Name": *"[^"]*"' | head -1 | cut -d'"' -f4)
+    # "Could not ask Docker" and "Docker answered, and the context is not
+    # rootless" are different problems with different fixes, and this used to
+    # report both as the second one — telling the user their context was wrong
+    # when the truth might be that the query never ran. That is the same shape
+    # as the GitHub-outage misreport fixed in CCY 3.36.0.
+    DOCKER_CONTEXT=""
+    if ! docker_context_raw=$(container_cmd context inspect 2>&1); then
+        print_error "Cannot determine the Docker context"
+        echo "  ${CONTAINER_ENGINE} said: ${docker_context_raw:-(no output)}" >&2
+        echo "  YOLO mode requires rootless Docker, and this check must succeed" >&2
+        echo "  before it can run. Is the Docker daemon up?" >&2
+        exit 1
+    fi
+    DOCKER_CONTEXT=$(printf '%s' "$docker_context_raw" | grep -o '"Name": *"[^"]*"' | head -1 | cut -d'"' -f4)
     if [ "$DOCKER_CONTEXT" != "rootless" ]; then
         print_error "Claude Code YOLO mode requires rootless Docker"
         echo "Current Docker context: ${DOCKER_CONTEXT:-default}"
@@ -2623,7 +2636,7 @@ if [[ -n "$SELECTED_NETWORK" ]] && [[ "$NO_NETWORK_MODE" != true ]]; then
         echo ""
 
         # Scan for compose files and check for common issues
-        COMPOSE_FILES=$(find . -maxdepth 2 -name "*compose*.yml" -o -name "*compose*.yaml" 2>/dev/null)
+        COMPOSE_FILES=$(find . -maxdepth 2 -name "*compose*.yml" -o -name "*compose*.yaml" 2>/dev/null)  # FAIL-FAST-OK: empty means "no compose files here", which the -n check below reads as nothing to scan
         FOUND_ISSUES=false
 
         if [[ -n "$COMPOSE_FILES" ]]; then

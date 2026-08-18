@@ -17,6 +17,26 @@ Two version numbers move independently — see
 
 ---
 
+## 3.37.2 (container 2.26)
+
+**A Docker context that cannot be queried is no longer reported as a context that is
+not rootless.**
+
+The rootless-Docker check read `container_cmd context inspect` with its exit status
+discarded. If the query failed — daemon down, socket unreachable, `docker` missing —
+the result was an empty string, which compares unequal to `rootless`, so ccy printed
+*"Claude Code YOLO mode requires rootless Docker / Current Docker context: default"*
+and sent the user off to reconfigure a context that may have been perfectly correct.
+
+This is the same shape as the GitHub-outage misreport fixed in 3.36.0: a failed query
+laundered into a confident statement about configuration. The check now distinguishes
+the two, naming what the engine actually said and pointing at the daemon.
+
+Found by Plan 00076, in the pass that made this file visible to the linters for the
+first time.
+
+---
+
 ## 3.37.1 (container 2.26)
 
 **Housekeeping, from the first time this file was ever linted.**

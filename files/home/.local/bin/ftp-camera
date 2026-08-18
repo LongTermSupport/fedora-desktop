@@ -709,13 +709,13 @@ detect_hotspot() {
     [ -n "$conn" ] || return 0
 
     local dev ip ssid
-    dev=$(nmcli -g GENERAL.DEVICES connection show "$conn" 2>/dev/null)
+    dev=$(nmcli -g GENERAL.DEVICES connection show "$conn" 2>/dev/null)  # FAIL-FAST-OK: the next line returns on empty — no device means no banner to print
     [ -n "$dev" ] || return 0
     ip=$(ip -4 addr show dev "$dev" | awk '/inet / {print $2; exit}' | cut -d/ -f1)
     [ -n "$ip" ] || return 0
     # SSID is wireless-only; non-wireless shared connections (rare) leave
     # this empty, which the banner prints as a dash.
-    ssid=$(nmcli -g 802-11-wireless.ssid connection show "$conn" 2>/dev/null)
+    ssid=$(nmcli -g 802-11-wireless.ssid connection show "$conn" 2>/dev/null)  # FAIL-FAST-OK: SSID is wireless-only; empty is a valid answer, printed as a dash
 
     HOTSPOT_ACTIVE=true
     HOTSPOT_DEV="$dev"
@@ -1001,7 +1001,7 @@ find_mount_path() {
     local mount_target
     mount_target=$(findmnt -n -o TARGET -t fuse.rclone 2>/dev/null \
         | while IFS= read -r mnt; do
-            src=$(findmnt -n -o SOURCE "$mnt" 2>/dev/null)
+            src=$(findmnt -n -o SOURCE "$mnt" 2>/dev/null)  # FAIL-FAST-OK: empty just fails the case match; the -z check after the loop reports and exits
             case "$src" in "${remote_name}:"*) echo "$mnt"; break;; esac
         done)
 
@@ -1012,9 +1012,16 @@ find_mount_path() {
         return 1
     fi
 
-    # Get the mount's source path to calculate the offset under the mount
+    # Get the mount's source path to calculate the offset under the mount.
+    # Checked, because an empty result here does not fail — it silently produces
+    # the WRONG offset: mount_src_path becomes empty, the prefix strip below
+    # removes nothing, and the relative path is quietly the full remote path.
     local mount_source mount_src_path
-    mount_source=$(findmnt -n -o SOURCE "$mount_target" 2>/dev/null)
+    if ! mount_source=$(findmnt -n -o SOURCE "$mount_target" 2>&1) || [ -z "$mount_source" ]; then
+        echo "ERROR: Could not read the source of mount '$mount_target'" >&2
+        echo "  findmnt said: ${mount_source:-(no output)}" >&2
+        return 1
+    fi
     mount_src_path="${mount_source#*:}"
 
     # Strip mount source prefix from remote path

@@ -49,10 +49,10 @@ resolve_hostname() {
     local ip="$1"
     local name=""
     # Try reverse DNS first
-    name=$(host "$ip" 2>/dev/null | awk '/domain name pointer/ {print $NF; exit}' | sed 's/\.$//')
+    name=$(host "$ip" 2>/dev/null | awk '/domain name pointer/ {print $NF; exit}' | sed 's/\.$//')  # FAIL-FAST-OK: no reverse DNS is the common case, handled by the mDNS fallback below
     # Fall back to mDNS (avahi) if available and DNS returned nothing
     if [ -z "$name" ] && command -v avahi-resolve-address &>/dev/null; then
-        name=$(avahi-resolve-address "$ip" 2>/dev/null | awk '{print $2}')
+        name=$(avahi-resolve-address "$ip" 2>/dev/null | awk '{print $2}')  # FAIL-FAST-OK: unresolvable is normal on a LAN; the ${name:--} below prints a dash
     fi
     echo "${name:--}"
 }
@@ -150,7 +150,7 @@ cmd_find_nas() {
         local ip ports hostname
         ip=$(echo "$line" | awk '{print $2}')
         ports=$(echo "$line" | grep -oP 'Ports: \K[^#]+' | sed 's|/open/[^,]*||g; s/, / /g; s|/open[^ ]*||g')
-        hostname=$(host "$ip" 2>/dev/null | awk '/domain name pointer/ {print $NF}' | sed 's/\.$//')
+        hostname=$(host "$ip" 2>/dev/null | awk '/domain name pointer/ {print $NF}' | sed 's/\.$//')  # FAIL-FAST-OK: the next line substitutes a dash for empty
         [ -z "$hostname" ] && hostname="-"
 
         # Highlight if QNAP-likely ports (8080+443 both open)
