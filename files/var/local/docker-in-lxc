@@ -2,9 +2,9 @@
 # Docker-in-LXC Wrapper
 # Creates and manages LXC containers for Docker projects with Claude Code integration
 #
-# Version: 1.0.2
+# Version: 1.1.0
 #
-DIL_VERSION="1.0.2"  # Bump FEDORA_VERSION to 44 (Fedora 44 migration)
+DIL_VERSION="1.1.0"  # Report what could not be checked; remedies that exist
 
 set -e
 
@@ -215,14 +215,18 @@ check_host_configured() {
         fi
     done
 
-    # Check sysctl parameters
-    if [ "$(sysctl -n net.ipv4.ip_forward 2>/dev/null)" != "1" ]; then
-        errors+=("sysctl: net.ipv4.ip_forward is not set to 1")
-    fi
-
-    if [ "$(sysctl -n net.bridge.bridge-nf-call-iptables 2>/dev/null)" != "1" ]; then
-        errors+=("sysctl: net.bridge.bridge-nf-call-iptables is not set to 1")
-    fi
+    # Check sysctl parameters. "Could not read it" and "it is not 1" are
+    # different findings and must not be reported as the same one: a discarded
+    # status turned the first into the second, sending the reader to the sysctl
+    # value when the real problem was that the key could not be queried at all.
+    local key value
+    for key in net.ipv4.ip_forward net.bridge.bridge-nf-call-iptables; do
+        if ! value=$(sysctl -n "$key" 2>&1); then
+            errors+=("sysctl: could not read $key — sysctl said: $value")
+        elif [ "$value" != "1" ]; then
+            errors+=("sysctl: $key is $value, expected 1")
+        fi
+    done
 
     # Check if lxcbr0 exists
     if ! ip link show lxcbr0 &>/dev/null; then
@@ -244,10 +248,7 @@ check_host_configured() {
         echo "" >&2
         echo "To fix, run the Ansible playbook:" >&2
         echo "  cd ~/Projects/fedora-desktop" >&2
-        echo "  ansible-playbook ./playbooks/imports/optional/common/play-docker-in-lxc-support.yml" >&2
-        echo "" >&2
-        echo "Or manually:" >&2
-        echo "  sudo /usr/local/bin/fix-docker-in-lxc" >&2
+        echo "  ansible-playbook ./playbooks/imports/optional/experimental/play-docker-in-lxc-support.yml" >&2
         echo "" >&2
         exit 1
     fi

@@ -32,6 +32,28 @@
         - overlay
         - br_netfilter
 
+    # `kernel.unprivileged_userns_clone` is a Debian/Ubuntu downstream patch that
+    # mainline — and therefore Fedora — has never carried. This play used to set
+    # it, which failed on every Fedora host with
+    # `cannot stat /proc/sys/kernel/unprivileged_userns_clone`.
+    #
+    # The module writes the line to the file BEFORE reloading, so the failed run
+    # leaves a permanently-poisoned /etc/sysctl.conf: every later `sysctl -p`
+    # fails, including the `sysctl` handler in play-lxc-install-config.yml. So
+    # the line has to be actively removed, not merely no longer written — and it
+    # must be removed BEFORE the sysctl task below, which reloads.
+    - name: Check for a Sysctl Config File to Clean Up
+      ansible.builtin.stat:
+        path: /etc/sysctl.conf
+      register: sysctl_conf
+
+    - name: Remove the Debian-Only User-Namespace Sysctl Left by Earlier Runs
+      ansible.builtin.lineinfile:
+        path: /etc/sysctl.conf
+        regexp: '^\s*kernel\.unprivileged_userns_clone\s*='
+        state: absent
+      when: sysctl_conf.stat.exists
+
     - name: Configure Sysctl Parameters for Docker-in-LXC
       ansible.posix.sysctl:
         name: "{{ item.key }}"
@@ -53,10 +75,26 @@
         - key: net.bridge.bridge-nf-call-ip6tables
           value: "1"
 
-        # Allow unprivileged users to create user namespaces
-        # Required for rootless Docker inside containers
-        - key: kernel.unprivileged_userns_clone
-          value: "1"
+    # Rootless Docker inside the container needs unprivileged user namespaces.
+    # Fedora enables them by default via the mainline `user.max_user_namespaces`
+    # knob, so there is nothing to set — but "nothing to set" must not silently
+    # become "nothing verified": assert it rather than assume it. A hardened
+    # kernel with the limit at 0 now fails here with a reason, instead of failing
+    # later as an unexplained container error.
+    - name: Read the Kernel User-Namespace Limit
+      ansible.builtin.slurp:
+        src: /proc/sys/user/max_user_namespaces
+      register: max_user_namespaces
+
+    - name: Assert Unprivileged User Namespaces Are Available
+      ansible.builtin.assert:
+        that:
+          - (max_user_namespaces.content | b64decode | trim | int) > 0
+        fail_msg: |
+          user.max_user_namespaces is 0 — this kernel forbids unprivileged user
+          namespaces, which rootless Docker inside an LXC container requires.
+          Raise it (for example via /etc/sysctl.d/) and re-run this play.
+        success_msg: "Unprivileged user namespaces are available"
 
     - name: Install Docker-in-LXC Script
       ansible.builtin.copy:
@@ -79,7 +117,8 @@
           - "Docker-in-LXC support has been configured on the host system."
           - ""
           - "Kernel modules loaded: overlay, br_netfilter"
-          - "Sysctl parameters set: IP forwarding, bridge netfilter, user namespaces"
+          - "Sysctl parameters set: IP forwarding, bridge netfilter"
+          - "Verified: unprivileged user namespaces are available"
           - ""
           - "Command installed: docker-in-lxc"
           - ""
