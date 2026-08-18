@@ -172,8 +172,12 @@ jq \
 # the parser copes" is not automatically the right answer. The exceptions below
 # are therefore explicit, named, and self-expiring: a file that starts parsing
 # must be removed from the list, and the gate fails until it is.
+# Cause not yet established for these two (Plan 00076 Task 4.3). What IS
+# established: a one-line `case … esac` nested inside a `while` inside a command
+# substitution breaks the grammar, and one occurrence of it made the whole of
+# `ftp-camera` — 2,475 lines — unanalysable. Splitting that `case` across lines
+# restored it, and the first thing it then reported was a real defect.
 SEMGREP_CANNOT_PARSE=(
-    "files/home/.local/bin/ftp-camera"
     "files/home/.local/bin/rclone-cache-status"
     "files/home/.local/bin/rclone-tail"
 )

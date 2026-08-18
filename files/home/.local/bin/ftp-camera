@@ -701,7 +701,15 @@ detect_hotspot() {
     conn=$(nmcli -t -f NAME connection show --active 2>/dev/null \
         | while IFS= read -r n; do
               [ -n "$n" ] || continue
-              if [ "$(nmcli -g ipv4.method connection show "$n" 2>/dev/null)" = shared ]; then
+              # Ask nmcli, then test — rather than testing the substitution
+              # directly, where "nmcli could not be asked about this connection"
+              # and "this connection is not shared" were the same empty string,
+              # and the connection was skipped either way without a word.
+              if ! _method=$(nmcli -g ipv4.method connection show "$n" 2>&1); then
+                  echo "WARNING: could not read ipv4.method for '$n': $_method" >&2
+                  continue
+              fi
+              if [ "$_method" = shared ]; then
                   printf '%s' "$n"
                   break
               fi
@@ -1002,7 +1010,13 @@ find_mount_path() {
     mount_target=$(findmnt -n -o TARGET -t fuse.rclone 2>/dev/null \
         | while IFS= read -r mnt; do
             src=$(findmnt -n -o SOURCE "$mnt" 2>/dev/null)  # FAIL-FAST-OK: empty just fails the case match; the -z check after the loop reports and exits
-            case "$src" in "${remote_name}:"*) echo "$mnt"; break;; esac
+            # Written across lines deliberately: a ONE-LINE `case … esac` nested
+            # inside a `while` inside a command substitution is the exact shape
+            # semgrep's bash grammar cannot parse, and one occurrence made this
+            # entire 2,475-line file unanalysable (Plan 00076). Same bash.
+            case "$src" in
+                "${remote_name}:"*) echo "$mnt"; break ;;
+            esac
         done)
 
     if [ -z "$mount_target" ]; then

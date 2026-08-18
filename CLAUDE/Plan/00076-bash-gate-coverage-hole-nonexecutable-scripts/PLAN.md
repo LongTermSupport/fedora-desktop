@@ -156,10 +156,16 @@ that state — and so were `rclone-tail` and `rclone-cache-status`, which the
 - [x] ✅ **Task 4.2**: Make the three exceptions explicit, named and
   **self-expiring** — `SEMGREP_CANNOT_PARSE` in `qa-patterns.bash` fails if an
   unlisted file cannot be parsed, *and* fails if a listed file starts parsing
-- [ ] ⬜ **Task 4.3**: Find why semgrep's grammar rejects those three. They are
-  valid bash, so "rewrite until the parser copes" is not automatically right —
-  establish the construct first. Bisecting by truncation is invalid (a prefix cut
-  mid-function is itself unparseable) and produced three confounded answers
+- [x] ✅ **Task 4.3a**: `ftp-camera` — cause found by leave-one-out over complete
+  top-level chunks (truncation bisect is invalid; a prefix cut mid-function is
+  unparseable in its own right). A **one-line `case … esac` nested inside a
+  `while` inside a command substitution**; the same `case` across lines parses.
+  Fixed, file removed from the exception list, and the first finding it then
+  reported was a real defect at line 704
+- [ ] ⬜ **Task 4.3b**: `rclone-tail` and `rclone-cache-status` — cause **not**
+  established. Each reduces to two segments either of which fixes the file, so it
+  is an interaction. The shared embedded-Python heredoc inside an `if` condition
+  was the obvious suspect and **parses in isolation** — dead end, not a cause
 - [ ] ⬜ **Task 4.4**: The 11 `PartialParsing` files. The recurring construct is
   `${var:-(text)}` — parentheses inside a default value — which is my own idiom
   from Plan 00075's error-reporting fixes; also extglob and some `$(( ))`
