@@ -165,9 +165,10 @@ that state — and so were `rclone-tail` and `rclone-cache-status`, which the
 - [ ] ⬜ **Task 4.3b**: `rclone-tail` and `rclone-cache-status` — cause **not**
   established, but its *shape* now is: each file reduces to two functions, and
   **either alone parses while the two together do not**. So it is not a single
-  construct — the embedded-Python-heredoc suspect parses in isolation too. Next
-  hypothesis to test is a parser complexity/recovery budget rather than a
-  grammar gap
+  construct — the embedded-Python-heredoc suspect parses in isolation too. A
+  size/complexity budget is **also** ruled out: eight copies of one of the
+  functions parse fine. Four theories tested and dead; the next step is
+  delta-debugging *within* the failing pair, not another guess
 - [ ] ⬜ **Task 4.4**: The 12 `PartialParsing` files. Cause **not** established.
   The reported ranges do sit on `${var:-(text)}` occurrences (parentheses in a
   default value), but that construct **parses in isolation** — as do extglob and
