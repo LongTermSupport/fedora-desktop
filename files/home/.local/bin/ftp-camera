@@ -1236,9 +1236,9 @@ PY
         prev_time=$now
 
         local rate_human bytes_human total_bytes_human eta_human
-        rate_human=$(numfmt --to=iec --suffix=B/s "$rate_bps" 2>/dev/null || echo "—")
-        bytes_human=$(numfmt --to=iec --suffix=B "$bytes_done" 2>/dev/null || echo "?")
-        total_bytes_human=$(numfmt --to=iec --suffix=B "$total_bytes" 2>/dev/null || echo "?")
+        rate_human=$(numfmt --to=iec --suffix=B/s "$rate_bps" 2>/dev/null || echo "—")  # FAIL-FAST-OK: display formatter; the fallback is a placeholder meaning "not known", which cannot masquerade as a size
+        bytes_human=$(numfmt --to=iec --suffix=B "$bytes_done" 2>/dev/null || echo "?")  # FAIL-FAST-OK: display formatter; the fallback is a placeholder meaning "not known", which cannot masquerade as a size
+        total_bytes_human=$(numfmt --to=iec --suffix=B "$total_bytes" 2>/dev/null || echo "?")  # FAIL-FAST-OK: display formatter; the fallback is a placeholder meaning "not known", which cannot masquerade as a size
         if [ -n "$eta" ] && [ "$eta" != "0" ]; then
             eta_human=$(printf '%dm%02ds' $((eta / 60)) $((eta % 60)))
         else

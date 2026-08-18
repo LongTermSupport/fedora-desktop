@@ -91,7 +91,9 @@ load_network_preference() {
     network_file=$(get_network_persistence_file)
 
     if [ -f "$network_file" ]; then
-        cat "$network_file"
+        # A `cat` that cannot read the file must not return 0 with no output —
+        # callers read that as "no preference recorded" and quietly move on.
+        cat "$network_file" || return 1
         return 0
     fi
 

@@ -58,9 +58,16 @@ ensure_log_dir() {
         mkdir -p "$LOG_DIR"
     fi
 
-    # Rotate log if too large
-    if [ -f "$LOG_FILE" ] && [ "$(stat -c%s "$LOG_FILE" 2>/dev/null || echo 0)" -gt "$MAX_LOG_SIZE" ]; then
-        mv "$LOG_FILE" "${LOG_FILE}.old"
+    # Rotate log if too large. The size is captured with its status intact: a
+    # failing `stat` used to become the literal 0, which reads as "well under the
+    # limit" and so silently disables rotation on a log that may be enormous.
+    if [ -f "$LOG_FILE" ]; then
+        local log_size
+        if ! log_size=$(stat -c%s "$LOG_FILE" 2>&1); then
+            echo "[NORD] WARNING: cannot read log size, not rotating: $log_size" >&2
+        elif [ "$log_size" -gt "$MAX_LOG_SIZE" ]; then
+            mv "$LOG_FILE" "${LOG_FILE}.old"
+        fi
     fi
 }
 

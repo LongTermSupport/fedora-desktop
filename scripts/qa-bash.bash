@@ -23,52 +23,14 @@ TMP_SC_ERR=$(mktemp)
 trap 'rm -f "$TMP_RESULTS" "$TMP_SC" "$TMP_SC_ERR"' EXIT
 ERRORS=0
 
-# Discover files
-# Exclusions cover upstream/vendor/runtime trees the project must not gate on:
-#   .claude/hooks-daemon  — upstream dependency (also excluded in qa-python.bash)
-#   .claude/ccy           — whole CCY runtime tree (snapshots, plugins, history)
-#   .claude/skills        — installed skill payloads
-#   roles/vendor          — vendored Ansible roles
-#   .semgrep              — annotated rule FIXTURES. Deliberately full of the
-#                           broken patterns the rules must catch, so linting it
-#                           reports faults that are the point of the file. It is
-#                           validated by `semgrep --test` in qa-patterns.bash,
-#                           which is the check that actually belongs to it.
-BASH_FILES=()
-while IFS= read -r -d '' file; do
-    BASH_FILES+=("$file")
-done < <(find "$REPO_ROOT" -type f \( -name "*.sh" -o -name "*.bash" \) \
-    ! -path "*/.git/*" \
-    ! -path "*/.ansible/roles/*" \
-    ! -path "*/.claude/hooks-daemon/*" \
-    ! -path "*/.claude/ccy/*" \
-    ! -path "*/.claude/skills/*" \
-    ! -path "*/roles/vendor/*" \
-    ! -path "*/.semgrep/*" \
-    ! -path "*/node_modules/*" \
-    ! -path "*/untracked/*" \
-    -print0)
+# Discover files — via the SHARED discovery library, so this gate and
+# qa-patterns.bash can never disagree about what a repo-owned shell script is.
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=qa-shell-discovery.bash
+source "$REPO_ROOT/scripts/qa-shell-discovery.bash"
 
-while IFS= read -r file; do
-    # Skip binary / non-text files before shebang sniffing — avoids
-    # "command substitution: ignored null byte" noise from head on executables.
-    grep -Iq . "$file" || continue
-    first_line=$(head -n1 "$file")
-    if [[ "$first_line" =~ ^#!/.*bash ]] || [[ "$first_line" == "#!/bin/sh" ]] || [[ "$first_line" == "#!/usr/bin/sh" ]]; then
-        BASH_FILES+=("$file")
-    fi
-done < <(find "$REPO_ROOT" -type f -executable \
-    ! -path "*/.git/*" \
-    ! -path "*/.ansible/roles/*" \
-    ! -path "*/.claude/hooks-daemon/*" \
-    ! -path "*/.claude/ccy/*" \
-    ! -path "*/.claude/skills/*" \
-    ! -path "*/roles/vendor/*" \
-    ! -path "*/.semgrep/*" \
-    ! -path "*/node_modules/*" \
-    ! -path "*/untracked/*" \
-    ! -name "*.sh" \
-    ! -name "*.bash")
+qa_discover_shell_files "$REPO_ROOT"
+BASH_FILES=("${QA_SHELL_FILES[@]}")
 
 TOTAL=${#BASH_FILES[@]}
 
@@ -81,6 +43,32 @@ if [[ $TOTAL -eq 0 ]]; then
     echo "✗ bash: file discovery found 0 bash files under $REPO_ROOT" >&2
     echo "  This repo always has bash files, so the discovery is broken —" >&2
     echo "  reporting a pass here would vouch for code nothing had read." >&2
+    exit 2
+fi
+
+# Zero discovery is guarded above. This guards PARTIAL discovery — the case that
+# actually happened (Plan 00076): the gate printed "✓ bash: 125 files OK" while
+# 27 tracked shell scripts sat in neither branch, never opened by `bash -n` or
+# by the analyser. Nothing noticed, because the number it reported was simply
+# the number it had looked at.
+qa_tracked_shell_scripts "$REPO_ROOT"
+
+declare -A DISCOVERED=()
+for file in "${BASH_FILES[@]}"; do
+    DISCOVERED["${file#"$REPO_ROOT"/}"]=1
+done
+
+MISSED=()
+for rel in "${QA_TRACKED_SHELL_FILES[@]}"; do
+    [[ -n "${DISCOVERED[$rel]:-}" ]] || MISSED+=("$rel")
+done
+
+if [[ ${#MISSED[@]} -gt 0 ]]; then
+    echo "✗ bash: discovery missed ${#MISSED[@]} tracked shell script(s):" >&2
+    printf '    %s\n' "${MISSED[@]}" >&2
+    echo "  These are shell scripts this gate would have reported a pass over" >&2
+    echo "  without reading. Widen the discovery in scripts/qa-shell-discovery.bash" >&2
+    echo "  — do not exclude the files to make the message go away." >&2
     exit 2
 fi
 

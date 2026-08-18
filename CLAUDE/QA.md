@@ -21,14 +21,14 @@ missing **required** tool makes a stage (and the whole run) exit `2`; a real
 analyser crash (e.g. ruff/shellcheck exit ≥ 2) is a hard failure, never silently
 treated as "0 issues".
 
-| Script                   | Checks                                                                                                                                                                                                                                                                       | Files                                                                                              |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `qa-bash.bash`           | `bash -n` (always) + shellcheck (**required** — exits 2 if absent, Plan 00075). Exits 2 if discovery finds **0 files**. **shellcheck `error` AND `warning` findings GATE** (raised in Plan 00075 — SC2155 is this repo's own defect class); `info`/`style` advisory.         | Repo-owned bash (excludes `roles/vendor`, `.claude/hooks-daemon`, `.claude/ccy`, `.claude/skills`) |
-| `qa-python.bash`         | `python3 -m py_compile` + ruff (ruff exit ≥ 2 = hard fail; no `--fix` mutation in the check path)                                                                                                                                                                            | Repo-owned Python files                                                                            |
-| `qa-patterns.bash`       | Semgrep rules from `.semgrep/bash-conventions.yml` (`\|\| echo` and other error-hiding patterns)                                                                                                                                                                             | Repo-owned bash                                                                                    |
-| `qa-ansible.bash`        | Fail-fast grep (`failed_when: false`/`ignore_errors` without same-line `# FAIL-FAST-OK:`, case-insensitive), **self-default vars** (`x: "{{ x \| default(…) }}"` — the 2.19 recursive-loop footgun `--syntax-check` can't see), **plus** playbook shebang + exec-bit hygiene | `playbooks/ tasks/ vars/ environment/ roles/` (excludes `roles/vendor`), `*.yml`/`*.yaml`          |
-| `qa-ansible-syntax.bash` | `ansible-playbook --syntax-check` on every playbook (files with a top-level `- hosts:`). Parse-only — safe in the CCY container                                                                                                                                              | `playbooks/playbook-main.yml` + standalone `playbooks/imports/**`                                  |
-| `qa-js.bash`             | `node --check` on repo JS + `eslint .` in `extensions/`                                                                                                                                                                                                                      | Repo-owned `.js` (excludes vendor/node_modules) + `extensions/`                                    |
+| Script                   | Checks                                                                                                                                                                                                                                                                                                                           | Files                                                                                              |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `qa-bash.bash`           | `bash -n` (always) + shellcheck (**required** — exits 2 if absent, Plan 00075). Exits 2 if discovery finds **0 files**, and (Plan 00076) if it misses **any tracked shell script**. **shellcheck `error` AND `warning` findings GATE** (raised in Plan 00075 — SC2155 is this repo's own defect class); `info`/`style` advisory. | Repo-owned bash (excludes `roles/vendor`, `.claude/hooks-daemon`, `.claude/ccy`, `.claude/skills`) |
+| `qa-python.bash`         | `python3 -m py_compile` + ruff (ruff exit ≥ 2 = hard fail; no `--fix` mutation in the check path)                                                                                                                                                                                                                                | Repo-owned Python files                                                                            |
+| `qa-patterns.bash`       | Semgrep rules from `.semgrep/bash-conventions.yml` (`\|\| echo` and other error-hiding patterns). Scans a temp mirror so coverage does not depend on file mode, and exits 2 if any discovered file is absent from `.paths.scanned` (Plan 00076)                                                                                  | Repo-owned bash                                                                                    |
+| `qa-ansible.bash`        | Fail-fast grep (`failed_when: false`/`ignore_errors` without same-line `# FAIL-FAST-OK:`, case-insensitive), **self-default vars** (`x: "{{ x \| default(…) }}"` — the 2.19 recursive-loop footgun `--syntax-check` can't see), **plus** playbook shebang + exec-bit hygiene                                                     | `playbooks/ tasks/ vars/ environment/ roles/` (excludes `roles/vendor`), `*.yml`/`*.yaml`          |
+| `qa-ansible-syntax.bash` | `ansible-playbook --syntax-check` on every playbook (files with a top-level `- hosts:`). Parse-only — safe in the CCY container                                                                                                                                                                                                  | `playbooks/playbook-main.yml` + standalone `playbooks/imports/**`                                  |
+| `qa-js.bash`             | `node --check` on repo JS + `eslint .` in `extensions/`                                                                                                                                                                                                                                                                          | Repo-owned `.js` (excludes vendor/node_modules) + `extensions/`                                    |
 
 Two further gates run inside `qa-all.bash` as **hard, non-structural** checks —
 they are deliberately not jq-merged stages, so they cannot disturb the positional
@@ -38,6 +38,59 @@ they are deliberately not jq-merged stages, so they cannot disturb the positiona
 | ------------------------------- | ------------------------------------------------------------------------------------------ |
 | `qa-nokill-containerwatch.bash` | the container-watch watchdog has gained no process-termination call site                   |
 | `qa-deployed-drift.bash`        | every repo-owned `files/home/.local/bin/` script matches its deployed `~/.local/bin/` copy |
+
+### Both bash gates assert their own coverage (Plan 00076)
+
+`qa-bash.bash` and `qa-patterns.bash` share one discovery library,
+`scripts/qa-shell-discovery.bash` — one exclusion list, one "is this a shell
+script" predicate. Change discovery there, not in either gate.
+
+This exists because the two gates identified bash by **filename extension or file
+mode**, and 27 of this repo's scripts have neither a `.sh`/`.bash` extension nor
+an execute bit — including the 140 KB ccy launcher. They were never opened by
+`bash -n`, shellcheck, or semgrep, while the gates printed `125 files OK`. Zero
+coverage was already treated as a broken gate; *partial* coverage was not.
+
+Two things changed, and neither is a file-mode change:
+
+- Discovery keys on a **shell shebang, regardless of mode**. A `read` builtin, not
+  `head`, because this runs against every file in the repo.
+- Each gate **asserts its own coverage** and exits `2` on a shortfall, naming the
+  files. `qa-bash.bash` compares its discovered set against every tracked shell
+  script; `qa-patterns.bash` requires every file it handed semgrep to come back in
+  `.paths.scanned`.
+
+Semgrep needs the owner execute bit before it will read a shebang, so
+`qa-patterns.bash` **copies** each discovered script into a temp mirror at its own
+repo-relative path (appending `.bash` where it has no shell extension) and scans
+that, mapping findings back to real repo paths. `chmod +x` was rejected as the
+fix: `/var/local/colours` and `/var/local/ps1-prompt` are deployed `0644` because
+they are sourced libraries, so an execute bit would be a lie told to a linter and
+would still miss every future sourced library.
+
+**If a gate reports a shortfall, widen the discovery — never exclude the file.**
+
+#### `.paths.scanned` is not proof a file was analysed
+
+Semgrep lists a file it could not **parse** as scanned, returns zero findings for
+it, and exits `0` — the reason appears only in `.errors[]`. Three of this repo's
+scripts were in that state, `ftp-camera` (2,475 lines) among them, and two of
+them were being scanned by the *old* gate too. All three pass `bash -n`.
+
+`qa-patterns.bash` therefore checks the error list, and treats its two classes
+differently because they mean different things:
+
+- **`Syntax error`** — the whole file failed to parse, so **no rule ran on any
+  line**. Indistinguishable from not scanning it → **gating**. The current three
+  are listed in `SEMGREP_CANNOT_PARSE` with a reason, and that list is
+  self-expiring in both directions: an unlisted unparseable file fails the gate,
+  *and* a listed file that starts parsing fails it until the entry is removed.
+- **`PartialParsing`** — parsed apart from named ranges; every rule ran on
+  everything else. Reported, not gating.
+
+Both counts print on **every** run, pass or fail, above the `✓ patterns:` line.
+A summary consisting only of a tick and a file count is the format that let this
+sit unnoticed.
 
 ### `qa-deployed-drift.bash` — the repo and the host must agree
 

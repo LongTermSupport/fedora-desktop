@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.37.2"  # Plan 00076: a Docker context that cannot be QUERIED is no longer reported as a context that is not rootless — the same misreport shape as the GitHub outage fixed in 3.36.0. Previously (3.37.1): remove three write-only variables (CONFIG_LOADED, HOST_GID, PODMAN_DEFAULT_DETECTED) — assigned in six places, read in none. No behaviour change; found only because this file had never been linted (Plan 00076: extensionless + mode 644 made it invisible to shellcheck and semgrep alike). Previously (3.37.0): `ccy --top` no longer dies mid-table, and the zombie scan no longer truncates, when a container exits while being listed — four bare captures whose exit status errexit turned into an aborted function now carry explicit fallbacks. See docs/ccy-changelog.md. Previously (3.36.0): a GitHub API outage no longer blocks launch with a bogus "token owner does not match" report — the owner lookup is retried and validated as a login before comparison, and an unavailable API says so and offers CCY_SKIP_TOKEN_OWNER_CHECK=1. Plan 00074 (3.35.0): usage display as aligned coloured bars, CCY_USAGE_DEBUG/CCY_USAGE_SCALE.
+CCY_VERSION="3.38.0"  # Plan 00076: the daily Claude Code update check no longer reports "up to date ()" when the container will not start — with no pipefail the pipeline took its status from `head -1`, which succeeds on empty input, so the fallback to "unknown" never fired and a failed probe produced an EMPTY version that walked past the offline guard and could start an in-place npm update against a version nothing had read. Also: network listing, `claude --help`, network inspect, the token scan and the update-check stamp all now report WHY they failed instead of substituting a value. Previously (3.37.2): a Docker context that cannot be QUERIED is no longer reported as a context that is not rootless — the same misreport shape as the GitHub outage fixed in 3.36.0. Previously (3.37.1): remove three write-only variables (CONFIG_LOADED, HOST_GID, PODMAN_DEFAULT_DETECTED) — assigned in six places, read in none. No behaviour change; found only because this file had never been linted (Plan 00076: extensionless + mode 644 made it invisible to shellcheck and semgrep alike). Previously (3.37.0): `ccy --top` no longer dies mid-table, and the zombie scan no longer truncates, when a container exits while being listed — four bare captures whose exit status errexit turned into an aborted function now carry explicit fallbacks. See docs/ccy-changelog.md. Previously (3.36.0): a GitHub API outage no longer blocks launch with a bogus "token owner does not match" report — the owner lookup is retried and validated as a login before comparison, and an unavailable API says so and offers CCY_SKIP_TOKEN_OWNER_CHECK=1. Plan 00074 (3.35.0): usage display as aligned coloured bars, CCY_USAGE_DEBUG/CCY_USAGE_SCALE.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -104,10 +104,17 @@ if [ -d ".claude/ccy/sessions" ]; then
                 echo "✓ Removed .claude/ccy/sessions/"
                 # Also remove config.json if it exists (session config)
                 [ -f ".claude/ccy/config.json" ] && rm -f .claude/ccy/config.json && echo "✓ Removed .claude/ccy/config.json"
-                # Remove .claude/ccy if empty
-                if [ -d ".claude/ccy" ] && [ -z "$(ls -A .claude/ccy 2>/dev/null)" ]; then
-                    rmdir .claude/ccy
-                    echo "✓ Removed empty .claude/ccy/"
+                # Remove .claude/ccy if empty. `rmdir` refuses a non-empty
+                # directory by design, so it IS the emptiness test — asking `ls`
+                # first only added a path on which "could not list the directory"
+                # was indistinguishable from "the directory is empty", and then
+                # rmdir ran anyway on that guess.
+                if [ -d ".claude/ccy" ]; then
+                    if rmdir_result=$(rmdir .claude/ccy 2>&1); then
+                        echo "✓ Removed empty .claude/ccy/"
+                    else
+                        echo "  Kept .claude/ccy/ — $rmdir_result"
+                    fi
                 fi
                 echo ""
                 ;;
@@ -292,8 +299,16 @@ EOF
         echo "Claude Code Help (from container):"
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo ""
-        # Run claude --help in container to show actual Claude Code options
-        container_cmd run --rm --entrypoint claude "$IMAGE_NAME" --help 2>/dev/null || echo "Note: Container exists but Claude Code help unavailable"
+        # Run claude --help in container to show actual Claude Code options.
+        # The engine's own message is kept and shown: "help unavailable" on its
+        # own tells the user nothing about WHY, and the reason (image broken,
+        # engine not running, entrypoint missing) is what they need.
+        if claude_help=$(container_cmd run --rm --entrypoint claude "$IMAGE_NAME" --help 2>&1); then
+            printf '%s\n' "$claude_help"
+        else
+            echo "Note: the image exists, but 'claude --help' would not run inside it."
+            echo "  ${CONTAINER_ENGINE:-container engine} said: ${claude_help:-no output}"
+        fi
     else
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo "Claude Code Help:"
@@ -1007,8 +1022,17 @@ if [ -n "$SPECIFIED_TOKEN" ]; then
     token_name="${filename%.*.token}"
     echo "✓ Using token: $token_name"
 else
-    # No token specified, check if tokens exist
-    if [ ! -d "$TOKEN_DIR" ] || [ -z "$(ls -A "$TOKEN_DIR"/*.token 2>/dev/null)" ]; then
+    # No token specified, check if tokens exist.
+    # A glob, not `ls`: the glob's no-match is a fact about the directory, where
+    # `ls` folded "no tokens" and "could not read the directory" into one empty
+    # string and then told the user, confidently, that they had no tokens.
+    EXISTING_TOKENS=()
+    if [ -d "$TOKEN_DIR" ]; then
+        for _token_candidate in "$TOKEN_DIR"/*.token; do
+            [ -e "$_token_candidate" ] && EXISTING_TOKENS+=("$_token_candidate")
+        done
+    fi
+    if [ ${#EXISTING_TOKENS[@]} -eq 0 ]; then
         echo ""
         echo "════════════════════════════════════════════════════════════════════════════════"
         echo "No Claude Code Tokens Found"
@@ -1307,8 +1331,12 @@ auto_update_claude_code() {
     # nothing (no registry round-trip, no container spawn). This is what makes a
     # second session the same day zero-impact.
     if [ -f "$cache_file" ]; then
-        local cache_age
-        cache_age=$(( $(date +%s) - $(stat -c %Y "$cache_file" 2>/dev/null || echo 0) ))
+        local cache_age cache_stamp
+        if ! cache_stamp=$(stat -c %Y "$cache_file" 2>&1); then
+            echo "⚠ Could not read the update-check stamp, re-checking: $cache_stamp" >&2
+            cache_stamp=0
+        fi
+        cache_age=$(( $(date +%s) - cache_stamp ))
         if [ "$cache_age" -lt "$cache_duration" ]; then
             return 0
         fi
@@ -1318,12 +1346,26 @@ auto_update_claude_code() {
     mkdir -p "$cache_dir"
 
     # Bundled version in THIS image. `claude --version` → "X.Y.Z (Claude Code)".
-    local container_version
-    container_version=$(container_cmd run --rm --entrypoint claude "$image_name" --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -1 || echo "unknown")
+    #
+    # The `|| echo "unknown"` this replaces never fired. There is no `pipefail`
+    # here, so the pipeline's status is `head`'s — and `head -1` succeeds on
+    # empty input. A container that would not start therefore produced an EMPTY
+    # version, not "unknown", which walked straight past the offline guard below:
+    # two empty versions compare equal and printed "✓ Claude Code is up to date
+    # ()", and one empty version started an in-place npm update against a version
+    # nothing had read. Capture the command's own status, then require a value.
+    local container_version="" version_probe
+    if version_probe=$(container_cmd run --rm --entrypoint claude "$image_name" --version 2>&1); then
+        container_version=$(printf '%s\n' "$version_probe" | grep -oP '\d+\.\d+\.\d+' | head -1)
+    fi
+    [ -n "$container_version" ] || container_version="unknown"
 
     # Latest published version (npm registry API, no npm CLI required).
-    local latest_version
-    latest_version=$(timeout 5 curl -fsSL "https://registry.npmjs.org/@anthropic-ai/claude-code/latest" 2>/dev/null | grep -oP '"version":\s*"\K[^"]+' | head -1 || echo "unknown")
+    local latest_version="" registry_probe
+    if registry_probe=$(timeout 5 curl -fsSL "https://registry.npmjs.org/@anthropic-ai/claude-code/latest" 2>&1); then
+        latest_version=$(printf '%s\n' "$registry_probe" | grep -oP '"version":\s*"\K[^"]+' | head -1)
+    fi
+    [ -n "$latest_version" ] || latest_version="unknown"
 
     # Could not determine a version (offline / registry hiccup). Stamp so we do
     # not re-probe every launch today, and proceed on the existing image.
@@ -1518,9 +1560,14 @@ if [ -f "$PROJECT_DOCKERFILE" ] && [ "$DISABLE_CUSTOM_DOCKER" = false ]; then
         previous_project_hash=$(cat "$PROJECT_DOCKERFILE_HASH_FILE")
     fi
 
-    # Get current base image version
-    current_base_version=$(container_cmd image inspect "claude-yolo:latest" \
-        --format '{{index .Config.Labels "claude-yolo-version"}}' 2>/dev/null || echo "unknown")
+    # Get current base image version. The fallback is stated separately from the
+    # substitution, so "the engine could not be asked" is a decision made here
+    # rather than a string that silently becomes the answer.
+    if ! current_base_version=$(container_cmd image inspect "claude-yolo:latest" \
+        --format '{{index .Config.Labels "claude-yolo-version"}}' 2>&1); then
+        current_base_version="unknown"
+    fi
+    [ -n "$current_base_version" ] || current_base_version="unknown"
 
     # Get base version that project image was built with
     previous_base_version=""
@@ -1754,7 +1801,7 @@ if [ "$DEBUG_CCY" = true ]; then
     echo "════════════════════════════════════════════════════════════════════════════════"
     echo "Selected token file: $SELECTED_TOKEN"
     echo "Token exists: $([ -f "$SELECTED_TOKEN" ] && echo "YES" || echo "NO")"
-    echo "Token size: $(stat -c%s "$SELECTED_TOKEN" 2>/dev/null || echo "N/A") bytes"
+    echo "Token size: $(stat -c%s "$SELECTED_TOKEN" 2>/dev/null || echo "N/A") bytes"  # FAIL-FAST-OK: debug dump for a human, and "N/A" names the stat failure rather than passing off a size nothing measured
     echo ""
 fi
 
@@ -1947,7 +1994,14 @@ if [[ -n "$SPECIFIED_NETWORK" ]]; then
                 # Compose not available or user declined
                 echo ""
                 echo "Available networks:"
-                container_cmd network ls --format "  {{.Name}}" | grep -v "^bridge$\|^host$\|^none$" || echo "  (no user-defined networks found)"
+                # Ask the engine first, so "the engine could not be reached" is
+                # not printed as "no user-defined networks found" — grep exits 1
+                # on an empty input either way, which made the two identical.
+                if ! network_ls_out=$(container_cmd network ls --format "  {{.Name}}" 2>&1); then
+                    echo "  (could not list networks — ${CONTAINER_ENGINE} said: ${network_ls_out:-no output})"
+                elif ! printf '%s\n' "$network_ls_out" | grep -v "^  bridge$\|^  host$\|^  none$"; then
+                    echo "  (no user-defined networks found)"
+                fi
                 echo ""
 
                 while true; do
@@ -1993,7 +2047,12 @@ elif [[ "$NO_NETWORK_MODE" = true ]]; then
     echo ""
 else
     # No network flags - check for persisted network preference first
-    PERSISTED_NETWORK=$(load_network_preference 2>/dev/null || echo "")
+    # Matches how lib/network-management.bash calls it: a non-zero return means
+    # "no preference recorded", which is different from "the file could not be
+    # read" — and its stderr is no longer discarded, so the latter is visible.
+    if ! PERSISTED_NETWORK=$(load_network_preference); then
+        PERSISTED_NETWORK=""
+    fi
 
     if [[ -n "$PERSISTED_NETWORK" ]]; then
         # Found persisted network - verify it exists
@@ -2135,8 +2194,15 @@ if [[ "$CROSS_ENGINE_MISMATCH" = true ]]; then
                                 echo "Stopping containers and removing project networks..."
                                 # Stop containers on these networks first
                                 for net in "${DOCKER_NETWORKS[@]}"; do
-                                    # Get containers attached to this network
-                                    containers=$(docker network inspect "$net" --format '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null || echo "")
+                                    # Get containers attached to this network.
+                                    # An inspect that fails used to read as "no
+                                    # containers attached", so nothing was
+                                    # stopped and the network removal below then
+                                    # failed for a reason the user never saw.
+                                    if ! containers=$(docker network inspect "$net" --format '{{range .Containers}}{{.Name}} {{end}}' 2>&1); then
+                                        echo "    ⚠ Could not inspect $net — its containers were NOT stopped: $containers"
+                                        containers=""
+                                    fi
                                     if [[ -n "$containers" ]]; then
                                         echo "  Stopping containers on $net: $containers"
                                         read -ra _ctrs <<< "$containers"

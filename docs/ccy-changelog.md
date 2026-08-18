@@ -17,6 +17,44 @@ Two version numbers move independently — see
 
 ---
 
+## 3.38.0 (container 2.26)
+
+**The daily update check could report "✓ Claude Code is up to date ()" on a machine
+where nothing had been read at all.**
+
+Both version probes ended `… | grep -oP … | head -1 || echo "unknown"`. This file sets
+`set -e` but never `pipefail`, so a pipeline's status is the *last* command's — and
+`head -1` succeeds on empty input. The `|| echo "unknown"` therefore **never fired**.
+A container that would not start, or a registry that could not be reached, produced an
+**empty** version string rather than `unknown`, which walked straight past the offline
+guard immediately below it:
+
+- both empty → the two compare equal → *"✓ Claude Code is up to date ()"*, and the
+  daily stamp is refreshed, so the check does not run again that day;
+- one empty → *"📦 Updating Claude Code: → 2.x.y"* and an in-place `npm install -g`
+  driven by a comparison against a version nothing had measured.
+
+Both probes now capture the command's own status first and require a non-empty result
+before trusting it, so an unreachable container or registry reaches the offline guard
+it was always meant to reach.
+
+Five smaller instances of the same shape, all of which answered a question the code
+had failed to ask:
+
+| Where                    | Was                                                                                                  | Now                                                  |
+| ------------------------ | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| `--networks` listing     | engine unreachable printed as "no networks found"                                                    | names what the engine said                           |
+| `claude --help` in image | "help unavailable", reason discarded                                                                 | prints the engine's own message                      |
+| network prune            | inspect failure read as "no containers attached", so nothing was stopped and the removal then failed | reports that containers were not stopped             |
+| token discovery          | `ls` failure and "no tokens" were one empty string                                                   | a glob, whose no-match is a fact about the directory |
+| update-check stamp       | unreadable stamp became mtime 0                                                                      | says so, then re-checks                              |
+
+All of it found by Plan 00076, which made this file visible to the linters for the
+first time — it is extensionless and was mode `0644`, so semgrep never read its
+shebang and never assigned it a language.
+
+---
+
 ## 3.37.2 (container 2.26)
 
 **A Docker context that cannot be queried is no longer reported as a context that is

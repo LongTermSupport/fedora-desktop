@@ -83,9 +83,16 @@ ensure_log_dir() {
         mkdir -p "$LOG_DIR"
     fi
 
-    # Rotate log if too large
-    if [ -f "$LOG_FILE" ] && [ "$(stat -c%s "$LOG_FILE" 2>/dev/null || echo 0)" -gt "$MAX_LOG_SIZE" ]; then
-        mv "$LOG_FILE" "${LOG_FILE}.old"
+    # Rotate log if too large. The size is captured with its status intact: a
+    # failing `stat` used to become the literal 0, which reads as "well under the
+    # limit" and so silently disables rotation on a log that may be enormous.
+    if [ -f "$LOG_FILE" ]; then
+        local log_size
+        if ! log_size=$(stat -c%s "$LOG_FILE" 2>&1); then
+            echo "[WSI] WARNING: cannot read log size, not rotating: $log_size" >&2
+        elif [ "$log_size" -gt "$MAX_LOG_SIZE" ]; then
+            mv "$LOG_FILE" "${LOG_FILE}.old"
+        fi
     fi
 }
 
@@ -137,7 +144,11 @@ log_error() {
     # Flush buffered logs on error
     if [ "$DEBUG" = false ]; then
         local flushed_count
-        flushed_count=$(flush_log_buffer 2>/dev/null || echo "0")
+        # flush_log_buffer returns 1 with no output when the buffer is empty, so
+        # the fallback is stated explicitly rather than buried in the
+        # substitution — and stderr is no longer discarded, so a log write that
+        # actually fails is now visible instead of reading as "nothing to flush".
+        flushed_count=$(flush_log_buffer) || flushed_count="0"
         if [ "$flushed_count" != "0" ]; then
             # Notify user that logs were saved
             notify_state "ERROR" "$*\n\n📝 Debug logs saved ($flushed_count entries):\n$LOG_FILE"
@@ -370,11 +381,16 @@ print_config() {
     local paste_mode="PRIMARY"
     [ "$CLIPBOARD" = true ] && paste_mode="CLIPBOARD"
     [ "$AUTO_PASTE" = true ] && paste_mode="AUTO-PASTE"
+    # Resolved before the heredoc: an annotation inside one would be PRINTED,
+    # and a failing `command -v` genuinely means the binary is not on PATH — so
+    # the fallback states the failure rather than substituting a plausible path.
+    local whisperfile_path
+    whisperfile_path=$(command -v "$WHISPERFILE") || whisperfile_path="NOT FOUND"
     cat >&2 <<EOF
 Configuration:
   Temp directory:     $TEMPD
   Temp audio file:    $ramf
-  Whisperfile:        $WHISPERFILE ($(command -v "$WHISPERFILE" 2>/dev/null || echo "NOT FOUND"))
+  Whisperfile:        $WHISPERFILE ($whisperfile_path)
   Paste mode:         $paste_mode
   Window manager:     ${XDG_SESSION_TYPE:-unknown}
   Log file:           $LOG_FILE
@@ -507,11 +523,15 @@ while [ $# -gt 0 ]; do
             ;;
         *)
             IPnPORT="$1"
-            if [[ "$(curl -s -f -o /dev/null -w '%{http_code}' "$IPnPORT" 2>/dev/null)" != "200" ]]; then
-                log_error "Can't connect to whisper.cpp server at $IPnPORT"
+            # Same probe as -n/--netapi above, in the same shape: a curl that
+            # could not connect returns an empty code, which is reported as
+            # "connection failed" rather than being collapsed into "not 200".
+            http_code=$(curl -s -o /dev/null -w '%{http_code}' "$IPnPORT" 2>/dev/null)  # FAIL-FAST-OK: the -z branch below names empty as "connection failed" and exits 1
+            if [[ -z "$http_code" ]] || [[ ! "$http_code" =~ ^2 ]]; then
+                log_error "Can't connect to whisper.cpp server at $IPnPORT (HTTP: ${http_code:-connection failed})"
                 exit 1
             fi
-            log_debug "Using whisper.cpp server: $IPnPORT"
+            log_debug "Using whisper.cpp server: $IPnPORT (HTTP $http_code)"
             shift
             ;;
     esac
