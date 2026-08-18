@@ -166,9 +166,12 @@ that state — and so were `rclone-tail` and `rclone-cache-status`, which the
   established. Each reduces to two segments either of which fixes the file, so it
   is an interaction. The shared embedded-Python heredoc inside an `if` condition
   was the obvious suspect and **parses in isolation** — dead end, not a cause
-- [ ] ⬜ **Task 4.4**: The 11 `PartialParsing` files. The recurring construct is
-  `${var:-(text)}` — parentheses inside a default value — which is my own idiom
-  from Plan 00075's error-reporting fixes; also extglob and some `$(( ))`
+- [ ] ⬜ **Task 4.4**: The 12 `PartialParsing` files. Cause **not** established.
+  The reported ranges do sit on `${var:-(text)}` occurrences (parentheses in a
+  default value), but that construct **parses in isolation** — as do extglob and
+  the arithmetic forms — so, like 4.3b, the failure is contextual. Worst case is
+  `scripts/git-hooks/pre-commit`, where an ~86-line span of a secret scanner is
+  outside the analysed region
 
 ### Phase 5: Review
 
