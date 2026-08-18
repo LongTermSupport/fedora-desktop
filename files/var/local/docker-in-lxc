@@ -2,9 +2,9 @@
 # Docker-in-LXC Wrapper
 # Creates and manages LXC containers for Docker projects with Claude Code integration
 #
-# Version: 1.1.0
+# Version: 1.2.0
 #
-DIL_VERSION="1.1.0"  # Report what could not be checked; remedies that exist
+DIL_VERSION="1.2.0"  # Per-finding remedies; token menu no longer eaten by $()
 
 set -e
 
@@ -196,22 +196,49 @@ check_docker_project() {
 check_host_configured() {
     info "Checking host configuration..."
 
-    local errors=()
+    # Each finding is recorded with the play that OWNS the thing it checked.
+    # Four of the seven checks below are provisioned by play-lxc-install-config,
+    # not by the docker-in-lxc play — so a single blanket "run the docker-in-lxc
+    # play" remedy was wrong for most of them, and a user following it would
+    # watch the same check fail again with no clue why. Same defect as the rest
+    # of this file: a confidently-stated answer that does not hold.
+    local errors=() remedies=()
+    local play_lxc="playbooks/imports/play-lxc-install-config.yml"
+    local play_dil="playbooks/imports/optional/experimental/play-docker-in-lxc-support.yml"
 
     # Check if LXC is installed
     if ! command -v lxc-create &>/dev/null; then
         errors+=("LXC is not installed")
+        remedies+=("$play_lxc")
     fi
 
     # Check if LXC service is running
     if ! systemctl is-active --quiet lxc 2>/dev/null; then
         errors+=("LXC service is not running")
+        remedies+=("$play_lxc")
     fi
 
-    # Check kernel modules
-    for module in overlay br_netfilter ip_tables iptable_nat; do
-        if ! lsmod | grep -q "^$module"; then
+    # Kernel modules. `lsmod` failing must not be reported as "not loaded" — that
+    # is a claim about the module when the truth is that nothing was checked.
+    local lsmod_out
+    if ! lsmod_out=$(lsmod 2>&1); then
+        error "Cannot check kernel modules: lsmod could not be run." \
+              "lsmod said: $lsmod_out"
+    fi
+
+    # The trailing space anchors the match to the whole module name — lsmod pads
+    # its first column, so a bare "^$module" would also match a longer name.
+    local module
+    for module in overlay br_netfilter; do
+        if ! printf '%s\n' "$lsmod_out" | grep -q "^$module "; then
             errors+=("Kernel module '$module' not loaded")
+            remedies+=("$play_dil")
+        fi
+    done
+    for module in ip_tables iptable_nat; do
+        if ! printf '%s\n' "$lsmod_out" | grep -q "^$module "; then
+            errors+=("Kernel module '$module' not loaded")
+            remedies+=("$play_lxc")
         fi
     done
 
@@ -223,14 +250,17 @@ check_host_configured() {
     for key in net.ipv4.ip_forward net.bridge.bridge-nf-call-iptables; do
         if ! value=$(sysctl -n "$key" 2>&1); then
             errors+=("sysctl: could not read $key — sysctl said: $value")
+            remedies+=("$play_dil")
         elif [ "$value" != "1" ]; then
             errors+=("sysctl: $key is $value, expected 1")
+            remedies+=("$play_dil")
         fi
     done
 
     # Check if lxcbr0 exists
     if ! ip link show lxcbr0 &>/dev/null; then
         errors+=("lxcbr0 bridge does not exist")
+        remedies+=("$play_lxc")
     fi
 
     if [ ${#errors[@]} -gt 0 ]; then
@@ -246,9 +276,12 @@ check_host_configured() {
             echo "  ✗ $err" >&2
         done
         echo "" >&2
-        echo "To fix, run the Ansible playbook:" >&2
+        echo "To fix, run the play(s) that own the settings above:" >&2
         echo "  cd ~/Projects/fedora-desktop" >&2
-        echo "  ansible-playbook ./playbooks/imports/optional/experimental/play-docker-in-lxc-support.yml" >&2
+        local play
+        while IFS= read -r play; do
+            echo "  ansible-playbook ./$play" >&2
+        done < <(printf '%s\n' "${remedies[@]}" | sort -u)
         echo "" >&2
         exit 1
     fi
@@ -650,10 +683,15 @@ select_ccy_token() {
         return 0
     fi
 
-    # Multiple tokens - prompt
-    echo ""
-    echo "Select Claude Code token:"
-    echo ""
+    # Multiple tokens - prompt. Every line below is for the human and MUST go to
+    # stderr, because this function's stdout is its RETURN VALUE — the token —
+    # and the caller reads it as `token=$(select_ccy_token)`. Printing the menu
+    # on stdout swallowed it into that capture, so the user was asked to pick
+    # from a list they could not see, and the token came back with the entire
+    # menu glued to the front of it.
+    echo "" >&2
+    echo "Select Claude Code token:" >&2
+    echo "" >&2
 
     for i in "${!valid_tokens[@]}"; do
         local token_file="${valid_tokens[$i]}"
@@ -663,24 +701,41 @@ select_ccy_token() {
 
         if [[ "$filename" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2})\.token$ ]]; then
             local expiry_date="${BASH_REMATCH[1]}"
-            echo "  $((i+1))) $token_name (expires: $expiry_date)"
+            echo "  $((i+1))) $token_name (expires: $expiry_date)" >&2
         else
-            echo "  $((i+1))) $token_name"
+            echo "  $((i+1))) $token_name" >&2
         fi
     done
 
-    echo ""
+    echo "" >&2
 
-    while true; do
-        read -p "Select token [1-${#valid_tokens[@]}]: " selection
+    # Bounded retries, and an exit on EOF. `while true` with read's status
+    # ignored spun forever on Ctrl-D or a non-TTY, printing "Invalid selection"
+    # without end. Reading from /dev/tty keeps the prompt working while stdout
+    # is captured, and fails cleanly when there is no terminal to ask.
+    local selection attempt=1
+    local max_tries=3
+    while [ "$attempt" -le "$max_tries" ]; do
+        if ! read -rp "Select token [1-${#valid_tokens[@]}]: " selection < /dev/tty; then
+            echo "" >&2
+            echo "Cancelled — no token selected." >&2
+            return 1
+        fi
 
-        if [ "$selection" -ge 1 ] && [ "$selection" -le ${#valid_tokens[@]} ] 2>/dev/null; then
-            cat "${valid_tokens[$((selection-1))]}"
+        # An explicit numeric test, so a non-numeric entry no longer needs the
+        # `2>/dev/null` that was hiding `[`'s own error.
+        if [[ "$selection" =~ ^[0-9]+$ ]] \
+            && [ "$selection" -ge 1 ] && [ "$selection" -le "${#valid_tokens[@]}" ]; then
+            cat "${valid_tokens[$((selection - 1))]}"
             return 0
-        else
-            echo "Invalid selection" >&2
         fi
+
+        echo "  Enter a number between 1 and ${#valid_tokens[@]}." >&2
+        attempt=$((attempt + 1))
     done
+
+    echo "Giving up after $max_tries attempts. No token selected." >&2
+    return 1
 }
 
 # ==============================================================================
@@ -744,7 +799,14 @@ destroy_container() {
     echo "Your project files are safe (only mounted, not moved)"
     echo ""
 
-    read -p "Type 'yes' to confirm deletion: " confirm
+    # Read the confirmation from the terminal, and treat EOF (Ctrl-D, or no TTY
+    # at all) as a decline. Anything other than an exact "yes" cancels, so the
+    # unanswerable case lands on the safe side rather than on a bash error.
+    local confirm=""
+    if ! read -rp "Type 'yes' to confirm deletion: " confirm < /dev/tty; then
+        confirm=""
+        echo "" >&2
+    fi
 
     if [ "$confirm" != "yes" ]; then
         echo "Cancelled."
