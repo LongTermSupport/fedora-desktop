@@ -171,3 +171,35 @@ commented_but_unjustified=$(gh api user --jq .login 2>/dev/null)  # just a note
 # Only the explicit, greppable annotation grants the exemption.
 # ok: bash-capture-discards-status
 annotated_var=$(gh api user --jq .login 2>/dev/null)  # FAIL-FAST-OK: absence is the expected case here
+
+# --- bash-test-discards-status ---
+#
+# The assignment rule above only sees `var=$(...)`. The same defect inside a
+# TEST walked past it, which is how the docker-in-lxc sysctl bug survived a
+# sweep that was specifically looking for this class. This is that exact line,
+# as it was before the fix.
+# ruleid: bash-test-discards-status
+if [ "$(sysctl -n net.ipv4.ip_forward 2>/dev/null)" != "1" ]; then
+    echo "sysctl: net.ipv4.ip_forward is not set to 1"
+fi
+
+# The `[[ ]]` form is the same defect.
+# ruleid: bash-test-discards-status
+if [[ "$(mokutil --sb-state 2>/dev/null)" == *enabled* ]]; then
+    echo "secure boot on"
+fi
+
+# The legitimate case: an empty result genuinely MEANS absent, and the line says
+# so where a reader and a grep will both find it.
+# ok: bash-test-discards-status
+if [ -z "$(ls -A "$dir"/*.token 2>/dev/null)" ]; then  # FAIL-FAST-OK: no glob match IS "no tokens"
+    echo "no tokens"
+fi
+
+# Capturing first, then testing the status, is the fix — and must not be flagged.
+# ok: bash-test-discards-status
+if ! value=$(sysctl -n net.ipv4.ip_forward 2>&1); then
+    echo "could not read it: $value"
+elif [ "$value" != "1" ]; then
+    echo "it is $value, expected 1"
+fi

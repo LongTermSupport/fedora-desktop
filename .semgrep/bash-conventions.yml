@@ -113,6 +113,45 @@ rules:
   # Deliberately narrow to stay high-confidence — it does NOT match when the line
   # carries an explicit fallback (`|| var=""`) or when the assignment is itself
   # the condition of if/while/until, because in both cases the status IS handled.
+  # Rule: a command substitution INSIDE a test, with its status discarded.
+  #
+  # The sibling rule below only matches the ASSIGNMENT form (`var=$(...)`), so
+  # this shape walked straight past it:
+  #
+  #   WRONG: [ "$(sysctl -n net.ipv4.ip_forward 2>/dev/null)" != "1" ]
+  #              -> a sysctl that could not be READ compares unequal to "1", and
+  #                 the script then reports "is not set to 1" — a specific claim
+  #                 about the value, made when nothing was measured.
+  #   RIGHT: if ! value=$(sysctl -n "$key" 2>&1); then   # could not read
+  #          elif [ "$value" != "1" ]; then              # read, and it is wrong
+  #
+  # That was a live bug in files/var/local/docker-in-lxc, found by reading rather
+  # than by this file — which is the reason the rule now exists. The remaining
+  # repo sites are the legitimate use (an empty result genuinely MEANS absent,
+  # e.g. `[ -z "$(ls -A dir 2>/dev/null)" ]`) and carry FAIL-FAST-OK.
+  - id: bash-test-discards-status
+    patterns:
+      - pattern-regex: '(?m)^[^\n]*\[\[?[^\n]*\$\([^\n]*2>[ \t]*/dev/null[^\n]*\)[^\n]*\]\]?[^\n]*$'
+      # Same annotated-escape-hatch convention as every other rule here.
+      - pattern-not-regex: '(?m)^[^\n]*#[ \t]*FAIL-FAST-OK:[^\n]*$'
+    paths:
+      include:
+        - 'files/**'
+        - 'fedora-install/**'
+        - 'scripts/**'
+    message: >
+      This runs a command inside a test with stderr silenced and its status
+      discarded, so "the command failed" and "the value is empty" become the
+      same thing — and the branch then states something specific about a value
+      nothing measured. Capture it first and test the status:
+      'if ! v=$(cmd 2>&1); then <could not read>; elif [ "$v" != x ]; then ...'.
+      If an empty result genuinely means absent, annotate with # FAIL-FAST-OK.
+    languages: [bash]
+    severity: ERROR
+    metadata:
+      category: correctness
+      confidence: MEDIUM
+
   - id: bash-capture-discards-status
     patterns:
       # The trailing `(#[^\n]*)?` is load-bearing. Without it the `$` anchored
@@ -152,9 +191,15 @@ rules:
     #   - an unreadable journal no longer reports a green "no errors found"
     #   - a failed glxinfo no longer blames the driver for a query that never ran
     # The ones where the probe's failure genuinely IS the answer are annotated.
+    # `files/**` — widened from `files/var/local/claude-yolo/**` after the
+    # docker-in-lxc bugs, which lived in `files/var/local/` and so were outside
+    # the rule entirely. Measured before widening: ZERO new findings across the
+    # whole tree, because every other `$(… 2>/dev/null)` there already carries an
+    # explicit `|| var=""`. So this costs no cleanup and closes the tree against
+    # the next script added under `files/`.
     paths:
       include:
-        - 'files/var/local/claude-yolo/**'
+        - 'files/**'
         - 'fedora-install/**'
         - 'scripts/**'
     message: >
