@@ -825,7 +825,9 @@ get_local_ip() {
 
 # Sort uploaded files into YYYY/MM/DD/(JPG|RAW)/ based on EXIF DateTimeOriginal
 sort_uploads() {
-    local dir="${1:-$UPLOAD_DIR}"
+    # No parameter: every call site uses the upload dir, and the `${1:-...}`
+    # default was flexibility nothing ever asked for.
+    local dir="$UPLOAD_DIR"
     local moved=0 skipped=0 truncated=0
 
     if [ ! -d "$dir" ]; then
@@ -1265,7 +1267,8 @@ PY
 # JPEG/) directory. Videos have no RAW counterparts so the videos/ subtree
 # is skipped. Lists candidates, prompts for confirmation, then deletes.
 prune_orphan_raws() {
-    local dir="${1:-$UPLOAD_DIR}"
+    # No parameter — see sort_uploads above.
+    local dir="$UPLOAD_DIR"
     local photos_root="$dir/$PHOTO_DIR_NAME"
 
     if [ ! -d "$dir" ]; then
@@ -1538,7 +1541,10 @@ display_in_viewer() {
     local ts
     ts=$(date '+%H:%M:%S')
     echo -e "  [${CYAN}${ts}${NC}] ${GREEN}view${NC}  $(basename "$file")  → geeqie"
-    GQ_NEW_INSTANCE= setsid -f geeqie --file="$file" > /dev/null 2>&1
+    # GQ_NEW_INSTANCE='' (not `GQ_NEW_INSTANCE=`) — the empty value is set for
+    # this command only, on purpose. The bare form is indistinguishable from a
+    # typo'd assignment to a reader and to shellcheck.
+    GQ_NEW_INSTANCE='' setsid -f geeqie --file="$file" > /dev/null 2>&1
 }
 
 # Background loop for the viewer in default (non-sort) mode. Tails the
@@ -2132,10 +2138,14 @@ cleanup() {
     # it: the OK UPLOAD log trigger already processed every clean upload,
     # and anything still in the upload root is a partial/failed transfer
     # we do NOT want to silently sort into the dated tree.
-    # `|| true`: a single bad EXIF read shouldn't blow up the rest of
-    # cleanup (firewall + systemd state still need to come down).
+    # A single bad EXIF read must not blow up the rest of cleanup — firewall and
+    # systemd state still need to come down. That is best-effort, not silent:
+    # reported here rather than swallowed by a `|| true`, which discards the one
+    # thing a reader would want (that the sort pass did not finish).
     if [ "$ASYNC_MODE" != true ]; then
-        sort_uploads || true
+        if ! sort_uploads; then
+            echo "note: the sort pass did not complete — continuing with teardown." >&2
+        fi
     fi
 }
 

@@ -112,6 +112,7 @@ if [ ! -r "$SWA_LIB" ]; then
     echo "Error: helper library not found: $SWA_LIB" >&2
     exit 1
 fi
+# shellcheck source=files/home/.local/bin/ssh-with-agent.bash
 source "$SWA_LIB"
 
 opts=(
