@@ -2,7 +2,13 @@
 # Token Management Library
 # Token operations for claude-yolo (ccy)
 #
-# Version: 1.10.0 - Plan 00074: usage display rewritten as aligned, coloured bars
+# Version: 1.10.1 - Plan 00074: a bucket the API did not report now says so on its
+#                  own row instead of vanishing. The renderer's own comment said a
+#                  silently missing bucket "reads as this account has no weekly
+#                  limit, which would be a lie" — and then `continue`d. Reachable
+#                  whenever one of the two buckets is absent, because _usage_extract
+#                  succeeds when EITHER is present.
+#         1.10.0 - Plan 00074: usage display rewritten as aligned, coloured bars
 #                  with the reset time spelled out in words ("resets in 4 hours",
 #                  not "r4h"). Cache now holds the VALUES rather than a rendered
 #                  line, because the bars need the numbers. CCY_USAGE_SCALE is
@@ -447,6 +453,11 @@ usage_render_block() {
         local label="${bucket%%:*}" rest="${bucket#*:}"
         local value="${rest%%:*}" reset="${rest#*:}"
         if [ -z "$value" ]; then
+            # SAY SO. `continue` here contradicted the contract three lines up:
+            # a dropped row reads as "this account has no weekly limit", which is
+            # a claim the API never made. _usage_extract succeeds when EITHER
+            # bucket is present, so this is reachable whenever one is missing.
+            _usage_note "$label: the API did not report it"
             continue
         fi
         if ! _usage_bucket_line "$label" "$value" "$reset" "$now"; then

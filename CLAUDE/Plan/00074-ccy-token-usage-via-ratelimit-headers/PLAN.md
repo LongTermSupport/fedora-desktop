@@ -73,8 +73,8 @@ which is exactly what a one-line menu column should lead with.
 
 ### Open question
 
-| ID  | Question                                                                                                                  | How it gets answered             |
-| --- | ------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| ID  | Question                                                                                                                  | How it gets answered                |
+| --- | ------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
 | Q2  | What is the **scale** of `-utilization` — a percentage (`0`–`100`) or a fraction (`0`–`1`)? `0.02` is either 0.02% or 2%. | `CCY_USAGE_DEBUG=1`, no extra spend |
 
 Q2 is not cosmetic: guessing wrong misreports usage by 100×, in the direction
@@ -151,6 +151,38 @@ paid for, and `CCY_USAGE_SCALE=fraction` switches the reading with no refetch.
 - [x] ✅ **Task 4.6**: `CCY_VERSION` 3.35.0, lib 1.10.0, docs + changelog
 - [ ] 🔄 **Task 4.7**: Redeploy, then `CCY_USAGE_DEBUG=1 ccy` and press `u` to
   settle Q2 from an observed value — **HOST action**
+
+### Phase 5: Every account reports `<1%` — Q2 comes due
+
+Reported in use: **every** account displays `<1%` on both buckets. That is the
+exact signature Decision 4 accepted as the risk of shipping on the unproven
+`percent` reading — a 0-1 fraction rendered as if it were already 0-100 puts any
+real usage below 0.5 and therefore under the `<1%` guard. It is **not** the only
+explanation, so this phase measures rather than assumes:
+
+- **H1** — the scale is `fraction`. A raw value ≤ 1 on every account and every
+  bucket is consistent with it; a value > 1 anywhere kills it outright.
+
+- **H2** — the numbers are right and the *bucket* is wrong. The probe uses Haiku
+  because the weekly buckets are per-model, so a heavy Opus user could genuinely
+  sit near zero on Haiku's weekly allowance while their real limit is elsewhere.
+  H2 and H1 are not exclusive.
+
+- [x] ✅ **Task 5.1**: `triage.bash` — reads the raw values **out of the existing
+  cache**, so the default run spends nothing; prints RAW alongside what ccy shows
+  today and what it would show under `fraction`. `--headers` spends exactly one
+  request to dump *every* `anthropic-ratelimit-*` header, which the cache cannot
+  answer because it keeps only the four values displayed
+
+- [ ] ⬜ **Task 5.2**: Run it on the HOST and record the raw values — **HOST
+  action**. This closes Q2 and Task 4.7 together
+
+- [ ] ⬜ **Task 5.3**: Act on the measurement — flip the `CCY_USAGE_SCALE` default
+  if H1 holds, or address the bucket/model choice if H2 does. Not before
+
+- [x] ✅ **Task 5.4**: Fix found while reading: a bucket the API did not report
+  was silently dropped from the display, three lines below a comment saying that
+  is exactly what must not happen (lib 1.10.1)
 
 ## Technical Decisions
 
