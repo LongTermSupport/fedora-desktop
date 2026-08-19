@@ -83,7 +83,15 @@ lines, and every one is a mechanical substitution with an exact replacement.
 - [ ] ⬜ **Task 2.2**: Prove the fix rather than assume it — run one converted
   play with `ANSIBLE_INJECT_FACTS_AS_VARS=False`, which is exactly the post-2.24
   world. A play that passes under that flag is proven, not argued.
-  **HOST action**
+  **HOST action**: `CLAUDE/Plan/00077-…/acceptance.bash`
+  - The script runs a **negative control first**: a throwaway play referencing
+    the deprecated `ansible_distribution` that MUST fail under the flag. A green
+    positive case proves nothing unless the flag demonstrably bit, and a harness
+    that passes because it never ran is this repo's recurring defect
+  - Runtime coverage is 2 of the 11 sites (the default play is
+    `play-rpm-fusion.yml`, idempotent and cheap). The other 9 are held
+    statically by `qa-ansible.bash` Check 5 — stated in the script's own output
+    rather than left to be assumed
 
 ## Dependencies
 
