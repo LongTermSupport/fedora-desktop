@@ -68,12 +68,30 @@ echo "Plan 00076 — acceptance"
 echo "=============================================================="
 
 # --- 1. the repo and the host agree ------------------------------------------
+#
+# The remedy line here used to read "run deploy.bash first (play-rclone.yml)".
+# On the first real run that was wrong: play-rclone.yml HAD run and both its
+# files were in sync — the drift was eleven other scripts from this plan's
+# Phase 3, owned by six other plays. A failure report that names the wrong
+# cause points the reader somewhere else entirely, which is worse than saying
+# nothing. So the gate's own per-file output (which derives the right play from
+# the playbooks) is left to speak, and this adds only what it cannot know:
+# whether the two files THIS phase rewrote are among them.
 echo
 echo "### 1. deployed-drift gate"
 if "$REPO_ROOT/scripts/qa-deployed-drift.bash"; then
     echo "  OK — deployed copies match the repo"
 else
-    echo "  FAIL — run deploy.bash first (play-rclone.yml)"
+    echo
+    echo "  FAIL — the repo and the host disagree. Each entry above names the"
+    echo "         play that owns it; deploy.bash runs exactly the ones needed."
+    for f in rclone-tail rclone-cache-status; do
+        if [ -f "$HOME/.local/bin/$f" ] \
+            && ! cmp -s "$REPO_ROOT/files/home/.local/bin/$f" "$HOME/.local/bin/$f"; then
+            echo "         NOTE: $f is one of them — the checks below are"
+            echo "               therefore testing the OLD build."
+        fi
+    done
     FAIL=1
 fi
 

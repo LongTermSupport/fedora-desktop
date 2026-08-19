@@ -203,19 +203,38 @@ that state — and so were `rclone-tail` and `rclone-cache-status`, which the
   non-bash shebangs (none). The first three would be invisible today because
   discovery and the assertion share one predicate; see the journal
 
-### Phase 6: Land the rewritten helpers on the host
+### Phase 6: Land it on the host — Phase 3 was marked ✅ on repo state alone
 
-The Task 4.3b fix changed how `query_stats` / `query_cache` emit their result, so
-it is a behaviour change in two production scripts, not a parser appeasement.
+**Phase 3 never reached the machine.** The first acceptance run's drift gate
+found **11 of this plan's own scripts** still running the pre-fix build —
+`nord`, `wsi`, `ftp-camera`, `lan-scan`, `raw-prune`, `gshell-nested` and the
+five `ssh-`/`scp-` helpers, from commits `644f7a7`, `bf9b28f`, `86abbe0`,
+`44e558a`, `7434ceb`. The repo said fixed; the host ran the old build. That is
+the Plan 00067 failure this repo built the drift gate to catch, committed by the
+plan whose subject is gates that vouch for what they did not check.
 
-- [ ] ⬜ **Task 6.1**: `deploy.bash` — runs `play-rclone.yml`. Until it does,
-  `qa-deployed-drift.bash` fails on the host by design. Carries Plan 00072's
-  in-flight guard: the play restarts the mounts, which can lose
-  cached-but-not-yet-uploaded data. **HOST action**
-- [ ] ⬜ **Task 6.2**: `acceptance.bash` — exercises the **deployed** scripts,
-  not a copy of the construct. Fails on `parse failed` (the captured Python
-  output not reaching the caller) and reports **INCONCLUSIVE**, not PASS, when
-  the RC does not answer and the rewritten success path was never reached.
+- [x] ✅ **Task 6.1**: `deploy.bash`. First version deployed only
+  `play-rclone.yml` — under-delivering on the same assumption. Rewritten to
+  deploy **by measurement**: each script this plan touched is compared with
+  `cmp` against its deployed copy, only the owning plays of files that actually
+  differ are run, missing copies are skipped (a host that never installed a
+  feature is not nagged), and the mount-restart guard fires only when
+  `play-rclone.yml` is actually selected. A remembered list is what just went
+  stale, so it does not keep one
+- [x] ✅ **Task 6.2**: `acceptance.bash`. Exercises the **deployed** scripts, not
+  a copy of the construct. Its first run also mis-attributed the drift ("run
+  deploy.bash first (play-rclone.yml)") when `play-rclone.yml` had run and its
+  two files were in sync — a failure report naming the wrong cause is worse than
+  none, so it now leaves the gate's own per-file remedies to speak and adds only
+  what they cannot know
+- [x] ✅ **Task 6.2b**: `deploy.bash` now **runs `acceptance.bash` itself** and
+  exits with its status, so one command means "deployed AND verified" rather
+  than "ansible did not error". Handing the human a second command to remember
+  is how Phase 3 came to be marked ✅ undeployed in the first place
+- [ ] ⬜ **Task 6.3**: Run `deploy.bash` — one command, verification included.
+  The rclone half already **passed** on the first run: `rclone-tail --once` and
+  `rclone-cache-status` both exit 0 with rendered values and no `parse failed`,
+  so the Task 4.3b rewrite is confirmed against the deployed build.
   **HOST action**
 
 ## Dependencies
