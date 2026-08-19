@@ -84,10 +84,17 @@ lines, and every one is a mechanical substitution with an exact replacement.
   play with `ANSIBLE_INJECT_FACTS_AS_VARS=False`, which is exactly the post-2.24
   world. A play that passes under that flag is proven, not argued.
   **HOST action**: `CLAUDE/Plan/00077-…/acceptance.bash`
-  - The script runs a **negative control first**: a throwaway play referencing
-    the deprecated `ansible_distribution` that MUST fail under the flag. A green
-    positive case proves nothing unless the flag demonstrably bit, and a harness
-    that passes because it never ran is this repo's recurring defect
+  - **First run: the negative control did its job and the harness was broken.**
+    The environment variable is **`ANSIBLE_INJECT_FACT_VARS`** — no "AS", "FACT"
+    singular — not `ANSIBLE_INJECT_FACTS_AS_VARS`, which is what the setting is
+    *called* (`INJECT_FACTS_AS_VARS`) and what the ini key resembles
+    (`inject_facts_as_vars`). Ansible ignored the non-existent variable in
+    silence; the control play printed `distribution is Fedora` and passed.
+    Without the control, the positive case would have been run and reported as
+    proof of nothing. Verified with `ansible-config list`, and F2 re-confirmed:
+    `ansible.cfg` does not set it
+  - Script now runs a **cheaper check 0 first** — `ansible-config dump --only-changed` must report the setting as `False`. That catches a wrong
+    variable name in one command, before any play runs
   - Runtime coverage is 2 of the 11 sites (the default play is
     `play-rpm-fusion.yml`, idempotent and cheap). The other 9 are held
     statically by `qa-ansible.bash` Check 5 — stated in the script's own output

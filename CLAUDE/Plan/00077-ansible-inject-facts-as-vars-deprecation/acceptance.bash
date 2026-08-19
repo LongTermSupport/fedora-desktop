@@ -3,16 +3,28 @@
 # Plan 00077 Task 2.2 — prove the fact-var conversion under the post-2.24 world.
 # HOST ONLY.
 #
-# `ANSIBLE_INJECT_FACTS_AS_VARS=False` is exactly what ansible-core 2.24 will do
+# Disabling fact injection is exactly what ansible-core 2.24 will do
 # permanently. A converted play that runs clean under it is proven; one that is
 # merely argued to be correct is not.
 #
-# The order below is deliberate. The NEGATIVE CONTROL runs first, because a
-# green result from the real play means nothing unless the flag demonstrably
-# bit. If a throwaway play referencing `ansible_distribution` SUCCEEDS under the
-# flag, then the flag was ignored (wrong name, wrong precedence, config
-# override) and the whole test is vacuous — which is the failure mode this repo
-# keeps finding: a gate that passes because it never ran.
+# THE ENV VAR IS NOT NAMED AFTER THE SETTING. The config key is
+# `inject_facts_as_vars`, the reported setting is `INJECT_FACTS_AS_VARS`, and
+# the environment variable is `ANSIBLE_INJECT_FACT_VARS` — no "AS", and "FACT"
+# singular. The first run of this script used the obvious-looking
+# `ANSIBLE_INJECT_FACTS_AS_VARS`, which does not exist; ansible ignored it in
+# silence and the run proved nothing. Confirm with:
+#     ansible-config list | grep -A 14 '^INJECT_FACTS_AS_VARS'
+#
+# Two harness checks run before the real play, cheapest first:
+#   0. `ansible-config dump --only-changed` must SHOW the setting as False.
+#      This catches a wrong variable name in one command, before any play runs.
+#   1. A throwaway play referencing `ansible_distribution` must FAIL. This is
+#      the end-to-end version: the setting can be reported correctly and still
+#      not change task-time behaviour.
+#
+# If either check does not do what it must, the positive case is SKIPPED rather
+# than reported — a gate that passes because it never ran is this repo's
+# recurring defect, and it is what check 0 and check 1 exist to prevent.
 #
 # Usage: acceptance.bash [--play PATH] [--help]
 
@@ -31,12 +43,17 @@ Usage: acceptance.bash [--play PATH] [--help]
   --play PATH   repo-relative playbook to run as the positive case
                 (default: playbooks/imports/play-rpm-fusion.yml)
 
+Fact injection is disabled with ANSIBLE_INJECT_FACT_VARS=False — note the
+name: no "AS", and "FACT" singular. The setting it controls is reported as
+INJECT_FACTS_AS_VARS, which is NOT the variable name.
+
 Runs, in order:
+  0. HARNESS CHECK — `ansible-config dump --only-changed` must report the
+     setting as False. Catches a wrong variable name before any play runs.
   1. NEGATIVE CONTROL — a throwaway play referencing the deprecated
-     `ansible_distribution`, under ANSIBLE_INJECT_FACTS_AS_VARS=False.
-     It MUST FAIL. If it succeeds, the flag did not bite and every other
-     result here is meaningless.
-  2. POSITIVE CASE — the converted play, same flag. It MUST PASS.
+     `ansible_distribution`. It MUST FAIL. If it succeeds, the setting did
+     not change task-time behaviour and every other result is meaningless.
+  2. POSITIVE CASE — the converted play. It MUST PASS.
 
 Scope, stated rather than implied: the default play exercises 2 of the 11
 converted sites at runtime. The other 9 are covered statically by
@@ -110,15 +127,39 @@ EOF
 
 echo "=============================================================="
 echo "Plan 00077 Task 2.2 — acceptance"
-echo "  ANSIBLE_INJECT_FACTS_AS_VARS=False  (the post-2.24 world)"
+echo "  ANSIBLE_INJECT_FACT_VARS=False  (the post-2.24 world)"
 echo "=============================================================="
 
 FAIL=0
 
+# --- 0. cheapest harness check: did the variable even land? -------------------
+# `--only-changed` lists a setting solely when something moved it off its
+# default, and annotates it with the source. A wrong variable name shows up
+# here as an absent line, in one command, before any play runs.
+echo
+echo "### 0. HARNESS CHECK — the setting must actually be off"
+dump=""
+if ! dump=$(ANSIBLE_INJECT_FACT_VARS=False ansible-config dump --only-changed 2>&1); then
+    echo "  FAIL — 'ansible-config dump' did not run:"
+    printf '%s\n' "$dump" | sed 's/^/    /'
+    FAIL=1
+elif printf '%s' "$dump" | grep -q '^INJECT_FACTS_AS_VARS.*=[[:space:]]*False'; then
+    printf '%s\n' "$dump" | grep '^INJECT_FACTS_AS_VARS' | sed 's/^/  /'
+    echo "  OK — the setting is off and ansible says where from."
+else
+    echo "  FAIL — INJECT_FACTS_AS_VARS is not reported as False."
+    echo "         The variable name is probably wrong. Check it with:"
+    echo "           ansible-config list | grep -A 14 '^INJECT_FACTS_AS_VARS'"
+    echo "         It is ANSIBLE_INJECT_FACT_VARS — no 'AS', 'FACT' singular."
+    FAIL=1
+fi
+
 echo
 echo "### 1. NEGATIVE CONTROL — a deprecated reference MUST fail"
 echo "        $CONTROL"
-if ANSIBLE_INJECT_FACTS_AS_VARS=False ansible-playbook "$CONTROL"; then
+if [ "$FAIL" -ne 0 ]; then
+    echo "  SKIPPED — check 0 already showed the setting is not in force."
+elif ANSIBLE_INJECT_FACT_VARS=False ansible-playbook "$CONTROL"; then
     echo
     echo "  FAIL — the control SUCCEEDED. The flag did not take effect, so"
     echo "         nothing below proves anything. Check that ansible.cfg does"
@@ -138,7 +179,7 @@ if [ "$FAIL" -ne 0 ]; then
     echo "  SKIPPED — refusing to report a pass from a harness that is not"
     echo "            proven to be applying the flag."
 else
-    if ANSIBLE_INJECT_FACTS_AS_VARS=False ansible-playbook "$PLAY"; then
+    if ANSIBLE_INJECT_FACT_VARS=False ansible-playbook "$PLAY"; then
         echo
         echo "  OK — ran clean with the injection disabled."
     else
