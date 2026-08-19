@@ -153,9 +153,11 @@ that state — and so were `rclone-tail` and `rclone-cache-status`, which the
 - [x] ✅ **Task 4.1**: Gate on whole-file `Syntax error` (0% analysed), report
   `PartialParsing` with the affected files (the rest of the file *was* analysed).
   Both counts printed on every run, pass or fail
+
 - [x] ✅ **Task 4.2**: Make the three exceptions explicit, named and
   **self-expiring** — `SEMGREP_CANNOT_PARSE` in `qa-patterns.bash` fails if an
   unlisted file cannot be parsed, *and* fails if a listed file starts parsing
+
 - [x] ✅ **Task 4.3a**: `ftp-camera` — cause found by leave-one-out over complete
   top-level chunks (truncation bisect is invalid; a prefix cut mid-function is
   unparseable in its own right). A **one-line `case … esac` nested inside a
@@ -167,8 +169,38 @@ that state — and so were `rclone-tail` and `rclone-cache-status`, which the
   surviving range is lines **585-2486**, so **1,902 of its 2,486 lines are still
   unanalysed**. It moved from 0% to 23% covered, not to covered. The old report
   could not show this, because it printed a file list with no sizes
-- [ ] ⬜ **Task 4.3c**: `ftp-camera`'s remaining 1,902-line gap. Same method as
-  4.3a — leave-one-out over complete top-level chunks, starting at line 585
+
+- [ ] ⬜ **Task 4.3c**: `ftp-camera`'s remaining 1,902-line gap. Cause still not
+  established, but the search space is much smaller and one premise is dead:
+  **the partial parse is not a property of the file**. Copied alone to
+  `./ftp-camera.bash` it reports no error at all. It is not a timeout either —
+  `--timeout 0` changes nothing. It is **per rule**: only
+  `bash-capture-discards-status` and `bash-error-hiding-pipe-echo` produce the
+  585-2486 range, and both are `paths.include`-scoped to `files/**`, which is why
+  the solo copy at a non-matching path saw no rule that triggers it. The function
+  at 585 also parses clean in isolation, so the cause is contextual — the same
+  shape as 4.3b
+
+- [ ] ⬜ **Task 4.5**: **Per-rule coverage is invisible, and it is not uniform.**
+  Measured by splitting the ruleset and scanning the mirror once per rule:
+
+  | Rule                           | Files scanned | `paths.include`                                                     |
+  | ------------------------------ | ------------- | ------------------------------------------------------------------- |
+  | `bash-error-hiding-or-true`    | **154**       | none — every bash file                                              |
+  | `bash-error-hiding-pipe-echo`  | **120**       | `files/ scripts/ helpers/ extensions/ fedora-install/ CLAUDE/Plan/` |
+  | `bash-status-after-block`      | **120**       | same                                                                |
+  | `bash-test-discards-status`    | **90**        | `files/ fedora-install/ scripts/`                                   |
+  | `bash-capture-discards-status` | **90**        | same                                                                |
+
+  The gate prints `✓ patterns: 154 files OK`, which is the union and reads as
+  "every rule ran on 154 files". Four of the five did not. `bash-capture-discards-status`
+  — the rule for the exact class Plan 00075 exists to catch — sees 90 of 154, a
+  narrowing that is deliberate and recorded in the rule, but invisible at the
+  point where the pass is claimed. Same species as the partial-parse report fixed
+  in Task 5.2. **Deliberately not bolted on here**: reporting it without N extra
+  scans means matching `paths.include` globs statically, which needs a YAML
+  parser in a bash gate — a dependency decision, not a tweak
+
 - [ ] ⬜ **Task 4.3b**: `rclone-tail` and `rclone-cache-status` — cause **not**
   established, but its *shape* now is: each file reduces to two functions, and
   **either alone parses while the two together do not**. So it is not a single
@@ -176,6 +208,7 @@ that state — and so were `rclone-tail` and `rclone-cache-status`, which the
   size/complexity budget is **also** ruled out: eight copies of one of the
   functions parse fine. Four theories tested and dead; the next step is
   delta-debugging *within* the failing pair, not another guess
+
 - [ ] ⬜ **Task 4.4**: The 12 `PartialParsing` files. Cause **not** established.
   The reported ranges do sit on `${var:-(text)}` occurrences (parentheses in a
   default value), but that construct **parses in isolation** — as do extglob and
