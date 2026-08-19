@@ -125,9 +125,30 @@ marker: "-- {mark} ANSIBLE MANAGED: [Purpose]"  # For Lua configs
   assert:
     that:
       - ansible_version.full is version_compare('2.9.9', '>=')
-      - ansible_distribution == 'Fedora'
+      - ansible_facts['distribution'] == 'Fedora'
     fail_msg: 'System requirements not met'
 ```
+
+### Facts: always `ansible_facts[...]`, never the top-level `ansible_<fact>` alias
+
+Ansible also injects every gathered fact as a top-level variable, so
+`ansible_facts['distribution']` is reachable as `ansible_distribution`. That
+injection (`INJECT_FACTS_AS_VARS`) is **deprecated and removed in ansible-core
+2.24**, at which point every such reference becomes an undefined variable — an
+error mid-play, on the machine, after earlier tasks have already changed state.
+
+Use the dictionary form everywhere:
+
+```yaml
+{{ ansible_facts['env']['HOME'] }}                    # not ansible_env.HOME
+{{ ansible_facts['distribution'] }}                   # not ansible_distribution
+{{ ansible_facts['distribution_major_version'] }}     # not ansible_distribution_major_version
+```
+
+This applies to bare expressions in `when:` and `assert: that:` exactly as it
+does inside `{{ }}`. Enforced by `scripts/qa-ansible.bash` (Check 5), which keys
+on a known fact-name list rather than the `ansible_` prefix, so `ansible_facts`
+itself and `ansible_version` are unaffected.
 
 ---
 

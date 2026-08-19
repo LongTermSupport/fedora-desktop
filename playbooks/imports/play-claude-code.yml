@@ -15,7 +15,7 @@
     claude_code_version: "latest"
     # Desktop Claude Code's plaintext session store. Container (ccy) sessions
     # keep their state per-project instead, so ccy's launcher repairs those.
-    claude_state_dir: "{{ ansible_env.HOME }}/.claude"
+    claude_state_dir: "{{ ansible_facts['env']['HOME'] }}/.claude"
   tasks:
     # cc wrapper sources ccy's lib at runtime. play-claude-yolo MUST run
     # first (see playbook-main.yml import order). Fail at deploy time

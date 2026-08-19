@@ -343,6 +343,70 @@ while IFS= read -r -d '' yml_file; do
 done < <(find "$REPO_ROOT/playbooks/" -type f \( -name '*.yml' -o -name '*.yaml' \) -print0)
 
 # ---------------------------------------------------------------------------
+# Check 5: top-level ansible_<fact> variables (Plan 00077)
+# ---------------------------------------------------------------------------
+# Ansible injects every gathered fact as a top-level variable, so
+# `ansible_facts['env']` is also reachable as `ansible_env`. That injection
+# (INJECT_FACTS_AS_VARS) is DEPRECATED and removed in ansible-core 2.24, at which
+# point every such reference becomes an UNDEFINED VARIABLE — an error mid-play, on
+# the machine, after earlier tasks have already changed system state.
+#
+# `--syntax-check` cannot see it (the name is defined today) and neither can any
+# runtime test while the injection is still on, so this is a static check or
+# nothing. It was found in deploy OUTPUT, which is exactly the wrong place: a
+# deprecation warning scrolls past on a play someone happened to be watching.
+#
+# Keyed on a KNOWN FACT-NAME LIST, never on the `ansible_` prefix alone —
+# `ansible_facts` itself, `ansible_version`, and any future repo-local
+# `ansible_`-prefixed variable must not trip it. The list is the commonly-used
+# subset; extend it when a new fact is adopted.
+FACT_NAMES=(
+    env distribution distribution_version distribution_major_version
+    distribution_release hostname nodename fqdn domain
+    user_id user_dir user_uid user_gid
+    architecture machine os_family kernel kernel_version system
+    memtotal_mb memfree_mb swaptotal_mb
+    processor_vcpus processor_cores processor_count
+    python_version date_time default_ipv4 default_ipv6 all_ipv4_addresses
+    interfaces mounts devices lsb machine_id selinux
+    service_mgr pkg_mgr virtualization_type virtualization_role
+    product_name product_version form_factor bios_version
+)
+# Word-boundary both ends so `ansible_distribution` does not match inside
+# `ansible_distribution_major_version` (the alternation is longest-first anyway,
+# but \b makes it independent of ordering).
+FACTVAR_PATTERN="\\bansible_($(IFS='|'; echo "${FACT_NAMES[*]}"))\\b"
+FACTVAR_VIOLATIONS=()
+
+factvar_rc=0
+grep -rnP \
+    --include='*.yml' \
+    --include='*.yaml' \
+    --exclude-dir=vendor \
+    "$FACTVAR_PATTERN" \
+    "${FF_SEARCH_DIRS[@]}" \
+    > "$TMP_MATCHES" 2>"$TMP_GREP_ERR" || factvar_rc=$?
+
+if [[ $factvar_rc -ge 2 ]]; then
+    echo "ERROR: deprecated-fact-var grep failed (rc=$factvar_rc):" >&2
+    cat "$TMP_GREP_ERR" >&2
+    exit 2
+fi
+
+while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    # A YAML comment mentioning the old name is documentation, not a reference.
+    # Matches `# ...` and `    # ...`, not a trailing comment on a live line —
+    # a live line with the reference still counts, whatever follows it.
+    [[ "${line#*:*:}" =~ ^[[:space:]]*# ]] && continue
+    rel_line="${line#"$REPO_ROOT"/}"
+    echo "  ERROR (deprecated fact var): $rel_line"
+    echo "    Use ansible_facts['<name>'] — top-level injection is removed in ansible-core 2.24."
+    FACTVAR_VIOLATIONS+=("$rel_line")
+    ERRORS=$((ERRORS + 1))
+done < "$TMP_MATCHES"
+
+# ---------------------------------------------------------------------------
 # Build JSON output — same shape as sibling qa scripts
 # ---------------------------------------------------------------------------
 
@@ -370,6 +434,12 @@ for v in "${SCOPE_VIOLATIONS[@]+"${SCOPE_VIOLATIONS[@]}"}"; do
     sc_json_array=$(printf '%s' "$sc_json_array" | jq --arg v "$v" '. + [$v]')
 done
 
+# Encode FACTVAR_VIOLATIONS as a JSON array
+fv_json_array="[]"
+for v in "${FACTVAR_VIOLATIONS[@]+"${FACTVAR_VIOLATIONS[@]}"}"; do
+    fv_json_array=$(printf '%s' "$fv_json_array" | jq --arg v "$v" '. + [$v]')
+done
+
 # Total "files" counted: playbook count for hygiene + 1 synthetic entry for fail-fast scan
 TOTAL=$((PLAYBOOK_COUNT + 1))
 STATUS="pass"
@@ -383,6 +453,7 @@ jq -n \
     --argjson hy "$hy_json_array" \
     --argjson sr "$sr_json_array" \
     --argjson sc "$sc_json_array" \
+    --argjson fv "$fv_json_array" \
     '{
         "type": "ansible",
         "status": $status,
@@ -395,14 +466,16 @@ jq -n \
             ($ff | map({"file": ., "type": "ansible", "status": "fail", "error": "fail-fast pattern without FAIL-FAST-OK annotation"})) +
             ($hy | map({"file": (. | split(" (")[0]), "type": "ansible", "status": "fail", "error": ("hygiene: " + (. | split(" (")[1] | rtrimstr(")"))) })) +
             ($sr | map({"file": ., "type": "ansible", "status": "fail", "error": "self-referential var (Ansible 2.19 recursive-loop error at runtime)"})) +
-            ($sc | map({"file": (. | split(" (")[0]), "type": "ansible", "status": "fail", "error": ("scope: " + (. | split(" (")[1] | rtrimstr(")"))) }))
+            ($sc | map({"file": (. | split(" (")[0]), "type": "ansible", "status": "fail", "error": ("scope: " + (. | split(" (")[1] | rtrimstr(")"))) })) +
+            ($fv | map({"file": ., "type": "ansible", "status": "fail", "error": "top-level ansible_<fact> var (removed in ansible-core 2.24)"}))
         ),
         "results": [],
         "checks": {
             "fail_fast": $ff,
             "hygiene":   $hy,
             "self_ref":  $sr,
-            "scope":     $sc
+            "scope":     $sc,
+            "fact_vars": $fv
         }
     }' > "$JSON_OUT"
 
@@ -410,14 +483,15 @@ jq -n \
 # Terse summary
 # ---------------------------------------------------------------------------
 if [[ $ERRORS -eq 0 ]]; then
-    echo "✓ ansible: fail-fast patterns OK; no self-referential vars; scope+guard declarations OK; $PLAYBOOK_COUNT playbook(s) have correct shebang+exec"
+    echo "✓ ansible: fail-fast patterns OK; no self-referential vars; no deprecated ansible_<fact> vars; scope+guard declarations OK; $PLAYBOOK_COUNT playbook(s) have correct shebang+exec"
     exit 0
 else
     FF_COUNT=${#FF_VIOLATIONS[@]}
     HY_COUNT=${#HYGIENE_VIOLATIONS[@]}
     SR_COUNT=${#SELFREF_VIOLATIONS[@]}
     SC_COUNT=${#SCOPE_VIOLATIONS[@]}
-    echo "✗ ansible: $ERRORS violation(s) — $FF_COUNT fail-fast, $HY_COUNT hygiene, $SR_COUNT self-ref var, $SC_COUNT scope/guard"
+    FV_COUNT=${#FACTVAR_VIOLATIONS[@]}
+    echo "✗ ansible: $ERRORS violation(s) — $FF_COUNT fail-fast, $HY_COUNT hygiene, $SR_COUNT self-ref var, $SC_COUNT scope/guard, $FV_COUNT deprecated fact var"
     echo "  Hygiene fixer: ./scripts/make-playbooks-executable.bash"
     echo "  Details: jq '.failures[]' $JSON_OUT"
     exit 1

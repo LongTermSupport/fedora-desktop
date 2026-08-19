@@ -288,7 +288,7 @@
     # Runs as the user, not root — the directory is under ~/.claude-tokens/.
     - name: Discard Stale Token Usage Cache From Host
       ansible.builtin.file:
-        path: "{{ ansible_env.HOME }}/.claude-tokens/ccy/usage-cache"
+        path: "{{ ansible_facts['env']['HOME'] }}/.claude-tokens/ccy/usage-cache"
         state: absent
       tags:
         - scripts

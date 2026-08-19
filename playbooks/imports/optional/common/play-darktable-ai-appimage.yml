@@ -76,8 +76,8 @@
     - name: Preflight - assert Fedora target distribution
       ansible.builtin.assert:
         that:
-          - ansible_distribution == 'Fedora'
-        fail_msg: "This playbook targets Fedora. Detected: {{ ansible_distribution }}."
+          - ansible_facts['distribution'] == 'Fedora'
+        fail_msg: "This playbook targets Fedora. Detected: {{ ansible_facts['distribution'] }}."
       tags: darktable-ai-appimage
 
     - name: Query darktable nightly release metadata from GitHub

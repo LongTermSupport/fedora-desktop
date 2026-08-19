@@ -28,7 +28,7 @@
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
     dt_ai_ort_manifest_url: "https://raw.githubusercontent.com/darktable-org/darktable/refs/heads/master/data/ort_gpu.json"
-    dt_ai_ort_dir: "{{ ansible_env.HOME }}/.local/lib/onnxruntime-cuda"
+    dt_ai_ort_dir: "{{ ansible_facts['env']['HOME'] }}/.local/lib/onnxruntime-cuda"
     dt_ai_gpu_tmp: "/var/tmp/darktable-ai-gpu"
 
   tasks:
