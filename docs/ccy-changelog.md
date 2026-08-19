@@ -17,6 +17,22 @@ Two version numbers move independently — see
 
 ---
 
+## 3.39.0 (container 2.26)
+
+**A fenced CI runner could not launch ccy at all.** The internet-reachability preflight
+(`podman run --rm --network <net> alpine wget http://google.com`) runs on every launch with
+a network attached, unconditionally, and needs both an unpinned `alpine` pull and plain-http
+egress to `google.com` — two requirements a tightly egress-fenced host has no reason to grant
+just to satisfy a generic liveness probe when it has already proven its own egress by other
+means before ever invoking `ccy`.
+
+`CCY_SKIP_NETWORK_PREFLIGHT=1` bypasses the check entirely, same idiom as the existing
+`CCY_SKIP_TOKEN_OWNER_CHECK` (`lib/ssh-handling.bash`) — a named, explicit opt-out for one
+specific preflight, not a general trust switch. Unset by default, so behaviour is unchanged
+for every existing caller.
+
+---
+
 ## Library 1.12.0 — token-management.bash
 
 **The usage block now says which limit is actually binding.**
