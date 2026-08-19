@@ -1,6 +1,6 @@
 # Plan 00078: ccy network preflight skip
 
-**Status**: Complete (`<pending>`)
+**Status**: Complete (`fb3a2d1`)
 **Created**: 2026-08-19
 **Owner**: joseph
 **Priority**: Medium
@@ -72,4 +72,4 @@ such a host — only the one launch-time gate this plan is scoped to.
 
 ## Delivery & Milestones
 
-<!-- filled in after commit -->
+- `fb3a2d1` — CCY 3.39.0, `CCY_SKIP_NETWORK_PREFLIGHT` added.
