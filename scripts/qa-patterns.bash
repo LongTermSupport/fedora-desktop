@@ -74,6 +74,15 @@ if [[ ${#QA_SHELL_FILES[@]} -eq 0 ]]; then
     exit 2
 fi
 
+# Appending `.bash` can make two DIFFERENT repo files claim one mirror path:
+# `dir/foo` and `dir/foo.bash` both mirror to `dir/foo.bash`. The second `cp`
+# would overwrite the first, and the map — built by merging one object per file —
+# would keep only the last value for that key. So one real script would be
+# neither scanned NOR missed by the assertion below, which reads the map's
+# values: it would simply cease to exist, and the gate would report a pass over
+# it. That is this plan's own defect, reproduced inside the fix for it, so it is
+# a hard failure rather than a clever disambiguation.
+declare -A MIRROR_CLAIMED=()
 : > "$TMP_MAP"
 for src_file in "${QA_SHELL_FILES[@]}"; do
     repo_rel="${src_file#"$REPO_ROOT"/}"
@@ -81,6 +90,16 @@ for src_file in "${QA_SHELL_FILES[@]}"; do
     if [[ "$repo_rel" != *.sh && "$repo_rel" != *.bash ]]; then
         mirror_rel="$repo_rel.bash"
     fi
+    if [[ -n "${MIRROR_CLAIMED[$mirror_rel]:-}" ]]; then
+        echo "ERROR: two files claim the same scan-mirror path '$mirror_rel':" >&2
+        echo "    ${MIRROR_CLAIMED[$mirror_rel]}" >&2
+        echo "    $repo_rel" >&2
+        echo "  One would silently replace the other and vanish from this gate" >&2
+        echo "  entirely — scanned by nothing, and missed by no assertion." >&2
+        echo "  Rename one of them, or teach the mirror a collision-free suffix." >&2
+        exit 2
+    fi
+    MIRROR_CLAIMED["$mirror_rel"]="$repo_rel"
     mkdir -p "$MIRROR/$(dirname "$mirror_rel")"
     cp "$src_file" "$MIRROR/$mirror_rel"
     jq -nc --arg m "$mirror_rel" --arg r "$repo_rel" '{($m): $r}' >> "$TMP_MAP"
@@ -250,19 +269,52 @@ fi
 # A summary that says only "153 files OK" is the shape of statement this plan
 # exists to distrust. These two lines say what was actually analysed, so a
 # shrinking number is visible rather than something you have to go looking for.
-PARTIAL_COUNT=$(jq -r '[.errors[]? | select(.type != "Syntax error")] | length' "$TMP_SEMGREP")
+PARTIAL_COUNT=$(jq -r '[.errors[]? | select(.type != "Syntax error")
+                        | (.path // "(no path)")] | unique | length' "$TMP_SEMGREP")
 if [[ ${#UNPARSED[@]} -gt 0 ]]; then
     echo "⚠ patterns: ${#UNPARSED[@]} file(s) NOT ANALYSED — semgrep cannot parse them:"
     printf '    %s\n' "${UNPARSED[@]}"
     echo "    (known exceptions; they pass bash -n. See SEMGREP_CANNOT_PARSE in this script.)"
 fi
 if [[ "$PARTIAL_COUNT" -gt 0 ]]; then
+    # Report HOW MUCH was skipped, not just that something was.
+    #
+    # A bare file list makes a 3-line gap and a 1,900-line gap look identical.
+    # `ftp-camera` is the case that proves it matters: it parses, so it is only
+    # advisory here, yet a single range covers lines 585-2486 — three quarters of
+    # the file is unanalysed. "Analysed except for some ranges" is a true
+    # sentence that, unqualified, reads as reassurance. This plan exists to
+    # distrust exactly that shape of summary, so the numbers go on the line.
+    #
+    # PartialParsing carries its ranges in `.type[1][]`; the union is taken so
+    # overlapping ranges are not double-counted.
     echo "⚠ patterns: $PARTIAL_COUNT file(s) analysed EXCEPT for some ranges:"
-    jq -r --slurpfile mapfile "$TMP_MAP" \
+    while IFS=$'\t' read -r rel skipped first_line last_line; do
+        total="?"
+        if [[ -f "$REPO_ROOT/$rel" ]]; then
+            total=$(wc -l < "$REPO_ROOT/$rel")
+        fi
+        printf '    %s — %s of %s lines not analysed (first gap from %s, last to %s)\n' \
+            "$rel" "$skipped" "$total" "$first_line" "$last_line"
+    done < <(jq -r --slurpfile mapfile "$TMP_MAP" \
         '($mapfile | add) as $map
-         | .errors[]? | select(.type != "Syntax error")
+         | def union_len:
+             sort_by(.s)
+             | reduce .[] as $r ({acc: 0, cs: null, ce: null};
+                 if .cs == null then {acc: .acc, cs: $r.s, ce: $r.e}
+                 elif $r.s <= (.ce + 1) then
+                     {acc: .acc, cs: .cs, ce: (if $r.e > .ce then $r.e else .ce end)}
+                 else {acc: (.acc + .ce - .cs + 1), cs: $r.s, ce: $r.e}
+                 end)
+             | .acc + (if .cs == null then 0 else (.ce - .cs + 1) end);
+           .errors[]? | select(.type != "Syntax error")
          | ((.path // "") | sub("^\\./"; "")) as $mirrored
-         | "    \($map[$mirrored] // .path // "(no path)")"' "$TMP_SEMGREP" | sort -u
+         | ([.type[1]? // [] | .[] | {s: .start.line, e: .end.line}]) as $ranges
+         | [($map[$mirrored] // .path // "(no path)"),
+            ($ranges | union_len | tostring),
+            ($ranges | map(.s) | min // 0 | tostring),
+            ($ranges | map(.e) | max // 0 | tostring)]
+         | @tsv' "$TMP_SEMGREP" | sort -u)
 fi
 
 # Terse summary

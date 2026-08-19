@@ -92,6 +92,34 @@ Both counts print on **every** run, pass or fail, above the `✓ patterns:` line
 A summary consisting only of a tick and a file count is the format that let this
 sit unnoticed.
 
+**The partial-parse report states its own magnitude**, because "analysed except
+for some ranges" is a true sentence that reads as reassurance:
+
+```
+files/home/.local/bin/ftp-camera — 1902 of 2486 lines not analysed (first gap from 585, last to 2486)
+files/var/local/claude-yolo/claude-yolo — 1 of 3021 lines not analysed (first gap from 1252, last to 1252)
+```
+
+Those two lines describe situations three orders of magnitude apart, and the
+earlier format — a bare list of filenames — rendered them identically. The
+number is the union of the skipped ranges, so overlaps are not double-counted.
+This is how `ftp-camera` was caught still being 77% unanalysed *after* the fix
+that removed it from `SEMGREP_CANNOT_PARSE`.
+
+#### Two files may not claim one mirror path
+
+The mirror appends `.bash` to a file with no shell extension, so `dir/foo` and
+`dir/foo.bash` would both land on `dir/foo.bash`: the second `cp` overwrites the
+first, and the mirror→repo map — merged from one object per file — keeps a single
+value for that key. The overwritten script is then neither scanned **nor** named
+by the coverage assertion, which reads the map's *values*. It would simply cease
+to exist, and the gate would report a pass over it.
+
+That is this section's own defect committed inside the fix for it, so a collision
+is a hard failure (exit 2) naming both files rather than a silent rename. No
+collision exists in the repo today; the check is there so one cannot appear
+quietly.
+
 ### `qa-deployed-drift.bash` — the repo and the host must agree
 
 This is the one QA check whose subject is the **host** rather than the source

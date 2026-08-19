@@ -161,7 +161,14 @@ that state — and so were `rclone-tail` and `rclone-cache-status`, which the
   unparseable in its own right). A **one-line `case … esac` nested inside a
   `while` inside a command substitution**; the same `case` across lines parses.
   Fixed, file removed from the exception list, and the first finding it then
-  reported was a real defect at line 704
+  reported was a real defect at line 704.
+  **Corrected in review (Task 5.2)**: this recovered less than it claimed. The
+  file went from a whole-file `Syntax error` to `PartialParsing` — but the
+  surviving range is lines **585-2486**, so **1,902 of its 2,486 lines are still
+  unanalysed**. It moved from 0% to 23% covered, not to covered. The old report
+  could not show this, because it printed a file list with no sizes
+- [ ] ⬜ **Task 4.3c**: `ftp-camera`'s remaining 1,902-line gap. Same method as
+  4.3a — leave-one-out over complete top-level chunks, starting at line 585
 - [ ] ⬜ **Task 4.3b**: `rclone-tail` and `rclone-cache-status` — cause **not**
   established, but its *shape* now is: each file reduces to two functions, and
   **either alone parses while the two together do not**. So it is not a single
@@ -179,7 +186,27 @@ that state — and so were `rclone-tail` and `rclone-cache-status`, which the
 
 ### Phase 5: Review
 
-- [ ] ⬜ **Task 5.1**: The `qa-reviewer` agent over the plan's full diff
+- [x] ✅ **Task 5.1**: Review of the plan's full diff. Three attempts to delegate
+  it died on API 529s, so it was done inline instead — the gate machinery read
+  end to end against the defeat-vectors list, and the shipped-script changes
+  against their call sites
+- [x] ✅ **Task 5.2**: Findings fixed. Two were real, and both are this plan's own
+  defect class committed inside the fix for it:
+  - **Mirror path collision.** `dir/foo` and `dir/foo.bash` both mirror to
+    `dir/foo.bash`; the second `cp` overwrites the first and the merged map keeps
+    one value for the key. The lost file is then neither scanned **nor** missed
+    by the assertion, which reads the map's values — it ceases to exist and the
+    gate reports a pass over it. None exists today; it is now a hard failure
+    naming both files, with a negative control confirming `rc=2`
+  - **"Analysed EXCEPT for some ranges" hid its own magnitude.** A bare file list
+    makes a 3-line gap and a 1,902-line gap look identical. The report now prints
+    the union of skipped lines against the file's length — which is how the
+    Task 4.3a overstatement above was caught
+- [x] ✅ **Task 5.3**: Defeat-vectors checked and recorded rather than assumed —
+  `#!` with a space (none present), CRLF shebangs (none), tracked symlinks (one,
+  `scripts/vault` → a vendored directory, correctly skipped by the `-f` test),
+  non-bash shebangs (none). The first three would be invisible today because
+  discovery and the assertion share one predicate; see the journal
 
 ## Dependencies
 
@@ -212,10 +239,17 @@ stated exactly.
 - [x] `qa-all.bash` fails if a shell script is added that the discovery misses
 - [x] `.paths.scanned` from semgrep includes the ccy launcher
 - [x] 0 gating (error/warning) shellcheck findings repo-wide
-- [x] The reported file count matches the real one — both gates now say 153
+- [x] The reported file count matches the real one — both gates now say 154
 - [x] No file is reported as passing that the analyser did not read — parse
-      failures are gating, and the exception list cannot rot
-- [ ] `qa-reviewer` agent run over the plan's full diff
+  failures are gating, and the exception list cannot rot
+- [x] Two files cannot claim one mirror path, so no discovered script can drop
+  out of both the scan and the assertion
+- [x] The partial-parse report states its own magnitude — skipped lines against
+  file length — so a 1,902-line gap cannot read like a 3-line one
+- [x] Full-diff review done and its findings fixed (inline; delegation died on
+  API 529s three times)
+- [ ] `ftp-camera` fully analysed — 77% of it is still in a partial-parse range
+  (Task 4.3c)
 
 ## Risks & Mitigations
 
