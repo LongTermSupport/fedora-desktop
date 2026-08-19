@@ -170,16 +170,14 @@ that state — and so were `rclone-tail` and `rclone-cache-status`, which the
   unanalysed**. It moved from 0% to 23% covered, not to covered. The old report
   could not show this, because it printed a file list with no sizes
 
-- [ ] ⬜ **Task 4.3c**: `ftp-camera`'s remaining 1,902-line gap. Cause still not
-  established, but the search space is much smaller and one premise is dead:
-  **the partial parse is not a property of the file**. Copied alone to
-  `./ftp-camera.bash` it reports no error at all. It is not a timeout either —
-  `--timeout 0` changes nothing. It is **per rule**: only
-  `bash-capture-discards-status` and `bash-error-hiding-pipe-echo` produce the
-  585-2486 range, and both are `paths.include`-scoped to `files/**`, which is why
-  the solo copy at a non-matching path saw no rule that triggers it. The function
-  at 585 also parses clean in isolation, so the cause is contextual — the same
-  shape as 4.3b
+- [x] ✅ **Task 4.3c**: `ftp-camera`'s 1,902-line gap — **it costs nothing, and
+  the "per rule" framing was wrong**. Semgrep parses a file only when a rule's
+  regex has ALREADY matched in it: across ten measured (file, rule) cells,
+  matches 0 ⇒ no parse ⇒ no error, matches ≥1 ⇒ parse ⇒ error. The rules that
+  looked like they coped had never been asked. And a probe regex returned **293
+  findings against 293 raw occurrences**, 262 of them inside the 585-2486 range —
+  because every rule here is `pattern-regex` and the regex engine reads raw text.
+  The gap becomes real only if an AST `pattern:` rule is ever added
 
 - [ ] ⬜ **Task 4.5**: **Per-rule coverage is invisible, and it is not uniform.**
   Measured by splitting the ruleset and scanning the mirror once per rule:
@@ -194,28 +192,20 @@ that state — and so were `rclone-tail` and `rclone-cache-status`, which the
   statically, which needs a YAML parser in a bash gate — a host/CI dependency
   decision, not a tweak
 
-- [ ] ⬜ **Task 4.3b**: `rclone-tail` and `rclone-cache-status` — cause **not**
-  established, but its *shape* now is: each file reduces to two functions, and
-  **either alone parses while the two together do not**. So it is not a single
-  construct — the embedded-Python-heredoc suspect parses in isolation too. A
-  size/complexity budget is **also** ruled out: eight copies of one of the
-  functions parse fine.
-  **Reframed by Task 4.3c's finding**: parseability is a property of
-  (file × rule), not of the file. Both files are clean at a path no scoped rule
-  matches and error under `files/`; per-rule scans show `bash-status-after-block`,
-  `bash-test-discards-status` and `bash-error-hiding-or-true` parse them fine,
-  while `bash-error-hiding-pipe-echo` fails on both and
-  `bash-capture-discards-status` on one. So they are **partially covered, not
-  uncovered** — and every "the file is unparseable" premise from the earlier
-  attempts was the wrong question
+- [x] ✅ **Task 4.3b**: `rclone-tail` and `rclone-cache-status` — cause **found**,
+  and it cost 4 hidden findings. The earlier attempts failed because the harness
+  was unreliable: they bisected while running rules whose regexes matched
+  nothing, so the error appeared and vanished for reasons unrelated to the edit.
+  Re-run with a probe rule that always matches, leave-one-out named one function
+  in each file, and both reduce to the same construct — a heredoc fed **directly
+  to an `if` condition** with `then` on the line after the terminator. Valid bash,
+  unparseable by tree-sitter-bash. Feeding it to a command substitution instead
+  fixes both, and is better bash anyway. `SEMGREP_CANNOT_PARSE` is now **empty**
 
-- [ ] ⬜ **Task 4.4**: The 12 `PartialParsing` files. Cause **not** established.
-  The reported ranges do sit on `${var:-(text)}` occurrences (parentheses in a
-  default value), but that construct **parses in isolation** — as do extglob and
-  the arithmetic forms — so, like 4.3b, the failure is contextual. The largest
-  span, `scripts/git-hooks/pre-commit` 266–352, is almost entirely the **body of
-  an embedded Python heredoc**, which bash rules would not apply to anyway — so
-  the practical loss there is far smaller than the line count suggests
+- [x] ✅ **Task 4.4**: The `PartialParsing` files (now 14) — **no cause needed**:
+  measured to cost nothing while the ruleset is all `pattern-regex`. The gate
+  reports them as "outside the parse tree", not "not analysed", and names the
+  condition under which they would start to matter
 
 ### Phase 5: Review
 
@@ -281,8 +271,11 @@ stated exactly.
   file length — so a 1,902-line gap cannot read like a 3-line one
 - [x] Full-diff review done and its findings fixed (inline; delegation died on
   API 529s three times)
-- [ ] `ftp-camera` fully analysed — 77% of it is still in a partial-parse range
-  (Task 4.3c)
+- [x] `SEMGREP_CANNOT_PARSE` is empty — no file is exempt from the ruleset, and
+  the 4 findings the two exemptions were hiding are fixed
+- [x] The partial-parse report states what the gap COSTS, not only how big it is
+  — measured at zero for an all-`pattern-regex` ruleset, with the condition that
+  would change that named on the line
 
 ## Risks & Mitigations
 
@@ -305,3 +298,6 @@ stated exactly.
   `|| true` / capture classes cleared in the hidden set, ahead of the widening
 - Discovery widened, shared between both gates, and coverage asserted on each;
   both now report 153 files where they reported 125
+- `SEMGREP_CANNOT_PARSE` emptied: one construct (heredoc fed straight to an `if`
+  condition) explained both entries, and clearing it surfaced 4 real `|| echo`
+  violations the blackout had been hiding

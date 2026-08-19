@@ -186,7 +186,7 @@ discover_mounts() {
 # Stdout (failure): ERR|<reason>
 query_cache() {
     local rc_addr="$1"
-    local vfs_json reason err_file
+    local vfs_json reason err_file parsed
     # Keep the reason instead of discarding it. Reporting a 401 as "rc
     # unreachable" is what made the Plan 00067 auth change look like a dead
     # mount for weeks; the caller now sees which of the two it actually is.
@@ -204,7 +204,12 @@ query_cache() {
         return
     fi
     rm -f "$err_file"
-    if ! python3 - "$vfs_json" << 'PY' 2>/dev/null
+    # The heredoc is fed to a command SUBSTITUTION rather than sitting directly
+    # in the `if` condition. `if ! cmd <<'PY' … PY` with `then` on the following
+    # line is valid bash — but tree-sitter-bash cannot parse it, so semgrep
+    # reported a whole-file syntax error and ran ZERO rules on this file while
+    # still listing it as scanned (Plan 00076 Task 4.3b).
+    if ! parsed=$(python3 - "$vfs_json" << 'PY' 2>/dev/null
 import json, sys
 vfs = json.loads(sys.argv[1])
 dc = vfs.get("diskCache") or {}
@@ -219,8 +224,10 @@ max_size = int(opt.get("CacheMaxSize", 0) or 0)
 max_age_s = int(opt.get("CacheMaxAge", 0) or 0) // 1_000_000_000
 print(f"OK|{used}|{max_size}|{files}|{queued}|{in_progress}|{errored}|{oos}|{max_age_s}")
 PY
-    then
+    ); then
         echo "ERR|parse failed"
+    else
+        printf '%s\n' "$parsed"
     fi
 }
 
@@ -322,7 +329,12 @@ print_dir_analysis() {
 }
 
 fmt_bytes() {
-    numfmt --to=iec --suffix=B "$1" 2>/dev/null || echo "?"
+    # Explicit fallback rather than `cmd || echo "?"`: an unformattable byte
+    # count is a display concern, so "?" is the right answer — but the failure
+    # is handled here rather than swallowed inside the value expression.
+    local out
+    out=$(numfmt --to=iec --suffix=B "$1" 2>/dev/null) || out="?"
+    printf '%s\n' "$out"
 }
 
 # seconds → coarse human duration (cache max-age is set in hours/years)

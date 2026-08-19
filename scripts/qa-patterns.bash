@@ -178,33 +178,41 @@ jq \
 # scanned list alone reproduced this plan's own defect inside the gate meant to
 # catch it.
 #
-# Two error classes, deliberately treated differently:
+# Two error classes, and they cost completely different amounts. Both figures
+# below were MEASURED with a probe rule whose regex matches on every line, so the
+# parse is always attempted (Plan 00076 Task 4.3):
 #
-#   "Syntax error"   the file failed to parse FOR AT LEAST ONE RULE, so that
-#                    rule ran on no line of it. Measured, not assumed: for both
-#                    current entries three of the five rules parse them fine and
-#                    one does not, and semgrep's JSON carries no rule id on an
-#                    error — so the combined run cannot say which. Treated as
-#                    GATING because "some unknown subset of the ruleset did not
-#                    run" is not a pass anyone can rely on.
-#   "PartialParsing" the file parsed except for named ranges. Every rule ran on
-#                    everything else, and the ranges are printed, so nothing is
-#                    claimed that was not checked. Reported, not gating.
+#   "Syntax error"   costs EVERYTHING. A rule whose regex has matches gets none
+#                    of them back: `rclone-tail` had three real `|| echo` sites
+#                    and reported zero. GATING.
+#   "PartialParsing" costs NOTHING for this ruleset. `ftp-camera` reports a
+#                    585-2486 skipped range, yet a probe for `echo` returned 293
+#                    findings against 293 raw occurrences — 262 of them on
+#                    distinct lines INSIDE that range. Reported, not gating.
+#
+# The asymmetry is because every rule in .semgrep/bash-conventions.yml is
+# `pattern-regex`, and the regex engine reads raw text — the parse tree is never
+# consulted for a match. A PartialParsing range therefore costs nothing TODAY and
+# would start costing something the day an AST `pattern:` rule is added. It is
+# reported for that reason, not because coverage is currently lost.
+#
+# This also kills the earlier "parseability is a property of (file × rule)"
+# reading. Semgrep only parses a file when a rule's regex actually MATCHED
+# something in it: across ten measured (file, rule) cells the correlation was
+# exact — matches > 0 ⇒ parse attempted ⇒ error surfaces; matches == 0 ⇒ no parse,
+# no error. So the three rules that appeared to "parse these files fine" had
+# simply never been asked. An absence of an error was being read as coverage,
+# which is this plan's own defect class one level up.
 #
 # Whether semgrep's grammar can parse a given piece of VALID bash is a property
 # of semgrep, not of our code (all of these pass `bash -n`), so "rewrite it until
-# the parser copes" is not automatically the right answer. The exceptions below
-# are therefore explicit, named, and self-expiring: a file that starts parsing
-# must be removed from the list, and the gate fails until it is.
-# Cause not yet established for these two (Plan 00076 Task 4.3). What IS
-# established: a one-line `case … esac` nested inside a `while` inside a command
-# substitution breaks the grammar, and one occurrence of it made the whole of
-# `ftp-camera` — 2,475 lines — unanalysable. Splitting that `case` across lines
-# restored it, and the first thing it then reported was a real defect.
-SEMGREP_CANNOT_PARSE=(
-    "files/home/.local/bin/rclone-cache-status"
-    "files/home/.local/bin/rclone-tail"
-)
+# the parser copes" is not automatically the right answer — but when the cost is
+# a whole-file blackout it is. Both former entries were one construct:
+# `if ! cmd <<'PY' … PY` with `then` on the following line, valid bash that
+# tree-sitter-bash cannot parse. Feeding the heredoc to a command substitution
+# instead fixed both. The list is empty and self-expiring in both directions: an
+# unlisted unparseable file fails the gate, and so does a listed one that parses.
+SEMGREP_CANNOT_PARSE=()
 
 UNPARSED=()
 while IFS= read -r rel; do
@@ -218,7 +226,7 @@ done < <(jq -r --slurpfile mapfile "$TMP_MAP" \
 UNEXPECTED_UNPARSED=()
 for rel in ${UNPARSED[@]+"${UNPARSED[@]}"}; do
     known=0
-    for allowed in "${SEMGREP_CANNOT_PARSE[@]}"; do
+    for allowed in ${SEMGREP_CANNOT_PARSE[@]+"${SEMGREP_CANNOT_PARSE[@]}"}; do
         [[ "$rel" == "$allowed" ]] && known=1
     done
     [[ $known -eq 1 ]] || UNEXPECTED_UNPARSED+=("$rel")
@@ -227,7 +235,7 @@ done
 # The list must shrink, never rot: a file that has started parsing is coverage
 # regained, and leaving it listed would hide the next regression behind it.
 STALE_EXCEPTIONS=()
-for allowed in "${SEMGREP_CANNOT_PARSE[@]}"; do
+for allowed in ${SEMGREP_CANNOT_PARSE[@]+"${SEMGREP_CANNOT_PARSE[@]}"}; do
     still_broken=0
     for rel in ${UNPARSED[@]+"${UNPARSED[@]}"}; do
         [[ "$rel" == "$allowed" ]] && still_broken=1
@@ -277,39 +285,46 @@ fi
 PARTIAL_COUNT=$(jq -r '[.errors[]? | select(.type != "Syntax error")
                         | (.path // "(no path)")] | unique | length' "$TMP_SEMGREP")
 if [[ ${#UNPARSED[@]} -gt 0 ]]; then
-    # "NOT ANALYSED" was too strong, and measurably false. Parseability is a
-    # property of (file × RULE), not of the file: for both current entries,
-    # `bash-status-after-block`, `bash-test-discards-status` and
-    # `bash-error-hiding-or-true` parse them perfectly, while
-    # `bash-error-hiding-pipe-echo` cannot. Semgrep's combined JSON carries no
-    # rule id on an error and dedupes to one entry per file, so WHICH rules
-    # failed is not recoverable from a normal run — only that at least one did.
-    # Findings are unaffected: `.results` is independent of `.errors`, so a rule
-    # that did parse still reports normally.
-    echo "⚠ patterns: ${#UNPARSED[@]} file(s) some rules could not parse — those rules ran on NO line of them:"
+    # This branch is only reachable for a file in SEMGREP_CANNOT_PARSE (an
+    # unlisted one already exited 2 above), and that list is empty today.
+    #
+    # "NOT ANALYSED" is the right words here, and they are strong on purpose. An
+    # earlier revision softened them to "some rules could not parse" on the
+    # theory that parseability was a property of (file × rule). It is not: a rule
+    # is only asked to parse a file when its regex has already matched something
+    # there, so the rules that appeared to cope had simply never been asked.
+    # Measured on the two former entries — every match a rule DID have was lost.
+    echo "⚠ patterns: ${#UNPARSED[@]} file(s) semgrep could not parse — every rule with a match in them lost it:"
     printf '    %s\n' "${UNPARSED[@]}"
     echo "    (known exceptions; they pass bash -n. See SEMGREP_CANNOT_PARSE in this script.)"
-    echo "    Semgrep does not say which rules, so treat these as partially covered, not covered."
 fi
 if [[ "$PARTIAL_COUNT" -gt 0 ]]; then
-    # Report HOW MUCH was skipped, not just that something was.
+    # Report HOW MUCH was skipped, and what that currently costs — which is
+    # nothing.
     #
-    # A bare file list makes a 3-line gap and a 1,900-line gap look identical.
-    # `ftp-camera` is the case that proves it matters: it parses, so it is only
-    # advisory here, yet a single range covers lines 585-2486 — three quarters of
-    # the file is unanalysed. "Analysed except for some ranges" is a true
-    # sentence that, unqualified, reads as reassurance. This plan exists to
-    # distrust exactly that shape of summary, so the numbers go on the line.
+    # The magnitude is here because a bare file list makes a 3-line gap and a
+    # 1,900-line gap look identical. The "costs nothing" is here because the
+    # previous wording — "N of M lines not analysed" — was itself false, in the
+    # alarming direction rather than the reassuring one, but false either way.
+    # Measured: `ftp-camera` reports a 585-2486 skipped range, and a probe rule
+    # for `echo` returned 293 findings against 293 raw occurrences, 262 of them
+    # on distinct lines inside that range. Every rule in this repo's ruleset is
+    # `pattern-regex`, and the regex engine reads raw text — the parse tree is
+    # never consulted for a match.
+    #
+    # So the skipped ranges are a standing note about a FUTURE cost: the day an
+    # AST `pattern:` rule is added, these lines stop being covered. Keeping the
+    # numbers visible is what makes that day noticeable.
     #
     # PartialParsing carries its ranges in `.type[1][]`; the union is taken so
     # overlapping ranges are not double-counted.
-    echo "⚠ patterns: $PARTIAL_COUNT file(s) analysed EXCEPT for some ranges:"
+    echo "⚠ patterns: $PARTIAL_COUNT file(s) semgrep parsed only in part (regex rules unaffected — see below):"
     while IFS=$'\t' read -r rel skipped first_line last_line; do
         total="?"
         if [[ -f "$REPO_ROOT/$rel" ]]; then
             total=$(wc -l < "$REPO_ROOT/$rel")
         fi
-        printf '    %s — %s of %s lines not analysed (first gap from %s, last to %s)\n' \
+        printf '    %s — %s of %s lines outside the parse tree (first gap from %s, last to %s)\n' \
             "$rel" "$skipped" "$total" "$first_line" "$last_line"
     done < <(jq -r --slurpfile mapfile "$TMP_MAP" \
         '($mapfile | add) as $map
@@ -330,6 +345,9 @@ if [[ "$PARTIAL_COUNT" -gt 0 ]]; then
             ($ranges | map(.s) | min // 0 | tostring),
             ($ranges | map(.e) | max // 0 | tostring)]
          | @tsv' "$TMP_SEMGREP" | sort -u)
+    echo "    Every rule here is pattern-regex, which reads raw text — measured as"
+    echo "    full coverage of those ranges. This becomes a real gap only if an AST"
+    echo "    'pattern:' rule is ever added to .semgrep/bash-conventions.yml."
 fi
 
 # Terse summary

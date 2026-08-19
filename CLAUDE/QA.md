@@ -80,44 +80,97 @@ them were being scanned by the *old* gate too. All three pass `bash -n`.
 `qa-patterns.bash` therefore checks the error list, and treats its two classes
 differently because they mean different things:
 
-- **`Syntax error`** — the file failed to parse **for at least one rule**, so
-  that rule ran on no line of it → **gating**. The current entries are listed in
-  `SEMGREP_CANNOT_PARSE` with a reason, and that list is self-expiring in both
-  directions: an unlisted unparseable file fails the gate, *and* a listed file
-  that starts parsing fails it until the entry is removed.
+- **`Syntax error`** — the file did not parse, and **every rule with a match in
+  it lost that match** → **gating**. `SEMGREP_CANNOT_PARSE` is the exception
+  list; it is **empty today** and self-expiring in both directions: an unlisted
+  unparseable file fails the gate, *and* a listed file that starts parsing fails
+  it until the entry is removed. Both former entries were the same construct —
+  see below.
 
-  **Parseability is a property of (file × rule), not of the file.** Measured for
-  the two current entries: `bash-status-after-block`, `bash-test-discards-status`
-  and `bash-error-hiding-or-true` parse them perfectly; `bash-error-hiding-pipe-echo`
-  cannot. The same file is clean at a path no scoped rule matches and errors under
-  `files/`. Semgrep's combined JSON carries **no rule id on an error** and dedupes
-  to one entry per file, so a normal run cannot say *which* rules failed — only
-  that at least one did. Hence the report says "some rules could not parse",
-  not "not analysed": the earlier wording was measurably false, understating
-  coverage rather than overstating it, but false either way. Findings are
-  unaffected — `.results` is independent of `.errors`, so a rule that did parse
-  still reports normally.
-
-- **`PartialParsing`** — parsed apart from named ranges; every rule ran on
-  everything else. Reported, not gating.
+- **`PartialParsing`** — parsed apart from named ranges. Reported, not gating,
+  and measured to cost **nothing** for this ruleset.
 
 Both counts print on **every** run, pass or fail, above the `✓ patterns:` line.
 A summary consisting only of a tick and a file count is the format that let this
 sit unnoticed.
 
-**The partial-parse report states its own magnitude**, because "analysed except
-for some ranges" is a true sentence that reads as reassurance:
+#### Semgrep parses a file only when a rule's regex has already matched
+
+This is the fact that explains everything else in this section, and it was
+established with a probe rule whose regex matches on every line, so the parse is
+always attempted. Across ten measured (file, rule) cells the correlation is
+exact:
+
+| rule's raw regex matches in the file | parse attempted | error reported |
+| ------------------------------------ | --------------- | -------------- |
+| 0                                    | no              | none           |
+| ≥ 1                                  | yes             | surfaces       |
+
+So a rule that appears to "parse a file fine" may simply never have been asked.
+An earlier revision of this document concluded from that appearance that
+**parseability is a property of (file × rule)**; it is not, and the reasoning was
+this section's own defect class one level up — an *absence of an error* read as
+evidence of coverage.
+
+#### `Syntax error` costs everything; `PartialParsing` costs nothing (today)
+
+Both measured, not argued:
+
+- `rclone-tail` carried a whole-file `Syntax error` and reported **0** findings
+  while containing **3 real `|| echo` violations**. `rclone-cache-status` hid a
+  fourth. All four were invisible for as long as the files were on the exception
+  list.
+- `ftp-camera` reports a `PartialParsing` range of lines 585–2486, and a probe
+  for `echo` returned **293 findings against 293 raw occurrences** — 262 of them
+  on distinct lines *inside* that range.
+
+The asymmetry is because every rule in `.semgrep/bash-conventions.yml` is
+`pattern-regex`, and the regex engine reads raw text — the parse tree is never
+consulted for a match. A `PartialParsing` range is therefore a note about a
+**future** cost: the day an AST `pattern:` rule is added, those lines stop being
+covered. The report keeps the magnitude visible so that day is noticeable:
 
 ```
-files/home/.local/bin/ftp-camera — 1902 of 2486 lines not analysed (first gap from 585, last to 2486)
-files/var/local/claude-yolo/claude-yolo — 1 of 3021 lines not analysed (first gap from 1252, last to 1252)
+files/home/.local/bin/ftp-camera — 1902 of 2486 lines outside the parse tree (first gap from 585, last to 2486)
+files/var/local/claude-yolo/claude-yolo — 1 of 3021 lines outside the parse tree (first gap from 1252, last to 1252)
 ```
 
-Those two lines describe situations three orders of magnitude apart, and the
-earlier format — a bare list of filenames — rendered them identically. The
-number is the union of the skipped ranges, so overlaps are not double-counted.
-This is how `ftp-camera` was caught still being 77% unanalysed *after* the fix
-that removed it from `SEMGREP_CANNOT_PARSE`.
+Those two lines describe situations three orders of magnitude apart, and a bare
+list of filenames rendered them identically. The number is the union of the
+skipped ranges, so overlaps are not double-counted. The wording is
+"outside the parse tree", not "not analysed" — the earlier phrasing was false in
+the *alarming* direction, which is no better than false in the reassuring one.
+
+#### The construct that defeats the bash grammar
+
+Both former `SEMGREP_CANNOT_PARSE` entries reduced to one shape — a heredoc fed
+directly to an `if` condition, with `then` on the line after the terminator:
+
+```bash
+if ! python3 - "$json" <<'PY' 2>/dev/null
+...
+PY
+then
+    echo "ERR|parse failed"
+fi
+```
+
+That is valid bash (`bash -n` passes) and tree-sitter-bash cannot parse it. Feed
+the heredoc to a **command substitution** instead and it parses cleanly:
+
+```bash
+if ! parsed=$(python3 - "$json" <<'PY' 2>/dev/null
+...
+PY
+); then
+    echo "ERR|parse failed"
+else
+    printf '%s\n' "$parsed"
+fi
+```
+
+The rewrite is also better bash — the command's status and its output are
+handled separately instead of the output flowing straight through the condition.
 
 #### Two files may not claim one mirror path
 

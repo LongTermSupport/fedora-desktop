@@ -132,7 +132,7 @@ discover_mounts() {
 # Stdout (failure): ERR|<reason>
 query_stats() {
     local rc_addr="$1"
-    local vfs_json core_json reason err_file
+    local vfs_json core_json reason err_file parsed
     # stderr is captured to a file rather than folded into stdout, so a warning
     # on a SUCCESSFUL call cannot corrupt the JSON payload. The reason is kept
     # because a 401 from the authenticated RC (Plan 00067) is a completely
@@ -158,7 +158,13 @@ query_stats() {
         return
     fi
     rm -f "$err_file"
-    if ! python3 - "$vfs_json" "$core_json" <<'PY' 2>/dev/null
+    # The heredoc is fed to a command SUBSTITUTION rather than sitting directly
+    # in the `if` condition. `if ! cmd <<'PY' … PY` with `then` on the following
+    # line is valid bash — but tree-sitter-bash cannot parse it, so semgrep
+    # reported a whole-file syntax error and ran ZERO rules on this file while
+    # still listing it as scanned. Three real `|| echo` violations were hidden
+    # behind that for the rule's entire life (Plan 00076 Task 4.3b).
+    if ! parsed=$(python3 - "$vfs_json" "$core_json" <<'PY' 2>/dev/null
 import json, sys
 vfs = json.loads(sys.argv[1])
 core = json.loads(sys.argv[2])
@@ -174,8 +180,10 @@ eta = core.get("eta")
 eta_s = "" if eta is None else str(int(eta))
 print(f"OK|{in_progress}|{queued}|{errored}|{bytes_done}|{total_bytes}|{done_count}|{total_count}|{eta_s}")
 PY
-    then
+    ); then
         echo "ERR|parse failed"
+    else
+        printf '%s\n' "$parsed"
     fi
 }
 
@@ -251,10 +259,14 @@ render_tick() {
             continue
         fi
 
+        # Explicit fallback rather than `$(cmd || echo "?")`: the failure is
+        # handled where it happens instead of being folded into the value. "?"
+        # is the right answer here — an unformattable byte count is a display
+        # concern, not a reason to abandon the tick.
         local rate_h bytes_h total_bytes_h eta_h
-        rate_h=$(numfmt --to=iec --suffix=B/s "$rate_bps" 2>/dev/null || echo "?")
-        bytes_h=$(numfmt --to=iec --suffix=B "$bytes_done" 2>/dev/null || echo "?")
-        total_bytes_h=$(numfmt --to=iec --suffix=B "$total_bytes" 2>/dev/null || echo "?")
+        rate_h=$(numfmt --to=iec --suffix=B/s "$rate_bps" 2>/dev/null) || rate_h="?"
+        bytes_h=$(numfmt --to=iec --suffix=B "$bytes_done" 2>/dev/null) || bytes_h="?"
+        total_bytes_h=$(numfmt --to=iec --suffix=B "$total_bytes" 2>/dev/null) || total_bytes_h="?"
         eta_h=$(format_duration "$eta")
 
         echo -e "  ${CYAN}${name}${NC}  queued: ${CYAN}${queued}${NC} · active: ${CYAN}${in_progress}${NC} · done: ${CYAN}${done_count}/${total_count}${NC} (${bytes_h}/${total_bytes_h}) · ${GREEN}${rate_h}${NC} · ETA ${YELLOW}${eta_h}${NC}"
