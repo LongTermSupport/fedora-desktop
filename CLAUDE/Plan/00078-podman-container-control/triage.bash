@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Plan 00078 triage — grounded facts for the podman-freeze tool design.
+# Plan 00078 triage — grounded facts for the podfreeze tool design.
 #
 # READ-ONLY: this script only queries podman/dnf/system state. It never
 # starts, stops, pauses, builds, or removes anything. Safe to re-run at any
@@ -21,7 +21,7 @@ usage() {
 Usage: triage.bash [--help]
 
 Read-only fact-gathering for Plan 00078 (podman container control).
-Run on the HOST. Writes a full report to <plan>/logs/podman-freeze-triage.log.
+Run on the HOST. Writes a full report to <plan>/logs/podfreeze-triage.log.
 
 Options:
   --help    Show this help and exit (creates nothing).
@@ -61,7 +61,7 @@ fi
 PLAN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPORTS_DIR="$PLAN_DIR/logs"
 mkdir -p "$REPORTS_DIR"
-LOG="$REPORTS_DIR/podman-freeze-triage.log"
+LOG="$REPORTS_DIR/podfreeze-triage.log"
 exec > >(tee "$LOG") 2>&1
 echo "Logging this run to: $LOG" >&2
 

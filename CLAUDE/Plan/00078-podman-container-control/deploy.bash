@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Plan 00078 — deploy podman-freeze. HOST ONLY.
+# Plan 00078 — deploy podfreeze. HOST ONLY.
 #
 # Runs acceptance.bash itself when it finishes, and exits with ITS status, so a
 # zero exit means "deployed AND verified" rather than merely "ansible did not
@@ -17,15 +17,15 @@ for arg in "$@"; do
     case "$arg" in
         -h | --help)
             cat << 'EOF'
-Plan 00078 — deploy podman-freeze (HOST ONLY)
+Plan 00078 — deploy podfreeze (HOST ONLY)
 
 Usage: deploy.bash [-y|--yes] [--no-verify] [--help]
 
   -y, --yes     do not ask for confirmation
   --no-verify   deploy only; do not run acceptance.bash afterwards
 
-Runs playbooks/imports/optional/common/play-podman-freeze.yml, which installs
-fzf and deploys ~/.local/bin/podman-freeze, then hands over to acceptance.bash
+Runs playbooks/imports/optional/common/play-podfreeze.yml, which installs
+fzf and deploys ~/.local/bin/podfreeze, then hands over to acceptance.bash
 and exits with its verdict.
 
 The play is idempotent, so re-running it is safe. It touches nothing but the
@@ -64,10 +64,10 @@ LOG="$PLAN_DIR/logs/deploy.log"
 exec > >(tee "$LOG") 2>&1
 echo "Logging this run to: $LOG" >&2
 
-PLAY="playbooks/imports/optional/common/play-podman-freeze.yml"
+PLAY="playbooks/imports/optional/common/play-podfreeze.yml"
 
 echo "=============================================================="
-echo "Plan 00078 — deploy podman-freeze"
+echo "Plan 00078 — deploy podfreeze"
 echo "=============================================================="
 echo
 
@@ -79,7 +79,7 @@ fi
 echo "Play to run:"
 echo "  $PLAY"
 echo
-echo "It installs fzf and deploys ~/.local/bin/podman-freeze. Nothing else on"
+echo "It installs fzf and deploys ~/.local/bin/podfreeze. Nothing else on"
 echo "this machine is touched — no service is restarted, no container is"
 echo "started, stopped, frozen, or thawed."
 echo
@@ -104,6 +104,31 @@ if ! ansible-playbook "$REPO_ROOT/$PLAY"; then
     echo >&2
     echo "ERROR: $PLAY failed — see the output above." >&2
     exit 1
+fi
+
+# --- one-off migration: the pre-rename binary --------------------------------
+#
+# The tool shipped for part of one day as `podman-freeze` before being
+# shortened to `podfreeze`. Removing the old copy lives HERE rather than as a
+# `state: absent` task in the play, because it is transient: it stops being
+# useful the moment no machine has a pre-rename build, and a permanent task
+# carrying a same-day rename forever is exactly the cruft this repo's
+# plan-local rule exists to keep out of the shared tree.
+#
+# Stale executables on PATH are not cosmetic — two builds of the same tool
+# means two versions of a confirmation prompt on one machine, and the one you
+# get depends on which name you happen to type.
+STALE="$HOME/.local/bin/podman-freeze"
+if [ -e "$STALE" ]; then
+    echo
+    echo "### removing the pre-rename binary"
+    if rm -f "$STALE"; then
+        echo "  removed $STALE"
+    else
+        echo "ERROR: could not remove $STALE" >&2
+        echo "  Both names are now on PATH — remove it before using podfreeze." >&2
+        exit 1
+    fi
 fi
 
 echo

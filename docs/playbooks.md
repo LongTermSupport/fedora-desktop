@@ -774,11 +774,11 @@ NordVPN OpenVPN manager:
 - Works on desktop and server (`scope: general`). Fedora ships no `/usr/bin/open`
   and `~/.local/bin` comes first in PATH, so nothing is masked
 
-#### play-podman-freeze.yml
+#### play-podfreeze.yml
 
-`podman-freeze` — freeze (pause) and thaw (unpause) Podman containers:
+`podfreeze` — freeze (pause) and thaw (unpause) Podman containers:
 
-- Deploys `~/.local/bin/podman-freeze` plus `fzf` (the picker is optional — a
+- Deploys `~/.local/bin/podfreeze` plus `fzf` (the picker is optional — a
   plain numbered menu is used without it)
 - Targets a container by name, a whole network (`--network NET`), every CCY
   (Claude YOLO) session (`--ccy`), or everything (`--all`); no target opens an
@@ -786,7 +786,7 @@ NordVPN OpenVPN manager:
 - Every bulk action resolves the exact set first, prints it with CCY rows
   marked, and asks before acting — freezing "an app's network" can also freeze
   a live Claude session sharing it, and the network's name does not tell you
-- `podman-freeze list` (what is running, what is frozen), `-n` (preview only),
+- `podfreeze list` (what is running, what is frozen), `-n` (preview only),
   `-y` (unattended). Refuses to run inside a container
 - Freezing is the **cgroup freezer, not suspend-to-disk**: frozen containers do
   not survive a reboot. The reboot-surviving equivalent (`podman container checkpoint`, CRIU) needs root and is unavailable on this rootless setup

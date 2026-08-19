@@ -1,8 +1,8 @@
 #!/usr/bin/env ansible-playbook
 ---
-# podman-freeze — freeze/thaw Podman containers by name, network, or CCY group.
+# podfreeze — freeze/thaw Podman containers by name, network, or CCY group.
 #
-# Deploys ~/.local/bin/podman-freeze. The tool shells out to the `podman` CLI
+# Deploys ~/.local/bin/podfreeze. The tool shells out to the `podman` CLI
 # installed by playbooks/imports/play-podman.yml (a core play imported by
 # playbook-main.yml, so it is always present) and adds nothing to the host but
 # itself and an optional picker.
@@ -27,7 +27,7 @@
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
-    podman_freeze_binary: "/home/{{ user_login }}/.local/bin/podman-freeze"
+    podfreeze_binary: "/home/{{ user_login }}/.local/bin/podfreeze"
   tasks:
     # =========================================================================
     # Dependencies
@@ -38,14 +38,14 @@
     # having been run.
     # =========================================================================
 
-    - name: Install the Interactive Picker Used by podman-freeze
+    - name: Install the Interactive Picker Used by podfreeze
       ansible.builtin.dnf:
         name:
           - fzf
         state: present
       tags:
         - packages
-        - podman-freeze
+        - podfreeze
 
     # =========================================================================
     # The tool itself
@@ -59,32 +59,32 @@
         group: "{{ user_login }}"
         mode: '0755'
       tags:
-        - podman-freeze
+        - podfreeze
 
-    - name: Deploy the podman-freeze Command
+    - name: Deploy the podfreeze Command
       ansible.builtin.copy:
-        src: "{{ root_dir }}/files/home/.local/bin/podman-freeze"
-        dest: "{{ podman_freeze_binary }}"
+        src: "{{ root_dir }}/files/home/.local/bin/podfreeze"
+        dest: "{{ podfreeze_binary }}"
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: '0755'
       tags:
-        - podman-freeze
+        - podfreeze
 
     - name: Podman Freeze Ready
       ansible.builtin.debug:
         msg:
-          - "✓ podman-freeze deployed to {{ podman_freeze_binary }}"
+          - "✓ podfreeze deployed to {{ podfreeze_binary }}"
           - ""
-          - "  podman-freeze                    pick containers, then pick a verb"
-          - "  podman-freeze list               what is running, what is frozen"
-          - "  podman-freeze freeze NAME        freeze one by name"
-          - "  podman-freeze freeze --ccy       freeze every CCY (Claude) session"
-          - "  podman-freeze freeze --network NET -n    preview a network freeze"
-          - "  podman-freeze thaw --all         thaw everything frozen"
-          - "  podman-freeze --help             full usage"
+          - "  podfreeze                         pick containers, then a verb"
+          - "  podfreeze list                    running and frozen containers"
+          - "  podfreeze freeze NAME             freeze one by name"
+          - "  podfreeze freeze --ccy            freeze every CCY session"
+          - "  podfreeze freeze --network NET -n preview a network freeze"
+          - "  podfreeze thaw --all              thaw everything frozen"
+          - "  podfreeze --help                  full usage"
           - ""
           - "  Freezing is the cgroup freezer, not suspend-to-disk — frozen"
           - "  containers do NOT survive a reboot."
       tags:
-        - podman-freeze
+        - podfreeze

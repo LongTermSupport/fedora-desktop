@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Plan 00078 — acceptance gate for podman-freeze. HOST ONLY.
+# Plan 00078 — acceptance gate for podfreeze. HOST ONLY.
 #
 # Renders a PASS/FAIL verdict (triage.bash gathers facts and renders none —
 # see CLAUDE/PlanTriage.md).
@@ -24,7 +24,7 @@ for arg in "$@"; do
     case "$arg" in
         -h | --help)
             cat << 'EOF'
-Plan 00078 — acceptance gate for podman-freeze (HOST ONLY)
+Plan 00078 — acceptance gate for podfreeze (HOST ONLY)
 
 Usage: acceptance.bash [--help]
 
@@ -70,10 +70,10 @@ LOG="$PLAN_DIR/logs/acceptance.log"
 exec > >(tee "$LOG") 2>&1
 echo "Logging this run to: $LOG" >&2
 
-TOOL="$HOME/.local/bin/podman-freeze"
-REPO_TOOL="$REPO_ROOT/files/home/.local/bin/podman-freeze"
-NET="podman-freeze-acceptance-net-$$"
-CNAME="podman-freeze-acceptance-$$"
+TOOL="$HOME/.local/bin/podfreeze"
+REPO_TOOL="$REPO_ROOT/files/home/.local/bin/podfreeze"
+NET="podfreeze-acceptance-net-$$"
+CNAME="podfreeze-acceptance-$$"
 
 PASS=0
 FAIL=0
@@ -95,7 +95,7 @@ skip() {
 }
 
 echo "=============================================================="
-echo "Plan 00078 — acceptance: podman-freeze"
+echo "Plan 00078 — acceptance: podfreeze"
 echo "=============================================================="
 echo
 
@@ -117,7 +117,7 @@ fi
 
 # The gate must vouch for what the machine RUNS, not for what the repo says.
 if ! cmp -s "$REPO_TOOL" "$TOOL"; then
-    echo "ERROR: the deployed podman-freeze differs from the repo copy." >&2
+    echo "ERROR: the deployed podfreeze differs from the repo copy." >&2
     echo "  Deployed: $TOOL" >&2
     echo "  Repo:     $REPO_TOOL" >&2
     echo "  Run this plan's deploy.bash — verifying a stale binary proves nothing." >&2
@@ -170,22 +170,42 @@ echo "  created network $NET"
 # Use an image already on this machine — the gate must not depend on a registry
 # being reachable. Candidates are tried in turn because an image with no shell
 # cannot host the sleep loop.
+#
+# The fixture image must NOT carry the claude-yolo-version label. The first
+# version of this script PREFERRED a claude-yolo image, on the reasoning that
+# it is certain to have a shell — and that made check 9 (the throwaway is
+# excluded from --ccy) fail against a tool that was behaving perfectly: the
+# throwaway genuinely WAS a CCY-labelled container. A test whose fixture
+# violates its own precondition reports a defect that is not there, which is
+# the same shape of wrong answer this whole plan is about.
+#
+# So: unlabelled images first, CCY-labelled ones only as a last resort, and
+# when only the latter is available check 9's exclusion assertion SKIPS with
+# the reason rather than failing.
 if ! images="$(podman images --format '{{.Repository}}:{{.Tag}}' 2>&1)"; then
     echo "ERROR: podman images failed: $images" >&2
     exit 1
 fi
+if ! ccy_images="$(podman images --filter label=claude-yolo-version \
+    --format '{{.Repository}}:{{.Tag}}' 2>&1)"; then
+    echo "ERROR: podman images --filter label=claude-yolo-version failed: $ccy_images" >&2
+    exit 1
+fi
 
-CANDIDATES=()
+PLAIN=()
+LABELLED=()
 while read -r img; do
     case "$img" in
         "" | *"<none>"*) continue ;;
     esac
-    if [[ "$img" == *claude-yolo* ]]; then
-        CANDIDATES=("$img" "${CANDIDATES[@]+${CANDIDATES[@]}}")
+    if printf '%s\n' "$ccy_images" | grep -qxF -- "$img"; then
+        LABELLED+=("$img")
     else
-        CANDIDATES+=("$img")
+        PLAIN+=("$img")
     fi
 done <<< "$images"
+
+CANDIDATES=("${PLAIN[@]+${PLAIN[@]}}" "${LABELLED[@]+${LABELLED[@]}}")
 
 if [ "${#CANDIDATES[@]}" -eq 0 ]; then
     echo "ERROR: no local container images to build a throwaway container from." >&2
@@ -194,10 +214,19 @@ if [ "${#CANDIDATES[@]}" -eq 0 ]; then
 fi
 
 STARTED=0
+FIXTURE_IS_CCY=0
 for img in "${CANDIDATES[@]:0:5}"; do
     if out="$(podman run --detach --name "$CNAME" --network "$NET" \
         --entrypoint sh "$img" -c 'while true; do sleep 1; done' 2>&1)"; then
-        echo "  started $CNAME from $img"
+        if printf '%s\n' "$ccy_images" | grep -qxF -- "$img"; then
+            FIXTURE_IS_CCY=1
+            echo "  started $CNAME from $img"
+            echo "  NOTE: that image carries the claude-yolo-version label, so the"
+            echo "        throwaway is legitimately part of the --ccy set and check 9's"
+            echo "        exclusion assertion cannot be made."
+        else
+            echo "  started $CNAME from $img (no claude-yolo-version label)"
+        fi
         STARTED=1
         break
     fi
@@ -227,7 +256,7 @@ echo
 echo "### 1. --help"
 if help_out="$("$TOOL" --help 2>&1)"; then
     case "$help_out" in
-        *"Usage: podman-freeze"*) ok "help printed, exit 0" ;;
+        *"Usage: podfreeze"*) ok "help printed, exit 0" ;;
         *) bad "help ran but printed no usage line" ;;
     esac
 else
@@ -239,7 +268,7 @@ if refuse_out="$(container=podman "$TOOL" list 2>&1)"; then
     bad "ran anyway inside a simulated container (exit 0)"
 else
     case "$refuse_out" in
-        *"run podman-freeze on the HOST"*) ok "refused, with the HOST instruction" ;;
+        *"run podfreeze on the HOST"*) ok "refused, with the HOST instruction" ;;
         *) bad "refused, but not with the expected message: $refuse_out" ;;
     esac
 fi
@@ -342,10 +371,15 @@ elif ccy_out="$("$TOOL" freeze --ccy --dry-run 2>&1)"; then
     else
         ok "every running CCY container is in the --ccy set"
     fi
-    case "$ccy_out" in
-        *"$CNAME"*) bad "--ccy wrongly included the non-CCY throwaway $CNAME" ;;
-        *) ok "the non-CCY throwaway is excluded" ;;
-    esac
+    if [ "$FIXTURE_IS_CCY" -eq 1 ]; then
+        skip "the throwaway was built from a CCY-labelled image, so it belongs in
+         the --ccy set — the exclusion assertion needs an unlabelled image"
+    else
+        case "$ccy_out" in
+            *"$CNAME"*) bad "--ccy wrongly included the non-CCY throwaway $CNAME" ;;
+            *) ok "the non-CCY throwaway is excluded" ;;
+        esac
+    fi
 else
     bad "freeze --ccy --dry-run exited non-zero: $ccy_out"
 fi

@@ -17,7 +17,7 @@ rootless setup — there is no real four-way split to build.
 No surveyed existing tool (podman-tui, lazydocker, ctop, Cockpit's podman
 module, dockge) offers network-scoped bulk freeze, CCY-group operations, or
 self-freeze protection, so the plan is a small purpose-built interactive bash
-tool, `podman-freeze`, deployed to `~/.local/bin/` by a new optional play. CCY
+tool, `podfreeze`, deployed to `~/.local/bin/` by a new optional play. CCY
 containers turn out to be selectable **today** via the inherited
 `claude-yolo-version` image label (F12), so the tool ships on that plus the
 `<project>_yolo[_N]` name pattern as a fallback; an explicit run-time `--label`
@@ -38,7 +38,7 @@ hypothesis with a `triage.bash` probe to confirm on the HOST before build.
   action, refusal to run inside a container, `-y` for non-interactive use.
 - CCY containers carry an explicit label so "all CCY containers" is a filter,
   not a name regex.
-- Deployed via Ansible (`files/home/.local/bin/podman-freeze` + new play).
+- Deployed via Ansible (`files/home/.local/bin/podfreeze` + new play).
 
 ## Non-Goals
 
@@ -54,31 +54,55 @@ hypothesis with a `triage.bash` probe to confirm on the HOST before build.
 
 ## Facts
 
-Confirmed facts (per `CLAUDE/PlanTriage.md`, source cited for each):
+Confirmed facts (per `CLAUDE/PlanTriage.md`), each with its source in italics.
+A list rather than a table on purpose — the table's column padding was costing
+~2 KB of whitespace in a document read in full every session.
 
-| #   | Fact                                                                                                                                                                          | Source                                                                                                  |
-| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| F1  | `podman pause`/`unpause` use the cgroup freezer and support `--all` and `--filter`, with filters including `network=`, `label=`, `name=`, `status=`, `ancestor=`              | podman-pause(1), docs.podman.io stable (fetched 2026-08-19)                                             |
-| F2  | `podman container checkpoint`/`restore` (CRIU) is **not supported rootless** — CRIU needs elevated capabilities; root/sudo required                                           | podman.io/docs/checkpoint, criu.org/Podman, docs.podman.io (web research 2026-08-19, logged in JOURNAL) |
-| F3  | This repo's default engine is **rootless Podman**; CCY runs under it                                                                                                          | `CLAUDE/ContainerEngines.md`                                                                            |
-| F4  | CCY containers are named `<project>_<suffix>[_N]` where suffix is `yolo` or `browser` (e.g. `myproject_yolo`, `myproject_yolo_2`)                                             | `files/var/local/claude-yolo/lib/common.bash` `get_next_container_name()` (lines 598–631)               |
-| F5  | The CCY `run` invocation passes **no `--label`**; the image carries `LABEL claude-yolo-version=` and `claude-yolo-dockerfile-hash=`                                           | `files/var/local/claude-yolo/claude-yolo:2944`; `files/var/local/claude-yolo/Dockerfile:36,326`         |
-| F6  | CCY containers run with `--rm`                                                                                                                                                | `files/var/local/claude-yolo/claude-yolo:2944`                                                          |
-| F7  | fzf is already deployed by this repo, with a numbered-menu fallback pattern when absent                                                                                       | `playbooks/imports/optional/common/play-open-command.yml:53`; `files/home/.local/bin/open`              |
-| F8  | No container-management UI tool is currently deployed by any play                                                                                                             | grep of `playbooks/` (2026-08-19)                                                                       |
-| F9  | podman-tui is packaged in Fedora (`dnf install podman-tui`) and requires the user `podman.socket` service                                                                     | packages.fedoraproject.org; github.com/containers/podman-tui README (fetched 2026-08-19)                |
-| F10 | The user's four verbs (freeze/unfreeze, suspend/unsuspend) map to **one** rootless-capable mechanism: pause/unpause. Checkpoint is the only second mechanism and is root-only | F1 + F2 + F3                                                                                            |
+**From documentation and repo source:**
 
-Facts established by the **Phase 0 host triage** (raw log in this plan's
-gitignored `logs/`; full write-up in the journal):
+- **F1** — `podman pause`/`unpause` use the cgroup freezer and take `--all` and
+  `--filter` (`network=`, `label=`, `name=`, `status=`, `ancestor=`).
+  *podman-pause(1), docs.podman.io, 2026-08-19*
+- **F2** — `podman container checkpoint`/`restore` (CRIU) is **not supported
+  rootless**; CRIU needs elevated capabilities. *podman.io/docs/checkpoint,
+  criu.org/Podman, 2026-08-19; research logged in JOURNAL*
+- **F3** — this repo's default engine is **rootless Podman**, and CCY runs
+  under it. *`CLAUDE/ContainerEngines.md`*
+- **F4** — CCY containers are named `<project>_<suffix>[_N]`, suffix `yolo` or
+  `browser`. *`claude-yolo/lib/common.bash`, `get_next_container_name()` 598–631*
+- **F5** — the CCY `run` invocation passes **no `--label`**; the image carries
+  `claude-yolo-version` and `claude-yolo-dockerfile-hash`.
+  *`claude-yolo:2944`; `Dockerfile:36,326`*
+- **F6** — CCY containers run with `--rm`. *`claude-yolo:2944`*
+- **F7** — fzf is already deployed here, with a numbered-menu fallback when
+  absent. *`play-open-command.yml:53`; `files/home/.local/bin/open`*
+- **F8** — no container-management UI tool is deployed by any play.
+  *grep of `playbooks/`, 2026-08-19*
+- **F9** — podman-tui is packaged in Fedora and needs the user `podman.socket`.
+  *packages.fedoraproject.org; podman-tui README, 2026-08-19*
+- **F10** — the user's four verbs map to **one** rootless-capable mechanism,
+  pause/unpause; checkpoint is the only other and is root-only. *F1 + F2 + F3*
 
-| #   | Fact                                                                                                                                                                 | Source             |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
-| F11 | podman 5.8.4, `rootless=true`, `cgroupVersion=v2`, `cgroupManager=systemd`, `runtime=crun` — **rootless pause is viable; the Task 0.3 decision gate passes** (H1)    | Phase 0 triage log |
-| F12 | `ps --filter label=claude-yolo-version` matches **exactly** the running CCY containers — the group is selectable today, with no launcher change (H2, revises D4)     | Phase 0 triage log |
-| F13 | `podman pause` accepts `-f, --filter`; `ps --filter network=` partitions every network correctly, reporting empty sets rather than erroring (H3)                     | Phase 0 triage log |
-| F14 | `podman-tui 1.11.3-1.fc44` is in `updates` and the user `podman.socket` it needs is already active; `fzf` is present at `/usr/bin/fzf` (H4 packaging; D3 dependency) | Phase 0 triage log |
-| F15 | **A CCY container shares a user-defined network with a ten-container compose stack**, and **seven CCY containers share the default `podman` network**                | Phase 0 triage log |
+**From the Phase 0 host triage** (raw log in this plan's gitignored `logs/`,
+write-up in the journal):
+
+- **F11** — podman 5.8.4, `rootless=true`, cgroups v2, `cgroupManager=systemd`,
+  `runtime=crun` — **rootless pause is viable, so the Task 0.3 gate passes** (H1)
+- **F12** — `ps --filter label=claude-yolo-version` matched exactly the running
+  CCY containers, so the group is selectable with no launcher change (H2)
+- **F13** — `podman pause` accepts `-f, --filter`; `ps --filter network=`
+  partitions every network correctly, reporting empty sets not errors (H3)
+- **F14** — `podman-tui 1.11.3-1.fc44` is in `updates`, its `podman.socket` is
+  already active, and `fzf` is at `/usr/bin/fzf` (H4 packaging; D3 dependency)
+- **F15** — **a CCY container shares a user-defined network with a
+  ten-container compose stack**, and **seven CCY containers share the default
+  `podman` network**
+
+**From the first host acceptance run** (Phase 3):
+
+- **F16** — **the inherited `claude-yolo-version` label over-matches**: it marks
+  anything BUILT FROM the CCY image, session or not. Demonstrated — `--ccy`
+  selected the gate's own throwaway, built from `localhost/claude-yolo:*`
 
 **F15 is the safety case, and no hypothesis anticipated it.** The blast radius of
 a network-scoped freeze is not guessable from the network's name: the obvious
@@ -108,7 +132,7 @@ dockge (research log in JOURNAL). podman-tui is the only Fedora-packaged,
 Podman-native TUI (F9), but nothing surveyed offers network-scoped bulk
 freeze, a CCY-group verb, or self-freeze protection; lazydocker/ctop/dockge are
 Docker-oriented and/or unpackaged for Fedora.
-**Decision**: build `podman-freeze` for the verbs; do **not** bundle podman-tui
+**Decision**: build `podfreeze` for the verbs; do **not** bundle podman-tui
 into this plan (anyone wanting a browsing dashboard can propose it separately —
 YAGNI). **Date**: 2026-08-19
 
@@ -124,29 +148,59 @@ numbered-menu fallback when fzf is absent (F7 precedent). Binds to
 `CLAUDE/InteractiveScripts.md` and `CLAUDE/StderrHygiene.md` in full.
 **Date**: 2026-08-19
 
-### D4: CCY identification — explicit run-time label, name-pattern fallback
+### D4: CCY identification — inherited image label now, explicit label next
 
-**Context**: CCY sets no container label (F5); name pattern `*_yolo*` (F4) is
-the only certain handle today, and inherited image labels (H2) are unverified.
-**Decision**: add `--label ccy=true --label ccy-project=<project>` to the CCY
-`run` invocation (CCY_VERSION **minor** bump per `CLAUDE/ContainerRules.md`).
-The tool selects CCY containers by `label=ccy=true` **or** the F4 name pattern,
-so pre-existing unlabelled containers still match during the transition.
+**Decision (current)**: `--ccy` selects on the inherited `claude-yolo-version`
+image label **or** the F4 name pattern. Phase 1 then adds an explicit
+`--label ccy=true --label ccy-project=<project>` at `podman run` time
+(CCY_VERSION **minor** bump per `CLAUDE/ContainerRules.md`), after which the
+tool prefers `ccy=true` and keeps the inherited label as the fallback for
+pre-Phase-1 containers.
+
+**This moved twice**, which is worth knowing before re-litigating it: H2's
+confirmation demoted Phase 1 from prerequisite to enhancement, then F16
+re-promoted it as the fix for a demonstrated over-match. The reasoning at each
+step is in the journal; the standing consequence is D6.
 **Date**: 2026-08-19
 
-**REVISED after Phase 0** (2026-08-19): H2 is **confirmed** — the inherited
-`claude-yolo-version` image label already selects exactly the CCY containers, so
-the launcher change is no longer a prerequisite and Phase 1 is demoted to an
-enhancement. The tool ships selecting on `label=claude-yolo-version` **or** the
-F4 name pattern. The explicit label is still wanted later for two reasons the
-inherited one cannot serve: it distinguishes "is a CCY session" from "was built
-from the CCY image", and it carries the project name for per-project verbs.
+### D5: Naming — `podfreeze`
 
-### D5: Naming — `podman-freeze`
-
-Behaviour-descriptive, no mood: `podman-freeze` with verbs
+Behaviour-descriptive, no mood: `podfreeze` with verbs
 `freeze` / `thaw` / `list` (no-arg = interactive picker). "freeze/thaw" is the
 user's own vocabulary; help text states it equals pause/unpause.
+**Date**: 2026-08-19
+
+Originally `podman-freeze`; shortened at the user's request. The pre-rename
+binary is removed by a `state: absent` task in the play rather than by hand —
+host state is owned by Ansible, and a stale executable on PATH is exactly the
+drift that leaves two versions of a confirmation prompt on one machine.
+
+### D6: `--ccy` over-matches until the explicit label lands
+
+**Context**: F16 — every container built from the CCY image carries
+`claude-yolo-version`, so `--ccy` selects CCY-derived containers that are not
+Claude sessions. Not hypothetical: the acceptance gate's own throwaway was one.
+**Options considered**: (a) narrow `--ccy` to the F4 name pattern alone;
+(b) ship as-is and rely on the preview; (c) land Phase 1's explicit `ccy=true`
+label and prefer it when present.
+
+**Decision**: (c), with (b) holding the line meanwhile — `--ccy` keeps
+`label OR name-pattern` until Phase 1 lands, then prefers `ccy=true` and falls
+back for pre-Phase-1 containers.
+
+**Why not (a)**, which is the tempting one — the F4 name pattern is *exact by
+construction* (CCY names every container through `get_next_container_name()`),
+so on the face of it dropping the over-broad label loses nothing. The reason
+not to is the **asymmetry of the two failure modes**:
+
+- Over-match (current): `--ccy` offers one extra container, you see it in the
+  mandatory preview, you decline. Visible and recoverable.
+- Under-match (a's risk): a CCY session that is not named `*_yolo*` is silently
+  absent, and you believe you froze everything when you did not.
+
+An invisible false sense of completeness is the worse failure and is this
+repo's own defect class, so the union is right until a signal exists that is
+both exact and positive. That is Phase 1, not a narrowing.
 **Date**: 2026-08-19
 
 ## Tasks
@@ -160,12 +214,11 @@ user's own vocabulary; help text states it equals pause/unpause.
 - [x] ✅ **Task 0.3**: **Decision gate PASSED.** Rootless pause is viable
   (cgroups v2 + systemd + crun), so the plan proceeds as designed
 
-### Phase 1: CCY container labelling — enhancement, not a prerequisite
+### Phase 1: CCY container labelling — the fix for the F16 over-match
 
-Demoted by the Phase 0 triage: H2 is confirmed, so the CCY group is selectable
-today with no launcher change and no CCY version bump. What the explicit label
-still buys, and why the phase is kept rather than dropped: see D4's REVISED
-note above.
+Not a prerequisite (the tool works without it) but no longer optional either:
+F16 showed `--ccy` selecting a CCY-*derived* container that was not a session.
+See D4 and D6.
 
 - [ ] ⬜ **Task 1.1**: Add `--label ccy=true --label ccy-project=<project>` to
   the `container_cmd run` invocation in `files/var/local/claude-yolo/claude-yolo`
@@ -173,9 +226,9 @@ note above.
   change; update `docs/ccy-changelog.md`
 - [ ] ⬜ **Task 1.3**: Run `./scripts/qa-all.bash`; commit
 
-### Phase 2: The `podman-freeze` tool
+### Phase 2: The `podfreeze` tool
 
-- [x] ✅ **Task 2.1**: Implement `files/home/.local/bin/podman-freeze`:
+- [x] ✅ **Task 2.1**: Implement `files/home/.local/bin/podfreeze`:
   - verbs: `freeze`/`thaw` with targets `<name>…`, `--network <net>`, `--ccy`,
     `--all`; `list` report; no-arg = interactive fzf multi-select picker
     (numbered-menu fallback) showing name, status, networks, CCY marker
@@ -189,7 +242,7 @@ note above.
   - prompts/progress/errors → stderr; `list` output is the human payload
     (stdout) per `CLAUDE/StderrHygiene.md`
 - [x] ✅ **Task 2.2**: New play
-  `playbooks/imports/optional/common/play-podman-freeze.yml` (`scope: general`,
+  `playbooks/imports/optional/common/play-podfreeze.yml` (`scope: general`,
   repo playbook structure per `CLAUDE/AnsibleStyle.md`): deploy the script
   `0755`, install `fzf` (optional dependency — tool degrades without it).
   Documented in `docs/playbooks.md`
@@ -205,8 +258,11 @@ note above.
   against the live CCY set as a contract, and checks the in-container refusal,
   the unknown-network and unknown-name failures, and mutually-exclusive
   targets. `--all` is never run for real. Both log to the plan's `logs/`
-- [ ] ⬜ **Task 3.2**: User runs `CLAUDE/Plan/00078-podman-container-control/deploy.bash`
-  on the HOST (it deploys, then runs acceptance itself); journal the verdict
+- [ ] 🔄 **Task 3.2**: User runs `CLAUDE/Plan/00078-podman-container-control/deploy.bash`
+  on the HOST (it deploys, then runs acceptance itself); journal the verdict.
+  **Run 1**: deploy clean (`failed=0`); acceptance **FAIL**, 1 of 15 — and the
+  failure was the gate's own fixture, not the tool (F16, D6). Fixture fixed;
+  awaiting run 2
 - [ ] ⬜ **Task 3.3**: Run the `qa-reviewer` agent over the plan's full diff;
   resolve all BLOCK/FIX-BEFORE-MERGE findings
 - [ ] ⬜ **Task 3.4**: Mark plan Complete, move to `Completed/`, update README
@@ -219,9 +275,9 @@ note above.
 
 ## Success Criteria
 
-- [ ] `podman-freeze freeze --network <net>` pauses exactly the containers on
+- [ ] `podfreeze freeze --network <net>` pauses exactly the containers on
   that network after an accurate preview + confirmation
-- [ ] `podman-freeze freeze --ccy` / `thaw --ccy` operates on all CCY
+- [ ] `podfreeze freeze --ccy` / `thaw --ccy` operates on all CCY
   containers (labelled and legacy-named)
 - [ ] Interactive picker works with and without fzf
 - [ ] Refuses to run inside a container; `--dry-run` changes nothing
@@ -239,7 +295,7 @@ note above.
 | Freezing a live CCY session mid-write (agent stalls, SSH/API connections time out) | M      | M           | Preview marks CCY containers; confirmation default No; freeze is non-destructive |
 | H1 wrong — rootless pause blocked on this host                                     | H      | L           | Phase 0 decision gate before any build                                           |
 | Name-pattern CCY match catches an unrelated `*_yolo` container                     | L      | L           | Explicit labels (D4) make the pattern a transition fallback only                 |
-| User forgets containers are frozen (a paused container looks hung)                 | M      | M           | `podman-freeze list` surfaces paused set; freeze prints the exact thaw command   |
+| User forgets containers are frozen (a paused container looks hung)                 | M      | M           | `podfreeze list` surfaces paused set; freeze prints the exact thaw command       |
 | `--rm` interaction: `podman stop` on a paused `--rm` container removes it          | M      | L           | Tool never stops; docs warn to thaw before stopping                              |
 
 ## Delivery & Milestones
@@ -250,5 +306,5 @@ note above.
 
 - Plan created + research logged
 - Phase 0 host triage run; decision gate passed, Phase 1 demoted
-- Phase 2 built: `podman-freeze`, `play-podman-freeze.yml`, docs; plus the
+- Phase 2 built: `podfreeze`, `play-podfreeze.yml`, docs; plus the
   plan's `deploy.bash` + `acceptance.bash` (Task 3.1)

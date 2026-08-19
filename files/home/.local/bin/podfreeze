@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# podman-freeze — freeze (pause) and thaw (unpause) Podman containers, singly,
-#                 by network, or as the whole CCY (Claude YOLO) session group.
+# podfreeze — freeze (pause) and thaw (unpause) Podman containers, singly,
+#             by network, or as the whole CCY (Claude YOLO) session group.
 #
 # WHY THIS EXISTS (prior art, and where it falls short):
 #
@@ -38,7 +38,7 @@
 # rootless setup.
 #
 # Usage:
-#   podman-freeze [list|freeze|thaw] [target] [options]
+#   podfreeze [list|freeze|thaw] [target] [options]
 #
 # Targets (freeze/thaw; exactly one, or none for the interactive picker):
 #   NAME...            One or more container names.
@@ -52,12 +52,12 @@
 #   -h, --help         Show this help and exit.
 #
 # Examples:
-#   podman-freeze                          # pick interactively, then choose a verb
-#   podman-freeze list                     # what is running, what is frozen
-#   podman-freeze freeze myproject_yolo
-#   podman-freeze freeze --ccy             # every Claude session at once
-#   podman-freeze freeze --network mynet -n   # preview only
-#   podman-freeze thaw --all
+#   podfreeze                            # pick interactively, then pick a verb
+#   podfreeze list                       # what is running, what is frozen
+#   podfreeze freeze myproject_yolo
+#   podfreeze freeze --ccy               # every Claude session at once
+#   podfreeze freeze --network mynet -n  # preview only
+#   podfreeze thaw --all
 set -euo pipefail
 
 DRY_RUN=0
@@ -76,7 +76,7 @@ CCY_NAME_PATTERN='^.+_(yolo|browser)(_[0-9]+)?$'
 FIELD_SEP='|'
 
 usage() {
-    echo "Usage: podman-freeze [list|freeze|thaw] [target] [options]"
+    echo "Usage: podfreeze [list|freeze|thaw] [target] [options]"
     echo ""
     echo "  Freeze (pause) and thaw (unpause) Podman containers — one, a whole"
     echo "  network, or every CCY (Claude) session. Bulk actions always show the"
@@ -103,16 +103,16 @@ usage() {
     echo "  -h, --help         Show this help and exit."
     echo ""
     echo "Examples:"
-    echo "  podman-freeze"
-    echo "  podman-freeze list"
-    echo "  podman-freeze freeze myproject_yolo"
-    echo "  podman-freeze freeze --ccy"
-    echo "  podman-freeze freeze --network mynet -n"
-    echo "  podman-freeze thaw --all"
+    echo "  podfreeze"
+    echo "  podfreeze list"
+    echo "  podfreeze freeze myproject_yolo"
+    echo "  podfreeze freeze --ccy"
+    echo "  podfreeze freeze --network mynet -n"
+    echo "  podfreeze thaw --all"
 }
 
 die() {
-    echo "podman-freeze: $*" >&2
+    echo "podfreeze: $*" >&2
     exit 1
 }
 
@@ -130,7 +130,7 @@ have() {
 # issuing the command.
 assert_on_host() {
     if [ -f /run/.containerenv ] || [ -f /.dockerenv ] || [ -n "${container:-}" ]; then
-        die "this is a container — run podman-freeze on the HOST.
+        die "this is a container — run podfreeze on the HOST.
   The host's podman is not reachable from in here, so every container would
   look absent. Freezing your own session would also be unrecoverable."
     fi
@@ -247,7 +247,7 @@ select_network() {
         die "podman network ls failed: $known"
     fi
     if ! printf '%s\n' "$known" | grep -qx -- "$net"; then
-        echo "podman-freeze: no such network: '$net'" >&2
+        echo "podfreeze: no such network: '$net'" >&2
         echo "  Known networks:" >&2
         while read -r name; do
             if [ -n "$name" ]; then
@@ -281,8 +281,8 @@ select_names() {
         fi
     done
     if [ "${#unknown[@]}" -gt 0 ]; then
-        echo "podman-freeze: not a running or frozen container: ${unknown[*]}" >&2
-        echo "  Run 'podman-freeze list' to see what is available." >&2
+        echo "podfreeze: not a running or frozen container: ${unknown[*]}" >&2
+        echo "  Run 'podfreeze list' to see what is available." >&2
         exit 1
     fi
 }
@@ -336,7 +336,7 @@ do_list() {
     else
         print_table "${frozen[@]}"
         echo ""
-        echo "  Thaw them all with: podman-freeze thaw --all"
+        echo "  Thaw them all with: podfreeze thaw --all"
     fi
     echo ""
     echo "=== running (${#running[@]}) ==="
@@ -364,7 +364,7 @@ pick_containers() {
 
     if [ ! -t 2 ] || [ ! -r /dev/tty ]; then
         die "no terminal to ask on — name a target explicitly, or use --ccy /
-  --network NET / --all. See 'podman-freeze --help'."
+  --network NET / --all. See 'podfreeze --help'."
     fi
 
     for i in "${!INV_NAME[@]}"; do
@@ -528,7 +528,7 @@ do_action() {
 
     if [ "${#SELECTED[@]}" -eq 0 ]; then
         die "nothing matched — the selection is empty.
-  Run 'podman-freeze list' to see what is running and what is frozen."
+  Run 'podfreeze list' to see what is running and what is frozen."
     fi
 
     for name in "${SELECTED[@]}"; do
@@ -589,7 +589,7 @@ do_action() {
 
     if [ "$action" = "freeze" ]; then
         echo "" >&2
-        echo "  Thaw them with: podman-freeze thaw ${targets[*]}" >&2
+        echo "  Thaw them with: podfreeze thaw ${targets[*]}" >&2
     fi
 
     if [ "$failed" -gt 0 ]; then
@@ -639,7 +639,7 @@ while [ "$#" -gt 0 ]; do
             set_target_mode "--network"
             shift
             if [ "$#" -eq 0 ]; then
-                die "--network needs a network name — see 'podman-freeze --help'."
+                die "--network needs a network name — see 'podfreeze --help'."
             fi
             TARGET_NETWORK="$1"
             shift
@@ -652,7 +652,7 @@ while [ "$#" -gt 0 ]; do
             shift
             ;;
         -*)
-            die "unknown option '$1' — see 'podman-freeze --help'."
+            die "unknown option '$1' — see 'podfreeze --help'."
             ;;
         *)
             TARGET_NAMES+=("$1")
