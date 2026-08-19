@@ -17,6 +17,30 @@ Two version numbers move independently — see
 
 ---
 
+## Library 1.12.0 — token-management.bash
+
+**The usage block now says which limit is actually binding.**
+
+The response carries `anthropic-ratelimit-unified-representative-claim`, naming the
+bucket the API itself considers representative (`five_hour`, `seven_day`,
+`seven_day_opus`, …). It was recorded when the header set was first mapped and then
+never captured, which left one question unanswerable from the display: the probe uses
+Haiku because the weekly buckets are **per-model**, so "is this weekly figure the
+allowance I actually care about?" could only be guessed at. A `seven_day_opus` claim
+now states outright that it is not.
+
+```
+       5-hour limit   ███░░░░░░░░░░░░░░░░░   14%   resets in 4 hours
+       weekly limit   ████████░░░░░░░░░░░░   41%   resets in 5 days
+       binding limit: 5-hour limit
+```
+
+Unknown bucket names pass through verbatim rather than being dropped — a future
+`seven_day_haiku` is far more useful visible than silently absent.
+
+The cache record gains a **fifth** field, appended last, so a 4-field record written by
+an older library still renders exactly as before.
+
 ## Library 1.11.0 — token-management.bash
 
 **Every account displayed `<1%` usage, whatever it had actually used.**

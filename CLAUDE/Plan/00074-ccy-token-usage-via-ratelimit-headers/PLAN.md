@@ -194,10 +194,17 @@ explanation, so this phase measures rather than assumes:
   to 100%. An unfalsifiable premise is indistinguishable from a wrong one, and
   the clamp is what would have hidden a 100x error indefinitely
 
-- [ ] ⬜ **Task 5.5**: H2 — confirm whether the weekly bucket the Haiku probe
-  reports is the one the user cares about. The header set includes
-  `-representative-claim` naming the binding bucket, which the extractor
-  currently discards
+- [x] ✅ **Task 5.5**: H2 — the display now answers it instead of leaving it to
+  inference. `-representative-claim` names the bucket the API considers binding
+  and was recorded as **F15** when the header set was first mapped, then never
+  captured. Now extracted into a fifth cache field (appended last, so a 4-field
+  record from an older library renders unchanged) and shown as a dim
+  `binding limit:` line. A `seven_day_opus` claim states outright that the weekly
+  figure above it is not the allowance being reported against. Unknown bucket
+  names pass through verbatim rather than being dropped — a future
+  `seven_day_haiku` is more useful visible than silently absent. Verified against
+  seven stub shapes including a tab-injected claim value and the 4-field
+  backward-compatibility path (lib 1.12.0)
 
 - [x] ✅ **Task 5.4**: Fix found while reading: a bucket the API did not report
   was silently dropped from the display, three lines below a comment saying that

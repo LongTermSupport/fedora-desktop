@@ -2,7 +2,16 @@
 # Token Management Library
 # Token operations for claude-yolo (ccy)
 #
-# Version: 1.11.0 - Plan 00074: CCY_USAGE_SCALE now defaults to "fraction", so
+# Version: 1.12.0 - Plan 00074: capture `-representative-claim` and show which
+#                  bucket the API considers BINDING. Recorded as F15 when the
+#                  header set was first mapped, then never captured — which left
+#                  H2 unanswerable: the probe uses Haiku because weekly buckets
+#                  are per-model, so "is this weekly figure the allowance I care
+#                  about?" could not be answered from the display. A
+#                  `seven_day_opus` claim now says outright that it is not. The
+#                  cache record gains a FIFTH field, appended last; a 4-field
+#                  record from an older library still renders exactly as before.
+#         1.11.0 - Plan 00074: CCY_USAGE_SCALE now defaults to "fraction", so
 #                  utilisation reads as 14%/41% instead of "<1%" on every account.
 #                  Settled by MEASUREMENT, not by reading docs the API does not
 #                  publish: eight samples across four accounts came back 0.04-0.41,
@@ -224,17 +233,27 @@ _usage_bucket_line() {
         "$label" "$(_usage_bar "$p")" "$pct_label" "$reset_text" "$raw_note"
 }
 
-# Extracts the four values we display from a dumped response-header file and
-# echoes them as one tab-separated cache record: u5 r5 u7 r7.
+# Extracts the values we display from a dumped response-header file and echoes
+# them as one tab-separated cache record: u5 r5 u7 r7 claim.
 #
-# Utilisation is NORMALISED to 0-100 here, at the single point of entry, so no
-# display code has to know about the scale. See CCY_USAGE_SCALE.
+# `claim` is `-representative-claim`, which names the bucket the API considers
+# BINDING (`five_hour`, `seven_day`, `seven_day_opus`, …). Recorded as F15 in
+# Plan 00074 and then not captured, which left H2 unanswerable: the probe uses
+# Haiku because the weekly buckets are per-model, so "which weekly allowance is
+# this 41%?" was a question the display could not answer. It can now.
+#
+# The field is appended LAST so an older library reading a newer cache still
+# gets u5/r5/u7 right; only its 7d reset text degrades (the epoch regex rejects
+# the joined value and the reset line goes quiet). A newer library reading an
+# older 4-field cache leaves `claim` empty, which renders as before.
+#
+# Values are stored EXACTLY as sent — see the note below on CCY_USAGE_SCALE.
 #
 # Pure bash, single pass — no jq, no grep, no subprocess. Plan 00073 measured jq
 # at ~40 ms per call, more than the network round trip it was parsing.
 _usage_extract() {
     local file="$1"
-    local line name value u5="" u7="" r5="" r7=""
+    local line name value u5="" u7="" r5="" r7="" claim=""
 
     while IFS= read -r line; do
         line="${line%$'\r'}"
@@ -250,8 +269,17 @@ _usage_extract() {
             anthropic-ratelimit-unified-7d-utilization) u7="$value" ;;
             anthropic-ratelimit-unified-5h-reset)       r5="$value" ;;
             anthropic-ratelimit-unified-7d-reset)       r7="$value" ;;
+            anthropic-ratelimit-unified-representative-claim) claim="$value" ;;
         esac
     done < "$file"
+
+    # A tab or newline inside the value would split the record and silently
+    # shift every field after it. The API sends a bare token like `five_hour`,
+    # so this should never fire — which is exactly why it is checked rather
+    # than assumed.
+    case "$claim" in
+        *[$'\t\n']*) claim="" ;;
+    esac
 
     if [ -z "$u5" ] && [ -z "$u7" ]; then
         return 1
@@ -262,7 +290,22 @@ _usage_extract() {
     # freeze the scale into the cache — so flipping the switch would need a
     # refetch, which costs quota. Interpreting at display time means the switch
     # takes effect on data already in hand.
-    printf '%s\t%s\t%s\t%s' "$u5" "$r5" "$u7" "$r7"
+    printf '%s\t%s\t%s\t%s\t%s' "$u5" "$r5" "$u7" "$r7" "$claim"
+}
+
+# Turns a `-representative-claim` token into something a human reads.
+#
+# Unknown values pass through verbatim rather than being dropped or guessed at:
+# the bucket set is the API's to change, and a new one appearing as
+# `seven_day_haiku` is far more useful than it silently not being mentioned.
+_usage_claim_label() {
+    case "$1" in
+        five_hour)       printf '5-hour limit' ;;
+        seven_day)       printf 'weekly limit' ;;
+        seven_day_opus)  printf 'weekly limit (Opus)' ;;
+        seven_day_sonnet) printf 'weekly limit (Sonnet)' ;;
+        *)               printf '%s' "$1" ;;
+    esac
 }
 
 # Converts a raw utilisation value to a 0-100 percentage.
@@ -458,7 +501,7 @@ usage_render_block() {
     local token_dir="$1" token_name="$2"
     local DIM='\033[2m' RESET='\033[0m'
     local cache_dir status code record="" now
-    local u5 r5 u7 r7
+    local u5 r5 u7 r7 claim=""
 
     usage_enabled || return 0
 
@@ -497,7 +540,9 @@ usage_render_block() {
         return 0
     fi
 
-    IFS=$'\t' read -r u5 r5 u7 r7 <<< "$record"
+    # Five fields since lib 1.12.0; a 4-field record written by an older library
+    # simply leaves `claim` empty, which renders exactly as it did before.
+    IFS=$'\t' read -r u5 r5 u7 r7 claim <<< "$record"
     now="$(date +%s)"
 
     # A bucket line fails only when the API sent something that is not a number.
@@ -519,6 +564,15 @@ usage_render_block() {
             _usage_note "$label: the API sent a value that is not a number"
         fi
     done
+
+    # Which bucket is actually BINDING, straight from the API rather than
+    # inferred from whichever percentage looks bigger. This is what answers "is
+    # the weekly number the one I care about?" — the probe uses Haiku because the
+    # weekly buckets are per-model, so a `seven_day_opus` claim here means the
+    # figure above is NOT the allowance being reported against.
+    if [ -n "$claim" ]; then
+        printf "       ${DIM}binding limit: %s${RESET}\n" "$(_usage_claim_label "$claim")"
+    fi
     return 0
 }
 
