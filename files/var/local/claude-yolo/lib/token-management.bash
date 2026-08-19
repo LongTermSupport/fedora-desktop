@@ -2,7 +2,16 @@
 # Token Management Library
 # Token operations for claude-yolo (ccy)
 #
-# Version: 1.10.1 - Plan 00074: a bucket the API did not report now says so on its
+# Version: 1.11.0 - Plan 00074: CCY_USAGE_SCALE now defaults to "fraction", so
+#                  utilisation reads as 14%/41% instead of "<1%" on every account.
+#                  Settled by MEASUREMENT, not by reading docs the API does not
+#                  publish: eight samples across four accounts came back 0.04-0.41,
+#                  all <= 1. No sample above 1 was seen, so the inference is not
+#                  proof — and _usage_scale_conflict now makes it self-refuting: a
+#                  raw value the assumed scale cannot produce prints SCALE MISMATCH
+#                  naming the switch, instead of clamping the bar to 100% and
+#                  showing a confident wrong number.
+#         1.10.1 - Plan 00074: a bucket the API did not report now says so on its
 #                  own row instead of vanishing. The renderer's own comment said a
 #                  silently missing bucket "reads as this account has no weekly
 #                  limit, which would be a lie" — and then `continue`d. Reachable
@@ -186,6 +195,18 @@ _usage_bucket_line() {
     local value p pct_label reset_text raw_note=""
 
     # Interpret the scale here, not in the cache — see _usage_extract.
+    #
+    # A raw value the assumed scale cannot produce refutes the assumption. Say
+    # that, rather than drawing a bar clamped to 100% — the clamp would render a
+    # 34x error as a full green bar and nothing would ever look wrong.
+    if _usage_scale_conflict "$raw"; then
+        printf '       %-14s SCALE MISMATCH — API sent %s, impossible under CCY_USAGE_SCALE=%s\n' \
+            "$label" "$raw" "${CCY_USAGE_SCALE:-fraction}"
+        printf '       %-14s   set CCY_USAGE_SCALE=%s and report it (Plan 00074)\n' \
+            "" "$([ "${CCY_USAGE_SCALE:-fraction}" = fraction ] && echo percent || echo fraction)"
+        return 0
+    fi
+
     value="$(_usage_normalise "$raw")"
     p="$(_usage_pct_int "$value")" || return 1
     pct_label="$(_usage_pct_label "$value")"
@@ -247,17 +268,51 @@ _usage_extract() {
 # Converts a raw utilisation value to a 0-100 percentage.
 #
 # CCY_USAGE_SCALE says how the API expresses it, and is the ONLY place that
-# knows: "percent" (the value is already 0-100) or "fraction" (0-1, multiply by
-# 100). The scale is not documented anywhere, so this is a single switch rather
-# than an assumption scattered through the renderer.
+# knows: "fraction" (0-1, multiply by 100 — the DEFAULT) or "percent" (already
+# 0-100). The API does not document it, so this is a single switch rather than an
+# assumption scattered through the renderer.
+#
+# The default is "fraction" on MEASURED evidence, not on a reading of the docs.
+# Every account displayed "<1%", which is what a 0-1 fraction looks like when
+# rendered as though it were already a percentage. triage.bash read the raw
+# values straight out of the cache: eight samples across four accounts, range
+# 0.04-0.41, every one of them <= 1. Read as fractions they are 4%-41%, with the
+# weekly bucket above the 5-hour one on the account that has been busiest — the
+# shape mid-week usage actually has. Read as percentages the same accounts have
+# used 0.04%-0.41% of their allowances, i.e. essentially nothing, on a machine
+# that runs ccy sessions all day.
+#
+# NOT proof: no sample above 1 was observed, and a single one would settle it
+# outright. So the reading announces itself when contradicted — see
+# _usage_scale_conflict.
 _usage_normalise() {
     local v="$1"
     [[ "$v" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { printf '%s' "$v"; return 0; }
-    if [ "${CCY_USAGE_SCALE:-percent}" = "fraction" ]; then
+    if [ "${CCY_USAGE_SCALE:-fraction}" = "fraction" ]; then
         printf '%s' "$(awk -v x="$v" 'BEGIN { printf "%.4f", x * 100 }')"
         return 0
     fi
     printf '%s' "$v"
+}
+
+# Succeeds when the RAW value cannot be produced by the scale currently assumed.
+#
+# The scale is INFERRED, and an inferred premise that cannot be contradicted is
+# indistinguishable from a wrong one. Under "fraction" a raw value above 1 would
+# mean more than 100% utilisation, which no bucket can report; under "percent"
+# the same goes for a value above 100. Either way the assumption is refuted by
+# its own data — and the display then says so, rather than clamping the bar to
+# full and presenting a confident wrong number, which is how this was missed for
+# a week in the first place.
+_usage_scale_conflict() {
+    local v="$1" limit
+    [[ "$v" =~ ^[0-9]+(\.[0-9]+)?$ ]] || return 1
+    if [ "${CCY_USAGE_SCALE:-fraction}" = "fraction" ]; then
+        limit=1
+    else
+        limit=100
+    fi
+    awk -v x="$v" -v lim="$limit" 'BEGIN { exit (x > lim) ? 0 : 1 }'
 }
 
 # Fetches ONE account's usage and renders it, writing two cache files:

@@ -71,24 +71,26 @@ call exposes them.
 F15 is a bonus: `-representative-claim` says which bucket is actually binding,
 which is exactly what a one-line menu column should lead with.
 
-### Open question
+### Q2 — ANSWERED: the scale is a fraction (`0`–`1`)
 
-| ID  | Question                                                                                                                  | How it gets answered                |
-| --- | ------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
-| Q2  | What is the **scale** of `-utilization` — a percentage (`0`–`100`) or a fraction (`0`–`1`)? `0.02` is either 0.02% or 2%. | `CCY_USAGE_DEBUG=1`, no extra spend |
+| ID  | Fact                                                                                                                                              | Source           |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| F17 | **Eight samples across four accounts, every raw value between `0.04` and `0.41`** — all `<= 1`. Read as fractions: 14%/9%, 6%/4%, 8%/41%, 15%/13% | HOST triage.bash |
 
-Q2 is not cosmetic: guessing wrong misreports usage by 100×, in the direction
-that matters (showing `0%` to someone who is actually at 2%, or `2%` to someone
-at 0.02%). The near-idle account probed cannot discriminate — both readings fit.
+Q2 was not cosmetic: guessing wrong misreports usage by 100×, and it did — the
+plan shipped on `percent` and every account displayed `<1%` for a week.
 
-**The discriminator is one-way and cheap**: any observed value **greater than 1**
-proves the `0`–`100` scale, because a fraction cannot exceed 1.
+**The discriminator is one-way**: any value **greater than 1** proves the
+`0`–`100` scale, because a fraction cannot exceed 1. **None was observed**, so
+F17 is strong evidence rather than proof. Two things make it decisive enough to
+act on: under `percent` these four accounts have used 0.04%–0.41% of their
+allowances on a machine running ccy sessions all day, and the fraction reading
+puts the weekly bucket *above* the 5-hour one on the busiest account, which is
+the shape mid-week usage actually has.
 
-**Strong evidence for the fraction reading arrived from the deploy**: all four of
-the owner's accounts — all in active use — rendered `<1%` on both buckets. Four
-busy accounts below 1% is not credible. Not flipped on that inference alone;
-`CCY_USAGE_DEBUG=1` shows the value as the API sent it, using the fetch already
-paid for, and `CCY_USAGE_SCALE=fraction` switches the reading with no refetch.
+Acted on, and made **self-refuting** rather than left as an assumption — see
+Task 5.3. The read cost nothing: `triage.bash` took the values out of the cache
+the user had already paid for.
 
 ## Tasks
 
@@ -174,11 +176,28 @@ explanation, so this phase measures rather than assumes:
   request to dump *every* `anthropic-ratelimit-*` header, which the cache cannot
   answer because it keeps only the four values displayed
 
-- [ ] ⬜ **Task 5.2**: Run it on the HOST and record the raw values — **HOST
-  action**. This closes Q2 and Task 4.7 together
+- [x] ✅ **Task 5.2**: Ran on the HOST. **Eight samples across four accounts,
+  every raw value between 0.04 and 0.41 — all \<= 1.** Read as fractions: 14%/9%,
+  6%/4%, 8%/41%, 15%/13%, with the weekly bucket above the 5-hour one on the
+  busiest account, which is the shape mid-week usage has. Read as percentages,
+  four accounts have used 0.04%-0.41% of their allowances on a machine that runs
+  ccy sessions all day. **H1 holds; Q2 and Task 4.7 close with it.** H2 is not
+  refuted and does not need to be — it concerns *which* bucket the weekly figure
+  describes, not the scale
 
-- [ ] ⬜ **Task 5.3**: Act on the measurement — flip the `CCY_USAGE_SCALE` default
-  if H1 holds, or address the bucket/model choice if H2 does. Not before
+- [x] ✅ **Task 5.3**: Default flipped to `fraction` (lib 1.11.0), with the
+  evidence recorded at the switch rather than in a commit message. **Eight
+  samples all \<= 1 is not proof** — one value above 1 would settle it outright
+  and none was seen — so `_usage_scale_conflict` makes the inference
+  self-refuting: a raw value the assumed scale cannot produce prints
+  `SCALE MISMATCH` naming the value and the override, instead of clamping the bar
+  to 100%. An unfalsifiable premise is indistinguishable from a wrong one, and
+  the clamp is what would have hidden a 100x error indefinitely
+
+- [ ] ⬜ **Task 5.5**: H2 — confirm whether the weekly bucket the Haiku probe
+  reports is the one the user cares about. The header set includes
+  `-representative-claim` naming the binding bucket, which the extractor
+  currently discards
 
 - [x] ✅ **Task 5.4**: Fix found while reading: a bucket the API did not report
   was silently dropped from the display, three lines below a comment saying that

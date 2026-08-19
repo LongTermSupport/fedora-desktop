@@ -336,17 +336,25 @@ The result is cached for 15 minutes, so pressing `u` again in the same sitting c
 nothing. An account that cannot be read says so on its own row and the others still
 render. Set `CCY_TOKEN_USAGE=0` to remove the option entirely.
 
-**If every account reads `0%` or `<1%` when you know they are busy**, the API is
-expressing utilisation as a fraction (`0`–`1`) rather than a percentage. That scale is
-undocumented, so it is a switch rather than an assumption:
+**The utilisation scale.** The API expresses utilisation as a fraction (`0`–`1`) and
+does not document that anywhere, so ccy shipped briefly with the other reading and
+displayed `<1%` on every account regardless of real usage. It now defaults to
+`fraction`, established by reading the raw values out of the cache: eight samples across
+four accounts, all between `0.04` and `0.41`.
+
+That is strong evidence rather than proof — no sample above `1` was ever observed, and
+one would settle it outright. So the assumption **announces itself if it is wrong**: a
+raw value the assumed scale cannot produce (above `1` under `fraction`, above `100`
+under `percent`) prints `SCALE MISMATCH` naming the value and the switch, instead of
+clamping the bar to full and showing a confident wrong number.
 
 ```bash
-CCY_USAGE_DEBUG=1 ccy        # each line then also shows the raw value the API sent
-CCY_USAGE_SCALE=fraction ccy # interpret utilisation as 0-1 instead of 0-100
+CCY_USAGE_DEBUG=1 ccy       # each line also shows the raw value the API sent
+CCY_USAGE_SCALE=percent ccy # override, if the API ever changes to 0-100
 ```
 
-Set `CCY_USAGE_SCALE` in your shell profile once you know which is right. Nothing else in
-the display depends on it.
+Nothing else in the display depends on it, and the switch applies to values already
+cached — flipping it costs no extra request.
 
 `--export-token` writes a self-contained import script, so you can move a token onto a
 second workstation without repeating the `setup-token` browser flow there.

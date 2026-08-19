@@ -17,6 +17,37 @@ Two version numbers move independently — see
 
 ---
 
+## Library 1.11.0 — token-management.bash
+
+**Every account displayed `<1%` usage, whatever it had actually used.**
+
+The `anthropic-ratelimit-unified-*-utilization` headers express utilisation as a
+fraction (`0`–`1`), and the API documents that nowhere. Plan 00074 shipped on the other
+reading, so a real 41% arrived as `0.41`, rendered as 0.41%, and displayed as `<1%` —
+the guard that exists to avoid claiming an account is untouched was doing all the work,
+on every account, for a week.
+
+Settled by measurement rather than by argument. The cache already holds the values
+exactly as the API sent them — a decision made a day earlier so that flipping the scale
+would not cost a refetch — so the plan's `triage.bash` read them straight off disk and
+spent nothing: **eight samples across four accounts, every one between 0.04 and 0.41.**
+
+`CCY_USAGE_SCALE` now defaults to `fraction`. Override with `CCY_USAGE_SCALE=percent`.
+
+**The inference is now self-refuting**, which matters more than the flip. No sample
+above `1` was ever seen, and one would have settled it outright — so this is strong
+evidence, not proof. Previously a wrong scale was invisible by construction: the bar
+clamps to 100%, so a value read 100× too large would draw a full green bar and look
+correct. A raw value the assumed scale cannot produce — above `1` under `fraction`,
+above `100` under `percent` — now prints `SCALE MISMATCH`, naming the value and the
+override, instead of a bar. If the header ever changes to `0`–`100`, ccy says so on the
+first fetch rather than reporting 100% forever.
+
+Also: a bucket the API did not report says so on its own row instead of vanishing
+(1.10.1). The renderer's own comment said a silently missing bucket *"reads as this
+account has no weekly limit, which would be a lie"*, and the code three lines below it
+did exactly that. Reachable whenever only one of the two buckets comes back.
+
 ## 3.38.0 (container 2.26)
 
 **The daily update check could report "✓ Claude Code is up to date ()" on a machine
