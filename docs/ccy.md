@@ -314,16 +314,32 @@ used — and the reset time in plain words:
 
 ```
   1) work       expires 2026-11-02
-       5-hour limit   ██████████████████░░   91%   resets in 2 hours
-       weekly limit   █████████████░░░░░░░   63%   resets in 3 days
+       5-hour limit   ███░░░░░░░░░░░░░░░░░   15%   resets in 2 hours
+       weekly limit   ███░░░░░░░░░░░░░░░░░   15%   resets in 4 days
+       binding limit: 5-hour limit
 
   2) personal   expires 2026-12-14
-       5-hour limit   ██░░░░░░░░░░░░░░░░░░   12%   resets in 4 hours
-       weekly limit   ░░░░░░░░░░░░░░░░░░░░   <1%   resets in 6 days
+       5-hour limit   ██░░░░░░░░░░░░░░░░░░   12%   resets in 2 hours
+       weekly limit   ███████████░░░░░░░░░   57%   resets in 44 hours
+       binding limit: 5-hour limit
 ```
 
 A figure that is non-zero but rounds to zero shows `<1%` rather than `0%`, so the display
 never claims an account is untouched when it is merely barely touched.
+
+**What `binding limit` does and does not tell you.** It is the API's own
+`-representative-claim` header, reported rather than inferred — ccy does not work it out
+by comparing the two percentages. That distinction matters because the two can disagree:
+account 2 above is at 57% weekly against 12% for five hours, and the API still names the
+5-hour bucket. So this line is **not** "the limit you are closest to". Read it as the
+bucket the API considers governing, and read the bars for how much is left.
+
+It is also the answer to a question the bars cannot settle on their own. The weekly
+buckets are **per-model**, and the probe deliberately uses Haiku; a claim naming
+`weekly limit (Opus)` or `weekly limit (Sonnet)` therefore tells you the weekly figure
+shown above it is not the allowance being reported against. Unknown bucket names print
+verbatim rather than being dropped, so a bucket the API adds later is visible instead of
+silently missing.
 
 **It is never fetched automatically, and the reason is the cost.** These figures are only
 available as rate-limit headers on a real API response, so reading them means making a
@@ -336,17 +352,25 @@ The result is cached for 15 minutes, so pressing `u` again in the same sitting c
 nothing. An account that cannot be read says so on its own row and the others still
 render. Set `CCY_TOKEN_USAGE=0` to remove the option entirely.
 
-**The utilisation scale.** The API expresses utilisation as a fraction (`0`–`1`) and
-does not document that anywhere, so ccy shipped briefly with the other reading and
-displayed `<1%` on every account regardless of real usage. It now defaults to
-`fraction`, established by reading the raw values out of the cache: eight samples across
-four accounts, all between `0.04` and `0.41`.
+**The utilisation scale, and why it is worth knowing about.** The API expresses
+utilisation as a fraction (`0`–`1`) and documents that nowhere. ccy shipped briefly with
+the other reading, so a real 41% arrived as `0.41`, rendered as 0.41%, and displayed as
+`<1%` — on every account, for a week. The `<1%` guard above, which exists so the display
+never claims an account is untouched, was quietly doing all the work.
 
-That is strong evidence rather than proof — no sample above `1` was ever observed, and
-one would settle it outright. So the assumption **announces itself if it is wrong**: a
-raw value the assumed scale cannot produce (above `1` under `fraction`, above `100`
-under `percent`) prints `SCALE MISMATCH` naming the value and the switch, instead of
-clamping the bar to full and showing a confident wrong number.
+It was settled by measurement rather than argument, and it cost nothing: the cache stores
+values exactly as the API sent them, so the raw numbers were already on disk from a fetch
+already paid for. Eight samples across four accounts, every one between `0.04` and `0.41`.
+Read as fractions those are ordinary mid-week figures; read as percentages the same four
+accounts had used a twentieth of one percent of their allowances.
+
+That is strong evidence rather than proof — no sample above `1` has been observed, and one
+would settle it outright. So the assumption **announces itself if it is wrong**: a raw
+value the assumed scale cannot produce (above `1` under `fraction`, above `100` under
+`percent`) prints `SCALE MISMATCH` naming the value and the switch, instead of clamping
+the bar to full and showing a confident wrong number. That guard is the point — the
+original error was invisible *by construction*, because a bar clamped to 100% looks
+exactly like a healthy one.
 
 ```bash
 CCY_USAGE_DEBUG=1 ccy       # each line also shows the raw value the API sent
