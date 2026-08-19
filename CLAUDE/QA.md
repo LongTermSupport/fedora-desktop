@@ -80,11 +80,24 @@ them were being scanned by the *old* gate too. All three pass `bash -n`.
 `qa-patterns.bash` therefore checks the error list, and treats its two classes
 differently because they mean different things:
 
-- **`Syntax error`** — the whole file failed to parse, so **no rule ran on any
-  line**. Indistinguishable from not scanning it → **gating**. The current three
-  are listed in `SEMGREP_CANNOT_PARSE` with a reason, and that list is
-  self-expiring in both directions: an unlisted unparseable file fails the gate,
-  *and* a listed file that starts parsing fails it until the entry is removed.
+- **`Syntax error`** — the file failed to parse **for at least one rule**, so
+  that rule ran on no line of it → **gating**. The current entries are listed in
+  `SEMGREP_CANNOT_PARSE` with a reason, and that list is self-expiring in both
+  directions: an unlisted unparseable file fails the gate, *and* a listed file
+  that starts parsing fails it until the entry is removed.
+
+  **Parseability is a property of (file × rule), not of the file.** Measured for
+  the two current entries: `bash-status-after-block`, `bash-test-discards-status`
+  and `bash-error-hiding-or-true` parse them perfectly; `bash-error-hiding-pipe-echo`
+  cannot. The same file is clean at a path no scoped rule matches and errors under
+  `files/`. Semgrep's combined JSON carries **no rule id on an error** and dedupes
+  to one entry per file, so a normal run cannot say *which* rules failed — only
+  that at least one did. Hence the report says "some rules could not parse",
+  not "not analysed": the earlier wording was measurably false, understating
+  coverage rather than overstating it, but false either way. Findings are
+  unaffected — `.results` is independent of `.errors`, so a rule that did parse
+  still reports normally.
+
 - **`PartialParsing`** — parsed apart from named ranges; every rule ran on
   everything else. Reported, not gating.
 

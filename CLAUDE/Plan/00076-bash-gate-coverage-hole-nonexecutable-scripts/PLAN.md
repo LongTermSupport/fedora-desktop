@@ -184,30 +184,30 @@ that state — and so were `rclone-tail` and `rclone-cache-status`, which the
 - [ ] ⬜ **Task 4.5**: **Per-rule coverage is invisible, and it is not uniform.**
   Measured by splitting the ruleset and scanning the mirror once per rule:
 
-  | Rule                           | Files scanned | `paths.include`                                                     |
-  | ------------------------------ | ------------- | ------------------------------------------------------------------- |
-  | `bash-error-hiding-or-true`    | **154**       | none — every bash file                                              |
-  | `bash-error-hiding-pipe-echo`  | **120**       | `files/ scripts/ helpers/ extensions/ fedora-install/ CLAUDE/Plan/` |
-  | `bash-status-after-block`      | **120**       | same                                                                |
-  | `bash-test-discards-status`    | **90**        | `files/ fedora-install/ scripts/`                                   |
-  | `bash-capture-discards-status` | **90**        | same                                                                |
-
-  The gate prints `✓ patterns: 154 files OK`, which is the union and reads as
-  "every rule ran on 154 files". Four of the five did not. `bash-capture-discards-status`
-  — the rule for the exact class Plan 00075 exists to catch — sees 90 of 154, a
-  narrowing that is deliberate and recorded in the rule, but invisible at the
-  point where the pass is claimed. Same species as the partial-parse report fixed
-  in Task 5.2. **Deliberately not bolted on here**: reporting it without N extra
-  scans means matching `paths.include` globs statically, which needs a YAML
-  parser in a bash gate — a dependency decision, not a tweak
+  Per-rule scan counts are **154 / 120 / 120 / 90 / 90** — full table and
+  `paths.include` values in the journal. The gate prints `✓ patterns: 154 files OK`, which is the union and reads as "every rule ran on 154 files". Four of the
+  five did not. `bash-capture-discards-status` — the rule for the exact class
+  Plan 00075 exists to catch — sees **90 of 154**: a narrowing that is deliberate
+  and recorded in the rule, but invisible where the pass is claimed. Same species
+  as the partial-parse report fixed in Task 5.2. **Deliberately not bolted on
+  here**: reporting it without N extra scans means matching `paths.include` globs
+  statically, which needs a YAML parser in a bash gate — a host/CI dependency
+  decision, not a tweak
 
 - [ ] ⬜ **Task 4.3b**: `rclone-tail` and `rclone-cache-status` — cause **not**
   established, but its *shape* now is: each file reduces to two functions, and
   **either alone parses while the two together do not**. So it is not a single
   construct — the embedded-Python-heredoc suspect parses in isolation too. A
   size/complexity budget is **also** ruled out: eight copies of one of the
-  functions parse fine. Four theories tested and dead; the next step is
-  delta-debugging *within* the failing pair, not another guess
+  functions parse fine.
+  **Reframed by Task 4.3c's finding**: parseability is a property of
+  (file × rule), not of the file. Both files are clean at a path no scoped rule
+  matches and error under `files/`; per-rule scans show `bash-status-after-block`,
+  `bash-test-discards-status` and `bash-error-hiding-or-true` parse them fine,
+  while `bash-error-hiding-pipe-echo` fails on both and
+  `bash-capture-discards-status` on one. So they are **partially covered, not
+  uncovered** — and every "the file is unparseable" premise from the earlier
+  attempts was the wrong question
 
 - [ ] ⬜ **Task 4.4**: The 12 `PartialParsing` files. Cause **not** established.
   The reported ranges do sit on `${var:-(text)}` occurrences (parentheses in a

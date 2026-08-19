@@ -180,8 +180,13 @@ jq \
 #
 # Two error classes, deliberately treated differently:
 #
-#   "Syntax error"   the whole file failed to parse. NO rule ran on ANY line.
-#                    Indistinguishable from not scanning it at all → GATING.
+#   "Syntax error"   the file failed to parse FOR AT LEAST ONE RULE, so that
+#                    rule ran on no line of it. Measured, not assumed: for both
+#                    current entries three of the five rules parse them fine and
+#                    one does not, and semgrep's JSON carries no rule id on an
+#                    error — so the combined run cannot say which. Treated as
+#                    GATING because "some unknown subset of the ruleset did not
+#                    run" is not a pass anyone can rely on.
 #   "PartialParsing" the file parsed except for named ranges. Every rule ran on
 #                    everything else, and the ranges are printed, so nothing is
 #                    claimed that was not checked. Reported, not gating.
@@ -272,9 +277,19 @@ fi
 PARTIAL_COUNT=$(jq -r '[.errors[]? | select(.type != "Syntax error")
                         | (.path // "(no path)")] | unique | length' "$TMP_SEMGREP")
 if [[ ${#UNPARSED[@]} -gt 0 ]]; then
-    echo "⚠ patterns: ${#UNPARSED[@]} file(s) NOT ANALYSED — semgrep cannot parse them:"
+    # "NOT ANALYSED" was too strong, and measurably false. Parseability is a
+    # property of (file × RULE), not of the file: for both current entries,
+    # `bash-status-after-block`, `bash-test-discards-status` and
+    # `bash-error-hiding-or-true` parse them perfectly, while
+    # `bash-error-hiding-pipe-echo` cannot. Semgrep's combined JSON carries no
+    # rule id on an error and dedupes to one entry per file, so WHICH rules
+    # failed is not recoverable from a normal run — only that at least one did.
+    # Findings are unaffected: `.results` is independent of `.errors`, so a rule
+    # that did parse still reports normally.
+    echo "⚠ patterns: ${#UNPARSED[@]} file(s) some rules could not parse — those rules ran on NO line of them:"
     printf '    %s\n' "${UNPARSED[@]}"
     echo "    (known exceptions; they pass bash -n. See SEMGREP_CANNOT_PARSE in this script.)"
+    echo "    Semgrep does not say which rules, so treat these as partially covered, not covered."
 fi
 if [[ "$PARTIAL_COUNT" -gt 0 ]]; then
     # Report HOW MUCH was skipped, not just that something was.
