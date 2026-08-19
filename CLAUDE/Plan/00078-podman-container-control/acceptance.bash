@@ -28,16 +28,20 @@ Plan 00078 — acceptance gate for podfreeze (HOST ONLY)
 
 Usage: acceptance.bash [--help]
 
-Creates a throwaway container on a throwaway network, then checks:
+Runs the selection unit test first (no podman needed), then creates a throwaway
+container on a throwaway network and checks:
 
+   0  selection/labelling unit test passes
    1  --help works                          (exits 0, prints usage)
    2  refuses to run inside a container      (the container= env path)
    3  list reports the throwaway as running
    4  freeze --network -n previews it and changes nothing
-   5  freeze --network -y actually freezes it
+   5  freeze --network actually freezes it
    6  list reports it as frozen
    7  freezing again is a clean no-op, not a failure
    8  thaw by name unfreezes it
+  8b  NO VERB freezes a running target       (the derived verb)
+  8c  the same command thaws it again        (so it toggles)
    9  freeze --ccy -n resolves the live CCY group and excludes non-CCY
   10  an unknown network fails loudly rather than resolving to an empty set
   11  an unknown container name fails loudly
@@ -123,6 +127,23 @@ if ! cmp -s "$REPO_TOOL" "$TOOL"; then
     echo "  Run this plan's deploy.bash — verifying a stale binary proves nothing." >&2
     exit 1
 fi
+
+# The selection/labelling unit test runs first: if that logic is broken there is
+# no point manufacturing containers to discover it more slowly, and its failure
+# output points at a function rather than at a symptom.
+if [ ! -x "$PLAN_DIR/unit-test-selection.bash" ]; then
+    echo "ERROR: unit-test-selection.bash is missing or not executable." >&2
+    exit 1
+fi
+echo "### 0. selection/labelling unit test"
+if "$PLAN_DIR/unit-test-selection.bash" > /dev/null; then
+    echo "  OK — unit test passes (its own log is in logs/)"
+else
+    echo "ERROR: the selection unit test FAILED — not proceeding to containers." >&2
+    echo "  See $PLAN_DIR/logs/unit-test-selection.log" >&2
+    exit 1
+fi
+echo
 
 state_of() {
     local out
@@ -298,8 +319,8 @@ else
     bad "the dry run changed the container state"
 fi
 
-echo "### 5. freeze --network -y freezes it"
-if freeze_out="$("$TOOL" freeze --network "$NET" --yes 2>&1)"; then
+echo "### 5. freeze --network freezes it"
+if freeze_out="$("$TOOL" freeze --network "$NET" 2>&1)"; then
     if [ "$(state_of "$CNAME")" = "paused" ]; then
         ok "$CNAME is paused"
     else
@@ -321,7 +342,7 @@ else
 fi
 
 echo "### 7. freezing again is a clean no-op"
-if again_out="$("$TOOL" freeze --network "$NET" --yes 2>&1)"; then
+if again_out="$("$TOOL" freeze --network "$NET" 2>&1)"; then
     case "$again_out" in
         *"Nothing to do"*) ok "reported nothing to do, exit 0" ;;
         *) bad "exit 0 but without the no-op message: $again_out" ;;
@@ -331,7 +352,7 @@ else
 fi
 
 echo "### 8. thaw by name unfreezes it"
-if thaw_out="$("$TOOL" thaw "$CNAME" --yes 2>&1)"; then
+if thaw_out="$("$TOOL" thaw "$CNAME" 2>&1)"; then
     if [ "$(state_of "$CNAME")" = "running" ]; then
         ok "$CNAME is running again"
     else
@@ -339,6 +360,31 @@ if thaw_out="$("$TOOL" thaw "$CNAME" --yes 2>&1)"; then
     fi
 else
     bad "thaw exited non-zero: $thaw_out"
+fi
+
+echo "### 8b. no verb toggles: running -> frozen"
+# The headline behaviour of the derived verb. Deliberately checked in BOTH
+# directions from the same command, because "it froze" and "it toggles" are
+# different claims and only the second one is the feature.
+if toggle_out="$("$TOOL" --network "$NET" 2>&1)"; then
+    if [ "$(state_of "$CNAME")" = "paused" ]; then
+        ok "no verb froze the running container"
+    else
+        bad "no verb left it in state $(state_of "$CNAME"), expected paused"
+    fi
+else
+    bad "no-verb invocation exited non-zero: $toggle_out"
+fi
+
+echo "### 8c. no verb toggles back: frozen -> running"
+if toggle_out="$("$TOOL" --network "$NET" 2>&1)"; then
+    if [ "$(state_of "$CNAME")" = "running" ]; then
+        ok "the same command thawed it again"
+    else
+        bad "no verb left it in state $(state_of "$CNAME"), expected running"
+    fi
+else
+    bad "no-verb invocation exited non-zero: $toggle_out"
 fi
 
 echo "### 9. freeze --ccy -n resolves the live CCY group"
@@ -390,7 +436,7 @@ else
 fi
 
 echo "### 10. an unknown network fails loudly"
-if unknown_out="$("$TOOL" freeze --network "no-such-network-$$" --yes 2>&1)"; then
+if unknown_out="$("$TOOL" freeze --network "no-such-network-$$" 2>&1)"; then
     bad "an unknown network resolved to an empty set and exited 0"
 else
     case "$unknown_out" in
@@ -400,7 +446,7 @@ else
 fi
 
 echo "### 11. an unknown container name fails loudly"
-if unknown_out="$("$TOOL" freeze "no-such-container-$$" --yes 2>&1)"; then
+if unknown_out="$("$TOOL" freeze "no-such-container-$$" 2>&1)"; then
     bad "an unknown container name exited 0"
 else
     case "$unknown_out" in

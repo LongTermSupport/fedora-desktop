@@ -9,12 +9,13 @@
 #
 # WHY A WRAPPER AND NOT JUST `podman pause`:
 #   - `podman pause --filter network=X` already exists, but you act on a set you
-#     never saw. On this machine a CCY (Claude) session shares a user-defined
-#     network with an application stack, and several more sit on the default
-#     `podman` network — so "freeze that app's network" and "freeze a live
-#     Claude session" can be the same command, and the network's NAME does not
-#     tell you which. The wrapper resolves the set, shows it with CCY rows
-#     marked, and confirms before acting.
+#     never saw, and you have to know the flag names to reach a group at all.
+#     The wrapper's interactive form is a menu of GROUPS — all CCY containers,
+#     all containers, everything on a given network — each row saying what
+#     choosing it does right now ("FREEZE 8", "THAW 3"). It acts, refreshes,
+#     and returns to the menu.
+#   - The verb is derived rather than asked: anything running is frozen, a set
+#     with nothing running is thawed, so the same choice twice toggles it.
 #   - podman-tui / Cockpit / lazydocker / ctop all act on one container at a
 #     time and have no concept of a CCY session group.
 #

@@ -21,15 +21,25 @@
 #      claude-yolo-version, so --ccy is a filter rather than a name regex.
 #      The legacy name pattern <project>_yolo[_N] is matched as well, so a
 #      container from an older image still selects.
-#   2. A resolved-set preview before anything happens. This is not a nicety:
-#      on this machine a CCY session shares a user-defined network with a
-#      ten-container application stack, and seven more sit on the default
-#      `podman` network. "Freeze that app's network" and "freeze a live Claude
-#      session" can be the same command, and the network's NAME does not tell
-#      you which. You see the exact list, with CCY rows marked, and confirm.
+#   2. A menu of GROUPS, not of containers. All CCY containers, all containers,
+#      or everything on a given network — each row saying what choosing it will
+#      do right now ("FREEZE 8", "THAW 3"). Acting on a whole group is the
+#      common case; picking containers one at a time is the last entry, not the
+#      first screen.
 #   3. Refusal to run inside a container. The host's podman is not reachable
 #      from in there anyway, and it stops you freezing the session you are
 #      typing into.
+#
+# THE VERB IS DERIVED, NOT ASKED. For any given set there is only one sensible
+# move: anything running gets frozen, and a set with nothing running gets
+# thawed. So running podfreeze twice on the same target toggles it. An explicit
+# `freeze` / `thaw` on the command line still wins, because a script must be
+# able to say what it means rather than depend on current state.
+#
+# THERE IS NO CONFIRMATION PROMPT. Freezing is reversible by running the same
+# command again, and in the menu you already chose a row that named the verb
+# and the count — a second "are you sure" would guard nothing. Use --dry-run
+# when you want to look without acting.
 #
 # FREEZE IS NOT SUSPEND-TO-DISK. `podman pause` is the cgroup freezer: the
 # processes stay resident in RAM and stop being scheduled. Frozen containers do
@@ -40,7 +50,7 @@
 # Usage:
 #   podfreeze [list|freeze|thaw] [target] [options]
 #
-# Targets (freeze/thaw; exactly one, or none for the interactive picker):
+# Targets (exactly one, or none for the interactive menu):
 #   NAME...            One or more container names.
 #   --ccy              Every CCY container (label, or the legacy name pattern).
 #   --network NET      Every container attached to network NET.
@@ -48,20 +58,18 @@
 #
 # Options:
 #   -n, --dry-run      Print the resolved set and exit. Changes nothing.
-#   -y, --yes          Skip the confirmation prompt (for scripts and cron).
 #   -h, --help         Show this help and exit.
 #
 # Examples:
-#   podfreeze                            # pick interactively, then pick a verb
+#   podfreeze                            # menu: pick a group, it acts, repeat
 #   podfreeze list                       # what is running, what is frozen
-#   podfreeze freeze myproject_yolo
-#   podfreeze freeze --ccy               # every Claude session at once
+#   podfreeze --ccy                      # toggle every Claude session
+#   podfreeze freeze --ccy               # explicitly freeze them
 #   podfreeze freeze --network mynet -n  # preview only
 #   podfreeze thaw --all
 set -euo pipefail
 
 DRY_RUN=0
-ASSUME_YES=0
 MAX_TRIES=3   # bounded retries on a recoverable menu-input mistake
 
 # Inherited from the CCY image; see files/var/local/claude-yolo/Dockerfile.
@@ -79,19 +87,25 @@ usage() {
     echo "Usage: podfreeze [list|freeze|thaw] [target] [options]"
     echo ""
     echo "  Freeze (pause) and thaw (unpause) Podman containers — one, a whole"
-    echo "  network, or every CCY (Claude) session. Bulk actions always show the"
-    echo "  exact resolved set and ask before acting."
+    echo "  network, or every CCY (Claude) session at once."
+    echo ""
+    echo "  Run with no target for a menu of GROUPS, each row saying what"
+    echo "  choosing it does right now (\"FREEZE 8\", \"THAW 3\"). It acts, then"
+    echo "  returns to the menu, until you quit."
+    echo ""
+    echo "  The verb is derived: anything running is frozen, a set with nothing"
+    echo "  running is thawed. So the same choice twice toggles it. There is no"
+    echo "  confirmation prompt — freezing is undone by doing it again."
     echo ""
     echo "  Freezing is the cgroup freezer, not suspend-to-disk: frozen"
     echo "  containers do not survive a reboot."
     echo ""
-    echo "Verbs:"
+    echo "Verbs (optional — omit to let the state decide):"
     echo "  list               Show running and frozen containers, then exit."
     echo "  freeze             Pause the target containers."
     echo "  thaw               Unpause the target containers."
-    echo "  (no verb)          Pick containers interactively, then pick a verb."
     echo ""
-    echo "Targets (freeze/thaw — exactly one, or none to pick interactively):"
+    echo "Targets (exactly one, or none for the menu):"
     echo "  NAME...            One or more container names."
     echo "  --ccy              Every CCY container."
     echo "  --network NET      Every container attached to network NET."
@@ -99,14 +113,13 @@ usage() {
     echo ""
     echo "Options:"
     echo "  -n, --dry-run      Print the resolved set and exit; change nothing."
-    echo "  -y, --yes          Skip the confirmation prompt."
     echo "  -h, --help         Show this help and exit."
     echo ""
     echo "Examples:"
-    echo "  podfreeze"
+    echo "  podfreeze                       menu: pick a group, it acts, repeat"
     echo "  podfreeze list"
-    echo "  podfreeze freeze myproject_yolo"
-    echo "  podfreeze freeze --ccy"
+    echo "  podfreeze --ccy                 toggle every Claude session"
+    echo "  podfreeze freeze --ccy          explicitly freeze them"
     echo "  podfreeze freeze --network mynet -n"
     echo "  podfreeze thaw --all"
 }
@@ -224,18 +237,74 @@ ccy_marker() {
 # ---------------------------------------------------------------------------
 declare -a SELECTED=()
 
+# The *_names emitters print one name per line so the target menu can size a
+# candidate group without disturbing SELECTED.
+
+ccy_names() {
+    local name
+    for name in "${INV_NAME[@]}"; do
+        if [ "${INV_IS_CCY[$name]:-0}" = "1" ]; then
+            printf '%s\n' "$name"
+        fi
+    done
+}
+
 select_all() {
     SELECTED=("${INV_NAME[@]}")
 }
 
 select_ccy() {
-    local name
-    SELECTED=()
-    for name in "${INV_NAME[@]}"; do
-        if [ "${INV_IS_CCY[$name]:-0}" = "1" ]; then
-            SELECTED+=("$name")
+    mapfile -t SELECTED < <(ccy_names)
+}
+
+# net -> space-separated container names. A container can be on several
+# networks, so `{{.Networks}}` is comma-separated and is split here. Built from
+# the inventory rather than `podman network ls` so the menu only ever offers a
+# network that something is actually attached to — an empty one is a choice
+# with no outcome.
+declare -A NET_MEMBERS=()
+
+build_network_map() {
+    local i name nets net
+    local -a parts=()
+    NET_MEMBERS=()
+    for i in "${!INV_NAME[@]}"; do
+        name="${INV_NAME[$i]}"
+        nets="${INV_NETS[$i]}"
+        if [ "$nets" = "none" ]; then
+            continue
+        fi
+        IFS=',' read -ra parts <<< "$nets"
+        for net in "${parts[@]}"; do
+            net="${net// /}"
+            if [ -n "$net" ]; then
+                NET_MEMBERS["$net"]="${NET_MEMBERS[$net]:-} $name"
+            fi
+        done
+    done
+}
+
+network_names() {
+    local -a members=()
+    read -ra members <<< "${NET_MEMBERS[$1]:-}"
+    if [ "${#members[@]}" -gt 0 ]; then
+        printf '%s\n' "${members[@]}"
+    fi
+}
+
+# How many of the named containers are in a state the verb can act on. This is
+# what makes the target menu worth reading: "0 frozen" says the choice is a
+# no-op before you make it.
+count_in_state() {
+    local want="$1"
+    shift
+    local name i n=0
+    for name in "$@"; do
+        if i="$(inventory_index_of "$name")" && [ "${INV_STATE[$i]}" = "$want" ]; then
+            n=$(( n + 1 ))
         fi
     done
+    printf '%s' "$n"
 }
 
 # A --filter network= naming a network that does not exist returns an empty set
@@ -308,16 +377,6 @@ print_table() {
     done
 }
 
-count_ccy() {
-    local name n=0
-    for name in "$@"; do
-        if [ "${INV_IS_CCY[$name]:-0}" = "1" ]; then
-            n=$(( n + 1 ))
-        fi
-    done
-    printf '%s' "$n"
-}
-
 do_list() {
     local -a running=() frozen=()
     local i
@@ -350,6 +409,135 @@ do_list() {
 # ---------------------------------------------------------------------------
 # Interactive picker
 # ---------------------------------------------------------------------------
+
+# Echoes a target key on stdout: "ccy", "all", "net:<name>", or "pick".
+#
+# Groups come FIRST and per-container picking is the last entry, because acting
+# on a whole group is the common case — the earlier version opened straight
+# into a TAB-to-multi-select container list, which made the group targets
+# reachable only by knowing the flag names.
+
+# What choosing a group would do, given what is in it right now. It applies the
+# same rule infer_action() does — or an explicit CLI verb when one was given —
+# so the label can never disagree with the outcome.
+target_effect() {
+    local running frozen
+    running="$(count_in_state running "$@")"
+    frozen="$(count_in_state paused "$@")"
+
+    case "$ACTION" in
+        freeze)
+            if [ "$running" -gt 0 ]; then
+                printf 'FREEZE %s' "$running"
+            else
+                printf 'nothing to freeze'
+            fi
+            return 0
+            ;;
+        thaw)
+            if [ "$frozen" -gt 0 ]; then
+                printf 'THAW   %s' "$frozen"
+            else
+                printf 'nothing to thaw'
+            fi
+            return 0
+            ;;
+    esac
+
+    if [ "$running" -gt 0 ]; then
+        printf 'FREEZE %s' "$running"
+    elif [ "$frozen" -gt 0 ]; then
+        printf 'THAW   %s' "$frozen"
+    else
+        printf 'nothing to do'
+    fi
+}
+
+pick_target() {
+    local net selection reply attempt total i
+    local -a keys=() labels=() nets=() group=()
+
+    if [ ! -t 2 ] || [ ! -r /dev/tty ]; then
+        die "no terminal to ask on — name a target explicitly: NAME..., --ccy,
+  --network NET, or --all. See 'podfreeze --help'."
+    fi
+
+    mapfile -t group < <(ccy_names)
+    keys+=("ccy")
+    labels+=("$(printf '%-38s %s' "all CCY (Claude) containers" \
+        "$(target_effect "${group[@]+${group[@]}}")")")
+
+    keys+=("all")
+    labels+=("$(printf '%-38s %s' "all containers" \
+        "$(target_effect "${INV_NAME[@]}")")")
+
+    if [ "${#NET_MEMBERS[@]}" -gt 0 ]; then
+        mapfile -t nets < <(printf '%s\n' "${!NET_MEMBERS[@]}" | sort)
+        for net in "${nets[@]}"; do
+            mapfile -t group < <(network_names "$net")
+            keys+=("net:$net")
+            labels+=("$(printf '%-38s %s' "network: $net" \
+                "$(target_effect "${group[@]+${group[@]}}")")")
+        done
+    fi
+
+    keys+=("pick")
+    labels+=("pick individual containers...")
+
+    total="${#labels[@]}"
+
+    # Cancelling is a normal way to leave a menu that loops, not an error, so
+    # it comes back as a "quit" key rather than as a non-zero exit.
+    if have fzf; then
+        if ! selection="$(printf '%s\n' "${labels[@]}" |
+            fzf --height=50% --reverse \
+                --prompt="podfreeze: " \
+                --header="ENTER acts on the chosen group — ESC to quit")"; then
+            printf 'quit'
+            return 0
+        fi
+        for i in "${!labels[@]}"; do
+            if [ "${labels[$i]}" = "$selection" ]; then
+                printf '%s' "${keys[$i]}"
+                return 0
+            fi
+        done
+        die "internal error: chosen entry not found."
+    fi
+
+    echo "What to act on:" >&2
+    for i in "${!labels[@]}"; do
+        printf '  %2d) %s\n' "$(( i + 1 ))" "${labels[$i]}" >&2
+    done
+
+    attempt=1
+    while :; do
+        printf 'Choice [1-%d, q to quit]: ' "$total" >&2
+        if ! read -r reply < /dev/tty; then
+            echo >&2
+            printf 'quit'
+            return 0
+        fi
+        case "$reply" in
+            q | Q | quit)
+                printf 'quit'
+                return 0
+                ;;
+            "" | *[!0-9]*) ;;
+            *)
+                if [ "$reply" -ge 1 ] && [ "$reply" -le "$total" ]; then
+                    printf '%s' "${keys[$(( reply - 1 ))]}"
+                    return 0
+                fi
+                ;;
+        esac
+        echo "  Not one of the options — enter a number between 1 and $total, or q." >&2
+        attempt=$(( attempt + 1 ))
+        if [ "$attempt" -gt "$MAX_TRIES" ]; then
+            die "giving up after $MAX_TRIES attempts — nothing changed."
+        fi
+    done
+}
 
 # Echoes the chosen names on stdout, one per line. The menu is drawn on stderr
 # so a caller capturing this gets names and nothing else.
@@ -444,75 +632,29 @@ pick_containers() {
 }
 
 # Echoes 'freeze' or 'thaw' on stdout.
-pick_action() {
-    local reply attempt
-
-    if [ ! -t 2 ] || [ ! -r /dev/tty ]; then
-        die "no terminal to ask on — name the verb explicitly (freeze or thaw)."
-    fi
-
-    echo "Action:" >&2
-    echo "   1) freeze  (pause — stops the container being scheduled)" >&2
-    echo "   2) thaw    (unpause — resumes it)" >&2
-
-    attempt=1
-    while :; do
-        printf 'Choice [1-2, q to cancel]: ' >&2
-        if ! read -r reply < /dev/tty; then
-            echo >&2
-            die "cancelled — nothing changed."
-        fi
-        case "$reply" in
-            1 | f | freeze)
-                printf 'freeze'
-                return 0
-                ;;
-            2 | t | thaw)
-                printf 'thaw'
-                return 0
-                ;;
-            q | Q | quit)
-                die "cancelled — nothing changed."
-                ;;
-        esac
-        echo "  Not one of the options — enter 1, 2, or q." >&2
-        attempt=$(( attempt + 1 ))
-        if [ "$attempt" -gt "$MAX_TRIES" ]; then
-            die "giving up after $MAX_TRIES attempts — nothing changed."
-        fi
-    done
-}
-
 # ---------------------------------------------------------------------------
 # Action
 # ---------------------------------------------------------------------------
 
-confirm() {
-    local prompt="$1" reply
-
-    if [ "$ASSUME_YES" -eq 1 ]; then
-        return 0
-    fi
-    if [ ! -t 2 ] || [ ! -r /dev/tty ]; then
-        die "no terminal to confirm on. Re-run with --yes to proceed
-  unattended, or with --dry-run to see the set without acting."
-    fi
-
-    printf '%s [y/N] ' "$prompt" >&2
-    if ! read -r reply < /dev/tty; then
-        reply=""
-        echo >&2
-    fi
-    case "$reply" in
-        y | Y | yes | YES) return 0 ;;
-    esac
-    echo "Aborted — nothing changed." >&2
-    exit 1
+# There is only ever one sensible verb for a given set, so it is derived rather
+# than asked: anything running gets frozen, and a set with nothing running gets
+# thawed. Running it twice on the same target therefore toggles it. An explicit
+# `freeze`/`thaw` on the command line still wins — scripts need to say what they
+# mean rather than depend on current state.
+infer_action() {
+    local name i
+    for name in "${SELECTED[@]+${SELECTED[@]}}"; do
+        if i="$(inventory_index_of "$name")" && [ "${INV_STATE[$i]}" = "running" ]; then
+            printf 'freeze'
+            return 0
+        fi
+    done
+    printf 'thaw'
 }
 
 do_action() {
     local action="$1"
-    local name i want_state podman_verb past ccy_count out
+    local name i want_state podman_verb past out
     local failed=0
     local -a targets=() skipped=()
 
@@ -551,28 +693,21 @@ do_action() {
         return 0
     fi
 
-    ccy_count="$(count_ccy "${targets[@]}")"
-
     if [ "$DRY_RUN" -eq 1 ]; then
         echo "DRY RUN — ${#targets[@]} container(s) would be $past:"
         print_table "${targets[@]}"
-        if [ "$action" = "freeze" ] && [ "$ccy_count" -gt 0 ]; then
-            echo ""
-            echo "  NOTE: $ccy_count of these is a live CCY (Claude) session."
-        fi
         return 0
     fi
 
-    echo "${#targets[@]} container(s) will be $past:" >&2
+    # Printed before acting, not to ask permission but to leave a record of
+    # exactly what was touched. There is deliberately no confirmation prompt:
+    # freezing is the cgroup freezer and is undone by running podfreeze again
+    # on the same target, so a prompt would be guarding a reversible act — and
+    # in the interactive path the menu row already named the verb and the count
+    # before it was chosen. The table's CCY column says which rows are Claude
+    # sessions; what freezing one implies is left to the reader.
+    echo "${#targets[@]} container(s) being $past:" >&2
     print_table "${targets[@]}" >&2
-    if [ "$action" = "freeze" ] && [ "$ccy_count" -gt 0 ]; then
-        echo "" >&2
-        echo "  WARNING: $ccy_count of these is a live CCY (Claude) session." >&2
-        echo "  Freezing one stalls the agent mid-work and its network" >&2
-        echo "  connections will time out. It resumes on thaw." >&2
-    fi
-    echo "" >&2
-    confirm "Proceed?"
 
     # Each container is acted on individually so a single failure is NAMED
     # rather than collapsing the batch into one opaque exit status, and so a
@@ -592,9 +727,60 @@ do_action() {
         echo "  Thaw them with: podfreeze thaw ${targets[*]}" >&2
     fi
 
+    # Returns rather than dies, so the interactive loop can report a failure
+    # and carry on. The one-shot path runs this as its last command, so the
+    # status still becomes the script's.
     if [ "$failed" -gt 0 ]; then
-        die "$failed of ${#targets[@]} container(s) failed — see above."
+        echo "podfreeze: $failed of ${#targets[@]} container(s) failed — see above." >&2
+        return 1
     fi
+    return 0
+}
+
+# The interactive session: menu, act, refresh, menu again — the inventory is
+# re-read every pass so the counts describe the machine as it is now, not as it
+# was when the tool started. Leaves only when you quit.
+interactive_loop() {
+    local key picked status=0
+
+    while :; do
+        load_inventory
+        build_network_map
+
+        if [ "${#INV_NAME[@]}" -eq 0 ]; then
+            echo "No running or frozen containers." >&2
+            return 0
+        fi
+
+        key="$(pick_target)"
+        case "$key" in
+            quit) return "$status" ;;
+            ccy) select_ccy ;;
+            all) select_all ;;
+            net:*) select_network "${key#net:}" ;;
+            pick)
+                # Backing out of the container picker returns to the target
+                # menu rather than quitting — it is one level down, not a
+                # separate command.
+                if ! picked="$(pick_containers)"; then
+                    continue
+                fi
+                mapfile -t SELECTED <<< "$picked"
+                ;;
+            *) die "internal error: unknown target key '$key'." ;;
+        esac
+
+        if [ "${#SELECTED[@]}" -eq 0 ]; then
+            echo "Nothing in that group." >&2
+            echo "" >&2
+            continue
+        fi
+
+        if ! do_action "${ACTION:-$(infer_action)}"; then
+            status=1
+        fi
+        echo "" >&2
+    done
 }
 
 # ---------------------------------------------------------------------------
@@ -621,10 +807,6 @@ while [ "$#" -gt 0 ]; do
             ;;
         -n | --dry-run)
             DRY_RUN=1
-            shift
-            ;;
-        -y | --yes)
-            ASSUME_YES=1
             shift
             ;;
         --ccy)
@@ -681,25 +863,18 @@ if [ "$ACTION" = "list" ]; then
     exit 0
 fi
 
+# No target on the command line means the interactive session, which loops
+# until you quit. A named target is the one-shot, scriptable form.
+if [ -z "$TARGET_MODE" ]; then
+    interactive_loop
+    exit $?
+fi
+
 case "$TARGET_MODE" in
     "--ccy") select_ccy ;;
     "--all") select_all ;;
     "--network") select_network "$TARGET_NETWORK" ;;
     "names") select_names "${TARGET_NAMES[@]}" ;;
-    "")
-        # No target named: pick interactively. The picker's stdout carries the
-        # names and its stderr carries the menu, so this reads cleanly — and a
-        # cancelled pick must abort here rather than fall through as an empty
-        # selection, which would be reported as "nothing matched".
-        if ! PICKED="$(pick_containers)"; then
-            exit 1
-        fi
-        mapfile -t SELECTED <<< "$PICKED"
-        ;;
 esac
 
-if [ -z "$ACTION" ]; then
-    ACTION="$(pick_action)"
-fi
-
-do_action "$ACTION"
+do_action "${ACTION:-$(infer_action)}"

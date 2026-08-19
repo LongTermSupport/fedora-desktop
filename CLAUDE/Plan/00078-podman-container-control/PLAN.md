@@ -32,10 +32,13 @@ hypothesis with a `triage.bash` probe to confirm on the HOST before build.
 
 - One command to freeze/thaw: a named container, all CCY containers, all
   containers on a named network, or an interactively picked set.
-- Simple TUI: fzf multi-select picker with a numbered-menu fallback (same
-  pattern as the deployed `open` command).
-- Safe by design: preview of the exact affected set, confirmation before bulk
-  action, refusal to run inside a container, `-y` for non-interactive use.
+- Simple TUI: a menu of **groups** (fzf, numbered-menu fallback, same pattern
+  as the deployed `open` command) that acts, refreshes and re-offers itself
+  until you quit — the group is the common target, not the individual.
+- **No verb to choose and nothing to confirm**: the state decides the verb, so
+  the same choice twice toggles; freezing is undone by doing it again (D7).
+- Prints the exact set it touched, with CCY rows marked; `-n` to look without
+  acting; refuses to run inside a container.
 - CCY containers carry an explicit label so "all CCY containers" is a filter,
   not a name regex.
 - Deployed via Ansible (`files/home/.local/bin/podfreeze` + new play).
@@ -104,12 +107,11 @@ write-up in the journal):
   anything BUILT FROM the CCY image, session or not. Demonstrated — `--ccy`
   selected the gate's own throwaway, built from `localhost/claude-yolo:*`
 
-**F15 is the safety case, and no hypothesis anticipated it.** The blast radius of
-a network-scoped freeze is not guessable from the network's name: the obvious
-first use (freeze an app's network) also freezes a live Claude session, and
-freezing the default network stops nearly every session on the machine. This
-makes the resolved-set preview in Task 2.1 the feature the network verb is
-unusable without, not a nicety.
+**F15 is the safety case, and no hypothesis anticipated it.** The blast radius
+of a network-scoped freeze is not guessable from the network's name: the
+obvious first use (freeze an app's network) also freezes a live Claude session,
+and freezing the default network stops nearly every session at once. D7 records
+where that protection ended up.
 
 H5 (checkpoint refuses `--rm` without `--export`) was not probed — checkpoint is
 a non-goal per F2 + F3, so it matters only if that is reopened.
@@ -188,20 +190,49 @@ label and prefer it when present.
 `label OR name-pattern` until Phase 1 lands, then prefers `ccy=true` and falls
 back for pre-Phase-1 containers.
 
-**Why not (a)**, which is the tempting one — the F4 name pattern is *exact by
-construction* (CCY names every container through `get_next_container_name()`),
-so on the face of it dropping the over-broad label loses nothing. The reason
-not to is the **asymmetry of the two failure modes**:
-
-- Over-match (current): `--ccy` offers one extra container, you see it in the
-  mandatory preview, you decline. Visible and recoverable.
-- Under-match (a's risk): a CCY session that is not named `*_yolo*` is silently
-  absent, and you believe you froze everything when you did not.
-
-An invisible false sense of completeness is the worse failure and is this
-repo's own defect class, so the union is right until a signal exists that is
-both exact and positive. That is Phase 1, not a narrowing.
+**Why not (a)** — the two failure modes are asymmetric. The union's over-match
+is *visible*: the extra container is named in the printed set and undone by
+repeating the command. A narrowed selector's under-match is *silent*: a CCY
+session not matching the pattern is simply absent while you believe you froze
+everything. An invisible false sense of completeness is the worse failure and
+is this repo's own defect class, so the union stands until a signal exists that
+is both exact and positive — Phase 1, not a narrowing. (Full working, including
+why the first version of this rationale was wrong, is in the journal.)
 **Date**: 2026-08-19
+
+### D7: the interactive UX — groups, a derived verb, no confirm, and a loop
+
+**Context**: user feedback on the first build — three prompts to freeze the CCY
+group, with the group targets reachable only by knowing the flag names.
+
+**Decisions**, each with the reason it is not merely a preference:
+
+1. **The menu offers groups, not containers.** All CCY containers / all
+   containers / each network, with per-container picking as the last entry.
+   Acting on a whole group is the common case, and the previous first screen
+   made it the hardest thing to reach.
+2. **The verb is derived, not asked** — anything running is frozen, a set with
+   nothing running is thawed, so the same choice twice toggles. For a given set
+   there is only one sensible move, and offering the other one is offering a
+   mistake. An explicit `freeze`/`thaw` still wins so scripts can say what they
+   mean rather than depend on current state.
+3. **No confirmation prompt.** This reverses the "confirm before destructive
+   action" reflex on purpose: freezing is *not* destructive or irreversible —
+   it is undone by running the same command again — and in the menu you have
+   already chosen a row that named the verb and the count. `--dry-run` remains
+   for looking without acting. `-y`/`--yes` is therefore removed rather than
+   left as a no-op flag.
+4. **The menu loops**: act, re-read the inventory, re-offer. The re-read is the
+   load-bearing part — counts must describe the machine now, not at startup.
+5. **No "frozen things stay frozen" warning.** It restated the definition of
+   the verb. The table's CCY column marks which rows are Claude sessions; what
+   that implies is left to the reader.
+
+**Consequence for F15**: the resolved-set preview is no longer a *gate*, it is
+a record printed as it acts. The protection against freezing a network that
+contains a live session moved earlier — into the menu row, which names the
+count before the choice is made — and rests on reversibility rather than on a
+prompt. **Date**: 2026-08-19
 
 ## Tasks
 
@@ -229,12 +260,11 @@ See D4 and D6.
 ### Phase 2: The `podfreeze` tool
 
 - [x] ✅ **Task 2.1**: Implement `files/home/.local/bin/podfreeze`:
-  - verbs: `freeze`/`thaw` with targets `<name>…`, `--network <net>`, `--ccy`,
-    `--all`; `list` report; no-arg = interactive fzf multi-select picker
-    (numbered-menu fallback) showing name, status, networks, CCY marker
-  - `--dry-run` prints the affected set and exits; every bulk action previews
-    the exact set and confirms `[y/N]` (default No, bounded retries, EOF =
-    clean abort); `-y`/`--yes` escape hatch
+  - optional verbs `freeze`/`thaw` with targets `<name>…`, `--network <net>`,
+    `--ccy`, `--all`; `list` report; no target = interactive **group** menu
+    (fzf, numbered-menu fallback) that loops until quit — see D7
+  - verb derived from state when not given; `--dry-run` prints the affected set
+    and exits; no confirmation prompt (D7)
   - refuses to run inside a container (`/run/.containerenv`) — the host's
     podman is not reachable there and this also prevents freezing yourself
   - freeze skips already-paused containers; thaw targets only paused ones
@@ -248,6 +278,12 @@ See D4 and D6.
   Documented in `docs/playbooks.md`
 - [x] ✅ **Task 2.3**: Run `./scripts/qa-all.bash` (includes ansible syntax +
   shebang/exec-bit checks); commit
+- [x] ✅ **Task 2.4**: Plan-local `unit-test-selection.bash` — sources the
+  tool's function region verbatim (cut at the `# Argument parsing` marker) and
+  drives it against a synthetic inventory, so the states integration testing
+  cannot easily manufacture (multi-network container, half-frozen group, empty
+  CCY group, explicit verb overriding the derived one) are covered. Needs no
+  podman, so it runs in the CCY container; `acceptance.bash` runs it first
 
 ### Phase 3: Deploy, acceptance, review
 
@@ -276,7 +312,7 @@ See D4 and D6.
 ## Success Criteria
 
 - [ ] `podfreeze freeze --network <net>` pauses exactly the containers on
-  that network after an accurate preview + confirmation
+  that network, and prints the exact set it touched
 - [ ] `podfreeze freeze --ccy` / `thaw --ccy` operates on all CCY
   containers (labelled and legacy-named)
 - [ ] Interactive picker works with and without fzf
@@ -290,13 +326,13 @@ See D4 and D6.
 
 ## Risks & Mitigations
 
-| Risk                                                                               | Impact | Probability | Mitigation                                                                       |
-| ---------------------------------------------------------------------------------- | ------ | ----------- | -------------------------------------------------------------------------------- |
-| Freezing a live CCY session mid-write (agent stalls, SSH/API connections time out) | M      | M           | Preview marks CCY containers; confirmation default No; freeze is non-destructive |
-| H1 wrong — rootless pause blocked on this host                                     | H      | L           | Phase 0 decision gate before any build                                           |
-| Name-pattern CCY match catches an unrelated `*_yolo` container                     | L      | L           | Explicit labels (D4) make the pattern a transition fallback only                 |
-| User forgets containers are frozen (a paused container looks hung)                 | M      | M           | `podfreeze list` surfaces paused set; freeze prints the exact thaw command       |
-| `--rm` interaction: `podman stop` on a paused `--rm` container removes it          | M      | L           | Tool never stops; docs warn to thaw before stopping                              |
+| Risk                                                                               | Impact | Probability | Mitigation                                                                                         |
+| ---------------------------------------------------------------------------------- | ------ | ----------- | -------------------------------------------------------------------------------------------------- |
+| Freezing a live CCY session mid-write (agent stalls, SSH/API connections time out) | M      | M           | Menu row names the verb and count before the choice; CCY rows marked; reversible by repeating (D7) |
+| H1 wrong — rootless pause blocked on this host                                     | H      | L           | Phase 0 decision gate before any build                                                             |
+| Name-pattern CCY match catches an unrelated `*_yolo` container                     | L      | L           | Explicit labels (D4) make the pattern a transition fallback only                                   |
+| User forgets containers are frozen (a paused container looks hung)                 | M      | M           | `podfreeze list` surfaces paused set; freeze prints the exact thaw command                         |
+| `--rm` interaction: `podman stop` on a paused `--rm` container removes it          | M      | L           | Tool never stops; docs warn to thaw before stopping                                                |
 
 ## Delivery & Milestones
 

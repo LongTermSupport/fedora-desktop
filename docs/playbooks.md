@@ -781,13 +781,19 @@ NordVPN OpenVPN manager:
 - Deploys `~/.local/bin/podfreeze` plus `fzf` (the picker is optional — a
   plain numbered menu is used without it)
 - Targets a container by name, a whole network (`--network NET`), every CCY
-  (Claude YOLO) session (`--ccy`), or everything (`--all`); no target opens an
-  interactive multi-select picker
-- Every bulk action resolves the exact set first, prints it with CCY rows
-  marked, and asks before acting — freezing "an app's network" can also freeze
-  a live Claude session sharing it, and the network's name does not tell you
-- `podfreeze list` (what is running, what is frozen), `-n` (preview only),
-  `-y` (unattended). Refuses to run inside a container
+  (Claude YOLO) session (`--ccy`), or everything (`--all`)
+- **No target opens a menu of groups** — all CCY containers, all containers, or
+  everything on a given network — each row saying what choosing it does right
+  now (`FREEZE 8`, `THAW 3`). It acts, re-reads the machine, and returns to the
+  menu until you quit. Picking individual containers is the last entry
+- **The verb is derived**: anything running is frozen, a set with nothing
+  running is thawed, so the same choice twice toggles it. An explicit
+  `freeze`/`thaw` still wins, for scripts
+- No confirmation prompt — freezing is undone by doing it again, and the menu
+  row already named the verb and the count. Use `-n` to look without acting
+- Resolves and prints the exact set it touched, with CCY rows marked
+- `podfreeze list` (what is running, what is frozen). Refuses to run inside a
+  container
 - Freezing is the **cgroup freezer, not suspend-to-disk**: frozen containers do
   not survive a reboot. The reboot-surviving equivalent (`podman container checkpoint`, CRIU) needs root and is unavailable on this rootless setup
 - Works on desktop and server (`scope: general`)
