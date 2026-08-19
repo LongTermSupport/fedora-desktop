@@ -29,62 +29,16 @@ a clean repo") — but nothing guards against discovering *most* of them.
 
 ## The evidence
 
-Measured, not estimated (`shellcheck -S style` over the 27 files):
+Headline: **34 gating shellcheck findings**, of which **SC2155 ×19** — this
+repo's own defect class, in files Plan 00075's raised bar structurally could not
+open. The bar was raised over a keyhole. Adding semgrep's blind spot took the
+census to **~92**, and Phase 3 then found the semgrep half was 17 rather than the
+28 predicted.
 
-| Severity            | Count  |
-| ------------------- | ------ |
-| **error + warning** | **34** |
-| info                | 62     |
-| style               | 2      |
-
-The gating 34, by code — note the top entry:
-
-| Code       | Count  | What it is                                          |
-| ---------- | ------ | --------------------------------------------------- |
-| **SC2155** | **19** | `local x=$(cmd)` — **this repo's own defect class** |
-| SC1090     | 6      | non-constant source                                 |
-| SC2034     | 3      | unused variable                                     |
-| SC2054     | 3      | missing comma in array                              |
-| SC2120     | 2      | function references unpassed arguments              |
-| SC1007     | 1      | remove space after `=` or quote                     |
-
-**SC2155 ×19 is the finding.** Plan 00075 Task 4.1 raised the shellcheck bar from
-`error` to `warning` *specifically because SC2155 is the discarded-failure-signal
-class*, and fixed the 12 instances it could see. Nineteen more were sitting in
-files the raised gate structurally cannot open. The bar was raised over a
-keyhole.
-
-Worst offenders: `files/home/.local/bin/nord` (16), then
-`files/var/local/claude-yolo/claude-yolo` (5) — the ccy launcher, 140 KB, the
-largest script in the repo, run on every session on every machine, and **the file
-where the incident that started Plan 00075 happened**.
-
-All 27 pass `bash -n`, so nothing is currently broken at parse level.
-
-### The census above counted only shellcheck — the real total is ~92
-
-`qa-patterns.bash` (semgrep) is blinded by the *same* execute-bit rule, so its
-rules were never applied to these files either. Re-measured by extracting each
-rule's own `pattern-regex` and `pattern-not-regex` from
-`.semgrep/bash-conventions.yml` and applying them directly, so the count comes
-from the shipped rules rather than a hand-written approximation:
-
-| Rule                           | Hidden findings |
-| ------------------------------ | --------------- |
-| `bash-error-hiding-pipe-echo`  | 22              |
-| `bash-error-hiding-or-true`    | 16              |
-| `bash-capture-discards-status` | 14              |
-| `bash-test-discards-status`    | 6               |
-| **semgrep total**              | **58**          |
-
-**58 semgrep + 34 shellcheck ≈ 92**, not 34. `bash-error-hiding-or-true` matters
-most of those: it has **no `FAIL-FAST-OK` escape by design**, because it mirrors
-the write-time blocker — every one of its 16 needs rewriting into an explicit
-reporting form, not annotating.
-
-Recording the correction rather than quietly restating the number: the original
-34 was measured with one tool and presented as the size of the job, which is the
-same shape of error this plan is about.
+Full per-code and per-rule tables, the worst offenders, and both corrections are
+in `JOURNAL/00076-Journal-26-08-19.md` ("Relocated from PLAN.md") — moved there
+when Phase 6 pushed this document past its size advisory. All 27 files pass
+`bash -n`, so nothing was ever broken at parse level.
 
 ## Goals
 
@@ -230,6 +184,21 @@ that state — and so were `rclone-tail` and `rclone-cache-status`, which the
   `scripts/vault` → a vendored directory, correctly skipped by the `-f` test),
   non-bash shebangs (none). The first three would be invisible today because
   discovery and the assertion share one predicate; see the journal
+
+### Phase 6: Land the rewritten helpers on the host
+
+The Task 4.3b fix changed how `query_stats` / `query_cache` emit their result, so
+it is a behaviour change in two production scripts, not a parser appeasement.
+
+- [ ] ⬜ **Task 6.1**: `deploy.bash` — runs `play-rclone.yml`. Until it does,
+  `qa-deployed-drift.bash` fails on the host by design. Carries Plan 00072's
+  in-flight guard: the play restarts the mounts, which can lose
+  cached-but-not-yet-uploaded data. **HOST action**
+- [ ] ⬜ **Task 6.2**: `acceptance.bash` — exercises the **deployed** scripts,
+  not a copy of the construct. Fails on `parse failed` (the captured Python
+  output not reaching the caller) and reports **INCONCLUSIVE**, not PASS, when
+  the RC does not answer and the rewritten success path was never reached.
+  **HOST action**
 
 ## Dependencies
 
