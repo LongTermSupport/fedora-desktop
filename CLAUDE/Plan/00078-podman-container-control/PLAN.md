@@ -18,9 +18,11 @@ No surveyed existing tool (podman-tui, lazydocker, ctop, Cockpit's podman
 module, dockge) offers network-scoped bulk freeze, CCY-group operations, or
 self-freeze protection, so the plan is a small purpose-built interactive bash
 tool, `podman-freeze`, deployed to `~/.local/bin/` by a new optional play. CCY
-containers are currently identified only by the `<project>_yolo[_N]` name
-pattern and inherited image labels; adding an explicit `--label` at `podman run` time in the CCY launcher is part of this plan so group selection is
-robust.
+containers turn out to be selectable **today** via the inherited
+`claude-yolo-version` image label (F12), so the tool ships on that plus the
+`<project>_yolo[_N]` name pattern as a fallback; an explicit run-time `--label`
+in the CCY launcher remains worth having, but as an enhancement rather than a
+prerequisite (see D4).
 
 This plan was authored inside a CCY container where `podman` is not installed,
 so every host-runtime claim below is either doc-sourced or listed as a
@@ -158,19 +160,12 @@ user's own vocabulary; help text states it equals pause/unpause.
 - [x] ✅ **Task 0.3**: **Decision gate PASSED.** Rootless pause is viable
   (cgroups v2 + systemd + crun), so the plan proceeds as designed
 
-### Phase 1: CCY container labelling — DEMOTED by the triage
+### Phase 1: CCY container labelling — enhancement, not a prerequisite
 
-H2 confirmed: CCY containers already carry the inherited image label
-`claude-yolo-version`, and filtering on it matched every running CCY container
-and nothing else. So the tool can identify the CCY group **today**, with no
-launcher change and no CCY version bump — the prerequisite this phase existed to
-satisfy does not exist.
-
-Keeping the phase, because an inherited image label is a weaker handle than an
-explicit one: it says "built from the CCY image", not "is a CCY session", and it
-carries no project name, so `ccy-project` is still worth having for per-project
-verbs. But it is now an **enhancement after** the tool works, not a blocker
-before it. Reordered accordingly.
+Demoted by the Phase 0 triage: H2 is confirmed, so the CCY group is selectable
+today with no launcher change and no CCY version bump. What the explicit label
+still buys, and why the phase is kept rather than dropped: see D4's REVISED
+note above.
 
 - [ ] ⬜ **Task 1.1**: Add `--label ccy=true --label ccy-project=<project>` to
   the `container_cmd run` invocation in `files/var/local/claude-yolo/claude-yolo`
@@ -180,7 +175,7 @@ before it. Reordered accordingly.
 
 ### Phase 2: The `podman-freeze` tool
 
-- [ ] ⬜ **Task 2.1**: Implement `files/home/.local/bin/podman-freeze`:
+- [x] ✅ **Task 2.1**: Implement `files/home/.local/bin/podman-freeze`:
   - verbs: `freeze`/`thaw` with targets `<name>…`, `--network <net>`, `--ccy`,
     `--all`; `list` report; no-arg = interactive fzf multi-select picker
     (numbered-menu fallback) showing name, status, networks, CCY marker
@@ -193,21 +188,25 @@ before it. Reordered accordingly.
     (`--filter status=`); empty selection is a clear message, not a silent pass
   - prompts/progress/errors → stderr; `list` output is the human payload
     (stdout) per `CLAUDE/StderrHygiene.md`
-- [ ] ⬜ **Task 2.2**: New play
+- [x] ✅ **Task 2.2**: New play
   `playbooks/imports/optional/common/play-podman-freeze.yml` (`scope: general`,
   repo playbook structure per `CLAUDE/AnsibleStyle.md`): deploy the script
-  `0755`, install `fzf` (optional dependency — tool degrades without it)
-- [ ] ⬜ **Task 2.3**: Run `./scripts/qa-all.bash` (includes ansible syntax +
+  `0755`, install `fzf` (optional dependency — tool degrades without it).
+  Documented in `docs/playbooks.md`
+- [x] ✅ **Task 2.3**: Run `./scripts/qa-all.bash` (includes ansible syntax +
   shebang/exec-bit checks); commit
 
 ### Phase 3: Deploy, acceptance, review
 
-- [ ] ⬜ **Task 3.1**: Write plan-local `acceptance.bash` (HOST): freeze/thaw a
-  throwaway container by name and by network; `--ccy --dry-run` lists exactly
-  the live CCY set; in-container invocation refuses; logs to plan `logs/`
-- [ ] ⬜ **Task 3.2**: User deploys on HOST
-  (`ansible-playbook playbooks/imports/optional/common/play-podman-freeze.yml`)
-  and runs `acceptance.bash`; journal the verdict
+- [x] ✅ **Task 3.1**: Write plan-local `deploy.bash` + `acceptance.bash`
+  (HOST): deploy chains straight into acceptance and exits with its verdict;
+  acceptance freezes/thaws a **throwaway** container on a **throwaway** network
+  (so a selection bug cannot reach a real container), checks `--ccy --dry-run`
+  against the live CCY set as a contract, and checks the in-container refusal,
+  the unknown-network and unknown-name failures, and mutually-exclusive
+  targets. `--all` is never run for real. Both log to the plan's `logs/`
+- [ ] ⬜ **Task 3.2**: User runs `CLAUDE/Plan/00078-podman-container-control/deploy.bash`
+  on the HOST (it deploys, then runs acceptance itself); journal the verdict
 - [ ] ⬜ **Task 3.3**: Run the `qa-reviewer` agent over the plan's full diff;
   resolve all BLOCK/FIX-BEFORE-MERGE findings
 - [ ] ⬜ **Task 3.4**: Mark plan Complete, move to `Completed/`, update README
@@ -226,7 +225,10 @@ before it. Reordered accordingly.
   containers (labelled and legacy-named)
 - [ ] Interactive picker works with and without fzf
 - [ ] Refuses to run inside a container; `--dry-run` changes nothing
+- [ ] `acceptance.bash` renders `VERDICT: PASS` on the HOST against the
+  deployed copy (it refuses to vouch for a binary that differs from the repo)
 - [ ] New CCY containers carry `ccy=true` and `ccy-project=` labels
+  *(Phase 1 — enhancement; the tool does not depend on it, see D4)*
 - [ ] `./scripts/qa-all.bash` passes; `qa-reviewer` verdict is PASS (or PASS
   WITH NITS, nits addressed or accepted)
 
@@ -246,4 +248,7 @@ before it. Reordered accordingly.
      "when" — do not add dates). The blow-by-blow activity log lives in
      JOURNAL/00078-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
-- Plan created + research logged (this commit)
+- Plan created + research logged
+- Phase 0 host triage run; decision gate passed, Phase 1 demoted
+- Phase 2 built: `podman-freeze`, `play-podman-freeze.yml`, docs; plus the
+  plan's `deploy.bash` + `acceptance.bash` (Task 3.1)
