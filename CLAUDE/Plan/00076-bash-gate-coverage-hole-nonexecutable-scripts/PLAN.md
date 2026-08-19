@@ -134,17 +134,35 @@ that state — and so were `rclone-tail` and `rclone-cache-status`, which the
   The gap becomes real only if an AST `pattern:` rule is ever added
 
 - [ ] ⬜ **Task 4.5**: **Per-rule coverage is invisible, and it is not uniform.**
-  Measured by splitting the ruleset and scanning the mirror once per rule:
+  The gate prints `✓ patterns: 157 files OK`, which is the **union** and reads as
+  "every rule ran on 157 files". Only one did:
 
-  Per-rule scan counts are **154 / 120 / 120 / 90 / 90** — full table and
-  `paths.include` values in the journal. The gate prints `✓ patterns: 154 files OK`, which is the union and reads as "every rule ran on 154 files". Four of the
-  five did not. `bash-capture-discards-status` — the rule for the exact class
-  Plan 00075 exists to catch — sees **90 of 154**: a narrowing that is deliberate
-  and recorded in the rule, but invisible where the pass is claimed. Same species
-  as the partial-parse report fixed in Task 5.2. **Deliberately not bolted on
-  here**: reporting it without N extra scans means matching `paths.include` globs
-  statically, which needs a YAML parser in a bash gate — a host/CI dependency
-  decision, not a tweak
+  | rule                           | files it saw | blind to |
+  | ------------------------------ | ------------ | -------- |
+  | `bash-error-hiding-or-true`    | 157          | 0        |
+  | `bash-error-hiding-pipe-echo`  | 123          | 34       |
+  | `bash-status-after-block`      | 123          | 34       |
+  | `bash-capture-discards-status` | **90**       | **67**   |
+  | `bash-test-discards-status`    | 90           | 67       |
+
+  `bash-capture-discards-status` — the rule for the exact class Plan 00075 exists
+  to catch — is blind to 67 of 157 files. The narrowing is deliberate and recorded
+  in the rule; it is the *pass line* that does not say so.
+
+  **AWAITING A DECISION.** Options measured, not estimated:
+
+  - **A — one scan per rule.** 18.4s vs 4.3s for the combined scan (+14s on a
+    gate that currently takes 17.7s). Reports what actually happened.
+  - **B — parse `paths.include` and match the globs in the gate.** No extra scan.
+    The stated blocker for this was "needs a YAML parser = a host/CI dependency
+    decision" — **that blocker does not hold**: `qa-ansible-syntax.bash` already
+    requires ansible, CI installs it explicitly, and ansible ships PyYAML. But B
+    *models* semgrep's targeting instead of measuring it, and a glob matcher that
+    drifts from semgrep's semantics would report coverage the scan does not have
+    — which is the defect this plan is about.
+  - **C — `semgrep --time`'s `match_times`.** **Ruled out by measurement.** A `0`
+    means both "not targeted" and "targeted, matched nothing": `capture-discards`
+    reads 0 on a `helpers/` file it never saw *and* on a `files/` file it did.
 
 - [x] ✅ **Task 4.3b**: `rclone-tail` and `rclone-cache-status` — cause **found**,
   and it cost 4 hidden findings. The earlier attempts failed because the harness
