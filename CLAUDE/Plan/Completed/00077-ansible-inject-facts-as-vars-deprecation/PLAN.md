@@ -1,6 +1,6 @@
 # Plan 00077: Top-level `ansible_*` fact variables are deprecated
 
-**Status**: In Progress
+**Status**: Complete (2026-08-19)
 **Created**: 2026-08-19
 **Owner**: joseph
 **Priority**: Medium
@@ -80,10 +80,12 @@ lines, and every one is a mechanical substitution with an exact replacement.
   top-level `ansible_<factname>` reference. It must key on a **known fact-name
   list**, not on the `ansible_` prefix alone — this repo's own `ansible_facts`
   usages and any future `ansible_`-prefixed local var must not trip it
-- [ ] ⬜ **Task 2.2**: Prove the fix rather than assume it — run one converted
-  play with `ANSIBLE_INJECT_FACTS_AS_VARS=False`, which is exactly the post-2.24
-  world. A play that passes under that flag is proven, not argued.
-  **HOST action**: `CLAUDE/Plan/00077-…/acceptance.bash`
+- [x] ✅ **Task 2.2**: Prove the fix rather than assume it — run one converted
+  play with `ANSIBLE_INJECT_FACT_VARS=False`, which is exactly the post-2.24
+  world. **PASSED on the host**: the control failed with
+  `'ansible_distribution' is undefined`, then `play-rpm-fusion.yml` ran clean
+  (ok=2, failed=0). A play that passes under that flag is proven, not argued.
+  Run via `CLAUDE/Plan/00077-…/acceptance.bash`
   - **First run: the negative control did its job and the harness was broken.**
     The environment variable is **`ANSIBLE_INJECT_FACT_VARS`** — no "AS", "FACT"
     singular — not `ANSIBLE_INJECT_FACTS_AS_VARS`, which is what the setting is
@@ -120,7 +122,8 @@ alone.
 
 - [x] Zero top-level `ansible_*` fact references in `playbooks/ tasks/ vars/ environment/`
 - [x] `qa-all.bash` fails if one is reintroduced
-- [ ] At least one converted play runs clean under `ANSIBLE_INJECT_FACTS_AS_VARS=False`
+- [x] `play-rpm-fusion.yml` runs clean under `ANSIBLE_INJECT_FACT_VARS=False`, with
+  the harness proven to be applying it (config check + a control that must fail)
 
 ## Risks & Mitigations
 

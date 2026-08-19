@@ -67,16 +67,26 @@ Confirmed facts (per `CLAUDE/PlanTriage.md`, source cited for each):
 | F9  | podman-tui is packaged in Fedora (`dnf install podman-tui`) and requires the user `podman.socket` service                                                                     | packages.fedoraproject.org; github.com/containers/podman-tui README (fetched 2026-08-19)                |
 | F10 | The user's four verbs (freeze/unfreeze, suspend/unsuspend) map to **one** rootless-capable mechanism: pause/unpause. Checkpoint is the only second mechanism and is root-only | F1 + F2 + F3                                                                                            |
 
-Hypotheses — high confidence but **not yet verified on the host** (`podman` is
-absent in the CCY container); each has a probe in this plan's `triage.bash`:
+Facts established by the **Phase 0 host triage** (raw log in this plan's
+gitignored `logs/`; full write-up in the journal):
 
-| #   | Hypothesis                                                                                                                         | Confirm / refute by                                                                      |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| H1  | Rootless `podman pause` works on this host (needs cgroups v2 + systemd; Fedora default). Older Podman blocked rootless pause on v1 | `triage.bash`: `podman info` cgroups/rootless + pause `--help`                           |
-| H2  | Containers inherit image labels, so `podman ps --filter label=claude-yolo-version` already matches CCY containers                  | `triage.bash`: label filter vs. running CCY container                                    |
-| H3  | The installed Podman supports `--filter network=` on both `ps` and `pause`                                                         | `triage.bash`: version + filter probe                                                    |
-| H4  | podman-tui offers per-container pause but **no** network-scoped or group bulk actions (its docs list screens, not bulk verbs)      | `triage.bash`: `dnf info podman-tui`; optional manual check                              |
-| H5  | Checkpoint refuses `--rm` containers unless `--export` is used                                                                     | podman-container-checkpoint(1) on host — moot unless the checkpoint non-goal is reopened |
+| #   | Fact                                                                                                                                                                 | Source             |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| F11 | podman 5.8.4, `rootless=true`, `cgroupVersion=v2`, `cgroupManager=systemd`, `runtime=crun` — **rootless pause is viable; the Task 0.3 decision gate passes** (H1)    | Phase 0 triage log |
+| F12 | `ps --filter label=claude-yolo-version` matches **exactly** the running CCY containers — the group is selectable today, with no launcher change (H2, revises D4)     | Phase 0 triage log |
+| F13 | `podman pause` accepts `-f, --filter`; `ps --filter network=` partitions every network correctly, reporting empty sets rather than erroring (H3)                     | Phase 0 triage log |
+| F14 | `podman-tui 1.11.3-1.fc44` is in `updates` and the user `podman.socket` it needs is already active; `fzf` is present at `/usr/bin/fzf` (H4 packaging; D3 dependency) | Phase 0 triage log |
+| F15 | **A CCY container shares a user-defined network with a ten-container compose stack**, and **seven CCY containers share the default `podman` network**                | Phase 0 triage log |
+
+**F15 is the safety case, and no hypothesis anticipated it.** The blast radius of
+a network-scoped freeze is not guessable from the network's name: the obvious
+first use (freeze an app's network) also freezes a live Claude session, and
+freezing the default network stops nearly every session on the machine. This
+makes the resolved-set preview in Task 2.1 the feature the network verb is
+unusable without, not a nicety.
+
+H5 (checkpoint refuses `--rm` without `--export`) was not probed — checkpoint is
+a non-goal per F2 + F3, so it matters only if that is reopened.
 
 ## Technical Decisions
 
@@ -122,6 +132,14 @@ The tool selects CCY containers by `label=ccy=true` **or** the F4 name pattern,
 so pre-existing unlabelled containers still match during the transition.
 **Date**: 2026-08-19
 
+**REVISED after Phase 0** (2026-08-19): H2 is **confirmed** — the inherited
+`claude-yolo-version` image label already selects exactly the CCY containers, so
+the launcher change is no longer a prerequisite and Phase 1 is demoted to an
+enhancement. The tool ships selecting on `label=claude-yolo-version` **or** the
+F4 name pattern. The explicit label is still wanted later for two reasons the
+inherited one cannot serve: it distinguishes "is a CCY session" from "was built
+from the CCY image", and it carries the project name for per-project verbs.
+
 ### D5: Naming — `podman-freeze`
 
 Behaviour-descriptive, no mood: `podman-freeze` with verbs
@@ -133,16 +151,26 @@ user's own vocabulary; help text states it equals pause/unpause.
 
 ### Phase 0: Host triage + decision gate
 
-- [ ] ⬜ **Task 0.1**: Write plan-local `triage.bash` (read-only; logs to this
-  plan's `logs/`; probes H1–H4: podman version, rootless/cgroups info, pause
-  `--help` filter support, `ps --filter network=`/`label=` against live CCY
-  containers, `dnf info podman-tui`, fzf presence)
-- [ ] ⬜ **Task 0.2**: User runs `triage.bash` on the HOST; confirm or refute
-  H1–H3 from the log; update the Facts table and journal the outcome
-- [ ] ⬜ **Task 0.3**: Decision gate — if H1 (rootless pause) is refuted, STOP
-  and re-plan; everything downstream depends on it
+- [x] ✅ **Task 0.1**: Plan-local `triage.bash` written (read-only, HOST-only,
+  logs to this plan's gitignored `logs/`)
+- [x] ✅ **Task 0.2**: Run on the HOST. H1–H3 confirmed, H4 partly; Facts table
+  updated above and the outcome journalled
+- [x] ✅ **Task 0.3**: **Decision gate PASSED.** Rootless pause is viable
+  (cgroups v2 + systemd + crun), so the plan proceeds as designed
 
-### Phase 1: CCY container labelling
+### Phase 1: CCY container labelling — DEMOTED by the triage
+
+H2 confirmed: CCY containers already carry the inherited image label
+`claude-yolo-version`, and filtering on it matched every running CCY container
+and nothing else. So the tool can identify the CCY group **today**, with no
+launcher change and no CCY version bump — the prerequisite this phase existed to
+satisfy does not exist.
+
+Keeping the phase, because an inherited image label is a weaker handle than an
+explicit one: it says "built from the CCY image", not "is a CCY session", and it
+carries no project name, so `ccy-project` is still worth having for per-project
+verbs. But it is now an **enhancement after** the tool works, not a blocker
+before it. Reordered accordingly.
 
 - [ ] ⬜ **Task 1.1**: Add `--label ccy=true --label ccy-project=<project>` to
   the `container_cmd run` invocation in `files/var/local/claude-yolo/claude-yolo`
