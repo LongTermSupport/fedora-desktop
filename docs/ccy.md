@@ -761,20 +761,21 @@ makes the container print a warning at launch. Repair details and the QA gate
 
 ## Troubleshooting
 
-| Symptom                                     | Cause / fix                                                                                                          |
-| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `ccy: command not found`                    | Shell has not picked up the bashrc include. Open a new shell, or run the playbook.                                   |
-| Refuses to start, mentions hostname         | `.claude/ccy/allowed-hostnames` restricts this project. Add your hostname or remove the file.                        |
-| Refuses to start, "sensitive files tracked" | Runtime state under `.claude/ccy/` has been committed. Untrack it (`git rm --cached`) and re-launch.                 |
-| Container image build fails                 | CCY prints an AI-assisted fix prompt. Recover with `ccy --disable-custom-docker` to get a session in the base image. |
-| Token expired / rejected                    | `ccy --update-token=NAME`, or `ccy --create-token` for a fresh one.                                                  |
-| `git push` fails inside the container       | No key mounted, or the wrong one. Relaunch and select the right key, or use `--ssh-key`.                             |
-| Git-over-SSH hangs on a restricted network  | Port 22 blocked — use `ccy --github-443`.                                                                            |
-| Agent cannot reach the database             | Not on the network. `ccy --network <net>`, or `ccy --connect` from another terminal.                                 |
-| Warning about the ctrl+z patch at launch    | The patch soft-failed against a new Claude Code. See [the ctrl+z patch](#the-ctrlz-patch).                           |
-| Session stalls with a full context window   | Enable [the supervisor](#the-supervisor) so it compacts automatically.                                               |
-| Stale/orphaned containers                   | `ccy --top` to list and stop them.                                                                                   |
-| Need to see what CCY itself is doing        | `ccy --debug` for interactive debug-layer selection.                                                                 |
+| Symptom                                       | Cause / fix                                                                                                                                                                                                                                        |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ccy: command not found`                      | Shell has not picked up the bashrc include. Open a new shell, or run the playbook.                                                                                                                                                                 |
+| Refuses to start, mentions hostname           | `.claude/ccy/allowed-hostnames` restricts this project. Add your hostname or remove the file.                                                                                                                                                      |
+| Refuses to start, "sensitive files tracked"   | Runtime state under `.claude/ccy/` has been committed. Untrack it (`git rm --cached`) and re-launch.                                                                                                                                               |
+| Container image build fails                   | CCY prints an AI-assisted fix prompt. Recover with `ccy --disable-custom-docker` to get a session in the base image.                                                                                                                               |
+| Token expired / rejected                      | `ccy --update-token=NAME`, or `ccy --create-token` for a fresh one.                                                                                                                                                                                |
+| `git push` fails inside the container         | No key mounted, or the wrong one. Relaunch and select the right key, or use `--ssh-key`.                                                                                                                                                           |
+| Git-over-SSH hangs on a restricted network    | Port 22 blocked — use `ccy --github-443`.                                                                                                                                                                                                          |
+| `NETWORK ERROR: '...' has no internet access` | The reachability preflight needs an `alpine` pull and plain-http egress to `google.com`. If the network is known-good by other means (e.g. a fenced CI runner that proves its own egress beforehand), skip it: `CCY_SKIP_NETWORK_PREFLIGHT=1 ccy`. |
+| Agent cannot reach the database               | Not on the network. `ccy --network <net>`, or `ccy --connect` from another terminal.                                                                                                                                                               |
+| Warning about the ctrl+z patch at launch      | The patch soft-failed against a new Claude Code. See [the ctrl+z patch](#the-ctrlz-patch).                                                                                                                                                         |
+| Session stalls with a full context window     | Enable [the supervisor](#the-supervisor) so it compacts automatically.                                                                                                                                                                             |
+| Stale/orphaned containers                     | `ccy --top` to list and stop them.                                                                                                                                                                                                                 |
+| Need to see what CCY itself is doing          | `ccy --debug` for interactive debug-layer selection.                                                                                                                                                                                               |
 
 ---
 

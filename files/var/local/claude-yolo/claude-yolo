@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.38.0"  # Plan 00076: the daily Claude Code update check no longer reports "up to date ()" when the container will not start — with no pipefail the pipeline took its status from `head -1`, which succeeds on empty input, so the fallback to "unknown" never fired and a failed probe produced an EMPTY version that walked past the offline guard and could start an in-place npm update against a version nothing had read. Also: network listing, `claude --help`, network inspect, the token scan and the update-check stamp all now report WHY they failed instead of substituting a value. Previously (3.37.2): a Docker context that cannot be QUERIED is no longer reported as a context that is not rootless — the same misreport shape as the GitHub outage fixed in 3.36.0. Previously (3.37.1): remove three write-only variables (CONFIG_LOADED, HOST_GID, PODMAN_DEFAULT_DETECTED) — assigned in six places, read in none. No behaviour change; found only because this file had never been linted (Plan 00076: extensionless + mode 644 made it invisible to shellcheck and semgrep alike). Previously (3.37.0): `ccy --top` no longer dies mid-table, and the zombie scan no longer truncates, when a container exits while being listed — four bare captures whose exit status errexit turned into an aborted function now carry explicit fallbacks. See docs/ccy-changelog.md. Previously (3.36.0): a GitHub API outage no longer blocks launch with a bogus "token owner does not match" report — the owner lookup is retried and validated as a login before comparison, and an unavailable API says so and offers CCY_SKIP_TOKEN_OWNER_CHECK=1. Plan 00074 (3.35.0): usage display as aligned coloured bars, CCY_USAGE_DEBUG/CCY_USAGE_SCALE.
+CCY_VERSION="3.39.0"  # CCY_SKIP_NETWORK_PREFLIGHT bypasses the internet-reachability preflight for a caller that already proves its own egress (e.g. a fenced CI runner). See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -2685,7 +2685,17 @@ if [[ -n "$SELECTED_NETWORK" ]] && [[ "$NO_NETWORK_MODE" != true ]]; then
 fi
 
 # Verify network has internet access (fail fast)
-if [[ -n "$SELECTED_NETWORK" ]] && [[ "$NO_NETWORK_MODE" != true ]]; then
+#
+# Skippable via CCY_SKIP_NETWORK_PREFLIGHT=1 — for a caller that has already proved its own
+# network's egress by some other means (e.g. a fenced CI runner whose provisioning asserts the
+# allowlist before ever invoking ccy) and does not want this check's own two requirements: an
+# unpinned `alpine` pull and plain-http reachability to google.com, neither of which such a
+# runner necessarily allows. Same idiom as CCY_SKIP_TOKEN_OWNER_CHECK (lib/ssh-handling.bash) —
+# an explicit, named opt-out for a specific preflight, not a general "trust me" switch.
+if [[ -n "${CCY_SKIP_NETWORK_PREFLIGHT:-}" ]]; then
+    echo "✓ Network preflight skipped (CCY_SKIP_NETWORK_PREFLIGHT set)"
+    echo ""
+elif [[ -n "$SELECTED_NETWORK" ]] && [[ "$NO_NETWORK_MODE" != true ]]; then
     echo "Verifying network '$SELECTED_NETWORK' has internet access..."
 
     # Test with google.com (simpler, more reliable than api.anthropic.com which needs proper TLS)
@@ -2755,6 +2765,10 @@ if [[ -n "$SELECTED_NETWORK" ]] && [[ "$NO_NETWORK_MODE" != true ]]; then
         echo ""
         echo "  5. Check network config:"
         echo "     podman network inspect $SELECTED_NETWORK | grep -E 'internal|driver'"
+        echo ""
+        echo "  6. Skip this check entirely if you already know the network works — e.g. a"
+        echo "     fenced CI runner that proves its own egress before ever calling ccy:"
+        echo "     CCY_SKIP_NETWORK_PREFLIGHT=1 ccy"
         echo ""
         echo "════════════════════════════════════════════════════════════════════════════════"
         exit 1
