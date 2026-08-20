@@ -104,18 +104,14 @@ actually matters and is not yet established.
   reachable at L3 **without traversing the gateway** — they are neighbours on
   one flat segment, which is what "shared L2 domain" means concretely.
   `[SOURCE: /proc/net/route, /proc/net/tcp in a live session]`
-- **F5** — this session has **zero listening TCP sockets** (no `st 0A` rows in
-  `/proc/net/tcp*`; every socket is ESTABLISHED outbound to `:443`). A snapshot
-  of **one idle** session — "the floor is zero", not "there is never anything to
-  reach". Superseded in scope by F19/F20
-- **F6** — the ARP table holds **only the gateway**, so this session has never
-  exchanged L2 frames with a peer container. Consistent with no cross-talk
-  happening in practice; says **nothing** about whether it is possible, which is
-  the question H1 asks
+- **F5** — zero listening TCP sockets in that session; every socket ESTABLISHED
+  outbound to `:443`. One idle session — superseded in scope by **F22**
+- **F6** — the ARP table holds **only the gateway**: no L2 frame has ever been
+  exchanged with a peer. Says nothing about whether it *could* be — that is H1
 
-**F4 + F5 together are the shape of the answer**: the path is open by
-construction, and whether anything is listening at the end of it is the
-variable. That makes H3 the fact worth spending effort on, not H1.
+**F4 + F5 are the shape of the answer**: the path is open by construction, and
+whether anything is listening at the end of it is the variable. That makes H3
+the fact worth spending effort on, not H1.
 
 **From host triage, run 1** (`logs/network-isolation-triage.log`, gitignored):
 
@@ -123,8 +119,7 @@ variable. That makes H3 the fact worth spending effort on, not H1.
   members**; every other network on the host has **0**. F17 confirmed at fleet
   scale: all sessions share one L2 segment, and the app networks are idle
 - **F19** — the probed session had **zero listening TCP sockets**, consistent
-  with F5. **But coverage was 1 of 5** (see F20), so this is *not yet* a
-  fleet-wide answer and must not be read as one
+  with F5 — but coverage was **1 of 5** (see F20). Superseded by F22
 - **F20** — the `ccy=true` rollout is **partial**: only the session relaunched
   under 3.40.0 carries the labels; the other four predate it and show empty
   `project=`/`github=`. Exactly what the 3.40.0 changelog predicted
@@ -135,14 +130,28 @@ variable. That makes H3 the fact worth spending effort on, not H1.
   Podman (`rc=125`, *"can't evaluate field NetworkID"*), so run 1's network
   inventory was **absent**, not empty. Field is `.ID`; fixed
 
-> **Correction (my probe, not the host).** P4 filtered sessions on `ccy=true`
-> and guarded only the **empty** case. With 1 of 5 sessions labelled it probed
-> one, and printed it under a header inviting *"the exposure is THEORETICAL"* —
-> a 1-of-5 sample wearing a 5-of-5 header. An under-match is silent, unlike an
-> over-match which names itself in the output. `triage.bash` now selects the
-> **union** of the label and `podfreeze`'s name pattern, marks each row
-> labelled/unlabelled, and prints a COVERAGE line. **Re-run is required before
-> F19 means anything.**
+> **Correction (my probe, not the host).** P4 filtered on `ccy=true` and guarded
+> only the **empty** case, so a 1-of-5 sample printed under a 5-of-5 header. Now
+> selects the **union** of the label and `podfreeze`'s name pattern, with a
+> COVERAGE line. Re-run as F22. Full account: `JOURNAL/00080-Journal-26-08-20.md`.
+
+**From host triage, run 2** (the fixed probe):
+
+- **F22** — **coverage 6 of 6** (2 labelled, 4 matched by name; a sixth session
+  had appeared since run 1), and **every one shows `(no listening sockets)`**.
+  So across the whole live fleet the listening surface is **empty**: nothing is
+  bound for a bridge neighbour to reach. This is the fleet-wide answer F19 could
+  not give. **H3 is answered for the idle case**, and the reachability of the
+  path (H1) is therefore reachability *to nothing*
+- **F23** — with `.ID` the network inventory returns `rc=0`: six bridge
+  networks, of which only `podman` has members. Confirms F18's shape
+
+> **The snapshot caveat is now the whole of the remaining risk.** Six sessions
+> were sampled while none happened to be running a dev server. F22 establishes
+> the **floor is empty in normal use**, not that a listener can never appear. A
+> `npm run dev` bound to `0.0.0.0` inside any session would still be reachable
+> from all five others, and nothing in the current setup would prevent or
+> reveal that.
 
 ## Hypotheses
 
@@ -160,9 +169,10 @@ does.
   (`network-management.bash:751`). So cross-session reach, where it exists, is
   **by IP only**
 - **H3** — the processes CCY actually runs bind to `0.0.0.0` rather than
-  `127.0.0.1`. **This is now the decisive unknown.** Nothing in the repo
-  evidences it either way, and a live session read from `/proc` while idle had
-  **zero** listeners (F5)
+  `127.0.0.1`. **ANSWERED for the idle fleet by F22**: 6 of 6 live sessions have
+  *no* listeners at all, so there is nothing bound to either address. What
+  remains is not a hypothesis but a **conditional**: *if* a session runs a dev
+  server on `0.0.0.0`, five neighbours can reach it
 - **H4** — a per-session network can be created and removed without leaking on
   abnormal termination (`SIGKILL`, OOM, power loss)
 - **H5** — a per-session network reaches the internet and the host identically
@@ -249,8 +259,11 @@ used.** If it is rare, Option 4 is free isolation and less code.
   **Run 1**: produced F18–F21, and exposed two defects in the probe itself —
   P4 covered 1 of 5 sessions while reading as fleet-wide, and P5's network
   inventory died on an invalid template field. Both fixed.
-  **Run 1 does NOT settle H3**: re-run the passive report so P4 covers all five
-  sessions, ideally while something is actually being built rather than idle
+  **Run 2**: coverage 6 of 6, every session with no listeners (F22), network
+  inventory clean (F23). H3 answered for the idle fleet.
+  **Still open**: the active probes (`--reachability`, P6–P12) — they decide H1,
+  H4 and the netavark-version question, i.e. whether the *fix* works, which only
+  matters if Task 2.2 chooses to fix anything
 
 ### Phase 2: Decision gate
 
