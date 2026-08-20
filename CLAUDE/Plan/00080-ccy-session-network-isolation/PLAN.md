@@ -61,6 +61,26 @@ finding that prompted this plan:
 Neither fact says anything yet about **reachability**, which is the thing that
 actually matters and is not yet established.
 
+**From reading the launcher** (source-grounded, no runtime claim):
+
+- **F1** — there is no "no network" path. `NETWORK_FLAG` starts empty
+  (`claude-yolo:1943`) and is only ever set to `--network <name>` for a project
+  network. Every other route leaves it empty, so `podman run` is invoked with
+  **no** `--network` flag and the container lands on the default `podman`
+  bridge. The shared bridge is thus the fallthrough for every case that is not
+  an explicit project network
+- **F2** — **`--no-network` does not mean "no network"**; it means "skip the
+  compose auto-detect" (`claude-yolo:2044-2047`), after which F1 applies and the
+  session still joins the shared bridge. The flag's `--help` line and
+  `docs/ccy.md:434` both say "Skip network auto-detection" and are correct; the
+  **runtime message** — `✓ Skipping network connection (--no-network flag)` —
+  is not, and reads as though the container has no network. A user reaching for
+  `--no-network` to isolate a session would get the opposite of what the message
+  promises. Fixing that string is in scope regardless of how the decision goes
+- **F3** — a session's network is *persisted* (`load_network_preference`) and
+  re-applied on the next launch, so a session that joined a project network once
+  keeps doing so without the flag
+
 ## Hypotheses
 
 Each needs a probe before it becomes a fact. None is a decision input until it
@@ -132,6 +152,10 @@ network"), which is a one-line change made *then*, with the reason known.
 
 ### Phase 4: Close out
 
+- [ ] ⬜ **Task 4.0**: Fix the `--no-network` runtime message (F2). Unconditional
+  — it misdescribes what the flag does whichever way Task 2.2 goes, and it
+  misdescribes it in the direction a user reaching for isolation would be misled
+  by
 - [ ] ⬜ **Task 4.1**: Apply the D1 consequence to `podfreeze`, whichever way it
   went
 - [ ] ⬜ **Task 4.2**: Update `docs/ccy.md`'s networking + security sections;
