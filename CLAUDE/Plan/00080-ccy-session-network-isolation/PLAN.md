@@ -261,9 +261,12 @@ used.** If it is rare, Option 4 is free isolation and less code.
   inventory died on an invalid template field. Both fixed.
   **Run 2**: coverage 6 of 6, every session with no listeners (F22), network
   inventory clean (F23). H3 answered for the idle fleet.
-  **Still open**: the active probes (`--reachability`, P6–P12) — they decide H1,
-  H4 and the netavark-version question, i.e. whether the *fix* works, which only
-  matters if Task 2.2 chooses to fix anything
+  **Still open**: (a) a passive re-run for **P13**, added after run 2 — it
+  counts CCY's persisted per-project network preferences, which are the actual
+  usage record for `--connect` and so the last input Task 2.2 lacks; (b) the
+  active probes (`--reachability`, P6–P12), which decide H1, H4 and the
+  netavark-version question — i.e. whether the *fix* works, which only matters
+  if Task 2.2 chooses to fix anything
 
 ### Phase 2: Decision gate
 
@@ -271,7 +274,12 @@ used.** If it is rare, Option 4 is free isolation and less code.
   cross-session reachability gains and does not gain. If the honest answer is
   "little in practice", say so rather than inflating it
 - [ ] ⬜ **Task 2.2**: **DECISION**: per-session network, or keep the shared
-  default. Record it with the reasoning, including what would change the answer
+  default. Record it with the reasoning, including what would change the answer.
+  **Two inputs, and both are now measurable rather than matters of opinion**:
+  (a) is anything exposed? — **F22 says no**, 6 of 6 sessions have zero
+  listeners; (b) what is the bridge buying? — **P13 counts it** from CCY's
+  per-project persisted network preferences, which are the actual usage record
+  for `--connect`. Re-run `triage.bash` to get (b)
 
 ### Phase 3: Implement (only if Task 2.2 says so)
 
