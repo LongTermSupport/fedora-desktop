@@ -81,6 +81,31 @@ actually matters and is not yet established.
   re-applied on the next launch, so a session that joined a project network once
   keeps doing so without the flag
 
+**From inside a live CCY session**, read passively from `/proc/net/*` (no
+`podman` needed, nothing probed, no peer touched):
+
+- **F4** — the container has one interface `eth0`, a default route via the
+  bridge gateway, and an **on-link route for the whole default subnet**
+  (a `/16`, mask `0000FFFF`). So every other container on that bridge is
+  reachable at L3 **without traversing the gateway** — they are neighbours on
+  one flat segment, which is what "shared L2 domain" means concretely.
+  `[SOURCE: /proc/net/route, /proc/net/tcp in a live session]`
+- **F5** — this session has **zero listening TCP sockets**: no `st 0A` rows in
+  either `/proc/net/tcp` or `/proc/net/tcp6`; every socket is an ESTABLISHED
+  outbound connection to `:443`. So an **idle** Claude session exposes no TCP
+  surface at all. **This is a snapshot of one idle session and is NOT the
+  general claim** — a dev server, or `agent-browser`, would add listeners, and
+  which address they bind is exactly H3. Read as "the floor is zero", not as
+  "there is never anything to reach"
+- **F6** — the ARP table holds **only the gateway**, so this session has never
+  exchanged L2 frames with a peer container. Consistent with no cross-talk
+  happening in practice; says **nothing** about whether it is possible, which is
+  the question H1 asks
+
+**F4 + F5 together are the shape of the answer**: the path is open by
+construction, and whether anything is listening at the end of it is the
+variable. That makes H3 the fact worth spending effort on, not H1.
+
 ## Hypotheses
 
 Each needs a probe before it becomes a fact. None is a decision input until it
