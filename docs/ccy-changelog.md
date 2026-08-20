@@ -31,11 +31,23 @@ concern: a container-control tool asking for "all CCY containers" was observed s
 CCY-derived throwaway that was no such thing.
 
 A run-time label cannot be inherited, so `ccy=true` is a positive, exact signal that this
-container is a live session, and `ccy-project` says which project it belongs to. Nothing
-reads these labels inside the container and no behaviour changes; they exist for host-side
-tooling to select on (`podman ps --filter label=ccy=true`). Containers started by an earlier
-CCY carry neither label until they are restarted, so consumers should keep the inherited
-label as a fallback.
+container is a live session, and `ccy-project` says which project it belongs to.
+
+**Three identity labels** are set alongside them, so sessions can be selected by *who they
+are running as* rather than only by project: `ccy-github=<username>`, `ccy-token=<token config name>`, and `ccy-ssh-keys=<space-separated key basenames>`. Each falls back to the
+literal `none` when that identity is absent, so the label is always present and a filter
+never silently matches nothing because a key was missing. This makes
+"freeze every session running as account X" a single `--filter` away.
+
+The values are whatever the launch resolved — they are **not** secrets (a username, a
+config name, and key *filenames*; no key material, no token value), but they are
+identifiers, so treat `podman ps` output the same way as any other host state before
+pasting it somewhere public.
+
+Nothing reads any of these labels inside the container and no behaviour changes; they exist
+for host-side tooling to select on (`podman ps --filter label=ccy=true`). Containers started
+by an earlier CCY carry none of them until they are restarted, so consumers should keep the
+inherited label as a fallback.
 
 See `CLAUDE/Plan/00079-podman-container-control`.
 
