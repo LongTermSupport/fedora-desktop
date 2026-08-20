@@ -84,6 +84,40 @@ holes, each behind a test that fails against the unfixed code.
 - **F6** — `docker-health.bash:73` iterates `exited created` while its own
   comment and the user-facing message both name `dead`. Docker-only, rare, and
   unexercisable in a container — recorded, not fixed
+- **F7** — **the CCY version-bump gate covers `claude-yolo` alone.**
+  `pre-commit:105` keys on that one path, and the runtime hash
+  (`claude-yolo:72`) is `md5sum` of `"$0"` — the launcher only. It sources six
+  libraries totalling **212 KB against the launcher's 149 KB**. Measured: **71
+  commits have touched `lib/`, and 22 of them touched `claude-yolo` not at
+  all**, so no bump was ever required and none was made. A behaviour change in
+  `lib/token-management.bash` therefore ships with an unchanged `CCY_VERSION`,
+  an unchanged hash, `validate_ccy_integrity` reporting a match, and no
+  changelog entry. `CLAUDE/ContainerRules.md` states the rule as "ANY code
+  change requires a version bump"; enforcement covers one file of seven
+- **F8** — **`commit-msg` has no `localhost.yml` denylist.** `pre-commit` runs
+  static patterns **and** the SEC-02 dynamic denylist; `commit-msg` runs only
+  the static patterns, then prints `✓ Commit message looks clean`. So a private
+  identifier with no static pattern — an account alias, a machine hostname, a
+  service username — is rejected in a staged *file* and accepted in a *commit
+  message*. That is the worse of the two: **a commit message cannot be fixed by
+  a follow-up commit**
+- **F9** — `qa-ansible-syntax.bash:51-61` hardcodes discovery to
+  `playbooks/imports` plus the entrypoint, so `playbooks/dev/play-collect-diagnostics.yml`
+  is **never** `--syntax-check`ed — and it has no zero guard either.
+  `AgentNotes.md` documents three 2.19 parse hazards that *only* this gate
+  catches, on a play that runs during an incident. `qa-ansible.bash`'s greps DO
+  cover `playbooks/dev/`, so the two Ansible gates disagree about the population
+  and neither says so
+- **F10** — `qa-ansible.bash:50`'s fail-fast regex accepts `yes` for
+  `ignore_errors` but not for `ignore_unreachable`, and only `false` (not `no`)
+  for `failed_when`. Both spellings are valid YAML booleans, so
+  `failed_when: no` earns `✓ ansible: fail-fast patterns OK` — a green tick on
+  the repo's #1 rule. The asymmetry sits inside a single regex
+- **F11** — `CLAUDE/QA.md` says "ALWAYS and ONLY use `./scripts/qa-all.bash`"
+  and "NEVER use individual scripts directly", then documents
+  `qa-helper-tests.bash` and `helpers.gnome.check_extension_compat` as gates.
+  `qa-all.bash` runs neither. Following the stated rule, a `helpers/` change
+  gets `✓ QA passed` with its unit suite never run
 
 ## Tasks
 
@@ -100,6 +134,19 @@ holes, each behind a test that fails against the unfixed code.
 - [ ] ⬜ **Task 1.4**: Apply the same per-token treatment to the `/home/` and
   credential whitelists, which have the identical line-granularity shape
 - [ ] ⬜ **Task 1.5**: Harvest the plural `_accounts` convention (F5)
+- [ ] ⬜ **Task 1.6**: **Give `commit-msg` the same denylist as `pre-commit`**
+  (F8). Highest remaining security item: a commit message is permanent, so this
+  is the one leak route with no remedy after the fact. Extract the denylist
+  builder both hooks can share rather than duplicating it
+
+### Phase 1b: The CCY integrity gate covers one file of seven
+
+- [ ] ⬜ **Task 1.7**: Extend the version-bump gate and the runtime hash to the
+  `lib/` files (F7) — the hash should cover the launcher **and** everything it
+  sources, and the commit gate should require a bump when any of them changes.
+  22 commits have already shipped lib-only behaviour changes under an unchanged
+  version, so this also needs a decision about whether to bump once for the
+  accumulated drift
 
 ### Phase 2: The QA gates
 
@@ -107,6 +154,13 @@ holes, each behind a test that fails against the unfixed code.
   the execute bit, plus a tracked-file coverage assertion, mirroring
   `qa-shell-discovery.bash`. Exit 2 on shortfall and on zero discovery
 - [ ] ⬜ **Task 2.2**: Fix the 31 findings the widened gate then surfaces
+- [ ] ⬜ **Task 2.4**: `qa-ansible-syntax.bash` — discover every file with a
+  top-level `- hosts:` rather than hardcoding `playbooks/imports`, add a zero
+  guard, and reconcile its population with `qa-ansible.bash`'s (F9)
+- [ ] ⬜ **Task 2.5**: Make the fail-fast regex accept both YAML boolean
+  spellings on every directive (F10), and decide whether `qa-all.bash` should
+  run the two documented-but-unrun gates or `CLAUDE/QA.md` should stop claiming
+  it is the only command needed (F11)
 - [ ] ⬜ **Task 2.3**: `qa-deployed-drift.bash` — resolve the deployed name from
   the play's `dest:` rather than the basename, and fail rather than skip when a
   repo file maps to no deployed name. A `.j2` source needs its rendered output
