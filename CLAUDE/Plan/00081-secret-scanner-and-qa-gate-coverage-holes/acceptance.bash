@@ -29,19 +29,52 @@
 # tracked file.
 set -euo pipefail
 
-for arg in "$@"; do
+HOOKS_DIR=""
+while [ "$#" -gt 0 ]; do
+    arg="$1"
     case "$arg" in
+        --hooks-dir)
+            # Point the checks at a DIFFERENT copy of the hooks. This exists so
+            # "each check fails against the unfixed code" is a claim that can be
+            # re-run rather than one taken on trust:
+            #   mkdir -p /tmp/old && git show HEAD~1:scripts/git-hooks/pre-commit > ...
+            #   acceptance.bash --hooks-dir /tmp/old   # expect FAILs
+            shift
+            if [ "$#" -eq 0 ]; then
+                echo "ERROR: --hooks-dir needs a directory" >&2
+                exit 1
+            fi
+            HOOKS_DIR="$1"
+            shift
+            continue
+            ;;
         -h | --help)
             cat <<'EOF'
-Usage: acceptance.bash [--help]
+Usage: acceptance.bash [--hooks-dir DIR] [--help]
 
-Plan 00081 acceptance gate — proves the pre-commit secret scanner sees:
+Plan 00081 acceptance gate — proves the git-hook secret scanners see:
 
+  pre-commit
    1  a staged rename (git mv + edit), which --diff-filter=ACM excluded
    2  a real address sharing a line with a whitelisted git@ token
    3  ... and still does NOT flag a line whose only match IS whitelisted
       (the fix must not trade a false negative for a false positive)
    4  a plain modified file (the pre-existing path still works)
+   5  a real /home/ path sharing a line with a whitelisted one
+
+  commit-msg (which had NO localhost.yml denylist at all)
+   6  a private identifier from localhost.yml
+   7  ... including one under the PLURAL *_accounts convention
+   8  ... while an ordinary commit message still passes
+   9  a real address sharing a line with git@github.com
+
+--hooks-dir DIR   run the checks against another copy of the hooks, so
+                  "these checks fail against the unfixed code" stays a
+                  re-runnable claim:
+                    mkdir -p /tmp/old
+                    git show <pre-fix-rev>:scripts/git-hooks/pre-commit \
+                      > /tmp/old/pre-commit    # + commit-msg, then chmod +x
+                    acceptance.bash --hooks-dir /tmp/old     # expect FAILs
 
 Runs entirely in a throwaway git repo under $TMPDIR. Touches nothing in this
 repository. Safe to run anywhere, including inside a CCY container.
@@ -56,21 +89,28 @@ EOF
             exit 1
             ;;
     esac
+    shift
 done
 
 PLAN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(git -C "$PLAN_DIR" rev-parse --show-toplevel)"
-HOOK="$REPO_ROOT/scripts/git-hooks/pre-commit"
+if [ -z "$HOOKS_DIR" ]; then
+    HOOKS_DIR="$REPO_ROOT/scripts/git-hooks"
+fi
+HOOK="$HOOKS_DIR/pre-commit"
+MSG_HOOK="$HOOKS_DIR/commit-msg"
 
 mkdir -p "$PLAN_DIR/logs"
 LOG="$PLAN_DIR/logs/acceptance.log"
 exec > >(tee "$LOG") 2>&1
 echo "Logging this run to: $LOG" >&2
 
-if [ ! -x "$HOOK" ]; then
-    echo "ERROR: $HOOK is missing or not executable." >&2
-    exit 1
-fi
+for _h in "$HOOK" "$MSG_HOOK"; do
+    if [ ! -x "$_h" ]; then
+        echo "ERROR: $_h is missing or not executable." >&2
+        exit 1
+    fi
+done
 
 PASS=0
 FAIL=0
@@ -178,11 +218,117 @@ case "$RES" in
     *) ok "the pre-existing modified-file path still rejects" ;;
 esac
 
+echo "### 5. per-token whitelisting also applies to /home/ paths"
+# Was a whole-line grep -v: one placeholder home path on the line deleted the
+# line, real home path included.
+D="$(new_sandbox_repo homepaths)"
+echo "cp /home/ansible/x /home/${LEAK_USER//./}/y" >> "$D/doc.md"
+git -C "$D" add -A
+RES="$(run_hook "$D")"
+case "$RES" in
+    *"---rc=0"*) bad "the /home/ansible whitelist deleted the whole line, real path included" ;;
+    *) ok "a real home path beside a whitelisted one is still caught" ;;
+esac
+
+# --------------------------------------------------------------------------
+# commit-msg. Until Plan 00081 this hook ran ONLY the static patterns and then
+# printed "✓ Commit message looks clean" — no localhost.yml denylist at all.
+# A commit message is the one surface a follow-up commit cannot fix, so the
+# weaker of the two checks was guarding the less recoverable surface.
+# --------------------------------------------------------------------------
+
+# Denylist identifiers are invented at RUNTIME and written to a throwaway
+# localhost.yml inside the sandbox. Nothing real is read, and this tracked file
+# never contains a plausible identifier.
+DENY_PERSONA="zzqa${$}persona"
+DENY_PLURAL="zzqa${$}plural"
+
+seed_localhost_yml() {
+    local d="$1"
+    mkdir -p "$d/environment/localhost/host_vars"
+    cat > "$d/environment/localhost/host_vars/localhost.yml" <<YEOF
+user_login: sandbox
+project_personas:
+  ${DENY_PERSONA}:
+    name: "Sandbox Persona"
+lastpass_accounts:
+  ${DENY_PLURAL}:
+    name: "Sandbox Account"
+YEOF
+}
+
+run_msg_hook() {
+    local d="$1" msg="$2" out rc
+    printf '%s\n' "$msg" > "$d/.msg"
+    if out="$(cd "$d" && "$MSG_HOOK" "$d/.msg" 2>&1)"; then rc=0; else rc=$?; fi
+    printf '%s\n---rc=%s\n' "$out" "$rc"
+}
+
+echo "### 6. commit-msg rejects a private identifier from localhost.yml"
+D="$(new_sandbox_repo msgdeny)"
+seed_localhost_yml "$D"
+RES="$(run_msg_hook "$D" "Plan 00081: rework the ${DENY_PERSONA} flow")"
+case "$RES" in
+    *"---rc=0"*) bad "commit-msg accepted a denylisted identifier — it has no denylist" ;;
+    *) ok "commit-msg now runs the same denylist as pre-commit" ;;
+esac
+
+echo "### 7. the denylist harvests the PLURAL *_accounts convention"
+# The harvester matched _account/_username (singular) only, so this repo's own
+# convention — github_accounts, project_personas — was reached solely by two
+# hardcoded names, and lastpass_accounts by nothing at all.
+RES="$(run_msg_hook "$D" "Plan 00081: migrate ${DENY_PLURAL} credentials")"
+case "$RES" in
+    *"---rc=0"*) bad "a *_accounts field was never harvested into the denylist" ;;
+    *) ok "plural identity fields are harvested" ;;
+esac
+
+echo "### 8. commit-msg passes an ordinary message (no false positive)"
+RES="$(run_msg_hook "$D" "Plan 00081: share the scanner between both git hooks
+
+Refs: CLAUDE/Plan/00081-secret-scanner-and-qa-gate-coverage-holes")"
+case "$RES" in
+    *"---rc=0"*) ok "a normal commit message still passes" ;;
+    *) bad "false positive: an ordinary commit message was rejected
+       $RES" ;;
+esac
+
+echo "### 9. commit-msg filters per TOKEN, not per line"
+RES="$(run_msg_hook "$D" "cloned git@github.com:owner/repo.git for $LEAK")"
+case "$RES" in
+    *"---rc=0"*) bad "commit-msg dropped the whole line on the git@ whitelist" ;;
+    *) ok "a real address beside git@github.com is caught in the message too" ;;
+esac
+
+echo "### 10. a broken whitelist filter FAILS rather than returning empty"
+# The error branch has to be live. It was not: the first draft read \$? after
+# `fi`, which is the status of the if STATEMENT — zero whenever no branch ran —
+# so every grep error would have been reported as "nothing matched". Caught by
+# this repo's own bash-status-after-block rule, inside the fix for the sibling
+# defect class. This check exists so it cannot go dead again.
+if [ ! -f "$HOOKS_DIR/lib/secret-scan.bash" ]; then
+    bad "no shared lib/secret-scan.bash — the two hooks carry duplicate filters"
+elif (
+    set -euo pipefail
+    # shellcheck source=/dev/null
+    source "$HOOKS_DIR/lib/secret-scan.bash"
+    # $LEAK is assembled at runtime — see the note at the top of this file.
+    printf '1:%s\n' "$LEAK" \
+        | hook_keep_unwhitelisted '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' '[unclosed'
+) 2> /dev/null; then
+    bad "a broken whitelist regex returned success — the error branch is dead code"
+else
+    ok "a broken whitelist regex is a hard failure, not an empty result"
+fi
+
 echo
 echo "=============================================================="
-echo "COVERAGE: 4 check(s) over 2 fixed defects, each driving the real hook"
-echo "  in a throwaway repo. Checks 1 and 2 FAIL against the pre-fix hook;"
-echo "  check 3 is what stops the fix over-correcting."
+echo "COVERAGE: 10 check(s) over 6 fixed defects, 9 driving a REAL hook"
+echo "  in a throwaway repo — 5 against pre-commit, 4 against commit-msg, 1"
+echo "  against the shared library. Measured, not asserted (--hooks-dir"
+echo "  against the pre-plan hooks at 0369468b~1): 7 of these 10 FAIL there"
+echo "  — 1, 2, 5, 6, 7, 9, 10. Checks 3 and 8 pass in both, and are what"
+echo "  stop the fixes over-correcting into false positives."
 echo "--------------------------------------------------------------"
 if [ "$FAIL" -eq 0 ]; then
     echo "VERDICT: PASS — $PASS check(s) passed."

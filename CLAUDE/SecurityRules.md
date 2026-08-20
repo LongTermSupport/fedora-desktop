@@ -34,7 +34,7 @@
 4. Verify no hardcoded paths: `git diff | grep "/home/"`
 5. Confirm no tokens/keys visible: `git diff | grep -E "(token|key|password|secret)"`
 
-**Automated Protection:** `scripts/git-hooks/pre-commit` and `commit-msg` scan staged files and commit messages for secrets/sensitive patterns. Enforced by Ansible on every main playbook run. Manual install: `git config core.hooksPath scripts/git-hooks`
+**Automated Protection:** `scripts/git-hooks/pre-commit` and `commit-msg` scan staged files and commit messages for secrets/sensitive patterns. Both source `scripts/git-hooks/lib/secret-scan.bash`, which holds the per-token whitelist filtering and the private-identifier denylist built from the gitignored `localhost.yml` — one implementation, so the two hooks cannot drift apart again (they had: only `pre-commit` ran the denylist, leaving commit **messages**, the surface no follow-up commit can fix, guarded by the weaker check). Enforced by Ansible on every main playbook run. Manual install: `git config core.hooksPath scripts/git-hooks`
 
 **Example values in docs/comments:** Use the reserved placeholders the scanner whitelists (RFC 5737 IPs, `example.com` emails/hostnames, `{{ user_login }}`/`<user>`). The full schema is in `CLAUDE/ExampleValues.md` — the rejection message names the exact placeholder to use.
 

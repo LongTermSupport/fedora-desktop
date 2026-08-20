@@ -14,6 +14,17 @@ NC='\033[0m' # No Color
 # Repository root (this hook runs from the repo root via core.hooksPath)
 REPO_ROOT=$(git rev-parse --show-toplevel)
 
+# Whitelist filtering and the private-identifier denylist are shared with
+# commit-msg — see lib/secret-scan.bash for why they must not drift apart.
+HOOK_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/secret-scan.bash"
+if [ ! -f "$HOOK_LIB" ]; then
+    echo "ERROR: missing $HOOK_LIB — the secret scanner cannot run." >&2
+    echo "  Restore it from git; do NOT commit with --no-verify." >&2
+    exit 1
+fi
+# shellcheck source-path=SCRIPTDIR source=lib/secret-scan.bash
+source "$HOOK_LIB"
+
 # Sensitive patterns to detect (using generic patterns, no actual sensitive data).
 #
 # Each entry has the format "pattern::description::guidance" — :: separates the
@@ -188,88 +199,25 @@ for FILE in "${STAGED_FILE_LIST[@]}"; do
         GUIDANCE="${_REST#*::}"
 
         # Collect every line matching this pattern (with line numbers), then
-        # remove whitelisted/placeholder lines PER LINE. A flag is raised only
-        # if real offending lines remain — one legitimate reference no longer
-        # whitelists a genuine leak elsewhere in the same file.
+        # drop the whitelisted matches. A flag is raised only if real offending
+        # lines remain, so one legitimate reference whitelists neither a leak
+        # elsewhere in the same file nor one on the same line.
         MATCH_LINES=$(echo "$STAGED_CONTENT" | grep -nE -e "$PATTERN" || true)
         [ -z "$MATCH_LINES" ] && continue
 
-        case "$PATTERN" in
-            *credential*)
-                # Drop known-safe placeholder usernames and Jinja2/Ansible method calls
-                MATCH_LINES=$(echo "$MATCH_LINES" \
-                    | grep -vE "(example_|test_|sample_|demo_|user_name|company_name)" \
-                    | grep -vE "\\.keys\\(\\)|\\.values\\(\\)|\\.items\\(\\)" || true)
-                ;;
-            *@*)
-                # PER-TOKEN, not per-line. The comment above says a legitimate
-                # reference "no longer whitelists a genuine leak elsewhere in
-                # the same FILE" — true, that was fixed. It still whitelisted a
-                # genuine leak elsewhere on the same LINE, because every filter
-                # below is `grep -v` over a whole line. Verified: the line
-                #   git clone git@github.com:o/r.git  # ask <real address>
-                # matches the email pattern once, and the git@ filter deletes
-                # the entire line, real address included. That is the shape of
-                # docs/github-multi-account.md, and it fails silently at exactly
-                # the moment the whitelist is doing its job.
-                #
-                # CLAUDE/PlanTriage.md already states this rule for triage
-                # redaction — "Redact by substitution, never by dropping
-                # anchored lines", learned from a real leak in Plan 00066. The
-                # scanner was doing the opposite.
-                #
-                # So: mask the bracketed placeholder shapes (which need their
-                # surrounding context), then extract each email-like TOKEN and
-                # test the whitelist against the tokens. A line survives only if
-                # some token is not whitelisted; the ORIGINAL line is what gets
-                # reported.
-                # NOTE the explicit `if` on the last statement, and the closing
-                # `true`. Written first as `[ -n "$_left" ] && printf …`, the
-                # loop's last command returns 1 whenever a line IS whitelisted,
-                # making the `while` — and so the command substitution — exit 1,
-                # which under `set -e` aborted the hook with no output at all.
-                # A security gate that dies silently on clean input is worse
-                # than the bug being fixed, and it is the same `A && B` shape
-                # this repo has been finding all week.
-                MATCH_LINES=$(echo "$MATCH_LINES" | while IFS= read -r _l; do
-                    if [ -z "$_l" ]; then
-                        continue
-                    fi
-                    _masked=$(printf '%s' "$_l" \
-                        | awk '{ gsub(/<[^>]*@[^>]*>/, "<PH>");
-                                 gsub(/\{\{[^}]*@[^}]*\}\}/, "{{PH}}"); print }')
-                    if ! _tokens=$(printf '%s' "$_masked" | grep -oE "$PATTERN"); then
-                        continue
-                    fi
-                    if _left=$(printf '%s' "$_tokens" \
-                        | grep -viE "@([A-Za-z0-9-]+\\.)*example\\.(com|org|net)$" \
-                        | grep -viE "@[A-Za-z0-9.-]+\\.(example|test|invalid|localhost)$" \
-                        | grep -vE "^git@[A-Za-z0-9.-]+" \
-                        | grep -vE "@[A-Za-z0-9_.:-]+\\.(service|socket|timer|target|mount|path|slice|scope|device|swap|automount)$"); then
-                        if [ -n "$_left" ]; then
-                            printf '%s\n' "$_l"
-                        fi
-                    fi
-                done
-                true)
-                ;;
-            */home/*)
-                # Drop the repository files/home/ directory structure (not system paths)
-                # and explicit placeholder home paths.
-                #
-                # `etc` is not a username: the hooks daemon generates
-                # .claude/HOOKS-DAEMON.md with the root_recursion_guard summary
-                # "rooted at ``/``/home/etc" — a backtick-mangled rendering of the
-                # dangerous-roots list (/, /home, /etc). Without this the generated
-                # file blocks every daemon-upgrade commit. Deliberately narrow: only
-                # a system directory name that can never be a home directory is
-                # listed, so `root` is NOT here.
-                MATCH_LINES=$(echo "$MATCH_LINES" \
-                    | grep -vE "files/home/(bashrc-includes|[a-z-]+)" \
-                    | grep -vE "/home/(<user>|\\{\\{ ?user_login ?\\}\\}|\\\$USER|\\\$\\{USER\\}|ansible|runner|deploy|build|user|etc)\\b" || true)
-                ;;
-        esac
-
+        # Whitelisting is PER TOKEN, and it now lives in lib/secret-scan.bash
+        # because the two hooks had drifted apart: this one filtered tokens,
+        # commit-msg still filtered whole LINES — so `git@github.com` sharing a
+        # line with a real address deleted the address along with it, in the
+        # hook guarding the one surface a follow-up commit cannot fix. Sourcing
+        # one implementation twice is what stops that recurring.
+        #
+        # A filter that cannot run is a hard failure: an empty result would read
+        # as "no leak found", which is the defect class this plan is about.
+        if ! MATCH_LINES=$(printf '%s\n' "$MATCH_LINES" | hook_filter_match_lines "$PATTERN"); then
+            echo -e "${RED}ERROR: whitelist filtering failed for: $DESCRIPTION${NC}" >&2
+            exit 1
+        fi
         [ -z "$MATCH_LINES" ] && continue
 
         if [ $FOUND_ISSUES -eq 0 ]; then
@@ -310,128 +258,58 @@ done
 # check (the static patterns above still ran). Private values are NEVER
 # printed; matches are reported by source-field name only.
 
-LOCALHOST_YML="$REPO_ROOT/environment/localhost/host_vars/localhost.yml"
-PUBLIC_ALLOWLIST="$REPO_ROOT/.claude/public-token-allowlist.yml"
+DENYLIST_FILE=$(mktemp)
+trap 'rm -f "$DENYLIST_FILE"' EXIT
 
-if [ ! -f "$LOCALHOST_YML" ]; then
+# The builder is shared with commit-msg (lib/secret-scan.bash) so the message
+# and the staged content are held to the same denylist. Return codes:
+#   0  built (the file may legitimately be empty)
+#   1  could not build — a HARD failure. A security gate that cannot build its
+#      denylist has not passed, it has not run
+#   2  localhost.yml absent (fresh clone): skip ONLY this local-data check,
+#      the static patterns above still ran
+DENY_RC=0
+hook_build_private_denylist "$REPO_ROOT" "$DENYLIST_FILE" || DENY_RC=$?
+
+if [ "$DENY_RC" -eq 1 ]; then
+    echo -e "${RED}ERROR: failed to build private-identifier denylist from localhost.yml${NC}" >&2
+    exit 1
+elif [ "$DENY_RC" -eq 2 ]; then
     echo "ℹ  localhost.yml not present — skipping optional private-identifier denylist check" >&2
 else
-    DENYLIST_FILE=$(mktemp)
-    trap 'rm -f "$DENYLIST_FILE"' EXIT
-
-    # Emit one "FIELD<TAB>TOKEN" line per private identifier to stdout.
-    # !vault-tagged values are skipped. Public allowlist tokens are subtracted.
-    if ! python3 - "$LOCALHOST_YML" "$PUBLIC_ALLOWLIST" > "$DENYLIST_FILE" <<'PYEOF'
-import sys
-import yaml
-
-
-class VaultTag:
-    """Marker so !vault-encrypted values can be skipped, never emitted."""
-
-
-def _vault(loader, node):
-    return VaultTag()
-
-
-yaml.SafeLoader.add_constructor("!vault", _vault)
-
-yml_path = sys.argv[1]
-allow_path = sys.argv[2]
-
-with open(yml_path) as fh:
-    data = yaml.safe_load(fh) or {}
-
-# Public-by-design allowlist (case-insensitive whole-token subtraction).
-allow = set()
-try:
-    with open(allow_path) as fh:
-        adoc = yaml.safe_load(fh) or {}
-    for tok in (adoc.get("public_tokens") or []):
-        if isinstance(tok, str):
-            allow.add(tok.strip().lower())
-except FileNotFoundError:
-    pass
-
-out = {}  # token -> source field name
-
-
-def add(field, value):
-    if isinstance(value, VaultTag) or value is None:
-        return
-    s = str(value).strip()
-    if len(s) < 4:
-        return
-    if s.lower() in allow:
-        return
-    out.setdefault(s, field)
-
-
-# Top-level identity scalars.
-for field in ("user_email", "user_name"):
-    if field in data:
-        add(field, data[field])
-
-
-def harvest_identity_map(field, mapping):
-    """Collect KEYS and string VALUES from an identity mapping."""
-    if not isinstance(mapping, dict):
-        return
-    for k, v in mapping.items():
-        add(field, k)
-        if isinstance(v, dict):
-            harvest_identity_map(field, v)
-        elif isinstance(v, list):
-            for item in v:
-                add(field, item)
-        else:
-            add(field, v)
-
-
-for field, value in data.items():
-    if field in ("github_accounts", "project_personas"):
-        harvest_identity_map(field, value)
-    elif field.endswith("_username") or field.endswith("_account"):
-        if isinstance(value, dict):
-            harvest_identity_map(field, value)
-        else:
-            add(field, value)
-
-for token, field in out.items():
-    sys.stdout.write(f"{field}\t{token}\n")
-PYEOF
-    then
-        echo -e "${RED}ERROR: failed to build private-identifier denylist from localhost.yml${NC}" >&2
-        exit 1
-    fi
 
     if [ -s "$DENYLIST_FILE" ]; then
-        # Concatenate all staged text content once for scanning.
+        # Concatenate all staged text content once for scanning. A file that
+        # cannot be read is a HARD failure: skipping it would leave the gate
+        # reporting a pass over content it never looked at.
         ALL_STAGED_CONTENT=""
         for FILE in "${STAGED_FILE_LIST[@]}"; do
+            # A `-` in the numstat columns marks a binary blob — nothing to scan.
             if git diff --cached --numstat -- "$FILE" | grep -q '^-'; then
                 continue
             fi
-            FILE_CONTENT=$(git show ":$FILE" 2>/dev/null || true)
-            [ -z "$FILE_CONTENT" ] && continue
+            if ! FILE_CONTENT=$(git show ":$FILE"); then
+                echo -e "${RED}ERROR: cannot read staged content of $FILE${NC}" >&2
+                exit 1
+            fi
             ALL_STAGED_CONTENT+="$FILE_CONTENT"$'\n'
         done
 
-        while IFS=$'\t' read -r DENY_FIELD DENY_TOKEN; do
-            [ -z "$DENY_TOKEN" ] && continue
-            if printf '%s' "$ALL_STAGED_CONTENT" | grep -qF -- "$DENY_TOKEN"; then
-                if [ $FOUND_ISSUES -eq 0 ]; then
-                    echo ""
-                    echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-                    echo -e "${RED}⚠  PRIVATE IDENTIFIER DETECTED (from localhost.yml)${NC}"
-                    echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-                    echo ""
-                fi
-                # Report by source field name only — never print the value.
-                echo -e "${YELLOW}Private value from localhost.yml field '${DENY_FIELD}' appears in staged content${NC}"
-                FOUND_ISSUES=1
+        # The scanner reports the source FIELD name only — never the value.
+        while IFS= read -r DENY_FIELD; do
+            if [ -z "$DENY_FIELD" ]; then
+                continue
             fi
-        done < "$DENYLIST_FILE"
+            if [ $FOUND_ISSUES -eq 0 ]; then
+                echo ""
+                echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                echo -e "${RED}⚠  PRIVATE IDENTIFIER DETECTED (from localhost.yml)${NC}"
+                echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                echo ""
+            fi
+            echo -e "${YELLOW}Private value from localhost.yml field '${DENY_FIELD}' appears in staged content${NC}"
+            FOUND_ISSUES=1
+        done < <(printf '%s' "$ALL_STAGED_CONTENT" | hook_scan_text_for_private "$DENYLIST_FILE")
     fi
 fi
 

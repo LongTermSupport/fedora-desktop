@@ -113,6 +113,20 @@ holes, each behind a test that fails against the unfixed code.
   for `failed_when`. Both spellings are valid YAML booleans, so
   `failed_when: no` earns `✓ ansible: fail-fast patterns OK` — a green tick on
   the repo's #1 rule. The asymmetry sits inside a single regex
+- **F12** — F8 is not hypothetical. Building the denylist and scanning history
+  found a **private account alias published on `origin/F44` in three places**:
+  two tracked files (`00049-full-repo-audit/research/security.md:188`,
+  `00065-…/PLAN.md:117`) and **the commit message of `fc20c5c9`**. The message
+  is the F8 hole exactly: the identical string in a staged *file* would have
+  been rejected by `pre-commit`'s denylist. The alias was in the denylist all
+  along under `github_accounts` — `commit-msg` simply never consulted it.
+  Rewriting published history is out of scope here (see Non-Goals); the two
+  files are now un-editable without scrubbing, which is the gate working
+- **F13** — widening the harvest to plural fields is measurably safe, not
+  merely plausible: against the real `localhost.yml` it takes the denylist from
+  **8 to 10 tokens**, and the two new ones appear in **zero** tracked files and
+  **zero** of the last 300 commit messages. A short, common-word token would
+  have blocked every future commit, so this was checked rather than assumed
 - **F11** — `CLAUDE/QA.md` says "ALWAYS and ONLY use `./scripts/qa-all.bash`"
   and "NEVER use individual scripts directly", then documents
   `qa-helper-tests.bash` and `helpers.gnome.check_extension_compat` as gates.
@@ -131,13 +145,19 @@ holes, each behind a test that fails against the unfixed code.
 - [x] ✅ **Task 1.3**: `acceptance.bash` — 4 checks driving the real hook in a
   throwaway repo. Verified to FAIL against the unfixed hook, not merely to pass
   against the fixed one
-- [ ] ⬜ **Task 1.4**: Apply the same per-token treatment to the `/home/` and
-  credential whitelists, which have the identical line-granularity shape
-- [ ] ⬜ **Task 1.5**: Harvest the plural `_accounts` convention (F5)
-- [ ] ⬜ **Task 1.6**: **Give `commit-msg` the same denylist as `pre-commit`**
-  (F8). Highest remaining security item: a commit message is permanent, so this
-  is the one leak route with no remedy after the fact. Extract the denylist
-  builder both hooks can share rather than duplicating it
+- [x] ✅ **Task 1.4**: Per-token treatment for the `/home/` and credential
+  whitelists too — same line-granularity shape, in both hooks
+- [x] ✅ **Task 1.5**: Harvest the plural `_accounts` convention (F5). Measured
+  against the real `localhost.yml`: 8 → 10 tokens, the two new ones appearing
+  in **zero** tracked files, so the widening blocks nothing that exists
+- [x] ✅ **Task 1.6**: **`commit-msg` now runs the same denylist as
+  `pre-commit`** (F8), via a shared `lib/secret-scan.bash` that both hooks
+  source — extracted rather than duplicated, because duplication is how the two
+  drifted apart in the first place. `play-git-hooks-security.yml` verifies the
+  library exists, since neither hook can run without it
+- [x] ✅ **Task 1.6b**: Extend `acceptance.bash` to 9 checks and add
+  `--hooks-dir`, so "these checks fail against the unfixed code" is re-runnable
+  rather than asserted. Measured at `0369468b~1`: **6 of 9 fail**
 
 ### Phase 1b: The CCY integrity gate covers one file of seven
 
@@ -173,9 +193,11 @@ holes, each behind a test that fails against the unfixed code.
 
 ## Success Criteria
 
-- [ ] A `git mv` + edit carrying a real address is rejected
-- [ ] A real address beside `git@github.com` is rejected; a line whose only
+- [x] A `git mv` + edit carrying a real address is rejected
+- [x] A real address beside `git@github.com` is rejected; a line whose only
   match is whitelisted still passes
+- [x] A commit **message** is held to the same denylist as a staged file
+- [x] Widening the harvest is shown not to block existing content
 - [ ] `qa-python.bash` covers every tracked repo-owned Python file and fails
   loudly on a shortfall
 - [ ] Every fix has a gate that fails against the unfixed code
@@ -192,3 +214,7 @@ holes, each behind a test that fails against the unfixed code.
 ## Delivery & Milestones
 
 - Phase 1 Tasks 1.1–1.3 delivered with `acceptance.bash` proving both fixes
+- Phase 1 complete (Tasks 1.4–1.6): one scanner in `lib/secret-scan.bash`,
+  sourced by both hooks. `acceptance.bash` is now 10 checks with `--hooks-dir`,
+  so the "fails against the unfixed code" claim is re-runnable: 7 of 10 fail at
+  `0369468b~1`

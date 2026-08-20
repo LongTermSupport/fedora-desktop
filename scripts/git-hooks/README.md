@@ -6,6 +6,18 @@ This directory contains git hooks that prevent accidental commits of sensitive i
 
 - **pre-commit**: Scans staged files for sensitive patterns (API keys, tokens, private emails, etc.)
 - **commit-msg**: Validates commit messages for sensitive information
+- **lib/secret-scan.bash**: Sourced by *both* hooks — per-token whitelist filtering and the private-identifier denylist built from the gitignored `localhost.yml`
+
+The library exists because the two hooks had drifted: only `pre-commit` ran the
+denylist, and only `pre-commit` filtered whitelists per token rather than per
+line. So an account alias or hostname was rejected in a staged **file** and
+accepted in a commit **message** — the surface no follow-up commit can fix. One
+implementation, sourced twice, is what keeps them in step.
+
+Both hooks abort if the library is missing rather than continuing with fewer
+checks, and `playbooks/imports/play-git-hooks-security.yml` verifies it is
+present. Denylist matches are always reported by their **source field name** —
+the private value itself is never printed.
 
 ## Installation
 

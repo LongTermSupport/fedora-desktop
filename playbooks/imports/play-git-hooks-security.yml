@@ -34,6 +34,15 @@
       register: commit_msg_hook
       failed_when: not commit_msg_hook.stat.exists or not commit_msg_hook.stat.executable
 
+    # Both hooks source this. Without it neither can run, so its absence must
+    # fail the play rather than surface later as a hook that exits 1 on every
+    # commit.
+    - name: Verify the shared secret-scanning library exists
+      ansible.builtin.stat:
+        path: "{{ repo_path }}/scripts/git-hooks/lib/secret-scan.bash"
+      register: hooks_lib
+      failed_when: not hooks_lib.stat.exists
+
     - name: Configure git to use tracked hooks directory
       community.general.git_config:
         name: core.hooksPath

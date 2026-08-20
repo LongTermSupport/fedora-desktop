@@ -18,6 +18,23 @@ if [ ! -f "$COMMIT_MSG_FILE" ]; then
     exit 1
 fi
 
+REPO_ROOT=$(git rev-parse --show-toplevel)
+
+# Whitelist filtering and the private-identifier denylist are shared with
+# pre-commit. Until Plan 00081 this hook had NEITHER: it ran only the static
+# patterns and then printed "✓ Commit message looks clean", so an alias, a
+# hostname or a service username with no static pattern was rejected in a
+# staged FILE and accepted in a commit MESSAGE — and a commit message is the
+# one surface a follow-up commit cannot fix.
+HOOK_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/secret-scan.bash"
+if [ ! -f "$HOOK_LIB" ]; then
+    echo "ERROR: missing $HOOK_LIB — the message scanner cannot run." >&2
+    echo "  Restore it from git; do NOT commit with --no-verify." >&2
+    exit 1
+fi
+# shellcheck source-path=SCRIPTDIR source=lib/secret-scan.bash
+source "$HOOK_LIB"
+
 # Read commit message
 COMMIT_MSG=$(cat "$COMMIT_MSG_FILE")
 
@@ -69,35 +86,19 @@ for PATTERN_INFO in "${MESSAGE_PATTERNS[@]}"; do
     DESCRIPTION="${REMAINDER%%::*}"
     SUGGESTION="${REMAINDER#*::}"
 
-    # Collect matching lines, then drop whitelisted/placeholder lines PER LINE
-    # so one legitimate reference cannot whitelist a real leak elsewhere.
+    # Collect matching lines, then drop the whitelisted matches PER TOKEN via
+    # the shared filter. This hook used to filter whole LINES, so one
+    # legitimate reference — `git@github.com`, a placeholder home path —
+    # deleted the entire line it sat on, real identifier included.
     MATCH_LINES=$(echo "$SCAN_MSG" | grep -nE -e "$PATTERN" || true)
     [ -z "$MATCH_LINES" ] && continue
 
-    case "$PATTERN" in
-        *token*|*key*|*json*)
-            MATCH_LINES=$(echo "$MATCH_LINES" \
-                | grep -vE "(example_|test_|sample_|demo_|user_name|company_name)" || true)
-            ;;
-    esac
-    case "$PATTERN" in
-        *@*)
-            # Email pattern: drop obvious non-personal "user@host" shapes —
-            # placeholders, the SSH git remote user (git@github.com), and systemd
-            # unit names (foo@instance.service). Real personal addresses still match.
-            MATCH_LINES=$(echo "$MATCH_LINES" \
-                | grep -viE "@example\\.(com|org|net)" \
-                | grep -vE "<[^>]*@[^>]*>" \
-                | grep -vE "\\{\\{[^}]*@[^}]*\\}\\}" \
-                | grep -vE "(^|[^A-Za-z0-9._%+-])git@[A-Za-z0-9.-]+" \
-                | grep -vE "@[A-Za-z0-9_.:-]+\\.(service|socket|timer|target|mount|path|slice|scope|device|swap|automount)\\b" || true)
-            ;;
-        */home/*)
-            MATCH_LINES=$(echo "$MATCH_LINES" \
-                | grep -vE "files/home/(bashrc-includes|[a-z-]+)" \
-                | grep -vE "/home/(<user>|\\{\\{ ?user_login ?\\}\\}|\\\$USER|\\\$\\{USER\\}|ansible|runner|deploy|build|user)\\b" || true)
-            ;;
-    esac
+    # A filter that cannot run is a hard failure: an empty result would read as
+    # "no leak found".
+    if ! MATCH_LINES=$(printf '%s\n' "$MATCH_LINES" | hook_filter_match_lines "$PATTERN"); then
+        echo -e "${RED}ERROR: whitelist filtering failed for: $DESCRIPTION${NC}" >&2
+        exit 1
+    fi
 
     [ -z "$MATCH_LINES" ] && continue
 
@@ -122,6 +123,41 @@ for PATTERN_INFO in "${MESSAGE_PATTERNS[@]}"; do
 
     FOUND_ISSUES=1
 done
+
+# ============================================================================
+# Dynamic private-identifier denylist (SEC-02) — the same list pre-commit uses
+# ============================================================================
+# A commit message is scanned against the identifiers harvested from the
+# gitignored localhost.yml. Private values are NEVER printed; a match is
+# reported by its source-field name only.
+
+DENYLIST_FILE=$(mktemp)
+trap 'rm -f "$DENYLIST_FILE"' EXIT
+
+DENY_RC=0
+hook_build_private_denylist "$REPO_ROOT" "$DENYLIST_FILE" || DENY_RC=$?
+
+if [ "$DENY_RC" -eq 1 ]; then
+    echo -e "${RED}ERROR: failed to build private-identifier denylist from localhost.yml${NC}" >&2
+    exit 1
+elif [ "$DENY_RC" -eq 2 ]; then
+    echo "ℹ  localhost.yml not present — skipping optional private-identifier denylist check" >&2
+else
+    while IFS= read -r DENY_FIELD; do
+        if [ -z "$DENY_FIELD" ]; then
+            continue
+        fi
+        if [ $FOUND_ISSUES -eq 0 ]; then
+            echo ""
+            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo -e "${RED}⚠  PRIVATE IDENTIFIER IN COMMIT MESSAGE (from localhost.yml)${NC}"
+            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo ""
+        fi
+        echo -e "${YELLOW}Private value from localhost.yml field '${DENY_FIELD}' appears in the commit message${NC}"
+        FOUND_ISSUES=1
+    done < <(printf '%s' "$SCAN_MSG" | hook_scan_text_for_private "$DENYLIST_FILE")
+fi
 
 if [ $FOUND_ISSUES -eq 1 ]; then
     echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
