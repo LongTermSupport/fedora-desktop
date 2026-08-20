@@ -1,6 +1,6 @@
 # Plan 00079: Podman container control — freeze/thaw by container, network, and CCY group
 
-**Status**: Not Started
+**Status**: In Progress
 **Created**: 2026-08-19
 **Owner**: joseph
 **Priority**: Medium
@@ -344,11 +344,12 @@ See D4 and D6.
 - [ ] 🔄 **Task 3.2**: User runs `CLAUDE/Plan/00079-podman-container-control/deploy.bash`
   on the HOST (it runs `play-claude-yolo.yml` **then** `play-podfreeze.yml`,
   then acceptance itself); journal the verdict.
-  **Run 1**: deploy clean (`failed=0`); acceptance **FAIL**, 1 of 15 — and the
+  **Run 1**: deploy clean (`failed=0`); acceptance **FAIL**, 1 of 15 — the
   failure was the gate's own fixture, not the tool (F16, D6). Fixture fixed.
-  Awaiting run 2, which now also deploys the labelling launcher. Checks 9, 13
-  and 14 need a session started by the NEW launcher to be more than a SKIP, so
-  relaunch one `ccy` session before re-running
+  **Run 2**: deploy clean, acceptance **PASS — 16 passed, 2 skipped**.
+  **What remains**: the 2 skips (checks 9, 13) need a session started by the
+  3.40.0 labelling launcher. Relaunch one `ccy` session, re-run, and they become
+  real assertions instead of skips
 - [ ] ⬜ **Task 3.3**: Run the `qa-reviewer` agent over the plan's full diff;
   resolve all BLOCK/FIX-BEFORE-MERGE findings
 - [ ] ⬜ **Task 3.4**: Mark plan Complete, move to `Completed/`, update README
