@@ -24,13 +24,21 @@ Usage: deploy.bash [-y|--yes] [--no-verify] [--help]
   -y, --yes     do not ask for confirmation
   --no-verify   deploy only; do not run acceptance.bash afterwards
 
-Runs playbooks/imports/optional/common/play-podfreeze.yml, which installs
-fzf and deploys ~/.local/bin/podfreeze, then hands over to acceptance.bash
-and exits with its verdict.
+Runs two plays, then hands over to acceptance.bash and exits with its verdict:
 
-The play is idempotent, so re-running it is safe. It touches nothing but the
-one script and one package — no services are restarted and no containers are
-affected.
+  play-claude-yolo.yml   deploys the CCY launcher, which from 3.40.0 labels
+                         each session container (ccy, ccy-project, ccy-github,
+                         ccy-token, ccy-ssh-keys)
+  play-podfreeze.yml     installs fzf and deploys ~/.local/bin/podfreeze,
+                         which selects on those labels
+
+Both are idempotent, so re-running is safe, and neither restarts a service or
+touches a running container. No image is rebuilt: only the host-side launcher
+script changed, so REQUIRED_CONTAINER_VERSION is unmoved.
+
+Already-running sessions were started by the OLD launcher and carry no labels
+until they are relaunched. podfreeze still reaches them via --ccy (the
+<project>_yolo[_N] name), but not via --github/--token/--ssh-key.
 EOF
             exit 0
             ;;
@@ -64,24 +72,39 @@ LOG="$PLAN_DIR/logs/deploy.log"
 exec > >(tee "$LOG") 2>&1
 echo "Logging this run to: $LOG" >&2
 
-PLAY="playbooks/imports/optional/common/play-podfreeze.yml"
+# BOTH plays, in this order. podfreeze selects CCY sessions on labels the
+# LAUNCHER sets, so deploying the tool without the launcher would ship a
+# selector for labels no container carries — the exact shape of Plan 00072,
+# where the repo held the fix and the host ran the old build because the
+# deploy script ran only one of the two plays involved.
+PLAYS=(
+    "playbooks/imports/play-claude-yolo.yml"
+    "playbooks/imports/optional/common/play-podfreeze.yml"
+)
 
 echo "=============================================================="
 echo "Plan 00079 — deploy podfreeze"
 echo "=============================================================="
 echo
 
-if [ ! -f "$REPO_ROOT/$PLAY" ]; then
-    echo "ERROR: playbook not found: $REPO_ROOT/$PLAY" >&2
-    exit 1
-fi
+for play in "${PLAYS[@]}"; do
+    if [ ! -f "$REPO_ROOT/$play" ]; then
+        echo "ERROR: playbook not found: $REPO_ROOT/$play" >&2
+        exit 1
+    fi
+done
 
-echo "Play to run:"
-echo "  $PLAY"
+echo "Plays to run, in order:"
+printf '  %s\n' "${PLAYS[@]}"
 echo
-echo "It installs fzf and deploys ~/.local/bin/podfreeze. Nothing else on"
-echo "this machine is touched — no service is restarted, no container is"
-echo "started, stopped, frozen, or thawed."
+echo "The first deploys the CCY launcher (3.40.0), which labels each session"
+echo "container at launch. The second installs fzf and deploys the podfreeze"
+echo "command into your ~/.local/bin, which selects on those labels."
+echo
+echo "Nothing else on this machine is touched — no service is restarted, no"
+echo "image is rebuilt, and no container is started, stopped, frozen, or"
+echo "thawed. Sessions already running keep the old launcher's behaviour"
+echo "until they are relaunched, so they carry no labels yet."
 echo
 
 if [ "$ASSUME_YES" -ne 1 ]; then
@@ -99,12 +122,20 @@ if [ "$ASSUME_YES" -ne 1 ]; then
     esac
 fi
 
-echo
-if ! ansible-playbook "$REPO_ROOT/$PLAY"; then
-    echo >&2
-    echo "ERROR: $PLAY failed — see the output above." >&2
-    exit 1
-fi
+# Sequential and fail-fast: the second play deploys a tool that depends on what
+# the first one installs, so running it after a failure would deploy a selector
+# for labels nothing sets.
+for play in "${PLAYS[@]}"; do
+    echo
+    echo "### $play"
+    echo
+    if ! ansible-playbook "$REPO_ROOT/$play"; then
+        echo >&2
+        echo "ERROR: $play failed — see the output above." >&2
+        echo "  Nothing after it was run." >&2
+        exit 1
+    fi
+done
 
 # --- one-off migration: the pre-rename binary --------------------------------
 #

@@ -156,14 +156,11 @@ numbered-menu fallback when fzf is absent (F7 precedent). Binds to
 
 **Decision (settled)**: `--ccy` selects on the run-time `ccy=true` label (set by
 CCY ≥ 3.40.0, so it cannot be inherited) **or** the F4 session name pattern. The
-inherited `claude-yolo-version` image label is **not** consulted.
+inherited `claude-yolo-version` image label is **not** consulted — see D6.
 
-**This moved three times**, which is worth knowing before re-litigating it: H2's
-confirmation demoted Phase 1 from prerequisite to enhancement; F16 re-promoted
-it as the fix for a demonstrated over-match; landing it then made the image
-label pure liability, since every session has either the run-time label or the
-name. See D6 for why dropping it opens no gap. Working is in the journal.
-**Date**: 2026-08-20
+This moved three times (H2 demoted Phase 1 to an enhancement, F16 re-promoted
+it, landing it then made the image label pure liability); the working is in the
+journal, so re-read that before re-litigating it. **Date**: 2026-08-20
 
 ### D5: Naming — `podfreeze`
 
@@ -181,26 +178,19 @@ does not succeed.
 
 ### D6: the image label is dropped, and that is a narrowing with no gap
 
-**Context**: F16 — every container built from the CCY image carries
-`claude-yolo-version`, so it selected CCY-derived containers that are not Claude
-sessions. Not hypothetical: the acceptance gate's own throwaway was one.
-**Options considered**: (a) narrow to the F4 name pattern alone; (b) ship as-is
-and rely on the preview; (c) land Phase 1's `ccy=true` and prefer it.
+**Context**: F16 — the image label marks anything built FROM the CCY image, so
+it selected non-sessions. Not hypothetical: the gate's own throwaway was one.
+**Decision**: once Phase 1 landed, drop the image label outright rather than
+keep it as a fallback.
 
-**Decision**: (c). Phase 1 landed, and the image label is then dropped outright
-rather than kept as a fallback.
-
-**Why dropping it is safe** — a narrowing is normally the dangerous direction,
-because the two failure modes are asymmetric: an over-match is *visible* (the
-extra container is named in the printed set, and undone by repeating the
-command) while an under-match is *silent* — a session simply absent while you
-believe you froze everything. That asymmetry is why the union was kept until an
-exact positive signal existed. It no longer argues for the image label, because
-the label covers **nothing** the other two miss: a session from CCY ≥ 3.40.0
-carries `ccy=true`, and every older session is named `<project>_yolo[_N]` by
-construction (`get_next_container_name`). So its only remaining contribution is
-the false positive F16 demonstrated.
-**Date**: 2026-08-20
+**Why that narrowing is safe.** Narrowing is normally the dangerous direction —
+an over-match is *visible* (named in the printed set, undone by repeating) while
+an under-match is *silent*, a session absent while you believe you froze
+everything. That asymmetry is why the union was kept until an exact positive
+signal existed, and it stops applying here because the image label covers
+**nothing** the other two miss: ≥ 3.40.0 sessions carry `ccy=true`, older ones
+are named `<project>_yolo[_N]` by construction (`get_next_container_name`). Its
+only remaining contribution was F16's false positive. **Date**: 2026-08-20
 
 ### D7: the interactive UX — groups, a derived verb, no confirm, and a loop
 
@@ -209,32 +199,26 @@ group, with the group targets reachable only by knowing the flag names.
 
 **Decisions**, each with the reason it is not merely a preference:
 
-1. **The menu offers groups, not containers.** All CCY containers / all
-   containers / each network, with per-container picking as the last entry.
-   Acting on a whole group is the common case, and the previous first screen
-   made it the hardest thing to reach.
-2. **The verb is derived, not asked** — anything running is frozen, a set with
-   nothing running is thawed, so the same choice twice toggles. For a given set
-   there is only one sensible move, and offering the other one is offering a
-   mistake. An explicit `freeze`/`thaw` still wins so scripts can say what they
-   mean rather than depend on current state.
+1. **The menu offers groups, not containers** — per-container picking is the
+   last entry. Acting on a whole group is the common case, and it had been the
+   hardest thing to reach.
+2. **The verb is derived, not asked**: anything running is frozen, a set with
+   nothing running is thawed, so the same choice twice toggles. There is only
+   one sensible move for a given set, and offering the other is offering a
+   mistake. An explicit `freeze`/`thaw` still wins, so scripts can say what
+   they mean instead of depending on current state.
 3. **No confirmation prompt.** This reverses the "confirm before destructive
-   action" reflex on purpose: freezing is *not* destructive or irreversible —
-   it is undone by running the same command again — and in the menu you have
-   already chosen a row that named the verb and the count. `--dry-run` remains
-   for looking without acting. `-y`/`--yes` is therefore removed rather than
-   left as a no-op flag.
-4. **The menu loops**: act, re-read the inventory, re-offer. The re-read is the
-   load-bearing part — counts must describe the machine now, not at startup.
-5. **No "frozen things stay frozen" warning.** It restated the definition of
-   the verb. The table's CCY column marks which rows are Claude sessions; what
-   that implies is left to the reader.
+   action" reflex deliberately: freezing is *not* irreversible, and the chosen
+   menu row already named the verb and the count. `-y`/`--yes` is removed
+   rather than left as a no-op; `--dry-run` remains.
+4. **The menu loops**: act, re-read the inventory, re-offer. The re-read is
+   load-bearing — counts must describe the machine now, not at startup.
+5. **No "frozen things stay frozen" warning** — it restated the verb.
 
-**Consequence for F15**: the resolved-set preview is no longer a *gate*, it is
-a record printed as it acts. The protection against freezing a network that
-contains a live session moved earlier — into the menu row, which names the
-count before the choice is made — and rests on reversibility rather than on a
-prompt. **Date**: 2026-08-19
+**Consequence for F15**: the resolved-set preview is a record printed as it
+acts, not a gate. Protection against freezing a network holding a live session
+moved earlier, into the menu row that names the count before the choice, and
+rests on reversibility rather than on a prompt. **Date**: 2026-08-19
 
 ### D8: group by session identity, not just by name and network
 
@@ -243,27 +227,22 @@ as well? so could easily freeze all containers with github ID XXX"*. Once a
 session is labelled at run time at all (D6), the same mechanism answers a
 question the tool could not previously ask: **who** is this session running as.
 
-**Decision**: CCY stamps three more labels — `ccy-github`, `ccy-token`,
-`ccy-ssh-keys` — and `podfreeze` gains `--github` / `--token` / `--ssh-key`
-plus one menu row per distinct value in the live inventory.
+**Decision**: CCY stamps `ccy-github`, `ccy-token` and `ccy-ssh-keys`;
+`podfreeze` gains `--github` / `--token` / `--ssh-key` and one menu row per
+distinct value in the live inventory.
 
-- **Values, not flags, drive the menu.** Rows are derived from what is running,
-  exactly as the network rows are, so a group with no members is never offered.
-  An axis appears only when it has ≥ 2 distinct values: with one GitHub account
-  on the machine, "github: <id>" and "all CCY containers" are the same button.
-- **`ccy-ssh-keys` is multi-valued** (several keys can be mounted), so it is
-  matched by WORD; the single-valued axes compare whole. Matching the multi
-  case leniently would silently widen a freeze, so the two are separate code
-  paths with a unit test each.
-- **`none`, not empty.** An axis that does not apply says so, so "this session
-  has no GitHub identity" cannot be read as "this container is unlabelled".
+- **Values drive the menu**, derived from what is running (as the network rows
+  are), and an axis appears only at ≥ 2 distinct values — with one account,
+  "github: \<id>" and "all CCY containers" are the same button.
+- **`ccy-ssh-keys` is multi-valued**, so it matches by WORD while the
+  single-valued axes compare whole. Being lenient there would silently widen a
+  freeze, so the two are separate paths, each unit-tested.
+- **`none`, not empty**, so "no GitHub identity" cannot read as "unlabelled".
 - **An unknown value is an error** listing the known ones — never an empty set
-  and exit 0, which is the same trap `select_network` guards.
-- **Nothing in the container reads these**, so no session behaviour changes.
-  Sessions from a CCY older than 3.40.0 carry no labels and are reachable by
-  name or `--ccy`; `--github` says so rather than pretending they do not exist.
-
-**Date**: 2026-08-20
+  and exit 0, the trap `select_network` already guards.
+- **Nothing in the container reads these.** Pre-3.40.0 sessions carry none and
+  stay reachable by name or `--ccy`; `--github` says so rather than pretending
+  they do not exist. **Date**: 2026-08-20
 
 ## Tasks
 
@@ -331,10 +310,13 @@ See D4 and D6.
   the unknown-network and unknown-name failures, and mutually-exclusive
   targets. `--all` is never run for real. Both log to the plan's `logs/`
 - [ ] 🔄 **Task 3.2**: User runs `CLAUDE/Plan/00079-podman-container-control/deploy.bash`
-  on the HOST (it deploys, then runs acceptance itself); journal the verdict.
+  on the HOST (it runs `play-claude-yolo.yml` **then** `play-podfreeze.yml`,
+  then acceptance itself); journal the verdict.
   **Run 1**: deploy clean (`failed=0`); acceptance **FAIL**, 1 of 15 — and the
-  failure was the gate's own fixture, not the tool (F16, D6). Fixture fixed;
-  awaiting run 2
+  failure was the gate's own fixture, not the tool (F16, D6). Fixture fixed.
+  Awaiting run 2, which now also deploys the labelling launcher. Checks 9, 13
+  and 14 need a session started by the NEW launcher to be more than a SKIP, so
+  relaunch one `ccy` session before re-running
 - [ ] ⬜ **Task 3.3**: Run the `qa-reviewer` agent over the plan's full diff;
   resolve all BLOCK/FIX-BEFORE-MERGE findings
 - [ ] ⬜ **Task 3.4**: Mark plan Complete, move to `Completed/`, update README
@@ -355,8 +337,9 @@ See D4 and D6.
 - [ ] Refuses to run inside a container; `--dry-run` changes nothing
 - [ ] `acceptance.bash` renders `VERDICT: PASS` on the HOST against the
   deployed copy (it refuses to vouch for a binary that differs from the repo)
-- [ ] New CCY containers carry `ccy=true` and `ccy-project=` labels
-  *(Phase 1 — enhancement; the tool does not depend on it, see D4)*
+- [ ] New CCY containers carry `ccy`, `ccy-project`, `ccy-github`, `ccy-token`
+  and `ccy-ssh-keys` labels, and `podfreeze --github <id>` resolves exactly the
+  sessions on that account (D4, D8)
 - [ ] `./scripts/qa-all.bash` passes; `qa-reviewer` verdict is PASS (or PASS
   WITH NITS, nits addressed or accepted)
 
