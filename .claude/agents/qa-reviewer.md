@@ -128,6 +128,20 @@ declares the whole machine. Read it before judging any playbook change.
 - **Is a probe's absence-of-evidence being read as evidence of absence?** An empty
   capture, a zero count, or a skipped section must be distinguishable from a real
   negative.
+- **Does the check cover the whole population, or only the path the author had in
+  mind?** This is the highest-recurrence defect in the repo — five instances across
+  Plans 00076/00079/00080, see
+  [AgentNotes.md → *A partial result read as a complete one*](../../CLAUDE/AgentNotes.md#a-partial-result-read-as-a-complete-one--guard-the-empty-case-miss-the-partial).
+  Three specific things to look for:
+  - a guard that refuses the **zero** case (often with a comment about why zero
+    would mislead) and says nothing about the **partial** case;
+  - a selector with a documented **fallback** path (name pattern, legacy format,
+    pre-upgrade state) where only the primary path is asserted — during any
+    rollout the fallback covers the *majority*;
+  - a result whose **coverage is implied by the length of a list** rather than
+    stated as a number. Ask for a `COVERAGE: n of m` line.
+    An under-match is silent, so it will never appear as a failure — you have to go
+    and ask what population the filter missed.
 - **Are the claims in the commit message and plan actually demonstrated?** "Verified"
   and "works" require a command and its output, not an assumption from having applied
   the change.

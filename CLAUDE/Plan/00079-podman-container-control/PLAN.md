@@ -357,21 +357,22 @@ See D4 and D6.
 - [x] ✅ **Task 3.2**: User runs `CLAUDE/Plan/00079-podman-container-control/deploy.bash`
   on the HOST (it runs `play-claude-yolo.yml` **then** `play-podfreeze.yml`,
   then acceptance itself); journal the verdict.
-  **Run 1**: deploy clean (`failed=0`); acceptance **FAIL**, 1 of 15 — the
-  failure was the gate's own fixture, not the tool (F16, D6). Fixture fixed.
-  **Run 2**: deploy clean, acceptance **PASS — 16 passed, 2 skipped**.
-  **Run 3 attempt**: `acceptance.bash` alone **REFUSED** — deployed `podfreeze`
-  differed from the repo copy (F18). **Run 3**: `deploy.bash` →
-  **PASS, 21 checks, 0 skipped**. Checks 9 and 13 are now real assertions: the
-  `--ccy` set and the `--github` identity axis both resolve against live
-  labelled sessions, and the unlabelled throwaway is excluded from each
+  **Run 3: PASS, 21 checks, 0 skipped** — checks 9 and 13 became real
+  assertions, `--ccy` and `--github` both resolving against live labelled
+  sessions with the throwaway excluded from each. (Runs 1–2 and the refused
+  `acceptance.bash`-alone attempt that produced F18 are in `JOURNAL/`.)
 - [x] ✅ **Task 3.2b**: Re-run `deploy.bash` to exercise **check 9b** (the F19
   fix). **PASS, 22 checks, 0 skipped** — 9b named all four unlabelled sessions
   and confirmed each resolves via the name fallback, so `--ccy` provably covers
   the whole fleet rather than only the labelled part of it
-- [ ] ⬜ **Task 3.2c**: Re-run `deploy.bash` once more to exercise **check 13b**
-  and the `select_identity` disclosure it tests (F20). Both are new and have
-  never executed on the host
+- [x] ✅ **Task 3.2c**: Re-run `deploy.bash` to exercise **check 13b** and the
+  `select_identity` disclosure it tests (F20). **PASS, 24 checks, 0 skipped** —
+  both halves hold: the NOTE names the sessions the axis cannot cover, and it
+  stays on stderr so a captured dry-run is still just names
+- [x] ✅ **Task 3.2d**: Record the recurring defect class rather than only its
+  instances — `CLAUDE/AgentNotes.md` gains *"A partial result read as a complete
+  one"* with all five instances, `CLAUDE/QA.md`'s local note points at it, and
+  the `qa-reviewer` agent gains the three things to look for
 - [ ] ⬜ **Task 3.3**: Run the `qa-reviewer` agent over the plan's full diff;
   resolve all BLOCK/FIX-BEFORE-MERGE findings
 - [ ] ⬜ **Task 3.4**: Mark plan Complete, move to `Completed/`, update README

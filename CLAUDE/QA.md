@@ -70,6 +70,11 @@ would still miss every future sourced library.
 
 **If a gate reports a shortfall, widen the discovery — never exclude the file.**
 
+> **This is one instance of a general defect class**, and treating it as a
+> local quirk of these two gates is why it kept recurring elsewhere — four more
+> instances surfaced in Plans 00079/00080. See
+> [AgentNotes.md → *A partial result read as a complete one*](AgentNotes.md#a-partial-result-read-as-a-complete-one--guard-the-empty-case-miss-the-partial).
+
 #### `.paths.scanned` is not proof a file was analysed
 
 Semgrep lists a file it could not **parse** as scanned, returns zero findings for

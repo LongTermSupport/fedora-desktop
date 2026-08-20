@@ -271,6 +271,68 @@ catches faces 1–3 mechanically: `bash-capture-discards-status`,
 - Beware "fixes" that reintroduce it: `grep -c .` exits 1 on zero matches, so it
   aborts under `set -e` in exactly the **correct** case.
 
+### A partial result read as a complete one — guard the empty case, miss the partial
+
+**The class**: *a check verifies the path it was thinking about, is silent on the
+path that carries the load, and reports a result shaped exactly like a total
+one.*
+
+It is the sibling of [the discarded failure signal](#a-discarded-failure-signal-becomes-data--and-then-becomes-a-confident-wrong-answer)
+above, and strictly harder to see. There, something failed and the failure was
+laundered into data. Here **nothing fails at all**: every command exits 0, the
+output is well-formed, and it is simply *narrower than the question asked*.
+
+**Why it recurs.** The failure modes are asymmetric:
+
+- an **over-match** names itself — the extra items are printed in the set, so you
+  see them and undo it;
+- an **under-match** is silent — and silence is indistinguishable from agreement.
+
+So the direction that feels dangerous when writing (including too much) is the
+one you find, and the direction that feels safe (including too little) is the one
+that ships.
+
+**The tell**, in every instance below: a guard exists for the **zero** case, with
+a comment explaining why zero would be misleading — and no guard for the
+**partial** case, which is the state the system is actually in most of the time.
+
+| #   | Where                                       | Guarded                   | Blind to                       |
+| --- | ------------------------------------------- | ------------------------- | ------------------------------ |
+| 0   | `qa-bash` / `qa-patterns` discovery (00076) | zero files discovered     | *some* files discovered        |
+| 0b  | semgrep `.paths.scanned` (00076)            | file absent from the list | file listed but never *parsed* |
+| 1   | a `grep` read through `head -n 30` (00080)  | —                         | output cut at the line limit   |
+| 2   | `triage.bash` P4 session filter (00080)     | zero sessions labelled    | *some* sessions labelled       |
+| 3   | `acceptance.bash` check 9 (00079)           | the wrong label chosen    | the non-label path entirely    |
+| 4   | `podfreeze` `select_identity` (00079)       | zero sessions labelled    | *some* sessions labelled       |
+
+Rows 2 and 4 are the same guard, written twice by the same author in two files,
+each time stopping one case short. Rows 0/0b were already written up in
+[QA.md](QA.md) — *"Zero coverage was already treated as a broken gate; partial
+coverage was not"* — but only as a local note about one gate, which is why it
+kept recurring elsewhere. **Every instance after row 0 was found only because the
+previous one taught where to look, so the count is a lower bound, not a total.**
+
+**How to apply:**
+
+- **State coverage as a number, never imply it from a list.** `COVERAGE: probing 6 session(s); 2 carry the label` cannot be misread; six lines of output can. A
+  set you never enumerate cannot look short.
+- **Ask "what population is this filter missing?" not "is this filter empty?"**
+  If a selector has a fallback path (a name pattern, a legacy format, an older
+  version), the check must exercise the fallback too — especially when the
+  fallback covers the *majority*, as it does during any rollout.
+- **A guard on emptiness is half a guard.** Whenever you write "refuse to report
+  an empty result, it would read as *nothing found*", immediately ask what a
+  *partial* result would read as. Usually: the same thing.
+- **Truncating a read makes it evidence of nothing.** `| head -n N` on a
+  discovery grep answers "the first N", never "all". If the count matters, count
+  first.
+- **Disclose rather than block when the gap is unknowable.** An unlabelled
+  container's identity genuinely cannot be inferred, so refusing the selection
+  would be wrong and guessing worse — being *quiet* was the defect. Print what
+  was not considered, on stderr.
+- **A verdict line is not a result.** `VERDICT: PASS — 21 checks` reads
+  identically whether or not the checks covered the population. Read the body.
+
 ### Never pre-create a file that a generator expects to own
 
 `lookup('ansible.builtin.password', <path>, …)` **generates** a secret only when
