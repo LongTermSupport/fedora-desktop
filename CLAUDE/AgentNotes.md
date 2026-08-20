@@ -56,6 +56,29 @@ pass/fail gate is separate — the repo's documented trio is
 (`verify.bash` is an acceptable synonym). A verdict ("store loads ✅") belongs in
 the acceptance/verify gate, **not** in triage.
 
+### Sub-agents are pre-authorised — dispatch them, do not ask
+
+**The user has given standing authorisation to dispatch sub-agents.** Do not
+pause work to ask permission, and do not leave a mandated agent step open and
+merely flag it.
+
+**Why:** this repo *requires* the `qa-reviewer` agent as the final step of every
+plan and for any PR/branch diff (`CLAUDE.md`, `CLAUDE/QA.md`,
+`CLAUDE/PlanWorkflow.md` step 5). Treating that as needing per-use consent
+stalls the one review gate that catches the defects `qa-all.bash` structurally
+cannot, and the user has to keep re-granting something they already mandated.
+
+**How to apply:**
+
+- Run `qa-reviewer` as a matter of course before marking a plan Complete, and
+  when reviewing a PR or branch diff. It is read-only and cannot damage anything.
+- Dispatch research/search sub-agents freely for work that would otherwise mean
+  reading across many files.
+- If some *other* layer appears to withhold agent use, say so plainly and name
+  the layer, rather than silently declining — a per-session operating
+  instruction sits above daemon config, so no `.claude/hooks-daemon.yaml`
+  setting can clear it.
+
 ### Always fetch PR comments, not just the body
 
 When asked whether a PR is up to date, to review it, or to sync its state, pull

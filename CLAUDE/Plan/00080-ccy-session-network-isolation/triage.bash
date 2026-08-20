@@ -283,6 +283,65 @@ echo "### READ THIS FOR: P5/U10 — network inventory and how loaded each one is
 probe "networks" podman network ls --format '{{.Name}}\t{{.Driver}}\t{{.ID}}'
 probe "members per network" count_members_per_network
 
+# =============================================================================
+# P13 — how much is `--connect` actually WORTH?
+#
+# The shared bridge exists solely to keep `ccy --connect` working (F2), so the
+# whole decision at Task 2.2 turns on how often a project genuinely joins a
+# non-default network. That was about to be settled from recollection. It does
+# not have to be: CCY persists the choice per project, one file per project, at
+# $HOME/.claude-tokens/ccy/projects/<hash>/network
+# (`network-management.bash:75-86`). Counting them is the actual usage record.
+#
+# Reported as counts FIRST, because the counts are the decision input and the
+# names are private project identifiers — this log is gitignored precisely so
+# host state like that can be gathered without reaching the public repo. Do not
+# copy names out of here into a plan, a commit message, or an issue.
+# =============================================================================
+count_network_preferences() {
+    local root="$HOME/.claude-tokens/ccy/projects"
+    local f value total=0 default=0 custom=0
+    if [ ! -d "$root" ]; then
+        echo "  no persisted preferences at all ($root does not exist)"
+        echo "  => no project has ever selected a network; --connect is unused here"
+        return 0
+    fi
+    while IFS= read -r f; do
+        if [ -z "$f" ] || [ ! -f "$f" ]; then
+            continue
+        fi
+        total=$(( total + 1 ))
+        value="$(cat "$f")"
+        if [ "$value" = "podman" ]; then
+            default=$(( default + 1 ))
+        else
+            custom=$(( custom + 1 ))
+        fi
+    done < <(find "$root" -mindepth 2 -maxdepth 2 -name network -type f)
+
+    echo "  projects with a recorded network preference : $total"
+    echo "    of which the DEFAULT bridge ('podman')    : $default"
+    echo "    of which a NON-default network            : $custom"
+    echo ""
+    if [ "$custom" -eq 0 ]; then
+        echo "  => No project has ever joined a non-default network. The shared"
+        echo "     bridge is being paid for a capability nothing is using, which"
+        echo "     makes reverting to pasta (D2 option 4) nearly free."
+    else
+        echo "  => $custom project(s) DO join a project network, so --connect is"
+        echo "     live and any option that removes the bridge must preserve it."
+        echo "     The names are below; they are private identifiers, so read them"
+        echo "     here and do not copy them into a tracked file."
+        find "$root" -mindepth 2 -maxdepth 2 -name network -type f -exec cat {} + |
+            sort | uniq -c | sed 's/^/       /'
+    fi
+}
+
+echo "### READ THIS FOR: P13 — the ONLY input Task 2.2 still lacks"
+echo "###   The shared bridge exists to keep 'ccy --connect' working (F2)."
+echo "###   If the NON-default count is 0, nothing is using what it buys."
+probe "persisted per-project network preferences" count_network_preferences
+
 if [ "$REACHABILITY" -eq 0 ]; then
     echo "================================================================"
     echo "END OF PASSIVE REPORT."
