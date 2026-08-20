@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Plan 00078 — deploy podfreeze. HOST ONLY.
+# Plan 00079 — deploy podfreeze. HOST ONLY.
 #
 # Runs acceptance.bash itself when it finishes, and exits with ITS status, so a
 # zero exit means "deployed AND verified" rather than merely "ansible did not
@@ -17,7 +17,7 @@ for arg in "$@"; do
     case "$arg" in
         -h | --help)
             cat << 'EOF'
-Plan 00078 — deploy podfreeze (HOST ONLY)
+Plan 00079 — deploy podfreeze (HOST ONLY)
 
 Usage: deploy.bash [-y|--yes] [--no-verify] [--help]
 
@@ -67,7 +67,7 @@ echo "Logging this run to: $LOG" >&2
 PLAY="playbooks/imports/optional/common/play-podfreeze.yml"
 
 echo "=============================================================="
-echo "Plan 00078 — deploy podfreeze"
+echo "Plan 00079 — deploy podfreeze"
 echo "=============================================================="
 echo
 

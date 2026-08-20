@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Plan 00078 — acceptance gate for podfreeze. HOST ONLY.
+# Plan 00079 — acceptance gate for podfreeze. HOST ONLY.
 #
 # Renders a PASS/FAIL verdict (triage.bash gathers facts and renders none —
 # see CLAUDE/PlanTriage.md).
@@ -24,7 +24,7 @@ for arg in "$@"; do
     case "$arg" in
         -h | --help)
             cat << 'EOF'
-Plan 00078 — acceptance gate for podfreeze (HOST ONLY)
+Plan 00079 — acceptance gate for podfreeze (HOST ONLY)
 
 Usage: acceptance.bash [--help]
 
@@ -99,7 +99,7 @@ skip() {
 }
 
 echo "=============================================================="
-echo "Plan 00078 — acceptance: podfreeze"
+echo "Plan 00079 — acceptance: podfreeze"
 echo "=============================================================="
 echo
 

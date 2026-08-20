@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Plan 00078 triage — grounded facts for the podfreeze tool design.
+# Plan 00079 triage — grounded facts for the podfreeze tool design.
 #
 # READ-ONLY: this script only queries podman/dnf/system state. It never
 # starts, stops, pauses, builds, or removes anything. Safe to re-run at any
@@ -20,7 +20,7 @@ usage() {
     cat <<'EOF'
 Usage: triage.bash [--help]
 
-Read-only fact-gathering for Plan 00078 (podman container control).
+Read-only fact-gathering for Plan 00079 (podman container control).
 Run on the HOST. Writes a full report to <plan>/logs/podfreeze-triage.log.
 
 Options:
@@ -46,7 +46,7 @@ done
 # and an empty report would read as evidence of absence (PlanTriage.md).
 if [ -e /run/.containerenv ] || [ -e /.dockerenv ]; then
     echo "ERROR: running inside a container — this triage probes the HOST podman." >&2
-    echo "  Run it on the host: CLAUDE/Plan/00078-podman-container-control/triage.bash" >&2
+    echo "  Run it on the host: CLAUDE/Plan/00079-podman-container-control/triage.bash" >&2
     exit 1
 fi
 
@@ -90,7 +90,7 @@ pause_filter_support() {
 }
 
 echo "================================================================"
-echo "Plan 00078 triage — podman container control facts"
+echo "Plan 00079 triage — podman container control facts"
 echo "Host: (hostname withheld from log by design — this repo is public,"
 echo "       but logs/ is gitignored; still, no need to embed it)"
 echo "================================================================"

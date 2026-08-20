@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Plan 00078 — unit test for podfreeze's selection and labelling logic.
+# Plan 00079 — unit test for podfreeze's selection and labelling logic.
 # Runs ANYWHERE, including inside the CCY container: it needs no podman.
 #
 # WHY THIS EXISTS ALONGSIDE acceptance.bash:
@@ -26,7 +26,7 @@ for arg in "$@"; do
     case "$arg" in
         -h | --help)
             cat << 'EOF'
-Plan 00078 — unit test for podfreeze selection/labelling (no podman needed)
+Plan 00079 — unit test for podfreeze selection/labelling (no podman needed)
 
 Usage: unit-test-selection.bash [--help]
 
@@ -94,7 +94,7 @@ is() {
 }
 
 echo "=============================================================="
-echo "Plan 00078 — podfreeze selection/labelling unit test"
+echo "Plan 00079 — podfreeze selection/labelling unit test"
 echo "=============================================================="
 echo
 

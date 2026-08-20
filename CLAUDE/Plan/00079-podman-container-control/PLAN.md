@@ -1,4 +1,4 @@
-# Plan 00078: Podman container control — freeze/thaw by container, network, and CCY group
+# Plan 00079: Podman container control — freeze/thaw by container, network, and CCY group
 
 **Status**: Not Started
 **Created**: 2026-08-19
@@ -294,7 +294,7 @@ See D4 and D6.
   against the live CCY set as a contract, and checks the in-container refusal,
   the unknown-network and unknown-name failures, and mutually-exclusive
   targets. `--all` is never run for real. Both log to the plan's `logs/`
-- [ ] 🔄 **Task 3.2**: User runs `CLAUDE/Plan/00078-podman-container-control/deploy.bash`
+- [ ] 🔄 **Task 3.2**: User runs `CLAUDE/Plan/00079-podman-container-control/deploy.bash`
   on the HOST (it deploys, then runs acceptance itself); journal the verdict.
   **Run 1**: deploy clean (`failed=0`); acceptance **FAIL**, 1 of 15 — and the
   failure was the gate's own fixture, not the tool (F16, D6). Fixture fixed;
@@ -338,7 +338,7 @@ See D4 and D6.
 
 <!-- Curated milestones + delivery commit hashes only (git is the SSoT for
      "when" — do not add dates). The blow-by-blow activity log lives in
-     JOURNAL/00078-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
+     JOURNAL/00079-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
 - Plan created + research logged
 - Phase 0 host triage run; decision gate passed, Phase 1 demoted
