@@ -14,10 +14,16 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.40.1"  # Session containers carry FIVE run-time labels: ccy=true and ccy-project=<project> identify a live session (not merely something built from the CCY image), and ccy-github / ccy-token / ccy-ssh-keys identify WHO it runs as, which is what podfreeze's identity axes select on. 3.40.1 corrects this comment only — no code change. See docs/ccy-changelog.md.
+CCY_VERSION="3.41.0"  # CCY_HASH now covers the launcher AND the six lib/ files it sources, instead of the launcher alone — the libraries are the larger half of the program, and 22 commits had changed them under an unchanged version and an unchanged hash. Session containers carry FIVE run-time labels: ccy=true and ccy-project=<project> identify a live session (not merely something built from the CCY image), and ccy-github / ccy-token / ccy-ssh-keys identify WHO it runs as, which is what podfreeze's identity axes select on. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Every library this launcher sources, in load order — which is also the order
+# they are fed to CCY_HASH below. Declared once so the presence check, the load
+# order and the integrity hash cannot disagree about what "the CCY script" is.
+CCY_LIBS=(common token-management ssh-handling network-management dockerfile-custom docker-health)
+
 if [ -f "$SCRIPT_DIR/lib/common.bash" ]; then
     source "$SCRIPT_DIR/lib/common.bash"
 else
@@ -35,7 +41,7 @@ fi
 # unfollowable sources as SC1090 instead of actually checking the libraries this
 # script's every function comes from. Same load order, same failure, real
 # cross-file analysis.
-for lib in token-management ssh-handling network-management dockerfile-custom docker-health; do
+for lib in "${CCY_LIBS[@]}"; do
     if [ ! -f "$SCRIPT_DIR/lib/$lib.bash" ]; then
         print_error "Required library not found: $SCRIPT_DIR/lib/$lib.bash"
         exit 1
@@ -68,8 +74,21 @@ debug() {
     if [[ "$DEBUG_CCY" = true ]]; then echo "DEBUG: $*"; fi
 }
 
-# Calculate script hash (exclude this variable line to avoid circular dependency)
-CCY_HASH=$(grep -v '^CCY_HASH=' "$0" | md5sum | cut -d' ' -f1 | cut -c1-16)
+# Calculate script hash (exclude this variable line to avoid circular dependency).
+#
+# The hash covers the launcher AND every library it sources. It was md5sum of
+# "$0" alone, while the six lib/ files total more bytes than the launcher does —
+# so a behaviour change in lib/token-management.bash left the hash unchanged and
+# the "modified without version bump" guard below never fired. 22 commits in
+# this repo's history shipped lib-only changes that way. Plan 00081 F7.
+CCY_HASH=$(
+    {
+        grep -v '^CCY_HASH=' "$0"
+        for _ccy_lib in "${CCY_LIBS[@]}"; do
+            cat "$SCRIPT_DIR/lib/$_ccy_lib.bash"
+        done
+    } | md5sum | cut -d' ' -f1 | cut -c1-16
+)
 
 # Configuration file schema version
 CONFIG_VERSION=1

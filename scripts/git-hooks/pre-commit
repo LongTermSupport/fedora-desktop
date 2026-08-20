@@ -104,19 +104,34 @@ if [ ${#STAGED_FILE_LIST[@]} -eq 0 ]; then
     exit 0
 fi
 
-# Newline-joined view, used only for the cheap CCY-script membership grep below.
-STAGED_FILES=$(printf '%s\n' "${STAGED_FILE_LIST[@]}")
-
 # ============================================================================
 # CCY Version Bump Validation
 # ============================================================================
 # The CCY script has hash validation to detect modifications without version bumps
 # This prevents deployment issues where modified scripts don't get proper version tracking
+#
+# "The CCY script" is SEVEN files, not one. This gate keyed on the launcher
+# alone, and so did the runtime hash — while the six lib/ files it sources total
+# more bytes than the launcher itself. Measured over this repo's history: 71
+# commits touched lib/, and 22 of them did not touch the launcher at all, so no
+# bump was ever required and none was made. A behaviour change in
+# lib/token-management.bash shipped with an unchanged CCY_VERSION, an unchanged
+# hash, and validate_ccy_integrity reporting a match.
+# CLAUDE/ContainerRules.md states the rule as "ANY code change requires a
+# version bump"; enforcement covered one file of seven. Plan 00081 F7.
 
 CCY_SCRIPT="files/var/local/claude-yolo/claude-yolo"
+CCY_LIB_DIR="files/var/local/claude-yolo/lib"
 
-if echo "$STAGED_FILES" | grep -q "^${CCY_SCRIPT}$"; then
-    echo "🔍 Checking CCY version bump requirement..."
+CCY_STAGED=()
+for FILE in "${STAGED_FILE_LIST[@]}"; do
+    case "$FILE" in
+        "$CCY_SCRIPT" | "$CCY_LIB_DIR"/*.bash) CCY_STAGED+=("$FILE") ;;
+    esac
+done
+
+if [ ${#CCY_STAGED[@]} -gt 0 ]; then
+    echo "🔍 Checking CCY version bump requirement (${#CCY_STAGED[@]} CCY file(s) staged)..."
 
     # Extract current staged version. Capture the file content FIRST, then parse
     # with awk. Piping a large `git show` straight into `grep -m1` lets grep exit
@@ -125,8 +140,16 @@ if echo "$STAGED_FILES" | grep -q "^${CCY_SCRIPT}$"; then
     # and silently blocked every commit that stages the CCY script. awk reading a
     # here-string is a single process over a seekable temp file, so there is no
     # pipe head left to SIGPIPE.
-    ccy_staged_src=$(git show ":$CCY_SCRIPT")
-    STAGED_VERSION=$(awk -F'"' '/^CCY_VERSION=/{print $2; exit}' <<<"$ccy_staged_src")
+    #
+    # CCY_VERSION lives in the launcher, so a lib-only commit cannot bump it —
+    # it has to stage the launcher too. Leaving STAGED_VERSION empty here and
+    # filling it from HEAD below is what makes that fall out: the versions
+    # compare equal, and the gate rejects.
+    STAGED_VERSION=""
+    if git diff --cached --name-only -- "$CCY_SCRIPT" | grep -q .; then
+        ccy_staged_src=$(git show ":$CCY_SCRIPT")
+        STAGED_VERSION=$(awk -F'"' '/^CCY_VERSION=/{print $2; exit}' <<<"$ccy_staged_src")
+    fi
 
     # Extract HEAD version (empty if the file does not exist in HEAD).
     HEAD_VERSION=""
@@ -134,12 +157,18 @@ if echo "$STAGED_FILES" | grep -q "^${CCY_SCRIPT}$"; then
         HEAD_VERSION=$(awk -F'"' '/^CCY_VERSION=/{print $2; exit}' <<<"$ccy_head_src")
     fi
 
+    # A lib-only commit leaves the version exactly as HEAD has it.
+    if [ -z "$STAGED_VERSION" ]; then
+        STAGED_VERSION="$HEAD_VERSION"
+    fi
+
     # If file exists in HEAD and version hasn't changed
     if [ -n "$HEAD_VERSION" ] && [ "$STAGED_VERSION" = "$HEAD_VERSION" ]; then
-        # Check if any REAL code line changed (added/removed), ignoring the
-        # +++/--- diff headers and lines that are only comments or blank.
+        # Check if any REAL code line changed (added/removed) in ANY staged CCY
+        # file, ignoring the +++/--- diff headers and lines that are only
+        # comments or blank.
         # grep -q . succeeds (exit 0) iff at least one real code line remains.
-        if git diff --cached HEAD -- "$CCY_SCRIPT" \
+        if git diff --cached HEAD -- "${CCY_STAGED[@]}" \
             | grep -E '^[+-]' \
             | grep -vE '^[+-]{3}' \
             | grep -vE '^[+-][[:space:]]*(#|$)' \
@@ -148,8 +177,15 @@ if echo "$STAGED_FILES" | grep -q "^${CCY_SCRIPT}$"; then
             echo -e "${RED}COMMIT REJECTED: CCY version bump required${NC}"
             echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
             echo ""
-            echo "The CCY script was modified but CCY_VERSION was not bumped."
+            echo "CCY code was modified but CCY_VERSION was not bumped."
             echo "Current version: $STAGED_VERSION"
+            echo ""
+            echo "Staged CCY file(s):"
+            printf '  %s\n' "${CCY_STAGED[@]}"
+            echo ""
+            echo "The version lives in the launcher, so a lib/ change must stage"
+            echo "$CCY_SCRIPT as well — the libraries are part of the same"
+            echo "program and the runtime hash covers all of them."
             echo ""
             echo "Actions to take:"
             echo "  1. Bump CCY_VERSION in $CCY_SCRIPT"

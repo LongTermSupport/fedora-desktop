@@ -321,14 +321,88 @@ else
     ok "a broken whitelist regex is a hard failure, not an empty result"
 fi
 
+# --------------------------------------------------------------------------
+# The CCY version-bump gate. "The CCY script" is seven files: the launcher and
+# the six libraries it sources, which together are the larger half. The gate
+# and the runtime hash both keyed on the launcher alone, so 22 commits shipped
+# lib-only behaviour changes with no bump required and none made.
+# --------------------------------------------------------------------------
+
+CCY_PATH="files/var/local/claude-yolo/claude-yolo"
+CCY_LIB_PATH="files/var/local/claude-yolo/lib/token-management.bash"
+
+new_ccy_repo() {
+    local d="$SANDBOX/$1"
+    mkdir -p "$d/files/var/local/claude-yolo/lib"
+    git -C "$d" init -q .
+    git -C "$d" config user.email "test@example.com"
+    git -C "$d" config user.name "test"
+    {
+        echo '#!/bin/bash'
+        echo 'CCY_VERSION="1.0.0"  # baseline'
+        echo 'echo hello'
+    } > "$d/$CCY_PATH"
+    {
+        echo '#!/bin/bash'
+        echo 'lib_function() { echo original; }'
+    } > "$d/$CCY_LIB_PATH"
+    git -C "$d" add -A
+    git -C "$d" commit -qm init
+    printf '%s' "$d"
+}
+
+echo "### 11. a lib-only change with no version bump is REJECTED"
+D="$(new_ccy_repo ccylib)"
+echo 'lib_function() { echo CHANGED; }' >> "$D/$CCY_LIB_PATH"
+git -C "$D" add -A
+RES="$(run_hook "$D")"
+case "$RES" in
+    *"---rc=0"*) bad "a lib/ behaviour change shipped with no version bump" ;;
+    *) ok "lib/ is inside the version-bump gate" ;;
+esac
+
+echo "### 12. a lib change WITH a launcher bump is accepted"
+D="$(new_ccy_repo ccybump)"
+echo 'lib_function() { echo CHANGED; }' >> "$D/$CCY_LIB_PATH"
+if ! python3 - "$D/$CCY_PATH" <<'PYEOF'
+import sys
+p = sys.argv[1]
+with open(p) as fh:
+    text = fh.read()
+with open(p, "w") as fh:
+    fh.write(text.replace('CCY_VERSION="1.0.0"', 'CCY_VERSION="1.1.0"'))
+PYEOF
+then
+    echo "ERROR: could not rewrite the sandbox version line" >&2
+    exit 1
+fi
+git -C "$D" add -A
+RES="$(run_hook "$D")"
+case "$RES" in
+    *"---rc=0"*) ok "a bumped lib change passes — the gate is not a blanket block" ;;
+    *) bad "false positive: a properly bumped lib change was rejected
+       $RES" ;;
+esac
+
+echo "### 13. a launcher-only change with no bump is still rejected"
+D="$(new_ccy_repo ccylauncher)"
+echo 'echo goodbye' >> "$D/$CCY_PATH"
+git -C "$D" add -A
+RES="$(run_hook "$D")"
+case "$RES" in
+    *"---rc=0"*) bad "the pre-existing launcher check regressed" ;;
+    *) ok "the pre-existing launcher check still holds" ;;
+esac
+
 echo
 echo "=============================================================="
-echo "COVERAGE: 10 check(s) over 6 fixed defects, 9 driving a REAL hook"
-echo "  in a throwaway repo — 5 against pre-commit, 4 against commit-msg, 1"
+echo "COVERAGE: 13 check(s) over 7 fixed defects, 12 driving a REAL hook"
+echo "  in a throwaway repo — 8 against pre-commit, 4 against commit-msg, 1"
 echo "  against the shared library. Measured, not asserted (--hooks-dir"
-echo "  against the pre-plan hooks at 0369468b~1): 7 of these 10 FAIL there"
-echo "  — 1, 2, 5, 6, 7, 9, 10. Checks 3 and 8 pass in both, and are what"
-echo "  stop the fixes over-correcting into false positives."
+echo "  against the pre-plan hooks at 0369468b~1): 8 of these 13 FAIL there"
+echo "  — 1, 2, 5, 6, 7, 9, 10, 11. Checks 3, 8, 12 and 13 pass in both:"
+echo "  they exist to stop the fixes over-correcting into false positives"
+echo "  or regressing what already worked, and that is worth saying."
 echo "--------------------------------------------------------------"
 if [ "$FAIL" -eq 0 ]; then
     echo "VERDICT: PASS — $PASS check(s) passed."

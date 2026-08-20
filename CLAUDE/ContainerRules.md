@@ -76,7 +76,17 @@ CCY_VERSION="3.0.1"  # Fix: persist sessions in .claude/ccy/
 **This applies to:**
 
 - `files/var/local/claude-yolo/claude-yolo` (main CCY wrapper)
+- **`files/var/local/claude-yolo/lib/*.bash`** — the six libraries the launcher
+  sources are part of the same program, and together they are the larger half of
+  it. `CCY_VERSION` lives in the launcher, so a `lib/` change must stage the
+  launcher too in order to bump it.
 - Any file with version tracking
+
+Both the `pre-commit` gate and the runtime `CCY_HASH` used to key on the
+launcher **alone**: 71 commits touched `lib/`, 22 of them without touching the
+launcher, so no bump was required and none was made — a behaviour change shipped
+with an unchanged version and a hash that still matched. Fixed in 3.41.0; see
+`docs/ccy-changelog.md`.
 
 ---
 

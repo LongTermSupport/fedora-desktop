@@ -17,6 +17,29 @@ Two version numbers move independently — see
 
 ---
 
+## 3.41.0 (container 2.26)
+
+**The integrity hash covered one file of seven.** `CCY_HASH` was `md5sum` of the launcher
+alone. The launcher sources six libraries from `lib/`, and those six total more bytes than
+the launcher does — so a behaviour change in `lib/token-management.bash` produced an
+unchanged hash, and the "DEVELOPER ERROR: CCY script modified without version bump" guard
+never fired. Measured over this repo's history: **71 commits touched `lib/`, and 22 of them
+did not touch the launcher at all**, so no bump was ever required and none was made.
+
+`CCY_HASH` now hashes the launcher plus every library it sources, in load order. The library
+list is declared once (`CCY_LIBS`) and drives the presence check, the load order and the
+hash, so those three cannot disagree about what "the CCY script" is. The matching
+`pre-commit` gate was extended the same way: staging any `lib/*.bash` file now requires a
+version bump, and — since `CCY_VERSION` lives in the launcher — requires staging the
+launcher too.
+
+This bump also settles the accumulated drift. Every saved launch configuration reconfigures
+once on the version change, which is the normal upgrade path; nothing else is needed.
+
+Found by the Plan 00081 sweep for *a partial result read as a complete one* (F7).
+
+---
+
 ## 3.40.1 (container 2.26)
 
 **Comment-only correction; no code change.** The `CCY_VERSION` comment described two of the

@@ -161,12 +161,13 @@ holes, each behind a test that fails against the unfixed code.
 
 ### Phase 1b: The CCY integrity gate covers one file of seven
 
-- [ ] ⬜ **Task 1.7**: Extend the version-bump gate and the runtime hash to the
-  `lib/` files (F7) — the hash should cover the launcher **and** everything it
-  sources, and the commit gate should require a bump when any of them changes.
-  22 commits have already shipped lib-only behaviour changes under an unchanged
-  version, so this also needs a decision about whether to bump once for the
-  accumulated drift
+- [x] ✅ **Task 1.7**: The version-bump gate and the runtime hash now cover the
+  launcher **and** the six libraries it sources (F7). `CCY_LIBS` is declared
+  once and drives the presence check, the load order and the hash, so those
+  three cannot disagree about what "the CCY script" is. Verified: an identical
+  lib-only edit moves the new hash and leaves the old formula unchanged.
+  Accumulated drift is settled by the 3.41.0 bump itself — every saved config
+  reconfigures once on a version change, which is the normal upgrade path
 
 ### Phase 2: The QA gates
 
