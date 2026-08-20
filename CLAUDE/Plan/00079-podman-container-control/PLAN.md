@@ -116,6 +116,13 @@ write-up in the journal):
   "network: podman" in the menu approximately "every session that did not join
   a project network" — and it is why F15's hazard runs the other way too: an
   eighth session sat on the app network `mkt` instead
+- **F18** — **the host was running a `podfreeze` older than the repo's**, and
+  `acceptance.bash` refused rather than verify it. The D9 drill-down (`a678e31`,
+  10:42) was committed **10 minutes after** run 2's deploy (10:32), so run 2's
+  "16 passed" verdict never exercised the drill-down at all. The guard is the
+  Plan 00072 defect class — repo says fixed, host runs the old build — caught by
+  the check written for it. `deploy.bash`, not `acceptance.bash`, is the entry
+  point whenever the tool itself has changed
 
 **F15 is the safety case, and no hypothesis anticipated it.** The blast radius
 of a network-scoped freeze is not guessable from the network's name: the
@@ -347,9 +354,14 @@ See D4 and D6.
   **Run 1**: deploy clean (`failed=0`); acceptance **FAIL**, 1 of 15 — the
   failure was the gate's own fixture, not the tool (F16, D6). Fixture fixed.
   **Run 2**: deploy clean, acceptance **PASS — 16 passed, 2 skipped**.
-  **What remains**: the 2 skips (checks 9, 13) need a session started by the
-  3.40.0 labelling launcher. Relaunch one `ccy` session, re-run, and they become
-  real assertions instead of skips
+  **Run 3 attempt**: `acceptance.bash` run alone **REFUSED** — deployed
+  `podfreeze` differs from the repo copy. Correct, and a real catch: the D9
+  drill-down (`a678e31`, 10:42) landed **10 minutes after** run 2's deploy
+  (10:32), so run 2's PASS never exercised it and the host still runs the
+  pre-drill-down build (F18).
+  **What remains**: run `deploy.bash` (not `acceptance.bash` alone) — it
+  redeploys, then chains into acceptance. Two live sessions now carry 3.40.0
+  labels, so checks 9 and 13 become real assertions instead of skips
 - [ ] ⬜ **Task 3.3**: Run the `qa-reviewer` agent over the plan's full diff;
   resolve all BLOCK/FIX-BEFORE-MERGE findings
 - [ ] ⬜ **Task 3.4**: Mark plan Complete, move to `Completed/`, update README
