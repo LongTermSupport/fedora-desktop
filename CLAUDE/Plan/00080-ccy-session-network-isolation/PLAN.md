@@ -10,10 +10,15 @@
 Every CCY session launched without `--network` joins the **same** Podman bridge.
 This was established rather than assumed: `podman network ls` lists `podman`
 once, with a single NETWORK ID and the `bridge` driver, and a host triage run
-found seven CCY sessions attached to it simultaneously (Plan 00079, F17). It is
-Podman's default for a container started with no network flag, not a choice CCY
-makes — but the consequence is that unrelated Claude sessions share one L2
-domain by default.
+found seven CCY sessions attached to it simultaneously (Plan 00079, F17).
+
+That turns out to be **CCY's own choice, not Podman's default** (F1/F2). Rootless
+Podman defaults to *pasta*, which has no virtual network and isolates containers
+from each other; CCY explicitly overrides it with `--network podman` so that
+`ccy --connect` can attach a running session to a project network later. So the
+question is not "can we add isolation" — the isolated default already exists and
+was **traded away for `--connect`**. The real question is whether that trade can
+be undone without losing what it bought.
 
 Each session holds an Anthropic OAuth token, a `gh` token, mounted SSH private
 keys, and a read-write project tree, and commonly runs dev servers and a
@@ -63,20 +68,32 @@ actually matters and is not yet established.
 
 **From reading the launcher** (source-grounded, no runtime claim):
 
-- **F1** — there is no "no network" path. `NETWORK_FLAG` starts empty
-  (`claude-yolo:1943`) and is only ever set to `--network <name>` for a project
-  network. Every other route leaves it empty, so `podman run` is invoked with
-  **no** `--network` flag and the container lands on the default `podman`
-  bridge. The shared bridge is thus the fallthrough for every case that is not
-  an explicit project network
-- **F2** — **`--no-network` does not mean "no network"**; it means "skip the
-  compose auto-detect" (`claude-yolo:2044-2047`), after which F1 applies and the
-  session still joins the shared bridge. The flag's `--help` line and
-  `docs/ccy.md:434` both say "Skip network auto-detection" and are correct; the
-  **runtime message** — `✓ Skipping network connection (--no-network flag)` —
-  is not, and reads as though the container has no network. A user reaching for
-  `--no-network` to isolate a session would get the opposite of what the message
-  promises. Fixing that string is in scope regardless of how the decision goes
+- **F1** — **the shared bridge is a CCY decision, not a Podman default.** When
+  the engine is Podman, `--no-network` was not given, and nothing else selected
+  a network, `claude-yolo:2677-2680` *explicitly* sets
+  `NETWORK_FLAG="--network podman"`. Rootless Podman's own default is **pasta**,
+  which gives no virtual network and therefore isolates containers from each
+  other. So the isolated default already exists — CCY opts out of it
+- **F2** — **it was traded away to make `ccy --connect` work.** Commit
+  `ea7ba129` (CCY 2.5.2 → 2.6.0) added that line because `--connect` failed with
+  `"pasta" is not supported: invalid network mode`: pasta cannot join additional
+  networks after container start, so the launcher moved to the default bridge to
+  keep later `podman network connect` possible. The shared L2 domain is a
+  **side-effect of preserving `--connect`**, not a judgement about isolation.
+  Any option that removes the bridge must answer for `--connect`
+- **F2b** — consequently **`--no-network` really does isolate**: it leaves
+  `NETWORK_FLAG` empty, the `elif` at 2677 is skipped, and the session gets
+  pasta. The runtime message `✓ Skipping network connection` is defensible after
+  all
+
+> **Correction.** F1 and F2 previously said the opposite — that CCY passes no
+> `--network` flag and lands on the bridge as a fallthrough, and that
+> `--no-network` fails to isolate. Both were wrong. The cause is worth recording
+> because it is this repo's own defect class: the assignment list was read from
+> a `grep … | head -n 30` whose output was **truncated at exactly 30 lines**, and
+> the decisive assignment is the eleventh and last. A truncated result was read
+> as exhaustive.
+
 - **F3** — a session's network is *persisted* (`load_network_preference`) and
   re-applied on the next launch, so a session that joined a project network once
   keeps doing so without the flag
@@ -112,19 +129,35 @@ Each needs a probe before it becomes a fact. None is a decision input until it
 does.
 
 - **H1** — two containers on the shared `podman` bridge can reach each other's
-  TCP ports by IP
-- **H2** — name resolution between them does **not** work on the *default*
-  network (`aardvark-dns` is understood to serve user-created networks; the
-  default is believed to differ) — so reachability, if any, is by IP
+  TCP ports by IP. **Confirmed on documentation** ("within a bridge network,
+  containers can initiate communications with each other"); still needs a host
+  probe (P6) because this machine's firewall state is not derivable from docs
+- **H2** — name resolution does **not** work on the *default* network.
+  **Confirmed twice**: Podman's docs say the default `podman` network "does not
+  support dns resolution", and the repo already encodes it —
+  `ensure_network_dns()` returns early for that network
+  (`network-management.bash:751`). So cross-session reach, where it exists, is
+  **by IP only**
 - **H3** — the processes CCY actually runs bind to `0.0.0.0` rather than
-  `127.0.0.1`, making H1 exploitable rather than theoretical
-- **H4** — a per-session network can be created and removed at launch/exit
-  without leaking on abnormal termination (`SIGKILL`, OOM, power loss)
-- **H5** — a per-session network does not change what the session can reach on
-  the internet or on the host
+  `127.0.0.1`. **This is now the decisive unknown.** Nothing in the repo
+  evidences it either way, and a live session read from `/proc` while idle had
+  **zero** listeners (F5)
+- **H4** — a per-session network can be created and removed without leaking on
+  abnormal termination (`SIGKILL`, OOM, power loss)
+- **H5** — a per-session network reaches the internet and the host identically
 
-**H4 is the one that decides feasibility.** CCY runs `--rm`, which handles the
-container but says nothing about a network created alongside it.
+**Two hypotheses decide this plan, and neither is H1.** H3 decides whether there
+is a problem at all: F4 established that the *path* is open by construction, so
+what matters is whether anything is listening at the end of it. H4 decides
+whether the obvious fix is viable, since `--rm` covers the container and says
+nothing about a network created alongside it.
+
+**A third, found by the research and not anticipated here**: whether this host
+is on netavark ≥ 2.0 / Podman ≥ 6.0, where bridge networks became *strictly
+isolated by default*. Below that version a per-session network would look
+isolated **without being isolated** unless `--opt isolate=` is passed explicitly
+— an appearance of a fix, which is worse than no fix. `triage.bash` P1 answers
+it in one command.
 
 ## Technical Decisions
 
@@ -144,6 +177,32 @@ default stands, the row is worth re-labelling (it means "did not join a project
 network"), which is a one-line change made *then*, with the reason known.
 **Date**: 2026-08-20
 
+### D2: the option space, reframed by F1/F2
+
+Eight options are laid out with evidence in `research/findings.md` §5. Three are
+ruled out **on evidence** rather than left hanging: `--network none` and an
+`--internal` network both remove egress, so Claude Code cannot reach the API;
+and `isolate=strict` on the shared network is a *cross-network* control that
+does nothing to traffic **inside** one network, so it does not address this
+problem at all.
+
+That leaves the real choice, and F1/F2 make it a narrower one than it looked:
+
+- **Option 4 — delete the override.** Reverts to pasta, which isolates by
+  design. Costs nothing to build; it is a *deletion*. **Breaks `ccy --connect`**,
+  which is the exact bug the override was added to fix.
+- **Option 2 — a network per session.** Keeps a bridge, so `--connect` still
+  works, but with one member. Costs a lifecycle, and inherits the two traps
+  above (pre-6.0 isolation, and DNS).
+- **Option 5 — a network per project.** Sessions of one project already share
+  tokens, SSH key and working tree, so isolating them from each other buys
+  little; fewer objects to leak, but "when is the last one out" is harder.
+
+**Option 2 is "keep what F2 bought, drop what it cost".** Which is right turns
+on a question the repo does not record: **how often `ccy --connect` is actually
+used.** If it is rare, Option 4 is free isolation and less code.
+**Date**: 2026-08-20
+
 ## Tasks
 
 ### Phase 1: Research (no code changes)
@@ -152,9 +211,10 @@ network"), which is a one-line change made *then*, with the reason known.
   shared bridge permits, B) what CCY does today, C) the options and their crash
   behaviour, D) the `podfreeze` consequence — writing tagged findings to
   `research/findings.md` and rendering **no** verdict
-- [ ] 🔄 **Task 1.2**: Write `triage.bash` from the probe list the research
-  returns — read-only, HOST-run, logging to this plan's `logs/`
-- [ ] ⬜ **Task 1.3**: User runs `triage.bash` on the HOST; convert confirmed
+- [x] ✅ **Task 1.2**: `triage.bash` written from the research's probe list —
+  passive by default (P1–P5), active probes behind `--reachability` (P6–P12),
+  logging to this plan's `logs/`
+- [ ] 🔄 **Task 1.3**: User runs `triage.bash` on the HOST; convert confirmed
   hypotheses into numbered facts, and record what was refuted
 
 ### Phase 2: Decision gate
@@ -177,10 +237,10 @@ network"), which is a one-line change made *then*, with the reason known.
 
 ### Phase 4: Close out
 
-- [ ] ⬜ **Task 4.0**: Fix the `--no-network` runtime message (F2). Unconditional
-  — it misdescribes what the flag does whichever way Task 2.2 goes, and it
-  misdescribes it in the direction a user reaching for isolation would be misled
-  by
+- [ ] ⬜ **Task 4.0**: Document that `--no-network` is the *isolating* mode
+  (F2b) — `docs/ccy.md` and the `--help` line both describe it only as "skip
+  auto-detection", which undersells it: it is currently the one way to run a
+  session that no other container can reach
 - [ ] ⬜ **Task 4.1**: Apply the D1 consequence to `podfreeze`, whichever way it
   went
 - [ ] ⬜ **Task 4.2**: Update `docs/ccy.md`'s networking + security sections;
@@ -202,13 +262,15 @@ network"), which is a one-line change made *then*, with the reason known.
 
 ## Risks & Mitigations
 
-| Risk                                                   | Impact | Probability | Mitigation                                                                                    |
-| ------------------------------------------------------ | ------ | ----------- | --------------------------------------------------------------------------------------------- |
-| Per-session networks leak on abnormal exit             | H      | M           | H4 is a gating hypothesis; a sweep-on-launch reaper is the fallback if `--rm` cannot cover it |
-| Subnet pool or interface-name exhaustion after N leaks | M      | L           | Establish the pool size and network cap as a fact before implementing                         |
-| Change breaks `--connect` or compose attach            | H      | M           | Both are explicitly out of scope for the default change and are acceptance-tested             |
-| Research asserts runtime behaviour it cannot verify    | H      | M           | Sub-agent is forbidden a verdict and must tag every claim; host probes settle facts           |
-| Threat model inflated to justify the work              | M      | M           | "Little in practice" is an accepted outcome; Task 2.2 may decide to change nothing            |
+| Risk                                                     | Impact | Probability | Mitigation                                                                                                                                                                                                                                                                                  |
+| -------------------------------------------------------- | ------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Per-session networks leak on abnormal exit               | H      | M           | H4 is a gating hypothesis; a sweep-on-launch reaper is the fallback if `--rm` cannot cover it                                                                                                                                                                                               |
+| ~~Subnet pool exhaustion after N leaks~~ — **RETRACTED** | –      | –           | Podman's default subnet pools allow roughly 42,700 allocatable `/24`s. A leak of one network per crash cannot exhaust that in any realistic timeframe. This row was written on instinct and is removed as a decision input; interface-name space is a separate question and is probed (P12) |
+| A per-session network *appears* isolated but is not      | H      | M           | Below netavark 2.0 / Podman 6.0, bridge networks are not strictly isolated by default. P1 establishes the version **before** any implementation; if below, `--opt isolate=` must be explicit                                                                                                |
+| Per-session networks silently change DNS                 | M      | H           | User-created networks are DNS-enabled, and `ensure_network_dns()` then adds public resolvers. P10 confirms; `--disable-dns` at create time is the fix                                                                                                                                       |
+| Change breaks `--connect` or compose attach              | H      | M           | Both are explicitly out of scope for the default change and are acceptance-tested                                                                                                                                                                                                           |
+| Research asserts runtime behaviour it cannot verify      | H      | M           | Sub-agent is forbidden a verdict and must tag every claim; host probes settle facts                                                                                                                                                                                                         |
+| Threat model inflated to justify the work                | M      | M           | "Little in practice" is an accepted outcome; Task 2.2 may decide to change nothing                                                                                                                                                                                                          |
 
 ## Delivery & Milestones
 
