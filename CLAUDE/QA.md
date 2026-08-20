@@ -34,10 +34,17 @@ Two further gates run inside `qa-all.bash` as **hard, non-structural** checks �
 they are deliberately not jq-merged stages, so they cannot disturb the positional
 `.[0]..[5]` JSON merge. Either one fails the whole run immediately:
 
-| Gate                            | Checks                                                                                     |
-| ------------------------------- | ------------------------------------------------------------------------------------------ |
-| `qa-nokill-containerwatch.bash` | the container-watch watchdog has gained no process-termination call site                   |
-| `qa-deployed-drift.bash`        | every repo-owned `files/home/.local/bin/` script matches its deployed `~/.local/bin/` copy |
+| Gate                                   | Checks                                                                                     |
+| -------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `qa-nokill-containerwatch.bash`        | the container-watch watchdog has gained no process-termination call site                   |
+| `qa-deployed-drift.bash`               | every repo-owned `files/home/.local/bin/` script matches its deployed `~/.local/bin/` copy |
+| `qa-helper-tests.bash`                 | the 161-test `helpers/` unit suite (Plan 00081 F11)                                        |
+| `helpers.gnome.check_extension_compat` | every extension declares the GNOME Shell major this branch's Fedora ships                  |
+
+The last two were **documented here as gates and not run by `qa-all.bash`** until
+Plan 00081. Following this document's own "ALWAYS and ONLY use `qa-all.bash`"
+rule, a `helpers/` change earned `✓ QA passed` with its unit suite never
+executed. The fix was to run them rather than to soften the rule.
 
 ### All three source gates assert their own coverage (Plans 00076, 00081)
 
@@ -251,6 +258,10 @@ cd /workspace/extensions && node_modules/.bin/eslint speech-to-text@fedora-deskt
 ---
 
 ## Helper Unit Tests + Extension Version Compatibility
+
+**Both of these now run inside `qa-all.bash`** (Plan 00081 F11) — you do not need
+to invoke them separately. The commands below are for running one on its own
+while iterating.
 
 Helper packages under `helpers/` are stdlib-only (`helpers/CLAUDE.md`). Their unit
 tests are namespace-package modules, so `unittest discover` cannot collect them —

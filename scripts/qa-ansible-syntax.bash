@@ -43,24 +43,57 @@ if ! command -v ansible-playbook >/dev/null; then
 fi
 
 # Discover PLAYBOOK files only.
-# A playbook is the entrypoint (playbook-main.yml) plus any standalone YAML
-# under playbooks/imports/ that declares a top-level "- hosts:" play.
-# Task-files and vars-files are NOT playbooks and must not be syntax-checked.
+# A playbook is any YAML that declares a top-level "- hosts:" play. Task-files
+# and vars-files are NOT playbooks and must not be syntax-checked.
+#
+# Discovery used to be hardcoded to playbooks/imports/ plus the entrypoint, and
+# nothing said so. Two tracked playbooks sat outside that: the incident-time
+# playbooks/dev/play-collect-diagnostics.yml, and a plan-local repair playbook.
+# Neither was ever parsed, and the 2.19 hazards recorded in
+# CLAUDE/AgentNotes.md — the quote-balance scanner, the colon-space-dash task
+# name — are caught by THIS gate and by nothing else, including PyYAML. A play
+# you only run during an incident is the worst one to discover is unparseable.
+# Plan 00081 F9.
+#
+# The population is now "every playbook in the repo", derived rather than
+# listed, so a playbook added anywhere is covered by default. Vendor and
+# upstream trees are excluded because they are not ours to gate on — the same
+# exclusion list the shell gates use.
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=qa-discovery.bash
+source "$REPO_ROOT/scripts/qa-discovery.bash"
+
+# TWO markers, not one. A playbook is a list item whose first key is `hosts:`
+# — OR one whose first key is `import_playbook:`, which is what an entrypoint
+# that only composes other playbooks looks like.
+#
+# The second marker is not a nicety. The first draft of this rewrite derived the
+# population from `- hosts:` alone and dropped `playbooks/playbook-main.yml`, the
+# single most important playbook in the repo, because it contains no play of its
+# own. The reported count went from 78 to 79 and read as a clean gain — a
+# coverage LOSS hiding inside an increase, which is this plan's defect class
+# wearing the opposite sign.
 PLAYBOOK_FILES=()
-
-MAIN_PLAYBOOK="$REPO_ROOT/playbooks/playbook-main.yml"
-if [[ -f "$MAIN_PLAYBOOK" ]]; then
-    PLAYBOOK_FILES+=("$MAIN_PLAYBOOK")
-fi
-
 while IFS= read -r -d '' file; do
-    # Top-level play marker: a list item whose first key is "hosts:".
-    if grep -Eq '^\s*-\s+hosts:' "$file"; then
+    rel="${file#"$REPO_ROOT"/}"
+    qa_is_excluded "$rel" && continue
+    if grep -Eq '^\s*-\s+(hosts|import_playbook):' "$file"; then
         PLAYBOOK_FILES+=("$file")
     fi
-done < <(find "$REPO_ROOT/playbooks/imports" -type f \( -name "*.yml" -o -name "*.yaml" \) -print0)
+done < <(find "$REPO_ROOT" -type f \( -name "*.yml" -o -name "*.yaml" \) -print0)
 
 TOTAL=${#PLAYBOOK_FILES[@]}
+
+# A discovery that finds nothing is a BROKEN GATE, not a repo without playbooks
+# — the guard qa-bash.bash and qa-python.bash both carry, and the one this gate
+# was missing while its population was a hardcoded path that could simply stop
+# existing.
+if [[ $TOTAL -eq 0 ]]; then
+    echo "✗ ansible-syntax: playbook discovery found 0 playbooks under $REPO_ROOT" >&2
+    echo "  This repo is an Ansible project, so the discovery is broken —" >&2
+    echo "  reporting a pass here would vouch for playbooks nothing had parsed." >&2
+    exit 2
+fi
 
 # Syntax-check each playbook. stderr is captured to a temp file so genuine
 # parse errors are surfaced (never hidden) in stdout and the JSON output.
@@ -98,7 +131,19 @@ jq -s \
 
 # Terse summary
 if [[ $ERRORS -eq 0 ]]; then
-    echo "✓ ansible-syntax: $TOTAL playbooks OK"
+    # State the population, do not imply it. A bare count reads as "all of them"
+    # whatever it counted — which is how a hardcoded playbooks/imports/ path went
+    # years without anyone noticing two playbooks outside it. The breakdown makes
+    # a change in coverage visible in the ordinary passing output, where it will
+    # actually be seen.
+    OUTSIDE=0
+    for file in "${PLAYBOOK_FILES[@]}"; do
+        case "${file#"$REPO_ROOT"/}" in
+            playbooks/imports/*) ;;
+            *) OUTSIDE=$((OUTSIDE + 1)) ;;
+        esac
+    done
+    echo "✓ ansible-syntax: $TOTAL playbooks OK ($((TOTAL - OUTSIDE)) under playbooks/imports/, $OUTSIDE elsewhere)"
     exit 0
 else
     echo "✗ ansible-syntax: $ERRORS/$TOTAL playbooks failed → $JSON_OUT"

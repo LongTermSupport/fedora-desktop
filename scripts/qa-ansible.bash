@@ -47,7 +47,21 @@ ERRORS=0
 # -E allows alternation.  --include flags are repeated for *.yml and *.yaml.
 # roles/vendor is excluded via --exclude-dir.
 
-FF_PATTERN='failed_when:[[:space:]]+false|ignore_errors:[[:space:]]+(true|yes)|ignore_errors:[[:space:]]+"[{][{]|ignore_unreachable:[[:space:]]+true'
+# One spelling list for every directive. YAML 1.1 accepts `yes`/`no` as booleans
+# exactly as it accepts `true`/`false`, and Ansible reads them that way — but
+# this regex accepted `yes` for ignore_errors ONLY, and only `false` (never `no`)
+# for failed_when. So `failed_when: no` earned "✓ ansible: fail-fast patterns OK"
+# — a green tick on the repo's #1 rule, from an asymmetry living inside a single
+# line. Plan 00081 F10.
+#
+# The trailing \b is load-bearing. Without it, `no` matched inside `not` and the
+# gate reported 10 violations against legitimate `failed_when: not foo.stat.exists`
+# probes. That over-match announced itself on the first run — which is the whole
+# asymmetry this plan keeps meeting: an over-match prints the extra items and
+# gets fixed in a minute, while the under-match it replaced sat here silently.
+FF_FALSEY='(false|no|off)\b'
+FF_TRUTHY='(true|yes|on)\b'
+FF_PATTERN="failed_when:[[:space:]]+$FF_FALSEY|ignore_errors:[[:space:]]+$FF_TRUTHY|ignore_errors:[[:space:]]+\"[{][{]|ignore_unreachable:[[:space:]]+$FF_TRUTHY"
 
 FF_VIOLATIONS=()
 

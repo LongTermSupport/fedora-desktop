@@ -127,6 +127,14 @@ holes, each behind a test that fails against the unfixed code.
   **8 to 10 tokens**, and the two new ones appear in **zero** tracked files and
   **zero** of the last 300 commit messages. A short, common-word token would
   have blocked every future commit, so this was checked rather than assumed
+- **F14** — **a coverage LOSS can hide inside a rising count.** Rewriting
+  `qa-ansible-syntax.bash` to derive its population from `- hosts:` dropped
+  `playbooks/playbook-main.yml`, which contains no play of its own — and the
+  reported total went **78 → 79**, reading as a clean gain. The same defect
+  class wearing the opposite sign: every previous instance was a number that
+  looked complete, this was a number that looked *improved*. Caught only by
+  listing the population instead of trusting the total, which is now what the
+  gate's own pass line does
 - **F11** — `CLAUDE/QA.md` says "ALWAYS and ONLY use `./scripts/qa-all.bash`"
   and "NEVER use individual scripts directly", then documents
   `qa-helper-tests.bash` and `helpers.gnome.check_extension_compat` as gates.
@@ -184,13 +192,19 @@ holes, each behind a test that fails against the unfixed code.
   `from gi.repository import …`, which PyGObject *requires*; scoped to that one
   file in `ruff.toml`'s `per-file-ignores`, not an inline suppression this repo
   blocks and not a global disable
-- [ ] ⬜ **Task 2.4**: `qa-ansible-syntax.bash` — discover every file with a
-  top-level `- hosts:` rather than hardcoding `playbooks/imports`, add a zero
-  guard, and reconcile its population with `qa-ansible.bash`'s (F9)
-- [ ] ⬜ **Task 2.5**: Make the fail-fast regex accept both YAML boolean
-  spellings on every directive (F10), and decide whether `qa-all.bash` should
-  run the two documented-but-unrun gates or `CLAUDE/QA.md` should stop claiming
-  it is the only command needed (F11)
+- [x] ✅ **Task 2.4**: `qa-ansible-syntax.bash` derives its population from the
+  whole repo — a top-level `- hosts:` **or `- import_playbook:`** — with a zero
+  guard, and its pass line now states the breakdown rather than a bare count
+  (F9). **78 → 80.** The `import_playbook` marker is not a nicety: deriving from
+  `- hosts:` alone dropped `playbook-main.yml`, and the count went 78 → 79 and
+  read as a gain. See F14
+- [x] ✅ **Task 2.5**: One spelling list drives every fail-fast directive, so
+  `failed_when: no` and `ignore_unreachable: yes` are caught (F10) — with a
+  trailing `\b`, without which `no` matched inside `not` and produced 10 false
+  positives on legitimate probes. And `qa-all.bash` now runs the two
+  documented-but-unrun gates (F11): running them is what makes this repo's own
+  "ALWAYS and ONLY use `qa-all.bash`" instruction true, rather than softening the
+  instruction to match the gap
 - [ ] ⬜ **Task 2.3**: `qa-deployed-drift.bash` — resolve the deployed name from
   the play's `dest:` rather than the basename, and fail rather than skip when a
   repo file maps to no deployed name. A `.j2` source needs its rendered output

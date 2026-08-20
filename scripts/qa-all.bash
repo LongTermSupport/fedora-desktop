@@ -109,6 +109,39 @@ fi
 # does nothing" is precisely the defect Plan 00072 exists to fix.
 echo "$drift_out"
 
+# Helper unit tests + extension GNOME-version compatibility (Plan 00081 F11).
+#
+# CLAUDE/QA.md says "ALWAYS and ONLY use ./scripts/qa-all.bash" and "NEVER use
+# individual scripts directly" — and then documented these two as gates this
+# script did not run. Following the stated rule, a helpers/ change got
+# "✓ QA passed" with its 161-test suite never executed. The two ways to fix that
+# were to run them or to stop claiming qa-all is sufficient; running them is the
+# one that makes the instruction people actually follow the correct one.
+#
+# Hard, non-structural gates like the two above — deliberately NOT jq-merged
+# stages, so they cannot disturb the positional .[0]..[5] merge below. Both are
+# fast (the suite is ~0.06s; the compat check is static).
+helper_out=""
+if ! helper_out="$(bash "$SCRIPT_DIR/qa-helper-tests.bash" 2>&1)"; then
+    echo "$helper_out" >&2
+    echo "✗ QA FAILED: helper unit tests" >&2
+    exit 1
+fi
+helper_summary=$(printf '%s' "$helper_out" | grep -oE 'Ran [0-9]+ tests?') || helper_summary="passed"
+printf '✓ helper-tests: %s\n' "$helper_summary"
+
+compat_out=""
+if ! compat_out="$(cd "$SCRIPT_DIR/.." && python3 -m helpers.gnome.check_extension_compat 2>&1)"; then
+    echo "$compat_out" >&2
+    echo "✗ QA FAILED: an extension does not declare the GNOME Shell this Fedora ships" >&2
+    exit 1
+fi
+# Print the pass line, for the same reason the drift gate does: a gate whose only
+# visible output is a failure is indistinguishable from a gate that is not
+# running — which is exactly how these two spent months documented but unrun.
+compat_summary=$(printf '%s' "$compat_out" | grep -E '^All [0-9]+ extension') || compat_summary="OK"
+printf '✓ extension-compat: %s\n' "$compat_summary"
+
 # Merge JSON from all checks
 STATUS="pass"
 [[ $FAILED -gt 0 ]] && STATUS="fail"
