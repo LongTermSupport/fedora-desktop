@@ -75,12 +75,11 @@ actually matters and is not yet established.
   which gives no virtual network and therefore isolates containers from each
   other. So the isolated default already exists — CCY opts out of it
 - **F2** — **it was traded away to make `ccy --connect` work.** Commit
-  `ea7ba129` (CCY 2.5.2 → 2.6.0) added that line because `--connect` failed with
-  `"pasta" is not supported: invalid network mode`: pasta cannot join additional
-  networks after container start, so the launcher moved to the default bridge to
-  keep later `podman network connect` possible. The shared L2 domain is a
-  **side-effect of preserving `--connect`**, not a judgement about isolation.
-  Any option that removes the bridge must answer for `--connect`
+  `ea7ba129` (CCY 2.5.2 → 2.6.0) added the line because `--connect` failed with
+  `"pasta" is not supported: invalid network mode` — pasta cannot join networks
+  after container start. The shared L2 domain is a **side-effect of preserving
+  `--connect`**, not a judgement about isolation; any option that removes the
+  bridge must answer for `--connect`
 - **F2b** — consequently **`--no-network` really does isolate**: it leaves
   `NETWORK_FLAG` empty, the `elif` at 2677 is skipped, and the session gets
   pasta. The runtime message `✓ Skipping network connection` is defensible after
@@ -105,13 +104,10 @@ actually matters and is not yet established.
   reachable at L3 **without traversing the gateway** — they are neighbours on
   one flat segment, which is what "shared L2 domain" means concretely.
   `[SOURCE: /proc/net/route, /proc/net/tcp in a live session]`
-- **F5** — this session has **zero listening TCP sockets**: no `st 0A` rows in
-  either `/proc/net/tcp` or `/proc/net/tcp6`; every socket is an ESTABLISHED
-  outbound connection to `:443`. So an **idle** Claude session exposes no TCP
-  surface at all. **This is a snapshot of one idle session and is NOT the
-  general claim** — a dev server, or `agent-browser`, would add listeners, and
-  which address they bind is exactly H3. Read as "the floor is zero", not as
-  "there is never anything to reach"
+- **F5** — this session has **zero listening TCP sockets** (no `st 0A` rows in
+  `/proc/net/tcp*`; every socket is ESTABLISHED outbound to `:443`). A snapshot
+  of **one idle** session — "the floor is zero", not "there is never anything to
+  reach". Superseded in scope by F19/F20
 - **F6** — the ARP table holds **only the gateway**, so this session has never
   exchanged L2 frames with a peer container. Consistent with no cross-talk
   happening in practice; says **nothing** about whether it is possible, which is
@@ -120,6 +116,33 @@ actually matters and is not yet established.
 **F4 + F5 together are the shape of the answer**: the path is open by
 construction, and whether anything is listening at the end of it is the
 variable. That makes H3 the fact worth spending effort on, not H1.
+
+**From host triage, run 1** (`logs/network-isolation-triage.log`, gitignored):
+
+- **F18** — **five** live CCY sessions, and the `podman` bridge reports **5
+  members**; every other network on the host has **0**. F17 confirmed at fleet
+  scale: all sessions share one L2 segment, and the app networks are idle
+- **F19** — the probed session had **zero listening TCP sockets**, consistent
+  with F5. **But coverage was 1 of 5** (see F20), so this is *not yet* a
+  fleet-wide answer and must not be read as one
+- **F20** — the `ccy=true` rollout is **partial**: only the session relaunched
+  under 3.40.0 carries the labels; the other four predate it and show empty
+  `project=`/`github=`. Exactly what the 3.40.0 changelog predicted
+  ("containers started by an earlier CCY carry none of them until restarted"),
+  now observed. **This invalidated run 1's decisive probe** — see the
+  correction below
+- **F21** — `podman network ls --format '{{.NetworkID}}'` is invalid for this
+  Podman (`rc=125`, *"can't evaluate field NetworkID"*), so run 1's network
+  inventory was **absent**, not empty. Field is `.ID`; fixed
+
+> **Correction (my probe, not the host).** P4 filtered sessions on `ccy=true`
+> and guarded only the **empty** case. With 1 of 5 sessions labelled it probed
+> one, and printed it under a header inviting *"the exposure is THEORETICAL"* —
+> a 1-of-5 sample wearing a 5-of-5 header. An under-match is silent, unlike an
+> over-match which names itself in the output. `triage.bash` now selects the
+> **union** of the label and `podfreeze`'s name pattern, marks each row
+> labelled/unlabelled, and prints a COVERAGE line. **Re-run is required before
+> F19 means anything.**
 
 ## Hypotheses
 
@@ -222,7 +245,12 @@ used.** If it is rare, Option 4 is free isolation and less code.
   passive by default (P1–P5), active probes behind `--reachability` (P6–P12),
   logging to this plan's `logs/`
 - [ ] 🔄 **Task 1.3**: User runs `triage.bash` on the HOST; convert confirmed
-  hypotheses into numbered facts, and record what was refuted
+  hypotheses into numbered facts, and record what was refuted.
+  **Run 1**: produced F18–F21, and exposed two defects in the probe itself —
+  P4 covered 1 of 5 sessions while reading as fleet-wide, and P5's network
+  inventory died on an invalid template field. Both fixed.
+  **Run 1 does NOT settle H3**: re-run the passive report so P4 covers all five
+  sessions, ideally while something is actually being built rather than idle
 
 ### Phase 2: Decision gate
 

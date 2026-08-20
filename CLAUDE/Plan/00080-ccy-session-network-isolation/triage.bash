@@ -178,27 +178,78 @@ decode_listeners() {
     '
 }
 
-show_all_listeners() {
-    local names name
-    if ! names="$(podman ps --filter label=ccy=true --format '{{.Names}}')"; then
-        echo "ERROR: could not list CCY sessions: $names" >&2
-        return 1
-    fi
-    if [ -z "$names" ]; then
-        # An empty section here would read as "nothing listens", which is the
-        # opposite of what it means. Fail loudly instead.
-        echo "ERROR: no container carries the ccy=true label." >&2
-        echo "  Sessions started by a CCY older than 3.40.0 are unlabelled." >&2
-        echo "  Relaunch at least one session, then re-run. Refusing to report" >&2
-        echo "  an empty listener set that would read as 'nothing is exposed'." >&2
+# The session set is the UNION of two selectors, not the label alone.
+#
+# The first version of this filtered on `label=ccy=true` and guarded only the
+# EMPTY case. Run 1 then found five live CCY sessions of which exactly one had
+# been relaunched under 3.40.0, probed that one, and printed it under a header
+# inviting the reader to conclude "the exposure is THEORETICAL". A 1-of-5 sample
+# wearing a 5-of-5 header — an under-match, which is silent, unlike an over-match
+# which names itself in the output. That is this repo's own defect class
+# (CLAUDE/AgentNotes.md) committed inside the probe written to avoid it.
+#
+# So: select by label OR by the name pattern podfreeze already uses for
+# pre-3.40.0 sessions, probe every one, and state the coverage as a number.
+CCY_NAME_PATTERN='^.+_(yolo|browser)(_[0-9]+)?$'
+
+ccy_session_names() {
+    local all name
+    if ! all="$(podman ps --format '{{.Names}}')"; then
+        echo "ERROR: could not list containers: $all" >&2
         return 1
     fi
     while read -r name; do
-        if [ -n "$name" ]; then
-            echo "== $name"
-            decode_listeners "$name"
+        if [ -n "$name" ] && [[ "$name" =~ $CCY_NAME_PATTERN ]]; then
+            printf '%s\n' "$name"
         fi
-    done <<< "$names"
+    done <<< "$all"
+}
+
+show_all_listeners() {
+    local labelled name total=0 n_labelled=0
+    local -a sessions=()
+
+    if ! labelled="$(podman ps --filter label=ccy=true --format '{{.Names}}')"; then
+        echo "ERROR: could not list labelled CCY sessions: $labelled" >&2
+        return 1
+    fi
+    if ! mapfile -t sessions < <(ccy_session_names); then
+        return 1
+    fi
+
+    total="${#sessions[@]}"
+    if [ "$total" -eq 0 ]; then
+        # An empty section here would read as "nothing listens", which is the
+        # opposite of what it means. Fail loudly instead.
+        echo "ERROR: no running container matches a CCY session, by label or by" >&2
+        echo "  name pattern ($CCY_NAME_PATTERN). Refusing to report an empty" >&2
+        echo "  listener set that would read as 'nothing is exposed'." >&2
+        return 1
+    fi
+
+    for name in "${sessions[@]}"; do
+        if printf '%s\n' "$labelled" | grep -qx -- "$name"; then
+            n_labelled=$(( n_labelled + 1 ))
+        fi
+    done
+
+    echo "  COVERAGE: probing $total CCY session(s); $n_labelled carry ccy=true."
+    if [ "$n_labelled" -lt "$total" ]; then
+        echo "  NOTE: $(( total - n_labelled )) session(s) predate CCY 3.40.0 and are"
+        echo "  unlabelled. They are included here BY NAME. A label-only probe would"
+        echo "  have silently covered just $n_labelled of $total — do not read a"
+        echo "  label-filtered listener set as a fleet-wide answer."
+    fi
+    echo ""
+
+    for name in "${sessions[@]}"; do
+        if printf '%s\n' "$labelled" | grep -qx -- "$name"; then
+            echo "== $name  [labelled]"
+        else
+            echo "== $name  [UNLABELLED — pre-3.40.0, matched by name]"
+        fi
+        decode_listeners "$name"
+    done
 }
 
 echo "### READ THIS FOR: P4/U3 — **THE decisive probe**"
@@ -206,6 +257,8 @@ echo "###   0.0.0.0 or [::] = reachable from every other container on the bridge
 echo "###   127.0.0.1 = reachable only from inside that session; harmless here."
 echo "###   If every session shows '(no listening sockets)', the exposure is"
 echo "###   THEORETICAL and 'change nothing' becomes the proportionate answer."
+echo "###   CHECK THE COVERAGE LINE FIRST: that conclusion needs EVERY session"
+echo "###   probed, not merely every session the ccy=true label selected."
 echo "###   Note this is a SNAPSHOT: a session that is idle now may run a dev"
 echo "###   server later, so re-run it while something is actually being built."
 probe "listeners inside each live CCY session" show_all_listeners
@@ -224,7 +277,10 @@ count_members_per_network() {
 }
 
 echo "### READ THIS FOR: P5/U10 — network inventory and how loaded each one is"
-probe "networks" podman network ls --format '{{.Name}}\t{{.Driver}}\t{{.NetworkID}}'
+# `.NetworkID` is not a field of network.ListPrintReports — run 1 returned rc=125
+# with "can't evaluate field NetworkID", printing one row and then dying, so the
+# inventory was simply absent. The field is `.ID`.
+probe "networks" podman network ls --format '{{.Name}}\t{{.Driver}}\t{{.ID}}'
 probe "members per network" count_members_per_network
 
 if [ "$REACHABILITY" -eq 0 ]; then
