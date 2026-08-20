@@ -86,13 +86,11 @@ actually matters and is not yet established.
   pasta. The runtime message `✓ Skipping network connection` is defensible after
   all
 
-> **Correction.** F1 and F2 previously said the opposite — that CCY passes no
-> `--network` flag and lands on the bridge as a fallthrough, and that
-> `--no-network` fails to isolate. Both were wrong. The cause is worth recording
-> because it is this repo's own defect class: the assignment list was read from
-> a `grep … | head -n 30` whose output was **truncated at exactly 30 lines**, and
-> the decisive assignment is the eleventh and last. A truncated result was read
-> as exhaustive.
+> **Correction.** F1/F2/F2b previously said the opposite. Cause: an assignment
+> list read from a `grep … | head -n 30` **truncated at exactly 30 lines**, whose
+> decisive eleventh entry was cut — a truncated result read as exhaustive, which
+> is this repo's own defect class. Full account:
+> `JOURNAL/00080-Journal-26-08-20.md`.
 
 - **F3** — a session's network is *persisted* (`load_network_preference`) and
   re-applied on the next launch, so a session that joined a project network once
@@ -171,10 +169,19 @@ row treats a symptom in the wrong file — the row is low-signal *because* the
 default groups by accident, and it remains a legitimate group for non-CCY
 containers either way.
 
-**Consequence of each outcome**: if per-session networks land, the `podman` row
-dissolves for CCY on its own and no `podfreeze` change is needed. If the shared
-default stands, the row is worth re-labelling (it means "did not join a project
-network"), which is a one-line change made *then*, with the reason known.
+**Consequence of each outcome** (corrected against F23 — see below):
+
+| Outcome                      | What happens to the `podman` row       | `podfreeze` change needed                                       |
+| ---------------------------- | -------------------------------------- | --------------------------------------------------------------- |
+| Shared default stands (D2#6) | stays, ≈ "did not join a project net"  | **relabel** — one line                                          |
+| Per-session nets (D2#2)      | **fragments** into one row per session | **suppress single-member network rows** — more than a relabel   |
+| Revert to pasta (D2#4)       | loses every CCY member                 | **none** — cleanest outcome; row becomes genuinely non-CCY only |
+
+> **Correction.** The per-session row originally read *"dissolves … no `podfreeze`
+> change needed"*. F23 shows it **fragments** into N single-member rows instead —
+> so that outcome needs *more* work than the status quo, not none. Full account:
+> `JOURNAL/00080-Journal-26-08-20.md`.
+
 **Date**: 2026-08-20
 
 ### D2: the option space, reframed by F1/F2
@@ -241,8 +248,11 @@ used.** If it is rare, Option 4 is free isolation and less code.
   (F2b) — `docs/ccy.md` and the `--help` line both describe it only as "skip
   auto-detection", which undersells it: it is currently the one way to run a
   session that no other container can reach
-- [ ] ⬜ **Task 4.1**: Apply the D1 consequence to `podfreeze`, whichever way it
-  went
+- [ ] ⬜ **Task 4.1**: Apply the D1 consequence to `podfreeze` per the outcome
+  table in D1 — relabel (shared stands), suppress single-member network rows
+  (per-session), or nothing (pasta). Whichever it is, `--network <name>` stays
+  accepted on the command line: this curates the *menu*, it never removes a
+  capability
 - [ ] ⬜ **Task 4.2**: Update `docs/ccy.md`'s networking + security sections;
   mark plan Complete and move to `Completed/`
 
