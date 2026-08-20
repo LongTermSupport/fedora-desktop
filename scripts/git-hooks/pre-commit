@@ -70,7 +70,23 @@ echo "🔍 Scanning staged changes for sensitive information..."
 
 # Get list of staged files (exclude deletions). A failure of this listing must
 # fail the hook (this is a security gate), so no error suppression here.
-mapfile -t STAGED_FILE_LIST < <(git diff --cached --name-only --diff-filter=ACM)
+#
+# ACM**RT**, not ACM. Rename detection is on by default (diff.renames, git >=
+# 2.9), so a `git mv` plus an edit is classified R and was excluded from this
+# list entirely — the file was NEVER SCANNED. Reproduced here on git 2.39.5: a
+# 40-line file moved and given one extra line reports `R098` and
+# `--diff-filter=ACM` returns nothing at all, so the hook printed
+# "✓ No files staged for commit" and passed. That is not a corner case in this
+# repo: moving a plan folder into Completed/ is exactly `git mv` plus an edit.
+# T (typechange) is included for the same reason.
+#
+# --name-only yields the NEW path for a rename, which is the one that needs
+# scanning. Verified, not assumed.
+#
+# Note a smaller file may fall below the rename-similarity threshold and be
+# recorded as D+A instead, in which case the add WAS scanned — which is why this
+# hole was easy to miss: it appears and disappears with file size.
+mapfile -t STAGED_FILE_LIST < <(git diff --cached --name-only --diff-filter=ACMRT)
 
 if [ ${#STAGED_FILE_LIST[@]} -eq 0 ]; then
     echo "✓ No files staged for commit"
@@ -186,22 +202,56 @@ for FILE in "${STAGED_FILE_LIST[@]}"; do
                     | grep -vE "\\.keys\\(\\)|\\.values\\(\\)|\\.items\\(\\)" || true)
                 ;;
             *@*)
-                # Email pattern: drop obvious non-personal "user@host" shapes that
-                # pervade this repo and are NOT email addresses — reserved example
-                # domains (example.com/.org/.net AND their subdomains, e.g.
-                # admin@host.example.com), the reserved .example/.test/.invalid/
-                # .localhost TLDs (RFC 2606/6761), <...>/{{...}} placeholders, the
-                # SSH git remote user (git@github.com, git@github.com-alias), and
-                # systemd unit names (foo@instance.service / .socket / .timer …).
-                # See CLAUDE/ExampleValues.md for the full schema. Real personal
-                # addresses (a gmail/company address) are still caught.
-                MATCH_LINES=$(echo "$MATCH_LINES" \
-                    | grep -viE "@([A-Za-z0-9-]+\\.)*example\\.(com|org|net)\\b" \
-                    | grep -viE "@[A-Za-z0-9.-]+\\.(example|test|invalid|localhost)\\b" \
-                    | grep -vE "<[^>]*@[^>]*>" \
-                    | grep -vE "\\{\\{[^}]*@[^}]*\\}\\}" \
-                    | grep -vE "(^|[^A-Za-z0-9._%+-])git@[A-Za-z0-9.-]+" \
-                    | grep -vE "@[A-Za-z0-9_.:-]+\\.(service|socket|timer|target|mount|path|slice|scope|device|swap|automount)\\b" || true)
+                # PER-TOKEN, not per-line. The comment above says a legitimate
+                # reference "no longer whitelists a genuine leak elsewhere in
+                # the same FILE" — true, that was fixed. It still whitelisted a
+                # genuine leak elsewhere on the same LINE, because every filter
+                # below is `grep -v` over a whole line. Verified: the line
+                #   git clone git@github.com:o/r.git  # ask <real address>
+                # matches the email pattern once, and the git@ filter deletes
+                # the entire line, real address included. That is the shape of
+                # docs/github-multi-account.md, and it fails silently at exactly
+                # the moment the whitelist is doing its job.
+                #
+                # CLAUDE/PlanTriage.md already states this rule for triage
+                # redaction — "Redact by substitution, never by dropping
+                # anchored lines", learned from a real leak in Plan 00066. The
+                # scanner was doing the opposite.
+                #
+                # So: mask the bracketed placeholder shapes (which need their
+                # surrounding context), then extract each email-like TOKEN and
+                # test the whitelist against the tokens. A line survives only if
+                # some token is not whitelisted; the ORIGINAL line is what gets
+                # reported.
+                # NOTE the explicit `if` on the last statement, and the closing
+                # `true`. Written first as `[ -n "$_left" ] && printf …`, the
+                # loop's last command returns 1 whenever a line IS whitelisted,
+                # making the `while` — and so the command substitution — exit 1,
+                # which under `set -e` aborted the hook with no output at all.
+                # A security gate that dies silently on clean input is worse
+                # than the bug being fixed, and it is the same `A && B` shape
+                # this repo has been finding all week.
+                MATCH_LINES=$(echo "$MATCH_LINES" | while IFS= read -r _l; do
+                    if [ -z "$_l" ]; then
+                        continue
+                    fi
+                    _masked=$(printf '%s' "$_l" \
+                        | awk '{ gsub(/<[^>]*@[^>]*>/, "<PH>");
+                                 gsub(/\{\{[^}]*@[^}]*\}\}/, "{{PH}}"); print }')
+                    if ! _tokens=$(printf '%s' "$_masked" | grep -oE "$PATTERN"); then
+                        continue
+                    fi
+                    if _left=$(printf '%s' "$_tokens" \
+                        | grep -viE "@([A-Za-z0-9-]+\\.)*example\\.(com|org|net)$" \
+                        | grep -viE "@[A-Za-z0-9.-]+\\.(example|test|invalid|localhost)$" \
+                        | grep -vE "^git@[A-Za-z0-9.-]+" \
+                        | grep -vE "@[A-Za-z0-9_.:-]+\\.(service|socket|timer|target|mount|path|slice|scope|device|swap|automount)$"); then
+                        if [ -n "$_left" ]; then
+                            printf '%s\n' "$_l"
+                        fi
+                    fi
+                done
+                true)
                 ;;
             */home/*)
                 # Drop the repository files/home/ directory structure (not system paths)
