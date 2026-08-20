@@ -171,10 +171,19 @@ holes, each behind a test that fails against the unfixed code.
 
 ### Phase 2: The QA gates
 
-- [ ] ⬜ **Task 2.1**: `qa-python.bash` — shebang-based discovery independent of
-  the execute bit, plus a tracked-file coverage assertion, mirroring
-  `qa-shell-discovery.bash`. Exit 2 on shortfall and on zero discovery
-- [ ] ⬜ **Task 2.2**: Fix the 31 findings the widened gate then surfaces
+- [x] ✅ **Task 2.1**: `qa-python.bash` discovers by shebang independent of the
+  execute bit and asserts its coverage against the tracked set, exit 2 on a
+  shortfall and on zero discovery. The library is now shared by all three source
+  gates and renamed `scripts/qa-discovery.bash`; the two languages keep separate
+  exclusion lists over one mechanism, because unifying them would have dropped
+  `.claude/ccy/claude-supervise.py` from the gate. **35 → 41 files**, bash
+  unchanged at 165
+- [x] ✅ **Task 2.2**: All 31 findings fixed — 4 F401 (verified genuinely unused,
+  not availability probes), 9 F541, 10 E402 fixed at source by moving a constant
+  below the imports. The remaining 8 E402 are `gi.require_version()` before
+  `from gi.repository import …`, which PyGObject *requires*; scoped to that one
+  file in `ruff.toml`'s `per-file-ignores`, not an inline suppression this repo
+  blocks and not a global disable
 - [ ] ⬜ **Task 2.4**: `qa-ansible-syntax.bash` — discover every file with a
   top-level `- hosts:` rather than hardcoding `playbooks/imports`, add a zero
   guard, and reconcile its population with `qa-ansible.bash`'s (F9)

@@ -33,3 +33,15 @@ select = ["E4", "E7", "E9", "F"]
 # Test files commonly modify sys.path before imports
 "**/tests/*.py" = ["E402"]
 "**/tests/**/*.py" = ["E402"]
+
+# PyGObject requires gi.require_version() to run BEFORE `from gi.repository
+# import ...`, so the version calls are statements that must precede an import —
+# which is precisely what E402 flags, and there is no way to write it otherwise.
+# Every remaining import in the file then trails that statement and is flagged
+# too. This is the only file in the repo with the constraint, and the ignore is
+# scoped to it rather than switched off globally.
+#
+# The rule is per-FILE config, not an inline `# noqa` — this repo blocks
+# suppression annotations in source, and a config entry is reviewable in one
+# place instead of hiding at the site.
+"**/wsi-article-window" = ["E402"]

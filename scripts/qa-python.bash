@@ -24,38 +24,58 @@ if ! command -v ruff &>/dev/null; then
     exit 2
 fi
 
-# Discover files
-PY_FILES=()
-while IFS= read -r -d '' file; do
-    PY_FILES+=("$file")
-done < <(find "$REPO_ROOT" -type f -name "*.py" \
-    ! -path "*/.git/*" \
-    ! -path "*/.ansible/roles/*" \
-    ! -path "*/.claude/hooks-daemon/*" \
-    ! -path "*/.claude/ccy/plugins/*" \
-    ! -path "*/.claude/ccy/file-history/*" \
-    ! -path "*/node_modules/*" \
-    ! -path "*/untracked/*" \
-    ! -path "*/__pycache__/*" \
-    ! -path "*/.venv/*" \
-    ! -path "*/venv/*" \
-    -print0)
+# Discover files — via the SHARED discovery library, the same one the bash gates
+# use, so all three agree on what a repo-owned source file is.
+#
+# The shebang branch used to require `-executable`. That is Plan 00076's bash
+# defect, still live in the Python gate a fortnight later (Plan 00081 F3): six
+# tracked Python programs totalling ~4,000 lines are mode 0644 with a
+# `#!/usr/bin/env python3` shebang — their plays deploy them 0755 — so nothing
+# here ever opened them, while this gate printed "✓ python: 35 files OK". The
+# repo's own QA.md names `wsi-stream` as THE example of Python needing care; it
+# was one of the six.
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=qa-discovery.bash
+source "$REPO_ROOT/scripts/qa-discovery.bash"
 
-while IFS= read -r file; do
-    if head -n1 "$file" 2>/dev/null | grep -q "^#!/.*python"; then
-        PY_FILES+=("$file")
-    fi
-done < <(find "$REPO_ROOT" -type f -executable \
-    ! -path "*/.git/*" \
-    ! -path "*/.ansible/roles/*" \
-    ! -path "*/.claude/hooks-daemon/*" \
-    ! -path "*/.claude/ccy/plugins/*" \
-    ! -path "*/.claude/ccy/file-history/*" \
-    ! -path "*/node_modules/*" \
-    ! -path "*/untracked/*" \
-    ! -name "*.py")
+qa_discover_python_files "$REPO_ROOT"
+PY_FILES=("${QA_PYTHON_FILES[@]}")
 
 TOTAL=${#PY_FILES[@]}
+
+# A discovery that finds nothing is a BROKEN GATE, not a clean repo — the same
+# guard the bash gates carry (Plan 00075).
+if [[ $TOTAL -eq 0 ]]; then
+    echo "✗ python: file discovery found 0 Python files under $REPO_ROOT" >&2
+    echo "  This repo always has Python files, so the discovery is broken —" >&2
+    echo "  reporting a pass here would vouch for code nothing had read." >&2
+    exit 2
+fi
+
+# Zero discovery is guarded above. This guards PARTIAL discovery, which is the
+# case that actually happened. A guard on emptiness is half a guard: the state
+# this gate was in for months was "some files", and some files reads exactly
+# like all of them.
+qa_tracked_python_files "$REPO_ROOT"
+
+declare -A DISCOVERED=()
+for file in "${PY_FILES[@]}"; do
+    DISCOVERED["${file#"$REPO_ROOT"/}"]=1
+done
+
+MISSED=()
+for rel in "${QA_TRACKED_PYTHON_FILES[@]}"; do
+    [[ -n "${DISCOVERED[$rel]:-}" ]] || MISSED+=("$rel")
+done
+
+if [[ ${#MISSED[@]} -gt 0 ]]; then
+    echo "✗ python: discovery missed ${#MISSED[@]} tracked Python file(s):" >&2
+    printf '    %s\n' "${MISSED[@]}" >&2
+    echo "  These are Python files this gate would have reported a pass over" >&2
+    echo "  without reading. Widen the discovery in scripts/qa-discovery.bash" >&2
+    echo "  — do not exclude the files to make the message go away." >&2
+    exit 2
+fi
 
 # Syntax check each file
 for file in "${PY_FILES[@]}"; do

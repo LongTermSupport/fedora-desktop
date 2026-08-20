@@ -26,8 +26,8 @@ ERRORS=0
 # Discover files — via the SHARED discovery library, so this gate and
 # qa-patterns.bash can never disagree about what a repo-owned shell script is.
 # shellcheck source-path=SCRIPTDIR
-# shellcheck source=qa-shell-discovery.bash
-source "$REPO_ROOT/scripts/qa-shell-discovery.bash"
+# shellcheck source=qa-discovery.bash
+source "$REPO_ROOT/scripts/qa-discovery.bash"
 
 qa_discover_shell_files "$REPO_ROOT"
 BASH_FILES=("${QA_SHELL_FILES[@]}")
@@ -67,7 +67,7 @@ if [[ ${#MISSED[@]} -gt 0 ]]; then
     echo "✗ bash: discovery missed ${#MISSED[@]} tracked shell script(s):" >&2
     printf '    %s\n' "${MISSED[@]}" >&2
     echo "  These are shell scripts this gate would have reported a pass over" >&2
-    echo "  without reading. Widen the discovery in scripts/qa-shell-discovery.bash" >&2
+    echo "  without reading. Widen the discovery in scripts/qa-discovery.bash" >&2
     echo "  — do not exclude the files to make the message go away." >&2
     exit 2
 fi

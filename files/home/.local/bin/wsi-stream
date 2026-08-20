@@ -256,7 +256,10 @@ def check_dependencies():
 
     try:
         import RealtimeSTT
-        log("RealtimeSTT imported successfully")
+        # Naming the resolved path both proves the import is used and answers
+        # the question this check actually gets asked — WHICH RealtimeSTT, when
+        # a user has one in ~/.local and another in a venv.
+        log(f"RealtimeSTT imported successfully from {RealtimeSTT.__file__}")
         return True
     except ImportError as e:
         log(f"RealtimeSTT not installed: {e}", "ERROR")
@@ -870,7 +873,6 @@ def run_prebuffered_streaming(args):
 
     from RealtimeSTT import AudioToTextRecorder
     import threading
-    import struct
     import array
 
     # Write PID file (use main process PID)

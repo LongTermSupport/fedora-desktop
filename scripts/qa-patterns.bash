@@ -63,8 +63,8 @@ rm -f "$TMP_TEST_ERR"
 # relative path is preserved so each rule's `paths.include` still applies
 # exactly as it does against the real tree.
 # shellcheck source-path=SCRIPTDIR
-# shellcheck source=qa-shell-discovery.bash
-source "$REPO_ROOT/scripts/qa-shell-discovery.bash"
+# shellcheck source=qa-discovery.bash
+source "$REPO_ROOT/scripts/qa-discovery.bash"
 
 qa_discover_shell_files "$REPO_ROOT"
 if [[ ${#QA_SHELL_FILES[@]} -eq 0 ]]; then
@@ -111,7 +111,7 @@ done
 # --metrics=off: no telemetry
 # The mirror contains only files that passed discovery, so the previous
 # --exclude list (vendored/upstream trees) is now enforced by discovery itself —
-# one exclusion list for both bash gates, in scripts/qa-shell-discovery.bash.
+# one exclusion list for both bash gates, in scripts/qa-discovery.bash.
 rc=0
 (
     cd "$MIRROR" || exit 2

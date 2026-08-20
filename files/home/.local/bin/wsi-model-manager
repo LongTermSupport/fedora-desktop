@@ -27,7 +27,7 @@ try:
     from textual.app import App, ComposeResult
     from textual.binding import Binding
     from textual.screen import Screen
-    from textual.widgets import DataTable, Footer, Header, Input, Label, Static
+    from textual.widgets import DataTable, Footer, Header, Input, Static
     from textual import work
     from rich.text import Text
 except ImportError:

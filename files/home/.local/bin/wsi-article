@@ -7,8 +7,6 @@ article file. wsi-article-window displays the raw text and a Claude-polished
 version, re-polishing after each chunk.
 """
 
-SCRIPT_VERSION = "1.2.0"
-
 import os
 import sys
 import subprocess
@@ -19,6 +17,8 @@ import argparse
 import atexit
 from pathlib import Path
 from datetime import datetime
+
+SCRIPT_VERSION = "1.2.0"
 
 # Suppress HuggingFace Hub rate-limit warnings - model downloads are deliberate
 os.environ.setdefault("HF_TOKEN", "")

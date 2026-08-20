@@ -126,38 +126,38 @@ def show_status(s):
     elif s["server_pid"]:
         print(f"  Server    : RUNNING   PID={s['server_pid']}  (socket unresponsive)")
     else:
-        print(f"  Server    : STOPPED")
+        print("  Server    : STOPPED")
 
     # Recording state
     if ping:
         if rec and is_stuck:
-            print(f"  Recording : ACTIVE    ← STUCK (client gone, mic still held)")
+            print("  Recording : ACTIVE    ← STUCK (client gone, mic still held)")
         elif rec:
-            print(f"  Recording : ACTIVE")
+            print("  Recording : ACTIVE")
         else:
-            print(f"  Recording : idle")
+            print("  Recording : idle")
     else:
-        print(f"  Recording : unknown   (server not responding)")
+        print("  Recording : unknown   (server not responding)")
 
     # pw-record
     if pw_pids:
         pids_str = ", ".join(str(p) for p in pw_pids)
         print(f"  pw-record : RUNNING   PID={pids_str}  ← mic is held open")
     else:
-        print(f"  pw-record : not running")
+        print("  pw-record : not running")
 
     # Client (wsi-stream process)
     if s["client_pid"]:
         print(f"  Client    : RUNNING   PID={s['client_pid']}")
     else:
-        print(f"  Client    : not running")
+        print("  Client    : not running")
 
     # Server log
     if SERVER_LOG.exists():
         size = SERVER_LOG.stat().st_size
         print(f"  Log       : {size} bytes  ({SERVER_LOG})")
     else:
-        print(f"  Log       : not found")
+        print("  Log       : not found")
 
     print()
 
@@ -181,7 +181,7 @@ def show_menu(s):
 
     if s["server_pid"]:
         print(f"  [3] Kill server SIGTERM  (PID {s['server_pid']})")
-        print(f"  [4] Kill server SIGKILL  (nuclear)")
+        print("  [4] Kill server SIGKILL  (nuclear)")
     else:
         print("  [3] Kill server SIGTERM  (not running)")
         print("  [4] Kill server SIGKILL  (not running)")
