@@ -63,40 +63,27 @@ A list rather than a table on purpose — the table's column padding was costing
 
 **From documentation and repo source:**
 
-- **F1** — `podman pause`/`unpause` use the cgroup freezer and take `--all` and
-  `--filter` (`network=`, `label=`, `name=`, `status=`, `ancestor=`).
-  *podman-pause(1), docs.podman.io, 2026-08-19*
-- **F2** — `podman container checkpoint`/`restore` (CRIU) is **not supported
-  rootless**; CRIU needs elevated capabilities. *podman.io/docs/checkpoint,
-  criu.org/Podman, 2026-08-19; research logged in JOURNAL*
-- **F3** — this repo's default engine is **rootless Podman**, and CCY runs
-  under it. *`CLAUDE/ContainerEngines.md`*
+> **F1–F14 are settled Phase 0 research and host triage.** Compacted here for
+> size; the verbatim originals with all their sources are in
+> `JOURNAL/00079-Journal-26-08-20.md`. The claims are unchanged.
+
+- **F1/F2/F10** — `pause`/`unpause` (cgroup freezer, takes `--all` and
+  `--filter network=|label=|name=|status=|ancestor=`) is the **only**
+  rootless-capable mechanism for the user's four verbs; CRIU
+  `checkpoint`/`restore` is root-only
+- **F3/F11** — rootless Podman 5.8.4, cgroups v2, `systemd`/`crun`: **rootless
+  pause is viable, Task 0.3's gate passes** (H1)
 - **F4** — CCY containers are named `<project>_<suffix>[_N]`, suffix `yolo` or
-  `browser`. *`claude-yolo/lib/common.bash`, `get_next_container_name()` 598–631*
-- **F5** — the CCY `run` invocation passes **no `--label`**; the image carries
-  `claude-yolo-version` and `claude-yolo-dockerfile-hash`.
-  *`claude-yolo:2944`; `Dockerfile:36,326`*
-- **F6** — CCY containers run with `--rm`. *`claude-yolo:2944`*
-- **F7** — fzf is already deployed here, with a numbered-menu fallback when
-  absent. *`play-open-command.yml:53`; `files/home/.local/bin/open`*
-- **F8** — no container-management UI tool is deployed by any play.
-  *grep of `playbooks/`, 2026-08-19*
-- **F9** — podman-tui is packaged in Fedora and needs the user `podman.socket`.
-  *packages.fedoraproject.org; podman-tui README, 2026-08-19*
-- **F10** — the user's four verbs map to **one** rootless-capable mechanism,
-  pause/unpause; checkpoint is the only other and is root-only. *F1 + F2 + F3*
-
-**From the Phase 0 host triage** (raw log in this plan's gitignored `logs/`,
-write-up in the journal):
-
-- **F11** — podman 5.8.4, `rootless=true`, cgroups v2, `cgroupManager=systemd`,
-  `runtime=crun` — **rootless pause is viable, so the Task 0.3 gate passes** (H1)
-- **F12** — `ps --filter label=claude-yolo-version` matched exactly the running
-  CCY containers, so the group is selectable with no launcher change (H2)
-- **F13** — `podman pause` accepts `-f, --filter`; `ps --filter network=`
-  partitions every network correctly, reporting empty sets not errors (H3)
-- **F14** — `podman-tui 1.11.3-1.fc44` is in `updates`, its `podman.socket` is
-  already active, and `fzf` is at `/usr/bin/fzf` (H4 packaging; D3 dependency)
+  `browser` (`common.bash:598-631`) — the fallback selector, see F19
+- **F5/F12** — the `run` invocation passed **no `--label`**; only the *image*
+  carried `claude-yolo-version`, which matched the running set at the time and
+  so looked sufficient. F16 is why it was not
+- **F6** — CCY containers run with `--rm` (`claude-yolo:2944`)
+- **F7/F8/F9/F14** — `fzf` is already deployed with a numbered-menu fallback; no
+  container UI tool is deployed by any play; podman-tui is packaged and its
+  socket already active (D3's dependency question)
+- **F13** — `pause` accepts `-f, --filter`, and `ps --filter network=`
+  partitions every network correctly, reporting empty sets rather than errors
 - **F15** — **a CCY container shares a user-defined network with a
   ten-container compose stack**, and **seven CCY containers share the default
   `podman` network**
@@ -129,7 +116,19 @@ write-up in the journal):
   the real population reaches `--ccy` through the one path the gate was silent
   about. Had the pattern broken, check 9 would still have reported OK. Identical
   in shape to Plan 00080's P4 defect found the same day: verify the labelled
-  path, stay quiet about the one carrying most of the load. Closed by **9b**
+  path, stay quiet about the one carrying most of the load. Closed by **9b**,
+  which then **proved** the fallback works — all four named, all four resolved
+- **F20** — **the identity axes silently under-match unlabelled sessions.** An
+  unlabelled session is in `--ccy` but in **no** identity group, because its
+  account cannot be inferred. `select_identity` refused the case where *nothing*
+  is labelled and said nothing about the case where only *some* is — the state
+  the machine is in until every session is relaunched. So
+  `podfreeze freeze --github X` answered "every session for X" with a strict
+  subset, which is the exact ask the axis was added for. **Fourth instance of
+  this shape in one day** (truncated grep → P4 → check 9 → here), and each was
+  found only because the previous one taught where to look. Fixed by disclosing
+  on **stderr** — the identity is genuinely unknowable, so blocking would be
+  wrong; being quiet was the defect
 
 **F15 is the safety case, and no hypothesis anticipated it.** The blast radius
 of a network-scoped freeze is not guessable from the network's name: the
@@ -366,10 +365,13 @@ See D4 and D6.
   **PASS, 21 checks, 0 skipped**. Checks 9 and 13 are now real assertions: the
   `--ccy` set and the `--github` identity axis both resolve against live
   labelled sessions, and the unlabelled throwaway is excluded from each
-- [ ] ⬜ **Task 3.2b**: Re-run `deploy.bash` once to exercise **check 9b** (the
-  F19 fix). It has never executed — a gate that has never run is not yet
-  evidence of anything, and on this host it should report the four unlabelled
-  sessions resolving via the name fallback
+- [x] ✅ **Task 3.2b**: Re-run `deploy.bash` to exercise **check 9b** (the F19
+  fix). **PASS, 22 checks, 0 skipped** — 9b named all four unlabelled sessions
+  and confirmed each resolves via the name fallback, so `--ccy` provably covers
+  the whole fleet rather than only the labelled part of it
+- [ ] ⬜ **Task 3.2c**: Re-run `deploy.bash` once more to exercise **check 13b**
+  and the `select_identity` disclosure it tests (F20). Both are new and have
+  never executed on the host
 - [ ] ⬜ **Task 3.3**: Run the `qa-reviewer` agent over the plan's full diff;
   resolve all BLOCK/FIX-BEFORE-MERGE findings
 - [ ] ⬜ **Task 3.4**: Mark plan Complete, move to `Completed/`, update README

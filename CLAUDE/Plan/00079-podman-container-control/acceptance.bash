@@ -48,6 +48,8 @@ container on a throwaway network and checks:
   11  an unknown container name fails loudly
   12  two targets at once is rejected
   13  --github resolves the sessions carrying that ccy-github label
+ 13b  an identity selection DISCLOSES the unlabelled sessions it cannot cover,
+      on stderr only
   14  an unknown --github value fails loudly
   15  no pre-rename podman-freeze is left on PATH
 
@@ -82,6 +84,11 @@ TOOL="$HOME/.local/bin/podfreeze"
 REPO_TOOL="$REPO_ROOT/files/home/.local/bin/podfreeze"
 NET="podfreeze-acceptance-net-$$"
 CNAME="podfreeze-acceptance-$$"
+
+# The fallback podfreeze uses to recognise a session started before CCY 3.40.0.
+# Defined once here rather than inside a check, so no check depends on another
+# having run — that coupling is how a skipped branch silently becomes a PASS.
+CCY_NAME_PATTERN='^.+_(yolo|browser)(_[0-9]+)?$'
 
 PASS=0
 FAIL=0
@@ -437,7 +444,6 @@ echo "### 9b. --ccy also resolves UNLABELLED (pre-3.40.0) sessions"
 # The labelled set is recomputed here rather than reusing check 9's $ccy_live:
 # that variable holds podman's ERROR TEXT when its call failed, and matching
 # names against an error string would silently misclassify every session.
-CCY_NAME_PATTERN='^.+_(yolo|browser)(_[0-9]+)?$'
 if ! labelled_now="$(podman ps --filter label=ccy=true \
     --filter status=running --format '{{.Names}}' 2>&1)"; then
     bad "could not list labelled CCY containers: $labelled_now"
@@ -555,6 +561,64 @@ else
         esac
     else
         bad "freeze --github exited non-zero: $gh_out"
+    fi
+fi
+
+echo "### 13b. an identity selection discloses the sessions it cannot consider"
+# An unlabelled session is in --ccy but in NO identity group, because its
+# account genuinely cannot be inferred. The selection is therefore correct as
+# far as it can go — and silently narrower than "every session for account X",
+# which is what the user asked the axis for.
+#
+# `select_identity` already refuses the case where NOTHING is labelled. This
+# asserts the same disclosure for the PARTIAL case (F19's shape again), which is
+# the state the machine is actually in until every session has been relaunched.
+# The NOTE goes to stderr, so it never pollutes a captured dry-run set.
+# `unlabelled` is recomputed rather than reused from check 9b: if 9b took an
+# early failure branch that variable is unset, and `${unlabelled:-}` would then
+# read as "nothing to disclose" and report a PASS this check never earned.
+# Streams are split with a temp file, not `2>/dev/null` — this repo treats a
+# discarded stderr as error-hiding, and here the stderr IS the thing under test.
+id_unlabelled=""
+if ! id_all="$(podman ps --filter status=running --format '{{.Names}}' 2>&1)"; then
+    bad "could not list running containers: $id_all"
+elif ! id_labelled="$(podman ps --filter label=ccy=true \
+    --filter status=running --format '{{.Names}}' 2>&1)"; then
+    bad "could not list labelled CCY containers: $id_labelled"
+else
+    while read -r name; do
+        if [ -z "$name" ] || ! [[ "$name" =~ $CCY_NAME_PATTERN ]]; then
+            continue
+        fi
+        if ! printf '%s\n' "$id_labelled" | grep -qx -- "$name"; then
+            id_unlabelled="$id_unlabelled $name"
+        fi
+    done <<< "$id_all"
+
+    if [ -z "${gh_one:-}" ]; then
+        ok "no labelled account to select — disclosure path not exercisable here"
+    elif [ -z "$id_unlabelled" ]; then
+        ok "every live session is labelled — nothing to disclose"
+    else
+        note_err_file="$(mktemp)"
+        if ! note_out="$("$TOOL" freeze --github "$gh_one" --dry-run 2>"$note_err_file")"; then
+            bad "freeze --github exited non-zero: $(cat "$note_err_file")"
+        else
+            note_err="$(cat "$note_err_file")"
+            case "$note_err" in
+                *"carry no identity labels"*)
+                    ok "the NOTE names the sessions the identity axis cannot cover" ;;
+                *) bad "no disclosure of unlabelled session(s):$id_unlabelled" ;;
+            esac
+            # The NOTE must be stderr-only — a caller doing
+            # `names=$(podfreeze freeze --github X --dry-run)` must not get prose.
+            case "$note_out" in
+                *"carry no identity labels"*)
+                    bad "the NOTE leaked onto stdout, polluting a captured set" ;;
+                *) ok "the NOTE is on stderr only; stdout stays the payload" ;;
+            esac
+        fi
+        rm -f "$note_err_file"
     fi
 fi
 

@@ -507,6 +507,44 @@ select_identity() {
         exit 1
     fi
     mapfile -t SELECTED < <(identity_names "$axis" "$want")
+    warn_identity_blind_spot
+}
+
+# A session started before CCY 3.40.0 carries no identity labels, so it is in
+# --ccy but in NO identity group. Its account cannot be inferred — the labels
+# are the only evidence there is — so the selection is correct as far as it can
+# go, and stays silent about the sessions it could not consider.
+#
+# That silence is the problem. The whole point of the identity axes is "freeze
+# everything running as account X", and a partial answer to that reads exactly
+# like a complete one. The check above already refuses the case where NOTHING is
+# labelled; this is the same guard for the case where only SOME is, which is the
+# state a machine is actually in for as long as it takes every session to be
+# relaunched. Disclose, do not block: the user may well know the unlabelled ones
+# are irrelevant.
+unlabelled_ccy_names() {
+    local name
+    for name in "${INV_NAME[@]}"; do
+        if [ "${INV_IS_CCY[$name]:-0}" = "1" ] &&
+            [ -z "${INV_GITHUB[$name]:-}" ] &&
+            [ -z "${INV_TOKEN[$name]:-}" ] &&
+            [ -z "${INV_SSHKEYS[$name]:-}" ]; then
+            printf '%s\n' "$name"
+        fi
+    done
+}
+
+warn_identity_blind_spot() {
+    local -a unlabelled=()
+    mapfile -t unlabelled < <(unlabelled_ccy_names)
+    if [ "${#unlabelled[@]}" -eq 0 ]; then
+        return 0
+    fi
+    echo "podfreeze: NOTE — ${#unlabelled[@]} CCY session(s) carry no identity labels," >&2
+    echo "  so they are in no identity group and are NOT in this selection:" >&2
+    printf '    %s\n' "${unlabelled[@]}" >&2
+    echo "  They predate CCY 3.40.0. Use --ccy to cover every session regardless" >&2
+    echo "  of identity, or relaunch them to make them selectable by identity." >&2
 }
 
 # ---------------------------------------------------------------------------
