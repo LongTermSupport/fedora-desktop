@@ -792,10 +792,16 @@ NordVPN OpenVPN manager:
 - **No target opens a menu of groups** — all CCY containers, all containers,
   everything on a given network, and one row per GitHub account / token / SSH
   key in use — each row saying what choosing it does right now (`FREEZE 8`,
-  `THAW 3`). It acts, re-reads the machine, and returns to the menu until you
-  quit. Picking individual containers is the last entry. An identity axis is
-  only offered when more than one value is present, since with a single account
-  that row and "all CCY containers" are the same button
+  `THAW 3`). An identity axis is only offered when more than one value is
+  present, since with a single account that row and "all CCY containers" are
+  the same button
+- **Choosing a group opens it** — a second screen lists the group's members,
+  each showing the verb it will get, with **"act on all of it" as the first
+  row**. So the whole group is still one keypress (ENTER), while picking
+  specific containers is optional (TAB under fzf, numbers otherwise). This is
+  where you see that "network: podman — FREEZE 5" includes a live Claude
+  session. It acts, re-reads the machine, and returns to the group menu until
+  you quit
 - **The verb is derived**: anything running is frozen, a set with nothing
   running is thawed, so the same choice twice toggles it. An explicit
   `freeze`/`thaw` still wins, for scripts

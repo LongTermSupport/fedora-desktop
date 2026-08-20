@@ -156,6 +156,17 @@ ACTION="freeze"
 is "freeze with none running" "$(target_effect proj_yolo_2)" "nothing to freeze"
 ACTION=""
 
+echo "### row_verb — what ONE row in the drill-down says will happen to it"
+is "running -> FREEZE" "$(row_verb proj_yolo)" "FREEZE"
+is "frozen -> THAW" "$(row_verb proj_yolo_2)" "THAW"
+is "unknown name is marked, not guessed" "$(row_verb ghost)" "?"
+ACTION="freeze"
+is "explicit freeze skips a frozen row" "$(row_verb proj_yolo_2)" "-"
+is "explicit freeze acts on a running row" "$(row_verb proj_yolo)" "FREEZE"
+ACTION="thaw"
+is "explicit thaw skips a running row" "$(row_verb proj_yolo)" "-"
+ACTION=""
+
 echo "### infer_action agrees with the labels above"
 SELECTED=(proj_yolo proj_yolo_2)
 is "any running -> freeze" "$(infer_action)" "freeze"

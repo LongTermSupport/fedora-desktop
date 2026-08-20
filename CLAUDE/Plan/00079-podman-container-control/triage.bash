@@ -11,9 +11,14 @@
 #
 # Probes map to PLAN.md hypotheses:
 #   H1  rootless pause support (cgroups v2 + podman version)
-#   H2  CCY containers match --filter label=claude-yolo-version (inherited image label)
+#   H2  CCY containers match --filter label=claude-yolo-version (inherited image
+#       label) — CONFIRMED but it OVER-matches; superseded by H6. See F16/D6.
 #   H3  --filter network= works on ps/pause in the installed podman
 #   H4  podman-tui packaging status
+#   H6  the CCY 3.40.0 run-time labels (ccy, ccy-project, ccy-github, ccy-token,
+#       ccy-ssh-keys) are present on a RELAUNCHED session
+#   H7  'podman' is ONE shared bridge, not a per-container default, so every
+#       CCY session launched without --network shares it
 set -euo pipefail
 
 usage() {
@@ -109,15 +114,47 @@ echo "### READ THIS FOR: current container inventory (names, status, networks, l
 probe "podman ps -a (names/status/networks)" podman ps -a --format '{{.Names}}\t{{.Status}}\t{{.Networks}}'
 probe "podman ps -a (labels)" podman ps -a --format '{{.Names}}\t{{.Labels}}'
 
-echo "### READ THIS FOR: H2 (CCY containers match the inherited image label)"
-echo "###   every running <project>_yolo* container should appear below;"
-echo "###   if this list is empty while CCY sessions run, H2 is REFUTED and"
-echo "###   the tool must rely on the name pattern until Phase 1 labels land"
+echo "### READ THIS FOR: H2 — SETTLED, and settled the OTHER way (F16, D6)"
+echo "###   The inherited image label matches, but it OVER-matches: it marks"
+echo "###   anything BUILT FROM the CCY image, session or not. Anything below"
+echo "###   that is not a <project>_yolo[_N] session is an instance of that."
+echo "###   podfreeze no longer reads this label at all — kept as a probe only"
+echo "###   so the over-match stays visible on this machine."
 probe "ps --filter label=claude-yolo-version" podman ps --filter label=claude-yolo-version --format '{{.Names}}\t{{.Labels}}'
+
+echo "### READ THIS FOR: H6 — did the CCY 3.40.0 run-time labels land?"
+echo "###   THIS SECTION NAMES ACCOUNTS AND TOKEN LABELS. The log is"
+echo "###   gitignored; do not paste it into an issue, PR, or gist."
+echo "###"
+echo "###   A session must be RELAUNCHED after deploying the new launcher to"
+echo "###   carry these — a session started by the old ccy has none, which is"
+echo "###   not a failure. An EMPTY list means no session has been relaunched"
+echo "###   yet; it does not mean the labels are broken."
+echo "###   Every row should show ccy=true plus project/github/token/ssh-keys,"
+echo "###   with 'none' where an axis does not apply — never an empty value."
+probe "ps --filter label=ccy=true (identity labels)" \
+    podman ps --all --filter label=ccy=true \
+    --format '{{.Names}}\tproject={{index .Labels "ccy-project"}}\tgithub={{index .Labels "ccy-github"}}\ttoken={{index .Labels "ccy-token"}}\tkeys={{index .Labels "ccy-ssh-keys"}}'
+probe "deployed ccy version" ccy --version
 
 echo "### READ THIS FOR: H3 (network filter behaves per network)"
 probe "network list" podman network ls
 probe "ps --filter network=<each>" show_ps_by_each_network
+
+echo "### READ THIS FOR: H7 — is 'podman' ONE network, or one per container?"
+echo "###   'podman network ls' shows a single NETWORK ID for it, so it is one"
+echo "###   shared bridge and every container launched without --network joins"
+echo "###   it. The inspect below settles what that means in practice: ONE"
+echo "###   subnet listed = one L2 domain; the per-container IPs that follow"
+echo "###   should all fall inside it."
+echo "###   This is podman's default, not something CCY chooses — but it does"
+echo "###   mean sessions sharing it can address each other, so read the IPs"
+echo "###   rather than assuming isolation."
+probe "network inspect podman (subnet/gateway)" \
+    podman network inspect podman --format '{{.Name}} driver={{.Driver}} subnets={{range .Subnets}}{{.Subnet}} gw={{.Gateway}} {{end}}'
+probe "per-container IPs on the podman network" \
+    podman ps --all --filter network=podman \
+    --format '{{.Names}}\t{{.Networks}}\t{{.Status}}'
 
 echo "### READ THIS FOR: H4 (podman-tui packaging) + picker dependency"
 probe "dnf info podman-tui (read-only query)" dnf info podman-tui
@@ -125,6 +162,7 @@ probe "fzf present" command -v fzf
 probe "podman.socket (user) status" systemctl --user status podman.socket --no-pager -l
 
 echo "================================================================"
-echo "END OF REPORT — read the H1 and H2 sections first; they gate the plan"
-echo "(Phase 0 decision gate in PLAN.md)."
+echo "END OF REPORT — the Phase 0 decision gate (H1) has passed, so the"
+echo "section to read first is now H6: whether a relaunched CCY session"
+echo "carries the 3.40.0 run-time labels podfreeze selects on."
 echo "================================================================"

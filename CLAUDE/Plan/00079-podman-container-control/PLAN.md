@@ -108,6 +108,14 @@ write-up in the journal):
   selected the gate's own throwaway, built from `localhost/claude-yolo:*`.
   Fixed by the run-time `ccy=true` label (Phase 1); the image label is no longer
   consulted (D6)
+- **F17** — **`podman` is ONE shared bridge network, not a per-container
+  default.** `podman network ls` lists it with a single NETWORK ID and the
+  `bridge` driver, and seven CCY sessions were attached to it simultaneously.
+  So a session launched without `--network` joins the same L2 domain as every
+  other one. That is podman's default rather than a CCY choice, but it makes
+  "network: podman" in the menu approximately "every session that did not join
+  a project network" — and it is why F15's hazard runs the other way too: an
+  eighth session sat on the app network `mkt` instead
 
 **F15 is the safety case, and no hypothesis anticipated it.** The blast radius
 of a network-scoped freeze is not guessable from the network's name: the
@@ -243,6 +251,30 @@ distinct value in the live inventory.
 - **Nothing in the container reads these.** Pre-3.40.0 sessions carry none and
   stay reachable by name or `--ccy`; `--github` says so rather than pretending
   they do not exist. **Date**: 2026-08-20
+
+### D9: choosing a group opens it, rather than acting immediately
+
+**Context**: user ask — *"can we have a way to drill into a grouping … first
+option is 'all' or its then possible to pick specific ones … easiest and
+clearest"*.
+
+**Decision**: a group row leads to a second screen listing the group's members,
+with **"act on all of it" as the first row**, each member showing the verb it
+will get. The standalone "pick individual containers…" entry is removed:
+drilling into "all containers" *is* that, so keeping it would be a second route
+to one screen.
+
+**Why this does not undo D7.** The earlier feedback was that per-container
+tab-selection was *forced* and that group targets were unreachable without
+knowing flag names. Here the whole group stays one keypress — ENTER on row 1 —
+so the fast path is intact and the picking is optional. What it buys is
+**sight of the members before acting**, which a group row structurally cannot
+give: "network: podman — FREEZE 5" names nothing, and F15/F17 are exactly the
+case where one of those five is a live Claude session on an app network.
+
+The "all" row is keyed by a sentinel (`*all*`) rather than the word: podman
+container names must start with an alphanumeric, so no container can collide
+with it. **Date**: 2026-08-20
 
 ## Tasks
 

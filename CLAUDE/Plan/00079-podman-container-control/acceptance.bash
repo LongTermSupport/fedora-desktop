@@ -48,6 +48,7 @@ container on a throwaway network and checks:
   12  two targets at once is rejected
   13  --github resolves the sessions carrying that ccy-github label
   14  an unknown --github value fails loudly
+  15  no pre-rename podman-freeze is left on PATH
 
 Writes its log to this plan's logs/acceptance.log. The throwaway container and
 network are removed on exit, including on failure.
@@ -512,6 +513,22 @@ else
             ok "refused, naming the unknown account" ;;
         *) bad "failed, but not with the expected message: $id_out" ;;
     esac
+fi
+
+echo "### 15. exactly one build of this tool is installed"
+# deploy.bash removes the pre-rename `podman-freeze` and prints when it does.
+# On run 2 it printed nothing, which SHOULD mean the file was already gone —
+# but silence cannot distinguish "already clean" from "looked in the wrong
+# place", and this repo has been bitten by exactly that reading. So the end
+# state is asserted here rather than inferred from the absence of a message.
+#
+# PATH, not one hardcoded directory: two builds are a problem because the one
+# you get depends on which name you type, and that is a PATH question.
+if stale="$(command -v podman-freeze)"; then
+    bad "the pre-rename binary is still on PATH at $stale — two builds of one
+       tool, and which you get depends on the name you type. Re-run deploy.bash"
+else
+    ok "no pre-rename podman-freeze on PATH"
 fi
 
 echo

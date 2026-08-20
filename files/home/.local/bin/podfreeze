@@ -24,11 +24,14 @@
 #   2. A menu of GROUPS, not of containers. All CCY containers, all containers,
 #      everything on a given network, or every session running as one GitHub
 #      account / Anthropic token / SSH key — each row saying what choosing it
-#      will do right now ("FREEZE 8", "THAW 3"). Acting on a whole group is the
-#      common case; picking containers one at a time is the last entry, not the
-#      first screen.
+#      will do right now ("FREEZE 8", "THAW 3").
 #      The identity groups come from labels CCY stamps at launch, so they group
 #      by WHO a session is rather than by what it happens to be called.
+#      Choosing a group opens it: the first row is "act on all of it", the rest
+#      are its members. Acting on the whole group therefore stays one keypress,
+#      while the members are visible before anything happens — which is what a
+#      group row cannot show, and is where a live Claude session hides inside
+#      an app network (F15).
 #   3. Refusal to run inside a container. The host's podman is not reachable
 #      from in there anyway, and it stops you freezing the session you are
 #      typing into.
@@ -96,6 +99,11 @@ CCY_NAME_PATTERN='^.+_(yolo|browser)(_[0-9]+)?$'
 # name may contain '|', so this is both unambiguous and readable.
 FIELD_SEP='|'
 
+# First-column marker for the "act on the whole group" row in the drill-down.
+# Leading '*' cannot begin a container name (podman requires [a-zA-Z0-9] first),
+# so a real container can never be mistaken for this control row.
+ALL_ROW_KEY='*all*'
+
 usage() {
     echo "Usage: podfreeze [list|freeze|thaw] [target] [options]"
     echo ""
@@ -103,8 +111,10 @@ usage() {
     echo "  network, or every CCY (Claude) session at once."
     echo ""
     echo "  Run with no target for a menu of GROUPS, each row saying what"
-    echo "  choosing it does right now (\"FREEZE 8\", \"THAW 3\"). It acts, then"
-    echo "  returns to the menu, until you quit."
+    echo "  choosing it does right now (\"FREEZE 8\", \"THAW 3\"). Choosing one"
+    echo "  opens the group: the first row acts on all of it, the rest are its"
+    echo "  containers if you want only some. It acts, then returns to the"
+    echo "  menu, until you quit."
     echo ""
     echo "  The verb is derived: anything running is frozen, a set with nothing"
     echo "  running is thawed. So the same choice twice toggles it. There is no"
@@ -642,8 +652,9 @@ pick_target() {
         done
     done
 
-    keys+=("pick")
-    labels+=("pick individual containers...")
+    # No "pick individual containers..." entry: choosing "all containers" and
+    # drilling into it IS that, so a separate row would be a second route to
+    # one screen.
 
     total="${#labels[@]}"
 
@@ -702,13 +713,49 @@ pick_target() {
 
 # Echoes the chosen names on stdout, one per line. The menu is drawn on stderr
 # so a caller capturing this gets names and nothing else.
-pick_containers() {
-    local i total line selection reply attempt token ok
+# What this ONE container is about to have done to it. The group row says
+# "FREEZE 5"; a row inside the group says which of the five it is.
+row_verb() {
+    local name="$1" i state
+    if ! i="$(inventory_index_of "$name")"; then
+        printf '?'
+        return 0
+    fi
+    state="${INV_STATE[$i]}"
+    # Written out rather than as `test && printf || printf`: that shape silently
+    # runs the third branch when the second one fails, which is the discarded-
+    # failure-signal class this repo gates on (CLAUDE/AgentNotes.md).
+    case "$ACTION" in
+        freeze)
+            if [ "$state" = "running" ]; then printf 'FREEZE'; else printf '-'; fi
+            ;;
+        thaw)
+            if [ "$state" = "paused" ]; then printf 'THAW'; else printf '-'; fi
+            ;;
+        *)
+            if [ "$state" = "running" ]; then printf 'FREEZE'; else printf 'THAW'; fi
+            ;;
+    esac
+}
+
+# The second screen: having chosen a group, see WHAT IS IN IT before acting.
+#
+# The first row is "all N", so the common case — act on the whole group — is
+# still one keypress, and the earlier feedback that per-container tabbing was
+# being forced on the user is not undone. What it adds is sight of the members:
+# a group row says "network: podman — FREEZE 5" and names nothing, which is
+# precisely where a live Claude session hides inside an app network (F15).
+#
+# Emits the chosen names on stdout, one per line. Returns non-zero for back or
+# cancel, which the caller treats as "return to the group menu".
+drill_into_group() {
+    local -a group=("$@")
+    local i total line selection reply attempt token ok name
     local -a menu=() picked=() tokens=()
 
-    total="${#INV_NAME[@]}"
+    total="${#group[@]}"
     if [ "$total" -eq 0 ]; then
-        die "no running or frozen containers to pick from."
+        return 1
     fi
 
     if [ ! -t 2 ] || [ ! -r /dev/tty ]; then
@@ -716,48 +763,64 @@ pick_containers() {
   --network NET / --all. See 'podfreeze --help'."
     fi
 
-    for i in "${!INV_NAME[@]}"; do
-        menu+=("$(printf '%-34s %-8s %-4s %s' \
-            "${INV_NAME[$i]}" "${INV_STATE[$i]}" \
-            "$(ccy_marker "${INV_NAME[$i]}")" "${INV_NETS[$i]}")")
+    # Sentinel-prefixed so a container can never be mistaken for a control row:
+    # the emitters below key on the first field, and a container named "all"
+    # would otherwise collide with the "act on everything" row.
+    menu+=("$(printf '%-34s %s' "$ALL_ROW_KEY" \
+        "$(target_effect "${group[@]}")")")
+    for name in "${group[@]}"; do
+        i="$(inventory_index_of "$name")" || continue
+        menu+=("$(printf '%-34s %-8s %-4s %-22s %s' \
+            "$name" "${INV_STATE[$i]}" "$(ccy_marker "$name")" \
+            "${INV_NETS[$i]}" "$(row_verb "$name")")")
     done
 
     if have fzf; then
         if ! selection="$(printf '%s\n' "${menu[@]}" |
             fzf --multi --height=60% --reverse \
-                --prompt="Containers: " \
-                --header="TAB to multi-select, ENTER to confirm, ESC to cancel")"; then
-            die "cancelled — nothing changed."
+                --prompt="In this group: " \
+                --header="ENTER on the first row acts on all — TAB picks specific ones, ESC goes back")"; then
+            return 1
         fi
         if [ -z "$selection" ]; then
-            die "cancelled — nothing changed."
+            return 1
         fi
+        picked=()
         while read -r line; do
-            if [ -n "$line" ]; then
-                printf '%s\n' "${line%% *}"
+            if [ -z "$line" ]; then
+                continue
             fi
+            if [ "${line%% *}" = "$ALL_ROW_KEY" ]; then
+                printf '%s\n' "${group[@]}"
+                return 0
+            fi
+            picked+=("${line%% *}")
         done <<< "$selection"
+        if [ "${#picked[@]}" -eq 0 ]; then
+            return 1
+        fi
+        printf '%s\n' "${picked[@]}"
         return 0
     fi
 
-    echo "Containers:" >&2
+    echo "In this group:" >&2
     for i in "${!menu[@]}"; do
         printf '  %2d) %s\n' "$(( i + 1 ))" "${menu[$i]}" >&2
     done
 
     attempt=1
     while :; do
-        printf 'Choose [numbers separated by spaces, a for all, q to cancel]: ' >&2
+        printf 'Choice [ENTER or 1 for all, numbers for specific, b to go back]: ' >&2
         if ! read -r reply < /dev/tty; then
             echo >&2
-            die "cancelled — nothing changed."
+            return 1
         fi
         case "$reply" in
-            q | Q | quit)
-                die "cancelled — nothing changed."
+            b | B | back | q | Q | quit)
+                return 1
                 ;;
-            a | A | all)
-                printf '%s\n' "${INV_NAME[@]}"
+            "" | 1 | a | A | all)
+                printf '%s\n' "${group[@]}"
                 return 0
                 ;;
         esac
@@ -767,11 +830,12 @@ pick_containers() {
         read -r -a tokens <<< "${reply//,/ }"
         for token in "${tokens[@]+${tokens[@]}}"; do
             case "$token" in
-                *[!0-9]*) ok=0 ;;
-                "") ok=0 ;;
+                "" | *[!0-9]*) ok=0 ;;
                 *)
-                    if [ "$token" -ge 1 ] && [ "$token" -le "$total" ]; then
-                        picked+=("${INV_NAME[$(( token - 1 ))]}")
+                    # Row 1 is "all"; containers start at 2, so shift by two to
+                    # index the group.
+                    if [ "$token" -ge 2 ] && [ "$token" -le "$(( total + 1 ))" ]; then
+                        picked+=("${group[$(( token - 2 ))]}")
                     else
                         ok=0
                     fi
@@ -784,7 +848,8 @@ pick_containers() {
             return 0
         fi
 
-        echo "  Not a valid choice — enter numbers between 1 and $total, 'a', or 'q'." >&2
+        echo "  Not a valid choice — 1 (or ENTER) for all, 2-$(( total + 1 )) for" >&2
+        echo "  specific containers, or 'b' to go back." >&2
         attempt=$(( attempt + 1 ))
         if [ "$attempt" -gt "$MAX_TRIES" ]; then
             die "giving up after $MAX_TRIES attempts — nothing changed."
@@ -925,15 +990,6 @@ interactive_loop() {
                 rest="${key#id:}"
                 select_identity "${rest%%:*}" "${rest#*:}"
                 ;;
-            pick)
-                # Backing out of the container picker returns to the target
-                # menu rather than quitting — it is one level down, not a
-                # separate command.
-                if ! picked="$(pick_containers)"; then
-                    continue
-                fi
-                mapfile -t SELECTED <<< "$picked"
-                ;;
             *) die "internal error: unknown target key '$key'." ;;
         esac
 
@@ -942,6 +998,15 @@ interactive_loop() {
             echo "" >&2
             continue
         fi
+
+        # Second screen: see the members, act on all of them or a subset.
+        # Backing out returns to the group menu rather than quitting — it is
+        # one level down, not a separate command.
+        if ! picked="$(drill_into_group "${SELECTED[@]}")"; then
+            echo "" >&2
+            continue
+        fi
+        mapfile -t SELECTED <<< "$picked"
 
         if ! do_action "${ACTION:-$(infer_action)}"; then
             status=1
