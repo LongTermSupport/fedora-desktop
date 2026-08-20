@@ -46,6 +46,8 @@ container on a throwaway network and checks:
   10  an unknown network fails loudly rather than resolving to an empty set
   11  an unknown container name fails loudly
   12  two targets at once is rejected
+  13  --github resolves the sessions carrying that ccy-github label
+  14  an unknown --github value fails loudly
 
 Writes its log to this plan's logs/acceptance.log. The throwaway container and
 network are removed on exit, including on failure.
@@ -192,41 +194,32 @@ echo "  created network $NET"
 # being reachable. Candidates are tried in turn because an image with no shell
 # cannot host the sleep loop.
 #
-# The fixture image must NOT carry the claude-yolo-version label. The first
-# version of this script PREFERRED a claude-yolo image, on the reasoning that
-# it is certain to have a shell — and that made check 9 (the throwaway is
-# excluded from --ccy) fail against a tool that was behaving perfectly: the
-# throwaway genuinely WAS a CCY-labelled container. A test whose fixture
-# violates its own precondition reports a defect that is not there, which is
-# the same shape of wrong answer this whole plan is about.
+# WHICH IMAGE IS NO LONGER LOAD-BEARING, and that is worth recording because it
+# was, twice over. The first version of this script PREFERRED a claude-yolo
+# image (certain to have a shell), which made check 9 — "the throwaway is
+# excluded from --ccy" — fail against a tool behaving perfectly: back then --ccy
+# keyed on the inherited claude-yolo-version image label, so the throwaway
+# genuinely WAS in the set. A fixture violating its own precondition reports a
+# defect that is not there, which is the shape of wrong answer this whole plan
+# is about. The second version partitioned images on that label and preferred
+# the unlabelled ones.
 #
-# So: unlabelled images first, CCY-labelled ones only as a last resort, and
-# when only the latter is available check 9's exclusion assertion SKIPS with
-# the reason rather than failing.
+# Both are now unnecessary: the tool identifies a CCY session by the RUN-TIME
+# ccy=true label or the session name pattern, and consults the image label
+# nowhere. A throwaway named podfreeze-acceptance-<pid> has neither, whatever
+# image it came from, so check 9 asserts exclusion unconditionally.
 if ! images="$(podman images --format '{{.Repository}}:{{.Tag}}' 2>&1)"; then
     echo "ERROR: podman images failed: $images" >&2
     exit 1
 fi
-if ! ccy_images="$(podman images --filter label=claude-yolo-version \
-    --format '{{.Repository}}:{{.Tag}}' 2>&1)"; then
-    echo "ERROR: podman images --filter label=claude-yolo-version failed: $ccy_images" >&2
-    exit 1
-fi
 
-PLAIN=()
-LABELLED=()
+CANDIDATES=()
 while read -r img; do
     case "$img" in
         "" | *"<none>"*) continue ;;
     esac
-    if printf '%s\n' "$ccy_images" | grep -qxF -- "$img"; then
-        LABELLED+=("$img")
-    else
-        PLAIN+=("$img")
-    fi
+    CANDIDATES+=("$img")
 done <<< "$images"
-
-CANDIDATES=("${PLAIN[@]+${PLAIN[@]}}" "${LABELLED[@]+${LABELLED[@]}}")
 
 if [ "${#CANDIDATES[@]}" -eq 0 ]; then
     echo "ERROR: no local container images to build a throwaway container from." >&2
@@ -235,19 +228,10 @@ if [ "${#CANDIDATES[@]}" -eq 0 ]; then
 fi
 
 STARTED=0
-FIXTURE_IS_CCY=0
 for img in "${CANDIDATES[@]:0:5}"; do
     if out="$(podman run --detach --name "$CNAME" --network "$NET" \
         --entrypoint sh "$img" -c 'while true; do sleep 1; done' 2>&1)"; then
-        if printf '%s\n' "$ccy_images" | grep -qxF -- "$img"; then
-            FIXTURE_IS_CCY=1
-            echo "  started $CNAME from $img"
-            echo "  NOTE: that image carries the claude-yolo-version label, so the"
-            echo "        throwaway is legitimately part of the --ccy set and check 9's"
-            echo "        exclusion assertion cannot be made."
-        else
-            echo "  started $CNAME from $img (no claude-yolo-version label)"
-        fi
+        echo "  started $CNAME from $img"
         STARTED=1
         break
     fi
@@ -388,19 +372,26 @@ else
 fi
 
 echo "### 9. freeze --ccy -n resolves the live CCY group"
-# Asserted as a CONTRACT, not by re-deriving the tool's own selection: every
-# running CCY container must appear, and the throwaway (no label, no matching
-# name) must not.
+# Asserted as a CONTRACT: every running Claude SESSION must appear, and the
+# throwaway must not.
+#
+# The expected set is built here from podman directly — every running container
+# carrying the run-time ccy=true label that CCY >= 3.40.0 sets. Deliberately NOT
+# the inherited claude-yolo-version image label: that marks a lineage rather than
+# a session, and using it here is what made an earlier run of this gate report a
+# defect the tool did not have.
 #
 # Scoped to status=running on purpose. A CCY container that is already paused
 # would appear in the tool's output under "Skipped — not currently running",
 # so the check would pass without the resolver having selected it — a pass
 # earned by a substring rather than by the behaviour being tested.
-if ! ccy_live="$(podman ps --filter label=claude-yolo-version \
+if ! ccy_live="$(podman ps --filter label=ccy=true \
     --filter status=running --format '{{.Names}}' 2>&1)"; then
     bad "could not list CCY containers: $ccy_live"
 elif [ -z "$ccy_live" ]; then
-    skip "no CCY containers are running — nothing to resolve"
+    skip "no ccy=true container is running — nothing to resolve. Sessions started
+         by a CCY older than 3.40.0 carry no such label; relaunch one to exercise
+         this check"
 elif ccy_out="$("$TOOL" freeze --ccy --dry-run 2>&1)"; then
     missing=""
     while read -r name; do
@@ -413,19 +404,14 @@ elif ccy_out="$("$TOOL" freeze --ccy --dry-run 2>&1)"; then
         esac
     done <<< "$ccy_live"
     if [ -n "$missing" ]; then
-        bad "--ccy omitted running CCY container(s):$missing"
+        bad "--ccy omitted running CCY session(s):$missing"
     else
-        ok "every running CCY container is in the --ccy set"
+        ok "every running ccy=true session is in the --ccy set"
     fi
-    if [ "$FIXTURE_IS_CCY" -eq 1 ]; then
-        skip "the throwaway was built from a CCY-labelled image, so it belongs in
-         the --ccy set — the exclusion assertion needs an unlabelled image"
-    else
-        case "$ccy_out" in
-            *"$CNAME"*) bad "--ccy wrongly included the non-CCY throwaway $CNAME" ;;
-            *) ok "the non-CCY throwaway is excluded" ;;
-        esac
-    fi
+    case "$ccy_out" in
+        *"$CNAME"*) bad "--ccy wrongly included the non-CCY throwaway $CNAME" ;;
+        *) ok "the non-CCY throwaway is excluded" ;;
+    esac
 else
     bad "freeze --ccy --dry-run exited non-zero: $ccy_out"
 fi
@@ -462,6 +448,69 @@ else
     case "$both_out" in
         *"mutually exclusive"*) ok "refused as mutually exclusive" ;;
         *) bad "failed, but not with the expected message: $both_out" ;;
+    esac
+fi
+
+echo "### 13. the identity axes resolve against the live labels"
+# Only the GitHub axis is asserted here: the token label is a private
+# identifier and this gate's log, while gitignored, is still a file — naming
+# every token on the machine in it buys nothing the GitHub axis does not
+# already prove, since all three axes share one code path (identity_names).
+if ! gh_values="$(podman ps --filter label=ccy=true \
+    --format '{{index .Labels "ccy-github"}}' 2>&1)"; then
+    bad "could not read ccy-github labels: $gh_values"
+else
+    gh_one=""
+    while read -r value; do
+        if [ -n "$value" ] && [ "$value" != "none" ]; then
+            gh_one="$value"
+            break
+        fi
+    done <<< "$gh_values"
+
+    if [ -z "$gh_one" ]; then
+        skip "no running session carries a ccy-github label — relaunch a session
+         under CCY 3.40.0 or later to exercise this check"
+    elif gh_out="$("$TOOL" freeze --github "$gh_one" --dry-run 2>&1)"; then
+        # Asserted against podman, not against the tool's own notion of the set.
+        if ! gh_expected="$(podman ps --filter label=ccy=true \
+            --filter "label=ccy-github=$gh_one" --filter status=running \
+            --format '{{.Names}}' 2>&1)"; then
+            bad "could not list sessions for that account: $gh_expected"
+        else
+            gh_missing=""
+            while read -r name; do
+                if [ -z "$name" ]; then
+                    continue
+                fi
+                case "$gh_out" in
+                    *"$name"*) ;;
+                    *) gh_missing="$gh_missing $name" ;;
+                esac
+            done <<< "$gh_expected"
+            if [ -n "$gh_missing" ]; then
+                bad "--github omitted session(s):$gh_missing"
+            else
+                ok "--github resolves every session for that account"
+            fi
+        fi
+        case "$gh_out" in
+            *"$CNAME"*) bad "--github wrongly included the throwaway $CNAME" ;;
+            *) ok "the unlabelled throwaway is excluded" ;;
+        esac
+    else
+        bad "freeze --github exited non-zero: $gh_out"
+    fi
+fi
+
+echo "### 14. an unknown identity value fails loudly"
+if id_out="$("$TOOL" freeze --github "no-such-account-$$" --dry-run 2>&1)"; then
+    bad "an unknown --github value resolved to an empty set and exited 0"
+else
+    case "$id_out" in
+        *"no running or frozen CCY session has --github"*)
+            ok "refused, naming the unknown account" ;;
+        *) bad "failed, but not with the expected message: $id_out" ;;
     esac
 fi
 

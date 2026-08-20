@@ -17,6 +17,30 @@ Two version numbers move independently — see
 
 ---
 
+## 3.40.0 (container 2.26)
+
+**A session container is now labelled as one.** `podman run` gains
+`--label ccy=true --label ccy-project=<project>`, set at run time on the container CCY
+launches.
+
+The image already carried a `claude-yolo-version` label, and tooling had been using it to
+find CCY sessions. That label is **inherited by anything built FROM the CCY image**, so it
+identifies a *lineage*, not a *session* — it is exactly as true of a throwaway
+`podman run <ccy-image> sleep 60` as of a live Claude session. This was not a theoretical
+concern: a container-control tool asking for "all CCY containers" was observed selecting a
+CCY-derived throwaway that was no such thing.
+
+A run-time label cannot be inherited, so `ccy=true` is a positive, exact signal that this
+container is a live session, and `ccy-project` says which project it belongs to. Nothing
+reads these labels inside the container and no behaviour changes; they exist for host-side
+tooling to select on (`podman ps --filter label=ccy=true`). Containers started by an earlier
+CCY carry neither label until they are restarted, so consumers should keep the inherited
+label as a fallback.
+
+See `CLAUDE/Plan/00079-podman-container-control`.
+
+---
+
 ## 3.39.0 (container 2.26)
 
 **A fenced CI runner could not launch ccy at all.** The internet-reachability preflight

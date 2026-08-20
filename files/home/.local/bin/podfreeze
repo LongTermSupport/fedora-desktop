@@ -17,15 +17,18 @@
 #
 # So this adds the three things that were missing, and delegates the rest:
 #
-#   1. A named CCY group. Every CCY container inherits the image label
-#      claude-yolo-version, so --ccy is a filter rather than a name regex.
-#      The legacy name pattern <project>_yolo[_N] is matched as well, so a
-#      container from an older image still selects.
+#   1. A named CCY group. CCY >= 3.40.0 labels each session container ccy=true
+#      at run time, so --ccy is an exact filter; the session name pattern
+#      <project>_yolo[_N] is matched as well, which covers sessions started by
+#      an older CCY.
 #   2. A menu of GROUPS, not of containers. All CCY containers, all containers,
-#      or everything on a given network — each row saying what choosing it will
-#      do right now ("FREEZE 8", "THAW 3"). Acting on a whole group is the
+#      everything on a given network, or every session running as one GitHub
+#      account / Anthropic token / SSH key — each row saying what choosing it
+#      will do right now ("FREEZE 8", "THAW 3"). Acting on a whole group is the
 #      common case; picking containers one at a time is the last entry, not the
 #      first screen.
+#      The identity groups come from labels CCY stamps at launch, so they group
+#      by WHO a session is rather than by what it happens to be called.
 #   3. Refusal to run inside a container. The host's podman is not reachable
 #      from in there anyway, and it stops you freezing the session you are
 #      typing into.
@@ -72,11 +75,21 @@ set -euo pipefail
 DRY_RUN=0
 MAX_TRIES=3   # bounded retries on a recoverable menu-input mistake
 
-# Inherited from the CCY image; see files/var/local/claude-yolo/Dockerfile.
-CCY_LABEL="claude-yolo-version"
-# Legacy handle for containers predating the label: <project>_yolo[_N] and
-# <project>_browser[_N] — see get_next_container_name() in the CCY libs.
+# Set at `podman run` time by CCY >= 3.40.0, so it cannot be inherited: a
+# container carrying it IS a live Claude session. This is the exact, positive
+# signal; see files/var/local/claude-yolo/claude-yolo.
+CCY_SESSION_LABEL="ccy=true"
+# Sessions started by CCY < 3.40.0 have no such label, but CCY names every
+# session <project>_yolo[_N] / <project>_browser[_N] by construction — see
+# get_next_container_name() in the CCY libs — so the name covers them exactly.
 CCY_NAME_PATTERN='^.+_(yolo|browser)(_[0-9]+)?$'
+
+# The image's inherited claude-yolo-version label is DELIBERATELY not consulted.
+# It marks anything built FROM the CCY image, session or not, and a host run of
+# this plan's acceptance gate caught it selecting a CCY-derived throwaway that
+# was no session at all. Dropping it opens no gap: every session has either the
+# run-time label (>= 3.40.0) or the name (older), so the image label only ever
+# contributed false positives. See CLAUDE/Plan/00079-podman-container-control.
 
 # Field separator for `podman ps --format`. A literal tab in a Go template is
 # invisible and easy to mangle on edit; neither a container name nor a network
@@ -109,7 +122,14 @@ usage() {
     echo "  NAME...            One or more container names."
     echo "  --ccy              Every CCY container."
     echo "  --network NET      Every container attached to network NET."
+    echo "  --github ID        Every CCY session running as GitHub account ID."
+    echo "  --token LABEL      Every CCY session using that Anthropic token."
+    echo "  --ssh-key NAME     Every CCY session with that SSH key mounted."
     echo "  --all              Every running/paused container."
+    echo ""
+    echo "  The last three read labels CCY stamps on each session at launch, so"
+    echo "  they only see sessions started by CCY 3.40.0 or later. An unknown"
+    echo "  value is an error listing the known ones, never an empty set."
     echo ""
     echo "Options:"
     echo "  -n, --dry-run      Print the resolved set and exit; change nothing."
@@ -121,6 +141,7 @@ usage() {
     echo "  podfreeze --ccy                 toggle every Claude session"
     echo "  podfreeze freeze --ccy          explicitly freeze them"
     echo "  podfreeze freeze --network mynet -n"
+    echo "  podfreeze freeze --github <gh-username>"
     echo "  podfreeze thaw --all"
 }
 
@@ -161,17 +182,25 @@ assert_podman() {
 # ---------------------------------------------------------------------------
 # Inventory
 #
-# Three parallel arrays plus a CCY lookup. Only running and paused containers
-# are inventoried — an exited container can be neither frozen nor thawed, and
-# offering one as a candidate would only invite a confusing no-op.
+# Three parallel arrays plus per-container lookups. Only running and paused
+# containers are inventoried — an exited container can be neither frozen nor
+# thawed, and offering one as a candidate would only invite a confusing no-op.
+#
+# The identity lookups (github/token/ssh-keys) are populated only for CCY
+# sessions, because only CCY sets them. A container with no value is absent from
+# the map rather than holding an empty string, so "unknown" and "deliberately
+# none" stay distinguishable.
 # ---------------------------------------------------------------------------
 declare -a INV_NAME=()
 declare -a INV_STATE=()
 declare -a INV_NETS=()
 declare -A INV_IS_CCY=()
+declare -A INV_GITHUB=()
+declare -A INV_TOKEN=()
+declare -A INV_SSHKEYS=()
 
 load_inventory() {
-    local out ccy_out name state nets
+    local out ccy_out name state nets github token sshkeys
 
     if ! out="$(podman ps --all \
         --format "{{.Names}}${FIELD_SEP}{{.State}}${FIELD_SEP}{{.Networks}}" 2>&1)"; then
@@ -182,6 +211,9 @@ load_inventory() {
     INV_STATE=()
     INV_NETS=()
     INV_IS_CCY=()
+    INV_GITHUB=()
+    INV_TOKEN=()
+    INV_SSHKEYS=()
 
     while IFS="$FIELD_SEP" read -r name state nets; do
         if [ -z "$name" ]; then
@@ -201,14 +233,31 @@ load_inventory() {
         fi
     done <<< "$out"
 
-    # The label is the authoritative handle; the name pattern above is only a
-    # fallback for containers built before the image carried it.
-    if ! ccy_out="$(podman ps --all --filter "label=$CCY_LABEL" --format '{{.Names}}' 2>&1)"; then
-        die "podman ps --filter label=$CCY_LABEL failed: $ccy_out"
+    # The run-time session label is the authoritative handle; the name pattern
+    # above covers sessions started by a CCY older than 3.40.0. The same query
+    # carries the identity labels, so this costs no extra podman call — and it
+    # is scoped to ccy=true precisely so a container with no labels at all never
+    # has to be distinguished from one whose labels are empty.
+    if ! ccy_out="$(podman ps --all --filter "label=$CCY_SESSION_LABEL" \
+        --format "{{.Names}}${FIELD_SEP}{{index .Labels \"ccy-github\"}}${FIELD_SEP}{{index .Labels \"ccy-token\"}}${FIELD_SEP}{{index .Labels \"ccy-ssh-keys\"}}" 2>&1)"; then
+        die "podman ps --filter label=$CCY_SESSION_LABEL failed: $ccy_out"
     fi
-    while read -r name; do
-        if [ -n "$name" ]; then
-            INV_IS_CCY["$name"]=1
+    while IFS="$FIELD_SEP" read -r name github token sshkeys; do
+        if [ -z "$name" ]; then
+            continue
+        fi
+        INV_IS_CCY["$name"]=1
+        # "none" is CCY saying the axis does not apply to this session; it is not
+        # a value anyone would want to group by, so it is dropped here rather
+        # than offered as a group of its own.
+        if [ -n "$github" ] && [ "$github" != "none" ]; then
+            INV_GITHUB["$name"]="$github"
+        fi
+        if [ -n "$token" ] && [ "$token" != "none" ]; then
+            INV_TOKEN["$name"]="$token"
+        fi
+        if [ -n "$sshkeys" ] && [ "$sshkeys" != "none" ]; then
+            INV_SSHKEYS["$name"]="$sshkeys"
         fi
     done <<< "$ccy_out"
 }
@@ -356,6 +405,100 @@ select_names() {
     fi
 }
 
+# --- identity groups: GitHub account, Anthropic token, SSH key ---------------
+#
+# CCY stamps each session with who it is running as, so "freeze everything
+# running as <github id>" is a filter over labels rather than a guess from
+# container names. All three work the same way and differ only in which lookup
+# they read, so one pair of helpers is parameterised by the axis name — three
+# near-identical copies would be three places to fix a bug.
+#
+# Axis + container -> that container's label value, empty when it has none.
+# A case over the three arrays rather than a nameref: the indirection would hide
+# every read of INV_GITHUB/INV_TOKEN/INV_SSHKEYS from static analysis, which is
+# how a typo'd array name becomes a silent empty group.
+identity_value_of() {
+    local axis="$1" name="$2"
+    case "$axis" in
+        github) printf '%s' "${INV_GITHUB[$name]:-}" ;;
+        token) printf '%s' "${INV_TOKEN[$name]:-}" ;;
+        ssh-key) printf '%s' "${INV_SSHKEYS[$name]:-}" ;;
+        *) die "internal error: unknown identity axis '$axis'." ;;
+    esac
+}
+
+# ccy-ssh-keys can name several keys, so membership is a WORD match on the label
+# value; the single-valued axes compare whole. Getting this wrong in the lenient
+# direction would silently widen a freeze, so the two cases are explicit.
+identity_matches() {
+    local axis="$1" want="$2" have="$3" word
+    if [ "$axis" != "ssh-key" ]; then
+        [ "$have" = "$want" ]
+        return
+    fi
+    for word in $have; do
+        if [ "$word" = "$want" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Distinct values present in the current inventory, one per line, sorted. Built
+# from what is actually running, so the menu never offers a group with no
+# members — the same rule the network map follows.
+identity_values() {
+    local axis="$1" name value word
+    {
+        for name in "${INV_NAME[@]}"; do
+            value="$(identity_value_of "$axis" "$name")"
+            if [ -z "$value" ]; then
+                continue
+            fi
+            if [ "$axis" = "ssh-key" ]; then
+                for word in $value; do
+                    printf '%s\n' "$word"
+                done
+            else
+                printf '%s\n' "$value"
+            fi
+        done
+    } | sort -u
+}
+
+identity_names() {
+    local axis="$1" want="$2" name
+    for name in "${INV_NAME[@]}"; do
+        if identity_matches "$axis" "$want" "$(identity_value_of "$axis" "$name")"; then
+            printf '%s\n' "$name"
+        fi
+    done
+}
+
+# An unknown value must fail loudly. Resolving it to an empty set and exiting 0
+# would report "nothing to do" for a question that was never asked — the same
+# trap select_network guards against for a non-existent network.
+select_identity() {
+    local axis="$1" want="$2" values value
+    values="$(identity_values "$axis")"
+    if [ -z "$values" ] || ! printf '%s\n' "$values" | grep -qxF -- "$want"; then
+        echo "podfreeze: no running or frozen CCY session has --$axis '$want'" >&2
+        if [ -z "$values" ]; then
+            echo "  No session carries a $axis label at all. Sessions started by" >&2
+            echo "  a CCY older than 3.40.0 are unlabelled — relaunch to label them." >&2
+        else
+            echo "  Known values:" >&2
+            while read -r value; do
+                if [ -n "$value" ]; then
+                    echo "    $value" >&2
+                fi
+            done <<< "$values"
+        fi
+        exit 1
+    fi
+    mapfile -t SELECTED < <(identity_names "$axis" "$want")
+}
+
 # ---------------------------------------------------------------------------
 # Reporting
 #
@@ -454,8 +597,8 @@ target_effect() {
 }
 
 pick_target() {
-    local net selection reply attempt total i
-    local -a keys=() labels=() nets=() group=()
+    local net selection reply attempt total i axis value
+    local -a keys=() labels=() nets=() group=() values=()
 
     if [ ! -t 2 ] || [ ! -r /dev/tty ]; then
         die "no terminal to ask on — name a target explicitly: NAME..., --ccy,
@@ -480,6 +623,24 @@ pick_target() {
                 "$(target_effect "${group[@]+${group[@]}}")")")
         done
     fi
+
+    # Identity groups, one row per distinct value actually present. Offered only
+    # when a value does not cover every CCY session — with a single GitHub
+    # account on the machine "github: <id>" and "all CCY containers" are the
+    # same button, and a menu that says the same thing twice is harder to read,
+    # not more capable.
+    for axis in github token ssh-key; do
+        mapfile -t values < <(identity_values "$axis")
+        if [ "${#values[@]}" -lt 2 ]; then
+            continue
+        fi
+        for value in "${values[@]}"; do
+            mapfile -t group < <(identity_names "$axis" "$value")
+            keys+=("id:$axis:$value")
+            labels+=("$(printf '%-38s %s' "$axis: $value" \
+                "$(target_effect "${group[@]+${group[@]}}")")")
+        done
+    done
 
     keys+=("pick")
     labels+=("pick individual containers...")
@@ -741,7 +902,7 @@ do_action() {
 # re-read every pass so the counts describe the machine as it is now, not as it
 # was when the tool started. Leaves only when you quit.
 interactive_loop() {
-    local key picked status=0
+    local key picked rest status=0
 
     while :; do
         load_inventory
@@ -758,6 +919,12 @@ interactive_loop() {
             ccy) select_ccy ;;
             all) select_all ;;
             net:*) select_network "${key#net:}" ;;
+            id:*)
+                # id:<axis>:<value> — the value may itself contain a colon, so
+                # only the axis is split off.
+                rest="${key#id:}"
+                select_identity "${rest%%:*}" "${rest#*:}"
+                ;;
             pick)
                 # Backing out of the container picker returns to the target
                 # menu rather than quitting — it is one level down, not a
@@ -790,6 +957,8 @@ interactive_loop() {
 ACTION=""
 TARGET_MODE=""
 TARGET_NETWORK=""
+TARGET_IDENTITY_AXIS=""
+TARGET_IDENTITY_VALUE=""
 declare -a TARGET_NAMES=()
 
 set_target_mode() {
@@ -824,6 +993,16 @@ while [ "$#" -gt 0 ]; do
                 die "--network needs a network name — see 'podfreeze --help'."
             fi
             TARGET_NETWORK="$1"
+            shift
+            ;;
+        --github | --token | --ssh-key)
+            set_target_mode "$1"
+            TARGET_IDENTITY_AXIS="${1#--}"
+            shift
+            if [ "$#" -eq 0 ]; then
+                die "--$TARGET_IDENTITY_AXIS needs a value — see 'podfreeze --help'."
+            fi
+            TARGET_IDENTITY_VALUE="$1"
             shift
             ;;
         list | freeze | thaw)
@@ -874,6 +1053,9 @@ case "$TARGET_MODE" in
     "--ccy") select_ccy ;;
     "--all") select_all ;;
     "--network") select_network "$TARGET_NETWORK" ;;
+    "--github" | "--token" | "--ssh-key")
+        select_identity "$TARGET_IDENTITY_AXIS" "$TARGET_IDENTITY_VALUE"
+        ;;
     "names") select_names "${TARGET_NAMES[@]}" ;;
 esac
 

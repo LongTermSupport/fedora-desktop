@@ -782,10 +782,20 @@ NordVPN OpenVPN manager:
   plain numbered menu is used without it)
 - Targets a container by name, a whole network (`--network NET`), every CCY
   (Claude YOLO) session (`--ccy`), or everything (`--all`)
-- **No target opens a menu of groups** — all CCY containers, all containers, or
-  everything on a given network — each row saying what choosing it does right
-  now (`FREEZE 8`, `THAW 3`). It acts, re-reads the machine, and returns to the
-  menu until you quit. Picking individual containers is the last entry
+- **Targets by session identity too** — `--github ID`, `--token LABEL`,
+  `--ssh-key NAME` freeze or thaw every CCY session running as that GitHub
+  account, using that Anthropic token, or with that SSH key mounted. These read
+  `ccy-github` / `ccy-token` / `ccy-ssh-keys`, labels CCY stamps on each session
+  at launch, so they see only sessions started by **CCY 3.40.0 or later**; older
+  sessions are still reachable by name or via `--ccy`. An unknown value is an
+  error listing the known ones, never a silent empty set
+- **No target opens a menu of groups** — all CCY containers, all containers,
+  everything on a given network, and one row per GitHub account / token / SSH
+  key in use — each row saying what choosing it does right now (`FREEZE 8`,
+  `THAW 3`). It acts, re-reads the machine, and returns to the menu until you
+  quit. Picking individual containers is the last entry. An identity axis is
+  only offered when more than one value is present, since with a single account
+  that row and "all CCY containers" are the same button
 - **The verb is derived**: anything running is frozen, a set with nothing
   running is thawed, so the same choice twice toggles it. An explicit
   `freeze`/`thaw` still wins, for scripts

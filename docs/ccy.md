@@ -675,6 +675,38 @@ access.
 
 ---
 
+## Container Labels
+
+From **CCY 3.40.0** every session container is labelled at launch, so host-side tooling
+can find and group sessions without parsing container names:
+
+| Label          | Value                                               |
+| -------------- | --------------------------------------------------- |
+| `ccy`          | always `true`                                       |
+| `ccy-project`  | the project directory name                          |
+| `ccy-github`   | the GitHub account this session is authenticated as |
+| `ccy-token`    | the stored Anthropic token label you picked         |
+| `ccy-ssh-keys` | the mounted SSH key basenames, space-separated      |
+
+The last three are `none` when the axis does not apply, so "no GitHub identity" is stated
+rather than looking like an unlabelled container.
+
+Do **not** use the image's `claude-yolo-version` label to find sessions. Image labels are
+inherited by anything built FROM the CCY image, so it identifies a lineage, not a session
+— a throwaway `podman run <ccy-image> …` carries it too. The run-time labels above cannot
+be inherited.
+
+```bash
+podman ps --filter label=ccy=true                       # every live session
+podman ps --filter label=ccy-github=<gh-username>       # …for one GitHub account
+podfreeze freeze --github <gh-username>                 # freeze them all at once
+```
+
+`podfreeze` (see [playbooks.md](playbooks.md#play-podfreezeyml)) is the intended consumer.
+Nothing inside the container reads these labels, so they change no session behaviour.
+
+---
+
 ## SSH and GitHub
 
 On launch you pick which SSH private key to mount. It is mounted read-only at

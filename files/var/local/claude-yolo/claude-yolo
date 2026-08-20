@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.39.0"  # CCY_SKIP_NETWORK_PREFLIGHT bypasses the internet-reachability preflight for a caller that already proves its own egress (e.g. a fenced CI runner). See docs/ccy-changelog.md.
+CCY_VERSION="3.40.0"  # Session containers now carry run-time labels ccy=true and ccy-project=<project>, so tooling can select live CCY sessions rather than everything built from the CCY image. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -2955,8 +2955,43 @@ fi
 # CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH (default 3) — bound instantaneous load
 # and recursion depth, not longevity, so Claude Code's defaults stand. Tune them
 # per project in .claude/ccy/ccy.env. See docs/ccy.md.
+# --- run-time identity labels ------------------------------------------------
+#
+# ccy=true marks this container as a live CCY SESSION. The image already carries
+# a claude-yolo-version label, but that is inherited by anything built FROM the
+# CCY image, so it identifies a lineage rather than a session — `podfreeze --ccy`
+# was observed selecting a CCY-derived throwaway that was no session at all. A
+# run-time label cannot be inherited, so only a real session has these.
+#
+# The other four say WHICH session, along the axes a human actually groups by:
+# the project, the GitHub identity, the Anthropic token, and the SSH key. That
+# makes "freeze every session running as <github id>" a filter rather than a
+# guess from container names. Nothing in the container reads them; they exist
+# for host-side tooling (podman ps --filter label=ccy-github=<id>).
+#
+# "none" rather than an empty value, so "this session has no GitHub identity" is
+# stated rather than looking like an unlabelled container. ccy-ssh-keys holds
+# basenames, space-separated, because more than one key can be mounted — consumers
+# word-match it rather than comparing the whole value.
+# See CLAUDE/Plan/00079-podman-container-control (F16, D6, D8).
+CCY_LABEL_GITHUB="${GITHUB_USERNAME:-none}"
+CCY_LABEL_TOKEN="${TOKEN_NAME_FOR_CONFIG:-none}"
+CCY_LABEL_SSH_KEYS="none"
+if [ "${#SSH_KEYS[@]}" -gt 0 ]; then
+    ccy_key_basenames=()
+    for ccy_key in "${SSH_KEYS[@]}"; do
+        ccy_key_basenames+=("$(basename "$ccy_key")")
+    done
+    CCY_LABEL_SSH_KEYS="${ccy_key_basenames[*]}"
+fi
+
 container_cmd run $DOCKER_FLAGS --rm \
     --name "$CONTAINER_NAME" \
+    --label ccy=true \
+    --label "ccy-project=$PROJECT_NAME" \
+    --label "ccy-github=$CCY_LABEL_GITHUB" \
+    --label "ccy-token=$CCY_LABEL_TOKEN" \
+    --label "ccy-ssh-keys=$CCY_LABEL_SSH_KEYS" \
     $NETWORK_FLAG \
     --device /dev/dri:/dev/dri \
     "${DOCKER_MOUNTS[@]}" \

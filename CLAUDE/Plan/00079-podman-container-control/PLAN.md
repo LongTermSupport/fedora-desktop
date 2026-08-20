@@ -18,11 +18,11 @@ No surveyed existing tool (podman-tui, lazydocker, ctop, Cockpit's podman
 module, dockge) offers network-scoped bulk freeze, CCY-group operations, or
 self-freeze protection, so the plan is a small purpose-built interactive bash
 tool, `podfreeze`, deployed to `~/.local/bin/` by a new optional play. CCY
-containers turn out to be selectable **today** via the inherited
-`claude-yolo-version` image label (F12), so the tool ships on that plus the
-`<project>_yolo[_N]` name pattern as a fallback; an explicit run-time `--label`
-in the CCY launcher remains worth having, but as an enhancement rather than a
-prerequisite (see D4).
+sessions are identified by the run-time `ccy=true` label the launcher sets from
+CCY 3.40.0, plus the `<project>_yolo[_N]` name pattern for sessions started by
+an older CCY. The inherited `claude-yolo-version` image label was the first
+handle tried and is now deliberately unused — it marks a lineage, not a session
+(F12, F16, D4, D6).
 
 This plan was authored inside a CCY container where `podman` is not installed,
 so every host-runtime claim below is either doc-sourced or listed as a
@@ -105,7 +105,9 @@ write-up in the journal):
 
 - **F16** — **the inherited `claude-yolo-version` label over-matches**: it marks
   anything BUILT FROM the CCY image, session or not. Demonstrated — `--ccy`
-  selected the gate's own throwaway, built from `localhost/claude-yolo:*`
+  selected the gate's own throwaway, built from `localhost/claude-yolo:*`.
+  Fixed by the run-time `ccy=true` label (Phase 1); the image label is no longer
+  consulted (D6)
 
 **F15 is the safety case, and no hypothesis anticipated it.** The blast radius
 of a network-scoped freeze is not guessable from the network's name: the
@@ -150,20 +152,18 @@ numbered-menu fallback when fzf is absent (F7 precedent). Binds to
 `CLAUDE/InteractiveScripts.md` and `CLAUDE/StderrHygiene.md` in full.
 **Date**: 2026-08-19
 
-### D4: CCY identification — inherited image label now, explicit label next
+### D4: CCY identification — run-time session label, name pattern for older CCY
 
-**Decision (current)**: `--ccy` selects on the inherited `claude-yolo-version`
-image label **or** the F4 name pattern. Phase 1 then adds an explicit
-`--label ccy=true --label ccy-project=<project>` at `podman run` time
-(CCY_VERSION **minor** bump per `CLAUDE/ContainerRules.md`), after which the
-tool prefers `ccy=true` and keeps the inherited label as the fallback for
-pre-Phase-1 containers.
+**Decision (settled)**: `--ccy` selects on the run-time `ccy=true` label (set by
+CCY ≥ 3.40.0, so it cannot be inherited) **or** the F4 session name pattern. The
+inherited `claude-yolo-version` image label is **not** consulted.
 
-**This moved twice**, which is worth knowing before re-litigating it: H2's
-confirmation demoted Phase 1 from prerequisite to enhancement, then F16
-re-promoted it as the fix for a demonstrated over-match. The reasoning at each
-step is in the journal; the standing consequence is D6.
-**Date**: 2026-08-19
+**This moved three times**, which is worth knowing before re-litigating it: H2's
+confirmation demoted Phase 1 from prerequisite to enhancement; F16 re-promoted
+it as the fix for a demonstrated over-match; landing it then made the image
+label pure liability, since every session has either the run-time label or the
+name. See D6 for why dropping it opens no gap. Working is in the journal.
+**Date**: 2026-08-20
 
 ### D5: Naming — `podfreeze`
 
@@ -173,32 +173,34 @@ user's own vocabulary; help text states it equals pause/unpause.
 **Date**: 2026-08-19
 
 Originally `podman-freeze`; shortened at the user's request. The pre-rename
-binary is removed by a `state: absent` task in the play rather than by hand —
-host state is owned by Ansible, and a stale executable on PATH is exactly the
-drift that leaves two versions of a confirmation prompt on one machine.
+binary is removed by this plan's `deploy.bash`, not by a `state: absent` task in
+the play: the play describes the machine's steady state, and a one-off cleanup
+for a name that only ever existed mid-plan does not belong in it permanently.
+It is still not done by hand — the plan script owns it, and fails if the removal
+does not succeed.
 
-### D6: `--ccy` over-matches until the explicit label lands
+### D6: the image label is dropped, and that is a narrowing with no gap
 
 **Context**: F16 — every container built from the CCY image carries
-`claude-yolo-version`, so `--ccy` selects CCY-derived containers that are not
-Claude sessions. Not hypothetical: the acceptance gate's own throwaway was one.
-**Options considered**: (a) narrow `--ccy` to the F4 name pattern alone;
-(b) ship as-is and rely on the preview; (c) land Phase 1's explicit `ccy=true`
-label and prefer it when present.
+`claude-yolo-version`, so it selected CCY-derived containers that are not Claude
+sessions. Not hypothetical: the acceptance gate's own throwaway was one.
+**Options considered**: (a) narrow to the F4 name pattern alone; (b) ship as-is
+and rely on the preview; (c) land Phase 1's `ccy=true` and prefer it.
 
-**Decision**: (c), with (b) holding the line meanwhile — `--ccy` keeps
-`label OR name-pattern` until Phase 1 lands, then prefers `ccy=true` and falls
-back for pre-Phase-1 containers.
+**Decision**: (c). Phase 1 landed, and the image label is then dropped outright
+rather than kept as a fallback.
 
-**Why not (a)** — the two failure modes are asymmetric. The union's over-match
-is *visible*: the extra container is named in the printed set and undone by
-repeating the command. A narrowed selector's under-match is *silent*: a CCY
-session not matching the pattern is simply absent while you believe you froze
-everything. An invisible false sense of completeness is the worse failure and
-is this repo's own defect class, so the union stands until a signal exists that
-is both exact and positive — Phase 1, not a narrowing. (Full working, including
-why the first version of this rationale was wrong, is in the journal.)
-**Date**: 2026-08-19
+**Why dropping it is safe** — a narrowing is normally the dangerous direction,
+because the two failure modes are asymmetric: an over-match is *visible* (the
+extra container is named in the printed set, and undone by repeating the
+command) while an under-match is *silent* — a session simply absent while you
+believe you froze everything. That asymmetry is why the union was kept until an
+exact positive signal existed. It no longer argues for the image label, because
+the label covers **nothing** the other two miss: a session from CCY ≥ 3.40.0
+carries `ccy=true`, and every older session is named `<project>_yolo[_N]` by
+construction (`get_next_container_name`). So its only remaining contribution is
+the false positive F16 demonstrated.
+**Date**: 2026-08-20
 
 ### D7: the interactive UX — groups, a derived verb, no confirm, and a loop
 
@@ -234,6 +236,35 @@ contains a live session moved earlier — into the menu row, which names the
 count before the choice is made — and rests on reversibility rather than on a
 prompt. **Date**: 2026-08-19
 
+### D8: group by session identity, not just by name and network
+
+**Context**: user ask — *"label ccy containers by key label and anthropic token
+as well? so could easily freeze all containers with github ID XXX"*. Once a
+session is labelled at run time at all (D6), the same mechanism answers a
+question the tool could not previously ask: **who** is this session running as.
+
+**Decision**: CCY stamps three more labels — `ccy-github`, `ccy-token`,
+`ccy-ssh-keys` — and `podfreeze` gains `--github` / `--token` / `--ssh-key`
+plus one menu row per distinct value in the live inventory.
+
+- **Values, not flags, drive the menu.** Rows are derived from what is running,
+  exactly as the network rows are, so a group with no members is never offered.
+  An axis appears only when it has ≥ 2 distinct values: with one GitHub account
+  on the machine, "github: <id>" and "all CCY containers" are the same button.
+- **`ccy-ssh-keys` is multi-valued** (several keys can be mounted), so it is
+  matched by WORD; the single-valued axes compare whole. Matching the multi
+  case leniently would silently widen a freeze, so the two are separate code
+  paths with a unit test each.
+- **`none`, not empty.** An axis that does not apply says so, so "this session
+  has no GitHub identity" cannot be read as "this container is unlabelled".
+- **An unknown value is an error** listing the known ones — never an empty set
+  and exit 0, which is the same trap `select_network` guards.
+- **Nothing in the container reads these**, so no session behaviour changes.
+  Sessions from a CCY older than 3.40.0 carry no labels and are reachable by
+  name or `--ccy`; `--github` says so rather than pretending they do not exist.
+
+**Date**: 2026-08-20
+
 ## Tasks
 
 ### Phase 0: Host triage + decision gate
@@ -251,11 +282,16 @@ Not a prerequisite (the tool works without it) but no longer optional either:
 F16 showed `--ccy` selecting a CCY-*derived* container that was not a session.
 See D4 and D6.
 
-- [ ] ⬜ **Task 1.1**: Add `--label ccy=true --label ccy-project=<project>` to
+- [x] ✅ **Task 1.1**: Add `--label ccy=true --label ccy-project=<project>` to
   the `container_cmd run` invocation in `files/var/local/claude-yolo/claude-yolo`
-- [ ] ⬜ **Task 1.2**: Bump `CCY_VERSION` (minor) with a comment describing the
-  change; update `docs/ccy-changelog.md`
-- [ ] ⬜ **Task 1.3**: Run `./scripts/qa-all.bash`; commit
+- [x] ✅ **Task 1.2**: Bump `CCY_VERSION` (minor) with a comment describing the
+  change; update `docs/ccy-changelog.md` — 3.39.0 → 3.40.0
+- [x] ✅ **Task 1.3**: Point `podfreeze` at `ccy=true`, drop the image label
+  (D6), and re-aim the acceptance gate's check 9 at the new contract
+- [x] ✅ **Task 1.4**: Label the session's **identity** too —
+  `ccy-github` / `ccy-token` / `ccy-ssh-keys` — and give `podfreeze` matching
+  `--github` / `--token` / `--ssh-key` targets plus menu rows (D8)
+- [x] ✅ **Task 1.5**: Run `./scripts/qa-all.bash`; commit
 
 ### Phase 2: The `podfreeze` tool
 
