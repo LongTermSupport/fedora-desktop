@@ -113,14 +113,45 @@ owning_play() {
 
 DRIFTED=0
 CHECKED=0
+NOT_DEPLOYED=0
+TEMPLATES=()
 
+# The deployed name is NOT always the repo name. `git-account-helper.j2` deploys
+# as `git-account-helper`, so a basename comparison looked for a `.j2` file in
+# ~/.local/bin, never found one, skipped the file, never incremented CHECKED —
+# and the pass line still read "N deployed script(s) match the repo". That is
+# Plan 00067's exact failure mode surviving inside the gate built to catch it,
+# on the one file in scope the gate could not see. Plan 00081 F4.
+#
+# A rendered template cannot be byte-compared against its source: the whole point
+# of `{{ user_login }}` is that the two differ. So a `.j2` is NOT silently
+# skipped and NOT falsely compared — it is counted separately and DISCLOSED in
+# the summary, which is the honest answer when the gap is real rather than
+# fixable. What IS checked is that a play actually deploys it under the stripped
+# name; a template that maps to no `dest:` is a hard failure, not a shrug.
 for src in "$SRC_DIR"/*; do
     if [ ! -f "$src" ]; then
         continue
     fi
     name="$(basename "$src")"
+
+    if [ "${name%.j2}" != "$name" ]; then
+        rendered="${name%.j2}"
+        if ! grep -rqE --include='*.yml' -- "dest:.*/\.local/bin/${rendered//./\\.}([\"' ]|\$)" \
+            "$REPO_ROOT/playbooks"; then
+            echo "✗ deployed-drift: $name has no playbook dest: deploying it as '$rendered'" >&2
+            echo "  A template this gate cannot map to a deployed name is a file it" >&2
+            echo "  would report a pass over without comparing anything. Fix the play," >&2
+            echo "  or the naming convention this check relies on." >&2
+            exit 2
+        fi
+        TEMPLATES+=("$name -> $rendered")
+        continue
+    fi
+
     dep="$DEPLOYED_DIR/$name"
     if [ ! -f "$dep" ]; then
+        NOT_DEPLOYED=$((NOT_DEPLOYED + 1))
         continue
     fi
     CHECKED=$((CHECKED + 1))
@@ -148,5 +179,18 @@ if [ "$DRIFTED" -gt 0 ]; then
     exit 1
 fi
 
-echo "✓ deployed-drift: $CHECKED deployed script(s) match the repo"
+# State what was NOT compared, on the passing path. A summary that reports only
+# what it looked at reads as a statement about everything — which is how the .j2
+# file stayed invisible while this line printed a tick every run.
+summary="✓ deployed-drift: $CHECKED deployed script(s) match the repo"
+if [ "$NOT_DEPLOYED" -gt 0 ]; then
+    summary="$summary; $NOT_DEPLOYED not installed on this host"
+fi
+if [ "${#TEMPLATES[@]}" -gt 0 ]; then
+    summary="$summary; ${#TEMPLATES[@]} template(s) not byte-comparable"
+fi
+echo "$summary"
+for t in "${TEMPLATES[@]}"; do
+    echo "    template (rendered, so not compared): $t"
+done
 exit 0

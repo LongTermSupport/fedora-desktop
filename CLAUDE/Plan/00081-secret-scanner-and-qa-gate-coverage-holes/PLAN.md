@@ -205,10 +205,15 @@ holes, each behind a test that fails against the unfixed code.
   documented-but-unrun gates (F11): running them is what makes this repo's own
   "ALWAYS and ONLY use `qa-all.bash`" instruction true, rather than softening the
   instruction to match the gap
-- [ ] ⬜ **Task 2.3**: `qa-deployed-drift.bash` — resolve the deployed name from
-  the play's `dest:` rather than the basename, and fail rather than skip when a
-  repo file maps to no deployed name. A `.j2` source needs its rendered output
-  compared, or an explicit documented exclusion — not a silent pass
+- [x] ✅ **Task 2.3**: `qa-deployed-drift.bash` no longer relies on the basename
+  matching. A `.j2` is checked against a real playbook `dest:` under its stripped
+  name — **exit 2 if none exists**, since a template mapping to no deployed name
+  is a file the gate would pass over without comparing anything. A rendered
+  template genuinely cannot be byte-compared, so it is **disclosed** rather than
+  silently skipped, and the pass line now also states how many scripts are not
+  installed on this host. Exercised against a fake host: pass discloses 2
+  compared / 35 not installed / 1 template; drift still exits 1; an unmapped
+  template exits 2
 
 ### Phase 3: Close out
 

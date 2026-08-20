@@ -229,6 +229,17 @@ copy already exists**, so a machine that never installed a feature is never
 nagged. It self-skips in the CCY container and in a clean CI checkout, where
 there is no deployed state to compare against.
 
+**The deployed name is not always the repo name** (Plan 00081 F4).
+`git-account-helper.j2` deploys as `git-account-helper`, so a basename comparison
+looked for a `.j2` in `~/.local/bin`, never found one, skipped the file, and
+still printed its pass line — Plan 00067's failure mode reproduced inside the
+gate written to catch it. A `.j2` is now verified to have a real playbook `dest:`
+under its stripped name (**exit 2** if not), and — since a rendered template
+genuinely cannot be byte-compared — is **disclosed in the summary** rather than
+silently omitted. The pass line also states how many scripts are not installed on
+this host, because "2 match" and "2 match, 35 not installed" are different
+sentences and only the first was ever printed.
+
 **This changes when you run QA.** The table below says "before every commit", and
 that is still right — but on the HOST this gate makes the repo's documented
 `edit → playbook → deploy → test` order (see
