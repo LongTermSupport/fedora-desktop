@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.40.0"  # Session containers now carry run-time labels ccy=true and ccy-project=<project>, so tooling can select live CCY sessions rather than everything built from the CCY image. See docs/ccy-changelog.md.
+CCY_VERSION="3.40.1"  # Session containers carry FIVE run-time labels: ccy=true and ccy-project=<project> identify a live session (not merely something built from the CCY image), and ccy-github / ccy-token / ccy-ssh-keys identify WHO it runs as, which is what podfreeze's identity axes select on. 3.40.1 corrects this comment only — no code change. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

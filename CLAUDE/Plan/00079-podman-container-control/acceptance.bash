@@ -538,6 +538,16 @@ else
             --filter "label=ccy-github=$gh_one" --filter status=running \
             --format '{{.Names}}' 2>&1)"; then
             bad "could not list sessions for that account: $gh_expected"
+        elif [ -z "$gh_expected" ]; then
+            # `gh_one` is chosen from a query that includes PAUSED sessions,
+            # while this expectation narrows to running — so the only session
+            # carrying a github label being paused (entirely normal: pausing
+            # them is this tool's job) leaves the expected set empty. The loop
+            # below would then assert over a population of zero and print a
+            # pass. Check 9 guards its upstream emptiness and this guards the
+            # downstream one.
+            skip "the only session(s) for that account are paused, so the
+         running expectation is empty — nothing to assert. Thaw one and re-run"
         else
             gh_missing=""
             while read -r name; do
@@ -598,7 +608,9 @@ else
     if [ -z "${gh_one:-}" ]; then
         ok "no labelled account to select — disclosure path not exercisable here"
     elif [ -z "$id_unlabelled" ]; then
-        ok "every live session is labelled — nothing to disclose"
+        # Scoped to running, while the tool's own NOTE lists unlabelled CCY
+        # sessions in EITHER state — so this can only claim what it measured.
+        ok "no unlabelled RUNNING session — nothing to disclose in this state"
     else
         note_err_file="$(mktemp)"
         if ! note_out="$("$TOOL" freeze --github "$gh_one" --dry-run 2>"$note_err_file")"; then
@@ -651,6 +663,39 @@ fi
 
 echo
 echo "=============================================================="
+# COVERAGE, stated as numbers. A verdict line reads identically whether the
+# checks covered six sessions or one, so "PASS — 24 checks" is not on its own a
+# statement about the population. This repo's own rule
+# (CLAUDE/AgentNotes.md, "A partial result read as a complete one") asks for an
+# `n of m`; Plan 00080's triage.bash applies it and this gate did not — the same
+# rule landing in one file of a pair, precisely the recurrence the note names.
+#
+# Counted in a loop rather than with `grep -c .`, which exits 1 on zero matches:
+# surviving `set -e` would then need the error-suppressing idiom this repo
+# blocks, and AgentNotes names that exact reintroduction.
+count_matching() {
+    local pattern="$1" input="$2" line n=0
+    while read -r line; do
+        if [ -n "$line" ] && [[ "$line" =~ $pattern ]]; then
+            n=$(( n + 1 ))
+        fi
+    done <<< "$input"
+    printf '%s' "$n"
+}
+
+cov_sessions="?"
+cov_labelled="?"
+if cov_all="$(podman ps --filter status=running --format '{{.Names}}' 2>&1)"; then
+    cov_sessions="$(count_matching "$CCY_NAME_PATTERN" "$cov_all")"
+fi
+if cov_lab="$(podman ps --filter label=ccy=true --filter status=running \
+    --format '{{.Names}}' 2>&1)"; then
+    cov_labelled="$(count_matching '.' "$cov_lab")"
+fi
+echo "COVERAGE: the live-fleet checks (9, 9b, 13, 13b) ran against"
+echo "  $cov_sessions running CCY session(s), of which $cov_labelled carry ccy=true."
+echo "  A fleet of 1 and a fleet of 6 give the same verdict line; this does not."
+echo "--------------------------------------------------------------"
 if [ "$FAIL" -eq 0 ]; then
     echo "VERDICT: PASS — $PASS check(s) passed, $SKIP skipped."
 else

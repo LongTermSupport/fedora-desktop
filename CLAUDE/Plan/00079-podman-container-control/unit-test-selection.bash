@@ -75,7 +75,14 @@ if ! CUT="$(grep -n '^# Argument parsing$' "$TOOL")"; then
 fi
 CUT_LINE="${CUT%%:*}"
 
-FUNCS="$PLAN_DIR/logs/.podfreeze-funcs.bash"
+# OUTSIDE the repo tree, and removed on exit. Written into `logs/` this is
+# gitignored but still *discovered* by qa-shell-discovery (which keys on a
+# shebang, not on git), so repo QA results differed depending on whether anyone
+# had run this test — and a future cut landing mid-function would fail
+# qa-bash.bash pointing at a file that is not in git and cannot be inspected
+# from a fresh clone. Nothing needs it to persist.
+FUNCS="$(mktemp -t podfreeze-funcs.XXXXXX.bash)"
+trap 'rm -f "$FUNCS"' EXIT
 awk -v n="$CUT_LINE" 'NR < n - 2' "$TOOL" > "$FUNCS"
 
 ACTION=""
@@ -98,10 +105,10 @@ echo "Plan 00079 — podfreeze selection/labelling unit test"
 echo "=============================================================="
 echo
 
-INV_NAME=(proj_yolo proj_yolo_2 app-db app-web lone old_browser)
-INV_STATE=(running paused running running running running)
-INV_NETS=(podman podman "appnet" "appnet,podman" none podman)
-INV_IS_CCY=([proj_yolo]=1 [proj_yolo_2]=1 [app-db]=0 [app-web]=0 [lone]=0 [old_browser]=1)
+INV_NAME=(proj_yolo proj_yolo_2 app-db app-web lone old_browser bare_yolo)
+INV_STATE=(running paused running running running running running)
+INV_NETS=(podman podman "appnet" "appnet,podman" none podman podman)
+INV_IS_CCY=([proj_yolo]=1 [proj_yolo_2]=1 [app-db]=0 [app-web]=0 [lone]=0 [old_browser]=1 [bare_yolo]=1)
 
 # Identity labels, populated only for CCY sessions — the shape load_inventory
 # produces. old_browser deliberately has NONE: it stands for a session started
@@ -110,15 +117,23 @@ INV_IS_CCY=([proj_yolo]=1 [proj_yolo_2]=1 [app-db]=0 [app-web]=0 [lone]=0 [old_b
 # proj_yolo_2 shares the GitHub account with proj_yolo but uses a different
 # token, so the two axes cannot both be satisfied by the same partition — a
 # fixture where every axis agrees proves nothing about any of them.
+# Which sessions came back from the `label=ccy=true` query, i.e. were launched
+# by CCY >= 3.40.0. bare_yolo is the case the identity maps CANNOT express: it
+# IS labelled, but every axis is "none", so its entries are absent exactly as an
+# unlabelled session's are. Keying "unlabelled" off empty maps misreports it and
+# tells its owner to relaunch a session that is already current.
+INV_HAS_LABELS=([proj_yolo]=1 [proj_yolo_2]=1 [bare_yolo]=1)
+
 INV_GITHUB=([proj_yolo]=octocat [proj_yolo_2]=octocat)
 INV_TOKEN=([proj_yolo]=personal [proj_yolo_2]=work)
 INV_SSHKEYS=([proj_yolo]="github_personal" [proj_yolo_2]="github_work github_personal")
 
 echo "### fixture inventory (${#INV_NAME[@]} containers, explicit verb: ${ACTION:-<none>})"
 for i in "${!INV_NAME[@]}"; do
-    printf '  %-14s %-8s %-6s %-14s gh=%-9s token=%-9s keys=%s\n' \
+    printf '  %-14s %-8s %-6s %-8s %-14s gh=%-9s token=%-9s keys=%s\n' \
         "${INV_NAME[$i]}" "${INV_STATE[$i]}" \
         "$([ "${INV_IS_CCY[${INV_NAME[$i]}]}" = "1" ] && echo CCY || echo -)" \
+        "$([ "${INV_HAS_LABELS[${INV_NAME[$i]}]:-0}" = "1" ] && echo labelled || echo -)" \
         "${INV_NETS[$i]}" \
         "${INV_GITHUB[${INV_NAME[$i]}]:--}" \
         "${INV_TOKEN[${INV_NAME[$i]}]:--}" \
@@ -127,13 +142,13 @@ done
 echo
 
 echo "### ccy_names"
-is "ccy set" "$(ccy_names | tr '\n' ',')" "proj_yolo,proj_yolo_2,old_browser,"
+is "ccy set" "$(ccy_names | tr '\n' ',')" "proj_yolo,proj_yolo_2,old_browser,bare_yolo,"
 
 echo "### build_network_map — comma split, multi-network, 'none' skipped"
 build_network_map
 is "network count" "${#NET_MEMBERS[@]}" "2"
 is "podman members" "$(network_names podman | sort | tr '\n' ',')" \
-    "app-web,old_browser,proj_yolo,proj_yolo_2,"
+    "app-web,bare_yolo,old_browser,proj_yolo,proj_yolo_2,"
 is "appnet members" "$(network_names appnet | sort | tr '\n' ',')" "app-db,app-web,"
 is "networkless container excluded" "$(network_names podman | grep -c '^lone$')" "0"
 
@@ -224,9 +239,9 @@ esac
 
 echo "### selectors"
 select_ccy
-is "select_ccy" "${SELECTED[*]}" "proj_yolo proj_yolo_2 old_browser"
+is "select_ccy" "${SELECTED[*]}" "proj_yolo proj_yolo_2 old_browser bare_yolo"
 select_all
-is "select_all" "${#SELECTED[@]}" "6"
+is "select_all" "${#SELECTED[@]}" "7"
 select_identity github octocat
 is "select_identity github" "${SELECTED[*]}" "proj_yolo proj_yolo_2"
 select_identity ssh-key github_work
@@ -236,6 +251,33 @@ is "select_identity ssh-key" "${SELECTED[*]}" "proj_yolo_2"
 mapfile -t gh_group < <(identity_names github octocat)
 is "identity group sizes the running" \
     "$(target_effect "${gh_group[@]}")" "FREEZE 1"
+
+echo
+echo "### unlabelled detection keys on label PRESENCE, not on empty identity maps"
+# Regression for the review's finding 2. bare_yolo is labelled with every axis
+# "none"; old_browser predates the labels entirely. Only the latter is
+# "unlabelled", and only the latter can be fixed by relaunching.
+is "only the pre-3.40.0 session is unlabelled" \
+    "$(unlabelled_ccy_names | tr '\n' ',')" "old_browser,"
+is "a labelled all-none session is NOT called unlabelled" \
+    "$(unlabelled_ccy_names | grep -cx bare_yolo)" "0"
+
+echo
+echo "### an identity axis is offered on COVERAGE, not on distinct-value count"
+# Regression for the review's finding 1. github has ONE distinct value
+# (octocat), which the old `-lt 2` proxy suppressed — while that value covers
+# only 2 of the 4 CCY sessions, so the row is not the same button as "all CCY".
+is "one github value, but it does not cover every session" \
+    "$(identity_values github | wc -l)" "1"
+is "  ... covering 2 of 4 CCY sessions" \
+    "$(identity_names github octocat | wc -l)/$(ccy_names | wc -l)" "2/4"
+is "  ... so cardinality alone would wrongly suppress the row" \
+    "$([ "$(identity_values github | wc -l)" -lt 2 ] && echo suppressed || echo offered)" \
+    "suppressed"
+is "  ... whereas coverage correctly offers it" \
+    "$([ "$(identity_names github octocat | wc -l)" -ge "$(ccy_names | wc -l)" ] \
+        && echo suppressed || echo offered)" \
+    "offered"
 
 echo
 echo "=============================================================="

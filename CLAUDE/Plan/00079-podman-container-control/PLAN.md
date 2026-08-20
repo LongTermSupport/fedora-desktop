@@ -105,36 +105,52 @@ A list rather than a table on purpose — the table's column padding was costing
   eighth session sat on the app network `mkt` instead
 - **F18** — **the host was running a `podfreeze` older than the repo's**, and
   `acceptance.bash` refused rather than verify it. The D9 drill-down (`a678e31`,
-  10:42) was committed **10 minutes after** run 2's deploy (10:32), so run 2's
-  "16 passed" verdict never exercised the drill-down at all. The guard is the
-  Plan 00072 defect class — repo says fixed, host runs the old build — caught by
-  the check written for it. `deploy.bash`, not `acceptance.bash`, is the entry
-  point whenever the tool itself has changed
+  10:42) landed **10 minutes after** run 2's deploy (10:32), so run 2's "16
+  passed" never exercised it. Plan 00072's defect class, caught by the check
+  written for it. **`deploy.bash`, not `acceptance.bash`, is the entry point
+  whenever the tool itself changed**
 - **F19** — **check 9 verified only the labelled path.** It built its expected
   set from `label=ccy=true` alone, so the name-pattern fallback was never
   asserted — and **4 of the 6 live sessions are unlabelled**, so the majority of
   the real population reaches `--ccy` through the one path the gate was silent
   about. Had the pattern broken, check 9 would still have reported OK. Identical
-  in shape to Plan 00080's P4 defect found the same day: verify the labelled
-  path, stay quiet about the one carrying most of the load. Closed by **9b**,
-  which then **proved** the fallback works — all four named, all four resolved
+  in shape to Plan 00080's P4. Closed by **9b**, which then **proved** the
+  fallback works — all four named, all four resolved
 - **F20** — **the identity axes silently under-match unlabelled sessions.** An
   unlabelled session is in `--ccy` but in **no** identity group, because its
   account cannot be inferred. `select_identity` refused the case where *nothing*
   is labelled and said nothing about the case where only *some* is — the state
   the machine is in until every session is relaunched. So
   `podfreeze freeze --github X` answered "every session for X" with a strict
-  subset, which is the exact ask the axis was added for. **Fourth instance of
-  this shape in one day** (truncated grep → P4 → check 9 → here), and each was
-  found only because the previous one taught where to look. Fixed by disclosing
-  on **stderr** — the identity is genuinely unknowable, so blocking would be
-  wrong; being quiet was the defect
+  subset — the exact ask the axis was added for. Fixed by disclosing on
+  **stderr**: the identity is genuinely unknowable, so blocking would be wrong;
+  being quiet was the defect
 
-**F15 is the safety case, and no hypothesis anticipated it.** The blast radius
-of a network-scoped freeze is not guessable from the network's name: the
-obvious first use (freeze an app's network) also freezes a live Claude session,
-and freezing the default network stops nearly every session at once. D7 records
-where that protection ended up.
+**From the `qa-reviewer` pass** (Task 3.3) — three more of the same shape, found
+in the diff that documents the shape:
+
+- **F21** — **the identity menu row was gated on cardinality, not coverage.**
+  `${#values[@]} -lt 2` is only a proxy for "this value covers every session",
+  and it is wrong in exactly the partial-rollout state the axis is for: one
+  account + four unlabelled sessions is one distinct value covering 2 of 6. The
+  row vanished from the menu while `--github X` still worked on the CLI, leaving
+  the *wider* "all CCY containers" as the only menu route — steering toward
+  freezing sessions the user had not asked for — and making F20's disclosure
+  unreachable, since `select_identity` was never called
+- **F22** — **`none` and "unlabelled" were collapsed.** The inventory comment
+  claimed they stayed distinct; the code dropped `none` into the same empty-map
+  state as an absent label, so a 3.40.0 session with no identity on any axis was
+  reported as pre-3.40.0 and its owner told to relaunch it — advice that cannot
+  work. Fixed with `INV_HAS_LABELS`, keyed on the `ccy=true` query result
+- **F23** — **acceptance check 13 could pass having asserted nothing.** `gh_one`
+  comes from a query including paused sessions; the expectation narrowed to
+  running. The only labelled session being paused — normal, since pausing is
+  this tool's job — left an empty expected set, an unexecuted loop body, and a
+  printed pass over a population of zero
+
+**F15 is the safety case, and no hypothesis anticipated it** — a network-scoped
+freeze's blast radius is not guessable from the network's name. D7 records where
+that protection ended up.
 
 H5 (checkpoint refuses `--rm` without `--export`) was not probed — checkpoint is
 a non-goal per F2 + F3, so it matters only if that is reopened.
@@ -373,8 +389,18 @@ See D4 and D6.
   instances — `CLAUDE/AgentNotes.md` gains *"A partial result read as a complete
   one"* with all five instances, `CLAUDE/QA.md`'s local note points at it, and
   the `qa-reviewer` agent gains the three things to look for
-- [ ] ⬜ **Task 3.3**: Run the `qa-reviewer` agent over the plan's full diff;
-  resolve all BLOCK/FIX-BEFORE-MERGE findings
+- [x] ✅ **Task 3.3**: Run the `qa-reviewer` agent over the plan's full diff;
+  resolve all BLOCK/FIX-BEFORE-MERGE findings. **Verdict: FIX-BEFORE-MERGE, 9
+  findings**, all resolved. Four were fresh instances of the partial-result
+  class *inside the diff that documents it* — the identity menu row suppressed
+  by a cardinality proxy instead of coverage (F21), `none` conflated with
+  unlabelled (F22), check 13 able to pass over an empty population (F23), and
+  the `COVERAGE: n of m` rule applied to Plan 00080's triage but not to this
+  plan's own gate. Unit test 43 → 49 assertions with regressions for the first
+  two. See `JOURNAL/` for the full account
+- [ ] ⬜ **Task 3.3b**: Re-run `deploy.bash` — the review's fixes touch
+  `podfreeze` and `claude-yolo` (3.40.1), so the host is stale again by design,
+  and checks 13/13b plus the new COVERAGE line have not run against them
 - [ ] ⬜ **Task 3.4**: Mark plan Complete, move to `Completed/`, update README
   index + statistics in the same commit
 

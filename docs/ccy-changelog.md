@@ -17,6 +17,18 @@ Two version numbers move independently — see
 
 ---
 
+## 3.40.1 (container 2.26)
+
+**Comment-only correction; no code change.** The `CCY_VERSION` comment described two of the
+five labels 3.40.0 shipped, omitting the identity trio that `podfreeze`'s `--github` /
+`--token` / `--ssh-key` axes depend on. That line is the first thing a reader meets in the
+script, so an incomplete summary there outlives the changelog entry that corrects it.
+
+The version bump exists because the script's hash is validated against its declared version;
+it is not a behaviour change, and nothing needs redeploying on its account alone.
+
+---
+
 ## 3.40.0 (container 2.26)
 
 **A session container is now labelled as one.** `podman run` gains
@@ -45,9 +57,14 @@ identifiers, so treat `podman ps` output the same way as any other host state be
 pasting it somewhere public.
 
 Nothing reads any of these labels inside the container and no behaviour changes; they exist
-for host-side tooling to select on (`podman ps --filter label=ccy=true`). Containers started
-by an earlier CCY carry none of them until they are restarted, so consumers should keep the
-inherited label as a fallback.
+for host-side tooling to select on (`podman ps --filter label=ccy=true`).
+
+Containers started by an earlier CCY carry none of them until they are restarted. **The
+fallback for those is the session NAME pattern** `<project>_yolo[_N]` /
+`<project>_browser[_N]`, which CCY constructs for every session and which therefore covers
+them exactly. Do **not** fall back to the image's inherited `claude-yolo-version` label: it
+is inherited by anything built FROM the CCY image, so it re-acquires the very false positive
+these run-time labels exist to remove.
 
 See `CLAUDE/Plan/00079-podman-container-control`.
 

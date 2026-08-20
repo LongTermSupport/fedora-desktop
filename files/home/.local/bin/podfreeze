@@ -96,7 +96,17 @@ CCY_NAME_PATTERN='^.+_(yolo|browser)(_[0-9]+)?$'
 
 # Field separator for `podman ps --format`. A literal tab in a Go template is
 # invisible and easy to mangle on edit; neither a container name nor a network
-# name may contain '|', so this is both unambiguous and readable.
+# name may contain '|', so this is unambiguous and readable for the inventory
+# query.
+#
+# The identity query is a weaker case and worth stating plainly: its fields are
+# LABEL VALUES — a username, a token config name, and SSH key basenames. A
+# filename may legally contain '|', so a key named `odd|name` would mis-split
+# the record and silently mis-group that session. It cannot be a container or
+# network name, so the risk is confined to the identity axes; RECORD_SEP-style
+# separators are not available in a Go template without the same escaping
+# problem the tab has. Mitigated by checking the field count rather than by
+# choosing a cleverer byte — a short record is detectable, a mis-split is not.
 FIELD_SEP='|'
 
 # First-column marker for the "act on the whole group" row in the drill-down.
@@ -197,14 +207,23 @@ assert_podman() {
 # thawed, and offering one as a candidate would only invite a confusing no-op.
 #
 # The identity lookups (github/token/ssh-keys) are populated only for CCY
-# sessions, because only CCY sets them. A container with no value is absent from
-# the map rather than holding an empty string, so "unknown" and "deliberately
-# none" stay distinguishable.
+# sessions, because only CCY sets them. Both an absent label and a literal
+# "none" leave the map empty — they are NOT distinguishable from these maps
+# alone, which is why INV_HAS_LABELS exists to carry that distinction
+# separately.
 # ---------------------------------------------------------------------------
 declare -a INV_NAME=()
 declare -a INV_STATE=()
 declare -a INV_NETS=()
 declare -A INV_IS_CCY=()
+# 1 for a session that came back from the `label=ccy=true` query — i.e. one
+# launched by CCY >= 3.40.0. This is NOT derivable from the identity maps: a
+# 3.40.0 session can legitimately carry `none` on all three axes (no gh
+# identity, no token, `--no-ssh`), which leaves those maps empty exactly as an
+# unlabelled pre-3.40.0 session does. Without this, "has no identity" and
+# "predates the labels" collapse into one, and the tool tells the user to
+# relaunch a session that is already current.
+declare -A INV_HAS_LABELS=()
 declare -A INV_GITHUB=()
 declare -A INV_TOKEN=()
 declare -A INV_SSHKEYS=()
@@ -221,6 +240,7 @@ load_inventory() {
     INV_STATE=()
     INV_NETS=()
     INV_IS_CCY=()
+    INV_HAS_LABELS=()
     INV_GITHUB=()
     INV_TOKEN=()
     INV_SSHKEYS=()
@@ -252,11 +272,22 @@ load_inventory() {
         --format "{{.Names}}${FIELD_SEP}{{index .Labels \"ccy-github\"}}${FIELD_SEP}{{index .Labels \"ccy-token\"}}${FIELD_SEP}{{index .Labels \"ccy-ssh-keys\"}}" 2>&1)"; then
         die "podman ps --filter label=$CCY_SESSION_LABEL failed: $ccy_out"
     fi
-    while IFS="$FIELD_SEP" read -r name github token sshkeys; do
+    while IFS="$FIELD_SEP" read -r name github token sshkeys extra; do
         if [ -z "$name" ]; then
             continue
         fi
+        # A label value containing FIELD_SEP mis-splits this record, and a
+        # mis-split is silent — the session would simply be grouped under the
+        # wrong identity. `extra` catches it: with four fields expected, any
+        # fifth means a value contained the separator. Fail rather than group
+        # a session under an identity it does not have.
+        if [ -n "$extra" ]; then
+            die "a CCY identity label on '$name' contains '$FIELD_SEP', which
+  makes its labels ambiguous to parse. Rename the offending SSH key or token
+  config so it has no '$FIELD_SEP', then relaunch that session."
+        fi
         INV_IS_CCY["$name"]=1
+        INV_HAS_LABELS["$name"]=1
         # "none" is CCY saying the axis does not apply to this session; it is not
         # a value anyone would want to group by, so it is dropped here rather
         # than offered as a group of its own.
@@ -382,7 +413,12 @@ select_network() {
                 echo "    $name" >&2
             fi
         done <<< "$known"
-        exit 1
+        # Non-zero return, not `exit`. From the CLI the caller exits on this
+        # status, which is the fail-fast behaviour a script needs. From the
+        # menu the network may simply have been removed between the menu being
+        # drawn and the row being chosen — a recoverable input situation, where
+        # the interactive rules say re-prompt rather than abort the whole run.
+        return 1
     fi
 
     if ! matched="$(podman ps --all --filter "network=$net" --format '{{.Names}}' 2>&1)"; then
@@ -525,10 +561,12 @@ select_identity() {
 unlabelled_ccy_names() {
     local name
     for name in "${INV_NAME[@]}"; do
+        # Keyed on label PRESENCE, not on the identity maps being empty. A
+        # 3.40.0 session with `none` on every axis leaves those maps empty too,
+        # and telling its owner to "relaunch it so it can be labelled" is advice
+        # that cannot work — it is already labelled, it simply has no identity.
         if [ "${INV_IS_CCY[$name]:-0}" = "1" ] &&
-            [ -z "${INV_GITHUB[$name]:-}" ] &&
-            [ -z "${INV_TOKEN[$name]:-}" ] &&
-            [ -z "${INV_SSHKEYS[$name]:-}" ]; then
+            [ "${INV_HAS_LABELS[$name]:-0}" != "1" ]; then
             printf '%s\n' "$name"
         fi
     done
@@ -645,7 +683,7 @@ target_effect() {
 }
 
 pick_target() {
-    local net selection reply attempt total i axis value
+    local net selection reply attempt total i axis value ccy_total
     local -a keys=() labels=() nets=() group=() values=()
 
     if [ ! -t 2 ] || [ ! -r /dev/tty ]; then
@@ -673,13 +711,28 @@ pick_target() {
     fi
 
     # Identity groups, one row per distinct value actually present. Offered only
-    # when a value does not cover every CCY session — with a single GitHub
-    # account on the machine "github: <id>" and "all CCY containers" are the
+    # when the axis actually discriminates — with a single GitHub account and
+    # every session labelled, "github: <id>" and "all CCY containers" are the
     # same button, and a menu that says the same thing twice is harder to read,
     # not more capable.
+    #
+    # "Discriminates" is COVERAGE, not cardinality. The first cut tested
+    # `${#values[@]} -lt 2`, which is only a proxy for it, and the proxy is
+    # wrong in exactly the partial-rollout state the axis is most useful in: one
+    # labelled account plus four unlabelled sessions is a single distinct value
+    # that covers 2 of 6, so the row was suppressed while `--github X` kept
+    # working on the CLI. The menu then offered only the WIDER "all CCY
+    # containers", silently steering toward freezing sessions the user had not
+    # asked for, and `warn_identity_blind_spot` became unreachable from the menu
+    # because `select_identity` was never called.
+    ccy_total="$(ccy_names | wc -l)"
     for axis in github token ssh-key; do
         mapfile -t values < <(identity_values "$axis")
-        if [ "${#values[@]}" -lt 2 ]; then
+        if [ "${#values[@]}" -eq 0 ]; then
+            continue
+        fi
+        if [ "${#values[@]}" -eq 1 ] &&
+            [ "$(identity_names "$axis" "${values[0]}" | wc -l)" -ge "$ccy_total" ]; then
             continue
         fi
         for value in "${values[@]}"; do
@@ -1021,7 +1074,15 @@ interactive_loop() {
             quit) return "$status" ;;
             ccy) select_ccy ;;
             all) select_all ;;
-            net:*) select_network "${key#net:}" ;;
+            net:*)
+                # A network can be removed between the menu being drawn and
+                # this row being chosen. select_network has already explained
+                # it; re-prompt rather than abort the session.
+                if ! select_network "${key#net:}"; then
+                    echo "" >&2
+                    continue
+                fi
+                ;;
             id:*)
                 # id:<axis>:<value> — the value may itself contain a colon, so
                 # only the axis is split off.
@@ -1155,7 +1216,14 @@ fi
 case "$TARGET_MODE" in
     "--ccy") select_ccy ;;
     "--all") select_all ;;
-    "--network") select_network "$TARGET_NETWORK" ;;
+    # Explicit exit, because select_network now RETURNS on an unknown network
+    # rather than exiting: from a script an unknown network must still be a
+    # hard failure, and `set -e` does not apply to a command in a condition.
+    "--network")
+        if ! select_network "$TARGET_NETWORK"; then
+            exit 1
+        fi
+        ;;
     "--github" | "--token" | "--ssh-key")
         select_identity "$TARGET_IDENTITY_AXIS" "$TARGET_IDENTITY_VALUE"
         ;;
