@@ -43,6 +43,7 @@ container on a throwaway network and checks:
   8b  NO VERB freezes a running target       (the derived verb)
   8c  the same command thaws it again        (so it toggles)
    9  freeze --ccy -n resolves the live CCY group and excludes non-CCY
+  9b  --ccy also resolves UNLABELLED pre-3.40.0 sessions via the name fallback
   10  an unknown network fails loudly rather than resolving to an empty set
   11  an unknown container name fails loudly
   12  two targets at once is rejected
@@ -420,6 +421,59 @@ if [ "$(state_of "$CNAME")" = "running" ]; then
     ok "nothing was frozen by the --ccy dry run"
 else
     bad "the --ccy dry run changed a container state"
+fi
+
+echo "### 9b. --ccy also resolves UNLABELLED (pre-3.40.0) sessions"
+# Check 9 builds its expected set from `label=ccy=true` alone, so it exercises
+# only the labelled path. On this host 4 of 6 live sessions predate 3.40.0 and
+# carry no label at all — the MAJORITY of the real population reaches --ccy via
+# podfreeze's name-pattern fallback, and check 9 is silent on whether that
+# fallback works. If the pattern broke, check 9 would still report OK.
+#
+# That is the same defect this plan's own triage probe had (Plan 00080, P4):
+# verify the labelled path, stay quiet about the one carrying most of the load.
+# So assert the fallback directly, from the pattern podfreeze itself uses.
+#
+# The labelled set is recomputed here rather than reusing check 9's $ccy_live:
+# that variable holds podman's ERROR TEXT when its call failed, and matching
+# names against an error string would silently misclassify every session.
+CCY_NAME_PATTERN='^.+_(yolo|browser)(_[0-9]+)?$'
+if ! labelled_now="$(podman ps --filter label=ccy=true \
+    --filter status=running --format '{{.Names}}' 2>&1)"; then
+    bad "could not list labelled CCY containers: $labelled_now"
+elif ! all_running="$(podman ps --filter status=running --format '{{.Names}}' 2>&1)"; then
+    bad "could not list running containers: $all_running"
+else
+    unlabelled=""
+    while read -r name; do
+        if [ -z "$name" ] || ! [[ "$name" =~ $CCY_NAME_PATTERN ]]; then
+            continue
+        fi
+        if ! printf '%s\n' "$labelled_now" | grep -qx -- "$name"; then
+            unlabelled="$unlabelled $name"
+        fi
+    done <<< "$all_running"
+
+    if [ -z "$unlabelled" ]; then
+        # Not a skip: the labelled path IS fully covered by check 9 in this
+        # state, so there is no gap to report. Say which state we are in.
+        ok "every live session carries a label — fallback path not exercisable here"
+    elif ccy_fb_out="$("$TOOL" freeze --ccy --dry-run 2>&1)"; then
+        fb_missing=""
+        for name in $unlabelled; do
+            case "$ccy_fb_out" in
+                *"$name"*) ;;
+                *) fb_missing="$fb_missing $name" ;;
+            esac
+        done
+        if [ -n "$fb_missing" ]; then
+            bad "--ccy omitted unlabelled session(s) the name pattern should catch:$fb_missing"
+        else
+            ok "unlabelled sessions resolve via the name fallback:$unlabelled"
+        fi
+    else
+        bad "freeze --ccy --dry-run exited non-zero: $ccy_fb_out"
+    fi
 fi
 
 echo "### 10. an unknown network fails loudly"

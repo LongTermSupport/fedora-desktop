@@ -123,6 +123,13 @@ write-up in the journal):
   Plan 00072 defect class — repo says fixed, host runs the old build — caught by
   the check written for it. `deploy.bash`, not `acceptance.bash`, is the entry
   point whenever the tool itself has changed
+- **F19** — **check 9 verified only the labelled path.** It built its expected
+  set from `label=ccy=true` alone, so the name-pattern fallback was never
+  asserted — and **4 of the 6 live sessions are unlabelled**, so the majority of
+  the real population reaches `--ccy` through the one path the gate was silent
+  about. Had the pattern broken, check 9 would still have reported OK. Identical
+  in shape to Plan 00080's P4 defect found the same day: verify the labelled
+  path, stay quiet about the one carrying most of the load. Closed by **9b**
 
 **F15 is the safety case, and no hypothesis anticipated it.** The blast radius
 of a network-scoped freeze is not guessable from the network's name: the
@@ -348,20 +355,21 @@ See D4 and D6.
   against the live CCY set as a contract, and checks the in-container refusal,
   the unknown-network and unknown-name failures, and mutually-exclusive
   targets. `--all` is never run for real. Both log to the plan's `logs/`
-- [ ] 🔄 **Task 3.2**: User runs `CLAUDE/Plan/00079-podman-container-control/deploy.bash`
+- [x] ✅ **Task 3.2**: User runs `CLAUDE/Plan/00079-podman-container-control/deploy.bash`
   on the HOST (it runs `play-claude-yolo.yml` **then** `play-podfreeze.yml`,
   then acceptance itself); journal the verdict.
   **Run 1**: deploy clean (`failed=0`); acceptance **FAIL**, 1 of 15 — the
   failure was the gate's own fixture, not the tool (F16, D6). Fixture fixed.
   **Run 2**: deploy clean, acceptance **PASS — 16 passed, 2 skipped**.
-  **Run 3 attempt**: `acceptance.bash` run alone **REFUSED** — deployed
-  `podfreeze` differs from the repo copy. Correct, and a real catch: the D9
-  drill-down (`a678e31`, 10:42) landed **10 minutes after** run 2's deploy
-  (10:32), so run 2's PASS never exercised it and the host still runs the
-  pre-drill-down build (F18).
-  **What remains**: run `deploy.bash` (not `acceptance.bash` alone) — it
-  redeploys, then chains into acceptance. Two live sessions now carry 3.40.0
-  labels, so checks 9 and 13 become real assertions instead of skips
+  **Run 3 attempt**: `acceptance.bash` alone **REFUSED** — deployed `podfreeze`
+  differed from the repo copy (F18). **Run 3**: `deploy.bash` →
+  **PASS, 21 checks, 0 skipped**. Checks 9 and 13 are now real assertions: the
+  `--ccy` set and the `--github` identity axis both resolve against live
+  labelled sessions, and the unlabelled throwaway is excluded from each
+- [ ] ⬜ **Task 3.2b**: Re-run `deploy.bash` once to exercise **check 9b** (the
+  F19 fix). It has never executed — a gate that has never run is not yet
+  evidence of anything, and on this host it should report the four unlabelled
+  sessions resolving via the name fallback
 - [ ] ⬜ **Task 3.3**: Run the `qa-reviewer` agent over the plan's full diff;
   resolve all BLOCK/FIX-BEFORE-MERGE findings
 - [ ] ⬜ **Task 3.4**: Mark plan Complete, move to `Completed/`, update README
