@@ -17,7 +17,7 @@ Manage your Claude Code Hooks Daemon installation with these commands.
 
 Install the hooks daemon on a fresh clone (daemon not yet present):
 
-```bash
+```claude-code
 /hooks-daemon install          # Install daemon from GitHub
 /hooks-daemon install --force  # Force reinstall over existing
 ```
@@ -28,7 +28,7 @@ See [install.md](install.md) for detailed install documentation.
 
 Update to a new version of the hooks daemon:
 
-```bash
+```claude-code
 /hooks-daemon upgrade          # Auto-detect and upgrade to latest version
 /hooks-daemon upgrade 2.14.0   # Upgrade to specific version
 /hooks-daemon upgrade --force  # Force reinstall current version
@@ -40,7 +40,7 @@ See [upgrade.md](upgrade.md) for detailed upgrade documentation.
 
 **Required after editing `.claude/hooks-daemon.yaml` or project handlers:**
 
-```bash
+```claude-code
 /hooks-daemon restart
 ```
 
@@ -52,7 +52,7 @@ See [restart.md](restart.md) for details.
 
 Force-regenerate the daemon's generated documentation **without restarting**:
 
-```bash
+```claude-code
 /hooks-daemon regen-docs
 ```
 
@@ -85,7 +85,7 @@ See [plan-qa.md](plan-qa.md) for details.
 
 Verify daemon is running correctly:
 
-```bash
+```claude-code
 /hooks-daemon health           # Quick health check
 /hooks-daemon logs             # View last 50 lines of logs
 /hooks-daemon logs --follow    # Stream logs in real-time
@@ -97,7 +97,7 @@ See [health.md](health.md) for health check details.
 
 Run a verbose, on-demand audit of the Claude Code environment:
 
-```bash
+```claude-code
 /hooks-daemon check
 ```
 
@@ -113,7 +113,7 @@ See [check.md](check.md) for details.
 
 Scaffold new project-level handlers:
 
-```bash
+```claude-code
 /hooks-daemon dev-handlers     # Interactive handler scaffolding
 ```
 
@@ -123,7 +123,7 @@ See [dev-handlers.md](dev-handlers.md) for handler development guide.
 
 Generate a detailed investigation report with timeline, evidence, and analysis:
 
-```bash
+```claude-code
 /hooks-daemon report "daemon stopped responding during edits"
 ```
 
@@ -136,7 +136,7 @@ See [report.md](report.md) for details.
 Show the daemon's release notes without leaving the terminal. With no flag it
 shows the notes for the version you currently have installed:
 
-```bash
+```claude-code
 /hooks-daemon release-notes                       # installed version's notes
 /hooks-daemon release-notes --latest              # newest available version
 /hooks-daemon release-notes --version 3.27.0      # a specific version
@@ -153,14 +153,14 @@ inclusive, matching the upgrade semantics (the notes for everything you gained).
 
 After editing `.claude/hooks-daemon.yaml`:
 
-```bash
+```claude-code
 /hooks-daemon restart   # Apply config changes
 /hooks-daemon health    # Verify it's running
 ```
 
 If you're experiencing issues:
 
-```bash
+```claude-code
 # 1. Check daemon status
 /hooks-daemon health
 

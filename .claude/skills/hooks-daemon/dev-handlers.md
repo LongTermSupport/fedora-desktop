@@ -4,7 +4,7 @@ Scaffold new project-level handlers with automatic file generation and TDD struc
 
 ## Quick Start
 
-```bash
+```claude-code
 /hooks-daemon dev-handlers
 ```
 
@@ -93,7 +93,7 @@ After scaffolding, follow Test-Driven Development:
 pytest .claude/project-handlers/{event_type}/test_{handler_name}.py -v
 ```
 
-Write tests that define expected behavior before implementing.
+Write tests that define expected behaviour before implementing.
 
 ### 2. GREEN Phase - Implement Handler
 

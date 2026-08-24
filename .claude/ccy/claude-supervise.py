@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+#
+# DAEMON-OWNED FILE - do not edit. Deployed into your project by the
+# claude-code-hooks-daemon installer and refreshed on every upgrade, so local
+# changes are discarded. See CLAUDE/LLM-INSTALL.md, "Which Files Under
+# .claude/ Are Yours?", for the full list and the linter exclusions.
+#
 """claude-supervise: a standalone, stdlib-only PTY supervisor for wrapping `claude`.
 
 This file is intentionally standalone: it imports nothing from
@@ -92,7 +98,7 @@ if TYPE_CHECKING:
 # (see CLAUDE/development/RELEASING.md). Display-only for the banner and the
 # runtime status file; staleness detection (Plan 00164 Phase 3) uses a content
 # hash of THIS file so it is correct even between version bumps.
-__version__ = "3.51.0"
+__version__ = "3.54.0"
 
 # Absolute path to THIS running script — hashed for staleness detection so the
 # daemon can tell when the on-disk supervisor differs from the running one.
@@ -1904,7 +1910,19 @@ def _format_bot_prefix(now_wall: float | None = None) -> str:
     deliberately: the marker is read by a human scrolling their own terminal
     history, for whom local time is the natural "when did this happen" reference.
     """
-    moment = datetime.now() if now_wall is None else datetime.fromtimestamp(now_wall)
+    # Built tz-AWARE and then converted to local with `.astimezone()`, rather
+    # than via the naive `datetime.now()` / `fromtimestamp(now_wall)`. The
+    # rendered string is identical -- `.astimezone()` with no argument converts
+    # to the system local zone, which is what the naive calls already returned
+    # -- so this states the "local, deliberately" intent above in code instead
+    # of only in prose. It also keeps the file clean under ruff's DEFAULT rule
+    # set (DTZ005/DTZ006 joined those defaults in ruff 0.16), which the client
+    # boundary document promises of every deployed asset.
+    moment = (
+        datetime.now(UTC).astimezone()
+        if now_wall is None
+        else datetime.fromtimestamp(now_wall, UTC).astimezone()
+    )
     return f"{_BOT_PREFIX} {moment.strftime(_BOT_PREFIX_TIME_FORMAT)}]"
 
 

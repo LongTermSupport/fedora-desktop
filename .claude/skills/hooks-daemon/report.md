@@ -50,7 +50,13 @@ Read `.claude/hooks-daemon.yaml` — include the full contents in the report.
 
 #### 2e. Recent transcript data
 
-Look for transcript archives in `untracked/transcripts/` or `.claude/transcripts/`. Read the most recent 1-3 files if they exist. These contain conversation history that may reveal what Claude was doing when the issue occurred.
+The session transcript is a **Claude Code** artefact, not a daemon one. It lives at `~/.claude/projects/<project-slug>/<session-id>.jsonl`, and compaction never deletes it.
+
+**Do NOT read one whole.** A transcript is a full session and can be tens of megabytes. It is JSONL — one entry per line — so sample it instead: `grep` it, or `tail -n 200 <file>` / `head -n 200 <file>` (a path ARGUMENT, so no pipe and no truncation). Quote only the entries around the time of the issue.
+
+**Redact before pasting into a report.** These files are NOT redacted by anything — a secret pasted into the conversation is in there verbatim. Check the content you are about to quote against the project's secret word list if it has one.
+
+(Older installs may also have `untracked/transcripts/transcript_*.json*`, written by the retired `transcript_archiver` handler. Those are redacted copies of the same transcripts and are safe to delete.)
 
 #### 2f. Git context
 

@@ -4,7 +4,7 @@ Check the status and health of your Claude Code Hooks Daemon.
 
 ## Quick Health Check
 
-```bash
+```claude-code
 /hooks-daemon health
 ```
 
@@ -18,7 +18,7 @@ Displays:
 
 ## View Daemon Logs
 
-```bash
+```claude-code
 /hooks-daemon logs           # Last 50 lines
 /hooks-daemon logs --follow  # Stream in real-time
 ```

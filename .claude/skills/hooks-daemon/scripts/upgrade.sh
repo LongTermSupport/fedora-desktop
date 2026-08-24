@@ -1,5 +1,10 @@
 #!/bin/bash
 #
+# DAEMON-OWNED FILE - do not edit. Deployed into your project by the
+# claude-code-hooks-daemon installer and refreshed on every upgrade, so local
+# changes are discarded. See CLAUDE/LLM-INSTALL.md, "Which Files Under
+# .claude/ Are Yours?", for the full list and the linter exclusions.
+#
 # upgrade.sh — thin shim for /hooks-daemon upgrade (Plan 00109 Phase 2).
 #
 # This script carries ZERO upgrade logic. It detects the client's project

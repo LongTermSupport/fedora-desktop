@@ -1,5 +1,10 @@
 #!/bin/bash
 #
+# DAEMON-OWNED FILE - do not edit. Deployed into your project by the
+# claude-code-hooks-daemon installer and refreshed on every upgrade, so local
+# changes are discarded. See CLAUDE/LLM-INSTALL.md, "Which Files Under
+# .claude/ Are Yours?", for the full list and the linter exclusions.
+#
 # install.sh - Install hooks daemon into current project
 #
 # Usage:
@@ -20,7 +25,7 @@ INSTALL_URL="https://raw.githubusercontent.com/${GITHUB_ORG}/${GITHUB_REPO}/main
 PYPROJECT_URL="https://raw.githubusercontent.com/${GITHUB_ORG}/${GITHUB_REPO}/main/pyproject.toml"
 # Plan 00110 Task 4.3: canonical glob-and-sort interpreter discovery helper.
 # Fetched alongside pyproject.toml so the skill bootstrap can pick the latest
-# compatible python3.NN on $PATH — no hardcoded version list, no bl-admin
+# compatible python3.NN on $PATH — no hardcoded version list, no host-a
 # "suggests python3.11 even though python3.13/3.14 are installed" trap.
 PYTHON_DISCOVERY_URL="https://raw.githubusercontent.com/${GITHUB_ORG}/${GITHUB_REPO}/main/scripts/lib/python_discovery.sh"
 
@@ -55,7 +60,7 @@ echo ""
 # interpreter discovery helper. The helper walks $PATH for python3.NN, picks
 # the latest meeting the floor, and on failure emits a diagnostic naming
 # interpreters ACTUALLY observed on this host (never a hardcoded suggestion
-# that may not exist — the bl-admin trap that Plan 00110 closes).
+# that may not exist — the host-a trap that Plan 00110 closes).
 PYPROJECT_TMP="/tmp/hooks-daemon-precheck-pyproject.toml.$$"
 DISCOVERY_TMP="/tmp/hooks-daemon-precheck-python-discovery.sh.$$"
 trap 'rm -f "$PYPROJECT_TMP" "$DISCOVERY_TMP"' EXIT

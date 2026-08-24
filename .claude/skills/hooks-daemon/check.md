@@ -5,7 +5,7 @@ configuration.
 
 ## Usage
 
-```bash
+```claude-code
 /hooks-daemon check
 ```
 

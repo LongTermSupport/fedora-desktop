@@ -5,7 +5,7 @@ Force-regenerate the daemon's generated documentation to its canonical form,
 
 ## Usage
 
-```bash
+```claude-code
 /hooks-daemon regen-docs
 ```
 
@@ -44,7 +44,7 @@ explicit one-shot when you want the doc regeneration **without** the restart.
 
 ## Options
 
-```bash
+```claude-code
 /hooks-daemon regen-docs --include-disabled   # list disabled handlers in HOOKS-DAEMON.md
 /hooks-daemon regen-docs --output PATH         # alternate HOOKS-DAEMON.md output path
 ```

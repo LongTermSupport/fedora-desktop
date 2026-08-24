@@ -1,5 +1,10 @@
 #!/bin/bash
 #
+# DAEMON-OWNED FILE - do not edit. Deployed into your project by the
+# claude-code-hooks-daemon installer and refreshed on every upgrade, so local
+# changes are discarded. See CLAUDE/LLM-INSTALL.md, "Which Files Under
+# .claude/ Are Yours?", for the full list and the linter exclusions.
+#
 # Claude Code Hooks - PostToolUse Forwarder
 #
 # Forwards PostToolUse hook calls to daemon via Unix socket.

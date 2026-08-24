@@ -4,7 +4,7 @@ Install the Claude Code Hooks Daemon into this project.
 
 ## Usage
 
-```bash
+```claude-code
 /hooks-daemon install           # Install daemon
 /hooks-daemon install --force   # Force reinstall (overwrites existing)
 ```
@@ -35,7 +35,7 @@ You typically need this when:
 
 Then verify:
 
-```bash
+```claude-code
 /hooks-daemon health
 ```
 
@@ -43,7 +43,7 @@ Then verify:
 
 If the daemon is already installed, the command will tell you and suggest upgrade instead:
 
-```bash
+```claude-code
 /hooks-daemon upgrade
 ```
 

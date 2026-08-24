@@ -1,5 +1,10 @@
 #!/bin/bash
 #
+# DAEMON-OWNED FILE - do not edit. Deployed into your project by the
+# claude-code-hooks-daemon installer and refreshed on every upgrade, so local
+# changes are discarded. See CLAUDE/LLM-INSTALL.md, "Which Files Under
+# .claude/ Are Yours?", for the full list and the linter exclusions.
+#
 # _resolve-venv.sh — Plan 00104 Phase 5 Task 5.4 thin shim.
 #
 # Delegates to the canonical bash library at

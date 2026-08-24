@@ -1,5 +1,10 @@
 #!/bin/bash
 #
+# DAEMON-OWNED FILE - do not edit. Deployed into your project by the
+# claude-code-hooks-daemon installer and refreshed on every upgrade, so local
+# changes are discarded. See CLAUDE/LLM-INSTALL.md, "Which Files Under
+# .claude/ Are Yours?", for the full list and the linter exclusions.
+#
 # Claude Code Hooks Daemon - Init Script
 #
 # Provides shell functions for daemon lifecycle management:
@@ -617,11 +622,22 @@ start_daemon() {
     # CRITICAL: Pass --project-root and export env vars so the CLI uses the
     # same paths we computed above. Without this, the CLI re-discovers the
     # project from CWD which may find a worktree's .claude/ instead of ours.
-    CLAUDE_HOOKS_SOCKET_PATH="$SOCKET_PATH" \
+    #
+    # Output is CAPTURED, not discarded (Plan 00200 Task 5.5): this parent
+    # invocation is the short-lived process that daemonises and returns —
+    # cli.py's cmd_start() prints its own diagnostics (e.g. "ERROR: Fork
+    # failed", "ERROR: Daemon failed to start (no PID file created)") on
+    # THIS fd, before the double-fork detaches the long-lived daemon (which
+    # redirects its OWN stdout/stderr to /dev/null internally regardless —
+    # see daemon/cli.py's "Second child" branch). The readiness poll below
+    # remains the authority for success/failure either way; this capture
+    # only stops a genuine startup failure's root cause from being silently
+    # discarded on the timeout path.
+    local start_output
+    start_output="$(CLAUDE_HOOKS_SOCKET_PATH="$SOCKET_PATH" \
     CLAUDE_HOOKS_PID_PATH="$PID_PATH" \
     $PYTHON_CMD -m claude_code_hooks_daemon.daemon.cli \
-        --project-root "$PROJECT_PATH" start \
-        > /dev/null 2>&1
+        --project-root "$PROJECT_PATH" start 2>&1)"
 
     # Wait for daemon to be ready (using deciseconds for integer arithmetic).
     #
@@ -653,6 +669,10 @@ start_daemon() {
     # coming up, the PID slot belongs to it. is_daemon_running() cleans
     # stale PID files on next call when the process is actually dead.
     echo "ERROR: Daemon startup timeout (daemon not ready after ${DAEMON_STARTUP_TIMEOUT}/10 seconds)" >&2
+    if [[ -n "$start_output" ]]; then
+        echo "Launcher output (may explain the failure):" >&2
+        echo "$start_output" >&2
+    fi
     return 1
 }
 

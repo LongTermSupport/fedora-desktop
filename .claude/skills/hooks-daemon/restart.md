@@ -4,7 +4,7 @@ Restart the hooks daemon after configuration changes or to recover from issues.
 
 ## Usage
 
-```bash
+```claude-code
 /hooks-daemon restart
 ```
 
@@ -32,7 +32,7 @@ the bash scripts directly (no blocking, no errors).
 
 ## Verify After Restart
 
-```bash
+```claude-code
 /hooks-daemon health
 ```
 
@@ -48,7 +48,7 @@ Expected output:
 
 If the daemon fails to restart:
 
-```bash
+```claude-code
 # Check logs for startup errors
 /hooks-daemon logs
 

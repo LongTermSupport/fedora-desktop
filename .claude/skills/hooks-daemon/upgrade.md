@@ -6,7 +6,7 @@ Upgrade the Claude Code Hooks Daemon and commit the result atomically.
 
 1. **Run the upgrade**:
 
-   ```bash
+   ```claude-code
    /hooks-daemon upgrade           # latest
    /hooks-daemon upgrade 3.14.0    # specific version
    /hooks-daemon upgrade --force   # reinstall current

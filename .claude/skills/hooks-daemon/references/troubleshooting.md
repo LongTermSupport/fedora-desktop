@@ -143,11 +143,15 @@ curl: (404) Not Found
 **Solution:**
 Use the skill command or download-then-run:
 
-```bash
-# Preferred:
-/hooks-daemon upgrade
+Preferred — in the Claude Code chat:
 
-# Manual:
+```claude-code
+/hooks-daemon upgrade
+```
+
+Manual — from a terminal:
+
+```bash
 curl -sSL https://raw.githubusercontent.com/Edmonds-Commerce-Limited/claude-code-hooks-daemon/main/scripts/upgrade.sh -o /tmp/hooks-daemon-upgrade.sh
 bash /tmp/hooks-daemon-upgrade.sh
 ```
@@ -158,13 +162,20 @@ bash /tmp/hooks-daemon-upgrade.sh
 
 **Solution:**
 
+From a terminal:
+
 ```bash
 # Check daemon logs
 .claude/hooks-daemon/bin/hooks-daemon logs
 
-# If stuck, stop THIS project's daemon and retry (never `pkill -f hooks-daemon`
+# If stuck, stop THIS project's daemon (never `pkill -f hooks-daemon`
 # — that matches every daemon on the host, not just this project's)
 .claude/hooks-daemon/bin/hooks-daemon stop
+```
+
+Then retry the upgrade in the Claude Code chat:
+
+```claude-code
 /hooks-daemon upgrade
 ```
 
