@@ -85,7 +85,18 @@ mechanisms are implicated here.
      this exact leak class (`676a7d74`/`cae9a0ca`, "Redact internal infra
      hostnames from this public repo"): a content-only forward fix, not a
      history rewrite.
-- [ ] ⬜ **Task 1.6**: merge.
+- [x] ✅ **Task 1.8**: re-review after the Task 1.7 fixes — a second review
+  agent found the fix for finding 1 solid, but caught that the finding-2 fix
+  commit had reintroduced the same hostname in its own description (a
+  re-leak). Fixed in a follow-up commit before the re-review reported back;
+  the reviewer independently re-verified the corrected tip and returned
+  **PASS**.
+- [x] ✅ **Task 1.6**: merged (PR #36, merge commit `e8686ec`). CI green
+  (`qa-all.bash`, helper unit tests, gitleaks — all pass) at merge time.
+- [ ] ⬜ **Task 1.9**: re-pin lts-infra's live-proof harness at this merged
+  commit and re-run it — the first run that can actually exercise this fix
+  (the harness's pin only ever covered `run.bash` itself, never the
+  self-cloned repo's playbook content — see lts-infra Plan 00045's journal).
 
 ## Success Criteria
 
@@ -94,6 +105,7 @@ mechanisms are implicated here.
   out `[]` — not because `kernel-core` and `kernel-modules-core` happen to be
   in step, but because `kernel-modules` is genuinely absent from this host's
   package set, so the half-install heuristic does not apply to it at all.
+  **Not yet run** — pending Task 1.9.
 
 ## Delivery & Milestones
 
@@ -101,4 +113,5 @@ mechanisms are implicated here.
      "when" — do not add dates). The blow-by-blow activity log lives in
      JOURNAL/00086-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
+- Merged: `e8686ec` (PR #36).
 - Recovery cron: 28837729 (shared session-wide failsafe, already running).
