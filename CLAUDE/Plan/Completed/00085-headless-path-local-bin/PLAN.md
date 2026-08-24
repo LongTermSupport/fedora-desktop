@@ -1,6 +1,6 @@
 # Plan 00085: headless path ~/.local/bin PATH gap
 
-**Status**: In Progress
+**Status**: Complete
 **Created**: 2026-08-24
 **Owner**: joseph
 **Priority**: High
@@ -53,13 +53,17 @@ independent blocker at the first bare `ansible-galaxy` call.
 - [x] ✅ **Task 1.3**: commit, push on a branch, open PR against `F44` (PR #35).
 - [x] ✅ **Task 1.4**: independent review (qa-reviewer stand-in) — verdict MERGE-READY
   WITH NITS; nits addressed (README index row added, Task 1.3 ticked).
-- [ ] ⬜ **Task 1.5**: merge.
+- [x] ✅ **Task 1.5**: merge (merge commit `dac4f7c`).
 
 ## Success Criteria
 
-- [ ] A downstream live proof re-run (via `sudo -u`/Ansible `become`, the exact context
-  that found this) gets past the `ansible-galaxy install -r requirements.yml` step and
-  the subsequent `playbook-main.yml` invocation without a PATH-related failure.
+- [x] A downstream live proof re-run (via `sudo -u`/Ansible `become`, the exact context
+  that found this) got past the `ansible-galaxy install -r requirements.yml` step and
+  the subsequent `playbook-main.yml` invocation without a PATH-related failure — proven
+  live before merge (pinned at the branch tip `8fd8725`): pipx-installed `ansible-galaxy`
+  resolved, `playbook-main.yml`'s Preflight Sanity and DNF Upgrade plays both completed.
+  The run then hit an unrelated, pre-existing defect (Plan 00086) in
+  `play-AB-dnf-upgrade.yml`'s kernel-modules enumeration — not a PATH failure.
 
 ## Delivery & Milestones
 
