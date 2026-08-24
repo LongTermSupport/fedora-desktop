@@ -219,7 +219,7 @@ flagged clearly below rather than silently excluded.
   EC2 with 25 concurrent jobs (~215 MB vs ~2 GB for Chrome in that scenario); other vendor/
   press write-ups cite "11x faster." These are the project's own benchmark numbers as
   reported in secondary coverage, not an independently reproduced measurement — labeled
-  vendor claim accordingly. Source: ScrapingBee blog, Medium/byteiota coverage
+  vendor claim accordingly. Source: ScrapingBee blog, Medium (Byteiota) coverage
   (both citing Lightpanda's own published benchmark).
 - [MEASURED] HN "Show HN" discussion (Jan 2025, news.ycombinator.com/item?id=42817439) was
   broadly positive on the Zig/V8 architecture choice, but independent commentary
