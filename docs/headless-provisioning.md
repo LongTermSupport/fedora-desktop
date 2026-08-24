@@ -33,11 +33,24 @@ Force it **off** with `--interactive` (useful for piped-stdin smoke tests).
 
 - **Run as the non-root target user.** cloud-init `runcmd` is root; drop to the user
   (`sudo -u <user> -i …`).
-- **Passwordless (`NOPASSWD:ALL`) sudo** for that user. The default cloud image user
-  has it; a password-sudo Server does not — configure `NOPASSWD` or run interactively.
-- **GitHub is mandatory in v1.** You must provide a single GitHub account **and** a
-  scoped token (see below). The GitHub-empty (`none`) path is a planned follow-up and
-  currently fails fast.
+
+- **`ALL`-scoped sudo**, held **either** of two ways — exactly one is required:
+
+  - **`NOPASSWD:ALL`** (the default cloud image user has it), **or**
+  - ordinary **password sudo** plus `RUN_BASH_SUDO_PASSWORD_FILE` pointing at a `0600`
+    file holding this user's password. `run.bash` proves it authenticates during
+    preflight, not at the first `dnf`.
+
+  A **command-scoped** sudoers rule is **not** supported by either route: it passes the
+  `sudo -k -n true` probe and then fails on `dnf`. The probe cannot detect that — a known
+  limitation, stated rather than implied.
+
+- **GitHub: a single account + scoped token, or `none`.** Set `RUN_BASH_GITHUB_ACCOUNTS`
+  to a single GitHub username (then also provide a scoped token and SSH passphrase, see
+  below) **or** to `none` to provision with no GitHub identity at all — an HTTPS-only
+  clone, no token or SSH key needed. `none` is incompatible with `RUN_BASH_CONFIG_SOURCE`
+  (non-`none`) and `RUN_BASH_RESTORE_PROJECTS=1`, since both need a GitHub identity to
+  pull from. Unset fails fast either way.
 
 Any missing or unsafe input aborts immediately with a **big, specific error** naming
 the exact fix — a headless run never blocks waiting on a prompt that can't be answered.
@@ -65,14 +78,15 @@ the exact fix — a headless run never blocks waiting on a prompt that can't be 
 Provide each secret as a **path to a `0600` file** (recommended) — the secret bytes
 never enter the environment, process listings, or cloud-init user-data:
 
-| Variable                              | Secret                 | Required                      |
-| ------------------------------------- | ---------------------- | ----------------------------- |
-| `RUN_BASH_GITHUB_TOKEN_FILE`          | Scoped GitHub PAT      | **Yes** (v1)                  |
-| `RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE` | SSH key passphrase     | **Yes** (v1)                  |
-| `RUN_BASH_VAULT_PASSWORD_FILE`        | Ansible vault password | When your config uses a vault |
+| Variable                              | Secret                    | Required                                                                                                                              |
+| ------------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `RUN_BASH_VAULT_PASSWORD_FILE`        | Ansible vault password    | **Yes, always** — `ansible.cfg` needs a readable `vault-pass.secret` to start at all, whether or not anything ends up vault-encrypted |
+| `RUN_BASH_GITHUB_TOKEN_FILE`          | Scoped GitHub PAT         | When `RUN_BASH_GITHUB_ACCOUNTS` is not `none`                                                                                         |
+| `RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE` | SSH key passphrase        | When `RUN_BASH_GITHUB_ACCOUNTS` is not `none`                                                                                         |
+| `RUN_BASH_SUDO_PASSWORD_FILE`         | This user's sudo password | Only when the user lacks `NOPASSWD:ALL`                                                                                               |
 
 Literal equivalents (`RUN_BASH_GITHUB_TOKEN`, `RUN_BASH_GITHUB_SSH_PASSPHRASE`,
-`RUN_BASH_VAULT_PASSWORD`) are accepted but:
+`RUN_BASH_VAULT_PASSWORD`, `RUN_BASH_SUDO_PASSWORD`) are accepted but:
 
 - **Refused on a detected cloud box** — cloud-init persists user-data in the metadata
   service, world-readable indefinitely. Use the `*_FILE` form there.
