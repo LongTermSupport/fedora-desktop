@@ -134,6 +134,8 @@ Use these Unicode icons in plan documents:
 
 - [00086-kernel-modules-absent-enumeration](00086-kernel-modules-absent-enumeration/) - A downstream live proof of `play-AB-dnf-upgrade.yml` on a guest lacking the `kernel-modules` package (present only `kernel-core`/`kernel-modules-core`) found the half-installed-kernel enumeration hard-failed instead of treating "not installed" as zero versions. Fixed with a probe-then-fail `assert`, not a blanket `failed_when: false`.
 
+- [00088-claude-code-state-dir-stale-home-fact](00088-claude-code-state-dir-stale-home-fact/) - The same downstream live proof, past PR #36, hard-failed in `play-claude-code.yml` on `Permission denied: /root/.claude`: `claude_state_dir` trusted `ansible_facts['env']['HOME']`, which `gathering=smart` + a play-level `become: true` on the FIRST play in `playbook-main.yml` poisons to `/root` for every later play. Fixed to match the file's own `/home/{{ user_login }}` convention used everywhere else in it.
+
 ## Completed Plans
 
 - [00085-headless-path-local-bin](Completed/00085-headless-path-local-bin/) - A downstream live proof of the composed PR #33/#34 headless mechanisms found a third, unrelated blocker: `ansible-galaxy: command not found` under a non-interactive `sudo -u` invocation, since pipx's `~/.local/bin` shims are never put on PATH there. Exports PATH right after the pipx install block. Merged (`dac4f7c`).
