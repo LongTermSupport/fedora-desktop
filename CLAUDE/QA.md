@@ -55,9 +55,21 @@ script / is this Python" predicate. Change discovery there, not in a gate.
 The two languages carry **separate exclusion lists** over that one mechanism,
 and the difference is deliberate: `QA_PY_EXCLUDE_DIRS` excludes only
 `.claude/ccy/plugins` and `.claude/ccy/file-history`, not the whole `.claude/ccy`
-tree, because `.claude/ccy/claude-supervise.py` is tracked and repo-owned.
+tree, because `.claude/ccy/claude-supervise.py` is **tracked** — it is committed,
+shared between clones, and sits squarely inside ruff's default scope.
 Unifying the lists would have *dropped* a real file from the Python gate — this
 section's own defect, committed inside the fix for it.
+
+**Tracked is not the same as ours.** `claude-supervise.py` is **daemon-owned**:
+the hooks daemon rewrites it on every install and upgrade, so a local edit is
+discarded. So are `.claude/init.sh`, `.claude/hooks/*`, the `*.sh` scripts under
+`.claude/skills/hooks-daemon/scripts/`, and `CLAUDE/Plan/mkplan.bash` — all
+tracked, none of them ours to edit. Upstream guarantees each is clean under its
+language's **default** rule set (`ruff --isolated`, shellcheck with no rc), which
+is why gating it costs nothing today. If an upgrade ever lands a finding under a
+rule *this repo* chose, the remedy is to exclude the file (or narrow the rule —
+see the `BLE` note in `ruff.toml`) and never to edit it, because the next upgrade
+overwrites the fix. Report it upstream if it fails under default rules.
 
 `qa-python.bash` joined them in Plan 00081. It had the identical defect and had
 not learned from 00076: it discovered by extension **or the execute bit**, so six

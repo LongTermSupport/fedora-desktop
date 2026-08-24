@@ -177,15 +177,24 @@ can always be refactored down.
 
 `JOURNAL/` day-files and this directory's `README.md` index are exempt at any size.
 
-**Deleting content is not the remedy.** There are exactly two:
+**Deleting content is not the remedy.** There are exactly three:
 
-1. **Relocate** the narrative into the plan's `JOURNAL/` day-file — append-only and
-   unbounded by design. This is almost always the right move.
-2. **Split the plan** if the task tree itself is the bulk. An over-scoped plan is not fixed
+1. **Extract** durable detail — research output, findings, decisions and their reasoning,
+   drafts, evidence tables — into a **named supporting document** in the plan folder
+   (`RESEARCH-*.md`, `DECISIONS.md`, a brief) and link to it from the task that needs it.
+   This is the right move most often: `PLAN.md` is a task list plus instructions, so almost
+   anything making it big is detail that wants a name of its own. A supporting doc is
+   unbounded for the same reason a journal is — it is only opened when its link is
+   followed, so it costs nothing to the sessions that do not need it.
+2. **Relocate** *historical* narrative into the plan's `JOURNAL/` day-file — append-only
+   and unbounded by design.
+3. **Split the plan** if the task tree itself is the bulk. An over-scoped plan is not fixed
    by better journalling.
 
-A commit that shrinks a `PLAN.md` by 2,000+ bytes without staging a journal entry is
-flagged, because that shape usually means content was destroyed rather than moved.
+A commit that shrinks a `PLAN.md` by 2,000+ bytes is flagged **unless it also stages
+evidence of relocation** — either a `JOURNAL/` entry or a newly added `.md` supporting
+document in the same plan folder. Without either, that shape usually means content was
+destroyed rather than moved.
 
 ```markdown
 # Plan XXXXX: [Plan Title]

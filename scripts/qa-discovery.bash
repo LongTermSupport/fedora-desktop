@@ -52,10 +52,15 @@ QA_EXCLUDE_DIRS=(
 )
 
 # Python's exclusion list is NARROWER than the shell one inside .claude/ccy:
-# .claude/ccy/claude-supervise.py is tracked, repo-owned, and must stay gated,
-# while the CCY runtime's plugins/ and file-history/ trees must not. Excluding
-# the whole .claude/ccy tree (as the shell list does) would DROP a real file
-# from the gate — this plan's own defect, committed inside the fix for it.
+# .claude/ccy/claude-supervise.py is TRACKED and must stay gated, while the CCY
+# runtime's plugins/ and file-history/ trees must not. Excluding the whole
+# .claude/ccy tree (as the shell list does) would DROP a real file from the
+# gate — this plan's own defect, committed inside the fix for it.
+#
+# Tracked is not the same as ours: that file is DAEMON-OWNED and is rewritten on
+# every hooks-daemon upgrade, so a finding in it is never fixed by editing it.
+# Upstream guarantees it clean under ruff's DEFAULT rules; a finding from a rule
+# this repo selected is excluded here, not patched. See CLAUDE/QA.md.
 QA_PY_EXCLUDE_DIRS=(
     ".git"
     ".ansible/roles"

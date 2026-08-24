@@ -255,10 +255,22 @@ CCY therefore does two things, and both are needed:
   executables keep working, and symlinks are skipped.
 
 The repair is **not** a one-off migration, and must not be removed once the umask has
-shipped. The hooks daemon sets `os.umask(0)` when it daemonizes and writes archived
-transcripts to `.claude/hooks-daemon/untracked/transcripts/` at mode `0666` — it
-overwrites its own umask rather than inheriting the container's, so nothing but the repair
-pass restricts those files, and it re-creates them continuously.
+shipped. **A umask governs creates and retro-fixes nothing**, so every file written before
+one shipped keeps the mode it was born with. The hooks daemon is the worked example: until
+daemon 3.53.0 it called `os.umask(0)` when it daemonized — overwriting its own umask
+rather than inheriting the container's — and created essentially everything under
+`.claude/hooks-daemon/untracked/` world-writable (`0666`, directories `0777`), including
+the verdict log, captured hook payloads, the per-session sidecars and the PID file. Daemon
+3.53.0 sets `umask 0o077` instead, so *new* artefacts are owner-only; the ones already on
+disk keep `0666` until something tightens them. List them with
+`.claude/hooks-daemon/bin/hooks-daemon check-permissions` (`--fix` tightens them) — CCY's
+repair pass catches them on the next launch regardless, which is exactly why it stays.
+
+(The daemon's transcript archiver was removed in 3.53.0, so
+`.claude/hooks-daemon/untracked/transcripts/` is no longer written to. An existing copy is
+left in place by the upgrade and is safe to delete — Claude Code's own transcripts live at
+`~/.claude/projects/<project-slug>/<session-id>.jsonl` and were never covered by the
+archive.)
 
 This protects against another local user reading your state, and against a copy of the
 project tree leaking it — `.gitignore` stops git, but does nothing for `rsync`, `restic`,
