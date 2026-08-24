@@ -10,10 +10,9 @@
 `ccy`'s launch-time internet-reachability preflight (`claude-yolo:2669-2762`) runs
 unconditionally on every launch with a network attached: `podman run --rm --network <net> alpine wget http://google.com`, hard-failing with `exit 1` if it does not succeed. That needs an
 unpinned `alpine` pull and plain-http egress to `google.com` — both denied by design on a
-tightly egress-fenced host such as the `lts-infra` self-hosted GitHub Actions runner
-(`dc-runner-vm`), which proves its own egress posture independently before ever invoking `ccy`
-and has no reason to grant a generic liveness probe requirements its own provisioning does not
-otherwise need.
+tightly egress-fenced host such as a self-hosted GitHub Actions runner VM, which proves its
+own egress posture independently before ever invoking `ccy` and has no reason to grant a
+generic liveness probe requirements its own provisioning does not otherwise need.
 
 This is the one hard blocker `lts-infra` Plan 00030 (runner CI dispatch via real `ccy`) recorded
 in its Open Question 2, and the same problem fedora-desktop's own unmerged Plan 00068
