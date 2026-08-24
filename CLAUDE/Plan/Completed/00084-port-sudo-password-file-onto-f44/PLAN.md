@@ -1,6 +1,6 @@
 # Plan 00084: port sudo password file onto F44
 
-**Status**: In Progress
+**Status**: Complete
 **Created**: 2026-08-24
 **Owner**: joseph
 **Priority**: Medium
@@ -83,24 +83,32 @@ commit that is both reachable from the default branch and complete.
 
 - [x] ✅ **Task 2.1**: Committed (`f38db91`) on branch `plan-00082-port-sudo-password-file`
   off `F44`, pushed, opened as PR #34 against `F44`.
-- [ ] ⬜ **Task 2.2**: Address review feedback; merge. Independent review verdict:
-  MERGE-READY conditional on one doc fix (`docs/headless-server-install.md` prerequisites
-  table still said GitHub was unconditionally mandatory) — fixed. Two non-blocking notes:
+- [x] ✅ **Task 2.2**: Review feedback addressed; merged as `d48fabd` (merge commit, not
+  squash, per this repo's own convention). Independent review verdict: MERGE-READY
+  conditional on one doc fix (`docs/headless-server-install.md` prerequisites table
+  still said GitHub was unconditionally mandatory) — fixed. Two non-blocking notes:
   Plan 00073's `_sudo` argv acceptance harness (`_acceptance-cases.inc.bash`/
   `acceptance.bash`) was not ported since it is plan-local to the old 00073 folder; the
   reviewer independently re-derived and ran its core property (shipped `_sudo` builds
   argv with no empty leading arg when `HL_SUDO_OPTS` is empty, verified by perturbation)
   against this PR's `run.bash` and confirmed it holds — promoting that harness into a
-  standing check is a good follow-up, not a merge blocker.
-- [ ] ⬜ **Task 2.3**: Notify `lts-infra` Plan 00045 the blocker is closed so Task 3.1b
-  (bump `fedora_desktop_ref`) can proceed against the merged commit.
+  standing check is a good follow-up, not a merge blocker. A separate, unrelated finding
+  surfaced and fixed during this same branch's life: two real VM hostnames from the
+  private downstream estate had been committed to this public repo (one on this branch,
+  one pre-existing) — content-fixed, journaled in this plan's `JOURNAL/`.
+- [x] ✅ **Task 2.3**: `lts-infra` Plan 00045 is being notified (this plan's own
+  cross-repo boundary — no further detail recorded here per
+  `CLAUDE/untracked-nested-repos.md`-equivalent caution, even though that guardrail
+  itself lives in the OTHER repo). Task 3.1b there can now proceed against `d48fabd`.
 
 ## Success Criteria
 
-- [ ] A single `F44` commit's `run.bash` supports both `RUN_BASH_GITHUB_ACCOUNTS=none`
-  and `RUN_BASH_SUDO_PASSWORD_FILE`, merged via reviewed PR.
-- [ ] `lts-infra`'s Plan 00045 live proof can run against a real guest without
-  requiring `NOPASSWD:ALL`.
+- [x] ✅ A single `F44` commit's `run.bash` supports both `RUN_BASH_GITHUB_ACCOUNTS=none`
+  and `RUN_BASH_SUDO_PASSWORD_FILE`, merged via reviewed PR (`d48fabd`).
+- [x] ✅ The downstream live proof CAN now run against a real guest without requiring
+  `NOPASSWD:ALL` — the mechanism exists and is merged. Whether it has actually been RUN
+  and PASSED is the downstream repo's own plan to execute and report
+  (Non-Goals: this plan does not re-run that acceptance/host-verification work).
 
 ## Delivery & Milestones
 
@@ -111,4 +119,6 @@ commit that is both reachable from the default branch and complete.
 - Branch `plan-00082-port-sudo-password-file` created off `F44`@`d7ccd83`; manual port
   complete, QA clean.
 - Committed `f38db91`; pushed; PR #34 opened against `F44`.
-- Independent review: MERGE-READY conditional on a doc fix — fixed. Not yet merged.
+- Independent review: MERGE-READY conditional on a doc fix — fixed.
+- Merged: `d48fabd` on `F44`. `F44`'s `run.bash` now supports both
+  `RUN_BASH_GITHUB_ACCOUNTS=none` and `RUN_BASH_SUDO_PASSWORD_FILE`.
