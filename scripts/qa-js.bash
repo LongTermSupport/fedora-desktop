@@ -36,17 +36,28 @@ if ! command -v node >/dev/null; then
 fi
 
 # Discover repo-owned .js files. Exclude vendored/upstream/runtime trees.
+#
+# Every entry below is anchored to REPO_ROOT (`$REPO_ROOT/name/*`) EXCEPT
+# node_modules, which legitimately nests at multiple depths under a JS project
+# and so stays anywhere-in-tree. A plain `*/name/*` matches anywhere in the
+# ABSOLUTE path — including an ANCESTOR of REPO_ROOT — so a checkout at a path
+# like .../untracked/repos/fedora-desktop excluded every file in the repo when
+# only `untracked` was anchored this way (see qa-discovery.bash's
+# qa_discover_shell_files() for the same bug, found and fixed the same way,
+# Plan 00082). None of the other names here nest below REPO_ROOT at more than
+# one location, so all of them are anchored too rather than leaving the same
+# latent defect in entries nobody happened to hit yet.
 JS_FILES=()
 while IFS= read -r -d '' file; do
     JS_FILES+=("$file")
 done < <(find "$REPO_ROOT" -type f -name "*.js" \
-    ! -path "*/.git/*" \
+    ! -path "$REPO_ROOT/.git/*" \
     ! -path "*/node_modules/*" \
-    ! -path "*/.ansible/roles/*" \
-    ! -path "*/roles/vendor/*" \
-    ! -path "*/.claude/hooks-daemon/*" \
-    ! -path "*/.claude/ccy/*" \
-    ! -path "*/untracked/*" \
+    ! -path "$REPO_ROOT/.ansible/roles/*" \
+    ! -path "$REPO_ROOT/roles/vendor/*" \
+    ! -path "$REPO_ROOT/.claude/hooks-daemon/*" \
+    ! -path "$REPO_ROOT/.claude/ccy/*" \
+    ! -path "$REPO_ROOT/untracked/*" \
     -print0)
 
 TOTAL=${#JS_FILES[@]}

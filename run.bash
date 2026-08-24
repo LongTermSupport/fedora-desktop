@@ -3,7 +3,7 @@
 ## Setup
 ## !! BUMP THIS VERSION ON EVERY CHANGE TO THIS FILE — NO EXCEPTIONS !!
 ## !! If you forget, there is NO WAY to tell which version is running !!
-RUN_BASH_VERSION="1.11.0"  # Feature (Plan 00063) slice 2: headless PREFLIGHT — headless_preflight validates+resolves all RUN_BASH_* input up front (non-root check, NOPASSWD-sudo probe, required email/accounts, secret *_FILE resolution with V3.10 guardrails: file-precedence, both-set/unreadable/literal-on-cloud fail-fast, literal-elsewhere warn, unset literals before first child), set -u-safe secret-file EXIT trap. v1.9.1: defer the GitHub-empty ('none') path per round-3 decision — headless v1 requires a single GitHub account + token file (fail fast on 'none'); help + acceptance aligned. v1.9.2: require RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE in v1 — the login SSH key stays passphrase-protected (D6), mirroring the interactive no-empty-passphrase rule, since headless loads it non-interactively via ssh-agent/SSH_ASKPASS (D5). v1.9.3: begin the EXECUTION slice — add hl_abort (BIG LOUD banner, exit 1) for headless execution failures, and a headless backstop at the top of every shared interactive prompt helper (confirm/promptForValue/promptChoice/promptSecretConfirmed/promptDefault/prompt_verified_vault_password/prompt_github_accounts_yaml) so a headless run that ever reaches a prompt fails LOUD instead of hanging (fail-fast rule 11). v1.9.4: GitHub/SSH execution mechanics — hl_ssh_agent_start (ssh-agent + transient 0700 SSH_ASKPASS reading a 0600 passphrase file, V3.13), hl_ssh_agent_stop (kill after last git op, V3.12), hl_cleanup EXIT trap (shred secret files + backstop agent kill, V3.11); headless branches for keygen (-P from resolved passphrase + agent load), hostname (RUN_BASH_HOSTNAME or leave default), gh token auth (gh auth login --with-token from stdin + git_protocol=ssh). All fail LOUD via hl_abort. v1.9.5: localhost.yml assembly — hl_write_localhost_yml (idempotent keep, else RUN_BASH_CONFIG_SOURCE pull from the private config repo, else FRESH from RUN_BASH_* identity + github_accounts), hl_pull_config_source (private-repo gate + LOUD 404), hl_reconcile_vault (D6: provided-or-fail, verify against encrypted values, NEVER auto-generate over !vault); headless branch for github_ssh_passphrase (reuse resolved passphrase, vault-encrypt). Interactive config/vault blocks wrapped under `if HEADLESS != true`. v1.10.0: FLIP the honest-stop — headless now flows through the FULL body (gh-account-setup gets RUN_BASH_HEADLESS + fails LOUD on any interactive gh web/scope-refresh; main playbook gets RUN_BASH_PROVISIONING_PROFILE passthrough + D7 loud-fatal on failure; optional playbooks via RUN_BASH_OPTIONAL_PLAYBOOKS; projects restore via RUN_BASH_RESTORE_PROJECTS; reboot via RUN_BASH_REBOOT). END-TO-END execution is HOST-verified on a real server (Phase 3) — in-container this is bash -n + shellcheck + preflight acceptance only. v1.11.0: Feature (Plan 00065 Phase 5) — RUN_BASH_OPTIONAL_PLAYBOOKS accepts the reserved keyword 'server-recommended', expanded from the tracked manifest playbooks/imports/optional/server-recommended.bundle into its listed plays before the existing per-token resolver runs; composes with explicit tokens and the resolved token list is de-duplicated (a play named twice — via the bundle plus an explicit token, or two explicit tokens — runs once); unknown-token and failed-play handling unchanged.
+RUN_BASH_VERSION="1.12.0"  # Feature (Plan 00082) — implement RUN_BASH_GITHUB_ACCOUNTS=none in headless: preflight now accepts 'none' (skips the GITHUB_TOKEN_FILE/GITHUB_SSH_PASSPHRASE_FILE requirement, rejects it combined with RUN_BASH_CONFIG_SOURCE or RUN_BASH_RESTORE_PROJECTS=1 — both need a GitHub identity); the SSH keygen block, the gh-install/auth/SSH-key-upload/known-hosts/self-clone block (now an HTTPS-only clone in the empty branch), the "GitHub SSH Key Passphrase" vault-encrypt step, and the "Setting Up GitHub Multi-Account Access" step all gain an explicit HL_GITHUB_ACCOUNTS=none branch that skips GitHub/SSH setup entirely; hl_write_localhost_yml writes an explicit `github_accounts: {}` (not an omitted key) so both github_accounts_configured and the function's own idempotency re-run check read it correctly. Revives the design --help-run-headless documented before it was deferred (v1.9.1, commit 83cdb2c) — re-verified against current files that the two "latent server-profile playbook bugs" cited as blockers are (1) already fixed (play-lxc's git@ clone) and (2) not reproducible from current file state (play-git-configure-and-tools.yml installs gh unconditionally, before play-github-cli-multi.yml runs, regardless of GitHub config) — see CLAUDE/Plan/00082-run-bash-github-accounts-none/PLAN.md. No change to the GitHub-configured headless path or the interactive path. Feature (Plan 00063) slice 2: headless PREFLIGHT — headless_preflight validates+resolves all RUN_BASH_* input up front (non-root check, NOPASSWD-sudo probe, required email/accounts, secret *_FILE resolution with V3.10 guardrails: file-precedence, both-set/unreadable/literal-on-cloud fail-fast, literal-elsewhere warn, unset literals before first child), set -u-safe secret-file EXIT trap. v1.9.1: defer the GitHub-empty ('none') path per round-3 decision — headless v1 requires a single GitHub account + token file (fail fast on 'none'); help + acceptance aligned. v1.9.2: require RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE in v1 — the login SSH key stays passphrase-protected (D6), mirroring the interactive no-empty-passphrase rule, since headless loads it non-interactively via ssh-agent/SSH_ASKPASS (D5). v1.9.3: begin the EXECUTION slice — add hl_abort (BIG LOUD banner, exit 1) for headless execution failures, and a headless backstop at the top of every shared interactive prompt helper (confirm/promptForValue/promptChoice/promptSecretConfirmed/promptDefault/prompt_verified_vault_password/prompt_github_accounts_yaml) so a headless run that ever reaches a prompt fails LOUD instead of hanging (fail-fast rule 11). v1.9.4: GitHub/SSH execution mechanics — hl_ssh_agent_start (ssh-agent + transient 0700 SSH_ASKPASS reading a 0600 passphrase file, V3.13), hl_ssh_agent_stop (kill after last git op, V3.12), hl_cleanup EXIT trap (shred secret files + backstop agent kill, V3.11); headless branches for keygen (-P from resolved passphrase + agent load), hostname (RUN_BASH_HOSTNAME or leave default), gh token auth (gh auth login --with-token from stdin + git_protocol=ssh). All fail LOUD via hl_abort. v1.9.5: localhost.yml assembly — hl_write_localhost_yml (idempotent keep, else RUN_BASH_CONFIG_SOURCE pull from the private config repo, else FRESH from RUN_BASH_* identity + github_accounts), hl_pull_config_source (private-repo gate + LOUD 404), hl_reconcile_vault (D6: provided-or-fail, verify against encrypted values, NEVER auto-generate over !vault); headless branch for github_ssh_passphrase (reuse resolved passphrase, vault-encrypt). Interactive config/vault blocks wrapped under `if HEADLESS != true`. v1.10.0: FLIP the honest-stop — headless now flows through the FULL body (gh-account-setup gets RUN_BASH_HEADLESS + fails LOUD on any interactive gh web/scope-refresh; main playbook gets RUN_BASH_PROVISIONING_PROFILE passthrough + D7 loud-fatal on failure; optional playbooks via RUN_BASH_OPTIONAL_PLAYBOOKS; projects restore via RUN_BASH_RESTORE_PROJECTS; reboot via RUN_BASH_REBOOT). END-TO-END execution is HOST-verified on a real server (Phase 3) — in-container this is bash -n + shellcheck + preflight acceptance only. v1.11.0: Feature (Plan 00065 Phase 5) — RUN_BASH_OPTIONAL_PLAYBOOKS accepts the reserved keyword 'server-recommended', expanded from the tracked manifest playbooks/imports/optional/server-recommended.bundle into its listed plays before the existing per-token resolver runs; composes with explicit tokens and the resolved token list is de-duplicated (a play named twice — via the bundle plus an explicit token, or two explicit tokens — runs once); unknown-token and failed-play handling unchanged.
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -146,40 +146,69 @@ headless_preflight() {
   # GitHub is mandatory to CONFIGURE — accounts, or the literal 'none' to skip it.
   HL_GITHUB_ACCOUNTS="${RUN_BASH_GITHUB_ACCOUNTS:-}"
   [[ -n "$HL_GITHUB_ACCOUNTS" ]] || headless_fail "RUN_BASH_GITHUB_ACCOUNTS is required." \
-    "Set it to a single GitHub account (headless v1 requires GitHub configured)."
+    "Set it to a single GitHub account, or 'none' to provision without a GitHub identity."
 
-  # v1 requires GitHub CONFIGURED. The 'configured empty' (RUN_BASH_GITHUB_ACCOUNTS=
-  # none) path is a planned follow-up: it must first fix two latent server-profile
-  # bugs (play-github-cli-multi.yml's ungated `gh --version`, play-lxc's git@ clone)
-  # that abort playbook-main on a no-GitHub box. Until then, fail fast rather than
-  # provision a box that would break at the playbook stage.
-  if [[ "$HL_GITHUB_ACCOUNTS" == "none" ]]; then
-    headless_fail "RUN_BASH_GITHUB_ACCOUNTS=none (GitHub-empty provisioning) is not supported in headless v1." \
-      "Provide a single GitHub account + RUN_BASH_GITHUB_TOKEN_FILE. (Empty-GitHub is a planned follow-up.)"
-  fi
   # v1 supports a SINGLE account; multiple need one token file per alias (D5).
+  # ('none' has no comma, so this never fires for the empty path.)
   if [[ "$HL_GITHUB_ACCOUNTS" == *,* ]]; then
     headless_fail "Multiple GitHub accounts ('${HL_GITHUB_ACCOUNTS}') are not supported in headless v1." \
-      "Use a single account."
+      "Use a single account, or 'none' to skip GitHub."
+  fi
+
+  # RUN_BASH_GITHUB_ACCOUNTS=none (Plan 00082): provision with no GitHub identity —
+  # clone fedora-desktop over HTTPS, skip gh install/auth/SSH-key-upload entirely
+  # (see the HL_GITHUB_ACCOUNTS=none branches later in this file). CONFIG_SOURCE
+  # (pulls from a private per-account config repo) and RESTORE_PROJECTS (restores
+  # via a GitHub-hosted manifest) both need a GitHub identity, so combining either
+  # with an empty GitHub identity is a contradiction — catch it here, not partway
+  # through execution.
+  if [[ "$HL_GITHUB_ACCOUNTS" == "none" ]]; then
+    local _cfg_src="${RUN_BASH_CONFIG_SOURCE:-none}"
+    if [[ -n "$_cfg_src" && "$_cfg_src" != "none" ]]; then
+      headless_fail "RUN_BASH_CONFIG_SOURCE='${_cfg_src}' was set together with RUN_BASH_GITHUB_ACCOUNTS=none." \
+        "Importing a saved config needs a GitHub identity to pull it from — set a real RUN_BASH_GITHUB_ACCOUNTS, or drop RUN_BASH_CONFIG_SOURCE (or set it to 'none')."
+    fi
+    if [[ "${RUN_BASH_RESTORE_PROJECTS:-0}" == "1" ]]; then
+      headless_fail "RUN_BASH_RESTORE_PROJECTS=1 was set together with RUN_BASH_GITHUB_ACCOUNTS=none." \
+        "Restoring projects needs a GitHub identity to clone them from — set a real RUN_BASH_GITHUB_ACCOUNTS, or drop RUN_BASH_RESTORE_PROJECTS."
+    fi
   fi
 
   # Vault password: must be PROVIDED (either form, file preferred), NEVER
-  # auto-generated headless (V3.3/D6). Resolved here; the execution slice enforces
-  # required-when-vault-present.
+  # auto-generated headless (V3.3/D6). Resolved here for both paths — ansible.cfg
+  # sets vault_password_file, so ansible-playbook needs a readable vault-pass.secret
+  # to even START, whether or not anything ends up vault-encrypted.
   hl_resolve_secret VAULT_PASSWORD HL_VAULT_PASSWORD
 
-  # Scoped token is required for non-interactive gh auth (`gh auth login --with-token`).
-  hl_resolve_secret GITHUB_TOKEN HL_GITHUB_TOKEN
-  [[ -n "$HL_GITHUB_TOKEN" ]] || headless_fail "RUN_BASH_GITHUB_TOKEN_FILE is required (headless v1 requires GitHub configured)." \
-    "Provide a 0600 file holding a scoped PAT (scopes: vars/github-required-scopes.yml + admin:public_key)."
-  hl_resolve_secret GITHUB_SSH_PASSPHRASE HL_GITHUB_SSH_PASSPHRASE
-  # Decision 6: the login SSH key stays passphrase-protected (this mirrors the
-  # interactive flow, which forbids an empty passphrase — run.bash:1278-1284).
-  # Headless v1 always configures GitHub and provisions the key non-interactively
-  # (ssh-agent + SSH_ASKPASS, D5/V3.12-V3.13), so the passphrase MUST be supplied up
-  # front — there is no TTY to prompt for it during the clone/pull later.
-  [[ -n "$HL_GITHUB_SSH_PASSPHRASE" ]] || headless_fail "RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE is required (the login SSH key must stay passphrase-protected)." \
-    "Provide a 0600 file holding the SSH key passphrase (loaded via ssh-agent for the clone; never passed on argv to a child)."
+  # Empty path: nothing downstream defers this the way the configured path's
+  # hl_reconcile_vault does for the (here, nonexistent) github_ssh_passphrase — so
+  # require it explicitly, in preflight, right beside this path's other checks
+  # above. Scoped to 'none' only: the configured path's requirement is still
+  # enforced later, in hl_reconcile_vault, unchanged by this plan.
+  if [[ "$HL_GITHUB_ACCOUNTS" == "none" && -z "$HL_VAULT_PASSWORD" ]]; then
+    headless_fail "RUN_BASH_VAULT_PASSWORD_FILE is required." \
+      "Ansible needs a readable vault-pass.secret to start at all (ansible.cfg sets vault_password_file) — provide a 0600 file holding the vault password, even though the empty path encrypts nothing."
+  fi
+
+  # Scoped token + SSH passphrase are only needed to CONFIGURE GitHub — not
+  # required at all in the empty path (Plan 00082).
+  HL_GITHUB_TOKEN=""
+  HL_GITHUB_SSH_PASSPHRASE=""
+  if [[ "$HL_GITHUB_ACCOUNTS" != "none" ]]; then
+    # Scoped token is required for non-interactive gh auth (`gh auth login --with-token`).
+    hl_resolve_secret GITHUB_TOKEN HL_GITHUB_TOKEN
+    [[ -n "$HL_GITHUB_TOKEN" ]] || headless_fail "RUN_BASH_GITHUB_TOKEN_FILE is required when RUN_BASH_GITHUB_ACCOUNTS is not 'none'." \
+      "Provide a 0600 file holding a scoped PAT (scopes: vars/github-required-scopes.yml + admin:public_key), or set RUN_BASH_GITHUB_ACCOUNTS=none."
+    hl_resolve_secret GITHUB_SSH_PASSPHRASE HL_GITHUB_SSH_PASSPHRASE
+    # Decision 6: the login SSH key stays passphrase-protected (this mirrors the
+    # interactive flow, which forbids an empty passphrase — run.bash:1278-1284).
+    # Headless v1 provisions the key non-interactively (ssh-agent + SSH_ASKPASS,
+    # D5/V3.12-V3.13) whenever GitHub is configured, so the passphrase MUST be
+    # supplied up front — there is no TTY to prompt for it during the clone/pull
+    # later. Not needed at all in the empty path — no login key is generated.
+    [[ -n "$HL_GITHUB_SSH_PASSPHRASE" ]] || headless_fail "RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE is required when RUN_BASH_GITHUB_ACCOUNTS is not 'none' (the login SSH key must stay passphrase-protected)." \
+      "Provide a 0600 file holding the SSH key passphrase (loaded via ssh-agent for the clone; never passed on argv to a child), or set RUN_BASH_GITHUB_ACCOUNTS=none."
+  fi
 
   # V3.10(e): drop any LITERAL secret env vars so children (dnf, gh, ansible) do not
   # inherit them via /proc/PID/environ. The *_FILE path vars are not secret and stay.
@@ -302,6 +331,24 @@ hl_write_localhost_yml() {
     return 0
   fi
   info "Headless: writing fresh localhost.yml (identity + github_accounts)"
+  if [[ "$HL_GITHUB_ACCOUNTS" == "none" ]]; then
+    # Empty-GitHub path (Plan 00082): an explicit empty map, not an omitted key —
+    # play-github-cli-multi.yml's `github_accounts is defined and length > 0` guard
+    # reads {} as "not configured" (correct), AND this function's own idempotency
+    # check above (`grep -qE '(!vault|github_accounts)'`) still matches the literal
+    # string 'github_accounts' on a re-run, so a second headless run does not
+    # re-write the file from scratch.
+    {
+      printf 'user_login: "%s"\n' "$HL_USER_LOGIN"
+      printf 'user_name: "%s"\n' "$HL_USER_NAME"
+      printf 'user_email: "%s"\n' "$HL_USER_EMAIL"
+      printf '# No GitHub identity configured (RUN_BASH_GITHUB_ACCOUNTS=none). To add one later:\n'
+      printf '# scripts/gh-account-setup.bash --add=alias:username\n'
+      printf 'github_accounts: {}\n'
+    } > "$yml"
+    success "Headless: localhost.yml written (fresh, no GitHub identity)"
+    return 0
+  fi
   local _alias _user
   if [[ "$HL_GITHUB_ACCOUNTS" == *:* ]]; then
     _alias="${HL_GITHUB_ACCOUNTS%%:*}"; _user="${HL_GITHUB_ACCOUNTS##*:}"
@@ -323,8 +370,9 @@ hl_write_localhost_yml() {
 # (D6): the password must be PROVIDED (RUN_BASH_VAULT_PASSWORD[_FILE], resolved in
 # preflight into HL_VAULT_PASSWORD), verified against any encrypted values, and NEVER
 # auto-generated over a !vault (that would silently orphan the encrypted data). A vault
-# password is genuinely required because the github_ssh_passphrase is vault-encrypted
-# into localhost.yml right after this. Every failure aborts LOUD.
+# password is genuinely required because ansible.cfg sets vault_password_file — every
+# ansible-playbook invocation needs a readable vault-pass.secret to even start, whether
+# or not localhost.yml actually holds a vault-encrypted value. Every failure aborts LOUD.
 hl_reconcile_vault() {
   local yml="$1" vpf="$2" has_vault=false
   if grep -qF '!vault' "$yml"; then has_vault=true; fi
@@ -358,7 +406,7 @@ hl_reconcile_vault() {
     success "Headless: using existing vault-pass.secret"
   else
     hl_abort "vault reconcile" \
-      "a vault password is required (github_ssh_passphrase is vault-encrypted) but RUN_BASH_VAULT_PASSWORD[_FILE] was not provided and no vault-pass.secret exists" \
+      "Ansible needs a readable vault-pass.secret (ansible.cfg sets vault_password_file) but RUN_BASH_VAULT_PASSWORD[_FILE] was not provided and no vault-pass.secret exists" \
       "set RUN_BASH_VAULT_PASSWORD_FILE to a 0600 file holding the vault password"
   fi
 }
@@ -544,21 +592,22 @@ PRECONDITIONS (fail fast if unmet — never hangs)
   * NOPASSWD:ALL sudo (the default cloud user has it; a password-sudo Server does
     not — configure NOPASSWD or run interactively).
   * Run as the NON-root target user (cloud-init runcmd is root; drop to the user).
-  * GitHub is mandatory in headless v1: set RUN_BASH_GITHUB_ACCOUNTS to a single
-    account AND provide RUN_BASH_GITHUB_TOKEN_FILE AND
-    RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE (the login SSH key stays passphrase-
-    protected). Unset => fail fast. (The 'none' / GitHub-empty path is a planned
-    follow-up, not yet supported.)
+  * GitHub: set RUN_BASH_GITHUB_ACCOUNTS to a single account (then also provide
+    RUN_BASH_GITHUB_TOKEN_FILE AND RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE — the login
+    SSH key stays passphrase-protected) OR to 'none' to provision with no GitHub
+    identity at all (HTTPS-only clone, no token/SSH key needed). Unset => fail
+    fast. 'none' is incompatible with RUN_BASH_CONFIG_SOURCE (non-'none') and
+    RUN_BASH_RESTORE_PROJECTS=1 — both need a GitHub identity.
 
 NON-SECRET CONFIG (plain RUN_BASH_* env)
   RUN_BASH_HEADLESS=1              Force headless.
   RUN_BASH_USER_EMAIL=...          Git email.                     (REQUIRED)
-  RUN_BASH_GITHUB_ACCOUNTS=...     Single gh username (v1). ('none' is a planned
-                                   follow-up, not yet supported.)      (REQUIRED)
+  RUN_BASH_GITHUB_ACCOUNTS=...     Single gh username (v1), or 'none'.  (REQUIRED)
   RUN_BASH_USER_LOGIN=...          System login.        (default: current user)
   RUN_BASH_USER_NAME=...           Full name.                 (default: = login)
   RUN_BASH_HOSTNAME=...            Set hostname when box is still 'fedora'.
   RUN_BASH_CONFIG_SOURCE=...       Config-repo host file to import, or 'none'.
+                                   Requires a real RUN_BASH_GITHUB_ACCOUNTS.
   RUN_BASH_PROVISIONING_PROFILE=   Force desktop|server (default: auto-detect).
   RUN_BASH_OPTIONAL_PLAYBOOKS=...  Space/comma list of optional plays, or 'none'.
                                    'server-recommended' expands to a curated, generic
@@ -567,15 +616,22 @@ NON-SECRET CONFIG (plain RUN_BASH_* env)
                                    combine with explicit plays, e.g.
                                    "server-recommended play-ddev.yml".
   RUN_BASH_RESTORE_PROJECTS=0|1    Restore projects from config manifest.
+                                   Requires a real RUN_BASH_GITHUB_ACCOUNTS.
   RUN_BASH_REBOOT=0|1              Reboot at end.
 
 SECRETS — prefer 0600 FILE POINTERS (recommended), literal env supported but risky
-  RUN_BASH_VAULT_PASSWORD_FILE=/path         Ansible vault password (file).
+  RUN_BASH_VAULT_PASSWORD_FILE=/path         Ansible vault password (file);
+                                             REQUIRED regardless of GitHub config —
+                                             ansible.cfg needs a readable
+                                             vault-pass.secret for ANY run to even
+                                             start, whether or not anything ends up
+                                             vault-encrypted.
   RUN_BASH_GITHUB_TOKEN_FILE=/path           Scoped GitHub PAT (file); REQUIRED
-                                             in headless v1 (GitHub is mandatory).
+                                             when accounts != 'none'.
   RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE=/path  SSH key passphrase (file); REQUIRED
-                                             in v1 (the login key stays passphrase-
-                                             protected, loaded via ssh-agent).
+                                             when accounts != 'none' (the login
+                                             key stays passphrase-protected,
+                                             loaded via ssh-agent).
   Literal equivalents (RUN_BASH_VAULT_PASSWORD, _GITHUB_TOKEN,
   _GITHUB_SSH_PASSPHRASE) are accepted but:
     * REFUSED on a detected cloud box (cloud-init user-data persists them in the
@@ -585,16 +641,22 @@ SECRETS — prefer 0600 FILE POINTERS (recommended), literal env supported but r
   process listings, or cloud-init user-data.
   GitHub token scope: the full vars/github-required-scopes.yml set + admin:public_key.
 
-GITHUB (headless v1 — always CONFIGURED)
+GITHUB EMPTY vs. CONFIGURED
+  RUN_BASH_GITHUB_ACCOUNTS=none  -> clone the PUBLIC repo over HTTPS, skip ALL
+     GitHub/SSH-key/config-repo/projects setup; still run full provisioning. No
+     token or SSH key needed. Simplest for a bare cloud/server box.
   RUN_BASH_GITHUB_ACCOUNTS=<user> -> full GitHub setup via the scoped token file
-     (single account in v1). This is the ONLY supported headless path today.
-  The GitHub-empty path (RUN_BASH_GITHUB_ACCOUNTS=none -> HTTPS-only public clone,
-     no token/SSH key) is a planned follow-up: it is currently BLOCKED by two
-     latent server-profile playbook bugs, so v1 fails fast on 'none' rather than
-     provision a box that would break at the playbook stage.
+     (single account in v1; multiple accounts need one token file per alias).
 
-CANONICAL INVOCATION (run as the non-root user)
-  The single supported headless provision — branch-latest repo, full setup:
+CANONICAL INVOCATIONS (run as the non-root user)
+  A. Minimal, no GitHub identity:
+       RUN_BASH_HEADLESS=1 \
+       RUN_BASH_USER_EMAIL=name@example.com \
+       RUN_BASH_GITHUB_ACCOUNTS=none \
+       RUN_BASH_VAULT_PASSWORD_FILE=/run/secrets/vault-pass \
+         ./run.bash
+
+  B. Full, with GitHub (single account):
        RUN_BASH_HEADLESS=1 \
        RUN_BASH_USER_EMAIL=name@example.com \
        RUN_BASH_GITHUB_ACCOUNTS=<gh-username> \
@@ -610,11 +672,8 @@ CLOUD-INIT (Fedora Cloud) — fetch secrets OUT-OF-BAND, never in write_files
      runcmd:
        - [ sh, -c, 'aws secretsmanager get-secret-value --secret-id vault
              --query SecretString --output text > /run/secrets/vault-pass' ]
-       - [ sh, -c, 'aws secretsmanager get-secret-value --secret-id gh-token
-             --query SecretString --output text > /run/secrets/gh-token' ]
        - [ sh, -c, 'sudo -u <user> -i env RUN_BASH_HEADLESS=1
-             RUN_BASH_USER_EMAIL=name@example.com RUN_BASH_GITHUB_ACCOUNTS=<gh-username>
-             RUN_BASH_GITHUB_TOKEN_FILE=/run/secrets/gh-token
+             RUN_BASH_USER_EMAIL=name@example.com RUN_BASH_GITHUB_ACCOUNTS=none
              RUN_BASH_VAULT_PASSWORD_FILE=/run/secrets/vault-pass
              /home/<user>/run.bash' ]
   Replace <user> with the box's non-root user (Fedora Cloud's default distro user).
@@ -1588,7 +1647,12 @@ completed
 
 _ssh_key_password=""  # saved here, offered as default for github_ SSH keys later
 title "Creating SSH Key Pair\n\nNOTE - you must set a password\n\nSuggest you use your login password"
-if [[ "$HEADLESS" == "true" ]]; then
+if [[ "$HEADLESS" == "true" && "$HL_GITHUB_ACCOUNTS" == "none" ]]; then
+  # Headless empty-GitHub path (Plan 00082): no GitHub identity means no need for a
+  # login SSH key — the self-clone below uses HTTPS, and there is no GitHub SSH
+  # key/known-hosts setup to do. Skip keygen and ssh-agent entirely.
+  info "Headless: GitHub not configured — skipping SSH key generation"
+elif [[ "$HEADLESS" == "true" ]]; then
   # Headless: the passphrase came from RUN_BASH_GITHUB_SSH_PASSPHRASE[_FILE] (required
   # in preflight, non-empty). Generate the key non-interactively, then load it into an
   # ssh-agent so the SSH clone/pull below works without a TTY (D5/V3.12/V3.13). Every
@@ -1654,6 +1718,61 @@ if [[ "$(hostname)" == "fedora" ]]; then
     sudo hostnamectl set-hostname "$hostname"
   fi
 fi
+
+if [[ "$HEADLESS" == "true" && "$HL_GITHUB_ACCOUNTS" == "none" ]]; then
+  # Headless empty-GitHub path (Plan 00082): no GitHub identity is configured, so
+  # skip gh install/auth entirely, skip uploading an SSH key (none was generated —
+  # see the keygen block above), skip the GitHub known-hosts update, and clone
+  # fedora-desktop over HTTPS (public, unauthenticated) instead of git@. Every
+  # failure aborts LOUD via hl_abort, matching the rest of the headless execution
+  # path. `gh` itself still gets installed later, unconditionally, by the core
+  # Ansible play play-git-configure-and-tools.yml — no need to install it here too.
+  primary_gh_username=""
+
+  title "Setting up Project Directory and Repository (HTTPS — no GitHub identity)"
+  mkdir -p ~/Projects
+  fedora_desktop_https_url="https://github.com/LongTermSupport/fedora-desktop.git"
+  if [[ ! -d ~/Projects/fedora-desktop ]]; then
+    info "Headless: cloning fedora-desktop over HTTPS (no GitHub identity configured)"
+    if ! _clone_out="$(git clone "$fedora_desktop_https_url" ~/Projects/fedora-desktop 2>&1)"; then
+      hl_abort "clone fedora-desktop" "git clone (HTTPS) failed" "git said: ${_clone_out}"
+    fi
+    unset _clone_out
+    success "Repository cloned (HTTPS)"
+  else
+    info "Headless: pulling latest changes"
+    assert_clean_worktree ~/Projects/fedora-desktop
+    # Migrate any pre-existing SSH origin to HTTPS so this and future pulls do not
+    # need a GitHub identity. Idempotent: only rewrites when the URL differs.
+    current_origin=$(command git -C ~/Projects/fedora-desktop remote get-url origin)
+    if [[ "$current_origin" != "$fedora_desktop_https_url" ]]; then
+      info "Headless: setting origin remote to HTTPS"
+      command git -C ~/Projects/fedora-desktop remote set-url origin "$fedora_desktop_https_url"
+    fi
+    if ! _pull_out="$(command git -C ~/Projects/fedora-desktop pull 2>&1)"; then
+      hl_abort "update fedora-desktop" "git pull (HTTPS) failed" "git said: ${_pull_out}"
+    fi
+    unset _pull_out
+    success "Repository updated (HTTPS)"
+  fi
+  cd ~/Projects/fedora-desktop || hl_abort "cd into fedora-desktop" "cannot cd into ~/Projects/fedora-desktop" "check the clone succeeded"
+
+  # Fail fast: verify Fedora version matches this branch (same check as the
+  # GitHub-configured path below).
+  version_file=~/Projects/fedora-desktop/vars/fedora-version.yml
+  if [[ ! -f "$version_file" ]]; then
+    hl_abort "verify Fedora version" "cannot find ${version_file} — repository may be corrupt" \
+      "the HTTPS clone may have failed partway; re-run"
+  fi
+  expected_version=$(grep "fedora_version:" "$version_file" | cut -d: -f2 | tr -d ' ')
+  if [[ "$fedora_version" != "$expected_version" ]]; then
+    hl_abort "verify Fedora version" \
+      "Fedora version mismatch — expected ${expected_version} (from branch), running ${fedora_version}" \
+      "check out the correct branch for this Fedora version"
+  fi
+  success "Fedora version verified: $fedora_version matches branch"
+  completed
+else
 
 title "Installing Github CLI"
 sudo dnf -y install 'dnf-command(config-manager)'
@@ -1877,6 +1996,7 @@ fi
 success "Fedora version verified: $fedora_version matches branch"
 completed
 
+fi  # end: HL_GITHUB_ACCOUNTS=none HTTPS-only clone vs. GitHub-configured SSH clone
 
 title "Loading Personal Configuration"
 localhost_yml=~/Projects/fedora-desktop/environment/localhost/host_vars/localhost.yml
@@ -2149,7 +2269,11 @@ title "GitHub SSH Key Passphrase"
 # The passphrase is stored in the vault so the Ansible playbook can manage keys idempotently.
 _github_ssh_passphrase=""
 
-if grep -q 'github_ssh_passphrase:' "$localhost_yml" 2>/dev/null; then
+if [[ "$HEADLESS" == "true" && "$HL_GITHUB_ACCOUNTS" == "none" ]]; then
+  # Empty-GitHub path (Plan 00082): no GitHub account keys exist, so there is
+  # nothing to vault-encrypt a passphrase for.
+  info "Headless: GitHub not configured — no github_ssh_passphrase to set up"
+elif grep -q 'github_ssh_passphrase:' "$localhost_yml" 2>/dev/null; then
   success "github_ssh_passphrase already configured in localhost.yml"
 else
   if [[ "$HEADLESS" == "true" ]]; then
@@ -2187,7 +2311,12 @@ unset _ssh_key_password _encrypted
 completed
 
 title "Setting Up GitHub Multi-Account Access"
-if grep -q 'github_accounts' "$localhost_yml" 2>/dev/null; then
+if [[ "$HEADLESS" == "true" && "$HL_GITHUB_ACCOUNTS" == "none" ]]; then
+  # Empty-GitHub path (Plan 00082): localhost.yml carries an explicit empty
+  # `github_accounts: {}` (Task 2.3) — the bare `grep -q 'github_accounts'` below
+  # would false-positive on that literal string, so check explicitly instead.
+  success "No GitHub identity configured — nothing to authenticate"
+elif grep -q 'github_accounts' "$localhost_yml" 2>/dev/null; then
   # gh-account-setup.bash handles: per-account gh auth, OAuth scope audit,
   # SSH key generation, programmatic key upload (gh ssh-key add), and
   # isolated SSH verification. Pass passphrase via env if already in memory
