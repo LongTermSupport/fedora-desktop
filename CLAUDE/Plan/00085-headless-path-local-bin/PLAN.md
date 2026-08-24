@@ -49,10 +49,10 @@ independent blocker at the first bare `ansible-galaxy` call.
 - [x] ✅ **Task 1.1**: add `export PATH="$HOME/.local/bin:$PATH"` to `run.bash`
   immediately after the pipx-based ansible install block, before any later bare
   `ansible-galaxy`/`ansible-playbook`/`ansible` invocation.
-- [x] ✅ **Task 1.2**: `bash -n` + `shellcheck -x` clean; bump `RUN_BASH_VERSION` +
-  changelog entry.
-- [ ] ⬜ **Task 1.3**: commit, push on a branch, open PR against `F44`.
-- [ ] ⬜ **Task 1.4**: independent review (qa-reviewer stand-in).
+- [x] ✅ **Task 1.2**: `bash -n` + `shellcheck -x` clean; bump `RUN_BASH_VERSION`.
+- [x] ✅ **Task 1.3**: commit, push on a branch, open PR against `F44` (PR #35).
+- [x] ✅ **Task 1.4**: independent review (qa-reviewer stand-in) — verdict MERGE-READY
+  WITH NITS; nits addressed (README index row added, Task 1.3 ticked).
 - [ ] ⬜ **Task 1.5**: merge.
 
 ## Success Criteria
