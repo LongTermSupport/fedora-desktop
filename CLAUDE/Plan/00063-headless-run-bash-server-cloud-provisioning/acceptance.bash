@@ -86,9 +86,13 @@ expect_fail "bad USER_EMAIL" "is not a valid email" \
 expect_fail "missing GITHUB_ACCOUNTS" "RUN_BASH_GITHUB_ACCOUNTS is required" \
   RUN_BASH_USER_EMAIL=name@example.com
 
-# 4. GitHub-empty ('none') path is deferred in v1 — must fail fast, not provision.
-expect_fail "github=none deferred in v1" "not supported in headless v1" \
-  RUN_BASH_USER_EMAIL=name@example.com RUN_BASH_GITHUB_ACCOUNTS=none
+# 4. GitHub-empty ('none') path is implemented (Plan 00082) — 'none' alone must
+#    now pass preflight and reach the same NOPASSWD gate as a configured account
+#    (no token/SSH-passphrase file required for 'none'; see Plan 00082's own
+#    acceptance.bash for the empty-path-specific preflight coverage).
+expect_fail "github=none reaches NOPASSWD gate" "NOPASSWD" \
+  RUN_BASH_USER_EMAIL=name@example.com RUN_BASH_GITHUB_ACCOUNTS=none \
+  RUN_BASH_VAULT_PASSWORD_FILE="$readable_secret"
 
 # 5. Multiple GitHub accounts (v1 single-account).
 expect_fail "multiple GITHUB_ACCOUNTS" "Multiple GitHub accounts" \

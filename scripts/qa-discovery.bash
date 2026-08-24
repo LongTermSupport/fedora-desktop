@@ -138,23 +138,31 @@ qa_has_python_shebang() {
 # by any gate, while the gates printed passes over the rest. Coverage must depend
 # on what a file IS, not on a permission bit any commit can drop.
 qa_discover_shell_files() {
-    local repo_root="$1" file dir
-    local find_exclude=()
-    for dir in "${QA_EXCLUDE_DIRS[@]}"; do
-        find_exclude+=(! -path "*/$dir/*")
-    done
+    local repo_root="$1" file rel
 
+    # Exclusion is applied AFTER stripping the repo_root prefix, via the same
+    # qa_is_excluded() the git-based qa_tracked_shell_scripts() below already
+    # uses — one exclusion mechanism, operating only on the REPO-RELATIVE path.
+    # An earlier version passed `! -path "*/$dir/*"` straight to find against
+    # the ABSOLUTE path, which matches an excluded name ANYWHERE in the path —
+    # including an ANCESTOR of repo_root itself. A checkout at a path like
+    # .../untracked/repos/fedora-desktop then had every file excluded by the
+    # "untracked" entry (meant to exclude the repo's OWN untracked/ subdir),
+    # silently discovering 0 files. Traversal cost is unchanged: find already
+    # visited every path either way (`! -path` filters output, it does not
+    # `-prune` the walk), only the exclusion test moved.
     QA_SHELL_FILES=()
     while IFS= read -r -d '' file; do
+        rel="${file#"$repo_root"/}"
+        qa_is_excluded "$rel" && continue
         QA_SHELL_FILES+=("$file")
-    done < <(find "$repo_root" -type f \( -name "*.sh" -o -name "*.bash" \) \
-        "${find_exclude[@]}" \
-        -print0)
+    done < <(find "$repo_root" -type f \( -name "*.sh" -o -name "*.bash" \) -print0)
 
     while IFS= read -r -d '' file; do
+        rel="${file#"$repo_root"/}"
+        qa_is_excluded "$rel" && continue
         qa_has_shell_shebang "$file" && QA_SHELL_FILES+=("$file")
     done < <(find "$repo_root" -type f \
-        "${find_exclude[@]}" \
         ! -name "*.sh" \
         ! -name "*.bash" \
         ! -name "*.j2" \
@@ -213,23 +221,24 @@ qa_tracked_shell_scripts() {
 #
 # `.j2` is skipped: a Jinja template is not valid Python until it is rendered.
 qa_discover_python_files() {
-    local repo_root="$1" file dir
-    local find_exclude=()
-    for dir in "${QA_PY_EXCLUDE_DIRS[@]}"; do
-        find_exclude+=(! -path "*/$dir/*")
-    done
+    local repo_root="$1" file rel
 
+    # Exclusion applied on the REPO-RELATIVE path via qa_py_is_excluded() —
+    # see qa_discover_shell_files() above for why (an absolute-path `-path`
+    # predicate can match an excluded name in an ANCESTOR of repo_root, not
+    # just inside the repo).
     QA_PYTHON_FILES=()
     while IFS= read -r -d '' file; do
+        rel="${file#"$repo_root"/}"
+        qa_py_is_excluded "$rel" && continue
         QA_PYTHON_FILES+=("$file")
-    done < <(find "$repo_root" -type f -name "*.py" \
-        "${find_exclude[@]}" \
-        -print0)
+    done < <(find "$repo_root" -type f -name "*.py" -print0)
 
     while IFS= read -r -d '' file; do
+        rel="${file#"$repo_root"/}"
+        qa_py_is_excluded "$rel" && continue
         qa_has_python_shebang "$file" && QA_PYTHON_FILES+=("$file")
     done < <(find "$repo_root" -type f \
-        "${find_exclude[@]}" \
         ! -name "*.py" \
         ! -name "*.j2" \
         -print0)
