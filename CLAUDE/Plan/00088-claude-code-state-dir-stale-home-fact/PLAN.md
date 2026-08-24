@@ -75,7 +75,11 @@ far (PR #33/#34/#35/#36/#37) are implicated.
   unticked tasks despite the work being done, a false claim that a follow-up
   gap was journalled when it wasn't, and stale line-number citations. Fixed in
   place (this revision); re-review pending before merge.
-- [ ] ⬜ **Task 1.5**: merge once re-review returns PASS/PASS WITH NITS.
+- [x] ✅ **Task 1.5**: merged (`9f6ccf85`, PR #38). Re-review returned **PASS** —
+  all four round-1 plan-doc findings verified genuinely fixed, code fix
+  unchanged and correct, both QA gates green at the merged tip, no
+  secret/PII/hostname leak. CI green (`gitleaks`, helper unit tests,
+  `qa-all.bash`) before merge.
 - [ ] ⬜ **Task 1.6**: re-pin lts-infra's live-proof harness at this merged
   commit and re-run it — see lts-infra Plan 00045.
 
@@ -92,4 +96,5 @@ far (PR #33/#34/#35/#36/#37) are implicated.
      "when" — do not add dates). The blow-by-blow activity log lives in
      JOURNAL/00088-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
+- Merged: `9f6ccf85` (PR #38).
 - Recovery cron: 28837729 (shared session-wide failsafe, already running).
