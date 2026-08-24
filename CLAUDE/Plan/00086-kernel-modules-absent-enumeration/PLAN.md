@@ -32,8 +32,12 @@ mechanisms are implicated here.
 - Make the kernel-modules enumeration tolerate "package not installed" as data,
   without masking any other kind of `rpm -q` failure.
 - Keep the half-installed-kernel difference computation correct when
-  `kernel-modules` is legitimately absent (must treat it as zero versions, not
-  as the literal "package ... is not installed" string).
+  `kernel-modules` is legitimately absent — and correctly recognise that a
+  host where `kernel-modules` is absent altogether is not "half-installed" at
+  all (it is complete for its own package set), so the removal task must
+  never fire on it.
+- Never let the removal task target the currently-running kernel, regardless
+  of what the detection computes.
 
 ## Non-Goals
 
@@ -58,15 +62,38 @@ mechanisms are implicated here.
 - [x] ✅ **Task 1.3**: `bash -n`/`ansible-playbook --syntax-check` clean;
   `./scripts/qa-all.bash` passes (537 files checked, QA passed).
 - [x] ✅ **Task 1.4**: commit, push on a branch, open PR against `F44` (PR #36).
-- [ ] ⬜ **Task 1.5**: independent review (qa-reviewer stand-in).
+- [x] ✅ **Task 1.5**: independent review (peer review agent) — returned
+  **BLOCK** on two findings, both addressed in Task 1.7 below.
+- [x] ✅ **Task 1.7**: address the two BLOCK findings —
+  1. The original fix diffed `kernel-core` only against `kernel-modules`
+     (unchanged from before this plan). On a host where `kernel-modules` is
+     genuinely absent altogether (the exact target host class), that made
+     the difference computation return every installed `kernel-core`
+     version, which then fed the unconditional `dnf state: absent` removal
+     task — a destructive regression on precisely the host this plan set out
+     to fix. Corrected: the half-install heuristic now only runs when
+     `kernel-modules` exists on the host at all (`km_versions.rc == 0`); a
+     host where it is genuinely not installed is treated as complete for its
+     own package set, not half-installed, and `half_installed_kernels` is
+     unconditionally `[]`.
+  2. Added an unconditional exclusion of the running kernel's version from
+     the removal candidate list, as defense-in-depth against ever targeting
+     the booted kernel.
+  3. The JOURNAL entry for this plan had committed a real private VM
+     hostname from the downstream consumer estate — redacted in place to a
+     generic description, per this repo's own established precedent for
+     this exact leak class (`676a7d74`/`cae9a0ca`, "Redact internal infra
+     hostnames from this public repo"): a content-only forward fix, not a
+     history rewrite.
 - [ ] ⬜ **Task 1.6**: merge.
 
 ## Success Criteria
 
 - [ ] A downstream live proof re-run on a guest lacking `kernel-modules` gets
   past this task without a hard failure, and `half_installed_kernels` comes
-  out as an accurate list (empty when `kernel-core` and `kernel-modules-core`
-  are in step, per Plan 00045's proof run).
+  out `[]` — not because `kernel-core` and `kernel-modules-core` happen to be
+  in step, but because `kernel-modules` is genuinely absent from this host's
+  package set, so the half-install heuristic does not apply to it at all.
 
 ## Delivery & Milestones
 
