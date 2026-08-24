@@ -117,13 +117,25 @@
       ansible.builtin.command: rpm -q kernel-modules --queryformat '%{VERSION}-%{RELEASE} '
       register: km_versions
       changed_when: false
+      failed_when: false # FAIL-FAST-OK: rc=1 "is not installed" is legitimate zero-versions data here; the assert below rejects any other failure shape
+      tags:
+        - upgrade
+        - dnf
+
+    - name: Assert kernel-modules enumeration failed only in the expected not-installed shape
+      ansible.builtin.assert:
+        that:
+          - km_versions.rc == 0 or (km_versions.rc == 1 and 'is not installed' in km_versions.stdout)
+        fail_msg: >-
+          rpm -q kernel-modules failed unexpectedly (rc={{ km_versions.rc }}):
+          stdout={{ km_versions.stdout }} stderr={{ km_versions.stderr }}
       tags:
         - upgrade
         - dnf
 
     - name: Identify half-installed kernels (kernel-core without matching kernel-modules)
       ansible.builtin.set_fact:
-        half_installed_kernels: "{{ kc_versions.stdout.split() | difference(km_versions.stdout.split()) | list }}"
+        half_installed_kernels: "{{ kc_versions.stdout.split() | difference((km_versions.stdout if km_versions.rc == 0 else '').split()) | list }}"
       tags:
         - upgrade
         - dnf
