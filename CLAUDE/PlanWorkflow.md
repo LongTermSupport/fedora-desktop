@@ -298,7 +298,6 @@ command depends on what you changed (see `CLAUDE/QA.md` for the authoritative re
 | -------------------------- | -------------------------------------------------- |
 | Bash / Python / Ansible    | `./scripts/qa-all.bash`                            |
 | GNOME-extension JavaScript | `cd extensions && node_modules/.bin/eslint <file>` |
-| `ccy-ctrl-z-patch.js`      | `./scripts/qa-ctrl-z-patch.bash`                   |
 
 `qa-all.bash` runs six stages (bash syntax + shellcheck, Python compile + ruff, semgrep
 patterns, Ansible fail-fast grep, `ansible-playbook --syntax-check`, JS `node --check` +
@@ -416,7 +415,7 @@ cancelled plans.
    atomically and scaffolds the folder. Never derive the number from a folder scan.
 4. **Update task status in real time** as you work.
 5. **Run `./scripts/qa-all.bash` before commits** that touch Bash/Python/Ansible
-   (ESLint for extension JS, `qa-ctrl-z-patch.bash` for the CCY patch).
+   (ESLint for extension JS).
 6. **Run the `qa-reviewer` agent before marking a plan Complete** — required, and the
    only gate that catches structural/convention defects. When something gets past it,
    add that case to `.claude/agents/qa-reviewer.md` rather than only fixing the instance.

@@ -10,7 +10,7 @@
 - **Only edit and commit** — then tell the user to deploy on their HOST system
 - CCY version bump required when modifying `files/var/local/claude-yolo/claude-yolo`
 
-**Full container rules and ctrl+z patch details:** @CLAUDE/ContainerRules.md
+**Full container rules and the retired ctrl+z patch:** @CLAUDE/ContainerRules.md
 
 ### Fail Fast — HARD RULE
 
@@ -55,7 +55,7 @@ The host's tool inventory is owned by Ansible. A missing tool is an IaC gap, not
 
 ### QA Mandatory Before Commits
 
-Run `./scripts/qa-all.bash` before every commit touching Bash or Python files. Run ESLint for extension JavaScript. Run `./scripts/qa-ctrl-z-patch.bash` for CCY patch changes.
+Run `./scripts/qa-all.bash` before every commit touching Bash or Python files. Run ESLint for extension JavaScript.
 
 **`qa-all.bash` is mechanical and passes green on work that is structurally wrong.** Run the **`qa-reviewer` agent** as the required final step of every plan, and to review any PR or branch diff — it catches misplaced work in the IaC graph, a new playbook that should have been an edit, jargon naming, missing version bumps, plan/docs drift, and verification that does not exercise the code path it vouches for.
 
@@ -151,7 +151,7 @@ If `git status` shows plan files modified by your session, decide before committ
 
 | File                            | Content                                                                     |
 | ------------------------------- | --------------------------------------------------------------------------- |
-| @CLAUDE/ContainerRules.md       | CCY container detection, version bump, ctrl+z patch                         |
+| @CLAUDE/ContainerRules.md       | CCY container detection, version bump, retired ctrl+z patch                 |
 | @CLAUDE/ContainerEngines.md     | Podman/Docker/LXC role split; when to use which; security trade-offs        |
 | @CLAUDE/InfrastructureAsCode.md | Ansible-only workflow, prohibited manual actions                            |
 | @CLAUDE/AnsibleStyle.md         | Playbook structure, markers, packages, services, variables                  |

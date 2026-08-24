@@ -33,7 +33,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.26"
+LABEL claude-yolo-version="2.27"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 # NOTE: the claude-yolo-dockerfile-hash LABEL is set at the END of the final `full` stage
 # (PERF-02) so a Dockerfile edit — which changes DOCKERFILE_HASH — only invalidates that
@@ -239,17 +239,11 @@ RUN printf '#!/bin/sh\necho "Command not found: agentbrowser" >&2\necho "Did you
     > /usr/local/bin/agentbrowser && \
     chmod +x /usr/local/bin/agentbrowser
 
-# Patch Ink's hardcoded ctrl+z handler in Claude Code so it cannot SIGSTOP the
-# container. Ink intercepts ctrl+z BEFORE the keybinding system and calls
-# process.kill(pid, 'SIGSTOP'), which is unblockable and unrecoverable in a
-# container. The patch no-ops handleSuspend() (native) or extends the platform
-# guard (legacy cli.js). BEST-EFFORT: soft-fails if Claude Code internals change.
-# The script is kept IN the image (not rm'd) so update_claude_inplace() in
-# claude-yolo can re-apply it after the daily in-place `npm i -g …@latest`, which
-# would otherwise ship a fresh, unpatched binary. See ccy-ctrl-z-patch.js and
-# CLAUDE/ContainerRules.md "Known Fragile Patch" section for details.
-COPY ccy-ctrl-z-patch.js /opt/claude-yolo/ccy-ctrl-z-patch.js
-RUN node /opt/claude-yolo/ccy-ctrl-z-patch.js
+# ctrl+z / SIGSTOP suppression is NOT done here any more. The image used to
+# byte-patch Ink's hardcoded suspend handler out of Claude Code; that job now
+# belongs to the hooks-daemon PTY supervisor's Ctrl+Z guard (hooks-daemon Plan
+# 00173, .claude/ccy/claude-supervise.py: strip_suspend() + the SIGTSTP/SIGQUIT
+# input-signal guards). See CLAUDE/ContainerRules.md.
 
 # Copy and set up entrypoint script
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh

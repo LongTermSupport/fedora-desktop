@@ -246,12 +246,6 @@ For GNOME Shell extension JavaScript, run ESLint directly:
 cd /workspace/extensions && node_modules/.bin/eslint speech-to-text@fedora-desktop/extension.js
 ```
 
-For changes to `files/var/local/claude-yolo/ccy-ctrl-z-patch.js`, run the dedicated patch QA:
-
-```bash
-./scripts/qa-ctrl-z-patch.bash
-```
-
 See `CLAUDE/QA.md` for full details on what each check covers.
 
 ## Contributing

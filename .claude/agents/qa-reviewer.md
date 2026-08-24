@@ -253,7 +253,6 @@ Conditionally, per `CLAUDE/QA.md` — **check whether the diff triggers these, a
 either way**; skipping a required gate silently is itself a finding:
 
 ```bash
-"$REPO"/scripts/qa-ctrl-z-patch.bash          # any ccy-ctrl-z-patch.js change (needs network)
 "$REPO"/scripts/qa-helper-tests.bash          # any helpers/ or tests/helpers/ change
 python3 -m helpers.gnome.check_extension_compat   # any extensions/ metadata.json change
 cd "$REPO"/extensions && node_modules/.bin/eslint .   # any extension JS change

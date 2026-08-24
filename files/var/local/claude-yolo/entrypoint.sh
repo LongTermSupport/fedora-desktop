@@ -200,17 +200,10 @@ fi
 # Set sandbox mode to bypass root detection
 export IS_SANDBOX=1
 
-# Disable Ink's hardcoded ctrl+z suspend handler (patched in Dockerfile to check this env var).
-# Without this, ctrl+z sends unblockable SIGSTOP to the process - unrecoverable in a container.
-export CCY_DISABLE_SUSPEND=1
-
-# CCY-07: the build-time ctrl+z patch is best-effort. If it soft-failed it leaves
-# a sentinel — surface that here (once, at launch) so a container that freezes on
-# ctrl+z is diagnosable rather than mysterious.
-if [ -f /opt/claude-yolo/.ctrlz-patch-status ] && [ "$(cat /opt/claude-yolo/.ctrlz-patch-status)" = "failed" ]; then
-    echo "⚠ ctrl+z suspend patch did NOT apply when this image was built — ctrl+z may freeze the container." >&2
-    echo "  Update ccy-ctrl-z-patch.js knownPatterns and rebuild (see CLAUDE/ContainerRules.md)." >&2
-fi
+# NOTE: CCY_DISABLE_SUSPEND and the build-time ctrl+z patch sentinel used to be
+# set/read here. Both are gone — ctrl+z suppression is the PTY supervisor's job
+# now (claude-supervise.py strips the 0x1a SUSP byte from forwarded stdin and
+# swallows SIGTSTP/SIGQUIT). See CLAUDE/ContainerRules.md.
 
 # Mouse / fullscreen rendering: CCY sets NEITHER CLAUDE_CODE_DISABLE_MOUSE nor
 # CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN. Claude Code's own defaults apply — the

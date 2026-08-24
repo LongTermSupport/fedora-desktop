@@ -90,60 +90,57 @@ with an unchanged version and a hash that still matched. Fixed in 3.41.0; see
 
 ---
 
-## Known Fragile Patch: Ink ctrl+z SIGSTOP Suppression
+## ctrl+z SIGSTOP Suppression Is the Supervisor's Job — Do Not Re-Add a Patch
 
-**The container image patches Claude Code's `cli.js` to disable ctrl+z suspend.**
+**CCY 3.42.0 deleted the image-level ctrl+z patch.** Do not reintroduce it, and
+do not "fix" a ctrl+z freeze by patching Claude Code again — that is the problem
+this removal solves, not the solution.
 
-**Background:** Ink (Claude Code's terminal UI framework) has a hardcoded input handler checked BEFORE the keybinding system:
+**The hazard is real and unchanged.** Ink (Claude Code's terminal UI framework)
+intercepts ctrl+z *before* the keybinding system and calls
+`process.kill(pid, 'SIGSTOP')` — an unblockable signal, and unrecoverable in a
+container with no shell to run `fg` in. `"ctrl+z": null` in `keybindings.json`
+does **not** help; the key never reaches the keybinding layer.
 
-```js
-// Inside Ink's raw input loop (minified, fG5 name may change between versions):
-if (z.name === "z" && z.ctrl && fG5) { A.handleSuspend() }
-// where: fG5 = process.platform !== "win32"
-```
+**What handles it now:** the hooks-daemon PTY supervisor,
+`.claude/ccy/claude-supervise.py` (hooks-daemon **Plan 00173**, daemon ≥ 3.44).
+CCY exec's the supervisor instead of `claude`, so it sits between the terminal
+and Claude Code's PTY and guards the key from *outside* the application, in two
+layers:
 
-`handleSuspend()` calls `process.kill(pid, 'SIGSTOP')` — an unblockable signal. In a CCY container, this makes Claude unrecoverable (no shell to run `fg`). Setting `"ctrl+z": null` in `keybindings.json` does NOT fix this — the key is intercepted before keybindings are consulted.
+- **`strip_suspend()`** removes the `0x1a` SUSP byte from forwarded stdin, so
+  the byte Ink's handler keys on never arrives. Ink's `handleSuspend()` is
+  therefore never invoked — no patch needed to disable it.
+- **`install_input_signal_guards()`** swallows `SIGTSTP` and `SIGQUIT` (and
+  `SIG_IGN`s `SIGTTIN`/`SIGTTOU`) belt-and-braces, in case a stop signal is ever
+  actually delivered. `SIGINT` (ctrl+C) is deliberately left working.
 
-**The patch** (applied after `npm install` via `ccy-ctrl-z-patch.js`):
+A rate-limited `⛔ Ctrl+Z ignored — use /exit to quit` notice is posted to the
+status line so the keypress is visibly inert rather than silently swallowed.
 
-```js
-// Original (variable name is minified, changes between Claude Code versions):
-fG5 = process.platform !== "win32"
-// Patched to:
-fG5 = process.platform !== "win32" && !process.env.CCY_DISABLE_SUSPEND
-```
+**Why this is strictly better than the patch it replaces.** The patch had to
+find and rewrite an anchor inside a minified upstream artifact — first a
+platform boolean in `cli.js`, later a same-length byte edit inside the native
+`bin/claude.exe` SEA blob. That anchor churned every few Claude Code releases,
+the patch soft-failed when it stopped matching, and the daily in-place
+`npm i -g …@latest` re-shipped an unpatched binary that had to be re-patched.
+The supervisor needs no knowledge of Claude Code's internals whatsoever, so no
+upstream release can break it and an updated binary is protected the moment it
+starts.
 
-The entrypoint sets `CCY_DISABLE_SUSPEND=1` (this env gating only takes effect on the legacy `cli.js` path; native edits are unconditional — see below). The patch script tries its strategies in order and **soft-fails** (warns but does not break the build) if all of them fail.
+**Residual gap — know this before assuming you are covered.** The supervisor is
+**opt-in**, not automatic: `entrypoint.sh` wraps `claude` only when
+`CCY_CLAUDE_WRAPPER` is set, which comes from a project's tracked
+`.claude/ccy/ccy.env` (deployed when `ccy.deploy_supervisor: true` in
+`.claude/hooks-daemon.yaml`) or from `ccy --supervise`. **A ccy session with no
+supervisor armed has no in-container ctrl+z guard at all** and can still be
+frozen by the keypress. The host-side `stty susp undef` in `claude-yolo` stops
+the *kernel* generating SIGTSTP, but the `0x1a` byte still reaches Claude Code,
+which suspends itself. If you hit a freeze, arm the supervisor for that project
+— do not write a new patch.
 
-### Two packaging formats: legacy `cli.js` and native binary
-
-Claude Code ships in two shapes, and the patch script (`ccy-ctrl-z-patch.js`) handles both:
-
-- **Legacy `cli.js`** (pre-2.1.x): plain JavaScript. The patch appends `&&!process.env.CCY_DISABLE_SUSPEND` to the platform guard (variable-length text replacement).
-- **Native binary** (2.1.x+): an ELF with embedded JS (Node.js SEA) at `bin/claude.exe`. All native edits are **same-length byte replacements** (length mismatch is a hard error, never written). Two strategies in order:
-  - **PRIMARY — no-op `handleSuspend()` itself.** Claude Code 2.1.198 removed the platform boolean and now gates suspend on a *shared* predicate call — `if(...&&ano()){e.handleSuspend();continue}`, where `ano()` returns false only for `CLAUDE_CODE_SESSION_KIND==="bg"` and is reused elsewhere for unrelated foreground-only behaviour. The *guard condition* churns release-to-release (that churn is what kept soft-failing), but the *method* is single-purpose (its only job is SIGSTOP) and has no other callers. So the patch replaces the method's first statement with an unconditional `return;` padded by a block comment to the same length (`handleSuspend=()=>{if(!this.isRawModeSupported())return;` → `handleSuspend=()=>{return;/*…*/`). We deliberately do **not** flip `ano()`'s body — that would disable unrelated foreground behaviour.
-  - **LEGACY fallback** (pre-2.1.198): the platform check was constant-folded to `<var>=!0`; the patch flips it to `<var>=!1`. An unoptimised build is handled too (`!==` → `===`). Absent in newer builds, so it no-matches and we fall through.
-
-The script auto-detects which artifact `npm install -g` produced (`cli.js` present → legacy path; else `bin/claude.exe` → native path) and patches accordingly. `CCY_PKG_DIR` / `CCY_CLI_PATH` override the lookup paths (used by the QA harness).
-
-### Soft-fail is now surfaced at launch (CCY-07)
-
-When the patch soft-fails it writes a sentinel `/opt/claude-yolo/.ctrlz-patch-status` (`failed`). `entrypoint.sh` reads it at container start and prints a one-line warning, so a "ctrl+z freezes the container" outcome is diagnosable instead of being a single buried build-log line. A successful patch writes no sentinel (absent = OK). Override the path with `CCY_PATCH_STATUS_PATH`.
-
-**When Claude Code updates break the dynamic discovery too:**
-
-- Build output will show: `CCY PATCH WARNING: ctrl+z patch target not found - skipping`, and the launch warning above will fire.
-- **Legacy cli.js:** find the new minified variable name with
-  `grep -o '.\{20\}platform.*win32.\{20\}' /usr/local/lib/node_modules/@anthropic-ai/claude-code/cli.js`, then add the pattern to the `knownPatterns` array.
-- **Native binary:** inspect the method with
-  `grep -ao 'handleSuspend=()=>{.\{0,120\}' /usr/local/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe`. The PRIMARY patch keys on the method's opening statement (`handleSuspend=()=>{if(!this.isRawModeSupported())return;`); if that opening statement changed, add the new variant to the `firstStatements` list in `tryNoopHandleSuspend()`. Only fall back to the legacy platform-variable shape (`if(<var>){...handleSuspend();continue}`) if the method-noop anchor is truly gone.
-- Bump container version (Dockerfile label + `REQUIRED_CONTAINER_VERSION` in claude-yolo).
-- Verify against the latest release: `./scripts/qa-ctrl-z-patch.bash` (always reinstalls @latest and, for native builds, executes the patched binary to prove the same-length edit did not corrupt the JS blob).
-
-**Files involved:**
-
-- `files/var/local/claude-yolo/ccy-ctrl-z-patch.js` — the patch script (native primary = `handleSuspend()` no-op via `firstStatements`; legacy cli.js = `knownPatterns`; handles both artifacts; writes the soft-fail sentinel on failure and clears a stale one on success)
-- `files/var/local/claude-yolo/Dockerfile` — COPYs the patch script to `/opt/claude-yolo/` (kept in the image, not `rm`'d) and RUNs it at build
-- `files/var/local/claude-yolo/claude-yolo` — `update_claude_inplace()` re-runs the patch after the daily in-place `npm i -g …@latest`, so the auto-update to latest never ships an unpatched (freeze-prone) binary
-- `files/var/local/claude-yolo/entrypoint.sh` — sets `CCY_DISABLE_SUSPEND=1`; warns at launch if the sentinel says `failed`
-- `scripts/qa-ctrl-z-patch.bash` — artifact-aware QA gate; always reinstalls `@latest` and executes the patched native binary to prove the edit is valid
+**Files that changed when this was removed** (`ccy-ctrl-z-patch.js`,
+`scripts/qa-ctrl-z-patch.bash` and `scripts/qa-ccy/` are deleted; the Dockerfile
+build step, `CCY_DISABLE_SUSPEND`, the `.ctrlz-patch-status` sentinel warning in
+`entrypoint.sh`, and the patch re-run in `update_claude_inplace()` are gone).
+See `docs/ccy-changelog.md` 3.42.0 and `docs/ccy.md` for the user-facing view.

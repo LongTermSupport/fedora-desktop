@@ -300,29 +300,25 @@ human to confirm the GNOME version. Both run automatically in the `helpers` CI j
 
 ---
 
-## CCY ctrl+z Patch
+## Retired: the CCY ctrl+z patch gate
 
-For changes to `ccy-ctrl-z-patch.js`, run the dedicated patch QA script:
-
-```bash
-# Always reinstalls the LATEST Claude Code into scripts/qa-ccy/node_modules/,
-# applies the patch, and (for native builds) executes the patched binary to prove
-# the same-length edit did not corrupt the embedded JS blob. Requires network.
-./scripts/qa-ctrl-z-patch.bash
-
-# `--update` is accepted for back-compat but is a no-op — every run pulls @latest.
-```
+`./scripts/qa-ctrl-z-patch.bash` and its `scripts/qa-ccy/` npm harness were
+deleted in CCY 3.42.0 along with the patch they tested. The gate existed only
+because the patch rewrote an anchor inside a minified upstream artifact and had
+to be re-proven against each Claude Code release. Suppressing ctrl+z is now the
+hooks-daemon PTY supervisor's job, outside Claude Code entirely, so there is
+nothing version-coupled left to gate — see
+[ContainerRules.md](ContainerRules.md#ctrlz-sigstop-suppression-is-the-supervisors-job--do-not-re-add-a-patch).
 
 ---
 
 ## When to Run What
 
-| Changed files         | QA command                                                                  |
-| --------------------- | --------------------------------------------------------------------------- |
-| Bash or Python files  | `./scripts/qa-all.bash`                                                     |
-| Extension JavaScript  | `cd /workspace/extensions && node_modules/.bin/eslint <file>`               |
-| `ccy-ctrl-z-patch.js` | `./scripts/qa-ctrl-z-patch.bash`                                            |
-| Ansible playbooks     | `./scripts/qa-all.bash` (runs `qa-ansible.bash` + `qa-ansible-syntax.bash`) |
+| Changed files        | QA command                                                                  |
+| -------------------- | --------------------------------------------------------------------------- |
+| Bash or Python files | `./scripts/qa-all.bash`                                                     |
+| Extension JavaScript | `cd /workspace/extensions && node_modules/.bin/eslint <file>`               |
+| Ansible playbooks    | `./scripts/qa-all.bash` (runs `qa-ansible.bash` + `qa-ansible-syntax.bash`) |
 
 ---
 
@@ -408,6 +404,5 @@ as it passes before the commit.
 
 1. **Run `./scripts/qa-all.bash` before EVERY commit** that touches Bash or Python files
 2. **Run ESLint before EVERY commit** that touches extension JavaScript
-3. **Run `./scripts/qa-ctrl-z-patch.bash` before EVERY commit** that touches `ccy-ctrl-z-patch.js`
-4. **Fix all errors** before committing — QA failures indicate broken code
-5. **Do not skip QA** — even for "small" changes
+3. **Fix all errors** before committing — QA failures indicate broken code
+4. **Do not skip QA** — even for "small" changes

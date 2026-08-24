@@ -17,6 +17,45 @@ Two version numbers move independently — see
 
 ---
 
+## 3.42.0 (container 2.27)
+
+**The ctrl+z patch is gone — the supervisor guards the key instead.**
+
+Claude Code's terminal UI intercepts `Ctrl+Z` and sends itself `SIGSTOP`, which is
+unrecoverable inside a container with no shell to run `fg` in. CCY dealt with that by
+byte-patching the handler out of Claude Code at image build: first a platform boolean in
+`cli.js`, later a same-length edit inside the native `bin/claude.exe` SEA blob.
+
+That approach was structurally fragile and always would be. It had to locate an anchor
+inside a **minified upstream artifact**, so the anchor churned release-to-release and the
+patch soft-failed — the failure surfaced only as a sentinel file and a launch warning. It
+also had to be re-applied after every daily in-place `npm i -g …@latest`, because a fresh
+install ships an unpatched binary. A dedicated network-dependent QA gate existed purely to
+re-prove the patch against each new Claude Code release.
+
+None of that is needed now. The hooks-daemon PTY supervisor (`.claude/ccy/claude-supervise.py`,
+hooks-daemon **Plan 00173**, daemon ≥ 3.44) guards the key from **outside** Claude Code:
+`strip_suspend()` removes the `0x1a` SUSP byte from forwarded stdin so Ink's handler is
+never reached, and `install_input_signal_guards()` swallows `SIGTSTP`/`SIGQUIT` as a second
+layer. `Ctrl+C` still works, and a rate-limited `⛔ Ctrl+Z ignored — use /exit to quit`
+notice renders on the status line so the keypress is visibly inert. Because it needs no
+knowledge of Claude Code's internals, no upstream release can break it and an updated
+binary is protected the moment it starts.
+
+Removed: `ccy-ctrl-z-patch.js`, its Dockerfile `COPY`/`RUN` build step, the playbook task
+that staged it into the build context (replaced by a `state: absent` cleanup for hosts
+provisioned by an earlier run), `CCY_DISABLE_SUSPEND`, the `.ctrlz-patch-status` sentinel
+warning in `entrypoint.sh`, the patch re-run inside `update_claude_inplace()`,
+`scripts/qa-ctrl-z-patch.bash` and the `scripts/qa-ccy/` npm harness.
+
+**Know the residual.** The supervisor is opt-in — `entrypoint.sh` wraps `claude` only when
+`CCY_CLAUDE_WRAPPER` is set, from a project's tracked `.claude/ccy/ccy.env` or from
+`ccy --supervise`. A session with no supervisor armed now has **no** in-container ctrl+z
+guard and can still be frozen by the keypress. Arm the supervisor for the project rather
+than reintroducing a patch.
+
+---
+
 ## 3.41.0 (container 2.26)
 
 **The integrity hash covered one file of seven.** `CCY_HASH` was `md5sum` of the launcher

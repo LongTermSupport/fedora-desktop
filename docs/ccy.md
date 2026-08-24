@@ -580,10 +580,10 @@ From that position it does two useful things:
    `/compact` and then `continue`. The session is compacted and resumed instead of
    stalling. This is best-effort and bounded by a cooldown and an injection cap; once
    the cap is exhausted the session still needs a human.
-2. **Terminal-key guarding.** `Ctrl+Z` (SUSP) is stripped from forwarded input as a
-   second line of defence alongside the image-level patch (see
-   [the ctrl+z patch](#the-ctrlz-patch)), and `SIGTSTP`/`SIGQUIT` are swallowed if ever
-   delivered. `Ctrl+C` deliberately still works.
+2. **Terminal-key guarding.** `Ctrl+Z` (SUSP) is stripped from forwarded input, and
+   `SIGTSTP`/`SIGQUIT` are swallowed if ever delivered. `Ctrl+C` deliberately still
+   works. Since CCY 3.42.0 this is the **only** ctrl+z defence — see
+   [ctrl+z and the supervisor](#ctrlz-and-the-supervisor).
 
 It is deliberately dependency-free — it imports nothing from the hooks daemon and runs
 under the container's system `python3` — so a broken hooks-daemon venv cannot break every
@@ -777,17 +777,23 @@ export CCY_AUTO_UPDATE=0   # notify only, never update automatically
 ccy --rebuild=claude       # force the fast update now
 ```
 
-### The ctrl+z patch
+### ctrl+z and the supervisor
 
 Claude Code's terminal UI intercepts `Ctrl+Z` and sends itself `SIGSTOP` — unrecoverable
-in a container with no shell to run `fg` in. The image build patches this out and the
-entrypoint sets `CCY_DISABLE_SUSPEND=1`.
+in a container with no shell to run `fg` in.
 
-Because it patches a minified upstream binary, the patch can stop matching after a Claude
-Code release. It soft-fails rather than breaking the build, and writes a sentinel that
-makes the container print a warning at launch. Repair details and the QA gate
-(`./scripts/qa-ctrl-z-patch.bash`) are owned by
-[ContainerRules.md](../CLAUDE/ContainerRules.md#known-fragile-patch-ink-ctrlz-sigstop-suppression).
+Until CCY 3.42.0 the image build patched that handler out of the Claude Code binary. That
+patch is **gone**. It had to match an anchor inside a minified upstream artifact, so it
+broke every few releases, and the daily in-place update re-shipped an unpatched binary.
+The job now belongs to [the supervisor](#the-supervisor), which strips the `Ctrl+Z` byte
+from forwarded input and swallows `SIGTSTP`/`SIGQUIT` from outside Claude Code — nothing
+upstream can break it, and you get a `⛔ Ctrl+Z ignored — use /exit to quit` notice on the
+status line instead of a frozen session.
+
+**The supervisor is opt-in.** A session launched without it (no
+`.claude/ccy/ccy.env` arming it, no `ccy --supervise`) has no ctrl+z guard and can still
+freeze on the keypress. If that happens, arm the supervisor for the project —
+see [Turning it on](#turning-it-on).
 
 ---
 
@@ -804,7 +810,7 @@ makes the container print a warning at launch. Repair details and the QA gate
 | Git-over-SSH hangs on a restricted network    | Port 22 blocked — use `ccy --github-443`.                                                                                                                                                                                                          |
 | `NETWORK ERROR: '...' has no internet access` | The reachability preflight needs an `alpine` pull and plain-http egress to `google.com`. If the network is known-good by other means (e.g. a fenced CI runner that proves its own egress beforehand), skip it: `CCY_SKIP_NETWORK_PREFLIGHT=1 ccy`. |
 | Agent cannot reach the database               | Not on the network. `ccy --network <net>`, or `ccy --connect` from another terminal.                                                                                                                                                               |
-| Warning about the ctrl+z patch at launch      | The patch soft-failed against a new Claude Code. See [the ctrl+z patch](#the-ctrlz-patch).                                                                                                                                                         |
+| `Ctrl+Z` freezes the session                  | The supervisor is not armed for this project — it owns the ctrl+z guard since CCY 3.42.0. See [ctrl+z and the supervisor](#ctrlz-and-the-supervisor).                                                                                              |
 | Session stalls with a full context window     | Enable [the supervisor](#the-supervisor) so it compacts automatically.                                                                                                                                                                             |
 | Stale/orphaned containers                     | `ccy --top` to list and stop them.                                                                                                                                                                                                                 |
 | Need to see what CCY itself is doing          | `ccy --debug` for interactive debug-layer selection.                                                                                                                                                                                               |
@@ -836,4 +842,4 @@ Two things are worth knowing if you (or an agent) are working *in* a session:
 - [Claude Devtools (`ccdt`)](features/claude-devtools.md) — the separate helper for
   inspecting Claude Code sessions
 - [Container Engines](../CLAUDE/ContainerEngines.md) — why Podman is the default
-- [Container Rules](../CLAUDE/ContainerRules.md) — agent rules, version bumps, ctrl+z patch
+- [Container Rules](../CLAUDE/ContainerRules.md) — agent rules, version bumps, the retired ctrl+z patch

@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.41.0"  # CCY_HASH now covers the launcher AND the six lib/ files it sources, instead of the launcher alone — the libraries are the larger half of the program, and 22 commits had changed them under an unchanged version and an unchanged hash. Session containers carry FIVE run-time labels: ccy=true and ccy-project=<project> identify a live session (not merely something built from the CCY image), and ccy-github / ccy-token / ccy-ssh-keys identify WHO it runs as, which is what podfreeze's identity axes select on. See docs/ccy-changelog.md.
+CCY_VERSION="3.42.0"  # The image no longer byte-patches Claude Code to suppress ctrl+z. That defence moved OUT of the image and into the hooks-daemon PTY supervisor (hooks-daemon Plan 00173): claude-supervise.py strips the 0x1a SUSP byte from forwarded stdin and swallows SIGTSTP/SIGQUIT, so it needs no knowledge of Claude Code's minified internals and cannot be broken by an upstream release. Removes ccy-ctrl-z-patch.js, its Dockerfile build step, CCY_DISABLE_SUSPEND, the soft-fail sentinel warning, the patch re-run in update_claude_inplace(), and scripts/qa-ctrl-z-patch.bash. Container 2.27. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -64,7 +64,7 @@ source "$SCRIPT_DIR/lib/docker-health.bash"
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.26"
+REQUIRED_CONTAINER_VERSION="2.27"
 
 set -e
 
@@ -1449,17 +1449,16 @@ update_claude_inplace() {
     local image_name="$1"
     local temp_name="ccy-claude-update-$$"
     echo "  npm install -g @anthropic-ai/claude-code@latest in $image_name..."
-    # Re-apply the ctrl+z suspend patch immediately after updating: the fresh
-    # npm install ships an UNPATCHED Claude Code, so without this the daily
-    # in-place update would silently re-enable the SIGSTOP-freeze bug until the
-    # next full image rebuild. The patch script is baked into the image at
-    # /opt/claude-yolo/ (Dockerfile keeps it, does not rm it). It soft-fails
-    # harmlessly if the script is absent from an older image.
+    # This used to re-apply the ctrl+z suspend patch straight after the update,
+    # because a fresh npm install shipped an UNPATCHED Claude Code. There is no
+    # patch to re-apply any more: the PTY supervisor guards ctrl+z from OUTSIDE
+    # Claude Code, so an updated binary is protected the moment it starts and
+    # this path no longer has a version-churn failure mode to compensate for.
     if ! container_cmd run \
         --name "$temp_name" \
         --entrypoint sh \
         "$image_name" \
-        -c 'set -e; npm install -g @anthropic-ai/claude-code@latest 2>&1; if [ -f /opt/claude-yolo/ccy-ctrl-z-patch.js ]; then node /opt/claude-yolo/ccy-ctrl-z-patch.js 2>&1; else echo "CCY: ctrl+z patch script absent from this (older) image; it will be re-applied on the next full rebuild"; fi'; then
+        -c 'set -e; npm install -g @anthropic-ai/claude-code@latest 2>&1'; then
         remove_temp_container "$temp_name"
         print_error "Failed to update Claude Code in $image_name"
         return 1

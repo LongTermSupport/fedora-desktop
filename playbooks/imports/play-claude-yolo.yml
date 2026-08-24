@@ -107,14 +107,15 @@
         - scripts
         - entrypoint
 
-    - name: Copy ctrl+z Patch Script (part of Docker build context)
+    # The ctrl+z patch script that used to be copied here is gone (CCY 3.42.0).
+    # Suppressing ctrl+z is now the PTY supervisor's job, so remove the stale
+    # copy from build contexts provisioned by an earlier run — otherwise the
+    # Dockerfile hash changes while a dead file lingers beside it.
+    - name: Remove Retired ctrl+z Patch Script from Docker Build Context
       become: true
-      ansible.builtin.copy:
-        src: "{{ root_dir }}/files/var/local/claude-yolo/ccy-ctrl-z-patch.js"
-        dest: /opt/claude-yolo/ccy-ctrl-z-patch.js
-        owner: root
-        group: root
-        mode: "0644"
+      ansible.builtin.file:
+        path: /opt/claude-yolo/ccy-ctrl-z-patch.js
+        state: absent
       tags:
         - scripts
         - dockerfile
