@@ -41,9 +41,22 @@ transient-vs-persistent test.
 
 ### 1. Create
 
-- Create folder: `CLAUDE/Plan/NNNNN-description/`
-- Write `PLAN.md` with tasks, goals, and status
-- Add entry to `README.md` under **Active Plans**
+- Run `CLAUDE/Plan/mkplan.bash "descriptive-kebab-name"` — it takes a lock, allocates
+  the next number atomically from the git counter, and scaffolds the folder, `PLAN.md`
+  and `JOURNAL/`
+- Fill in `PLAN.md` with goals, tasks and status
+- Add an entry to `README.md` under **Active Plans** (the script does not do this)
+
+**Hand-creating the folder is BLOCKED**, not merely discouraged: `mkdir CLAUDE/Plan/NNNNN-name` is denied by the `plan_number_helper` handler whenever the
+scaffolder is deployed. The two paths were never equivalent — `mkdir` claims a number
+the moment the folder appears but nothing records the claim until `PLAN.md` is written,
+so a second agent reading the counter in that window is handed the **same** number and
+the collision surfaces only at the commit gate, once both folders exist.
+
+That is not hypothetical here: **two sessions each created a plan 00082 on 2026-08-24**,
+one via `mkplan.bash` and one merged through a PR. The later one to notice renumbered.
+Plan 00079 is a second instance, renumbered from 00078 for the same reason — the counter
+is `--local` git config and is never pushed, so two clones allocate independently.
 
 ### 2. Execute
 

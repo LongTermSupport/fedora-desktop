@@ -1,6 +1,6 @@
 # Plan 00038: MusicCast Controller (Now-Playing + Qobuz Browse/Search/Play)
 
-**Status**: Not Started (awaiting decision-gate review — research complete, see [DECISION.md](DECISION.md))
+**Status**: Blocked (on user review of the decision gate — all five research tracks complete, see [DECISION.md](DECISION.md))
 **Created**: 2026-05-02
 **Owner**: joseph
 **Priority**: Medium

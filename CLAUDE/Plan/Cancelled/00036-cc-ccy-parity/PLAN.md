@@ -1,9 +1,9 @@
 # Plan 00036: Host `cc` / Container `ccy` Functional Parity
 
 **Status**: Cancelled (2026-06-10)
-**Status note**: Superseded by Plan 00048; both env vars independently obsoleted.
-obsoleted by independent events. See Cancellation Notes at the
-bottom and Plan 00048 for the remaining cc/ccy parity work.
+**Status note**: Superseded by Plan 00048; both env vars were obsoleted by independent
+events. See Cancellation Notes at the bottom, and Plan 00048 for the remaining cc/ccy
+parity work.
 **Created**: 2026-04-24
 **Owner**: joseph
 **Priority**: Medium

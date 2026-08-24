@@ -268,9 +268,10 @@ repair pass catches them on the next launch regardless, which is exactly why it 
 
 (The daemon's transcript archiver was removed in 3.53.0, so
 `.claude/hooks-daemon/untracked/transcripts/` is no longer written to. An existing copy is
-left in place by the upgrade and is safe to delete — Claude Code's own transcripts live at
-`~/.claude/projects/<project-slug>/<session-id>.jsonl` and were never covered by the
-archive.)
+left in place by the upgrade and is safe to delete: the archives were copies of Claude
+Code's own transcripts, which remain at `~/.claude/projects/<project-slug>/<session-id>.jsonl`
+on the same storage — deleting the copies loses nothing that the originals do not still
+hold.)
 
 This protects against another local user reading your state, and against a copy of the
 project tree leaking it — `.gitignore` stops git, but does nothing for `rsync`, `restic`,

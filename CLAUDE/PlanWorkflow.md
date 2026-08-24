@@ -175,7 +175,8 @@ advisory past ~18 KB or 350 lines, a louder warning past ~25 KB or 500 lines, an
 blocked — shrinking is silent, and ticking a checkbox merely advises, so an over-long plan
 can always be refactored down.
 
-`JOURNAL/` day-files and this directory's `README.md` index are exempt at any size.
+`JOURNAL/` day-files, named supporting documents in the plan folder, and this
+directory's `README.md` index are exempt at any size.
 
 **Deleting content is not the remedy.** There are exactly three:
 

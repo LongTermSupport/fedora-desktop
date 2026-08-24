@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 #
-# Plan 00082 triage — measure the backlog the three newly-enabled hooks-daemon
+# Plan 00083 triage — measure the backlog the three newly-enabled hooks-daemon
 # handlers will police, plus the plan-index rows that are already over length.
 #
 # READ-ONLY. Gathers facts, renders no verdict (that is acceptance.bash's job).
 # Safe to re-run at any time, on a live system, as many times as needed.
 #
-# Usage:  CLAUDE/Plan/00082-.../triage.bash [--help]
+# Usage:  CLAUDE/Plan/00083-.../triage.bash [--help]
 
 set -euo pipefail
 
 # --- argument parsing FIRST: --help must work before any environment resolution
 usage() {
     cat >&2 <<'USAGE'
-Plan 00082 triage — backlog measurement (read-only)
+Plan 00083 triage — backlog measurement (read-only)
 
   triage.bash            gather every probe and write the report
   triage.bash --help     this text
@@ -60,7 +60,7 @@ probe() {
 }
 
 echo "=========================================================="
-echo " Plan 00082 — backlog triage"
+echo " Plan 00083 — backlog triage"
 echo " repo: $REPO_ROOT"
 echo "=========================================================="
 echo
@@ -101,15 +101,50 @@ echo
 # a date-prefixed entry. Everything else in that handler is advisory. Grep is a
 # proxy for the handler (it does not restrict itself to comment spans), so these
 # counts are an UPPER bound on the blocking backlog, not the backlog itself.
+#
+# The population is built by SHEBANG, not by filename extension, and the count is
+# printed. An earlier revision used --include='*.bash' … which is exactly the
+# extension-based discovery scripts/qa-discovery.bash exists to replace: it
+# missed 46 tracked repo-owned scripts that have a shell shebang and no
+# extension — everything under files/home/.local/bin/, files/var/local/claude-yolo/,
+# scripts/lint, the git hooks — while printing no denominator at all, so there
+# was nothing to notice. See CLAUDE/QA.md, "All three source gates assert their
+# own coverage", and AgentNotes "A partial result read as a complete one".
+p2_population() {
+    local rel
+    while IFS= read -r rel; do
+        case "$rel" in
+            .claude/hooks-daemon/* | .claude/ccy/* | .claude/skills/* | roles/vendor/* | untracked/*) continue ;;
+        esac
+        case "$rel" in
+            *.bash | *.sh | *.py | *.js | *.yml | *.yaml)
+                printf '%s\n' "$REPO_ROOT/$rel"
+                continue
+                ;;
+        esac
+        # Extensionless: classify by shebang, the way the QA gates do.
+        [ -r "$REPO_ROOT/$rel" ] || continue
+        # `read` returns non-zero at EOF — a one-line file with no trailing
+        # newline, or an empty file — but still SETS the value, and the value is
+        # all we inspect. Handled explicitly in a condition rather than with a
+        # trailing always-succeed fallback, which is the error-hiding shape this
+        # repo bans and which semgrep caught in the first draft of this function.
+        local first=""
+        if ! IFS= read -r first < "$REPO_ROOT/$rel"; then
+            [ -n "$first" ] || continue
+        fi
+        case "$first" in
+            "#!"*bash* | "#!"*sh | "#!"*python*) printf '%s\n' "$REPO_ROOT/$rel" ;;
+        esac
+    done < <(git -C "$REPO_ROOT" ls-files)
+}
+
 scan_signal() {
     local label="$1" pattern="$2" hits
     echo "-- $label"
     # grep exits 1 on no-match, which is the answer this probe wants. Capture the
     # status in the condition rather than letting a fallback swallow it.
-    if hits="$(grep -rInE --exclude-dir=.git --exclude-dir=untracked --exclude-dir=node_modules \
-        --exclude-dir=.claude --exclude-dir=roles \
-        --include='*.bash' --include='*.py' --include='*.sh' --include='*.js' --include='*.yml' \
-        "$pattern" "$REPO_ROOT")"; then
+    if hits="$(printf '%s\0' "${P2_FILES[@]}" | xargs -0 grep -InE -- "$pattern")"; then
         printf '%s\n' "$hits"
     else
         echo "(none)"
@@ -119,6 +154,9 @@ scan_signal() {
 changelog_signals() {
     local pattern_prior='(Prior|Previously)[[:space:]]+v?[0-9]+\.[0-9]+'
     local pattern_dated='^[[:space:]]*(#|//|\*)[[:space:]]*(19|20)[0-9]{2}-[0-9]{2}-[0-9]{2}[[:space:]]*[-:—]'
+    mapfile -t P2_FILES < <(p2_population)
+    echo "COVERAGE: ${#P2_FILES[@]} repo-owned source file(s) searched (shebang + extension discovery)"
+    echo
     scan_signal "signal A: 'Prior <version>:' / 'Previously <version>:'" "$pattern_prior"
     echo
     scan_signal "signal B: date-prefixed comment entry" "$pattern_dated"
@@ -177,13 +215,28 @@ sensitive_content_sources() {
     local cfg="$REPO_ROOT/.claude/hooks-daemon.yaml"
     local wordlist="$REPO_ROOT/.claude/block-words.secret"
     echo "-- options.public_patterns in $cfg"
-    if grep -n -A20 'sensitive_content' "$cfg"; then :; else echo "(handler not present in config)"; fi
+    # Print the whole handler block, not a fixed -A window: an -A20 excerpt cut
+    # the block off mid-comment, and a truncated excerpt of a security handler's
+    # configuration is the shape of finding that gets read as the whole thing.
+    if awk '/^ *sensitive_content:/ {show = 1; indent = match($0, /[^ ]/)}
+            show && /^ *[a-z_]+:/ && match($0, /[^ ]/) < indent && NR > 1 {show = 0}
+            show {print NR ": " $0}' "$cfg" | grep -q .; then
+        awk '/^ *sensitive_content:/ {show = 1; indent = match($0, /[^ ]/)}
+             show && /^ *[a-z_]+:/ && match($0, /[^ ]/) < indent && NR > 1 {show = 0}
+             show {print NR ": " $0}' "$cfg"
+    else
+        echo "(handler not present in config)"
+    fi
     echo
     echo "-- secret word list"
     if [ -f "$wordlist" ]; then
         # NEVER print the contents. A count and the path is the whole payload.
         echo "present: ${wordlist#"$REPO_ROOT"/} — $(grep -cve '^[[:space:]]*$' "$wordlist") non-empty line(s)"
-        echo "gitignored: $(git -C "$REPO_ROOT" check-ignore -q "$wordlist" && echo yes || echo 'NO — THIS IS A LEAK RISK')"
+        if git -C "$REPO_ROOT" check-ignore -q "$wordlist"; then
+            echo "gitignored: yes"
+        else
+            echo "gitignored: NO — THIS IS A LEAK RISK"
+        fi
     else
         echo "absent: ${wordlist#"$REPO_ROOT"/} (a missing list is a silent no-op)"
     fi
@@ -236,22 +289,32 @@ candidate_patterns() {
     local real_home='/home/[a-z][a-z0-9_-]*'
     local any_email='[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
 
-    local tracked_count
-    tracked_count="$(git -C "$REPO_ROOT" ls-files | count_nonempty)"
-    echo "COVERAGE: $tracked_count tracked file(s) considered"
+    # COVERAGE must name the population actually SEARCHED, not the population
+    # that exists. An earlier revision printed an unfiltered `git ls-files` count
+    # while report_pattern excluded CLAUDE/Plan (279 of those files) — so
+    # "0 matches across 691 tracked files" described a search of ~412, and the
+    # 279 it never opened held two live private-IPv4 matches. That number then
+    # justified making the pattern BLOCKING, which would have made those files
+    # uneditable: the precise outcome this probe exists to prevent. Found by the
+    # qa-reviewer agent, not by this script, which is the point of running it.
+    #
+    # sensitive_content scans EVERY Write/Edit path, so this probe now does too:
+    # no pathspec exclusions, and the count is the searched set.
+    local searched_count
+    searched_count="$(git -C "$REPO_ROOT" ls-files | count_nonempty)"
+    echo "COVERAGE: $searched_count tracked file(s) SEARCHED — no path excluded,"
+    echo "          matching the handler, which has no exclude_paths either."
     echo
 
-    report_pattern "private-ipv4 (literal RFC1918 address)" "$private_ipv4" \
-        ':!CLAUDE/Plan' ':!docs/ccy-changelog.md'
-    report_pattern "real-home-path (/home/<literal name>)" "$real_home" \
-        ':!CLAUDE/Plan' ':!docs/ccy-changelog.md'
+    report_pattern "private-ipv4 (literal RFC1918 address)" "$private_ipv4"
+    report_pattern "real-home-path (/home/<literal name>)" "$real_home"
 
     echo "-- non-example email addresses"
     local emails filtered n_em
-    if emails="$(git -C "$REPO_ROOT" grep -IhoE "$any_email" -- ':!CLAUDE/Plan')"; then :; else emails=""; fi
+    if emails="$(git -C "$REPO_ROOT" grep -IhoE "$any_email")"; then :; else emails=""; fi
     if filtered="$(printf '%s\n' "$emails" | grep -vE '@example\.(com|org|net)')"; then :; else filtered=""; fi
     n_em="$(printf '%s\n' "$filtered" | count_nonempty)"
-    echo "   $n_em non-example address(es) outside CLAUDE/Plan"
+    echo "   $n_em non-example address(es) across the searched set"
     if [ "$n_em" -gt 0 ]; then
         printf '%s\n' "$filtered" | sort -u | awk 'NR <= 15 { print "     " $0 }'
     fi
@@ -299,7 +362,12 @@ row_detail_coverage() {
                 tr '[:upper:]' '[:lower:]' |
                 sort -u |
                 while IFS= read -r word; do
-                    if grep -rqiF -- "$word" "$plan_root/$target"; then :; else printf '%s ' "$word"; fi
+                    # TRACKED files only. An earlier revision used `grep -r` over
+                    # the whole folder, which includes the gitignored logs/ dir —
+                    # so a word present only in an untracked log read as "the plan
+                    # still carries it", and the check vouched for content survival
+                    # using a file that is not in the repository at all.
+                    if git -C "$REPO_ROOT" grep -qiF -- "$word" -- "CLAUDE/Plan/$target"; then :; else printf '%s ' "$word"; fi
                 done
         )"
         if [ -z "$missing" ]; then

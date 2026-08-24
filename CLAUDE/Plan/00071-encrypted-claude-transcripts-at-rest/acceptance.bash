@@ -204,7 +204,7 @@ if [ -d "$ARCHIVE" ]; then
         pass "archive directory is owner-only (mode $archive_mode)"
         if [ "$archive_open_files" -gt 0 ]; then
             note "$archive_open_files archived file(s) carry group/other bits — contained by the 0700 directory." \
-                "The daemon writes them 0666; see untracked/hooks-daemon-umask.md."
+                "They were written 0666 by a daemon running under os.umask(0); the archiver is gone as of 3.53.0, so these are leftovers. See untracked/hooks-daemon-umask.md."
         fi
     else
         fail "archive directory is mode $archive_mode, expected 700" \

@@ -101,7 +101,7 @@ reboot
 network --bootproto=dhcp --device=ens3 --onboot=on --activate --hostname=fedora-workstation
 
 # Static IP
-network --bootproto=static --ip=192.168.1.100 --netmask=255.255.255.0 --gateway=192.168.1.1 --nameserver=1.1.1.1 --device=ens3 --onboot=on --activate
+network --bootproto=static --ip=192.0.2.100 --netmask=255.255.255.0 --gateway=192.0.2.1 --nameserver=1.1.1.1 --device=ens3 --onboot=on --activate
 ```
 
 #### Bootloader
@@ -1110,7 +1110,7 @@ inst.repo=https://download.fedoraproject.org/pub/fedora/linux/releases/42/Everyt
 
 # Network configuration at boot
 ip=dhcp
-ip=192.168.1.100::192.168.1.1:255.255.255.0:hostname:eth0:none nameserver=1.1.1.1
+ip=192.0.2.100::192.0.2.1:255.255.255.0:hostname:eth0:none nameserver=1.1.1.1
 
 # Specify network device for kickstart retrieval
 inst.ksdevice=eth0
