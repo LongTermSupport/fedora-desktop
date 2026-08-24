@@ -116,16 +116,15 @@ planned here.
 
 - [ ] ⬜ **Task 5.2**: On a real HOST (or a disposable cloud/server VM), run a full `RUN_BASH_GITHUB_ACCOUNTS=none` headless provision end-to-end and confirm it completes.
 
-  **In progress, from the consuming side**: `lts-infra` (the sibling repo pinning this
-  one, Plan 00045 Task 3.1/3.1b there) is running exactly this proof — `run.bash`
-  downloaded at this branch's merge commit (`68f1596`, PR #33), `GITHUB_ACCOUNTS=none`,
-  against a real Fedora guest (`dc-lts-dev-vm`) on a live Proxmox estate, twice (primary
-
-  - idempotency). Its own in-container CLAUDE.md forbids running Ansible in THIS
-    container ("CCY container: edit only, deploy on host") and this container is not a
-    target Fedora host regardless, so neither task can be closed from inside this repo's
-    own checkout — the lts-infra run is the closure for both, and its result (pass/fail,
-    with the `changed=0`-equivalent recap) should be copied back here once it completes.
+  **In progress, from the consuming side**: a downstream deployment repo that pins this
+  one is running exactly this proof — `run.bash` downloaded at this branch's merge
+  commit (`68f1596`, PR #33), `GITHUB_ACCOUNTS=none`, against a real Fedora guest on a
+  live host, twice (primary + idempotency). Its own in-container CLAUDE.md forbids
+  running Ansible in THIS container ("CCY container: edit only, deploy on host") and
+  this container is not a target Fedora host regardless, so neither task can be closed
+  from inside this repo's own checkout — that downstream run is the closure for both,
+  and its result (pass/fail, with the `changed=0`-equivalent recap) should be copied
+  back here once it completes.
 
 ## Success Criteria
 
