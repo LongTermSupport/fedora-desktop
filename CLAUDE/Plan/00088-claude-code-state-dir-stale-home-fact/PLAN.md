@@ -1,6 +1,6 @@
 # Plan 00088: claude code state dir stale home fact
 
-**Status**: Not Started
+**Status**: In Progress
 **Created**: 2026-08-24
 **Owner**: joseph
 **Priority**: Medium
@@ -14,7 +14,7 @@ chain and then failed deep in `play-claude-code.yml`: "Check Whether the Claude
 Code State Directory Exists" hard-failed with `Permission denied: [Errno 13] Permission denied: b'/root/.claude'`.
 
 Root cause, confirmed by reading the actual source rather than guessed from the
-log: `play-claude-code.yml` computes `claude_state_dir: "{{ ansible_facts['env']['HOME'] }}/.claude"` (line 18) as a play-level var. This
+log: `play-claude-code.yml` computed `claude_state_dir: "{{ ansible_facts['env']['HOME'] }}/.claude"` as a play-level var (now fixed — see below). This
 play runs with `become: false` — its own tasks should run as the real login user
 — but `ansible.cfg` sets `gathering = smart` with a **persistent** on-disk fact
 cache (`fact_caching=jsonfile`). The very FIRST play in `playbook-main.yml`,
@@ -30,9 +30,9 @@ fresh host, not an artefact of this guest's history: confirmed by reading
 
 The rest of `play-claude-code.yml` already knows not to trust
 `ansible_facts['env']['HOME']` for this exact reason: five other places in the
-SAME file (lines 50, 61, 82, 99, 230, 259) build the real user's home explicitly
+SAME file (lines 60, 71, 92, 109, 240, 269) build the real user's home explicitly
 as `/home/{{ user_login }}` rather than reading it from gathered facts.
-`claude_state_dir` is the one place in the file that never got the same
+`claude_state_dir` was the one place in the file that hadn't gotten the same
 treatment.
 
 This is a sixth, unrelated defect surfaced downstream while proving PR #33
@@ -55,22 +55,27 @@ far (PR #33/#34/#35/#36/#37) are implicated.
   legitimate on their own terms; the fix is to stop this one play depending on
   a fact that another play's privilege context can poison.
 - Not auditing every other play for the same `ansible_facts['env']['HOME']`
-  pattern — out of scope for this plan; flagged as a possible follow-up in the
-  journal, not actioned here.
+  pattern — out of scope for this plan; flagged as a possible follow-up in
+  `JOURNAL/00088-Journal-26-08-24.md`, not actioned here.
 
 ## Tasks
 
 ### Phase 1: fix
 
-- [ ] ⬜ **Task 1.1**: change `claude_state_dir` in `play-claude-code.yml` from
+- [x] ✅ **Task 1.1**: change `claude_state_dir` in `play-claude-code.yml` from
   `"{{ ansible_facts['env']['HOME'] }}/.claude"` to
   `"/home/{{ user_login }}/.claude"`, matching the file's own established
   pattern for resolving the real target user's home.
-- [ ] ⬜ **Task 1.2**: `ansible-playbook --syntax-check` clean;
+- [x] ✅ **Task 1.2**: `ansible-playbook --syntax-check` clean;
   `./scripts/qa-all.bash` passes.
-- [ ] ⬜ **Task 1.3**: commit, push on a branch, open PR against `F44`.
-- [ ] ⬜ **Task 1.4**: independent review (peer review agent).
-- [ ] ⬜ **Task 1.5**: merge once PASS/PASS WITH NITS.
+- [x] ✅ **Task 1.3**: commit, push on a branch, open PR against `F44` (PR #38).
+- [x] ✅ **Task 1.4**: independent review — first round returned
+  **FIX-BEFORE-MERGE**: the code fix itself was confirmed correct, safe and
+  fully verified, but this PLAN.md shipped with a stale `Status: Not Started`,
+  unticked tasks despite the work being done, a false claim that a follow-up
+  gap was journalled when it wasn't, and stale line-number citations. Fixed in
+  place (this revision); re-review pending before merge.
+- [ ] ⬜ **Task 1.5**: merge once re-review returns PASS/PASS WITH NITS.
 - [ ] ⬜ **Task 1.6**: re-pin lts-infra's live-proof harness at this merged
   commit and re-run it — see lts-infra Plan 00045.
 
