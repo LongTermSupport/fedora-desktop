@@ -130,11 +130,11 @@ Use these Unicode icons in plan documents:
 
 - [00081-secret-scanner-and-qa-gate-coverage-holes](00081-secret-scanner-and-qa-gate-coverage-holes/) - Seven more instances of the partial-result defect class, two of them in the pre-commit secret scanner on a public repo: `--diff-filter=ACM` skipped staged renames entirely, and the email whitelist filtered whole lines rather than tokens. Remaining phases cover `qa-python.bash` and `qa-deployed-drift.bash`.
 
-- [00083-plan-index-hygiene-and-comment-handlers](00083-plan-index-hygiene-and-comment-handlers/) - Enables the three handlers the 3.54.0 daemon upgrade shipped disabled (`comment_changelog`, `comment_size`, `sensitive_content`), each after measuring its existing backlog rather than assuming it, and clears the 39 over-length rows the new `index-row-length` check found in this index.
-
 - [00082-run-bash-github-accounts-none](00082-run-bash-github-accounts-none/) - Lets `run.bash` headless v1 provision with `RUN_BASH_GITHUB_ACCOUNTS=none`, which previously failed preflight as an unsupported follow-up. Of the two blockers Plan 00063 cited, one is confirmed fixed and the other is recorded NOT REPRODUCIBLE rather than asserted.
 
 ## Completed Plans
+
+- [00083-plan-index-hygiene-and-comment-handlers](Completed/00083-plan-index-hygiene-and-comment-handlers/) - Enables the three handlers the 3.54.0 daemon upgrade shipped disabled (`comment_changelog`, `comment_size`, `sensitive_content`), each after measuring its existing backlog rather than assuming it, and clears the 39 over-length rows the new `index-row-length` check found in this index.
 
 - [025-ccy-spring-cleaning](Completed/025-ccy-spring-cleaning/) - CCY codebase spring cleaning: fix 63 shellcheck warnings, remove 20 dead functions, fix double-sourcing, exit-vs-return, and code quality issues
 
