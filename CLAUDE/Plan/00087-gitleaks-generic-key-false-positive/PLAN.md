@@ -51,7 +51,10 @@ proper-noun pair.
   `scan-alt-engines.md`; re-ran gitleaks 8.30.1 against the file — clean.
 - [x] ✅ **Task 1.3**: commit, push, open PR against `F44` (PR #37). All three CI
   checks pass, including `gitleaks secret scan` — confirmed green, not just locally.
-- [ ] ⬜ **Task 1.4**: independent review (qa-reviewer stand-in).
+- [x] ✅ **Task 1.4**: independent review (peer review agent) — verdict **PASS WITH
+  NITS**; confirmed the fix, the rephrase-over-allowlist call, and CI green
+  independently. One nit: `CLAUDE/Plan/README.md` had no index row for this plan —
+  added.
 - [ ] ⬜ **Task 1.5**: merge; confirm `gitleaks secret scan` goes green on `F44`.
 
 ## Success Criteria
