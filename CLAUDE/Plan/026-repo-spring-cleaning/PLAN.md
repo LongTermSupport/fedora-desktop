@@ -1,6 +1,6 @@
 # Plan 026: Repository Spring Cleaning (Non-CCY)
 
-**Status**: 🔄 In Progress
+**Status**: In Progress
 **Created**: 2026-04-03
 **Type**: Refactoring / Cleanup
 **Priority**: Medium

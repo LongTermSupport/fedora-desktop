@@ -1,6 +1,6 @@
 # Plan 009: claude-devtools (ccdt) Installation
 
-**Status**: 🔄 In Progress
+**Status**: In Progress
 **Created**: 2026-02-17
 **Owner**: Claude Code Agent
 **Priority**: Medium

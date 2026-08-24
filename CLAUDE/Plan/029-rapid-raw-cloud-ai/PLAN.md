@@ -1,6 +1,6 @@
 # Plan 029: RapidRAW Cloud AI Integration
 
-**Status**: ⬜ Not Started
+**Status**: Not Started
 **Created**: 2026-04-07
 **Type**: Research → Prototype → Decision → Productionise
 **Priority**: Medium

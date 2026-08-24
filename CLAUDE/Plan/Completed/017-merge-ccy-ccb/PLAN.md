@@ -1,6 +1,6 @@
 # Plan 017: Retire CCB and CCB-Browser — Single CCY Tool
 
-**Status**: 🟢 Complete
+**Status**: Complete
 **Created**: 2026-02-21
 **Owner**: Claude Code
 **Priority**: High

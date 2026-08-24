@@ -1,6 +1,6 @@
 # Plan 00042: Darktable AI Features
 
-**Status**: AI path delivered (Phase 2-alt) and Phase 3 (GPU) implemented.
+**Status**: In Progress (AI path delivered via Phase 2-alt; Phase 3 GPU implemented)
 Per **D4**, `darktable-ai` (the AI nightly, A7V verified) is installed
 alongside the stable A7V darktable RPM. Phase 3 adds NVIDIA GPU
 acceleration: `play-nvidia.yml` now installs the CUDA Toolkit + cuDNN

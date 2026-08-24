@@ -1,6 +1,6 @@
 # Plan 020: Semgrep Custom Bash Rules
 
-**Status**: 🟢 Complete
+**Status**: Complete
 **Created**: 2026-03-02
 **Owner**: Agent
 **Priority**: Medium

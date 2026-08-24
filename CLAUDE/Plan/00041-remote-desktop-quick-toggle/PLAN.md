@@ -1,6 +1,6 @@
 # Plan 00041: Remote Desktop Quick Toggle
 
-**Status**: 🔄 In Progress
+**Status**: In Progress
 **Type**: Feature Implementation
 **Created**: 2026-05-20
 **Owner**: joseph

@@ -1,6 +1,6 @@
 # Plan 007: Speech-to-Text Resource Leak and Paste Fixes
 
-**Status**: 🔄 In Progress
+**Status**: In Progress
 **Created**: 2025-02-13
 **Owner**: Claude Sonnet 4.5
 **Priority**: High

@@ -1,6 +1,6 @@
 # Plan 00040: `clip-scan` — Raw Clipping Pre-Lightroom Scanner
 
-**Status**: 🔄 In Progress — Phases 3-7 code landed in-container; Phase 2 host probes + Phase 8 manual tests deferred to host
+**Status**: In Progress (Phases 3-7 code landed in-container; Phase 2 host probes and Phase 8 manual tests deferred to the host)
 **Created**: 2026-05-20
 **Owner**: joseph
 **Priority**: Medium

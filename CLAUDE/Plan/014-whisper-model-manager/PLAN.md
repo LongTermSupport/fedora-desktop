@@ -1,6 +1,6 @@
 # Plan 014: Whisper Model Manager
 
-**Status**: 🔄 In Progress (Research & Planning)
+**Status**: In Progress (research and planning)
 **Created**: 2026-02-18
 **Owner**: Claude Sonnet 4.6
 **Priority**: Medium

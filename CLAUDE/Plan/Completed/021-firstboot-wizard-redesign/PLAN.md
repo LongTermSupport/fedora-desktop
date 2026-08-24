@@ -1,6 +1,6 @@
 # Plan 021: Firstboot Wizard Redesign
 
-**Status**: 🟢 Complete
+**Status**: Complete
 **Created**: 2026-03-02
 **Owner**: Agent
 **Priority**: High

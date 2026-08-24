@@ -1,6 +1,7 @@
 # Plan 00050: Fedora 44 Migration Tracking
 
-**Status**: ✅ Complete (research → execution → audit → **merged to `F44`**, which is now the repo **default branch**). Remaining work is the HOST-VERIFY set in Phase 3, which needs a running Fedora 44 machine.
+**Status**: Complete (research → execution → audit → merged to `F44`, now the repo default branch)
+**Status note**: The Phase 3 HOST-VERIFY set is outstanding — it needs a running Fedora 44 machine.
 **Created**: 2026-06-12
 **Owner**: Claude (Fable 5 multi-agent workflow) / joseph
 **Priority**: Medium

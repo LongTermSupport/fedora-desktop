@@ -1,6 +1,6 @@
 # Plan 00045: Project Personas — Unified Multi-Account Wrangling Across Tools
 
-**Status**: ⬜ Not Started (awaiting Phase 1 decision gate)
+**Status**: Not Started (awaiting Phase 1 decision gate)
 **Created**: 2026-05-26
 **Owner**: joseph
 **Priority**: Medium

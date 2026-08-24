@@ -1,6 +1,6 @@
 # Plan 00044: Laptop Health Audit & Tuning
 
-**Status**: Mostly Complete — all actionable items resolved; only ⚪ watch-only items remain (13/14/15)
+**Status**: Complete (all actionable items resolved; items 13/14/15 are watch-only)
 **Created**: 2026-05-21
 **Owner**: joseph (with Claude assistance)
 **Priority**: Medium

@@ -1,6 +1,6 @@
 # Plan 00037: Image Watermarking Toolkit
 
-**Status**: 🔄 In Progress
+**Status**: In Progress
 **Created**: 2026-04-28
 **Owner**: joseph
 **Priority**: Medium

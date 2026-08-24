@@ -1,6 +1,6 @@
 # Plan 00048: Host `cc` Token-Source Parity with `ccy`
 
-**Status**: 🔄 In Progress — Phases 1-3 ✅, Phase 4 awaits host deploy
+**Status**: In Progress (Phases 1-3 done; Phase 4 awaits a host deploy)
 **Created**: 2026-06-10
 **Owner**: joseph
 **Priority**: Medium

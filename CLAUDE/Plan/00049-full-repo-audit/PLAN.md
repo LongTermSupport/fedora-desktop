@@ -1,6 +1,6 @@
 # Plan 00049: Full Repository Audit
 
-**Status**: 🔄 In Progress (research complete; Batches 1 (Phases 3+4), 2a (Phase 5), 2b (QA-07), 3 (Phase 6 — full CCY hardening), 4 (Phase 7 — runtime bug fixes), 5+6 (Phase 8 — idempotency + native modules), 7 (Phase 9 — documentation realignment), 8 (Phase 10 research + pip-block fix), 9 (Phase 10 implementation + CI + both decision gates) landed on branch `fable-audit-1`. **Both decision gates resolved: Gate 1 → skip history purge; Gate 2 → CI added.** Remaining: QA-09 pytest stage (IaC gap), DOC-18 Dockerfile comment (cost-deferred), and the plan revive/cancel calls that need user input.)
+**Status**: In Progress (nine batches landed on `fable-audit-1`; both decision gates resolved — detail in [JOURNAL/00049-Journal-26-08-24.md](JOURNAL/00049-Journal-26-08-24.md))
 **Created**: 2026-06-12
 **Owner**: Claude (Fable 5 multi-agent workflow) / joseph
 **Priority**: High
@@ -274,7 +274,7 @@ The 7 effective-high findings: SEC-01 (committed PII), FF-01/ANS-01 (shell block
 
 ### 2026-06-12 — Batch 9 executed (Phase 10 implementation + CI + both decision gates) on `fable-audit-1`
 
-- **User direction: "agreed with all — get it all done."** Both decision gates resolved and the full Phase 10 fix-list + Phase 9 housekeeping landed.
+- **User direction** (verbatim in JOURNAL 26-08-24): proceed with everything. Both gates resolved; the Phase 10 fix-list + Phase 9 housekeeping landed.
 - **Decision Gate 2 (CI) → DONE:** new `.github/workflows/qa.yml` — a `qa-all` job (installs ruff/semgrep/ansible+collections/node, runs `./scripts/qa-all.bash` all 6 stages incl. ESLint, uploads `qa-results.json`) + a `gitleaks` job over full history; triggers on push (all branches) + PR. The non-bypassable server-side layer the `--no-verify`-able local hooks lacked.
 - **Decision Gate 1 (history purge) → SKIP** (recorded with full rationale on the Phase 3 task): HEAD already clean; worst exposure already public off-repo in gh issue #22 (outside git, unreachable by filter-repo); primary email is in every commit-author line. Durable controls (SEC-02 scanner + CI gitleaks) prevent recurrence. Closing issue #22 left as a one-line manual user action.
 - **Executed as a review-gated fan-out of 6 file-disjoint subagents** (opus for the two security-critical files `run.bash` + `ks.cfg`, sonnet for the rest); the orchestrator wrote the CI workflow directly and **reviewed every hunk of the run.bash and ks.cfg diffs** before committing.

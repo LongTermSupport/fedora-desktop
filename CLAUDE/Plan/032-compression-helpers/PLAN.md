@@ -1,6 +1,6 @@
 # Plan 032: Compression Helpers CLI
 
-**Status**: 🔄 In Progress (awaiting host deployment)
+**Status**: In Progress (awaiting host deployment)
 **Created**: 2026-04-14
 **Owner**: joseph
 **Priority**: Medium

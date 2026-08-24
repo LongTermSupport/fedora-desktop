@@ -184,9 +184,9 @@ non-interactive stdin — cosmetic).
   - 3 NITs applied). No blocker survived; every finding applied and re-validated (`--syntax-check`
     rc=0, shellcheck clean).
 - [ ] ⬜ **Task 4.2**: Commit (do NOT push — hand to the human to push + run the HOST test:
-  the first `run.bash` server-profile execution on a fresh Cloud Base VM). Beyond "reaches
-  ALL DONE", the HOST test MUST exercise the F8 persistence unit (design-flagged as
-  not-a-confident-one-shot):
+  the first `run.bash` server-profile execution on a fresh Cloud Base VM). Beyond reaching
+  the installer's final `ALL DONE` banner, the HOST test MUST exercise the F8 persistence
+  unit (design-flagged as not-a-confident-one-shot):
   1. `reboot` with an LXC container configured → confirm container outbound connectivity
      **without re-running Ansible**.
   2. `systemctl restart docker` with a container running → `journalctl -u lxc-docker-user-iptables-reconcile.service` shows a fresh successful run and
