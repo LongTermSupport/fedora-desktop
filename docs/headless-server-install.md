@@ -37,13 +37,13 @@ It never hangs on a prompt and never reports success on failure.
 
 ## Prerequisites (hard requirements)
 
-| Requirement                   | Why                                                                                                                                                                      | How to check                                             |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------- |
-| Fresh Fedora Server/Cloud     | The version must match the repo branch (e.g. F44 = Fedora 44).                                                                                                           | `cat /etc/fedora-release`                                |
-| A **non-root** target user    | `run.bash` refuses to run as root (it uses `sudo` internally).                                                                                                           | `whoami` (must not be `root`)                            |
-| **ALL-scoped sudo**           | Headless `sudo`/Ansible `become` cannot answer a prompt, so the credential must be supplied. Either `NOPASSWD:ALL` **or** password sudo + `RUN_BASH_SUDO_PASSWORD_FILE`. | `sudo -k -n true` (exit 0 = NOPASSWD); otherwise Step 0b |
-| Network access                | GitHub, DNF repos, Ansible Galaxy.                                                                                                                                       | `curl -fsS https://github.com >/dev/null && echo ok`     |
-| A GitHub account + scoped PAT | GitHub is mandatory in headless v1.                                                                                                                                      | see Step 2a                                              |
+| Requirement                     | Why                                                                                                                                                                      | How to check                                             |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------- |
+| Fresh Fedora Server/Cloud       | The version must match the repo branch (e.g. F44 = Fedora 44).                                                                                                           | `cat /etc/fedora-release`                                |
+| A **non-root** target user      | `run.bash` refuses to run as root (it uses `sudo` internally).                                                                                                           | `whoami` (must not be `root`)                            |
+| **ALL-scoped sudo**             | Headless `sudo`/Ansible `become` cannot answer a prompt, so the credential must be supplied. Either `NOPASSWD:ALL` **or** password sudo + `RUN_BASH_SUDO_PASSWORD_FILE`. | `sudo -k -n true` (exit 0 = NOPASSWD); otherwise Step 0b |
+| Network access                  | GitHub, DNF repos, Ansible Galaxy.                                                                                                                                       | `curl -fsS https://github.com >/dev/null && echo ok`     |
+| GitHub account + PAT, or `none` | Set `RUN_BASH_GITHUB_ACCOUNTS` to a single account + scoped PAT, or to `none` for an HTTPS-only clone with no GitHub identity at all.                                    | see Step 2a                                              |
 
 > **Cloud images** (Fedora Cloud, most cloud-init distros) already create a non-root
 > user with `NOPASSWD` sudo — you are running as it, and Step 0b does not apply.

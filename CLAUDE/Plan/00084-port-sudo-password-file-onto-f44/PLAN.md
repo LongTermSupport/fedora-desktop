@@ -81,10 +81,17 @@ commit that is both reachable from the default branch and complete.
 
 ### Phase 2: land it
 
-- [ ] ⬜ **Task 2.1**: Commit on branch `plan-00082-port-sudo-password-file` off `F44`,
-  push, open a PR against `F44` describing the composition (not a direct push — see
-  Goals).
-- [ ] ⬜ **Task 2.2**: Address review feedback; merge.
+- [x] ✅ **Task 2.1**: Committed (`f38db91`) on branch `plan-00082-port-sudo-password-file`
+  off `F44`, pushed, opened as PR #34 against `F44`.
+- [ ] ⬜ **Task 2.2**: Address review feedback; merge. Independent review verdict:
+  MERGE-READY conditional on one doc fix (`docs/headless-server-install.md` prerequisites
+  table still said GitHub was unconditionally mandatory) — fixed. Two non-blocking notes:
+  Plan 00073's `_sudo` argv acceptance harness (`_acceptance-cases.inc.bash`/
+  `acceptance.bash`) was not ported since it is plan-local to the old 00073 folder; the
+  reviewer independently re-derived and ran its core property (shipped `_sudo` builds
+  argv with no empty leading arg when `HL_SUDO_OPTS` is empty, verified by perturbation)
+  against this PR's `run.bash` and confirmed it holds — promoting that harness into a
+  standing check is a good follow-up, not a merge blocker.
 - [ ] ⬜ **Task 2.3**: Notify `lts-infra` Plan 00045 the blocker is closed so Task 3.1b
   (bump `fedora_desktop_ref`) can proceed against the merged commit.
 
@@ -102,4 +109,6 @@ commit that is both reachable from the default branch and complete.
      JOURNAL/00084-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
 - Branch `plan-00082-port-sudo-password-file` created off `F44`@`d7ccd83`; manual port
-  complete, QA clean, not yet committed.
+  complete, QA clean.
+- Committed `f38db91`; pushed; PR #34 opened against `F44`.
+- Independent review: MERGE-READY conditional on a doc fix — fixed. Not yet merged.
