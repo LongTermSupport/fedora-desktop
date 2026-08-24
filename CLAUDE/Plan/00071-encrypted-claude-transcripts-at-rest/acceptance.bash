@@ -186,13 +186,16 @@ echo
 
 # --- 3. Daemon transcript archive ----------------------------------------
 # Called out separately from check 2 because this is the store the plan
-# originally missed entirely, and the one no umask can protect: the hooks
-# daemon calls os.umask(0) and re-creates these files continuously.
+# originally missed entirely: the hooks daemon daemonized under os.umask(0) and
+# re-created these verbatim conversation archives 0666 inside a 0777 directory,
+# continuously, so no umask in entrypoint.sh could reach them.
+#
+# Hooks daemon 3.53.0 REMOVED the transcript archiver and now daemonizes under
+# umask 0o077, so nothing writes here any more. What can remain is a leftover
+# directory of archives born under the old umask — a umask retro-fixes nothing.
+# The check therefore still measures containment; it is now measuring a
+# migration rather than an active writer.
 echo "### 3. daemon transcript archive contained"
-# Checked separately from the store as a whole because this is the one directory
-# the daemon itself creates 0777 (mkdir under os.umask(0)) — the single place
-# where containment is actively broken by another process rather than merely
-# left loose. Its contents are verbatim conversation archives.
 ARCHIVE="$PROJECT_STORE/hooks-daemon/untracked/transcripts"
 if [ -d "$ARCHIVE" ]; then
     archive_mode="$(stat -c '%a' "$ARCHIVE")"
@@ -205,10 +208,10 @@ if [ -d "$ARCHIVE" ]; then
         fi
     else
         fail "archive directory is mode $archive_mode, expected 700" \
-            "These are verbatim conversation archives and this directory is reachable by other local users. The daemon creates it 0777 under os.umask(0) — see untracked/hooks-daemon-umask.md."
+            "These are verbatim conversation archives and this directory is reachable by other local users. It was created 0777 by a daemon running under os.umask(0); the archiver is gone as of daemon 3.53.0 but the directory it left behind is not — see untracked/hooks-daemon-umask.md."
     fi
 else
-    skip "daemon archive" "no $ARCHIVE (nothing archived yet)"
+    skip "daemon archive" "no $ARCHIVE — the archiver was removed in daemon 3.53.0, so this is the expected state on a host that has upgraded and cleared the leftovers"
 fi
 echo
 

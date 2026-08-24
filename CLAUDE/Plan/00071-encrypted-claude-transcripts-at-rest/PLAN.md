@@ -31,13 +31,22 @@ So the plan ships **blast-radius reduction first and unconditionally**, and gate
 encryption on whether anything backs up or syncs the project tree — the one scenario where
 encryption beats the LUKS already present. It does not, so that gate is closed.
 
-**Three** stores are in scope. The third was found by the `qa-reviewer` agent and is the
-worst of them: the hooks daemon's `pre_compact` transcript archiver writes verbatim
+**Three** stores are in scope. The third was found by the `qa-reviewer` agent and was the
+worst of them: the hooks daemon's `pre_compact` transcript archiver wrote verbatim
 conversation archives to `.claude/hooks-daemon/untracked/transcripts/` at mode **0666 inside a
-0777 directory** — world-*writable*. The daemon calls `os.umask(0)` when it daemonizes
-(`daemon/cli.py:575`; live process reports `Umask: 0000`), so **no umask in `entrypoint.sh`
-can ever reach it.** That makes the launch-time repair permanent infrastructure rather than a
-one-off migration: a writer exists that re-creates world-writable files continuously.
+0777 directory** — world-*writable* — because the daemon called `os.umask(0)` when it
+daemonized, so **no umask in `entrypoint.sh` could ever reach it.**
+
+**Upstream closed both halves of that in daemon 3.53.0** (verified on the 3.54.0 upgrade,
+2026-08-24): the transcript archiver is **removed** — nothing writes to
+`untracked/transcripts/` any more — and the daemon now daemonizes under `umask 0o077`, so its
+remaining runtime artefacts (verdict log, payload capture, session sidecars, PID file) are
+created owner-only. This narrows the third store to a **migration**, not a live writer: a
+umask retro-fixes nothing, so every file already written keeps its `0666`
+(`hooks-daemon check-permissions [--fix]` lists and tightens them). The launch-time repair
+pass still earns its place — it catches those leftovers and anything else born before a
+umask shipped — but it is no longer defending against a writer that re-creates the exposure
+continuously.
 
 CCY does **not** bind-mount the host `~/.claude`;
 `entrypoint.sh:195` symlinks `/root/.claude` to `/workspace/.claude/ccy`, so container state
