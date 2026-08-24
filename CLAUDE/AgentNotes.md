@@ -319,14 +319,21 @@ that ships.
 a comment explaining why zero would be misleading — and no guard for the
 **partial** case, which is the state the system is actually in most of the time.
 
-| #   | Where                                       | Guarded                   | Blind to                       |
-| --- | ------------------------------------------- | ------------------------- | ------------------------------ |
-| 0   | `qa-bash` / `qa-patterns` discovery (00076) | zero files discovered     | *some* files discovered        |
-| 0b  | semgrep `.paths.scanned` (00076)            | file absent from the list | file listed but never *parsed* |
-| 1   | a `grep` read through `head -n 30` (00080)  | —                         | output cut at the line limit   |
-| 2   | `triage.bash` P4 session filter (00080)     | zero sessions labelled    | *some* sessions labelled       |
-| 3   | `acceptance.bash` check 9 (00079)           | the wrong label chosen    | the non-label path entirely    |
-| 4   | `podfreeze` `select_identity` (00079)       | zero sessions labelled    | *some* sessions labelled       |
+| #   | Where                                       | Guarded                   | Blind to                        |
+| --- | ------------------------------------------- | ------------------------- | ------------------------------- |
+| 0   | `qa-bash` / `qa-patterns` discovery (00076) | zero files discovered     | *some* files discovered         |
+| 0b  | semgrep `.paths.scanned` (00076)            | file absent from the list | file listed but never *parsed*  |
+| 1   | a `grep` read through `head -n 30` (00080)  | —                         | output cut at the line limit    |
+| 2   | `triage.bash` P4 session filter (00080)     | zero sessions labelled    | *some* sessions labelled        |
+| 3   | `acceptance.bash` check 9 (00079)           | the wrong label chosen    | the non-label path entirely     |
+| 4   | `podfreeze` `select_identity` (00079)       | zero sessions labelled    | *some* sessions labelled        |
+| 5   | `pre-commit --diff-filter=ACM` (00081)      | —                         | renames (`git mv` + edit)       |
+| 6   | whitelists filtering whole LINES (00081)    | —                         | a real leak sharing that line   |
+| 7   | `commit-msg` static patterns only (00081)   | —                         | the whole denylist              |
+| 8   | `qa-python` discovery (00081)               | —                         | mode-0644 shebang files         |
+| 9   | `CCY_HASH` = `md5sum "$0"` (00081)          | the launcher              | the six `lib/` files it sources |
+| 10  | `qa-ansible-syntax` population (00081)      | —                         | playbooks outside `imports/`    |
+| 11  | `qa-deployed-drift` basename match (00081)  | file not deployed here    | file deployed under a NEW name  |
 
 Rows 2 and 4 are the same guard, written twice by the same author in two files,
 each time stopping one case short. Rows 0/0b were already written up in
@@ -334,6 +341,40 @@ each time stopping one case short. Rows 0/0b were already written up in
 coverage was not"* — but only as a local note about one gate, which is why it
 kept recurring elsewhere. **Every instance after row 0 was found only because the
 previous one taught where to look, so the count is a lower bound, not a total.**
+
+Row 8 is the sharpest evidence for that last sentence: it is row 0 exactly, in
+Python instead of bash, six lines away in the same directory, still live a
+fortnight after row 0 was fixed and written up. **Writing a fix down next to the
+thing you fixed is not the same as generalising it.**
+
+Row 9 says the same about scope: a check written when the launcher *was* the
+whole program never learned that six libraries had grown around it, larger than
+the launcher itself. When a program grows a second file, every check that names
+the first one by path is now partial.
+
+### A coverage LOSS can hide inside a rising count
+
+The same class wears the opposite sign, and that one is worse, because the number
+moves in the reassuring direction. Rewriting `qa-ansible-syntax.bash` to derive
+its population from a top-level `- hosts:` **dropped `playbooks/playbook-main.yml`**,
+which is all `import_playbook:` and contains no play of its own. The reported
+total went **78 → 79** and read as a clean gain; it was two files gained and the
+most important one lost.
+
+- **A total cannot show you a substitution.** Only enumerating the population
+  can. Print the buckets — `80 playbooks OK (77 under playbooks/imports/, 3 elsewhere)` — so a change of composition is visible in ordinary passing output.
+- **When you replace a hardcoded list with a derived one, diff the two sets**,
+  do not compare their sizes.
+
+### Over-match versus under-match, demonstrated live
+
+Widening the fail-fast regex to accept both YAML boolean spellings (`failed_when: no`
+had been earning a green tick on the repo's #1 rule) initially over-matched: `no`
+matches inside `not`, so it flagged 10 legitimate `failed_when: not foo.stat.exists`
+probes. That was fixed in a minute, **because it printed all ten offending lines
+on the first run.** The under-match it replaced printed nothing and had been
+sitting there indefinitely. The direction that feels dangerous while you are
+writing it is the one that shows you what it did.
 
 **How to apply:**
 

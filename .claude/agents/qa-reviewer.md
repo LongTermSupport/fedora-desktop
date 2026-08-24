@@ -142,6 +142,23 @@ declares the whole machine. Read it before judging any playbook change.
     stated as a number. Ask for a `COVERAGE: n of m` line.
     An under-match is silent, so it will never appear as a failure — you have to go
     and ask what population the filter missed.
+  - a check that **names one file by path** where the program has since grown into
+    several. `CCY_HASH` was `md5sum "$0"` from when the launcher was the whole
+    program; six libraries larger than the launcher grew around it and 22 commits
+    shipped under an unchanged hash (Plan 00081).
+  - **a lesson written down beside the thing it fixed, never generalised.**
+    `qa-python.bash` had `qa-bash.bash`'s exact discovery defect, six lines away in
+    the same directory, still live a fortnight after 00076 fixed and documented it.
+    When a diff fixes an instance, ask what *else* in the repo has the same shape.
+- **A rising count is not proof of a coverage gain.** Replacing a hardcoded
+  population with a derived one can substitute members: in Plan 00081 the
+  ansible-syntax total went 78 → 79 while silently *dropping* `playbook-main.yml`,
+  because the new predicate matched `- hosts:` and that file is all
+  `import_playbook:`. **Diff the two sets, never compare their sizes**, and expect
+  the passing output to state its buckets rather than one total.
+- **A gate whose only visible output is a failure is indistinguishable from a gate
+  that is not running.** Require a pass line. Two gates in this repo sat documented
+  but unrun for months because nothing printed when they were skipped (Plan 00081).
 - **Are the claims in the commit message and plan actually demonstrated?** "Verified"
   and "works" require a command and its output, not an assumption from having applied
   the change.
@@ -161,8 +178,12 @@ declares the whole machine. Read it before judging any playbook change.
 
 ### E. Version bumps and container integrity
 
-- Any change to `files/var/local/claude-yolo/claude-yolo` **requires** a `CCY_VERSION`
-  bump with an updated comment. A pre-commit hook enforces it; catch it before that.
+- Any change to `files/var/local/claude-yolo/claude-yolo` **or to
+  `files/var/local/claude-yolo/lib/*.bash`** requires a `CCY_VERSION` bump with an
+  updated comment. The libraries are part of the same program and the runtime
+  `CCY_HASH` covers them; since the version lives in the launcher, a `lib/`-only
+  change must stage the launcher too. A pre-commit hook enforces it (extended in
+  Plan 00081, after 22 lib-only commits shipped with no bump); catch it before that.
 - A change to anything baked into the image (`entrypoint.sh`, `Dockerfile`, patch
   scripts, deployed skills) requires bumping the Dockerfile `claude-yolo-version`
   LABEL **and** `REQUIRED_CONTAINER_VERSION`. Confirm the two agree.
