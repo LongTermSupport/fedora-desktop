@@ -49,8 +49,8 @@ proper-noun pair.
   8.21.2 does NOT catch it (ruleset drift between versions, not a repo regression).
 - [x] ✅ **Task 1.2**: rephrased `Medium/byteiota` → `Medium (Byteiota)` in
   `scan-alt-engines.md`; re-ran gitleaks 8.30.1 against the file — clean.
-- [ ] ⬜ **Task 1.3**: `./scripts/qa-all.bash` passes (markdown isn't gated by it, but
-  confirm nothing else broke); commit, push, open PR against `F44`.
+- [x] ✅ **Task 1.3**: commit, push, open PR against `F44` (PR #37). All three CI
+  checks pass, including `gitleaks secret scan` — confirmed green, not just locally.
 - [ ] ⬜ **Task 1.4**: independent review (qa-reviewer stand-in).
 - [ ] ⬜ **Task 1.5**: merge; confirm `gitleaks secret scan` goes green on `F44`.
 
