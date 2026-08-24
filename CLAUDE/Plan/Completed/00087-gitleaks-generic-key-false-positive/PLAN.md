@@ -1,6 +1,6 @@
 # Plan 00087: gitleaks generic key false positive
 
-**Status**: In Progress
+**Status**: Complete
 **Created**: 2026-08-24
 **Owner**: joseph
 **Priority**: Medium
@@ -55,14 +55,15 @@ proper-noun pair.
   NITS**; confirmed the fix, the rephrase-over-allowlist call, and CI green
   independently. One nit: `CLAUDE/Plan/README.md` had no index row for this plan —
   added.
-- [ ] ⬜ **Task 1.5**: merge; confirm `gitleaks secret scan` goes green on `F44`.
+- [x] ✅ **Task 1.5**: merged (PR #37, merge commit `b15fc4d`); `gitleaks secret scan` confirmed green on `F44`'s new tip via `gh run list`.
 
 ## Success Criteria
 
-- [ ] `gitleaks dir . --redact --no-banner --verbose` (gitleaks 8.30.1) reports zero
-  leaks against the merged `F44` tree.
-- [ ] The `gitleaks secret scan` GitHub Actions check on `F44` shows green on the next
-  run after merge.
+- [x] ✅ `gitleaks dir . --redact --no-banner --verbose` (gitleaks 8.30.1) reports
+  zero leaks against the merged `F44` tree — confirmed pre-merge on the exported
+  tracked tree, and CI's own gitleaks job on the merge commit is green.
+- [x] ✅ The `gitleaks secret scan` GitHub Actions check on `F44` shows green on
+  the next run after merge — confirmed (`b15fc4d`, conclusion: success).
 
 ## Delivery & Milestones
 
@@ -70,4 +71,5 @@ proper-noun pair.
      "when" — do not add dates). The blow-by-blow activity log lives in
      JOURNAL/00087-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
+- Merged: `b15fc4d` (PR #37).
 - Recovery cron: 28837729 (shared session-wide failsafe, already running).
