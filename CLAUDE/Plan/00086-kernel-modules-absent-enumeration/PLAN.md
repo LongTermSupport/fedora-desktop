@@ -57,7 +57,7 @@ mechanisms are implicated here.
   into words.
 - [x] ✅ **Task 1.3**: `bash -n`/`ansible-playbook --syntax-check` clean;
   `./scripts/qa-all.bash` passes (537 files checked, QA passed).
-- [ ] ⬜ **Task 1.4**: commit, push on a branch, open PR against `F44`.
+- [x] ✅ **Task 1.4**: commit, push on a branch, open PR against `F44` (PR #36).
 - [ ] ⬜ **Task 1.5**: independent review (qa-reviewer stand-in).
 - [ ] ⬜ **Task 1.6**: merge.
 
