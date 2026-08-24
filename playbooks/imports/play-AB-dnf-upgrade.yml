@@ -115,15 +115,51 @@
 
     - name: Enumerate installed kernel-modules versions
       ansible.builtin.command: rpm -q kernel-modules --queryformat '%{VERSION}-%{RELEASE} '
+      environment:
+        LC_ALL: C
       register: km_versions
       changed_when: false
+      failed_when: false # FAIL-FAST-OK: rc=1 "is not installed" is legitimate zero-versions data here; the assert below rejects any other failure shape
+      tags:
+        - upgrade
+        - dnf
+
+    - name: Assert kernel-modules enumeration failed only in the expected not-installed shape
+      ansible.builtin.assert:
+        that:
+          - km_versions.rc == 0 or (km_versions.rc == 1 and 'is not installed' in km_versions.stdout)
+        fail_msg: >-
+          rpm -q kernel-modules failed unexpectedly (rc={{ km_versions.rc }}):
+          stdout={{ km_versions.stdout }} stderr={{ km_versions.stderr }}
+      tags:
+        - upgrade
+        - dnf
+
+    - name: Compute the running kernel's kernel-core-style version string
+      # uname -r reports "<version>-<release>.<arch>"; strip the trailing
+      # ".<arch>" so this matches the "%{VERSION}-%{RELEASE}" format
+      # kc_versions/km_versions are enumerated in, for the exclusion below.
+      ansible.builtin.set_fact:
+        running_kernel_version: "{{ running_kernel.stdout.rsplit('.', 1)[0] }}"
       tags:
         - upgrade
         - dnf
 
     - name: Identify half-installed kernels (kernel-core without matching kernel-modules)
+      # The half-install heuristic only applies to a host that carries
+      # kernel-modules at all (see the header comment — a desktop needing
+      # iwlwifi.ko/btusb.ko etc.). A host where kernel-modules is genuinely
+      # ABSENT (km_versions.rc == 1, "is not installed") — e.g. a minimal/
+      # cloud image that only ever ships kernel-modules-core — is not
+      # half-installed by this definition; it is complete for its own
+      # package set, so diffing kernel-core against nothing would flag
+      # every installed kernel and remove them all. Skip detection entirely
+      # in that case. The running kernel is also excluded unconditionally —
+      # it must never be a removal candidate regardless of the above.
       ansible.builtin.set_fact:
-        half_installed_kernels: "{{ kc_versions.stdout.split() | difference(km_versions.stdout.split()) | list }}"
+        half_installed_kernels: >-
+          {{ (kc_versions.stdout.split() | difference(km_versions.stdout.split()) | difference([running_kernel_version]))
+             if km_versions.rc == 0 else [] }}
       tags:
         - upgrade
         - dnf
