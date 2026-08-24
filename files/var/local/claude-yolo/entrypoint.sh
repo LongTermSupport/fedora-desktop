@@ -340,10 +340,61 @@ if [ -f "$_ccy_env_file" ]; then
     . "$_ccy_env_file"
 fi
 
+# ── Supervisor wrap: DEFAULT ON when the project ships a supervisor ───────────
+#
+# Precedence, highest first:
+#   1. CCY_CLAUDE_WRAPPER forwarded from the host (`ccy --supervise`, or a host
+#      export) — an explicit operator instruction, always wins.
+#   2. CCY_CLAUDE_WRAPPER set by the project ccy.env sourced just above — the
+#      per-project choice (this is where `--arm` is opted into).
+#   3. This default: the project supervisor, unarmed, if it is there.
+#
+# Why default ON (CCY 3.42.0). The supervisor is the ONLY remaining ctrl+z
+# guard: it strips the 0x1a SUSP byte from forwarded stdin and swallows
+# SIGTSTP/SIGQUIT, and the image-level byte patch that used to do that job was
+# retired. Leaving the guard opt-in meant every project without a ccy.env could
+# still be frozen by a keypress with no way to recover inside a container.
+#
+# Unarmed by default: without --arm the supervisor injects one harmless visible
+# marker per session instead of a real /compact. Automatic compaction changes
+# what a session DOES and stays an explicit opt-in (ccy.env --arm, or
+# `ccy --supervise`); the terminal-key guard does not, and is what we want
+# everywhere. Opt out entirely with CCY_NO_SUPERVISOR=1 / `ccy --no-supervise`.
+CCY_SUPERVISOR_PATH="${CCY_SUPERVISOR_PATH:-/workspace/.claude/ccy/claude-supervise.py}"
+
+if [[ -z "${CCY_CLAUDE_WRAPPER:-}" ]] && [[ "${CCY_NO_SUPERVISOR:-}" != "1" ]]; then
+    if [ -f "$CCY_SUPERVISOR_PATH" ]; then
+        # Syntax-check before exec. A corrupt or truncated supervisor would
+        # otherwise take every session in every project down with it, and this
+        # path is now reached by default rather than only by opt-in. Parsed with
+        # ast rather than py_compile so nothing is written to the project.
+        #
+        # The probe FAILS THE LAUNCH rather than quietly running unwrapped: an
+        # unwrapped session has no ctrl+z guard, and silently downgrading the
+        # one protection left is exactly the "skip and continue" this repo bans.
+        # The message names the bypass, so the operator is never stuck.
+        if ! _ccy_sup_probe=$(python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read(), sys.argv[1])' \
+            "$CCY_SUPERVISOR_PATH" 2>&1); then
+            echo "✗ CCY: the project supervisor at $CCY_SUPERVISOR_PATH does not parse." >&2
+            echo "$_ccy_sup_probe" >&2
+            echo "  Restore it from git, or re-deploy it with the hooks daemon." >&2
+            echo "  To launch without it (NO ctrl+z guard): ccy --no-supervise" >&2
+            exit 1
+        fi
+        # Invoked through python3 rather than executed directly: the exec bit on
+        # a git-tracked file is one more thing that can be wrong, and it has been.
+        CCY_CLAUDE_WRAPPER="python3 $CCY_SUPERVISOR_PATH --"
+        echo "Supervisor: on by default (ctrl+z guard active, auto-compaction unarmed)" >&2
+    else
+        # Say so. An absent supervisor is a normal state, but after 3.42.0 it is
+        # also the state with no ctrl+z guard at all — and a silence there reads
+        # as "protected" to anyone who does not know the patch was removed.
+        echo "Supervisor: not present at $CCY_SUPERVISOR_PATH — ctrl+z is UNGUARDED in this session." >&2
+        echo "  Install the hooks daemon in this project to get the guard back." >&2
+    fi
+fi
+
 # Execute the command.
-# Optional supervisor wrap (default OFF): if CCY_CLAUDE_WRAPPER is set, prepend it
-# to the claude invocation. Unset => unchanged behaviour. The wrapper command must
-# exist on PATH inside the image (provided separately — see fedora-desktop issue #31).
 if [[ -n "${CCY_CLAUDE_WRAPPER:-}" ]]; then
     read -ra _ccy_wrapper <<< "$CCY_CLAUDE_WRAPPER"
     exec "${_ccy_wrapper[@]}" "$@"

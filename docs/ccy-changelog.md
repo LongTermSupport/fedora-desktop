@@ -17,6 +17,49 @@ Two version numbers move independently — see
 
 ---
 
+## 3.43.0 (container 2.28)
+
+**The supervisor is on by default when the project has one.**
+
+3.42.0 removed the image-level ctrl+z patch and handed that job to the PTY supervisor —
+and then left the supervisor opt-in, which meant every project without a `ccy.env` arming
+it had *no* ctrl+z guard at all. A safety net that is only in place where someone
+remembered to ask for it is not a safety net.
+
+`entrypoint.sh` now enables the supervisor whenever the project ships one at
+`/workspace/.claude/ccy/claude-supervise.py` (deployed by the hooks daemon under
+`ccy.deploy_supervisor: true`). Precedence, highest first: a host `CCY_CLAUDE_WRAPPER`
+export or `ccy --supervise` → the project's `ccy.env` → this default.
+
+**Unarmed by default, and the split is deliberate.** The terminal-key guard is pure
+protection and belongs in every session. Automatic compaction changes what a session
+*does* — it injects a real `/compact` — so it stays an explicit opt-in via `--arm` in
+`ccy.env` or the new meaning of `ccy --supervise`. Unarmed, the compaction trigger injects
+one harmless visible marker per session instead.
+
+**Neither failure mode is swallowed.** A supervisor that does not parse **fails the
+launch** — checked with `ast.parse` before `exec`, so nothing is written to the project —
+and the error names the file and the `--no-supervise` bypass. Running unwrapped instead
+would silently downgrade the only ctrl+z guard, and since this is now the default path a
+corrupt file would otherwise take every session in every project down with it. An
+**absent** supervisor prints that ctrl+z is unguarded in this session; absence is normal,
+but a silence there reads as "protected".
+
+It is invoked as `python3 <path> --` rather than executed directly, so a missing exec bit
+on the git-tracked file cannot break the launch — a state the daemon's own
+`ccy_supervisor_integrity` handler exists to warn about, so it does happen.
+
+Flags:
+
+- `--supervise` — force it on and **armed**. Its old default was the bare command
+  `claude-supervise`, which is not on `PATH` in the image and never was
+  (fedora-desktop issue #31), so the flag could only ever fail at exec. It now names the
+  real supervisor the daemon deploys.
+- `--no-supervise` (or `CCY_NO_SUPERVISOR=1`) — run `claude` unwrapped. No
+  auto-compaction **and no ctrl+z guard**. Passing both flags is an error.
+
+---
+
 ## 3.42.0 (container 2.27)
 
 **The ctrl+z patch is gone — the supervisor guards the key instead.**

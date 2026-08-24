@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.42.0"  # The image no longer byte-patches Claude Code to suppress ctrl+z. That defence moved OUT of the image and into the hooks-daemon PTY supervisor (hooks-daemon Plan 00173): claude-supervise.py strips the 0x1a SUSP byte from forwarded stdin and swallows SIGTSTP/SIGQUIT, so it needs no knowledge of Claude Code's minified internals and cannot be broken by an upstream release. Removes ccy-ctrl-z-patch.js, its Dockerfile build step, CCY_DISABLE_SUSPEND, the soft-fail sentinel warning, the patch re-run in update_claude_inplace(), and scripts/qa-ctrl-z-patch.bash. Container 2.27. See docs/ccy-changelog.md.
+CCY_VERSION="3.43.0"  # The PTY supervisor is ON BY DEFAULT whenever the project ships one (.claude/ccy/claude-supervise.py) — 3.42.0 made it the only ctrl+z guard, and leaving that guard opt-in left every project without a ccy.env freezable by a keypress. Default is UNARMED: the terminal-key guard runs everywhere, real /compact injection stays an explicit opt-in via ccy.env --arm or the new `ccy --supervise` (whose old default named a command that was never in the image). `ccy --no-supervise` / CCY_NO_SUPERVISOR=1 opts out; a supervisor that does not parse fails the launch naming that bypass, and an ABSENT one says so rather than staying silent. Container 2.28. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -64,7 +64,7 @@ source "$SCRIPT_DIR/lib/docker-health.bash"
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.27"
+REQUIRED_CONTAINER_VERSION="2.28"
 
 set -e
 
@@ -201,16 +201,17 @@ Options:
   --disable-custom-docker  Skip custom Dockerfile build, use base image (for fixing broken Dockerfiles)
   --prompt "text"        Start Claude Code with a preseeded prompt
   --headless             Run in headless mode (requires --prompt)
-  --supervise            Run claude under an in-container supervisor wrapper by
-                         setting+forwarding CCY_CLAUDE_WRAPPER (default:
-                         'claude-supervise --', override via that env var).
-                         Requires the supervisor command to be present in the
-                         image (see fedora-desktop issue #31); until it is
-                         vendored this flag is a no-op that fails loudly if the
-                         wrapper is missing. Unset => unchanged behaviour.
-                         Per-project alternative: declare CCY_CLAUDE_WRAPPER (and
-                         other ccy env) in a tracked .claude/ccy/ccy.env file,
-                         sourced in-container by entrypoint.sh before claude runs.
+  --supervise            Force the PTY supervisor on and ARMED — it injects a
+                         real /compact when context goes red while idle. The
+                         supervisor already runs UNARMED by default whenever the
+                         project ships one (.claude/ccy/claude-supervise.py,
+                         deployed by the hooks daemon), because it carries the
+                         only ctrl+z guard; this flag adds the compaction.
+                         Override the whole wrap by exporting CCY_CLAUDE_WRAPPER,
+                         or per-project via a tracked .claude/ccy/ccy.env, which
+                         entrypoint.sh sources before claude runs.
+  --no-supervise         Run claude unwrapped. Disables auto-compaction AND the
+                         ctrl+z guard, so ctrl+z can freeze the session.
   --top                  Container manager: list/stop all CCY containers
   --prevent              Disable CCY for this project folder (writes 'never' to .claude/ccy/allowed-hostnames)
   --help, -h             Show this help message
@@ -490,6 +491,7 @@ NETWORK_FROM_CONFIG=false
 NO_NETWORK_MODE=false
 HEADLESS_MODE=false
 SUPERVISE_MODE=false
+NO_SUPERVISE_MODE=false
 PROMPT_TEXT=""
 SAW_DOUBLE_DASH=false
 
@@ -564,6 +566,8 @@ for arg in "$@"; do
         HEADLESS_MODE=true
     elif [ "$arg" = "--supervise" ]; then
         SUPERVISE_MODE=true
+    elif [ "$arg" = "--no-supervise" ]; then
+        NO_SUPERVISE_MODE=true
     elif [ "$arg" = "--prompt" ]; then
         NEXT_IS_PROMPT=true
     elif [ "$arg" = "--debug" ]; then
@@ -676,7 +680,7 @@ if [ ${#suspect_flags[@]} -gt 0 ]; then
         if [ ${#unknown[@]} -gt 0 ]; then
             ccy_flags=(
                 --rebuild --disable-custom-docker --no-ssh --github-443 --no-network
-                --headless --supervise --prompt --debug --engine --ssh-key --token --create-token
+                --headless --supervise --no-supervise --prompt --debug --engine --ssh-key --token --create-token
                 --update-token --list-tokens --export-token --network --connect
                 --custom --custom-docker --top --prevent --help
             )
@@ -2951,15 +2955,33 @@ fi
 export CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_OAUTH_TOKEN"
 export GH_TOKEN
 
-# Optional supervisor wrap (default OFF): --supervise opts in by setting a default
-# wrapper command (operator-overridable if CCY_CLAUDE_WRAPPER is already exported).
-# When --supervise is absent the var stays empty and the entrypoint branch is a
-# no-op — behaviour is byte-for-byte unchanged. A non-empty value forwarded here
-# (host export or --supervise) wins over any project default set in
-# .claude/ccy/ccy.env, which entrypoint.sh sources in-container using the
-# ${CCY_CLAUDE_WRAPPER:-<default>} idiom. See fedora-desktop issue #31.
+# Supervisor wrap. The BASELINE is now decided in-container by entrypoint.sh,
+# which turns the project supervisor on by default whenever one is present (CCY
+# 3.42.0 — it is the only ctrl+z guard left). Nothing needs forwarding for that.
+#
+# The two flags here are the explicit overrides, and each beats that default:
+#   --supervise     force it on and ARMED (real /compact injection), which the
+#                   in-container default deliberately does not do.
+#   --no-supervise  force it off entirely, ctrl+z guard included.
+#
+# A host export of CCY_CLAUDE_WRAPPER still outranks --supervise, so an operator
+# can point the wrap at something else without editing this script.
+#
+# The old default was the bare command `claude-supervise`, which is not on PATH
+# in the image and never was (fedora-desktop issue #31) — so --supervise could
+# only ever fail at exec. It now names the real, git-tracked supervisor the
+# hooks daemon deploys into the project, invoked through python3 so a missing
+# exec bit cannot break it.
+if [ "$SUPERVISE_MODE" = true ] && [ "$NO_SUPERVISE_MODE" = true ]; then
+    print_error "--supervise and --no-supervise are mutually exclusive"
+    exit 1
+fi
 if [ "$SUPERVISE_MODE" = true ]; then
-    CCY_CLAUDE_WRAPPER="${CCY_CLAUDE_WRAPPER:-claude-supervise --}"
+    CCY_CLAUDE_WRAPPER="${CCY_CLAUDE_WRAPPER:-python3 /workspace/.claude/ccy/claude-supervise.py --arm --}"
+fi
+CCY_NO_SUPERVISOR=""
+if [ "$NO_SUPERVISE_MODE" = true ]; then
+    CCY_NO_SUPERVISOR=1
 fi
 
 # Sub-agent fan-out: CCY sets NO limits here, deliberately. Claude Code's
@@ -3023,6 +3045,7 @@ container_cmd run $DOCKER_FLAGS --rm \
     -e "SSH_KEY_PATHS=$SSH_KEY_PATHS_STR" \
     -e "GITHUB_SSH_443=$GITHUB_SSH_443" \
     -e "CCY_CLAUDE_WRAPPER=${CCY_CLAUDE_WRAPPER:-}" \
+    -e "CCY_NO_SUPERVISOR=${CCY_NO_SUPERVISOR:-}" \
     -e "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-1}" \
     -e "MAX_THINKING_TOKENS=${MAX_THINKING_TOKENS:-}" \
     -e "TERM=${TERM:-xterm}" \

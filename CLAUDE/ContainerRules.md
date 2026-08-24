@@ -128,16 +128,37 @@ The supervisor needs no knowledge of Claude Code's internals whatsoever, so no
 upstream release can break it and an updated binary is protected the moment it
 starts.
 
-**Residual gap — know this before assuming you are covered.** The supervisor is
-**opt-in**, not automatic: `entrypoint.sh` wraps `claude` only when
-`CCY_CLAUDE_WRAPPER` is set, which comes from a project's tracked
-`.claude/ccy/ccy.env` (deployed when `ccy.deploy_supervisor: true` in
-`.claude/hooks-daemon.yaml`) or from `ccy --supervise`. **A ccy session with no
-supervisor armed has no in-container ctrl+z guard at all** and can still be
-frozen by the keypress. The host-side `stty susp undef` in `claude-yolo` stops
-the *kernel* generating SIGTSTP, but the `0x1a` byte still reaches Claude Code,
-which suspends itself. If you hit a freeze, arm the supervisor for that project
-— do not write a new patch.
+**The supervisor is ON BY DEFAULT (CCY 3.43.0).** `entrypoint.sh` turns it on
+whenever the project ships one at `/workspace/.claude/ccy/claude-supervise.py`
+— which the hooks daemon deploys when `ccy.deploy_supervisor: true`. It was
+opt-in for one release, and that was wrong the moment 3.42.0 made it the only
+ctrl+z guard: every project without a `ccy.env` was freezable by a keypress.
+
+Precedence, highest first: a host `CCY_CLAUDE_WRAPPER` export or
+`ccy --supervise` → the project's `ccy.env` → this default.
+
+**The default is UNARMED**, and the split matters. The terminal-key guard is
+pure protection and belongs everywhere. Automatic compaction changes what a
+session *does* — it injects a real `/compact` — so it stays an explicit opt-in
+(`--arm` in `ccy.env`, or `ccy --supervise`). Unarmed, the supervisor injects
+one harmless visible marker per session instead.
+
+**Two failure modes are surfaced, not swallowed:**
+
+- A supervisor that does not parse **fails the launch** (`ast.parse` preflight,
+  before `exec`) naming the file and the bypass. Running unwrapped instead would
+  silently downgrade the only ctrl+z guard — the "skip and continue" this repo
+  bans — and it is now the default path, so a corrupt file would otherwise take
+  every session in every project down with it.
+- An **absent** supervisor prints that ctrl+z is unguarded in this session.
+  Absence is a normal state, but silence there reads as "protected" to anyone
+  who does not know the patch was removed.
+
+**Opting out**: `ccy --no-supervise` (or `CCY_NO_SUPERVISOR=1`) runs claude
+unwrapped — no auto-compaction *and* no ctrl+z guard. The host-side
+`stty susp undef` in `claude-yolo` still stops the *kernel* generating SIGTSTP,
+but the `0x1a` byte reaches Claude Code, which suspends itself. So if you hit a
+freeze: re-arm the supervisor — do not write a new patch.
 
 **Files that changed when this was removed** (`ccy-ctrl-z-patch.js`,
 `scripts/qa-ctrl-z-patch.bash` and `scripts/qa-ccy/` are deleted; the Dockerfile

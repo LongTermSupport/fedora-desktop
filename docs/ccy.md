@@ -610,25 +610,38 @@ Arming means writing a `CCY_CLAUDE_WRAPPER` export into `ccy.env`. It is idempot
 respects you — an existing `CCY_CLAUDE_WRAPPER` (set *or* commented out to disable) is
 left alone.
 
-**Per launch.**
+**It is already on.** Since CCY 3.43.0 the entrypoint enables the supervisor by default
+whenever the project has one at `.claude/ccy/claude-supervise.py` — you do not have to
+ask for it. That default is **unarmed**: the ctrl+z guard runs, and the compaction
+trigger injects a harmless visible marker rather than a real `/compact`.
+
+Automatic compaction is the part you opt into, because it changes what a session does:
 
 ```bash
-ccy --supervise
+ccy --supervise      # force it on and ARMED for this launch
 ```
 
-This sets and forwards a default `CCY_CLAUDE_WRAPPER` of bare `claude-supervise --`. The
-base image does **not** vendor a `claude-supervise` binary on `PATH`, so bare
-`--supervise` fails loudly unless you have exported an absolute path yourself:
+or per project, which is what `deploy_supervisor: true` writes into `ccy.env`, and which
+outranks the in-container default:
 
 ```bash
-export CCY_CLAUDE_WRAPPER="/path/to/claude-supervise.py --arm --"
+export CCY_CLAUDE_WRAPPER="/workspace/.claude/ccy/claude-supervise.py --arm --"
 ```
 
-In practice, use the per-project method above — it gives you a real supervisor at a known
-path.
+**Opting out.**
 
-**Unset, nothing changes.** With no `CCY_CLAUDE_WRAPPER` anywhere, the entrypoint exec's
-`claude` directly — byte-for-byte the old behaviour.
+```bash
+ccy --no-supervise   # or: CCY_NO_SUPERVISOR=1 ccy
+```
+
+This runs `claude` unwrapped — no auto-compaction **and no ctrl+z guard**, so ctrl+z can
+freeze the session. See [ctrl+z and the supervisor](#ctrlz-and-the-supervisor).
+
+**If the supervisor is missing or broken.** A project with no
+`.claude/ccy/claude-supervise.py` gets a one-line notice at launch saying ctrl+z is
+unguarded — absence is normal, but silence there would read as "protected". A supervisor
+that does not parse **fails the launch** rather than quietly running unwrapped; the error
+names the file and tells you to use `--no-supervise` if you need a session right now.
 
 ### Dry-run vs armed
 
@@ -790,10 +803,10 @@ from forwarded input and swallows `SIGTSTP`/`SIGQUIT` from outside Claude Code �
 upstream can break it, and you get a `⛔ Ctrl+Z ignored — use /exit to quit` notice on the
 status line instead of a frozen session.
 
-**The supervisor is opt-in.** A session launched without it (no
-`.claude/ccy/ccy.env` arming it, no `ccy --supervise`) has no ctrl+z guard and can still
-freeze on the keypress. If that happens, arm the supervisor for the project —
-see [Turning it on](#turning-it-on).
+**The supervisor is on by default** (CCY 3.43.0) whenever the project ships one, precisely
+because it now carries the only ctrl+z guard. The two ways to end up unguarded are an
+absent supervisor and `--no-supervise`; both announce themselves at launch. See
+[Turning it on](#turning-it-on).
 
 ---
 
@@ -810,7 +823,7 @@ see [Turning it on](#turning-it-on).
 | Git-over-SSH hangs on a restricted network    | Port 22 blocked — use `ccy --github-443`.                                                                                                                                                                                                          |
 | `NETWORK ERROR: '...' has no internet access` | The reachability preflight needs an `alpine` pull and plain-http egress to `google.com`. If the network is known-good by other means (e.g. a fenced CI runner that proves its own egress beforehand), skip it: `CCY_SKIP_NETWORK_PREFLIGHT=1 ccy`. |
 | Agent cannot reach the database               | Not on the network. `ccy --network <net>`, or `ccy --connect` from another terminal.                                                                                                                                                               |
-| `Ctrl+Z` freezes the session                  | The supervisor is not armed for this project — it owns the ctrl+z guard since CCY 3.42.0. See [ctrl+z and the supervisor](#ctrlz-and-the-supervisor).                                                                                              |
+| `Ctrl+Z` freezes the session                  | No supervisor in this project, or launched with `--no-supervise` — it owns the ctrl+z guard since CCY 3.42.0. See [ctrl+z and the supervisor](#ctrlz-and-the-supervisor).                                                                          |
 | Session stalls with a full context window     | Enable [the supervisor](#the-supervisor) so it compacts automatically.                                                                                                                                                                             |
 | Stale/orphaned containers                     | `ccy --top` to list and stop them.                                                                                                                                                                                                                 |
 | Need to see what CCY itself is doing          | `ccy --debug` for interactive debug-layer selection.                                                                                                                                                                                               |
