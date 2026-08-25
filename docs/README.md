@@ -347,6 +347,7 @@ ccy --top
 
 - [Headless Server Install — Unattended IaC Runbook](headless-server-install.md) — Step-by-step: download run.bash, create secret files, write the vars file, run (with cloud-init + one-shot script)
 - [Headless / Unattended Provisioning](headless-provisioning.md) — Reference: the full `RUN_BASH_*` contract, trigger rules, and security model
+- [`run.bash` changelog](run-bash-changelog.md) — What each `RUN_BASH_VERSION` means, and the plan behind it
 
 **Networking**
 

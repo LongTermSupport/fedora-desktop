@@ -45,7 +45,7 @@ CCY sessions + 2 container stacks) acting on a guess is dangerous.
   can run it as many times as needed; iterate until the picture is complete.
 - **Confirm outcomes before claiming them.** "Fixed"/"works" is stated only after
   triage confirms it (e.g. `podman system df` rc=0 in the report), never assumed
-  from having applied a change. See also [triage vs verify below](#triage-is-fact-finding-verifyacceptance-is-the-pass-fail-gate).
+  from having applied a change. See also [triage vs verify below](#triage-is-fact-finding-verifyacceptance-is-the-passfail-gate).
 
 ### Triage is fact-finding; verify/acceptance is the pass/fail gate
 

@@ -7,7 +7,7 @@ commands. All system changes must go through Ansible playbooks.
 import re
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 # Add daemon to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "hooks-daemon/src"))
@@ -33,7 +33,7 @@ class AnsibleEnforcementHandler(Handler):
     """
 
     # Forbidden command patterns (case-insensitive)
-    FORBIDDEN_PATTERNS = [
+    FORBIDDEN_PATTERNS: ClassVar[list[str]] = [
         # Package management - install/remove operations
         r'\bdnf\s+(install|remove|erase|update|upgrade|downgrade|reinstall)',
         r'\byum\s+(install|remove|erase|update|upgrade)',

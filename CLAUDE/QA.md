@@ -16,19 +16,20 @@
 
 ## What qa-all.bash Runs
 
-`qa-all.bash` runs six stages and merges their JSON into `/tmp/qa-results.json`. A
-missing **required** tool makes a stage (and the whole run) exit `2`; a real
-analyser crash (e.g. ruff/shellcheck exit ≥ 2) is a hard failure, never silently
-treated as "0 issues".
+`qa-all.bash` runs **eight** gates. Seven merge their JSON into `/tmp/qa-results.json`;
+the eighth runs separately (see below). A missing **required** tool makes a stage
+(and the whole run) exit `2`; a real analyser crash (e.g. ruff/shellcheck exit ≥ 2)
+is a hard failure, never silently treated as "0 issues".
 
-| Script                   | Checks                                                                                                                                                                                                                                                                                                                           | Files                                                                                              |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `qa-bash.bash`           | `bash -n` (always) + shellcheck (**required** — exits 2 if absent, Plan 00075). Exits 2 if discovery finds **0 files**, and (Plan 00076) if it misses **any tracked shell script**. **shellcheck `error` AND `warning` findings GATE** (raised in Plan 00075 — SC2155 is this repo's own defect class); `info`/`style` advisory. | Repo-owned bash (excludes `roles/vendor`, `.claude/hooks-daemon`, `.claude/ccy`, `.claude/skills`) |
-| `qa-python.bash`         | `python3 -m py_compile` + ruff (ruff exit ≥ 2 = hard fail; no `--fix` mutation in the check path). Exits 2 if discovery finds **0 files**, and (Plan 00081) if it misses **any tracked Python file**                                                                                                                             | Repo-owned Python files — discovered by extension **or shebang, regardless of file mode**          |
-| `qa-patterns.bash`       | Semgrep rules from `.semgrep/bash-conventions.yml` (`\|\| echo` and other error-hiding patterns). Scans a temp mirror so coverage does not depend on file mode, and exits 2 if any discovered file is absent from `.paths.scanned` (Plan 00076)                                                                                  | Repo-owned bash                                                                                    |
-| `qa-ansible.bash`        | Fail-fast grep (`failed_when: false`/`ignore_errors` without same-line `# FAIL-FAST-OK:`, case-insensitive), **self-default vars** (`x: "{{ x \| default(…) }}"` — the 2.19 recursive-loop footgun `--syntax-check` can't see), **plus** playbook shebang + exec-bit hygiene                                                     | `playbooks/ tasks/ vars/ environment/ roles/` (excludes `roles/vendor`), `*.yml`/`*.yaml`          |
-| `qa-ansible-syntax.bash` | `ansible-playbook --syntax-check` on every playbook (files with a top-level `- hosts:`). Parse-only — safe in the CCY container                                                                                                                                                                                                  | `playbooks/playbook-main.yml` + standalone `playbooks/imports/**`                                  |
-| `qa-js.bash`             | `node --check` on repo JS + `eslint .` in `extensions/`                                                                                                                                                                                                                                                                          | Repo-owned `.js` (excludes vendor/node_modules) + `extensions/`                                    |
+| Script                   | Checks                                                                                                                                                                                                                                                                                                                           | Files                                                                                                           |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `qa-bash.bash`           | `bash -n` (always) + shellcheck (**required** — exits 2 if absent, Plan 00075). Exits 2 if discovery finds **0 files**, and (Plan 00076) if it misses **any tracked shell script**. **shellcheck `error` AND `warning` findings GATE** (raised in Plan 00075 — SC2155 is this repo's own defect class); `info`/`style` advisory. | Repo-owned bash (excludes `roles/vendor`, `.claude/hooks-daemon`, `.claude/ccy`, `.claude/skills`)              |
+| `qa-python.bash`         | `python3 -m py_compile` + ruff (ruff exit ≥ 2 = hard fail; no `--fix` mutation in the check path). Exits 2 if discovery finds **0 files**, and (Plan 00081) if it misses **any tracked Python file**                                                                                                                             | Repo-owned Python files — discovered by extension **or shebang, regardless of file mode**                       |
+| `qa-patterns.bash`       | Semgrep rules from `.semgrep/bash-conventions.yml` (`\|\| echo` and other error-hiding patterns). Scans a temp mirror so coverage does not depend on file mode, and exits 2 if any discovered file is absent from `.paths.scanned` (Plan 00076)                                                                                  | Repo-owned bash                                                                                                 |
+| `qa-ansible.bash`        | Fail-fast grep (`failed_when: false`/`ignore_errors` without same-line `# FAIL-FAST-OK:`, case-insensitive), **self-default vars** (`x: "{{ x \| default(…) }}"` — the 2.19 recursive-loop footgun `--syntax-check` can't see), **plus** playbook shebang + exec-bit hygiene                                                     | `playbooks/ tasks/ vars/ environment/ roles/` (excludes `roles/vendor`), `*.yml`/`*.yaml`                       |
+| `qa-ansible-syntax.bash` | `ansible-playbook --syntax-check` on every playbook (files with a top-level `- hosts:`). Parse-only — safe in the CCY container                                                                                                                                                                                                  | `playbooks/playbook-main.yml` + standalone `playbooks/imports/**`                                               |
+| `qa-js.bash`             | `node --check` on repo JS + `eslint .` in `extensions/`                                                                                                                                                                                                                                                                          | Repo-owned `.js` (excludes vendor/node_modules) + `extensions/`                                                 |
+| `qa-docs.bash`           | Link targets exist; every `#anchor` matches a real heading; every play imported by `playbook-main.yml` is named in both `docs/playbooks.md` and `docs/architecture.md`; every `CLAUDE/*.md` has an index row (Plan 00070)                                                                                                        | Core docs only — `docs/`, `CLAUDE/*.md`, `README.md`, `*/CLAUDE.md`, `.claude/rules/`. **Not** `CLAUDE/Plan/**` |
 
 Two further gates run inside `qa-all.bash` as **hard, non-structural** checks —
 they are deliberately not jq-merged stages, so they cannot disturb the positional
@@ -282,7 +283,7 @@ Run it alone with:
 Run ESLint via the binary directly (NOT `npm run lint` — blocked by hooks):
 
 ```bash
-cd /workspace/extensions && node_modules/.bin/eslint speech-to-text@fedora-desktop/extension.js
+cd extensions && node_modules/.bin/eslint speech-to-text@fedora-desktop/extension.js
 ```
 
 ---
@@ -336,7 +337,7 @@ nothing version-coupled left to gate — see
 | Changed files        | QA command                                                                  |
 | -------------------- | --------------------------------------------------------------------------- |
 | Bash or Python files | `./scripts/qa-all.bash`                                                     |
-| Extension JavaScript | `cd /workspace/extensions && node_modules/.bin/eslint <file>`               |
+| Extension JavaScript | `cd extensions && node_modules/.bin/eslint <file>`                          |
 | Ansible playbooks    | `./scripts/qa-all.bash` (runs `qa-ansible.bash` + `qa-ansible-syntax.bash`) |
 
 ---

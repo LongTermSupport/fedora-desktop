@@ -2,6 +2,18 @@
 
 Complete catalog of available features and how to use them.
 
+> **Scope**: this catalogues the playbooks you **provision a machine with** —
+> `playbooks/playbook-main.yml` and everything under `playbooks/imports/`.
+>
+> `playbooks/dev/` is **deliberately excluded**. Those are repo-development playbooks that
+> operate on this repository rather than configuring your desktop — e.g.
+> `play-collect-diagnostics.yml`, which gathers a host diagnostic snapshot into
+> `untracked/diagnostics/` so the playbooks themselves can be audited. They are documented in
+> [playbooks/dev/CLAUDE.md](../playbooks/dev/CLAUDE.md).
+>
+> This note exists so an absence here reads as a **decision**. A playbook missing from this
+> catalogue without one has historically meant it was forgotten, not excluded.
+
 ## Quick Navigation
 
 **Just installed?** Start with [Optional Playbooks](#optional-playbooks) to see what you can add.
@@ -97,10 +109,32 @@ These playbooks are executed automatically by `playbook-main.yml` during initial
 
 ### play-network-wait-tuning.yml
 
-**Purpose**: Cap NetworkManager-wait-online timeout to 5s\
+**Purpose**: Mask `NetworkManager-wait-online.service`\
 **Actions**:
 
-- Reduces boot delays caused by NetworkManager-wait-online.service
+- Masks the unit outright, so boot neither stalls on it nor ends with it in a `failed` state
+- Writes an `NM_ONLINE_TIMEOUT=5` drop-in that is **inert while masked** — it applies only if
+  someone later unmasks the unit, capping the stall at 5s instead of the 30s default
+- Clears any stale `failed` record left by earlier boots (`systemctl reset-failed`)
+
+> **Superseded behaviour**: the first version of this play (Plan 00044) only capped the timeout
+> to 5s. That reduced the stall but the unit still *failed* on every Wi-Fi-only boot — the cap
+> fires **as** the failure exit rather than avoiding it. Plan 00053 replaced the cap with the
+> mask. To reverse: `sudo systemctl unmask NetworkManager-wait-online.service`.
+
+### play-mask-intel-lpmd.yml
+
+**Purpose**: Mask `intel_lpmd.service` where it only produces boot noise\
+**Actions**:
+
+- Probes for the unit and masks it **only if present** — a no-op on hosts without it (e.g. AMD),
+  which is why it can be imported unconditionally
+- Removes the recurring `Open /proc/sys/kernel/sched_itmt_enabled failed` error from
+  `journalctl -b -p err` on Intel hosts whose kernel does not expose that knob
+
+> On a TuneD-managed desktop, `tuned-ppd` already owns the GNOME Power Mode panel, so masking
+> `intel_lpmd` does not change the user-visible power model. To reverse:
+> `sudo systemctl unmask intel_lpmd.service`.
 
 ### play-systemd-user-tweaks.yml
 
@@ -268,7 +302,8 @@ gh-personal issue list
 **Purpose**: LXC full-system containers\
 **Actions**:
 
-- Installs LXC and LXD packages
+- Installs LXC from the `ganto/lxc4` Copr, plus `lxc-templates` and the play's declared
+  dependencies (`firewalld`, `python3-firewall`, `dnsmasq`, `iptables-nft`, `NetworkManager`)
 - Configures container networking
 - Sets up SSH configuration for containers
 - Configures firewall rules
@@ -583,21 +618,25 @@ Clean Paste — Ctrl+Alt+V clipboard sanitiser:
 
 - Strips formatting and hidden characters from clipboard content before pasting
 
+#### play-cloudflare-dns.yml
+
+Cloudflare encrypted DNS — DNS-over-TLS with malware filtering, no client:
+
+- Points `systemd-resolved` at `1.1.1.2` / `1.0.0.2` (Cloudflare's malware-blocking
+  "for Families" tier) over DNS-over-TLS, with certificate verification
+- Replaces the only capability this host ever used WARP for — see below
+
 #### play-cloudflare-warp.yml
 
-Cloudflare WARP zero-trust VPN:
+**Removes** Cloudflare WARP. This play is an uninstaller, not an installer:
 
-- Cloudflare WARP client from official repository
-- **DNS over HTTPS** with malware filtering
-- **systemd-resolved** integration
-- Automatic registration and connection
-
-**Features**:
-
-- Zero-trust network access
-- 1.1.1.1 DNS with privacy
-- Malware and tracking protection
-- Faster internet (optimized routing)
+- The stable `cloudflare-warp` RPM hard-requires `webkit2gtk3`, which Fedora retired in F44
+  (libsoup2 is EOL). The package is uninstallable **and blocks the F43 → F44 distupgrade**
+  (`nothing provides webkit2gtk3 needed by cloudflare-warp-…`).
+- Its install branch is intentionally dead, gated behind `cloudflare_warp_uninstall: true`.
+  Flip that only once Cloudflare ships an F44-compatible RPM **and** you want the client back.
+- The encrypted, malware-filtered DNS it used to provide is now supplied natively by
+  `play-cloudflare-dns.yml`, with no client and no `webkit2gtk3`.
 
 #### play-collaboration.yml
 
@@ -610,6 +649,17 @@ Collaboration tools:
 Compression helpers — installs `compress` and `uncompress` commands:
 
 - Provides legacy UNIX compress/uncompress utilities
+
+#### play-container-watch.yml
+
+Container process watchdog — **reporting only, it never kills or throttles anything**:
+
+- Deploys the `containerwatch` helper, its CLI wrapper, and a `systemd --user` timer that runs
+  periodic scans
+- Installs a GNOME Shell panel extension that surfaces the findings
+- Writes a `report.json` and emits a DBus signal; taking action is left to you
+- Its no-kill guarantee is enforced by a dedicated QA gate — see
+  [CLAUDE/QA.md](../CLAUDE/QA.md)
 
 #### play-darktable-ai-appimage.yml
 
@@ -630,6 +680,15 @@ DDEV local development environment:
 - Installs DDEV for PHP/WordPress/Drupal local dev
 - Requires rootful Docker (`play-docker.yml` — core)
 - See [docs/ddev.md](ddev.md) for full setup guide
+
+#### play-disk-reclaim.yml
+
+Disk reclaim — disk-usage analysers plus the `reclaim` cleanup TUI:
+
+- Installs `ncdu`, `duf` and `trash-cli`; adds the `baobab` GUI analyser on desktops only
+- Deploys `reclaim`, a dependency-light bash menu that reports what is using disk and runs
+  targeted cleanups (dnf autoremove/clean, old kernels, journal vacuum, container prune,
+  flatpak/cache/trash) — **each behind an explicit confirmation**
 
 #### play-distrobox.yml
 
@@ -1030,6 +1089,21 @@ Install VirtualBox:
 - Installs VirtualBox
 - Configures Windows VM support
 - Sets up ACPI tools
+
+#### play-virtualbox-windows-vm-setup.yml
+
+Build the Windows 11 VM itself (download + import + interactive-use tuning):
+
+- Split out of `play-virtualbox-windows.yml` (Plan 00061) — that play installs the **engine**,
+  this one provisions the **VM**
+- `scope: gnome` — it provisions a GUI Windows desktop workflow, so it ends immediately on a
+  server profile
+- Run the engine play first:
+
+```bash
+./playbooks/imports/optional/experimental/play-virtualbox-windows.yml
+./playbooks/imports/optional/experimental/play-virtualbox-windows-vm-setup.yml
+```
 
 ### Archived
 

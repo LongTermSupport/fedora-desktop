@@ -83,9 +83,11 @@ class TestFetchKeys(unittest.TestCase):
         scan = mock.MagicMock()
         scan.returncode = 0
         scan.stdout = "[ssh.github.com]:443 ssh-ed25519 AAAA\n"
-        with mock.patch.object(cli.urllib.request, "urlopen", side_effect=OSError("no net")):
-            with mock.patch.object(cli.subprocess, "run", return_value=scan) as run:
-                keys = cli.fetch_keys()
+        with (
+            mock.patch.object(cli.urllib.request, "urlopen", side_effect=OSError("no net")),
+            mock.patch.object(cli.subprocess, "run", return_value=scan) as run,
+        ):
+            keys = cli.fetch_keys()
         run.assert_called_once()
         self.assertEqual(keys, ["ssh-ed25519 AAAA"])
 
@@ -93,10 +95,12 @@ class TestFetchKeys(unittest.TestCase):
         scan = mock.MagicMock()
         scan.returncode = 1
         scan.stdout = ""
-        with mock.patch.object(cli.urllib.request, "urlopen", side_effect=OSError("no net")):
-            with mock.patch.object(cli.subprocess, "run", return_value=scan):
-                with self.assertRaises(cli.KeyFetchError):
-                    cli.fetch_keys()
+        with (
+            mock.patch.object(cli.urllib.request, "urlopen", side_effect=OSError("no net")),
+            mock.patch.object(cli.subprocess, "run", return_value=scan),
+            self.assertRaises(cli.KeyFetchError),
+        ):
+            cli.fetch_keys()
 
 
 class TestProbe(unittest.TestCase):

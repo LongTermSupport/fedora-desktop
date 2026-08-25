@@ -7,7 +7,7 @@ directory and deploy via Ansible, never edit deployed files directly.
 import os
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 # Add daemon to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "hooks-daemon/src"))
@@ -92,7 +92,7 @@ class SystemPathsHandler(Handler):
     """
 
     # System paths that should NEVER be edited directly
-    BLOCKED_PATHS = [
+    BLOCKED_PATHS: ClassVar[list[str]] = [
         "/etc/",
         "/var/",
         "/usr/",

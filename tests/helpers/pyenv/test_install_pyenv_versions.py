@@ -110,9 +110,11 @@ class TestExecutorMain(unittest.TestCase):
         self.assertIn("PYENV-WARN: keeping installed Python 3.9", output)
 
     def test_aborts_when_pyenv_binary_missing(self):
-        with mock.patch.object(executor.os.path, "exists", return_value=False):
-            with self.assertRaises(SystemExit):
-                executor.main(["--pyenv-root", "/nope"])
+        with (
+            mock.patch.object(executor.os.path, "exists", return_value=False),
+            self.assertRaises(SystemExit),
+        ):
+            executor.main(["--pyenv-root", "/nope"])
 
     def test_refreshes_definitions_via_git_fetch_and_hard_reset(self):
         # Must NOT use `pyenv update` (its `git merge origin` breaks on modern
@@ -120,14 +122,15 @@ class TestExecutorMain(unittest.TestCase):
         # reset --hard — which cannot hit the "unmergeable" wall and leaves
         # untracked built versions/shims/plugins alone.
         git_calls = []
-        with mock.patch.object(
-            executor.subprocess, "run", _make_fake_run("", [], git_calls)
-        ), mock.patch.object(executor.os.path, "exists", return_value=True), \
-            mock.patch.object(executor.os.path, "isdir", return_value=True):
-            with contextlib.redirect_stdout(io.StringIO()):
-                rc = executor.main(
-                    ["--minor-count", "1", "--pyenv-root", "/fake/.pyenv"]
-                )
+        with (
+            mock.patch.object(
+                executor.subprocess, "run", _make_fake_run("", [], git_calls)
+            ),
+            mock.patch.object(executor.os.path, "exists", return_value=True),
+            mock.patch.object(executor.os.path, "isdir", return_value=True),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            rc = executor.main(["--minor-count", "1", "--pyenv-root", "/fake/.pyenv"])
         self.assertEqual(rc, 0)
         self.assertEqual(git_calls[0][0], "fetch")
         self.assertEqual(git_calls[1][:2], ["reset", "--hard"])
@@ -137,12 +140,14 @@ class TestExecutorMain(unittest.TestCase):
         # ~/.pyenv exists (pyenv binary present) but is not a git repo → fail
         # loudly and tell the user to re-run the installer; do NOT auto-nuke.
         def isdir(path):
-            return not pathlib.Path(path).name == ".git"
+            return pathlib.Path(path).name != ".git"
 
-        with mock.patch.object(executor.os.path, "exists", return_value=True), \
-            mock.patch.object(executor.os.path, "isdir", side_effect=isdir):
-            with self.assertRaises(SystemExit):
-                executor.main(["--pyenv-root", "/fake/.pyenv"])
+        with (
+            mock.patch.object(executor.os.path, "exists", return_value=True),
+            mock.patch.object(executor.os.path, "isdir", side_effect=isdir),
+            self.assertRaises(SystemExit),
+        ):
+            executor.main(["--pyenv-root", "/fake/.pyenv"])
 
 
 if __name__ == "__main__":

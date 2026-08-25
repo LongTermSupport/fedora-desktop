@@ -3,7 +3,10 @@
 ## Setup
 ## !! BUMP THIS VERSION ON EVERY CHANGE TO THIS FILE — NO EXCEPTIONS !!
 ## !! If you forget, there is NO WAY to tell which version is running !!
-RUN_BASH_VERSION="1.14.0"  # Fix (Plan 00085) — headless PATH gap for pipx-installed tools, see git log. Feature (lts-infra Plan 00045) — port RUN_BASH_SUDO_PASSWORD[_FILE] (originally Plan 00073, v1.11.0 on a since-diverged branch) onto F44 so it composes with v1.12.0's RUN_BASH_GITHUB_ACCOUNTS=none: headless no longer REQUIRES NOPASSWD:ALL — a sudo password is a second, equally supported credential. Preflight asserts one of the two and decides HL_SUDO_OPTS once; hl_sudo_askpass_start writes a 0600 password file + 0700 SUDO_ASKPASS helper (the sudo twin of hl_ssh_agent_start, shredded by the same EXIT trap) and hl_sudo_probe_password PROVES the password authenticates in preflight rather than mid-provision; every privileged call site goes through _sudo, byte-identical to bare `sudo` whenever HL_SUDO_OPTS is empty (every pre-existing path); the two ansible invocations gain a third branch using ansible-core's native --become-password-file. `sudo -k -n true` remains a WEAK probe (a command-scoped rule passes `true`, fails `dnf`) and the password probe is exactly as weak — ALL-scoped sudo stays the documented requirement for BOTH credentials. Feature (Plan 00082) — implement RUN_BASH_GITHUB_ACCOUNTS=none in headless: preflight now accepts 'none' (skips the GITHUB_TOKEN_FILE/GITHUB_SSH_PASSPHRASE_FILE requirement, rejects it combined with RUN_BASH_CONFIG_SOURCE or RUN_BASH_RESTORE_PROJECTS=1 — both need a GitHub identity); the SSH keygen block, the gh-install/auth/SSH-key-upload/known-hosts/self-clone block (now an HTTPS-only clone in the empty branch), the "GitHub SSH Key Passphrase" vault-encrypt step, and the "Setting Up GitHub Multi-Account Access" step all gain an explicit HL_GITHUB_ACCOUNTS=none branch that skips GitHub/SSH setup entirely; hl_write_localhost_yml writes an explicit `github_accounts: {}` (not an omitted key) so both github_accounts_configured and the function's own idempotency re-run check read it correctly. Revives the design --help-run-headless documented before it was deferred (v1.9.1, commit 83cdb2c) — re-verified against current files that the two "latent server-profile playbook bugs" cited as blockers are (1) already fixed (play-lxc's git@ clone) and (2) not reproducible from current file state (play-git-configure-and-tools.yml installs gh unconditionally, before play-github-cli-multi.yml runs, regardless of GitHub config) — see CLAUDE/Plan/00082-run-bash-github-accounts-none/PLAN.md. No change to the GitHub-configured headless path or the interactive path. Feature (Plan 00063) slice 2: headless PREFLIGHT — headless_preflight validates+resolves all RUN_BASH_* input up front (non-root check, NOPASSWD-sudo probe, required email/accounts, secret *_FILE resolution with V3.10 guardrails: file-precedence, both-set/unreadable/literal-on-cloud fail-fast, literal-elsewhere warn, unset literals before first child), set -u-safe secret-file EXIT trap. v1.9.1: defer the GitHub-empty ('none') path per round-3 decision — headless v1 requires a single GitHub account + token file (fail fast on 'none'); help + acceptance aligned. v1.9.2: require RUN_BASH_GITHUB_SSH_PASSPHRASE_FILE in v1 — the login SSH key stays passphrase-protected (D6), mirroring the interactive no-empty-passphrase rule, since headless loads it non-interactively via ssh-agent/SSH_ASKPASS (D5). v1.9.3: begin the EXECUTION slice — add hl_abort (BIG LOUD banner, exit 1) for headless execution failures, and a headless backstop at the top of every shared interactive prompt helper (confirm/promptForValue/promptChoice/promptSecretConfirmed/promptDefault/prompt_verified_vault_password/prompt_github_accounts_yaml) so a headless run that ever reaches a prompt fails LOUD instead of hanging (fail-fast rule 11). v1.9.4: GitHub/SSH execution mechanics — hl_ssh_agent_start (ssh-agent + transient 0700 SSH_ASKPASS reading a 0600 passphrase file, V3.13), hl_ssh_agent_stop (kill after last git op, V3.12), hl_cleanup EXIT trap (shred secret files + backstop agent kill, V3.11); headless branches for keygen (-P from resolved passphrase + agent load), hostname (RUN_BASH_HOSTNAME or leave default), gh token auth (gh auth login --with-token from stdin + git_protocol=ssh). All fail LOUD via hl_abort. v1.9.5: localhost.yml assembly — hl_write_localhost_yml (idempotent keep, else RUN_BASH_CONFIG_SOURCE pull from the private config repo, else FRESH from RUN_BASH_* identity + github_accounts), hl_pull_config_source (private-repo gate + LOUD 404), hl_reconcile_vault (D6: provided-or-fail, verify against encrypted values, NEVER auto-generate over !vault); headless branch for github_ssh_passphrase (reuse resolved passphrase, vault-encrypt). Interactive config/vault blocks wrapped under `if HEADLESS != true`. v1.10.0: FLIP the honest-stop — headless now flows through the FULL body (gh-account-setup gets RUN_BASH_HEADLESS + fails LOUD on any interactive gh web/scope-refresh; main playbook gets RUN_BASH_PROVISIONING_PROFILE passthrough + D7 loud-fatal on failure; optional playbooks via RUN_BASH_OPTIONAL_PLAYBOOKS; projects restore via RUN_BASH_RESTORE_PROJECTS; reboot via RUN_BASH_REBOOT). END-TO-END execution is HOST-verified on a real server (Phase 3) — in-container this is bash -n + shellcheck + preflight acceptance only. v1.11.0: Feature (Plan 00065 Phase 5) — RUN_BASH_OPTIONAL_PLAYBOOKS accepts the reserved keyword 'server-recommended', expanded from the tracked manifest playbooks/imports/optional/server-recommended.bundle into its listed plays before the existing per-token resolver runs; composes with explicit tokens and the resolved token list is de-duplicated (a play named twice — via the bundle plus an explicit token, or two explicit tokens — runs once); unknown-token and failed-play handling unchanged.
+# Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
+# characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
+# clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
+RUN_BASH_VERSION="1.17.0"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -77,6 +80,25 @@ hl_abort() {
   exit 1
 }
 
+# fatal <step> <what-failed> [how-to-debug] — abort a run that cannot honestly continue, in
+# whichever mode it is in. hl_abort covers headless; interactive had only `error`, which is
+# `echo -e` and RETURNS — so a fatal condition reachable from both paths had no correct call,
+# and the interactive half degraded into skip-and-warn by accident rather than by choice.
+# MUST be called directly (never inside $(...)) so exit ends the whole script.
+fatal() {
+  local _step="$1" _what="$2" _debug="${3:-}"
+  if [[ "${HEADLESS:-}" == "true" ]]; then
+    hl_abort "$_step" "$_what" "$_debug"   # exits
+  fi
+  {
+    error "${_step}: ${_what}"
+    if [[ -n "$_debug" ]]; then
+      echo -e "${YELLOW}${ARROW} ${_debug}${NC}"
+    fi
+  } >&2
+  exit 1
+}
+
 # hl_is_cloud — true if this looks like a cloud-init-provisioned box, where a
 # literal secret in the environment persists in user-data + the metadata service.
 hl_is_cloud() {
@@ -131,6 +153,64 @@ hl_resolve_secret() {
 # call site, so the plain expansion is already set -u-safe (bash 4.4+; Fedora ships 5.x).
 _sudo() {
   sudo "${HL_SUDO_OPTS[@]}" "$@"
+}
+
+# check_legacy_grub_cgroup — remove the legacy systemd.unified_cgroup_hierarchy kernel args
+# if present, and prove the outcome. Four states, four distinct results:
+#
+#   grubby ran, no legacy args    -> success       grubby ran, removal FAILED -> fatal
+#   grubby ran, args removed      -> success       grubby could not run       -> fatal
+#
+# Top-level so it is testable — inline in main's body nothing could reach it. The plan's
+# acceptance.bash extracts this text and drives all four states against a stub `grubby`.
+# `success`/`warning`/`fatal` resolve at call time, so calling them from here is fine.
+# History: docs/run-bash-changelog.md 1.12.0; reasoning: Plan 00074.
+check_legacy_grub_cgroup() {
+  local _legacy_arg="systemd.unified_cgroup_hierarchy"
+  local _info _rm_out _v
+
+  # CAPTURE — never `grubby … 2>/dev/null | grep -q`. After that pipe, "grubby failed" and
+  # "no match" are the same non-zero, so a grubby that could not run was reported as "no
+  # legacy config found". pipefail does not separate them either.
+  #
+  # Only a NON-ZERO exit is fatal: exit 0 with no legacy args is a real negative answer, and
+  # keeping that non-fatal is what stops this becoming a new way to fail an install on a box
+  # with unusual boot entries.
+  if ! _info="$(_sudo grubby --info=ALL 2>&1)"; then
+    fatal "check legacy grub configuration" \
+      "grubby --info=ALL failed, so whether this box carries legacy cgroup kernel args is UNKNOWN" \
+      "grubby said: ${_info}"
+  fi
+
+  if ! grep -q "${_legacy_arg}" <<< "${_info}"; then
+    success "No legacy cgroup configuration found"
+    return 0
+  fi
+
+  warning "Found legacy cgroup configuration, removing..."
+  for _v in 0 1; do
+    if ! _rm_out="$(_sudo grubby --update-kernel=ALL --remove-args="${_legacy_arg}=${_v}" 2>&1)"; then
+      fatal "remove legacy grub configuration" \
+        "grubby --update-kernel failed removing ${_legacy_arg}=${_v}" \
+        "grubby said: ${_rm_out}"
+    fi
+  done
+
+  # Same capture discipline on the verify: a grubby that fails HERE must not be read as
+  # "the removal worked".
+  if ! _info="$(_sudo grubby --info=ALL 2>&1)"; then
+    fatal "verify legacy grub removal" \
+      "grubby --info=ALL failed after the removal, so whether it worked is UNKNOWN" \
+      "grubby said: ${_info}"
+  fi
+  if grep -q "${_legacy_arg}" <<< "${_info}"; then
+    # `fatal`, not `error` — error() is echo and does NOT exit, so this branch used to let
+    # the installer finish and exit 0 having proven the box is misconfigured.
+    fatal "remove legacy grub configuration" \
+      "${_legacy_arg} is still present after removal — this box would boot with legacy cgroups" \
+      "run: sudo grubby --update-kernel=ALL --remove-args='${_legacy_arg}=0' (and =1), then re-run"
+  fi
+  success "Legacy cgroup configuration removed successfully"
 }
 
 # hl_sudo_askpass_start — make this user's sudo password available NON-INTERACTIVELY via
@@ -1721,22 +1801,7 @@ completed
 
 title "Checking for Legacy Grub Configurations"
 info "Checking for old cgroup settings"
-if _sudo grubby --info=ALL 2>/dev/null | grep -q "systemd.unified_cgroup_hierarchy"; then
-  warning "Found legacy cgroup configuration, removing..."
-  _sudo grubby --update-kernel=ALL --remove-args="systemd.unified_cgroup_hierarchy=0"
-  _sudo grubby --update-kernel=ALL --remove-args="systemd.unified_cgroup_hierarchy=1"
-
-  # Verify the removal worked
-  if _sudo grubby --info=ALL 2>/dev/null | grep -q "systemd.unified_cgroup_hierarchy"; then
-    error "Failed to remove cgroup configuration - may need manual intervention"
-    echo -e "${YELLOW}${INFO} To manually remove, run:${NC}"
-    echo -e "   sudo grubby --update-kernel=ALL --remove-args='systemd.unified_cgroup_hierarchy=0'"
-  else
-    success "Legacy cgroup configuration removed successfully"
-  fi
-else
-  success "No legacy cgroup configuration found"
-fi
+check_legacy_grub_cgroup
 
 title "Setting up Ansible Environment"
 # sudo dnf install pipx (above) or the kickstart %post can create ~/.local owned

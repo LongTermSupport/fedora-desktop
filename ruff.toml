@@ -1,5 +1,11 @@
 # Ruff configuration for fedora-desktop project
 # https://docs.astral.sh/ruff/configuration/
+#
+# The RULESET is pinned explicitly below (see `[lint] select`), and the ruff
+# VERSION is pinned via `/.ruff-version` — the single source of truth, read by
+# `.claude/ccy/Dockerfile` and `.github/workflows/qa.yml`, and ASSERTED by
+# `scripts/qa-python.bash` so a host with a different ruff fails loudly rather
+# than quietly returning a different verdict.
 
 [lint]
 # DECLARE THE RULE SET EXPLICITLY. Do not go back to relying on ruff's built-in
@@ -15,7 +21,10 @@
 #
 # The set below is exactly what the repo was passing before, now stated rather
 # than inherited, so the gate is reproducible across ruff versions and QA breaks
-# only when the CODE changes.
+# only when the CODE changes. (A later merge briefly reintroduced a header
+# claiming the ruleset was ruff's unenumerated default again, alongside this
+# `select` — Plan 00071's own incident, restated instead of avoided. Enumerating
+# `select` IS the fix; nothing above this line should say otherwise.)
 select = ["E4", "E7", "E9", "F"]
 
 # Deliberately NOT enabled, and why — revisit as a considered decision, not by
@@ -30,7 +39,7 @@ select = ["E4", "E7", "E9", "F"]
 #                         a policy call for the owner.
 
 [lint.per-file-ignores]
-# Test files commonly modify sys.path before imports
+# Test files commonly modify sys.path before imports.
 "**/tests/*.py" = ["E402"]
 "**/tests/**/*.py" = ["E402"]
 

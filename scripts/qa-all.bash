@@ -21,7 +21,8 @@ TMP_PATTERNS=$(mktemp)
 TMP_ANSIBLE=$(mktemp)
 TMP_ANSIBLE_SYNTAX=$(mktemp)
 TMP_JS=$(mktemp)
-trap 'rm -f "$TMP_BASH" "$TMP_PYTHON" "$TMP_PATTERNS" "$TMP_ANSIBLE" "$TMP_ANSIBLE_SYNTAX" "$TMP_JS"' EXIT
+TMP_DOCS=$(mktemp)
+trap 'rm -f "$TMP_BASH" "$TMP_PYTHON" "$TMP_PATTERNS" "$TMP_ANSIBLE" "$TMP_ANSIBLE_SYNTAX" "$TMP_JS" "$TMP_DOCS"' EXIT
 FAILED=0
 
 # Run sub-checks (each writes JSON to temp file, outputs terse to stdout)
@@ -76,6 +77,18 @@ rc=0
 QA_JSON_OUT="$TMP_JS" "$SCRIPT_DIR/qa-js.bash" || rc=$?
 if [[ $rc -eq 2 ]]; then
     echo "ERROR: Missing required tools (node / extensions node_modules). Install them and re-run." >&2
+    exit 2
+elif [[ $rc -ne 0 ]]; then
+    FAILED=$((FAILED + 1))
+fi
+
+# Documentation integrity (Plan 00070): link/anchor resolution, playbook
+# catalogue completeness, topic-file index. Scoped to CORE docs — the plan tree
+# is excluded so archiving a plan can never change this gate's verdict.
+rc=0
+QA_JSON_OUT="$TMP_DOCS" "$SCRIPT_DIR/qa-docs.bash" || rc=$?
+if [[ $rc -eq 2 ]]; then
+    echo "ERROR: docs gate could not produce a result (zero-file scan or checker crash)." >&2
     exit 2
 elif [[ $rc -ne 0 ]]; then
     FAILED=$((FAILED + 1))
@@ -162,9 +175,10 @@ jq -s \
             "patterns":        .[2],
             "ansible":         .[3],
             "ansible_syntax":  .[4],
-            "js":              .[5]
+            "js":              .[5],
+            "docs":            .[6]
         }
-    }' "$TMP_BASH" "$TMP_PYTHON" "$TMP_PATTERNS" "$TMP_ANSIBLE" "$TMP_ANSIBLE_SYNTAX" "$TMP_JS" > "$JSON_OUT"
+    }' "$TMP_BASH" "$TMP_PYTHON" "$TMP_PATTERNS" "$TMP_ANSIBLE" "$TMP_ANSIBLE_SYNTAX" "$TMP_JS" "$TMP_DOCS" > "$JSON_OUT"
 
 # Final terse summary
 TOTAL=$(jq '.summary.total' "$JSON_OUT")

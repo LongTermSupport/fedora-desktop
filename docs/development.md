@@ -240,10 +240,11 @@ ansible desktop -m setup --tree /tmp/facts
 ./scripts/qa-all.bash
 ```
 
-For GNOME Shell extension JavaScript, run ESLint directly:
+For GNOME Shell extension JavaScript, run ESLint directly. Paths are relative to the repo root,
+so this works wherever you cloned it:
 
 ```bash
-cd /workspace/extensions && node_modules/.bin/eslint speech-to-text@fedora-desktop/extension.js
+cd extensions && node_modules/.bin/eslint speech-to-text@fedora-desktop/extension.js
 ```
 
 See `CLAUDE/QA.md` for full details on what each check covers.
