@@ -136,6 +136,10 @@ Use these Unicode icons in plan documents:
 
 - [00088-claude-code-state-dir-stale-home-fact](00088-claude-code-state-dir-stale-home-fact/) - The same downstream live proof, past PR #36, hard-failed in `play-claude-code.yml` on `Permission denied: /root/.claude`: `claude_state_dir` trusted `ansible_facts['env']['HOME']`, which `gathering=smart` + a play-level `become: true` on the FIRST play in `playbook-main.yml` poisons to `/root` for every later play. Fixed to match the file's own `/home/{{ user_login }}` convention used everywhere else in it.
 
+- [00089-ssh-handling-runner-token-guard](00089-ssh-handling-runner-token-guard/) - A carve-out from Plan 00068 (unmerged). Not a bug fix — `gh` already gives an exported `GH_TOKEN` precedence — but it makes that explicit and drops the `gh auth token` dependency for a runner authenticating purely by token via `--no-ssh`.
+
+- [00090-resync-ccy-ci-runner-branch-onto-f44](00090-resync-ccy-ci-runner-branch-onto-f44/) - `origin/plan-00066-ccy-ci-runner` (Plan 00068) has diverged 205/90 commits from `F44` but a dry-run merge shows only 18 of 107 changed files conflict. Resolves those 18 and lands the rest — the `_planlib.inc.bash` library, its test suite, `qa-docs.bash`, several completed plans — as a reviewed PR, not a bypass push.
+
 ## Completed Plans
 
 - [00085-headless-path-local-bin](Completed/00085-headless-path-local-bin/) - A downstream live proof of the composed PR #33/#34 headless mechanisms found a third, unrelated blocker: `ansible-galaxy: command not found` under a non-interactive `sudo -u` invocation, since pipx's `~/.local/bin` shims are never put on PATH there. Exports PATH right after the pipx install block. Merged (`dac4f7c`).

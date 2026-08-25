@@ -17,6 +17,31 @@ Two version numbers move independently — see
 
 ---
 
+## 3.43.1
+
+**A runner-supplied `GH_TOKEN` is now used directly when there is no SSH key — not a bug fix.**
+
+`build_ssh_mounts_and_validate()` (`lib/ssh-handling.bash`) had one fallback branch for
+"no SSH key selected / no GitHub username detected" that ran `GH_TOKEN="$(gh auth token 2>&1)"` unconditionally. The initial assumption was that this clobbered a `GH_TOKEN` the
+caller (e.g. a CI runner launching with `--no-ssh` and a pre-set token) had already
+exported. Measured before shipping: it did not — `gh` gives an exported `GH_TOKEN`
+precedence over its own stored credentials, so `GH_TOKEN=x gh auth token` already echoes
+back `x` (`rc=0`, no `gh auth login` required). The runner path worked before this change.
+
+The fallback now checks for a caller-supplied `GH_TOKEN` first and uses it directly —
+unverified, since there is no SSH identity to cross-check it against — only falling
+through to `gh auth token` when the caller supplied nothing. `gh`'s GH_TOKEN precedence
+is documented (`gh help environment`), not a hidden quirk — the value here is making it
+explicit and self-documenting in our own code rather than relying on the reader knowing
+gh's precedence rules, and dropping the `gh auth token` subprocess call (and the "gh must
+already be logged in" requirement that comes with it) from this path entirely.
+`entrypoint.sh` needed no change: it already skips the `GITHUB_USERNAME` cross-check when
+that variable is empty, which it always is on this path. `gh` itself must still be
+installed — an earlier, unconditional `command_exists gh` check in the same function
+still gates this path.
+
+---
+
 ## 3.43.0 (container 2.28)
 
 **The supervisor is on by default when the project has one.**

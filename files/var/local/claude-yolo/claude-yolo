@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.43.0"  # The PTY supervisor is ON BY DEFAULT whenever the project ships one (.claude/ccy/claude-supervise.py) — 3.42.0 made it the only ctrl+z guard, and leaving that guard opt-in left every project without a ccy.env freezable by a keypress. Default is UNARMED: the terminal-key guard runs everywhere, real /compact injection stays an explicit opt-in via ccy.env --arm or the new `ccy --supervise` (whose old default named a command that was never in the image). `ccy --no-supervise` / CCY_NO_SUPERVISOR=1 opts out; a supervisor that does not parse fails the launch naming that bypass, and an ABSENT one says so rather than staying silent. Container 2.28. See docs/ccy-changelog.md.
+CCY_VERSION="3.43.1"  # The no-SSH-key fallback in build_ssh_mounts_and_validate() now uses a caller-supplied GH_TOKEN directly instead of routing it through `gh auth token` — not a bug fix (gh already gives an exported GH_TOKEN precedence), but it makes that precedence explicit in our own code and drops the gh-auth dependency for a runner authenticating purely by token. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

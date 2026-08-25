@@ -2,7 +2,15 @@
 # SSH Handling Library
 # Shared SSH key operations for claude-yolo (ccy)
 #
-# Version: 1.1.0 - The token-owner cross-check no longer misreports a GitHub
+# Version: 1.2.0 - The no-SSH-key fallback in build_ssh_mounts_and_validate()
+#                  now honours a caller-supplied GH_TOKEN directly instead
+#                  of routing it through `gh auth token`. Measured: gh
+#                  already gives an exported GH_TOKEN precedence over its
+#                  own stored credentials, so this is not a live-bug fix —
+#                  it makes that precedence explicit in our own code and
+#                  drops the `gh auth token` dependency (no local gh login
+#                  required) for a runner authenticating purely by token.
+#          1.1.0 - The token-owner cross-check no longer misreports a GitHub
 #                  outage as a configuration error. `gh api user` is retried and
 #                  its answer validated as a login before being compared; a
 #                  failure now says GitHub is unavailable and offers
@@ -589,8 +597,23 @@ build_ssh_mounts_and_validate() {
 
             echo "✓ SSH key → $GITHUB_USERNAME ✓ gh token → $token_user (via $token_func)"
         fi
+    elif [ -n "${GH_TOKEN:-}" ]; then
+        # No SSH key / GitHub username detected, but the caller already
+        # exported GH_TOKEN (e.g. a CI runner launching with --no-ssh and a
+        # pre-set token). `gh help environment` documents that GH_TOKEN
+        # already takes precedence over gh's own stored credentials, so
+        # `gh auth token` below would in practice echo this same value back
+        # (measured: `GH_TOKEN=x gh auth token` -> x, rc=0) — this branch is
+        # not fixing a live clobbering bug. It makes that precedence
+        # explicit and self-documenting in OUR code, and drops the
+        # `gh auth token` subprocess call (and its "gh must already be
+        # logged in" requirement) from this path — the caller's token is
+        # used directly. There is no SSH identity to cross-check it
+        # against, so it is used unverified.
+        echo "✓ Using caller-supplied GH_TOKEN (no SSH key / GitHub username detected, unverified)"
     else
-        # No GitHub username detected - fall back to default token.
+        # No GitHub username detected and no caller-supplied token - fall
+        # back to the active gh CLI account's default token.
         # Status checked rather than discarded: `gh auth token` prints its
         # complaint on failure, and an emptiness test alone would accept that
         # complaint as the token.
