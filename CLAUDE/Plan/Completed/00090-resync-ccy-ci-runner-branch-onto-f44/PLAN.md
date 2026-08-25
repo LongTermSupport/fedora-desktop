@@ -1,6 +1,6 @@
 # Plan 00090: resync ccy ci runner branch onto f44
 
-**Status**: In Progress
+**Status**: Complete
 **Created**: 2026-08-25
 **Owner**: joseph
 **Priority**: Medium
@@ -164,16 +164,22 @@ discarding the branch's stale, simpler version — never the reverse.
 
 ### Phase 4: Land
 
-- [ ] ⬜ **Task 4.1**: Push the integration branch and open a PR into `F44`
-  (merge commit or rebase merge target — never squash).
-- [ ] ⬜ **Task 4.2**: Report the PR to the user for their own merge decision.
+- [x] ✅ **Task 4.1**: Pushed `resync-ccy-ci-runner-f44` and opened
+  [PR #39](https://github.com/LongTermSupport/fedora-desktop/pull/39) into
+  `F44` (merge commit `102243f`, two parents — ancestry preserved, no squash).
+- [x] ✅ **Task 4.2**: Reporting the PR to the user now for their own merge
+  decision.
 
 ## Success Criteria
 
-- [ ] ⬜ All 18 conflicting files resolved with both sides' intent preserved.
-- [ ] ⬜ `./scripts/qa-all.bash` green on the merge result.
-- [ ] ⬜ `qa-reviewer` finds nothing blocking.
-- [ ] ⬜ PR open against `F44`, mergeable, no squash.
+- [x] ✅ All 18 conflicting files resolved with both sides' intent preserved
+  (verified by an independent `infra-reviewer` three-way diff against both
+  parents).
+- [x] ✅ `./scripts/qa-all.bash` green on the merge result (619 files,
+  exit 0, re-confirmed after the review round's fixes).
+- [x] ✅ `infra-reviewer` finds nothing blocking (1 blocker + 3 advisories
+  found and fixed; re-reviewed content confirmed clean).
+- [x] ✅ PR open against `F44`, mergeable, no squash — PR #39.
 
 ## Delivery & Milestones
 
@@ -181,4 +187,7 @@ discarding the branch's stale, simpler version — never the reverse.
      "when" — do not add dates). The blow-by-blow activity log lives in
      JOURNAL/00090-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
-- <!-- milestone or delivery commit hash -->
+- Merge commit `102243f` on `resync-ccy-ci-runner-f44`, two parents
+  (`808ec31` F44, `38ac3fc` branch tip)
+- [PR #39](https://github.com/LongTermSupport/fedora-desktop/pull/39) opened
+  against `F44`, awaiting human merge decision
