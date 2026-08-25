@@ -1,6 +1,6 @@
 # GNOME Shell Extensions Development
 
-**QA rules (ESLint requirement):** @../CLAUDE/QA.md
+**QA rules (ESLint requirement):** [CLAUDE/QA.md](../CLAUDE/QA.md)
 
 ## ⚠️ WAYLAND: Extension Reload Requires Logout
 
@@ -13,6 +13,7 @@ On Wayland, GNOME Shell cannot be restarted without ending the session. This mea
 - ✅ **Log out and log back in** is the ONLY way to reload extension JavaScript
 
 **When extension code is updated:**
+
 1. Deploy via Ansible playbook
 2. **Inform the user clearly**: "You must log out and log back in for the extension changes to take effect."
 3. Do not suggest any other reload method - they do not work on Wayland
@@ -22,11 +23,13 @@ On Wayland, GNOME Shell cannot be restarted without ending the session. This mea
 **When you add a new `.js` file to the extension directory, you MUST also add it to the Ansible playbook.**
 
 The playbook that deploys the extension is:
+
 ```
 playbooks/imports/optional/common/play-speech-to-text.yml
 ```
 
 Look for the **"Copy Extension Files"** task and add your new file to the loop:
+
 ```yaml
 - name: Copy Extension Files
   ansible.builtin.copy:
@@ -40,6 +43,7 @@ Look for the **"Copy Extension Files"** task and add your new file to the loop:
 **If you forget this step**, the file will exist in the repo but will never be deployed to the system. Extension features relying on the new file will silently fail (e.g., `openPreferences()` does nothing if `prefs.js` is missing).
 
 **Checklist when adding a new extension file:**
+
 1. Add the file to the extension source directory
 2. Add it to the "Copy Extension Files" loop in the playbook
 3. Deploy with the playbook
@@ -52,22 +56,26 @@ Look for the **"Copy Extension Files"** task and add your new file to the loop:
 **Because reloading extensions requires logout, minimize code in extension.js.**
 
 Extensions should be **thin wrappers** that:
+
 - Handle GNOME Shell integration (panel indicators, keybindings, DBus signals)
 - Launch external scripts for actual functionality
 - Read state from files/DBus rather than computing it
 
 **All business logic should live in external scripts** (Python, Bash) in `~/.local/bin/`:
+
 - Scripts can be updated and take effect immediately
 - No logout required for script changes
 - Easier to test and debug outside GNOME Shell
 
 **Example - GOOD architecture:**
+
 ```
 extension.js:     Keybinding → spawns wsi-stream → listens for DBus signals → updates icon
 wsi-stream:       All transcription logic, clipboard handling, notifications
 ```
 
 **Example - BAD architecture:**
+
 ```
 extension.js:     Keybinding → does transcription inline → handles clipboard → etc.
 ```
@@ -81,10 +89,16 @@ extension.js:     Keybinding → does transcription inline → handles clipboard
 **MANDATORY**: After making ANY changes to extension JavaScript files, you MUST run ESLint:
 
 ```bash
-cd /workspace/extensions && npm run lint
+cd extensions && node_modules/.bin/eslint .
 ```
 
+Invoke the **binary directly**, not `npm run lint` — the hooks daemon's
+`npm_command` handler intercepts bare `npm run`, and `CLAUDE/QA.md` (this
+document's own authority) specifies the binary form. `package.json` still
+defines `lint`/`lint:fix` for humans running them by hand.
+
 **Why this matters:**
+
 - Blocking operations freeze GNOME Shell completely
 - Users may need to hard reboot their machine
 - ESLint catches dangerous patterns before deployment
@@ -92,6 +106,7 @@ cd /workspace/extensions && npm run lint
 ### Dangerous Patterns (Blocked by ESLint)
 
 ❌ **NEVER use these - they will freeze GNOME Shell:**
+
 ```javascript
 // WRONG - Blocks UI thread
 proc.communicate(input, null);
@@ -101,6 +116,7 @@ proc.wait_check(null);
 ```
 
 ✅ **ALWAYS use async versions:**
+
 ```javascript
 // CORRECT - Non-blocking
 proc.communicate_async(input, null, (proc, res) => {
@@ -123,6 +139,7 @@ GLib.spawn_command_line_async('echo hello | wl-copy');
 **Always use local source** - it matches the exact installed version.
 
 **Extract JS source from installed GNOME Shell:**
+
 ```bash
 ./extensions/scripts/gnome-shell-extract-js.bash
 ```
@@ -130,6 +147,7 @@ GLib.spawn_command_line_async('echo hello | wl-copy');
 This extracts to: `./untracked/gnome-shell/<version>/js-extracted/`
 
 **Before working on extensions, verify source is current:**
+
 ```bash
 # Check GNOME Shell version
 gnome-shell --version
@@ -141,6 +159,7 @@ ls ./untracked/gnome-shell/
 **If GNOME Shell was updated**, re-run the script - it automatically removes old versions.
 
 **Read local source files:**
+
 ```bash
 # Example: Read workspacesView.js
 cat ./untracked/gnome-shell/48.7/js-extracted/org/gnome/shell/ui/workspacesView.js
@@ -149,25 +168,30 @@ cat ./untracked/gnome-shell/48.7/js-extracted/org/gnome/shell/ui/workspacesView.
 ### Online Sources (Fallback)
 
 **GNOME GitLab** (Most up-to-date for development branch):
+
 - **Browse source**: https://gitlab.gnome.org/GNOME/gnome-shell/-/tree/main/js/ui
 
 **GitHub Mirror** (Easier for quick browsing):
+
 - **Browse source**: https://github.com/GNOME/gnome-shell/tree/main/js/ui
 
 ### Key Files to Know
 
 **For workspace-related APIs**:
+
 - `js/ui/workspacesView.js` - Workspace thumbnails, multi-monitor displays
 - `js/ui/workspace.js` - Individual workspace representation
 - `js/ui/overviewControls.js` - Overview layout and controls
 - `js/ui/main.js` - Global objects and initialization
 
 **For panel and UI**:
+
 - `js/ui/panel.js` - Top panel and indicators
 - `js/ui/popupMenu.js` - Menu system
 - `js/ui/panelMenu.js` - Panel menu buttons
 
 **For system integration**:
+
 - `js/misc/util.js` - Utility functions
 - `js/ui/modalDialog.js` - Dialog system
 - `js/ui/messageList.js` - Notification system
@@ -177,17 +201,20 @@ cat ./untracked/gnome-shell/48.7/js-extracted/org/gnome/shell/ui/workspacesView.
 1. **Identify the feature** you need to interact with (e.g., "workspace thumbnails")
 
 2. **Search the GNOME Shell source** on GitLab or GitHub:
+
    - Search for class names: `class WorkspaceThumbnail`
    - Search for property names: `_thumbnails`
    - Search for method names: `_addThumbnails`
 
 3. **Read the actual source code** - don't guess based on similar-sounding properties:
+
    ```bash
    # Fetch and read the actual file
    curl -s https://raw.githubusercontent.com/GNOME/gnome-shell/main/js/ui/workspacesView.js | less
    ```
 
 4. **Understand the object hierarchy**:
+
    - Look for `class ClassName extends ParentClass`
    - Find `this._propertyName` assignments in constructor
    - Trace through `_init()` and `enable()` methods
@@ -197,12 +224,14 @@ cat ./untracked/gnome-shell/48.7/js-extracted/org/gnome/shell/ui/workspacesView.
 ### Example: Multi-Monitor Workspace Thumbnails
 
 **Wrong approach** (guessing):
+
 ```javascript
 // ❌ WRONG - Guessed API path
 const secondaryMonitor = controls._secondaryMonitorOverviews[i];
 ```
 
 **Correct approach** (researched from source):
+
 ```javascript
 // ✅ CORRECT - From workspacesView.js source code
 // WorkspacesDisplay._workspacesViews contains:
@@ -218,17 +247,20 @@ for (let i = 1; i < views.length; i++) {
 ```
 
 **Source**: https://github.com/GNOME/gnome-shell/blob/main/js/ui/workspacesView.js
+
 - Lines with `class SecondaryMonitorDisplay` show it has `this._thumbnails` property
 - Lines with `WorkspacesDisplay` show `this._workspacesViews` array structure
 
 ### GJS Documentation
 
 **GJS (GNOME JavaScript bindings)**:
+
 - **Official docs**: https://gjs.guide/
 - **Extensions guide**: https://gjs.guide/extensions/
 - **GI bindings**: https://gjs-docs.gnome.org/
 
 **GTK and GLib APIs**:
+
 - **St (Shell Toolkit)**: Documented in GNOME Shell source comments
 - **Gio**: https://gjs-docs.gnome.org/gio20/
 - **GLib**: https://gjs-docs.gnome.org/glib20/
@@ -246,7 +278,7 @@ GNOME Shell's internal APIs (anything with `_` prefix) are **not stable** and ma
 1. **Make changes** to extension JavaScript
 2. **Run ESLint** immediately:
    ```bash
-   cd /workspace/extensions && npm run lint
+   cd extensions && node_modules/.bin/eslint .
    ```
 3. **Fix any errors** before proceeding
 4. **Deploy** via Ansible playbook
@@ -256,8 +288,9 @@ GNOME Shell's internal APIs (anything with `_` prefix) are **not stable** and ma
 ## ESLint Auto-fix
 
 For some issues, ESLint can auto-fix:
+
 ```bash
-cd /workspace/extensions && npm run lint:fix
+cd extensions && node_modules/.bin/eslint . --fix
 ```
 
 **Note:** Auto-fix won't fix blocking operations - those require manual refactoring to async patterns.
@@ -265,6 +298,7 @@ cd /workspace/extensions && npm run lint:fix
 ## Testing Extensions
 
 After deployment:
+
 1. **Log out and log back in** to reload extension code (required on Wayland)
 2. Check for errors: `journalctl -f /usr/bin/gnome-shell`
 3. Monitor logs: `tail -f ~/.local/share/speech-to-text/debug.log`
@@ -288,6 +322,7 @@ extensions/
 ## Common Mistakes
 
 ### 1. Using Synchronous File Operations
+
 ```javascript
 // WRONG - May block on slow filesystems
 const [success, contents] = file.load_contents(null);
@@ -299,6 +334,7 @@ if (file.query_info('standard::size', 0, null).get_size() < 1024) {
 ```
 
 ### 2. Spawning Processes Without Async
+
 ```javascript
 // WRONG - Can block if process takes time
 const proc = Gio.Subprocess.new(['long-command'], 0);
@@ -309,6 +345,7 @@ GLib.spawn_command_line_async('long-command');
 ```
 
 ### 3. Network Operations in Main Thread
+
 ```javascript
 // WRONG - Network delays freeze UI
 const response = httpClient.send(request, null);

@@ -17,6 +17,35 @@ Two version numbers move independently — see
 
 ---
 
+## 3.44.0
+
+**Resync with `plan-00066-ccy-ci-runner` (Plan 00090) — lands the rootless-engine assertion
+(Plan 00072), previously unmerged.**
+
+That branch (internally Plan 00068) diverged from this line at 3.28.0 — this line then
+independently reached its own, unrelated 3.28.0 (`CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION`,
+below). The branch's real 3.28.0 work was never released here until now: `engine_assert_rootless()`
+replaces the old check that only *looked* rootless-aware —
+
+- a docker-only branch comparing the **context name** to the string `"rootless"`, which a
+  context can be named regardless of what it actually points at, and which `DOCKER_HOST`
+  overrides entirely;
+- the comment *"Podman running as non-root is inherently rootless - no check needed"*, an
+  inference standing in for a check.
+
+`ccy` runs `claude --dangerously-skip-permissions` and bind-mounts the project at
+`/workspace`; that is safe only while the engine is rootless, so container uid 0 maps to an
+unprivileged host user via userns. The uid-0 guard earlier in this script constrains the
+*client* and cannot say what the *engine* is — a non-root user can still drive a rootful
+engine via `CONTAINER_HOST`/`DOCKER_HOST` pointing at a system socket, or a docker context.
+`engine_assert_rootless()` (`lib/common.bash`) now asks the engine directly: podman
+`{{.Host.Security.Rootless}}`, docker `{{.SecurityOptions}}`. The decision itself is the
+pure `engine_rootless_verdict()` (`lib/common-pure.bash`), unit-tested with no engine
+present (`scripts/test-ccy-rootless-guard.bash`, 15 cases) — **unknown is a refusal, not a
+pass**: an unreadable engine is not an engine known to be safe.
+
+Host-side launcher+lib change only — `REQUIRED_CONTAINER_VERSION` unchanged.
+
 ## 3.43.1
 
 **A runner-supplied `GH_TOKEN` is now used directly when there is no SSH key — not a bug fix.**
@@ -634,7 +663,9 @@ Host-side launcher change only — no image content change.
 
 ## 3.28.0
 
-*Superseded by 3.29.0.*
+*Superseded by 3.29.0. Unrelated to the `plan-00066-ccy-ci-runner` branch's own, different
+3.28.0 (the rootless-engine assertion) — the two lines bumped to the same number
+independently after diverging; that work is absorbed above at 3.44.0, not here.*
 
 Forwarded `CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION` into the container with a CCY default of
 10000, to lift Claude Code's then-current cumulative cap of 200 for long unattended sessions.

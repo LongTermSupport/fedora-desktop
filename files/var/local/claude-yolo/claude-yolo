@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.43.1"  # The no-SSH-key fallback in build_ssh_mounts_and_validate() now uses a caller-supplied GH_TOKEN directly instead of routing it through `gh auth token` — not a bug fix (gh already gives an exported GH_TOKEN precedence), but it makes that precedence explicit in our own code and drops the gh-auth dependency for a runner authenticating purely by token. See docs/ccy-changelog.md.
+CCY_VERSION="3.44.0"  # Resync with plan-00066-ccy-ci-runner (Plan 00090): lands the engine-must-report-itself-rootless assertion (Plan 00072), previously unmerged. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1260,43 +1260,24 @@ if [ "$HOST_UID" -eq 0 ]; then
     exit 1
 fi
 
-# Safety check: Only run in rootless mode
-# Podman is rootless by default when run as non-root user
-# Docker requires explicit rootless context setup
-if [ "$CONTAINER_ENGINE" = "docker" ]; then
-    # "Could not ask Docker" and "Docker answered, and the context is not
-    # rootless" are different problems with different fixes, and this used to
-    # report both as the second one — telling the user their context was wrong
-    # when the truth might be that the query never ran. That is the same shape
-    # as the GitHub-outage misreport fixed in CCY 3.36.0.
-    DOCKER_CONTEXT=""
-    if ! docker_context_raw=$(container_cmd context inspect 2>&1); then
-        print_error "Cannot determine the Docker context"
-        echo "  ${CONTAINER_ENGINE} said: ${docker_context_raw:-(no output)}" >&2
-        echo "  YOLO mode requires rootless Docker, and this check must succeed" >&2
-        echo "  before it can run. Is the Docker daemon up?" >&2
-        exit 1
-    fi
-    DOCKER_CONTEXT=$(printf '%s' "$docker_context_raw" | grep -o '"Name": *"[^"]*"' | head -1 | cut -d'"' -f4)
-    if [ "$DOCKER_CONTEXT" != "rootless" ]; then
-        print_error "Claude Code YOLO mode requires rootless Docker"
-        echo "Current Docker context: ${DOCKER_CONTEXT:-default}"
-        echo ""
-        echo "This is a security requirement because:"
-        echo "  • YOLO mode bypasses all permission checks"
-        echo "  • Running in rootless Docker provides isolation"
-        echo "  • Non-rootless Docker would give actual root privileges"
-        echo ""
-        echo "To set up rootless Docker:"
-        echo "  1. Install: dockerd-rootless-setuptool.sh install"
-        echo "  2. Switch context: docker context use rootless"
-        echo ""
-        echo "Or run the Docker playbook:"
-        echo "  ansible-playbook playbooks/imports/optional/common/play-docker.yml"
-        exit 1
-    fi
+# Safety check: the ENGINE must report itself rootless (Plan 00072).
+#
+# The uid-0 check above constrains this CLIENT. It cannot say what the engine is —
+# a non-root user can still drive a rootful engine through CONTAINER_HOST /
+# DOCKER_HOST pointing at a system socket, or a docker context. So ask the engine.
+#
+# This replaces two things that only looked like checks:
+#   - a docker branch comparing the CONTEXT NAME to the string "rootless", which a
+#     context can be named regardless of what it points at, and which DOCKER_HOST
+#     overrides entirely;
+#   - the comment "Podman running as non-root is inherently rootless - no check
+#     needed", which is an inference standing in for a check.
+#
+# engine_assert_rootless prints its own diagnosis and returns non-zero; unknown is
+# a refusal, not a pass. See lib/common-pure.bash for why.
+if ! engine_assert_rootless; then
+    exit 1
 fi
-# Podman running as non-root is inherently rootless - no check needed
 
 # ═══════════════════════════════════════════════════════════════════════════
 # STALE & ZOMBIE CONTAINER CLEANUP

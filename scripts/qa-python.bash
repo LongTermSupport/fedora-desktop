@@ -24,6 +24,42 @@ if ! command -v ruff &>/dev/null; then
     exit 2
 fi
 
+# Assert the ruff VERSION, not just its presence (Plan 00071).
+#
+# `ruff.toml` enumerates `select` explicitly (`E4`, `E7`, `E9`, `F`) precisely so
+# the enforced ruleset does NOT drift with ruff's own default set — see that
+# file's own rationale. But the version is still worth pinning: a ruff upgrade
+# can change how the SAME selected rules behave (new checks inside E/F, fixed
+# false negatives, parser changes), so an unpinned ruff can still silently
+# change the verdict for the identical `select` list. Asserting the version
+# converts that divergence from silent to loud.
+#
+# ruff reaches this repo three ways, and only two are pinnable from here:
+#   .claude/ccy/Dockerfile            pipx install ruff==$(cat .ruff-version)  [pinned]
+#   .github/workflows/qa.yml          pip install ruff==$(cat .ruff-version)   [pinned]
+#   playbooks/imports/play-python.yml dnf: ruff                                [Fedora's]
+# The dnf one tracks whatever Fedora ships and CANNOT be pinned from here.
+# Asserting the version is what makes that divergence LOUD instead of silent:
+# a host whose ruff differs is told so, rather than quietly getting another answer.
+RUFF_VERSION_FILE="$REPO_ROOT/.ruff-version"
+if [[ ! -f "$RUFF_VERSION_FILE" ]]; then
+    echo "✗ python: $RUFF_VERSION_FILE is missing — it is the single source of truth" >&2
+    echo "  for the pinned ruff version, and every install site reads it." >&2
+    exit 2
+fi
+RUFF_EXPECTED="$(tr -d '[:space:]' < "$RUFF_VERSION_FILE")"
+RUFF_ACTUAL="$(ruff --version | awk '{print $2}')"
+if [[ "$RUFF_ACTUAL" != "$RUFF_EXPECTED" ]]; then
+    echo "✗ python: ruff version mismatch — this gate's verdict is version-dependent." >&2
+    echo "    expected : $RUFF_EXPECTED  (.ruff-version)" >&2
+    echo "    found    : $RUFF_ACTUAL  ($(command -v ruff))" >&2
+    echo "" >&2
+    echo "  The enforced ruleset is ruff's DEFAULT set, so a different version is a" >&2
+    echo "  different gate. Either match the pin, or bump .ruff-version deliberately" >&2
+    echo "  and triage what the new defaults add (then rebuild the ccy image)." >&2
+    exit 2
+fi
+
 # Discover files — via the SHARED discovery library, the same one the bash gates
 # use, so all three agree on what a repo-owned source file is.
 #

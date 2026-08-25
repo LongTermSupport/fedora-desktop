@@ -19,8 +19,20 @@ This playbook implements multiple optimizations:
 1. **Installs PCManFM** - Lightweight, fast GTK file manager as Nautilus alternative
 2. **Configures GTK Portal** - Forces use of faster GTK file chooser in browsers
 3. **Applies GSK_RENDERER Fix** - Fixes Fedora 41/42 GTK4 app startup delays
-4. **Disables Recently-Used File History** - Removes the GNOME recent-files list that grows unbounded
+4. **Disables recently-used file history** - Stops the `recently-used.xbel` stat storm (see below)
 5. **Optionally Disables Thumbnails** - Removes thumbnail generation overhead
+
+### Why the recent-files history matters
+
+`~/.local/share/recently-used.xbel` grows without bound across *every* GTK application, and
+Nautilus `stat()`s each entry at startup. When entries point at FUSE-backed remote mounts
+(rclone, sshfs, gvfs) each `stat()` can block on network I/O, so the accumulated cost adds
+multi-second startup delays.
+
+The play sets the GNOME-native toggle `remember-recent-files=false` (Settings → Privacy → File
+History), which stops GTK apps writing to the file and hides Nautilus's Recent tab. It then
+deletes the existing file **once** — turning the toggle off does not truncate the hundreds of
+KB already accumulated.
 
 ## Installation
 
@@ -35,8 +47,8 @@ This applies:
 - ✓ PCManFM installation
 - ✓ GTK portal configuration
 - ✓ GSK_RENDERER=ngl fix
-- ✓ Recently-used file history disabled
-- ✓ Thumbnails enabled (useful for images/videos)
+- ✓ Recently-used file history disabled, and `recently-used.xbel` removed
+- ✓ Thumbnails left enabled (useful for images/videos)
 
 ### Customization (Host-Level Configuration)
 
@@ -46,19 +58,21 @@ The playbook has sensible defaults, but you can override them in your host confi
 # Edit your host variables (RECOMMENDED - survives playbook updates)
 vim environment/localhost/host_vars/localhost.yml
 
-# Add these variables to customize behavior:
+# Add these variables to customise behaviour:
 fast_file_manager_disable_thumbnails: true    # Disable for max performance
 fast_file_manager_apply_gsk_fix: true         # Usually leave enabled
 ```
 
-**Default values** (if not overridden in host_vars):
+**The play exposes exactly two variables.** Both are read at
+`playbooks/imports/optional/common/play-fast-file-manager.yml`, in its `vars:` block:
 
-- `disable_thumbnails: false` - Thumbnails kept by default (useful for images/videos)
-- `apply_gsk_fix: true` - Enabled by default (fixes Fedora 41/42 slowness)
+| Variable                               | Default | Effect when `true`                                  |
+| -------------------------------------- | ------- | --------------------------------------------------- |
+| `fast_file_manager_disable_thumbnails` | `false` | `show-image-thumbnails=never` — no previews, faster |
+| `fast_file_manager_apply_gsk_fix`      | `true`  | Writes `GSK_RENDERER=ngl` into `/etc/environment`   |
 
-⚠️ **Configuration trade-offs:**
-
-- `disable_thumbnails: true` - No image previews, but faster folder browsing
+Everything else the play does is unconditional: PCManFM, the portal config, and the
+recently-used-history changes are always applied.
 
 ## Activation
 
@@ -76,8 +90,10 @@ killall chrome firefox
 
 ### System Files Modified
 
-- `/etc/environment` - Added `GSK_RENDERER=ngl`
+- `/etc/environment` - Added `GSK_RENDERER=ngl` (if `apply_gsk_fix`)
 - `~/.config/xdg-desktop-portal/portals.conf` - Portal configuration
+- `~/.local/share/recently-used.xbel` - **Deleted** (one-shot cleanup)
+- dconf `/org/gnome/desktop/privacy/remember-recent-files` - Set to `false`
 - Desktop MIME associations - PCManFM set as default file manager
 
 ### Services Affected
@@ -152,6 +168,9 @@ xdg-mime default org.gnome.Nautilus.desktop inode/directory
 ```bash
 gsettings set org.gnome.desktop.privacy remember-recent-files true
 ```
+
+Nautilus's Recent tab returns and GTK apps start writing `recently-used.xbel` again. The
+deleted history is not recoverable — the file rebuilds from new activity only.
 
 ### Remove GSK_RENDERER Fix
 
@@ -232,7 +251,8 @@ sudo dnf install gnome-themes-extra
 1. **GNOME 47 Change** - Portal switched from GTK to Nautilus-based picker
 2. **Nautilus Performance** - General Nautilus slowness affects portal
 3. **Fedora 41/42 GSK Bug** - GTK4 renderer issue causes app startup delays
-4. **Tracker Overhead** - Continuous indexing slows file operations
+4. **Recent-files stat storm** - Nautilus `stat()`s every `recently-used.xbel` entry at startup;
+   entries on FUSE-backed remote mounts turn each one into blocking network I/O
 5. **Thumbnail Generation** - On-the-fly thumbnail creation adds delay
 
 ### Related Issues

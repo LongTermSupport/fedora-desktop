@@ -255,7 +255,7 @@ def make_finding(
         "argv0": argv0,
         "cmd": cmd,
         "age_s": age_s,
-        "cpu_pct": int(round(cpu_pct)),
+        "cpu_pct": round(cpu_pct),
         "rss_kb": rss_kb,
         "exec_hint": exec_hint,
     }

@@ -127,13 +127,15 @@
             msg:
               - "⚠️  IMPORTANT: Encrypt your credentials before committing!"
               - ""
-              - "Run these commands to encrypt the credentials:"
+              - "Run these commands to encrypt the credentials in place:"
               - ""
               - "  cd {{ root_dir }}"
-              - "  ./vault.bash set nordvpn_username"
-              - "  ./vault.bash set nordvpn_password"
+              - "  ./vault.bash replace nordvpn_username"
+              - "  ./vault.bash replace nordvpn_password"
               - ""
-              - "Then replace the plaintext values in:"
+              - "Use 'replace', NOT 'set': the task above has just written both"
+              - "variables as plaintext, and 'set' refuses when a variable already"
+              - "exists. 'replace' encrypts the existing value in place, in:"
               - "  {{ root_dir }}/environment/localhost/host_vars/localhost.yml"
 
       when: not nordvpn_credentials_exist

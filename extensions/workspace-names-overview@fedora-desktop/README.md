@@ -26,6 +26,7 @@ ansible-playbook /workspace/playbooks/imports/optional/common/play-gnome-shell-e
 ```
 
 The playbook will:
+
 1. Install other useful GNOME extensions
 2. Deploy this custom extension to `~/.local/share/gnome-shell/extensions/`
 3. Automatically enable the extension
@@ -35,11 +36,12 @@ The playbook will:
 If you need to install manually:
 
 ```bash
-cp -r /workspace/extensions/workspace-names-overview@fedora-desktop \
+cp -r extensions/workspace-names-overview@fedora-desktop \
       ~/.local/share/gnome-shell/extensions/workspace-names-overview@fedora-desktop
 ```
 
 Then restart GNOME Shell:
+
 - X11: Press Alt+F2, type `r`, press Enter
 - Wayland: Log out and log back in
 
@@ -79,6 +81,7 @@ You can set workspace names using:
 ## Configuration
 
 The extension uses standard GNOME settings, so no additional configuration is needed. It automatically:
+
 - Detects when workspace names change
 - Updates labels in real-time
 - Cleans up when disabled
@@ -88,22 +91,26 @@ The extension uses standard GNOME settings, so no additional configuration is ne
 ### Labels Don't Appear
 
 1. **Check if extension is enabled:**
+
    ```bash
    gnome-extensions list
    gnome-extensions info workspace-names-overview@fedora-desktop
    ```
 
 2. **Enable the extension:**
+
    ```bash
    gnome-extensions enable workspace-names-overview@fedora-desktop
    ```
 
 3. **Check for errors in GNOME Shell logs:**
+
    ```bash
    journalctl -f /usr/bin/gnome-shell
    ```
 
 4. **Verify workspace names are set:**
+
    ```bash
    gsettings get org.gnome.desktop.wm.preferences workspace-names
    ```
@@ -111,16 +118,20 @@ The extension uses standard GNOME settings, so no additional configuration is ne
 ### Extension Fails to Load
 
 1. **Restart GNOME Shell:**
+
    - X11: Alt+F2, type `r`, press Enter
    - Wayland: Log out and log back in
 
 2. **Check GNOME Shell version compatibility:**
+
    ```bash
    gnome-shell --version
    ```
+
    This extension supports GNOME Shell 45-48.
 
 3. **Reinstall via playbook:**
+
    ```bash
    ansible-playbook /workspace/playbooks/imports/optional/common/play-gnome-shell-extensions.yml
    ```
@@ -152,16 +163,19 @@ Then restart GNOME Shell.
 ### How It Works
 
 1. **Initialization:** On enable, the extension connects to:
+
    - `Main.overview` 'showing' signal - to add labels when Overview opens
    - GSettings 'changed::workspace-names' signal - to update labels when names change
 
 2. **Label Creation:** When Overview opens:
+
    - Reads workspace names from `org.gnome.desktop.wm.preferences.workspace-names`
    - Accesses workspace thumbnails via `Main.overview._overview._controls._thumbnailsBox._thumbnails`
    - Creates `St.Label` widget for each thumbnail
    - Adds label as child to thumbnail actor
 
 3. **Cleanup:** On disable:
+
    - Disconnects all signals
    - Removes all label widgets
    - Destroys label objects
@@ -177,6 +191,7 @@ Then restart GNOME Shell.
 ### Dependencies
 
 No external dependencies. Uses standard GNOME Shell APIs:
+
 - `St` (Shell Toolkit) - for Label widgets
 - `Gio` - for GSettings access
 - `Main` - for Overview access
@@ -188,11 +203,13 @@ No external dependencies. Uses standard GNOME Shell APIs:
 After modifying the extension:
 
 1. **Run ESLint** to check for blocking operations:
+
    ```bash
-   cd /workspace/extensions && npm run lint
+   cd extensions && node_modules/.bin/eslint .
    ```
 
 2. **Deploy via playbook:**
+
    ```bash
    ansible-playbook /workspace/playbooks/imports/optional/common/play-gnome-shell-extensions.yml
    ```
@@ -202,6 +219,7 @@ After modifying the extension:
 ### Code Style
 
 This extension follows the project's code quality standards:
+
 - No synchronous/blocking operations (enforced by ESLint)
 - Proper cleanup in disable() method
 - Error handling for GNOME API changes

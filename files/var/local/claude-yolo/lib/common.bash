@@ -51,6 +51,76 @@ container_cmd() {
 export CONTAINER_ENGINE
 export -f container_cmd
 
+# Ask the live engine whether it is rootless, and refuse to continue unless it says
+# so. The decision itself lives in engine_rootless_verdict (common-pure.bash), which
+# is pure and unit-tested; this function only supplies the report.
+#
+# Returns 0 when the engine reports rootless, 1 otherwise. It does NOT exit — the
+# caller owns that, so this stays usable from a test and from `cc`.
+engine_assert_rootless() {
+    local fmt="" report="" verdict="" rc=0
+
+    case "$CONTAINER_ENGINE" in
+        podman) fmt='{{.Host.Security.Rootless}}' ;;
+        docker) fmt='{{.SecurityOptions}}' ;;
+        *)
+            print_error "Cannot verify rootless mode for engine '$CONTAINER_ENGINE'"
+            echo "ccy only knows how to ask podman and docker about rootless mode." >&2
+            echo "Set CCY_CONTAINER_ENGINE=podman (recommended) or docker." >&2
+            return 1
+            ;;
+    esac
+
+    # 2>&1 INTO A CAPTURE is collecting the error, not hiding it: a failed `info`
+    # puts its message in $report, which fails to parse and becomes `unknown` —
+    # which stops us. That is the intended path, not an oversight.
+    report=$(container_cmd info --format "$fmt" 2>&1) || rc=$?
+
+    verdict=$(engine_rootless_verdict "$CONTAINER_ENGINE" "$report")
+
+    case "$verdict" in
+        rootless)
+            return 0
+            ;;
+        rootful)
+            print_error "$CONTAINER_ENGINE is running ROOTFUL — refusing to start"
+            echo "" >&2
+            echo "ccy runs 'claude --dangerously-skip-permissions' and bind-mounts this" >&2
+            echo "project at /workspace. Under a rootful engine, container uid 0 is REAL" >&2
+            echo "host root, so that combination can write anywhere on the host." >&2
+            echo "" >&2
+            echo "Engine reported: $report" >&2
+            echo "" >&2
+            if [ "$CONTAINER_ENGINE" = "docker" ]; then
+                echo "To fix — use rootless Docker:" >&2
+                echo "  1. Install: dockerd-rootless-setuptool.sh install" >&2
+                echo "  2. Switch context: docker context use rootless" >&2
+                echo "  3. Check DOCKER_HOST is not pointing at the system socket" >&2
+                echo "Or switch engine: export CCY_CONTAINER_ENGINE=podman" >&2
+            else
+                echo "To fix — run podman as your normal user, and check that" >&2
+                echo "CONTAINER_HOST / CONTAINER_CONNECTION are not pointing at the" >&2
+                echo "rootful system socket (/run/podman/podman.sock)." >&2
+            fi
+            return 1
+            ;;
+        *)
+            print_error "Could not determine whether $CONTAINER_ENGINE is rootless — refusing to start"
+            echo "" >&2
+            echo "An engine whose posture cannot be read is not an engine known to be" >&2
+            echo "safe. ccy fails here rather than assuming, because the assumption is" >&2
+            echo "exactly the one that would matter." >&2
+            echo "" >&2
+            echo "Command: $CONTAINER_ENGINE info --format '$fmt'" >&2
+            echo "Exit code: $rc" >&2
+            echo "Output: ${report:-(nothing)}" >&2
+            echo "" >&2
+            echo "Usually this means the engine is not running, or is unreachable." >&2
+            return 1
+            ;;
+    esac
+}
+
 # print_error is provided by common-pure.bash (sourced at the top of this file).
 
 # ═══════════════════════════════════════════════════════════════════════════════

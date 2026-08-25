@@ -5,7 +5,6 @@ All test data uses obvious placeholder values. No real secrets.
 
 from config_merge import merge_blocks, preview_value, split_blocks
 
-
 # ─── split_blocks ────────────────────────────────────────────────────────────
 
 
@@ -257,7 +256,7 @@ class TestMergeBlocks:
             ("a_key", 'a_key: "a"\n'),
             ("z_key", 'z_key: "z"\n'),
         ]
-        merged, stats = merge_blocks(local, remote, chooser=lambda *_: "l")
+        merged, _stats = merge_blocks(local, remote, chooser=lambda *_: "l")
         assert merged[0][0] == "z_key"
         assert merged[1][0] == "a_key"
 
@@ -267,7 +266,7 @@ class TestMergeBlocks:
             ("user_login", 'user_login: "alice"\n'),
             ("new_key", 'new_key: "value"\n'),
         ]
-        merged, stats = merge_blocks(local, remote, chooser=lambda *_: "a")
+        merged, _stats = merge_blocks(local, remote, chooser=lambda *_: "a")
         assert merged[0][0] == "user_login"
         assert merged[1][0] == "new_key"
 

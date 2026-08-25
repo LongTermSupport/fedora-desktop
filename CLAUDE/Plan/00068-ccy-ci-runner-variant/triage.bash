@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+# Plan 00068 — triage.bash
+#
+# PURPOSE: gather grounded FACTS about the host's container engine and the deployed ccy
+# launcher. Fact-finding only — it renders no verdict and changes nothing. The pass/fail gate
+# is a separate acceptance script (CLAUDE/PlanScriptStandards.md R9).
+#
+# RUN ON THE HOST:
+#   ./CLAUDE/Plan/00068-ccy-ci-runner-variant/triage.bash
+#
+# It may be run from ANY directory — that is now a property the script guarantees rather than
+# a hope. The previous version of this file resolved its repo root with
+# `git rev-parse --show-toplevel`, which answers about the CWD; run by path from lts-infra's
+# root it wrote its report into that repo and compared the deployed launcher against a path
+# which does not exist there, reporting "Could not checksum both files" instead of failing.
+# Root resolution now comes from the boundary-bounded marker walk in the library (R1), and the
+# comparison FAILS rather than shrugging when it cannot be made.
+#
+# WHY THE HOST AND NOT THE CONTAINER: a nested `podman` result is not evidence about the host.
+# Answering the missing-device question from inside the CCY container failed with a
+# userns/subuid error during an image pull, before it ever reached the device check — a
+# non-zero exit that says nothing about the question asked. `plan_require_host` now enforces
+# this instead of a comment asking nicely.
+#
+# EFFECT ON THE HOST: every leg is READ-ONLY. Nothing is built, installed or pulled; every
+# container started is `--rm` and runs `true`.
+#
+# There was a fourth leg, probe-label.bash, which built three throwaway `FROM scratch` images
+# to measure the label reader. It has been removed along with the LABEL identity convention it
+# served (Decision 2): `podman build` is the staleness check, so the question it answered is
+# no longer asked. Its results are recorded in reports/host-run-verdicts.md §3.
+#
+# Idempotent — re-run as often as you like; each run gets its own timestamped directory, so no
+# run clobbers a previous run's evidence.
+#
+# Usage: ./triage.bash [-h|--help]
+#
+# EXIT CODES (they agree with the text — no "reported a problem but exited 0"):
+#   0  every probe reached a definite answer
+#   1  at least one probe could not be answered; the failing leg names itself. This means the
+#      FACT-FINDING is incomplete, not that the system is broken.
+#  64  usage error
+set -euo pipefail
+
+# ── R1 bootstrap: script-relative, filesystem-only, bounded at the repo boundary ──────────
+# Copy this block verbatim into every plan script. See CLAUDE/PlanScriptStandards.md R1.
+scriptDir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+repoRoot="${scriptDir}"
+while [[ "${repoRoot}" != "/" ]] && [[ ! -e "${repoRoot}/ansible.cfg" ]]; do
+    if [[ -e "${repoRoot}/.git" ]]; then
+        printf '[FATAL] no ansible.cfg between %s and the repo root %s\n' "${scriptDir}" "${repoRoot}" >&2
+        exit 1
+    fi
+    repoRoot="$(dirname "${repoRoot}")"
+done
+[[ -e "${repoRoot}/ansible.cfg" ]] || {
+    printf '[FATAL] no ansible.cfg above %s\n' "${scriptDir}" >&2
+    exit 1
+}
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../_planlib.inc.bash
+source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
+plan_init "${BASH_SOURCE[0]}"
+
+PLAN_USAGE="usage: triage.bash [-h|--help]
+
+Gathers facts about the host container engine, the deployed ccy launcher, the
+--network flag interaction, and the image-label reader the LABEL convention
+rests on.
+
+Host-only, safe to re-run. Read-only EXCEPT the label leg, which builds three
+throwaway 'FROM scratch' label-only images and removes them on exit; it refuses
+to run rather than overwrite a tag that already exists. Writes a report into
+<this plan folder>/triage-runs/<timestamp>/ and names it on completion."
+
+plan_mode gather
+plan_parse_common_flags "$@"
+
+# Reject unknown arguments rather than ignoring them (R12/R10 structure).
+if [[ "${#PLAN_REMAINING_ARGS[@]}" -gt 0 ]]; then
+    printf '[FATAL] unknown argument(s): %s\n' "${PLAN_REMAINING_ARGS[*]}" >&2
+    printf '%s\n' "${PLAN_USAGE}" >&2
+    exit 64 # EX_USAGE — never confusable with a real probe result
+fi
+
+# Refuse the container BEFORE opening a log, so a wrong-environment run fails immediately and
+# leaves no half-written report to be mistaken for evidence.
+plan_require_host "it probes the host container engine, host device nodes, and the deployed /var/local/claude-yolo tree"
+
+plan_start_log auto
+
+# The report lands in the per-run directory, which plan_finish names on the way out (R10). It
+# is inside the repo, so the agent reads it at the same path the operator sees; it is
+# gitignored, so an unscrubbed report is never committed; and it is per-run, so re-running
+# never overwrites earlier evidence.
+REPORT="${PLAN_RUN_DIR}/plan-00068-triage-report.md"
+readonly REPORT
+
+# The header avoids markdown backticks on purpose: inside a single-quoted printf format a
+# backtick reads as command substitution to shellcheck (SC2016), and a suppression is not an
+# option here (R11). The probe scripts emit backticked paths from their own out() helper, where
+# the value is not part of a format string.
+{
+    printf '# Plan 00068 — triage report\n\n'
+    printf 'Generated by CLAUDE/Plan/00068-ccy-ci-runner-variant/triage.bash on the HOST.\n\n'
+    printf -- '- engine under test: %s\n' "${CCY_CONTAINER_ENGINE:-podman}"
+    printf -- '- repo root (resolved from the script, not the cwd): %s\n' "${PLAN_REPO_ROOT}"
+    printf -- '- run directory: %s\n' "${PLAN_RUN_DIR}"
+} >"${REPORT}"
+
+# Legs are COMMANDS, not local functions: a function passed to plan_gather_leg by name is
+# invoked indirectly, and `shellcheck -x` would report its whole body as unreachable (SC2317)
+# — which cannot be suppressed here (R11). Each probe is its own runnable, lint-clean script.
+plan_gather_leg "container engine and device handling" \
+    bash "${PLAN_SCRIPT_DIR}/probe-engine.bash" "${REPORT}"
+plan_gather_leg "deployed launcher vs this checkout, and prompt-site census" \
+    bash "${PLAN_SCRIPT_DIR}/probe-launcher.bash" "${REPORT}"
+plan_gather_leg "network flag interaction (hardware-proof group C)" \
+    bash "${PLAN_SCRIPT_DIR}/probe-network.bash" "${REPORT}"
+# NOTE: the group-F label leg was removed with the LABEL convention (Decision 2). Its results
+# are preserved in reports/host-run-verdicts.md §3.
+
+plan_finish

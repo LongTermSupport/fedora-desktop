@@ -81,7 +81,7 @@ considerably slower that way, but it works.
 
 ### Disk Space
 
-- Model cache: 40MB (tiny) to 2.9GB (large-v3)
+- Model cache: ~41MB (`tiny.en`) to ~3GB (`large-v2` / `large-v3`)
 - RealtimeSTT dependencies: ~2GB on first install (PyTorch, etc.)
 - Temporary audio files: ~10MB per recording
 
@@ -154,13 +154,29 @@ stt_language: en  # Default
 
 **Model comparison:**
 
-| Model    | Size  | VRAM | Speed     | Accuracy  | Use Case                        |
-| -------- | ----- | ---- | --------- | --------- | ------------------------------- |
-| tiny     | 40MB  | 1GB  | Very fast | Good      | Quick notes, commands           |
-| base     | 150MB | 1GB  | Fast      | Better    | General use                     |
-| small    | 500MB | 2GB  | Medium    | Good      | **Recommended default**         |
-| medium   | 1.5GB | 5GB  | Slower    | Very good | Professional work               |
-| large-v3 | 2.9GB | 10GB | Slow      | Excellent | Transcription accuracy critical |
+The authoritative list is `_whisperModels` in
+`extensions/speech-to-text@fedora-desktop/extension.js` — this table is generated from it.
+**Multilingual:**
+
+| Model            | Size   | Notes                               |
+| ---------------- | ------ | ----------------------------------- |
+| `auto`           | varies | Base for streaming, small for batch |
+| `tiny`           | ~75MB  | Fastest, basic accuracy             |
+| `base`           | ~142MB | Fast, good accuracy                 |
+| `small`          | ~466MB | Balanced — **default**              |
+| `medium`         | ~1.5GB | Slow, great accuracy                |
+| `large-v2`       | ~3GB   | Very high accuracy                  |
+| `large-v3`       | ~3GB   | Best quality                        |
+| `large-v3-turbo` | ~1.6GB | Distilled, fast + accurate          |
+
+**English-only** (smaller and faster, no multilingual capability):
+
+| Model       | Size   | Notes                             |
+| ----------- | ------ | --------------------------------- |
+| `tiny.en`   | ~41MB  | Fastest, English only             |
+| `base.en`   | ~77MB  | Fast, good accuracy, English only |
+| `small.en`  | ~252MB | Balanced, English only            |
+| `medium.en` | ~789MB | Great accuracy, English only      |
 
 **Re-run playbook after changing model:**
 
@@ -766,7 +782,7 @@ Configuration:
     └── claude-prompt-natural.txt    - Natural style prompt
 
 Data:
-  ~/.cache/huggingface/hub/  - Whisper models cache (40MB-2.9GB)
+  ~/.cache/huggingface/hub/  - Whisper models cache (~41MB-~3GB per model)
   ~/.cache/speech-to-text/   - Last transcription cache
   ~/.local/share/speech-to-text/
     └── debug.log            - Debug logs (auto-rotates at 1MB)

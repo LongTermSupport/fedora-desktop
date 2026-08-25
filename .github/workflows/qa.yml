@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   qa-all:
-    name: qa-all.bash (6 stages)
+    name: qa-all.bash (8 gates)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -42,7 +42,10 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
-          pip install ruff semgrep ansible
+          # ruff is pinned from the single source of truth (.ruff-version, Plan 00071):
+          # its enabled ruleset IS its default set, which grows every release, so an
+          # unpinned ruff reddens main with no commit behind it.
+          pip install "ruff==$(cat .ruff-version)" semgrep ansible
           shellcheck --version
           ruff --version
           semgrep --version
@@ -93,6 +96,13 @@ jobs:
       # pip install step is needed — this job runs on the bare interpreter.
       - name: Run helper unit tests
         run: ./scripts/qa-helper-tests.bash
+
+      # ccy's rootless-engine guard (Plan 00072). The decision under test is a pure
+      # function of the engine's report, so this needs no podman, no docker and no
+      # daemon — which is the point: a rootful engine cannot be conjured on demand
+      # just to prove the guard notices one.
+      - name: Run ccy rootless-guard unit tests
+        run: ./scripts/test-ccy-rootless-guard.bash
 
       # Static gate: every extensions/<uuid>/metadata.json must declare support for
       # the GNOME Shell major that this branch's Fedora release (vars/fedora-version.yml)

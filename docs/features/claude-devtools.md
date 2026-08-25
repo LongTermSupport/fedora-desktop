@@ -20,10 +20,10 @@ install time), opens a web UI at `http://localhost:3456`, and cleans up complete
 
 `ccdt` supports two distinct session locations:
 
-| Session type | Host filesystem path | When used |
-|---|---|---|
-| Host Claude Code | `~/.claude/` | Regular `claude` / `claude-code` sessions |
-| CCY project sessions | `<project-dir>/.claude/ccy/` | Sessions run inside the CCY container |
+| Session type         | Host filesystem path         | When used                                 |
+| -------------------- | ---------------------------- | ----------------------------------------- |
+| Host Claude Code     | `~/.claude/`                 | Regular `claude` / `claude-code` sessions |
+| CCY project sessions | `<project-dir>/.claude/ccy/` | Sessions run inside the CCY container     |
 
 The command auto-detects which type applies based on your current directory.
 
@@ -52,6 +52,7 @@ ansible-playbook playbooks/imports/optional/common/play-claude-devtools.yml
 ```
 
 The playbook:
+
 1. Clones `https://github.com/matt1398/claude-devtools` to `/opt/claude-devtools/`
 2. Builds the container image locally as `claude-devtools:latest`
 3. Installs `~/.local/bin/ccdt` (the wrapper script)
@@ -128,6 +129,7 @@ ccdt-help        # alias
 Once running, open `http://localhost:3456` in your browser.
 
 The web UI shows:
+
 - Session list with timestamps
 - Full tool call detail (the detail Claude Code's UI now hides)
 - Tool inputs and outputs
@@ -144,6 +146,9 @@ Press **Ctrl+C** in the terminal to stop. The container is removed automatically
 ```bash
 podman run \
   --rm \
+  --init \
+  --replace \
+  --name "<project>_ccdt" \
   -p 3456:3456 \
   -v <CLAUDE_ROOT>:/data/.claude:ro \
   -e CLAUDE_ROOT=/data/.claude \
@@ -151,9 +156,20 @@ podman run \
 ```
 
 Key points:
+
 - **Read-only mount** (`:ro`) — claude-devtools cannot modify your session files
 - **No network required at runtime** — reads files directly from disk
 - **Port 3456** — the claude-devtools default; must be free before running
+- **`--name` is derived from the session path**, not fixed: `~/.claude` → `host_ccdt`,
+  `~/Projects/foo/.claude` → `foo_ccdt`. So each project's container is identifiable rather
+  than anonymous.
+- **`--replace` is what makes a re-run work.** Without it the *second* `ccdt` for the same
+  project fails with "container name already in use", because the name is deterministic.
+- **`--init` is what makes Ctrl+C work.** It gives PID 1 a real init that forwards signals and
+  reaps zombies; without it the container may not stop cleanly when you interrupt it.
+
+Copy-pasting the command without `--replace` and `--init` gets you a container that collides on
+the second run and may ignore Ctrl+C — the three flags are the run/stop/re-run loop, not noise.
 
 ---
 

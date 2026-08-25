@@ -62,6 +62,16 @@ done < <(find "$REPO_ROOT" -type f -name "*.js" \
 
 TOTAL=${#JS_FILES[@]}
 
+# A gate that scanned NOTHING must not report a pass (Plan 00067, Decision 2). This repo always
+# ships JavaScript (the GNOME Shell extensions), so zero means discovery is broken.
+if [[ "$TOTAL" -eq 0 ]]; then
+    echo "✗ js: found 0 files to check under $REPO_ROOT — refusing to report a pass."
+    echo "  A zero-file scan means discovery is broken, not that the code is clean."
+    echo "  Likely cause: an exclusion pattern matching the whole checkout (they are anchored"
+    echo "  to \$REPO_ROOT precisely to prevent that), or REPO_ROOT resolving unexpectedly."
+    exit 2
+fi
+
 # node --check each file. stderr is captured to a temp file so genuine parse
 # errors are surfaced (never hidden) in stdout and the JSON output.
 for file in "${JS_FILES[@]}"; do

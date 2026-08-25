@@ -69,7 +69,7 @@ class TestVerifyMain(unittest.TestCase):
     _ERROR = "workspace-names-overview@fedora-desktop\n  Name: X\n  State: ERROR\n"
 
     def test_active_passes(self):
-        rc, out = self._main(shell_versions=["50"], info_rc=0, info_stdout=self._ACTIVE)
+        rc, _out = self._main(shell_versions=["50"], info_rc=0, info_stdout=self._ACTIVE)
         self.assertEqual(rc, 0)
 
     def test_out_of_date_but_metadata_current_passes_with_reload_notice(self):
@@ -80,13 +80,13 @@ class TestVerifyMain(unittest.TestCase):
         self.assertIn("log out", out.lower())
 
     def test_out_of_date_and_metadata_stale_fails(self):
-        rc, out = self._main(
+        rc, _out = self._main(
             shell_versions=["48", "49"], info_rc=0, info_stdout=self._OUT_OF_DATE
         )
         self.assertEqual(rc, 1)
 
     def test_error_state_fails(self):
-        rc, out = self._main(shell_versions=["50"], info_rc=0, info_stdout=self._ERROR)
+        rc, _out = self._main(shell_versions=["50"], info_rc=0, info_stdout=self._ERROR)
         self.assertEqual(rc, 1)
 
     def test_no_session_skips(self):
@@ -95,12 +95,14 @@ class TestVerifyMain(unittest.TestCase):
         self.assertIn("no GNOME session", out)
 
     def test_missing_metadata_fails(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            with mock.patch.object(
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch.object(
                 ve.subprocess, "run", _fake_run(info_rc=0, info_stdout=self._ACTIVE)
-            ):
-                with self.assertRaises(SystemExit):
-                    ve.main(["--uuid", UUID, "--extensions-dir", tmp])
+            ),
+            self.assertRaises(SystemExit),
+        ):
+            ve.main(["--uuid", UUID, "--extensions-dir", tmp])
 
 
 if __name__ == "__main__":

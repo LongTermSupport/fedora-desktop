@@ -20,10 +20,8 @@ import os
 import pathlib
 import sys
 import traceback
-from typing import Optional
 
 import numpy as np
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Constants
@@ -435,21 +433,21 @@ class FileResult:
     canonical_stem: str
     extension: str
     siblings: list[str]
-    analysis: Optional[AnalysisResult]
+    analysis: AnalysisResult | None
     verdict_wclip: bool
     verdict_bclip: bool
     action: str  # "no-change" | "rename" | "skip-collision" | "error"
-    new_name: Optional[str]
-    error: Optional[str]
+    new_name: str | None
+    error: str | None
 
 
 def _analyse_group(
     group: list[pathlib.Path], args: argparse.Namespace
-) -> tuple[Optional[AnalysisResult], Optional[str]]:
+) -> tuple[AnalysisResult | None, str | None]:
     """Try sources in priority order; on rawpy failure fall back to a JPG
     sibling if present. Returns (result, error_message)."""
     sorted_group = sorted(group, key=_ext_priority)
-    last_error: Optional[str] = None
+    last_error: str | None = None
     for source in sorted_group:
         ext = source.suffix.lower().lstrip(".")
         try:
@@ -798,7 +796,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     follow_symlinks = not args.no_follow_symlinks
 
@@ -862,11 +860,11 @@ def main(argv: Optional[list[str]] = None) -> int:
             futures = {
                 pool.submit(_process_one_group_payload, p): p[0] for p in payloads
             }
-            done = 0
-            for future in concurrent.futures.as_completed(futures):
+            for done, future in enumerate(
+                concurrent.futures.as_completed(futures), 1
+            ):
                 batch = future.result()
                 all_results.extend(batch)
-                done += 1
                 _emit_progress(done, futures[future], batch)
     else:
         for i, payload in enumerate(payloads, 1):
