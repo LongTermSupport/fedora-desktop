@@ -2,7 +2,18 @@
 # SSH Handling Library
 # Shared SSH key operations for claude-yolo (ccy)
 #
-# Version: 1.2.0 - The no-SSH-key fallback in build_ssh_mounts_and_validate()
+# Version: 1.3.0 - GitHub probes now unlock passphrase keys into a PRIVATE
+#                  throwaway ssh-agent BEFORE any connection is opened. A
+#                  passphrase prompt left waiting used to outlive GitHub's
+#                  ~2-minute sshd LoginGraceTime on the already-open port-22
+#                  connection: the late-typed passphrase then failed instantly
+#                  on the dead socket and the failure was misread as "port 22
+#                  blocked", offering a spurious 443 fallback. ssh-add talks to
+#                  no server, so the prompt can now wait indefinitely — and the
+#                  whole validation asks for each passphrase once, not once per
+#                  probe. The agent holds only ccy's selected keys and is
+#                  killed when validation returns.
+#          1.2.0 - The no-SSH-key fallback in build_ssh_mounts_and_validate()
 #                  now honours a caller-supplied GH_TOKEN directly instead
 #                  of routing it through `gh auth token`. Measured: gh
 #                  already gives an exported GH_TOKEN precedence over its
@@ -300,22 +311,107 @@ discover_and_select_ssh_keys() {
 # run inside build_ssh_mounts_and_validate which is invoked as `|| exit 1`, so
 # set -e is disabled — an empty result does not abort).
 # CRITICAL isolation flags — without them the probe falls through to ~/.ssh/config's
-# default `Host github.com` entry and/or ssh-agent, returning the wrong account:
+# default `Host github.com` entry and/or the USER'S ssh-agent, returning the
+# wrong account:
 #   -F /dev/null          → ignore ~/.ssh/config
 #   -o IdentitiesOnly=yes → only try the -i key
-#   -o IdentityAgent=none → ignore ssh-agent
+#   -o IdentityAgent=…    → ONLY ccy's private probe agent (below), never the
+#                           user's; `none` when no probe agent is running
 # ConnectTimeout bounds the wait so a DROP-firewalled port 22 fails fast (~10s)
 # instead of hanging on the default TCP timeout before any 443 fallback can run.
 _github_probe_user() {
     local key="$1" host="$2" port="$3"
+    local agent="${CCY_PROBE_AGENT_SOCK:-none}"
     ssh -T -i "$key" \
         -F /dev/null \
         -o IdentitiesOnly=yes \
-        -o IdentityAgent=none \
+        -o IdentityAgent="$agent" \
         -o StrictHostKeyChecking=no \
         -o ConnectTimeout=10 \
         -p "$port" \
         "git@${host}" 2>&1 | grep -oP "Hi \K[^!]+"
+}
+
+# ── Private probe agent: unlock passphrase keys BEFORE any connection exists ──
+#
+# ssh opens the TCP connection to GitHub FIRST and prompts for the key
+# passphrase second, while the connection sits open. GitHub's sshd enforces a
+# LoginGraceTime of ~2 minutes, so a prompt left waiting (user away from the
+# keyboard at launch) outlives the connection: the passphrase is then accepted
+# locally, auth fails instantly on the dead socket, and the port-22 failure is
+# misread as "port 22 firewall-blocked" — triggering a spurious 443 fallback
+# offer even though a prompt relaunch works fine.
+#
+# The fix is to collect the passphrase while NO connection is open: load each
+# key into a private throwaway ssh-agent via ssh-add (which talks to no server,
+# so the prompt can wait indefinitely), then let the probes sign via that
+# agent. Bonus: ONE passphrase prompt per key for the whole validation instead
+# of one per probe (the 22-then-443 fallback path used to prompt twice).
+#
+# The agent is PRIVATE — a fresh process holding only ccy's selected keys, on
+# its own socket, never the user's SSH_AUTH_SOCK — so the account-isolation
+# guarantee of IdentitiesOnly/-i is preserved. It is killed as soon as
+# validation finishes (RETURN trap in build_ssh_mounts_and_validate).
+#
+# Sets: CCY_PROBE_AGENT_SOCK, CCY_PROBE_AGENT_PID (empty when unavailable)
+CCY_PROBE_AGENT_SOCK=""
+CCY_PROBE_AGENT_PID=""
+_probe_agent_start() {
+    CCY_PROBE_AGENT_SOCK=""
+    CCY_PROBE_AGENT_PID=""
+    command_exists ssh-agent || return 0
+
+    local out
+    if ! out=$(ssh-agent -s 2>&1); then
+        # Not fatal: probes fall back to direct -i (pre-agent behaviour). Say
+        # why, so a recurrence of the timeout misdiagnosis is explicable.
+        echo "⚠ Could not start probe ssh-agent — passphrase prompts will hold a live"
+        echo "  GitHub connection open. It said: $out"
+        return 0
+    fi
+    CCY_PROBE_AGENT_SOCK=$(echo "$out" | grep -oP 'SSH_AUTH_SOCK=\K[^;]+')
+    CCY_PROBE_AGENT_PID=$(echo "$out" | grep -oP 'SSH_AGENT_PID=\K[0-9]+')
+    if [ -z "$CCY_PROBE_AGENT_SOCK" ] || [ -z "$CCY_PROBE_AGENT_PID" ]; then
+        echo "⚠ Unrecognised ssh-agent output — probing without an agent."
+        _probe_agent_stop
+        return 0
+    fi
+    return 0
+}
+
+_probe_agent_stop() {
+    local kill_out
+    if [ -n "$CCY_PROBE_AGENT_PID" ]; then
+        if ! kill_out=$(kill "$CCY_PROBE_AGENT_PID" 2>&1); then
+            # An already-gone agent is a normal teardown outcome, but say so
+            # rather than swallowing it — this path must never mask the real
+            # exit status of the function being torn down.
+            echo "note: probe ssh-agent (pid $CCY_PROBE_AGENT_PID) was already gone: $kill_out"
+        fi
+    fi
+    CCY_PROBE_AGENT_SOCK=""
+    CCY_PROBE_AGENT_PID=""
+    return 0
+}
+
+# Load one key into the probe agent, prompting for its passphrase with NO
+# GitHub connection open. ssh-add itself allows 3 passphrase attempts per
+# invocation; per the interactive-script rules a mistyped passphrase is a
+# recoverable input error, so we re-offer the whole ssh-add up to 3 rounds
+# before failing.
+_probe_agent_add_key() {
+    local key="$1" round
+    for round in 1 2 3; do
+        if SSH_AUTH_SOCK="$CCY_PROBE_AGENT_SOCK" ssh-add "$key"; then
+            return 0
+        fi
+        if [ "$round" -lt 3 ]; then
+            echo ""
+            echo "Key not unlocked: $key"
+            read -rp "Hit return to try the passphrase again (round $round of 3), or Ctrl+C to abort: " _unused
+        fi
+    done
+    return 1
 }
 
 # Echoes the GitHub login that a token belongs to. Retries, and VALIDATES that
@@ -392,6 +488,29 @@ build_ssh_mounts_and_validate() {
     # would pair a key-0 token with a key-N username and the container entrypoint
     # would hard-fail on a token/identity mismatch.
     local primary_user=""
+
+    # Unlock every selected key into the private probe agent BEFORE any GitHub
+    # connection is opened — see _probe_agent_start for why (GitHub's ~2-minute
+    # LoginGraceTime vs a passphrase prompt left waiting). The RETURN trap
+    # guarantees teardown on every exit path from this function, success or
+    # failure. Skipped when no tty can answer a prompt (headless/CI): a
+    # passphrase-less key needs no agent and an encrypted one could not be
+    # unlocked anyway.
+    if [ ${#SSH_KEYS[@]} -gt 0 ] && [ -t 0 ] && [ "${HEADLESS_MODE:-false}" != "true" ]; then
+        trap '_probe_agent_stop' RETURN
+        _probe_agent_start
+        if [ -n "$CCY_PROBE_AGENT_SOCK" ]; then
+            local unlock_key
+            for unlock_key in "${SSH_KEYS[@]}"; do
+                if ! _probe_agent_add_key "$unlock_key"; then
+                    print_error "Could not unlock SSH key: $unlock_key"
+                    echo "The passphrase was not accepted. Re-run $tool_name to try again."
+                    return 1
+                fi
+            done
+        fi
+    fi
+
     for i in "${!SSH_KEYS[@]}"; do
         SSH_MOUNTS+=("-v" "${SSH_KEYS[$i]}:/root/.ssh/key_$i:ro")
         SSH_KEY_PATHS+=("/root/.ssh/key_$i")

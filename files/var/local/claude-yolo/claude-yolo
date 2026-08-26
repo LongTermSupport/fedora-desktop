@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.44.1"  # Usage display: an over-limit reading (e.g. raw 1.01 = 101% of the 5-hour bucket) renders as a full bar with the true figure instead of a false SCALE MISMATCH. See docs/ccy-changelog.md.
+CCY_VERSION="3.45.0"  # GitHub probes unlock passphrase keys into a private throwaway ssh-agent BEFORE any connection opens, so a prompt left waiting no longer outlives GitHub's login grace timeout and misdiagnoses port 22 as blocked. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -17,6 +17,25 @@ Two version numbers move independently — see
 
 ---
 
+## 3.45.0
+
+**GitHub SSH probes no longer misdiagnose an idle passphrase prompt as "port 22 blocked"**
+(ssh-handling lib 1.3.0).
+
+ssh opens the TCP connection first and prompts for the key passphrase second, while the
+connection sits open. GitHub's sshd enforces a ~2-minute `LoginGraceTime`, so a launch left
+waiting at the passphrase prompt outlived the connection: the late-typed passphrase failed
+instantly on the dead socket, a second prompt appeared (the 443 probe), and ccy offered
+443 mode even though port 22 was fine — a prompt relaunch always worked.
+
+Now every selected key is unlocked into a **private throwaway ssh-agent** before any
+connection is opened. `ssh-add` talks to no server, so the prompt can wait indefinitely;
+the probes then sign via the agent. One passphrase prompt per key for the whole
+validation (the 22-then-443 path used to prompt twice), a mistyped passphrase re-offers
+the prompt in a bounded loop, and the agent — which holds only ccy's selected keys, never
+the user's `SSH_AUTH_SOCK` — is killed when validation returns. Headless launches skip
+the agent (nothing can answer a prompt there) and behave exactly as before.
+
 ## 3.44.1
 
 **Usage display: an over-limit reading is no longer a false SCALE MISMATCH**
