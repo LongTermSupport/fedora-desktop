@@ -2,7 +2,14 @@
 # Token Management Library
 # Token operations for claude-yolo (ccy)
 #
-# Version: 1.12.0 - Plan 00074: capture `-representative-claim` and show which
+# Version: 1.12.1 - Plan 00074: an over-limit reading is not a scale conflict.
+#                  Field sample: the API sent 5h-utilization 1.01 (fraction
+#                  scale, i.e. 1% OVER the 5-hour limit) and the display called
+#                  it SCALE MISMATCH. Utilisation past the limit is a real state
+#                  the API reports, so the refutation thresholds now allow the
+#                  over-limit band (fraction <= 2, percent <= 200); the bar was
+#                  already clamped at 100% and the label shows the true figure.
+#         1.12.0 - Plan 00074: capture `-representative-claim` and show which
 #                  bucket the API considers BINDING. Recorded as F15 when the
 #                  header set was first mapped, then never captured — which left
 #                  H2 unanswerable: the probe uses Haiku because weekly buckets
@@ -341,19 +348,22 @@ _usage_normalise() {
 # Succeeds when the RAW value cannot be produced by the scale currently assumed.
 #
 # The scale is INFERRED, and an inferred premise that cannot be contradicted is
-# indistinguishable from a wrong one. Under "fraction" a raw value above 1 would
-# mean more than 100% utilisation, which no bucket can report; under "percent"
-# the same goes for a value above 100. Either way the assumption is refuted by
-# its own data — and the display then says so, rather than clamping the bar to
-# full and presenting a confident wrong number, which is how this was missed for
-# a week in the first place.
+# indistinguishable from a wrong one — and the display says so when refuted,
+# rather than clamping the bar to full and presenting a confident wrong number,
+# which is how this was missed for a week in the first place.
+#
+# The thresholds allow the OVER-LIMIT band: a bucket past its limit reports
+# utilisation above 1 (fraction) / 100 (percent) — measured in the field as a
+# raw 1.01 on a 5-hour bucket that had just hit its limit. So under "fraction"
+# only a value above 2 refutes the assumption (a genuine percent value like 34
+# still trips it instantly); under "percent", above 200.
 _usage_scale_conflict() {
     local v="$1" limit
     [[ "$v" =~ ^[0-9]+(\.[0-9]+)?$ ]] || return 1
     if [ "${CCY_USAGE_SCALE:-fraction}" = "fraction" ]; then
-        limit=1
+        limit=2
     else
-        limit=100
+        limit=200
     fi
     awk -v x="$v" -v lim="$limit" 'BEGIN { exit (x > lim) ? 0 : 1 }'
 }

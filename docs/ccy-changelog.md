@@ -17,6 +17,18 @@ Two version numbers move independently — see
 
 ---
 
+## 3.44.1
+
+**Usage display: an over-limit reading is no longer a false SCALE MISMATCH**
+(token-management lib 1.12.1).
+
+The API reported a raw 5h-utilization of `1.01` — fraction scale, i.e. 1% *over* the
+5-hour limit — and the display declared SCALE MISMATCH, because the conflict check
+assumed no bucket can report above 100%. A bucket past its limit legitimately can. The
+refutation thresholds now allow the over-limit band (fraction ≤ 2, percent ≤ 200); a
+genuine percent-scale value like `34` still trips the mismatch instantly. The bar stays
+clamped at 100% and the label shows the true figure (`101%`).
+
 ## 3.44.0
 
 **Resync with `plan-00066-ccy-ci-runner` (Plan 00090) — lands the rootless-engine assertion
