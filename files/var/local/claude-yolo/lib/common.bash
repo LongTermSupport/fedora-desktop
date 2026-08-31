@@ -2,7 +2,7 @@
 # Claude YOLO Common Library
 # Shared helpers for claude-yolo (ccy)
 #
-# Version: 1.5.0 - Factor host-safe helpers into common-pure.bash for cc
+# Version: 1.5.1 - Whitelist CLAUDE.md/README.md in the .claude/ccy tracked-files gate
 
 # Host-safe helpers (print_error, is_token_valid, COLOR_RED, COLOR_RESET).
 # MUST be sourced BEFORE the podman-check block below so that the cc wrapper
@@ -288,12 +288,13 @@ check_ccy_gitignore_safety() {
         local basename
         basename=$(basename "$file")
         case "$basename" in
-            .gitignore|Dockerfile|allowed-hostnames|ccy.env|claude-supervise*)
+            .gitignore|Dockerfile|allowed-hostnames|ccy.env|claude-supervise*|CLAUDE.md|README.md)
                 # Safe to track. ccy.env is the tracked per-project ccy config
                 # (e.g. CCY_CLAUDE_WRAPPER) sourced in-container by entrypoint.sh;
                 # claude-supervise* is the vendored PTY supervisor that ccy.env's
                 # CCY_CLAUDE_WRAPPER points at (any extension or none, so it is not
-                # locked to Python). Neither holds session/secret data.
+                # locked to Python). CLAUDE.md/README.md are project documentation.
+                # None of these hold session/secret data.
                 ;;
             *)
                 # Dangerous!

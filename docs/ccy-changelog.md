@@ -17,6 +17,19 @@ Two version numbers move independently — see
 
 ---
 
+## 3.45.1
+
+**`.claude/ccy/CLAUDE.md` and `README.md` no longer trip the tracked-files security gate**
+(common lib 1.5.1).
+
+The launcher's pre-session check treats any tracked file in `.claude/ccy/` outside a small
+whitelist as sensitive session data and blocks launch with a demand to purge it via
+`git filter-repo` — a destructive history rewrite. The whitelist covered `.gitignore`,
+`Dockerfile`, `allowed-hostnames`, `ccy.env` and `claude-supervise*`, but not project
+documentation, so a legitimately committed `.claude/ccy/CLAUDE.md` made ccy refuse to start
+and steered users toward rewriting their repository history over a harmless markdown file.
+`CLAUDE.md` and `README.md` are now whitelisted; they hold no session or secret data.
+
 ## 3.45.0
 
 **GitHub SSH probes no longer misdiagnose an idle passphrase prompt as "port 22 blocked"**
