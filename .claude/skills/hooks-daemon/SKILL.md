@@ -1,7 +1,7 @@
 ---
 name: hooks-daemon
 description: Manage Claude Code Hooks Daemon - install, upgrade, check health, restart, and develop project-level handlers
-argument-hint: "[install|upgrade|health|restart|check|dev-handlers|regen-docs|logs|release-notes] [args...]"
+argument-hint: "[install|upgrade|health|restart|check|dev-handlers|regen-docs|rule-explain|logs|release-notes] [args...]"
 disable-model-invocation: false
 user-invocable: true
 allowed-tools: Bash, Read, Write, Edit
@@ -67,6 +67,18 @@ left them stale or conflict-marked — run it, then stage the clean result. (A n
 bounce.)
 
 See [regen-docs.md](regen-docs.md) for details.
+
+### Explain a Rule
+
+Get the full, verbatim detail for any daemon rule on demand — independent of
+whether it has already fired this session:
+
+```claude-code
+/hooks-daemon rule-explain R-GIT-RESET-HARD
+/hooks-daemon rule-explain --list             # every known rule ID + handler
+```
+
+See [rule-explain.md](rule-explain.md) for details.
 
 ### Plan QA
 
@@ -221,6 +233,11 @@ case "$SUBCOMMAND" in
         bash "$SKILL_DIR/scripts/daemon-cli.sh" regenerate-docs "$@"
         ;;
 
+    rule-explain)
+        # User-facing alias rule-explain maps to the CLI command explain-rule.
+        bash "$SKILL_DIR/scripts/daemon-cli.sh" explain-rule "$@"
+        ;;
+
     logs|status|restart|handlers|config-validate|bug-report|check|release-notes)
         # Forward to daemon CLI wrapper
         bash "$SKILL_DIR/scripts/daemon-cli.sh" "$SUBCOMMAND" "$@"
@@ -234,6 +251,7 @@ case "$SUBCOMMAND" in
         echo "  install [--force]     Install daemon (fresh clone)"
         echo "  restart               Restart daemon (required after config changes)"
         echo "  regen-docs            Force-regenerate HOOKS-DAEMON.md + CLAUDE.md block"
+        echo "  rule-explain ID       Full detail for a rule ID, or --list every rule"
         echo "  health                Check daemon health and status"
         echo "  upgrade [VERSION]     Upgrade daemon to new version"
         echo "  dev-handlers          Scaffold new project handlers"

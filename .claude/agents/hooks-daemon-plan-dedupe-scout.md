@@ -27,6 +27,8 @@ To stop it being deployed at all, disable `plan_workflow` in
 single advisory agent.
 -->
 
+<!-- hooks-daemon-agent-version: 1.1.0 -->
+
 # Plan Dedupe Scout
 
 ## Your reply MUST contain these, or it has failed

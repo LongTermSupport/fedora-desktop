@@ -883,6 +883,77 @@ send_request_stdin() {
     # Only uses stdlib: socket, sys, json (no venv packages needed).
     local event_name="${1:-Unknown}"
     local response_mode="${2:-}"
+    # Plan 00290 (T4.1/T4.2, DESIGN-socket-relay.md §6.2): $3, when the
+    # forwarder_generator inserted it (nc_enabled at deploy time), names this
+    # event's per-event socket filename (its bash_key, e.g. "pre-tool-use") —
+    # a literal baked in at generation time so no PascalCase->kebab mapping is
+    # needed here. Absent for every deployed forwarder by default (byte-identical).
+    local event_sock_name="${3:-}"
+
+    # nc rung (rung 2): only for the plain passthrough shape (no response_mode
+    # translation needed — "status"/"worktree" always go through the python3
+    # rung's render_status/print_worktree, so that logic is never duplicated
+    # here). The payload is buffered to a TEMP FILE, never a shell variable —
+    # the same control-character-safety rule the python3 rung follows (see
+    # the CRITICAL comment above). A failed/empty nc capture REPLAYS the
+    # buffered payload into the python3 rung below via its stdin redirect
+    # (design §5: an empty capture means no verdict was ever delivered, so
+    # replay is always safe).
+    local _nc_replay_payload=""
+    if [[ -z "$response_mode" && -n "$event_sock_name" ]] \
+        && [[ "${HOOKS_DAEMON_NC_UNIX_CAPABLE:-0}" == "1" ]] \
+        && command -v nc > /dev/null; then
+        local _nc_sock="$_untracked_dir/events${_hostname_suffix}/${event_sock_name}.sock"
+        if [[ -S "$_nc_sock" ]]; then
+            local _nc_payload _nc_response _nc_stderr _nc_rc
+            _nc_payload="$(mktemp)"
+            _nc_response="$(mktemp)"
+            _nc_stderr="$(mktemp)"
+            cat > "$_nc_payload"
+            _nc_rc=0
+            # -N: shut down the socket's write half once stdin hits EOF.
+            # Without it, OpenBSD nc keeps the connection open after the
+            # payload is fully sent, the daemon's EOF-framed per-event
+            # socket (DESIGN-socket-relay.md §2) never sees the half-close,
+            # never responds, and nc sits until -w's timeout elapses —
+            # observed as a ~30s hang on every nc-rung call (Plan 00290
+            # Phase 6 measurement). With -N, -w's "final net reads" role
+            # becomes the correct overall response-wait budget.
+            nc -U -N -w "${CLAUDE_HOOKS_SOCKET_TIMEOUT:-30}" "$_nc_sock" \
+                < "$_nc_payload" > "$_nc_response" 2> "$_nc_stderr" || _nc_rc=$?
+            if [[ "$_nc_rc" -eq 0 && -s "$_nc_response" ]]; then
+                cat "$_nc_response"
+                rm -f "$_nc_payload" "$_nc_response" "$_nc_stderr"
+                return 0
+            fi
+            # Empty/short/failed capture: NOT silently dropped — surfaced on
+            # stderr for debug capture, then rung 2 degrades to rung 3 by
+            # keeping the buffered payload for the python3 stdin redirect
+            # below (this process's own stdin was already drained by the
+            # `cat > "$_nc_payload"` above). Design §5: an empty nc capture
+            # means no verdict was delivered, so the replay is always safe.
+            if [[ -s "$_nc_stderr" ]]; then
+                echo "HOOKS DAEMON: nc rung failed (rc=$_nc_rc), falling back to python3 transport:" >&2
+                cat "$_nc_stderr" >&2
+            fi
+            rm -f "$_nc_response" "$_nc_stderr"
+            _nc_replay_payload="$_nc_payload"
+        fi
+    fi
+
+    # stdin for the python3 transport: the nc replay file when rung 2 buffered
+    # the payload and failed, else THIS process's own stdin duplicated by fd
+    # (dup2 semantics — valid for ANY fd type). NEVER a /dev/stdin re-open:
+    # Claude Code hands hooks a SOCKET as stdin, and open() on a socket fails
+    # with ENXIO ("No such device or address") — while every pipe-fed test
+    # invocation works, which is exactly how this shipped. Field-observed as a
+    # non-blocking error on every real hook event.
+    if [[ -n "$_nc_replay_payload" ]]; then
+        exec 3<"$_nc_replay_payload"
+    else
+        exec 3<&0
+    fi
+
     python3 -c "
 import json
 import os
@@ -1129,8 +1200,13 @@ except ConnectionRefusedError:
 
 except Exception as e:
     fail(type(e).__name__, f'{type(e).__name__}: {e}')
-" "$event_name" "$response_mode"
-    return $?
+" "$event_name" "$response_mode" <&3
+    local _rv=$?
+    exec 3<&-
+    if [[ -n "$_nc_replay_payload" ]]; then
+        rm -f "$_nc_replay_payload"
+    fi
+    return $_rv
 }
 
 #
@@ -1156,6 +1232,9 @@ except Exception as e:
 #
 # Args:
 #   $1 - event_name: "Stop" or "SubagentStop"
+#   $2 - event_sock_name: (optional, Plan 00290) this event's bash_key, e.g.
+#        "stop" — threaded through to send_request_stdin's nc rung. Absent
+#        for every deployed forwarder by default (byte-identical).
 #
 # Reads:
 #   stdin: Claude Code hook input JSON
@@ -1168,6 +1247,7 @@ except Exception as e:
 #
 forward_stop_event() {
     local event_name="$1"
+    local event_sock_name="${2:-}"
     if [ -z "$event_name" ]; then
         echo '{"error":"forward_stop_event: event_name required"}' >&2
         return 1
@@ -1183,7 +1263,7 @@ forward_stop_event() {
     # translates decision=block into exit 2 + reason on stderr. The reason may
     # contain control characters, so it is printed straight from python rather
     # than round-tripped through a shell variable.
-    send_request_stdin "$event_name" > "$response_file"
+    send_request_stdin "$event_name" "" "$event_sock_name" > "$response_file"
     cat "$response_file"
 
     python3 -c "

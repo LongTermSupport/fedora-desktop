@@ -23,11 +23,32 @@ This interactive command will:
 
 Location: `.claude/project-handlers/{event_type}/{handler_name}.py`
 
+Subclass the base named after the handler's EVENT, and return that event's
+result type. Every wired event has a base in
+`claude_code_hooks_daemon.core.handler_bases`, and each one narrows `handle()`
+to what its event can actually deliver:
+
+| Event                                     | Base                 | Return type      | Can express      |
+| ----------------------------------------- | -------------------- | ---------------- | ---------------- |
+| PreToolUse, PermissionRequest             | `<Event>HandlerBase` | `GatingResult`   | allow, deny, ask |
+| PostToolUse, Stop, SubagentStop           | `<Event>HandlerBase` | `BlockingResult` | allow, deny      |
+| SessionStart, StatusLine, everything else | `<Event>HandlerBase` | `AdvisoryResult` | allow only       |
+
+This matters because an event that cannot carry a refusal DROPS one silently —
+a deny returned from a `SessionStart` handler produces a valid response with the
+refusal removed, so the handler believes it blocked and nothing blocked. Using
+the event's base makes that a type error. Plain `Handler` still works and is not
+deprecated, but it cannot catch this for you.
+
+The example below is a `PreToolUse` handler; swap the base and result type to
+match the event you are writing for.
+
 ```python
-from claude_code_hooks_daemon.core import Handler, HookResult, Decision
+from claude_code_hooks_daemon.core import Decision, GatingResult
+from claude_code_hooks_daemon.core.handler_bases import PreToolUseHandlerBase
 from claude_code_hooks_daemon.constants import HandlerID, Priority
 
-class MyCustomHandler(Handler):
+class MyCustomHandler(PreToolUseHandlerBase):
     def __init__(self) -> None:
         super().__init__(
             handler_id=HandlerID.PROJECT_MY_CUSTOM,
@@ -39,9 +60,9 @@ class MyCustomHandler(Handler):
         # TODO: Implement matching logic
         return False
 
-    def handle(self, hook_input: dict) -> HookResult:
+    def handle(self, hook_input: dict) -> GatingResult:
         # TODO: Implement handler logic
-        return HookResult(decision=Decision.ALLOW)
+        return GatingResult(decision=Decision.ALLOW)
 
     def get_acceptance_tests(self) -> list:
         # TODO: Add acceptance tests
@@ -158,13 +179,15 @@ Choose the appropriate event type for your handler:
 
 ## Priority Guidelines
 
-Choose priority based on handler type:
+Choose priority based on handler type (bands defined by `PriorityRange` in
+the daemon's `constants/priority.py`, the source of truth):
 
+- **0-9**: Test fixtures only (no built-in handlers ship here)
 - **10-20**: Safety handlers (destructive operations)
-- **25-35**: Code quality (linting, TDD enforcement)
+- **25-35**: Code quality (linting, QA suppression)
 - **36-55**: Workflow (planning, project-specific rules)
-- **56-60**: Advisory (non-blocking guidance)
-- **100+**: Logging/cleanup
+- **56-65**: Advisory (non-blocking guidance)
+- **100+**: Logging/cleanup (reserved; no built-in handlers ship here)
 
 ## Testing Project Handlers
 

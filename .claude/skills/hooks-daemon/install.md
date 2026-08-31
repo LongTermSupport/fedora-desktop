@@ -24,7 +24,7 @@ You typically need this when:
 1. **Downloads installer** from GitHub to `/tmp/` (never piped to shell)
 2. **Validates prerequisites** (git, Python 3.11+)
 3. **Clones daemon repository** to `.claude/hooks-daemon/`
-4. **Creates isolated venv** at `.claude/hooks-daemon/untracked/venv/`
+4. **Creates isolated venv** at `.claude/hooks-daemon/untracked/venv-{slug}-py{MM}-{fingerprint}/` (fingerprint-keyed; never hand-build it — see the "Venv layout" section in `CLAUDE/SELF_INSTALL.md` in the daemon repo)
 5. **Deploys hook forwarder scripts** to `.claude/hooks/`
 6. **Generates configuration** at `.claude/hooks-daemon.yaml`
 7. **Starts daemon** and verifies it is running

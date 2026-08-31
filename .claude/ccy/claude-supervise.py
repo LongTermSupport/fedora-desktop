@@ -20,6 +20,62 @@ session. In DRY-RUN (default) that injection is a harmless VISIBLE MARKER,
 proving the mechanism end-to-end without a real compaction; with ``--arm`` it
 injects the real ``/compact`` (and ``continue``).
 
+Two further injection families share the same choke point (idle + empty input
+box, subordinate to compact/continue): a ``/goal`` typed from a daemon-written
+goal-intent signal (Plan 00269), and an ``/effort`` raise (Plan 00278) when
+the sidecar's live effort sits BELOW its model family's configured floor
+(defaults fable=low, opus=high, sonnet=high; override via
+``CCY_MIN_EFFORT_LEVELS``) — with the floor raised to xhigh for a ranked
+model-family DOWNGRADE episode, e.g. a security-triggered fable → opus
+switch falls through to opus at xhigh, not opus at fable's low. This family
+only ever RAISES effort — with one sanctioned exception: the supervisor also
+types ``/model <original family>`` to flip a session-sticky downgrade back
+(capped, flip-flop backoff). The restore is TURN-GATED, not time-gated: the
+classifier flags turns, so recovery is safe the moment the flagged turn ends,
+and the injection choke point (idle + empty input box) is exactly that
+boundary — the restore fires on the first injectable tick after the
+downgrade. ``CCY_MODEL_RESTORE_SECONDS`` adds an optional EXTRA quiet delay
+(default 0; "off" or negative disables auto-restore).
+
+On a REPEATED downgrade — a flip-flop, where a prior auto-restore was undone
+because the saturated context re-tripped the classifier on the next flagged
+turn — restoring the model alone cannot win. So, opt-in via ``CCY_FLAG_COMPACT``
+(default OFF; ``1``/``true``/``yes``/``on`` enables), the supervisor fires ONE
+armed ``/compact`` that asks the agent to summarise the sensitive material at a
+HIGH LEVEL, omitting the low-level specifics — so the compacted context stops
+re-triggering the classifier and the subsequent restore sticks. It is capped
+per process (``_MAX_FLAG_COMPACTIONS``) with a flip-flop backoff, audit-trailed
+with a 🧽 glyph, and fires only when idle (no ESC needed; the resume rides the
+normal compaction-signal path). It is checked just BEFORE the model restore, so
+on a qualifying flip-flop the compact fires instead of a re-restore.
+
+Every ``/model <family>`` injection -- this auto-restore AND the manual
+override below alike -- GUARANTEES a coupled ``/effort`` correction on the
+very next injectable tick, unconditionally: switching TO the TOP-ranked
+family (fable) drives effort DOWN to its configured floor (the one
+sanctioned lowering, so fable never idles at xhigh burning account
+allowance); switching to anything else drives effort UP to
+``_DOWNGRADE_TARGET_EFFORT`` (xhigh), so a still-degraded fallback model
+gets maximum compensating effort. This is unconditional — it never waits
+for a downgrade episode to be open, nor for a later sidecar reading to
+confirm the switch landed, which is exactly what a purely reading-driven
+reset previously missed for a manual override.
+
+Every ``/model <family>`` injection (the auto-restore above, and the manual
+override below) sends a SECOND, confirming Enter after the normal submit:
+Claude Code's model switch shows a confirmation dialog that the ordinary
+single-Enter submit does not clear. The count is configurable via
+``CCY_MODEL_CONFIRM_ENTERS`` (default 1). Every ``/effort <level>``
+injection sends its own confirming Enter the same way — the effort selector
+also needs one — configurable via ``CCY_EFFORT_CONFIRM_ENTERS`` (default 1).
+A session can also be switched
+on demand — for end-to-end testing, or a genuine manual override — by
+writing a ``<session>.model-switch-intent`` signal (mirroring the
+goal-intent signal) and consuming it at the same idle choke point, ahead of
+goal/effort/auto-model-restore. The CLI helper ``--emit-model-switch
+<family>`` writes one for whichever session owns the newest context
+sidecar; it does not start a supervisor.
+
 It also GUARDS the session against accidental terminal control keys that would
 otherwise freeze or kill it: Ctrl+Z (SUSP) is stripped from the forwarded input
 (``strip_suspend``) AND, belt-and-braces, the stop/quit SIGNALS are swallowed if
@@ -98,7 +154,7 @@ if TYPE_CHECKING:
 # (see CLAUDE/development/RELEASING.md). Display-only for the banner and the
 # runtime status file; staleness detection (Plan 00164 Phase 3) uses a content
 # hash of THIS file so it is correct even between version bumps.
-__version__ = "3.54.0"
+__version__ = "3.57.0"
 
 # Absolute path to THIS running script — hashed for staleness detection so the
 # daemon can tell when the on-disk supervisor differs from the running one.
@@ -124,6 +180,10 @@ _SUPERVISOR_STATUS_FILENAME = "supervisor-status.json"
 
 _USAGE = "Usage: claude-supervise.py [--dry-run | --arm] [--log PATH] -- <child argv...>\n"
 
+# CLI test-trigger mode: writes a manual model-switch signal and exits --
+# never starts a supervisor. See `_run_emit_model_switch`.
+_EMIT_MODEL_SWITCH_FLAG = "--emit-model-switch"
+
 # Opt-out env var for the startup banner + spinner (any non-empty value silences
 # them). The banner is also skipped whenever stderr is not a TTY (piped output,
 # the test suite, non-interactive launches).
@@ -142,6 +202,31 @@ _WORKER_READ_TIMEOUT_SECONDS = 2.0
 # How often the host re-checks the on-disk supervisor fingerprint to hot-reload
 # the worker (cheap mtime pre-check gates the hash).
 _WORKER_RELOAD_CHECK_SECONDS = 5.0
+
+# ─── DOGFOODING: EDITING THIS FILE DOES NOT TAKE EFFECT UNTIL THE WORKER RELOADS ───
+# Every injection decision runs in the `--worker` SUBPROCESS, not the running
+# PTY host. So a fresh edit to this file is INERT in the live session until that
+# subprocess is respawned from the new code. The host auto-respawns it within
+# ~_WORKER_RELOAD_CHECK_SECONDS of a *content* change (reload_if_stale compares a
+# content hash, and an mtime pre-check gates it), on the next tick — the PTY/child
+# is never touched, so no full Claude Code session restart is needed.
+#
+# Two traps that make an edit look shipped while the worker is still stale — both
+# have bitten this project, hence this note:
+#   1. A bare `touch` (mtime bumps, content unchanged) triggers NOTHING — the
+#      content hash is identical. Only a real content change reloads the worker.
+#   2. A redeploy that PRESERVES mtime (`cp -p`, `rsync -a`, some installers) can
+#      change the content WITHOUT advancing mtime, so the mtime pre-check skips
+#      the hash and the reload never fires.
+#
+# To dogfood a change to this file IMMEDIATELY AND CORRECTLY, do not assume — VERIFY
+# the worker actually reloaded before testing behaviour:
+#     ps -eo pid,lstart,args | grep 'claude-supervise.py --worker' | grep -v grep
+# A NEW pid / start-time means the new code is live. If it has not changed, force
+# it: `kill <worker-pid>` — the host's `if not worker.alive(): worker.restart()`
+# path respawns a fresh worker from current on-disk code on its next tick. Never
+# restart the whole ccy session just to reload the worker.
+# See also .claude/rules/ccy-supervisor-dogfooding.md.
 
 # Braille spinner frames for the brief pre-fork "starting up" flourish.
 _SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
@@ -674,6 +759,16 @@ _DEFAULT_COMPACTION_SIGNAL_TTL_SECONDS = 600.0
 # mistaken for a context sidecar by ``load_freshest_sidecar``.
 _COMPACTION_SIGNAL_GLOB = "*.compacting"
 
+# Goal-intent signal files (Plan 00269) are written by the daemon's
+# goal_injection PostToolUse handler (or `hooks-daemon inject-goal`) as
+# ``<session>.goal-intent`` -- again deliberately NOT ``*.json``. Same TTL
+# reasoning as the compaction signal: plan-execution start is usually an idle
+# moment, but the input-box gate can defer, so the window is generous. The
+# signal is consumed (unlinked) on injection, so a generous TTL cannot
+# re-fire it.
+_GOAL_SIGNAL_GLOB = "*.goal-intent"
+_DEFAULT_GOAL_SIGNAL_TTL_SECONDS = 600.0
+
 # Nothing else deletes per-session sidecars/signals: every session writes its own
 # ``{session}.json`` (and, on compaction, ``{session}.compacting``) into the ONE
 # shared context-sidecar dir, and a closed/backgrounded session's file lingers
@@ -825,6 +920,237 @@ _DEFERRED_LOG_PREFIX = "injection deferred: input box not empty"
 _NOOP_LOG_PREFIX = "noop"
 
 
+# ── Effort restore on model downgrade (Plan 00278) ──────────────────────────
+# A session downgraded from a higher-ranked model family (e.g. a
+# security-triggered fable → opus switch) inherits its previous effort
+# setting; "fable low" must fall through to "opus xhigh", not "opus low".
+# The supervisor tracks the foreground sidecar's model family per session,
+# enforces per-model effort FLOORS, and raises the floor to xhigh for a
+# downgrade episode.
+#
+# INVARIANT: this family only ever RAISES effort. An injection fires only
+# when the live effort ranks strictly BELOW the target, so a session already
+# at or above its floor (or at max) is never touched.
+#
+# Ascending capability rank; "mythos" shares fable's rank (same underlying
+# model). Matched by token containment on the sidecar's model_id; unknown
+# ids have no rank and never trigger.
+_MODEL_FAMILY_RANKS: dict[str, int] = {
+    "haiku": 0,
+    "sonnet": 1,
+    "opus": 2,
+    "fable": 3,
+    "mythos": 3,
+}
+# "mythos" is an alias: _model_family canonicalises it to "fable".
+_MODEL_FAMILY_CANONICAL: dict[str, str] = {"mythos": "fable"}
+# The single highest capability rank (fable/mythos). Used by the coupled-
+# effort mechanism to distinguish "switching TO the best model" (a sanctioned
+# effort LOWERING to its floor) from every other destination (a downgrade or
+# a partial restore, which targets _DOWNGRADE_TARGET_EFFORT instead).
+_TOP_FAMILY_RANK = max(_MODEL_FAMILY_RANKS.values())
+_EFFORT_COMMAND = "/effort"
+# Ascending effort ranks (Claude Code's own low→max ordering).
+_EFFORT_RANKS: dict[str, int] = {"low": 0, "medium": 1, "high": 2, "xhigh": 3, "max": 4}
+# The effort a downgraded session is restored to — the whole point of the
+# family: "fable low" falls through to the fallback model at XHIGH, so the
+# downgrade target outranks any configured per-model minimum.
+_DOWNGRADE_TARGET_EFFORT = "xhigh"
+# Per-model minimum effort levels (Plan 00278 Task 2b.2). No official
+# per-model effort mechanism exists in Claude Code (effort is one global
+# setting that survives a safety fallback unchanged), so the supervisor
+# enforces these floors. Override via the env var below, e.g.
+# CCY_MIN_EFFORT_LEVELS="fable=low,opus=xhigh".
+_DEFAULT_MIN_EFFORT_LEVELS: dict[str, str] = {
+    "fable": "low",
+    "opus": "high",
+    "sonnet": "high",
+    "haiku": "low",
+}
+_MIN_EFFORT_ENV_VAR = "CCY_MIN_EFFORT_LEVELS"
+# After a successful /effort injection the sidecar keeps reporting the OLD
+# effort until the next status render; without a cooldown the stale reading
+# would re-open the episode and burn the cap on duplicates.
+_EFFORT_REINJECT_COOLDOWN_SECONDS = 180.0
+# Family-specific per-process cap: a flapping model_id cannot type forever.
+_MAX_EFFORT_INJECTIONS = 3
+_DRY_RUN_EFFORT_BODY_PREFIX = "would inject /effort (dry-run — no real /effort sent):"
+# ── Model restore after a downgrade (Plan 00278 Task 2b.3) ──────────────────
+# The safety fallback is session-sticky, but flipping back manually works
+# once the flaggable TURN has passed — the classifier flags turns, not
+# sessions' worth of wall-clock. The real gate is therefore the injection
+# choke point itself (idle + empty input box = the flagged turn is over), so
+# the default extra delay is ZERO: restore fires on the first injectable
+# tick after the downgrade (joseph: turn-gated, not time-gated). A positive
+# CCY_MODEL_RESTORE_SECONDS adds an optional extra quiet delay on top;
+# "off" (or any negative value) disables auto-restore entirely. A successful
+# flip-back then RESETS effort down to the restored family's floor (the one
+# sanctioned lowering: fable at xhigh eats account allowance).
+_MODEL_COMMAND = "/model"
+_DEFAULT_MODEL_RESTORE_DELAY_SECONDS = 0.0
+_MODEL_RESTORE_DISABLED_SENTINEL = -1.0
+_MODEL_RESTORE_ENV_VAR = "CCY_MODEL_RESTORE_SECONDS"
+# Flip-flop guard: a re-downgrade soon after a restore means the classifier
+# still fires — do not bounce the session between models.
+_MODEL_RESTORE_BACKOFF_SECONDS = 3600.0
+# Per-process lifetime cap on auto-restores.
+_MAX_MODEL_RESTORES = 2
+_DRY_RUN_MODEL_BODY_PREFIX = "would inject /model (dry-run — no real /model sent):"
+
+
+def _parse_model_restore_delay(raw: str) -> float:
+    """Parse the restore-delay override.
+
+    "off" (or any negative number) disables auto-restore; 0 means restore on
+    the first injectable tick after the downgrade (the turn gate alone);
+    a positive value adds that many seconds of extra quiet delay; junk keeps
+    the default.
+    """
+    value = raw.strip().lower()
+    if value == "off":
+        return _MODEL_RESTORE_DISABLED_SENTINEL
+    try:
+        return float(value)
+    except ValueError:
+        return _DEFAULT_MODEL_RESTORE_DELAY_SECONDS
+
+
+def _model_restore_delay_from_env() -> float:
+    """Resolve the effective restore delay (env override or default)."""
+    raw = os.environ.get(_MODEL_RESTORE_ENV_VAR)
+    if raw is None:
+        return _DEFAULT_MODEL_RESTORE_DELAY_SECONDS
+    return _parse_model_restore_delay(raw)
+
+
+# Every ``/model <family>`` injection -- the auto-restore above AND the
+# manual override signal below -- sends this many ADDITIONAL standalone
+# Enter keystrokes after the normal submit. Claude Code's model switch shows
+# a confirmation dialog that the ordinary single-Enter submit does not
+# clear, so without this the switch never completes.
+_DEFAULT_MODEL_CONFIRM_ENTERS = 1
+_MODEL_CONFIRM_ENTERS_ENV_VAR = "CCY_MODEL_CONFIRM_ENTERS"
+
+
+def _parse_model_confirm_enters(raw: str) -> int:
+    """Parse the confirm-Enter count override; junk or negative keeps default."""
+    try:
+        value = int(raw.strip())
+    except ValueError:
+        return _DEFAULT_MODEL_CONFIRM_ENTERS
+    return value if value >= 0 else _DEFAULT_MODEL_CONFIRM_ENTERS
+
+
+def _model_confirm_enters_from_env() -> int:
+    """Resolve the effective confirm-Enter count (env override or default)."""
+    raw = os.environ.get(_MODEL_CONFIRM_ENTERS_ENV_VAR)
+    if raw is None:
+        return _DEFAULT_MODEL_CONFIRM_ENTERS
+    return _parse_model_confirm_enters(raw)
+
+
+# Every ``/effort <level>`` injection needs the same treatment: Claude Code's
+# effort selector shows a confirmation UI that the ordinary single-Enter
+# submit does not clear, so without a confirming Enter the level change sits
+# unconfirmed forever (a human had to press Enter for the first live coupled
+# correction).
+_DEFAULT_EFFORT_CONFIRM_ENTERS = 1
+_EFFORT_CONFIRM_ENTERS_ENV_VAR = "CCY_EFFORT_CONFIRM_ENTERS"
+
+
+def _parse_effort_confirm_enters(raw: str) -> int:
+    """Parse the effort confirm-Enter override; junk or negative keeps default."""
+    try:
+        value = int(raw.strip())
+    except ValueError:
+        return _DEFAULT_EFFORT_CONFIRM_ENTERS
+    return value if value >= 0 else _DEFAULT_EFFORT_CONFIRM_ENTERS
+
+
+def _effort_confirm_enters_from_env() -> int:
+    """Resolve the effective effort confirm-Enter count (env override or default)."""
+    raw = os.environ.get(_EFFORT_CONFIRM_ENTERS_ENV_VAR)
+    if raw is None:
+        return _DEFAULT_EFFORT_CONFIRM_ENTERS
+    return _parse_effort_confirm_enters(raw)
+
+
+# /model and /effort injections leave NO trace in the chat (unlike /compact
+# and /goal, whose payloads carry visible text), so after a successful silent
+# injection the supervisor flushes a visible, bot-prefixed audit message on
+# the next injectable tick. Pending audit items are bounded so a stuck flush
+# can never grow the machine state without limit.
+_MAX_AUDIT_ITEMS = 8
+
+
+# ── Flag-cleaning compaction on repeated downgrade (Plan 00281) ──────────────
+# When a downgrade RECURS after a prior auto-restore (a flip-flop the model
+# restore cannot win because the CONTEXT keeps re-tripping the classifier), the
+# supervisor can fire ONE armed /compact instructing Claude to summarise the
+# flaggable material at a HIGH LEVEL, cleaning the context so the next restore
+# sticks. OFF by default: /compact rewrites context, so a project not doing
+# flaggable work never wants it fired automatically.
+_DEFAULT_FLAG_COMPACT_ENABLED = False
+_FLAG_COMPACT_ENV_VAR = "CCY_FLAG_COMPACT"
+_FLAG_COMPACT_TRUE_VALUES = ("1", "true", "yes", "on")
+# At most this many flag-cleaning compactions per worker process, with a
+# backoff between them: /compact is heavy and must never storm.
+_MAX_FLAG_COMPACTIONS = 1
+_FLAG_COMPACT_BACKOFF_SECONDS = 1800.0
+
+
+def _parse_flag_compact_enabled(raw: str) -> bool:
+    """Parse the CCY_FLAG_COMPACT toggle; anything not clearly true is False."""
+    return raw.strip().lower() in _FLAG_COMPACT_TRUE_VALUES
+
+
+def _flag_compact_enabled_from_env() -> bool:
+    """Resolve the effective flag-compact toggle (env override or default off)."""
+    raw = os.environ.get(_FLAG_COMPACT_ENV_VAR)
+    if raw is None:
+        return _DEFAULT_FLAG_COMPACT_ENABLED
+    return _parse_flag_compact_enabled(raw)
+
+
+def _parse_min_effort_levels(raw: str) -> dict[str, str]:
+    """Parse ``family=level,...`` overrides onto the default minimum map.
+
+    Unknown families and unknown levels are ignored (the defaults stand) —
+    a typo in the env var must degrade to defaults, never crash the launch.
+    """
+    result = dict(_DEFAULT_MIN_EFFORT_LEVELS)
+    for part in raw.split(","):
+        family, sep, level = part.partition("=")
+        family = family.strip().lower()
+        level = level.strip().lower()
+        if sep and family in _MODEL_FAMILY_RANKS and level in _EFFORT_RANKS:
+            result[_MODEL_FAMILY_CANONICAL.get(family, family)] = level
+    return result
+
+
+def _min_effort_levels_from_env() -> dict[str, str]:
+    """Resolve the effective per-model minimum map (defaults + env overrides).
+
+    Read via the environment so the HOST and the policy WORKER subprocess
+    (which reconstructs its own CompactPolicy) resolve identical maps.
+    """
+    return _parse_min_effort_levels(os.environ.get(_MIN_EFFORT_ENV_VAR, ""))
+
+
+def _model_family(model_id: str) -> str | None:
+    """Return the canonical model family for ``model_id``, or None if unknown."""
+    lowered = model_id.lower()
+    for token in _MODEL_FAMILY_RANKS:
+        if token in lowered:
+            return _MODEL_FAMILY_CANONICAL.get(token, token)
+    return None
+
+
+def _family_rank(family: str) -> int:
+    """Return the capability rank of a known family (KeyError on unknown)."""
+    return _MODEL_FAMILY_RANKS[family]
+
+
 class Decision(enum.Enum):
     """What the supervisor WOULD do this evaluation (dry-run logs it)."""
 
@@ -832,6 +1158,11 @@ class Decision(enum.Enum):
     WOULD_COMPACT = "would-compact"
     WOULD_CONTINUE = "would-continue"
     WOULD_ESCAPE = "would-escape"
+    WOULD_GOAL = "would-goal"
+    WOULD_STANDING_AUTH = "would-standing-auth"
+    WOULD_EFFORT = "would-effort"
+    WOULD_MODEL = "would-model"
+    WOULD_AUDIT = "would-audit"
 
 
 class SupervisorState(enum.Enum):
@@ -863,6 +1194,10 @@ class SidecarReading:
     writer_pid: int
     compacting: bool
     stale: bool
+    # Plan 00278: model identity and live effort level, for the model-downgrade
+    # effort-restore family. Defaults cover sidecars predating the fields.
+    model_id: str = ""
+    effort: str | None = None
 
 
 @dataclass(frozen=True)
@@ -878,6 +1213,28 @@ class CompactPolicy:
     escape_after_seconds: float = _DEFAULT_ESCAPE_AFTER_SECONDS
     reap_ttl_seconds: float = _DEFAULT_REAP_TTL_SECONDS
     foreground_margin_seconds: float = _DEFAULT_FOREGROUND_MARGIN_SECONDS
+    goal_signal_ttl_seconds: float = _DEFAULT_GOAL_SIGNAL_TTL_SECONDS
+    # Plan 00278: per-model effort floors, resolved from the environment so
+    # the host and the policy worker (which rebuilds its own policy) agree.
+    min_effort_levels: dict[str, str] = field(default_factory=_min_effort_levels_from_env)
+    # Plan 00278 Task 2b.3: EXTRA quiet delay before the /model flip-back on
+    # top of the turn gate (default 0 — the idle/empty-input injection gate
+    # already means the flagged turn is over); negative ("off") disables
+    # auto-restore. Env-resolved for the same host/worker agreement.
+    model_restore_delay_seconds: float = field(default_factory=_model_restore_delay_from_env)
+    # Additional confirming Enters sent after every /model injection (both
+    # auto-restore and the manual switch signal). Env-resolved for the same
+    # host/worker agreement.
+    model_confirm_enters: int = field(default_factory=_model_confirm_enters_from_env)
+    # Additional confirming Enters sent after every /effort injection (both
+    # the floor-based restore and the coupled post-/model correction) — the
+    # effort selector needs one just like the model switch. Env-resolved for
+    # the same host/worker agreement.
+    effort_confirm_enters: int = field(default_factory=_effort_confirm_enters_from_env)
+    # Plan 00281: opt-in flag-cleaning /compact on a repeated (flip-flop)
+    # downgrade. OFF by default — auto-compaction rewrites context. Env-resolved
+    # for host/worker agreement, like the other Plan 00278/00281 toggles.
+    flag_compact_enabled: bool = field(default_factory=_flag_compact_enabled_from_env)
 
 
 @dataclass(frozen=True)
@@ -944,6 +1301,26 @@ class TickOutcome:
     # discard a stale reply from a previously timed-out tick. 0 on the
     # in-process path and on legacy replies without the field.
     tick_id: int = 0
+    # Additional confirming Enters the host must send after ``payload`` (only
+    # ever non-zero for a ``/model`` injection -- see ``_perform_injection``).
+    # 0 for every other decision and for legacy replies without the field.
+    confirm_enters: int = 0
+    # Plan 00278 continuation: populated only when ``decision_value`` is
+    # WOULD_MODEL, so the HOST can arm the mandatory coupled-effort
+    # correction after a successful injection (``arm_coupled_effort``) --
+    # for BOTH the manual test-trigger switch and the auto-restore
+    # flip-back. None/False for every other decision and for legacy replies
+    # without the fields.
+    model_switch_family: str | None = None
+    model_switch_session: str | None = None
+    model_switch_is_auto_restore: bool = False
+    # Plan 00281: True only for the flip-flop flag-cleaning /compact, so the
+    # HOST counts it against the flag-compaction cap/backoff
+    # (``mark_flag_compaction``) on a successful injection. The capacity-based
+    # /compact (Plan 00152) leaves this False — it has its own AWAIT_COMPACTING
+    # lifecycle and must not eat into the flag-compaction budget. False for
+    # every other decision and for legacy replies without the field.
+    is_flag_compact: bool = False
 
 
 def _coerce_float(value: object) -> float:
@@ -1440,7 +1817,14 @@ def _build_sidecar_reading(
         writer_pid=_coerce_int(data.get("writer_pid")),
         compacting=bool(data.get("compacting", False)),
         stale=(now - ts) > freshness_seconds,
+        model_id=str(data.get("model_id", "")),
+        effort=_coerce_optional_str(data.get("effort")),
     )
+
+
+def _coerce_optional_str(value: object) -> str | None:
+    """Return ``value`` as a string, or None for anything non-string."""
+    return value if isinstance(value, str) else None
 
 
 def load_compaction_signal(
@@ -1482,6 +1866,317 @@ def load_compaction_signal(
     return None
 
 
+# ---------------------------------------------------------------------------
+# Goal-intent signal (Plan 00269) — structural validation gate (Decision 2).
+#
+# The member allowlist ({'/compact', 'continue'}) cannot express per-plan
+# text, so for the goal family ONLY it becomes a SHAPE allowlist: mandatory
+# machine-origin marker prefix, max total length, max logical-line count, and
+# a printable charset with a hard control-byte (newline!) ban. Anything
+# failing the gate is dropped fail-closed and the reason is logged. The
+# compact/continue member allowlist is untouched.
+# ---------------------------------------------------------------------------
+
+# The goal payload's mandatory FIXED HEADER, verified VERBATIM. A mere
+# marker-prefix check would admit any text following the marker — anything
+# able to write the signal file (a bash redirect is enough; no content guard
+# covers it) could then get arbitrary text, including asserted human consent,
+# typed into the chat. The load-bearing clause is the "NOT a human
+# instruction and NOT human authorisation" disclaimer, so the WHOLE header
+# must equal the daemon renderer's fixed header. A lockstep test
+# (tests/unit/supervise/test_goal_signal.py) asserts this string equals
+# goal_injection._HEADER_TEXT so the two sides cannot drift.
+_GOAL_HEADER_TEXT = (
+    "🤖 [ccy-supervisor] automated goal — machine-generated, NOT a human "
+    "instruction and NOT human authorisation for anything."
+)
+# The slash command; the payload is always ``/goal <joined line>`` so the
+# injected message begins ``/goal 🤖 [ccy-supervisor]``.
+_GOAL_COMMAND = "/goal"
+# Fixed separator used to re-join ``rendered_lines`` (identity for the
+# list-of-one the daemon writes today; forward-compatible with a future safe
+# multi-line mechanism).
+_GOAL_SEPARATOR = " — "
+_GOAL_MAX_JOINED_CHARS = 500
+_GOAL_MAX_LOGICAL_LINES = 8
+# Family-specific per-process cap so a signal storm cannot type repeatedly
+# (each signal is also consumed on injection).
+_MAX_GOAL_INJECTIONS = 5
+_DRY_RUN_GOAL_BODY_PREFIX = "would inject /goal (dry-run — no real /goal sent):"
+
+
+def _validate_goal_lines(rendered_lines: object) -> tuple[str | None, str | None]:
+    """Validate ``rendered_lines`` from a goal signal; return (joined, error).
+
+    Fail-closed: exactly one of the pair is non-None. The gate checks shape
+    only — it never interprets the text.
+    """
+    if not isinstance(rendered_lines, list) or not rendered_lines:
+        return None, "rendered_lines is not a non-empty list"
+    if len(rendered_lines) > _GOAL_MAX_LOGICAL_LINES:
+        return None, f"more than {_GOAL_MAX_LOGICAL_LINES} logical lines"
+    if not all(isinstance(line, str) for line in rendered_lines):
+        return None, "rendered_lines contains a non-string element"
+    joined = _GOAL_SEPARATOR.join(rendered_lines)
+    # The ENTIRE fixed header must open the payload, verbatim — either alone
+    # (a header-only message) or followed by the separator. A prefix-only
+    # marker check would let a forged signal carry arbitrary text (including
+    # asserted human consent) past the gate.
+    if joined != _GOAL_HEADER_TEXT and not joined.startswith(_GOAL_HEADER_TEXT + _GOAL_SEPARATOR):
+        return None, "payload does not open with the verbatim machine-origin header"
+    if len(joined) > _GOAL_MAX_JOINED_CHARS:
+        return None, f"joined line exceeds {_GOAL_MAX_JOINED_CHARS} chars"
+    for ch in joined:
+        # A newline is a control byte too: under the one-chunk + separate \r
+        # delivery contract it would SUBMIT an unmarked intermediate prompt.
+        if ord(ch) < 0x20 or ord(ch) == 0x7F:
+            return None, "control byte in payload"
+    return joined, None
+
+
+def load_goal_signal(
+    directory: Path,
+    *,
+    now: float,
+    ttl_seconds: float = _DEFAULT_GOAL_SIGNAL_TTL_SECONDS,
+    own_sessions: frozenset[str] | None = None,
+) -> tuple[Path | None, str | None, str | None]:
+    """Return ``(path, joined_line, reject_reason)`` for a goal-intent signal.
+
+    Exactly one of the three shapes comes back: a valid fresh in-scope signal
+    yields ``(path, joined, None)``; an in-scope fresh signal that FAILS the
+    validation gate yields ``(None, None, reason)`` so the caller can log the
+    rejection; no actionable signal at all yields ``(None, None, None)``.
+    Foreign-session and stale signals are skipped silently (foreign files in
+    a shared dir are normal; stale ones age out via the reaper).
+    """
+    if not directory.is_dir():
+        return None, None, None
+    for path in sorted(directory.glob(_GOAL_SIGNAL_GLOB)):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None, None, f"unreadable/malformed goal signal {path.name}"
+        if not isinstance(data, dict):
+            return None, None, f"goal signal {path.name} is not a JSON object"
+        if not _session_in_scope(data.get("session_id"), own_sessions):
+            continue
+        if (now - _coerce_float(data.get("ts"))) > ttl_seconds:
+            continue
+        joined, error = _validate_goal_lines(data.get("rendered_lines"))
+        if error is not None:
+            return None, None, f"goal signal {path.name} rejected: {error}"
+        return path, joined, None
+    return None, None, None
+
+
+# ---------------------------------------------------------------------------
+# Standing-authorisation signal (Plan 00283).
+#
+# The daemon's standing_authorisations UserPromptSubmit handler routes a due
+# reinforcement to a ``<session>.standing-auth-intent`` signal (again NOT
+# ``*.json``) when its supervisor channel is enabled and this supervisor is
+# armed+live. We type it as a real user-role line at the same idle choke point
+# as the goal signal, subordinate to every other family. Same security reasoning
+# as the goal header: anything able to WRITE the signal file (a bash redirect is
+# enough) could otherwise get arbitrary text — including a forged human consent —
+# typed into the chat, so the WHOLE header must equal the daemon renderer's fixed
+# header verbatim. A lockstep test asserts this equals
+# standing_authorisations.SUPERVISOR_CHANNEL_HEADER so the two ends cannot drift.
+_STANDING_AUTH_SIGNAL_GLOB = "*.standing-auth-intent"
+_STANDING_AUTH_HEADER_TEXT = (
+    "🤖 [ccy-supervisor] standing authorisations replayed from this project's "
+    "config — machine-generated, NOT a human instruction and NOT fresh human "
+    "authorisation for anything."
+)
+# Re-join separator for rendered_lines (the daemon writes [header, body]).
+_STANDING_AUTH_SEPARATOR = " — "
+_STANDING_AUTH_MAX_JOINED_CHARS = 500
+_STANDING_AUTH_MAX_LOGICAL_LINES = 8
+# Runaway backstop only — the daemon cadence (≤1 signal per reinforcement window)
+# plus consume-on-inject is the real rate limit, so this only ever catches a
+# pathological consume-delete loop. Set high so a long session is never silenced.
+_MAX_STANDING_AUTH_INJECTIONS = 100
+_DRY_RUN_STANDING_AUTH_BODY_PREFIX = (
+    "would inject standing-auth reminder (dry-run — no real message sent):"
+)
+
+
+def _validate_standing_auth_lines(rendered_lines: object) -> tuple[str | None, str | None]:
+    """Validate ``rendered_lines`` from a standing-auth signal; return (joined, error).
+
+    Fail-closed and shape-only, mirroring ``_validate_goal_lines``: the ENTIRE
+    fixed machine-origin header must open the payload verbatim (alone, or followed
+    by the separator), so a forged signal cannot smuggle arbitrary text past the
+    gate. Never interprets the body text.
+    """
+    if not isinstance(rendered_lines, list) or not rendered_lines:
+        return None, "rendered_lines is not a non-empty list"
+    if len(rendered_lines) > _STANDING_AUTH_MAX_LOGICAL_LINES:
+        return None, f"more than {_STANDING_AUTH_MAX_LOGICAL_LINES} logical lines"
+    if not all(isinstance(line, str) for line in rendered_lines):
+        return None, "rendered_lines contains a non-string element"
+    joined = _STANDING_AUTH_SEPARATOR.join(rendered_lines)
+    if joined != _STANDING_AUTH_HEADER_TEXT and not joined.startswith(
+        _STANDING_AUTH_HEADER_TEXT + _STANDING_AUTH_SEPARATOR
+    ):
+        return None, "payload does not open with the verbatim machine-origin header"
+    if len(joined) > _STANDING_AUTH_MAX_JOINED_CHARS:
+        return None, f"joined line exceeds {_STANDING_AUTH_MAX_JOINED_CHARS} chars"
+    for ch in joined:
+        if ord(ch) < 0x20 or ord(ch) == 0x7F:
+            return None, "control byte in payload"
+    return joined, None
+
+
+def load_standing_auth_signal(
+    directory: Path,
+    *,
+    now: float,
+    ttl_seconds: float = _DEFAULT_GOAL_SIGNAL_TTL_SECONDS,
+    own_sessions: frozenset[str] | None = None,
+) -> tuple[Path | None, str | None, str | None]:
+    """Return ``(path, joined_line, reject_reason)`` for a standing-auth signal.
+
+    Same three-shape contract as :func:`load_goal_signal`: a valid fresh in-scope
+    signal yields ``(path, joined, None)``; an in-scope fresh signal that FAILS
+    the gate yields ``(None, None, reason)``; nothing actionable yields
+    ``(None, None, None)``. Foreign-session and stale signals are skipped
+    silently. Reuses the goal TTL default — both are idle-consumed signals with
+    the same generous window.
+    """
+    if not directory.is_dir():
+        return None, None, None
+    for path in sorted(directory.glob(_STANDING_AUTH_SIGNAL_GLOB)):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None, None, f"unreadable/malformed standing-auth signal {path.name}"
+        if not isinstance(data, dict):
+            return None, None, f"standing-auth signal {path.name} is not a JSON object"
+        if not _session_in_scope(data.get("session_id"), own_sessions):
+            continue
+        if (now - _coerce_float(data.get("ts"))) > ttl_seconds:
+            continue
+        joined, error = _validate_standing_auth_lines(data.get("rendered_lines"))
+        if error is not None:
+            return None, None, f"standing-auth signal {path.name} rejected: {error}"
+        return path, joined, None
+    return None, None, None
+
+
+# ---------------------------------------------------------------------------
+# Manual model-switch signal (test trigger / deliberate override).
+#
+# Mirrors the goal-intent signal: a session-keyed file dropped into the
+# shared context-sidecar dir, consumed at the same idle choke point. Unlike
+# the daemon-written goal signal, this one is written by the supervisor's OWN
+# ``--emit-model-switch`` CLI helper -- there was previously no way to
+# trigger a ``/model`` switch on demand to verify the confirm-Enter fix
+# end-to-end.
+# ---------------------------------------------------------------------------
+
+_MODEL_SWITCH_SIGNAL_SUFFIX = ".model-switch-intent"
+_MODEL_SWITCH_SIGNAL_GLOB = f"*{_MODEL_SWITCH_SIGNAL_SUFFIX}"
+# Same idle-gate reasoning as the goal signal: plan-execution/test-trigger
+# start is usually an idle moment, but the input-box gate can defer, so the
+# window is generous. The signal is consumed on injection, so a generous TTL
+# cannot re-fire it.
+_DEFAULT_MODEL_SWITCH_SIGNAL_TTL_SECONDS = _DEFAULT_GOAL_SIGNAL_TTL_SECONDS
+
+
+def _canonical_model_family(raw: object) -> str | None:
+    """Canonicalise a bare model-family token (e.g. ``mythos`` -> ``fable``).
+
+    Returns None when ``raw`` is not a string or names no known family. Exact
+    membership only -- unlike ``_model_family``'s token-containment scan over
+    a full model id, the model-switch signal always carries a bare family
+    token, never a model id string.
+    """
+    if not isinstance(raw, str):
+        return None
+    lowered = raw.strip().lower()
+    canonical = _MODEL_FAMILY_CANONICAL.get(lowered, lowered)
+    return canonical if canonical in _MODEL_FAMILY_RANKS else None
+
+
+def load_model_switch_signal(
+    directory: Path,
+    *,
+    now: float,
+    ttl_seconds: float = _DEFAULT_MODEL_SWITCH_SIGNAL_TTL_SECONDS,
+    own_sessions: frozenset[str] | None = None,
+) -> tuple[Path | None, str | None, str | None]:
+    """Return ``(path, canonical_family, reject_reason)`` for a switch signal.
+
+    Exactly one of the three shapes comes back: a valid fresh in-scope signal
+    yields ``(path, family, None)``; an in-scope fresh signal that FAILS
+    validation (unknown family, malformed JSON) yields ``(None, None,
+    reason)`` so the caller can log the rejection; no actionable signal at
+    all yields ``(None, None, None)``. Foreign-session and stale signals are
+    skipped silently, mirroring ``load_goal_signal``.
+    """
+    if not directory.is_dir():
+        return None, None, None
+    for path in sorted(directory.glob(_MODEL_SWITCH_SIGNAL_GLOB)):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None, None, f"unreadable/malformed model-switch signal {path.name}"
+        if not isinstance(data, dict):
+            return None, None, f"model-switch signal {path.name} is not a JSON object"
+        if not _session_in_scope(data.get("session_id"), own_sessions):
+            continue
+        if (now - _coerce_float(data.get("ts"))) > ttl_seconds:
+            continue
+        raw_family = data.get("family")
+        family = _canonical_model_family(raw_family)
+        if family is None:
+            return (
+                None,
+                None,
+                f"model-switch signal {path.name} names unknown family {raw_family!r}",
+            )
+        return path, family, None
+    return None, None, None
+
+
+def write_model_switch_signal(
+    directory: Path,
+    *,
+    session_id: str,
+    family: str,
+    now: float,
+) -> Path:
+    """Atomically write a manual model-switch signal (the CLI test trigger).
+
+    ``family`` is validated and canonicalised (e.g. ``mythos`` -> ``fable``)
+    the SAME way :func:`load_model_switch_signal` reads it back, so a round
+    trip through this writer always yields a family the reader accepts.
+    Raises ``ValueError`` for an unrecognised family -- fail fast on bad CLI
+    input rather than writing a signal the reader would only reject later.
+
+    Mirrors ``write_status_message``'s atomic-replace pattern: write to a
+    PRIVATE pid-qualified temp file, then ``os.replace`` (``Path.replace``)
+    swaps it in, so a concurrent reader (the supervisor's own tick) always
+    sees either no file or a COMPLETE one. This is a one-shot CLI helper, not
+    a hot-loop writer, so an ``OSError`` propagates to the caller rather than
+    being swallowed here.
+    """
+    canonical = _canonical_model_family(family)
+    if canonical is None:
+        raise ValueError(
+            f"unknown model family {family!r}; expected one of {sorted(_MODEL_FAMILY_RANKS)}"
+        )
+    directory.mkdir(parents=True, exist_ok=True)
+    signal_path = directory / f"{session_id}{_MODEL_SWITCH_SIGNAL_SUFFIX}"
+    payload = {"session_id": session_id, "ts": now, "family": canonical}
+    tmp_path = directory / f".{signal_path.name}.{os.getpid()}.tmp"
+    tmp_path.write_text(json.dumps(payload), encoding="utf-8")
+    tmp_path.replace(signal_path)
+    return signal_path
+
+
 def reap_stale_sidecars(
     directory: Path,
     *,
@@ -1491,8 +2186,9 @@ def reap_stale_sidecars(
 ) -> list[Path]:
     """Delete dead context-sidecar / compaction-signal files older than the TTL.
 
-    Reaps both ``*.json`` sidecars and ``*.compacting`` signals whose FILE MTIME
-    is older than ``ttl_seconds``. Mtime (not the JSON ``ts``) is used so a
+    Reaps ``*.json`` sidecars, ``*.compacting`` signals, ``*.goal-intent``
+    signals, ``*.standing-auth-intent`` signals and ``*.model-switch-intent``
+    signals whose FILE MTIME is older than ``ttl_seconds``. Mtime (not the JSON ``ts``) is used so a
     malformed, truncated, or foreign file is reaped uniformly without a parse --
     a dead file is a dead file. The single newest-mtime ``*.json`` is ALWAYS
     spared, so the supervisor's current reading source is never removed even when
@@ -1510,8 +2206,12 @@ def reap_stale_sidecars(
         return []
 
     entries: list[tuple[Path, float]] = []
-    for path in list(directory.glob(_CONTEXT_SIDECAR_GLOB)) + list(
-        directory.glob(_COMPACTION_SIGNAL_GLOB)
+    for path in (
+        list(directory.glob(_CONTEXT_SIDECAR_GLOB))
+        + list(directory.glob(_COMPACTION_SIGNAL_GLOB))
+        + list(directory.glob(_GOAL_SIGNAL_GLOB))
+        + list(directory.glob(_STANDING_AUTH_SIGNAL_GLOB))
+        + list(directory.glob(_MODEL_SWITCH_SIGNAL_GLOB))
     ):
         try:
             mtime = path.stat().st_mtime
@@ -1606,6 +2306,337 @@ class CompactStateMachine:
         # session with fake prompts. This latch is set on the first dry-run
         # injection and suppresses every one thereafter for the process lifetime.
         self._dry_run_fired = False
+        # Plan 00269: family-specific cap counter for goal injections. Goal
+        # signals are consumed on injection, so this only ever matters under a
+        # signal storm; per-process lifetime, never reset.
+        self._goal_injections = 0
+        # Plan 00283: standing-authorisation reinforcement injections this process
+        # has fired. Runaway backstop only (see _MAX_STANDING_AUTH_INJECTIONS).
+        self._standing_auth_injections = 0
+        # Plan 00278: effort-floor tracking. The last observed (session,
+        # family) pair, an open downgrade episode ("session:family"), the
+        # pending injection key ("session:family:target" — recomputed from
+        # every fresh reading), the family cap, and the last-fired key/ts
+        # pair backing the stale-reading re-inject cooldown.
+        self._last_model_session: str | None = None
+        self._last_model_family: str | None = None
+        self._downgrade_episode: str | None = None
+        self._effort_pending: str | None = None
+        self._effort_injections = 0
+        self._effort_last_fired_key: str | None = None
+        self._effort_last_fired_ts: float | None = None
+        # Plan 00278 Task 2b.3: model-restore bookkeeping — the family the
+        # downgrade came FROM, when the episode opened, the per-process
+        # restore count, and the last restore ts (flip-flop backoff).
+        self._downgrade_from_family: str | None = None
+        self._downgrade_started_ts: float | None = None
+        self._model_restores = 0
+        self._model_restore_last_ts: float | None = None
+        # Plan 00281: flag-cleaning /compact bookkeeping — per-process count
+        # (round-tripped) and last-fire ts (process-local backoff).
+        self._flag_compactions = 0
+        self._flag_compact_last_ts: float | None = None
+        # Plan 00278 continuation: the COUPLED effort correction a /model
+        # switch always owes on the next injectable tick (format
+        # "session:family:target"). Armed by the HOST after ANY successful
+        # /model injection -- manual test-trigger AND auto-restore alike --
+        # so the correction never depends on a downgrade episode being open
+        # or a later sidecar reading confirming the switch landed.
+        self._coupled_effort_pending: str | None = None
+        # Audit items owed to the chat: one entry per silent injection
+        # (/model, /effort) since the last flush. Flushed as ONE visible
+        # bot-prefixed message on the next injectable tick; bounded FIFO.
+        self._audit_pending: list[str] = []
+
+    @property
+    def effort_pending(self) -> str | None:
+        """Pending effort-restore episode key, or None (Plan 00278)."""
+        return self._effort_pending
+
+    @property
+    def effort_injections(self) -> int:
+        """How many effort injections this process has fired (Plan 00278)."""
+        return self._effort_injections
+
+    def mark_effort_injection(self, now_wall: float | None = None) -> None:
+        """Count a fired effort restore and close the pending episode.
+
+        Called by the HOST only after a SUCCESSFUL injection — a failed PTY
+        write keeps the pending episode so the next tick retries. The fired
+        key + timestamp start the stale-reading re-inject cooldown
+        (Plan 00278).
+        """
+        self._effort_injections += 1
+        self._effort_last_fired_key = self._effort_pending
+        self._effort_last_fired_ts = time.time() if now_wall is None else now_wall
+        self._effort_pending = None
+
+    def mark_model_restore(self, now_wall: float | None = None) -> None:
+        """Count a fired auto-restore /model flip-back for cap/backoff purposes.
+
+        Called by the HOST only after a SUCCESSFUL AUTO-RESTORE injection
+        (Plan 00278 Task 2b.3) -- never for the manual test-trigger switch,
+        which has its own signal-consumption lifecycle and must not eat into
+        this cap/backoff budget. The timestamp starts the flip-flop backoff
+        (see ``model_restore_due``). The post-flip effort correction is
+        handled unconditionally by the coupled-effort mechanism, not by this
+        method -- see ``arm_coupled_effort``.
+        """
+        self._model_restores += 1
+        self._model_restore_last_ts = time.time() if now_wall is None else now_wall
+
+    def model_restore_due(self, now_wall: float) -> str | None:
+        """Return the family to restore to when the flip-back is due, else None.
+
+        Due means: auto-restore enabled (delay >= 0; negative/"off"
+        disables), a downgrade episode is open, any EXTRA quiet delay has
+        elapsed since it opened (default 0 — the injection choke point's
+        idle + empty-input gate already guarantees the flagged TURN is over,
+        which is the real recovery condition), the lifetime cap is not
+        reached, and no restore fired within the flip-flop backoff window.
+        """
+        delay = self._policy.model_restore_delay_seconds
+        if (
+            delay < 0
+            or self._downgrade_episode is None
+            or self._downgrade_from_family is None
+            or self._downgrade_started_ts is None
+        ):
+            return None
+        if now_wall - self._downgrade_started_ts < delay:
+            return None
+        if self._model_restores >= _MAX_MODEL_RESTORES:
+            return None
+        if (
+            self._model_restore_last_ts is not None
+            and now_wall - self._model_restore_last_ts < _MODEL_RESTORE_BACKOFF_SECONDS
+        ):
+            return None
+        return self._downgrade_from_family
+
+    def mark_flag_compaction(self, now_wall: float | None = None) -> None:
+        """Count a fired flag-cleaning /compact for cap/backoff purposes.
+
+        Called by the HOST only after a SUCCESSFUL injection (Plan 00281); a
+        failed PTY write keeps the budget so a later tick can retry. The
+        timestamp starts the flip-flop backoff (see ``flag_compact_due``).
+        """
+        self._flag_compactions += 1
+        self._flag_compact_last_ts = time.time() if now_wall is None else now_wall
+
+    def flag_compact_due(self, now_wall: float) -> bool:
+        """True when a flag-cleaning /compact should fire on this tick (Plan 00281).
+
+        Fires only on a FLIP-FLOP: the feature is enabled, a downgrade episode
+        is open, AND at least one model auto-restore has already happened this
+        process — so a prior restore was undone by the classifier re-firing and
+        restoring the model alone cannot win. Capped per process and backed
+        off, because /compact rewrites context and must never storm.
+        """
+        if not self._policy.flag_compact_enabled:
+            return False
+        if self._downgrade_episode is None or self._model_restores < 1:
+            return False
+        if self._flag_compactions >= _MAX_FLAG_COMPACTIONS:
+            return False
+        if (
+            self._flag_compact_last_ts is not None
+            and now_wall - self._flag_compact_last_ts < _FLAG_COMPACT_BACKOFF_SECONDS
+        ):
+            return False
+        return True
+
+    def _coupled_effort_target(self, family: str) -> str:
+        """Return the mandatory post-/model-switch effort target for ``family``.
+
+        Every ``/model <family>`` injection is followed, unconditionally, by
+        an ``/effort`` injection to this target on the next injectable tick
+        (the "effort switch MUST follow model switch" invariant) -- entirely
+        independent of whether a downgrade episode happens to be open or a
+        later sidecar reading ever confirms the switch landed. The
+        TOP-ranked family (fable) is a SANCTIONED LOWERING to its configured
+        floor -- the fix for the live defect where an opus->fable switch
+        left effort at xhigh and burned account allowance. Any other
+        destination -- a downgrade, or a partial restore that has not yet
+        reached the top family -- targets ``_DOWNGRADE_TARGET_EFFORT``
+        (xhigh) so a still-degraded model gets maximum compensating effort.
+        This BYPASSES the raise-only invariant that governs the floor-based
+        ``_effort_pending`` family: lowering fable to its floor is the
+        entire point.
+        """
+        if _family_rank(family) == _TOP_FAMILY_RANK:
+            return self._policy.min_effort_levels.get(
+                family, _DEFAULT_MIN_EFFORT_LEVELS.get(family, _DOWNGRADE_TARGET_EFFORT)
+            )
+        return _DOWNGRADE_TARGET_EFFORT
+
+    @property
+    def coupled_effort_pending(self) -> str | None:
+        """Pending coupled effort-injection key, or None (Plan 00278 cont.)."""
+        return self._coupled_effort_pending
+
+    def arm_coupled_effort(self, *, session: str, family: str) -> None:
+        """Arm the mandatory post-/model-switch effort correction.
+
+        Called by the HOST after ANY successful ``/model <family>``
+        injection -- both the manual test-trigger signal and the
+        auto-restore flip-back -- so the very next injectable tick fires
+        ``/effort <target>`` unconditionally, guaranteeing the invariant
+        regardless of downgrade-episode state or sidecar timing. A blank
+        ``session`` or ``family`` is a no-op (defensive: decide_once only
+        ever calls this with values it has just resolved for a real switch).
+        """
+        if not session or not family:
+            return
+        target = self._coupled_effort_target(family)
+        self._coupled_effort_pending = f"{session}:{family}:{target}"
+
+    def mark_coupled_effort_injection(self) -> None:
+        """Close the pending coupled-effort episode after a SUCCESSFUL injection.
+
+        Called by the HOST only after a successful PTY write -- a failed
+        write keeps the pending episode so the next tick retries.
+        """
+        self._coupled_effort_pending = None
+
+    @property
+    def audit_pending(self) -> tuple[str, ...]:
+        """Audit items owed to the chat since the last flush (may be empty)."""
+        return tuple(self._audit_pending)
+
+    def arm_audit(self, item: str) -> None:
+        """Queue one silent-injection audit item for the next chat flush.
+
+        Called at DECISION time by the armed (non-dry-run) ``/model`` and
+        ``/effort`` branches in ``decide_once`` — worker-side, so the whole
+        audit loop deploys via worker hot-reload with no host restart (an
+        older host's merge-by-key ``import_state`` never clobbers the
+        worker's backlog; it merely doesn't carry it). A decided payload is
+        injected on the same tick; if that PTY write fails, the flush cannot
+        print through the same broken PTY either, so a false "injected"
+        claim never surfaces. Bounded FIFO: the oldest item is dropped once
+        ``_MAX_AUDIT_ITEMS`` is reached, because an unflushable audit backlog
+        must never grow the machine state without limit.
+        """
+        if not item:
+            return
+        self._audit_pending.append(item)
+        if len(self._audit_pending) > _MAX_AUDIT_ITEMS:
+            del self._audit_pending[0]
+
+    def mark_audit_injection(self) -> None:
+        """Clear the audit backlog after a SUCCESSFUL flush injection.
+
+        Called by the HOST only after a successful PTY write -- a failed
+        write keeps the backlog so the next tick retries the flush.
+        """
+        self._audit_pending = []
+
+    @property
+    def last_model_session(self) -> str | None:
+        """The most recently observed foreground session id, or None (Plan 00278)."""
+        return self._last_model_session
+
+    def note_model_reading(self, reading: SidecarReading, *, now_wall: float) -> None:
+        """Track the foreground model; recompute the floor-based effort episode.
+
+        Two triggers share one pending episode (Plan 00278):
+
+        - a ranked DOWNGRADE for the same session raises the target to
+          ``_DOWNGRADE_TARGET_EFFORT`` until the family recovers;
+        - otherwise the live effort sitting BELOW the configured per-model
+          minimum targets that minimum.
+
+        The pending key is recomputed from every fresh reading, so it clears
+        itself when the effort rises, the family recovers, or the session
+        changes. A just-fired episode is suppressed for the re-inject
+        cooldown, because the sidecar reports the old effort until the next
+        status render. Unknown families and session-less synthetic readings
+        are ignored entirely.
+
+        The post-/model-switch effort correction is NOT decided here any
+        more (Plan 00278 continuation): it used to fire only once THIS
+        method observed the switch land, which never happened for a manual
+        override with no downgrade episode open. That correction is now the
+        unconditional ``_coupled_effort_pending`` mechanism, armed by the
+        HOST straight off a successful injection -- see
+        ``arm_coupled_effort``. This method still closes a recovered
+        downgrade episode (so ``model_restore_due`` stops considering a
+        restore "due" once the family is back); it just no longer tries to
+        infer an effort reset from that recovery.
+        """
+        family = _model_family(reading.model_id)
+        session = reading.session_id
+        if not session or family is None:
+            return
+        prev_session = self._last_model_session
+        prev_family = self._last_model_family
+        self._last_model_session = session
+        self._last_model_family = family
+        if self._downgrade_episode is not None:
+            ep_session, _, ep_family = self._downgrade_episode.partition(":")
+            if session != ep_session or _family_rank(family) > _family_rank(ep_family):
+                self._downgrade_episode = None
+                self._downgrade_from_family = None
+                self._downgrade_started_ts = None
+        if (
+            prev_session == session
+            and prev_family is not None
+            and _family_rank(family) < _family_rank(prev_family)
+        ):
+            if self._downgrade_episode is None:
+                # A fresh episode: remember where we fell FROM and when, for
+                # the delayed /model flip-back (Task 2b.3). A further drop
+                # inside an open episode keeps the original from/started.
+                self._downgrade_from_family = prev_family
+                self._downgrade_started_ts = now_wall
+            self._downgrade_episode = f"{session}:{family}"
+        if self._downgrade_episode is not None:
+            target: str | None = _DOWNGRADE_TARGET_EFFORT
+        else:
+            target = self._policy.min_effort_levels.get(family)
+        current = reading.effort
+        below = target is not None and (
+            # An unknown effort is assumed low ONLY inside a downgrade
+            # episode (the restore is the point); outside one it means an
+            # older Claude Code without the live field — do nothing.
+            (current is None and self._downgrade_episode is not None)
+            or (
+                current is not None
+                and current in _EFFORT_RANKS
+                and _EFFORT_RANKS[current] < _EFFORT_RANKS[target]
+            )
+        )
+        if not below or target is None:
+            self._effort_pending = None
+            return
+        key = f"{session}:{family}:{target}"
+        if (
+            self._effort_last_fired_key == key
+            and self._effort_last_fired_ts is not None
+            and now_wall - self._effort_last_fired_ts < _EFFORT_REINJECT_COOLDOWN_SECONDS
+        ):
+            self._effort_pending = None
+            return
+        self._effort_pending = key
+
+    @property
+    def goal_injections(self) -> int:
+        """How many goal injections this process has fired (Plan 00269)."""
+        return self._goal_injections
+
+    def mark_goal_injection(self) -> None:
+        """Count one goal injection against the family cap (Plan 00269)."""
+        self._goal_injections += 1
+
+    @property
+    def standing_auth_injections(self) -> int:
+        """How many standing-auth reinforcements this process has fired (Plan 00283)."""
+        return self._standing_auth_injections
+
+    def mark_standing_auth_injection(self) -> None:
+        """Count one standing-auth reinforcement against the runaway backstop (Plan 00283)."""
+        self._standing_auth_injections += 1
 
     @property
     def dry_run_fired(self) -> bool:
@@ -1633,6 +2664,22 @@ class CompactStateMachine:
             "escapes_sent": self._escapes_sent,
             "await_is_human": self._await_is_human,
             "dry_run_fired": self._dry_run_fired,
+            "goal_injections": self._goal_injections,
+            "standing_auth_injections": self._standing_auth_injections,
+            "last_model_session": self._last_model_session,
+            "last_model_family": self._last_model_family,
+            "downgrade_episode": self._downgrade_episode,
+            "effort_pending": self._effort_pending,
+            "effort_injections": self._effort_injections,
+            "effort_last_fired_key": self._effort_last_fired_key,
+            "effort_last_fired_ts": self._effort_last_fired_ts,
+            "downgrade_from_family": self._downgrade_from_family,
+            "downgrade_started_ts": self._downgrade_started_ts,
+            "model_restores": self._model_restores,
+            "model_restore_last_ts": self._model_restore_last_ts,
+            "flag_compactions": self._flag_compactions,
+            "coupled_effort_pending": self._coupled_effort_pending,
+            "audit_pending": list(self._audit_pending),
         }
 
     def import_state(self, state: dict[str, object]) -> None:
@@ -1655,6 +2702,50 @@ class CompactStateMachine:
             self._await_is_human = bool(state["await_is_human"])
         if "dry_run_fired" in state:
             self._dry_run_fired = bool(state["dry_run_fired"])
+        if "goal_injections" in state:
+            self._goal_injections = _coerce_int(state["goal_injections"])
+        if "standing_auth_injections" in state:
+            self._standing_auth_injections = _coerce_int(state["standing_auth_injections"])
+        if "last_model_session" in state:
+            raw = state["last_model_session"]
+            self._last_model_session = None if raw is None else str(raw)
+        if "last_model_family" in state:
+            raw = state["last_model_family"]
+            self._last_model_family = None if raw is None else str(raw)
+        if "downgrade_episode" in state:
+            raw = state["downgrade_episode"]
+            self._downgrade_episode = None if raw is None else str(raw)
+        if "effort_pending" in state:
+            raw = state["effort_pending"]
+            self._effort_pending = None if raw is None else str(raw)
+        if "effort_injections" in state:
+            self._effort_injections = _coerce_int(state["effort_injections"])
+        if "effort_last_fired_key" in state:
+            raw = state["effort_last_fired_key"]
+            self._effort_last_fired_key = None if raw is None else str(raw)
+        if "effort_last_fired_ts" in state:
+            raw = state["effort_last_fired_ts"]
+            self._effort_last_fired_ts = None if raw is None else _coerce_float(raw)
+        if "downgrade_from_family" in state:
+            raw = state["downgrade_from_family"]
+            self._downgrade_from_family = None if raw is None else str(raw)
+        if "downgrade_started_ts" in state:
+            raw = state["downgrade_started_ts"]
+            self._downgrade_started_ts = None if raw is None else _coerce_float(raw)
+        if "model_restores" in state:
+            self._model_restores = _coerce_int(state["model_restores"])
+        if "model_restore_last_ts" in state:
+            raw = state["model_restore_last_ts"]
+            self._model_restore_last_ts = None if raw is None else _coerce_float(raw)
+        if "flag_compactions" in state:
+            self._flag_compactions = _coerce_int(state["flag_compactions"])
+        if "coupled_effort_pending" in state:
+            raw = state["coupled_effort_pending"]
+            self._coupled_effort_pending = None if raw is None else str(raw)
+        if "audit_pending" in state:
+            raw_items = state["audit_pending"]
+            if isinstance(raw_items, list):
+                self._audit_pending = [str(item) for item in raw_items[:_MAX_AUDIT_ITEMS]]
 
     def evaluate(
         self,
@@ -1887,6 +2978,22 @@ _DRY_RUN_COMPACT_BODY = "compact suggestion fired (dry-run — not a real /compa
 _ARMED_COMPACT_BODY = (
     "After compacting, immediately resume and continue the work that was in progress."
 )
+# Plan 00281: the instruction body for a flag-cleaning /compact. Phrased WITHOUT
+# the trigger vocabulary itself (naming those categories would re-seed the very
+# terms the compaction exists to clear) — it asks for a high-level summary that
+# omits low-level technical specifics, so the compacted context stops
+# re-triggering the content classifier and the model-restore can stick.
+_FLAG_COMPACT_BODY = (
+    "Summarise the work so far at a HIGH LEVEL. Where the conversation touched "
+    "sensitive or security-adjacent material, keep only what was done and the "
+    "outcome — leave out the low-level technical specifics, sample text, and "
+    "sensitive strings, which are preserved in git and the plan docs. This keeps "
+    "the continuing context from re-triggering content classifiers. Then resume "
+    "and continue the work in progress."
+)
+_DRY_RUN_FLAG_COMPACT_BODY = (
+    "flag-cleaning compact fired (dry-run — not a real /compact, not human input)"
+)
 # `continue` is harmless -- it only nudges the agent to resume -- so it is
 # injected FOR REAL in both dry-run and armed modes. Detecting a compaction and
 # not resuming would defeat the purpose, and (unlike /compact) a stray
@@ -1926,6 +3033,72 @@ def _format_bot_prefix(now_wall: float | None = None) -> str:
     return f"{_BOT_PREFIX} {moment.strftime(_BOT_PREFIX_TIME_FORMAT)}]"
 
 
+# ── Injection iconography (RULESET — single source of truth) ─────────────────
+# Every supervisor chat injection carries the invariant provenance marker
+# `🤖 [ccy-supervisor <local-time>]` (machine origin + WHEN). That marker is
+# NEVER split or removed: skill-scan (`EXCLUDE_CONTENT_MARKERS`) and the
+# guardrail tests recognise supervisor traffic by the `🤖 [ccy-supervisor`
+# substring, so any classifying glyph is added AROUND it, never inside it.
+#
+# A leading CATEGORY banner lets a human classify an injection at a glance when
+# scrolling back through a long session — this is what makes an audit comment
+# easy to SPOT versus a goal or a resume nudge:
+#   🧾  audit  — a record of silent actions ALREADY TAKEN on your behalf
+# Within an audit line each injected command is prefixed with a per-ACTION
+# glyph, so the specific silent actions are scannable without reading the whole
+# sentence:
+#   ⚙️  /effort …   (effort level changed)
+#   ♻️  /model …    (model restored / switched)
+#   🧽  /compact …  (flag-cleaning compaction, Plan 00281)
+# New action families extend `_AUDIT_ACTION_GLYPHS`; unknown items fall back to
+# the neutral bullet. Keep this block and the table in sync.
+_AUDIT_BANNER_GLYPH = "🧾"
+_AUDIT_ACTION_EFFORT_GLYPH = "⚙️"
+_AUDIT_ACTION_MODEL_GLYPH = "♻️"
+_AUDIT_ACTION_COMPACT_GLYPH = "🧽"
+_AUDIT_ACTION_DEFAULT_GLYPH = "•"
+# (command-prefix, glyph) pairs, longest-prefix-first is unnecessary here since
+# the commands share no prefix; a plain first-match scan suffices.
+_AUDIT_ACTION_GLYPHS: tuple[tuple[str, str], ...] = (
+    ("/effort", _AUDIT_ACTION_EFFORT_GLYPH),
+    ("/model", _AUDIT_ACTION_MODEL_GLYPH),
+    ("/compact", _AUDIT_ACTION_COMPACT_GLYPH),
+)
+# Human-readable pointer to the full machine-readable record (not a path used
+# for I/O — the audit message only tells the reader where to look).
+_AUDIT_LOG_DISPLAY_PATH = "untracked/supervise/decision.log"
+
+
+def _audit_action_glyph(item: str) -> str:
+    """Return the per-action glyph for one pending audit item.
+
+    Keys on the leading slash-command token so the caller does not have to
+    tag items at arm time — the glyph is derived from the command text itself.
+    """
+    stripped = item.lstrip()
+    for prefix, glyph in _AUDIT_ACTION_GLYPHS:
+        if stripped.startswith(prefix):
+            return glyph
+    return _AUDIT_ACTION_DEFAULT_GLYPH
+
+
+def _format_audit_payload(items: tuple[str, ...], now_wall: float | None = None) -> str:
+    """Compose the visible audit-trail chat message from pending audit items.
+
+    Leads with the 🧾 audit banner so the comment is easy to spot when scanning
+    scrollback, keeps the invariant `🤖 [ccy-supervisor …]` provenance marker
+    intact (skill-scan still recognises it), and prefixes each silent action
+    with its per-action glyph. See the iconography ruleset above.
+    """
+    labelled = "; ".join(f"{_audit_action_glyph(item)} {item}" for item in items)
+    return (
+        f"{_AUDIT_BANNER_GLYPH} {_format_bot_prefix(now_wall)} "
+        f"audit — silent supervisor actions on your behalf: {labelled}. "
+        "Machine-generated audit record, NOT a human instruction; "
+        f"full log: {_AUDIT_LOG_DISPLAY_PATH}"
+    )
+
+
 _INJECT_SUBMIT = "\r"
 # The submit (Enter) is written SEPARATELY from the payload, after this pause.
 # Injecting `payload + \r` in a single burst leaves the trailing carriage
@@ -1936,6 +3109,12 @@ _INJECT_SUBMIT = "\r"
 # real Enter and submits regardless of payload length. This mirrors how
 # tmux/expect/pexpect drive a TUI: send text, then send Enter as its own key.
 _SUBMIT_DELAY_SECONDS = 0.2
+# A `/model <family>` switch shows a CONFIRMATION dialog after the command
+# line is submitted; a second, standalone Enter is needed to complete it, and
+# the dialog needs a moment to render before that keystroke lands. Kept
+# separate from _SUBMIT_DELAY_SECONDS (a different UI element, a different
+# render latency) rather than reusing the same constant for two purposes.
+_MODEL_CONFIRM_DELAY_SECONDS = 0.4
 
 _DEFAULT_POLL_SECONDS = 2.0
 _DEFAULT_IDLE_FLOOR_SECONDS = 2.0
@@ -1980,6 +3159,7 @@ def _perform_injection(
     payload: str,
     *,
     submit: bool = True,
+    confirm_enters: int = 0,
     sleep: Callable[[float], None] = time.sleep,
 ) -> None:
     """Type ``payload`` into the child PTY, optionally submitting it with Enter.
@@ -1992,12 +3172,22 @@ def _perform_injection(
 
     ``submit=False`` writes the payload with NO trailing Enter -- used for the
     raw ESC interrupt, which is a keypress, not a line to submit.
+
+    ``confirm_enters`` sends that many ADDITIONAL standalone Enter keystrokes
+    after the normal submit, each preceded by ``_MODEL_CONFIRM_DELAY_SECONDS``
+    -- a ``/model <family>`` switch shows a confirmation dialog that needs a
+    SECOND Enter to complete. Every other decision passes 0, making this loop
+    a no-op for them; it is also skipped entirely when ``submit=False`` (an
+    interrupt keypress is never followed by a confirmation dialog).
     """
     master_writer(payload.encode("utf-8"))
     if not submit:
         return
     sleep(_SUBMIT_DELAY_SECONDS)
     master_writer(_INJECT_SUBMIT.encode("utf-8"))
+    for _ in range(confirm_enters):
+        sleep(_MODEL_CONFIRM_DELAY_SECONDS)
+        master_writer(_INJECT_SUBMIT.encode("utf-8"))
 
 
 def _consume_signal(path: Path, log: DecisionLog | None) -> None:
@@ -2083,6 +3273,9 @@ def decide_once(
     reap_ttl_seconds: float = _DEFAULT_REAP_TTL_SECONDS,
     foreground_margin_seconds: float = _DEFAULT_FOREGROUND_MARGIN_SECONDS,
     own_sessions: frozenset[str] | None = None,
+    goal_signal_ttl_seconds: float = _DEFAULT_GOAL_SIGNAL_TTL_SECONDS,
+    model_confirm_enters: int = _DEFAULT_MODEL_CONFIRM_ENTERS,
+    effort_confirm_enters: int = _DEFAULT_EFFORT_CONFIRM_ENTERS,
 ) -> TickOutcome:
     """Decide what to inject this tick WITHOUT touching the PTY (Plan 00164 P4).
 
@@ -2153,6 +3346,11 @@ def decide_once(
     # path (the passed machine is already the live authoritative one).
     if facts.machine_state is not None:
         machine.import_state(facts.machine_state)
+    # Plan 00278: track the foreground model family so a ranked downgrade
+    # opens an effort-restore episode (fired further below, subordinate to
+    # every other family). Synthetic/stale readings are ignored.
+    if reading is not None and not reading.stale:
+        machine.note_model_reading(reading, now_wall=facts.now_wall)
     evaluation = machine.evaluate(
         reading,
         idle=can_inject,
@@ -2162,6 +3360,10 @@ def decide_once(
         foreground_ambiguous=foreground_ambiguous,
     )
     payload = _resolve_payload(evaluation.decision, dry_run=dry_run, now_wall=facts.now_wall)
+    # Additional confirming Enters for a /model injection (set by the manual
+    # switch branch and the auto-restore branch below); every other decision
+    # leaves this at 0, which is a no-op in _perform_injection.
+    confirm_enters = 0
     # Plan 00183: dry-run fires ONCE per session, once only. A dry-run marker is a
     # no-op on the environment (no real /compact), so context stays red and the
     # machine re-decides to act every episode -- and each marker is Enter-submitted,
@@ -2212,15 +3414,389 @@ def decide_once(
     # so the block above skips it -- surface it explicitly for decision.log.
     if dry_run_latched_log is not None:
         noop_reason_log = dry_run_latched_log
+    # ── Goal injection (Plan 00269) ─────────────────────────────────────────
+    # Strictly SUBORDINATE to compact/continue: the goal branch runs only when
+    # this tick decided NOOP with no payload, no compaction signal is pending,
+    # and the machine is in MONITOR — so a pending goal can never starve or
+    # reorder a compact/continue decision. The idle + empty-input-box gate
+    # applies unchanged (a deferred goal keeps its signal and retries).
+    decision_value = evaluation.decision.value
+    reason = evaluation.reason
+    # Populated below whenever THIS tick's decision is WOULD_MODEL, so the
+    # HOST can arm the mandatory coupled-effort correction after a
+    # successful injection (Plan 00278 continuation) -- for BOTH the manual
+    # test-trigger switch and the auto-restore flip-back.
+    model_switch_family: str | None = None
+    model_switch_session: str | None = None
+    model_switch_is_auto_restore = False
+    # Plan 00281: set True by the flip-flop flag-compact branch below, so the
+    # HOST counts the successful injection against the flag-compaction budget.
+    is_flag_compact = False
+    # ── Coupled effort: "/model switch MUST be followed by /effort" ─────────
+    # HIGH PRIORITY: checked BEFORE every other subordinate family (manual
+    # model switch, goal, floor-based effort, auto-model-restore) so a
+    # correction owed from a PRIOR /model switch is always delivered before
+    # any new intent is considered. Still strictly subordinate to
+    # compact/continue/escape above. Unconditional and UNGATED on any
+    # downgrade episode or sidecar-observed recovery -- the manual-switch
+    # path has no episode to gate on, and the auto-restore path must not
+    # depend on a race-prone later reading confirming the switch landed.
+    # This is the fix for the live defect where opus->fable left effort at
+    # xhigh and burned account allowance.
+    if (
+        payload is None
+        and evaluation.decision is Decision.NOOP
+        and signal_path is None
+        and machine.state is SupervisorState.MONITOR
+        and machine.coupled_effort_pending is not None
+    ):
+        if not can_inject:
+            if facts.idle and not facts.input_line_empty:
+                deferred_log = f"{_DEFERRED_LOG_PREFIX} (coupled effort pending)"
+            else:
+                noop_reason_log = f"{_NOOP_LOG_PREFIX}: coupled effort pending but session busy"
+        else:
+            decision_value = Decision.WOULD_EFFORT.value
+            confirm_enters = effort_confirm_enters
+            coupled_target = machine.coupled_effort_pending.rsplit(":", 1)[-1]
+            effort_command = f"{_EFFORT_COMMAND} {coupled_target}"
+            reason = (
+                f"model switch requires coupled effort "
+                f"({machine.coupled_effort_pending}) -> would inject {effort_command}"
+            )
+            if dry_run:
+                payload = (
+                    f"{_format_bot_prefix(facts.now_wall)} "
+                    f"{_DRY_RUN_EFFORT_BODY_PREFIX} {effort_command}"
+                )
+            else:
+                payload = effort_command
+                # Decision-time arming (worker-side, hot-reloadable): in
+                # production a decided payload is injected this same tick;
+                # if the PTY write fails, the flush cannot print through
+                # that same broken PTY either, so no false claim surfaces.
+                machine.arm_audit(f"{effort_command} (coupled to model switch)")
+            submit = True
+            deferred_log = None
+            noop_reason_log = None
+    # ── Manual model-switch override (test trigger / deliberate override) ────
+    # Checked ahead of goal, effort and auto-model-restore so a deliberate
+    # switch is never starved by them -- but still strictly after
+    # compact/continue/escape (and the coupled-effort correction) above, so
+    # it can never disrupt an in-flight compaction or skip a correction
+    # owed from a PRIOR switch. Unlike every other family, the injection
+    # gate here is `facts.input_line_empty` ONLY, not the full `can_inject`
+    # (which also requires the keystroke-idle floor): the whole point of a
+    # manual trigger is to fire promptly, and an empty input box is the one
+    # hard safety rail (never type into a box mid-composition).
+    if (
+        payload is None
+        and evaluation.decision is Decision.NOOP
+        and signal_path is None
+        and machine.state is SupervisorState.MONITOR
+    ):
+        switch_path, switch_family, switch_reject = load_model_switch_signal(
+            sidecar_dir,
+            now=facts.now_wall,
+            own_sessions=own_sessions,
+        )
+        if switch_reject is not None:
+            # Fail-closed: an in-scope signal that failed validation (unknown
+            # family, malformed JSON) is dropped and the reason is logged.
+            noop_reason_log = f"{_NOOP_LOG_PREFIX}: {switch_reject}"
+        elif switch_path is not None and switch_family is not None:
+            if not facts.input_line_empty:
+                if facts.idle:
+                    deferred_log = f"{_DEFERRED_LOG_PREFIX} (model-switch signal pending)"
+                else:
+                    noop_reason_log = (
+                        f"{_NOOP_LOG_PREFIX}: model-switch signal pending but session busy"
+                    )
+            else:
+                decision_value = Decision.WOULD_MODEL.value
+                model_command = f"{_MODEL_COMMAND} {switch_family}"
+                reason = f"model-switch signal -> would inject {model_command}"
+                model_switch_family = switch_family
+                # The signal file is named "<session_id>.model-switch-intent"
+                # (write_model_switch_signal) -- derive the session the same
+                # way rather than re-parsing the JSON body a second time.
+                model_switch_session = switch_path.name.removesuffix(_MODEL_SWITCH_SIGNAL_SUFFIX)
+                if dry_run:
+                    payload = (
+                        f"{_format_bot_prefix(facts.now_wall)} "
+                        f"{_DRY_RUN_MODEL_BODY_PREFIX} {model_command}"
+                    )
+                else:
+                    payload = model_command
+                    machine.arm_audit(f"{model_command} (manual switch signal)")
+                submit = True
+                confirm_enters = model_confirm_enters
+                # Consumed in dry-run too — the demonstration episode is
+                # spent either way, mirroring the goal signal's rule.
+                consume_signal_path = str(switch_path)
+                deferred_log = None
+                noop_reason_log = None
+    if (
+        payload is None
+        and evaluation.decision is Decision.NOOP
+        and signal_path is None
+        and machine.state is SupervisorState.MONITOR
+    ):
+        goal_path, goal_line, goal_reject = load_goal_signal(
+            sidecar_dir,
+            now=facts.now_wall,
+            ttl_seconds=goal_signal_ttl_seconds,
+            own_sessions=own_sessions,
+        )
+        if goal_reject is not None:
+            # Fail-closed: an in-scope signal that failed the validation gate
+            # is dropped and the reason is logged (deduped by write_noop).
+            noop_reason_log = f"{_NOOP_LOG_PREFIX}: {goal_reject}"
+        elif goal_path is not None and goal_line is not None:
+            if not can_inject:
+                if facts.idle and not facts.input_line_empty:
+                    deferred_log = f"{_DEFERRED_LOG_PREFIX} (goal injection pending)"
+                else:
+                    noop_reason_log = f"{_NOOP_LOG_PREFIX}: goal signal pending but session busy"
+            elif machine.goal_injections >= _MAX_GOAL_INJECTIONS:
+                noop_reason_log = f"{_NOOP_LOG_PREFIX}: goal injection cap reached"
+            else:
+                # The cap is counted by the HOST only after a SUCCESSFUL
+                # injection (see the callers of _apply_decision) — a PTY
+                # write failure must not burn the cap while the signal
+                # survives for retry. decide_once stays pure.
+                decision_value = Decision.WOULD_GOAL.value
+                reason = "goal signal -> would inject /goal"
+                if dry_run:
+                    payload = (
+                        f"{_format_bot_prefix(facts.now_wall)} "
+                        f"{_DRY_RUN_GOAL_BODY_PREFIX} {goal_line}"
+                    )
+                else:
+                    payload = f"{_GOAL_COMMAND} {goal_line}"
+                submit = True
+                # Consumed in dry-run too — the demonstration episode is spent
+                # either way, so a goal can never flood the session.
+                consume_signal_path = str(goal_path)
+                deferred_log = None
+                noop_reason_log = None
+    # ── Effort restore on model downgrade (Plan 00278) ──────────────────────
+    # Subordinate to every other family: fires only on a tick that would
+    # otherwise NOOP in MONITOR with no compaction signal and no goal payload.
+    # The pending episode persists across deferred ticks; the HOST closes it
+    # (mark_effort_injection) only after a successful PTY write, so a failed
+    # write retries. No signal file exists to consume — the episode key in the
+    # machine state is the whole lifecycle.
+    if (
+        payload is None
+        and evaluation.decision is Decision.NOOP
+        and signal_path is None
+        and machine.state is SupervisorState.MONITOR
+        and machine.effort_pending is not None
+    ):
+        if not can_inject:
+            if facts.idle and not facts.input_line_empty:
+                deferred_log = f"{_DEFERRED_LOG_PREFIX} (effort restore pending)"
+            else:
+                noop_reason_log = f"{_NOOP_LOG_PREFIX}: effort restore pending but session busy"
+        elif machine.effort_injections >= _MAX_EFFORT_INJECTIONS:
+            noop_reason_log = f"{_NOOP_LOG_PREFIX}: effort injection cap reached"
+        else:
+            decision_value = Decision.WOULD_EFFORT.value
+            confirm_enters = effort_confirm_enters
+            target = machine.effort_pending.rsplit(":", 1)[-1]
+            effort_command = f"{_EFFORT_COMMAND} {target}"
+            reason = (
+                f"effort below floor ({machine.effort_pending}) -> "
+                f"would inject {effort_command}"
+            )
+            if dry_run:
+                payload = (
+                    f"{_format_bot_prefix(facts.now_wall)} "
+                    f"{_DRY_RUN_EFFORT_BODY_PREFIX} {effort_command}"
+                )
+            else:
+                payload = effort_command
+                machine.arm_audit(f"{effort_command} (effort-floor restore)")
+            submit = True
+            deferred_log = None
+            noop_reason_log = None
+    # ── Flag-cleaning compaction on a REPEATED downgrade (Plan 00281) ───────
+    # Checked JUST BEFORE the model restore: on a flip-flop (an open episode
+    # AND a prior auto-restore that the classifier already undid) a re-restore
+    # cannot win while the context keeps re-tripping, so instead fire ONE armed
+    # `/compact` that asks the agent to summarise the sensitive material at a
+    # high level. Opt-in (default off), capped and backed off (all inside
+    # flag_compact_due). Fires only when idle (can_inject) so no ESC interrupt
+    # is needed; the resume is driven by the compaction signal like every other
+    # `/compact`. The HOST counts a successful injection (mark_flag_compaction).
+    if (
+        payload is None
+        and evaluation.decision is Decision.NOOP
+        and signal_path is None
+        and machine.state is SupervisorState.MONITOR
+        and machine.flag_compact_due(facts.now_wall)
+    ):
+        if not can_inject:
+            if facts.idle and not facts.input_line_empty:
+                deferred_log = f"{_DEFERRED_LOG_PREFIX} (flag-cleaning compact pending)"
+            else:
+                noop_reason_log = (
+                    f"{_NOOP_LOG_PREFIX}: flag-cleaning compact pending but session busy"
+                )
+        else:
+            decision_value = Decision.WOULD_COMPACT.value
+            reason = "repeated downgrade (flip-flop) -> would inject flag-cleaning /compact"
+            is_flag_compact = True
+            if dry_run:
+                payload = f"{_format_bot_prefix(facts.now_wall)} {_DRY_RUN_FLAG_COMPACT_BODY}"
+            else:
+                # `/compact` MUST stay the FIRST token so it is recognised as the
+                # slash command; the bot chrome rides along as its instruction.
+                payload = f"/compact {_format_bot_prefix(facts.now_wall)} {_FLAG_COMPACT_BODY}"
+                machine.arm_audit("/compact (flag-cleaning after repeated downgrade)")
+            submit = True
+            deferred_log = None
+            noop_reason_log = None
+    # ── Model restore after a downgrade (Plan 00278 Task 2b.3) ──────────────
+    # Fires only on an otherwise-NOOP MONITOR tick, after the quiet delay,
+    # under the lifetime cap and the flip-flop backoff (all inside
+    # model_restore_due). The HOST marks success (mark_model_restore) for
+    # the cap/backoff, and ALSO arms the coupled effort correction
+    # (arm_coupled_effort) -- see `model_switch_is_auto_restore` below.
+    if (
+        payload is None
+        and evaluation.decision is Decision.NOOP
+        and signal_path is None
+        and machine.state is SupervisorState.MONITOR
+    ):
+        restore_family = machine.model_restore_due(facts.now_wall)
+        if restore_family is not None:
+            if not can_inject:
+                if facts.idle and not facts.input_line_empty:
+                    deferred_log = f"{_DEFERRED_LOG_PREFIX} (model restore pending)"
+                else:
+                    noop_reason_log = f"{_NOOP_LOG_PREFIX}: model restore pending but session busy"
+            else:
+                decision_value = Decision.WOULD_MODEL.value
+                model_command = f"{_MODEL_COMMAND} {restore_family}"
+                reason = f"downgrade quiet delay elapsed -> would inject {model_command}"
+                model_switch_family = restore_family
+                model_switch_session = machine.last_model_session
+                model_switch_is_auto_restore = True
+                if dry_run:
+                    payload = (
+                        f"{_format_bot_prefix(facts.now_wall)} "
+                        f"{_DRY_RUN_MODEL_BODY_PREFIX} {model_command}"
+                    )
+                else:
+                    payload = model_command
+                    machine.arm_audit(f"{model_command} (auto-restore after downgrade)")
+                submit = True
+                confirm_enters = model_confirm_enters
+                deferred_log = None
+                noop_reason_log = None
+    # ── Audit-trail flush: visible chat record of the silent injections ─────
+    # LOWEST priority of all injectable families: a pending /model, /effort,
+    # goal or restore always lands first, so a switch sequence flushes as ONE
+    # message once the sequence itself is complete. /model and /effort leave
+    # no trace in the chat (unlike /compact and /goal, whose payloads carry
+    # visible text) — without this flush, decision.log is the only audit
+    # trail and nobody watching the session can tell anything happened. The
+    # message is a plain submitted chat line, so it deliberately wakes the
+    # supervised Claude: the session itself learns its model/effort changed.
+    if (
+        payload is None
+        and evaluation.decision is Decision.NOOP
+        and signal_path is None
+        and machine.state is SupervisorState.MONITOR
+        and machine.audit_pending
+        and can_inject
+    ):
+        decision_value = Decision.WOULD_AUDIT.value
+        reason = f"audit trail flush ({len(machine.audit_pending)} item(s))"
+        # The payload is already a visible, bot-prefixed marker, so the
+        # dry-run and armed forms are identical by design. Composed with the
+        # audit banner + per-action glyphs (see the iconography ruleset).
+        payload = _format_audit_payload(machine.audit_pending, facts.now_wall)
+        # Cleared at DECISION time (worker-side, hot-reloadable) rather than
+        # by host bookkeeping: a failed PTY write then LOSES this audit
+        # instead of retrying it — acceptable, because the same broken PTY
+        # could not have printed it anyway, so no false claim ever surfaces.
+        machine.mark_audit_injection()
+        submit = True
+        deferred_log = None
+        noop_reason_log = None
+    # ── Standing-authorisation reinforcement (Plan 00283) ───────────────────
+    # LEAST urgent of every injectable family: a reminder, not an action, so it
+    # fires only on a tick that would otherwise NOOP in MONITOR with nothing else
+    # pending — a real /compact, /model, /effort, goal, restore or audit flush
+    # always lands first. The daemon's standing_authorisations handler writes the
+    # signal on a due reinforcement when its supervisor channel is enabled; here
+    # we type it as one real user-role line. The HOST counts a successful
+    # injection (mark_standing_auth_injection); the signal is consumed on
+    # injection so it cannot re-fire. Reuses the goal signal TTL.
+    if (
+        payload is None
+        and evaluation.decision is Decision.NOOP
+        and signal_path is None
+        and machine.state is SupervisorState.MONITOR
+    ):
+        sa_path, sa_line, sa_reject = load_standing_auth_signal(
+            sidecar_dir,
+            now=facts.now_wall,
+            ttl_seconds=goal_signal_ttl_seconds,
+            own_sessions=own_sessions,
+        )
+        if sa_reject is not None:
+            # Fail-closed: an in-scope signal that failed the gate is dropped and
+            # the reason logged (deduped by write_noop).
+            noop_reason_log = f"{_NOOP_LOG_PREFIX}: {sa_reject}"
+        elif sa_path is not None and sa_line is not None:
+            if not can_inject:
+                if facts.idle and not facts.input_line_empty:
+                    deferred_log = f"{_DEFERRED_LOG_PREFIX} (standing-auth reminder pending)"
+                else:
+                    noop_reason_log = (
+                        f"{_NOOP_LOG_PREFIX}: standing-auth signal pending but session busy"
+                    )
+            elif machine.standing_auth_injections >= _MAX_STANDING_AUTH_INJECTIONS:
+                noop_reason_log = f"{_NOOP_LOG_PREFIX}: standing-auth injection cap reached"
+            else:
+                # Counted by the HOST only after a SUCCESSFUL injection, so a PTY
+                # write failure does not burn the backstop while the signal
+                # survives for retry. decide_once stays pure.
+                decision_value = Decision.WOULD_STANDING_AUTH.value
+                reason = "standing-auth signal -> would inject reminder"
+                if dry_run:
+                    payload = (
+                        f"{_format_bot_prefix(facts.now_wall)} "
+                        f"{_DRY_RUN_STANDING_AUTH_BODY_PREFIX} {sa_line}"
+                    )
+                else:
+                    # The joined line ALREADY opens with the bot-prefixed
+                    # machine-origin header, so it is typed verbatim as one real
+                    # user-role line — no slash command, no extra chrome.
+                    payload = sa_line
+                submit = True
+                # Consumed on injection (dry-run too) so it cannot re-fire.
+                consume_signal_path = str(sa_path)
+                deferred_log = None
+                noop_reason_log = None
     return TickOutcome(
-        decision_value=evaluation.decision.value,
-        reason=evaluation.reason,
+        decision_value=decision_value,
+        reason=reason,
         payload=payload,
         submit=submit,
         consume_signal_path=consume_signal_path,
         deferred_log=deferred_log,
         machine_state=machine.export_state(),
         noop_reason_log=noop_reason_log,
+        confirm_enters=confirm_enters,
+        model_switch_family=model_switch_family,
+        model_switch_session=model_switch_session,
+        model_switch_is_auto_restore=model_switch_is_auto_restore,
+        is_flag_compact=is_flag_compact,
     )
 
 
@@ -2230,12 +3806,19 @@ def _apply_decision(
     master_writer: Callable[[bytes], None],
     log: DecisionLog | None,
     host_state: str | None = None,
-) -> None:
+) -> bool:
     """Perform a :class:`TickOutcome` on the PTY (host side, Plan 00164 P4).
 
     Injects the payload (if any), logs it, and consumes the compaction signal
     only AFTER a successful resume injection — mirroring the original inline
     behaviour of ``_poll_once`` exactly.
+
+    Returns True when a payload was actually injected (the PTY write
+    succeeded); False on a NOOP/suppressed tick. Callers use this to count a
+    ``would-goal`` injection against the goal cap only on SUCCESS (Plan
+    00269 review fix): a PTY write failure raises out of this function
+    before the return, so the cap is not burned and the un-consumed signal
+    survives for retry.
 
     Plan 00182 defence-in-depth: ``host_state`` is the host's authoritative
     ``SupervisorState`` value BEFORE this outcome is adopted. If the host is
@@ -2250,20 +3833,78 @@ def _apply_decision(
     ):
         if log is not None:
             log.write_noop("noop: stale /compact suppressed (host already awaiting compaction)")
-        return
+        return False
     if outcome.payload is not None:
-        _perform_injection(master_writer, outcome.payload, submit=outcome.submit)
+        _perform_injection(
+            master_writer,
+            outcome.payload,
+            submit=outcome.submit,
+            confirm_enters=outcome.confirm_enters,
+        )
         if log is not None:
             log.write(f"{outcome.decision_value}: {outcome.reason}; injected {outcome.payload!r}")
         if outcome.consume_signal_path is not None:
             _consume_signal(Path(outcome.consume_signal_path), log)
-    elif log is not None and outcome.deferred_log is not None:
+        return True
+    if log is not None and outcome.deferred_log is not None:
         # An injection was pending and the NON-EMPTY INPUT BOX was the sole gate.
         log.write(outcome.deferred_log)
     elif log is not None and outcome.noop_reason_log is not None:
         # Plan 00168 Phase 1: record WHY this idle tick did nothing (deduped, so
         # an unchanged gate never floods). Makes red-but-not-compacting visible.
         log.write_noop(outcome.noop_reason_log)
+    return False
+
+
+def _apply_post_injection_bookkeeping(
+    machine: CompactStateMachine, outcome: TickOutcome, *, injected: bool
+) -> None:
+    """Update per-family cap/pending bookkeeping after ``_apply_decision`` runs.
+
+    Shared by both host call sites (``_poll_once``'s in-process path and
+    ``supervise()``'s ``_on_poll``) so the success-only counting/clearing
+    rules for every injectable family live in exactly one place. Every
+    mark_*/arm_* call below fires ONLY on a successful injection
+    (``injected``) -- a failed PTY write keeps every pending episode/signal
+    intact so the next tick retries.
+    """
+    if not injected:
+        return
+    # NOTE: audit-trail arming and clearing deliberately do NOT live here.
+    # They happen at DECISION time inside decide_once, i.e. in the WORKER --
+    # so the whole audit loop is deployable by worker hot-reload without a
+    # host restart (import_state merges by present key, so an older host
+    # never clobbers the worker's audit backlog; it merely doesn't carry it).
+    if outcome.decision_value == Decision.WOULD_GOAL.value:
+        machine.mark_goal_injection()
+    elif outcome.decision_value == Decision.WOULD_STANDING_AUTH.value:
+        machine.mark_standing_auth_injection()
+    elif outcome.decision_value == Decision.WOULD_EFFORT.value:
+        # The coupled branch is checked FIRST in decide_once, so if it was
+        # armed, this tick's WOULD_EFFORT can only have come from it (Plan
+        # 00278 continuation).
+        if machine.coupled_effort_pending is not None:
+            machine.mark_coupled_effort_injection()
+        else:
+            machine.mark_effort_injection()
+    elif outcome.decision_value == Decision.WOULD_MODEL.value:
+        # Cap/backoff bookkeeping is reserved for the AUTO-restore path --
+        # the manual test-trigger switch has its own signal-consumption
+        # lifecycle and must not eat into that budget.
+        if outcome.model_switch_is_auto_restore:
+            machine.mark_model_restore()
+        # BOTH paths owe the coupled effort correction, unconditionally.
+        if outcome.model_switch_family is not None:
+            machine.arm_coupled_effort(
+                session=outcome.model_switch_session or "",
+                family=outcome.model_switch_family,
+            )
+    elif outcome.decision_value == Decision.WOULD_COMPACT.value and outcome.is_flag_compact:
+        # Plan 00281: only the flip-flop flag-compact counts against the
+        # flag-compaction cap/backoff. The capacity-based /compact leaves
+        # is_flag_compact False and is governed by its AWAIT_COMPACTING
+        # lifecycle instead.
+        machine.mark_flag_compaction()
 
 
 def _poll_once(
@@ -2283,6 +3924,9 @@ def _poll_once(
     reap_ttl_seconds: float = _DEFAULT_REAP_TTL_SECONDS,
     foreground_margin_seconds: float = _DEFAULT_FOREGROUND_MARGIN_SECONDS,
     own_sessions: frozenset[str] | None = None,
+    goal_signal_ttl_seconds: float = _DEFAULT_GOAL_SIGNAL_TTL_SECONDS,
+    model_confirm_enters: int = _DEFAULT_MODEL_CONFIRM_ENTERS,
+    effort_confirm_enters: int = _DEFAULT_EFFORT_CONFIRM_ENTERS,
 ) -> Evaluation:
     """One in-process supervisor tick: decide (``decide_once``) then inject.
 
@@ -2310,8 +3954,12 @@ def _poll_once(
         reap_ttl_seconds=reap_ttl_seconds,
         foreground_margin_seconds=foreground_margin_seconds,
         own_sessions=own_sessions,
+        goal_signal_ttl_seconds=goal_signal_ttl_seconds,
+        model_confirm_enters=model_confirm_enters,
+        effort_confirm_enters=effort_confirm_enters,
     )
-    _apply_decision(outcome, master_writer=master_writer, log=log)
+    injected = _apply_decision(outcome, master_writer=master_writer, log=log)
+    _apply_post_injection_bookkeeping(machine, outcome, injected=injected)
     return Evaluation(decision=Decision(outcome.decision_value), reason=outcome.reason)
 
 
@@ -2366,6 +4014,11 @@ def _outcome_to_json(outcome: TickOutcome) -> str:
             "machine_state": outcome.machine_state,
             "noop_reason_log": outcome.noop_reason_log,
             "tick_id": outcome.tick_id,
+            "confirm_enters": outcome.confirm_enters,
+            "model_switch_family": outcome.model_switch_family,
+            "model_switch_session": outcome.model_switch_session,
+            "model_switch_is_auto_restore": outcome.model_switch_is_auto_restore,
+            "is_flag_compact": outcome.is_flag_compact,
         }
     )
 
@@ -2382,6 +4035,11 @@ def _outcome_from_json(line: str) -> TickOutcome:
         machine_state=data.get("machine_state"),
         noop_reason_log=data.get("noop_reason_log"),
         tick_id=int(data.get("tick_id", 0)),
+        confirm_enters=int(data.get("confirm_enters", 0)),
+        model_switch_family=data.get("model_switch_family"),
+        model_switch_session=data.get("model_switch_session"),
+        model_switch_is_auto_restore=bool(data.get("model_switch_is_auto_restore", False)),
+        is_flag_compact=bool(data.get("is_flag_compact", False)),
     )
 
 
@@ -2421,6 +4079,9 @@ def run_worker(
                 reap_ttl_seconds=policy.reap_ttl_seconds,
                 foreground_margin_seconds=policy.foreground_margin_seconds,
                 own_sessions=cached_own_session_ids(),  # Plan 00166: only our own sessions
+                goal_signal_ttl_seconds=policy.goal_signal_ttl_seconds,
+                model_confirm_enters=policy.model_confirm_enters,
+                effort_confirm_enters=policy.effort_confirm_enters,
             )
         except Exception:
             # SAFETY NET: a single tick's exception must not kill the worker
@@ -2891,7 +4552,7 @@ def supervise(
             # Plan 00182: pass the host's authoritative PRE-tick state so a stale
             # WOULD_COMPACT reply (worker still MONITOR, host already awaiting)
             # is suppressed instead of stacking a second /compact.
-            _apply_decision(
+            injected = _apply_decision(
                 outcome,
                 master_writer=_write_master,
                 log=log,
@@ -2902,6 +4563,12 @@ def supervise(
             # diverge and inject a duplicate /compact (Plan 00164 Phase 4 fix).
             if outcome.machine_state is not None:
                 machine.import_state(outcome.machine_state)
+            # Success-only bookkeeping, run AFTER adopting the worker state
+            # (which carries the pre-injection counts) so no increment is
+            # ever overwritten. A PTY write failure raises above, so no cap
+            # is burned and no pending episode/signal is lost (Plan 00269
+            # review fix; Plan 00278 continuation).
+            _apply_post_injection_bookkeeping(machine, outcome, injected=injected)
         else:
             _poll_once(
                 machine,
@@ -2919,6 +4586,7 @@ def supervise(
                 reap_ttl_seconds=policy.reap_ttl_seconds,
                 foreground_margin_seconds=policy.foreground_margin_seconds,
                 own_sessions=cached_own_session_ids(),  # Plan 00166: only our own sessions
+                goal_signal_ttl_seconds=policy.goal_signal_ttl_seconds,
             )
 
     previous_handler = signal.signal(signal.SIGWINCH, _on_winch)
@@ -3023,6 +4691,63 @@ def _resolve_decision_log(explicit_path: Path | None) -> DecisionLog:
     return DecisionLog(explicit_path)
 
 
+def _newest_sidecar_session_id(directory: Path) -> str | None:
+    """Return the ``session_id`` of the newest (max-``ts``) context sidecar.
+
+    Mirrors the scan ``load_freshest_sidecar`` uses for the supervisor's own
+    current reading source, without the freshness/staleness filtering -- the
+    CLI trigger wants whichever session is CURRENTLY under supervision,
+    live or not, so it can target it explicitly.
+    """
+    scanned = _scan_sidecars(directory)
+    if not scanned:
+        return None
+    data, _ts = max(scanned, key=lambda pair: pair[1])
+    session_id = data.get("session_id")
+    return session_id if isinstance(session_id, str) and session_id else None
+
+
+def _run_emit_model_switch(argv: list[str]) -> int:
+    """CLI test-trigger: write a manual model-switch signal and exit.
+
+    Does NOT start a supervisor. Resolves the sidecar/signal directory the
+    SAME way the running supervisor does (`_default_sidecar_dir`) and targets
+    whichever session currently owns the newest context sidecar there.
+
+    Returns:
+        0 on success; 2 on a usage error (missing ``<family>`` argument);
+        1 when no sidecar can be found or the signal cannot be written.
+    """
+    index = argv.index(_EMIT_MODEL_SWITCH_FLAG)
+    if index + 1 >= len(argv):
+        sys.stderr.write(f"Usage: claude-supervise.py {_EMIT_MODEL_SWITCH_FLAG} <family>\n")
+        return 2
+    family_arg = argv[index + 1]
+    sidecar_dir = _default_sidecar_dir()
+    session_id = _newest_sidecar_session_id(sidecar_dir)
+    if session_id is None:
+        sys.stderr.write(
+            f"claude-supervise: no context sidecar found under {sidecar_dir} -- "
+            "is a supervised session running?\n"
+        )
+        return 1
+    try:
+        path = write_model_switch_signal(
+            sidecar_dir, session_id=session_id, family=family_arg, now=time.time()
+        )
+    except ValueError as exc:
+        sys.stderr.write(f"claude-supervise: {exc}\n")
+        return 1
+    except OSError as exc:
+        sys.stderr.write(f"claude-supervise: could not write model-switch signal: {exc}\n")
+        return 1
+    sys.stdout.write(
+        f"claude-supervise: wrote model-switch signal for session {session_id} "
+        f"-> {family_arg} ({path})\n"
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Entry point: parse args, run the PTY supervisor, return the exit code.
 
@@ -3035,6 +4760,12 @@ def main(argv: list[str] | None = None) -> int:
         child's exit code.
     """
     argv = argv if argv is not None else sys.argv[1:]
+
+    # CLI test-trigger mode: writes a manual model-switch signal and exits --
+    # never starts a supervisor, so it is checked before the worker/child-argv
+    # modes below.
+    if _EMIT_MODEL_SWITCH_FLAG in argv:
+        return _run_emit_model_switch(argv)
 
     # Policy-worker mode (Plan 00164 Phase 4): no child argv — read TickFacts
     # from stdin, write TickOutcomes to stdout. The host spawns this.
