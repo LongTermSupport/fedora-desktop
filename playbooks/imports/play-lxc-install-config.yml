@@ -236,8 +236,52 @@
       when:
         - "'lxcbr0:' in _nm_devs.stdout"
         - "'lxcbr0:unmanaged' not in _nm_devs.stdout"
-      changed_when: true
+      register: _nm_set
+      # On a freshly upgraded box the new nmcli talks to the still-running OLD NetworkManager
+      # daemon and its runtime call can name a D-Bus method the daemon does not have yet
+      # ("Error: set managed failed: No such method") — the version-skew case rescued below.
+      # Any other failure is real and must stop the play as before.
+      failed_when:
+        - _nm_set is not skipped
+        - _nm_set.rc != 0
+        - "'No such method' not in (_nm_set.stderr | default(''))"
+      changed_when: _nm_set is not skipped and _nm_set.rc == 0
       notify: restart lxc-net
+
+    # The rescue for the version skew: restarting NetworkManager brings the daemon up at the
+    # freshly installed version AND applies the persistent 99-lxc-unmanaged.conf deployed
+    # above, so lxcbr0 comes back unmanaged without any runtime nmcli call at all. NM restarts
+    # keep device state (no teardown of the bridge or the enslaved veths), and the SSH session
+    # this play arrives over is not NM-activated on a server profile, so it survives.
+    - name: Restart NetworkManager to clear the nmcli/daemon version skew
+      ansible.builtin.systemd_service:
+        name: NetworkManager
+        state: restarted
+      when:
+        - _nm_set is not skipped
+        - _nm_set.rc != 0
+      notify: restart lxc-net
+
+    - name: Re-probe lxcbr0 after the NetworkManager restart
+      ansible.builtin.command: nmcli -t -f DEVICE,STATE device
+      register: _nm_devs_after
+      changed_when: false
+      when:
+        - _nm_set is not skipped
+        - _nm_set.rc != 0
+
+    - name: Assert lxcbr0 is unmanaged now — the rescue must have worked, not merely run
+      ansible.builtin.assert:
+        that:
+          - "'lxcbr0:unmanaged' in _nm_devs_after.stdout or 'lxcbr0:' not in _nm_devs_after.stdout"
+        fail_msg: >-
+          NetworkManager was restarted to clear the nmcli version skew but lxcbr0 is still
+          managed — the persistent 99-lxc-unmanaged.conf did not take. Investigate before
+          re-running; the original nmcli failure was:
+          {{ _nm_set.stderr | default('(no stderr)') }}
+      when:
+        - _nm_set is not skipped
+        - _nm_set.rc != 0
 
     # Apply the NM-unmanaged change and (re)start lxc-net now, so the rest of the
     # play — and the sanity gate at the end — run against a healthy DHCP setup
