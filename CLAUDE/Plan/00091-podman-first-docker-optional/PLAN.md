@@ -51,15 +51,16 @@ that PR is closed. Remaining coexistence concerns are tracked in issue #41 (Refs
 ### Phase 3: QA and PR
 
 - [x] ✅ **Task 3.1**: Run the repo QA (`scripts/qa-all.bash` relevant gates) and fix findings.
-- [ ] 🔄 **Task 3.2**: Push branch, open PR (Refs #41), close PR #40 as superseded.
+- [x] ✅ **Task 3.2**: Push branch, open PR (Refs #41), close PR #40 as superseded.
 
 ## Success Criteria
 
-- [ ] `ansible-playbook --syntax-check` passes for `playbook-main.yml` and the moved play.
-- [ ] No functional reference to `playbooks/imports/play-docker.yml` remains outside
+- [x] `ansible-playbook --syntax-check` passes for `playbook-main.yml` and the moved play.
+- [x] No functional reference to `playbooks/imports/play-docker.yml` remains outside
   historical plan folders.
-- [ ] PR open with rationale, migration notes, and bundle decision; PR #40 closed.
+- [x] PR open with rationale, migration notes, and bundle decision; PR #40 closed.
 
 ## Delivery & Milestones
 
+- Demotion delivered on branch podman-first-docker-optional (989457d, 67ee5a5); PR: https://github.com/LongTermSupport/fedora-desktop/pull/42
 - Issue: https://github.com/LongTermSupport/fedora-desktop/issues/41
