@@ -178,9 +178,8 @@ ansible desktop -m setup | grep ansible_distribution
 ```bash
 cd ~/Projects/fedora-desktop
 
-# Docker is installed automatically by the main playbook (rootful, core)
-# To re-run it manually:
-ansible-playbook playbooks/imports/play-docker.yml
+# Install rootful Docker (optional — needed for DDEV; Podman is the default engine)
+ansible-playbook playbooks/imports/optional/common/play-docker.yml
 
 # Install Distrobox
 ansible-playbook playbooks/imports/optional/common/play-distrobox.yml

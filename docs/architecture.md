@@ -106,28 +106,30 @@ The bootstrap script:
 14. **play-rpm-fusion.yml**: Third-party repository setup
 15. **play-browsers.yml**: Additional browser setup
 16. **play-toolbox-install.yml**: JetBrains Toolbox
-17. **play-docker.yml**: Rootful Docker (compatibility engine for DDEV)
-18. **play-lxc-install-config.yml**: LXC container support
-    - **Ordering constraint**: LXC runs _after_ Docker so the `DOCKER-USER`
-      iptables chain exists when LXC reconciles outbound connectivity.
-      See the "Reconcile iptables" block in `play-lxc-install-config.yml`.
-19. **play-podman.yml**: Rootless Podman (default container engine)
-20. **play-python.yml**: Python/pyenv setup
-21. **play-claude-yolo.yml**: CCY (Claude container wrapper) installation
+17. **play-lxc-install-config.yml**: LXC container support
+    - Rootful Docker is optional (`imports/optional/common/play-docker.yml`,
+      podman-first policy). On Docker hosts, run Docker _before_ this play so
+      the `DOCKER-USER` iptables chain exists when LXC reconciles outbound
+      connectivity; on podman-only hosts the Docker-coexistence block is
+      skipped. See the "Reconcile iptables" block in
+      `play-lxc-install-config.yml`.
+18. **play-podman.yml**: Rootless Podman (default container engine)
+19. **play-python.yml**: Python/pyenv setup
+20. **play-claude-yolo.yml**: CCY (Claude container wrapper) installation
     - **Ordering constraint**: CCY must run _before_ `play-claude-code.yml`
       because the `cc` wrapper sources CCY lib files at runtime, and
       `play-claude-code.yml` asserts the lib is present before deploying it.
       See `CLAUDE/Plan/00048-cc-token-source-parity`.
-22. **play-claude-code.yml**: Claude Code CLI and `cc` wrapper
-23. **play-comms.yml**: Communication applications
-24. **play-gnome-shell.yml**: GNOME Shell configuration
-25. **play-gnome-shell-extensions.yml**: GNOME Shell extensions
-26. **play-markless.yml**: Markless tool setup
-27. **play-terminal-emulators.yml**: Terminal emulator configuration
-28. **play-vscode.yml**: Visual Studio Code
-29. **play-vpn.yml**: VPN configuration
-30. **play-gsettings.yml**: GNOME settings
-31. **play-ZZ-repo-cleanup.yml**: Post-run repository cleanup
+21. **play-claude-code.yml**: Claude Code CLI and `cc` wrapper
+22. **play-comms.yml**: Communication applications
+23. **play-gnome-shell.yml**: GNOME Shell configuration
+24. **play-gnome-shell-extensions.yml**: GNOME Shell extensions
+25. **play-markless.yml**: Markless tool setup
+26. **play-terminal-emulators.yml**: Terminal emulator configuration
+27. **play-vscode.yml**: Visual Studio Code
+28. **play-vpn.yml**: VPN configuration
+29. **play-gsettings.yml**: GNOME settings
+30. **play-ZZ-repo-cleanup.yml**: Post-run repository cleanup
 
 ### Desktop or server — the `provisioning_profile` / `scope` pair
 

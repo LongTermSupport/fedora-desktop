@@ -2,12 +2,16 @@
 ---
 # LXC install + config.
 #
-# IaC ORDERING: this play MUST run AFTER play-docker.yml. See playbook-main.yml
-# for the canonical order. The "Reconcile iptables" block near the end of this
-# file inserts rules into Docker's DOCKER-USER chain to keep LXC outbound
-# connectivity working on Docker hosts; that chain only exists once Docker is
-# installed and its daemon has run. The first two tasks below fail-fast with a
-# clear error if Docker is missing.
+# DOCKER COEXISTENCE: rootful Docker is OPTIONAL (podman-first policy,
+# CLAUDE/ContainerEngines.md — imports/optional/common/play-docker.yml). The
+# "Reconcile iptables" block near the end of this file inserts rules into
+# Docker's DOCKER-USER chain to keep LXC outbound connectivity working on
+# Docker hosts. The probe below detects whether Docker is installed: on Docker
+# hosts the whole coexistence block runs and still FAILS FAST if the
+# DOCKER-USER chain is missing (Docker half-configured); on podman-only hosts
+# it is skipped — without Docker there is no DOCKER-USER short-circuit and
+# lxc-net's own FORWARD/MASQUERADE rules suffice. On hosts that DO run Docker,
+# run play-docker.yml BEFORE this play.
 #
 # Rootless Podman (play-podman.yml) does NOT need to come before LXC — it
 # uses slirp4netns/pasta for networking and does not touch host iptables.
@@ -18,32 +22,16 @@
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
   tasks:
-    # ── IaC Ordering Guard ─────────────────────────────────────────────────────
-    - name: Check whether Docker is installed
+    # ── Docker presence probe (Docker is optional — podman-first) ──────────────
+    # /usr/bin/docker exists on Docker hosts AND on podman-docker (shim) hosts,
+    # so the probe keys on dockerd, which only rootful Docker CE installs.
+    # Every Docker-coexistence task below conditions on this probe; the
+    # DOCKER-USER assertion keeps fail-fast semantics for hosts where Docker IS
+    # installed but half-configured (daemon never started, chain absent).
+    - name: Check whether rootful Docker is installed (dockerd present)
       ansible.builtin.stat:
-        path: /usr/bin/docker
-      register: docker_binary_check
-
-    - name: Assert Docker is installed before LXC (IaC ordering)
-      ansible.builtin.assert:
-        that:
-          - docker_binary_check.stat.exists
-        fail_msg: |
-          Docker is not installed but this play expects Docker to have been
-          installed first.
-
-          ORDERING REQUIREMENT: play-docker.yml must run before
-          play-lxc-install-config.yml in playbook-main.yml. The LXC play
-          reconciles iptables rules in Docker's DOCKER-USER chain (see the
-          "Reconcile iptables" block later in this file); that chain only
-          exists once Docker is installed.
-
-          To run standalone, install Docker first:
-            ansible-playbook playbooks/imports/play-docker.yml
-            ansible-playbook playbooks/imports/play-lxc-install-config.yml
-
-          Rootless Podman does NOT need to precede LXC — it uses
-          slirp4netns/pasta and does not touch host iptables.
+        path: /usr/bin/dockerd
+      register: docker_daemon_check
 
     # Named for what it is: ganto/lxc4 is an LXC 4.x repo and the only packages
     # taken from it are `lxc` / `lxc-templates`. It was called "LXD Copr" until
@@ -297,6 +285,7 @@
     # lxc-bash provides shell aliases + completion only; it is not an LXC host
     # prerequisite.
     - name: Clone lxc-bash and wire its shell completion (public repo, HTTPS)
+      become: true
       become_user: "{{ user_login }}"
       block:
         - name: Clone lxc-bash (public, HTTPS — no GitHub auth)
@@ -351,20 +340,28 @@
     # start lxc-net). Net result: containers boot, get IPs, accept SSH, but
     # have zero outbound TCP connectivity (curl exit 28).
     #
-    # IaC ordering: playbook-main.yml runs this play AFTER play-docker.yml,
-    # so DOCKER-USER is guaranteed to exist. We assert it (fail-fast) rather
-    # than probing for a runtime fallback — Docker IS installed because the
-    # IaC says so. The LXC subnet is derived from the live lxcbr0 interface
-    # so a customised LXC_NETWORK still works.
+    # Docker is OPTIONAL (imports/optional/common/play-docker.yml), so this
+    # whole block conditions on the dockerd presence probe at the top of the
+    # play. Without Docker there is no DOCKER-USER short-circuit and no
+    # FORWARD DROP policy, so lxc-net's own rules suffice and nothing here is
+    # needed. With Docker installed we still ASSERT the chain exists
+    # (fail-fast) rather than probing for a runtime fallback — a host with
+    # dockerd on disk but no DOCKER-USER chain is half-configured and must be
+    # fixed (run the optional play-docker.yml), not silently skipped. The LXC
+    # subnet is derived from the live lxcbr0 interface so a customised
+    # LXC_NETWORK still works.
     #
     # Persistence: the ACCEPT/MASQUERADE rules are runtime-only kernel state that
     # vanishes on host reboot and on a Docker daemon restart (which flushes
     # DOCKER-USER). A shared reconcile script + a systemd unit bound to
     # docker.service (PartOf=) re-apply them on every boot and every docker
     # restart — see the "Deploy DOCKER-USER iptables reconciliation" tasks below.
-    - name: Assert DOCKER-USER iptables chain exists (Docker must run before LXC)
+    - name: Assert DOCKER-USER iptables chain exists (Docker installed but half-configured?)
       ansible.builtin.command: iptables -n -L DOCKER-USER
       changed_when: false
+      register: _docker_user_chain
+      failed_when: _docker_user_chain.rc != 0
+      when: docker_daemon_check.stat.exists
       tags: [lxc_iptables]
 
     # The DOCKER-USER ACCEPT rules + the LXC-subnet MASQUERADE rule are applied by
@@ -379,12 +376,14 @@
         owner: root
         group: root
         mode: "0755"
+      when: docker_daemon_check.stat.exists
       tags: [lxc_iptables]
 
     - name: Apply DOCKER-USER iptables rules now (this session)
       ansible.builtin.command: /usr/local/bin/lxc-docker-user-iptables-reconcile.bash
       register: _lxc_iptables_reconcile
       changed_when: "'LXC-IPTABLES-RECONCILE-CHANGED' in _lxc_iptables_reconcile.stdout"
+      when: docker_daemon_check.stat.exists
       tags: [lxc_iptables]
 
     # PartOf=docker.service makes systemd re-run this unit whenever docker restarts
@@ -398,6 +397,7 @@
         owner: root
         group: root
         mode: "0644"
+      when: docker_daemon_check.stat.exists
       tags: [lxc_iptables]
 
     # state: started (not restarted) — ANS-09 convention (see lxc.service above): the
@@ -409,6 +409,7 @@
         daemon_reload: true
         enabled: true
         state: started
+      when: docker_daemon_check.stat.exists
       tags: [lxc_iptables]
 
     # ── Sanity Checks ──────────────────────────────────────────────────────────

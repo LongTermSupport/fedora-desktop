@@ -55,7 +55,7 @@ so running one on its own auto-detects and cleanly no-ops on a server:
 ansible-playbook playbooks/imports/play-firefox.yml
 # runs fully on a desktop; ends immediately (guard) on a server
 
-ansible-playbook playbooks/imports/play-docker.yml
+ansible-playbook playbooks/imports/play-podman.yml
 # general play — runs on both desktop and server
 ```
 
@@ -283,20 +283,6 @@ gh-personal issue list
 - Downloads and installs JetBrains Toolbox
 - Configures desktop integration
 
-### play-docker.yml
-
-**Purpose**: Docker container platform (rootful — compatibility engine for DDEV)\
-**Actions**:
-
-- Removes any previous rootless Docker setup (legacy cleanup)
-- Adds Docker CE repository
-- Installs Docker CE and tools
-- Configures rootful system daemon (`docker.service` / `docker.socket`)
-- Adds user to `docker` group (root-equivalent; deliberate for DDEV compatibility)
-- See [Containerization Guide](containerization.md) for rootful vs rootless rationale
-
-> **Note**: Docker runs as a rootful system daemon. `docker` group membership is root-equivalent by design. See `CLAUDE/ContainerEngines.md` for the full security trade-off analysis.
-
 ### play-lxc-install-config.yml
 
 **Purpose**: LXC full-system containers\
@@ -307,7 +293,7 @@ gh-personal issue list
 - Configures container networking
 - Sets up SSH configuration for containers
 - Configures firewall rules
-- Runs **after** `play-docker.yml` so the DOCKER-USER iptables chain exists before LXC reconciles outbound connectivity
+- Detects rootful Docker: on Docker hosts it reconciles the DOCKER-USER iptables chain for LXC outbound connectivity (run the optional `play-docker.yml` first); on podman-only hosts the Docker-coexistence block is skipped
 
 ### play-podman.yml
 
@@ -678,8 +664,24 @@ Build and install darktable RPM with AI features (USE_AI=ON):
 DDEV local development environment:
 
 - Installs DDEV for PHP/WordPress/Drupal local dev
-- Requires rootful Docker (`play-docker.yml` — core)
+- Requires rootful Docker (run the optional `play-docker.yml` first)
 - See [docs/ddev.md](ddev.md) for full setup guide
+
+#### play-docker.yml
+
+Docker container platform (rootful — compatibility engine for DDEV). Optional under the
+podman-first policy (`CLAUDE/ContainerEngines.md`): Podman is the default engine, and
+`docker-ce-cli` package-conflicts with `podman-docker`, so hosts choose one `docker` CLI
+provider.
+
+- Removes any previous rootless Docker setup (legacy cleanup)
+- Adds Docker CE repository; installs Docker CE and tools
+- Configures rootful system daemon (`docker.service` / `docker.socket`)
+- Adds user to `docker` group (root-equivalent by design; deliberate for DDEV compatibility —
+  see `CLAUDE/ContainerEngines.md` for the security trade-off analysis)
+- On LXC hosts, run it before `play-lxc-install-config.yml` so the DOCKER-USER chain is
+  reconciled for LXC outbound connectivity
+- See [Containerization Guide](containerization.md) for rootful vs rootless rationale
 
 #### play-disk-reclaim.yml
 

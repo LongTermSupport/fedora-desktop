@@ -18,10 +18,10 @@
 - import_playbook: imports/play-rpm-fusion.yml
 - import_playbook: imports/play-browsers.yml
 - import_playbook: imports/play-toolbox-install.yml
-- import_playbook: imports/play-docker.yml
-# LXC runs AFTER Docker so DOCKER-USER chain exists when LXC reconciles
-# iptables for outbound connectivity (Docker coexistence). See the
-# "Reconcile iptables" block in play-lxc-install-config.yml.
+# Rootful Docker is OPTIONAL (podman-first policy, CLAUDE/ContainerEngines.md):
+# imports/optional/common/play-docker.yml. On hosts that DO run it, run it
+# before play-lxc-install-config.yml so the DOCKER-USER chain exists when LXC
+# reconciles iptables — the LXC play detects Docker and adapts either way.
 #
 # LXC does NOT need to come after Podman — play-podman.yml installs rootless
 # Podman (slirp4netns/pasta networking), which does not touch host iptables.
