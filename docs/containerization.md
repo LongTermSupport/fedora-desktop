@@ -159,10 +159,11 @@ Docker is an application containerization platform designed for packaging, distr
 
 ### Installation
 
-Installed automatically by the main playbook (`playbooks/imports/play-docker.yml` is a core import of `playbook-main.yml`). To run it standalone:
+**Optional** — not imported by `playbook-main.yml` (podman-first policy; Docker is a
+compatibility engine, e.g. for DDEV). Install it via the optional play:
 
 ```bash
-ansible-playbook playbooks/imports/play-docker.yml
+ansible-playbook playbooks/imports/optional/common/play-docker.yml
 ```
 
 Configuration details:

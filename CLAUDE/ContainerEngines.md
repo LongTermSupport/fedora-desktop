@@ -8,13 +8,20 @@ This repo sets up three container technologies. They are not interchangeable —
 
 ## The role split
 
-| Engine     | Mode         | Role                                                             | Installed by                                    |
-| ---------- | ------------ | ---------------------------------------------------------------- | ----------------------------------------------- |
-| **Podman** | **rootless** | Default container engine for everything. Daily use.              | `playbooks/imports/play-podman.yml`             |
-| **Docker** | **rootful**  | Compatibility mode for tools that require full Docker semantics. | `playbooks/imports/play-docker.yml`             |
-| **LXC**    | rootful      | Full-system, VM-like containers with systemd inside.             | `playbooks/imports/play-lxc-install-config.yml` |
+| Engine     | Mode         | Role                                                             | Installed by                                                   |
+| ---------- | ------------ | ---------------------------------------------------------------- | -------------------------------------------------------------- |
+| **Podman** | **rootless** | Default container engine for everything. Daily use.              | `playbooks/imports/play-podman.yml`                            |
+| **Docker** | **rootful**  | Compatibility mode for tools that require full Docker semantics. | `playbooks/imports/optional/common/play-docker.yml` (optional) |
+| **LXC**    | rootful      | Full-system, VM-like containers with systemd inside.             | `playbooks/imports/play-lxc-install-config.yml`                |
 
-All three are installed by `playbook-main.yml`. They coexist cleanly — different sockets, different storage, different networking stacks. See "Coexistence" below.
+Podman and LXC are installed by `playbook-main.yml`. Docker is **optional** — consistent with
+this document's own policy, a compatibility-only engine is not a core component: install it
+explicitly (interactive optional menu, or `RUN_BASH_OPTIONAL_PLAYBOOKS` headless) only on hosts
+that need it, e.g. for DDEV. A further reason it cannot be core: `docker-ce-cli` package-conflicts
+with `podman-docker` (the `docker` CLI shim), so a core Docker import makes `playbook-main.yml`
+unable to converge on a podman-only host that carries the shim. When installed, the engines
+coexist cleanly — different sockets, different storage, different networking stacks. See
+"Coexistence" below.
 
 ## Podman — the default, use this first
 
@@ -143,5 +150,5 @@ Yes — once, to pick up the new `docker` group membership. Log out and back in,
 - `CLAUDE/Plan/Completed/033-ddev-installation/container-engine-strategy.md` — the decision-gate analysis that led to this split
 - `vars/container-defaults.yml` — the `container_engine` default
 - `playbooks/imports/play-podman.yml` — Podman setup
-- `playbooks/imports/play-docker.yml` — Docker setup
+- `playbooks/imports/optional/common/play-docker.yml` — Docker setup (optional)
 - `playbooks/imports/play-lxc-install-config.yml` — LXC setup

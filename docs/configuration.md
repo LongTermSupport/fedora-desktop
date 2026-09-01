@@ -124,10 +124,11 @@ Bash Git Prompt with Solarized theme in:
 These plays are imported by `playbook-main.yml` and run automatically on every
 provisioning run — there is nothing to enable.
 
-### Docker
+### Docker (optional — not imported by the main playbook)
 
-`play-docker.yml` installs Docker as a **rootful** compatibility engine (Podman remains
-the rootless default — see [Container Engines](../CLAUDE/ContainerEngines.md)):
+`playbooks/imports/optional/common/play-docker.yml` installs Docker as a **rootful**
+compatibility engine when a tool needs it (e.g. DDEV). Podman remains the rootless
+default — see [Container Engines](../CLAUDE/ContainerEngines.md):
 
 - User added to the `docker` group
 - Systemd service enabled

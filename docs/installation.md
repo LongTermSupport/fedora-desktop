@@ -220,14 +220,18 @@ The main playbook installs and configures:
 
 Must be run manually after main playbook. See [Playbooks Reference](playbooks.md#optional-playbooks) for the complete catalog.
 
-**Note:** Docker (rootful) is installed automatically by the main playbook via
-`playbooks/imports/play-docker.yml` — it is a core component, not optional. See
+**Note:** Docker (rootful) is **optional** — the main playbook does not install it.
+Podman is the default container engine; install Docker only when a tool needs it for
+compatibility (e.g. DDEV) via `playbooks/imports/optional/common/play-docker.yml`. See
 `CLAUDE/ContainerEngines.md` for the Podman-first / Docker-for-compatibility policy.
 
 Popular optional components:
 
 ```bash
 cd ~/Projects/fedora-desktop
+
+# Docker (rootful compatibility engine — required for DDEV)
+ansible-playbook playbooks/imports/optional/common/play-docker.yml
 
 # Distrobox
 ansible-playbook playbooks/imports/optional/common/play-distrobox.yml

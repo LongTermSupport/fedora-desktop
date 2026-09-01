@@ -13,10 +13,11 @@ This installs:
 - **mkcert** — local HTTPS certificate authority (bundled with the DDEV RPM; Fedora's standalone `mkcert` package is removed first because it conflicts file-for-file)
 - **DDEV** — via the official yum repository at `pkg.ddev.com`
 
-**Prerequisite:** Rootful Docker must be installed first:
+**Prerequisite:** Rootful Docker must be installed first (it is an optional play —
+podman-first policy):
 
 ```bash
-ansible-playbook playbooks/imports/play-docker.yml
+ansible-playbook playbooks/imports/optional/common/play-docker.yml
 ```
 
 This installs Docker CE as a system-wide daemon and adds your user to the `docker` group. After the first run you must **log out and back in** (or run `newgrp docker` in your shell) before `docker` commands work without `sudo`.

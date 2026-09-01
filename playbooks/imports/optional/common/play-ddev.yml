@@ -24,7 +24,7 @@
 
           Likely causes:
             1. play-docker.yml has not been run yet.
-               Fix: ansible-playbook playbooks/imports/play-docker.yml
+               Fix: ansible-playbook playbooks/imports/optional/common/play-docker.yml
             2. docker.service is not running.
                Fix: sudo systemctl status docker --no-pager -l
       when: docker_info.rc != 0
@@ -52,7 +52,7 @@
                Check: docker context ls
                Fix:   docker context use default
             3. play-docker.yml has not been re-run since the rootful pivot.
-               Fix:   ansible-playbook playbooks/imports/play-docker.yml
+               Fix:   ansible-playbook playbooks/imports/optional/common/play-docker.yml
       when: "'name=rootless' in docker_security.stdout"
 
     - name: Query {{ user_login }}'s group membership
@@ -68,7 +68,7 @@
           {{ user_login }} is not a member of the docker group.
           Current groups: {{ ddev_user_groups.stdout }}
 
-          Fix: re-run ansible-playbook playbooks/imports/play-docker.yml
+          Fix: re-run ansible-playbook playbooks/imports/optional/common/play-docker.yml
           then log out and back in (or run `newgrp docker`).
 
     # DDEV's RPM ships /usr/bin/mkcert itself. Fedora's standalone mkcert
