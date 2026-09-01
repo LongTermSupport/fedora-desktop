@@ -798,6 +798,9 @@ NON-SECRET CONFIG (plain RUN_BASH_* env)
   RUN_BASH_RESTORE_PROJECTS=0|1    Restore projects from config manifest.
                                    Requires a real RUN_BASH_GITHUB_ACCOUNTS.
   RUN_BASH_REBOOT=0|1              Reboot at end.
+  RUN_BASH_SKIP_DOCKER=0|1         Skip the rootful Docker play. For Podman-only boxes:
+                                   podman-docker conflicts with docker-ce, so the play
+                                   cannot converge there. (default: 0 — play runs)
 
 SECRETS — prefer 0600 FILE POINTERS (recommended), literal env supported but risky
   RUN_BASH_VAULT_PASSWORD_FILE=/path         Ansible vault password (file);
@@ -2572,6 +2575,15 @@ main_exit_code=0
 _main_pb_args=()
 if [[ "$HEADLESS" == "true" && -n "${RUN_BASH_PROVISIONING_PROFILE:-}" ]]; then
   _main_pb_args+=(-e "provisioning_profile=${RUN_BASH_PROVISIONING_PROFILE}")
+fi
+
+# Headless: skip the rootful Docker play on request (RUN_BASH_SKIP_DOCKER=1). A box whose
+# container engine is Podman-only carries podman-docker (the docker CLI shim), which
+# CONFLICTS with docker-ce at the package level — on such a box the Docker play cannot
+# converge, only detonate. JSON form so the playbook receives a real boolean, not the
+# truthy string "false".
+if [[ "$HEADLESS" == "true" && "${RUN_BASH_SKIP_DOCKER:-0}" == "1" ]]; then
+  _main_pb_args+=(-e '{"docker_enabled": false}')
 fi
 
 # -k ignores any cached sudo timestamp, so this is true ONLY for genuine

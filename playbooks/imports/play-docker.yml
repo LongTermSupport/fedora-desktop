@@ -13,6 +13,19 @@
   tasks:
 
     # ────────────────────────────────────────────────────────────────
+    # Opt-out guard — a box whose container story is Podman-only can
+    # not take docker-ce at all: podman-docker (the docker CLI shim)
+    # conflicts with it at the package level, so on such a box this
+    # play's install detonates mid-provision rather than converging.
+    # Headless callers opt out with RUN_BASH_SKIP_DOCKER=1 (run.bash
+    # forwards it as docker_enabled=false). Default unchanged: the
+    # play runs everywhere it always did.
+    # ────────────────────────────────────────────────────────────────
+    - name: Docker opt-out guard — end play when docker_enabled is false
+      ansible.builtin.meta: end_play
+      when: not (docker_enabled | default(true) | bool)
+
+    # ────────────────────────────────────────────────────────────────
     # Legacy cleanup — remove rootless user-scope setup left by older
     # versions of this playbook (PR #18 v1/v2). No-op on fresh hosts.
     # ────────────────────────────────────────────────────────────────
