@@ -588,6 +588,21 @@ The full threat model, the seven invariants and their executable gate were worke
 Plan 00092; find it by number under `CLAUDE/Plan/`, wherever the plan lifecycle has moved
 it.
 
+#### `AGENT_BROWSER_IDLE_TIMEOUT_MS` — how long an abandoned browser lingers
+
+The image sets this to five minutes. `agent-browser` runs a daemon per session that shuts
+itself down after that much inactivity; upstream's default is an hour, which meant a
+headed Chrome window an agent opened and forgot stayed on your desktop for an hour.
+
+```bash
+# .claude/ccy/ccy.env — only if someone will be watching a headed session that long
+export AGENT_BROWSER_IDLE_TIMEOUT_MS=900000
+```
+
+This is the safety net, not the cleanup. The `browsing` skill requires the agent to close
+every session it opens in the same command chain that finishes the task, and to check
+`agent-browser session list` is empty before reporting done.
+
 ### 3. `allowed-hostnames` — restricting where CCY can run
 
 Optional. If the file does not exist, CCY runs anywhere. If it exists, the current

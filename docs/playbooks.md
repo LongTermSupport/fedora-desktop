@@ -396,16 +396,24 @@ ccy --create-token
 cd ~/Projects/my-project
 ccy
 
-# Inside CCY — cheap engine for content
-agent-browser-lite open https://example.com && agent-browser-lite get text body
+# Inside CCY — cheap engine for content. Close in the same chain: the daemon
+# persists between calls, so a session you do not close outlives the task.
+agent-browser-lite open https://example.com && agent-browser-lite get text body \
+  && agent-browser-lite close --all
 
-# Full Chromium for anything visual
+# Full Chromium for anything visual — a headed session is a real window on the
+# desktop, so the close is not optional.
 agent-browser --headed open https://example.com
 agent-browser snapshot -i         # Get @refs for elements
 agent-browser click @e5           # Click using reference
 agent-browser fill @e3 "test"     # Fill form fields
 agent-browser screenshot /tmp/page.png
+agent-browser close --all         # Every session, every time
 ```
+
+A forgotten session is reaped by the image's idle timeout after five minutes, down from
+upstream's hour; see `AGENT_BROWSER_IDLE_TIMEOUT_MS` in [ccy.md](ccy.md#per-project-configuration).
+That is the safety net for a crashed agent, not a substitute for closing.
 
 **Token efficiency example**:
 

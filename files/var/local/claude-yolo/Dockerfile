@@ -163,6 +163,19 @@ RUN mkdir -p /root/.agent-browser && \
   "args": "--enable-features=UseOzonePlatform,--ozone-platform=wayland,--no-sandbox,--disable-gpu,--disable-software-rasterizer,--disable-dev-shm-usage"\n\
 }' > /root/.agent-browser/config.json
 
+# Reap abandoned browsers. agent-browser's daemon shuts itself down after this much
+# inactivity, and upstream's default is ONE HOUR (3600000) — so a window an agent opened
+# and forgot sat on the user's desktop for an hour. Five minutes is long enough for an
+# agent to think between commands and short enough that a forgotten window is gone before
+# anyone has to notice it. Measured in-container: with a 4s value the daemon was gone
+# within 7s of its last command.
+#
+# This is the safety net, not the cleanup: the browsing skill requires the agent to close
+# what it opened in the same command chain. A project that genuinely needs a longer window
+# — say the user is watching a headed session — overrides this in its ccy.env, which is
+# sourced after image ENV and wins. Applies to both engines; each daemon reads it.
+ENV AGENT_BROWSER_IDLE_TIMEOUT_MS=300000
+
 # Install Lightpanda — a SECOND browser engine, driven by the agent-browser we already
 # have. agent-browser ships a native `--engine lightpanda` flag; all that is missing from
 # the image is the binary, so this is a download rather than a parallel browser stack.

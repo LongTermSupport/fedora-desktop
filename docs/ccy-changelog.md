@@ -48,6 +48,17 @@ were rejected and the executable gate are owned by the `CCY_CHILD_CLAUDE` sectio
 [ccy.md](ccy.md#per-project-configuration), which this entry deliberately does not repeat.
 Plan 00092.
 
+**Abandoned browser windows are reaped after five minutes** (same image, 2.29).
+
+Agents were opening `agent-browser` sessions and leaving them: a headed session is a real
+Chrome window on the user's desktop, and upstream's idle timeout defaults to an hour. The
+image now sets `AGENT_BROWSER_IDLE_TIMEOUT_MS=300000`. A project that wants a longer
+window overrides it in `ccy.env`, which is sourced after the image environment and wins.
+
+The timeout is the safety net. The `browsing` skill now leads with the actual rule: the
+same command chain that finishes the task ends with `close --all`, and `session list` must
+be empty before the agent reports done.
+
 ## 3.45.1
 
 **`.claude/ccy/CLAUDE.md` and `README.md` no longer trip the tracked-files security gate**

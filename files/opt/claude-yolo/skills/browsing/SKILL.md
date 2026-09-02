@@ -9,7 +9,28 @@ allowed-tools: Bash
 CCY ships **one CLI, `agent-browser`, driving two different browser engines**. Choosing
 the right one is the whole job of this skill; the command syntax is identical either way.
 
-**Announce:** "I'm using the browsing skill to automate the browser."
+**Announce:** "I'm using the browsing skill to automate the browser, and I will close it
+when I'm done."
+
+## Close what you open — this is not optional
+
+Every session you start is a real browser process, and with the headed engine it is a real
+window on the user's desktop. Left alone it stays there until the idle timeout fires. CCY
+sets that to five minutes; upstream's default is an hour, which is how desktops end up
+littered with abandoned Chrome windows from agents that finished and moved on.
+
+The timeout is a safety net for the case where you crash. It is not your cleanup. **The
+same Bash call that finishes the task ends the session**, chained with `&&`, so there is no
+"later" in which to forget:
+
+```bash
+agent-browser open https://example.com && agent-browser get text body && agent-browser close --all
+```
+
+Use `close --all` rather than a bare `close`: it reaps every session, including one a
+previous command of yours left behind. `agent-browser-lite` has its own daemon and needs
+its own `agent-browser-lite close --all`. Before you report a task finished, run
+`agent-browser session list`; if it names anything, you are not finished.
 
 ## Get the command reference from the CLI itself
 
