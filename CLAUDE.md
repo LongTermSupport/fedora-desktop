@@ -61,6 +61,10 @@ Run `./scripts/qa-all.bash` before every commit touching Bash or Python files. R
 
 **Full QA reference (scripts, what they check, limitations):** [CLAUDE/QA.md](CLAUDE/QA.md)
 
+### Always Push — GitHub Is the Backup
+
+**Push after every commit.** The GitHub remote is this repository's backup; a commit that exists only in a local checkout is not saved. A lost disk, a discarded container, or a deleted worktree takes unpushed commits with it. Never end a session with a branch ahead of its remote, and never hold commits back to batch them. This is standing authorisation: no need to ask before a plain `git push` of the current branch. Force-pushes remain the user's call.
+
 ### Debug Commands: Always Non-Interactive
 
 When providing diagnostic commands to users, always use `--no-pager`, `| cat`, or `| head`. Never open pagers or editors.
