@@ -82,7 +82,6 @@ handlers:
 
     # CODE QUALITY HANDLERS (Priority 25-35)
     qa_suppression: {enabled: true, priority: 30}           # Block QA suppression comments (11 languages)
-    validate_plan_number: {enabled: true, priority: 30}     # Validate plan number format (001-, 002-, etc)
     plan_number_helper: {enabled: true, priority: 30}       # Provide correct next plan number
     markdown_organization:                                   # Plan tracking and markdown organisation
       enabled: true
@@ -110,9 +109,7 @@ handlers:
     plan_time_estimates: {enabled: true, priority: 40}      # Block time estimates in plans
     global_npm_advisor: {enabled: true, priority: 40}       # Advise on npm install -g (non-blocking)
     plan_workflow: {enabled: true, priority: 45}            # Guidance when creating plans
-    task_tdd_advisor: {enabled: true, priority: 45}         # Advise on TDD workflow for Task agents
     npm_command: {enabled: true, priority: 50}              # Restrict npm commands to approved list
-    plan_completion_advisor: {enabled: true, priority: 50}  # Advise on plan completion steps
     validate_instruction_content: {enabled: true, priority: 50}  # Block ephemeral content in CLAUDE.md
     web_search_year: {enabled: true, priority: 55}          # Fix outdated years in searches
 
@@ -181,7 +178,6 @@ handlers:
       options:
         exclude_paths:
           - ".semgrep/bash-conventions.bash"
-    bash_error_detector: {enabled: true, priority: 50}       # Detect bash errors in output
 
   # PermissionRequest - Auto-approve decisions
   permission_request:
@@ -224,7 +220,6 @@ handlers:
 
   # SessionStart - Initialise environment
   session_start:
-    yolo_container_detection: {enabled: true, priority: 40}       # Detect YOLO container environments
     hook_registration_checker: {enabled: true, priority: 51}      # Validate hook registrations
     optimal_config_checker: {enabled: true, priority: 52}         # Check for optimal Claude Code settings
     git_filemode_checker: {enabled: true, priority: 53}           # Warn when git core.fileMode=false
@@ -237,34 +232,57 @@ handlers:
       options:
         mode: agent-pull   # Pull as the session's first action when behind upstream
 
-  # SessionEnd - Cleanup on exit
-  session_end:
-    cleanup: {enabled: true, priority: 10}  # Session cleanup
-
-  # Stop - Control agent continuation
+  # Stop - Control agent continuation. auto_continue_stop is terminal and matches
+  # nearly every stop, so any Stop handler above priority 10 never runs. Message
+  # auditing therefore lives on the nitpick pseudo-event below, not here.
   stop:
     auto_continue_stop: {enabled: true, priority: 15}        # Require "STOPPING BECAUSE:" prefix
-    hedging_language_detector: {enabled: true, priority: 30}  # Detect guessing language in output
-    task_completion_checker: {enabled: true, priority: 50}    # Check for task completion
 
-  # SubagentStop - Control subagent continuation
+  # SubagentStop - a subagent's final message must fit the wire channel; the
+  # harness silently elides the middle of an oversized one. Long reports go to a
+  # file (plan folder subagent-reports/, or untracked/agent-reports/).
   subagent_stop:
-    subagent_completion_logger: {enabled: true, priority: 10}  # Log subagent completion
-    remind_prompt_library: {enabled: true, priority: 20}       # Remind about prompt library
+    subagent_report_size_blocker: {enabled: true, priority: 15}  # Deny an oversized subagent final message
 
   # PreCompact - Before conversation compaction
   pre_compact:
-    transcript_archiver: {enabled: true, priority: 10}         # Archive transcripts
+    disclosure_reset_pre_compact: {enabled: true, priority: 15}  # Reset per-agent rule-disclosure state
 
   # StatusLine handlers
   status_line:
     git_repo_name: {enabled: true, priority: 5}     # Git repository name
     account_display: {enabled: true, priority: 6}   # Account information
     model_context: {enabled: true, priority: 10}    # Model name and context %
-    usage_tracking: {enabled: true, priority: 15}   # Usage statistics
     git_branch: {enabled: true, priority: 20}       # Current git branch
     startup_cleanup: {enabled: true, priority: 28}  # Stale file cleanup indicator
     daemon_stats: {enabled: true, priority: 30}     # Daemon health metrics
+
+  # WorktreeCreate - seed a fresh worktree with the gitignored local config an
+  # agent needs to behave like the session that spawned it. symlink, because the
+  # file is only ever read. vault-pass.secret is deliberately NOT seeded: it is a
+  # protected path and playbooks never run inside a worktree or the container.
+  worktree_create:
+    worktree_create:
+      enabled: true
+      priority: 50
+      options:
+        seed:
+          default_mode: symlink
+          entries:
+            - .claude/settings.local.json
+
+# Pseudo-events: synthetic events fired from real ones with frequency control.
+# A pseudo-event ABSENT from this file is never registered, so the nitpick
+# message-quality detectors only run when this block exists.
+pseudo_events:
+  nitpick:
+    enabled: true
+    triggers:
+      - "pre_tool_use:1/5"    # Audit assistant messages once every 5 tool calls
+      - "stop:1/1"            # and on every Stop
+    handlers:
+      dismissive_language: {enabled: true}  # Avoiding-work, out-of-scope deflection, premature-halt phrasing
+      hedging_language: {enabled: true}     # Guessing instead of researching
 
 # Project-level custom handlers
 plugins:
