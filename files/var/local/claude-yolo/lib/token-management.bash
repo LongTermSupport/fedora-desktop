@@ -2,14 +2,16 @@
 # Token Management Library
 # Token operations for claude-yolo (ccy)
 #
-# Version: 1.12.1 - Plan 00074: an over-limit reading is not a scale conflict.
+# Version: 1.12.2 - Comment-only: plan references renumbered after the plan-tree
+#                  collision fix (00073->00100, 00074->00101). No behaviour change.
+#         1.12.1 - Plan 00101: an over-limit reading is not a scale conflict.
 #                  Field sample: the API sent 5h-utilization 1.01 (fraction
 #                  scale, i.e. 1% OVER the 5-hour limit) and the display called
 #                  it SCALE MISMATCH. Utilisation past the limit is a real state
 #                  the API reports, so the refutation thresholds now allow the
 #                  over-limit band (fraction <= 2, percent <= 200); the bar was
 #                  already clamped at 100% and the label shows the true figure.
-#         1.12.0 - Plan 00074: capture `-representative-claim` and show which
+#         1.12.0 - Plan 00101: capture `-representative-claim` and show which
 #                  bucket the API considers BINDING. Recorded as F15 when the
 #                  header set was first mapped, then never captured — which left
 #                  H2 unanswerable: the probe uses Haiku because weekly buckets
@@ -18,7 +20,7 @@
 #                  `seven_day_opus` claim now says outright that it is not. The
 #                  cache record gains a FIFTH field, appended last; a 4-field
 #                  record from an older library still renders exactly as before.
-#         1.11.0 - Plan 00074: CCY_USAGE_SCALE now defaults to "fraction", so
+#         1.11.0 - Plan 00101: CCY_USAGE_SCALE now defaults to "fraction", so
 #                  utilisation reads as 14%/41% instead of "<1%" on every account.
 #                  Settled by MEASUREMENT, not by reading docs the API does not
 #                  publish: eight samples across four accounts came back 0.04-0.41,
@@ -27,25 +29,25 @@
 #                  raw value the assumed scale cannot produce prints SCALE MISMATCH
 #                  naming the switch, instead of clamping the bar to 100% and
 #                  showing a confident wrong number.
-#         1.10.1 - Plan 00074: a bucket the API did not report now says so on its
+#         1.10.1 - Plan 00101: a bucket the API did not report now says so on its
 #                  own row instead of vanishing. The renderer's own comment said a
 #                  silently missing bucket "reads as this account has no weekly
 #                  limit, which would be a lie" — and then `continue`d. Reachable
 #                  whenever one of the two buckets is absent, because _usage_extract
 #                  succeeds when EITHER is present.
-#         1.10.0 - Plan 00074: usage display rewritten as aligned, coloured bars
+#         1.10.0 - Plan 00101: usage display rewritten as aligned, coloured bars
 #                  with the reset time spelled out in words ("resets in 4 hours",
 #                  not "r4h"). Cache now holds the VALUES rather than a rendered
 #                  line, because the bars need the numbers. CCY_USAGE_SCALE is
 #                  the single switch for the undocumented utilisation scale, and
 #                  CCY_USAGE_DEBUG shows the raw value so it can be settled.
-#          1.9.0 - Plan 00074: per-token usage limits RESTORED, on demand only.
+#          1.9.0 - Plan 00101: per-token usage limits RESTORED, on demand only.
 #                  Read from the anthropic-ratelimit-unified-* RESPONSE HEADERS
 #                  on POST /v1/messages, which a setup-token CAN reach — not the
 #                  403-ing status route below. Press `u` in the selector; never
 #                  automatic, because each fetch is a billed request against the
 #                  allowance it reports.
-#          1.8.0 - Plan 00073: per-token usage limits REMOVED (added in 1.7.0).
+#          1.8.0 - Plan 00100: per-token usage limits REMOVED (added in 1.7.0).
 #                  The stored sk-ant-oat01 setup-tokens cannot read them:
 #                  GET /api/oauth/usage and /api/oauth/profile both answer 403
 #                  "OAuth token does not meet scope requirement user:profile"
@@ -85,12 +87,12 @@ colorize_expiry() {
     fi
 }
 
-# ─── Per-account usage limits (Plan 00074) ──────────────────────────────────
+# ─── Per-account usage limits (Plan 00101) ──────────────────────────────────
 #
 # HUMAN-TRIGGERED ONLY. Pressing `u` in the token selector fetches each
 # account's 5-hour and weekly utilisation and redraws the menu with it.
 #
-# It must not become automatic. Plan 00073 tried the free status route
+# It must not become automatic. Plan 00100 tried the free status route
 # (GET /api/oauth/usage) and every stored setup-token was refused on scope. The
 # figures are reachable only as anthropic-ratelimit-unified-* RESPONSE HEADERS
 # on /v1/messages, so reading them costs a real, billed request that consumes a
@@ -106,7 +108,7 @@ CCY_USAGE_ENDPOINT="${CCY_USAGE_ENDPOINT:-https://api.anthropic.com/v1/messages}
 CCY_USAGE_MODEL="${CCY_USAGE_MODEL:-claude-haiku-4-5-20251001}"
 CCY_USAGE_TIMEOUT="${CCY_USAGE_TIMEOUT:-20}"
 CCY_USAGE_CONNECT_TIMEOUT="${CCY_USAGE_CONNECT_TIMEOUT:-5}"
-# Long TTL on purpose. In Plan 00073 a cache miss cost latency; here it costs
+# Long TTL on purpose. In Plan 00100 a cache miss cost latency; here it costs
 # QUOTA, so pressing `u` twice in one sitting must not bill twice.
 CCY_USAGE_TTL="${CCY_USAGE_TTL:-900}"
 
@@ -218,7 +220,7 @@ _usage_bucket_line() {
     if _usage_scale_conflict "$raw"; then
         printf '       %-14s SCALE MISMATCH — API sent %s, impossible under CCY_USAGE_SCALE=%s\n' \
             "$label" "$raw" "${CCY_USAGE_SCALE:-fraction}"
-        printf '       %-14s   set CCY_USAGE_SCALE=%s and report it (Plan 00074)\n' \
+        printf '       %-14s   set CCY_USAGE_SCALE=%s and report it (Plan 00101)\n' \
             "" "$([ "${CCY_USAGE_SCALE:-fraction}" = fraction ] && echo percent || echo fraction)"
         return 0
     fi
@@ -229,7 +231,7 @@ _usage_bucket_line() {
     reset_text="$(_usage_human_reset "$reset" "$now")"
 
     # CCY_USAGE_DEBUG exposes the number as the API sent it. It exists because
-    # the scale of `-utilization` is undocumented (Plan 00074, Q2) and this is
+    # the scale of `-utilization` is undocumented (Plan 00101, Q2) and this is
     # how it gets settled without spending an extra request: the raw value is
     # already in the cache from the fetch the user asked for.
     if [ -n "${CCY_USAGE_DEBUG:-}" ]; then
@@ -245,7 +247,7 @@ _usage_bucket_line() {
 #
 # `claim` is `-representative-claim`, which names the bucket the API considers
 # BINDING (`five_hour`, `seven_day`, `seven_day_opus`, …). Recorded as F15 in
-# Plan 00074 and then not captured, which left H2 unanswerable: the probe uses
+# Plan 00101 and then not captured, which left H2 unanswerable: the probe uses
 # Haiku because the weekly buckets are per-model, so "which weekly allowance is
 # this 41%?" was a question the display could not answer. It can now.
 #
@@ -256,7 +258,7 @@ _usage_bucket_line() {
 #
 # Values are stored EXACTLY as sent — see the note below on CCY_USAGE_SCALE.
 #
-# Pure bash, single pass — no jq, no grep, no subprocess. Plan 00073 measured jq
+# Pure bash, single pass — no jq, no grep, no subprocess. Plan 00100 measured jq
 # at ~40 ms per call, more than the network round trip it was parsing.
 _usage_extract() {
     local file="$1"
@@ -416,7 +418,7 @@ _usage_fetch_one() {
     # is precisely when the numbers matter most, and it carries them too.
     #
     # The cache holds the VALUES, not a rendered line: the display draws bars and
-    # needs the numbers. Rendering at fetch time made sense in Plan 00073 only
+    # needs the numbers. Rendering at fetch time made sense in Plan 00100 only
     # because parsing then cost a jq process; it is pure bash now, so there is
     # nothing to amortise and a value cache is the more useful thing to keep.
     if line="$(_usage_extract "$hdr")"; then
@@ -465,7 +467,7 @@ usage_prime_cache() {
             # Fan-out worker. Unconditionally exits 0: its job is to RECORD an
             # outcome, and a worker that died would otherwise take the caller's
             # `set -e` — and the whole menu — down with it. Not hypothetical: in
-            # Plan 00073 an unreachable endpoint aborted the render and printed
+            # Plan 00100 an unreachable endpoint aborted the render and printed
             # no token list at all.
             # $$-suffixed prefix so two concurrent ccy launches cannot scribble
             # over each other's part-files.
@@ -1099,7 +1101,7 @@ select_token() {
         return 1
     fi
 
-    # Usage is off until the user asks for it — see the Plan 00074 note above
+    # Usage is off until the user asks for it — see the Plan 00101 note above
     # usage_prime_cache(). The menu is redrawn once it has been fetched.
     local usage_fetched=0
 

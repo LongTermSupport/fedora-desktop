@@ -299,7 +299,7 @@ documentation:
     scope_exclude_globs:
       - ".ansible/**"
       - "CLAUDE/Plan/Archive/**"
-      - "PLAN_archive.md"
+      - "**/PLAN_archive.md"
 
 # Project-level custom handlers
 plugins:

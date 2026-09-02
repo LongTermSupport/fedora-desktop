@@ -321,8 +321,8 @@
         - cleanup
 
     # Drop the usage cache on every deploy. Entries written by CCY 3.32.0's
-    # /api/oauth/usage reader (Plan 00073) hold a different summary format to the
-    # rate-limit-header reader that replaced it in 3.34.0 (Plan 00074), and a
+    # /api/oauth/usage reader (Plan 00100) hold a different summary format to the
+    # rate-limit-header reader that replaced it in 3.34.0 (Plan 00101), and a
     # stale entry would render as a wrong or empty usage column until it aged
     # out. Unconditional rather than version-gated because it is free to redo:
     # the cache is a quota-saving optimisation with a 15-minute life, rebuilt on

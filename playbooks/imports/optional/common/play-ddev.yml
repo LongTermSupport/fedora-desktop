@@ -113,7 +113,7 @@
 
     # `creates:` tests only that the path EXISTS, so a zero-byte CA would
     # suppress reinstallation forever while every ddev HTTPS site failed to
-    # verify. Fail loudly instead (the Plan 00067 failure shape).
+    # verify. Fail loudly instead (the Plan 00094 failure shape).
     - name: Assert the mkcert root CA is non-empty
       ansible.builtin.assert:
         that:

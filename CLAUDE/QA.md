@@ -237,7 +237,7 @@ quietly.
 ### `qa-deployed-drift.bash` — the repo and the host must agree
 
 This is the one QA check whose subject is the **host** rather than the source
-tree. It exists because Plan 00067 fixed `files/home/.local/bin/ftp-camera` in the
+tree. It exists because Plan 00094 fixed `files/home/.local/bin/ftp-camera` in the
 repo and never ran the play that deploys it — the repo said "fixed", the machine
 ran the old build, and it surfaced weeks later as a camera session that would not
 copy. No source-reading check can see that: the source was correct.
@@ -252,7 +252,7 @@ there is no deployed state to compare against.
 **The deployed name is not always the repo name** (Plan 00081 F4).
 `git-account-helper.j2` deploys as `git-account-helper`, so a basename comparison
 looked for a `.j2` in `~/.local/bin`, never found one, skipped the file, and
-still printed its pass line — Plan 00067's failure mode reproduced inside the
+still printed its pass line — Plan 00094's failure mode reproduced inside the
 gate written to catch it. A `.j2` is now verified to have a real playbook `dest:`
 under its stripped name (**exit 2** if not), and — since a rendered template
 genuinely cannot be byte-compared — is **disclosed in the summary** rather than

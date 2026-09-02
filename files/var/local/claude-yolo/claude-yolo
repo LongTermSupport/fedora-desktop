@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.46.0"  # Opt-in child-claude spawn mode: CCY_CHILD_CLAUDE=1 in a project ccy.env installs ccy-claude and its skill, so a session can spawn authenticated child claude processes. Container 2.29. See docs/ccy-changelog.md.
+CCY_VERSION="3.46.1"  # Comment-only: plan references renumbered after the plan-tree collision fix (00071->00098, 00073->00100, 00074->00101). No behaviour change. Container 2.30. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -64,7 +64,7 @@ source "$SCRIPT_DIR/lib/docker-health.bash"
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.29"
+REQUIRED_CONTAINER_VERSION="2.30"
 
 set -e
 
@@ -1751,7 +1751,7 @@ echo "✓ State: /workspace/.claude/ (project-level, persists in git repo)"
 #
 # This lives here rather than in the playbook because only the launcher knows
 # which project directory is in play; the playbook owns the desktop ~/.claude
-# store, which is at a fixed path. See Plan 00071.
+# store, which is at a fixed path. See Plan 00098.
 #
 # Advisory by design: it reports and repairs, and never blocks the launch. This
 # is the code path EVERY session traverses, so a hard gate here would be a far

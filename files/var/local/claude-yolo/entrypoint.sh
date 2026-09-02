@@ -12,7 +12,7 @@ set -e
 # (code.claude.com/docs/en/claude-directory, "Plaintext storage").
 #
 # The default umask (022) therefore makes every one of those files readable by
-# every local user, forever. Plan 00071 measured 887 of 990 files and 331 of 348
+# every local user, forever. Plan 00098 measured 887 of 990 files and 331 of 348
 # directories carrying group/other bits before this line existed. Set it here,
 # before anything creates state, so the posture is correct by construction
 # rather than by periodic repair.

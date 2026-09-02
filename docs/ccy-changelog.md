@@ -17,6 +17,17 @@ Two version numbers move independently — see
 
 ---
 
+## 3.46.1
+
+**Comment-only: renumbered plan references** (container image 2.30).
+
+A plan-tree housekeeping pass found eight plan numbers each claimed by two folders and
+renumbered the newer folder of each pair (00094 to 00101). Comments in the launcher,
+the Dockerfile, the entrypoint and `lib/token-management.bash` that cited the old
+numbers now cite the new ones. No behaviour changes. The container version moves
+because the Dockerfile and entrypoint hashes changed, which is what the rebuild check
+keys on.
+
 ## 3.46.0
 
 **Opt-in child-claude spawn mode** (container image 2.29).
@@ -360,7 +371,7 @@ an older library still renders exactly as before.
 **Every account displayed `<1%` usage, whatever it had actually used.**
 
 The `anthropic-ratelimit-unified-*-utilization` headers express utilisation as a
-fraction (`0`–`1`), and the API documents that nowhere. Plan 00074 shipped on the other
+fraction (`0`–`1`), and the API documents that nowhere. Plan 00101 shipped on the other
 reading, so a real 41% arrived as `0.41`, rendered as 0.41%, and displayed as `<1%` —
 the guard that exists to avoid claiming an account is untouched was doing all the work,
 on every account, for a week.
@@ -644,7 +655,7 @@ rebuilt, the umask is not in effect and the repair decays between launches.
 ## 3.30.2 (container 2.25)
 
 Two defects found by the new acceptance gate
-(`CLAUDE/Plan/Completed/00070-lightweight-agent-browser-engine/acceptance.bash`), which
+(`CLAUDE/Plan/Completed/00097-lightweight-agent-browser-engine/acceptance.bash`), which
 asserts what a live container *delivers* rather than what the repo *contains*. Both were
 invisible to every earlier check because both fail silently.
 

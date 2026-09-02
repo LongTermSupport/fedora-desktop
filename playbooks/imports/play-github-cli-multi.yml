@@ -354,7 +354,7 @@
         # Must run BEFORE the passphrase probe: an empty key fails that probe
         # too, and would otherwise be misreported as a wrong passphrase. The
         # generation guard below tests only that the file EXISTS, so a zero-byte
-        # key suppresses regeneration permanently (the Plan 00067 failure shape).
+        # key suppresses regeneration permanently (the Plan 00094 failure shape).
         - name: Fail fast if an existing SSH key file is empty
           ansible.builtin.fail:
             msg: |

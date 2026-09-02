@@ -33,7 +33,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.29"
+LABEL claude-yolo-version="2.30"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 # NOTE: the claude-yolo-dockerfile-hash LABEL is set at the END of the final `full` stage
 # (PERF-02) so a Dockerfile edit — which changes DOCKERFILE_HASH — only invalidates that
@@ -181,7 +181,7 @@ ENV AGENT_BROWSER_IDLE_TIMEOUT_MS=300000
 # the image is the binary, so this is a download rather than a parallel browser stack.
 #
 # Why it earns its place (measured in a CCY container, not vendor claims — see
-# CLAUDE/Plan/00070-lightweight-agent-browser-engine/logs/browser-engine-triage.log):
+# CLAUDE/Plan/00097-lightweight-agent-browser-engine/logs/browser-engine-triage.log):
 # on the same page via the same CLI, Lightpanda 0.3.6 returned identical text in
 # 379 ms / 1 process / ~25 MB peak RSS where Chromium 150 took 1177 ms / 15 processes /
 # ~1345 MB, and it matched Chromium on all 8 JS-capability fixtures — fetch(), ES

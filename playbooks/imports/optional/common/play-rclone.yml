@@ -247,7 +247,7 @@
       when: rclone_mounts is defined
       tags: rclone, mounts
 
-    # RC authentication (Plan 00067). This play previously passed --rc-no-auth,
+    # RC authentication (Plan 00094). This play previously passed --rc-no-auth,
     # justified as safe because --rc-addr binds to localhost only. That premise
     # is wrong: loopback is NOT a user boundary — every local uid can reach
     # 127.0.0.1, and rclone documents RC access as equivalent to shell access as
@@ -256,8 +256,8 @@
     # user, plus a main user holding passwordless sudo, no-auth turns a service
     # compromise into root and cloud credentials.
     #
-    # EVERY RC ENDPOINT IS GATED ONCE A CREDENTIAL IS SET (Plan 00072).
-    # Plan 00067 landed this change believing vfs/stats and core/stats "answer
+    # EVERY RC ENDPOINT IS GATED ONCE A CREDENTIAL IS SET (Plan 00099).
+    # Plan 00094 landed this change believing vfs/stats and core/stats "answer
     # unauthenticated" and that only vfs/refresh needed a migrated client. That
     # is false — rclone gates the whole rc surface, and an unauthenticated call
     # gets HTTP 401. Every un-migrated client (ftp-camera --copy, rclone-tail,
@@ -281,7 +281,7 @@
     # This play used to `state: touch` the store into existence here, BEFORE the
     # lookup ran, so every deploy rendered `RCLONE_RC_PASS=` with no value. The
     # mount then started with --rc-user set and --rc-pass empty, and the RC
-    # refused every request, authenticated or not (Plan 00067). Never pre-create
+    # refused every request, authenticated or not (Plan 00094). Never pre-create
     # the store; let the lookup own its creation and fix the mode afterwards.
     - name: Stat the rclone RC password store
       ansible.builtin.stat:
@@ -593,7 +593,7 @@
     # ExecStart or a changed EnvironmentFile would sit on disk while systemd kept
     # running the OLD command line and the OLD environment until the next boot.
     # That is how an empty RCLONE_RC_PASS survived a "successful" deploy
-    # (Plan 00067). Restart only when something actually changed.
+    # (Plan 00094). Restart only when something actually changed.
     #
     # A restart interrupts the VFS write-back queue, so this must not run during
     # an upload. The plan-local deploy.bash enforces that by refusing to start

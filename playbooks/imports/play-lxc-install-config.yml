@@ -139,7 +139,7 @@
 
     # `creates:` tests only that the path EXISTS, so a zero-byte key would
     # suppress regeneration on every future run while silently breaking every
-    # container login. Fail loudly instead (the Plan 00067 failure shape).
+    # container login. Fail loudly instead (the Plan 00094 failure shape).
     - name: Assert the LXC SSH key is non-empty
       ansible.builtin.assert:
         that:

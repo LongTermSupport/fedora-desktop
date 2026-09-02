@@ -1,9 +1,9 @@
 #!/usr/bin/bash
 # qa-deployed-drift — repo-owned user scripts must match their deployed copies.
 #
-# WHY THIS EXISTS (Plan 00072)
+# WHY THIS EXISTS (Plan 00099)
 # ----------------------------
-# Plan 00067 fixed files/home/.local/bin/ftp-camera in the repo and never ran
+# Plan 00094 fixed files/home/.local/bin/ftp-camera in the repo and never ran
 # the play that deploys it, because its deploy.bash ran only play-rclone.yml
 # while that script belongs to play-ftp-camera.yml. The repo said "fixed", the
 # host ran the broken build, and the gap surfaced weeks later as a camera
@@ -120,7 +120,7 @@ TEMPLATES=()
 # as `git-account-helper`, so a basename comparison looked for a `.j2` file in
 # ~/.local/bin, never found one, skipped the file, never incremented CHECKED —
 # and the pass line still read "N deployed script(s) match the repo". That is
-# Plan 00067's exact failure mode surviving inside the gate built to catch it,
+# Plan 00094's exact failure mode surviving inside the gate built to catch it,
 # on the one file in scope the gate could not see. Plan 00081 F4.
 #
 # A rendered template cannot be byte-compared against its source: the whole point

@@ -146,10 +146,10 @@
     #
     # The cc wrapper above now sets a restrictive umask, so state created from
     # here on is owner-only. These three tasks repair the state that was written
-    # before that umask existed. Plan 00071 measured 887 of 990 files and 331 of
+    # before that umask existed. Plan 00098 measured 887 of 990 files and 331 of
     # 348 directories carrying group/other bits in a single store.
     #
-    # See CLAUDE/Plan/00071-encrypted-claude-transcripts-at-rest/PLAN.md
+    # See CLAUDE/Plan/00098-encrypted-claude-transcripts-at-rest/PLAN.md
     - name: Check Whether the Claude Code State Directory Exists
       ansible.builtin.stat:
         path: "{{ claude_state_dir }}"
@@ -189,7 +189,7 @@
       ansible.builtin.command:
         # `chmod go=` removes group/other bits and leaves OWNER bits untouched.
         # This matters: a blanket restrictive mode would strip the execute bit
-        # from every executable in the tree (129 of them in the store Plan 00071
+        # from every executable in the tree (129 of them in the store Plan 00098
         # measured — plugin and skill scripts, plus backups of executables).
         argv:
           - find
