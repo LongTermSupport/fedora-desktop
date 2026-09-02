@@ -17,6 +17,16 @@ Two version numbers move independently — see
 
 ---
 
+## 3.46.2
+
+**Container gains numpy and pytest** (container image 2.31).
+
+`tests/clip_scan/` needs numpy and pytest, which the image never carried, so the
+clip-scan suite could not run inside CCY and Plan 00040 could only cite a May result
+from a throwaway venv. Both now come from apt. `qa-helper-tests.bash` still scopes to
+the stdlib-only `tests/helpers/` by design; run the clip-scan suite directly with
+`python3 -m pytest tests/clip_scan -q`.
+
 ## 3.46.1
 
 **Comment-only: renumbered plan references** (container image 2.30).

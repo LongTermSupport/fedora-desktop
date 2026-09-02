@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.46.1"  # Comment-only: plan references renumbered after the plan-tree collision fix (00071->00098, 00073->00100, 00074->00101). No behaviour change. Container 2.30. See docs/ccy-changelog.md.
+CCY_VERSION="3.46.2"  # Container 2.31 adds python3-numpy and python3-pytest so tests/clip_scan runs inside CCY. Launcher unchanged apart from the container pin. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -64,7 +64,7 @@ source "$SCRIPT_DIR/lib/docker-health.bash"
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.30"
+REQUIRED_CONTAINER_VERSION="2.31"
 
 set -e
 
