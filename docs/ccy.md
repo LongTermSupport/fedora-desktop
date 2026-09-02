@@ -559,6 +559,11 @@ export CCY_CHILD_CLAUDE=1
 export CCY_CHILD_CLAUDE_MAX_DEPTH=1   # optional; a child may not spawn its own child
 ```
 
+The wrapper counts nesting in `CCY_CHILD_CLAUDE_DEPTH`, which it sets itself and which a
+caller should never need to touch. The parent session is depth 0; a child is depth 1; the
+wrapper refuses once the count reaches the maximum. It is an accident guard against a
+runaway recursive fan-out, not a control — the counter is an ordinary variable.
+
 Claude Code strips `CLAUDE_CODE_OAUTH_TOKEN` from the environment it gives Bash
 subprocesses, so a child `claude` launched from an agent's shell answers `Not logged in`.
 With this flag set, the entrypoint puts a `ccy-claude` wrapper on `PATH` that reattaches
@@ -575,9 +580,13 @@ session state persists across containers and a stale skill would otherwise linge
 **This adds no security boundary and does not claim one.** Inside CCY the agent already
 runs as root and the token is already in PID 1's environment, so the credential scrub is
 accident prevention rather than a control. The design goal was to add no new exposure
-surface: no copy on disk, none in a command line, none in an inherited variable. The
-reasoning and the executable gate are in
-[`CLAUDE/Plan/00092-ccy-child-claude-spawn-mode/`](../CLAUDE/Plan/00092-ccy-child-claude-spawn-mode/SECURITY-MODEL.md).
+surface: no copy on disk, none in a command line, none in an inherited variable. Two
+easier designs were rejected for failing that test. Putting the token in `settings.json`'s
+`env` key writes a live credential into the host-mounted project tree, and aliasing it to
+a variable name Claude Code does not scrub exposes it to every command in the session.
+The full threat model, the seven invariants and their executable gate were worked out in
+Plan 00092; find it by number under `CLAUDE/Plan/`, wherever the plan lifecycle has moved
+it.
 
 ### 3. `allowed-hostnames` — restricting where CCY can run
 

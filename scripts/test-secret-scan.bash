@@ -91,6 +91,22 @@ assert_scan "caught when quoted" \
 assert_scan "NOT caught when welded inside a longer word (the -w trade-off)" \
     "" "${DL}" "the variable is called myacmevalue here"
 
+# ── the OTHER -w edge: a token whose first or last character is not a word character ─────
+#
+# `-w` requires the match to be bounded by non-word characters, or the text edge. For a
+# token that itself starts or ends with punctuation, the boundary test is applied to the
+# token's own edge characters — so `.internal` is only found when the character BEFORE the
+# dot is also a non-word character. Measured: `mydomain.internal` does NOT match `.internal`
+# under -w, though it does under a bare substring test. The denylist is built from raw
+# localhost.yml values, so a token of that shape is possible. This case documents the exact
+# behaviour so it is a known trade-off and not a surprise; if such a token ever appears in
+# the real denylist, the matcher should anchor on [^A-Za-z0-9_] instead of relying on -w.
+DL_PUNCT="$(deny private_domain '.internal')"
+assert_scan "a punctuation-edged token matches when bounded by whitespace" \
+    "private_domain" "${DL_PUNCT}" "suffix is .internal here"
+assert_scan "a punctuation-edged token is NOT found glued to a word (documented -w edge)" \
+    "" "${DL_PUNCT}" "host is mydomain.internal here"
+
 # ── full email tokens still match, dots and all ──────────────────────────────────────────
 
 DL_EMAIL="$(deny user_email 'someone@example.com')"

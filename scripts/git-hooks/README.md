@@ -58,12 +58,16 @@ git commit --no-verify
 
 ## Testing Hooks
 
-The scanner library has a unit suite. Run it whenever `lib/secret-scan.bash` is touched —
-like `test-planlib.bash`, it is deliberately not part of `qa-all.bash`:
+The scanner library has a unit suite, and `qa-all.bash` runs it as a hard gate. It can
+also be run alone:
 
 ```bash
 ./scripts/test-secret-scan.bash
 ```
+
+It is wired in, unlike `test-planlib.bash`, because a false-negative regression in the
+scanner is silent by construction: a leak it stopped catching produces no signal on any
+commit. The library running on every commit proves nothing about that.
 
 Every value in it is synthetic, because the real denylist is built from a gitignored file
 holding the owner's actual identifiers and this repository is public.

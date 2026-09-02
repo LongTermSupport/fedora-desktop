@@ -364,7 +364,7 @@ case "${CCY_CHILD_CLAUDE:-}" in
     *)
         # A typo silently disabling a feature the project asked for is a bad
         # failure mode: the session looks fine and the capability is just absent.
-        echo "ERROR: CCY_CHILD_CLAUDE must be 1 or unset, got '$CCY_CHILD_CLAUDE'" >&2
+        echo "ERROR: CCY_CHILD_CLAUDE must be 1, 0 or unset, got '$CCY_CHILD_CLAUDE'" >&2
         echo "  Set it in $_ccy_env_file as: export CCY_CHILD_CLAUDE=1" >&2
         exit 1
         ;;
@@ -400,9 +400,20 @@ else
     #
     # Only the skill needs this. The PATH symlink lives on the container's own
     # filesystem, which is discarded on every run (`podman run --rm`).
+    #
+    # Removed only when it is recognisably OURS. The skills directory is the user's
+    # real filesystem and the unconditional install above merges into it, so a
+    # user-authored skill could share the name; deleting that by name alone would
+    # destroy someone else's work. The shipped SKILL.md carries its own name in the
+    # frontmatter, which is the marker checked here.
     if [ -e "$_ccy_child_claude_skill" ]; then
-        rm -rf "$_ccy_child_claude_skill"
-        echo "child-claude mode off: removed the skill left by an earlier session" >&2
+        if [ -f "$_ccy_child_claude_skill/SKILL.md" ] \
+            && grep -q '^name: child-claude$' "$_ccy_child_claude_skill/SKILL.md"; then
+            rm -rf "$_ccy_child_claude_skill"
+            echo "child-claude mode off: removed the skill left by an earlier session" >&2
+        else
+            echo "WARNING: $_ccy_child_claude_skill exists but is not the shipped skill — left untouched" >&2
+        fi
     fi
 fi
 

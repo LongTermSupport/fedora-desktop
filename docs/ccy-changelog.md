@@ -41,16 +41,12 @@ persists across containers, and without it the mode could be switched on but nev
 
 `ccy-claude` recovers the token from `/proc/1/environ` and passes arguments through
 verbatim. It injects nothing — no model, no settings file, and deliberately no
-`--dangerously-skip-permissions`. Two easier designs were rejected for making the
-credential easier to touch by accident: putting it in `settings.json`'s `env` key writes it
-into the host-mounted project tree, and aliasing it to an unscrubbed variable name exposes
-it to every command in the session.
+`--dangerously-skip-permissions`.
 
-This adds no security boundary and does not claim one. Inside CCY the agent is already root
-and `/proc/1/environ` is already readable, so the credential scrub is accident prevention
-rather than a control. The design goal was to add no new exposure surface, stated as seven
-invariants with an executable gate in
-`CLAUDE/Plan/00092-ccy-child-claude-spawn-mode/`.
+This adds no security boundary and does not claim one. The reasoning, the designs that
+were rejected and the executable gate are owned by the `CCY_CHILD_CLAUDE` section of
+[ccy.md](ccy.md#per-project-configuration), which this entry deliberately does not repeat.
+Plan 00092.
 
 ## 3.45.1
 

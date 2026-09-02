@@ -143,6 +143,22 @@ fi
 helper_summary=$(printf '%s' "$helper_out" | grep -oE 'Ran [0-9]+ tests?') || helper_summary="passed"
 printf '✓ helper-tests: %s\n' "$helper_summary"
 
+# The pre-commit secret scanner's own unit suite (scripts/test-secret-scan.bash).
+#
+# The scanner LIBRARY runs on every commit, but a false-NEGATIVE regression in it
+# is silent by construction — a leak it stopped catching produces no signal at
+# all. That is the whole reason the suite exists, so "it is exercised on every
+# commit anyway" is not a reason to leave it unwired. Fifteen synthetic cases,
+# sub-second. Same shape as the helper-tests gate above, and for the same reason.
+scan_out=""
+if ! scan_out="$(bash "$SCRIPT_DIR/test-secret-scan.bash" 2>&1)"; then
+    echo "$scan_out" >&2
+    echo "✗ QA FAILED: secret scanner unit tests" >&2
+    exit 1
+fi
+scan_summary=$(printf '%s' "$scan_out" | grep -oE 'passed: [0-9]+') || scan_summary="passed"
+printf '✓ secret-scan-tests: %s\n' "$scan_summary"
+
 compat_out=""
 if ! compat_out="$(cd "$SCRIPT_DIR/.." && python3 -m helpers.gnome.check_extension_compat 2>&1)"; then
     echo "$compat_out" >&2

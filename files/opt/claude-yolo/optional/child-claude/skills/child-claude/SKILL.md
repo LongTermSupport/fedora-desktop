@@ -70,9 +70,11 @@ pass it yourself and mean it. The wrapper will not widen a child's authority on 
 
 - **Quota.** The child spends the same subscription as this session. Ten children is ten
   sessions' worth of usage. Prefer one child with a larger prompt over a fan-out.
-- **Depth is bounded.** A child may not spawn its own child. The wrapper refuses past
-  `CCY_CHILD_CLAUDE_MAX_DEPTH`, default 1, so a recursive tree cannot run away. A child
-  reporting `refusing to spawn — already at depth` is the guard working, not a bug.
+- **Depth is bounded, as an accident guard.** A child may not spawn its own child: the
+  wrapper refuses past `CCY_CHILD_CLAUDE_MAX_DEPTH`, default 1, counting with
+  `CCY_CHILD_CLAUDE_DEPTH`. It stops a runaway loop, not a determined caller — the counter is
+  an ordinary variable, like everything else here. A child reporting
+  `refusing to spawn — already at depth` is the guard working, not a bug.
 - **Transcripts persist on the host.** The child writes session state under `/root/.claude`,
   a symlink to `/workspace/.claude/ccy`, inside the project directory mounted from the
   user's real filesystem. Whatever the child prints is recorded there in plaintext.

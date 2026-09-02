@@ -112,7 +112,7 @@ touches in-container child processes.
 - [x] ✅ **Task 2.1**: `files/opt/claude-yolo/optional/child-claude/bin/ccy-claude`.
   Honours an already-set `CLAUDE_CODE_OAUTH_TOKEN`; otherwise recovers it from
   `/proc/1/environ`; fails fast with a named cause when absent; enforces
-  `CCY_CLAUDE_DEPTH` against `CCY_CHILD_CLAUDE_MAX_DEPTH`; `exec claude "$@"`.
+  `CCY_CHILD_CLAUDE_DEPTH` against `CCY_CHILD_CLAUDE_MAX_DEPTH`; `exec claude "$@"`.
 - [x] ✅ **Task 2.2**: Diagnostics to stderr, silent on success, so the child's
   stdout stays a clean payload for `$(capture)` and `jq`.
 - [x] ✅ **Task 2.3**: Verified against a stub `claude` reporting its own argv:
@@ -175,8 +175,12 @@ touches in-container child processes.
 - [x] ✅ **Task 6.2**: `docs/ccy.md` gains a `CCY_CHILD_CLAUDE` subsection under
   per-project configuration, which is where `ccy.env` options already live, plus
   a `docs/ccy-changelog.md` entry for 3.46.0.
-- [ ] 🔄 **Task 6.3**: Run the `qa-reviewer` agent over the full plan diff and
-  resolve every BLOCK and FIX-BEFORE-MERGE finding. Required, not optional.
+- [x] ✅ **Task 6.3**: `qa-reviewer` run over the full diff. Verdict
+  FIX-BEFORE-MERGE, no outstanding BLOCK. All four FIX-BEFORE-MERGE findings
+  resolved: I1 now walks all of `/workspace` and `/root`; a `PRESENT` leg mirrors
+  I6 in the enabled state; `docs/` no longer links into this folder; the
+  version-gate gap is Plan 00093. Seven of eight nits taken, the eighth declined
+  with a reason. Finding-by-finding detail: `JOURNAL/` 12:30.
 - [ ] 🚫 **Task 6.4**: **Blocked — HOST ACTION, cannot run in the container.**
   Every step is a script in this folder, not a command to retype from chat, per
   [PlanTriage.md](../../PlanTriage.md). All three refuse to run in the wrong place.

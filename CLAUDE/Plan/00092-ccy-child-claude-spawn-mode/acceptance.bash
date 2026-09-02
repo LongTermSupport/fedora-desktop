@@ -114,6 +114,9 @@ plan_gather_leg "I2 token in no process argv" bash "${PROBE}" I2
 plan_gather_leg "I3 token in no inherited variable" bash "${PROBE}" I3
 
 if [[ "${EXPECT}" == "enabled" ]]; then
+    # The mirror of I6, and the review found it missing: every enabled-state leg below
+    # checks what the wrapper does NOT do, and none checked that the skill was there at all.
+    plan_gather_leg "PRESENT wrapper and skill actually installed" bash "${PROBE}" PRESENT
     plan_gather_leg "I4 wrapper leaks the token on no stream" bash "${PROBE}" I4
     plan_gather_leg "I5 arguments verbatim, authority unchanged" bash "${PROBE}" I5
     plan_gather_leg "I7 spawn depth is bounded" bash "${PROBE}" I7

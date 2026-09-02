@@ -91,11 +91,18 @@ when the immediately preceding session had the flag set. This requires active
 removal, because that directory is host-persisted and gitignored. Without I6 the
 mode cannot be switched off, only switched on.
 
-**I7 — Bounded depth.** A child cannot spawn an unbounded tree of grandchildren.
-`CCY_CLAUDE_DEPTH` is incremented by the wrapper and checked against
-`CCY_CHILD_CLAUDE_MAX_DEPTH`, default 1. The counter is an ordinary variable and
-survives into the child's own Bash-tool environment, since only the credential name
-is scrubbed, so the count is reliable.
+**I7 — Bounded depth, as an accident guard.** A child launched through the wrapper
+does not spawn an unbounded tree by mistake. `CCY_CHILD_CLAUDE_DEPTH` is incremented
+by the wrapper and checked against `CCY_CHILD_CLAUDE_MAX_DEPTH`, default 1. The counter
+is an ordinary variable and survives into the child's own Bash-tool environment,
+since only the credential name is scrubbed, so an honest caller is counted correctly.
+
+It is an accident guard in exactly the sense section 1 uses for the flag itself, and
+this document would be lying if it said otherwise: a child can run
+`CCY_CHILD_CLAUDE_DEPTH=0 ccy-claude`, or skip the wrapper and read
+`/proc/1/environ` directly. What I7 stops is the runaway loop nobody intended — the
+recursive fan-out that spends a subscription before anyone notices — not a caller
+who has decided to nest.
 
 ---
 

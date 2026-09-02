@@ -14,7 +14,7 @@
 # feeds its pattern over stdin.
 set -euo pipefail
 
-INVARIANT="${1:?usage: probe-invariant.bash <I1|I2|I3|I4|I5|I6|I7>}"
+INVARIANT="${1:?usage: probe-invariant.bash <I1|I2|I3|I4|I5|I6|I7|PRESENT>}"
 
 WRAPPER_NAME="ccy-claude"
 SKILL_DIR="/root/.claude/skills/child-claude"
@@ -67,14 +67,25 @@ probe_I1() {
     local token hits="" existing=() d
     token="$(read_token)"
     printf '== I1: the token is written to no file\n'
-    # /workspace leads the list and is named for a reason: it is a HOST MOUNT, so a copy there
-    # outlives the container on the user's real filesystem (threat T2). /proc is deliberately
-    # NOT searched — PID 1's environ is the legitimate source, not a leak.
-    for d in /workspace/.claude /root/.claude.json /etc /run /tmp /usr/local/bin /opt/claude-yolo; do
+    # ALL of /workspace, not a subset. It is a HOST MOUNT, so a copy anywhere in it outlives
+    # the container on the user's real filesystem (threat T2) — and an earlier draft searched
+    # only /workspace/.claude, which the review measured as 42%% of the tree, leaving out
+    # among other things this gate's own run log under acceptance-runs/. A partial search
+    # whose pass line reads as total is the repo's most repeated defect class.
+    #
+    # All of /root as well: bash history, .cache and .npm are places a value lands by
+    # accident. /root/.claude is a symlink into /workspace and find does not follow symlinks,
+    # so it is covered once, by the /workspace walk.
+    #
+    # /proc is deliberately NOT searched — PID 1's environ is the legitimate source, not a
+    # leak. .git is pruned: object files are compressed, so a plaintext search of them proves
+    # nothing either way, and the tracked tree is already covered by the walk.
+    for d in /workspace /root /etc /run /tmp /usr/local/bin /opt/claude-yolo; do
         if [[ -e "${d}" ]]; then
             existing+=("${d}")
         fi
     done
+    printf '   roots: %s (pruning .git)\n' "${existing[*]}"
     if [[ "${#existing[@]}" -eq 0 ]]; then
         printf '[FAIL] none of the searched paths exist, so this probe proved nothing.\n' >&2
         return 1
@@ -96,7 +107,7 @@ probe_I1() {
         if [[ -f "${f}" ]] && [[ -r "${f}" ]]; then
             files+=("${f}")
         fi
-    done < <(find "${existing[@]}" -type f -print0)
+    done < <(find "${existing[@]}" -name .git -prune -o -type f -print0)
     wait $! || findRc=$?
     if [[ "${findRc}" -ne 0 ]]; then
         printf '[FAIL] the file enumeration failed (find exit %d), so nothing was proved.\n' \
@@ -203,7 +214,7 @@ probe_I4() {
         return 1
     fi
     # The failure path matters more: error messages are where secrets get pasted.
-    if out="$(CCY_CLAUDE_DEPTH=99 "${WRAPPER_NAME}" --version 2>&1)"; then
+    if out="$(CCY_CHILD_CLAUDE_DEPTH=99 "${WRAPPER_NAME}" --version 2>&1)"; then
         printf '[FAIL] the depth guard did not refuse at depth 99\n' >&2
         return 1
     fi
@@ -279,7 +290,7 @@ probe_I7() {
     local out max="${CCY_CHILD_CLAUDE_MAX_DEPTH:-1}"
     printf '== I7: spawn depth is bounded (max %s)\n' "${max}"
     require_wrapper
-    if out="$(CCY_CLAUDE_DEPTH="${max}" "${WRAPPER_NAME}" --version 2>&1)"; then
+    if out="$(CCY_CHILD_CLAUDE_DEPTH="${max}" "${WRAPPER_NAME}" --version 2>&1)"; then
         printf '[FAIL] the wrapper ran at depth %s, which is already at the limit\n' "${max}" >&2
         return 1
     fi
@@ -291,6 +302,45 @@ probe_I7() {
     printf 'refused at the limit, and said why\n'
 }
 
+# ── PRESENT: the mirror of I6 — with the mode on, both artefacts are actually there ──────
+#
+# Not a security invariant, which is why it is not numbered. It is the functional half of
+# I6, and the review found it missing: the disabled run asserted absence, the enabled run
+# asserted nothing about presence, so the skill — half of what the feature ships — was
+# vouched for by no check at all. The absence case had been thought about; the presence
+# case had not. That asymmetry is the shape that ships broken.
+probe_PRESENT() {
+    local failed=0 resolved="" shipped="/opt/claude-yolo/optional/child-claude/skills/child-claude/SKILL.md"
+    printf '== PRESENT: with the mode on, the wrapper and the skill are installed\n'
+    if ! resolved="$(command -v "${WRAPPER_NAME}")"; then
+        printf '[FAIL] %s is not on PATH\n' "${WRAPPER_NAME}" >&2
+        failed=1
+    else
+        # It must be the image's wrapper, reached through the entrypoint's symlink — not a
+        # stray copy from somewhere else that happens to share the name.
+        resolved="$(readlink -f "${resolved}")"
+        if [[ "${resolved}" != /opt/claude-yolo/optional/* ]]; then
+            printf '[FAIL] %s resolves to %s, not to the image tree under /opt/claude-yolo/optional/\n' \
+                "${WRAPPER_NAME}" "${resolved}" >&2
+            failed=1
+        else
+            printf '   wrapper: %s\n' "${resolved}"
+        fi
+    fi
+    if [[ ! -f "${SKILL_DIR}/SKILL.md" ]]; then
+        printf '[FAIL] %s/SKILL.md is missing — the agent was never told the capability exists\n' \
+            "${SKILL_DIR}" >&2
+        failed=1
+    elif [[ -f "${shipped}" ]] && ! cmp -s "${SKILL_DIR}/SKILL.md" "${shipped}"; then
+        printf '[FAIL] the installed SKILL.md differs from the one the image ships — stale copy\n' >&2
+        failed=1
+    else
+        printf '   skill:   %s/SKILL.md\n' "${SKILL_DIR}"
+    fi
+    [[ "${failed}" -eq 0 ]] || return 1
+    printf 'wrapper on PATH from the image tree, skill installed and current\n'
+}
+
 case "${INVARIANT}" in
     I1) probe_I1 ;;
     I2) probe_I2 ;;
@@ -299,8 +349,9 @@ case "${INVARIANT}" in
     I5) probe_I5 ;;
     I6) probe_I6 ;;
     I7) probe_I7 ;;
+    PRESENT) probe_PRESENT ;;
     *)
-        printf '[FATAL] unknown invariant %s (expected I1..I7)\n' "${INVARIANT}" >&2
+        printf '[FATAL] unknown check %s (expected I1..I7 or PRESENT)\n' "${INVARIANT}" >&2
         exit 1
         ;;
 esac
