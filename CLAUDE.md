@@ -545,4 +545,12 @@ One line each; these fire with their own guidance when relevant. Full text: `bin
 
 - worktree_create — semantic worktree naming
 
+<!-- handler: nitpick-dismissive-language -->
+
+- nitpick.dismissive_language — do not deflect or prematurely halt
+
+<!-- handler: nitpick-hedging-language -->
+
+- nitpick.hedging_language — the guessing is the defect, not the wording
+
 </hooksdaemon>
