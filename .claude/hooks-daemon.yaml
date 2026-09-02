@@ -284,6 +284,23 @@ pseudo_events:
       dismissive_language: {enabled: true}  # Avoiding-work, out-of-scope deflection, premature-halt phrasing
       hedging_language: {enabled: true}     # Guessing instead of researching
 
+# Documentation QA. Defaults are kept (advise on sweep, warn on edit/commit);
+# only the corpus is narrowed. .ansible/ is the gitignored galaxy install of
+# third-party collections and roles, not this repo's documentation;
+# CLAUDE/Plan/Archive/ holds pre-plan-workflow notes kept as a frozen record;
+# and a PLAN_archive.md is the verbatim superseded PLAN.md of a plan that was
+# slimmed in place, so its dead links and duplicated blocks are history, not debt.
+documentation:
+  enabled: true
+  trees:
+    agent: CLAUDE
+    human: docs
+  qa:
+    scope_exclude_globs:
+      - ".ansible/**"
+      - "CLAUDE/Plan/Archive/**"
+      - "PLAN_archive.md"
+
 # Project-level custom handlers
 plugins:
   paths: []

@@ -9,9 +9,9 @@ allowed-tools: [Read, Write, Edit, Glob, Grep, Task]
 **Purpose**: Orchestrates the planning workflow for Claude Code projects
 
 **Key Documentation**:
-- `CLAUDE/PlanWorkflow.md` - Planning workflow process (MUST READ)
 
-**Workflow State Management**: REQUIRED READING: @CLAUDE/Workflow.md for workflow state management
+- `CLAUDE/PlanWorkflow.md` - Planning workflow process (MUST READ)
+- `CLAUDE/PlanJournalling.md` - Journal entry grammar for recording progress
 
 ---
 
@@ -63,6 +63,7 @@ CLAUDE/PlanWorkflow.md
 ```
 
 This file contains:
+
 - Plan document structure (required sections, format)
 - Task status system (icons, meanings)
 - Workflow steps (identify → create → break down → review → execute → complete)
@@ -70,6 +71,7 @@ This file contains:
 - Best practices and examples
 
 **Why this is critical:**
+
 - Ensures consistent plan format across all plans
 - Provides task breakdown guidance
 - Defines status tracking system
@@ -85,6 +87,7 @@ This file contains:
 For creating a new plan document from scratch:
 
 **Step 1: Find Next Plan Number**
+
 ```bash
 # Find existing plans to determine next number
 glob: "CLAUDE/Plan/**/PLAN.md"
@@ -92,11 +95,13 @@ glob: "CLAUDE/Plan/**/PLAN.md"
 ```
 
 **Step 2: Understand Requirements**
+
 1. Read `CLAUDE/PlanWorkflow.md` to understand plan structure
 2. Clarify plan scope with user (if unclear)
 3. Determine if simple or complex (complex → consider opus agent)
 
 **Step 3: Create Plan Directory**
+
 ```
 CLAUDE/Plan/XXX-descriptive-name/
 ├── PLAN.md (required - main plan document)
@@ -106,6 +111,7 @@ CLAUDE/Plan/XXX-descriptive-name/
 **Step 4: Populate PLAN.md**
 
 Use the template from PlanWorkflow.md:
+
 - **Status**: 🟡 In Progress | 🟢 Complete | 🔴 Blocked | ⚫ Cancelled
 - **Overview**: 2-3 paragraphs explaining what and why
 - **Goals**: Clear, measurable objectives
@@ -121,6 +127,7 @@ Use the template from PlanWorkflow.md:
 **Step 5: Break Down Tasks**
 
 Follow PlanWorkflow.md guidance:
+
 - **Good task**: "Create component with specific functionality"
 - **Bad task**: "Work on feature"
 - **Task granularity**: 15-60 minutes of focused work
@@ -128,6 +135,7 @@ Follow PlanWorkflow.md guidance:
 - **Phase**: Group of related tasks (hours/days)
 
 **Step 6: Review and Approve**
+
 1. Check plan completeness (all required sections)
 2. Verify tasks are well-defined and actionable
 3. Show plan to user for approval
@@ -136,6 +144,7 @@ Follow PlanWorkflow.md guidance:
 **Optional: Invoke Opus Planning Agent**
 
 For complex plans requiring deep research and analysis:
+
 ```
 Use Task tool with subagent_type: Plan
 Model: opus
@@ -161,6 +170,7 @@ This is research and proposal - user will review before approval."
 For updating progress on an existing plan:
 
 **Step 1: Read Current State**
+
 ```bash
 # Find the plan
 glob: "CLAUDE/Plan/**/PLAN.md"
@@ -172,6 +182,7 @@ read: CLAUDE/Plan/XXX-name/PLAN.md
 **Step 2: Update Status**
 
 Update task status icons:
+
 - ⬜ Not Started → 🔄 In Progress (when starting task)
 - 🔄 In Progress → ✅ Completed (when finished)
 - 🔄 In Progress → 🚫 Blocked (if cannot proceed)
@@ -180,6 +191,7 @@ Update task status icons:
 **Step 3: Add Progress Notes**
 
 Add dated entry to "Notes & Updates" section:
+
 ```markdown
 ### 2025-12-07
 - Completed Phase 1: Implementation
@@ -190,11 +202,13 @@ Add dated entry to "Notes & Updates" section:
 **Step 4: Update Plan Status**
 
 If all tasks complete:
+
 - Mark plan status as 🟢 Complete
 - Add completion date
 - Document lessons learned
 
 **Step 5: Save Changes**
+
 ```
 Edit the PLAN.md file with updated status
 ```
@@ -206,6 +220,7 @@ Edit the PLAN.md file with updated status
 For reviewing plan quality and completeness:
 
 **Step 1: Read Plan and Workflow Docs**
+
 ```
 Read: CLAUDE/Plan/XXX-name/PLAN.md
 Read: CLAUDE/PlanWorkflow.md
@@ -214,6 +229,7 @@ Read: CLAUDE/PlanWorkflow.md
 **Step 2: Validate Structure**
 
 Check required sections present:
+
 - [ ] Status and metadata (Created, Owner, Priority)
 - [ ] Overview (what and why)
 - [ ] Goals (measurable)
@@ -224,6 +240,7 @@ Check required sections present:
 **Step 3: Validate Task Quality**
 
 Check tasks are:
+
 - [ ] Actionable (clear what needs to be done)
 - [ ] Specific (not vague like "work on X")
 - [ ] Testable (can verify completion)
@@ -232,6 +249,7 @@ Check tasks are:
 **Step 4: Check Status Consistency**
 
 Verify:
+
 - [ ] Only 1-2 tasks marked 🔄 In Progress
 - [ ] Blocked tasks have explanation
 - [ ] Completed tasks verified
@@ -240,6 +258,7 @@ Verify:
 **Step 5: Report Findings**
 
 Provide review summary:
+
 ```markdown
 # Plan Review: Plan XXX
 
@@ -267,6 +286,7 @@ All required sections present.
 When TodoWrite list grows too large or work becomes multi-session:
 
 **Step 1: Read Current TodoWrite**
+
 ```
 Check current todos in conversation context
 ```
@@ -274,6 +294,7 @@ Check current todos in conversation context
 **Step 2: Assess Criteria**
 
 Does work meet plan threshold?
+
 - [ ] More than 5 todo items
 - [ ] Work spans multiple sessions
 - [ ] Involves architectural decisions
@@ -285,6 +306,7 @@ Does work meet plan threshold?
 Follow Workflow A (Create New Plan) using TodoWrite items as starting point.
 
 **Step 4: Migrate Todos**
+
 1. Convert todo items to plan tasks
 2. Add phases if work is multi-step
 3. Add context/rationale missing from todos
@@ -292,6 +314,7 @@ Follow Workflow A (Create New Plan) using TodoWrite items as starting point.
 5. Reference plan in conversation
 
 **Step 5: Inform User**
+
 ```
 "This work has grown beyond simple todos. I've created Plan XXX to track it properly.
 See: CLAUDE/Plan/XXX-name/PLAN.md
@@ -304,12 +327,14 @@ TodoWrite cleared. All tracking now in plan document."
 ## PLAN NUMBERING
 
 Plans use sequential numbering:
+
 - `001-first-plan`
 - `002-second-plan`
 - `003-third-plan`
 - etc.
 
 **To find next number:**
+
 ```bash
 glob: "CLAUDE/Plan/**/PLAN.md"
 # Look at existing numbers, use next sequential
@@ -323,17 +348,18 @@ glob: "CLAUDE/Plan/**/PLAN.md"
 
 From PlanWorkflow.md:
 
-| Status | Icon | Markdown | Meaning |
-|--------|------|----------|---------|
-| Not Started | ⬜ | `⬜` | Task not yet begun |
-| In Progress | 🔄 | `🔄` | Currently working on |
-| Completed | ✅ | `✅` | Finished and verified |
-| Blocked | 🚫 | `🚫` | Cannot proceed |
-| Cancelled | ❌ | `❌` | No longer needed |
-| On Hold | ⏸️ | `⏸️` | Paused temporarily |
-| Needs Review | 👁️ | `👁️` | Awaiting review |
+| Status       | Icon | Markdown | Meaning               |
+| ------------ | ---- | -------- | --------------------- |
+| Not Started  | ⬜   | `⬜`     | Task not yet begun    |
+| In Progress  | 🔄   | `🔄`     | Currently working on  |
+| Completed    | ✅   | `✅`     | Finished and verified |
+| Blocked      | 🚫   | `🚫`     | Cannot proceed        |
+| Cancelled    | ❌   | `❌`     | No longer needed      |
+| On Hold      | ⏸️   | `⏸️`     | Paused temporarily    |
+| Needs Review | 👁️   | `👁️`     | Awaiting review       |
 
 **Rules:**
+
 - Limit 1-2 tasks marked 🔄 at a time
 - Update immediately when status changes
 - Document blocks with explanation
@@ -354,6 +380,7 @@ Refs: CLAUDE/Plan/XXX-name/PLAN.md
 ```
 
 Examples:
+
 ```
 Plan 038: Complete Phase 1 - Implementation
 
@@ -422,30 +449,35 @@ Refs: CLAUDE/Plan/038-feature-name/PLAN.md
 ## COMMON MISTAKES TO AVOID
 
 ### Mistake 1: Vague Tasks
+
 ```markdown
 ❌ BAD: "Work on feature"
 ✅ GOOD: "Create component with specific functionality"
 ```
 
 ### Mistake 2: Too Many In Progress
+
 ```markdown
 ❌ BAD: 5 tasks marked 🔄 In Progress
 ✅ GOOD: 1 task marked 🔄 In Progress, rest are ⬜ or ✅
 ```
 
 ### Mistake 3: No Progress Updates
+
 ```markdown
 ❌ BAD: Plan created 2 weeks ago, no Notes & Updates
 ✅ GOOD: Regular dated entries showing progress
 ```
 
 ### Mistake 4: Missing Success Criteria
+
 ```markdown
 ❌ BAD: No "Success Criteria" section
 ✅ GOOD: Clear, measurable completion criteria
 ```
 
 ### Mistake 5: Using TodoWrite When Plan Needed
+
 ```markdown
 ❌ BAD: TodoWrite with 10+ items spanning days
 ✅ GOOD: Proper plan document when work > 2 hours
@@ -458,6 +490,7 @@ Refs: CLAUDE/Plan/038-feature-name/PLAN.md
 ### NO TIME ESTIMATES
 
 **NEVER include time estimates in plans:**
+
 - ❌ "This will take 2-3 weeks"
 - ❌ "Estimated effort: 5 days"
 - ❌ "Phase 1: 3 hours"
@@ -465,6 +498,7 @@ Refs: CLAUDE/Plan/038-feature-name/PLAN.md
 - ✅ "Phase 2: Testing" (sequence only)
 
 **What to include instead:**
+
 - Phase ordering (what comes first, second, third)
 - Task breakdown (concrete steps)
 - Dependencies (what blocks what)
@@ -473,12 +507,14 @@ Refs: CLAUDE/Plan/038-feature-name/PLAN.md
 ### RESEARCH-BASED, NOT ASSUMPTION-BASED
 
 **Plans MUST be based on researched facts:**
+
 - ❌ "We should probably use X"
 - ❌ "This might need a migration"
 - ✅ "Research shows current system uses Y"
 - ✅ "Analysis confirms 3 components need updating: [specific list]"
 
 **Before planning, RESEARCH:**
+
 - Current architecture (read existing code)
 - Similar work done previously (check git history, other plans)
 - Technical constraints (verify assumptions)
@@ -487,6 +523,7 @@ Refs: CLAUDE/Plan/038-feature-name/PLAN.md
 ### PLANS EVOLVE
 
 **Plans are living documents:**
+
 - ✅ Plans can change over time
 - ✅ Tasks can be added/removed
 - ✅ Approaches can be adjusted
@@ -494,11 +531,13 @@ Refs: CLAUDE/Plan/038-feature-name/PLAN.md
 - ⚠️ **Always**: Document why changes were made in Notes & Updates
 
 **Agents cannot:**
+
 - Unilaterally change plan scope
 - Remove tasks without human approval
 - Change goals/success criteria independently
 
 **Agents can:**
+
 - Update task status (⬜ → 🔄 → ✅)
 - Add progress notes
 - Report blockers
@@ -521,18 +560,19 @@ Refs: CLAUDE/Plan/038-feature-name/PLAN.md
 
 ## QUICK REFERENCE
 
-| User Request | Action |
-|--------------|--------|
-| "Create a plan for X" | Read PlanWorkflow.md → Create plan → Get approval |
-| "Update Plan XXX" | Read plan → Update status → Save |
-| "Review Plan XXX" | Read plan and workflow → Validate → Report |
-| "This todo list is too big" | Convert to plan using Workflow D |
-| "Research and plan X" | Invoke opus planning agent |
-| "What's the plan status?" | Read plan → Summarise progress |
+| User Request                | Action                                            |
+| --------------------------- | ------------------------------------------------- |
+| "Create a plan for X"       | Read PlanWorkflow.md → Create plan → Get approval |
+| "Update Plan XXX"           | Read plan → Update status → Save                  |
+| "Review Plan XXX"           | Read plan and workflow → Validate → Report        |
+| "This todo list is too big" | Convert to plan using Workflow D                  |
+| "Research and plan X"       | Invoke opus planning agent                        |
+| "What's the plan status?"   | Read plan → Summarise progress                    |
 
 ---
 
 **See Also**:
+
 - `CLAUDE/PlanWorkflow.md` - Complete planning workflow documentation
 - `CLAUDE/Plan/README.md` - Index of all plans
 
