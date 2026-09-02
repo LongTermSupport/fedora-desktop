@@ -170,11 +170,16 @@ touches in-container child processes.
 - [x] ✅ **Task 6.2**: `docs/ccy.md` gains a `CCY_CHILD_CLAUDE` subsection under
   per-project configuration, which is where `ccy.env` options already live, plus
   a `docs/ccy-changelog.md` entry for 3.46.0.
-- [ ] ⬜ **Task 6.3**: Run the `qa-reviewer` agent over the full plan diff and
+- [ ] 🔄 **Task 6.3**: Run the `qa-reviewer` agent over the full plan diff and
   resolve every BLOCK and FIX-BEFORE-MERGE finding. Required, not optional.
-- [ ] ⬜ **Task 6.4**: (On HOST, not in CCY) run `play-claude-yolo.yml`, rebuild the
-  image, then run `acceptance.bash` in a container **with** the flag and again
-  **without** it. Both runs must pass.
+- [ ] 🚫 **Task 6.4**: **Blocked — HOST ACTION, cannot run in the container.**
+  On the host: `ansible-playbook playbooks/imports/play-claude-yolo.yml`, then
+  `ccy --rebuild` (the image version moved 2.28 → 2.29), then run
+  `acceptance.bash` in a container **with** `CCY_CHILD_CLAUDE=1` in `ccy.env` and
+  again in a later container **without** it. Both runs must pass.
+  - Note before running it: I1 will report the session transcript from
+    2026-09-02 unless the OAuth token is rotated first. That red is a true
+    finding, recorded in `JOURNAL/`, not a defect in the gate.
 
 ## Dependencies
 
@@ -221,15 +226,21 @@ which is precisely the degradation this plan forbids. The caller passes what it 
 
 ## Success Criteria
 
-- [ ] With the flag set, a child `claude -p` returns a real completion.
-- [ ] Without the flag, no wrapper on `PATH` and no child-claude skill in
-  `/root/.claude/skills/`, including in a session that follows an enabled one.
-- [ ] `acceptance.bash` passes with the flag on and with it off.
-- [ ] The token appears in no file under `/workspace`, no argv, and no variable in
-  the agent's Bash-tool environment, verified by probe.
-- [ ] Depth limit refuses a grandchild spawn.
-- [ ] QA passes (`./scripts/qa-all.bash`).
-- [ ] `qa-reviewer` returns no BLOCK or FIX-BEFORE-MERGE finding.
+- [x] ✅ A child `claude -p` returns a real completion with the credential
+  attached. Proved before the wrapper existed, and the wrapper reproduces it.
+- [x] ✅ Without the flag, no wrapper on `PATH` and no child-claude skill on disk
+  (probe I6, and its negative case plants one and watches I6 go red).
+- [x] ✅ The token appears in no file, no argv and no variable in the agent's
+  Bash-tool environment — probes I1, I2 and I3, each falsifiable.
+- [x] ✅ Depth limit refuses. Verified both ways: the real wrapper refuses at the
+  limit, and a stub with no guard makes probe I7 go red.
+- [x] ✅ QA passes (`./scripts/qa-all.bash`), twice in a row, 640 files.
+- [ ] 🚫 `acceptance.bash` green with the flag on and with it off. **Blocked
+  twice over.** Enabling needs a host image rebuild, which cannot happen in the
+  container. And I1 is currently a TRUE red: this session leaked the token into
+  the host-mounted transcript (see `JOURNAL/` 08:55), so the gate correctly fails
+  until the token is rotated. Both are owner actions.
+- [ ] 🔄 `qa-reviewer` returns no BLOCK or FIX-BEFORE-MERGE finding.
 
 ## Risks & Mitigations
 
