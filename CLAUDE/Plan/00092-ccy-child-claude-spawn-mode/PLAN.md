@@ -178,13 +178,19 @@ touches in-container child processes.
 - [ ] 🔄 **Task 6.3**: Run the `qa-reviewer` agent over the full plan diff and
   resolve every BLOCK and FIX-BEFORE-MERGE finding. Required, not optional.
 - [ ] 🚫 **Task 6.4**: **Blocked — HOST ACTION, cannot run in the container.**
-  On the host: `ansible-playbook playbooks/imports/play-claude-yolo.yml`, then
-  `ccy --rebuild` (the image version moved 2.28 → 2.29), then run
-  `acceptance.bash` in a container **with** `CCY_CHILD_CLAUDE=1` in `ccy.env` and
-  again in a later container **without** it. Both runs must pass.
-  - Note before running it: I1 will report the session transcript from
-    2026-09-02 unless the OAuth token is rotated first. That red is a true
-    finding, recorded in `JOURNAL/`, not a defect in the gate.
+  Every step is a script in this folder, not a command to retype from chat, per
+  [PlanTriage.md](../../PlanTriage.md). All three refuse to run in the wrong place.
+  1. `./triage.bash` on the HOST — what is stale before changing anything.
+  2. `./deploy.bash` on the HOST — runs `play-claude-yolo.yml`. It deliberately
+     does **not** rebuild the image, and says so.
+  3. `ccy --rebuild` — required, the container version moved 2.28 → 2.29.
+  4. `./triage.bash` again — its H4 leg confirms the rebuild landed.
+  5. `./acceptance.bash` INSIDE a container with `CCY_CHILD_CLAUDE=1` set.
+  6. `./acceptance.bash` INSIDE a **later** container with the flag removed.
+     This is the step that matters: it proves the mode can be turned off.
+  - Before running it: I1 will report the session transcript from 2026-09-02
+    unless the OAuth token is rotated first. That red is a true finding,
+    recorded in `JOURNAL/`, not a defect in the gate.
 
 ## Dependencies
 
