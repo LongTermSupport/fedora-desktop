@@ -127,6 +127,11 @@ touches in-container child processes.
 - [x] ✅ **Task 3.2**: Traps documented: stdin needs `< /dev/null`; quota is shared;
   transcripts land in the host-mounted project directory; depth is bounded; and
   the one rule, never trace a command that touches the token.
+  - [x] ✅ Added the trap the functional probe actually found: a child started in
+    `/workspace` loads this project's `CLAUDE.md`, hooks daemon and skills, and
+    that context swamped a three-word prompt so completely that the child replied
+    about the repo's stop-hook rules. Authentication was fine. The skill now shows
+    both shapes, neutral cwd and project cwd, and says which to pick.
 
 ### Phase 4: Entrypoint wiring
 
@@ -252,6 +257,7 @@ which is precisely the degradation this plan forbids. The caller passes what it 
 | Runaway recursive spawning exhausts quota                                    | M      | M           | `CCY_CLAUDE_DEPTH` bounded, default max depth 1                  |
 | Image and launcher versions drift, so the flag is set but tooling is absent  | M      | M           | Task 4.4 fails fast; Task 5.3 bumps both version values together |
 | Agent uses child processes where the `Agent` tool is correct                 | L      | M           | The skill says when not to use it                                |
+| A child inherits the project harness and answers something unrelated         | M      | H           | Measured, not predicted; the skill shows neutral vs project cwd  |
 
 ## Delivery & Milestones
 
