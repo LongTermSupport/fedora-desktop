@@ -224,6 +224,40 @@ else
         "this run is on the host, so there is no container to detect"
 fi
 
+# ── the mirror guard: plan_require_container ──────────────────────────────────────────────
+#
+# Both branches again, for the same reason. This one refuses on the HOST, so its refusing
+# branch is the one a container-run suite would never reach by accident.
+
+PLAN_CONTAINER_MARKERS=("${TMPROOT}/definitely-absent-marker")
+run_capture plan_require_container "this probes what the entrypoint installed"
+assert_eq "require_container REFUSES when no container marker is present" "1" "${RC}"
+assert_contains "the refusal says a result here would be a wrong answer, not a missing one" \
+    "confident wrong answer" "${OUT}"
+assert_contains "the refusal tells the operator what to do instead" "INSIDE the CCY container" \
+    "${OUT}"
+
+PLAN_CONTAINER_MARKERS=("${MARKER}")
+run_capture plan_require_container "this probes what the entrypoint installed"
+assert_eq "require_container PASSES when a container marker is present" "0" "${RC}"
+assert_contains "the pass names the marker found, never silent" "${MARKER}" "${OUT}"
+
+# The two guards must disagree on every input, or one of them is wrong. Assert the
+# opposition directly rather than trusting two independent reads of the same predicate.
+PLAN_CONTAINER_MARKERS=("${MARKER}")
+run_capture plan_require_host "probe host state"
+HOST_RC_IN_CONTAINER="${RC}"
+run_capture plan_require_container "probe container state"
+assert_eq "with a marker present, require_host and require_container disagree" \
+    "1 0" "${HOST_RC_IN_CONTAINER} ${RC}"
+
+PLAN_CONTAINER_MARKERS=("${TMPROOT}/definitely-absent-marker")
+run_capture plan_require_host "probe host state"
+HOST_RC_ON_HOST="${RC}"
+run_capture plan_require_container "probe container state"
+assert_eq "with no marker present, require_host and require_container disagree" \
+    "0 1" "${HOST_RC_ON_HOST} ${RC}"
+
 # ── pure helpers ─────────────────────────────────────────────────────────────────────────
 
 assert_eq "strip_cr removes a single trailing CR" "yes" "$(_plan_strip_cr $'yes\r')"

@@ -74,7 +74,7 @@ makes the relative `source=` path resolve from the script's directory rather tha
 cwd; without it `shellcheck -x` cannot follow the library and every check that depends on
 following it silently lapses (`PLAN_USAGE` reads as unused, and so on).
 
-### R2 — Declare where the script may run: `plan_require_host`
+### R2 — Declare where the script may run: `plan_require_host` / `plan_require_container`
 
 **A script whose findings depend on host state calls `plan_require_host '<why>'` first.**
 
@@ -91,6 +91,15 @@ failure mode is not a missing result, it is a confident wrong one:
 `plan_require_host` names the container marker it found and tells the operator to re-run on
 the host. This is the enforced version of [ContainerRules.md](ContainerRules.md)'s "EDIT
 ONLY, DEPLOY ON HOST" — a guard, not a comment.
+
+**`plan_require_container '<why>'` is the exact mirror, and some scripts need it.** A few
+findings are facts about the CCY container itself — what is on its `PATH`, what its PID 1
+holds, what the entrypoint installed into it. Run on the host, a script asking those
+questions does not fail; it answers them about the wrong machine, and every probe goes
+vacuously green or vacuously red. That is the same confident-wrong-answer failure as R2's
+original incident, pointing the other way, so it gets the same enforced guard rather than a
+comment. Pick exactly one of the two: a script that would accept either location is a script
+whose findings do not depend on where it ran, which is rare and worth re-examining.
 
 ### R3 — Sudo priming: `plan_prime_sudo`, and **before** the run log
 

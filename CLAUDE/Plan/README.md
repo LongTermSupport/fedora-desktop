@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00092-ccy-child-claude-spawn-mode](00092-ccy-child-claude-spawn-mode/) - Opt-in `ccy.env` mode letting a CCY session spawn authenticated child `claude` processes, with no new token exposure
+
 - [00091-podman-first-docker-optional](00091-podman-first-docker-optional/) - Demote rootful Docker from core to optional (podman-first); Refs #41
 
 - [004-comprehensive-feature-documentation](004-comprehensive-feature-documentation/) - Documentation for all major features (CCY, CCB, Nord, Speech-to-Text, etc.)

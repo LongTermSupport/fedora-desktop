@@ -133,7 +133,7 @@ if [[ -n "${PLANLIB_SOURCED:-}" ]]; then
     return 0
 fi
 
-PLANLIB_VERSION="1.0.0"
+PLANLIB_VERSION="1.1.0"
 PLANLIB_SOURCED=1
 export PLANLIB_VERSION
 
@@ -292,7 +292,7 @@ plan_mode() {
     return 0
 }
 
-# ── the host-vs-container guard ───────────────────────────────────────────────────────────
+# ── the host-vs-container guards (one per direction) ──────────────────────────────────────
 
 # plan_require_host <why> — refuse to continue inside a container.
 #
@@ -312,6 +312,25 @@ plan_require_host() {
         _plan_err "refusing to run inside a container (found ${marker}): ${why}. A result obtained here would not be evidence about the host — it would be a confident wrong answer. Run this on the HOST, in a normal terminal, from the repo checkout." || return 1
     fi
     printf '==> host check: no container marker found, running on the host\n'
+    return 0
+}
+
+# plan_require_container <why> — the exact mirror: refuse to continue OUTSIDE a container.
+#
+# Some findings are facts about the CCY container itself — what is on its PATH, what its PID 1
+# holds, what the entrypoint installed into it. Run on the host, a script asking those
+# questions does not fail; it answers them about the wrong machine. Every probe goes vacuously
+# green or vacuously red, which is the SAME confident-wrong-answer failure plan_require_host
+# exists to stop, pointing the other way.
+#
+# So a script whose findings would be meaningless on the host calls this FIRST.
+plan_require_container() {
+    local why="${1:-this script probes container state}"
+    local marker=""
+    if ! marker="$(_plan_in_container "${PLAN_CONTAINER_MARKERS[@]+"${PLAN_CONTAINER_MARKERS[@]}"}")"; then
+        _plan_err "refusing to run outside a container (no container marker found): ${why}. A result obtained here would not be evidence about the container — it would be a confident wrong answer, because every container probe would answer about the host instead. Run this INSIDE the CCY container." || return 1
+    fi
+    printf '==> container check: found %s, running inside a container\n' "${marker}"
     return 0
 }
 
