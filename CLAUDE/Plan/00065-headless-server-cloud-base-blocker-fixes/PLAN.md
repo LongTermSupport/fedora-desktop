@@ -1,6 +1,6 @@
 # Plan 00065: headless server Cloud Base blocker fixes
 
-**Status**: In Progress
+**Status**: Dormant (blocked on the human HOST test: a fresh Fedora Cloud Base headless `run.bash` run, which cannot execute in the CCY container)
 **Created**: 2026-07-29
 **Owner**: joseph
 **Priority**: High

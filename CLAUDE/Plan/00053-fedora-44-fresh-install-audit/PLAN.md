@@ -1,6 +1,6 @@
 # Plan 00053: Fedora 44 Fresh-Install Audit
 
-**Status**: In Progress
+**Status**: Dormant (no work since June 2026; every open task needs a fresh Fedora 44 install on the HOST to re-audit against)
 **Created**: 2026-06-13
 **Owner**: Repo owner + Claude (Opus 4.7)
 **Priority**: Medium

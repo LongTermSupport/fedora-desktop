@@ -1,6 +1,6 @@
 # Plan 00064: open command universal file opener
 
-**Status**: In Progress
+**Status**: Dormant (blocked on Phase 4: HOST deploy plus live desktop and terminal checks of the `open` command)
 **Created**: 2026-07-29
 **Owner**: joseph
 **Priority**: Medium

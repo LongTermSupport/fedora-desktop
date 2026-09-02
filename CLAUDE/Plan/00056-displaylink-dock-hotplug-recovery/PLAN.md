@@ -1,6 +1,6 @@
 # Plan 00056: displaylink dock hotplug recovery
 
-**Status**: In Progress
+**Status**: Dormant (blocked on Task 2.3: HOST deploy against a real DisplayLink dock, and on `gh` account access for issue #28)
 **Created**: 2026-07-01
 **Owner**: joseph
 **Priority**: Medium

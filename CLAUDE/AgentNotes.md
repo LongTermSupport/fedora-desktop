@@ -404,7 +404,7 @@ writing it is the one that shows you what it did.
 makes the credential stable across runs. So an **empty** store is read back as an
 **empty password**, forever, and is never regenerated.
 
-**Why:** Plan 00067 hit exactly this. `play-rclone.yml` had a `file: state: touch`
+**Why:** Plan 00094 hit exactly this. `play-rclone.yml` had a `file: state: touch`
 task creating `.rc-pass` (to pin mode `0600`) immediately *before* the lookup ran.
 Every deploy therefore rendered `RCLONE_RC_PASS=` with no value; rclone started
 with `--rc-user` set and `--rc-pass` empty and its RC refused **every** request,

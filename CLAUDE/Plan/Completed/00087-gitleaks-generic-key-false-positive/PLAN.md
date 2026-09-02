@@ -10,7 +10,7 @@
 `F44`'s `gitleaks secret scan` CI check has been failing for a while (confirmed: the
 same failure appears on F44's own tip, `34fefcb` and `dac4f7c`, unrelated to any of
 this session's other in-flight PRs) — one finding, `generic-api-key`, in
-`CLAUDE/Plan/Completed/00070-lightweight-agent-browser-engine/research/scan-alt-engines.md:222`.
+`CLAUDE/Plan/Completed/00097-lightweight-agent-browser-engine/research/scan-alt-engines.md:222`.
 This is a real gitleaks CI job downgraded to background noise: every PR shows a red
 `mergeStateStatus: UNSTABLE` for a reason unrelated to its own diff, which trains
 reviewers to ignore CI red state — the exact failure mode this repo's own anti-pattern

@@ -1,6 +1,6 @@
 # Plan 00072: ccy must ASSERT the engine is rootless, not infer it
 
-**Status**: In Progress
+**Status**: Dormant (blocked on the last success criterion: confirming desktop behaviour on a rootless engine, a HOST check)
 **Created**: 2026-07-31
 **Owner**: joseph
 **Priority**: High
@@ -23,8 +23,8 @@ The engine can answer directly, and Plan 00068's host run already proved the cal
 `podman info --format '{{.Host.Security.Rootless}}'` returned `rootless: true`
 (`00068 …/triage-runs/20260731-225344`, engine section).
 
-This is the project's own rule applied to `ccy`: **a precondition is asserted, never summarised**
-([.claude/rules/no-armed-flags.md](../../../.claude/rules/no-armed-flags.md)).
+This is the project's own Fail Fast rule applied to `ccy`: **a precondition is asserted, never
+summarised** ([CLAUDE.md](../../../CLAUDE.md), "Fail Fast — HARD RULE").
 
 ## Goals
 

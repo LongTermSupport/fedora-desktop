@@ -1,6 +1,6 @@
 # Plan 00073: Headless install with a SUDO PASSWORD — `RUN_BASH_SUDO_PASSWORD_FILE`
 
-**Status**: In Progress
+**Status**: Dormant (blocked on Task 3.3: HOST verification on a real password-sudo box with no `NOPASSWD` entry)
 **Created**: 2026-08-02
 **Owner**: joseph
 **Priority**: High

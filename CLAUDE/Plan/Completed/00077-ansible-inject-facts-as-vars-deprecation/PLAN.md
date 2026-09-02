@@ -18,7 +18,7 @@ runtime. That is not a soft failure: the task errors mid-play, on the machine,
 after earlier tasks have already changed system state.
 
 Surfaced by a real deploy — `play-claude-yolo.yml` printed the deprecation
-against line 291 while deploying Plan 00074. It was visible only because that
+against line 291 while deploying Plan 00101. It was visible only because that
 play happened to be run with output on screen.
 
 ## Goals
@@ -104,7 +104,7 @@ lines, and every one is a mechanical substitution with an exact replacement.
 
 ## Dependencies
 
-- Surfaced while deploying Plan 00074; no code dependency on it.
+- Surfaced while deploying Plan 00101; no code dependency on it.
 
 ## Technical Decisions
 
@@ -137,5 +137,5 @@ alone.
 
 <!-- Curated milestones + delivery commit hashes only. Blow-by-blow in JOURNAL/. -->
 
-- Found in the deploy output of Plan 00074, not by a gate — which is itself the
+- Found in the deploy output of Plan 00101, not by a gate — which is itself the
   argument for Task 2.1

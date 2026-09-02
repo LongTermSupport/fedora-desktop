@@ -1,6 +1,6 @@
 # Plan 00058: GitHub version pin updates
 
-**Status**: In Progress
+**Status**: Dormant (blocked on the darktable 5.6.0 bump in Task 2.5 and on the HOST `deploy.bash` run that verifies the pins)
 **Created**: 2026-07-06
 **Owner**: joseph
 **Priority**: Medium

@@ -6,7 +6,7 @@
 # assumption that the Task 4.3b rewrite was the plan's only undeployed change.
 # It was not. Phase 3 fixed 34 shellcheck and 17 semgrep findings across eleven
 # more scripts and every one of them was still sitting undeployed — the repo
-# said fixed, the machine ran the old build. That is the Plan 00067 failure
+# said fixed, the machine ran the old build. That is the Plan 00094 failure
 # exactly, and the acceptance run's drift gate is what surfaced it.
 #
 # So this deploys by MEASUREMENT, not by a remembered list: each repo file is

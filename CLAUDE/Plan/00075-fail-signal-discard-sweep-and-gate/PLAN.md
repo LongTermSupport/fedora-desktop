@@ -36,7 +36,7 @@ non-zero. The status was discarded, so the error body became "the account name",
 and ccy refused to launch while telling the user to go and edit `localhost.yml`.
 The mapping was correct; GitHub was down.
 
-**2. `$?` read after `fi`** (`Plan 00074/prototype.bash`, fixed):
+**2. `$?` read after `fi`** (`Plan 00101/prototype.bash`, fixed):
 
 ```bash
 if out="$(grep -ai "$pattern" "$file")"; then ... fi
@@ -184,7 +184,7 @@ creates the impression of coverage.
      "when" — do not add dates). The blow-by-blow activity log lives in
      JOURNAL/00075-Journal-YY-MM-DD.md. -->
 
-- Motivating fixes already shipped: CCY 3.36.0 (`b770441`), Plan 00074
+- Motivating fixes already shipped: CCY 3.36.0 (`b770441`), Plan 00101
   `prototype.bash`
 - Gate built, and the pre-existing gate that had never matched anything
   repaired: `6cec534`

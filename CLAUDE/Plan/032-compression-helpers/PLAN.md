@@ -89,7 +89,8 @@ release static binary (idempotent `get_url` + `creates:` in Ansible).
 
 - [x] ✅ Write `files/usr/local/bin/uncompress` (bash) — all subtasks done,
   shellcheck clean, e2e tested. Refuses preexisting target, `--force` replaces,
-  nested `src/src/` left as-is per Decision 5
+  an archive that unpacks to a doubly nested directory (the archive's own name
+  repeated one level down) is left as-is per Decision 5
 
 ### Phase 3: Deployment & QA
 

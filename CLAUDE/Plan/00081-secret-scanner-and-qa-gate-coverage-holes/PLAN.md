@@ -76,7 +76,7 @@ holes, each behind a test that fails against the unfixed code.
 - **F4** — `qa-deployed-drift.bash:117-125` compares by basename, so
   `git-account-helper.j2` (deployed as `git-account-helper`) never matches, never
   increments `CHECKED`, and the pass line still claims the deployed scripts
-  match. That is Plan 00067's failure on the one file in scope it cannot see
+  match. That is Plan 00094's failure on the one file in scope it cannot see
 - **F5** — `pre-commit:341-348` harvests the denylist with
   `field.endswith("_username") or field.endswith("_account")`, but the file's
   convention is the **plural** (`github_accounts` had to be hardcoded), so

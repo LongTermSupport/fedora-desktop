@@ -207,7 +207,7 @@ found **11 of this plan's own scripts** still running the pre-fix build —
 `nord`, `wsi`, `ftp-camera`, `lan-scan`, `raw-prune`, `gshell-nested` and the
 five `ssh-`/`scp-` helpers, from commits `644f7a7`, `bf9b28f`, `86abbe0`,
 `44e558a`, `7434ceb`. The repo said fixed; the host ran the old build. That is
-the Plan 00067 failure this repo built the drift gate to catch, committed by the
+the Plan 00094 failure this repo built the drift gate to catch, committed by the
 plan whose subject is gates that vouch for what they did not check.
 
 - [x] ✅ **Task 6.1**: `deploy.bash` deploys **by measurement** — `cmp` each
