@@ -245,8 +245,6 @@ Full detail on any rule: `bin/hooks-daemon explain-rule <ID>`.
 
 <!-- handler: block-ancestry-severing-merge -->
 
-<!-- handler: block-artefact-publishing -->
-
 <!-- handler: block-ask-user-question -->
 
 <!-- handler: bash-safe-mode -->
@@ -258,8 +256,6 @@ Full detail on any rule: `bin/hooks-daemon explain-rule <ID>`.
 <!-- handler: block-curl-pipe-shell -->
 
 <!-- handler: daemon-location-guard -->
-
-<!-- handler: block-dangerous-permissions -->
 
 <!-- handler: prevent-destructive-git -->
 
@@ -285,13 +281,7 @@ Full detail on any rule: `bin/hooks-daemon explain-rule <ID>`.
 
 <!-- handler: enforce-lsp-usage -->
 
-<!-- handler: enforce-markdown-organization -->
-
-<!-- handler: enforce-npm-commands -->
-
 <!-- handler: block-pip-break-system -->
-
-<!-- handler: pipe-blocker -->
 
 <!-- handler: plan-number-helper -->
 
@@ -303,27 +293,37 @@ Full detail on any rule: `bin/hooks-daemon explain-rule <ID>`.
 
 <!-- handler: qa-suppression-blocker -->
 
-<!-- handler: quarantine-artefact-read-guard -->
-
 <!-- handler: root-recursion-guard -->
 
-<!-- handler: block-secret-file-read -->
-
 <!-- handler: block-security-antipatterns -->
-
-<!-- handler: block-sed-command -->
-
-<!-- handler: block-sensitive-content -->
 
 <!-- handler: staged-lint-gate -->
 
 <!-- handler: block-sudo-pip -->
 
-<!-- handler: enforce-tdd -->
-
 <!-- handler: validate-instruction-content -->
 
 <!-- handler: verification-result-gate -->
+
+<!-- handler: block-artefact-publishing -->
+
+<!-- handler: block-dangerous-permissions -->
+
+<!-- handler: enforce-markdown-organization -->
+
+<!-- handler: enforce-npm-commands -->
+
+<!-- handler: pipe-blocker -->
+
+<!-- handler: quarantine-artefact-read-guard -->
+
+<!-- handler: block-secret-file-read -->
+
+<!-- handler: block-sed-command -->
+
+<!-- handler: block-sensitive-content -->
+
+<!-- handler: enforce-tdd -->
 
 <!-- handler: prevent-worktree-file-copying -->
 
@@ -333,6 +333,8 @@ Full detail on any rule: `bin/hooks-daemon explain-rule <ID>`.
 
 <!-- handler: validate-eslint-on-write -->
 
+<!-- handler: failsafe-cron-blockage-suppressor -->
+
 <!-- handler: auto-continue-stop -->
 
 | ID                                 | Blocked                                                                                                            | Why                                                                                                                             | Fix                                                                                                              |
@@ -341,14 +343,12 @@ Full detail on any rule: `bin/hooks-daemon explain-rule <ID>`.
 | R-GIT-MERGE-SQUASH                 | `git merge --squash`                                                                                               | Severs ancestry -- git branch -d refuses the branch forever                                                                     | Use git merge --no-ff instead                                                                                    |
 | R-GH-PR-MERGE-SQUASH               | `gh pr merge --squash`                                                                                             | Severs ancestry -- git branch -d refuses the branch forever                                                                     | Use gh pr merge --merge instead                                                                                  |
 | R-GH-PR-MERGE-REBASE               | `gh pr merge --rebase`                                                                                             | Severs ancestry -- git branch -d refuses the branch forever                                                                     | Use gh pr merge --merge instead                                                                                  |
-| R-ARTIFACT-PUBLISH                 | publishing an artefact via the `Artifact` tool                                                                     | The page lives OUTSIDE the project and the repository cannot audit or retract it                                                | Write the file locally and tell the user its path, or ask a human to publish                                     |
 | R-ASK-USER-QUESTION-UNJUSTIFIED    | AskUserQuestion without `ASKING BECAUSE:` prefix                                                                   | Asking pauses the session for a question the daemon cannot verify was necessary                                                 | State the assumed answer in output text and proceed, or retry every question prefixed `ASKING BECAUSE: <reason>` |
 | R-BASH-SAFE-MODE-PRELUDE-MISSING   | a sequenced Bash invocation with no `set` safety prelude                                                           | Errors in earlier statements can be silently ignored                                                                            | Add `set -euo pipefail` at the top, or gate explicitly with `&&`/\`                                              |
 | R-COMMENT-CHANGELOG                | changelog narrative in a code comment                                                                              | A comment describes CURRENT STATE; history belongs elsewhere                                                                    | Move it to git, a changelog file, or the plan's JOURNAL/                                                         |
 | R-COMMENT-SIZE                     | a comment growing past its configured size limit                                                                   | Comments should describe current state, not accumulate                                                                          | Shorten the comment, or declare MUST_EXCEED_COMMENT_SIZE_BECAUSE                                                 |
 | R-CURL-PIPE-SHELL                  | \`curl                                                                                                             | wget ...                                                                                                                        | bash                                                                                                             |
 | R-DAEMON-DIR-CD                    | `cd` into `.claude/hooks-daemon/`                                                                                  | Daemon CLI commands must be run from PROJECT ROOT, causing path confusion otherwise                                             | Run daemon commands from project root, e.g. `bin/hooks-daemon status`                                            |
-| R-CHMOD-WORLD-WRITABLE             | `chmod 777`/`chmod a+w`/`chmod o+w`                                                                                | Allows anyone to read, write, and execute, bypassing all file permission security                                               | Use least-privilege permissions instead (755/644/600)                                                            |
 | R-GIT-RESET-HARD                   | `git reset --hard`                                                                                                 | Permanently destroys all uncommitted changes                                                                                    | Ask the user to run it manually                                                                                  |
 | R-GIT-CLEAN-FORCE                  | `git clean -f`                                                                                                     | Permanently deletes untracked files                                                                                             | Ask the user to run it manually                                                                                  |
 | R-GIT-CHECKOUT-DISCARD             | `git checkout -- <file>` / `git checkout .`                                                                        | Discards local changes to file(s) permanently                                                                                   | Ask the user to run it manually                                                                                  |
@@ -369,37 +369,22 @@ Full detail on any rule: `bin/hooks-daemon explain-rule <ID>`.
 | R-GH-AUTO-CLOSE-KEYWORD            | a GitHub closing keyword + issue reference in a git/gh message                                                     | Auto-closes the referenced issue/PR the moment the commit reaches the default branch, and cannot be disabled repository-side    | Use a non-closing reference instead, e.g. Addresses #123                                                         |
 | R-LOCK-FILE-EDIT                   | Direct `Write`/`Edit` of a package manager lock file                                                               | Lock files are generated artifacts; manual edits create checksum mismatches and broken dependency graphs                        | Use the package manager commands instead (e.g. `npm install`, `cargo update`)                                    |
 | R-LSP-SYMBOL-LOOKUP                | a symbol-like Grep/Bash grep lookup                                                                                | LSP tools give semantic ~50ms code intelligence; grep is slow and imprecise                                                     | Use goToDefinition/findReferences/workspaceSymbol/hover/documentSymbol instead                                   |
-| R-MARKDOWN-WRONG-LOCATION          | MARKDOWN FILE IN WRONG LOCATION — a new `.md` file written to an unrecognised location                             | Markdown files must follow project organization rules                                                                           | Move it into an allowed location, or configure `extra_allowed_markdown_paths`                                    |
-| R-MARKDOWN-UNTRACKED-MEMORY        | UNTRACKED CLAUDE MEMORY IS DISABLED FOR THIS PROJECT — a write to `~/.claude/projects/*/memory/*.md`               | That knowledge is per-checkout, un-reviewed, and invisible to teammates — it drifts from the repo and bypasses code review      | Document it in tracked project docs instead (CLAUDE.md, .claude/rules/\*.md, docs/)                              |
-| R-MARKDOWN-PLAN-SYNC               | a `.claude/settings.json` `plansDirectory` out of sync with the daemon's plan_workflow config                      | Plan workflow requires plansDirectory to match daemon config to redirect writes correctly                                       | Fix `.claude/settings.json`'s `plansDirectory` key, then restart your session                                    |
-| R-NPM-PIPED-COMMAND                | a piped `npm run`/`npx` command                                                                                    | Piping npm/npx commands is pointless — llm: cache files hold the full data                                                      | Run the plain command, then query the cache file with jq                                                         |
-| R-NPM-NON-LLM-COMMAND              | a raw `npm run`/`npx` command when llm: wrappers exist                                                             | llm: commands provide LLM-friendly, machine-readable output                                                                     | Use the project's `npm run llm:*` equivalent instead                                                             |
 | R-PIP-BREAK-SYSTEM-PACKAGES        | `pip install --break-system-packages`                                                                              | Bypasses PEP 668 protection and can corrupt the system Python installation                                                      | Use a virtual environment or `pip install --user` instead                                                        |
-| R-PIPE-TO-TAIL                     | \`                                                                                                                 | tail\`                                                                                                                          | Truncates output and causes information loss                                                                     |
-| R-PIPE-TO-HEAD                     | \`                                                                                                                 | head\`                                                                                                                          | Truncates output and causes information loss                                                                     |
 | R-PLAN-NUMBER-DISCOVERY            | a bash discovery scan (ls/find/sort+tail) for the next plan number                                                 | Misses subdirectories like Completed/ and disagrees across branches                                                             | Use the printed next plan number, or the git counter directly                                                    |
 | R-PLAN-FOLDER-MKDIR                | `mkdir <plan-dir>/NNNNN-name` (hand-creating a plan folder)                                                        | Claims a plan number the moment the folder appears, but nothing records the claim until PLAN.md is written                      | Use the mkplan.bash scaffolder instead                                                                           |
 | R-PLAN-QA-COMMIT                   | a git commit violates a block-level plan QA cross-file invariant                                                   | Most plan rot is cross-file and a single-file edit hook cannot see it                                                           | Amend the commit to also stage what each finding's remediation names below                                       |
 | R-PLAN-QA-EDIT                     | a PLAN.md/README.md Write/Edit violates a block-level plan QA check                                                | Plan QA linting catches issues you can fix immediately, before they reach commit                                                | Fix the content per each finding's remediation below and retry                                                   |
 | R-PLAN-TIME-ESTIMATE               | Time estimates not allowed in plan documents                                                                       | Time estimates in plans create false expectations and pressure                                                                  | Break work into concrete tasks and implementation steps; let the user decide scheduling                          |
 | R-QA-SUPPRESSION                   | a QA suppression directive (noqa, type: ignore, eslint-disable, ...)                                               | Suppression comments hide real problems and create technical debt                                                               | Fix the underlying issue; do not suppress the warning                                                            |
-| R-QUARANTINE-ARTEFACT-READ         | reading a quarantined `*-opus-security-DETAIL*` artefact into the coordinator                                      | A DETAIL artefact holds raw flaggable substance meant for a human or another quarantine agent only                              | Read the paired `*-opus-security-SUMMARY*` artefact instead                                                      |
 | R-ROOT-RECURSION-CATASTROPHIC      | `grep -r`/`find`/`rg`/... rooted at `/`, `/proc`, `/sys`, `/home`, `/root`, `~`, `$HOME`                           | Walks the entire filesystem and can pin every CPU core for hours                                                                | Scope the search to the project (e.g. `rg -l "pattern" .`)                                                       |
-| R-SECRET-READ                      | Read/Write/Edit/NotebookEdit/Grep targeting a protected path                                                       | The file's contents must NEVER be read into context by any route — not Read, not Bash, not an interpreter one-liner, not a copy | Use `bin/hooks-daemon secret-meta <path>` for metadata, or ask the user                                          |
-| R-SECRET-BASH-MENTION              | a Bash command whose text mentions a protected path                                                                | The file's contents must NEVER be read into context by any route — not Read, not Bash, not an interpreter one-liner, not a copy | Use `bin/hooks-daemon secret-meta <path>` for metadata, or ask the user                                          |
-| R-SECRET-SCRIPT-AUTHOR             | a script authored via Write/Edit whose content references a protected path                                         | The file's contents must NEVER be read into context by any route — not Read, not Bash, not an interpreter one-liner, not a copy | Use `bin/hooks-daemon secret-meta <path>` for metadata, or ask the user                                          |
 | R-SEC-CODE-INJECTION               | `eval`, `exec`, `new Function`, `__import__`, `instance_eval`, `yaml.load`                                         | Dynamic execution of a string as code                                                                                           | Avoid dynamic code execution; use safe parsing/import alternatives                                               |
 | R-SEC-CMD-INJECTION                | `os.system`, `subprocess(..., shell=True)`, `shell_exec`, `proc_open`, `Runtime.exec`, `Process.Start`, `IO.popen` | Shell command construction from untrusted input enables command injection                                                       | Use argument-list APIs (no shell=True) instead of shell string concatenation                                     |
 | R-SEC-DESERIALISATION              | `pickle.load`, `Marshal.load`, `unserialize`, `ObjectInputStream`, `XMLDecoder`, `BinaryFormatter`                 | Deserialising untrusted data can execute arbitrary code                                                                         | Use a safe serialisation format (e.g. JSON) instead                                                              |
 | R-SEC-XSS                          | `innerHTML`, `dangerouslySetInnerHTML`, `document.write`, `template.HTML`/`JS`/`URL`                               | Injects unescaped content into the DOM/output, enabling XSS                                                                     | Use the framework's safe templating/escaping APIs                                                                |
 | R-SEC-HARDCODED-CREDS              | AWS access keys, GitHub tokens, Stripe keys, private key blocks                                                    | Hardcoded credentials leak via source control history and code review                                                           | Use environment variables, never hardcode credentials                                                            |
 | R-SEC-UNSAFE-MEMORY                | Rust `from_raw_parts`, `transmute`                                                                                 | Bypasses Rust's memory/type safety guarantees                                                                                   | Use safe conversions (`as`, `From`/`Into`) or validated slice operations                                         |
-| R-SED-FILE-MODIFICATION            | `sed`                                                                                                              | Claude gets sed syntax wrong regularly and a single error can destroy hundreds of files                                         | Use the Edit tool (or parallel Haiku agents with Edit for bulk changes)                                          |
-| R-SENSITIVE-PUBLIC-PATTERN         | content matching a configured public pattern                                                                       | The pattern is a named, safe-to-disclose signal (a path, a placeholder, profanity, ...)                                         | Remove or replace the matched text before retrying                                                               |
-| R-SENSITIVE-SECRET-TERM            | content matching a configured blocked term                                                                         | A gitignored secret word list term was found in this write                                                                      | Ask the user what the cited entry covers, then remove the matching text                                          |
 | R-STAGED-LINT-FAILURE              | a staged file fails the cheap syntax check at commit time                                                          | lint_on_edit only ever runs at Write/Edit time, so a git add of pre-existing content skips it entirely                          | Fix the failing file(s) above and re-stage before committing                                                     |
 | R-SUDO-PIP-INSTALL                 | `sudo pip install`                                                                                                 | Conflicts with the OS package manager and can corrupt system Python                                                             | Use a virtual environment or `pip install --user` instead                                                        |
-| R-TDD-TEST-FIRST                   | creating a production source file without its test file                                                            | TDD requires the test file to exist before the source file                                                                      | Create the test file first (RED), then the source file (GREEN)                                                   |
 | R-INSTRUCTION-IMPLEMENTATION-LOG   | implementation logs (e.g. 'created the file X', 'added the class Y')                                               | Instruction files hold permanent instructions, not a log of past edits                                                          | Remove the log sentence; put implementation history in git or a plan JOURNAL/                                    |
 | R-INSTRUCTION-STATUS-INDICATOR     | status indicators (e.g. checkmark + 'Complete', 'Done', 'Success', 'Fixed')                                        | A completion emoji records a moment in time, not a permanent fact                                                               | Remove the status marker; instruction files describe the project, not its history                                |
 | R-INSTRUCTION-TIMESTAMP            | timestamps (ISO dates such as 2024-03-15)                                                                          | A dated entry is a log line, and instruction files are not a log                                                                | Remove the date; if it is genuinely load-bearing, put it in git history                                          |
@@ -409,12 +394,30 @@ Full detail on any rule: `bin/hooks-daemon explain-rule <ID>`.
 | R-INSTRUCTION-CHANGE-SUMMARY       | change summaries (e.g. 'Added 15 lines', 'Removed 8 lines')                                                        | A line-count delta describes one diff, not a stable instruction                                                                 | Remove the summary; the diff itself is preserved in git                                                          |
 | R-INSTRUCTION-COMPLETION-INDICATOR | completion indicators (e.g. 'ALL DONE!', 'Task complete!', 'Finished task')                                        | A completion phrase announces a session's end, not a fact about the project                                                     | Remove the phrase; instruction files should never celebrate finishing a task                                     |
 | R-VERIFICATION-RESULT-NOT-CONSUMED | a verifier followed by a mutator with nothing consuming the result                                                 | The verifier can fail and the mutator would still run                                                                           | Gate with `&&`, an explicit exit-code check, or `set -euo pipefail`                                              |
+| R-ARTIFACT-PUBLISH                 | publishing an artefact via the `Artifact` tool                                                                     | The page lives OUTSIDE the project and the repository cannot audit or retract it                                                | Write the file locally and tell the user its path, or ask a human to publish                                     |
+| R-CHMOD-WORLD-WRITABLE             | `chmod 777`/`chmod a+w`/`chmod o+w`                                                                                | Allows anyone to read, write, and execute, bypassing all file permission security                                               | Use least-privilege permissions instead (755/644/600)                                                            |
+| R-MARKDOWN-WRONG-LOCATION          | MARKDOWN FILE IN WRONG LOCATION — a new `.md` file written to an unrecognised location                             | Markdown files must follow project organization rules                                                                           | Move it into an allowed location, or configure `extra_allowed_markdown_paths`                                    |
+| R-MARKDOWN-UNTRACKED-MEMORY        | UNTRACKED CLAUDE MEMORY IS DISABLED FOR THIS PROJECT — a write to `~/.claude/projects/*/memory/*.md`               | That knowledge is per-checkout, un-reviewed, and invisible to teammates — it drifts from the repo and bypasses code review      | Document it in tracked project docs instead (CLAUDE.md, .claude/rules/\*.md, docs/)                              |
+| R-MARKDOWN-PLAN-SYNC               | a `.claude/settings.json` `plansDirectory` out of sync with the daemon's plan_workflow config                      | Plan workflow requires plansDirectory to match daemon config to redirect writes correctly                                       | Fix `.claude/settings.json`'s `plansDirectory` key, then restart your session                                    |
+| R-NPM-PIPED-COMMAND                | a piped `npm run`/`npx` command                                                                                    | Piping npm/npx commands is pointless — llm: cache files hold the full data                                                      | Run the plain command, then query the cache file with jq                                                         |
+| R-NPM-NON-LLM-COMMAND              | a raw `npm run`/`npx` command when llm: wrappers exist                                                             | llm: commands provide LLM-friendly, machine-readable output                                                                     | Use the project's `npm run llm:*` equivalent instead                                                             |
+| R-PIPE-TO-TAIL                     | \`                                                                                                                 | tail\`                                                                                                                          | Truncates output and causes information loss                                                                     |
+| R-PIPE-TO-HEAD                     | \`                                                                                                                 | head\`                                                                                                                          | Truncates output and causes information loss                                                                     |
+| R-QUARANTINE-ARTEFACT-READ         | reading a quarantined `*-opus-security-DETAIL*` artefact into the coordinator                                      | A DETAIL artefact holds raw flaggable substance meant for a human or another quarantine agent only                              | Read the paired `*-opus-security-SUMMARY*` artefact instead                                                      |
+| R-SECRET-READ                      | Read/Write/Edit/NotebookEdit/Grep targeting a protected path                                                       | The file's contents must NEVER be read into context by any route — not Read, not Bash, not an interpreter one-liner, not a copy | Use `bin/hooks-daemon secret-meta <path>` for metadata, or ask the user                                          |
+| R-SECRET-BASH-MENTION              | a Bash command whose text mentions a protected path                                                                | The file's contents must NEVER be read into context by any route — not Read, not Bash, not an interpreter one-liner, not a copy | Use `bin/hooks-daemon secret-meta <path>` for metadata, or ask the user                                          |
+| R-SECRET-SCRIPT-AUTHOR             | a script authored via Write/Edit whose content references a protected path                                         | The file's contents must NEVER be read into context by any route — not Read, not Bash, not an interpreter one-liner, not a copy | Use `bin/hooks-daemon secret-meta <path>` for metadata, or ask the user                                          |
+| R-SED-FILE-MODIFICATION            | `sed`                                                                                                              | Claude gets sed syntax wrong regularly and a single error can destroy hundreds of files                                         | Use the Edit tool (or parallel Haiku agents with Edit for bulk changes)                                          |
+| R-SENSITIVE-PUBLIC-PATTERN         | content matching a configured public pattern                                                                       | The pattern is a named, safe-to-disclose signal (a path, a placeholder, profanity, ...)                                         | Remove or replace the matched text before retrying                                                               |
+| R-SENSITIVE-SECRET-TERM            | content matching a configured blocked term                                                                         | A gitignored secret word list term was found in this write                                                                      | Ask the user what the cited entry covers, then remove the matching text                                          |
+| R-TDD-TEST-FIRST                   | creating a production source file without its test file                                                            | TDD requires the test file to exist before the source file                                                                      | Create the test file first (RED), then the source file (GREEN)                                                   |
 | R-WORKTREE-FILE-COPY               | `cp`/`mv`/`rsync` between a worktree and the main repo                                                             | Defeats worktree isolation, bypasses git tracking, and can nuke untracked work in the target directory                          | cd into the worktree, commit, then git merge back                                                                |
 | R-WRITE-CLOBBER                    | `Write` to an existing file you have not read this session                                                         | You cannot know what you are destroying, so you could not report the loss even afterwards                                       | `Read` the file then retry, or use `Edit` for a targeted change                                                  |
 | R-LINT-FAILURE                     | a written/authored file that fails its language's lint check                                                       | The write has already landed on disk; this is a failure report, not a rollback                                                  | Fix the reported problems with Edit — do not re-Write the file from scratch                                      |
 | R-ESLINT-ERRORS                    | a written/authored TS/TSX file with reported ESLint errors                                                         | The write has already landed on disk; this is a failure report, not a rollback                                                  | Fix the reported problems with Edit (`npx eslint <file> --fix` clears most)                                      |
 | R-ESLINT-TIMEOUT                   | an ESLint run that did not finish within the configured timeout                                                    | This handler DENIES on a timeout — unlike lint_on_edit, which allows                                                            | Investigate why ESLint is slow (config, project size); retry the edit                                            |
 | R-ESLINT-RUN-FAILURE               | an ESLint invocation that failed to run at all                                                                     | ESLint could not be launched (exception raised invoking it)                                                                     | Check the ESLint wrapper/tsx setup, then retry the edit                                                          |
+| R-FAILSAFE-CRON-SUPPRESSED         | A delivered failsafe-cron tick, while a 'blocked only on human input' marker is live                               | Every tick against a session blocked only on human input is a guaranteed no-op model turn                                       | Nothing to do -- this is expected. Send a real message to clear the marker and resume ticks                      |
 | R-STOP-QA-FAILURE                  | Stopping while the last QA tool run's own output indicated failure                                                 | QA failures detected in the last QA tool run                                                                                    | Fix the failures, re-run the QA tool, and continue without stopping                                              |
 | R-STOP-TAUTOLOGICAL-QUESTION       | Stopping behind a rhetorical continue/confirmation question                                                        | The answer is obvious -- yes, continue the already-planned work now                                                             | Resume the next unit of work immediately; STOPPING BECAUSE: does not exempt this                                 |
 | R-STOP-AFTER-TOOL-ERROR            | Stopping right after an unresolved tool_use_error                                                                  | The correct action is to address the cause and retry, not stop                                                                  | Address the tool_use_error's cause (e.g. Read before Edit/Write) and retry                                       |
@@ -426,10 +429,6 @@ Full detail on any rule: `bin/hooks-daemon explain-rule <ID>`.
 
 One line each; these fire with their own guidance when relevant. Full text: `bin/hooks-daemon explain-handler <name>`.
 
-<!-- handler: agent-isolation-advisor -->
-
-- agent_isolation_advisor — isolate concurrent agents
-
 <!-- handler: verify-daemon-restart -->
 
 - daemon_restart_verifier — restart the daemon before committing
@@ -437,6 +436,14 @@ One line each; these fire with their own guidance when relevant. Full text: `bin
 <!-- handler: flaggable-work-advisor -->
 
 - flaggable_work_advisor — delegate flaggable work BEFORE reading it
+
+<!-- handler: agent-isolation-advisor -->
+
+- agent_isolation_advisor — isolate concurrent agents
+
+<!-- handler: dispatch-declaration -->
+
+- dispatch_declaration — declare where a subagent's reports go
 
 <!-- handler: plan-workflow-guidance -->
 
@@ -462,13 +469,17 @@ One line each; these fire with their own guidance when relevant. Full text: `bin
 
 - git_hooks_executable_fixer — auto-fixes non-executable git hooks
 
-<!-- handler: goal-injection -->
-
-- goal_injection — plan-start goal signal for the ccy supervisor
-
 <!-- handler: markdown-table-formatter -->
 
 - markdown_table_formatter — markdown tables are auto-aligned
+
+<!-- handler: budget-exhaustion-detector -->
+
+- budget_exhaustion_detector — hidden agent budgets are surfaced
+
+<!-- handler: goal-injection -->
+
+- goal_injection — plan-start goal signal for the ccy supervisor
 
 <!-- handler: recovery-cron-advisor -->
 
@@ -478,10 +489,6 @@ One line each; these fire with their own guidance when relevant. Full text: `bin
 
 - ccy_supervisor_integrity — keep the ccy supervisor properly set up
 
-<!-- handler: docs-qa-sweep -->
-
-- docs_qa_sweep — documentation drift report at session start
-
 <!-- handler: git-upstream-checker -->
 
 - git_upstream_checker — additive fetch + pull/cleanup advice on session start
@@ -489,10 +496,6 @@ One line each; these fire with their own guidance when relevant. Full text: `bin
 <!-- handler: hook-registration-checker -->
 
 - hook_registration_checker — hooks configuration policy
-
-<!-- handler: model-fallback-detector -->
-
-- model_fallback_detector — silent model substitution is surfaced
 
 <!-- handler: plan-qa-sweep -->
 
@@ -514,6 +517,14 @@ One line each; these fire with their own guidance when relevant. Full text: `bin
 
 - tool_disable_advisor — declared never-want tools are checked at session start
 
+<!-- handler: docs-qa-sweep -->
+
+- docs_qa_sweep — documentation drift report at session start
+
+<!-- handler: model-fallback-detector -->
+
+- model_fallback_detector — silent model substitution is surfaced
+
 <!-- handler: idle-housekeeping-advisory -->
 
 - idle_housekeeping_advisory — report-first idle housekeeping (beta, opt-in)
@@ -525,6 +536,10 @@ One line each; these fire with their own guidance when relevant. Full text: `bin
 <!-- handler: auto-approve-reads -->
 
 - auto_approve_reads — gated on bypassPermissions mode
+
+<!-- handler: subagent-report-size-blocker -->
+
+- subagent_report_size_blocker — write large reports to a file
 
 <!-- handler: worktree-create -->
 
