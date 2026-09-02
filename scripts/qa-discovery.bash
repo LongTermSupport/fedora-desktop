@@ -40,7 +40,16 @@
 #                           which is the check that actually belongs to it.
 QA_EXCLUDE_DIRS=(
     ".git"
-    ".ansible/roles"
+    # The WHOLE .ansible tree, not just roles/. It is gitignored Galaxy output,
+    # and `ansible-galaxy collection install` populates .ansible/collections/ with
+    # thousands of third-party files carrying their own lint findings.
+    #
+    # This made QA non-idempotent, which is how it was found: qa-all.bash's own
+    # ansible-syntax stage installs the collections, so a repo that passed on the
+    # first run failed on the second with 9 shellcheck findings, 133 ruff issues
+    # and a semgrep block — every one of them in vendored upstream test fixtures.
+    # A gate that fails on its own side effects gets ignored, or bypassed.
+    ".ansible"
     ".claude/hooks-daemon"
     ".claude/ccy"
     ".claude/skills"
@@ -63,7 +72,8 @@ QA_EXCLUDE_DIRS=(
 # this repo selected is excluded here, not patched. See CLAUDE/QA.md.
 QA_PY_EXCLUDE_DIRS=(
     ".git"
-    ".ansible/roles"
+    # Whole tree, for the same reason as QA_EXCLUDE_DIRS above.
+    ".ansible"
     ".claude/hooks-daemon"
     ".claude/ccy/plugins"
     ".claude/ccy/file-history"
