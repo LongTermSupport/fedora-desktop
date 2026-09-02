@@ -38,6 +38,30 @@ ccy-claude -p "summarise CHANGELOG.md in three bullets" --model haiku < /dev/nul
 that never comes, then warns and proceeds anyway. In a script, or anywhere without a
 terminal, that reads as a hang.
 
+### The trap that will actually catch you: the child inherits this project
+
+A child started in `/workspace` loads the whole project harness — `CLAUDE.md`, the hooks
+daemon and its handlers, session-start hooks, project skills and settings. That context can
+swamp a short prompt completely.
+
+It is not theoretical. The first real run of this feature's own functional test asked a
+child to reply with a one-word sentinel. The child authenticated perfectly and then replied
+about this repository's stop-hook rules, never producing the sentinel at all. Nothing was
+broken; the project's own instructions simply outweighed the question.
+
+So choose the working directory deliberately:
+
+```bash
+# A self-contained question — run it somewhere neutral.
+( cd "$(mktemp -d)" && ccy-claude -p "..." --model haiku < /dev/null )
+
+# Work ON this project — run it here, and expect the project's rules to apply.
+ccy-claude -p "..." --model haiku < /dev/null
+```
+
+If a child returns something confidently unrelated to what you asked, check the working
+directory before you suspect the prompt.
+
 Arguments reach `claude` **verbatim**. The wrapper adds nothing: no model, no settings file,
 and deliberately no `--dangerously-skip-permissions`. If a child needs a permission mode,
 pass it yourself and mean it. The wrapper will not widen a child's authority on your behalf.
