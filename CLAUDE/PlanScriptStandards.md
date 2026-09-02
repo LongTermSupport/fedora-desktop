@@ -148,6 +148,10 @@ up different — or missing — ones. Unlike lts-infra there is no wrapper scrip
 
 Both close stdin so ansible cannot drain the script's own stdin out from under a later prompt.
 
+A relative playbook path is resolved against `PLAN_REPO_ROOT`, never the cwd, so
+`plan_ansible_playbook playbooks/imports/foo.yml` works whether the operator runs
+`./deploy.bash` from the plan folder or by full path from anywhere else.
+
 ### R7 — Mode declaration and leg semantics
 
 Declare `plan_mode deploy` or `plan_mode gather` before the first leg; the wrong leg-runner

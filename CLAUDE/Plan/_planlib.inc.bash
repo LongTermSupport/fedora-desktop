@@ -133,7 +133,7 @@ if [[ -n "${PLANLIB_SOURCED:-}" ]]; then
     return 0
 fi
 
-PLANLIB_VERSION="1.1.0"
+PLANLIB_VERSION="1.1.1"
 PLANLIB_SOURCED=1
 export PLANLIB_VERSION
 
@@ -573,14 +573,21 @@ _plan_assert_change_allowed() {
 # vault_password_file are all RELATIVE paths, so running from anywhere else silently picks up
 # different (or missing) ones. Runs in a subshell so the caller's cwd is untouched, and with
 # stdin closed so ansible cannot drain the script's own stdin out from under a later prompt.
+#
+# A relative <playbook> is relative to the REPO ROOT, never to the cwd: the operator runs
+# ./deploy.bash from the plan folder, and the play must resolve the same from anywhere.
 plan_ansible_playbook() {
     local play="${1:?plan_ansible_playbook requires a playbook path}"
     shift
     if [[ -z "${PLAN_REPO_ROOT}" ]]; then
         _plan_err "plan_ansible_playbook called before plan_init" || return 1
     fi
-    if [[ ! -e "${play}" ]]; then
-        _plan_err "playbook not found: ${play}" || return 1
+    local resolved="${play}"
+    if [[ "${play}" != /* ]]; then
+        resolved="${PLAN_REPO_ROOT}/${play}"
+    fi
+    if [[ ! -e "${resolved}" ]]; then
+        _plan_err "playbook not found: ${resolved}" || return 1
     fi
     _plan_assert_change_allowed || return 1
     (

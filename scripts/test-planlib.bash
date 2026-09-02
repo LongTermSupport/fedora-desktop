@@ -326,6 +326,40 @@ run_capture plan_ansible_playbook "${TMPROOT}/no-such-play.yml"
 assert_eq "a missing playbook is refused before ansible is invoked" "1" "${RC}"
 assert_contains "the missing-playbook error names the path" "no-such-play.yml" "${OUT}"
 
+# A relative playbook path is relative to the REPO ROOT, whatever the cwd. Plan 00092's
+# deploy.bash passed playbooks/imports/play-claude-yolo.yml; run as ./deploy.bash from the
+# plan folder, the existence check looked in the plan folder and refused a play that was
+# there all along. A stub ansible-playbook on PATH proves the call reaches ansible from the
+# repo root with the path intact.
+mkdir -p "${TMPROOT}/f/repo/playbooks/imports" "${TMPROOT}/stub-bin"
+: >"${TMPROOT}/f/repo/playbooks/imports/relative-play.yml"
+cat >"${TMPROOT}/stub-bin/ansible-playbook" <<'EOF'
+#!/usr/bin/env bash
+printf 'STUB-ANSIBLE cwd=%s argv=%s\n' "${PWD}" "$*"
+EOF
+chmod 755 "${TMPROOT}/stub-bin/ansible-playbook"
+ORIG_PATH="${PATH}"
+PATH="${TMPROOT}/stub-bin:${PATH}"
+cd "${TMPROOT}/f/repo/CLAUDE/Plan/00007-init" || {
+    printf 'FATAL: could not enter the plan-folder fixture\n' >&2
+    exit 1
+}
+run_capture plan_ansible_playbook playbooks/imports/relative-play.yml
+assert_eq "a repo-relative playbook is found when the cwd is the plan folder" "0" "${RC}"
+assert_contains "the play runs from the repo root, not the plan folder" \
+    "cwd=${TMPROOT}/f/repo argv=" "${OUT}"
+assert_contains "the play path reaches ansible unchanged" \
+    "argv=playbooks/imports/relative-play.yml" "${OUT}"
+run_capture plan_ansible_playbook playbooks/imports/absent-play.yml
+assert_eq "a repo-relative playbook that is absent is still refused" "1" "${RC}"
+assert_contains "the refusal names where it looked, the repo root" \
+    "${TMPROOT}/f/repo/playbooks/imports/absent-play.yml" "${OUT}"
+cd "${REPO_ROOT}" || {
+    printf 'FATAL: could not return to the repo root\n' >&2
+    exit 1
+}
+PATH="${ORIG_PATH}"
+
 # In deploy mode nothing may reach ansible until the gate has passed — the backstop for a
 # script that forgets plan_gate_change.
 PLAY="${TMPROOT}/f/repo/CLAUDE/Plan/00007-init/play.yml"
