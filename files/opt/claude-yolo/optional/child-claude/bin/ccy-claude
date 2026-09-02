@@ -88,7 +88,15 @@ if [[ -z "${!TOKEN_VAR:-}" ]]; then
 
     # The value goes straight from the pipeline into the variable. It is never echoed, never
     # a positional parameter, and never reaches a temporary file.
-    recovered="$(tr '\0' '\n' </proc/1/environ | grep -m1 "^${TOKEN_VAR}=" | cut -d= -f2-)"
+    #
+    # The `|| recovered=""` is REQUIRED, and is not error hiding — it is what makes the
+    # error below reachable at all. `grep` exits 1 when the variable is absent, `pipefail`
+    # propagates that, and `set -e` then kills the script AT THE ASSIGNMENT — so every
+    # diagnostic underneath was dead code and the failure mode was a silent exit 1. Measured,
+    # not theorised. The empty case is classified and reported immediately below.
+    recovered=""
+    recovered="$(tr '\0' '\n' </proc/1/environ | grep -m1 "^${TOKEN_VAR}=" | cut -d= -f2-)" ||
+        recovered=""
 
     if [[ -z "${recovered}" ]]; then
         printf 'ccy-claude: PID 1 holds no %s.\n' "${TOKEN_VAR}" >&2

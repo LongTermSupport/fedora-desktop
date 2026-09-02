@@ -62,7 +62,12 @@ cleanup() {
 trap cleanup EXIT
 
 # The token, read the same way the probes read it, and never printed.
-TOKEN="$(tr '\0' '\n' </proc/1/environ | grep -m1 '^CLAUDE_CODE_OAUTH_TOKEN=' | cut -d= -f2-)"
+#
+# `|| TOKEN=""` is required, not error hiding: grep exits 1 when the variable is absent,
+# pipefail propagates it, and set -e would kill the script AT THE ASSIGNMENT, so the message
+# below would never print and the run would end as a bare exit 1.
+TOKEN="$(tr '\0' '\n' </proc/1/environ | grep -m1 '^CLAUDE_CODE_OAUTH_TOKEN=' | cut -d= -f2-)" ||
+    TOKEN=""
 if [[ -z "${TOKEN}" ]]; then
     printf '[FATAL] no CLAUDE_CODE_OAUTH_TOKEN in PID 1 — run this inside a CCY container.\n' >&2
     exit 1

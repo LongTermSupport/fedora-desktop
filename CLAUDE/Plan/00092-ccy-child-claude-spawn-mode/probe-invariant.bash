@@ -40,7 +40,11 @@ read_token() {
         printf '       Every check would pass vacuously. Refusing to report a vacuous pass.\n' >&2
         return 1
     fi
-    tok="$(tr '\0' '\n' </proc/1/environ | grep -m1 '^CLAUDE_CODE_OAUTH_TOKEN=' | cut -d= -f2-)"
+    # `|| tok=""` is required, not error hiding: grep exits 1 when the variable is absent,
+    # pipefail propagates it, and set -e would kill the probe AT THE ASSIGNMENT, making every
+    # message below unreachable. The empty case is classified and reported immediately.
+    tok="$(tr '\0' '\n' </proc/1/environ | grep -m1 '^CLAUDE_CODE_OAUTH_TOKEN=' | cut -d= -f2-)" ||
+        tok=""
     if [[ -z "${tok}" ]]; then
         printf '[FAIL] PID 1 holds no CLAUDE_CODE_OAUTH_TOKEN.\n' >&2
         printf '       Either this is not a CCY container, or it was launched without a token.\n' >&2
