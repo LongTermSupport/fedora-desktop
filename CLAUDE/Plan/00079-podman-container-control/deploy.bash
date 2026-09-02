@@ -74,7 +74,7 @@ echo "Logging this run to: $LOG" >&2
 
 # BOTH plays, in this order. podfreeze selects CCY sessions on labels the
 # LAUNCHER sets, so deploying the tool without the launcher would ship a
-# selector for labels no container carries — the exact shape of Plan 00072,
+# selector for labels no container carries — the exact shape of Plan 00099,
 # where the repo held the fix and the host ran the old build because the
 # deploy script ran only one of the two plays involved.
 PLAYS=(
