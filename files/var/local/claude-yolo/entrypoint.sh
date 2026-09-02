@@ -340,6 +340,72 @@ if [ -f "$_ccy_env_file" ]; then
     . "$_ccy_env_file"
 fi
 
+# ── Optional: child-claude spawn mode (Plan 00092) ────────────────────────────
+#
+# Opt-in per project with CCY_CHILD_CLAUDE=1 in the ccy.env sourced just above.
+# When on, a session gets `ccy-claude` on PATH and a skill telling the agent the
+# capability exists. When off, it gets neither.
+#
+# THIS MUST RUN AFTER the ccy.env source — the flag does not exist before it —
+# and therefore AFTER the unconditional skills install higher up. That ordering
+# is why the optional tree lives OUTSIDE /opt/claude-yolo/skills/: everything in
+# that directory is copied to every session, so an opt-in skill cannot live there.
+#
+# What this gate is, and is not: it decides whether the TOOLING and the GUIDANCE
+# are installed. It is not a security control and must never be described as one.
+# The agent runs as root and the token is in PID 1's environment, so anything
+# root can do here it could already do. See the plan's SECURITY-MODEL.md.
+_ccy_child_claude_src="/opt/claude-yolo/optional/child-claude"
+_ccy_child_claude_skill="/root/.claude/skills/child-claude"
+_ccy_child_claude_bin="/usr/local/bin/ccy-claude"
+
+case "${CCY_CHILD_CLAUDE:-}" in
+    1 | 0 | "") ;;
+    *)
+        # A typo silently disabling a feature the project asked for is a bad
+        # failure mode: the session looks fine and the capability is just absent.
+        echo "ERROR: CCY_CHILD_CLAUDE must be 1 or unset, got '$CCY_CHILD_CLAUDE'" >&2
+        echo "  Set it in $_ccy_env_file as: export CCY_CHILD_CLAUDE=1" >&2
+        exit 1
+        ;;
+esac
+
+if [ "${CCY_CHILD_CLAUDE:-}" = "1" ]; then
+    if [ ! -d "$_ccy_child_claude_src" ]; then
+        echo "ERROR: this project asked for child-claude mode, but the image does not ship it." >&2
+        echo "  Expected: $_ccy_child_claude_src" >&2
+        echo "  The image predates the feature. Rebuild it: ccy --rebuild" >&2
+        echo "  Refusing to start rather than run without the tooling the project asked for." >&2
+        exit 1
+    fi
+
+    ln -sf "$_ccy_child_claude_src/bin/ccy-claude" "$_ccy_child_claude_bin"
+
+    # Replaced wholesale, not merged, so a rebuilt image always delivers current
+    # guidance — same reasoning as the unconditional skills install above.
+    rm -rf "$_ccy_child_claude_skill"
+    cp -r "$_ccy_child_claude_src/skills/child-claude" "$_ccy_child_claude_skill"
+
+    # Exported so the wrapper and the plan's acceptance script see them. A value
+    # set in ccy.env without `export` would not survive the exec into claude.
+    export CCY_CHILD_CLAUDE
+    export CCY_CHILD_CLAUDE_MAX_DEPTH="${CCY_CHILD_CLAUDE_MAX_DEPTH:-1}"
+
+    echo "✓ child-claude mode ON: ccy-claude on PATH, skill installed, max depth $CCY_CHILD_CLAUDE_MAX_DEPTH" >&2
+else
+    # The removal is the whole reason this branch exists. /root/.claude is a
+    # symlink to /workspace/.claude/ccy, so the skills directory is HOST-PERSISTED
+    # across containers — a skill installed by an earlier enabled session would
+    # otherwise still be there, and the mode could be turned on but never off.
+    #
+    # Only the skill needs this. The PATH symlink lives on the container's own
+    # filesystem, which is discarded on every run (`podman run --rm`).
+    if [ -e "$_ccy_child_claude_skill" ]; then
+        rm -rf "$_ccy_child_claude_skill"
+        echo "child-claude mode off: removed the skill left by an earlier session" >&2
+    fi
+fi
+
 # ── Supervisor wrap: DEFAULT ON when the project ships a supervisor ───────────
 #
 # Precedence, highest first:

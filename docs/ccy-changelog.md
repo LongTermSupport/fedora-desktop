@@ -17,6 +17,41 @@ Two version numbers move independently — see
 
 ---
 
+## 3.46.0
+
+**Opt-in child-claude spawn mode** (container image 2.29).
+
+Claude Code removes `CLAUDE_CODE_OAUTH_TOKEN` from the environment it hands to Bash
+subprocesses, so a child `claude` launched from an agent's shell answers `Not logged in`.
+Comparing PID 1's environment against the Bash-tool shell inside a container, exactly two
+names are missing: that one, and `GH_TOKEN`, which the entrypoint unsets itself after
+`gh auth login`. Everything else CCY passes survives.
+
+A project now opts in with one line in its tracked `.claude/ccy/ccy.env`:
+
+```bash
+export CCY_CHILD_CLAUDE=1
+```
+
+The entrypoint then installs `ccy-claude` onto `PATH` and a `child-claude` skill into the
+session, and **removes that skill again** when the flag is absent. The removal is not a
+nicety: `/root/.claude` is a symlink to `/workspace/.claude/ccy`, so the skills directory
+persists across containers, and without it the mode could be switched on but never off.
+`CCY_CHILD_CLAUDE_MAX_DEPTH` (default 1) bounds how deep the spawn tree may go.
+
+`ccy-claude` recovers the token from `/proc/1/environ` and passes arguments through
+verbatim. It injects nothing — no model, no settings file, and deliberately no
+`--dangerously-skip-permissions`. Two easier designs were rejected for making the
+credential easier to touch by accident: putting it in `settings.json`'s `env` key writes it
+into the host-mounted project tree, and aliasing it to an unscrubbed variable name exposes
+it to every command in the session.
+
+This adds no security boundary and does not claim one. Inside CCY the agent is already root
+and `/proc/1/environ` is already readable, so the credential scrub is accident prevention
+rather than a control. The design goal was to add no new exposure surface, stated as seven
+invariants with an executable gate in
+`CLAUDE/Plan/00092-ccy-child-claude-spawn-mode/`.
+
 ## 3.45.1
 
 **`.claude/ccy/CLAUDE.md` and `README.md` no longer trip the tracked-files security gate**

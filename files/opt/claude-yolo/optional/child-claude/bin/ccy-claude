@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+# ccy-claude — run a child `claude` with this CCY session's own credential attached.
+#
+# Installed onto PATH by entrypoint.sh ONLY when a project opts in with
+# CCY_CHILD_CLAUDE=1 in /workspace/.claude/ccy/ccy.env. See Plan 00092.
+#
+# WHY THIS EXISTS
+#
+# Claude Code removes CLAUDE_CODE_OAUTH_TOKEN from the environment it hands to Bash
+# subprocesses, so a child `claude` launched from an agent's shell answers
+# "Not logged in · Please run /login". Measured in a CCY container: comparing PID 1's
+# environment against the Bash-tool shell, exactly two names are missing — that one, and
+# GH_TOKEN, which entrypoint.sh unsets itself after `gh auth login`. Everything else CCY
+# passes survives, so the removal is by name and specific to the credential.
+#
+# WHY IT READS /proc/1/environ
+#
+# That is where the token already is: claude-yolo passes `-e CLAUDE_CODE_OAUTH_TOKEN` to
+# `podman run`, so PID 1 holds it, and this container runs as root. Two alternatives were
+# rejected in Plan 00092 for making the credential EASIER TO TOUCH BY ACCIDENT, which is the
+# real risk here:
+#
+#   * the `env` key in settings.json — /root/.claude is a symlink to /workspace/.claude/ccy,
+#     the HOST MOUNT, so that writes a live credential into the user's real project tree;
+#   * a second variable under a name Claude Code does not scrub — inherited by every command
+#     in the session, one `env` away from any output the agent produces.
+#
+# Reading it here keeps the value inside one short-lived process whose arguments the agent
+# does not compose. It is NOT a security boundary and this file does not pretend to be one:
+# an agent running as root can read /proc/1/environ directly, today, with or without this
+# script. What this buys is that using the feature normally leaks nothing.
+#
+# THE RULE THIS FILE OBEYS: the token is never printed, never placed in an argument, and
+# never written to a file. Diagnostics name the variable, never its value.
+set -euo pipefail
+
+readonly TOKEN_VAR="CLAUDE_CODE_OAUTH_TOKEN"
+
+# ── depth bound ───────────────────────────────────────────────────────────────────────────
+#
+# A child gets its own Bash tool and could run this script again. CCY_CLAUDE_DEPTH is an
+# ordinary variable, so — unlike the credential — it IS inherited all the way down, which is
+# what makes the count reliable rather than advisory.
+#
+# The parent session is depth 0. Default max 1 means "the session may spawn children, and
+# those children may not spawn their own". Raise it deliberately in ccy.env if a workflow
+# genuinely needs a deeper tree, remembering that every level multiplies quota spend.
+depth="${CCY_CLAUDE_DEPTH:-0}"
+maxDepth="${CCY_CHILD_CLAUDE_MAX_DEPTH:-1}"
+
+if [[ ! "${depth}" =~ ^[0-9]+$ ]]; then
+    printf 'ccy-claude: CCY_CLAUDE_DEPTH is not a number: %s\n' "${depth}" >&2
+    printf '  Refusing rather than guessing — an unparsable depth is an unbounded one.\n' >&2
+    exit 1
+fi
+if [[ ! "${maxDepth}" =~ ^[0-9]+$ ]]; then
+    printf 'ccy-claude: CCY_CHILD_CLAUDE_MAX_DEPTH is not a number: %s\n' "${maxDepth}" >&2
+    exit 1
+fi
+
+if [[ "${depth}" -ge "${maxDepth}" ]]; then
+    printf 'ccy-claude: refusing to spawn — already at depth %s of a maximum depth of %s.\n' \
+        "${depth}" "${maxDepth}" >&2
+    printf '  This process is itself a child claude, and nesting further is bounded so a\n' >&2
+    printf '  runaway tree cannot spend the whole subscription.\n' >&2
+    printf '  Raise CCY_CHILD_CLAUDE_MAX_DEPTH in /workspace/.claude/ccy/ccy.env if a\n' >&2
+    printf '  deeper tree is genuinely wanted.\n' >&2
+    exit 1
+fi
+
+if ! command -v claude >/dev/null; then
+    printf 'ccy-claude: no claude executable on PATH, so there is nothing to launch.\n' >&2
+    exit 1
+fi
+
+# ── credential ────────────────────────────────────────────────────────────────────────────
+#
+# An already-set value wins and is passed through untouched: a caller that deliberately
+# supplied its own credential means it, and silently replacing it would be the wrapper making
+# a decision that is not its to make.
+if [[ -z "${!TOKEN_VAR:-}" ]]; then
+    if [[ ! -r /proc/1/environ ]]; then
+        printf 'ccy-claude: cannot read /proc/1/environ, so the session credential cannot be found.\n' >&2
+        printf '  Expected inside a CCY container running as root. Set %s yourself\n' "${TOKEN_VAR}" >&2
+        printf '  if you are launching this some other way.\n' >&2
+        exit 1
+    fi
+
+    # The value goes straight from the pipeline into the variable. It is never echoed, never
+    # a positional parameter, and never reaches a temporary file.
+    recovered="$(tr '\0' '\n' </proc/1/environ | grep -m1 "^${TOKEN_VAR}=" | cut -d= -f2-)"
+
+    if [[ -z "${recovered}" ]]; then
+        printf 'ccy-claude: PID 1 holds no %s.\n' "${TOKEN_VAR}" >&2
+        printf '  Either this is not a CCY container, or it was started without a token.\n' >&2
+        printf '  CCY container mode always passes one, via claude-yolo -e %s;\n' "${TOKEN_VAR}" >&2
+        printf '  the Desktop OAuth fallback is host mode only and does not apply here.\n' >&2
+        exit 1
+    fi
+
+    export "${TOKEN_VAR}=${recovered}"
+    unset recovered
+fi
+
+export CCY_CLAUDE_DEPTH="$((depth + 1))"
+
+# Arguments pass through VERBATIM. Nothing is added — no permission mode, no model, no
+# settings file. Injecting `--dangerously-skip-permissions` here would be convenient and
+# would silently widen what every child may do, which is the one thing Plan 00092 forbids.
+# Whatever the caller wants, the caller passes.
+exec claude "$@"

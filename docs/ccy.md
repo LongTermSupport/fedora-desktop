@@ -549,6 +549,36 @@ Two properties matter:
   `ccy --supervise`, overrides the project default; an empty value falls through to the
   project's.
 
+#### `CCY_CHILD_CLAUDE` — let a session spawn child `claude` processes
+
+Off unless a project asks for it:
+
+```bash
+# .claude/ccy/ccy.env
+export CCY_CHILD_CLAUDE=1
+export CCY_CHILD_CLAUDE_MAX_DEPTH=1   # optional; a child may not spawn its own child
+```
+
+Claude Code strips `CLAUDE_CODE_OAUTH_TOKEN` from the environment it gives Bash
+subprocesses, so a child `claude` launched from an agent's shell answers `Not logged in`.
+With this flag set, the entrypoint puts a `ccy-claude` wrapper on `PATH` that reattaches
+the session's own credential, plus a `child-claude` skill telling the agent the capability
+exists and when the `Agent` tool is the better choice.
+
+Arguments pass through to `claude` verbatim. The wrapper injects nothing — no model, no
+settings file, and deliberately no `--dangerously-skip-permissions`.
+
+Removing the line genuinely turns it off: the entrypoint deletes the skill it installed.
+That step matters because `/root/.claude` is a symlink to `/workspace/.claude/ccy`, so
+session state persists across containers and a stale skill would otherwise linger.
+
+**This adds no security boundary and does not claim one.** Inside CCY the agent already
+runs as root and the token is already in PID 1's environment, so the credential scrub is
+accident prevention rather than a control. The design goal was to add no new exposure
+surface: no copy on disk, none in a command line, none in an inherited variable. The
+reasoning and the executable gate are in
+[`CLAUDE/Plan/00092-ccy-child-claude-spawn-mode/`](../CLAUDE/Plan/00092-ccy-child-claude-spawn-mode/SECURITY-MODEL.md).
+
 ### 3. `allowed-hostnames` — restricting where CCY can run
 
 Optional. If the file does not exist, CCY runs anywhere. If it exists, the current

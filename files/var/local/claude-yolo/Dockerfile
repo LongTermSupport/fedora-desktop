@@ -33,7 +33,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.28"
+LABEL claude-yolo-version="2.29"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 # NOTE: the claude-yolo-dockerfile-hash LABEL is set at the END of the final `full` stage
 # (PERF-02) so a Dockerfile edit — which changes DOCKERFILE_HASH — only invalidates that
@@ -269,6 +269,17 @@ RUN chmod 444 /opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt \
 # could ever load it. The entrypoint installs it after the symlink exists, the same way
 # the PHPantom plugin is handled.
 COPY skills/browsing/ /opt/claude-yolo/skills/browsing/
+
+# OPT-IN tooling, staged outside skills/ on purpose (Plan 00092).
+#
+# entrypoint.sh copies everything under /opt/claude-yolo/skills/ into every session
+# unconditionally, so a skill that must ship only when a project asks for it cannot
+# live there. This tree is installed by the entrypoint only when the project sets
+# CCY_CHILD_CLAUDE=1 in its ccy.env, and actively REMOVED when it does not — the
+# session skills directory is host-persisted, so without the removal the mode could
+# be switched on but never off.
+COPY optional/ /opt/claude-yolo/optional/
+RUN chmod 755 /opt/claude-yolo/optional/child-claude/bin/ccy-claude
 
 # Set workspace directory
 WORKDIR /workspace

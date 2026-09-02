@@ -97,6 +97,11 @@ handlers:
         # allowed_markdown_paths in hooks-daemon v3.19.0.
         extra_allowed_markdown_paths:
           - "^files/opt/claude-yolo/skills/.*\\.md$"  # Container-deployed skill docs
+          # Opt-in skills, staged in the image but installed only when a project
+          # asks for them in its ccy.env. They live OUTSIDE skills/ on purpose:
+          # entrypoint.sh copies that directory unconditionally, so anything in it
+          # ships to every session. See Plan 00092.
+          - "^files/opt/claude-yolo/optional/.*\\.md$"
 
     lsp_enforcement: {enabled: true, priority: 38}          # Steer toward LSP tools instead of Grep
 

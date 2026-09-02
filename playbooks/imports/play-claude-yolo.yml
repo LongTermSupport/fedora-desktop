@@ -204,6 +204,48 @@
         - scripts
         - skills
 
+    - name: Create Optional Child-Claude Directories in Docker Build Context
+      become: true
+      ansible.builtin.file:
+        path: "/opt/claude-yolo/optional/child-claude/{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      loop:
+        - bin
+        - skills/child-claude
+      tags:
+        - scripts
+        - skills
+
+    # Staged OUTSIDE /opt/claude-yolo/skills/ deliberately. The entrypoint copies
+    # that directory into every session unconditionally, so opt-in content cannot
+    # live there. See CLAUDE/Plan/00092-ccy-child-claude-spawn-mode/.
+    - name: Copy Optional Child-Claude Wrapper into Docker Build Context
+      become: true
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/opt/claude-yolo/optional/child-claude/bin/ccy-claude"
+        dest: /opt/claude-yolo/optional/child-claude/bin/ccy-claude
+        owner: root
+        group: root
+        mode: "0755"
+      tags:
+        - scripts
+        - skills
+
+    - name: Copy Optional Child-Claude Skill into Docker Build Context
+      become: true
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/opt/claude-yolo/optional/child-claude/skills/child-claude/SKILL.md"
+        dest: /opt/claude-yolo/optional/child-claude/skills/child-claude/SKILL.md
+        owner: root
+        group: root
+        mode: "0644"
+      tags:
+        - scripts
+        - skills
+
     - name: Remove Obsolete Browsing Skill Files from Docker Build Context
       become: true
       ansible.builtin.file:

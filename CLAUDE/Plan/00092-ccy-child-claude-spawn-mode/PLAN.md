@@ -109,58 +109,67 @@ touches in-container child processes.
 
 ### Phase 2: The wrapper
 
-- [ ] ⬜ **Task 2.1**: Write `files/opt/claude-yolo/optional/bin/ccy-claude`.
-  Behaviour: honour an already-set `CLAUDE_CODE_OAUTH_TOKEN`; otherwise recover
-  it from `/proc/1/environ`; fail fast with a named cause when absent; enforce
+- [x] ✅ **Task 2.1**: `files/opt/claude-yolo/optional/child-claude/bin/ccy-claude`.
+  Honours an already-set `CLAUDE_CODE_OAUTH_TOKEN`; otherwise recovers it from
+  `/proc/1/environ`; fails fast with a named cause when absent; enforces
   `CCY_CLAUDE_DEPTH` against `CCY_CHILD_CLAUDE_MAX_DEPTH`; `exec claude "$@"`.
-- [ ] ⬜ **Task 2.2**: Diagnostics to stderr, per StderrHygiene — the child's own
-  stdout is the payload and must stay clean for `$(capture)` and `jq`.
-- [ ] ⬜ **Task 2.3**: Confirm the token never reaches stdout, stderr, argv, or a
-  file, by probe rather than by reading the script.
+- [x] ✅ **Task 2.2**: Diagnostics to stderr, silent on success, so the child's
+  stdout stays a clean payload for `$(capture)` and `jq`.
+- [x] ✅ **Task 2.3**: Verified against a stub `claude` reporting its own argv:
+  arguments verbatim, credential delivered, depth incremented, refusal at the
+  limit and on a non-numeric depth. No token on any stream.
 
 ### Phase 3: The skill
 
-- [ ] ⬜ **Task 3.1**: Write `files/opt/claude-yolo/optional-skills/child-claude/SKILL.md`
-  modelled on the `browsing` skill: frontmatter `name`/`description`/`allowed-tools`,
-  an announce line, and when **not** to use it.
-- [ ] ⬜ **Task 3.2**: Document the real traps: the child needs `< /dev/null` or it
-  waits on stdin; the child spends the same subscription quota as the parent;
-  the child's transcripts land in the host-mounted project directory; the
-  `Agent` tool is the right choice for most in-session work.
+- [x] ✅ **Task 3.1**: `files/opt/claude-yolo/optional/child-claude/skills/child-claude/SKILL.md`,
+  modelled on the `browsing` skill. Leads with when **not** to use it, because a
+  child process is a worse subagent than the `Agent` tool.
+- [x] ✅ **Task 3.2**: Traps documented: stdin needs `< /dev/null`; quota is shared;
+  transcripts land in the host-mounted project directory; depth is bounded; and
+  the one rule, never trace a command that touches the token.
 
 ### Phase 4: Entrypoint wiring
 
-- [ ] ⬜ **Task 4.1**: Move the conditional install **after** the `ccy.env` source
-  in `entrypoint.sh`. The unconditional `/opt/claude-yolo/skills/` copy stays
-  where it is; only the optional tree is gated.
-- [ ] ⬜ **Task 4.2**: When enabled: symlink the wrapper onto `PATH` and copy the
-  optional skill into `/root/.claude/skills/`. Announce it on stderr.
-- [ ] ⬜ **Task 4.3**: When **not** enabled: actively remove a previously installed
-  optional skill from the host-persisted skills directory. This is the
-  idempotency requirement, not a nicety — without it the mode cannot be turned
-  off. Never remove `/root/.claude/skills/browsing` or unrelated user content.
-- [ ] ⬜ **Task 4.4**: Fail fast if the flag is set but the image lacks the optional
-  tree, naming the version mismatch. Do not silently run without the tooling.
+- [x] ✅ **Task 4.1**: Conditional install placed **after** the `ccy.env` source.
+  The unconditional `/opt/claude-yolo/skills/` copy is untouched; only the
+  separate `optional/` tree is gated.
+- [x] ✅ **Task 4.2**: Enabled path symlinks the wrapper onto `PATH`, replaces the
+  skill wholesale, exports both flags so they survive the `exec`, and announces.
+- [x] ✅ **Task 4.3**: Disabled path removes the skill an earlier session left in
+  the host-persisted directory. Only that one path is touched, by exact name.
+- [x] ✅ **Task 4.4**: Refuses to start when the flag is set but the image lacks
+  the tree, naming `ccy --rebuild`. A malformed flag value is also rejected
+  rather than silently read as off.
 
 ### Phase 5: Ship it through IaC
 
-- [ ] ⬜ **Task 5.1**: Add copy tasks to `playbooks/imports/play-claude-yolo.yml`
-  for the new build-context files, following the existing skills pattern
-  including the stale-file removal task.
-- [ ] ⬜ **Task 5.2**: Add the `COPY` lines to `files/var/local/claude-yolo/Dockerfile`.
-- [ ] ⬜ **Task 5.3**: Bump `LABEL claude-yolo-version` in the Dockerfile **and**
-  `REQUIRED_CONTAINER_VERSION` in `claude-yolo` to the same new value; the
-  image changed, so a running container must be rebuilt.
-- [ ] ⬜ **Task 5.4**: Bump `CCY_VERSION` only if the launcher itself changes.
-  Confirm whether it does; if not, record why no bump was needed.
-- [ ] ⬜ **Task 5.5**: Add a commented, disabled example line to this project's own
-  `.claude/ccy/ccy.env` so the option is discoverable where it is set.
+- [x] ✅ **Task 5.1**: Copy tasks added to `playbooks/imports/play-claude-yolo.yml`,
+  following the existing skills pattern.
+- [x] ✅ **Task 5.2**: `COPY optional/` added to the Dockerfile, with the wrapper
+  made executable in the image.
+- [x] ✅ **Task 5.3**: `LABEL claude-yolo-version` and `REQUIRED_CONTAINER_VERSION`
+  both 2.28 → 2.29. Image content changed, so a rebuild is forced.
+- [x] ✅ **Task 5.4**: `CCY_VERSION` 3.45.1 → 3.46.0. The launcher **did** change,
+  because `REQUIRED_CONTAINER_VERSION` lives in it. Changelog entry added.
+- [x] ✅ **Task 5.5**: Commented, disabled example added to this project's own
+  `.claude/ccy/ccy.env`, so the option is discoverable where it is set.
 
 ### Phase 6: Verify and review
 
-- [ ] ⬜ **Task 6.1**: Run `./scripts/qa-all.bash` and fix every finding.
-- [ ] ⬜ **Task 6.2**: Update `docs/` and `CLAUDE/ContainerRules.md` for the new
-  option. One owner for the fact, links from elsewhere.
+- [x] ✅ **Task 6.1**: `./scripts/qa-all.bash` passes, 640 files.
+  - [x] ✅ Fixed a QA gate defect found on the way: `qa-all.bash` was **not
+    idempotent**. Its own ansible-syntax stage installs Galaxy collections into
+    the gitignored `.ansible/`, and only `.ansible/roles` was excluded from
+    discovery, so the second consecutive run failed on vendored upstream
+    fixtures. Committed separately as 9ab5d6b.
+  - [x] ✅ Fixed a second gate defect: the pre-commit secret scanner matched
+    private tokens by bare substring, so a 5-character identity token matched
+    inside a company name this repo already documents, and every commit touching
+    two tracked files was rejected with no way to comply. Now word-boundary
+    matching with a 15-case test suite. Committed separately as 3956584.
+- [x] ✅ **Task 6.2**: `docs/ccy.md` gains a `CCY_CHILD_CLAUDE` subsection under
+  per-project configuration, which is where `ccy.env` options already live, plus
+  a `docs/ccy-changelog.md` entry for 3.46.0.
 - [ ] ⬜ **Task 6.3**: Run the `qa-reviewer` agent over the full plan diff and
   resolve every BLOCK and FIX-BEFORE-MERGE finding. Required, not optional.
 - [ ] ⬜ **Task 6.4**: (On HOST, not in CCY) run `play-claude-yolo.yml`, rebuild the
