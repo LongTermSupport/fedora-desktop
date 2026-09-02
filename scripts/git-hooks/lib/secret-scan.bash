@@ -277,7 +277,18 @@ hook_scan_text_for_private() {
         if [ -n "${seen[$field]:-}" ]; then
             continue
         fi
-        if printf '%s' "$text" | grep -qF -- "$token"; then
+        # -w, not a bare substring match. A short identity token matches inside longer,
+        # unrelated words otherwise, and that is not theoretical: a 5-character
+        # lastpass_accounts entry matched inside a company name that this repo already
+        # documents in CLAUDE/PlanScriptStandards.md and CLAUDE/Plan/_planlib.inc.bash, so
+        # every commit touching either tracked file was rejected with no way to comply.
+        #
+        # A gate that cannot be satisfied gets bypassed with --no-verify, which is strictly
+        # worse than a gate that is precise. -w keeps every real case: an identity value in
+        # YAML, in a path, in a URL, or in an email is always bounded by a non-word character.
+        # What it gives up is a token glued INSIDE a longer word with no boundary, which is
+        # not a shape leaked identifiers take.
+        if printf '%s' "$text" | grep -qwF -- "$token"; then
             seen[$field]=1
             printf '%s\n' "$field"
         fi

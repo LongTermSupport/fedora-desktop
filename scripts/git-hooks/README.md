@@ -58,7 +58,23 @@ git commit --no-verify
 
 ## Testing Hooks
 
-Test that hooks are working:
+The scanner library has a unit suite. Run it whenever `lib/secret-scan.bash` is touched —
+like `test-planlib.bash`, it is deliberately not part of `qa-all.bash`:
+
+```bash
+./scripts/test-secret-scan.bash
+```
+
+Every value in it is synthetic, because the real denylist is built from a gitignored file
+holding the owner's actual identifiers and this repository is public.
+
+It pins one regression in particular. Matching used to be a bare substring test, so a short
+identity token matched inside longer unrelated words, and commits touching files that
+legitimately contain such a word were rejected with no way to comply. Matching is now
+word-boundary (`grep -qwF`), and the suite asserts both that the false positive is gone and
+that every shape a leaked identifier actually takes is still caught.
+
+Test that the hooks themselves are wired up:
 
 ```bash
 # Test that private email domains are blocked (.dev, .internal, .corp, .local):
