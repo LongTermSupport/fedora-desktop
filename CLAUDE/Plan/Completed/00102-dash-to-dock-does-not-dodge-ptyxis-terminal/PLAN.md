@@ -1,6 +1,6 @@
 # Plan 00102: Dash to Dock does not dodge the Ptyxis terminal
 
-**Status**: In Progress
+**Status**: Complete (2026-09-03)
 **Created**: 2026-09-03
 **Owner**: joseph
 **Priority**: Medium
@@ -102,7 +102,7 @@ grounds that hypothesis with triage on the host, then fixes it in Ansible.
 ### Phase 3: Deploy and verify
 
 - [x] ✅ **Task 3.1**: User runs the play on the host (`deploy.bash`).
-- [ ] 🔄 **Task 3.2** (visual check confirmed; `acceptance.bash` and the idempotence re-run still owed): `acceptance.bash` reads the key back and the user
+- [x] ✅ **Task 3.2**: `acceptance.bash` reads the key back and the user
   confirms an un-maximised Ptyxis window overlapping the dock hides it.
 - [x] ✅ **Task 3.3**: `qa-reviewer` agent as the final step. Verdict fix-before-merge;
   all findings applied, except the acceptance run which Task 3.2 now carries.
@@ -135,11 +135,11 @@ extensions play already carries the Space Bar setting for the same reason.
 ## Success Criteria
 
 - [x] `triage.bash` output names the surviving hypothesis in the journal.
-- [ ] `gsettings get org.gnome.shell.extensions.dash-to-dock intellihide-mode`
+- [x] `gsettings get org.gnome.shell.extensions.dash-to-dock intellihide-mode`
   returns `'ALL_WINDOWS'` after the play runs (`acceptance.bash`), and the play
   is idempotent on a second run (`deploy.bash` again, dconf task reports ok).
 - [x] User confirms the dock hides behind an un-maximised terminal.
-- [ ] QA passes (`./scripts/qa-all.bash`) and `qa-reviewer` has reviewed.
+- [x] QA passes (`./scripts/qa-all.bash`) and `qa-reviewer` has reviewed.
 
 ## Risks & Mitigations
 
@@ -157,4 +157,5 @@ extensions play already carries the Space Bar setting for the same reason.
 
 - Plan and triage script committed: ddbd8ce
 - Triage run on the host; Ansible fix, docs, deploy and acceptance scripts committed: 6dd64e2
-- Deployed on the host and confirmed by the operator; qa-reviewer findings applied.
+- Deployed on the host and confirmed by the operator; qa-reviewer findings applied: e586fd0
+- Acceptance gate passed and second deploy idempotent; plan archived.

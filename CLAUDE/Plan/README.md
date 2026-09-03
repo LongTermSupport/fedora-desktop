@@ -34,8 +34,6 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
-- [00102-dash-to-dock-does-not-dodge-ptyxis-terminal](00102-dash-to-dock-does-not-dodge-ptyxis-terminal/) - Dash to Dock stays on top of an un-maximised Ptyxis window while every other window hides it; triage the window-tracker cause on the host, then set `intellihide-mode` through Ansible
-
 - [00093-ccy-version-gate-covers-two-files-of-eight](00093-ccy-version-gate-covers-two-files-of-eight/) - The pre-commit CCY bump gate misses `entrypoint.sh`, the Dockerfile and all of `files/opt/claude-yolo/`; widen it and test it
 
 - [00092-ccy-child-claude-spawn-mode](00092-ccy-child-claude-spawn-mode/) - Opt-in `ccy.env` mode letting a CCY session spawn authenticated child `claude` processes, with no new token exposure
@@ -155,6 +153,8 @@ Use these Unicode icons in plan documents:
 - [00074-grub-cgroup-check-reports-absence-it-cannot-prove](00074-grub-cgroup-check-reports-absence-it-cannot-prove/) - `run.bash`'s legacy-grub cgroup step now distinguishes a failing `grubby` from a genuine negative and aborts on a proven failure instead of continuing
 
 ## Completed Plans
+
+- [00102-dash-to-dock-does-not-dodge-ptyxis-terminal](Completed/00102-dash-to-dock-does-not-dodge-ptyxis-terminal/) - Dash to Dock stayed on top of an un-maximised Ptyxis window; `intellihide-mode` is now `ALL_WINDOWS` via `play-gnome-shell-extensions.yml`, deployed and accepted on the host
 
 - [00091-podman-first-docker-optional](Completed/00091-podman-first-docker-optional/) - Demoted rootful Docker from core to an optional playbook (podman-first); merged via PR #42
 
