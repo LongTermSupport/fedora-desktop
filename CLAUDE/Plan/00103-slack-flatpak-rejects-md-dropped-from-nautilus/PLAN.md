@@ -51,7 +51,7 @@ it in the playbook that owns Slack, never by hand.
 
 | ID  | Hypothesis                                                                                                                               | Confirmed by                                                                                                          | Refuted by                                                              |
 | --- | ---------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| H1  | The dropped path lies outside the filesystems granted to the sandbox, so Chromium gets a name it cannot open and reports an untyped file | `--file` probe shows the path is unreadable inside the sandbox while readable on the host                             | the path reads fine inside the sandbox                                  |
+| H1  | The dropped path lies outside the filesystems granted to the sandbox, so Chromium gets a name it cannot open and reports an untyped file | the sandbox stat probe fails on the path while the host stat succeeds                                                 | the path reads fine inside the sandbox                                  |
 | H2  | The sandbox runtime cannot map `.md` to a MIME type, so `File.type` is empty and Slack rejects it                                        | sandbox `globs2` has no `*.md` entry, or in-sandbox `xdg-mime`/`file` returns nothing for it, while the host types it | sandbox and host both report `text/markdown`                            |
 | H3  | The workspace admin has restricted uploadable file types; nothing on the machine is wrong                                                | uploading the same file through the paperclip picker fails with the same message                                      | the paperclip upload succeeds (recorded as a manual observation, below) |
 | H4  | Slack runs under XWayland and the GTK4 to X11 drop payload is degraded                                                                   | the running Slack process has `--ozone-platform=x11` or no Wayland socket is granted                                  | process runs on Wayland with the `wayland` socket granted               |
@@ -60,7 +60,7 @@ it in the playbook that owns Slack, never by hand.
 
 Record these in the journal alongside the triage report:
 
-1. Does the same `.md` upload via the paperclip / "Upload from your computer" picker?
+1. Does `sample-drop.md` (the fixture next to `triage.bash`, the file the probes test by default) upload via the paperclip / "Upload from your computer" picker?
 2. Does a `.png` or `.pdf` dropped from Nautilus the same way upload?
 3. Does copying the file in Nautilus (Ctrl+C) and pasting into the message box work?
 
@@ -69,7 +69,7 @@ Record these in the journal alongside the triage report:
 ### Phase 1: Triage
 
 - [x] ✅ **Task 1.1**: Write `triage.bash` + `probe-slack.bash` (planlib gather mode, host-only, read-only)
-- [ ] ⬜ **Task 1.2**: Operator runs `triage.bash --file <the .md>` on the host and records the three manual observations
+- [ ] ⬜ **Task 1.2**: Operator runs `triage.bash` on the host, drags `sample-drop.md` from Nautilus into Slack, and records the three manual observations
 - [ ] ⬜ **Task 1.3**: Read the report; mark each hypothesis confirmed or refuted in the journal
 
 ### Phase 2: Fix (shape depends on Phase 1)
