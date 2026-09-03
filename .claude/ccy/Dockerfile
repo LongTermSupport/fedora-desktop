@@ -22,7 +22,14 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         curl \
         openssh-client \
         gnupg2 \
+        python3-pytest \
+        python3-numpy \
+        python3-pil \
     && rm -rf /var/lib/apt/lists/*
+
+# python3-pytest, python3-numpy and python3-pil exist for tests/clip_scan/,
+# the one test tree in this repo that is not stdlib-only (helpers/ tests are,
+# by rule). Run it with: python3 -m pytest tests/clip_scan -q
 
 # Ensure pipx binaries are in PATH
 ENV PATH="/root/.local/bin:${PATH}"

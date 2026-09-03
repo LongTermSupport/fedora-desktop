@@ -38,6 +38,21 @@
 
 **REMEMBER: In CCY container = EDIT ONLY, DEPLOY ON HOST**
 
+### Where a Missing Tool Goes
+
+You are root in the container, so a tool you need right now can be installed
+directly (`apt-get update && apt-get install ...`) and used immediately. That
+install dies with the container, so make it permanent in the same commit:
+
+- **This project's image**: `.claude/ccy/Dockerfile` at the repo root. Anything only
+  fedora-desktop needs (a test dependency, a language runtime, a linter) goes here.
+- **The base image**: `files/var/local/claude-yolo/Dockerfile`. Only tooling useful in
+  **every** project that runs ccy. Adding a project-specific package here forces a
+  rebuild on every ccy user and needs a container version bump.
+
+`tests/clip_scan/` is the worked example: its pytest, numpy and Pillow live in the
+project Dockerfile, not the base image.
+
 ---
 
 ## CCY Version Bump Requirement

@@ -17,15 +17,23 @@ Two version numbers move independently — see
 
 ---
 
+## 3.46.3
+
+**Container drops numpy and pytest again** (container image 2.32).
+
+3.46.2 put a single project's test dependency into the base image that every
+project inherits. That was the wrong layer: a repo-specific tool belongs in that
+repo's `.claude/ccy/Dockerfile`, which is where fedora-desktop now installs
+`python3-pytest`, `python3-numpy` and `python3-pil` for its `tests/clip_scan/`
+suite. The base image is back to its 2.30 package set.
+
 ## 3.46.2
 
 **Container gains numpy and pytest** (container image 2.31).
 
 `tests/clip_scan/` needs numpy and pytest, which the image never carried, so the
 clip-scan suite could not run inside CCY and Plan 00040 could only cite a May result
-from a throwaway venv. Both now come from apt. `qa-helper-tests.bash` still scopes to
-the stdlib-only `tests/helpers/` by design; run the clip-scan suite directly with
-`python3 -m pytest tests/clip_scan -q`.
+from a throwaway venv. Both now come from apt. Superseded by 3.46.3.
 
 ## 3.46.1
 

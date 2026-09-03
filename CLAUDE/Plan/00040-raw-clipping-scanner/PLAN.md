@@ -129,7 +129,7 @@ Questions and their proposed answers are in [DECISIONS.md](DECISIONS.md#decision
 ### Phase 8: QA
 
 - [x] ✅ `./scripts/qa-all.bash` clean (run in the container on 2026-09-02 against commit 03ccaaf5: bash, python, ansible-syntax, docs, helper-tests all green)
-- [ ] 🔄 Run `python3 -m pytest tests/clip_scan -q` inside CCY. Blocked until the host rebuilds the image: container 2.31 adds `python3-numpy` and `python3-pytest` (`files/var/local/claude-yolo/Dockerfile`), which the image never had, so the suite has only ever run in a throwaway venv
+- [x] ✅ Run `python3 -m pytest tests/clip_scan -q` inside CCY: 71 passed on 2026-09-03 with the packages installed into the running container; the project image now carries `python3-pytest`, `python3-numpy` and `python3-pil` (`.claude/ccy/Dockerfile`), so the next rebuild has them permanently
 - [ ] ⬜ Manual host test plan:
   \- [ ] ⬜ Place 10 known-good and 10 known-clipped ARW files in a scratch dir, using cRAW samples explicitly (L6)
   \- [ ] ⬜ Place 10 uncompressed-ARW samples too; compare scores between cRAW and uncompressed of the same scene

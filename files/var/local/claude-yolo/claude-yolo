@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.46.2"  # Container 2.31 adds python3-numpy and python3-pytest so tests/clip_scan runs inside CCY. Launcher unchanged apart from the container pin. See docs/ccy-changelog.md.
+CCY_VERSION="3.46.3"  # Container 2.32 drops the numpy and pytest that 2.31 added: a project test dependency belongs in that project's .claude/ccy/Dockerfile, not the base image. Launcher unchanged apart from the pin. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -64,7 +64,7 @@ source "$SCRIPT_DIR/lib/docker-health.bash"
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.31"
+REQUIRED_CONTAINER_VERSION="2.32"
 
 set -e
 

@@ -33,7 +33,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.31"
+LABEL claude-yolo-version="2.32"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 # NOTE: the claude-yolo-dockerfile-hash LABEL is set at the END of the final `full` stage
 # (PERF-02) so a Dockerfile edit — which changes DOCKERFILE_HASH — only invalidates that
@@ -46,7 +46,14 @@ LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-sk
 # rootless OCI builds on Debian-based base images.
 RUN echo 'APT::Sandbox::User "root";' > /etc/apt/apt.conf.d/no-sandbox
 
-# Install system dependencies
+# Install system dependencies.
+#
+# THIS IS THE BASE IMAGE EVERY PROJECT INHERITS. A package only one project needs
+# does NOT go here: adding it forces a rebuild on every ccy user for a tool they
+# never run. It goes in that project's own .claude/ccy/Dockerfile, which FROMs
+# this image (fedora-desktop's is at /workspace/.claude/ccy/Dockerfile when you
+# are inside its container). Only tooling that is useful in EVERY project
+# belongs in this list.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     wget \
@@ -67,8 +74,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
     python3-venv \
     python3-yaml \
-    python3-numpy \
-    python3-pytest \
     pipx \
     tini \
     tree \
