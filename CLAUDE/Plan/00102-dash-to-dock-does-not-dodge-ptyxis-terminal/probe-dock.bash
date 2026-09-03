@@ -123,7 +123,6 @@ else
     RC=$?
 fi
 record "terminal flatpaks" "${RC}" "${RESULT}"
-probe "process owning this terminal" ps -o pid=,comm=,args= -p "${PPID}"
 
 out ""
 out "## Ptyxis desktop files"

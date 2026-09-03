@@ -480,6 +480,10 @@ rest are review rules. All of them bind every executable script this repo ships.
 - **`grep` has no `\t`.** POSIX BRE/ERE define no character escapes, so `\t`
   matches a literal `t` and the pattern silently matches nothing. Use
   `awk -F'\t'` and match the field.
+- **No literal backtick in a bash file, even inside quotes.** Semgrep's bash
+  parser rejects the whole file and `qa-patterns.bash` then runs no rule on it
+  (reported as "could not parse", with no line number). A script that writes a
+  markdown fence builds it from octal escapes: `FENCE="$(printf '\140\140\140')"`.
 
 ### Ansible 2.19 shell-block parser checks quote balance across comments
 

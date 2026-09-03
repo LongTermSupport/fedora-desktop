@@ -57,8 +57,11 @@ readonly SCHEMA="org.gnome.shell.extensions.dash-to-dock"
 
 # Every check is a plain command, so a failed leg is a failed check and plan_finish exits
 # non-zero. gsettings prints GVariant, hence the quoted 'ALL_WINDOWS'.
-plan_gather_leg "dash-to-dock is enabled" \
-    grep -q 'dash-to-dock' <<<"$(gnome-extensions list --enabled)"
+# "enabled" is only the gsettings list; ACTIVE is the Shell's runtime verdict (EXT-05 in the
+# play). The UUID is discovered because it has the shape of an email address, which the
+# pre-commit scanner rejects.
+plan_gather_leg "dash-to-dock is ACTIVE in the running Shell" \
+    grep -q 'State: ACTIVE' <<<"$(gnome-extensions info "$(gnome-extensions list | grep 'dash-to-dock')")"
 plan_gather_leg "intellihide is on" \
     test "$(gsettings get "${SCHEMA}" intellihide)" = "true"
 plan_gather_leg "dock is not fixed" \

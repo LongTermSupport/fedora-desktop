@@ -167,11 +167,11 @@
         cmd: dbus-run-session -- dconf write /org/gnome/shell/extensions/space-bar/behavior/toggle-overview false
       changed_when: false
 
-    # Dash to Dock's default intellihide mode (FOCUS_APPLICATION_WINDOWS) only dodges
-    # windows the Shell window tracker ties to the focused application. Ptyxis, the
-    # Fedora terminal, is D-Bus activated and is not reliably tied, so the dock sits on
-    # top of the prompt. ALL_WINDOWS tests every window on the workspace for overlap
-    # and does not depend on that association (Plan 00102).
+    # Observed: on the default intellihide mode (FOCUS_APPLICATION_WINDOWS) the dock does
+    # not hide behind an un-maximised Ptyxis window, while it does for other apps. Working
+    # explanation: that mode only tests windows the Shell window tracker ties to the
+    # focused application, and the D-Bus-activated Ptyxis window is not tied. ALL_WINDOWS
+    # tests every window on the workspace and needs no such association (Plan 00102).
     - name: Configure Dash to Dock - Hide Behind Any Overlapping Window
       become: true
       become_user: "{{ user_login }}"
