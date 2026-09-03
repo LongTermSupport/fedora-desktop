@@ -1,6 +1,6 @@
 # Plan 00102: Dash to Dock does not dodge the Ptyxis terminal
 
-**Status**: Not Started
+**Status**: In Progress
 **Created**: 2026-09-03
 **Owner**: joseph
 **Priority**: Medium
@@ -77,22 +77,26 @@ grounds that hypothesis with triage on the host, then fixes it in Ansible.
 
 ### Phase 1: Triage on the host
 
-- [ ] ⬜ **Task 1.1**: Run `triage.bash` on the host with a Ptyxis window focused
-  and read `logs/dash-to-dock-triage.log`.
-  - [ ] ⬜ Record which of H1–H3 the facts support, in the journal.
-  - [ ] ⬜ Settle the two unverified premises.
+- [x] ✅ **Task 1.1**: Run `triage.bash` on the host with a Ptyxis window focused
+  and read the report under `triage-runs/`.
+  - [x] ✅ Record which of H1–H3 the facts support, in the journal. H2 and H3
+    refuted (dock on untouched defaults). H1 stands: GNOME 50 denies the
+    window-introspection call, so it cannot be confirmed directly, but the fix
+    does not depend on it.
+  - [x] ✅ Settle the two unverified premises. Ptyxis RPM is the only terminal;
+    the RPM ships the upstream default `intellihide-mode`.
 
 ### Phase 2: Fix in Ansible
 
-- [ ] ⬜ **Task 2.1**: Add a `community.general.dconf` task to
+- [x] ✅ **Task 2.1**: Add a `community.general.dconf` task to
   `play-gnome-shell-extensions.yml`, beside the Space Bar setting, that writes
   `/org/gnome/shell/extensions/dash-to-dock/intellihide-mode` = `'ALL_WINDOWS'`.
   This checks every window on the workspace for overlap and does not depend on
   the tracker's app association at all, so it fixes H1 and H2 alike.
-- [ ] ⬜ **Task 2.2**: If triage refutes H1 and H2 and instead shows H3, write
+- [x] ❌ **Task 2.2** (cancelled, H3 refuted by triage): If triage refutes H1 and H2 and instead shows H3, write
   the two keys that restore intellihide (`dock-fixed=false`,
   `intellihide=true`) in the same task block instead.
-- [ ] ⬜ **Task 2.3**: Document the setting in `docs/playbooks.md` under the
+- [x] ✅ **Task 2.3**: Document the setting in `docs/playbooks.md` under the
   Gnome Shell Extensions entry.
 
 ### Phase 3: Deploy and verify
@@ -150,4 +154,5 @@ extensions play already carries the Space Bar setting for the same reason.
      "when" — do not add dates). The blow-by-blow activity log lives in
      JOURNAL/00102-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
-- Plan and triage script committed.
+- Plan and triage script committed: ddbd8ce
+- Triage run on the host; Ansible fix, docs, deploy and acceptance scripts committed.

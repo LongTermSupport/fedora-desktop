@@ -462,7 +462,9 @@ ccy --custom
 
 **System extensions**:
 
-- **dash-to-dock**: Application dock with customization
+- **dash-to-dock**: Application dock with customization. Intellihide is set to
+  `ALL_WINDOWS` so the dock hides behind any overlapping window, including the
+  Ptyxis terminal, which the default focused-application mode does not track
 
 **Third-party extensions** (via gnome-shell-extension-installer):
 
