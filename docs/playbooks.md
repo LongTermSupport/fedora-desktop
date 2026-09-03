@@ -455,6 +455,9 @@ ccy --custom
 
 - Enables Flathub repository
 - Installs Slack
+- Grants the Slack sandbox read-only access to the home directory, so a file
+  dragged in from Nautilus outside `~/Downloads` can be read instead of being
+  rejected as "a type of file not supported by Slack"
 
 ### play-gnome-shell.yml & play-gnome-shell-extensions.yml
 

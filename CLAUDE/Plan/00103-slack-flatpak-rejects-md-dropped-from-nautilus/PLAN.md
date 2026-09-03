@@ -69,20 +69,20 @@ Record these in the journal alongside the triage report:
 ### Phase 1: Triage
 
 - [x] ✅ **Task 1.1**: Write `triage.bash` + `probe-slack.bash` (planlib gather mode, host-only, read-only)
-- [ ] ⬜ **Task 1.2**: Operator runs `triage.bash` on the host, drags `sample-drop.md` from Nautilus into Slack, and records the three manual observations
-- [ ] ⬜ **Task 1.3**: Read the report; mark each hypothesis confirmed or refuted in the journal
+- [x] ✅ **Task 1.2**: Operator runs `triage.bash` on the host, drags `sample-drop.md` from Nautilus into Slack, and records the three manual observations
+- [x] ✅ **Task 1.3**: Read the report; mark each hypothesis confirmed or refuted in the journal
 
 ### Phase 2: Fix (shape depends on Phase 1)
 
-- [ ] ⬜ **Task 2.1**: If H1: add a Flatpak override task for `com.slack.Slack` to `play-comms.yml` granting read access to the directories the user drops from, idempotent and syntax-checked
-- [ ] ⬜ **Task 2.2**: If H2: fix the MIME mapping in the sandbox via the playbook (runtime extension or override), or record a no-fix decision if it is an upstream runtime defect
-- [ ] ⬜ **Task 2.3**: If H3: record a no-fix decision; the change belongs to the Slack workspace admin, not this repo
-- [ ] ⬜ **Task 2.4**: If H4: set the Slack launch flags via the playbook so it runs natively on Wayland
-- [ ] ⬜ **Task 2.5**: Add `deploy.bash` and `acceptance.bash`; update `docs/playbooks.md` if the play gains a task
+- [x] ✅ **Task 2.1**: H1 confirmed: add a Flatpak override task for `com.slack.Slack` to `play-comms.yml` granting read access to the directories the user drops from, idempotent and syntax-checked
+- [ ] ❌ **Task 2.2**: H2 refuted, cancelled. If H2: fix the MIME mapping in the sandbox via the playbook (runtime extension or override), or record a no-fix decision if it is an upstream runtime defect
+- [ ] ❌ **Task 2.3**: H3 moot, H1 explains the failure; cancelled. If H3: record a no-fix decision; the change belongs to the Slack workspace admin, not this repo
+- [ ] ❌ **Task 2.4**: H4 refuted, cancelled. If H4: set the Slack launch flags via the playbook so it runs natively on Wayland
+- [x] ✅ **Task 2.5**: Add `deploy.bash` and `acceptance.bash`; update `docs/playbooks.md` if the play gains a task
 
 ### Phase 3: Verify and close
 
-- [ ] ⬜ **Task 3.1**: Operator deploys, then drags the original `.md` from Nautilus into Slack; it uploads
+- [ ] 🔄 **Task 3.1**: Operator deploys, then drags the original `.md` from Nautilus into Slack; it uploads
 - [ ] ⬜ **Task 3.2**: Second deploy reports the new task `ok`, not `changed`
 - [ ] ⬜ **Task 3.3**: `qa-reviewer` agent passes; plan moved to `Completed/`
 
@@ -111,4 +111,5 @@ Record these in the journal alongside the triage report:
      "when" — do not add dates). The blow-by-blow activity log lives in
      JOURNAL/00103-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
-- Triage scripts committed
+- Triage scripts committed: d504a86
+- Fix in play-comms.yml plus deploy/acceptance scripts

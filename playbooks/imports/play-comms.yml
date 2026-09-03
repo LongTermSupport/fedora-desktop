@@ -37,3 +37,22 @@
         name: com.slack.Slack
         remote: flathub
         state: present
+
+    # The Flathub manifest grants the sandbox only xdg-download. A file dragged from
+    # Nautilus arrives as a host path; outside Downloads the sandbox cannot open it and
+    # Slack reports the empty result as "a type of file not supported" (Plan 00103).
+    # Read-only access to the home directory lets any dropped file be read without
+    # letting Slack write outside its own sandbox home. community.general has no
+    # flatpak-override module, so drive the CLI, guarded to stay idempotent.
+    - name: Read current Slack Flatpak overrides
+      become: true
+      ansible.builtin.command:
+        argv: [flatpak, override, --show, com.slack.Slack]
+      register: slack_flatpak_override
+      changed_when: false
+
+    - name: Grant Slack read-only access to the home directory so dropped files can be read
+      become: true
+      ansible.builtin.command:
+        argv: [flatpak, override, --filesystem=home:ro, com.slack.Slack]
+      when: "'home:ro' not in slack_flatpak_override.stdout"
