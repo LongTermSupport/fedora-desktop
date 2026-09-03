@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.48.0"  # BROWSER MODE IS AN EXPLICIT CHOICE. Container 2.34 blocks the bare agent-browser command and ships agent-browser-headed, agent-browser-headless and agent-browser-lite-headless instead, so background research no longer opens windows on the desktop. See docs/ccy-changelog.md.
+CCY_VERSION="3.48.1"  # BROWSER MODE IS AN EXPLICIT CHOICE. Container 2.35 blocks the bare agent-browser command and ships agent-browser-headed, agent-browser-headless and agent-browser-lite-headless instead, so background research no longer opens windows on the desktop. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -64,7 +64,7 @@ source "$SCRIPT_DIR/lib/docker-health.bash"
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.34"
+REQUIRED_CONTAINER_VERSION="2.35"
 
 set -e
 

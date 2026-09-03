@@ -107,6 +107,17 @@
         - scripts
         - entrypoint
 
+    - name: Copy Browser Mode Stub into Docker Build Context
+      become: true
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/var/local/claude-yolo/agent-browser-mode-required"
+        dest: /opt/claude-yolo/agent-browser-mode-required
+        owner: root
+        group: root
+        mode: "0755"
+      tags:
+        - scripts
+
     # The ctrl+z patch script that used to be copied here is gone (CCY 3.42.0).
     # Suppressing ctrl+z is now the PTY supervisor's job, so remove the stale
     # copy from build contexts provisioned by an earlier run — otherwise the

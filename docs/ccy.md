@@ -604,22 +604,8 @@ export AGENT_BROWSER_IDLE_TIMEOUT_MS=900000
 
 This is the safety net, not the cleanup. The `browsing` skill requires the agent to close
 every session it opens in the same command chain that finishes the task, and to check
-`session list` is empty for every mode it used before reporting done.
-
-#### Browser mode is always an explicit choice
-
-There is no default browser mode in the image. The bare `agent-browser` command is
-blocked: it prints a decision matrix and exits non-zero. The agent must name the mode:
-
-| Command                       | What it is                                  | When                                        |
-| ----------------------------- | ------------------------------------------- | ------------------------------------------- |
-| `agent-browser-headed`        | Chromium with a real window on your desktop | You asked to watch, e.g. an acceptance test |
-| `agent-browser-headless`      | The same Chromium, no window                | Screenshots, PDFs, geometry, unattended     |
-| `agent-browser-lite-headless` | Lightpanda, DOM and text only, ~50x cheaper | Reading, scraping, research                 |
-
-Lightpanda has no renderer, so `agent-browser-lite-headed` does not exist; asking for it
-hits the same stub. The `browsing` skill tells the agent that when it is unsure whether
-you want to watch, the answer is no.
+`<command> session list` is empty for every mode it used before reporting done. Which
+command that is: [Browser mode is always an explicit choice](#browser-mode-is-always-an-explicit-choice).
 
 ### 3. `allowed-hostnames` — restricting where CCY can run
 
@@ -929,6 +915,23 @@ Two things are worth knowing if you (or an agent) are working *in* a session:
   cat /opt/claude-yolo/docs/CCY-GUIDE.txt          # container internals, file locations
   cat /opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt # Dockerfile authoring guide
   ```
+
+### Browser mode is always an explicit choice
+
+There is no default browser mode in the image. The bare `agent-browser` command is
+blocked: it prints a decision matrix and exits 2. The agent must name the mode:
+
+| Command                       | What it is                                  | When                                        |
+| ----------------------------- | ------------------------------------------- | ------------------------------------------- |
+| `agent-browser-headed`        | Chromium with a real window on your desktop | You asked to watch, e.g. an acceptance test |
+| `agent-browser-headless`      | The same Chromium, no window                | Screenshots, PDFs, geometry, unattended     |
+| `agent-browser-lite-headless` | Lightpanda, DOM and text only, ~50x cheaper | Reading, scraping, research                 |
+
+Lightpanda has no renderer, so `agent-browser-lite-headed` does not exist; asking for it
+hits the same stub. The `browsing` skill tells the agent that when it is unsure whether
+you want to watch, the answer is no, and that a site which misbehaves under lite is rerun
+on `agent-browser-headless`. A project Dockerfile must not reinstall the `agent-browser`
+npm package: that recreates the bare symlink and removes the choice.
 
 ---
 

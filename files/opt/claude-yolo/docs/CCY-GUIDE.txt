@@ -101,6 +101,8 @@ BROWSER AUTOMATION:
 
   Command reference (always matched to the installed version):
     agent-browser-headless skills get core --full
+  Its examples are written as `agent-browser ...`; substitute the command you
+  chose. The bare name is blocked on purpose: do not re-add the npm package.
 
 PROJECT-SPECIFIC TOOLS (if a custom Dockerfile exists for this project):
   Whatever the project's .claude/ccy/Dockerfile installs.

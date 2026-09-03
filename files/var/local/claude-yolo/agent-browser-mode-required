@@ -1,0 +1,24 @@
+#!/bin/sh
+# Blocking stub behind the bare `agent-browser` name (and `agent-browser-lite`,
+# `agent-browser-lite-headed`, `agentbrowser`) inside a CCY container. Every browser
+# command in CCY names its mode explicitly; this prints the decision matrix and fails.
+me="$(basename "$0")"
+cat >&2 <<EOF
+$me: not available in CCY. Choose the browser mode explicitly:
+
+  Will a human watch?   Needs pixels/geometry?               Command
+  -------------------   -----------------------------------  ---------------------------
+  yes                   acceptance tests, UI checks, window  agent-browser-headed
+  no                    yes: screenshots, PDFs, geometry     agent-browser-headless
+  no                    no: parse text/content, research     agent-browser-lite-headless
+
+Same subcommands and flags for all three; only the command name differs.
+Site does not behave under lite? Rerun the same commands with agent-browser-headless.
+Lightpanda (lite) has no renderer, so agent-browser-lite-headed cannot exist.
+
+Reference: agent-browser-headless skills get core --full
+  Its examples say "agent-browser"; substitute the command you chose.
+This is deliberate, not a missing install: do NOT re-add the agent-browser npm
+package or recreate the symlink, that only removes the choice again.
+EOF
+exit 2

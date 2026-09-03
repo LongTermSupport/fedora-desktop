@@ -184,7 +184,7 @@ as DDEV) are both installed by the main playbook — see
 - Docker-in-LXC for isolated project testing
 - [DDEV](docs/ddev.md) for local PHP/CMS development (Drupal, WordPress, Laravel, Magento)
 - [UniFi Network Controller](docs/UnifiSetupGuide.md) self-hosted in a Podman container
-- [Browser automation testing](docs/containerization.md#example-2-browser-automation-testing) (via CCY's built-in `agent-browser`)
+- [Browser automation testing](docs/containerization.md#example-2-browser-automation-testing) (via CCY's built-in `agent-browser-headed`, `agent-browser-headless` and `agent-browser-lite-headless`)
 
 **Programming Languages**
 

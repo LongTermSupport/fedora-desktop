@@ -17,6 +17,22 @@ Two version numbers move independently — see
 
 ---
 
+## 3.48.1
+
+**Browser mode stub is a tracked file; caller flags verified** (container image 2.35).
+
+The blocking stub moves out of an inline `printf` in the Dockerfile into
+`files/var/local/claude-yolo/agent-browser-mode-required`, staged into the build context
+by the playbook like `entrypoint.sh`, so it is shellchecked by `qa-all.bash`. It now also
+tells the agent to substitute its chosen command for `agent-browser` in the upstream
+reference's examples, and that re-adding the npm package is not the fix. Measured and
+recorded: a caller-supplied `--headed` does not override the wrapper's flag.
+
+**Action for any project that names `agent-browser` directly** in scripts, hooks or
+`CLAUDE.md`: switch to one of the three mode-named commands. The bare name exits 2. Do
+not re-add the `agent-browser` npm package in a project Dockerfile; that recreates the
+bare symlink and removes the choice again.
+
 ## 3.48.0
 
 **Browser mode is an explicit choice** (container image 2.34).

@@ -52,7 +52,9 @@ claude-yolo:latest pre-installed tools:
   • Languages: Node.js 20, npm, Python 3 (system version)
   • Claude Code: Latest version, auto-updated
   • LSP servers: TypeScript/JS, Python (pyright), Bash, PHP (intelephense)
-  • Browser: agent-browser CLI + Chromium (Wayland/X11 support)
+  • Browser: agent-browser-headed / agent-browser-headless (Chromium, Wayland/X11)
+             and agent-browser-lite-headless (Lightpanda). The bare agent-browser
+             name is blocked on purpose; see CCY-GUIDE.txt for the decision matrix.
   • User: root (inside container only, safe due to user namespace mapping)
 
 claude-yolo:base is identical but without the LSP servers.
@@ -169,7 +171,9 @@ This is a one-time step; plugin state persists in .claude/ccy/.
   • Application code - It's mounted from host at runtime
   • Project dependencies - npm install, pip install run at dev time
   • Secrets or credentials - Pass via environment
-  • Tools already in base - Node.js 20, git, gh, Claude Code, agent-browser
+  • Tools already in base - Node.js 20, git, gh, Claude Code, the agent-browser
+    wrappers. Never `npm install -g agent-browser` in a project Dockerfile: it
+    recreates the blocked bare symlink and removes the explicit mode choice.
 
 ================================================================================
 5. CREATING A CUSTOM DOCKERFILE

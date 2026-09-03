@@ -22,7 +22,8 @@ CLI TOOLS (pre-installed):
   Database:         sqlite3
   Shell/debug:      vim, nano, htop, tree, less, fzf, shellcheck, unzip, bash-completion
   Runtimes:         Node.js 20 + npm, Python 3 + pip
-  Browser:          agent-browser-headed        (Chromium, window on the user's desktop — only when they want to watch)
+  Browser:          agent-browser-headed        (Chromium, window on the user's desktop —
+                                                 only when they want to watch)
                     agent-browser-headless      (Chromium, no window — screenshots, pixels, geometry)
                     agent-browser-lite-headless (Lightpanda — same CLI, ~50x less memory;
                                                  text/DOM/scraping only, cannot do pixels)
@@ -42,6 +43,11 @@ CUSTOM DOCKERFILES:
 • Custom Dockerfiles persist in .claude/ccy/Dockerfile (tracked in git)
 
 BASE IMAGE CHANGES (check before assuming a tool is present):
+• Image 2.34 BLOCKED the bare 'agent-browser' command (and 'agent-browser-lite').
+  It exits 2 with a decision matrix. Use agent-browser-headed, agent-browser-headless
+  or agent-browser-lite-headless; fix any project script, hook or CLAUDE.md that
+  names the bare command. Do NOT re-add the agent-browser npm package in a project
+  Dockerfile: that recreates the bare symlink and removes the choice again.
 • Image 2.33 REMOVED Ansible (pipx) and semgrep from the base image. They had been
   leaking into every project. If this project ran ansible, ansible-playbook, or
   semgrep from the base image, add them to .claude/ccy/Dockerfile now; the

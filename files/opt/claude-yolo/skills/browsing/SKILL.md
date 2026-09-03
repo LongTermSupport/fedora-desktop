@@ -17,8 +17,7 @@ non-zero. Whatever you pick, the subcommands and flags are identical.
 | no                            | no: parsing text or content, scraping, research           | `agent-browser-lite-headless` |
 
 There is no `agent-browser-lite-headed` and there cannot be: Lightpanda has no renderer,
-so it has nothing to show. If a site does not behave under lite, rerun the same commands
-with `agent-browser-headless`; the syntax is identical.
+so it has nothing to show.
 
 **Announce:** "I'm using the browsing skill with `<command>` because `<one-line reason>`,
 and I will close it when I'm done." The reason matters. A headed window is the right thing
@@ -53,8 +52,8 @@ Lightpanda matched Chromium on `fetch()`, ES modules, custom elements + shadow D
 React 18 client-side render, and returned equal or more page text on real sites. So the
 choice is about **visibility and pixels**, never about whether the JavaScript will run.
 
-Fall back freely: if `agent-browser-lite-headless` gets something wrong, rerun it with
-`agent-browser-headless` — the syntax is identical.
+Fall back freely: if a site does not behave under `agent-browser-lite-headless`, rerun the
+same commands with `agent-browser-headless` — the syntax is identical.
 
 ## Close what you open — this is not optional
 
@@ -76,8 +75,9 @@ agent-browser-lite-headless open https://example.com \
 Use `close --all` rather than a bare `close`: it reaps every session, including one a
 previous command of yours left behind. **Each of the three commands has its own daemon**,
 so `close --all` only closes the mode it was invoked as. Before you report a task
-finished, run `session list` for every mode you used; if any names a session, you are not
-finished.
+finished, run `agent-browser-headed session list`, `agent-browser-headless session list`
+and `agent-browser-lite-headless session list` for every mode you used; if any names a
+session, you are not finished.
 
 ## Get the command reference from the CLI itself
 
@@ -89,8 +89,11 @@ agent-browser-headless skills get core --full   # full command reference + patte
 agent-browser-headless skills list              # electron, slack, dogfood, ...
 ```
 
-Read that before running anything. This file deliberately does not restate it — a
-hand-maintained copy drifts, and an earlier version of this skill taught a
+Read that before running anything. Its examples are written as `agent-browser ...`;
+substitute the command you chose, because the bare name exits 2 here. Do not "fix" that
+by reinstalling the npm package: the block is deliberate. This file deliberately does not
+restate the reference — a hand-maintained copy drifts, and an earlier version of this
+skill taught a
 `agent-browser run "navigate …; extract text"` syntax that no longer exists at all.
 
 ## The trap: Lightpanda fails silently
