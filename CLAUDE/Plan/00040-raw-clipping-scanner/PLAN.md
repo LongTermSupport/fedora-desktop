@@ -1,6 +1,6 @@
 # Plan 00040: `clip-scan` — Raw Clipping Pre-Lightroom Scanner
 
-**Status**: In Progress (implementation, playbook and core unit tests landed; open: Phase 2 host probes, integration tests for Phases 4 to 6, playbook idempotency check, Phase 8 manual tests and benchmark)
+**Status**: In Progress (implementation, playbook, core unit tests and the Phase 4 to 6 integration tests landed; open: Phase 2 host probes, playbook idempotency check, Phase 8 manual tests and benchmark)
 **Created**: 2026-05-20
 **Owner**: joseph
 **Priority**: Medium
@@ -91,11 +91,11 @@ Questions and their proposed answers are in [DECISIONS.md](DECISIONS.md#decision
 
 ### Phase 4: TDD Implementation — rawpy integration
 
-- [ ] ⬜ Write failing test: `analyse_raw()` end-to-end against a fixture ARW (small file in a fixtures directory under `tests/clip_scan/`, or skipped if missing). No fixture and no such test exist in `tests/clip_scan/`
-- [ ] ⬜ Write failing test: Bayer extraction on a real ARW via `r.raw_colors_visible` yields four channel arrays whose union is the full visible frame (H2). Only the synthetic-mosaic test exists (`test_extract_pools_unions_to_full_frame`)
+- [x] ✅ Write failing test: `analyse_raw()` end-to-end. No ARW fixture exists and rawpy is not installed, so the test drives `analyse_raw` through a fake `rawpy` module built from numpy arrays (`fake_rawpy` fixture; `TestAnalyseRawEndToEnd.test_analyse_raw_end_to_end_with_fake_rawpy`, `tests/clip_scan/test_integration.py`); the real-ARW run stays a Phase 2 host task
+- [x] ✅ Write failing test: Bayer extraction via `r.raw_colors_visible` yields four channel arrays whose union is the full visible frame (H2) (`TestBayerExtractionFromRawpySurface.test_raw_colors_visible_pools_union_to_full_visible_frame`, against the fake rawpy surface; real-ARW confirmation is the Phase 2 host task)
 - [x] ✅ Implement `analyse_raw(path)` returning an `AnalysisResult` (white/black scores, per-channel scores, `white_level`, 4-tuple `black_level_per_channel`), honouring per-channel black level (H1) (`clip-scan:305-329`, commit d7b0d9c0)
-- [ ] ⬜ Write failing test: corrupt-ARW fallback to sibling JPG when `rawpy.imread()` raises `LibRawError` (M4). No test exercises `_analyse_group`
-- [ ] ⬜ Write failing test: JPG-only fallback via Pillow with separate default thresholds (Decision 8). No test exercises `analyse_jpg`
+- [x] ✅ Write failing test: corrupt-ARW fallback to sibling JPG when `rawpy.imread()` raises `LibRawError` (M4) (`TestCorruptRawFallback.test_corrupt_arw_falls_back_to_sibling_jpg`; the no-sibling case is `test_corrupt_arw_without_sibling_is_an_error_row`)
+- [x] ✅ Write failing test: JPG-only fallback via Pillow with separate default thresholds (Decision 8) (`TestJpgOnlyFallback`, notably `test_jpg_cutoffs_are_separate_from_raw_cutoffs` and `test_jpg_only_group_is_flagged_through_main`; skips with a reason if Pillow is absent)
 - [x] ✅ Implement JPG fallback scoring against 0-255 with `--jpg-white-cutoff 0.95` and `--jpg-black-cutoff 0.05`; document that JPG scores are not comparable to raw scores (M5) (`analyse_jpg` and `_score_black_absolute`, `clip-scan:332-387`; docstring carries the non-comparability note)
 - [x] ✅ Handle LibRaw decode errors gracefully: log per file, try the sibling JPG first, then skip and continue the batch (`_analyse_group`, `clip-scan:444-472`; per-group error rows and exit code 1 in `main`, `clip-scan:883-884`)
 
@@ -103,20 +103,20 @@ Questions and their proposed answers are in [DECISIONS.md](DECISIONS.md#decision
 
 - [x] ✅ Write failing test: argparse parses `--white-cutoff 0.93 --white-score 1.5 --gamma 1.5 --apply DIR` (`TestCLI`, `test_clip_scan.py:444-474`)
 - [x] ✅ Implement CLI dispatch (`build_parser` and `main`, `clip-scan:710-884`, commit d7b0d9c0)
-- [ ] ⬜ Write failing test: dry-run prints proposed renames without filesystem changes. No test drives `main()`
+- [x] ✅ Write failing test: dry-run prints proposed renames without filesystem changes (`TestDryRun.test_dry_run_reports_renames_without_touching_the_filesystem`, drives `main()` and compares the directory listing before and after)
 - [x] ✅ Implement dry-run output (`main` only calls `execute_renames` under `--apply`, `clip-scan:875-881`; human table `_format_human_table`, `:588`)
-- [ ] ⬜ Write failing test: sibling rename order; JPG/XMP siblings renamed before the raw so a mid-batch kill still canonical-stems together (H4). No test covers `plan_rename_order` or `execute_renames`
+- [x] ✅ Write failing test: sibling rename order; JPG siblings renamed before the raw so a mid-batch kill still canonical-stems together (H4) (`TestApplyRenameOrder.test_apply_renames_siblings_before_the_raw` records the `Path.rename` call order through `main --apply`; `test_plan_rename_order_puts_raw_last` covers the ordering function)
 - [x] ✅ Implement apply mode using `pathlib.Path.rename` with sibling-first ordering (`plan_rename_order` `:486-490`, `execute_renames` `:553-580`)
-- [ ] ⬜ Write failing test: collision handling (target name already exists). Not covered
+- [x] ✅ Write failing test: collision handling (target name already exists) (`TestCollision.test_existing_target_is_left_alone_and_reported` and `test_collision_is_reported_in_json`: the pre-existing target and the source ARW are both untouched, the sibling without a collision is still renamed, exit code stays 0)
 - [x] ✅ Implement collision logging (`skip-collision` action, `clip-scan:571-573`; summarised in the human table `:594-635`)
-- [ ] ⬜ Write failing test: `--json` output matches the schema in [DECISIONS.md](DECISIONS.md#--json-output-schema-phase-5) (L4). Not covered
+- [x] ✅ Write failing test: `--json` output matches the schema in [DECISIONS.md](DECISIONS.md#--json-output-schema-phase-5) (L4) (`TestJsonSchema.test_json_output_matches_documented_schema` checks every documented field and type and pins the only additions to `analysis_source` and the two JPG cutoffs)
 - [x] ✅ Implement JSON output to the documented schema (`_format_json`, `clip-scan:660-702`; adds `analysis_source` and the two JPG cutoffs in `config` beyond the documented schema)
 
 ### Phase 6: TDD Implementation — parallel execution
 
-- [ ] ⬜ Write failing test: `ProcessPoolExecutor` returns results from N parallel workers without deadlock. Not covered
+- [x] ✅ Write failing test: `ProcessPoolExecutor` returns results from N parallel workers without deadlock (`TestParallelExecution.test_jobs_2_returns_one_result_per_group_from_the_process_pool` runs the deployed script as a subprocess with `--jobs 2` over four Pillow JPGs; `test_jobs_2_progress_header_names_the_workers` confirms the pool path was taken)
 - [x] ✅ Implement parallel scan (`ProcessPoolExecutor` with `submit` + `as_completed`, `clip-scan:858-868`; commits d7b0d9c0, 9e87fd0e)
-- [ ] ⬜ Write failing test: `--jobs 1` falls back to single-process for debugging. Not covered
+- [x] ✅ Write failing test: `--jobs 1` falls back to single-process for debugging (`TestParallelExecution.test_jobs_1_takes_the_single_process_path` monkeypatches `ProcessPoolExecutor` to raise if constructed; `test_single_group_skips_the_pool_even_with_many_jobs` covers the one-group case)
 - [x] ✅ Implement single-process fallback (`clip-scan:869-873`, taken for `--jobs 1` or a single group)
 
 ### Phase 7: Ansible integration
@@ -177,7 +177,7 @@ Questions and their proposed answers are in [DECISIONS.md](DECISIONS.md#decision
 - [x] ✅ `./scripts/qa-all.bash` passes (container run on 2026-09-02, see Phase 8)
 - [ ] ⬜ Playbook re-run is idempotent. HOST-only; not yet run
 - [x] ✅ All decision-gate answers from Phase 1 are documented in DECISIONS.md or research.md (DECISIONS.md "Decision gate (Phase 1)")
-- [ ] 🔄 Tests pass with >80% line coverage of the new module. 45 tests passed in a `/tmp` venv on 2026-05-20 (PLAN_archive.md, seventh iteration); coverage never measured, and the CCY container has neither `pytest` nor `numpy`, so the suite cannot be re-run here
+- [x] ✅ Tests pass with >80% line coverage of the new module. 71 tests pass in a `/tmp` venv (Python 3.11, pytest, numpy, Pillow); `coverage run` over the script reports 87% line coverage (387 statements, 50 missed). The pool branch (`clip-scan:859-868`) is exercised only by the subprocess-based parallel tests, which the in-process coverage trace does not see; the remaining misses are validation error branches, the `--verbose` per-channel lines, the missing-path and empty-directory exits, and the `__main__` guard
 
 ## Delivery & Milestones
 
@@ -191,4 +191,5 @@ Questions and their proposed answers are in [DECISIONS.md](DECISIONS.md#decision
 - Real-shoot calibration: progress output fix, black-cutoff default 1.01, sub-`black_level` pixels excluded from the ramp; flagged frames 33 of 347
 - Plan slimmed and archived verbatim to PLAN_archive.md; supporting detail in DECISIONS.md (03ccaaf5)
 - Task tree reconciled against the landed code: implementation commits d7b0d9c0, c5b61b8c, 9e87fd0e, a09d7b3e
-- Pending: Phase 2 host probes, host deploy via `play-photography.yml` and its idempotency check, integration tests for the rawpy / CLI / parallel paths, Phase 8 manual tests and benchmark
+- Integration tests for the rawpy / CLI / rename / JSON / parallel paths landed in `tests/clip_scan/test_integration.py` (fake rawpy module, Pillow JPGs, subprocess pool run); suite at 71 passing, 87% line coverage
+- Pending: Phase 2 host probes, host deploy via `play-photography.yml` and its idempotency check, Phase 8 manual tests and benchmark
