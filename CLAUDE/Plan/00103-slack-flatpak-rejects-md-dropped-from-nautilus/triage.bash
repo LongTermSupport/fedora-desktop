@@ -6,18 +6,17 @@
 # no verdict and changes nothing (CLAUDE/PlanScriptStandards.md R9).
 #
 # RUN ON THE HOST, in the graphical session that has the problem:
-#   ./CLAUDE/Plan/00103-slack-flatpak-rejects-md-dropped-from-nautilus/triage.bash \
-#       --file ~/path/to/mapping-clarifications-business-questions.md
+#   ./CLAUDE/Plan/00103-slack-flatpak-rejects-md-dropped-from-nautilus/triage.bash
 #
-# --file is the exact file that fails to drop. Without it the sandbox-visibility and
-# MIME-typing probes have nothing to test and the run FAILS rather than emit an empty
-# section that reads as "nothing wrong".
+# By default it probes sample-drop.md, the fixture next to this script: drag THAT file
+# from Nautilus into Slack for the manual test so probes and reproduction share a path.
+# Pass --file <path> to probe a different file, e.g. the one that originally failed.
 #
 # EFFECT ON THE HOST: every leg is READ-ONLY. It reads flatpak metadata and overrides,
 # runs harmless read-only commands (stat, cat of the mime globs) INSIDE the Slack sandbox,
 # lists processes and reads Slack's local log directory. Nothing is written or toggled.
 #
-# Usage: ./triage.bash --file <path> [-h|--help]
+# Usage: ./triage.bash [--file <path>] [-h|--help]
 #
 # EXIT CODES:
 #   0  every probe reached a definite answer
@@ -45,7 +44,10 @@ done
 source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
 plan_init "${BASH_SOURCE[0]}"
 
-PLAN_USAGE="usage: triage.bash --file <path-to-the-md-that-fails> [-h|--help]
+PLAN_USAGE="usage: triage.bash [--file <path>] [-h|--help]
+
+--file defaults to sample-drop.md next to this script; drag that same file into
+Slack for the manual reproduction.
 
 Gathers facts about the Slack Flatpak (version, sandbox permissions, overrides),
 whether the given file is readable INSIDE the sandbox, how the sandbox and the
@@ -58,7 +60,7 @@ Host-only, read-only, safe to re-run. Writes a report into
 plan_mode gather
 plan_parse_common_flags "$@"
 
-DROP_FILE=""
+DROP_FILE="${PLAN_SCRIPT_DIR}/sample-drop.md"
 i=0
 while [[ "${i}" -lt "${#PLAN_REMAINING_ARGS[@]}" ]]; do
     arg="${PLAN_REMAINING_ARGS[${i}]}"
@@ -84,11 +86,6 @@ while [[ "${i}" -lt "${#PLAN_REMAINING_ARGS[@]}" ]]; do
     i=$((i + 1))
 done
 
-if [[ -z "${DROP_FILE}" ]]; then
-    printf '[FATAL] --file is required: the probes test the exact file that fails to drop.\n' >&2
-    printf '%s\n' "${PLAN_USAGE}" >&2
-    exit 64
-fi
 if [[ ! -f "${DROP_FILE}" ]]; then
     printf '[FATAL] --file %s is not a regular file on the host, so nothing can be learnt about it.\n' "${DROP_FILE}" >&2
     exit 64
