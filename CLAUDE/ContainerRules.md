@@ -80,7 +80,20 @@ CCY_VERSION="3.0.1"  # Fix: persist sessions in .claude/ccy/
   sources are part of the same program, and together they are the larger half of
   it. `CCY_VERSION` lives in the launcher, so a `lib/` change must stage the
   launcher too in order to bump it.
+- **`files/var/local/claude-yolo/Dockerfile`** — image content carries its own
+  version: bump `LABEL claude-yolo-version` in the Dockerfile **and**
+  `REQUIRED_CONTAINER_VERSION` in the launcher, which must match.
+- **`files/var/local/claude-yolo/entrypoint.sh`** — baked into the image by the
+  Dockerfile, so a change needs the container version bump above or it never
+  reaches a running container.
 - Any file with version tracking
+
+### Check the layers before adding a mechanism
+
+CCY is four layers: the launcher, `lib/*.bash`, `entrypoint.sh` and the
+`Dockerfile`. A behaviour you are about to describe or add is usually already
+implemented in one of them — search first, and cite `file:line` rather than
+describing from memory.
 
 Both the `pre-commit` gate and the runtime `CCY_HASH` used to key on the
 launcher **alone**: 71 commits touched `lib/`, 22 of them without touching the

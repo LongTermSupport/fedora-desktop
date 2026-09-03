@@ -3,7 +3,7 @@
 Home for non-trivial logic extracted out of Ansible playbooks (and other glue),
 written in Python and driven by tests.
 
-**Cross-references:** [playbooks/CLAUDE.md](../playbooks/CLAUDE.md) · [CLAUDE/AnsibleStyle.md](../CLAUDE/AnsibleStyle.md)
+**Cross-references:** [playbooks/CLAUDE.md](../playbooks/CLAUDE.md) · [CLAUDE/AnsibleStyle.md](../CLAUDE/AnsibleStyle.md) · [CLAUDE/QA.md](../CLAUDE/QA.md) · [CLAUDE/StderrHygiene.md](../CLAUDE/StderrHygiene.md)
 
 ## The Rule (in stone)
 
@@ -85,5 +85,10 @@ Python helper sidesteps that entire class of breakage.
 
 ## Fail fast
 
-- `subprocess` calls use `check=True`; no `|| true`, no `2>/dev/null` swallowing,
-  no bare `except`. Errors propagate and stop the play — this repo's #1 rule.
+- `subprocess` calls always pass an explicit `check=`. `check=True` is the norm;
+  `check=False` is allowed **only** where the returncode is inspected on the
+  following lines and a non-zero exit is a *result* rather than an error. No
+  `|| true`, no `2>/dev/null` swallowing, no bare `except`. Errors propagate and
+  stop the play — this repo's #1 rule.
+- ruff's ruleset and version are both pinned; suppression comments are blocked.
+  See [CLAUDE/QA.md → ruff](../CLAUDE/QA.md#ruff-the-ruleset-is-explicit-and-the-version-is-pinned).

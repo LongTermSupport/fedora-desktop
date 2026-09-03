@@ -278,6 +278,67 @@ Run it alone with:
 
 ---
 
+## Changing a Gate
+
+A gate is what `CLAUDE.md` makes mandatory before every Bash/Python/Ansible
+commit. A bug in one is worse than a bug in the code it checks, because it is
+silent: the gate returns a confident exit code either way. Two failure modes
+have already shipped here, and every change to a gate is measured against them.
+
+**A gate that scans nothing and reports a pass.** `find -path` matches the
+**whole** printed path, so an unanchored `*/untracked/*` exclusion once excluded
+an entire checkout — this repo is vendored at `untracked/repos/fedora-desktop`
+inside another project, and every bash file went unscanned with exit 0
+throughout. Anchor repo-root-relative exclusions to `$REPO_ROOT` (the shared
+`scripts/qa-discovery.bash` lists them repo-relative for this reason) and leave
+only genuinely any-depth names (`.git`, `node_modules`, `__pycache__`, `.venv`,
+`venv`) unanchored. **Never remove a zero-file guard** to make a gate "work"
+somewhere — zero is the signal.
+
+**A gate that scans the wrong things.** `qa-python.bash` once had two discovery
+passes and only one carried the venv exclusions, so it linted third-party `pip`
+scripts; `qa-ansible.bash` once matched a *comment* documenting the removal of
+`ignore_errors: true`. Keep multi-pass discovery on one shared exclusion list,
+and strip comments before matching a source pattern — after checking whether
+the annotation you rely on (`# FAIL-FAST-OK:`) itself lives in a comment.
+
+**Prove a change with a control that could have failed.** A gate turning green
+proves nothing on its own. Build a fixture and check that the gate
+**discriminates**: the bad case flags, the good case does not, and the
+near-miss cases (annotated, or with an unrelated trailing comment) each behave
+correctly. A uniform failure across unrelated assertions means you broke the
+fixture, not that the checks work.
+
+**Most gates have no tests of their own**; their fixes were proven with
+hand-built fixtures that were then discarded. If you are changing one, consider
+whether the fixture should become permanent. `qa-docs.bash` is the exception
+and the model: its logic lives in the stdlib-only helper
+[helpers/docs/link_check.py](../helpers/docs/link_check.py) with unit tests at
+`tests/helpers/docs/test_link_check.py`, which CI runs. Its slug cases are pinned
+against anchors observed working in rendered documents, because that checker's
+first implementation was wrong in the same way as the defects it hunts and
+under-reported them.
+
+---
+
+## ruff: the Ruleset Is Explicit and the Version Is Pinned
+
+`ruff.toml` enumerates `select` explicitly (`E4`, `E7`, `E9`, `F`) so the
+enforced ruleset does **not** drift with ruff's own default set — an
+unenumerated default once turned `main` red with no commit behind it.
+`/.ruff-version` is the single source of truth for the version, read by
+`.claude/ccy/Dockerfile` and `.github/workflows/qa.yml` and **asserted** by
+`scripts/qa-python.bash`: a version bump can change how the same selected rules
+behave, so it is pinned too. If the assertion fails, match the pin — do not
+"fix" findings a different ruff invented. Bumping the pin means owning the
+triage of whatever changes and rebuilding the ccy image.
+
+Suppression comments (`# noqa`, `# type: ignore`, `# shellcheck disable`) are
+blocked by the hooks daemon. Fix the code, or exempt the file in `ruff.toml`
+with a stated reason.
+
+---
+
 ## GNOME Shell Extension JavaScript
 
 Run ESLint via the binary directly (NOT `npm run lint` — blocked by hooks):
@@ -426,3 +487,4 @@ as it passes before the commit.
 2. **Run ESLint before EVERY commit** that touches extension JavaScript
 3. **Fix all errors** before committing — QA failures indicate broken code
 4. **Do not skip QA** — even for "small" changes
+5. **Never add a suppression directive** (`# shellcheck disable`, `# noqa`, `# type: ignore`) — fix the code, or exempt in config with a stated reason

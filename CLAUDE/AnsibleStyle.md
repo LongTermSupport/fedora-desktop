@@ -118,6 +118,13 @@ marker: "-- {mark} ANSIBLE MANAGED: [Purpose]"  # For Lua configs
     creates: /usr/bin/installed_binary
 ```
 
+### Fail-fast annotations
+
+`failed_when: false` and `ignore_errors: true` are prohibited unless the same
+line carries `# FAIL-FAST-OK: <reason>` (the project's #1 rule, enforced by
+`scripts/qa-ansible.bash`). The probe-then-fail pattern — a registered result
+that the next task explicitly checks — is the one legitimate use.
+
 ### Preflight Assertions
 
 ```yaml
@@ -163,6 +170,15 @@ vars:
     - 3.11.9
     - 3.12.4
 ```
+
+### Never self-default a variable
+
+Never write `x: "{{ x | default(...) }}"`. Under ansible-core 2.19 it recurses
+at runtime, and `ansible-playbook --syntax-check` cannot see it because it does
+not evaluate templates. Drop the play-var redeclaration and apply `| default(...)`
+at the point of use instead; host_vars and `-e` still override. Detail and
+diagnosis:
+[AgentNotes.md → Ansible 2.19 self-default vars recurse at runtime](AgentNotes.md#ansible-219-self-default-vars-recurse-at-runtime----syntax-check-misses-it).
 
 ### Template References
 
@@ -294,12 +310,17 @@ Every multi-command `shell: |` block **must** begin with `set -euo pipefail` and
 
 `set -x` (tracing) is optional and additive — it does not substitute for `set -e`. Use `creates:` or `changed_when:` for idempotency.
 
+Avoid apostrophes and backticks in `# comments` inside `shell:` blocks. The
+2.19 argument splitter is not bash-aware and fails the task at load time on an
+unbalanced quote even where bash would ignore it. Detail and diagnosis:
+[AgentNotes.md → Ansible 2.19 shell-block parser checks quote balance across comments](AgentNotes.md#ansible-219-shell-block-parser-checks-quote-balance-across-comments).
+
 ---
 
 ## Code Quality
 
 - **Include relevant comments** for complex operations, especially `@see` links for non-obvious choices
-- **Keep conditional logic simple** and readable (e.g., `when: ansible_distribution == 'Fedora'`)
+- **Keep conditional logic simple** and readable (e.g., `when: ansible_facts['distribution'] == 'Fedora'`)
 - **Self-documenting code** — clear names over comments
 - **Comments explain WHY** not what
 - **Meaningful error messages** — tell user how to fix

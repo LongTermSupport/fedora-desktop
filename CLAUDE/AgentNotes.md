@@ -456,6 +456,31 @@ passphrase probe (an empty key fails that probe too, so it was being reported as
 a passphrase mismatch), and its passphrase failure message now says the key is
 non-empty but unopenable — different passphrase **or** corrupt.
 
+### Bash conventions the gates only partly enforce
+
+The mechanical gates (`bash -n`, shellcheck, semgrep) cover some of these; the
+rest are review rules. All of them bind every executable script this repo ships.
+
+- **`set -euo pipefail`** in every executable script. Dropping `set -e` needs a
+  written reason.
+- **Errors are never hidden.** No `2>/dev/null`, no `|| true`. Capture into a
+  variable and report the reason — `2>&1` *into a capture* is collecting the
+  error, which is the opposite. Pattern and rationale:
+  [the discarded failure signal](#a-discarded-failure-signal-becomes-data--and-then-becomes-a-confident-wrong-answer).
+- **Quote every expansion.** `local` every function variable; an unlocalised
+  assignment is a global.
+- **Secrets are never in `argv`** — see
+  [SecurityRules.md → Security Principles](SecurityRules.md#security-principles).
+- **Never modify a file in place.** `sed -i` is banned repo-wide (the hooks
+  daemon blocks `sed`); write via `mktemp` + `mv`, and **verify the rewrite
+  took** before installing it — an `awk` that matches nothing exits 0 and emits
+  a perfect copy.
+- **`bash -n` can print a syntax error and still exit 0.** Assert stderr is
+  *empty* as well as the exit code; shellcheck is the syntax authority.
+- **`grep` has no `\t`.** POSIX BRE/ERE define no character escapes, so `\t`
+  matches a literal `t` and the pattern silently matches nothing. Use
+  `awk -F'\t'` and match the field.
+
 ### Ansible 2.19 shell-block parser checks quote balance across comments
 
 This repo's host runs `ansible-core 2.19+`. Its argument splitter does a

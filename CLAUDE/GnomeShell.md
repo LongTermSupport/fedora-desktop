@@ -335,7 +335,15 @@ import Gio from 'gi://Gio';
 - Return `Clutter.EVENT_STOP` to consume the event
 - Return `Clutter.EVENT_PROPAGATE` to allow normal handling
 
-#### 4. Extension Not Appearing After Install
+#### 4. `metadata.json` Not Declaring This Branch's GNOME Major
+
+`metadata.json` must declare the GNOME Shell major that this branch's Fedora
+release ships (`vars/fedora-version.yml`). The static gate
+`python3 -m helpers.gnome.check_extension_compat` runs inside `qa-all.bash` and
+fails on an unmapped Fedora version by design — see
+[QA.md → Helper Unit Tests + Extension Version Compatibility](QA.md#helper-unit-tests--extension-version-compatibility).
+
+#### 5. Extension Not Appearing After Install
 
 **Cause:** GNOME Shell hasn't rescanned extensions directory.
 
