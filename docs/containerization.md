@@ -440,9 +440,10 @@ This is the key thing to understand. When `ccy` starts, it looks for a Dockerfil
 
 - Node.js (current LTS), npm, Python 3, git, gh CLI, Claude Code (latest)
 - Development tools: ripgrep, jq, yq, vim
-- agent-browser CLI for token-efficient browser automation, driving two engines:
-  Chromium (`agent-browser`) and Lightpanda (`agent-browser-lite`, ~50x less memory,
-  text/DOM only)
+- agent-browser CLI for token-efficient browser automation, always invoked by mode:
+  `agent-browser-headed` (Chromium, window on your desktop), `agent-browser-headless`
+  (Chromium, no window) and `agent-browser-lite-headless` (Lightpanda, ~50x less memory,
+  text/DOM only). The bare `agent-browser` name is blocked so the agent must choose.
 
 ### Example Workflow
 
@@ -759,11 +760,12 @@ npm install playwright  # ❌ System library conflicts, desktop pollution
 
 # Good: Use CCY with built-in agent-browser
 cd ~/Projects/my-project
-ccy  # ✅ Podman-based (default engine), isolated, headed browser mode
+ccy  # ✅ Podman-based (default engine), isolated, Wayland forwarded
 # agent-browser is pre-installed — ask Claude to navigate, screenshot, test
-# Browser windows appear on your desktop via Wayland forwarding
-# agent-browser-lite runs the same commands on Lightpanda instead: ~50x less
-# memory for reading/scraping, but no screenshots (it has no renderer)
+# agent-browser-headed puts the window on your desktop via Wayland forwarding;
+# agent-browser-headless is the same Chromium with no window;
+# agent-browser-lite-headless runs the same commands on Lightpanda instead:
+# ~50x less memory for reading/scraping, but no screenshots (it has no renderer)
 ```
 
 ### Example 3: Multi-Distro Testing

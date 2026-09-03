@@ -17,6 +17,28 @@ Two version numbers move independently — see
 
 ---
 
+## 3.48.0
+
+**Browser mode is an explicit choice** (container image 2.34).
+
+The image used to set `"headed": true` for every `agent-browser` call, so an agent doing
+background research popped Chromium windows onto the desktop just as readily as one
+running an acceptance test the user wanted to watch. The bare `agent-browser` name is
+now blocked: it prints a decision matrix and exits 2. Three mode-named wrappers replace
+it, each on its own daemon namespace so they never fight over one browser:
+
+- `agent-browser-headed` — Chromium with a window on the desktop, for when the user
+  asked to watch.
+- `agent-browser-headless` — the same Chromium with no window, for screenshots, PDFs
+  and geometry nobody is watching.
+- `agent-browser-lite-headless` — Lightpanda, DOM and text only, for reading, scraping
+  and research. This replaces `agent-browser-lite`, which is now blocked too, as is the
+  impossible `agent-browser-lite-headed`.
+
+The `browsing` skill, the in-container guide and the startup banner all carry the same
+matrix, and tell the agent that when it is unsure whether the user wants to watch, the
+answer is no.
+
 ## 3.47.0
 
 **Base image is generic tools only** (container image 2.33).

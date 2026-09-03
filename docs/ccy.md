@@ -593,7 +593,7 @@ it.
 
 #### `AGENT_BROWSER_IDLE_TIMEOUT_MS` — how long an abandoned browser lingers
 
-The image sets this to five minutes. `agent-browser` runs a daemon per session that shuts
+The image sets this to five minutes. Each browser command runs its own daemon that shuts
 itself down after that much inactivity; upstream's default is an hour, which meant a
 headed Chrome window an agent opened and forgot stayed on your desktop for an hour.
 
@@ -604,7 +604,22 @@ export AGENT_BROWSER_IDLE_TIMEOUT_MS=900000
 
 This is the safety net, not the cleanup. The `browsing` skill requires the agent to close
 every session it opens in the same command chain that finishes the task, and to check
-`agent-browser session list` is empty before reporting done.
+`session list` is empty for every mode it used before reporting done.
+
+#### Browser mode is always an explicit choice
+
+There is no default browser mode in the image. The bare `agent-browser` command is
+blocked: it prints a decision matrix and exits non-zero. The agent must name the mode:
+
+| Command                       | What it is                                  | When                                        |
+| ----------------------------- | ------------------------------------------- | ------------------------------------------- |
+| `agent-browser-headed`        | Chromium with a real window on your desktop | You asked to watch, e.g. an acceptance test |
+| `agent-browser-headless`      | The same Chromium, no window                | Screenshots, PDFs, geometry, unattended     |
+| `agent-browser-lite-headless` | Lightpanda, DOM and text only, ~50x cheaper | Reading, scraping, research                 |
+
+Lightpanda has no renderer, so `agent-browser-lite-headed` does not exist; asking for it
+hits the same stub. The `browsing` skill tells the agent that when it is unsure whether
+you want to watch, the answer is no.
 
 ### 3. `allowed-hostnames` — restricting where CCY can run
 

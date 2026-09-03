@@ -60,27 +60,32 @@ DATABASE:
   sqlite3      — SQLite CLI (inspect databases common in web/mobile apps)
 
 BROWSER AUTOMATION:
-  One CLI, two engines. Same commands either way — pick by what you need.
+  One CLI under three names. The mode is an explicit choice every time: the
+  bare `agent-browser` command is blocked and prints this matrix instead.
 
-  agent-browser        Chromium. Full browser: screenshots, PDFs, element
-                       geometry, visual checks. Headed against the host's
-                       Wayland socket, so windows appear on the host desktop.
-                       ~1.2s and ~1.3GB RSS across 15 processes per page.
+    Will a human watch?   Needs pixels/geometry?               Command
+    yes                   acceptance tests, UI checks, window  agent-browser-headed
+    no                    yes: screenshots, PDFs, geometry     agent-browser-headless
+    no                    no: parse text/content, research     agent-browser-lite-headless
 
-  agent-browser-lite   Lightpanda. DOM + JavaScript with no layout or paint:
-                       reading pages, extracting text/markdown, scraping,
-                       JS-rendered SPAs. ~0.4s and ~25MB RSS in one process.
+  Site does not behave under lite? Rerun the same commands with
+  agent-browser-headless; the syntax is identical.
 
-  Choosing, in order:
+  agent-browser-headed         Chromium with a real window on the host desktop
+                               (Wayland forwarding). Only when the user asked
+                               to watch, e.g. an acceptance test. ~1.2s and
+                               ~1.3GB RSS across 15 processes per page.
+  agent-browser-headless       The same Chromium, no window: screenshots, PDFs,
+                               element geometry, visual checks nobody watches.
+  agent-browser-lite-headless  Lightpanda. DOM + JavaScript with no layout or
+                               paint: reading pages, extracting text/markdown,
+                               scraping, JS-rendered SPAs, research. ~0.4s and
+                               ~25MB RSS in one process. There is no headed
+                               variant: Lightpanda has nothing to show.
 
-    1. Does the user want or need to SEE this happening? Chromium is headed,
-       so the window appears on their desktop — that visibility is the point,
-       not overhead. If they are present and the work is about a web page
-       (design, UI testing, debugging a layout), let them watch: use
-       agent-browser and do NOT pass --headed false.
-    2. Otherwise, does it need pixels or geometry at all?
-         no  -> agent-browser-lite
-         yes, but unattended -> agent-browser --headed false
+  Unsure whether the user wants to watch? The answer is no. Research and
+  background work never open a window; say which command you chose and why
+  in one line so the user can redirect you.
 
   Lightpanda matches Chromium on JS execution (fetch, ES modules, shadow DOM,
   React client renders all verified), so the choice is about visibility and
@@ -89,13 +94,13 @@ BROWSER AUTOMATION:
   `get box` exits 0 while returning fabricated geometry. Choose by the task,
   not by checking the exit code afterwards.
 
-  The two engines run on separate daemon namespaces, so they keep separate
+  Each command runs on its own daemon namespace, so the three keep separate
   browser sessions. Interleave them in any order without closing anything —
-  but a page opened in one is not open in the other, so re-`open` after
-  switching.
+  but a page opened in one is not open in another, so re-`open` after
+  switching. Close every mode you used: `<command> close --all`.
 
   Command reference (always matched to the installed version):
-    agent-browser skills get core --full
+    agent-browser-headless skills get core --full
 
 PROJECT-SPECIFIC TOOLS (if a custom Dockerfile exists for this project):
   Whatever the project's .claude/ccy/Dockerfile installs.
@@ -175,8 +180,10 @@ INSIDE THE CONTAINER:
   /root/.claude/skills/                Built-in skills (e.g. browsing/)
   /opt/claude-yolo/                    CCY system files
   /opt/claude-yolo/docs/               CCY documentation
-  /root/.agent-browser/config.json     agent-browser Chromium config (headed, Wayland)
-  /root/.agent-browser/lightpanda.json Lightpanda config, used by agent-browser-lite
+  /root/.agent-browser/config.json     agent-browser Chromium config (Wayland args; no mode)
+  /root/.agent-browser/lightpanda.json Lightpanda config, used by agent-browser-lite-headless
+  /opt/claude-yolo/agent-browser-mode-required
+                                       Stub behind the blocked bare `agent-browser` name
   /usr/local/bin/lightpanda            Lightpanda engine binary
 
 ON THE HOST (not accessible from container):

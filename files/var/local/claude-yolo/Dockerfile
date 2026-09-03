@@ -33,7 +33,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.33"
+LABEL claude-yolo-version="2.34"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 # NOTE: the claude-yolo-dockerfile-hash LABEL is set at the END of the final `full` stage
 # (PERF-02) so a Dockerfile edit — which changes DOCKERFILE_HASH — only invalidates that
@@ -159,11 +159,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN npm install -g agent-browser && \
     agent-browser install
 
-# Configure agent-browser with Wayland/Docker display args
-# Without this, every invocation requires --headed --args "..." flags
+# Configure agent-browser with Wayland/Docker display args. Deliberately NO "headed" key:
+# headed vs headless is chosen per command by the agent-browser-headed and
+# agent-browser-headless wrappers below, never by an image-wide default.
 RUN mkdir -p /root/.agent-browser && \
     echo '{\n\
-  "headed": true,\n\
   "args": "--enable-features=UseOzonePlatform,--ozone-platform=wayland,--no-sandbox,--disable-gpu,--disable-software-rasterizer,--disable-dev-shm-usage"\n\
 }' > /root/.agent-browser/config.json
 
@@ -193,8 +193,8 @@ ENV AGENT_BROWSER_IDLE_TIMEOUT_MS=300000
 #
 # What it CANNOT do: there is no CSS layout or paint pipeline. `screenshot` exits 0 and
 # writes a placeholder PNG; `get box` exits 0 and returns fabricated geometry. Both fail
-# SILENTLY, which is why Chromium stays the default and this engine is opt-in via
-# agent-browser-lite. See the browsing skill for the rule the agent follows.
+# SILENTLY, which is why this engine is reached only through the explicitly named
+# agent-browser-lite-headless. See the browsing skill for the rule the agent follows.
 #
 # The checksum is the sha256 GitHub publishes for this exact release asset, so a
 # re-tagged or substituted artifact fails the build rather than shipping quietly.
@@ -208,12 +208,12 @@ RUN curl -fsSL -o /tmp/lightpanda \
     && lightpanda version
 
 # Lightpanda needs its OWN agent-browser config. The Chromium config written above sets
-# "headed": true and Chromium-specific "args", and the Lightpanda code path rejects both
-# outright ("Headed mode is not supported with Lightpanda", "Custom Chrome arguments are
-# not supported with Lightpanda") — so without this file the engine is unreachable even
-# once the binary exists. Note that env vars do NOT rescue it: AGENT_BROWSER_HEADED=false
-# was measured failing to override "headed": true from the config file, despite the
-# documented precedence, so a separate --config is the only mechanism that works.
+# Chromium-specific "args", and the Lightpanda code path rejects those outright ("Custom
+# Chrome arguments are not supported with Lightpanda"), as it rejects headed mode — so
+# without this file the engine is unreachable even once the binary exists. Env vars do
+# NOT rescue it: AGENT_BROWSER_HEADED=false was measured failing to override a config
+# file value, despite the documented precedence, so a separate --config is the only
+# mechanism that works.
 RUN printf '%s\n' \
     '{' \
     '  "engine": "lightpanda",' \
@@ -221,40 +221,94 @@ RUN printf '%s\n' \
     '  "headed": false' \
     '}' > /root/.agent-browser/lightpanda.json
 
-# agent-browser-lite — the Lightpanda engine as one word instead of a long --config flag.
-# A passthrough: every agent-browser subcommand, flag and exit code behaves identically,
-# and stdout stays the wrapped command's alone.
+# The browser mode is an EXPLICIT CHOICE, never a default. Three wrappers are the only
+# way to drive a browser in CCY; the bare `agent-browser` name (and the old
+# `agent-browser-lite`, and the impossible `agent-browser-lite-headed`) resolve to a stub
+# that prints the decision matrix and exits non-zero. The point: a headed Chromium window
+# lands on the user's desktop, which is exactly right for watching an acceptance test and
+# exactly wrong for background research — and an image-wide default picks the same answer
+# for both. Naming the mode in the command makes the agent decide every time.
 #
-# --namespace is NOT cosmetic, it is what makes the two engines coexist. agent-browser
-# keeps a per-namespace daemon, and a daemon is bound to the engine it was started with.
-# Sharing the default namespace means the FIRST engine used wins until its daemon is
-# fully down, so an agent that reads a page with the light engine and then reaches for
-# Chromium gets "Custom Chrome arguments (--args) are not supported with Lightpanda"
-# (reproduced 3/3 in acceptance) — and `close --all` does not fix it, because the close
-# returns before the daemon has gone. That directly contradicts the browsing skill's
-# "fall back freely, the syntax is identical". A dedicated namespace gives each engine
-# its own daemon socket, so the two interleave in any order with no closes at all.
-RUN printf '%s\n' \
+#   agent-browser-headed          Chromium, window on the host desktop (Wayland)
+#   agent-browser-headless        Chromium, no window: pixels/geometry, unattended
+#   agent-browser-lite-headless   Lightpanda: DOM/text only, no renderer, ~50x cheaper
+#
+# Each wrapper is a passthrough: every agent-browser subcommand, flag and exit code
+# behaves identically, and stdout stays the wrapped command's alone. The wrappers exec
+# the platform binary by its resolved path, so removing the `agent-browser` symlink from
+# PATH does not affect them; the daemon does not re-invoke itself by PATH name either
+# (verified: headless open/get/screenshot/close and lite open/get/close both succeeded
+# with the bare name stubbed out).
+#
+# --namespace is NOT cosmetic, it is what lets the modes coexist. agent-browser keeps a
+# per-namespace daemon, and a daemon is bound to the engine AND headed state it was
+# started with. Sharing a namespace means the FIRST mode used wins until its daemon is
+# fully down (reproduced 3/3 in acceptance for the Chromium/Lightpanda case, and
+# `close --all` does not fix it because the close returns before the daemon has gone).
+# A dedicated namespace per wrapper gives each its own daemon socket, so the three
+# interleave in any order with no closes at all.
+RUN set -eu \
+    && REAL="$(readlink -f "$(command -v agent-browser)")" \
+    && test -x "$REAL" \
+    && case "$REAL" in */node_modules/agent-browser/bin/*) ;; \
+         *) echo "agent-browser on PATH is not the npm binary: $REAL" >&2; exit 1 ;; esac \
+    && mkdir -p /opt/claude-yolo \
+    && printf '%s\n' \
     '#!/bin/sh' \
-    '# agent-browser, driven by the Lightpanda engine instead of Chromium.' \
-    '#' \
-    '# Use for: reading pages, extracting text/markdown, scraping, JS-rendered SPAs.' \
-    '# Do NOT use for: screenshots, PDFs, element geometry, or anything visual —' \
+    '# Chromium with a REAL WINDOW on the host desktop (Wayland forwarding).' \
+    '# Use only when a human wants to watch. Close what you open, in the same' \
+    '# command chain:  agent-browser-headed close --all' \
+    "exec $REAL --namespace headed --headed true \"\$@\"" \
+    > /usr/local/bin/agent-browser-headed \
+    && printf '%s\n' \
+    '#!/bin/sh' \
+    '# Chromium with NO window: screenshots, PDFs, element geometry, visual checks' \
+    '# that nobody is watching. Close what you open:  agent-browser-headless close --all' \
+    "exec $REAL --namespace headless --headed false \"\$@\"" \
+    > /usr/local/bin/agent-browser-headless \
+    && printf '%s\n' \
+    '#!/bin/sh' \
+    '# Lightpanda instead of Chromium: reading pages, extracting text/markdown,' \
+    '# scraping, JS-rendered SPAs. NEVER for screenshots, PDFs or geometry —' \
     '# Lightpanda has no layout/paint pipeline and fails SILENTLY (exit 0 plus a' \
-    '# placeholder image or fabricated coordinates). Use plain agent-browser there.' \
-    '#' \
-    '# --namespace keeps this engine on its own daemon socket; without it the two' \
-    '# engines fight over one daemon and whichever ran first wins. Do not remove it.' \
-    'exec agent-browser --namespace lightpanda \' \
-    '    --config /root/.agent-browser/lightpanda.json "$@"' \
-    > /usr/local/bin/agent-browser-lite \
-    && chmod 755 /usr/local/bin/agent-browser-lite \
-    && sh -n /usr/local/bin/agent-browser-lite
-
-# Stub for common typo: agentbrowser → agent-browser
-RUN printf '#!/bin/sh\necho "Command not found: agentbrowser" >&2\necho "Did you mean: agent-browser" >&2\nexit 1\n' \
-    > /usr/local/bin/agentbrowser && \
-    chmod +x /usr/local/bin/agentbrowser
+    '# placeholder image or fabricated coordinates). Use agent-browser-headless there.' \
+    '# Close what you open:  agent-browser-lite-headless close --all' \
+    "exec $REAL --namespace lightpanda --config /root/.agent-browser/lightpanda.json \"\$@\"" \
+    > /usr/local/bin/agent-browser-lite-headless \
+    && printf '%s\n' \
+    '#!/bin/sh' \
+    '# Blocking stub. Every browser command in CCY names its mode explicitly.' \
+    'me="$(basename "$0")"' \
+    'cat >&2 <<EOF' \
+    '$me: not available in CCY. Choose the browser mode explicitly:' \
+    '' \
+    '  Will a human watch?   Needs pixels/geometry?               Command' \
+    '  -------------------   -----------------------------------  ---------------------------' \
+    '  yes                   acceptance tests, UI checks, window  agent-browser-headed' \
+    '  no                    yes: screenshots, PDFs, geometry     agent-browser-headless' \
+    '  no                    no: parse text/content, research     agent-browser-lite-headless' \
+    '' \
+    'Same subcommands and flags for all three; only the command name differs.' \
+    'Site does not behave under lite? Rerun the same commands with agent-browser-headless.' \
+    'Lightpanda (lite) has no renderer, so agent-browser-lite-headed cannot exist.' \
+    'Reference: agent-browser-headless skills get core --full' \
+    'EOF' \
+    'exit 2' \
+    > /opt/claude-yolo/agent-browser-mode-required \
+    && chmod 755 /usr/local/bin/agent-browser-headed /usr/local/bin/agent-browser-headless \
+       /usr/local/bin/agent-browser-lite-headless /opt/claude-yolo/agent-browser-mode-required \
+    && sh -n /usr/local/bin/agent-browser-headed \
+    && sh -n /usr/local/bin/agent-browser-headless \
+    && sh -n /usr/local/bin/agent-browser-lite-headless \
+    && sh -n /opt/claude-yolo/agent-browser-mode-required \
+    && rm -f /usr/local/bin/agent-browser \
+    && for name in agent-browser agent-browser-lite agent-browser-lite-headed agentbrowser; do \
+         ln -sf /opt/claude-yolo/agent-browser-mode-required "/usr/local/bin/$name"; \
+       done \
+    && agent-browser-headed --version >/dev/null \
+    && agent-browser-headless --version >/dev/null \
+    && agent-browser-lite-headless --version >/dev/null \
+    && if agent-browser --version >/dev/null 2>&1; then echo "bare agent-browser must be blocked" >&2; exit 1; fi
 
 # ctrl+z / SIGSTOP suppression is NOT done here any more. The image used to
 # byte-patch Ink's hardcoded suspend handler out of Claude Code; that job now

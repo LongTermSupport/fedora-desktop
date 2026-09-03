@@ -364,21 +364,23 @@ pipx install ruff
 
 - git, gh, ripgrep, jq, yq, vim, python, Node.js (current LTS), Claude Code
 - **agent-browser CLI**: Token-efficient browser automation (no Playwright needed), driving
-  **two engines** — Chromium, and Lightpanda via the `agent-browser-lite` wrapper
+  **two engines** — Chromium, and Lightpanda — through three mode-named wrappers
 
 **Key features of agent-browser**:
 
 - 93% context reduction for multi-page flows vs traditional DOM inspection
-- Headed mode support (`--headed` flag) for visual debugging
+- Headed mode (`agent-browser-headed`) for watching a run on your desktop
 - Reference-based selection (`@e1`, `@e2`) from compact accessibility snapshots
-- Version-matched built-in docs: `agent-browser skills get core --full`
+- Version-matched built-in docs: `agent-browser-headless skills get core --full`
 
-**Two engines, one CLI**:
+**Three commands, one CLI** — the mode is always explicit; bare `agent-browser` is blocked
+and prints this matrix:
 
-| Command              | Engine     | Per page fetch                 | Use for                                                       |
-| -------------------- | ---------- | ------------------------------ | ------------------------------------------------------------- |
-| `agent-browser`      | Chromium   | ~1.2 s, 15 procs, ~1345 MB RSS | Screenshots, PDFs, geometry, visual checks                    |
-| `agent-browser-lite` | Lightpanda | ~0.4 s, 1 proc, ~25 MB RSS     | Reading, text/markdown extraction, scraping, JS-rendered SPAs |
+| Command                       | Engine     | Window? | Per page fetch                 | Use for                                                       |
+| ----------------------------- | ---------- | ------- | ------------------------------ | ------------------------------------------------------------- |
+| `agent-browser-headed`        | Chromium   | yes     | ~1.2 s, 15 procs, ~1345 MB RSS | The user asked to watch: acceptance tests, UI debugging       |
+| `agent-browser-headless`      | Chromium   | no      | ~1.2 s, 15 procs, ~1345 MB RSS | Screenshots, PDFs, geometry, visual checks nobody watches     |
+| `agent-browser-lite-headless` | Lightpanda | no      | ~0.4 s, 1 proc, ~25 MB RSS     | Reading, text/markdown extraction, scraping, JS-rendered SPAs |
 
 Lightpanda executes JavaScript with the same fidelity as Chromium (verified against
 `fetch()`, ES modules, custom elements + shadow DOM and a React 18 client render) but has
@@ -398,17 +400,22 @@ ccy
 
 # Inside CCY — cheap engine for content. Close in the same chain: the daemon
 # persists between calls, so a session you do not close outlives the task.
-agent-browser-lite open https://example.com && agent-browser-lite get text body \
-  && agent-browser-lite close --all
+agent-browser-lite-headless open https://example.com \
+  && agent-browser-lite-headless get text body \
+  && agent-browser-lite-headless close --all
 
-# Full Chromium for anything visual — a headed session is a real window on the
+# Full Chromium while you watch — a headed session is a real window on the
 # desktop, so the close is not optional.
-agent-browser --headed open https://example.com
-agent-browser snapshot -i         # Get @refs for elements
-agent-browser click @e5           # Click using reference
-agent-browser fill @e3 "test"     # Fill form fields
-agent-browser screenshot /tmp/page.png
-agent-browser close --all         # Every session, every time
+agent-browser-headed open https://example.com
+agent-browser-headed snapshot -i         # Get @refs for elements
+agent-browser-headed click @e5           # Click using reference
+agent-browser-headed fill @e3 "test"     # Fill form fields
+agent-browser-headed screenshot /tmp/page.png
+agent-browser-headed close --all         # Every session, every time
+
+# Same Chromium, no window, for unattended visual work
+agent-browser-headless open https://example.com && agent-browser-headless screenshot /tmp/page.png \
+  && agent-browser-headless close --all
 ```
 
 A forgotten session is reaped by the image's idle timeout after five minutes, down from

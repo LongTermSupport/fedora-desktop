@@ -198,7 +198,7 @@
         # duplicated into COMMANDLINE-USAGE.md and EXAMPLES.md, which drifted so far that
         # all 97 of their examples used an `agent-browser run "..."` syntax the CLI no
         # longer has. agent-browser ships its own version-matched skills
-        # (`agent-browser skills get core --full`), so the skill now points at those.
+        # (`agent-browser-headless skills get core --full`), so the skill now points at those.
         - "{{ root_dir }}/files/opt/claude-yolo/skills/browsing/SKILL.md"
       tags:
         - scripts
@@ -540,7 +540,7 @@
           - "   • Container: claude-yolo:latest"
           - "   • Alias: ccy"
           - "   • Tokens: ~/.claude-tokens/ccy/"
-          - "   • Browsers: agent-browser (Chromium) + agent-browser-lite (Lightpanda)"
+          - "   • Browsers: agent-browser-headed / -headless (Chromium) + agent-browser-lite-headless (Lightpanda)"
           - "   • Wayland display forwarding: automatic"
           - ""
           - "🚀 Quick Start"
@@ -553,9 +553,11 @@
           - "    ccy"
           - ""
           - "  Browser automation (inside CCY container):"
-          - "    agent-browser skills get core --full   # version-matched reference"
-          - "    agent-browser-lite open <url>          # cheap engine: text/DOM/scraping"
-          - "    agent-browser open <url>               # full Chromium: pixels, geometry"
+          - "    agent-browser-headless skills get core --full   # version-matched reference"
+          - "    agent-browser-lite-headless open <url>          # cheap engine: text/DOM/scraping"
+          - "    agent-browser-headless open <url>               # Chromium, no window: pixels, geometry"
+          - "    agent-browser-headed open <url>                 # Chromium window on your desktop"
+          - "    (bare agent-browser is blocked — the mode is always an explicit choice)"
           - ""
           - "💡 Token Management"
           - ""
