@@ -25,13 +25,19 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Ansible testing and linting tools
+# Install Ansible testing and linting tools. The base image carries none of
+# these (image 2.33 removed Ansible and semgrep from it), so a project that
+# needs them declares them here.
 RUN pip3 install --no-cache-dir \
     molecule \
     molecule-docker \
     ansible-lint \
     yamllint \
-    jmespath
+    jmespath \
+    passlib
+
+# semgrep, if the project runs pattern-based QA over its scripts
+RUN pipx install semgrep
 
 # Verify installation
 RUN ansible --version && \

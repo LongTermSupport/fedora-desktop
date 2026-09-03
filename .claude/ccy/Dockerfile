@@ -12,7 +12,6 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && \
     apt-get install -y --no-install-recommends \
-        ansible \
         python3-pip \
         python3-venv \
         pipx \
@@ -34,6 +33,19 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # Ensure pipx binaries are in PATH
 ENV PATH="/root/.local/bin:${PATH}"
 
+# Ansible via pipx, NOT apt: Debian 12's package is ansible-core 2.14, while the
+# host this repo provisions runs ansible-core 2.19 and the QA gate's
+# --syntax-check must see the 2.19 parser (CLAUDE/AgentNotes.md documents three
+# 2.19-only failures). The base image used to carry this install and dropped it
+# in image 2.33 because it is this project's tooling, not everyone's.
+# jmespath serves json_query; passlib serves password_hash in play-ftp-camera.yml.
+RUN pipx install --include-deps ansible \
+    && pipx inject ansible jmespath \
+    && pipx inject ansible passlib
+
+# semgrep runs the .semgrep/bash-conventions.yml rules in scripts/qa-patterns.bash
+RUN pipx install semgrep
+
 # Install Ansible testing and linting tools using pipx
 #
 # ruff is PINNED (Plan 00071). Its enabled ruleset is its DEFAULT set, and that
@@ -48,12 +60,6 @@ RUN pipx install ansible-lint && \
     pipx install yamllint && \
     pipx install "ruff==$(cat /tmp/.ruff-version)" && \
     rm -f /tmp/.ruff-version
-
-# Install jmespath library for Ansible json_query filter
-# This is a library dependency, not a CLI tool, so use pip.
-# --break-system-packages is safe here: this is an isolated container image
-# layer with no system Python packages that could be corrupted.
-RUN pip3 install --no-cache-dir --break-system-packages "jmespath>=1.0,<2"
 
 # Install GitHub CLI (gh) - used by git configuration playbook
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \

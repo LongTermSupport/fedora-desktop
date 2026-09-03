@@ -17,6 +17,21 @@ Two version numbers move independently — see
 
 ---
 
+## 3.47.0
+
+**Base image is generic tools only** (container image 2.33).
+
+Ansible (via pipx, with jmespath and passlib) and semgrep are removed from the base
+image. Both were added in March for this repository's own playbook and QA work and
+have been landing in every client project's container since. The base image now
+carries only the general-purpose toolset the startup banner lists.
+
+**Action for any project that used them:** add the tools to that project's
+`.claude/ccy/Dockerfile`. `Dockerfile.example-ansible` is the template, and
+fedora-desktop's own project Dockerfile is a worked example. The in-container startup
+banner carries a "BASE IMAGE CHANGES" notice so a project agent sees this on its first
+session in the rebuilt image, and `CLAUDE/ContainerRules.md` records the layering rule.
+
 ## 3.46.3
 
 **Container drops numpy and pytest again** (container image 2.32).

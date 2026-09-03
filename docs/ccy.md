@@ -519,9 +519,12 @@ your whole team gets the same environment.
 
 ### 1. `Dockerfile` — project-specific tools
 
-The base image ships a general-purpose toolset — see
-[what's included](containerization.md#custom-dockerfiles). When your project needs more
-(a specific Python version, Go, PHP, a database client), add `.claude/ccy/Dockerfile`:
+The base image ships a general-purpose toolset and nothing else — see
+[what's included](containerization.md#custom-dockerfiles). Ansible and semgrep were
+removed from it in image 2.33 after they leaked into every client project; a project
+that runs playbooks or pattern QA declares them in its own Dockerfile. When your
+project needs more (Ansible, a specific Python version, Go, PHP, a database client),
+add `.claude/ccy/Dockerfile`:
 
 ```bash
 ccy --custom          # pick a template (Ansible / Go / generic)

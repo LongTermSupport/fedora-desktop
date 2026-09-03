@@ -32,8 +32,18 @@ DOCUMENTATION (read these to understand this environment):
 • Dockerfile guide:     cat /opt/claude-yolo/docs/CUSTOM-DOCKERFILES.txt
 
 CUSTOM DOCKERFILES:
+• The base image is GENERIC tools only (the list above). Anything a project needs
+  beyond it — Ansible, semgrep, a language runtime, a linter — goes in the project's
+  own .claude/ccy/Dockerfile, never in the base image.
 • Project needs Python 3.12, Go, or other tools? Create a custom Dockerfile!
 • Quick setup: On host, run 'ccy --custom-docker' for AI-guided creation
 • Custom Dockerfiles persist in .claude/ccy/Dockerfile (tracked in git)
+
+BASE IMAGE CHANGES (check before assuming a tool is present):
+• Image 2.33 REMOVED Ansible (pipx) and semgrep from the base image. They had been
+  leaking into every project. If this project ran ansible, ansible-playbook, or
+  semgrep from the base image, add them to .claude/ccy/Dockerfile now; the
+  Dockerfile.example-ansible template shows how. A missing tool is a Dockerfile
+  gap to fix, not something to work around.
 
 Your project files are at /workspace. Use git, write code, run tests, create commits and PRs!

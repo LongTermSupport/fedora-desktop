@@ -33,7 +33,7 @@ ARG DOCKERFILE_HASH="unknown"
 # ⚠️  THIS VALUE MUST MATCH REQUIRED_CONTAINER_VERSION in claude-yolo script!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: this label AND the script variable.
-LABEL claude-yolo-version="2.32"
+LABEL claude-yolo-version="2.33"
 LABEL description="Claude Code YOLO Mode - Isolated container for dangerously-skip-permissions"
 # NOTE: the claude-yolo-dockerfile-hash LABEL is set at the END of the final `full` stage
 # (PERF-02) so a Dockerfile edit — which changes DOCKERFILE_HASH — only invalidates that
@@ -117,14 +117,11 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
 RUN wget -qO /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 \
     && chmod +x /usr/bin/yq
 
-# Install Ansible via pipx (for playbook development and compatibility testing)
-# pipx is installed via apt (python3-venv also required for pipx venv creation)
-RUN pipx install --include-deps ansible \
-    && pipx inject ansible jmespath \
-    && pipx inject ansible passlib
-
-# Install semgrep for QA pattern checks (qa-patterns.bash uses .semgrep/bash-conventions.yml)
-RUN pipx install semgrep
+# pipx (installed via apt above, python3-venv is its venv backend) is the sanctioned
+# route for a project to add Python CLI tools in its own .claude/ccy/Dockerfile.
+# Ansible and semgrep used to be installed here and were removed in image 2.33: they
+# are one project's tooling, and every client project was getting them.
+# Dockerfile.example-ansible is the template for re-adding them.
 ENV PATH="/root/.local/bin:${PATH}"
 
 # Install uv (fast Python package manager, required by hooks-daemon upgrade)
