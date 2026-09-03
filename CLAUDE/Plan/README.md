@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00102-dash-to-dock-does-not-dodge-ptyxis-terminal](00102-dash-to-dock-does-not-dodge-ptyxis-terminal/) - Dash to Dock stays on top of an un-maximised Ptyxis window while every other window hides it; triage the window-tracker cause on the host, then set `intellihide-mode` through Ansible
+
 - [00093-ccy-version-gate-covers-two-files-of-eight](00093-ccy-version-gate-covers-two-files-of-eight/) - The pre-commit CCY bump gate misses `entrypoint.sh`, the Dockerfile and all of `files/opt/claude-yolo/`; widen it and test it
 
 - [00092-ccy-child-claude-spawn-mode](00092-ccy-child-claude-spawn-mode/) - Opt-in `ccy.env` mode letting a CCY session spawn authenticated child `claude` processes, with no new token exposure
