@@ -64,12 +64,13 @@
         - "'.ai' in darktable_release_probe.stdout"
       tags: photography
 
-    - name: Remove the RPM build tooling and mock chroots the retired build used
+    # rpm-build and rpmdevtools stay: akmods (the RPM Fusion NVIDIA driver
+    # builder) requires both. Only mock was exclusive to the retired build.
+    - name: Remove mock, which only the retired darktable build used
       ansible.builtin.dnf:
         name:
           - mock
-          - rpm-build
-          - rpmdevtools
+          - mock-core-configs
         state: absent
       tags: photography
 
