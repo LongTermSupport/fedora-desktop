@@ -137,36 +137,44 @@
     # stock case and silently fails to protect the hardened one. Moving sshd off 22 is common
     # enough that assuming otherwise is the bug.
     #
-    # Asked of the RUNNING sshd rather than parsed out of a config file, so `Include` directives,
-    # drop-ins and multiple `Port` lines all resolve to what is actually listening.
-    #
-    # `openssh-server` is not in any package list here and a local workstation may well not want
-    # one, so the binary's presence is established as a fact first. That is a genuine "does this
-    # machine have an SSH server" branch, not a tolerated failure: where sshd exists, `sshd -T`
-    # must succeed, and an error from it still stops the play.
+    # `openssh-server` is in no package list here and a workstation may not want one, so the
+    # binary's presence is established as a fact first. That is a genuine "does this machine run
+    # an SSH server" branch, not a tolerated failure: where sshd exists, the discovery below must
+    # succeed, and an error from it still stops the play.
     - name: Establish whether this machine runs an SSH server at all
       ansible.builtin.stat:
         path: /usr/sbin/sshd
       register: lxc_sshd_binary
 
-    - name: Ask the running sshd which ports it actually listens on
-      ansible.builtin.command: sshd -T
-      register: lxc_sshd_effective_config
+    # Ports come from `sshd -T`: the sshd binary's own offline parse of its effective
+    # configuration, so `Include` directives, drop-ins and repeated directives resolve exactly as
+    # the daemon resolves them. (It parses config files and needs root — it does not query a
+    # running daemon.) Parsing lives in a tested helper because a port set only via
+    # `ListenAddress host:port` never appears on a `port` line — sshd reports the DEFAULT 22
+    # alongside it, so a naive `^port ` filter opens the one port nothing is listening on.
+    # helpers/sshd_ports/core.py covers that, and the bare-IPv6 address that merely looks like it
+    # ends in a port.
+    - name: Ask sshd which ports it is configured to listen on
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -m
+          - helpers.sshd_ports.cli
+          - --sshd-path
+          - /usr/sbin/sshd
+        chdir: "{{ root_dir }}"   # repo root on sys.path so the helpers package imports
+      register: lxc_sshd_ports
       changed_when: false
       when: lxc_sshd_binary.stat.exists
 
-    - name: Permit every port sshd actually listens on (a non-standard port must not self-lockout)
+    - name: Permit every port sshd listens on (a non-standard port must not self-lockout)
       ansible.posix.firewalld:
         port: "{{ item }}/tcp"
         state: enabled
         permanent: true
         immediate: true
+      loop: "{{ lxc_sshd_ports.stdout_lines | default([]) }}"
       when: lxc_sshd_binary.stat.exists
-      loop: >-
-        {{ lxc_sshd_effective_config.stdout_lines | default([])
-           | select('match', '^port ')
-           | map('regex_replace', '^port ', '')
-           | list }}
 
     # PERF-07: the firewalld module applies permanent + runtime idempotently without the
     # blanket `firewall-cmd --reload` that reprocessed every zone on every run.
