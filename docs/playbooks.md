@@ -889,6 +889,7 @@ Photography tools:
 
 - Installs RAW processors, colour management utilities, and camera tethering tools
 - Enforces darktable 5.6.0+ (native Sony A7V support); pulls it from Fedora's `updates-testing` repo only while the stable repo is still behind
+- Removes any locally built darktable (release tag `.ai`), the retired `darktable-ai` nightly, and the mock/rpm-build tooling used to build it
 
 #### play-qobuz.yml
 

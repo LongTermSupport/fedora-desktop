@@ -42,6 +42,46 @@
       ansible.builtin.meta: end_play
       when: (scope == 'gnome' and provisioning_profile == 'server') or (scope == 'server' and provisioning_profile != 'server')
 
+    # A darktable RPM built locally by the retired AI build playbook carries a
+    # "100.ai" release tag. Its version may already equal the stock one, so it
+    # must be removed outright before the stock RPM is installed below.
+    - name: Probe for a locally built darktable release tag
+      ansible.builtin.command: rpm -q --queryformat '%{RELEASE}' darktable
+      register: darktable_release_probe
+      changed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe; rc != 0 means "not installed", branched on below
+      tags: photography
+
+    - name: Remove the locally built darktable RPMs (release tag contains ".ai")
+      ansible.builtin.dnf:
+        name:
+          - darktable
+          - darktable-tools-noise
+          - darktable-tools-basecurve
+        state: absent
+      when:
+        - darktable_release_probe.rc == 0
+        - "'.ai' in darktable_release_probe.stdout"
+      tags: photography
+
+    - name: Remove the RPM build tooling and mock chroots the retired build used
+      ansible.builtin.dnf:
+        name:
+          - mock
+          - rpm-build
+          - rpmdevtools
+        state: absent
+      tags: photography
+
+    - name: Remove the mock build cache
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /var/lib/mock
+        - /var/cache/mock
+      tags: photography
+
     - name: Install Photography Packages
       ansible.builtin.package:
         name:
