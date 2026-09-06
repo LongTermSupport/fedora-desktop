@@ -60,11 +60,13 @@
           #       chain exists" task fails command-not-found, suspect that distro packaging
           #       regression rather than this play.
           - NetworkManager   # the nmcli probe + "reload NetworkManager" handler require it
-
-    - name: Put SELinux in permissive mode, logging actions that would be blocked.
-      ansible.posix.selinux:
-        policy: targeted
-        state: permissive
+          # The SELinux policy for the container domains. `lxc-start` transitions into
+          # `container_runtime_t` and the payload into a container domain; without this policy
+          # installed those types do not exist, which is what makes LXC look like it needs
+          # SELinux turned down. `lxc` does NOT depend on it — on a machine that also runs
+          # Podman it arrives transitively via `containers-common`, so a Podman-less machine
+          # would otherwise be missing it and nothing would say so.
+          - container-selinux
 
     # ANS-09: `state: started` (not `restarted`) so a main-playbook run does not bounce
     # lxc.service — and the long-lived containers it autostarts — on every pass.
@@ -101,6 +103,19 @@
         state: started
         enabled: true
 
+    # `systemd` returns as soon as the unit is ACTIVE, which is earlier than firewalld being able
+    # to answer. Every task below talks to it over D-Bus, and on a first-ever start that interface
+    # is not up yet — so without this wait the next task fails with "firewall is not currently
+    # running, unable to perform immediate actions", on exactly the freshly-provisioned machine
+    # this play is written for. `--state` is the daemon's own readiness answer.
+    - name: Wait for firewalld to be ready to answer (not merely active)
+      ansible.builtin.command: firewall-cmd --state
+      register: lxc_firewalld_state
+      until: lxc_firewalld_state.rc == 0
+      retries: 30
+      delay: 2
+      changed_when: false
+
     # This is Cloud Base's FIRST-EVER firewalld start (it was simply absent until the
     # package task above installed it). On a remote, headless VM the only access path is
     # SSH, so before we leave the daemon enabled we must guarantee the box's default zone
@@ -115,6 +130,43 @@
         state: enabled
         permanent: true
         immediate: true
+
+    # THE `ssh` SERVICE IS PORT 22 AND ONLY PORT 22. A machine whose sshd listens anywhere else
+    # is locked out the moment a previously-absent firewalld starts, because the default zone
+    # permits the service and knows nothing about the actual port — the task above protects the
+    # stock case and silently fails to protect the hardened one. Moving sshd off 22 is common
+    # enough that assuming otherwise is the bug.
+    #
+    # Asked of the RUNNING sshd rather than parsed out of a config file, so `Include` directives,
+    # drop-ins and multiple `Port` lines all resolve to what is actually listening.
+    #
+    # `openssh-server` is not in any package list here and a local workstation may well not want
+    # one, so the binary's presence is established as a fact first. That is a genuine "does this
+    # machine have an SSH server" branch, not a tolerated failure: where sshd exists, `sshd -T`
+    # must succeed, and an error from it still stops the play.
+    - name: Establish whether this machine runs an SSH server at all
+      ansible.builtin.stat:
+        path: /usr/sbin/sshd
+      register: lxc_sshd_binary
+
+    - name: Ask the running sshd which ports it actually listens on
+      ansible.builtin.command: sshd -T
+      register: lxc_sshd_effective_config
+      changed_when: false
+      when: lxc_sshd_binary.stat.exists
+
+    - name: Permit every port sshd actually listens on (a non-standard port must not self-lockout)
+      ansible.posix.firewalld:
+        port: "{{ item }}/tcp"
+        state: enabled
+        permanent: true
+        immediate: true
+      when: lxc_sshd_binary.stat.exists
+      loop: >-
+        {{ lxc_sshd_effective_config.stdout_lines | default([])
+           | select('match', '^port ')
+           | map('regex_replace', '^port ', '')
+           | list }}
 
     # PERF-07: the firewalld module applies permanent + runtime idempotently without the
     # blanket `firewall-cmd --reload` that reprocessed every zone on every run.
