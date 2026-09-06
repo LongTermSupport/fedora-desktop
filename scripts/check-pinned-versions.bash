@@ -85,7 +85,6 @@ playbooks/imports/optional/common/play-qobuz.yml|rescrobbledVersion|InputUsernam
 playbooks/imports/optional/common/play-compression-helpers.yml|ouchVersion|ouch-org/ouch||
 playbooks/imports/optional/common/play-photography.yml|rapidraw_version|CyberTimon/RapidRAW||
 playbooks/imports/optional/common/play-photography.yml|art_version|artraweditor/ART||
-playbooks/imports/optional/common/play-darktable-ai-build.yml|darktable_version|darktable-org/darktable|release-|
 playbooks/imports/optional/hardware-specific/play-displaylink.yml|displaylink_version|displaylink-rpm/displaylink-rpm||
 playbooks/imports/optional/hardware-specific/play-displaylink.yml|evdi_version|DisplayLink/evdi||
 playbooks/imports/optional/hardware-specific/play-nvidia.yml|cudnn_version|||NVIDIA cuDNN — check developer.nvidia.com / the CUDA repo manually

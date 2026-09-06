@@ -1,6 +1,6 @@
 ---
 name: update-versions
-description: Review and bump the pinned upstream version variables hardcoded in the Ansible playbooks (markless, ouch, rescrobbled, nvm, darktable, RapidRAW, ART, DisplayLink/evdi, cuDNN, …). Use when the user asks to check whether pinned dependencies/versions are outdated, review or audit version pins, or update a playbook to a newer upstream release. Runs scripts/check-pinned-versions.bash for the drift report, then guides applying a bump safely — including any adjacent sha256 checksum and asset-filename changes.
+description: Review and bump the pinned upstream version variables hardcoded in the Ansible playbooks (markless, ouch, rescrobbled, nvm, RapidRAW, ART, DisplayLink/evdi, cuDNN, …). Use when the user asks to check whether pinned dependencies/versions are outdated, review or audit version pins, or update a playbook to a newer upstream release. Runs scripts/check-pinned-versions.bash for the drift report, then guides applying a bump safely — including any adjacent sha256 checksum and asset-filename changes.
 allowed-tools: [Bash, Read, Edit, Grep]
 ---
 
@@ -8,7 +8,7 @@ allowed-tools: [Bash, Read, Edit, Grep]
 
 Several playbooks hardcode an upstream release version in a play var
 (`marklessVersion: "0.9.6"`, `ouchVersion`, `rescrobbledVersion`,
-`nvm_version`, `darktable_version`, `rapidraw_version`, `art_version`,
+`nvm_version`, `rapidraw_version`, `art_version`,
 `displaylink_version`, `evdi_version`, `cudnn_version`, …). These pins drift as
 upstream ships new releases. This skill reviews the drift and helps apply bumps
 safely.
@@ -47,8 +47,8 @@ For each pin the user agrees to update:
 2. **Update any adjacent checksum — this is the easy thing to miss.** Several of
    these playbooks pin a `sha256`/checksum next to the version and the download
    will FAIL verification if you bump the version but not the hash. Known
-   checksum-pinning plays: `play-markless.yml`, `play-photography.yml` (RapidRAW,
-   ART), and the darktable plays. Grep the same file for `sha256`/`checksum`/
+   checksum-pinning plays: `play-markless.yml` and `play-photography.yml`
+   (RapidRAW, ART). Grep the same file for `sha256`/`checksum`/
    `digest` and fetch the new release's published hash (or compute it from the
    asset) before proceeding.
 

@@ -1,6 +1,6 @@
 # Plan 00042: Darktable AI Features
 
-**Status**: In Progress (AI path delivered via Phase 2-alt; Phase 3 GPU implemented)
+**Status**: Cancelled (2026-09-06 — pre-release AI path unreliable; darktable 5.6.0+ supports the A7V natively, so the playbooks were removed)
 **Created**: 2026-05-19
 **Owner**: joseph
 **Priority**: Medium
@@ -10,6 +10,15 @@
 > Decision rationale and the as-built design are in [DECISIONS.md](DECISIONS.md).
 
 ## Overview
+
+> **Cancelled.** The nightly AppImage and GPU ONNX Runtime path never worked
+> reliably, and darktable 5.6.0 shipped with the Sony A7V entry in its
+> bundled rawspeed (verified identical to the overlay this plan pinned).
+> `play-darktable-ai-build.yml`, `play-darktable-ai-appimage.yml`,
+> `play-darktable-ai-gpu.yml` and the `darktable-ai` launcher were removed;
+> `play-photography.yml` now enforces a darktable version floor and removes
+> the retired install. CUDA and cuDNN stay in `play-nvidia.yml` as a general
+> capability. The text below is kept as the historical record.
 
 darktable's AI subsystem (interactive SAM2.1/SegNext object masks, neural
 denoise, upscale) is backed by ONNX Runtime and ships only in darktable 5.6.0

@@ -84,8 +84,6 @@ Use these Unicode icons in plan documents:
 
 - [00041-remote-desktop-quick-toggle](00041-remote-desktop-quick-toggle/) - One-click GNOME quick-settings toggle for `gnome-remote-desktop` on Wayland: `rdt` CLI plus extension, LAN-scoped non-persistent firewalld rule, off by default and after reboot.
 
-- [00042-darktable-ai-features](00042-darktable-ai-features/) - Enable darktable's optional AI features (object masks, denoise, upscale), which neither the Fedora RPM nor the Flatpak builds in. The AI nightly is installed alongside the stable RPM and Phase 3 adds NVIDIA GPU acceleration; host deploy and CUDA-provider verification pending. (Renumbered from local 00039, which collided with remote 00039.)
-
 - [00045-project-personas-multi-tool-accounts](00045-project-personas-multi-tool-accounts/) - Generalise the per-alias `github_accounts` pattern into a top-level `project_personas` map in `localhost.yml` driving multiple tools (gh today, wrangler next). Awaiting Phase 1 decision gate.
 
 - [00046-localhost-yml-leak-guard](00046-localhost-yml-leak-guard/) - Project-level hooks-daemon handler blocking `gh issue/pr/gist` and HTTP-POST commands whose body carries a token derived from `localhost.yml` — the surface git hooks do not cover.
@@ -225,6 +223,8 @@ Use these Unicode icons in plan documents:
 - [00044-laptop-health-audit](Completed/00044-laptop-health-audit/) - Read-only audit of the daily-driver X1 Carbon, cross-checked against IaC to separate real gaps from busywork: five new or extended plays shipped, three items dropped. Established the "work WITH GNOME, not against it" principle.
 
 ## Cancelled Plans
+
+- [00042-darktable-ai-features](Cancelled/00042-darktable-ai-features/) - Enable darktable's AI features via a source-built RPM and the upstream nightly AppImage. CANCELLED: the pre-release path never worked reliably, and darktable 5.6.0+ (Fedora 44 ships 5.6.1) decodes the Sony A7V natively, so the local rebuild and cameras.xml overlay are no longer needed. The AI playbooks were removed; `play-photography.yml` now enforces the darktable version floor and cleans up the retired install.
 
 - [00100-ccy-token-usage-limits](Cancelled/00100-ccy-token-usage-limits/) - Show per-account usage in `ccy`'s token menu. CANCELLED on host evidence: all four stored tokens return 403 on `/api/oauth/usage`, because a setup-token lacks the `user:profile` scope and nothing client-side can mint it. The figures are reachable as `/v1/messages` response headers instead — taken up by Plan 00074.
 

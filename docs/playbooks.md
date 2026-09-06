@@ -667,18 +667,6 @@ Container process watchdog — **reporting only, it never kills or throttles any
 - Its no-kill guarantee is enforced by a dedicated QA gate — see
   [CLAUDE/QA.md](../CLAUDE/QA.md)
 
-#### play-darktable-ai-appimage.yml
-
-Install darktable AI nightly (AppImage, with Sony A7V support):
-
-- Deploys darktable AI nightly build as an AppImage with Sony A7V denoise profiles
-
-#### play-darktable-ai-build.yml
-
-Build and install darktable RPM with AI features (USE_AI=ON):
-
-- Compiles darktable from source with AI scene-referred processing enabled
-
 #### play-ddev.yml
 
 DDEV local development environment:
@@ -900,6 +888,7 @@ NordVPN OpenVPN manager:
 Photography tools:
 
 - Installs RAW processors, colour management utilities, and camera tethering tools
+- Enforces darktable 5.6.0+ (native Sony A7V support); pulls it from Fedora's `updates-testing` repo only while the stable repo is still behind
 
 #### play-qobuz.yml
 
@@ -1022,13 +1011,6 @@ Videography tools:
 - Installs video editing and transcoding tools (Kdenlive, FFmpeg extras, etc.)
 
 ### Hardware-Specific
-
-#### play-darktable-ai-gpu.yml
-
-Install GPU ONNX Runtime for darktable AI:
-
-- Installs CUDA/OpenCL ONNX runtime libraries for GPU-accelerated darktable AI processing
-- **Requires**: `play-darktable-ai-appimage.yml` or `play-darktable-ai-build.yml`
 
 #### play-displaylink.yml
 

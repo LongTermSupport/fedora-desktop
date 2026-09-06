@@ -8,11 +8,16 @@
     scope: gnome   # general | gnome | server — see CLAUDE/AnsibleStyle.md
     # RapidRAW - hardcoded version for security and reproducibility
     # @see https://github.com/CyberTimon/RapidRAW/releases
-    rapidraw_version: "1.5.8"
+    rapidraw_version: "1.6.3"
     rapidraw_rpm: "03_RapidRAW_v{{ rapidraw_version }}_ubuntu-22.04_x86_64.rpm"
     rapidraw_url: "https://github.com/CyberTimon/RapidRAW/releases/download/v{{ rapidraw_version }}/{{ rapidraw_rpm }}"
-    rapidraw_sha256: "673896bfc94f6e5d3198345c3e597bb34a107b4902dc635267ac952eb86ab17c"
+    rapidraw_sha256: "1c545cb6f47b28dc570e175ba3de24ca45b80e4b66dbe4995b9618bbd3bb13e9"
     rapidraw_tmp: "/tmp/{{ rapidraw_rpm }}"
+    # darktable - Sony A7V (ILCE-7M5) decoding needs the rawspeed bundled with
+    # darktable 5.6.0+. Fedora ships 5.6.1 via updates-testing before it reaches
+    # the stable updates repo, so the install below pulls from updates-testing
+    # only while the installed version is still older than this floor.
+    darktable_min_version: "5.6.0"
     # ART - hardcoded version for security and reproducibility
     # @see https://artraweditor.github.io/ | https://github.com/artraweditor/ART/releases
     art_version: "1.26.6"
@@ -56,12 +61,51 @@
         state: present
       tags: photography
 
-    # Sony A7V (ILCE-7M5) RAW support: previously patched here via a post-install
-    # cameras.xml overlay. Now baked into the binary by the AI-enabled darktable
-    # build — see playbooks/imports/optional/common/play-darktable-ai-build.yml
-    # and CLAUDE/Plan/00042-darktable-ai-features/ Decision 2 for rationale.
-    # Users who do NOT run the AI build playbook will not have A7V support in
-    # the stock Fedora darktable RPM (no Fedora release ships A7V natively yet).
+    # darktable >= 5.6.0 carries Sony A7V (ILCE-7M5) support natively in its
+    # bundled rawspeed, so no cameras.xml patch or local rebuild is needed any
+    # more. The stock Fedora RPM is used; if the stable repo still serves an
+    # older build, the newer one is taken from updates-testing.
+    - name: Check the installed darktable version
+      ansible.builtin.command: rpm -q --queryformat '%{VERSION}' darktable
+      register: darktable_installed
+      changed_when: false
+      tags: photography
+
+    - name: Upgrade darktable from updates-testing when the stable repo is behind the A7V floor
+      ansible.builtin.dnf:
+        # The tools subpackages do not depend on the exact darktable release, so
+        # list them explicitly or the retired local 5.4.1-100.ai builds linger.
+        name:
+          - darktable
+          - darktable-tools-noise
+          - darktable-tools-basecurve
+        state: latest
+        enablerepo: updates-testing
+      when: darktable_installed.stdout is version(darktable_min_version, '<')
+      tags: photography
+
+    - name: Verify the installed darktable version supports the Sony A7V
+      ansible.builtin.command: rpm -q --queryformat '%{VERSION}' darktable
+      register: darktable_final
+      changed_when: false
+      failed_when: darktable_final.stdout is version(darktable_min_version, '<')
+      tags: photography
+
+    # The former darktable AI nightly install (plan 00042) is retired; remove
+    # its artefacts so the stale nightly and its launcher do not linger.
+    - name: Remove the retired darktable AI nightly install
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /opt/darktable-ai
+        - /usr/local/bin/darktable-ai
+        - /usr/share/applications/darktable-ai.desktop
+        - /var/tmp/darktable-ai-download
+        - /var/tmp/darktable-ai-gpu
+        - /var/tmp/darktable-ai-build
+        - "/home/{{ user_login }}/.local/lib/onnxruntime-cuda"
+      tags: photography
 
     # RapidRAW: GPU-accelerated RAW editor (wgpu/Vulkan). Installed as native RPM
     # rather than Flatpak to avoid NVIDIA DMA-buf blank window bug and Vulkan
@@ -287,13 +331,8 @@
                                    sub-extensions. Dry-run by default — use --apply
                                    to commit. See --help.
 
-          Sony A7V (ILCE-7M5) support: NOT included in this playbook anymore.
-          A7V is baked into the AI-enabled darktable build — run
-          ansible-playbook playbooks/imports/optional/common/play-darktable-ai-build.yml
-          to get a darktable RPM that includes both -DUSE_AI=ON and the A7V
-          cameras.xml. Without that build, the stock Fedora darktable RPM
-          does not decode A7V .ARW files (no Fedora release ships A7V
-          natively yet — see plan 00042 for the migration rationale).
+          Sony A7V (ILCE-7M5): supported natively by darktable
+          {{ darktable_final.stdout }} (floor {{ darktable_min_version }}); no patch needed.
 
           Launch from the applications menu, or on the command line:
             rawtherapee

@@ -68,9 +68,9 @@
     # =========================================================================
     # CUDA Toolkit + cuDNN — NVIDIA compute/AI capability (system-wide)
     # =========================================================================
-    # CUDA is a general system capability (AI/ML tooling, GPU compute,
-    # darktable's AI features) — not specific to any one application. It is
-    # installed from NVIDIA's official Fedora repo.
+    # CUDA is a general system capability (AI/ML tooling, GPU compute) — not
+    # specific to any one application. It is installed from NVIDIA's official
+    # Fedora repo.
     #
     # HOLISTIC SAFETY: only `cuda-toolkit` (NVIDIA's driverless toolkit
     # meta-package) is installed, and the repo is configured to EXCLUDE every
@@ -80,7 +80,6 @@
     # NVIDIA-built .so files) into /opt/cudnn and put on the linker path.
     #
     # Disable with: nvidia_install_cuda: false  (in host_vars/localhost.yml)
-    # @see CLAUDE/Plan/00042-darktable-ai-features/ Phase 3
 
     # dnf5 on F44 does NOT reliably auto-import a repo gpgkey= during a
     # non-interactive (-y) transaction, so the cuda-toolkit install below aborts
