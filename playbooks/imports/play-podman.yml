@@ -110,11 +110,38 @@
     # builds failing with EPERM in overlay storage (chmod / unlink on lower
     # layer files inside a build container). `podman system migrate` is the
     # canonical, idempotent fix — it re-runs the namespace setup. Safe to call
-    # on every play run as long as no containers are currently running.
+    # on every play run as long as no containers are currently running — and
+    # that condition is CHECKED, not assumed: `podman system migrate` stops
+    # every running container first, and on a host whose workload is already
+    # up it both takes that workload down and can fail with rc 125 ("cannot
+    # stop container: container is stopped") on a container that stopped
+    # between its own listing and its stop. When something is running the
+    # migrate is skipped; it is a post-upgrade repair, never needed on a box
+    # that is serving. A `podman ps` that itself fails (broken storage) does
+    # not block the migrate, because the migrate is the repair for that.
     # See https://docs.podman.io/en/latest/markdown/podman-system-migrate.1.html
+    - name: Check for running rootless containers (migrate would stop them)
+      ansible.builtin.command: podman ps --quiet
+      register: podman_running_containers
+      changed_when: false
+      failed_when: false
+
     - name: Migrate Podman User Namespace State (post-upgrade fix)
       ansible.builtin.command: podman system migrate
       changed_when: false
+      when: >-
+        podman_running_containers.rc != 0
+        or (podman_running_containers.stdout_lines | length) == 0
+
+    - name: Note when the migrate was skipped because containers are running
+      ansible.builtin.debug:
+        msg: >-
+          podman system migrate SKIPPED: {{ podman_running_containers.stdout_lines | length }}
+          rootless container(s) are running and the migrate would stop them. It is only
+          needed after a podman/crun/kernel upgrade; stop the workload and re-run if so.
+      when: >-
+        podman_running_containers.rc == 0
+        and (podman_running_containers.stdout_lines | length) > 0
 
     # `podman info` walks overlay/tempdirs and fails (rc=125) if any stale
     # build temp dirs contain files the user cannot unlink (e.g. files from
