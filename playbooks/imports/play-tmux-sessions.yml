@@ -1,6 +1,6 @@
 #!/usr/bin/env ansible-playbook
 ---
-# Detachable terminal sessions for long-running work (Plan 00104): tmux with a system-wide
+# Detachable terminal sessions for long-running work (Plan 00105): tmux with a system-wide
 # config that hides the multiplexer behind one key (F12 opens a session menu) and keeps
 # its status bar off so Claude Code's own status line is the only one on screen.
 # User guide: docs/tmux-sessions.md

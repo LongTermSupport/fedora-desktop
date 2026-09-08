@@ -1,4 +1,4 @@
-# Plan 00104: tmux sessions single key menu
+# Plan 00105: tmux sessions single key menu
 
 **Status**: In Progress
 **Created**: 2026-09-08
@@ -57,6 +57,6 @@ Claude Code's own status line. Nothing else about the terminal changes.
 
 <!-- Curated milestones + delivery commit hashes only (git is the SSoT for
      "when" — do not add dates). The blow-by-blow activity log lives in
-     JOURNAL/00104-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
+     JOURNAL/00105-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
 - Config, play, docs: see JOURNAL for the delivery commit.
