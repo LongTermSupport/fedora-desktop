@@ -350,6 +350,48 @@ It also sharpens the risk. Per F8 the precedence is docked → external-power �
 external displays connected, the `Docked` branch applies **regardless of power state** — a
 lid-closed machine there is ignored by logind whether it is on mains or on battery.
 
+## F17 — Power-delivery devices are armed wakeup sources, and are disarmable
+
+Source: `/sys/kernel/debug/wakeup_sources` (root) and the `power/wakeup` attributes.
+
+Every wakeup source with non-zero activity in the current boot is power- or input-related:
+
+```
+name                          active_count  event_count
+ucsi-source-psy-USBC000:001   9             12
+AC                            3             3
+ucsi-source-psy-USBC000:002   1             1
+i2c-ELAN0676:00               1             1     (touchpad)
+```
+
+All three power devices are **armed**:
+
+```
+AC                            power/wakeup = enabled
+ucsi-source-psy-USBC000:001   power/wakeup = enabled
+ucsi-source-psy-USBC000:002   power/wakeup = enabled
+```
+
+So a mains unplug generates a wakeup event by design. One arriving during the s2idle
+transition aborts the suspend — which is the incident (F1), where the dock and the mains came
+out within a second of each other.
+
+They are disarmable via stable udev match keys, confirmed by `udevadm info --attribute-walk`:
+
+```
+KERNEL=="AC"                     SUBSYSTEM=="power_supply"   ATTR{power/wakeup}=="enabled"
+KERNEL=="ucsi-source-psy-*"      SUBSYSTEM=="power_supply"
+```
+
+Matching on `SUBSYSTEM`+`KERNEL` rather than a sysfs path matters: the UCSI names are stable
+ACPI identifiers, whereas USB paths are enumeration-order and reused (F5's `3-6` was a hub
+during the incident and a keyboard afterwards).
+
+**Note the counts are not proof of the abort.** `wakeup_count` — the column that records
+wakeups *from* suspend — is `0` for every device, because this boot has not suspended. What
+is established is that these devices generate wakeup events and are armed to act on them;
+the attribution of the specific 11:40:52 abort remains premise P2.
+
 ---
 
 ## Facts → hypotheses

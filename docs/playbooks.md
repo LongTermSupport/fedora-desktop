@@ -107,6 +107,20 @@ These playbooks are executed automatically by `playbook-main.yml` during initial
 
 - Configures systemd inhibitor so active SSH sessions block suspend
 
+### play-suspend-and-lid-policy.yml
+
+**Purpose**: Make a suspend request stick, and set lid-close behaviour\
+**Actions**:
+
+- Configures systemd-logind lid-close action (suspend on battery, ignore on AC)
+- Sets UPower to ignore the lid, leaving logind in charge
+- Disarms the AC adapter and USB-C power-delivery ports as wakeup sources, so unplugging a
+  cable cannot abort a suspend in progress
+- Installs a `system-sleep` hook that re-issues the suspend if it aborts within 30s with the
+  lid still closed
+- Enables GNOME idle-suspend on battery (the AC sibling stays disabled — see
+  `play-prevent-ssh-suspend.yml`)
+
 ### play-network-wait-tuning.yml
 
 **Purpose**: Mask `NetworkManager-wait-online.service`\
@@ -1026,12 +1040,6 @@ DisplayLink dock support:
 Install Intel IPU6 webcam userspace stack:
 
 - Deploys userspace drivers for Intel IPU6 (Alder Lake / Raptor Lake) built-in webcams
-
-#### play-laptop-lid-power-management.yml
-
-Laptop lid power management:
-
-- Configures systemd-logind lid-close action (suspend/hibernate/ignore)
 
 #### play-laptop-thermal-diagnostics.yml
 

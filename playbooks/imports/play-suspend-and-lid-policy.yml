@@ -1,0 +1,122 @@
+#!/usr/bin/env ansible-playbook
+---
+# Suspend and lid policy.
+#
+# Core principle (Plan 00104): a suspend request must be HONOURED. Unplugging a cable is not
+# a reason to cancel one. Three layers:
+#   1. Don't let trivial events generate wakeups at all  (udev, power-delivery devices)
+#   2. If a suspend aborts anyway, re-issue it            (system-sleep hook)
+#   3. Bound any remaining failure on battery             (GNOME idle-suspend)
+#
+# Was imports/optional/hardware-specific/play-laptop-lid-power-management.yml, which
+# playbook-main.yml never imported — so the lid config it deploys was live on the host but
+# would not survive a rebuild. Moved here because playbook-main.yml requires that anything it
+# imports does not live under imports/optional/.
+- hosts: desktop
+  name: Suspend and Lid Policy
+  become: true
+  vars:
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+  tasks:
+    - name: Configure logind for laptop lid behavior
+      ansible.builtin.blockinfile:
+        path: /etc/systemd/logind.conf.d/laptop-lid.conf
+        marker: "# {mark} ANSIBLE MANAGED: Laptop Lid Behavior"
+        block: |
+          [Login]
+          # Suspend when lid closed on battery
+          HandleLidSwitch=suspend
+
+          # Don't suspend when lid closed on AC power
+          HandleLidSwitchExternalPower=ignore
+        create: true
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Configure UPower to ignore lid (let logind handle it)
+      ansible.builtin.lineinfile:
+        path: /etc/UPower/UPower.conf
+        regexp: '^IgnoreLid='
+        line: 'IgnoreLid=true'
+        owner: root
+        group: root
+        mode: '0644'
+      notify: restart-upower
+
+    # Layer 1 — stop trivial wakeups at source. The AC adapter and both USB-C power-delivery
+    # ports ship armed as wakeup sources, so pulling the mains fires a wake event; landing
+    # during the s2idle transition, it aborts the suspend.
+    - name: Disarm power-delivery devices as wakeup sources
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/etc/udev/rules.d/99-suspend-wakeup-policy.rules"
+        dest: /etc/udev/rules.d/99-suspend-wakeup-policy.rules
+        owner: root
+        group: root
+        mode: '0644'
+      notify: reload-udev
+
+    # Layer 2 — make the request durable whatever the wake source was.
+    - name: Deploy the aborted-suspend recovery hook
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/usr/lib/systemd/system-sleep/resuspend-aborted-suspend"
+        dest: /usr/lib/systemd/system-sleep/resuspend-aborted-suspend
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Get user UID
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ user_login }}"
+
+    # Layer 3 — defence in depth. GNOME's own default for this key is 'suspend'; it was
+    # 'nothing' on the host and set by nothing in this repo, so a laptop that failed to
+    # suspend stayed awake indefinitely on battery. The AC sibling
+    # (sleep-inactive-ac-type=nothing) is deliberate and lives in play-prevent-ssh-suspend.yml
+    # so inbound SSH survives — do NOT "make them consistent".
+    - name: Enable idle suspend on battery
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        argv:
+          - gsettings
+          - set
+          - org.gnome.settings-daemon.plugins.power
+          - sleep-inactive-battery-type
+          - suspend
+      environment:
+        DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ ansible_facts.getent_passwd[user_login][1] }}/bus"
+      changed_when: false
+      # GNOME Settings Daemon schema over D-Bus — hard-fails ("No such schema") on a
+      # headless server without gnome-settings-daemon, which under this repo's
+      # any_errors_fatal aborts the whole run (Plan 00061 §6.2).
+      when: provisioning_profile != 'server'
+
+    - name: Notify user about reboot requirement
+      ansible.builtin.debug:
+        msg: |
+          ===================================================================
+          Configuration updated successfully.
+
+          REBOOT REQUIRED: systemd-logind does not reload config without
+          restarting, and restarting logind kills your session.
+
+          The udev wakeup policy applies to devices as they are re-added, so
+          a reboot is the reliable way to apply it to all of them.
+          ===================================================================
+
+  handlers:
+    - name: restart-upower
+      ansible.builtin.systemd:
+        name: upower
+        state: restarted
+
+    - name: reload-udev
+      ansible.builtin.command:
+        argv:
+          - udevadm
+          - control
+          - --reload-rules
+      changed_when: true

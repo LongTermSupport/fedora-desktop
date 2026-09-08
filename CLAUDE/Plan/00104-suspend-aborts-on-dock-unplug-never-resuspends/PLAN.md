@@ -60,6 +60,39 @@ read the host journal.
 
 ## Technical Decisions
 
+### Decision 4: The goal is a durable suspend request, not a bounded failure — **supersedes Decision 1's framing**
+
+**Context**: Decisions 1 and 2 both framed the problem as *recovering from* a failed suspend,
+and argued over how long the machine may stay awake before a safety net catches it. The
+operator rejected the premise outright:
+
+> "there is no acceptable bag time — if i say suspend it should go for suspend. something as
+> trivial as unplugging the power should not derail that."
+
+That is the better frame, and it changes the design. The defect is not "the recovery is slow";
+it is **that an explicit suspend request was silently not honoured**. A bounded idle timeout
+answers the wrong question — it makes the failure shorter rather than making the request hold.
+
+**Decision**: Three layers, in priority order.
+
+1. **Remove the trigger.** F17 shows the AC adapter and both USB-C power-delivery ports ship
+   armed as wakeup sources. Pulling the mains therefore fires a wake event, and one landing
+   during the s2idle transition aborts the suspend. Disarm them by udev rule — waking a
+   laptop is what the lid and the power button are for.
+2. **Make the request durable.** A `system-sleep` hook re-issues the suspend when a resume
+   happens within 30s of one with the lid still closed. This covers *any* wake source, not
+   just the one we know about.
+3. **Defence in depth.** GNOME idle-suspend on battery, as originally proposed — demoted from
+   primary to backstop.
+
+**What this reverses**: Decision 1 rejected the `system-sleep` hook as "the narrowest option,
+covering strictly less". Under the old framing that was true. Under the correct framing the
+hook is the layer that actually delivers the requirement, and the idle timeout is the one
+covering less — it cannot honour a request, only curtail the consequences of dropping it.
+Decision 1's *choice* of setting stands as layer 3; its *reasoning about priority* does not.
+
+**Date**: 2026-09-08
+
 ### Decision 1: Restore the battery idle-suspend safety net as the primary fix
 
 **Context**: Something must bound the damage from *any* failure to stay suspended, not just
@@ -166,23 +199,31 @@ scope here; worth its own plan.
 
 ### Phase 3: Implement the fix (CCY container: edit + commit)
 
-- [ ] ⬜ **Task 3.1**: Make `sleep-inactive-battery-type` IaC-managed (Decision 1)
-  - [x] ✅ Owning playbook settled: **`play-prevent-ssh-suspend.yml`** — see Decision 3.
-    `play-laptop-lid-power-management.yml` is imported by nothing, so putting the safety
-    net there would recreate the very drift this plan exists to fix.
-  - [ ] ⬜ Set it to `suspend`, guarded by the same `provisioning_profile != 'server'`
-    condition the AC sibling uses, so a headless run does not hard-fail on the schema
-  - [ ] ⬜ Leave `sleep-inactive-ac-type` untouched
-  - [ ] ⬜ Run QA: `./scripts/qa-all.bash`
-- [ ] 🔄 **Task 3.2**: Decision gate on Decision 2, informed by Phase 2
-  - [x] ✅ Evidence in: F16 confirms logind takes **no action and logs nothing** on an AC
-    transition, so there is no built-in recovery to rely on. Decision 2's premise holds —
-    the machine will not rescue itself, whatever aborted the suspend.
-  - [ ] ⬜ **Open question for the operator**: is the Phase 1 idle timeout (900s on battery)
-    an acceptable worst case for a laptop in a bag, or is the near-immediate udev route
-    warranted? F16 settles *whether* nothing recovers; it does not settle *how fast* the
-    recovery must be. That is a judgement about bag time and heat, not a fact triage can
-    supply.
+Implements Decision 4's three layers. Superseded Decision 3's placement: the setting no
+longer goes in `play-prevent-ssh-suspend.yml`, because layers 1 and 2 need a home that owns
+suspend policy, and splitting the three layers across two plays would be worse than moving
+one file.
+
+- [x] ✅ **Task 3.1**: Give suspend policy a playbook that actually runs
+  - [x] ✅ `git mv` the unimported `optional/hardware-specific/play-laptop-lid-power-management.yml`
+    → `imports/play-suspend-and-lid-policy.yml`. `playbook-main.yml:3-4` forbids importing
+    anything from `imports/optional/`, so importing it in place was not an option.
+  - [x] ✅ Import it from `playbook-main.yml`, adjacent to `play-prevent-ssh-suspend.yml`
+  - [x] ✅ Update `docs/playbooks.md` — move the entry out of the optional catalogue
+- [x] ✅ **Task 3.2**: Layer 1 — disarm power-delivery wakeup sources (F17)
+  - [x] ✅ `files/etc/udev/rules.d/99-suspend-wakeup-policy.rules`, matching on
+    `SUBSYSTEM`+`KERNEL` so it cannot drift onto the wrong device
+  - [x] ✅ Deliberately leave USB/Thunderbolt armed — waking from an attached keyboard is
+    wanted, and layer 2 covers an abort from that direction
+- [x] ✅ **Task 3.3**: Layer 2 — re-issue an aborted suspend
+  - [x] ✅ `files/usr/lib/systemd/system-sleep/resuspend-aborted-suspend`: re-suspends when
+    a resume lands within 30s of the suspend **and** the lid is still closed
+  - [x] ✅ Async via `systemd-run` — an inline `systemctl suspend` deadlocks, because systemd
+    waits for the hook before completing the resume
+  - [x] ✅ Attempt cap (3) so a persistent waker cannot drive a hot suspend/resume loop
+- [x] ✅ **Task 3.4**: Layer 3 — battery idle-suspend as backstop
+  - [x] ✅ `sleep-inactive-battery-type=suspend`, guarded by `provisioning_profile != 'server'`
+  - [x] ✅ `sleep-inactive-ac-type` left untouched
 
 ### Phase 4: Verify against the real failure (HOST)
 

@@ -1,0 +1,20 @@
+# Suspend wakeup policy — managed by Ansible (play-suspend-and-lid-policy.yml).
+#
+# Disarm power-delivery devices as wakeup sources.
+#
+# WHY: plugging or unplugging mains is not a reason to wake a sleeping laptop. You wake a
+# laptop by opening the lid or pressing power. But by default the AC adapter and both USB-C
+# power-delivery ports are armed wakeup sources, so a cable coming out fires a wake event —
+# and if that lands during the s2idle transition it ABORTS the suspend. Plan 00104: a
+# user-requested suspend was cancelled ~3s in by unplugging, and the laptop then ran at full
+# load in a closed bag for 25 minutes because nothing re-evaluates after an aborted suspend.
+#
+# Matching on SUBSYSTEM+KERNEL rather than a sysfs path: the UCSI port names are stable ACPI
+# identifiers, unlike USB enumeration paths (a dock's 3-6 becomes a keyboard's 3-6 on the
+# next plug), so this cannot silently target the wrong device.
+#
+# DELIBERATELY NOT DISARMED: USB and Thunderbolt. Waking the machine with an attached
+# keyboard is wanted behaviour, and an aborted suspend from that direction is handled by the
+# resume hook instead of by taking the capability away.
+SUBSYSTEM=="power_supply", KERNEL=="AC", ATTR{power/wakeup}="disabled"
+SUBSYSTEM=="power_supply", KERNEL=="ucsi-source-psy-*", ATTR{power/wakeup}="disabled"

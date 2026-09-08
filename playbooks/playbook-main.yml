@@ -6,6 +6,10 @@
 - import_playbook: imports/play-AB-dnf-upgrade.yml
 - import_playbook: imports/play-basic-configs.yml
 - import_playbook: imports/play-prevent-ssh-suspend.yml
+# Must follow play-prevent-ssh-suspend.yml: that play sets sleep-inactive-ac-type=nothing,
+# this one sets the battery sibling. Ordering is not functionally required (different keys),
+# but keeping them adjacent means the pair is read together.
+- import_playbook: imports/play-suspend-and-lid-policy.yml
 - import_playbook: imports/play-network-wait-tuning.yml
 - import_playbook: imports/play-mask-intel-lpmd.yml
 - import_playbook: imports/play-systemd-user-tweaks.yml

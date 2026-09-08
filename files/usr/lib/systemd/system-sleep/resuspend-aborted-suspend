@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# resuspend-aborted-suspend — make a suspend request durable.
+# Managed by Ansible (play-suspend-and-lid-policy.yml) — do not edit on the host.
+#
+# systemd runs this as /usr/lib/systemd/system-sleep/<name> with:
+#   $1 = pre|post          $2 = suspend|hibernate|hybrid-sleep|suspend-then-hibernate
+#
+# THE PROBLEM (Plan 00104): a wakeup event arriving during the s2idle transition aborts the
+# suspend. logind handles the lid as an EVENT, so a machine whose lid was already shut gets
+# no re-evaluation and simply stays awake — in a bag, at full load. Asking for suspend and
+# silently not getting it is the defect; this makes the request stick.
+#
+# THE TEST — both must hold, or we do nothing:
+#   1. The resume happened within RESUSPEND_WINDOW seconds of the suspend. A human waking
+#      their own machine essentially never does so within seconds of asking it to sleep, so a
+#      resume this fast is spurious. This is what stops the hook fighting a deliberate wake.
+#   2. The lid is still closed. If it is open the user is present, whatever the timing.
+#
+# Condition 1 is load-bearing and 2 alone is NOT sufficient: a docked laptop is routinely used
+# lid-shut on external monitors, and waking it from the keyboard would otherwise be undone.
+#
+# Re-suspend is scheduled ASYNCHRONOUSLY via systemd-run. Calling `systemctl suspend` inline
+# would deadlock: systemd waits for this hook to finish before completing the resume.
+
+set -euo pipefail
+
+readonly RESUSPEND_WINDOW=30      # seconds; a resume faster than this is treated as spurious
+readonly RESUSPEND_DELAY=5        # seconds to wait after resume before re-issuing suspend
+readonly MAX_ATTEMPTS=3           # give up rather than loop hot against a persistent waker
+readonly STAMP=/run/resuspend-aborted-suspend.stamp
+readonly COUNT=/run/resuspend-aborted-suspend.count
+
+log() { logger -t resuspend-aborted-suspend "$*"; }
+
+case "${2:-}" in
+    suspend | suspend-then-hibernate | hybrid-sleep) ;;
+    *) exit 0 ;;
+esac
+
+if [[ "${1:-}" == "pre" ]]; then
+    date +%s > "$STAMP"
+    exit 0
+fi
+
+[[ "${1:-}" == "post" ]] || exit 0
+[[ -r "$STAMP" ]] || exit 0
+
+slept_at="$(cat "$STAMP")"
+elapsed=$(( $(date +%s) - slept_at ))
+
+if (( elapsed > RESUSPEND_WINDOW )); then
+    # A normal, wanted wake. Reset the attempt counter so a later genuine abort starts fresh.
+    rm -f "$COUNT"
+    exit 0
+fi
+
+lid_state=""
+for f in /proc/acpi/button/lid/*/state; do
+    [[ -r "$f" ]] || continue
+    lid_state="$(cat "$f")"
+    break
+done
+
+if [[ "$lid_state" != *closed* ]]; then
+    log "resumed after ${elapsed}s but the lid is open — user is present, leaving awake"
+    rm -f "$COUNT"
+    exit 0
+fi
+
+attempts=0
+if [[ -r "$COUNT" ]]; then
+    attempts="$(cat "$COUNT")"
+fi
+
+if (( attempts >= MAX_ATTEMPTS )); then
+    log "suspend aborted ${attempts}x within ${RESUSPEND_WINDOW}s each; giving up rather than looping. Something is holding the system awake — check 'systemd-inhibit --list' and /sys/kernel/debug/wakeup_sources."
+    rm -f "$COUNT"
+    exit 0
+fi
+
+echo $(( attempts + 1 )) > "$COUNT"
+log "suspend aborted after ${elapsed}s with the lid closed (attempt $(( attempts + 1 ))/${MAX_ATTEMPTS}) — re-suspending in ${RESUSPEND_DELAY}s"
+
+systemd-run \
+    --on-active="${RESUSPEND_DELAY}" \
+    --timer-property=AccuracySec=1s \
+    --unit=resuspend-aborted-suspend-retry \
+    /usr/bin/systemctl suspend
