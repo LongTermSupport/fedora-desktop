@@ -10,9 +10,11 @@ Invoked from the playbook as a module from the repo root:
     python3 -m helpers.suspend_wakeup.cli
 
 Exit 0 = every power-delivery device the udev policy targets reads `disabled`, OR the
-host has none. Exit 1 = at least one is still `enabled`, or its attribute could not be
-read. A host with no such hardware is NOT a failure — that regression is the whole
-reason this is a helper rather than a grep (see core.py).
+host has none. Exit 1 = at least one target is still `enabled`, or one could not be
+vouched for: its attribute was unreadable, held a value that is neither `enabled` nor
+`disabled`, or its device entry did not resolve. A host with no such hardware is NOT a
+failure — that regression is the whole reason this is a helper rather than a grep (see
+core.py).
 
 The COVERAGE line is the payload and goes to stdout, so the run always records the size
 of the set that was checked rather than only speaking up on failure — a gate whose only
@@ -38,9 +40,10 @@ def read_wakeup_states(power_supply_dir: str = DEFAULT_POWER_SUPPLY_DIR) -> dict
     - **Attribute ABSENT** -> the device is omitted from the mapping entirely. It is not
       wakeup-capable, so there is nothing to disarm and nothing wrong. `BAT0` on the
       reference host is exactly this.
-    - **Attribute present but unreadable** (permissions, an IsADirectory, an I/O error)
-      -> `None`, which `core.evaluate()` counts against the verdict, because we cannot
-      show the policy applied.
+    - **Device cannot be vouched for** -> `None`, which `core.evaluate()` counts against
+      the verdict, because we cannot show the policy applied. Two causes reach this: the
+      attribute exists but will not read (permissions, an IsADirectory, an I/O error),
+      or the device entry itself does not resolve — see the ordering note below.
 
     Catching bare `OSError` collapses the last two, so a device that merely lacks the
     attribute hard-fails the entire provisioning run. That is the same defect as the

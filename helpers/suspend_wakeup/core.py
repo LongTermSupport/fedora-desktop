@@ -69,8 +69,9 @@ class Result:
 def evaluate(devices: dict[str, str | None]) -> Result:
     """Judge a {device_name: wakeup_state_or_None} mapping.
 
-    `None` means the `power/wakeup` attribute was present but unreadable — distinct from
-    the device being absent entirely, which simply means it is not in the mapping.
+    `None` means the caller could not vouch for the device — its attribute was unreadable,
+    or the entry itself did not resolve. A device with no `power/wakeup` at all is simply
+    not in the mapping: it is not wakeup-capable, so there is nothing to disarm.
 
     The state test is an ALLOW-LIST of the two words sysfs actually writes. A deny-list
     ("not `enabled`, therefore disarmed") passes an empty read, a truncated read and a

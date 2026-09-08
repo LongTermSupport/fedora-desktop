@@ -50,7 +50,7 @@ class TestReadWakeupStates(unittest.TestCase):
         """Not wakeup-capable is not a fault — there is nothing to disarm.
 
         BAT0 on the reference host genuinely has no power/wakeup. Reporting such a
-        device as UNREADABLE would hard-fail the run on a healthy machine.
+        device as UNVERIFIABLE would hard-fail the run on a healthy machine.
         """
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
