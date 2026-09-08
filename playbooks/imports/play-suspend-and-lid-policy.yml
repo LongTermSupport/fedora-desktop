@@ -148,8 +148,9 @@
 
     # Force the reload -> trigger chain to run NOW, so the assertion below judges the applied
     # state rather than the pre-deploy state. Handlers otherwise flush at end of play, long
-    # after any task that could check them.
-    - name: Apply pending udev changes before verifying them
+    # after any task that could check them. This flushes ALL pending handlers, not only the
+    # udev pair — restart-upower fires here too.
+    - name: Apply every pending handler before verifying the result
       ansible.builtin.meta: flush_handlers
 
     # ---- Layer 2: make the request durable whatever the wake source was --------------------
@@ -316,7 +317,8 @@
           restarting, and restarting logind kills your session.
 
           (The udev wakeup policy does NOT need a reboot — it is applied during
-          this run. The COVERAGE line reporting it appears LATER in the output:
-          this banner is a handler flushed mid-play, the verification is one of
-          the last tasks.)
+          this run. On a real run the COVERAGE line reporting it appears LATER in
+          the output: this banner is a handler flushed mid-play, the verification
+          is one of the last tasks. Under --check there is no COVERAGE line at
+          all, because nothing was written for it to measure.)
           ===================================================================

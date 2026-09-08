@@ -144,9 +144,9 @@ one file.
 - [x] ✅ **Task 3.5**: Make the play safe on every host it now runs on
 
   - [x] ✅ Preflight block establishes measured preconditions: sleep capability, upower
-    presence, the systemd sleep-hook directory. The GNOME schema probe also runs there,
-    but its **hard fail** is deliberately later, next to the layer-3 task it guards, so
-    the message lands beside the thing that could not be set.
+    presence, the systemd sleep-hook directory. The GNOME schema probe sits with the
+    layer-3 task it gates, **not** in preflight, so both the probe and its hard fail land
+    beside the thing that could not be set.
   - [x] ✅ `meta: end_host` (not `end_play`) when the host cannot sleep — per-host, so one
     non-suspending machine cannot cancel the policy for the rest of the group
   - [x] ✅ The sleep-hook-directory precondition moved into preflight, so that abort happens
@@ -159,9 +159,10 @@ one file.
 
   - [x] ✅ `helpers/suspend_wakeup/` — tested helper enumerating the power_supply devices the
     udev rule targets; prints `COVERAGE: n of m`, and a host with none passes and says so
-  - [x] ✅ 15 unit tests, stdlib `unittest`; `./scripts/qa-helper-tests.bash` green (240 tests)
-  - [x] ✅ Runs as a task after `meta: flush_handlers`, so it executes on **every** run — as a
-    handler it only ran on the run that changed the rules file, and never in check mode
+  - [x] ✅ 25 unit tests, stdlib `unittest`; `./scripts/qa-helper-tests.bash` green (250 tests)
+  - [x] ✅ Runs as a task after `meta: flush_handlers`, so it executes on **every real** run —
+    as a handler it only ran on the run that changed the rules file. It is skipped under
+    `--check`, where sysfs has not been written and the answer would be meaningless
 
 ### Phase 4: Verify against the real failure (HOST)
 

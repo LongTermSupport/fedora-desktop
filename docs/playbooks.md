@@ -123,7 +123,9 @@ These playbooks are executed automatically by `playbook-main.yml` during initial
   lid still closed (window derived from the ~3s abort measured in Plan 00104)
 - Enables GNOME idle-suspend on battery (the AC sibling stays disabled — see
   `play-prevent-ssh-suspend.yml`)
-- Verifies the wakeup policy applied, printing `COVERAGE: n of m power-delivery devices disarmed` on every run
+- Verifies the wakeup policy applied, printing a `COVERAGE:` line on every real run (skipped
+  under `--check`, where sysfs has not been written). A host with no such hardware passes and
+  says so rather than failing
 
 **This play is on the default provisioning path and will abort the run** (`any_errors_fatal`)
 in three cases:

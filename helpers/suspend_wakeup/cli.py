@@ -42,10 +42,15 @@ def read_wakeup_states(power_supply_dir: str = DEFAULT_POWER_SUPPLY_DIR) -> dict
       -> `None`, which `core.evaluate()` counts against the verdict, because we cannot
       show the policy applied.
 
-    An earlier revision caught bare `OSError` and mapped both of the last two to `None`,
-    so a device that merely lacks the attribute hard-failed the entire provisioning run.
-    That is the same defect as the `grep -l` this module replaced — treating "absent" as
-    "broken" — reintroduced one level down.
+    Catching bare `OSError` collapses the last two, so a device that merely lacks the
+    attribute hard-fails the entire provisioning run. That is the same defect as the
+    `grep -l` this module replaced — treating "absent" as "broken" — one level down.
+
+    The DEVICE is resolved before its attribute, because the two absences are not the
+    same: a device whose entry does not resolve at all (a dangling symlink, hardware
+    that vanished mid-enumeration) would otherwise raise the same `FileNotFoundError`
+    and be dropped from the population silently, shrinking the denominator of the very
+    line that exists to state it.
     """
     base = pathlib.Path(power_supply_dir)
     if not base.is_dir():
@@ -53,9 +58,11 @@ def read_wakeup_states(power_supply_dir: str = DEFAULT_POWER_SUPPLY_DIR) -> dict
 
     states: dict[str, str | None] = {}
     for device in sorted(base.iterdir()):
-        attribute = device / "power" / "wakeup"
+        if not device.exists():
+            states[device.name] = None  # entry does not resolve — cannot vouch for it
+            continue
         try:
-            states[device.name] = attribute.read_text()
+            states[device.name] = (device / "power" / "wakeup").read_text()
         except FileNotFoundError:
             continue  # not wakeup-capable — nothing to disarm, not a fault
         except OSError:

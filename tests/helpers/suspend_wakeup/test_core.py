@@ -83,7 +83,7 @@ class TestEvaluate(unittest.TestCase):
         result = core.evaluate({"AC": None})
         self.assertEqual(result.total, 1)
         self.assertEqual(result.disarmed, 0)
-        self.assertEqual(result.unreadable, ["AC"])
+        self.assertEqual(result.unverifiable, ["AC"])
         self.assertFalse(result.ok)
 
     def test_non_target_armed_device_is_ignored(self):
@@ -97,6 +97,28 @@ class TestEvaluate(unittest.TestCase):
         result = core.evaluate({"AC": "enabled\n"})
         self.assertFalse(result.ok)
         self.assertEqual(result.still_armed, ["AC"])
+
+    def test_unrecognised_value_is_unverifiable_not_disarmed(self):
+        """Anything that is not the two known words is a state we cannot vouch for.
+
+        A deny-list ("not 'enabled' means disarmed") passes an empty read, a truncated
+        read and a garbage read as a clean result — the module's own stated failure mode,
+        reporting blind as clean, surviving at per-device granularity.
+        """
+        for value in ("", "   \n", "\n", "potato\n", "ENABLED\n", "disable\n"):
+            with self.subTest(value=value):
+                result = core.evaluate({"AC": value})
+                self.assertEqual(result.disarmed, 0)
+                self.assertEqual(result.unverifiable, ["AC"])
+                self.assertFalse(result.ok)
+
+    def test_only_the_exact_word_disabled_counts_as_disarmed(self):
+        """The positive case is an allow-list of one word, plus sysfs's trailing newline."""
+        for value in ("disabled", "disabled\n"):
+            with self.subTest(value=value):
+                result = core.evaluate({"AC": value})
+                self.assertEqual(result.disarmed, 1)
+                self.assertTrue(result.ok)
 
 
 class TestSummary(unittest.TestCase):
@@ -116,6 +138,12 @@ class TestSummary(unittest.TestCase):
         result = core.evaluate({"AC": "enabled", "ucsi-source-psy-USBC000:001": "disabled"})
         self.assertIn("1 of 2", result.summary())
         self.assertIn("AC", result.summary())
+
+    def test_summary_distinguishes_still_armed_from_unverifiable(self):
+        """The two failure kinds need different fixes, so the line must not merge them."""
+        result = core.evaluate({"AC": "enabled", "ucsi-source-psy-USBC000:001": "potato"})
+        self.assertIn("STILL ARMED: AC", result.summary())
+        self.assertIn("UNVERIFIABLE: ucsi-source-psy-USBC000:001", result.summary())
 
 
 if __name__ == "__main__":
