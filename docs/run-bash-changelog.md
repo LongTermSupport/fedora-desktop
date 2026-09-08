@@ -15,6 +15,14 @@ the index, not the record.
 
 ---
 
+## 1.18.1 — headless optional playbooks receive the become password (Plan 00107)
+
+`hl_run_optional_playbooks` ran each optional play bare, while the main playbook and the
+interactive runner pass `--become-password-file` on the password-sudo path. It worked only
+because the main playbook had just granted `NOPASSWD:ALL`; with the server profile no longer
+granting it, the first optional play's `become` failed with `a password is required`. The
+optional runner now uses the same become contract as the main playbook.
+
 ## 1.18.0 — `RUN_BASH_GIT_REF`: provision from a declared branch or commit (Plan 00106)
 
 Headless HTTPS path only. A branch name puts the checkout on that branch at its origin tip

@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.18.0"
+RUN_BASH_VERSION="1.18.1"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -687,7 +687,15 @@ hl_run_optional_playbooks() {
     fi
     name="$(basename "$found" .yml)"
     info "Headless: running optional playbook ${name}"
-    if ! "$found"; then
+    # Same become contract as the main playbook: a headless run that resolved a sudo
+    # password in preflight hands Ansible the 0600 file. Nothing on the box grants
+    # NOPASSWD under the server profile, so an optional play run bare here fails at its
+    # first `become` with "a password is required".
+    local -a _optional_become=()
+    if [[ "${#HL_SUDO_OPTS[@]}" -gt 0 ]]; then
+      _optional_become=(--become-password-file "$HL_SUDO_PW_FILE")
+    fi
+    if ! "$found" "${_optional_become[@]}"; then
       hl_abort "optional playbook ${name}" "${found} FAILED" \
         "scroll up for the Ansible output; fix it, drop it from RUN_BASH_OPTIONAL_PLAYBOOKS, or set =none"
     fi

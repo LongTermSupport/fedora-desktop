@@ -37,8 +37,9 @@ the operator wrote themselves stays theirs.
 - Asserting that a server has no `NOPASSWD` rule at all. An operator-owned drop-in
   (`docs/headless-server-install.md` Step 0a) is a supported credential for the headless
   preflight and is not this play's to remove.
-- Changing `run.bash`. Its preflight contract already accepts either an operator-owned
-  `NOPASSWD` rule or `RUN_BASH_SUDO_PASSWORD_FILE`; nothing there depended on the play's block.
+- Changing `run.bash`'s preflight contract. It already accepts either an operator-owned
+  `NOPASSWD` rule or `RUN_BASH_SUDO_PASSWORD_FILE`; Task 1.3 makes the optional runner honour
+  that contract, it does not change it.
 - The kickstart path (`fedora-install/ks.cfg`), which writes its own drop-in for a bare-metal
   desktop install.
 
@@ -53,6 +54,10 @@ the operator wrote themselves stays theirs.
   (security model), `docs/headless-provisioning.md` (preconditions: the playbook is not a
   credential source on a server; a box that relied on the old block needs Step 0a or the
   password file).
+- [x] ✅ **Task 1.3**: `run.bash` 1.18.1 — `hl_run_optional_playbooks` passes
+  `--become-password-file` on the password-sudo path, as the main playbook already does. The
+  old grant was masking that the optional runner never had a become contract of its own;
+  found by the first live server-profile run.
 
 ### Phase 2: proof — BLOCKED BY Phase 1
 
