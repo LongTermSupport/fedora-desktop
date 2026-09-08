@@ -36,6 +36,8 @@ Use these Unicode icons in plan documents:
 
 - [00105-tmux-sessions-single-key-menu](00105-tmux-sessions-single-key-menu/) - tmux for detachable long-running dev sessions, hidden behind one key: F12 opens a new/rename/switch/detach/kill menu; status bar off
 
+- [00104-suspend-aborts-on-dock-unplug-never-resuspends](00104-suspend-aborts-on-dock-unplug-never-resuspends/) - Unplugging the dock aborts s2idle and nothing re-suspends, so the closed laptop runs hot in a bag; make the suspend request durable (udev wakeup policy, a re-suspend hook, battery idle-suspend as backstop)
+
 - [00093-ccy-version-gate-covers-two-files-of-eight](00093-ccy-version-gate-covers-two-files-of-eight/) - The pre-commit CCY bump gate misses `entrypoint.sh`, the Dockerfile and all of `files/opt/claude-yolo/`; widen it and test it
 
 - [00092-ccy-child-claude-spawn-mode](00092-ccy-child-claude-spawn-mode/) - Opt-in `ccy.env` mode letting a CCY session spawn authenticated child `claude` processes, with no new token exposure

@@ -1,0 +1,324 @@
+#!/usr/bin/env ansible-playbook
+---
+# Suspend and lid policy.
+#
+# Core principle (Plan 00104): a suspend request must be HONOURED. Unplugging a cable is not
+# a reason to cancel one. Three layers:
+#   1. Don't let trivial events generate wakeups at all  (udev, power-delivery devices)
+#   2. If a suspend aborts anyway, re-issue it            (system-sleep hook)
+#   3. Bound any remaining failure on battery             (GNOME idle-suspend)
+#
+# EVERY TASK IS GATED ON A MEASURED FACT, NOT ON A PROXY. This play is imported by
+# playbook-main.yml, so it runs on every host — laptop, desktop and headless server. An
+# earlier revision guarded on `provisioning_profile != 'server'`, which is a proxy for "upower
+# is installed": a desktop without upower, or a misdetected profile, would still have hit
+# `lineinfile` on a non-existent path, and with `any_errors_fatal` that aborts the ENTIRE
+# provisioning run rather than just this play. The preflight block below establishes the
+# actual state and every task keys off it.
+#
+# Was imports/optional/hardware-specific/play-laptop-lid-power-management.yml, which
+# playbook-main.yml never imported — so the lid config it deploys was live on the host but
+# would not survive a rebuild. Moved here because playbook-main.yml requires that anything it
+# imports does not live under imports/optional/.
+- hosts: desktop
+  name: Suspend and Lid Policy
+  become: true
+  vars:
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+  tasks:
+    # ---- Preflight: establish facts before changing anything ------------------------------
+
+    # stat before slurp. An unguarded slurp of a missing path is a FATAL error, and under
+    # any_errors_fatal that aborts the whole provisioning run on the very first task — on a
+    # host whose honest answer is "this machine cannot sleep, skip me".
+    - name: Check whether the kernel exposes sleep states
+      ansible.builtin.stat:
+        path: /sys/power/state
+      register: power_state_file
+
+    - name: Read the supported sleep states
+      ansible.builtin.slurp:
+        src: /sys/power/state
+      register: power_state_raw
+      when: power_state_file.stat.exists
+
+    - name: Check whether UPower configuration is present
+      ansible.builtin.stat:
+        path: /etc/UPower/UPower.conf
+      register: upower_conf
+
+    - name: Check whether systemd scans a system-sleep hook directory
+      ansible.builtin.stat:
+        path: /usr/lib/systemd/system-sleep
+      register: system_sleep_dir
+
+    - name: Get user UID
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ user_login }}"
+
+    # A host with no /sys/power/state cannot sleep, so absence resolves to false rather than
+    # exploding on `.content` of a skipped task.
+    - name: Record whether this host supports suspend-to-idle or suspend-to-RAM
+      ansible.builtin.set_fact:
+        host_can_suspend: "{{ power_state_file.stat.exists and
+                              ('mem' in (power_state_raw.content | default('') | b64decode) or
+                               'freeze' in (power_state_raw.content | default('') | b64decode)) }}"
+
+    - name: Report the preflight result
+      ansible.builtin.debug:
+        msg: >-
+          can_suspend={{ host_can_suspend }}
+          upower_conf={{ upower_conf.stat.exists }}
+          sleep_hook_dir={{ system_sleep_dir.stat.exists }}
+
+    # A host that cannot sleep has nothing for this play to configure, and layers 1-2 would
+    # deploy dead weight. Stop cleanly rather than leaving inert files behind.
+    # `| bool` is load-bearing, not decoration. A Jinja-templated fact can arrive as the
+    # STRING "False", and `not "False"` is False in Jinja because the string is non-empty —
+    # so the guard would silently never fire and the play would run on a host it should skip.
+    # end_HOST, not end_play. `ansible-doc -t module meta`: end_play "affects all hosts",
+    # end_host is "a per-host variation". host_can_suspend is a per-host measured fact, so
+    # with more than one host in the group a single non-suspending machine would otherwise
+    # cancel the policy for every other host too, silently and with no error.
+    - name: End for this host if it has no sleep capability
+      ansible.builtin.meta: end_host
+      when: not (host_can_suspend | bool)
+
+    # A precondition, so it belongs here rather than mid-play. Previously this sat between the
+    # udev copy and the hook copy, where firing it left logind's drop-in, UPower.conf and the
+    # udev rule already written and upower already queued for restart — a partial apply.
+    - name: Fail if systemd has no system-sleep hook directory
+      ansible.builtin.fail:
+        msg: >-
+          /usr/lib/systemd/system-sleep does not exist. systemd-sleep scans only that path,
+          so the aborted-suspend recovery hook would be installed where nothing runs it.
+          Investigate the systemd installation before re-running.
+      when: not system_sleep_dir.stat.exists
+
+    # ---- Lid behaviour --------------------------------------------------------------------
+
+    - name: Configure logind for laptop lid behavior
+      ansible.builtin.blockinfile:
+        path: /etc/systemd/logind.conf.d/laptop-lid.conf
+        marker: "# {mark} ANSIBLE MANAGED: Laptop Lid Behavior"
+        block: |
+          [Login]
+          # Suspend when lid closed on battery
+          HandleLidSwitch=suspend
+
+          # Don't suspend when lid closed on AC power
+          HandleLidSwitchExternalPower=ignore
+        create: true
+        owner: root
+        group: root
+        mode: '0644'
+      # A handler, not an unconditional debug task: logind's config is the ONLY part of this
+      # play needing a reboot, so announcing it on every routine playbook-main.yml run would
+      # train the operator to ignore it.
+      notify: warn-reboot-required
+
+    # Gated on the FILE, not on the profile. /etc/UPower/UPower.conf ships with the upower
+    # package and no playbook in this repo installs upower, so its presence is the only honest
+    # precondition. `lineinfile` without `create` fails outright on a missing path.
+    - name: Configure UPower to ignore lid (let logind handle it)
+      ansible.builtin.lineinfile:
+        path: /etc/UPower/UPower.conf
+        regexp: '^IgnoreLid='
+        line: 'IgnoreLid=true'
+        owner: root
+        group: root
+        mode: '0644'
+      notify: restart-upower
+      when: upower_conf.stat.exists
+
+    # ---- Layer 1: stop trivial wakeups at source ------------------------------------------
+    # The AC adapter and both USB-C power-delivery ports ship armed as wakeup sources, so
+    # pulling the mains fires a wake event; landing during the s2idle transition, it aborts
+    # the suspend.
+    - name: Disarm power-delivery devices as wakeup sources
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/etc/udev/rules.d/99-suspend-wakeup-policy.rules"
+        dest: /etc/udev/rules.d/99-suspend-wakeup-policy.rules
+        owner: root
+        group: root
+        mode: '0644'
+      notify: reload-udev-rules
+
+    # Force the reload -> trigger chain to run NOW, so the assertion below judges the applied
+    # state rather than the pre-deploy state. Handlers otherwise flush at end of play, long
+    # after any task that could check them. This flushes ALL pending handlers, not only the
+    # udev pair — restart-upower fires here too.
+    - name: Apply every pending handler before verifying the result
+      ansible.builtin.meta: flush_handlers
+
+    # ---- Layer 2: make the request durable whatever the wake source was --------------------
+
+    - name: Deploy the aborted-suspend recovery hook
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/usr/lib/systemd/system-sleep/resuspend-aborted-suspend"
+        dest: /usr/lib/systemd/system-sleep/resuspend-aborted-suspend
+        owner: root
+        group: root
+        mode: '0755'
+
+    # ---- Layer 3: defence in depth ---------------------------------------------------------
+    # GNOME's own default for this key is 'suspend'; it was 'nothing' on the host and set by
+    # nothing in this repo, so a laptop that failed to suspend stayed awake indefinitely on
+    # battery. The AC sibling (sleep-inactive-ac-type=nothing) is deliberate and lives in
+    # play-prevent-ssh-suspend.yml so inbound SSH survives — do NOT "make them consistent".
+
+    # Probe for the schema rather than inferring it from the profile: the failure mode being
+    # avoided is a hard "No such schema" abort (Plan 00061 §6.2), and whether that schema is
+    # registered is a fact we can simply read.
+    - name: Probe for the GNOME power schema
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        argv:
+          - gsettings
+          - get
+          - org.gnome.settings-daemon.plugins.power
+          - sleep-inactive-battery-type
+      environment:
+        DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ ansible_facts.getent_passwd[user_login][1] }}/bus"
+      register: gnome_power_schema
+      changed_when: false
+      # `gsettings get` reads and changes nothing, so it must run under --check too. Without
+      # this the probe is skipped in check mode, layer 3 silently no-ops, and a dry run tells
+      # you nothing about whether it would have applied.
+      check_mode: false
+      # Probe-then-fail: a non-zero result here is DATA ("no GNOME session or schema on this
+      # host"), and it is explicitly consumed by the `when:` on both tasks below — the set
+      # task runs only on rc 0, and the fail task fires on any other rc.
+      failed_when: false  # FAIL-FAST-OK: probe-then-fail — rc consumed by the two tasks below
+      when: provisioning_profile != 'server'
+
+    - name: Enable idle suspend on battery
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        argv:
+          - gsettings
+          - set
+          - org.gnome.settings-daemon.plugins.power
+          - sleep-inactive-battery-type
+          - suspend
+      environment:
+        DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ ansible_facts.getent_passwd[user_login][1] }}/bus"
+      changed_when: false
+      when: gnome_power_schema.rc | default(1) == 0
+
+    # FAIL, do not warn-and-continue. On a non-server host the GNOME power schema is expected
+    # to be readable, so a failing probe is a real fault — a broken session bus, a missing
+    # gnome-settings-daemon — not a benign absence. An earlier revision printed a reassuring
+    # "layers 1 and 2 are unaffected" here for ANY non-zero rc, which is exactly the
+    # skip-and-warn pattern CLAUDE.md prohibits: it would have turned a transient desktop
+    # failure into a silently missing layer 3.
+    #
+    # The genuinely-absent case needs no branch at all: on a server the probe is skipped by its
+    # own `when:`, so rc is undefined, `default(1)` makes this condition false, and the set
+    # task simply does not run. Absence is handled by not asking; failure is handled by
+    # failing.
+    - name: Fail if the GNOME power schema is unreadable on a non-server host
+      ansible.builtin.fail:
+        msg: >-
+          gsettings could not read org.gnome.settings-daemon.plugins.power for
+          {{ user_login }} (rc={{ gnome_power_schema.rc }}):
+          {{ gnome_power_schema.stderr | default('no stderr') }}.
+          Layer 3 (battery idle-suspend) cannot be set, which leaves this machine with no
+          backstop if a suspend is aborted. Fix the user session or gnome-settings-daemon,
+          then re-run.
+      when:
+        - gnome_power_schema is not skipped
+        - gnome_power_schema.rc | default(1) != 0
+
+    # ---- Verification, LAST ----------------------------------------------------------------
+    # Deliberately the final tasks, not adjacent to layer 1. Under any_errors_fatal a failing
+    # verification aborts the run at that point — so sitting between layer 1 and layers 2/3 it
+    # would have left the machine with NEITHER the recovery hook nor the idle-suspend backstop
+    # installed, i.e. the hot-bag scenario fully live, because a check failed. Verification
+    # must never be able to prevent the fix it is verifying.
+    #
+    # A TASK, not a handler. As a handler this only ran on the run that changed the rules
+    # file, so every re-run reported green having verified nothing — and in check mode the
+    # notifier is skipped, so it had never executed at all. Running always means the COVERAGE
+    # line appears on every run, which is what distinguishes "checked and clean" from
+    # "never ran".
+    #
+    # A tested helper rather than inline shell: enumerating devices, classifying them and
+    # counting is loops + conditionals + data-munging, which playbooks/CLAUDE.md puts in
+    # helpers/ in stone.
+    - name: Verify the power-delivery wakeup policy applied
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -m
+          - helpers.suspend_wakeup.cli
+      args:
+        chdir: "{{ root_dir }}"
+      register: wakeup_coverage
+      changed_when: false
+      # Skipped under --check for a substantive reason, not convenience: check mode applies
+      # nothing, so asserting that the policy HAS applied would fail on every dry run of a
+      # host not yet deployed to — a red result carrying no information. On a real run it
+      # always executes.
+      when: not ansible_check_mode
+
+    - name: Report wakeup policy coverage
+      ansible.builtin.debug:
+        msg: "{{ wakeup_coverage.stdout }}"
+      when: not ansible_check_mode
+
+  handlers:
+    - name: restart-upower
+      ansible.builtin.systemd:
+        name: upower
+        state: restarted
+
+    # HANDLER ORDER IS LOAD-BEARING. A handler can only notify one defined AFTER it, so
+    # reload-udev-rules must stay above trigger-udev. Reordering them would silently break
+    # layer 1 with no error anywhere. Verification is NOT a third link in this chain — it is
+    # a task after `meta: flush_handlers`, so that it runs on every run rather than only on
+    # the run that happens to change the rules file.
+    #
+    # Two steps, and the second is not optional: `udevadm control --reload-rules` only makes
+    # the rule available to FUTURE device events. AC and the UCSI ports are never removed and
+    # re-added on a running system, so without the trigger the policy would not take effect
+    # until a reboot. Same reload -> trigger chain as play-displaylink.yml.
+    - name: reload-udev-rules
+      ansible.builtin.command:
+        argv:
+          - udevadm
+          - control
+          - --reload-rules
+      changed_when: true
+      notify: trigger-udev
+
+    # --settle is required before anything reads the result back: without it udevadm returns
+    # as soon as the events are queued, not once udevd has applied them.
+    - name: trigger-udev
+      ansible.builtin.command:
+        argv:
+          - udevadm
+          - trigger
+          - --settle
+          - --subsystem-match=power_supply
+      changed_when: true
+
+    - name: warn-reboot-required
+      ansible.builtin.debug:
+        msg: |
+          ===================================================================
+          Lid configuration changed.
+
+          REBOOT REQUIRED: systemd-logind does not reload its config without
+          restarting, and restarting logind kills your session.
+
+          (The udev wakeup policy does NOT need a reboot — it is applied during
+          this run. On a real run the COVERAGE line reporting it appears LATER in
+          the output: this banner is a handler flushed mid-play, the verification
+          is one of the last tasks. Under --check there is no COVERAGE line at
+          all, because nothing was written for it to measure.)
+          ===================================================================

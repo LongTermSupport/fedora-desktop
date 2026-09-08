@@ -133,7 +133,7 @@ if [[ -n "${PLANLIB_SOURCED:-}" ]]; then
     return 0
 fi
 
-PLANLIB_VERSION="1.1.1"
+PLANLIB_VERSION="1.2.0"
 PLANLIB_SOURCED=1
 export PLANLIB_VERSION
 
@@ -165,6 +165,9 @@ PLAN_REMAINING_ARGS=()
 # Filesystem markers that mean "this process is inside a container". Overridable so the
 # tests can exercise both branches; podman writes /run/.containerenv, docker /.dockerenv.
 PLAN_CONTAINER_MARKERS=(/run/.containerenv /.dockerenv)
+# The sudo command, as an array, so the tests can point it at a stub executable and exercise
+# the NOPASSWD and password-required branches without a real sudo or a real password.
+PLAN_SUDO_CMD=(sudo)
 
 # Exported so a plan script (or a play it invokes) can read the run's declared state without
 # re-deriving it. PLAN_SUDO_PRIMED in particular lets a leg decide whether an unattended
@@ -349,11 +352,24 @@ plan_prime_sudo() {
         _plan_err "plan_prime_sudo must be called BEFORE plan_start_log — a sudo prompt issued after the tee redirect is flooded and garbled" || return 1
     fi
     local probe=""
-    if probe="$(sudo -n -v 2>&1)"; then
+    if probe="$("${PLAN_SUDO_CMD[@]+"${PLAN_SUDO_CMD[@]}"}" -n -v 2>&1)"; then
         printf '==> sudo timestamp already valid, not prompting\n'
         PLAN_SUDO_PRIMED=1
         return 0
     fi
+    # `sudo -n -v` ALSO fails under NOPASSWD, and not because a password is needed: `-v`
+    # extends a timestamp, and sudo declines to mint one when no password was ever required.
+    # Taking that as "needs a password" made every non-interactive deploy on a NOPASSWD host
+    # abort demanding a terminal for a prompt that could never appear. So ask the question
+    # that actually decides it — can we become root without being asked? Both probe outputs
+    # are kept, because if we go on to fail, the reason is the two of them together.
+    local runProbe=""
+    if runProbe="$("${PLAN_SUDO_CMD[@]+"${PLAN_SUDO_CMD[@]}"}" -n true 2>&1)"; then
+        printf '==> sudo needs no password on this host, nothing to prime\n'
+        PLAN_SUDO_PRIMED=1
+        return 0
+    fi
+    probe="${probe} / non-interactive run: ${runProbe}"
     if ! _plan_tty_openable; then
         if [[ "${PLAN_MODE}" == "gather" ]]; then
             printf '[WARN] sudo needs a password but there is no controlling terminal (%s) — continuing, gather mode. Remedy: run "sudo -v" first. (%s)\n' \

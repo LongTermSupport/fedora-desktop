@@ -107,6 +107,43 @@ These playbooks are executed automatically by `playbook-main.yml` during initial
 
 - Configures systemd inhibitor so active SSH sessions block suspend
 
+### play-suspend-and-lid-policy.yml
+
+**Purpose**: Make a suspend request stick, and set lid-close behaviour\
+**Actions**:
+
+- Configures systemd-logind lid-close action (suspend on battery, ignore on AC)
+- Sets UPower to ignore the lid, leaving logind in charge
+- Disarms the AC adapter and USB-C power-delivery ports as wakeup sources, so unplugging a
+  cable cannot abort a suspend in progress
+  - **Trade-off you will notice**: plugging in the mains no longer wakes a sleeping machine.
+    Use the lid or the power button. USB and Thunderbolt stay armed, so waking from an
+    attached keyboard still works.
+- Installs a `system-sleep` hook that re-issues the suspend if it aborts within 10s with the
+  lid still closed (window derived from the ~3s abort measured in Plan 00104)
+- Enables GNOME idle-suspend on battery (the AC sibling stays disabled — see
+  `play-prevent-ssh-suspend.yml`)
+- Verifies the wakeup policy applied, printing a `COVERAGE:` line on every real run (skipped
+  under `--check`, where sysfs has not been written). A host with no such hardware passes and
+  says so rather than failing
+
+**This play is on the default provisioning path and will abort the run** (`any_errors_fatal`)
+in three cases:
+
+- `/usr/lib/systemd/system-sleep` is missing — systemd scans only that path, so the recovery
+  hook would be installed where nothing runs it. Checked in preflight, before anything is
+  written.
+- the GNOME power schema is unreadable on a non-`server` profile host — e.g. provisioning
+  over SSH before first graphical login. Layer 3 cannot be set, leaving no backstop.
+- the wakeup policy did not apply, or a targeted device could not be vouched for — its
+  `power/wakeup` was unreadable, held a value that is neither `enabled` nor `disabled`, or
+  its device entry no longer resolves. This check runs **last**, deliberately, so that a
+  failed verification can never abort the run before the recovery hook and the backstop are
+  installed.
+
+A host with no `/sys/power/state` (cannot sleep) ends cleanly for that host instead, and a
+host with no upower simply skips the `IgnoreLid` task.
+
 ### play-network-wait-tuning.yml
 
 **Purpose**: Mask `NetworkManager-wait-online.service`\
@@ -1039,12 +1076,6 @@ DisplayLink dock support:
 Install Intel IPU6 webcam userspace stack:
 
 - Deploys userspace drivers for Intel IPU6 (Alder Lake / Raptor Lake) built-in webcams
-
-#### play-laptop-lid-power-management.yml
-
-Laptop lid power management:
-
-- Configures systemd-logind lid-close action (suspend/hibernate/ignore)
 
 #### play-laptop-thermal-diagnostics.yml
 
