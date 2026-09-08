@@ -31,6 +31,9 @@ FENCE="$(printf '\140\140\140')"
 probe() {
     local label="$1"; shift
     local out rc
+    # Progress to stderr: probes write their payload to the report file, so without this a
+    # slow probe shows nothing at all and reads as a hang.
+    printf '  ... %s\n' "$label" >&2
     if out="$("$@" 2>&1)"; then rc=0; else rc=$?; fi
     printf '### %s  (rc=%d)\n\n%s\n%s\n%s\n\n' \
         "$label" "$rc" "$FENCE" "${out:-(no output)}" "$FENCE" >> "$REPORT"
@@ -76,9 +79,36 @@ show_sleep_timeline() {
 }
 
 # Journal volume per minute — an awake machine logs continuously, a suspended one has a gap.
+#
+# SCOPED DELIBERATELY. A whole boot here is both unusable and painfully slow: boot -1 on this
+# host is 7.77 MILLION lines, which is ~2880 histogram rows and minutes of piping. So the
+# window starts at the LAST 'PM: suspend entry' in the boot — the moment the machine was
+# supposed to go to sleep, which is exactly the region where a gap either appears or does not.
 show_journal_density() {
-    local boot="$1"
-    journalctl --no-pager -b "$boot" -o short-iso -q \
+    local boot="$1" since="" entry=""
+    # Kernel-only search: 'PM: suspend entry' is a kernel message and -k is far cheaper than
+    # scanning the full journal.
+    entry="$(journalctl --no-pager -b "$boot" -k -o short-iso -q \
+        --grep 'PM: suspend entry' | tail -n 1)"
+
+    if [[ -n "$entry" ]]; then
+        since="${entry%%+*}"
+        since="${since/T/ }"
+        echo "window: from the last 'PM: suspend entry' (${since}) to the end of boot ${boot}"
+    else
+        echo "NO 'PM: suspend entry' in boot ${boot} — the machine never attempted suspend"
+        echo "in this boot, so there is no post-suspend window to measure. Showing the final"
+        echo "30 minutes of the boot instead, which answers a DIFFERENT question."
+        since="$(journalctl --no-pager -b "$boot" -o short-iso -q -n 1 \
+            | grep -oE '^[0-9-]+T[0-9:]+' | tr 'T' ' ')"
+        if [[ -z "$since" ]]; then
+            echo "ERROR: could not determine the end of boot ${boot}." >&2
+            return 1
+        fi
+        since="$(date -d "${since} -30 minutes" '+%Y-%m-%d %H:%M:%S')"
+    fi
+    echo
+    journalctl --no-pager -b "$boot" --since "$since" -o short-iso -q \
         | grep -oE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}' \
         | uniq -c
 }
