@@ -214,7 +214,7 @@ Static files are organized by destination:
 
 - Vault encryption for sensitive data
 - SSH key generation and management
-- Passwordless sudo configuration
+- Passwordless sudo configuration on the desktop profile only; the server profile removes it
 - GitHub CLI multi-account support
 - Vault password file (**plaintext**, gitignored) — it holds the key that decrypts the vaulted
   values, so it is by definition not itself encrypted

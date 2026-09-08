@@ -92,7 +92,10 @@ These playbooks are executed automatically by `playbook-main.yml` during initial
 **Actions**:
 
 - Installs basic packages (vim, wget, bash-completion, htop, etc.)
-- Configures passwordless sudo for user
+- Configures passwordless sudo for the user on the **desktop** profile; on the **server**
+  profile it removes that grant, because a permanent `NOPASSWD:ALL` on a box reached by
+  automation is a ladder to root (headless runs get their credential from the preflight
+  contract instead — see [headless-provisioning.md](headless-provisioning.md))
 - Sets up Vim with Deus colorscheme
 - Configures bash environment and custom PS1 prompt
 - Copies SSH keys to root user
