@@ -28,11 +28,14 @@ done
 source "${repoRoot}/CLAUDE/Plan/_planlib.inc.bash"
 plan_init "${BASH_SOURCE[0]}"
 
-PLAN_USAGE="usage: triage.bash [--watch-power [seconds]] [-h|--help]
+PLAN_USAGE="usage: triage.bash [--boot N] [--watch-power [seconds]] [-h|--help]
 
 Gathers suspend/resume, lid, wakeup-source and power-policy facts from this host.
 Read-only. Writes a raw report into a gitignored triage-runs/<timestamp>/ directory.
 
+  --boot N                  Which boot to treat as the incident (default -1, the boot before
+                            the current one). RELATIVE — after another reboot -1 points at an
+                            innocent boot, so check the report's boot-index section.
   --watch-power [seconds]   Additionally watch a LIVE mains unplug/replug and record what
                             logind does across it (default timeout 120s per leg). Passive
                             by default because this leg waits on a human. Nothing suspends
@@ -45,29 +48,44 @@ plan_parse_common_flags "$@"
 # (CLAUDE/PlanTriage.md, "Active probes get a flag").
 WATCH_POWER=0
 WATCH_POWER_TIMEOUT=120
-_expect_timeout=0
+INCIDENT_BOOT=-1
+_expect=""
 for _arg in ${PLAN_REMAINING_ARGS+"${PLAN_REMAINING_ARGS[@]}"}; do
-    if [[ "${_expect_timeout}" == "1" ]] && [[ "${_arg}" =~ ^[0-9]+$ ]]; then
-        WATCH_POWER_TIMEOUT="${_arg}"
-        _expect_timeout=0
-        continue
-    fi
-    _expect_timeout=0
+    case "${_expect}" in
+        timeout)
+            if [[ "${_arg}" =~ ^[0-9]+$ ]]; then
+                WATCH_POWER_TIMEOUT="${_arg}"; _expect=""; continue
+            fi
+            _expect=""   # not a number, fall through and treat as the next flag
+            ;;
+        boot)
+            if [[ "${_arg}" =~ ^-?[0-9]+$ ]]; then
+                INCIDENT_BOOT="${_arg}"; _expect=""; continue
+            fi
+            printf '[FATAL] --boot needs a boot index (e.g. -1), got: %s\n' "${_arg}" >&2
+            exit 1
+            ;;
+    esac
     case "${_arg}" in
-        --watch-power) WATCH_POWER=1; _expect_timeout=1 ;;
+        --watch-power) WATCH_POWER=1; _expect="timeout" ;;
+        --boot) _expect="boot" ;;
         *)
             printf '[FATAL] unknown argument: %s\n\n%s\n' "${_arg}" "${PLAN_USAGE}" >&2
             exit 1
             ;;
     esac
 done
+if [[ "${_expect}" == "boot" ]]; then
+    printf '[FATAL] --boot requires a value\n' >&2
+    exit 1
+fi
 
 plan_require_host "it reads the host journal, /sys/power, logind and the GNOME session bus"
 plan_start_log auto
 
 REPORT="${PLAN_RUN_DIR}/triage-report.md"      # listed by plan_finish (R10)
 plan_gather_leg "suspend / lid / wakeup facts" \
-    bash "${PLAN_SCRIPT_DIR}/probe-suspend.bash" "${REPORT}"
+    bash "${PLAN_SCRIPT_DIR}/probe-suspend.bash" "${REPORT}" "${INCIDENT_BOOT}"
 
 if [[ "${WATCH_POWER}" == "1" ]]; then
     plan_gather_leg "live AC power transition" \

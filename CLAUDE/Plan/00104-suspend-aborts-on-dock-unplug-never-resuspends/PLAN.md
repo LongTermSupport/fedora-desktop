@@ -69,8 +69,11 @@ this one trigger.
 
 - **A — `sleep-inactive-battery-type=suspend` in the playbook.** One managed setting.
   Restores GNOME's own default (F11). Catches every variant regardless of what aborted the
-  suspend, bounded by the idle timeout. Does not fight the SSH guard, which blocks sleep
-  while a session is live (F12).
+  suspend, bounded by the idle timeout. **Known limitation, not an advantage**: while an
+  inbound SSH session is established, `ssh-suspend-guard` holds a *block*-mode sleep
+  inhibitor (F12), which disables this fix entirely for as long as the session lasts. An
+  earlier revision of this plan credited that interaction to Option A as a benefit, which
+  inverts what F12 actually says.
 - **B — Disarm wakeup on the dock's USB tree.** Treats one trigger. `3-6` is not a stable
   identifier — it enumerated as a hub during the incident and as a keyboard afterwards (F5).
   Leaves every other wakeup source unhandled.

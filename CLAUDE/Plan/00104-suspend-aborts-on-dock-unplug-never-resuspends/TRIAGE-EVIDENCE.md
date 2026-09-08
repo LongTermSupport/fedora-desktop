@@ -61,7 +61,7 @@ journalctl --no-pager -b -1 --since "2026-09-08 11:40" --until "2026-09-08 12:06
 ```
 
 No idle gap at any point: sustained **~1500–2500 journal lines per minute for 25 minutes**
-while sealed in a rucksack. Boot `-1` ends at 12:05:28; boot `0` begins 12:06:49 —
+while sealed in a rucksack. Boot `-1` ends at 12:05:28; boot `0` begins 12:06:53 —
 consistent with a forced power-off.
 
 > **Correction.** An earlier revision of this document published a much lower histogram
@@ -128,11 +128,14 @@ storm at 11:40:52 was wakeup-armed.
 
 Source: `journalctl -b -1 --grep 'PM: suspend entry|PM: suspend exit|will suspend now|Lid closed|Lid opened|System resumed'`
 
-Boot `-1` spans 2026-09-06 11:57 → 2026-09-08 12:05. Its **complete** set of matches:
+Boot `-1` spans 2026-09-06 11:57 → 2026-09-08 12:05. Every match **for the pattern above**
+(note it is narrower than `show_sleep_timeline` in `probe-suspend.bash`, which also matches
+`Performing sleep operation` and so returns a fifth line):
 
 ```
 09-07 15:02:09  systemd-logind: Lid closed.
 09-08 11:40:41  systemd-logind: The system will suspend now!
+09-08 11:40:49  systemd-sleep: Performing sleep operation 'suspend'...   <- probe-only match
 09-08 11:40:49  kernel: PM: suspend entry (s2idle)
 09-08 12:03:35  systemd-logind: Lid opened.
 ```
@@ -145,15 +148,44 @@ The lid was closed at 09-07 15:02 and the machine did **not** suspend — it sta
 Source: `/etc/systemd/logind.conf.d/laptop-lid.conf` (deployed by
 `playbooks/imports/optional/hardware-specific/play-laptop-lid-power-management.yml`)
 
+Verbatim, including its comment lines:
+
 ```ini
 # BEGIN ANSIBLE MANAGED: Laptop Lid Behavior
 [Login]
+# Suspend when lid closed on battery
 HandleLidSwitch=suspend
+
+# Don't suspend when lid closed on AC power
 HandleLidSwitchExternalPower=ignore
 # END ANSIBLE MANAGED: Laptop Lid Behavior
 ```
 
-`HandleLidSwitchDocked=` is **not set**, so it takes its default of `ignore`.
+`HandleLidSwitchDocked=` is **not set** in the file. Its effective value is no longer an
+inference from the documented default — logind reports all three directly:
+
+```console
+$ busctl get-property org.freedesktop.login1 /org/freedesktop/login1 \
+      org.freedesktop.login1.Manager \
+      HandleLidSwitch HandleLidSwitchDocked HandleLidSwitchExternalPower
+s "suspend"
+s "ignore"
+s "ignore"
+```
+
+So **`HandleLidSwitchDocked` is measured as `ignore`**, confirming what F8's man-page default
+predicted.
+
+Note the trap: these are logind **manager** properties, not unit properties, so
+
+```console
+$ systemctl show systemd-logind --property=HandleLidSwitch ...
+```
+
+prints **nothing and exits 0** — a blind check indistinguishable from a clean one. An earlier
+revision of `probe-suspend.bash` used exactly that and would have written a silently empty
+section; `PLAN.md` had also built Task 2.2 on it, so the task would have compared nothing to
+nothing. Both now use `busctl`.
 
 ## F8 — `man logind.conf` on precedence and event semantics
 

@@ -12,7 +12,14 @@
 
 set -euo pipefail
 
-REPORT="${1:?usage: probe-suspend.bash <report-path>}"
+REPORT="${1:?usage: probe-suspend.bash <report-path> [incident-boot-selector]}"
+
+# Which boot to treat as "the incident". Defaults to -1 (the boot before the current one),
+# which was correct on 2026-09-08 — but it is RELATIVE: one more reboot and -1 points at an
+# innocent boot, and every timeline/density probe below would then look CLEAN rather than
+# blind. The report prints `journalctl --list-boots` so the reader can see which boot was
+# actually measured, and this is overridable rather than baked in.
+INCIDENT_BOOT="${2:--1}"
 
 # printf octal \140 is a backtick. The markdown code fence is built this way rather than
 # written literally because three backticks inside a single-quoted printf format read as an
@@ -95,9 +102,13 @@ show_logind_config() {
         cat "$f"
     done
     echo
-    echo "NOTE: logind does NOT expose HandleLidSwitch* over systemctl show, so an unset"
-    echo "      setting cannot be read back — it can only be inferred from the files above"
-    echo "      plus the documented defaults (HandleLidSwitchDocked defaults to 'ignore')."
+    echo "== EFFECTIVE settings, including unset defaults (HandleLidSwitch / ...Docked /"
+    echo "   ...ExternalPower). These are logind MANAGER properties, so 'systemctl show"
+    echo "   systemd-logind --property=HandleLidSwitch' prints nothing and still exits 0 —"
+    echo "   use busctl, or a blind check is indistinguishable from a clean one."
+    busctl get-property org.freedesktop.login1 /org/freedesktop/login1 \
+        org.freedesktop.login1.Manager \
+        HandleLidSwitch HandleLidSwitchDocked HandleLidSwitchExternalPower
 }
 
 # Which lid branch applies: docked -> external-power -> plain (man logind.conf).
@@ -136,11 +147,13 @@ show_lid_branch_inputs() {
 
 probe "available sleep states (/sys/power/mem_sleep)" cat /sys/power/mem_sleep
 probe "suspend statistics" show_suspend_stats
+probe "boot index (WHICH boot is '${INCIDENT_BOOT}'?)" journalctl --no-pager --list-boots
 probe "sleep timeline, current boot" show_sleep_timeline 0
-probe "sleep timeline, previous boot" show_sleep_timeline -1
-probe "journal density per minute, previous boot" show_journal_density -1
-probe "thermal / throttle events, previous boot" \
-    journalctl --no-pager -b -1 -k --grep 'thermal|throttl|critical|overheat'
+probe "sleep timeline, incident boot ${INCIDENT_BOOT}" show_sleep_timeline "${INCIDENT_BOOT}"
+probe "journal density per minute, incident boot ${INCIDENT_BOOT}" \
+    show_journal_density "${INCIDENT_BOOT}"
+probe "thermal / throttle events, incident boot ${INCIDENT_BOOT}" \
+    journalctl --no-pager -b "${INCIDENT_BOOT}" -k --grep 'thermal|throttl|critical|overheat'
 probe "wakeup-armed devices" show_wakeup_enabled
 probe "lid and power-source state" show_lid_and_power_state
 probe "logind lid configuration" show_logind_config
