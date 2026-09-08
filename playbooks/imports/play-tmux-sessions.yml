@@ -26,8 +26,12 @@
         mode: "0644"
 
     # A config typo would surface only when someone next opens a session. tmux parses the
-    # file against a throwaway server here and the play fails on the first bad line.
+    # file against a throwaway server here and the play fails on the first bad line. TERM is
+    # set explicitly: under a headless provisioner the inherited TERM can be `unknown`, which
+    # tmux refuses ("missing or unsuitable terminal") before it reads the file at all.
     - name: Verify tmux accepts the deployed configuration
       ansible.builtin.command:
         cmd: tmux -L config-check -f /etc/tmux.conf start-server \; kill-server
+      environment:
+        TERM: xterm-256color
       changed_when: false
