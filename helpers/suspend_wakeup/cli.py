@@ -51,6 +51,12 @@ def read_wakeup_states(power_supply_dir: str = DEFAULT_POWER_SUPPLY_DIR) -> dict
     that vanished mid-enumeration) would otherwise raise the same `FileNotFoundError`
     and be dropped from the population silently, shrinking the denominator of the very
     line that exists to state it.
+
+    That ordering has a deliberate consequence. A `ucsi-source-psy-*` unplugged in the
+    window between `iterdir()` and its `stat()` is now unverifiable — a failed run rather
+    than a silently smaller population. That is the trade this module exists to make: a
+    loud, re-runnable failure beats a quiet under-count, and the check is the last task
+    in the play, so the abort lands after all three layers are already installed.
     """
     base = pathlib.Path(power_supply_dir)
     if not base.is_dir():
@@ -59,7 +65,10 @@ def read_wakeup_states(power_supply_dir: str = DEFAULT_POWER_SUPPLY_DIR) -> dict
     states: dict[str, str | None] = {}
     for device in sorted(base.iterdir()):
         if not device.exists():
-            states[device.name] = None  # entry does not resolve — cannot vouch for it
+            # False for a dangling symlink AND for an entry we cannot stat at all
+            # (EACCES, ELOOP). Either way the device is real enough to be enumerated
+            # but cannot be vouched for, so it stays in the population as unverifiable.
+            states[device.name] = None
             continue
         try:
             states[device.name] = (device / "power" / "wakeup").read_text()

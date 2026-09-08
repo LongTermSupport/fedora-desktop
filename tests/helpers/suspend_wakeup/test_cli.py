@@ -110,8 +110,10 @@ class TestReadWakeupStates(unittest.TestCase):
 class TestMain(unittest.TestCase):
     """`main` prints the COVERAGE line, so every case here captures stdout.
 
-    Left uncaptured, the gate's output ends with four stray COVERAGE lines after `OK`
-    that read like findings from the run rather than test fixtures.
+    Capturing keeps fixture output out of the gate's own report, where a COVERAGE line
+    printed after `OK` reads like a finding from the run rather than a test's payload.
+    It also lets each case assert what was SAID, not merely the exit code — the line is
+    the payload, and an exit code alone cannot catch it going wrong.
     """
 
     def _run(self, root: pathlib.Path) -> tuple[int, str]:

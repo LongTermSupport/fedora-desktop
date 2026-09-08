@@ -8,13 +8,12 @@ suspend_wakeup is a namespace package (no __init__.py); we put the repo root on
 sys.path so `from helpers.suspend_wakeup import core` resolves. The sys.path edit
 before the import is why ruff E402 is ignored for tests/** in ruff.toml.
 
-The case that motivates the helper (Plan 00104, round-3 finding B2): the assertion
-was a `grep -l '^enabled$'` over three hardcoded sysfs paths, and grep exits 2 when a
-path does not exist. `failed_when: rc != 1` therefore turned "this machine has no AC
-or UCSI device" into a fatal error that aborted the entire provisioning run. The form
-before it had the mirror defect — it reported "all disarmed" on a host with zero
-devices, i.e. blind reported as clean. Neither stated its population, which is why the
-empty-host cases below are the point of the module.
+The case that motivates the helper: as a `grep -l '^enabled$'` over three hardcoded
+sysfs paths, the assertion exits 2 when a path does not exist, so `failed_when: rc != 1`
+turns "this machine has no AC or UCSI device" into a fatal error aborting the entire
+provisioning run. The obvious repair has the mirror defect — it reports "all disarmed"
+on a host with zero devices, i.e. blind reported as clean. Neither states its
+population, which is why the empty-host cases below are the point of the module.
 """
 
 from __future__ import annotations

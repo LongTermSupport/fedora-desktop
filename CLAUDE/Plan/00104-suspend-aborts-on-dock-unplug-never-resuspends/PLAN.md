@@ -159,7 +159,9 @@ one file.
 
   - [x] ✅ `helpers/suspend_wakeup/` — tested helper enumerating the power_supply devices the
     udev rule targets; prints `COVERAGE: n of m`, and a host with none passes and says so
-  - [x] ✅ 25 unit tests, stdlib `unittest`; `./scripts/qa-helper-tests.bash` green (250 tests)
+  - [x] ✅ Unit tests, stdlib `unittest`, covering both the pure verdict and the sysfs read;
+    `./scripts/qa-helper-tests.bash` green. Counts deliberately not written down here —
+    they went stale twice, including on the very commit that corrected them
   - [x] ✅ Runs as a task after `meta: flush_handlers`, so it executes on **every real** run —
     as a handler it only ran on the run that changed the rules file. It is skipped under
     `--check`, where sysfs has not been written and the answer would be meaningless
