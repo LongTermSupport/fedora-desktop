@@ -116,6 +116,9 @@ These playbooks are executed automatically by `playbook-main.yml` during initial
 - Sets UPower to ignore the lid, leaving logind in charge
 - Disarms the AC adapter and USB-C power-delivery ports as wakeup sources, so unplugging a
   cable cannot abort a suspend in progress
+  - **Trade-off you will notice**: plugging in the mains no longer wakes a sleeping machine.
+    Use the lid or the power button. USB and Thunderbolt stay armed, so waking from an
+    attached keyboard still works.
 - Installs a `system-sleep` hook that re-issues the suspend if it aborts within 30s with the
   lid still closed
 - Enables GNOME idle-suspend on battery (the AC sibling stays disabled — see

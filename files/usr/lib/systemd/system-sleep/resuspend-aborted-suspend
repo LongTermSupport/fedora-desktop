@@ -11,26 +11,46 @@
 # silently not getting it is the defect; this makes the request stick.
 #
 # THE TEST — both must hold, or we do nothing:
-#   1. The resume happened within RESUSPEND_WINDOW seconds of the suspend. A human waking
-#      their own machine essentially never does so within seconds of asking it to sleep, so a
-#      resume this fast is spurious. This is what stops the hook fighting a deliberate wake.
-#   2. The lid is still closed. If it is open the user is present, whatever the timing.
+#   1. The resume happened within RESUSPEND_WINDOW seconds of the suspend.
+#   2. The lid is KNOWN to be closed (not merely "not known to be open").
 #
 # Condition 1 is load-bearing and 2 alone is NOT sufficient: a docked laptop is routinely used
 # lid-shut on external monitors, and waking it from the keyboard would otherwise be undone.
 #
 # Re-suspend is scheduled ASYNCHRONOUSLY via systemd-run. Calling `systemctl suspend` inline
-# would deadlock: systemd waits for this hook to finish before completing the resume.
+# would deadlock: systemd-suspend.service runs every hook in this directory and does not
+# continue until they all finish (man 8 systemd-suspend.service).
+#
+# HIBERNATE IS DELIBERATELY EXCLUDED. Kernel lockdown restricts hibernation on this host
+# ("Lockdown: systemd-logind: hibernation is restricted"), so it is not a state this machine
+# reaches, and re-issuing a suspend after a hibernate resume would be a different decision
+# from the one the user made. Add it here only with evidence that it is wanted.
 
 set -euo pipefail
 
-readonly RESUSPEND_WINDOW=30      # seconds; a resume faster than this is treated as spurious
+# Derived from the measured failure, not from taste: Plan 00104 F1 recorded
+# `PM: suspend entry` at 11:40:49 and the abort at 11:40:52 — ~3 seconds. The window is that
+# plus margin. It is deliberately TIGHT: every extra second is false-positive surface on the
+# operator's daily configuration (docked, lid shut, external monitors), where a suspend is
+# always an explicit request and a wake is always deliberate.
+readonly RESUSPEND_WINDOW=10
 readonly RESUSPEND_DELAY=5        # seconds to wait after resume before re-issuing suspend
 readonly MAX_ATTEMPTS=3           # give up rather than loop hot against a persistent waker
 readonly STAMP=/run/resuspend-aborted-suspend.stamp
 readonly COUNT=/run/resuspend-aborted-suspend.count
 
-log() { logger -t resuspend-aborted-suspend "$*"; }
+log() { /usr/bin/logger -t resuspend-aborted-suspend "$*"; }
+
+# Read a state file only if it holds a non-empty integer. Existence is not enough: an empty or
+# truncated file would make the arithmetic below a bash syntax error, killing the hook under
+# `set -e` — the "existence treated as valid content" trap in CLAUDE/AgentNotes.md.
+read_int_or_empty() {
+    local path="$1" value=""
+    [[ -r "$path" ]] || return 0
+    value="$(< "$path")"
+    [[ "$value" =~ ^[0-9]+$ ]] || return 0
+    printf '%s' "$value"
+}
 
 case "${2:-}" in
     suspend | suspend-then-hibernate | hybrid-sleep) ;;
@@ -43,9 +63,13 @@ if [[ "${1:-}" == "pre" ]]; then
 fi
 
 [[ "${1:-}" == "post" ]] || exit 0
-[[ -r "$STAMP" ]] || exit 0
 
-slept_at="$(cat "$STAMP")"
+slept_at="$(read_int_or_empty "$STAMP")"
+if [[ -z "$slept_at" ]]; then
+    log "no usable suspend timestamp at ${STAMP}: cannot tell whether this resume was spurious, so taking no action (layer 2 inactive for this cycle)"
+    exit 0
+fi
+
 elapsed=$(( $(date +%s) - slept_at ))
 
 if (( elapsed > RESUSPEND_WINDOW )); then
@@ -54,35 +78,65 @@ if (( elapsed > RESUSPEND_WINDOW )); then
     exit 0
 fi
 
-lid_state=""
-for f in /proc/acpi/button/lid/*/state; do
-    [[ -r "$f" ]] || continue
-    lid_state="$(cat "$f")"
-    break
-done
-
-if [[ "$lid_state" != *closed* ]]; then
-    log "resumed after ${elapsed}s but the lid is open — user is present, leaving awake"
-    rm -f "$COUNT"
-    exit 0
+# Ask logind, which is authoritative and always present. /proc/acpi/button/lid is a fallback
+# because it does not exist on every machine — and "the glob did not match" must NOT be read
+# as "the lid is open", which would silently disable layer 2 while logging that the user is
+# present. This play is imported for every host, including ones with no lid at all.
+lid_closed="unknown"
+if lid_prop="$(/usr/bin/busctl get-property org.freedesktop.login1 /org/freedesktop/login1 \
+        org.freedesktop.login1.Manager LidClosed 2>&1)"; then
+    case "$lid_prop" in
+        *true*) lid_closed="yes" ;;
+        *false*) lid_closed="no" ;;
+    esac
 fi
 
-attempts=0
-if [[ -r "$COUNT" ]]; then
-    attempts="$(cat "$COUNT")"
+if [[ "$lid_closed" == "unknown" ]]; then
+    for f in /proc/acpi/button/lid/*/state; do
+        [[ -r "$f" ]] || continue
+        if [[ "$(< "$f")" == *closed* ]]; then lid_closed="yes"; else lid_closed="no"; fi
+        break
+    done
 fi
+
+case "$lid_closed" in
+    no)
+        log "resumed after ${elapsed}s but the lid is open — user is present, leaving awake"
+        rm -f "$COUNT"
+        exit 0
+        ;;
+    unknown)
+        log "resumed after ${elapsed}s but the lid state could NOT be determined (logind query failed and no readable /proc/acpi/button/lid interface) — taking no action rather than guessing"
+        exit 0
+        ;;
+esac
+
+attempts="$(read_int_or_empty "$COUNT")"
+: "${attempts:=0}"
 
 if (( attempts >= MAX_ATTEMPTS )); then
-    log "suspend aborted ${attempts}x within ${RESUSPEND_WINDOW}s each; giving up rather than looping. Something is holding the system awake — check 'systemd-inhibit --list' and /sys/kernel/debug/wakeup_sources."
-    rm -f "$COUNT"
+    # NOT resetting the counter here. Deleting it would make "giving up" last exactly one
+    # cycle, so a persistently-waking machine would restart a full burst on every subsequent
+    # suspend, forever. The counter is cleared on the success path above (a resume outside the
+    # window), which is the only event meaning the problem has actually stopped.
+    log "suspend aborted ${attempts}x in a row within ${RESUSPEND_WINDOW}s each; giving up until a normal resume is seen. Something is holding the system awake — check 'systemd-inhibit --list' and /sys/kernel/debug/wakeup_sources."
     exit 0
 fi
 
 echo $(( attempts + 1 )) > "$COUNT"
 log "suspend aborted after ${elapsed}s with the lid closed (attempt $(( attempts + 1 ))/${MAX_ATTEMPTS}) — re-suspending in ${RESUSPEND_DELAY}s"
 
-systemd-run \
-    --on-active="${RESUSPEND_DELAY}" \
-    --timer-property=AccuracySec=1s \
-    --unit=resuspend-aborted-suspend-retry \
-    /usr/bin/systemctl suspend
+# --collect is REQUIRED, not cosmetic. The unit name is fixed, and without --collect a failed
+# run stays loaded in failed state, after which every later systemd-run with the same name
+# fails outright — permanently disabling this hook. The most likely failure is documented in
+# this plan's own evidence (F12): ssh-suspend-guard holds a block-mode sleep inhibitor while
+# an inbound SSH session exists, and logind refuses the suspend. That refusal is correct
+# behaviour and must not wedge anything.
+if ! /usr/bin/systemd-run \
+        --collect \
+        --on-active="${RESUSPEND_DELAY}" \
+        --timer-property=AccuracySec=1s \
+        --unit=resuspend-aborted-suspend-retry \
+        /usr/bin/systemctl suspend; then
+    log "failed to schedule the re-suspend timer; layer 2 did not fire this cycle"
+fi

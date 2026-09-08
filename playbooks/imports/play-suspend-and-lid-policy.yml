@@ -34,6 +34,10 @@
         owner: root
         group: root
         mode: '0644'
+      # A handler, not an unconditional debug task: logind's config is the ONLY part of this
+      # play needing a reboot, so announcing it on every routine playbook-main.yml run would
+      # train the operator to ignore it.
+      notify: warn-reboot-required
 
     - name: Configure UPower to ignore lid (let logind handle it)
       ansible.builtin.lineinfile:
@@ -44,6 +48,13 @@
         group: root
         mode: '0644'
       notify: restart-upower
+      # /etc/UPower/UPower.conf ships with the upower package, and NO playbook in this repo
+      # installs upower. lineinfile without `create` fails outright when the path is absent,
+      # and ansible.cfg sets any_errors_fatal, so on a headless server this would abort the
+      # ENTIRE provisioning run — not merely this play. Same guard, and same reason, as the
+      # gsettings task below (Plan 00061 §6.2); it became reachable for servers when this
+      # play moved out of imports/optional/ and into playbook-main.yml.
+      when: provisioning_profile != 'server'
 
     # Layer 1 — stop trivial wakeups at source. The AC adapter and both USB-C power-delivery
     # ports ship armed as wakeup sources, so pulling the mains fires a wake event; landing
@@ -55,7 +66,7 @@
         owner: root
         group: root
         mode: '0644'
-      notify: reload-udev
+      notify: reload-udev-rules
 
     # Layer 2 — make the request durable whatever the wake source was.
     - name: Deploy the aborted-suspend recovery hook
@@ -94,18 +105,6 @@
       # any_errors_fatal aborts the whole run (Plan 00061 §6.2).
       when: provisioning_profile != 'server'
 
-    - name: Notify user about reboot requirement
-      ansible.builtin.debug:
-        msg: |
-          ===================================================================
-          Configuration updated successfully.
-
-          REBOOT REQUIRED: systemd-logind does not reload config without
-          restarting, and restarting logind kills your session.
-
-          The udev wakeup policy applies to devices as they are re-added, so
-          a reboot is the reliable way to apply it to all of them.
-          ===================================================================
 
   handlers:
     - name: restart-upower
@@ -113,10 +112,36 @@
         name: upower
         state: restarted
 
-    - name: reload-udev
+    # Two steps, and the second is not optional: `udevadm control --reload-rules` only makes
+    # the rule available to FUTURE device events. AC and the UCSI ports are never removed and
+    # re-added on a running system, so without the trigger the policy would not take effect
+    # until a reboot. Same reload -> trigger chain as play-displaylink.yml.
+    - name: reload-udev-rules
       ansible.builtin.command:
         argv:
           - udevadm
           - control
           - --reload-rules
       changed_when: true
+      notify: trigger-udev
+
+    - name: trigger-udev
+      ansible.builtin.command:
+        argv:
+          - udevadm
+          - trigger
+          - --subsystem-match=power_supply
+      changed_when: true
+
+    - name: warn-reboot-required
+      ansible.builtin.debug:
+        msg: |
+          ===================================================================
+          Lid configuration changed.
+
+          REBOOT REQUIRED: systemd-logind does not reload its config without
+          restarting, and restarting logind kills your session.
+
+          (The udev wakeup policy does NOT need a reboot — the handler above
+          runs `udevadm trigger`, so it applies immediately.)
+          ===================================================================

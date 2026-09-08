@@ -146,7 +146,8 @@ The lid was closed at 09-07 15:02 and the machine did **not** suspend — it sta
 ## F7 — logind lid configuration, as deployed
 
 Source: `/etc/systemd/logind.conf.d/laptop-lid.conf` (deployed by
-`playbooks/imports/optional/hardware-specific/play-laptop-lid-power-management.yml`)
+`playbooks/imports/optional/hardware-specific/play-laptop-lid-power-management.yml` — a
+capture-time path; the play is now `playbooks/imports/play-suspend-and-lid-policy.yml`)
 
 Verbatim, including its comment lines:
 

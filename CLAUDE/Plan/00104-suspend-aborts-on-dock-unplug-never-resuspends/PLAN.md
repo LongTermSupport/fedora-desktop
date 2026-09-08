@@ -23,7 +23,7 @@ Because this machine only offers `s2idle` (no deep S3), "failed to suspend" mean
 CPU with peripherals partly live, which is why it produced real heat rather than merely
 draining the battery.
 
-Full evidence, with facts numbered F1–F13 and their sources: **[TRIAGE-EVIDENCE.md](TRIAGE-EVIDENCE.md)**.
+Full evidence, with facts numbered F1–F17 and their sources: **[TRIAGE-EVIDENCE.md](TRIAGE-EVIDENCE.md)**.
 
 ## Goals
 
@@ -144,7 +144,14 @@ the gate has something concrete to accept or reject.
 
 **Date**: 2026-09-08
 
-### Decision 3: The setting goes in `play-prevent-ssh-suspend.yml`
+### Decision 3: The setting goes in `play-prevent-ssh-suspend.yml` — ⚠️ SUPERSEDED by Decision 4
+
+> **Superseded.** Its *reasoning* holds and is why the move happened at all — a
+> drift-prevention setting must live in a playbook that actually runs. Its *conclusion* does
+> not: once Decision 4 added a udev rule and a `system-sleep` hook, the work needed a play
+> that owns suspend policy, and `play-prevent-ssh-suspend.yml` is not that. The outcome is
+> `imports/play-suspend-and-lid-policy.yml`, which satisfies Decision 3's actual requirement
+> (imported by `playbook-main.yml`) without putting a udev rule in an SSH play.
 
 **Context**: Two playbooks could plausibly own `sleep-inactive-battery-type` — the lid/power
 one by topic, or the one that already sets its AC sibling.
@@ -237,10 +244,14 @@ one file.
 
 ## Dependencies
 
-- Touches `play-prevent-ssh-suspend.yml`, which owns the deliberate AC-side setting (F11).
-  Any change must not disturb it.
+- Does **not** modify `play-prevent-ssh-suspend.yml` — an earlier revision of this plan said
+  it would, but the implementation went into `play-suspend-and-lid-policy.yml` instead
+  (Decision 4). That play still owns the deliberate AC-side setting (F11) and must not be
+  disturbed by this work.
 - Interacts with `ssh-suspend-guard`'s block-mode sleep inhibitor (F12): while an inbound SSH
-  session is established, no idle-suspend can fire.
+  session is established, **no** sleep can fire — including layer 2's re-suspend and layer 3's
+  idle-suspend. The layer 2 hook passes `--collect` so that refusal cannot leave a failed
+  transient unit wedging every later retry.
 
 ## Success Criteria
 

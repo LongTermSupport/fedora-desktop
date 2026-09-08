@@ -4,10 +4,14 @@
 #
 # WHY: plugging or unplugging mains is not a reason to wake a sleeping laptop. You wake a
 # laptop by opening the lid or pressing power. But by default the AC adapter and both USB-C
-# power-delivery ports are armed wakeup sources, so a cable coming out fires a wake event —
-# and if that lands during the s2idle transition it ABORTS the suspend. Plan 00104: a
-# user-requested suspend was cancelled ~3s in by unplugging, and the laptop then ran at full
-# load in a closed bag for 25 minutes because nothing re-evaluates after an aborted suspend.
+# power-delivery ports are armed wakeup sources (Plan 00104 F17), so a cable coming out fires
+# a wake event — and a wake event landing during the s2idle transition aborts the suspend.
+#
+# Scope of the claim: F17 establishes that these devices are armed and can generate wakeups.
+# It does NOT establish that one of them caused the specific 2026-09-08 11:40:52 abort — that
+# attribution is still premise P2 in the plan's evidence, and the first-logged candidate there
+# was actually the USB tree, which this rule deliberately leaves armed. This removes a real
+# and unnecessary wakeup source; it is not a proven fix for one incident.
 #
 # Matching on SUBSYSTEM+KERNEL rather than a sysfs path: the UCSI port names are stable ACPI
 # identifiers, unlike USB enumeration paths (a dock's 3-6 becomes a keyboard's 3-6 on the
