@@ -34,10 +34,6 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
-- [00106-run-bash-git-ref-headless](00106-run-bash-git-ref-headless/) - `RUN_BASH_GIT_REF`: the headless provisioner checks out a declared branch (tracks its tip) or a 40-hex commit (pinned) instead of always the default branch; unresolvable refs abort
-
-- [00105-tmux-sessions-single-key-menu](00105-tmux-sessions-single-key-menu/) - tmux for detachable long-running dev sessions, hidden behind one key: F12 opens a new/rename/switch/detach/kill menu; status bar off
-
 - [00104-suspend-aborts-on-dock-unplug-never-resuspends](00104-suspend-aborts-on-dock-unplug-never-resuspends/) - Unplugging the dock aborts s2idle and nothing re-suspends, so the closed laptop runs hot in a bag; make the suspend request durable (udev wakeup policy, a re-suspend hook, battery idle-suspend as backstop)
 
 - [00093-ccy-version-gate-covers-two-files-of-eight](00093-ccy-version-gate-covers-two-files-of-eight/) - The pre-commit CCY bump gate misses `entrypoint.sh`, the Dockerfile and all of `files/opt/claude-yolo/`; widen it and test it
@@ -157,6 +153,10 @@ Use these Unicode icons in plan documents:
 - [00074-grub-cgroup-check-reports-absence-it-cannot-prove](00074-grub-cgroup-check-reports-absence-it-cannot-prove/) - `run.bash`'s legacy-grub cgroup step now distinguishes a failing `grubby` from a genuine negative and aborts on a proven failure instead of continuing
 
 ## Completed Plans
+
+- [00106-run-bash-git-ref-headless](Completed/00106-run-bash-git-ref-headless/) - `RUN_BASH_GIT_REF`: the headless provisioner checks out a declared branch (tracks its tip) or a 40-hex commit (pinned) instead of always the default branch; unresolvable refs abort. run.bash 1.18.0; proven on a real headless box.
+
+- [00105-tmux-sessions-single-key-menu](Completed/00105-tmux-sessions-single-key-menu/) - tmux for detachable long-running dev sessions behind one key: F12 opens a new/rename/switch/detach/kill menu; status bar off. Deployed and verified on a headless box.
 
 - [00103-slack-flatpak-rejects-md-dropped-from-nautilus](Completed/00103-slack-flatpak-rejects-md-dropped-from-nautilus/) - Slack Flatpak rejected a `.md` dragged from Nautilus: the sandbox only had `xdg-download`; `play-comms.yml` now grants `home:ro`, deployed and confirmed on the host
 

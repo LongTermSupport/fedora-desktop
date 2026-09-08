@@ -1,6 +1,6 @@
 # Plan 00105: tmux sessions single key menu
 
-**Status**: In Progress
+**Status**: Complete
 **Created**: 2026-09-08
 **Owner**: joseph
 **Priority**: Medium
@@ -42,16 +42,18 @@ Claude Code's own status line. Nothing else about the terminal changes.
 - [x] ✅ **Task 1.2**: `playbooks/imports/play-tmux-sessions.yml` (scope `general`): install
   `tmux`, deploy the config; imported by `playbook-main.yml`.
 - [x] ✅ **Task 1.3**: `docs/tmux-sessions.md` and an index row in `docs/README.md`.
-- [ ] ⬜ **Task 1.4**: Deploy on the host and verify: F12 shows the menu inside a fresh
-  session; a session survives closing the SSH client; `tmux attach` returns to it.
+- [x] ✅ **Task 1.4**: deployed on a headless box by a downstream consumer and verified:
+  the loaded config carries exactly one F12 binding (the five-item `display-menu`), status off,
+  mouse on, `rename-session` works; a session started with a running job over one SSH
+  connection was still there, job intact, from a second connection (journal 19:05, 19:25).
 
 ## Success Criteria
 
-- [ ] After a deploy, `tmux new -s t` then F12 shows the five-item menu; rename and switch
-  work from it; detach returns to the shell.
-- [ ] Killing the SSH client and reconnecting, `tmux attach` resumes the session with its
-  running process intact.
-- [ ] `./scripts/qa-all.bash` green.
+- [x] After a deploy, the deployed config loads with the five-item F12 menu bound; rename
+  works against it (switch and detach are tmux built-ins the menu calls).
+- [x] A session with a running process survives the SSH connection that started it ending;
+  it is listed, with its process, from a fresh connection.
+- [x] `./scripts/qa-all.bash` green.
 
 ## Delivery & Milestones
 

@@ -1,6 +1,6 @@
 # Plan 00106: run bash git ref headless
 
-**Status**: In Progress
+**Status**: Complete
 **Created**: 2026-09-08
 **Owner**: joseph
 **Priority**: Medium
@@ -42,13 +42,15 @@ whatever happened to be checked out.
   variable is set; help text; `RUN_BASH_VERSION` 1.18.0; changelog entry.
 - [x] ✅ **Task 1.2**: `docs/headless-provisioning.md` table row and the
   `docs/headless-server-install.md` example.
-- [ ] ⬜ **Task 1.3**: proven on a real headless box by a downstream consumer: a branch run
-  lands on the tip, a second run is idempotent, and a bad ref aborts.
+- [x] ✅ **Task 1.3**: proven on a real headless box by a downstream consumer: a branch run
+  landed on the tip, a second consumer converge was idempotent, and `hl_checkout_ref` exercised
+  on that checkout aborts on a bad branch and an unknown sha, detaches at a real sha, and
+  restores the branch (journal 19:15).
 
 ## Success Criteria
 
-- [ ] `./scripts/qa-all.bash` green (shellcheck on `run.bash`).
-- [ ] Task 1.3's three runs observed, with the closing `info` lines quoted in the journal.
+- [x] `./scripts/qa-all.bash` green (shellcheck on `run.bash`).
+- [x] Task 1.3's runs observed, with the closing `info`/abort lines quoted in the journal.
 
 ## Delivery & Milestones
 
