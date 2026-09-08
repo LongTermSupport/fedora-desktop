@@ -126,10 +126,11 @@ The bootstrap script:
 24. **play-gnome-shell-extensions.yml**: GNOME Shell extensions
 25. **play-markless.yml**: Markless tool setup
 26. **play-terminal-emulators.yml**: Terminal emulator configuration
-27. **play-vscode.yml**: Visual Studio Code
-28. **play-vpn.yml**: VPN configuration
-29. **play-gsettings.yml**: GNOME settings
-30. **play-ZZ-repo-cleanup.yml**: Post-run repository cleanup
+27. **play-tmux-sessions.yml**: Detachable tmux sessions behind a single-key menu
+28. **play-vscode.yml**: Visual Studio Code
+29. **play-vpn.yml**: VPN configuration
+30. **play-gsettings.yml**: GNOME settings
+31. **play-ZZ-repo-cleanup.yml**: Post-run repository cleanup
 
 ### Desktop or server — the `provisioning_profile` / `scope` pair
 

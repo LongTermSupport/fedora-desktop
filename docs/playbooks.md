@@ -498,6 +498,19 @@ ccy --custom
 
 - Installs Markless for rendering Markdown in the terminal
 
+### play-tmux-sessions.yml
+
+**Purpose**: Detachable terminal sessions for long-running work, with the multiplexer hidden
+behind one key (scope `general`, so servers get it too)\
+**Actions**:
+
+- Installs `tmux` and deploys the system-wide `/etc/tmux.conf`
+- Status bar off (Claude Code's own status line stays the only one), mouse on, 50k scrollback
+- **F12** opens a menu: new / rename / switch / detach / kill session
+- Proves tmux parses the deployed config before the play reports success
+
+User guide: [tmux-sessions.md](tmux-sessions.md)
+
 ### play-terminal-emulators.yml
 
 **Purpose**: Modern high-performance terminal emulators optimized for Claude Code\

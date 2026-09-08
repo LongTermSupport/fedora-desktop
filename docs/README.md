@@ -373,6 +373,7 @@ ccy --top
 **Terminal**
 
 - [Kitty configuration & usage](kitty.md) — managed settings, keybindings, URL copy workflow
+- [tmux sessions](tmux-sessions.md) — leave long jobs running over SSH; F12 opens the session menu
 
 ## Troubleshooting Quick Links
 

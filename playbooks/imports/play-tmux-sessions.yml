@@ -1,0 +1,33 @@
+#!/usr/bin/env ansible-playbook
+---
+# Detachable terminal sessions for long-running work (Plan 00104): tmux with a system-wide
+# config that hides the multiplexer behind one key (F12 opens a session menu) and keeps
+# its status bar off so Claude Code's own status line is the only one on screen.
+# User guide: docs/tmux-sessions.md
+
+- hosts: desktop
+  name: tmux Sessions (single-key menu)
+  become: true
+  vars:
+    root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
+    scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
+  tasks:
+    - name: Install tmux
+      ansible.builtin.package:
+        name: tmux
+        state: present
+
+    - name: Deploy the system-wide tmux configuration
+      ansible.builtin.copy:
+        src: "{{ root_dir }}/files/etc/tmux.conf"
+        dest: /etc/tmux.conf
+        owner: root
+        group: root
+        mode: "0644"
+
+    # A config typo would surface only when someone next opens a session. tmux parses the
+    # file against a throwaway server here and the play fails on the first bad line.
+    - name: Verify tmux accepts the deployed configuration
+      ansible.builtin.command:
+        cmd: tmux -L config-check -f /etc/tmux.conf start-server \; kill-server
+      changed_when: false

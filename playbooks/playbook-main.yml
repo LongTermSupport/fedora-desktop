@@ -39,6 +39,7 @@
 - import_playbook: imports/play-gnome-shell-extensions.yml
 - import_playbook: imports/play-markless.yml
 - import_playbook: imports/play-terminal-emulators.yml
+- import_playbook: imports/play-tmux-sessions.yml
 - import_playbook: imports/play-vscode.yml
 - import_playbook: imports/play-vpn.yml
 - import_playbook: imports/play-gsettings.yml
