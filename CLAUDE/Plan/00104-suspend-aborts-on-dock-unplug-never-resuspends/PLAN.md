@@ -80,7 +80,7 @@ answers the wrong question — it makes the failure shorter rather than making t
    during the s2idle transition aborts the suspend. Disarm them by udev rule — waking a
    laptop is what the lid and the power button are for.
 2. **Make the request durable.** A `system-sleep` hook re-issues the suspend when a resume
-   happens within 30s of one with the lid still closed. This covers *any* wake source, not
+   happens within 10s of one with the lid still closed. This covers *any* wake source, not
    just the one we know about.
 3. **Defence in depth.** GNOME idle-suspend on battery, as originally proposed — demoted from
    primary to backstop.
@@ -224,7 +224,8 @@ one file.
     wanted, and layer 2 covers an abort from that direction
 - [x] ✅ **Task 3.3**: Layer 2 — re-issue an aborted suspend
   - [x] ✅ `files/usr/lib/systemd/system-sleep/resuspend-aborted-suspend`: re-suspends when
-    a resume lands within 30s of the suspend **and** the lid is still closed
+    a resume lands within 10s of the suspend **and** the lid is still closed (window derived
+    from F1's measured ~3s abort; ACPI is read before logind to avoid a stale-cache race)
   - [x] ✅ Async via `systemd-run` — an inline `systemctl suspend` deadlocks, because systemd
     waits for the hook before completing the resume
   - [x] ✅ Attempt cap (3) so a persistent waker cannot drive a hot suspend/resume loop

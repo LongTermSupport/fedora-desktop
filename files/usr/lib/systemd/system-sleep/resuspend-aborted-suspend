@@ -36,6 +36,7 @@ set -euo pipefail
 readonly RESUSPEND_WINDOW=10
 readonly RESUSPEND_DELAY=5        # seconds to wait after resume before re-issuing suspend
 readonly MAX_ATTEMPTS=3           # give up rather than loop hot against a persistent waker
+readonly STALE_COUNT_AFTER=600    # seconds; see the `pre` branch — expiry for the give-up
 readonly STAMP=/run/resuspend-aborted-suspend.stamp
 readonly COUNT=/run/resuspend-aborted-suspend.count
 
@@ -58,7 +59,22 @@ case "${2:-}" in
 esac
 
 if [[ "${1:-}" == "pre" ]]; then
-    date +%s > "$STAMP"
+    # Expire a stale give-up before recording this suspend.
+    #
+    # WHY THIS IS NOT OPTIONAL: COUNT is otherwise cleared only by a resume outside the window
+    # or an observed OPEN lid. On a machine used docked and lid-shut, neither may happen for
+    # hours. So one false-positive burst — suspend, change your mind, wake from the external
+    # keyboard, three times — would leave layer 2 permanently inert, and the NEXT genuine
+    # abort (the bag incident this exists to catch) would be met with "giving up" and nothing
+    # else. A suspend requested long after the previous one is a FRESH incident.
+    #
+    # The retry's own `pre` fires RESUSPEND_DELAY (~5-8s) after the last one, far inside
+    # STALE_COUNT_AFTER, so a genuine retry burst does not clear its own counter.
+    previous="$(read_int_or_empty "$STAMP")"
+    if [[ -n "$previous" ]] && (( $(/usr/bin/date +%s) - previous > STALE_COUNT_AFTER )); then
+        rm -f "$COUNT"
+    fi
+    /usr/bin/date +%s > "$STAMP"
     exit 0
 fi
 
@@ -70,7 +86,15 @@ if [[ -z "$slept_at" ]]; then
     exit 0
 fi
 
-elapsed=$(( $(date +%s) - slept_at ))
+elapsed=$(( $(/usr/bin/date +%s) - slept_at ))
+
+# A negative elapsed means the clock stepped backwards across the resume (RTC correction, NTP
+# step). The value is then meaningless, and `elapsed > WINDOW` would be false — so without
+# this the hook would proceed to act on nonsense.
+if (( elapsed < 0 )); then
+    log "clock moved backwards across resume (elapsed=${elapsed}s); cannot judge whether this resume was spurious, so taking no action"
+    exit 0
+fi
 
 if (( elapsed > RESUSPEND_WINDOW )); then
     # A normal, wanted wake. Reset the attempt counter so a later genuine abort starts fresh.
@@ -78,35 +102,55 @@ if (( elapsed > RESUSPEND_WINDOW )); then
     exit 0
 fi
 
-# Ask logind, which is authoritative and always present. /proc/acpi/button/lid is a fallback
-# because it does not exist on every machine — and "the glob did not match" must NOT be read
-# as "the lid is open", which would silently disable layer 2 while logging that the user is
-# present. This play is imported for every host, including ones with no lid at all.
+# ACPI FIRST, logind second. This ordering is a correctness fix, not a preference.
+#
+# /proc/acpi/button/lid/*/state is a LIVE read of the hardware. logind's LidClosed is a
+# CACHED property, updated when logind processes an evdev SW_LID event — and whether it has
+# done so by the time the `post` hooks run is not guaranteed. If it has not, a user who woke
+# the machine by opening the lid gets LidClosed=true, elapsed is a few seconds, and this hook
+# suspends the laptop they just opened. Reading ACPI first removes that race entirely.
+#
+# logind remains the fallback because /proc/acpi/button/lid does not exist on every machine,
+# and "the glob did not match" must NOT be read as "the lid is open" — that would silently
+# disable layer 2 while logging that the user is present. This play is imported for every
+# host, including ones with no lid at all.
 lid_closed="unknown"
-if lid_prop="$(/usr/bin/busctl get-property org.freedesktop.login1 /org/freedesktop/login1 \
-        org.freedesktop.login1.Manager LidClosed 2>&1)"; then
-    case "$lid_prop" in
-        *true*) lid_closed="yes" ;;
-        *false*) lid_closed="no" ;;
-    esac
-fi
+for f in /proc/acpi/button/lid/*/state; do
+    [[ -r "$f" ]] || continue
+    if [[ "$(< "$f")" == *closed* ]]; then lid_closed="yes"; else lid_closed="no"; fi
+    break
+done
 
 if [[ "$lid_closed" == "unknown" ]]; then
-    for f in /proc/acpi/button/lid/*/state; do
-        [[ -r "$f" ]] || continue
-        if [[ "$(< "$f")" == *closed* ]]; then lid_closed="yes"; else lid_closed="no"; fi
-        break
-    done
+    # --timeout=2 matters: busctl defaults to 25s, and this runs inside a hook that
+    # systemd-suspend.service blocks on, so an unresponsive logind would stall the resume.
+    if lid_prop="$(/usr/bin/busctl --timeout=2 get-property org.freedesktop.login1 \
+            /org/freedesktop/login1 org.freedesktop.login1.Manager LidClosed 2>&1)"; then
+        case "$lid_prop" in
+            *true*) lid_closed="yes" ;;
+            *false*) lid_closed="no" ;;
+        esac
+    fi
 fi
 
+# Every arm is explicit, including the one that proceeds. Re-suspending is the most
+# consequential branch here, so it must be reached deliberately rather than by falling out of
+# the bottom of a case — and an unanticipated value must stop, not continue.
 case "$lid_closed" in
+    yes)
+        : # lid confirmed closed — fall through to the re-suspend decision below
+        ;;
     no)
         log "resumed after ${elapsed}s but the lid is open — user is present, leaving awake"
         rm -f "$COUNT"
         exit 0
         ;;
     unknown)
-        log "resumed after ${elapsed}s but the lid state could NOT be determined (logind query failed and no readable /proc/acpi/button/lid interface) — taking no action rather than guessing"
+        log "resumed after ${elapsed}s but the lid state could NOT be determined (no readable /proc/acpi/button/lid interface and the logind query failed) — taking no action rather than guessing"
+        exit 0
+        ;;
+    *)
+        log "internal error: unexpected lid state '${lid_closed}' — taking no action"
         exit 0
         ;;
 esac

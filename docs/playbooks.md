@@ -119,8 +119,8 @@ These playbooks are executed automatically by `playbook-main.yml` during initial
   - **Trade-off you will notice**: plugging in the mains no longer wakes a sleeping machine.
     Use the lid or the power button. USB and Thunderbolt stay armed, so waking from an
     attached keyboard still works.
-- Installs a `system-sleep` hook that re-issues the suspend if it aborts within 30s with the
-  lid still closed
+- Installs a `system-sleep` hook that re-issues the suspend if it aborts within 10s with the
+  lid still closed (window derived from the ~3s abort measured in Plan 00104)
 - Enables GNOME idle-suspend on battery (the AC sibling stays disabled — see
   `play-prevent-ssh-suspend.yml`)
 

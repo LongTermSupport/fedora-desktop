@@ -11,9 +11,15 @@
 #   - /usr/lib/systemd/system-sleep/resuspend-aborted-suspend  (re-issue aborted suspends)
 #   - gsettings sleep-inactive-battery-type=suspend     (backstop)
 #
-# REBOOT: logind does not reload its config without a restart, and restarting it kills the
-# session. The udev policy applies to devices as they are re-added. So a reboot is required
-# before the change is fully in effect — see acceptance in PLAN.md Phase 4.
+# REBOOT: only if the logind lid drop-in actually CHANGES. logind does not reload its config
+# without a restart, and restarting it kills the session — so the play notifies
+# `warn-reboot-required` and prints instructions, but only when that file changed. If the
+# drop-in already matches (the common case on a machine where it was applied before), no
+# reboot is needed at all.
+#
+# The udev wakeup policy does NOT need a reboot: the play runs `udevadm trigger --settle` and
+# then asserts `power/wakeup` reads `disabled` on all three power-delivery devices, so it
+# applies — and is verified — during the run.
 #
 # Usage: ./CLAUDE/Plan/00104-.../deploy.bash [--check] [-y|--yes] [-h|--help]
 set -euo pipefail

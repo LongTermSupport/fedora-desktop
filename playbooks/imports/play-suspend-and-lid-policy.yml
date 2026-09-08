@@ -106,13 +106,6 @@
       notify: restart-upower
       when: upower_conf.stat.exists
 
-    - name: Report that UPower configuration was skipped
-      ansible.builtin.debug:
-        msg: >-
-          /etc/UPower/UPower.conf is absent (upower not installed), so the lid is left
-          entirely to logind. This is expected on a headless host and is NOT an error.
-      when: not upower_conf.stat.exists
-
     # ---- Layer 1: stop trivial wakeups at source ------------------------------------------
     # The AC adapter and both USB-C power-delivery ports ship armed as wakeup sources, so
     # pulling the mains fires a wake event; landing during the s2idle transition, it aborts
@@ -193,13 +186,29 @@
       changed_when: false
       when: gnome_power_schema.rc | default(1) == 0
 
-    - name: Report that GNOME idle-suspend was skipped
-      ansible.builtin.debug:
+    # FAIL, do not warn-and-continue. On a non-server host the GNOME power schema is expected
+    # to be readable, so a failing probe is a real fault — a broken session bus, a missing
+    # gnome-settings-daemon — not a benign absence. An earlier revision printed a reassuring
+    # "layers 1 and 2 are unaffected" here for ANY non-zero rc, which is exactly the
+    # skip-and-warn pattern CLAUDE.md prohibits: it would have turned a transient desktop
+    # failure into a silently missing layer 3.
+    #
+    # The genuinely-absent case needs no branch at all: on a server the probe is skipped by its
+    # own `when:`, so rc is undefined, `default(1)` makes this condition false, and the set
+    # task simply does not run. Absence is handled by not asking; failure is handled by
+    # failing.
+    - name: Fail if the GNOME power schema is unreadable on a non-server host
+      ansible.builtin.fail:
         msg: >-
-          The GNOME power schema is not readable for {{ user_login }}, so layer 3 (battery
-          idle-suspend) was not set. Layers 1 and 2 are unaffected. Expected on a headless
-          host; on a desktop it means gnome-settings-daemon or the user session is missing.
-      when: gnome_power_schema.rc | default(1) != 0
+          gsettings could not read org.gnome.settings-daemon.plugins.power for
+          {{ user_login }} (rc={{ gnome_power_schema.rc }}):
+          {{ gnome_power_schema.stderr | default('no stderr') }}.
+          Layer 3 (battery idle-suspend) cannot be set, which leaves this machine with no
+          backstop if a suspend is aborted. Fix the user session or gnome-settings-daemon,
+          then re-run.
+      when:
+        - gnome_power_schema is not skipped
+        - gnome_power_schema.rc | default(1) != 0
 
   handlers:
     - name: restart-upower
@@ -207,6 +216,10 @@
         name: upower
         state: restarted
 
+    # HANDLER ORDER IS LOAD-BEARING. A handler can only notify one defined AFTER it, so this
+    # chain (reload-udev-rules -> trigger-udev -> assert-wakeup-disarmed) must stay in this
+    # order. Reordering them would silently break layer 1 with no error anywhere.
+    #
     # Two steps, and the second is not optional: `udevadm control --reload-rules` only makes
     # the rule available to FUTURE device events. AC and the UCSI ports are never removed and
     # re-added on a running system, so without the trigger the policy would not take effect
@@ -220,13 +233,36 @@
       changed_when: true
       notify: trigger-udev
 
+    # --settle is required before anything reads the result back: without it udevadm returns
+    # as soon as the events are queued, not once udevd has applied them.
     - name: trigger-udev
       ansible.builtin.command:
         argv:
           - udevadm
           - trigger
+          - --settle
           - --subsystem-match=power_supply
       changed_when: true
+      notify: assert-wakeup-disarmed
+
+    # Read the result back rather than asserting success. An earlier revision printed "so it
+    # applies immediately" with no observation behind it — a claim, not a check.
+    - name: assert-wakeup-disarmed
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+          still_armed=""
+          for f in /sys/class/power_supply/AC/power/wakeup \
+                   /sys/class/power_supply/ucsi-source-psy-*/power/wakeup; do
+              [ -r "$f" ] || continue
+              [ "$(cat "$f")" = "enabled" ] && still_armed="${still_armed} ${f}"
+          done
+          if [ -n "${still_armed}" ]; then
+              echo "STILL ARMED:${still_armed}" >&2
+              exit 1
+          fi
+          echo "all power-delivery wakeup sources disarmed"
+      changed_when: false
 
     - name: warn-reboot-required
       ansible.builtin.debug:
@@ -237,6 +273,6 @@
           REBOOT REQUIRED: systemd-logind does not reload its config without
           restarting, and restarting logind kills your session.
 
-          (The udev wakeup policy does NOT need a reboot — the handler above
-          runs `udevadm trigger`, so it applies immediately.)
+          (The udev wakeup policy does NOT need a reboot — the trigger handler
+          applies it immediately, and assert-wakeup-disarmed verifies it.)
           ===================================================================
