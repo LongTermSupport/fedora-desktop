@@ -43,21 +43,33 @@ seconds later (F2).
 
 ## F2 — The machine ran continuously for the following 25 minutes
 
-Source: `journalctl -b -1`, entries-per-minute histogram over the incident window.
+Source — exact command, no priority filter, reproducible as one invocation:
 
-```
-11:40   23      11:47  183      11:54  121      12:01  140
-11:41  105      11:48  107      11:55  146      12:02  189
-11:42  259      11:49  107      11:56  136      12:03  675   <- lid opened
-11:43  230      11:50  141      11:57  188      12:04   56
-11:44  117      11:51  129      11:58  115      12:05   18   <- last entry, boot -1
-11:45  175      11:52  184      11:59  111
-11:46  129      11:53  158      12:00  147
+```bash
+journalctl --no-pager -b -1 --since "2026-09-08 11:40" --until "2026-09-08 12:06" \
+    -o short-iso -q | grep -oE '^2026-09-08T[0-9]{2}:[0-9]{2}' | uniq -c
 ```
 
-No idle gap at any point. Sustained ~110–260 journal lines per minute for 25 minutes while
-sealed in a rucksack. Boot `-1` ends at 12:05:28; boot `0` begins 12:06:49 — consistent with
-a forced power-off.
+```
+2516 11:40      1726 11:47      1598 11:54      1651 12:01
+1792 11:41      1585 11:48      1631 11:55      1684 12:02
+1786 11:42      1606 11:49      1643 11:56      2160 12:03   <- lid opened
+1746 11:43      1836 11:50      1670 11:57      1518 12:04
+1618 11:44      1587 11:51      1597 11:58       692 12:05   <- last entry, boot -1
+1712 11:45      1667 11:52      1570 11:59
+1654 11:46      1643 11:53      1814 12:00
+```
+
+No idle gap at any point: sustained **~1500–2500 journal lines per minute for 25 minutes**
+while sealed in a rucksack. Boot `-1` ends at 12:05:28; boot `0` begins 12:06:49 —
+consistent with a forced power-off.
+
+> **Correction.** An earlier revision of this document published a much lower histogram
+> (~110–260/min). Those figures were not reproducible by any single command: they spliced a
+> `-p notice` capture of 11:40–11:51 together with a `-p info` capture of 11:52–12:05, and
+> the document then cited them as plain `journalctl -b -1`. The conclusion is unchanged and
+> in fact stronger — the machine was an order of magnitude busier than first reported — but
+> the provenance was wrong, so the numbers are replaced above with a single unfiltered run.
 
 Contributors to the sustained load observed in the same window: a `<client-db-container>`
 Podman healthcheck firing every ~10s, `pasta` retrying DNS against `<public-dns>` with no
@@ -278,6 +290,33 @@ documented defaults (F8). An earlier revision of `probe-suspend.bash` probed thi
 have written a silently empty section, which reads as evidence of absence — the failure mode
 `CLAUDE/PlanTriage.md` names as "never write a misleading empty result". The probe now states
 the limitation in the report instead.
+
+## F15 — Power is delivered directly, never through the dock (operator-reported)
+
+Reported by the operator, 2026-09-08. Not derived from the journal, and recorded here as a
+configuration fact the analysis depends on:
+
+- **Home**: a USB dock drives external monitors and peripherals; mains power goes **direct**
+  to the laptop, so the dock can be powered down while the laptop stays powered.
+- **Away / office**: same arrangement — direct power.
+- **At the time of writing**: laptop only, no dock, direct power.
+
+Two consequences.
+
+First, **the incident involved two independent disconnections**, not one. Unplugging the dock
+alone would not have changed AC state, yet the journal shows both the USB disconnect storm
+*and* an NVRM power-source change event one second later (F1) — consistent with packing up:
+dock out, then mains out.
+
+Second, and more usefully, **the two variables are separable by hand**. Unplugging mains with
+no dock attached exercises the AC branch on its own; unplugging the dock with mains still
+connected exercises the display-count branch on its own. That is what makes `--watch-power`
+a legitimate test rather than a partial one.
+
+It also sharpens the risk. Per F8 the precedence is docked → external-power → plain, and
+`HandleLidSwitchDocked` defaults to `ignore` (F7). So at home, with the lid closed and
+external displays connected, the `Docked` branch applies **regardless of power state** — a
+lid-closed machine there is ignored by logind whether it is on mains or on battery.
 
 ---
 

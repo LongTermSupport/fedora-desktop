@@ -108,6 +108,28 @@ the gate has something concrete to accept or reject.
 
 **Date**: 2026-09-08
 
+### Decision 3: The setting goes in `play-prevent-ssh-suspend.yml`
+
+**Context**: Two playbooks could plausibly own `sleep-inactive-battery-type` — the lid/power
+one by topic, or the one that already sets its AC sibling.
+
+**The deciding fact**: `play-laptop-lid-power-management.yml` is **imported by no playbook**.
+It lives under `imports/optional/hardware-specific/` and `playbook-main.yml` does not pull it
+in, so it only runs if invoked by hand. `play-prevent-ssh-suspend.yml` **is** imported, at
+`playbook-main.yml:8`.
+
+**Decision**: `play-prevent-ssh-suspend.yml`. Putting a drift-prevention setting into a
+playbook that never runs would recreate exactly the failure being fixed — the setting would
+be nominally IaC-managed and still absent from the host. Topical tidiness loses to actually
+being deployed. It also puts the battery setting beside the AC sibling it must not disturb,
+where the next reader sees both together.
+
+**Follow-on**: that `play-laptop-lid-power-management.yml` is unimported is itself a latent
+problem — the lid config it deploys (F7) is on this host but nothing would restore it. Out of
+scope here; worth its own plan.
+
+**Date**: 2026-09-08
+
 ## Tasks
 
 ### Phase 1: Capture the baseline (HOST)
@@ -122,9 +144,16 @@ the gate has something concrete to accept or reject.
 
 ### Phase 2: Settle the open hypotheses (HOST)
 
-- [ ] ⬜ **Task 2.1**: Test **H1** — undock a lid-closed machine without requesting suspend
-  - [ ] ⬜ With the lid closed and docked, unplug the dock; observe whether it suspends
+- [ ] 🔄 **Task 2.1**: Test **H1** — does anything re-evaluate on an AC change?
+  - [x] ✅ Build the probe: `./triage.bash --watch-power` records logind/upower/kernel
+    output across a live mains unplug and replug. No dock needed — with no external
+    displays the lid branch is decided purely by AC state, so the mains cord is a
+    sufficient and far less disruptive test than docking.
+  - [ ] ⬜ Run it, lid **open**, while working. Decisive question: does `systemd-logind`
+    log anything at all on the power change, or nothing?
   - [ ] ⬜ Record the outcome in the JOURNAL; update H1 in `TRIAGE-EVIDENCE.md`
+  - [ ] ⬜ **Deferred** (needs an idle moment, not a working session): the lid-closed half
+    — close the lid on AC, unplug, and observe whether it ever suspends
 - [ ] ⬜ **Task 2.2**: Settle **P1** — does logind count evdi/DisplayLink outputs as displays?
   - [x] ✅ Establish how to measure it: logind's `Docked` property and the connected-output
     count are both readable, and `./triage.bash` now captures them (F14). `systemctl show`
@@ -135,9 +164,9 @@ the gate has something concrete to accept or reject.
 ### Phase 3: Implement the fix (CCY container: edit + commit)
 
 - [ ] ⬜ **Task 3.1**: Make `sleep-inactive-battery-type` IaC-managed (Decision 1)
-  - [ ] ⬜ Decide the owning playbook: `play-laptop-lid-power-management.yml` (lid/power
-    policy) vs `play-prevent-ssh-suspend.yml` (already owns the AC sibling). Justify the
-    choice in the JOURNAL rather than defaulting to the nearer file.
+  - [x] ✅ Owning playbook settled: **`play-prevent-ssh-suspend.yml`** — see Decision 3.
+    `play-laptop-lid-power-management.yml` is imported by nothing, so putting the safety
+    net there would recreate the very drift this plan exists to fix.
   - [ ] ⬜ Set it to `suspend`, guarded by the same `provisioning_profile != 'server'`
     condition the AC sibling uses, so a headless run does not hard-fail on the schema
   - [ ] ⬜ Leave `sleep-inactive-ac-type` untouched
