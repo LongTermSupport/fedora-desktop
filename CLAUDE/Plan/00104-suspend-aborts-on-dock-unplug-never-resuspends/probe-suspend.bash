@@ -94,11 +94,29 @@ show_logind_config() {
         echo "--- $f"
         cat "$f"
     done
-    echo "== effective HandleLidSwitch* (including unset defaults)"
-    systemctl show systemd-logind \
-        --property=HandleLidSwitch \
-        --property=HandleLidSwitchDocked \
-        --property=HandleLidSwitchExternalPower
+    echo
+    echo "NOTE: logind does NOT expose HandleLidSwitch* over systemctl show, so an unset"
+    echo "      setting cannot be read back — it can only be inferred from the files above"
+    echo "      plus the documented defaults (HandleLidSwitchDocked defaults to 'ignore')."
+}
+
+# Which lid branch applies: docked -> external-power -> plain (man logind.conf).
+# Run this with the dock ATTACHED and DETACHED to settle premise P1 — whether logind counts
+# evdi/DisplayLink virtual outputs when deciding "docked".
+show_lid_branch_inputs() {
+    echo "== logind Docked property (true => HandleLidSwitchDocked branch applies)"
+    busctl get-property org.freedesktop.login1 /org/freedesktop/login1 \
+        org.freedesktop.login1.Manager Docked
+    echo "== connected DRM outputs (more than one also selects the Docked branch)"
+    local s connected=0
+    for s in /sys/class/drm/card*/card*/status; do
+        [[ -r "$s" ]] || continue
+        if [[ "$(cat "$s")" == "connected" ]]; then
+            echo "connected: $s"
+            connected=$((connected + 1))
+        fi
+    done
+    echo "connected output count: ${connected}"
 }
 
 # --- report ------------------------------------------------------------------------------
@@ -126,6 +144,7 @@ probe "thermal / throttle events, previous boot" \
 probe "wakeup-armed devices" show_wakeup_enabled
 probe "lid and power-source state" show_lid_and_power_state
 probe "logind lid configuration" show_logind_config
+probe "which lid branch applies (P1)" show_lid_branch_inputs
 probe "GNOME power settings" show_gnome_power_settings
 probe "inhibitor locks" systemd-inhibit --list --no-pager
 probe "system-sleep hooks" ls -la /usr/lib/systemd/system-sleep/

@@ -249,6 +249,36 @@ busctl get-property org.freedesktop.login1 \
                                                       displaylink.sh and nvidia
 ```
 
+## F14 — logind's lid branch is directly readable; `systemctl show` is not
+
+Source: `busctl` and `/sys/class/drm/*/status`, captured with the dock **detached**.
+
+```
+== logind Docked property (true => HandleLidSwitchDocked branch applies)
+b false
+== connected DRM outputs (more than one also selects the Docked branch)
+connected: /sys/class/drm/card1/card1-eDP-1/status
+connected output count: 1
+```
+
+Both inputs to the F8 precedence rule are therefore observable at runtime, which makes P1 a
+one-observation question rather than an inference: read the same two values with the dock
+attached and the branch is settled.
+
+Note the negative result alongside it — this returns **nothing at all**:
+
+```
+systemctl show systemd-logind --property=HandleLidSwitch \
+    --property=HandleLidSwitchDocked --property=HandleLidSwitchExternalPower
+```
+
+logind does not expose the `Handle*` settings as unit properties, so an unset value cannot be
+read back from the running service; it can only be taken from the config files (F7) plus the
+documented defaults (F8). An earlier revision of `probe-suspend.bash` probed this and would
+have written a silently empty section, which reads as evidence of absence — the failure mode
+`CLAUDE/PlanTriage.md` names as "never write a misleading empty result". The probe now states
+the limitation in the report instead.
+
 ---
 
 ## Facts → hypotheses
@@ -290,8 +320,14 @@ suspend hold. *Refutes:* the suspend aborting anyway from a different wakeup sou
   *evdi* virtual outputs the same way as native ones is **not** established. If it does not,
   the 09-07 branch was `HandleLidSwitchExternalPower` instead. Either way the branch taken
   was `ignore`, so the F6 outcome is unchanged — but the correct **fix target** differs.
+
+  **Partially settled — the measurement now exists (F14).** logind exposes a readable
+  `Docked` property, so this no longer has to be inferred. What remains is one observation
+  with the dock physically attached.
+
 - **P2** — That the USB disconnect is what aborted the suspend, rather than merely being the
   first thing logged after an abort caused by something else. The 3-second ordering is
   strongly suggestive but the kernel logged no wakeup-source attribution.
+
 - **P3** — That no `PM: suspend exit` was emitted, as opposed to emitted-but-lost. The
   journal was still writing normally either side of the gap, which argues against loss.

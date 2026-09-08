@@ -126,8 +126,11 @@ the gate has something concrete to accept or reject.
   - [ ] ⬜ With the lid closed and docked, unplug the dock; observe whether it suspends
   - [ ] ⬜ Record the outcome in the JOURNAL; update H1 in `TRIAGE-EVIDENCE.md`
 - [ ] ⬜ **Task 2.2**: Settle **P1** — does logind count evdi/DisplayLink outputs as displays?
-  - [ ] ⬜ Compare `systemctl show systemd-logind` lid properties with the dock attached and
-    detached, to identify which branch (`Docked` vs `ExternalPower`) actually applies
+  - [x] ✅ Establish how to measure it: logind's `Docked` property and the connected-output
+    count are both readable, and `./triage.bash` now captures them (F14). `systemctl show`
+    does **not** expose the `Handle*` settings — that route is a dead end.
+  - [ ] ⬜ Re-run `./triage.bash` with the dock **attached** and compare against the detached
+    baseline in F14 (`Docked: false`, 1 connected output)
 
 ### Phase 3: Implement the fix (CCY container: edit + commit)
 
