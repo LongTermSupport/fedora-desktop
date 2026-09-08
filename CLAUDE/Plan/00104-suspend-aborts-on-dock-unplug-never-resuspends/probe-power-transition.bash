@@ -53,11 +53,25 @@ snapshot_state() {
 
 # Everything logind/upower/the kernel said in the window. THE decisive output: if logind
 # emits nothing here, it did not re-evaluate the lid on the power change (premise behind H1).
+#
+# TWO SEPARATE QUERIES, DELIBERATELY. `-u <unit>` and `-k` are MUTUALLY EXCLUSIVE — journalctl
+# ANDs them, and no record is both a kernel message and a unit's message, so
+# `journalctl -u systemd-logind -k` returns ZERO lines for an entire boot. An earlier revision
+# of this probe combined them and reported a confident "-- No entries --" that was a property
+# of the query, not of the system. Never merge these back into one invocation.
+#
+# The unit query is deliberately UNFILTERED: logind+upower produce only a couple of hundred
+# lines per boot, so a --grep here could hide the very message being looked for, and cheapness
+# is not a reason to risk a second false negative.
 journal_since() {
     local since="$1"
-    journalctl --no-pager --since "$since" -o short-iso \
-        -u systemd-logind -u upower -k \
-        --grep 'lid|Lid|suspend|Suspend|sleep|power|Power|AC|battery|Battery'
+    echo "== systemd-logind + upower (unfiltered)"
+    journalctl --no-pager --since "$since" -o short-iso -q \
+        -u systemd-logind -u upower
+    echo
+    echo "== kernel (power/lid/suspend terms)"
+    journalctl --no-pager --since "$since" -o short-iso -q -k \
+        --grep 'lid|Lid|suspend|Suspend|sleep|power|Power|AC|battery|Battery|charg'
 }
 
 # Poll until the AC state differs from "$1", or the timeout expires.

@@ -152,9 +152,9 @@ scope here; worth its own plan.
     output across a live mains unplug and replug. No dock needed — with no external
     displays the lid branch is decided purely by AC state, so the mains cord is a
     sufficient and far less disruptive test than docking.
-  - [ ] ⬜ Run it, lid **open**, while working. Decisive question: does `systemd-logind`
-    log anything at all on the power change, or nothing?
-  - [ ] ⬜ Record the outcome in the JOURNAL; update H1 in `TRIAGE-EVIDENCE.md`
+  - [x] ✅ Run it, lid **open**, while working. Result: `systemd-logind` logged **nothing**
+    across a full unplug/replug, verified against a positive control (F16).
+  - [x] ✅ H1's **mechanism** confirmed and recorded as F16; H1 itself updated.
   - [ ] ⬜ **Deferred** (needs an idle moment, not a working session): the lid-closed half
     — close the lid on AC, unplug, and observe whether it ever suspends
 - [ ] ⬜ **Task 2.2**: Settle **P1** — does logind count evdi/DisplayLink outputs as displays?
@@ -174,9 +174,15 @@ scope here; worth its own plan.
     condition the AC sibling uses, so a headless run does not hard-fail on the schema
   - [ ] ⬜ Leave `sleep-inactive-ac-type` untouched
   - [ ] ⬜ Run QA: `./scripts/qa-all.bash`
-- [ ] ⬜ **Task 3.2**: Decision gate on Decision 2, informed by Phase 2
-  - [ ] ⬜ If H1 is confirmed, specify the udev rule + oneshot unit; if refuted, record why
-    Phase 1 suffices and close the decision
+- [ ] 🔄 **Task 3.2**: Decision gate on Decision 2, informed by Phase 2
+  - [x] ✅ Evidence in: F16 confirms logind takes **no action and logs nothing** on an AC
+    transition, so there is no built-in recovery to rely on. Decision 2's premise holds —
+    the machine will not rescue itself, whatever aborted the suspend.
+  - [ ] ⬜ **Open question for the operator**: is the Phase 1 idle timeout (900s on battery)
+    an acceptable worst case for a laptop in a bag, or is the near-immediate udev route
+    warranted? F16 settles *whether* nothing recovers; it does not settle *how fast* the
+    recovery must be. That is a judgement about bag time and heat, not a fact triage can
+    supply.
 
 ### Phase 4: Verify against the real failure (HOST)
 

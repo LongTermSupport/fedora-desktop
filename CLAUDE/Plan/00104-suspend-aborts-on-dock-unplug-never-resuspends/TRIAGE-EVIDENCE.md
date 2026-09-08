@@ -366,6 +366,48 @@ lid-closed machine there is ignored by logind whether it is on mains or on batte
 5. With only s2idle available (F4), "awake" meant a hot CPU in a sealed bag for 25 minutes
    (F2).
 
+### F16 — logind does nothing, and logs nothing, on a live AC transition — **H1 mechanism confirmed**
+
+Source: `triage.bash --watch-power`, a real mains unplug and replug performed by the operator
+on 2026-09-08 at ~13:12, lid open, no dock attached.
+
+State either side of the unplug — only `AC online` moved:
+
+```
+                        baseline    after unplug    after replug
+AC online:              1           0               1
+logind Docked:          false       false           false
+logind LidClosed:       false       false           false
+connected outputs:      1           1               1
+```
+
+Journal across both transitions, `systemd-logind` and `upower`, **unfiltered**:
+
+```
+(nothing)
+```
+
+Kernel, power/lid/battery terms, same windows:
+
+```
+(nothing)
+```
+
+**`systemd-logind` logged nothing whatsoever across a full power-source change.** It took no
+logged action, and did not reconsider the lid. Combined with F8's event-driven semantics,
+this is the mechanism H1 predicted: a machine already sitting with the lid closed gets no
+re-evaluation when it moves to battery, so it stays awake indefinitely.
+
+> **Verification note — this result was nearly reported wrongly.** The first version of this
+> probe queried `journalctl -u systemd-logind -u upower -k`, and `-u` combined with `-k` is
+> **mutually exclusive**: journalctl ANDs them and no record is both a unit's message and a
+> kernel message, so that invocation returns **0 lines for an entire boot** regardless of what
+> happened. It produced a confident `-- No entries --` that was a property of the query.
+>
+> The finding above is from separated queries, and was checked with a **positive control** —
+> the same query shape over boot `-1` at 12:03 correctly returns `Lid opened`. The emptiness
+> is the system's, not the query's.
+
 ### H1 — The same failure occurs with no suspend attempt at all
 
 If the machine is docked with the lid closed (`HandleLidSwitchDocked=ignore`, F7/F8) and is
@@ -373,8 +415,13 @@ then simply undocked and carried away, there is again no lid transition and no i
 — so it stays awake exactly as it did here. **This makes the aborted suspend a trigger, not
 the root cause.**
 
-*Confirms:* undock a lid-closed docked machine without touching suspend; observe it stay
-awake. *Refutes:* observing logind suspend it within seconds of the power-source change.
+**Mechanism CONFIRMED by F16**; the end-to-end behaviour is not yet observed. F16 shows
+logind takes no action and logs nothing on an AC transition, which is the step H1 depends on.
+What remains untested is the whole path with the lid actually closed — that needs an idle
+moment rather than a working session, and is deferred in `PLAN.md` Task 2.1.
+
+*Would refute the remainder:* observing logind suspend the machine within seconds of a
+power-source change while the lid is closed.
 
 ### H2 — Disarming USB/Thunderbolt wakeup would prevent the abort
 
