@@ -247,22 +247,24 @@
 
     # Read the result back rather than asserting success. An earlier revision printed "so it
     # applies immediately" with no observation behind it — a claim, not a check.
+    # A single grep, not a loop: playbooks/CLAUDE.md requires anything with loops or
+    # conditionals to move into a tested helper, and the logic here belongs in `failed_when`
+    # anyway. `shell:` rather than `command:` only because the ucsi glob needs expanding.
+    #
+    # grep -l exit codes: 0 = a file still says "enabled" (the policy did NOT apply),
+    # 1 = no matches (every device disarmed — the outcome we want), 2 = a real error such as
+    # a missing path. So anything other than 1 is a failure.
     - name: assert-wakeup-disarmed
       ansible.builtin.shell:
-        cmd: |
-          set -euo pipefail
-          still_armed=""
-          for f in /sys/class/power_supply/AC/power/wakeup \
-                   /sys/class/power_supply/ucsi-source-psy-*/power/wakeup; do
-              [ -r "$f" ] || continue
-              [ "$(cat "$f")" = "enabled" ] && still_armed="${still_armed} ${f}"
-          done
-          if [ -n "${still_armed}" ]; then
-              echo "STILL ARMED:${still_armed}" >&2
-              exit 1
-          fi
-          echo "all power-delivery wakeup sources disarmed"
+        cmd: >-
+          grep -l '^enabled$'
+          /sys/class/power_supply/AC/power/wakeup
+          /sys/class/power_supply/ucsi-source-psy-*/power/wakeup
+      register: wakeup_still_armed
       changed_when: false
+      # FAIL-FAST-OK: probe-then-fail — grep's exit status IS the assertion, and it is
+      # explicitly checked here rather than swallowed.
+      failed_when: wakeup_still_armed.rc != 1
 
     - name: warn-reboot-required
       ansible.builtin.debug:
