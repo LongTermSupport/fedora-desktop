@@ -8,6 +8,14 @@
 #   2. If a suspend aborts anyway, re-issue it            (system-sleep hook)
 #   3. Bound any remaining failure on battery             (GNOME idle-suspend)
 #
+# EVERY TASK IS GATED ON A MEASURED FACT, NOT ON A PROXY. This play is imported by
+# playbook-main.yml, so it runs on every host — laptop, desktop and headless server. An
+# earlier revision guarded on `provisioning_profile != 'server'`, which is a proxy for "upower
+# is installed": a desktop without upower, or a misdetected profile, would still have hit
+# `lineinfile` on a non-existent path, and with `any_errors_fatal` that aborts the ENTIRE
+# provisioning run rather than just this play. The preflight block below establishes the
+# actual state and every task keys off it.
+#
 # Was imports/optional/hardware-specific/play-laptop-lid-power-management.yml, which
 # playbook-main.yml never imported — so the lid config it deploys was live on the host but
 # would not survive a rebuild. Moved here because playbook-main.yml requires that anything it
@@ -19,6 +27,51 @@
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
   tasks:
+    # ---- Preflight: establish facts before changing anything ------------------------------
+
+    - name: Check whether this host can suspend at all
+      ansible.builtin.slurp:
+        src: /sys/power/state
+      register: power_state_raw
+
+    - name: Check whether UPower configuration is present
+      ansible.builtin.stat:
+        path: /etc/UPower/UPower.conf
+      register: upower_conf
+
+    - name: Check whether systemd scans a system-sleep hook directory
+      ansible.builtin.stat:
+        path: /usr/lib/systemd/system-sleep
+      register: system_sleep_dir
+
+    - name: Get user UID
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ user_login }}"
+
+    - name: Record whether this host supports suspend-to-idle or suspend-to-RAM
+      ansible.builtin.set_fact:
+        host_can_suspend: "{{ 'mem' in (power_state_raw.content | b64decode) or
+                              'freeze' in (power_state_raw.content | b64decode) }}"
+
+    - name: Report the preflight result
+      ansible.builtin.debug:
+        msg: >-
+          can_suspend={{ host_can_suspend }}
+          upower_conf={{ upower_conf.stat.exists }}
+          sleep_hook_dir={{ system_sleep_dir.stat.exists }}
+
+    # A host that cannot sleep has nothing for this play to configure, and layers 1-2 would
+    # deploy dead weight. Stop cleanly rather than leaving inert files behind.
+    # `| bool` is load-bearing, not decoration. A Jinja-templated fact can arrive as the
+    # STRING "False", and `not "False"` is False in Jinja because the string is non-empty —
+    # so the guard would silently never fire and the play would run on a host it should skip.
+    - name: End play on a host with no sleep capability
+      ansible.builtin.meta: end_play
+      when: not (host_can_suspend | bool)
+
+    # ---- Lid behaviour --------------------------------------------------------------------
+
     - name: Configure logind for laptop lid behavior
       ansible.builtin.blockinfile:
         path: /etc/systemd/logind.conf.d/laptop-lid.conf
@@ -39,6 +92,9 @@
       # train the operator to ignore it.
       notify: warn-reboot-required
 
+    # Gated on the FILE, not on the profile. /etc/UPower/UPower.conf ships with the upower
+    # package and no playbook in this repo installs upower, so its presence is the only honest
+    # precondition. `lineinfile` without `create` fails outright on a missing path.
     - name: Configure UPower to ignore lid (let logind handle it)
       ansible.builtin.lineinfile:
         path: /etc/UPower/UPower.conf
@@ -48,17 +104,19 @@
         group: root
         mode: '0644'
       notify: restart-upower
-      # /etc/UPower/UPower.conf ships with the upower package, and NO playbook in this repo
-      # installs upower. lineinfile without `create` fails outright when the path is absent,
-      # and ansible.cfg sets any_errors_fatal, so on a headless server this would abort the
-      # ENTIRE provisioning run — not merely this play. Same guard, and same reason, as the
-      # gsettings task below (Plan 00061 §6.2); it became reachable for servers when this
-      # play moved out of imports/optional/ and into playbook-main.yml.
-      when: provisioning_profile != 'server'
+      when: upower_conf.stat.exists
 
-    # Layer 1 — stop trivial wakeups at source. The AC adapter and both USB-C power-delivery
-    # ports ship armed as wakeup sources, so pulling the mains fires a wake event; landing
-    # during the s2idle transition, it aborts the suspend.
+    - name: Report that UPower configuration was skipped
+      ansible.builtin.debug:
+        msg: >-
+          /etc/UPower/UPower.conf is absent (upower not installed), so the lid is left
+          entirely to logind. This is expected on a headless host and is NOT an error.
+      when: not upower_conf.stat.exists
+
+    # ---- Layer 1: stop trivial wakeups at source ------------------------------------------
+    # The AC adapter and both USB-C power-delivery ports ship armed as wakeup sources, so
+    # pulling the mains fires a wake event; landing during the s2idle transition, it aborts
+    # the suspend.
     - name: Disarm power-delivery devices as wakeup sources
       ansible.builtin.copy:
         src: "{{ root_dir }}/files/etc/udev/rules.d/99-suspend-wakeup-policy.rules"
@@ -68,7 +126,19 @@
         mode: '0644'
       notify: reload-udev-rules
 
-    # Layer 2 — make the request durable whatever the wake source was.
+    # ---- Layer 2: make the request durable whatever the wake source was --------------------
+
+    # systemd-sleep scans exactly one directory and it ships with systemd, so an absent one
+    # means something is genuinely wrong. Fail loudly rather than dropping the hook somewhere
+    # nothing reads it and reporting success.
+    - name: Fail if systemd has no system-sleep hook directory
+      ansible.builtin.fail:
+        msg: >-
+          /usr/lib/systemd/system-sleep does not exist. systemd-sleep scans only that path,
+          so the aborted-suspend recovery hook would be installed where nothing runs it.
+          Investigate the systemd installation before re-running.
+      when: not system_sleep_dir.stat.exists
+
     - name: Deploy the aborted-suspend recovery hook
       ansible.builtin.copy:
         src: "{{ root_dir }}/files/usr/lib/systemd/system-sleep/resuspend-aborted-suspend"
@@ -77,16 +147,37 @@
         group: root
         mode: '0755'
 
-    - name: Get user UID
-      ansible.builtin.getent:
-        database: passwd
-        key: "{{ user_login }}"
+    # ---- Layer 3: defence in depth ---------------------------------------------------------
+    # GNOME's own default for this key is 'suspend'; it was 'nothing' on the host and set by
+    # nothing in this repo, so a laptop that failed to suspend stayed awake indefinitely on
+    # battery. The AC sibling (sleep-inactive-ac-type=nothing) is deliberate and lives in
+    # play-prevent-ssh-suspend.yml so inbound SSH survives — do NOT "make them consistent".
 
-    # Layer 3 — defence in depth. GNOME's own default for this key is 'suspend'; it was
-    # 'nothing' on the host and set by nothing in this repo, so a laptop that failed to
-    # suspend stayed awake indefinitely on battery. The AC sibling
-    # (sleep-inactive-ac-type=nothing) is deliberate and lives in play-prevent-ssh-suspend.yml
-    # so inbound SSH survives — do NOT "make them consistent".
+    # Probe for the schema rather than inferring it from the profile: the failure mode being
+    # avoided is a hard "No such schema" abort (Plan 00061 §6.2), and whether that schema is
+    # registered is a fact we can simply read.
+    - name: Probe for the GNOME power schema
+      become: true
+      become_user: "{{ user_login }}"
+      ansible.builtin.command:
+        argv:
+          - gsettings
+          - get
+          - org.gnome.settings-daemon.plugins.power
+          - sleep-inactive-battery-type
+      environment:
+        DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ ansible_facts.getent_passwd[user_login][1] }}/bus"
+      register: gnome_power_schema
+      changed_when: false
+      # `gsettings get` reads and changes nothing, so it must run under --check too. Without
+      # this the probe is skipped in check mode, layer 3 silently no-ops, and a dry run tells
+      # you nothing about whether it would have applied.
+      check_mode: false
+      # FAIL-FAST-OK: probe-then-fail — a non-zero result here is DATA ("no GNOME session or
+      # schema on this host"), and it is explicitly consumed by the `when:` on the next task.
+      failed_when: false
+      when: provisioning_profile != 'server'
+
     - name: Enable idle suspend on battery
       become: true
       become_user: "{{ user_login }}"
@@ -100,11 +191,15 @@
       environment:
         DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ ansible_facts.getent_passwd[user_login][1] }}/bus"
       changed_when: false
-      # GNOME Settings Daemon schema over D-Bus — hard-fails ("No such schema") on a
-      # headless server without gnome-settings-daemon, which under this repo's
-      # any_errors_fatal aborts the whole run (Plan 00061 §6.2).
-      when: provisioning_profile != 'server'
+      when: gnome_power_schema.rc | default(1) == 0
 
+    - name: Report that GNOME idle-suspend was skipped
+      ansible.builtin.debug:
+        msg: >-
+          The GNOME power schema is not readable for {{ user_login }}, so layer 3 (battery
+          idle-suspend) was not set. Layers 1 and 2 are unaffected. Expected on a headless
+          host; on a desktop it means gnome-settings-daemon or the user session is missing.
+      when: gnome_power_schema.rc | default(1) != 0
 
   handlers:
     - name: restart-upower
