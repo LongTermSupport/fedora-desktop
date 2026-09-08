@@ -123,6 +123,18 @@ These playbooks are executed automatically by `playbook-main.yml` during initial
   lid still closed (window derived from the ~3s abort measured in Plan 00104)
 - Enables GNOME idle-suspend on battery (the AC sibling stays disabled — see
   `play-prevent-ssh-suspend.yml`)
+- Verifies the wakeup policy applied, printing `COVERAGE: n of m power-delivery devices disarmed` on every run
+
+**This play is on the default provisioning path and will abort the run** (`any_errors_fatal`)
+if either precondition fails:
+
+- `/usr/lib/systemd/system-sleep` is missing — systemd scans only that path, so the recovery
+  hook would be installed where nothing runs it
+- the GNOME power schema is unreadable on a non-`server` profile host — e.g. provisioning
+  over SSH before first graphical login. Layer 3 cannot be set, leaving no backstop.
+
+A host with no `/sys/power/state` (cannot sleep) ends cleanly for that host instead, and a
+host with no upower simply skips the `IgnoreLid` task.
 
 ### play-network-wait-tuning.yml
 

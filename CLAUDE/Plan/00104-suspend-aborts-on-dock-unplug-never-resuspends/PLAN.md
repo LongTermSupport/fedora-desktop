@@ -60,118 +60,15 @@ read the host journal.
 
 ## Technical Decisions
 
-### Decision 4: The goal is a durable suspend request, not a bounded failure — **supersedes Decision 1's framing**
+Four decisions, with the reasoning and the options rejected, live in
+**[DECISIONS.md](DECISIONS.md)** — extracted so this document stays lean.
 
-**Context**: Decisions 1 and 2 both framed the problem as *recovering from* a failed suspend,
-and argued over how long the machine may stay awake before a safety net catches it. The
-operator rejected the premise outright:
-
-> "there is no acceptable bag time — if i say suspend it should go for suspend. something as
-> trivial as unplugging the power should not derail that."
-
-That is the better frame, and it changes the design. The defect is not "the recovery is slow";
-it is **that an explicit suspend request was silently not honoured**. A bounded idle timeout
-answers the wrong question — it makes the failure shorter rather than making the request hold.
-
-**Decision**: Three layers, in priority order.
-
-1. **Remove the trigger.** F17 shows the AC adapter and both USB-C power-delivery ports ship
-   armed as wakeup sources. Pulling the mains therefore fires a wake event, and one landing
-   during the s2idle transition aborts the suspend. Disarm them by udev rule — waking a
-   laptop is what the lid and the power button are for.
-2. **Make the request durable.** A `system-sleep` hook re-issues the suspend when a resume
-   happens within 10s of one with the lid still closed. This covers *any* wake source, not
-   just the one we know about.
-3. **Defence in depth.** GNOME idle-suspend on battery, as originally proposed — demoted from
-   primary to backstop.
-
-**What this reverses**: Decision 1 rejected the `system-sleep` hook as "the narrowest option,
-covering strictly less". Under the old framing that was true. Under the correct framing the
-hook is the layer that actually delivers the requirement, and the idle timeout is the one
-covering less — it cannot honour a request, only curtail the consequences of dropping it.
-Decision 1's *choice* of setting stands as layer 3; its *reasoning about priority* does not.
-
-**Date**: 2026-09-08
-
-### Decision 1: Restore the battery idle-suspend safety net as the primary fix
-
-**Context**: Something must bound the damage from *any* failure to stay suspended, not just
-this one trigger.
-
-**Options considered**:
-
-- **A — `sleep-inactive-battery-type=suspend` in the playbook.** One managed setting.
-  Restores GNOME's own default (F11). Catches every variant regardless of what aborted the
-  suspend, bounded by the idle timeout. **Known limitation, not an advantage**: while an
-  inbound SSH session is established, `ssh-suspend-guard` holds a *block*-mode sleep
-  inhibitor (F12), which disables this fix entirely for as long as the session lasts. An
-  earlier revision of this plan credited that interaction to Option A as a benefit, which
-  inverts what F12 actually says.
-- **B — Disarm wakeup on the dock's USB tree.** Treats one trigger. `3-6` is not a stable
-  identifier — it enumerated as a hub during the incident and as a keyboard afterwards (F5).
-  Leaves every other wakeup source unhandled.
-- **C — A `system-sleep` post-resume hook that re-suspends if the lid is still closed.**
-  Custom code, and the *narrowest* of the three: it only fires after a resume, so it does
-  nothing for H1, where no suspend was ever attempted.
-
-**Decision**: **A**, as the primary fix. It is the smallest change, it restores a default
-rather than inventing behaviour, and it is the only one of the three whose coverage does not
-depend on which trigger fired. C was the first approach considered in session and is recorded
-here because it is the tempting one and it is wrong as a primary: it is more code than A and
-covers strictly less.
-
-**Date**: 2026-09-08
-
-### Decision 2: Treat the AC→battery state change separately, and gate it on H1
-
-**Context**: A is bounded by the idle timeout, so a worst case still leaves the machine awake
-in a bag for that timeout. Reacting to the actual state change would cut it to seconds.
-
-**Options considered**:
-
-- **A udev rule on `SUBSYSTEM=="power_supply"`** that, on AC going offline with the lid
-  closed, triggers a oneshot unit that suspends. Event-driven, covers H1 and the incident
-  case alike.
-- **Shortening `sleep-inactive-battery-timeout`** instead. No new units, but it is a blunt
-  trade against normal on-battery desk use.
-- **Setting `HandleLidSwitchDocked=suspend`**. Rejected outright — it would suspend the
-  docked workstation on lid close, which the Non-Goals forbid.
-
-**Decision**: Deferred to a decision gate in Phase 3, **after** H1 and P1 are settled on the
-host. Building a udev rule for a state transition that has not been demonstrated would be
-speculative; if H1 is refuted, Phase 1 alone may be sufficient. Recording the option now so
-the gate has something concrete to accept or reject.
-
-**Date**: 2026-09-08
-
-### Decision 3: The setting goes in `play-prevent-ssh-suspend.yml` — ⚠️ SUPERSEDED by Decision 4
-
-> **Superseded.** Its *reasoning* holds and is why the move happened at all — a
-> drift-prevention setting must live in a playbook that actually runs. Its *conclusion* does
-> not: once Decision 4 added a udev rule and a `system-sleep` hook, the work needed a play
-> that owns suspend policy, and `play-prevent-ssh-suspend.yml` is not that. The outcome is
-> `imports/play-suspend-and-lid-policy.yml`, which satisfies Decision 3's actual requirement
-> (imported by `playbook-main.yml`) without putting a udev rule in an SSH play.
-
-**Context**: Two playbooks could plausibly own `sleep-inactive-battery-type` — the lid/power
-one by topic, or the one that already sets its AC sibling.
-
-**The deciding fact**: `play-laptop-lid-power-management.yml` is **imported by no playbook**.
-It lives under `imports/optional/hardware-specific/` and `playbook-main.yml` does not pull it
-in, so it only runs if invoked by hand. `play-prevent-ssh-suspend.yml` **is** imported, at
-`playbook-main.yml:8`.
-
-**Decision**: `play-prevent-ssh-suspend.yml`. Putting a drift-prevention setting into a
-playbook that never runs would recreate exactly the failure being fixed — the setting would
-be nominally IaC-managed and still absent from the host. Topical tidiness loses to actually
-being deployed. It also puts the battery setting beside the AC sibling it must not disturb,
-where the next reader sees both together.
-
-**Follow-on**: that `play-laptop-lid-power-management.yml` is unimported is itself a latent
-problem — the lid config it deploys (F7) is on this host but nothing would restore it. Out of
-scope here; worth its own plan.
-
-**Date**: 2026-09-08
+| # | Decision | Status |
+| - | -------- | ------ |
+| 1 | Restore the battery idle-suspend safety net | Setting stands; its **priority** superseded by 4 |
+| 2 | Treat the AC->battery state change separately | Open; gated on H1 |
+| 3 | Put the setting in `play-prevent-ssh-suspend.yml` | **Superseded by 4** (reasoning survives) |
+| 4 | The goal is a durable suspend request, not a bounded failure | **Current** |
 
 ## Tasks
 
@@ -212,26 +109,54 @@ suspend policy, and splitting the three layers across two plays would be worse t
 one file.
 
 - [x] ✅ **Task 3.1**: Give suspend policy a playbook that actually runs
+
   - [x] ✅ `git mv` the unimported `optional/hardware-specific/play-laptop-lid-power-management.yml`
     → `imports/play-suspend-and-lid-policy.yml`. `playbook-main.yml:3-4` forbids importing
     anything from `imports/optional/`, so importing it in place was not an option.
   - [x] ✅ Import it from `playbook-main.yml`, adjacent to `play-prevent-ssh-suspend.yml`
   - [x] ✅ Update `docs/playbooks.md` — move the entry out of the optional catalogue
+
 - [x] ✅ **Task 3.2**: Layer 1 — disarm power-delivery wakeup sources (F17)
+
   - [x] ✅ `files/etc/udev/rules.d/99-suspend-wakeup-policy.rules`, matching on
     `SUBSYSTEM`+`KERNEL` so it cannot drift onto the wrong device
   - [x] ✅ Deliberately leave USB/Thunderbolt armed — waking from an attached keyboard is
     wanted, and layer 2 covers an abort from that direction
+
 - [x] ✅ **Task 3.3**: Layer 2 — re-issue an aborted suspend
+
   - [x] ✅ `files/usr/lib/systemd/system-sleep/resuspend-aborted-suspend`: re-suspends when
     a resume lands within 10s of the suspend **and** the lid is still closed (window derived
     from F1's measured ~3s abort; ACPI is read before logind to avoid a stale-cache race)
   - [x] ✅ Async via `systemd-run` — an inline `systemctl suspend` deadlocks, because systemd
     waits for the hook before completing the resume
   - [x] ✅ Attempt cap (3) so a persistent waker cannot drive a hot suspend/resume loop
+
 - [x] ✅ **Task 3.4**: Layer 3 — battery idle-suspend as backstop
-  - [x] ✅ `sleep-inactive-battery-type=suspend`, guarded by `provisioning_profile != 'server'`
+
+  - [x] ✅ `sleep-inactive-battery-type=suspend`, gated on a `gsettings get` **probe**
+    (`gnome_power_schema.rc == 0`), not on the profile. The profile still decides whether the
+    probe runs at all — that is a policy question ("should this host have a GUI?"), not a
+    measurable fact, so it is a legitimate use of it. A failing probe on a non-server host
+    now **fails the run** rather than silently skipping.
   - [x] ✅ `sleep-inactive-ac-type` left untouched
+
+- [x] ✅ **Task 3.5**: Make the play safe on every host it now runs on
+
+  - [x] ✅ Preflight block establishes measured preconditions: sleep capability, upower
+    presence, the systemd sleep-hook directory, the GNOME schema
+  - [x] ✅ `meta: end_host` (not `end_play`) when the host cannot sleep — per-host, so one
+    non-suspending machine cannot cancel the policy for the rest of the group
+  - [x] ✅ Both hard preconditions moved into preflight, so the play aborts before writing
+    anything rather than part-way through
+
+- [x] ✅ **Task 3.6**: Verify layer 1 applied, rather than asserting it
+
+  - [x] ✅ `helpers/suspend_wakeup/` — tested helper enumerating the power_supply devices the
+    udev rule targets; prints `COVERAGE: n of m`, and a host with none passes and says so
+  - [x] ✅ 15 unit tests, stdlib `unittest`; `./scripts/qa-helper-tests.bash` green (240 tests)
+  - [x] ✅ Runs as a task after `meta: flush_handlers`, so it executes on **every** run — as a
+    handler it only ran on the run that changed the rules file, and never in check mode
 
 ### Phase 4: Verify against the real failure (HOST)
 

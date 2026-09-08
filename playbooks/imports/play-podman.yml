@@ -124,7 +124,7 @@
       ansible.builtin.command: podman ps --quiet
       register: podman_running_containers
       changed_when: false
-      failed_when: false
+      failed_when: false  # FAIL-FAST-OK: probe-then-fail — rc/stdout consumed by the next task's when:
 
     - name: Migrate Podman User Namespace State (post-upgrade fix)
       ansible.builtin.command: podman system migrate

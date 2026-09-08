@@ -18,8 +18,9 @@
 # reboot is needed at all.
 #
 # The udev wakeup policy does NOT need a reboot: the play runs `udevadm trigger --settle` and
-# then asserts `power/wakeup` reads `disabled` on all three power-delivery devices, so it
-# applies — and is verified — during the run.
+# then verifies the result with `helpers.suspend_wakeup.cli`, which enumerates the
+# power_supply devices the rule targets and prints a `COVERAGE: n of m` line. It does not
+# assume a device count — a host with none passes and says so.
 #
 # Usage: ./CLAUDE/Plan/00104-.../deploy.bash [--check] [-y|--yes] [-h|--help]
 set -euo pipefail
@@ -41,8 +42,10 @@ plan_init "${BASH_SOURCE[0]}"
 PLAN_USAGE="usage: deploy.bash [--check] [-y|--yes] [-h|--help]
 
 Deploys playbooks/imports/play-suspend-and-lid-policy.yml.
-Changes suspend, lid and wakeup behaviour on THIS machine. A reboot is required
-afterwards before the policy is fully in effect."
+Changes suspend, lid and wakeup behaviour on THIS machine.
+
+A reboot is required ONLY if the logind lid drop-in changes — the play says so when
+it does. The udev wakeup policy applies during the run and prints a COVERAGE line."
 
 plan_mode deploy
 plan_parse_common_flags "$@"

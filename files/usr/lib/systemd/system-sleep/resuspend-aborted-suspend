@@ -36,7 +36,12 @@ set -euo pipefail
 readonly RESUSPEND_WINDOW=10
 readonly RESUSPEND_DELAY=5        # seconds to wait after resume before re-issuing suspend
 readonly MAX_ATTEMPTS=3           # give up rather than loop hot against a persistent waker
-readonly STALE_COUNT_AFTER=600    # seconds; see the `pre` branch — expiry for the give-up
+# Expiry for the give-up counter; see the `pre` branch. Chosen, not measured — it only has to
+# sit well above RESUSPEND_DELAY (so a genuine retry burst cannot clear its own counter) and
+# well below "the user put the laptop away and got it out again". Stated residual: after a
+# give-up, a genuine abort occurring within 600s of the previous suspend request is still
+# uncovered by layer 2, and falls to layer 3's 900s idle-suspend instead.
+readonly STALE_COUNT_AFTER=600
 readonly STAMP=/run/resuspend-aborted-suspend.stamp
 readonly COUNT=/run/resuspend-aborted-suspend.count
 
@@ -72,7 +77,7 @@ if [[ "${1:-}" == "pre" ]]; then
     # STALE_COUNT_AFTER, so a genuine retry burst does not clear its own counter.
     previous="$(read_int_or_empty "$STAMP")"
     if [[ -n "$previous" ]] && (( $(/usr/bin/date +%s) - previous > STALE_COUNT_AFTER )); then
-        rm -f "$COUNT"
+        /usr/bin/rm -f "$COUNT"
     fi
     /usr/bin/date +%s > "$STAMP"
     exit 0
@@ -98,7 +103,7 @@ fi
 
 if (( elapsed > RESUSPEND_WINDOW )); then
     # A normal, wanted wake. Reset the attempt counter so a later genuine abort starts fresh.
-    rm -f "$COUNT"
+    /usr/bin/rm -f "$COUNT"
     exit 0
 fi
 
@@ -142,7 +147,7 @@ case "$lid_closed" in
         ;;
     no)
         log "resumed after ${elapsed}s but the lid is open — user is present, leaving awake"
-        rm -f "$COUNT"
+        /usr/bin/rm -f "$COUNT"
         exit 0
         ;;
     unknown)
