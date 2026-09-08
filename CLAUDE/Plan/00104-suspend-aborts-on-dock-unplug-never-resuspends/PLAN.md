@@ -63,12 +63,12 @@ read the host journal.
 Four decisions, with the reasoning and the options rejected, live in
 **[DECISIONS.md](DECISIONS.md)** — extracted so this document stays lean.
 
-| # | Decision | Status |
-| - | -------- | ------ |
-| 1 | Restore the battery idle-suspend safety net | Setting stands; its **priority** superseded by 4 |
-| 2 | Treat the AC->battery state change separately | Open; gated on H1 |
-| 3 | Put the setting in `play-prevent-ssh-suspend.yml` | **Superseded by 4** (reasoning survives) |
-| 4 | The goal is a durable suspend request, not a bounded failure | **Current** |
+| #   | Decision                                                     | Status                                           |
+| --- | ------------------------------------------------------------ | ------------------------------------------------ |
+| 1   | Restore the battery idle-suspend safety net                  | Setting stands; its **priority** superseded by 4 |
+| 2   | Treat the AC->battery state change separately                | Open; gated on H1                                |
+| 3   | Put the setting in `play-prevent-ssh-suspend.yml`            | **Superseded by 4** (reasoning survives)         |
+| 4   | The goal is a durable suspend request, not a bounded failure | **Current**                                      |
 
 ## Tasks
 
@@ -144,11 +144,16 @@ one file.
 - [x] ✅ **Task 3.5**: Make the play safe on every host it now runs on
 
   - [x] ✅ Preflight block establishes measured preconditions: sleep capability, upower
-    presence, the systemd sleep-hook directory, the GNOME schema
+    presence, the systemd sleep-hook directory. The GNOME schema probe also runs there,
+    but its **hard fail** is deliberately later, next to the layer-3 task it guards, so
+    the message lands beside the thing that could not be set.
   - [x] ✅ `meta: end_host` (not `end_play`) when the host cannot sleep — per-host, so one
     non-suspending machine cannot cancel the policy for the rest of the group
-  - [x] ✅ Both hard preconditions moved into preflight, so the play aborts before writing
-    anything rather than part-way through
+  - [x] ✅ The sleep-hook-directory precondition moved into preflight, so that abort happens
+    before anything is written rather than part-way through
+  - [x] ✅ Verification runs **last**, so a failing check can never abort the run before
+    layers 2 and 3 are installed — a verification must not be able to prevent the fix it
+    verifies
 
 - [x] ✅ **Task 3.6**: Verify layer 1 applied, rather than asserting it
 

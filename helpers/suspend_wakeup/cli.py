@@ -30,11 +30,22 @@ DEFAULT_POWER_SUPPLY_DIR = "/sys/class/power_supply"
 
 
 def read_wakeup_states(power_supply_dir: str = DEFAULT_POWER_SUPPLY_DIR) -> dict[str, str | None]:
-    """Map every power_supply device to its power/wakeup value, or None if unreadable.
+    """Map power_supply devices to their power/wakeup value.
 
-    Absent from the mapping = the device does not exist. Present with None = the device
-    exists but its wakeup attribute could not be read. core.evaluate() treats those
-    differently, and conflating them is what made the previous shell forms wrong.
+    Three outcomes, and keeping them apart is the whole point:
+
+    - **Attribute present and readable** -> its text. The normal case.
+    - **Attribute ABSENT** -> the device is omitted from the mapping entirely. It is not
+      wakeup-capable, so there is nothing to disarm and nothing wrong. `BAT0` on the
+      reference host is exactly this.
+    - **Attribute present but unreadable** (permissions, an IsADirectory, an I/O error)
+      -> `None`, which `core.evaluate()` counts against the verdict, because we cannot
+      show the policy applied.
+
+    An earlier revision caught bare `OSError` and mapped both of the last two to `None`,
+    so a device that merely lacks the attribute hard-failed the entire provisioning run.
+    That is the same defect as the `grep -l` this module replaced — treating "absent" as
+    "broken" — reintroduced one level down.
     """
     base = pathlib.Path(power_supply_dir)
     if not base.is_dir():
@@ -45,10 +56,10 @@ def read_wakeup_states(power_supply_dir: str = DEFAULT_POWER_SUPPLY_DIR) -> dict
         attribute = device / "power" / "wakeup"
         try:
             states[device.name] = attribute.read_text()
+        except FileNotFoundError:
+            continue  # not wakeup-capable — nothing to disarm, not a fault
         except OSError:
-            # Includes the common, entirely normal case of a device with no power/wakeup
-            # attribute at all (e.g. BAT0). core.evaluate() ignores non-targets anyway.
-            states[device.name] = None
+            states[device.name] = None  # exists but unreadable — a real problem
     return states
 
 

@@ -126,12 +126,16 @@ These playbooks are executed automatically by `playbook-main.yml` during initial
 - Verifies the wakeup policy applied, printing `COVERAGE: n of m power-delivery devices disarmed` on every run
 
 **This play is on the default provisioning path and will abort the run** (`any_errors_fatal`)
-if either precondition fails:
+in three cases:
 
 - `/usr/lib/systemd/system-sleep` is missing — systemd scans only that path, so the recovery
-  hook would be installed where nothing runs it
+  hook would be installed where nothing runs it. Checked in preflight, before anything is
+  written.
 - the GNOME power schema is unreadable on a non-`server` profile host — e.g. provisioning
   over SSH before first graphical login. Layer 3 cannot be set, leaving no backstop.
+- the wakeup policy did not apply, or a targeted device's `power/wakeup` exists but cannot be
+  read. This check runs **last**, deliberately, so that a failed verification can never abort
+  the run before the recovery hook and the backstop are installed.
 
 A host with no `/sys/power/state` (cannot sleep) ends cleanly for that host instead, and a
 host with no upower simply skips the `IgnoreLid` task.

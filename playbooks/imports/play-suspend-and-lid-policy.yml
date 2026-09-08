@@ -152,37 +152,6 @@
     - name: Apply pending udev changes before verifying them
       ansible.builtin.meta: flush_handlers
 
-    # A TASK, not a handler. As a handler this only ran on the run that changed the rules
-    # file, so every re-run reported green having verified nothing — and in check mode the
-    # notifier is skipped, so it had in fact never executed at all. Running always means the
-    # COVERAGE line appears on every run, which is what distinguishes "checked and clean"
-    # from "never ran".
-    #
-    # A tested helper rather than inline shell: enumerating devices, classifying them and
-    # counting is loops + conditionals + data-munging, which playbooks/CLAUDE.md puts in
-    # helpers/ in stone. It also replaces a `grep -l` that exited 2 — and so hard-failed the
-    # entire run — on any host lacking these exact devices.
-    - name: Verify the power-delivery wakeup policy applied
-      ansible.builtin.command:
-        argv:
-          - python3
-          - -m
-          - helpers.suspend_wakeup.cli
-      args:
-        chdir: "{{ root_dir }}"
-      register: wakeup_coverage
-      changed_when: false
-      # Skipped under --check for a substantive reason, not convenience: check mode applies
-      # nothing, so asserting that the policy HAS applied would fail on every dry run of a
-      # host that has not been deployed yet — a red result carrying no information. On a real
-      # run it always executes.
-      when: not ansible_check_mode
-
-    - name: Report wakeup policy coverage
-      ansible.builtin.debug:
-        msg: "{{ wakeup_coverage.stdout }}"
-      when: not ansible_check_mode
-
     # ---- Layer 2: make the request durable whatever the wake source was --------------------
 
     - name: Deploy the aborted-suspend recovery hook
@@ -264,6 +233,43 @@
         - gnome_power_schema is not skipped
         - gnome_power_schema.rc | default(1) != 0
 
+    # ---- Verification, LAST ----------------------------------------------------------------
+    # Deliberately the final tasks, not adjacent to layer 1. Under any_errors_fatal a failing
+    # verification aborts the run at that point — so sitting between layer 1 and layers 2/3 it
+    # would have left the machine with NEITHER the recovery hook nor the idle-suspend backstop
+    # installed, i.e. the hot-bag scenario fully live, because a check failed. Verification
+    # must never be able to prevent the fix it is verifying.
+    #
+    # A TASK, not a handler. As a handler this only ran on the run that changed the rules
+    # file, so every re-run reported green having verified nothing — and in check mode the
+    # notifier is skipped, so it had never executed at all. Running always means the COVERAGE
+    # line appears on every run, which is what distinguishes "checked and clean" from
+    # "never ran".
+    #
+    # A tested helper rather than inline shell: enumerating devices, classifying them and
+    # counting is loops + conditionals + data-munging, which playbooks/CLAUDE.md puts in
+    # helpers/ in stone.
+    - name: Verify the power-delivery wakeup policy applied
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -m
+          - helpers.suspend_wakeup.cli
+      args:
+        chdir: "{{ root_dir }}"
+      register: wakeup_coverage
+      changed_when: false
+      # Skipped under --check for a substantive reason, not convenience: check mode applies
+      # nothing, so asserting that the policy HAS applied would fail on every dry run of a
+      # host not yet deployed to — a red result carrying no information. On a real run it
+      # always executes.
+      when: not ansible_check_mode
+
+    - name: Report wakeup policy coverage
+      ansible.builtin.debug:
+        msg: "{{ wakeup_coverage.stdout }}"
+      when: not ansible_check_mode
+
   handlers:
     - name: restart-upower
       ansible.builtin.systemd:
@@ -309,6 +315,8 @@
           REBOOT REQUIRED: systemd-logind does not reload its config without
           restarting, and restarting logind kills your session.
 
-          (The udev wakeup policy does NOT need a reboot — the trigger handler
-          applies it immediately, and the COVERAGE line above verifies it.)
+          (The udev wakeup policy does NOT need a reboot — it is applied during
+          this run. The COVERAGE line reporting it appears LATER in the output:
+          this banner is a handler flushed mid-play, the verification is one of
+          the last tasks.)
           ===================================================================
