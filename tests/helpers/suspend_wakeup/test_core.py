@@ -77,8 +77,10 @@ class TestEvaluate(unittest.TestCase):
         self.assertTrue(result.ok)
         self.assertEqual(result.total, 0)
 
-    def test_unreadable_target_is_not_counted_as_disarmed(self):
-        """An attribute we could not read is not evidence the policy applied."""
+    def test_unverifiable_target_is_not_counted_as_disarmed(self):
+        """`None` means the caller could not vouch for the device — an unreadable
+        attribute, or an entry that did not resolve. Neither is evidence the policy
+        applied, so neither may count towards `disarmed`."""
         result = core.evaluate({"AC": None})
         self.assertEqual(result.total, 1)
         self.assertEqual(result.disarmed, 0)

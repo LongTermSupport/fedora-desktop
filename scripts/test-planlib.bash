@@ -290,6 +290,59 @@ assert_contains "the refusal explains the ordering requirement" "plan_start_log"
 assert_contains "the refusal says why the ordering matters" "flooded and garbled" "${OUT}"
 PLAN_LOG_STARTED=0
 
+# A NOPASSWD host answers `sudo -n -v` with "a password is required" — `-v` extends a
+# TIMESTAMP, and sudo declines to create one when no password was ever needed. Probing only
+# `-v` therefore concludes "needs a password" on a host that needs none, then demands a
+# terminal for a prompt that will never appear, and kills every non-interactive deploy.
+# Measured on a `(ALL) NOPASSWD: ALL` host: `sudo -n -v` rc=1, `sudo -n true` rc=0.
+#
+# Both stubs are real executables rather than function overrides, so these cases exercise the
+# same command-execution path the library uses against the real sudo.
+SUDO_STUB_DIR="${TMPROOT}/sudo-stubs"
+mkdir -p "${SUDO_STUB_DIR}"
+
+cat >"${SUDO_STUB_DIR}/nopasswd" <<'STUB'
+#!/usr/bin/env bash
+# `-n true` succeeds (NOPASSWD), `-n -v` cannot mint a timestamp.
+[[ "$1" == "-n" && "$2" == "true" ]] && exit 0
+printf 'sudo: a password is required\n' >&2
+exit 1
+STUB
+chmod +x "${SUDO_STUB_DIR}/nopasswd"
+
+cat >"${SUDO_STUB_DIR}/needs-password" <<'STUB'
+#!/usr/bin/env bash
+printf 'sudo: a password is required\n' >&2
+exit 1
+STUB
+chmod +x "${SUDO_STUB_DIR}/needs-password"
+
+PLAN_SUDO_CMD=("${SUDO_STUB_DIR}/nopasswd")
+PLAN_MODE="deploy"
+PLAN_SUDO_PRIMED=0
+run_capture plan_prime_sudo
+assert_eq "prime_sudo succeeds on a NOPASSWD host with no terminal" "0" "${RC}"
+assert_contains "it says why it did not prompt" "no password" "${OUT}"
+assert_eq "and records that sudo is usable" "1" "${PLAN_SUDO_PRIMED}"
+
+# The genuine no-terminal failure must still be fatal in deploy mode: sudo wants a password
+# AND cannot be run without one, so there is nothing to fall back on.
+PLAN_SUDO_CMD=("${SUDO_STUB_DIR}/needs-password")
+PLAN_SUDO_PRIMED=0
+run_capture plan_prime_sudo
+assert_eq "prime_sudo still fails when sudo really does need a password and there is no tty" "1" "${RC}"
+assert_contains "the fatal message keeps its remedy" "sudo -v" "${OUT}"
+
+PLAN_MODE="gather"
+PLAN_SUDO_PRIMED=0
+run_capture plan_prime_sudo
+assert_eq "the same case only warns in gather mode" "0" "${RC}"
+assert_contains "and the warning is recorded, not swallowed" "WARN" "${OUT}"
+
+PLAN_SUDO_CMD=(sudo)
+PLAN_MODE="deploy"
+PLAN_SUDO_PRIMED=0
+
 # ── the change gate ──────────────────────────────────────────────────────────────────────
 
 PLAN_MODE="gather"

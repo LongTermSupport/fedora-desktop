@@ -80,7 +80,7 @@ class TestReadWakeupStates(unittest.TestCase):
             missing = str(pathlib.Path(tmp) / "definitely-not-here")
             self.assertEqual(cli.read_wakeup_states(missing), {})
 
-    def test_a_dangling_device_symlink_is_unreadable_not_dropped(self):
+    def test_a_dangling_device_symlink_is_unverifiable_not_dropped(self):
         """A device that vanished mid-enumeration must stay in the population.
 
         `read_text` on a dangling symlink raises FileNotFoundError, which the
