@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.17.0"
+RUN_BASH_VERSION="1.18.0"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -579,6 +579,38 @@ hl_reconcile_vault() {
   fi
 }
 
+# hl_checkout_ref — put the fedora-desktop checkout on RUN_BASH_GIT_REF (Plan 00106): a branch
+# name (tracks that branch's remote tip on every run) or a 40-hex commit (a detached,
+# reproducible pin). Composer semantics: the ref names WHAT to provision from, and a consumer
+# that pins a commit gets exactly that commit. Unset = the default branch's tip, as before.
+# Every failure aborts LOUD: a ref that does not resolve must not fall back to whatever was
+# checked out, because the caller declared a source and would otherwise be provisioned from
+# a different one while every later step reports success.
+hl_checkout_ref() {
+  local repo="$1" ref="$2" _out
+  if ! _out="$(command git -C "$repo" fetch --quiet origin 2>&1)"; then
+    hl_abort "fetch fedora-desktop" "git fetch failed while resolving RUN_BASH_GIT_REF=${ref}" \
+      "git said: ${_out}"
+  fi
+  if [[ "$ref" =~ ^[0-9a-f]{40}$ ]]; then
+    if ! _out="$(command git -C "$repo" checkout --quiet --detach "$ref" 2>&1)"; then
+      hl_abort "check out ${ref:0:12}" "RUN_BASH_GIT_REF names a commit that is not in origin" \
+        "git said: ${_out}"
+    fi
+    info "Headless: checkout pinned at commit ${ref:0:12} (detached, RUN_BASH_GIT_REF)"
+  else
+    if ! command git -C "$repo" show-ref --verify --quiet "refs/remotes/origin/${ref}"; then
+      hl_abort "check out ${ref}" \
+        "RUN_BASH_GIT_REF=${ref} is neither a 40-hex commit nor a branch on origin" \
+        "name a branch that exists upstream, or a full commit sha"
+    fi
+    if ! _out="$(command git -C "$repo" checkout --quiet -B "$ref" "origin/${ref}" 2>&1)"; then
+      hl_abort "check out ${ref}" "git checkout -B ${ref} origin/${ref} failed" "git said: ${_out}"
+    fi
+    info "Headless: checkout on branch ${ref} at its origin tip $(command git -C "$repo" rev-parse --short HEAD) (RUN_BASH_GIT_REF)"
+  fi
+}
+
 # hl_run_optional_playbooks — headless replacement for the interactive optional-playbook
 # menu. Runs exactly the plays named in RUN_BASH_OPTIONAL_PLAYBOOKS (space/comma list of
 # play-foo.yml | foo | play-foo), in order; 'none'/unset skips the whole section. The
@@ -789,6 +821,9 @@ NON-SECRET CONFIG (plain RUN_BASH_* env)
   RUN_BASH_CONFIG_SOURCE=...       Config-repo host file to import, or 'none'.
                                    Requires a real RUN_BASH_GITHUB_ACCOUNTS.
   RUN_BASH_PROVISIONING_PROFILE=   Force desktop|server (default: auto-detect).
+  RUN_BASH_GIT_REF=...             Branch name (tracks its tip) or 40-hex commit (pinned,
+                                   detached) to provision from. (default: default branch)
+                                   HTTPS/no-identity path only.
   RUN_BASH_OPTIONAL_PLAYBOOKS=...  Space/comma list of optional plays, or 'none'.
                                    'server-recommended' expands to a curated, generic
                                    dev/server bundle (see
@@ -1944,11 +1979,20 @@ if [[ "$HEADLESS" == "true" && "$HL_GITHUB_ACCOUNTS" == "none" ]]; then
       info "Headless: setting origin remote to HTTPS"
       command git -C ~/Projects/fedora-desktop remote set-url origin "$fedora_desktop_https_url"
     fi
-    if ! _pull_out="$(command git -C ~/Projects/fedora-desktop pull 2>&1)"; then
-      hl_abort "update fedora-desktop" "git pull (HTTPS) failed" "git said: ${_pull_out}"
+    # With a declared ref the fetch+checkout below is the update; `git pull` would also fail
+    # outright on a checkout a previous run left detached at a pinned commit.
+    if [[ -n "${RUN_BASH_GIT_REF:-}" ]]; then
+      info "Headless: RUN_BASH_GIT_REF set — the declared ref replaces git pull"
+    else
+      if ! _pull_out="$(command git -C ~/Projects/fedora-desktop pull 2>&1)"; then
+        hl_abort "update fedora-desktop" "git pull (HTTPS) failed" "git said: ${_pull_out}"
+      fi
+      unset _pull_out
+      success "Repository updated (HTTPS)"
     fi
-    unset _pull_out
-    success "Repository updated (HTTPS)"
+  fi
+  if [[ -n "${RUN_BASH_GIT_REF:-}" ]]; then
+    hl_checkout_ref ~/Projects/fedora-desktop "$RUN_BASH_GIT_REF"
   fi
   cd ~/Projects/fedora-desktop || hl_abort "cd into fedora-desktop" "cannot cd into ~/Projects/fedora-desktop" "check the clone succeeded"
 

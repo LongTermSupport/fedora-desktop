@@ -15,6 +15,14 @@ the index, not the record.
 
 ---
 
+## 1.18.0 — `RUN_BASH_GIT_REF`: provision from a declared branch or commit (Plan 00106)
+
+Headless HTTPS path only. A branch name puts the checkout on that branch at its origin tip
+(`checkout -B`, so every run tracks the tip); a 40-hex commit pins it, detached. Unset keeps
+the previous behaviour, the default branch's tip. Replaces `git pull` when set, since a pull
+cannot run on a detached pin. A ref that does not resolve aborts rather than provisioning
+from whatever was already checked out.
+
 ## 1.17.0 — resync with `plan-00066-ccy-ci-runner` (Plan 00090)
 
 That branch (internally Plan 00068) diverged from this line at **1.10.0** — not 1.11.0, an

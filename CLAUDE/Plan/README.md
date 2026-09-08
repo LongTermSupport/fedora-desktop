@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00106-run-bash-git-ref-headless](00106-run-bash-git-ref-headless/) - `RUN_BASH_GIT_REF`: the headless provisioner checks out a declared branch (tracks its tip) or a 40-hex commit (pinned) instead of always the default branch; unresolvable refs abort
+
 - [00105-tmux-sessions-single-key-menu](00105-tmux-sessions-single-key-menu/) - tmux for detachable long-running dev sessions, hidden behind one key: F12 opens a new/rename/switch/detach/kill menu; status bar off
 
 - [00104-suspend-aborts-on-dock-unplug-never-resuspends](00104-suspend-aborts-on-dock-unplug-never-resuspends/) - Unplugging the dock aborts s2idle and nothing re-suspends, so the closed laptop runs hot in a bag; make the suspend request durable (udev wakeup policy, a re-suspend hook, battery idle-suspend as backstop)
