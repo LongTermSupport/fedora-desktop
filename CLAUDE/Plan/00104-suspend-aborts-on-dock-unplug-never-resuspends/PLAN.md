@@ -168,13 +168,22 @@ one file.
 
 ### Phase 4: Verify against the real failure (HOST)
 
-- [ ] ⬜ **Task 4.1**: Deploy the playbook change on the HOST
+- [x] ✅ **Task 4.1**: Deploy the playbook change on the HOST
+  - [x] ✅ `ok=18 changed=6 failed=0 skipped=2`; `COVERAGE: 3 of 3 power-delivery devices disarmed`, against `0 of 3` captured before the run
+  - [x] ✅ All three layers confirmed on the live system independently of the play's own
+    report: the three wakeup attributes read `disabled`, the hook is installed root-owned
+    0755, `sleep-inactive-battery-type` is `'suspend'` and the AC sibling is untouched
+  - [x] ✅ No reboot required — the logind drop-in was already correct, so
+    `warn-reboot-required` did not fire
 - [ ] ⬜ **Task 4.2**: Reproduce the original incident and confirm recovery
   - [ ] ⬜ Suspend from the menu, unplug the dock within ~3s, leave the lid closed
   - [ ] ⬜ Confirm from the journal that the machine returns to sleep, and that a
     `PM: suspend entry` is followed by sustained journal silence
   - [ ] ⬜ Confirm the docked workstation case still does **not** suspend on lid close
-- [ ] ⬜ **Task 4.3**: Run the `qa-reviewer` agent over the full plan diff (required)
+- [x] ✅ **Task 4.3**: Run the `qa-reviewer` agent over the full plan diff (required)
+  - [x] ✅ Eight rounds. Rounds 5-8 each returned no blocking findings; round 8 returned no
+    should-fix findings either and confirmed behaviour preservation at bytecode level with
+    a negative control. Reports in `subagent-reports/`
 
 ## Dependencies
 
@@ -190,11 +199,15 @@ one file.
 ## Success Criteria
 
 - [ ] Reproducing the incident leaves the machine **asleep**, verified from the journal
-- [ ] `sleep-inactive-battery-type` is set by a playbook and survives a re-run
+- [x] `sleep-inactive-battery-type` is set by a playbook and survives a re-run — second run
+  is `ok=15 changed=0`, no handlers fired, `COVERAGE: 3 of 3` still holds
 - [ ] Lid close while docked on AC still does not suspend (Non-Goal preserved)
 - [ ] `./triage.bash` runs clean on the HOST and its report agrees with `TRIAGE-EVIDENCE.md`
-- [ ] QA passes (`./scripts/qa-all.bash`)
-- [ ] `qa-reviewer` run over the plan diff with no BLOCK or FIX-BEFORE-MERGE findings
+- [ ] QA passes (`./scripts/qa-all.bash`) — **blocked, not passed**: `qa-all.bash` exits at
+  `qa-python`'s rc=2 (ruff pin `0.16.0` vs `0.16.3` installed) and never reaches the five
+  later gates. Those five were run individually and are green. Needs its own plan
+- [x] `qa-reviewer` run over the plan diff with no BLOCK or FIX-BEFORE-MERGE findings —
+  eight rounds; rounds 5-8 all clean of blockers, round 8 clean of should-fixes too
 
 ## Risks & Mitigations
 
