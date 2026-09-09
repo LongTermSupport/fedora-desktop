@@ -218,6 +218,7 @@ export RUN_BASH_VAULT_PASSWORD_FILE="/run/secrets/vault-pass"
 # ── Optional (sensible defaults shown; delete any you don't need) ────────────
 export RUN_BASH_HOSTNAME="my-server"                  # only applied if box is still 'fedora'
 export RUN_BASH_PROVISIONING_PROFILE="server"         # or omit to auto-detect
+export RUN_BASH_PS1_COLOUR="purpleBold"               # prompt colour; omit = lightblueBold
 # export RUN_BASH_GIT_REF="F44"                       # branch (tracks tip) or 40-hex commit (pinned); omit = default branch
 export RUN_BASH_CONFIG_SOURCE="none"                  # or hosts/<name>.yml from your private config repo
 export RUN_BASH_OPTIONAL_PLAYBOOKS="none"             # "server-recommended" (curated bundle), "play-docker.yml play-podman.yml", or "none"

@@ -6,7 +6,7 @@
 # Version history lives in docs/run-bash-changelog.md — NOT here. This comment reached 4,791
 # characters on one line before Plan 00074 moved it out: a changelog wearing a comment's
 # clothes, unreadable in an editor and unreviewable in a diff. Add new entries to that file.
-RUN_BASH_VERSION="1.18.1"
+RUN_BASH_VERSION="1.19.0"
 
 # ── Sourced-shell pollution guard (H4) ───────────────────────────────────────
 # The documented install is `(source <(curl ... run.bash))` — sourced INSIDE a
@@ -829,6 +829,7 @@ NON-SECRET CONFIG (plain RUN_BASH_* env)
   RUN_BASH_CONFIG_SOURCE=...       Config-repo host file to import, or 'none'.
                                    Requires a real RUN_BASH_GITHUB_ACCOUNTS.
   RUN_BASH_PROVISIONING_PROFILE=   Force desktop|server (default: auto-detect).
+  RUN_BASH_PS1_COLOUR=...          Prompt colour, e.g. purpleBold (default: lightblueBold).
   RUN_BASH_GIT_REF=...             Branch name (tracks its tip) or 40-hex commit (pinned,
                                    detached) to provision from. (default: default branch)
                                    HTTPS/no-identity path only.
@@ -2624,6 +2625,21 @@ main_exit_code=0
 _main_pb_args=()
 if [[ "$HEADLESS" == "true" && -n "${RUN_BASH_PROVISIONING_PROFILE:-}" ]]; then
   _main_pb_args+=(-e "provisioning_profile=${RUN_BASH_PROVISIONING_PROFILE}")
+fi
+
+# Headless: the prompt colour. Interactive runs ask on first run; a headless run has nobody to
+# ask, so the operator names it here and it reaches play-basic-configs.yml as an extra-var, which
+# outranks the hostname override, the existing file and the prompt. Validated against the
+# colour functions /var/local/colours defines, because a wrong name would be sourced into every
+# interactive shell on the box as a command that does not exist.
+if [[ "$HEADLESS" == "true" && -n "${RUN_BASH_PS1_COLOUR:-}" ]]; then
+  case "$RUN_BASH_PS1_COLOUR" in
+    white|whiteBold|red|redBold|green|greenBold|yellow|yellowBold|blue|blueBold|purple|purpleBold|lightblue|lightblueBold)
+      _main_pb_args+=(-e "PS1_Colour=${RUN_BASH_PS1_COLOUR}") ;;
+    *)
+      hl_abort "prompt colour" "RUN_BASH_PS1_COLOUR='${RUN_BASH_PS1_COLOUR}' is not a colour this repo defines" \
+        "use one of: white whiteBold red redBold green greenBold yellow yellowBold blue blueBold purple purpleBold lightblue lightblueBold" ;;
+  esac
 fi
 
 # -k ignores any cached sudo timestamp, so this is true ONLY for genuine

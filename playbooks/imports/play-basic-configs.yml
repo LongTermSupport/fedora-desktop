@@ -7,6 +7,9 @@
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
   tasks:
+    # Priority 0: PS1_Colour given as an extra-var. run.bash passes RUN_BASH_PS1_COLOUR this way
+    # on a headless run, where nobody can answer the prompt below; an extra-var outranks every
+    # set_fact here, so the tasks below are skipped by their own `is not defined` guards.
     # Priority 1: per-hostname override in localhost.yml
     # Example in localhost.yml:
     #   hostname_overrides:
@@ -40,7 +43,10 @@
         PS1_Colour: "{{ (existing_ps1_colour.content | b64decode).split('=')[1] | trim }}"
       when: PS1_Colour is not defined and ps1_colour_file is defined and ps1_colour_file.stat.exists
 
-    # Priority 3: interactive prompt (first run only)
+    # Priority 3: interactive prompt (first run only). An EMPTY answer — enter on the default,
+    # or a run with no tty — takes the default: `default(..., true)` covers the empty string,
+    # where the plain filter would write `PS1_COLOUR=` and every prompt would silently fall
+    # back to the prompt script's own colour.
     - name: Prompt for PS1 colour if not already configured
       ansible.builtin.pause:
         prompt: |
@@ -60,7 +66,7 @@
 
     - name: Set PS1_Colour from prompt
       ansible.builtin.set_fact:
-        PS1_Colour: "{{ ps1_colour_prompt.user_input | default('lightblueBold') }}"
+        PS1_Colour: "{{ ps1_colour_prompt.user_input | default('lightblueBold', true) }}"
       when: PS1_Colour is not defined and ps1_colour_file is defined and not ps1_colour_file.stat.exists
 
     - name: Ensure jq is available

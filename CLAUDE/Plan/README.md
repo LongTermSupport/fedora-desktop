@@ -34,6 +34,8 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
+- [00108-headless-prompt-colour](00108-headless-prompt-colour/) - A headless run answers the prompt-colour question with nothing and leaves `PS1_COLOUR=` on the box; `RUN_BASH_PS1_COLOUR` names the colour and the empty answer takes the default
+
 - [00104-suspend-aborts-on-dock-unplug-never-resuspends](00104-suspend-aborts-on-dock-unplug-never-resuspends/) - Unplugging the dock aborts s2idle and nothing re-suspends, so the closed laptop runs hot in a bag; make the suspend request durable (udev wakeup policy, a re-suspend hook, battery idle-suspend as backstop)
 
 - [00093-ccy-version-gate-covers-two-files-of-eight](00093-ccy-version-gate-covers-two-files-of-eight/) - The pre-commit CCY bump gate misses `entrypoint.sh`, the Dockerfile and all of `files/opt/claude-yolo/`; widen it and test it

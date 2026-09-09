@@ -33,17 +33,18 @@ user_email: "your.email@example.com"
 
 ### Prompt Color Configuration
 
-During installation, you'll be prompted to choose a PS1 color:
+During an interactive installation, you'll be prompted to choose a PS1 colour for the hostname
+in your prompt. The choices are the functions `/var/local/colours` defines: `white`, `red`,
+`green`, `yellow`, `blue`, `purple`, `lightblue`, each also as `…Bold` (default
+`lightblueBold`).
 
-- Red
-- Green
-- Yellow
-- Blue
-- Magenta
-- Cyan
-- White
+Three ways to set it without the prompt, highest priority first:
 
-This is stored in `/var/local/ps1-prompt-colour` and used by the bash prompt system.
+- `RUN_BASH_PS1_COLOUR` in a headless run (see [headless-provisioning.md](headless-provisioning.md))
+- `hostname_overrides.<hostname>.ps1_colour` in `localhost.yml`
+- the existing `/var/local/ps1-prompt-colour` file, which the prompt system reads and a re-run keeps
+
+Pick a different colour per machine and you can tell at a glance which box a shell is on.
 
 ### Vault Configuration
 

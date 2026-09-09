@@ -15,6 +15,15 @@ the index, not the record.
 
 ---
 
+## 1.19.0 — `RUN_BASH_PS1_COLOUR`: a headless box gets a prompt colour (Plan 00108)
+
+A headless run reached `play-basic-configs.yml`'s interactive colour prompt with no tty, the
+prompt returned an empty answer, and the box was left with `PS1_COLOUR=` — every prompt on it
+silently fell back to the prompt script's own colour, indistinguishable from a desktop's default.
+`RUN_BASH_PS1_COLOUR` names the colour and is forwarded to the main playbook as the `PS1_Colour`
+extra-var, validated against the functions `/var/local/colours` defines. The empty-answer path
+now takes the documented default.
+
 ## 1.18.1 — headless optional playbooks receive the become password (Plan 00107)
 
 `hl_run_optional_playbooks` ran each optional play bare, while the main playbook and the
