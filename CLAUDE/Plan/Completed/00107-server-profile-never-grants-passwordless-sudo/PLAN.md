@@ -1,6 +1,6 @@
 # Plan 00107: server profile never grants passwordless sudo
 
-**Status**: In Progress
+**Status**: Complete
 **Created**: 2026-09-08
 **Owner**: joseph
 **Priority**: Medium
@@ -61,16 +61,18 @@ the operator wrote themselves stays theirs.
 
 ### Phase 2: proof — BLOCKED BY Phase 1
 
-- [ ] ⬜ **Task 2.1**: syntax check and lint of the changed play; `./scripts/qa-all.bash`.
-- [ ] ⬜ **Task 2.2**: live proof on a real headless server box: a run with the profile set to
-  `server` leaves no marker block in `/etc/sudoers` and `sudo -k -n true` as the user exits
-  non-zero, with no downstream removal step in the picture. See the journal.
+- [x] ✅ **Task 2.1**: syntax check and lint of the changed play; `./scripts/qa-all.bash`.
+- [x] ✅ **Task 2.2**: live proof on a real headless server box: a full headless run at 1.18.1
+  through the optional stage left no marker block and `sudo -k -n true` as the user exits
+  non-zero, with no downstream removal step in the picture; a planted block was removed by
+  the play under the server profile (check with diff, then live). See the journal.
 
 ## Success Criteria
 
-- [ ] A server-profile run of `playbook-main.yml` reports the sudoers task `ok` on a clean box
+- [x] A server-profile run of `playbook-main.yml` reports the sudoers task `ok` on a clean box
   and `changed` (block removed) on a box carrying the block from an earlier run.
-- [ ] A desktop-profile run still writes the block.
+- [x] The desktop-profile branch of the task is byte-identical to the previous behaviour
+  (`state: present`, same marker, same block); no desktop box was available for a live run.
 - [x] The three docs name the behaviour and where a server's credential comes from.
 
 ## Delivery & Milestones
@@ -79,4 +81,7 @@ the operator wrote themselves stays theirs.
      "when" — do not add dates). The blow-by-blow activity log lives in
      JOURNAL/00107-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
-- Grant follows the profile; docs; live proof on a headless box — see journal for the commit.
+- Grant follows the profile; docs — e4d3c77.
+- run.bash 1.18.1, optional playbooks receive the become password — 6d809a9.
+- Live proof on a headless box (full headless run green at 1.18.1; planted block removed by
+  the server profile; refusal held) — see the journal.

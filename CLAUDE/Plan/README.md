@@ -34,8 +34,6 @@ Use these Unicode icons in plan documents:
 
 ## Active Plans
 
-- [00107-server-profile-never-grants-passwordless-sudo](00107-server-profile-never-grants-passwordless-sudo/) - `play-basic-configs.yml` grants `NOPASSWD: ALL` regardless of profile; a headless server must never end up with it, and a downstream fleet undoing it after every run is an asymmetry that never stops costing. The server profile now removes the play's own block; the desktop profile is unchanged.
-
 - [00104-suspend-aborts-on-dock-unplug-never-resuspends](00104-suspend-aborts-on-dock-unplug-never-resuspends/) - Unplugging the dock aborts s2idle and nothing re-suspends, so the closed laptop runs hot in a bag; make the suspend request durable (udev wakeup policy, a re-suspend hook, battery idle-suspend as backstop)
 
 - [00093-ccy-version-gate-covers-two-files-of-eight](00093-ccy-version-gate-covers-two-files-of-eight/) - The pre-commit CCY bump gate misses `entrypoint.sh`, the Dockerfile and all of `files/opt/claude-yolo/`; widen it and test it
@@ -155,6 +153,8 @@ Use these Unicode icons in plan documents:
 - [00074-grub-cgroup-check-reports-absence-it-cannot-prove](00074-grub-cgroup-check-reports-absence-it-cannot-prove/) - `run.bash`'s legacy-grub cgroup step now distinguishes a failing `grubby` from a genuine negative and aborts on a proven failure instead of continuing
 
 ## Completed Plans
+
+- [00107-server-profile-never-grants-passwordless-sudo](Completed/00107-server-profile-never-grants-passwordless-sudo/) - The server profile declares `play-basic-configs.yml`'s passwordless-sudo block absent instead of granting it; the desktop profile is unchanged. run.bash 1.18.1 passes the become password to headless optional playbooks, a gap the grant had been masking. Proven live on a headless box.
 
 - [00106-run-bash-git-ref-headless](Completed/00106-run-bash-git-ref-headless/) - `RUN_BASH_GIT_REF`: the headless provisioner checks out a declared branch (tracks its tip) or a 40-hex commit (pinned) instead of always the default branch; unresolvable refs abort. run.bash 1.18.0; proven on a real headless box.
 
