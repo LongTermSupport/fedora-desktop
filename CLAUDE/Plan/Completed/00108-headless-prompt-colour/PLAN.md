@@ -1,6 +1,6 @@
 # Plan 00108: A headless box gets a prompt colour
 
-**Status**: In Progress
+**Status**: Complete
 **Created**: 2026-09-09
 **Owner**: joseph
 **Priority**: Medium
@@ -33,16 +33,17 @@ playbook as the `PS1_Colour` extra-var, validated in `run.bash` against the func
 
 ### Phase 1
 
-- [ ] ⬜ **Task 1.1**: `run.bash` 1.19.0 forwards and validates `RUN_BASH_PS1_COLOUR`; the
+- [x] ✅ **Task 1.1**: `run.bash` 1.19.0 forwards and validates `RUN_BASH_PS1_COLOUR`; the
   prompt-answer default covers the empty string; usage text, headless docs, install example,
-  changelog and configuration page updated; QA green.
+  changelog and configuration page updated; QA green apart from seven pre-existing rule
+  pointers at an untracked daemon path.
 
 ## Success Criteria
 
-- [ ] A headless box provisioned with `RUN_BASH_PS1_COLOUR=purpleBold` reads back
-  `export PS1_COLOUR=purpleBold` (proven by the consuming estate, whose report is linked from
-  the journal).
+- [x] A headless box provisioned with `RUN_BASH_PS1_COLOUR=purpleBold` reads back
+  `export PS1_COLOUR=purpleBold` (proven by the consuming estate on a box that follows this
+  branch's tip; its plan is cited in the journal).
 
 ## Delivery & Milestones
 
-- Phase 1: pending
+- Phase 1: `ad0ca02e`
