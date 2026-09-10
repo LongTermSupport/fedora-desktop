@@ -6,11 +6,12 @@
 # and patches host_vars/localhost.yml in-place.
 #
 # Usage:
-#   ./scripts/setup-rclone.bash           # Full setup (config + mounts)
-#   ./scripts/setup-rclone.bash mounts    # Reconfigure mounts only (skip rclone config)
+#   ./scripts/setup-rclone.bash
 #
-# Mounts already in host_vars are listed; selecting one offers edit or remove,
-# so a mountpoint can be changed without hand-editing localhost.yml.
+# No arguments: every choice is a prompt. Step 1 asks whether to open the
+# rclone wizard (answer no to keep the remotes as they are and go straight to
+# mounts). Mounts already in host_vars are listed; selecting one offers edit
+# or remove, so a mountpoint can be changed without hand-editing localhost.yml.
 #
 # Run this on the HOST system, from the project root.
 
@@ -22,7 +23,11 @@ HOST_VARS="$PROJECT_ROOT/environment/localhost/host_vars/localhost.yml"
 VAULT_PASS_FILE="$PROJECT_ROOT/vault-pass.secret"
 RCLONE_CONF="$HOME/.config/rclone/rclone.conf"
 PLAYBOOK="$PROJECT_ROOT/playbooks/imports/optional/common/play-rclone.yml"
-MODE="${1:-full}"  # full | mounts
+
+if [[ $# -gt 0 ]]; then
+    echo "This script takes no arguments — every choice is prompted for. Usage: $0" >&2
+    exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # Colours
@@ -41,6 +46,10 @@ info()   { echo -e "  ${CYAN}→${NC}  $*"; }
 header() { echo ""; echo -e "${BOLD}━━━ $* ━━━${NC}"; echo ""; }
 check()  { echo -ne "  Checking ${DIM}$1${NC} ... "; }
 # ---------------------------------------------------------------------------
+
+# set -e exits silently on any unhandled failure; name the command so a run
+# that stops between steps says why instead of just dropping to the prompt.
+trap 'echo ""; echo -e "  ${RED}${BOLD}✗ FATAL:${NC} command failed at line $LINENO: $BASH_COMMAND" >&2; echo ""' ERR
 
 # --- Preflight checks -------------------------------------------------------
 
@@ -151,29 +160,43 @@ else
     ok "Fedora $RUNNING_VERSION matches repo (vars/fedora-version.yml)"
 fi
 
-# Validate mode argument
-check "mode argument"
-if [[ "$MODE" != "full" && "$MODE" != "mounts" ]]; then
-    echo -e "${RED}FAIL${NC}"
-    die "Unknown mode: '$MODE'
-Valid modes: full | mounts
-Usage: $0 [full|mounts]"
-fi
-ok "mode = $MODE"
-
 echo ""
 echo -e "${GREEN}${BOLD}All preflight checks passed.${NC}"
 
 # --- Step 1: rclone config --------------------------------------------------
 
-if [[ "$MODE" != "mounts" ]]; then
-    header "Step 1: Configure rclone remotes"
+header "Step 1: Configure rclone remotes"
 
+# Remotes already saved on this machine decide the default: first run opens
+# the wizard unconditionally; later runs ask, so a mount-only change does not
+# have to sit through the wizard again.
+mapfile -t EXISTING_REMOTES < <(rclone listremotes)
+RUN_WIZARD="y"
+if [[ ${#EXISTING_REMOTES[@]} -gt 0 ]]; then
+    echo -e "  ${CYAN}Remotes already configured on this machine:${NC}"
+    for r in "${EXISTING_REMOTES[@]}"; do
+        echo -e "    ${GREEN}✓${NC} ${r%:}"
+    done
+    echo ""
+    for _attempt in 1 2 3; do
+        read -rp "  Open the rclone wizard to add or edit remotes? [y/N] " RUN_WIZARD
+        RUN_WIZARD="${RUN_WIZARD,,}"
+        RUN_WIZARD="${RUN_WIZARD:-n}"
+        [[ "$RUN_WIZARD" == "y" || "$RUN_WIZARD" == "n" ]] && break
+        warn "Enter y or n."
+        RUN_WIZARD=""
+    done
+    [[ -z "$RUN_WIZARD" ]] && die "No valid answer after 3 attempts."
+    echo ""
+fi
+
+if [[ "$RUN_WIZARD" == "y" ]]; then
     echo -e "  The ${BOLD}rclone configuration wizard${NC} will open now."
     echo ""
     echo -e "  ${CYAN}What to do:${NC}"
-    echo -e "    ${BOLD}n${NC}  → New remote  ${DIM}(add a cloud storage account)${NC}"
-    echo -e "    ${BOLD}q${NC}  → Quit         ${DIM}(when you have added all your remotes)${NC}"
+    echo -e "    ${BOLD}n${NC}  → New remote   ${DIM}(add a cloud storage account)${NC}"
+    echo -e "    ${BOLD}e${NC}  → Edit remote  ${DIM}(fix client ID/secret or reconnect)${NC}"
+    echo -e "    ${BOLD}q${NC}  → Quit         ${DIM}(when you have finished — this script continues to mounts)${NC}"
     echo ""
     echo -e "  ${YELLOW}What to skip:${NC}"
     echo -e "    ${BOLD}s${NC}  → Set configuration password  ${DIM}(not needed — we use Ansible Vault instead)${NC}"
@@ -182,7 +205,14 @@ if [[ "$MODE" != "mounts" ]]; then
     echo ""
     read -rp "  Press Enter to open rclone config..." _
 
-    rclone config
+    # rclone config can return non-zero after an edit/reconnect even though the
+    # config was saved; only the saved remotes matter, so report and carry on.
+    RCLONE_CONFIG_RC=0
+    rclone config || RCLONE_CONFIG_RC=$?
+    if [[ "$RCLONE_CONFIG_RC" -ne 0 ]]; then
+        echo ""
+        warn "rclone config exited with status $RCLONE_CONFIG_RC — checking whether remotes were saved anyway."
+    fi
 
     # Verify at least one remote exists after config
     REMOTE_COUNT=$(rclone listremotes | wc -l)
@@ -190,13 +220,15 @@ if [[ "$MODE" != "mounts" ]]; then
         die "No remotes configured in rclone.
 Re-run this script and add at least one remote in the rclone config wizard."
     fi
+else
+    info "Keeping existing remotes; rclone config in host_vars is left as-is."
 fi
 
 # --- Step 2: Vault the config -----------------------------------------------
 
 VAULTED=""
 
-if [[ "$MODE" != "mounts" ]]; then
+if [[ "$RUN_WIZARD" == "y" ]]; then
     header "Step 2: Vault rclone config"
 
     if [[ ! -f "$RCLONE_CONF" ]]; then
@@ -225,7 +257,7 @@ header "Step 3: Configure mount points"
 mapfile -t REMOTE_LIST < <(rclone listremotes | sed 's/:$//')
 
 if [[ ${#REMOTE_LIST[@]} -eq 0 ]]; then
-    echo "  (No remotes configured — run without 'mounts' argument to set them up)"
+    echo "  (No remotes configured — re-run and answer yes to the rclone wizard prompt)"
     echo ""
 fi
 
@@ -459,12 +491,12 @@ header "Step 4: Updating host_vars"
 
 # Use Python to safely strip existing rclone_config and rclone_mounts blocks,
 # then append the new values. Works with mixed plain+vaulted YAML.
-python3 - "$HOST_VARS" "$MODE" <<'PYEOF'
+python3 - "$HOST_VARS" "$RUN_WIZARD" <<'PYEOF'
 import sys
 import re
 
 path = sys.argv[1]
-mode = sys.argv[2]
+replace_config = sys.argv[2] == 'y'
 
 with open(path) as f:
     content = f.read()
@@ -473,7 +505,7 @@ with open(path) as f:
 # (reads until next top-level key or end of file)
 block_pattern = r'^{key}:[ \t]*.*?(?=^\S|\Z)'
 
-if mode != 'mounts':
+if replace_config:
     content = re.sub(
         block_pattern.format(key='rclone_config'),
         '',
