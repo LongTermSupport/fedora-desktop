@@ -264,19 +264,46 @@ is "a labelled all-none session is NOT called unlabelled" \
 
 echo
 echo "### an identity axis is offered on COVERAGE, not on distinct-value count"
-# Regression for the review's finding 1. github has ONE distinct value
-# (octocat), which the old `-lt 2` proxy suppressed — while that value covers
-# only 2 of the 4 CCY sessions, so the row is not the same button as "all CCY".
+# Regression for the review's finding 1, and then for the re-review's finding on
+# THIS test: the first version of these assertions re-implemented both candidate
+# predicates inline and asserted that one was wrong and the other right. Reverting
+# the tool left all 49 green, because nothing here touched the tool's own copy.
+# The predicate now lives in identity_axis_discriminates, which is what pick_target
+# calls and what this calls. A revert fails here.
+#
+# github has ONE distinct value (octocat), which the old `-lt 2` proxy suppressed
+# — while that value covers only 2 of the 4 CCY sessions, so the row is NOT the
+# same button as "all CCY containers".
 is "one github value, but it does not cover every session" \
     "$(identity_values github | wc -l)" "1"
 is "  ... covering 2 of 4 CCY sessions" \
     "$(identity_names github octocat | wc -l)/$(ccy_names | wc -l)" "2/4"
-is "  ... so cardinality alone would wrongly suppress the row" \
-    "$([ "$(identity_values github | wc -l)" -lt 2 ] && echo suppressed || echo offered)" \
+is "  ... so the shipped predicate offers the row" \
+    "$(identity_axis_discriminates github && echo offered || echo suppressed)" \
+    "offered"
+
+# The other side of the same predicate, and the state it exists to suppress: an
+# axis whose single value covers EVERY CCY session is the same button as "all CCY
+# containers". No fixture container is in that state, so it is built here — every
+# CCY session given one shared token value — and torn down again.
+#
+# Without this half, a predicate hardcoded to `return 0` would satisfy the
+# assertion above and the test would prove nothing about suppression at all.
+declare -A saved_token=()
+for _name in "${INV_NAME[@]}"; do
+    saved_token["$_name"]="${INV_TOKEN[$_name]:-}"
+    if [ -n "${INV_IS_CCY[$_name]:-}" ]; then
+        INV_TOKEN["$_name"]="shared"
+    fi
+done
+is "an axis whose one value covers every CCY session is suppressed" \
+    "$(identity_axis_discriminates token && echo offered || echo suppressed)" \
     "suppressed"
-is "  ... whereas coverage correctly offers it" \
-    "$([ "$(identity_names github octocat | wc -l)" -ge "$(ccy_names | wc -l)" ] \
-        && echo suppressed || echo offered)" \
+for _name in "${INV_NAME[@]}"; do
+    INV_TOKEN["$_name"]="${saved_token[$_name]}"
+done
+is "  ... and the fixture is restored, so the github row is offered again" \
+    "$(identity_axis_discriminates github && echo offered || echo suppressed)" \
     "offered"
 
 echo

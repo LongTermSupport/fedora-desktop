@@ -605,12 +605,16 @@ else
         fi
     done <<< "$id_all"
 
+    # Both of these are skip(), not ok(). Neither branch invokes the tool, so an
+    # ok() here would increment PASS over an assertion that never ran and the
+    # closing "N checks passed" would over-count. Check 13's equivalent branch was
+    # changed to skip() for exactly this reason and these two were left behind.
     if [ -z "${gh_one:-}" ]; then
-        ok "no labelled account to select — disclosure path not exercisable here"
+        skip "no labelled account to select — disclosure path not exercisable here"
     elif [ -z "$id_unlabelled" ]; then
         # Scoped to running, while the tool's own NOTE lists unlabelled CCY
         # sessions in EITHER state — so this can only claim what it measured.
-        ok "no unlabelled RUNNING session — nothing to disclose in this state"
+        skip "no unlabelled RUNNING session — nothing to disclose in this state"
     else
         note_err_file="$(mktemp)"
         if ! note_out="$("$TOOL" freeze --github "$gh_one" --dry-run 2>"$note_err_file")"; then

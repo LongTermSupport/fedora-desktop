@@ -72,6 +72,20 @@
       tags:
         - podfreeze
 
+    # The tool shipped for part of one day as `podman-freeze` before being
+    # shortened. The removal belongs HERE, not in the plan's deploy.bash: that
+    # script is one way to run this play and the play is directly runnable
+    # without it, and the plan folder leaves with the plan when it moves to
+    # Completed/ — so a migration living there disappears while any un-migrated
+    # machine keeps both binaries. Two builds of one tool on PATH means the
+    # behaviour you get depends on which name you happen to type.
+    - name: Remove the Pre-Rename podman-freeze Binary
+      ansible.builtin.file:
+        path: "/home/{{ user_login }}/.local/bin/podman-freeze"
+        state: absent
+      tags:
+        - podfreeze
+
     - name: Podman Freeze Ready
       ansible.builtin.debug:
         msg:

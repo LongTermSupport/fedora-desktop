@@ -914,9 +914,11 @@ NordVPN OpenVPN manager:
 - **No target opens a menu of groups** — all CCY containers, all containers,
   everything on a given network, and one row per GitHub account / token / SSH
   key in use — each row saying what choosing it does right now (`FREEZE 8`,
-  `THAW 3`). An identity axis is only offered when more than one value is
-  present, since with a single account that row and "all CCY containers" are
-  the same button
+  `THAW 3`). An identity axis is offered unless a single value covers **every**
+  CCY session, since only then are that row and "all CCY containers" the same
+  button. One account plus some sessions started by an older CCY is still one
+  distinct value, and the row is offered — it is a narrower target than "all
+  CCY containers", which is exactly when the distinction matters
 - **Choosing a group opens it** — a second screen lists the group's members,
   each showing the verb it will get, with **"act on all of it" as the first
   row**. So the whole group is still one keypress (ENTER), while picking

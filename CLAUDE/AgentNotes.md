@@ -319,21 +319,27 @@ that ships.
 a comment explaining why zero would be misleading — and no guard for the
 **partial** case, which is the state the system is actually in most of the time.
 
-| #   | Where                                       | Guarded                   | Blind to                        |
-| --- | ------------------------------------------- | ------------------------- | ------------------------------- |
-| 0   | `qa-bash` / `qa-patterns` discovery (00076) | zero files discovered     | *some* files discovered         |
-| 0b  | semgrep `.paths.scanned` (00076)            | file absent from the list | file listed but never *parsed*  |
-| 1   | a `grep` read through `head -n 30` (00080)  | —                         | output cut at the line limit    |
-| 2   | `triage.bash` P4 session filter (00080)     | zero sessions labelled    | *some* sessions labelled        |
-| 3   | `acceptance.bash` check 9 (00079)           | the wrong label chosen    | the non-label path entirely     |
-| 4   | `podfreeze` `select_identity` (00079)       | zero sessions labelled    | *some* sessions labelled        |
-| 5   | `pre-commit --diff-filter=ACM` (00081)      | —                         | renames (`git mv` + edit)       |
-| 6   | whitelists filtering whole LINES (00081)    | —                         | a real leak sharing that line   |
-| 7   | `commit-msg` static patterns only (00081)   | —                         | the whole denylist              |
-| 8   | `qa-python` discovery (00081)               | —                         | mode-0644 shebang files         |
-| 9   | `CCY_HASH` = `md5sum "$0"` (00081)          | the launcher              | the six `lib/` files it sources |
-| 10  | `qa-ansible-syntax` population (00081)      | —                         | playbooks outside `imports/`    |
-| 11  | `qa-deployed-drift` basename match (00081)  | file not deployed here    | file deployed under a NEW name  |
+| #   | Where                                        | Guarded                   | Blind to                        |
+| --- | -------------------------------------------- | ------------------------- | ------------------------------- |
+| 0   | `qa-bash` / `qa-patterns` discovery (00076)  | zero files discovered     | *some* files discovered         |
+| 0b  | semgrep `.paths.scanned` (00076)             | file absent from the list | file listed but never *parsed*  |
+| 1   | a `grep` read through `head -n 30` (00080)   | —                         | output cut at the line limit    |
+| 2   | `triage.bash` P4 session filter (00080)      | zero sessions labelled    | *some* sessions labelled        |
+| 3   | `acceptance.bash` check 9 (00079)            | the wrong label chosen    | the non-label path entirely     |
+| 4   | `podfreeze` `select_identity` (00079)        | zero sessions labelled    | *some* sessions labelled        |
+| 5   | `pre-commit --diff-filter=ACM` (00081)       | —                         | renames (`git mv` + edit)       |
+| 6   | whitelists filtering whole LINES (00081)     | —                         | a real leak sharing that line   |
+| 7   | `commit-msg` static patterns only (00081)    | —                         | the whole denylist              |
+| 8   | `qa-python` discovery (00081)                | —                         | mode-0644 shebang files         |
+| 9   | `CCY_HASH` = `md5sum "$0"` (00081)           | the launcher              | the six `lib/` files it sources |
+| 10  | `qa-ansible-syntax` population (00081)       | —                         | playbooks outside `imports/`    |
+| 11  | `qa-deployed-drift` basename match (00081)   | file not deployed here    | file deployed under a NEW name  |
+| 12  | `podfreeze` identity-axis offer (00079)      | zero values on the axis   | one value covering *some* of it |
+| 13  | `acceptance.bash` check 13/13b (00079)       | the resolvable state      | unexercised branches as passes  |
+| 14  | `unit-test-selection.bash` axis test (00079) | the predicate's answer    | whether the TOOL computes it    |
+| 15  | I1 token search, `without-match` (00092)     | zero files enumerated     | 38% enumerated but never opened |
+| 16  | `probe-host.bash` H3 sentinels (00092)       | one unreadable version    | *both* unreadable, so "equal"   |
+| 17  | `PRESENT` staleness `cmp` (00092)            | the installed copy absent | the *reference* absent → pass   |
 
 Rows 2 and 4 are the same guard, written twice by the same author in two files,
 each time stopping one case short. Rows 0/0b were already written up in
@@ -351,6 +357,15 @@ Row 9 says the same about scope: a check written when the launcher *was* the
 whole program never learned that six libraries had grown around it, larger than
 the launcher itself. When a program grows a second file, every check that names
 the first one by path is now partial.
+
+Rows 12–17 came from **confirming re-reviews**: two plans whose review findings had
+been fixed, where nobody had reviewed the fixes. Three of the six are in the checks
+themselves, and row 14 is the sharpest of the whole table — the anti-regression test
+written *for row 12* re-implemented the predicate inline instead of calling the tool,
+so reverting the fix left every assertion green. **A test that does not execute the
+production path is a partial result wearing a passing verdict**, and it was written by
+someone who had just read this note. The habit to take from it: after fixing a finding,
+break the fix on purpose and watch the new test go red, or you have not tested it.
 
 ### A coverage LOSS can hide inside a rising count
 

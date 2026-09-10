@@ -56,10 +56,15 @@
 # Usage:
 #   podfreeze [list|freeze|thaw] [target] [options]
 #
-# Targets (exactly one, or none for the interactive menu):
+# Targets (exactly one, or none for the interactive menu). Keep this list in
+# step with usage() below — one file with two disagreeing summaries is how the
+# identity axes went unmentioned here for two reviews.
 #   NAME...            One or more container names.
 #   --ccy              Every CCY container (label, or the legacy name pattern).
 #   --network NET      Every container attached to network NET.
+#   --github ID        Every CCY session running as GitHub account ID.
+#   --token LABEL      Every CCY session using that Anthropic token.
+#   --ssh-key NAME     Every CCY session with that SSH key mounted.
 #   --all              Every running/paused container.
 #
 # Options:
@@ -521,6 +526,36 @@ identity_names() {
     done
 }
 
+# Does this axis tell any two CCY sessions apart? Exit 0 if the menu should offer
+# its rows, 1 if every row would be the same button as "all CCY containers".
+#
+# "Discriminates" is COVERAGE, not cardinality, and the difference is the whole
+# point. Testing `${#values[@]} -lt 2` is only a proxy, and it is wrong in exactly
+# the partial-rollout state the axis is most useful in: one labelled account plus
+# four unlabelled sessions is a SINGLE distinct value covering 2 of 6, so the
+# proxy suppresses the row while `--github X` keeps working on the CLI. The menu
+# then offers only the WIDER "all CCY containers", silently steering toward
+# freezing sessions the user never asked about.
+#
+# This lives in its own function because pick_target cannot be called from a test
+# — it dies without a TTY — so a predicate inlined there is a predicate the unit
+# test can only re-implement, and a re-implementation asserts nothing about the
+# code that ships.
+identity_axis_discriminates() {
+    local axis="$1" values covered ccyTotal
+    mapfile -t values < <(identity_values "$axis")
+    if [ "${#values[@]}" -eq 0 ]; then
+        return 1
+    fi
+    if [ "${#values[@]}" -gt 1 ]; then
+        return 0
+    fi
+    # One distinct value: it discriminates only if some CCY session is NOT in it.
+    covered="$(identity_names "$axis" "${values[0]}" | wc -l)"
+    ccyTotal="$(ccy_names | wc -l)"
+    [ "$covered" -lt "$ccyTotal" ]
+}
+
 # An unknown value must fail loudly. Resolving it to an empty set and exiting 0
 # would report "nothing to do" for a question that was never asked — the same
 # trap select_network guards against for a non-existent network.
@@ -683,7 +718,7 @@ target_effect() {
 }
 
 pick_target() {
-    local net selection reply attempt total i axis value ccy_total
+    local net selection reply attempt total i axis value
     local -a keys=() labels=() nets=() group=() values=()
 
     if [ ! -t 2 ] || [ ! -r /dev/tty ]; then
@@ -714,27 +749,13 @@ pick_target() {
     # when the axis actually discriminates — with a single GitHub account and
     # every session labelled, "github: <id>" and "all CCY containers" are the
     # same button, and a menu that says the same thing twice is harder to read,
-    # not more capable.
-    #
-    # "Discriminates" is COVERAGE, not cardinality. The first cut tested
-    # `${#values[@]} -lt 2`, which is only a proxy for it, and the proxy is
-    # wrong in exactly the partial-rollout state the axis is most useful in: one
-    # labelled account plus four unlabelled sessions is a single distinct value
-    # that covers 2 of 6, so the row was suppressed while `--github X` kept
-    # working on the CLI. The menu then offered only the WIDER "all CCY
-    # containers", silently steering toward freezing sessions the user had not
-    # asked for, and `warn_identity_blind_spot` became unreachable from the menu
-    # because `select_identity` was never called.
-    ccy_total="$(ccy_names | wc -l)"
+    # not more capable. The predicate is identity_axis_discriminates, which the
+    # unit test calls directly; see the reasoning on that function.
     for axis in github token ssh-key; do
+        if ! identity_axis_discriminates "$axis"; then
+            continue
+        fi
         mapfile -t values < <(identity_values "$axis")
-        if [ "${#values[@]}" -eq 0 ]; then
-            continue
-        fi
-        if [ "${#values[@]}" -eq 1 ] &&
-            [ "$(identity_names "$axis" "${values[0]}" | wc -l)" -ge "$ccy_total" ]; then
-            continue
-        fi
         for value in "${values[@]}"; do
             mapfile -t group < <(identity_names "$axis" "$value")
             keys+=("id:$axis:$value")
@@ -802,8 +823,6 @@ pick_target() {
     done
 }
 
-# Echoes the chosen names on stdout, one per line. The menu is drawn on stderr
-# so a caller capturing this gets names and nothing else.
 # What this ONE container is about to have done to it. The group row says
 # "FREEZE 5"; a row inside the group says which of the five it is.
 row_verb() {
@@ -948,7 +967,6 @@ drill_into_group() {
     done
 }
 
-# Echoes 'freeze' or 'thaw' on stdout.
 # ---------------------------------------------------------------------------
 # Action
 # ---------------------------------------------------------------------------
@@ -973,7 +991,7 @@ do_action() {
     local action="$1"
     local name i want_state podman_verb past out
     local failed=0
-    local -a targets=() skipped=()
+    local -a targets=() skipped=() vanished=()
 
     if [ "$action" = "freeze" ]; then
         want_state="running"
@@ -991,7 +1009,13 @@ do_action() {
     fi
 
     for name in "${SELECTED[@]}"; do
+        # A selected name that is not in the inventory is REPORTED, not dropped.
+        # Unreachable today, since every selector filters through
+        # inventory_index_of, but a silent `continue` here is the shape that hides
+        # an under-match: the run would act on fewer containers than the user
+        # chose and say nothing about the difference.
         if ! i="$(inventory_index_of "$name")"; then
+            vanished+=("$name")
             continue
         fi
         if [ "${INV_STATE[$i]}" = "$want_state" ]; then
@@ -1000,6 +1024,10 @@ do_action() {
             skipped+=("$name")
         fi
     done
+
+    if [ "${#vanished[@]}" -gt 0 ]; then
+        echo "Skipped — no longer present (gone since the inventory was read): ${vanished[*]}" >&2
+    fi
 
     if [ "${#skipped[@]}" -gt 0 ]; then
         echo "Skipped — not currently $want_state: ${skipped[*]}" >&2

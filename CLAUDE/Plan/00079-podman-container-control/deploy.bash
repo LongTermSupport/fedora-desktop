@@ -94,10 +94,22 @@ for play in "${PLAYS[@]}"; do
     fi
 done
 
+# READ, never a literal: a version typed into this message is stale the next time
+# CCY_VERSION moves, and it is shown to an operator about to deploy that launcher.
+# `|| CCY_VER=""` is the explicit-fallback form — grep exits 1 when the line is
+# absent, and under pipefail that would kill the script at the assignment.
+CCY_VER=""
+CCY_VER="$(grep -m1 -oE 'CCY_VERSION="[0-9.]+"' \
+    "$REPO_ROOT/files/var/local/claude-yolo/claude-yolo" |
+    grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?')" || CCY_VER=""
+if [ -z "$CCY_VER" ]; then
+    CCY_VER="version unreadable"
+fi
+
 echo "Plays to run, in order:"
 printf '  %s\n' "${PLAYS[@]}"
 echo
-echo "The first deploys the CCY launcher (3.40.0), which labels each session"
+echo "The first deploys the CCY launcher ($CCY_VER), which labels each session"
 echo "container at launch. The second installs fzf and deploys the podfreeze"
 echo "command into your ~/.local/bin, which selects on those labels."
 echo
@@ -137,30 +149,10 @@ for play in "${PLAYS[@]}"; do
     fi
 done
 
-# --- one-off migration: the pre-rename binary --------------------------------
-#
-# The tool shipped for part of one day as `podman-freeze` before being
-# shortened to `podfreeze`. Removing the old copy lives HERE rather than as a
-# `state: absent` task in the play, because it is transient: it stops being
-# useful the moment no machine has a pre-rename build, and a permanent task
-# carrying a same-day rename forever is exactly the cruft this repo's
-# plan-local rule exists to keep out of the shared tree.
-#
-# Stale executables on PATH are not cosmetic — two builds of the same tool
-# means two versions of a confirmation prompt on one machine, and the one you
-# get depends on which name you happen to type.
-STALE="$HOME/.local/bin/podman-freeze"
-if [ -e "$STALE" ]; then
-    echo
-    echo "### removing the pre-rename binary"
-    if rm -f "$STALE"; then
-        echo "  removed $STALE"
-    else
-        echo "ERROR: could not remove $STALE" >&2
-        echo "  Both names are now on PATH — remove it before using podfreeze." >&2
-        exit 1
-    fi
-fi
+# The pre-rename `podman-freeze` binary is removed by play-podfreeze.yml, which
+# ran above. It belongs there and not here: an `rm` in this script would be a
+# manual system change, which the IaC HARD RULE prohibits outright, and it would
+# only reach someone who ran the play through this wrapper.
 
 echo
 echo "=============================================================="

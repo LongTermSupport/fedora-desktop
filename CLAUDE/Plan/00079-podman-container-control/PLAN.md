@@ -156,19 +156,50 @@ See D4 and D6.
   inaccuracies in
   [subagent-reports/260910-qa-review-00079-opus-5.md](subagent-reports/260910-qa-review-00079-opus-5.md)
 
-- [ ] ⬜ **Task 3.3d**: Address the re-review's findings. **The gating one (F21)
-  is verified**: `pick_target` is the sole site of the axis-offer decision and
-  lives only in `files/home/.local/bin/podfreeze`, but `unit-test-selection.bash`
-  never references it — it re-implements both predicates inline, so a revert of
-  the fix leaves all 49 assertions green. The fix commit's claim of "regressions
-  that fail on F21 and F22 specifically" holds for F22 only. Seven should-fix
-  findings behind it, including user docs still describing a removed rule, the
-  tool header omitting three of its targets, and a deployed binary removed by
-  hand rather than by Ansible
+- [x] ✅ **Task 3.3d**: The re-review's findings addressed. Six of the seven
+  should-fix items are closed here; the seventh is Task 3.3b, which is a host run.
 
-- [ ] ⬜ **Task 3.3b**: Re-run `deploy.bash` — the review's fixes touch
-  `podfreeze` and `claude-yolo` (3.40.1), so the host is stale again by design,
-  and checks 13/13b plus the new COVERAGE line have not run against them
+  - **The gating one.** The axis-offer decision is now the named function
+    `identity_axis_discriminates`, called by both `pick_target` and the unit test,
+    instead of a predicate inlined in a function no test can call. **Proved by
+    breaking it**: reverting the function body to the `-lt 2` cardinality proxy now
+    fails 2 assertions, where the previous version left all 49 green. Restored, and
+    the suite is 50 assertions PASS. A second case was added for the *other* side
+    of the predicate — an axis whose one value covers every CCY session must be
+    suppressed — so a predicate hardcoded to `return 0` cannot pass either.
+  - `docs/playbooks.md` no longer describes the rule F21 removed.
+  - The tool's header block lists all seven targets, matching `usage()`.
+  - Acceptance check 13b's two unexercised branches are `skip()`, not `ok()`, so
+    the closing count stops over-reporting.
+  - The pre-rename `podman-freeze` binary is removed by
+    `play-podfreeze.yml` (`state: absent`), not by an `rm` in `deploy.bash` — that
+    was a manual system change the IaC HARD RULE prohibits, and it only reached
+    someone who ran the play through the wrapper.
+  - `deploy.bash` **reads** `CCY_VERSION` instead of printing a stale literal.
+  - Nits: two stale comments removed from the tool; `do_action` now reports a
+    selected name missing from the inventory instead of silently dropping it.
+
+  **Recorded past this plan**: `CLAUDE/AgentNotes.md` gains rows 12–17 of the
+  partial-result table — the four from this plan and three from 00092 — plus the
+  note that row 14 (a test that does not execute the production path) was written
+  by someone who had just read that page. The habit it prescribes: break the fix on
+  purpose and watch the new test go red.
+
+  **Not fixed, deliberately, and not this plan's to fix**: 48 of the 69 tracked
+  plan scripts do not source `_planlib.inc.bash` and resolve the repo root with
+  `git -C … rev-parse`, which `PlanScriptStandards.md` R1 forbids — including four
+  created on 2026-09-10. Counted, not estimated. This plan's four scripts are among
+  them. It is a repo-wide migration and wants its own plan; raising it rather than
+  quietly widening this one.
+
+- [ ] 🚫 **Task 3.3b**: **Blocked — HOST ACTION.** Re-run
+  `CLAUDE/Plan/00079-podman-container-control/deploy.bash` on the HOST. Task 3.3d
+  changed `podfreeze` again, so the host binary is stale by design and
+  `acceptance.bash` will refuse to vouch for it (`acceptance.bash:134-140`). This
+  is the only outstanding review finding: **no acceptance run has ever executed
+  against the reviewed code** — runs 3, 4 and 5 all predate the fix commit, so
+  checks 13, 13b and the COVERAGE line have never run against what they were
+  written for. Every success criterion below stays unticked until it does.
 
 - [ ] ⬜ **Task 3.4**: Mark plan Complete, move to `Completed/`, update README
   index + statistics in the same commit
