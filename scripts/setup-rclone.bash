@@ -9,6 +9,9 @@
 #   ./scripts/setup-rclone.bash           # Full setup (config + mounts)
 #   ./scripts/setup-rclone.bash mounts    # Reconfigure mounts only (skip rclone config)
 #
+# Mounts already in host_vars are listed; selecting one offers edit or remove,
+# so a mountpoint can be changed without hand-editing localhost.yml.
+#
 # Run this on the HOST system, from the project root.
 
 set -euo pipefail
@@ -256,9 +259,29 @@ if [[ ${#_EXISTING[@]} -gt 0 ]]; then
         echo -e "    ${GREEN}✓${NC} $_n → $_r at $_p"
     done
     echo ""
-    echo -e "  ${DIM}Add more mounts below, or select 0 to keep as-is.${NC}"
+    echo -e "  ${DIM}Select a mounted remote to edit or remove it; select an unmounted one to add it; 0 to finish.${NC}"
     echo ""
 fi
+
+# Index into MOUNT_* arrays of the entry for a remote, or empty if none.
+existing_mount_index() {
+    local remote="$1" i
+    for i in "${!MOUNT_REMOTES[@]}"; do
+        if [[ "${MOUNT_REMOTES[$i]}" == "${remote}:"* ]]; then
+            echo "$i"
+            return
+        fi
+    done
+}
+
+# Drop entry $1 from all three MOUNT_* arrays, keeping them contiguous.
+remove_mount_index() {
+    local idx="$1"
+    unset "MOUNT_NAMES[$idx]" "MOUNT_REMOTES[$idx]" "MOUNT_POINTS[$idx]"
+    MOUNT_NAMES=("${MOUNT_NAMES[@]+"${MOUNT_NAMES[@]}"}")
+    MOUNT_REMOTES=("${MOUNT_REMOTES[@]+"${MOUNT_REMOTES[@]}"}")
+    MOUNT_POINTS=("${MOUNT_POINTS[@]+"${MOUNT_POINTS[@]}"}")
+}
 
 while true; do
     # Show numbered remote picker (mark remotes that already have a mount configured)
@@ -266,19 +289,17 @@ while true; do
         echo -e "  ${CYAN}Available remotes:${NC}"
         for i in "${!REMOTE_LIST[@]}"; do
             REMOTE_ALREADY=""
-            for configured in "${MOUNT_REMOTES[@]+"${MOUNT_REMOTES[@]}"}"; do
-                if [[ "$configured" == "${REMOTE_LIST[$i]}:"* ]]; then
-                    REMOTE_ALREADY="  ${GREEN}✓ mounted${NC}"
-                    break
-                fi
-            done
+            EXISTING_IDX=$(existing_mount_index "${REMOTE_LIST[$i]}")
+            if [[ -n "$EXISTING_IDX" ]]; then
+                REMOTE_ALREADY="  ${GREEN}✓ mounted${NC} at ${DIM}${MOUNT_POINTS[$EXISTING_IDX]}${NC}"
+            fi
             echo -e "    ${BOLD}$((i+1))${NC}  ${REMOTE_LIST[$i]}${REMOTE_ALREADY}"
         done
-        echo -e "    ${BOLD}0${NC}  Done — no more mounts"
+        echo -e "    ${BOLD}0${NC}  Done — no more changes"
         echo ""
     fi
 
-    read -rp "  Select remote to mount [0-${#REMOTE_LIST[@]}]: " REMOTE_SEL
+    read -rp "  Select remote [0-${#REMOTE_LIST[@]}]: " REMOTE_SEL
     [[ -z "$REMOTE_SEL" || "$REMOTE_SEL" == "0" ]] && break
 
     # Validate selection is a number in range
@@ -290,6 +311,46 @@ while true; do
     fi
 
     SELECTED_REMOTE="${REMOTE_LIST[$((REMOTE_SEL-1))]}"
+
+    # Already mounted: offer edit (re-prompt with current values as defaults) or remove.
+    # Either way the old entry is dropped; edit re-adds it below with the new answers.
+    DEFAULT_SUBPATH="/"
+    DEFAULT_MOUNT_NAME="${SELECTED_REMOTE,,}"
+    DEFAULT_MOUNT_NAME="${DEFAULT_MOUNT_NAME// /-}"
+    DEFAULT_MOUNTPOINT=""
+    EXISTING_IDX=$(existing_mount_index "$SELECTED_REMOTE")
+    if [[ -n "$EXISTING_IDX" ]]; then
+        echo ""
+        echo -e "  ${BOLD}$SELECTED_REMOTE${NC} is already mounted:"
+        echo -e "    ${MOUNT_NAMES[$EXISTING_IDX]} → ${MOUNT_REMOTES[$EXISTING_IDX]} at ${MOUNT_POINTS[$EXISTING_IDX]}"
+        echo ""
+        ACTION=""
+        for _attempt in 1 2 3; do
+            read -rp "  [e]dit this mount, [r]emove it, or [c]ancel? [e/r/c]: " ACTION
+            ACTION="${ACTION,,}"
+            [[ "$ACTION" == "e" || "$ACTION" == "r" || "$ACTION" == "c" ]] && break
+            warn "Enter e, r, or c."
+            ACTION=""
+        done
+        echo ""
+        case "$ACTION" in
+            e)
+                DEFAULT_SUBPATH="${MOUNT_REMOTES[$EXISTING_IDX]#*:}"
+                DEFAULT_MOUNT_NAME="${MOUNT_NAMES[$EXISTING_IDX]}"
+                DEFAULT_MOUNTPOINT="${MOUNT_POINTS[$EXISTING_IDX]}"
+                remove_mount_index "$EXISTING_IDX"
+                ;;
+            r)
+                remove_mount_index "$EXISTING_IDX"
+                ok "Removed mount for $SELECTED_REMOTE"
+                echo ""
+                continue
+                ;;
+            *)
+                continue
+                ;;
+        esac
+    fi
 
     # List top-level folders — if this fails the remote is broken/unreachable
     echo ""
@@ -354,19 +415,17 @@ while true; do
     fi
     echo ""
 
-    # Subpath within the remote (default: / = entire remote)
-    echo -e "  ${DIM}Enter a folder path to mount only part of the remote, or press Enter for the whole drive.${NC}"
-    read -rp "  Folder to mount [/ (entire drive)]: " REMOTE_SUBPATH
-    REMOTE_SUBPATH="${REMOTE_SUBPATH:-/}"
+    # Subpath within the remote (/ = entire remote). Defaults come from the
+    # existing entry when editing, otherwise the generic defaults set above.
+    echo -e "  ${DIM}Enter a folder path to mount only part of the remote, or press Enter to keep the default.${NC}"
+    read -rp "  Folder to mount [$DEFAULT_SUBPATH]: " REMOTE_SUBPATH
+    REMOTE_SUBPATH="${REMOTE_SUBPATH:-$DEFAULT_SUBPATH}"
 
-    # Mount name: default to lowercase remote name with hyphens
-    DEFAULT_MOUNT_NAME="${SELECTED_REMOTE,,}"
-    DEFAULT_MOUNT_NAME="${DEFAULT_MOUNT_NAME// /-}"
     read -rp "  Mount name [$DEFAULT_MOUNT_NAME]: " MOUNT_NAME
     MOUNT_NAME="${MOUNT_NAME:-$DEFAULT_MOUNT_NAME}"
 
-    # Mountpoint: default to ~/mnt/<name>
-    DEFAULT_MOUNTPOINT="$HOME/mnt/$MOUNT_NAME"
+    # Mountpoint: default to ~/mnt/<name> unless editing an existing entry
+    DEFAULT_MOUNTPOINT="${DEFAULT_MOUNTPOINT:-$HOME/mnt/$MOUNT_NAME}"
     read -rp "  Local mountpoint [$DEFAULT_MOUNTPOINT]: " MOUNT_POINT
     MOUNT_POINT="${MOUNT_POINT:-$DEFAULT_MOUNTPOINT}"
 
