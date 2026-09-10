@@ -126,27 +126,50 @@ See D4 and D6.
   checks `--ccy --dry-run` against the live CCY set as a contract, and checks
   the in-container refusal, the unknown-network and unknown-name failures, and
   mutually-exclusive targets. `--all` is never run for real. Both log to `logs/`
+
 - [x] ✅ **Task 3.2**: User runs `CLAUDE/Plan/00079-podman-container-control/deploy.bash`
   on the HOST (it runs `play-claude-yolo.yml` **then** `play-podfreeze.yml`,
   then acceptance itself); journal the verdict. Run 3: PASS, 21 checks,
   0 skipped (runs 1–2 and the refused `acceptance.bash`-alone attempt that
   produced F18 are in `JOURNAL/`)
+
 - [x] ✅ **Task 3.2b**: Re-run `deploy.bash` to exercise **check 9b** (the F19
   fix). PASS, 22 checks, 0 skipped — `--ccy` provably covers the whole fleet,
   not only the labelled part
+
 - [x] ✅ **Task 3.2c**: Re-run `deploy.bash` to exercise **check 13b** and the
   `select_identity` disclosure it tests (F20). PASS, 24 checks, 0 skipped
+
 - [x] ✅ **Task 3.2d**: Record the recurring defect class rather than only its
   instances — `CLAUDE/AgentNotes.md` gains *"A partial result read as a complete
   one"*, `CLAUDE/QA.md` points at it, and the `qa-reviewer` agent gains the
   three things to look for
+
 - [x] ✅ **Task 3.3**: Run the `qa-reviewer` agent over the plan's full diff;
   resolve all BLOCK/FIX-BEFORE-MERGE findings. Verdict FIX-BEFORE-MERGE,
   9 findings, all resolved (F21–F23 among them; unit test grew to 49
   assertions). Full account in `JOURNAL/`
+
+- [x] ✅ **Task 3.3c**: Confirming re-review run 2026-09-10, since Task 3.3's
+  nine fixes had never themselves been reviewed. **Eight of the nine are verified
+  genuinely fixed, line by line.** Report and an editor's note on its two
+  inaccuracies in
+  [subagent-reports/260910-qa-review-00079-opus-5.md](subagent-reports/260910-qa-review-00079-opus-5.md)
+
+- [ ] ⬜ **Task 3.3d**: Address the re-review's findings. **The gating one (F21)
+  is verified**: `pick_target` is the sole site of the axis-offer decision and
+  lives only in `files/home/.local/bin/podfreeze`, but `unit-test-selection.bash`
+  never references it — it re-implements both predicates inline, so a revert of
+  the fix leaves all 49 assertions green. The fix commit's claim of "regressions
+  that fail on F21 and F22 specifically" holds for F22 only. Seven should-fix
+  findings behind it, including user docs still describing a removed rule, the
+  tool header omitting three of its targets, and a deployed binary removed by
+  hand rather than by Ansible
+
 - [ ] ⬜ **Task 3.3b**: Re-run `deploy.bash` — the review's fixes touch
   `podfreeze` and `claude-yolo` (3.40.1), so the host is stale again by design,
   and checks 13/13b plus the new COVERAGE line have not run against them
+
 - [ ] ⬜ **Task 3.4**: Mark plan Complete, move to `Completed/`, update README
   index + statistics in the same commit
 
