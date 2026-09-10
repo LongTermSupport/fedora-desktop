@@ -93,9 +93,29 @@ if [[ "$FAST" == true ]]; then
     # Every RC endpoint requires authentication, vfs/refresh included.
     # rclone-rc-auth.bash owns the credential lookup and fails with the play to
     # run when it is absent, so there is nothing to check here.
+    # Each mount runs its own RC server on its own port, so read the address
+    # off this mount's rclone process rather than assuming the default.
+    RC_ADDR=""
+    for pid in $(pgrep -f 'rclone mount' 2> /dev/null || true); do
+        if ! cmdline=$(tr '\0' ' ' < "/proc/$pid/cmdline" 2> /dev/null); then
+            continue
+        fi
+        case "$cmdline" in
+            *" $MOUNT_POINT "* | *" $MOUNT_POINT")
+                RC_ADDR=$(grep -oE -- '--rc-addr=[^ ]+' <<< "$cmdline" | head -n1 | cut -d= -f2)
+                break
+                ;;
+        esac
+    done
+    if [[ -z "$RC_ADDR" ]]; then
+        echo "ERROR: no rclone process with --rc-addr found for $MOUNT_POINT" >&2
+        echo "  --fast mode requires the mount to be started with --rc (play-rclone.yml does this)." >&2
+        exit 1
+    fi
+
     RC_ARGS=("fs=$RCLONE_SOURCE" "recursive=true")
     [[ -n "$REL_PATH" ]] && RC_ARGS+=("remote=$REL_PATH")
-    if ! rclone_rc vfs/refresh "${RC_ARGS[@]}"; then
+    if ! rclone_rc --url="http://${RC_ADDR}" vfs/refresh "${RC_ARGS[@]}"; then
         echo "" >&2
         echo "ERROR: rclone rc failed." >&2
         echo "  --fast mode requires the mount to be started with --rc." >&2
