@@ -92,6 +92,43 @@ Acted on, and made **self-refuting** rather than left as an assumption — see
 Task 5.3. The read cost nothing: `triage.bash` took the values out of the cache
 the user had already paid for.
 
+### Q3 — OPEN: ccy shows no Fable allowance. Is one on the wire?
+
+Raised in use: the display has a 5-hour bar and a weekly bar, and says nothing
+about the Fable limit. These facts come from reading the installed Claude Code
+bundle (`@anthropic-ai/claude-code` v2.1.267) — a **reading, not an
+observation**, which is what Q3 exists to settle.
+
+| ID  | Fact                                                                                                                                                     |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| F18 | Buckets map to header suffixes, and the Fable one is `seven_day_overage_included` → **`7d_oi`**, read as `anthropic-ratelimit-unified-7d_oi-utilization` |
+| F19 | The bundle's label for that bucket is literally **"Fable limit"**                                                                                        |
+| F20 | Utilisation is a **fraction** — the bundle computes `Math.floor(utilization * 100)`. **This is the proof F17 could not supply**                          |
+| F21 | `seven_day_opus` and `seven_day_sonnet` have **no** utilisation header; Fable does. The buckets are not uniformly available                              |
+| F22 | Model-specific weekly rows come from `GET /api/oauth/usage` — the route Plan 00100 closed as 403 on scope. The richer payload does not reopen it         |
+
+Excerpts, offsets and the full schema:
+[RESEARCH-bucket-headers.md](RESEARCH-bucket-headers.md).
+
+**What F18 implies and what it does not.** If the Fable figure arrives as
+`7d_oi-utilization`, it is already on the response `_usage_fetch_one` makes, and
+`_usage_extract` throws it away: that `case` matches five exact header names and
+lets every other unified header fall through. The fix would then be a parser
+change and two more cache fields, not a new request.
+
+Two things stay unknown until a real response is seen, and they lead to
+different work:
+
+- **H3** — a **Haiku** probe carries the `7d_oi` pair. Then ccy needs a parser
+  change only, and the Fable bar costs nothing beyond the request already made.
+- **H4** — only a **Fable** probe carries it, i.e. the bucket set is scoped to
+  the request's model. Then showing the bar costs a Fable request, which
+  Decision 3 deliberately avoided, and the cost has to be put to the user.
+
+F21 is the reason this is worth settling rather than assuming symmetry: the
+buckets are **not** uniformly available. Fable has a utilisation header and Opus
+does not, so "add the per-model buckets" is not one piece of work.
+
 ## Tasks
 
 ### Phase 1: Prototype ✅
@@ -209,6 +246,39 @@ explanation, so this phase measures rather than assumes:
 - [x] ✅ **Task 5.4**: Fix found while reading: a bucket the API did not report
   was silently dropped from the display, three lines below a comment saying that
   is exactly what must not happen (lib 1.10.1)
+
+### Phase 6: The Fable allowance — Q3 🔄
+
+- [x] ✅ **Task 6.1**: `triage-buckets.bash` + `probe-bucket-headers.bash` — one
+  billed request per probe model, dumping every `anthropic-ratelimit-*` header
+  and tabulating which of the four buckets in F18 came back. Defaults to Haiku
+  then Fable, so a single run separates H3 from H4. Accounts are reported as
+  `account-N`, the token reaches curl via `--config` on stdin (BSH-09), and the
+  header dump is checked for credential-shaped strings before anything is
+  written. Host-only, enforced by `plan_require_host` — the CCY container has no
+  token mounted, so a run there would report "no tokens" and that reads as a
+  fact about the pool
+
+- [ ] **Task 6.2**: Run it on the HOST against a Fable-entitled account. **This
+  is the decision gate — nothing below it starts until the `7d_oi` row is either
+  a number or `absent` on both models**
+
+- [ ] **Task 6.3** (H3): parse `7d_oi-utilization` / `-reset` in
+  `_usage_extract` and render the bar. Two more cache fields, **appended last**
+  so an older library reading a newer record still gets `u5`/`r5`/`u7` right —
+  the same compatibility discipline as Task 5.5. Note the existing
+  `IFS=$'\t' read -r u5 r5 u7 r7` in `triage.bash` already mis-parses the
+  5-field record by folding `claim` into `r7`; fix it in the same change
+
+- [ ] **Task 6.4** (H4 only): decide whether a Fable-model probe is worth its
+  cost, and put the cost in the menu option text the way Decision 1 requires.
+  **Not** a silent default — Decision 3 chose Haiku precisely to leave the
+  expensive allowances alone
+
+- [ ] **Task 6.5**: label the bucket "Fable limit" (F19), not a name invented
+  here. `_usage_claim_label` already passes unknown claims through verbatim;
+  give `seven_day_overage_included` its real label rather than letting it render
+  as a raw token
 
 ## Technical Decisions
 
