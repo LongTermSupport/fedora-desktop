@@ -114,14 +114,21 @@ holes, each behind a test that fails against the unfixed code.
   `failed_when: no` earns `✓ ansible: fail-fast patterns OK` — a green tick on
   the repo's #1 rule. The asymmetry sits inside a single regex
 - **F12** — F8 is not hypothetical. Building the denylist and scanning history
-  found a **private account alias published on `origin/F44` in three places**:
+  found a **private account alias published on `origin/F44` in four places**:
   two tracked files (`00049-full-repo-audit/research/security.md:188`,
-  `00065-…/PLAN.md:117`) and **the commit message of `fc20c5c9`**. The message
-  is the F8 hole exactly: the identical string in a staged *file* would have
-  been rejected by `pre-commit`'s denylist. The alias was in the denylist all
-  along under `github_accounts` — `commit-msg` simply never consulted it.
+  `00065-…/PLAN.md:117`), **the commit message of `fc20c5c9`**, and — added
+  2026-09-10 — **the blob of `31f66d2f`** at
+  `00079-podman-container-control/JOURNAL/00079-Journal-26-08-19.md:233,283`,
+  surfaced by a `qa-reviewer` pass over Plan 00079 and confirmed here. The
+  working tree was scrubbed by `0369468b`; the published blob was not. The
+  message is the F8 hole exactly: the identical string in a staged *file* would
+  have been rejected by `pre-commit`'s denylist. The alias was in the denylist
+  all along under `github_accounts` — `commit-msg` simply never consulted it.
   Rewriting published history is out of scope here (see Non-Goals); the two
-  files are now un-editable without scrubbing, which is the gate working
+  files are now un-editable without scrubbing, which is the gate working.
+  **The count was three until the fourth was found by accident**, which is the
+  useful lesson: this inventory is a record of what has been looked at, not a
+  proof of what exists. Treat it as a floor
 - **F13** — widening the harvest to plural fields is measurably safe, not
   merely plausible: against the real `localhost.yml` it takes the denylist from
   **8 to 10 tokens**, and the two new ones appear in **zero** tracked files and
