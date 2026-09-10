@@ -47,6 +47,23 @@ header() { echo ""; echo -e "${BOLD}━━━ $* ━━━${NC}"; echo ""; }
 check()  { echo -ne "  Checking ${DIM}$1${NC} ... "; }
 # ---------------------------------------------------------------------------
 
+# ansible.cfg (inventory, vault password, roles path) is only auto-loaded from
+# the current directory, so run from the project root with it pinned. Ansible
+# exits 0 when the host pattern matches nothing, so that case is caught here:
+# a play that ran on no hosts deployed nothing.
+run_playbook() {
+    local log rc=0
+    log=$(mktemp)
+    (cd "$PROJECT_ROOT" && ANSIBLE_CONFIG="$PROJECT_ROOT/ansible.cfg" ansible-playbook "$PLAYBOOK") 2>&1 | tee "$log" || rc=$?
+    if grep -q "skipping: no hosts matched" "$log"; then
+        rm -f "$log"
+        die "The playbook matched no hosts, so nothing was deployed.
+Check that $PROJECT_ROOT/environment/localhost/ contains the inventory (try: git status)."
+    fi
+    rm -f "$log"
+    return "$rc"
+}
+
 # set -e exits silently on any unhandled failure; name the command so a run
 # that stops between steps says why instead of just dropping to the prompt.
 trap 'echo ""; echo -e "  ${RED}${BOLD}✗ FATAL:${NC} command failed at line $LINENO: $BASH_COMMAND" >&2; echo ""' ERR
@@ -123,7 +140,7 @@ if ! command -v rclone > /dev/null; then
     echo "not installed"
     warn "rclone not found — running playbook to install it first..."
     echo ""
-    ansible-playbook "$PLAYBOOK" || die "Playbook failed during rclone install. Check output above."
+    run_playbook || die "Playbook failed during rclone install. Check output above."
     echo ""
     if ! command -v rclone > /dev/null; then
         die "rclone still not found after running playbook.
@@ -550,7 +567,7 @@ echo ""
 read -rp "  Run the playbook now? [y/N] " DEPLOY
 
 if [[ "${DEPLOY,,}" == "y" ]]; then
-    ansible-playbook "$PLAYBOOK" || die "Playbook failed. Check output above."
+    run_playbook || die "Playbook failed. Check output above."
     echo ""
     if [[ ${#MOUNT_NAMES[@]} -gt 0 ]]; then
         ok "Mount services started and enabled."
@@ -559,6 +576,6 @@ if [[ "${DEPLOY,,}" == "y" ]]; then
         done
     fi
 else
-    info "Skipped. Deploy when ready:"
-    echo -e "    ${BOLD}ansible-playbook $PLAYBOOK${NC}"
+    info "Skipped. Deploy when ready (from the project root, so ansible.cfg is found):"
+    echo -e "    ${BOLD}cd $PROJECT_ROOT && ansible-playbook $PLAYBOOK${NC}"
 fi
