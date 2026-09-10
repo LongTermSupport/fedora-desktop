@@ -203,6 +203,30 @@ Web research, filed at
 | F38 | The **documented** ways to see this: `/usage` in Claude Code, Settings → Usage on claude.ai (account-wide), the VS Code usage dialog, and the `/model` picker, which flags "Requires usage credits" on the Fable row as a binary signal | Claude Code docs   |
 | F39 | Anthropic publishes **no absolute number** for any subscription session or weekly limit. Only the Fable 50% share is published. There are also open bugs where Fable is refused for credits on Max despite remaining quota              | docs + issues      |
 
+**F36a — the 50% is measured on FABLE's own usage, not on the total.** Verified
+verbatim from the help article, because the short form invites the opposite
+reading:
+
+> "you can use up to 50% of your weekly usage limits **on Fable models** at no
+> extra cost"
+>
+> "When you reach your Fable limit, you can keep using Fable models with usage
+> credits, or switch to another model to stay within your plan's usage limits."
+
+So spending the allowance on Sonnet or Opus does **not** consume Fable headroom,
+and hitting 50% of the weekly limit on other models does not disable Fable.
+
+There are **two independent constraints**, and either can bind first:
+
+| Constraint              | Limit                          |
+| ----------------------- | ------------------------------ |
+| Fable's own usage       | ≤ 50% of the weekly allowance  |
+| Total across all models | ≤ 100% of the weekly allowance |
+
+Because it is one pool, heavy non-Fable use still restricts Fable *indirectly*:
+at 90% total spent, only 10% of the pool remains for anything, Fable included.
+On Max with no credits, reaching either bound stops Fable until the weekly reset.
+
 **F36 reframes the whole plan, and mostly answers the original question.**
 ccy cannot show a separate Fable allowance on a Max account because **there is
 no separate allowance** — Fable spends the same weekly pool ccy already draws as
