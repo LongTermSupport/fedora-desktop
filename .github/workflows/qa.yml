@@ -21,7 +21,11 @@ concurrency:
 
 jobs:
   qa-all:
-    name: qa-all.bash (8 gates)
+    # No gate count in this name. It said "(8 gates)" while qa-all.bash ran
+    # thirteen, because a number here is a second place to state a fact that
+    # lives in one place already — and nothing checks it. qa-all.bash prints its
+    # own gates, one pass line each.
+    name: qa-all.bash
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
