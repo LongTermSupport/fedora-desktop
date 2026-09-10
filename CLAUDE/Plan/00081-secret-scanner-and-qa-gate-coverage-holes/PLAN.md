@@ -124,11 +124,22 @@ holes, each behind a test that fails against the unfixed code.
   message is the F8 hole exactly: the identical string in a staged *file* would
   have been rejected by `pre-commit`'s denylist. The alias was in the denylist
   all along under `github_accounts` — `commit-msg` simply never consulted it.
-  Rewriting published history is out of scope here (see Non-Goals); the two
-  files are now un-editable without scrubbing, which is the gate working.
-  **The count was three until the fourth was found by accident**, which is the
-  useful lesson: this inventory is a record of what has been looked at, not a
-  proof of what exists. Treat it as a floor
+  Rewriting published history is out of scope here (see Non-Goals) and remains
+  the owner's call. **The working tree is now clean, and that was a separate
+  question the original reasoning ran together with history.** "The files are
+  un-editable without scrubbing, which is the gate working" describes the gate,
+  not the tree: an identifier sitting in a tracked file is in the copy everyone
+  clones today, and removing it is an ordinary commit — `0369468b` had already
+  done exactly that for the 00079 journal. `security.md:188` is now redacted by
+  substitution per [PlanTriage.md](../../PlanTriage.md), and the sweep below is
+  the evidence rather than the intent.
+  **Measured 2026-09-10 with the repo's own scanner** (`hook_build_private_denylist`
+  - `hook_scan_text_for_private`, which report the source FIELD and never a value)
+    over every file in `git ls-files`: **1 hit before, 0 after.** `00065-…/PLAN.md`
+    had already gone clean, so F12's "two tracked files" was stale as well.
+    **The count was three until the fourth was found by accident**, which is the
+    useful lesson: this inventory is a record of what has been looked at, not a
+    proof of what exists. Treat it as a floor
 - **F13** — widening the harvest to plural fields is measurably safe, not
   merely plausible: against the real `localhost.yml` it takes the denylist from
   **8 to 10 tokens**, and the two new ones appear in **zero** tracked files and
