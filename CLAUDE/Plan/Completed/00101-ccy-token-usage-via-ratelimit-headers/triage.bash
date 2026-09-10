@@ -204,7 +204,10 @@ for summary in "${SUMMARIES[@]}"; do
         continue
     fi
 
-    IFS=$'\t' read -r u5 r5 u7 r7 <<< "$record"
+    # FIVE names, not four. The cache record gained a `claim` field in lib 1.12.0, and `read`
+    # puts every unconsumed field into the LAST name — so reading into four folded
+    # "<epoch>\t<claim>" into r7 and printed a wrong 7-day reset.
+    IFS=$'\t' read -r u5 r5 u7 r7 claim <<< "$record"
     for bucket in "5h:$u5" "7d:$u7"; do
         bname="${bucket%%:*}"
         raw="${bucket#*:}"
@@ -222,8 +225,11 @@ for summary in "${SUMMARIES[@]}"; do
             "account-$n" "$code" "$bname" "$raw" "$as_pct" "$as_frac" "$age"
     done
 
-    # Reset epochs are a second, independent check on whether the record is sane.
-    printf '%-11s %-8s %-7s resets: 5h=%s 7d=%s\n' "account-$n" "" "" "${r5:-none}" "${r7:-none}"
+    # Reset epochs are a second, independent check on whether the record is sane. `binding`
+    # is the API's own `-representative-claim`: it names which bucket is actually limiting,
+    # so a `seven_day_opus` here says the weekly figure above is not the allowance in play.
+    printf '%-11s %-8s %-7s resets: 5h=%s 7d=%s  binding=%s\n' \
+        "account-$n" "" "" "${r5:-none}" "${r7:-none}" "${claim:-none}"
 done
 
 echo ""

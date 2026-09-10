@@ -1,6 +1,8 @@
 # Plan 00101: Token usage limits via rate-limit response headers, on demand
 
-**Status**: In Progress
+**Status**: Complete — 2026-09-10. Phases 1–5 shipped and deployed. **Phase 6
+(the Fable allowance) is WON'T DO**, on owner decision after the options were
+exhausted; the reason is structural and recorded in Phase 6.
 **Created**: 2026-08-17
 **Owner**: joseph
 **Priority**: Medium
@@ -179,81 +181,47 @@ right and the *bucket* is wrong, because the probe uses Haiku. Narrative in
   the display, three lines below a comment saying that is what must not happen
   (lib 1.10.1)
 
-### Phase 6: The Fable allowance — Q3 🔄
+### Phase 6: The Fable allowance — Q3 ❌ WON'T DO
 
-- [x] ✅ **Task 6.1**: `triage-buckets.bash` + `probe-bucket-headers.bash` — one
-  billed request per probe model, dumping every `anthropic-ratelimit-*` header
-  and tabulating which of the four buckets in F18 came back. Defaults to Haiku
-  then Fable, so a single run separates H3 from H4. Accounts are reported as
-  `account-N`, the token reaches curl via `--config` on stdin (BSH-09), and the
-  header dump is checked for credential-shaped strings before anything is
-  written. Host-only, enforced by `plan_require_host` — the CCY container has no
-  token mounted, so a run there would report "no tokens" and that reads as a
-  fact about the pool
+**Closed 2026-09-10 on owner decision**: *"i think we've exhausted options lets
+mark this as wont do"*. Agreed, and the reason is structural rather than a lack
+of effort — **two independent blocks, neither closable from ccy**:
 
-- [x] ✅ **Task 6.2**: First HOST run, account-1 of 4. Results as F23/F24 below.
-  **The gate is NOT passed**: the Haiku arm answered, the Fable arm did not
+- **F9** — stored `sk-ant-oat01` setup-tokens are refused on
+  `GET /api/oauth/usage` for scope, and the scope is fixed when
+  `claude setup-token` mints it. That endpoint is the only source of the
+  per-model rows (F22, F40). No client-side change reaches it.
+- **F29** — no rate-limit header carries the Fable window. Measured, not
+  assumed: eight probes, four accounts, three clean 200s, `7d_oi` absent on
+  every one.
 
-The Haiku arm answered — no `7d_oi`, no `overage`. The Fable arm returned 429
-with no headers at all. **F25 then removed the innocent explanation**: the owner
-confirms account-1 is Fable-entitled, so that 429 is a refusal of a permitted
-request, not a lack of access. H3 is weakened, H4 is favoured, and H5 is now the
-likeliest mechanism.
+**It is also less valuable than it looked when raised.** F36/F36a establish that
+Fable has no separate allowance on Max — it is a 50% ceiling on Fable's *own*
+share of the one weekly pool that ccy already displays. So the bar was never
+missing a limit, only a breakdown. And F40 shows the breakdown is already
+available in three first-party places: `/usage`, the VS Code usage dialog, and
+claude.ai Settings → Usage.
 
-The first run recorded only the error *type*, which cannot separate "out of
-credits" from "weekly Fable limit reached". The probe was amended to capture the
-*message*, `retry-after`, `request-id` and `x-should-retry`, and to accept
-`PROBE_ACCOUNT=all`. Three of the four accounts are unprobed.
+**If revisited, start by re-checking setup-token scopes**, not the header route.
+Everything else follows from that one fact. Keep the probe scripts — the
+corrected Fable request body (F33) was expensive to find and would otherwise be
+rediscovered the hard way.
 
-- [x] ✅ **Task 6.2a**: Probing one account was the wrong default and produced a
-  misleading answer — account-1 was out of credits, so its Fable arm said
-  nothing about buckets. `PROBE_ACCOUNT` now defaults to **`all`**: the question
-  is about the pool, and one member does not generalise to it. The report also
-  gained a summary table, one row per probe, leading with the `7d_oi` column,
-  and captures `error.details.error_code` (F27) — the field that actually
-  separates a credits refusal from a weekly limit, and which the top-level
-  `rate_limit_error` type cannot
+**Done before closure**: the probe pair (`triage-buckets.bash` +
+`probe-bucket-headers.bash` — host-only, `account-N` redaction, every dump
+screened for credential-shaped strings), two host sweeps, and three corrections
+to the probe itself — sweep the whole pool by default, capture
+`error.details.error_code`, and send a *valid* Fable body. Narrative in the
+[2026-09-10 journal](JOURNAL/00101-Journal-26-09-10.md).
 
-- [x] ✅ **Task 6.2b**: Full-pool sweep run — 8 probes, 4 accounts × 2 models.
-  **H3 refuted** (F29): three clean Haiku 200s, `7d_oi` absent on every one. The
-  Fable arm answered nothing, and F33 says why — the probe was sending an
-  invalid request
+**Not done, deliberately**: the corrected Fable re-run, parsing `7d_oi`, costing
+a Fable probe, and labelling the bucket. Every one was downstream of a figure
+that has no route into ccy.
 
-- [x] ✅ **Task 6.2d**: Probe corrected. Fable and Mythos reject disabled
-  thinking and carry a mandatory 2048-token budget, which `max_tokens` must
-  exceed, so `max_tokens: 1` was never a valid Fable request. They now get
-  `max_tokens: 2100` with thinking enabled, and the report records the request
-  body verbatim so a run can be checked against what it actually asked
-
-- [ ] **Task 6.2e**: Re-run the Fable arm with the corrected body —
-  `PROBE_MODELS=claude-fable-5-1 ./triage-buckets.bash`, four requests.
-  **This is the decision gate for H4**, and the first valid Fable request this
-  plan will have made
-
-- [x] ~~**Task 6.2c** (H5 only): show the credits reason instead of a figure~~ —
-  **DROPPED with H5.** It would have displayed API-billing state on a row
-  labelled "Fable limit", which is a different subject and actively misleading.
-  **F35 supplies the correct handling**: the contract says this window is
-  "present only for accounts whose responses carry that window", so **absent is
-  a normal state**, and the row should say the window was not reported — not
-  invent a reason for it
-
-- [ ] **Task 6.3** (H3): parse `7d_oi-utilization` / `-reset` in
-  `_usage_extract` and render the bar. Two more cache fields, **appended last**
-  so an older library reading a newer record still gets `u5`/`r5`/`u7` right —
-  the same compatibility discipline as Task 5.5. Note the existing
-  `IFS=$'\t' read -r u5 r5 u7 r7` in `triage.bash` already mis-parses the
-  5-field record by folding `claim` into `r7`; fix it in the same change
-
-- [ ] **Task 6.4** (H4 only): decide whether a Fable-model probe is worth its
-  cost, and put the cost in the menu option text the way Decision 1 requires.
-  **Not** a silent default — Decision 3 chose Haiku precisely to leave the
-  expensive allowances alone
-
-- [ ] **Task 6.5**: label the bucket "Fable limit" (F19), not a name invented
-  here. `_usage_claim_label` already passes unknown claims through verbatim;
-  give `seven_day_overage_included` its real label rather than letting it render
-  as a raw token
+- [x] ✅ **Task 6.6**: fixed while closing — `triage.bash` read a 5-field cache
+  record into 4 names, folding `claim` into `r7`, so its 7-day reset column was
+  wrong. Found in Task 6.3's notes and repaired rather than left recorded as a
+  known defect in a closing plan
 
 ## Technical Decisions
 

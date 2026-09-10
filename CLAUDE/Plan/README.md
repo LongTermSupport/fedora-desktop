@@ -122,8 +122,6 @@ Use these Unicode icons in plan documents:
 
 - [00099-rclone-rc-auth-broke-unmigrated-clients](00099-rclone-rc-auth-broke-unmigrated-clients/) - Plan 00094 authenticated the rclone RC on a false premise, so three unmigrated clients got HTTP 401 and reported it as a dead mount for a week. One sourced credential library, every client migrated, plus the new `qa-deployed-drift.bash` gate. ACCEPTED 8/8 on the host.
 
-- [00101-ccy-token-usage-via-ratelimit-headers](00101-ccy-token-usage-via-ratelimit-headers/) - Successor to Plan 00100, taking the one route it left alive: usage figures travel as `/v1/messages` response headers. Deliberately a key the user presses, since reading them costs a billed request. Shipped and deployed; the utilisation scale is undocumented and stays behind `CCY_USAGE_SCALE`.
-
 - [00075-fail-signal-discard-sweep-and-gate](00075-fail-signal-discard-sweep-and-gate/) - Sweeps repo-owned bash, Python and playbooks for one defect class — a command's failure silently converted into data and then trusted — and builds a gate that fails the build rather than advising.
 
 - [00076-bash-gate-coverage-hole-nonexecutable-scripts](00076-bash-gate-coverage-hole-nonexecutable-scripts/) - `qa-all.bash` reported 125 bash files OK against 152 in the repo: the other 27 were never opened, having neither a shell extension nor an execute bit, and hid 34 gating findings. Discovery now keys on the shebang, with a coverage assertion behind it.
@@ -153,6 +151,8 @@ Use these Unicode icons in plan documents:
 - [00074-grub-cgroup-check-reports-absence-it-cannot-prove](00074-grub-cgroup-check-reports-absence-it-cannot-prove/) - `run.bash`'s legacy-grub cgroup step now distinguishes a failing `grubby` from a genuine negative and aborts on a proven failure instead of continuing
 
 ## Completed Plans
+
+- [00101-ccy-token-usage-via-ratelimit-headers](Completed/00101-ccy-token-usage-via-ratelimit-headers/) - Per-account 5-hour and weekly usage in `ccy`'s token menu, read from `/v1/messages` response headers behind a keypress. Shipped and deployed; the Fable allowance (Phase 6) is WON'T DO.
 
 - [00108-headless-prompt-colour](Completed/00108-headless-prompt-colour/) - A headless run answered the prompt-colour question with nothing and left `PS1_COLOUR=` on the box; run.bash 1.19.0 takes `RUN_BASH_PS1_COLOUR` and the empty answer takes the default. Proven on a headless box following this branch.
 
