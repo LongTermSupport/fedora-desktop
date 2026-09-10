@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# probe-invariant.bash <I1|I2|I3|I4|I5|I6|I7> — check ONE invariant from SECURITY-MODEL.md.
+# probe-invariant.bash <I1|I2|I3|I4|I5|I6|I7|PRESENT> — check ONE check from SECURITY-MODEL.md.
 #
 # Invoked as a leg by acceptance.bash, and independently runnable for debugging. Exits 0 when
 # the invariant holds, non-zero with a named reason when it does not.
@@ -124,12 +124,20 @@ probe_I1() {
     # `if hits="$(grep ...)"`, which folds 2 into the same branch as 1 and reports a failed
     # SEARCH as a clean pass — the "a control silently becomes a no-op" failure that
     # PlanScriptStandards exists to prevent. selftest-probes.bash is what caught it.
+    #
+    # --binary-files=text, so the count below is the count actually searched. An earlier
+    # draft passed --binary-files=without-match: grep then skipped every file it judged
+    # binary while the pass line still reported the whole enumeration, hiding ~38% of it.
+    # A token in a .cache blob or a swap file is exactly threat T2. `text` also removes an
+    # implementation dependence — `grep` is ugrep here and GNU grep on the host, their
+    # default binary handling differs, and this is the one mode measured to agree.
+    # -l means only NAMES are ever printed, so no binary bytes reach the log.
     local i=0 rc=0 batchSize=200
     while [[ "${i}" -lt "${#files[@]}" ]]; do
         batch=("${files[@]:i:batchSize}")
         i=$((i + batchSize))
         rc=0
-        hits="$(printf '%s\n' "${token}" | grep -lF --binary-files=without-match -f - \
+        hits="$(printf '%s\n' "${token}" | grep -lF --binary-files=text -f - \
             "${batch[@]}")" || rc=$?
         case "${rc}" in
             0)
@@ -145,8 +153,12 @@ probe_I1() {
                 ;;
         esac
     done
-    printf 'searched %d regular file(s) under %d path(s), the token is in none of them\n' \
-        "${#files[@]}" "${#existing[@]}"
+    # COVERAGE names the number SEARCHED, which --binary-files=text makes equal to the
+    # number enumerated. Say both, so a future change that reintroduces skipping has to
+    # either move the number or leave a visible contradiction.
+    printf 'COVERAGE: searched %d of %d enumerated regular file(s) under %d path(s), 0 skipped\n' \
+        "${#files[@]}" "${#files[@]}" "${#existing[@]}"
+    printf 'the token is in none of them\n'
 }
 
 # ── I2: never in any process's argv ───────────────────────────────────────────────────────
@@ -331,7 +343,15 @@ probe_PRESENT() {
         printf '[FAIL] %s/SKILL.md is missing — the agent was never told the capability exists\n' \
             "${SKILL_DIR}" >&2
         failed=1
-    elif [[ -f "${shipped}" ]] && ! cmp -s "${SKILL_DIR}/SKILL.md" "${shipped}"; then
+    elif [[ ! -f "${shipped}" ]]; then
+        # The image copy is the REFERENCE the staleness comparison is made against. An earlier
+        # draft guarded the cmp with `[[ -f "${shipped}" ]] &&`, so a missing reference skipped
+        # the comparison and fell through to the pass branch — an unrun check reported as a
+        # clean one, which is this plan's own top defect class.
+        printf '[FAIL] the image ships no %s, so the installed copy could not be\n' "${shipped}" >&2
+        printf '       compared against anything and "current" was never checked.\n' >&2
+        failed=1
+    elif ! cmp -s "${SKILL_DIR}/SKILL.md" "${shipped}"; then
         printf '[FAIL] the installed SKILL.md differs from the one the image ships — stale copy\n' >&2
         failed=1
     else

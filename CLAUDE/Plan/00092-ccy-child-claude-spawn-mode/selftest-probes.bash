@@ -29,6 +29,8 @@ LEAK_FILE=""
 LEAK_PID=""
 PLANTED_SKILL=0
 BAD_DIR=""
+STRAY_DIR=""
+SKILL_BACKUP=""
 
 # stop_leak_process — terminate the planted process, tolerating the one status that is
 # EXPECTED (143 = killed by SIGTERM, which is exactly what we asked for) and reporting any
@@ -57,6 +59,18 @@ cleanup() {
     fi
     if [[ -n "${BAD_DIR}" ]] && [[ -d "${BAD_DIR}" ]]; then
         rm -rf "${BAD_DIR}"
+    fi
+    if [[ -n "${STRAY_DIR}" ]] && [[ -d "${STRAY_DIR}" ]]; then
+        rm -rf "${STRAY_DIR}"
+    fi
+    # The staleness case is the only one that edits a file the container did not create.
+    # Restoring it here means an interrupted run leaves the installed skill exactly as it
+    # was found. If even this does not run, the next container start reinstalls it from the
+    # image, and until then PRESENT reports a red that is TRUE — a stale copy really is there.
+    if [[ -n "${SKILL_BACKUP}" ]] && [[ -f "${SKILL_BACKUP}" ]]; then
+        cp -p "${SKILL_BACKUP}" "${SKILL_DIR}/SKILL.md"
+        rm -f "${SKILL_BACKUP}"
+        SKILL_BACKUP=""
     fi
 }
 trap cleanup EXIT
@@ -242,9 +256,58 @@ BADDEPTH
     expect_red "I7 detects a wrapper with no depth guard" I7 "PATH=${BAD_DIR}:${PATH}"
 
     rm -rf "${BAD_DIR}"
+    BAD_DIR=""
 else
     unverified "I4, I5 and I7 cases" \
         "no ccy-claude on PATH and none in the checkout — nothing to test against"
+fi
+
+# ── PRESENT: the functional mirror of I6, and only meaningful with the mode ON ─────────────
+#
+# I6 asserts ABSENCE in a disabled container; PRESENT asserts the two artefacts are really
+# there in an enabled one. It went in as the fix for a review finding and then had no case
+# here, so the check that exists BECAUSE a half was unproven was itself unproven. Both of its
+# halves get a red: the wrapper identity check and the skill staleness check.
+if [[ "${CCY_CHILD_CLAUDE:-}" != "1" ]]; then
+    unverified "PRESENT cases" "the mode is off, so both artefacts are absent by design"
+elif ! command -v ccy-claude >/dev/null; then
+    unverified "PRESENT cases" "the mode is on but no ccy-claude is installed — that is a real
+    finding for acceptance.bash to report, not something this script can test around"
+else
+    expect_green "PRESENT is clean in an enabled container" PRESENT
+
+    # Red 1: something that answers to the name but is not the image's wrapper. This is the
+    # half that proves PRESENT resolves the path rather than trusting `command -v` to have
+    # found the right file.
+    STRAY_DIR="$(mktemp -d)"
+    cat >"${STRAY_DIR}/ccy-claude" <<'STRAY'
+#!/usr/bin/env bash
+set -euo pipefail
+exec claude "$@"
+STRAY
+    chmod 755 "${STRAY_DIR}/ccy-claude"
+    expect_red "PRESENT detects a wrapper that is not the image's" PRESENT \
+        "PATH=${STRAY_DIR}:${PATH}"
+    rm -rf "${STRAY_DIR}"
+    STRAY_DIR=""
+
+    # Red 2: a stale installed skill. SKILL_DIR is host-persisted, so this is the one case
+    # that touches state the script did not create — hence the backup taken first and the
+    # restore in cleanup(). The appended line is a comment, so even a failed restore leaves
+    # a readable file rather than a corrupted one.
+    if [[ ! -f "${SKILL_DIR}/SKILL.md" ]]; then
+        unverified "PRESENT staleness case" \
+            "${SKILL_DIR}/SKILL.md is absent, which PRESENT itself reports as a red"
+    else
+        SKILL_BACKUP="$(mktemp /tmp/plan00092-skill-XXXXXX.md)"
+        cp -p "${SKILL_DIR}/SKILL.md" "${SKILL_BACKUP}"
+        printf '\n<!-- selftest-probes.bash staleness case -->\n' >>"${SKILL_DIR}/SKILL.md"
+        expect_red "PRESENT detects an installed skill that has drifted from the image" PRESENT
+        cp -p "${SKILL_BACKUP}" "${SKILL_DIR}/SKILL.md"
+        rm -f "${SKILL_BACKUP}"
+        SKILL_BACKUP=""
+        expect_green "PRESENT is clean once the skill matches the image again" PRESENT
+    fi
 fi
 
 printf '\n== summary ==\n'

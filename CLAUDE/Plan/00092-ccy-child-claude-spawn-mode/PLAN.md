@@ -56,108 +56,49 @@ restore a boundary that does not exist.
 
 ## Context & Background
 
-Verified in this container before planning:
+Everything measured before planning — where the token actually is, why `ccy.env` adds
+no trust it does not already hold, why the skills directory is host-persisted, and the
+additive-only deployment chain from repo to running session — is in
+[RESEARCH-facts.md](RESEARCH-facts.md), each fact at a `file:line`.
 
-- The token reaches PID 1 via `-e CLAUDE_CODE_OAUTH_TOKEN` at
-  `files/var/local/claude-yolo/claude-yolo:3021`, passed by name so it never
-  appears in the `podman run` argv.
-- Container mode always has a token. The "Desktop" fallback that uses the host's
-  own OAuth is host-mode only — `lib/token-management.bash:1024` states there is
-  no Desktop fallback in container mode. So `/proc/1/environ` is a reliable source.
-- A bare `claude -p` from the Bash tool fails with `Not logged in`. The same
-  command with the token recovered from `/proc/1/environ` returns a real completion.
-  A prototype wrapper worked on first run and left no token in the calling shell.
-- `ccy.env` is already sourced **as shell** inside the container at
-  `entrypoint.sh:336-341`, so the checked-out tree already controls the command
-  that runs. Plan 00068 recorded this as `E10`. Putting the opt-in flag there adds
-  no trust that the file does not already hold.
-- Skills are staged in the image under `/opt/claude-yolo/skills/` and copied
-  **unconditionally** to `/root/.claude/skills/` at `entrypoint.sh:295-304`, which
-  runs *before* `ccy.env` is sourced. Both facts constrain the wiring.
-- `/root/.claude` symlinks to `/workspace/.claude/ccy`, so the skills directory is
-  **host-persisted** across sessions and gitignored at `.claude/ccy/.gitignore:17`.
-  A skill installed by an enabled session therefore survives into a later disabled
-  session unless it is actively removed.
-- Deployment chain for any image asset: repo `files/opt/claude-yolo/...` →
-  `play-claude-yolo.yml` copies to the host build context → `Dockerfile` COPYs into
-  the image → `entrypoint.sh` installs into the session.
-
-The dedupe scout checked 58 live plans and found none covering this. Nearest
-neighbours are 00068 (CCY env config for CI), 00089 and 00048 (token injection),
-and 00080 (network isolation); each touches token handling or CCY config, none
-touches in-container child processes.
+Supporting documents: [SECURITY-MODEL.md](SECURITY-MODEL.md) (threat model, the seven
+invariants), [DECISIONS.md](DECISIONS.md), `subagent-reports/`, `JOURNAL/`.
 
 ## Tasks
 
-### Phase 1: Pin down what "no security degradation" means
+### Phases 1–5: complete — the feature is built and shipped through IaC
 
-- [x] ✅ **Task 1.1**: Write [SECURITY-MODEL.md](SECURITY-MODEL.md): the seven
-  invariants, the threat model, and the explicit statement that the scrub is
-  not a boundary under root.
-- [x] ✅ **Task 1.2**: Write `acceptance.bash` on `_planlib.inc.bash` per
-  PlanScriptStandards R1–R14, one probe per invariant, verdict at the end.
-  - [x] ✅ Added `plan_require_container` to the library — the mirror of
-    `plan_require_host`, because this gate judges the CONTAINER and would go
-    vacuously green on the host. Both branches tested; library at 1.1.0.
-  - [x] ✅ `selftest-probes.bash` proves each probe CAN fail. Its first run found
-    two real defects: I1 reported a failed `grep` as a clean pass, and the I2
-    negative case planted no violation because `bash -c` execs a lone command.
-- [x] ✅ **Task 1.3**: Baseline captured. I2, I3 and I6 pass; **I1 correctly
-  reports a real leak this session caused** by tracing the probe with `bash -x`,
-  which put the token into the host-mounted session transcript. See `JOURNAL/`.
-  The remedy is token rotation and belongs to the owner.
+Compressed once Phase 6 became the only live work. The full task-by-task record is in
+git history and `JOURNAL/`; the durable output is the four files below plus
+[SECURITY-MODEL.md](SECURITY-MODEL.md) and [DECISIONS.md](DECISIONS.md).
 
-### Phase 2: The wrapper
-
-- [x] ✅ **Task 2.1**: `files/opt/claude-yolo/optional/child-claude/bin/ccy-claude`.
-  Honours an already-set `CLAUDE_CODE_OAUTH_TOKEN`; otherwise recovers it from
-  `/proc/1/environ`; fails fast with a named cause when absent; enforces
-  `CCY_CHILD_CLAUDE_DEPTH` against `CCY_CHILD_CLAUDE_MAX_DEPTH`; `exec claude "$@"`.
-- [x] ✅ **Task 2.2**: Diagnostics to stderr, silent on success, so the child's
-  stdout stays a clean payload for `$(capture)` and `jq`.
-- [x] ✅ **Task 2.3**: Verified against a stub `claude` reporting its own argv:
-  arguments verbatim, credential delivered, depth incremented, refusal at the
-  limit and on a non-numeric depth. No token on any stream.
-
-### Phase 3: The skill
-
-- [x] ✅ **Task 3.1**: `files/opt/claude-yolo/optional/child-claude/skills/child-claude/SKILL.md`,
-  modelled on the `browsing` skill. Leads with when **not** to use it, because a
-  child process is a worse subagent than the `Agent` tool.
-- [x] ✅ **Task 3.2**: Traps documented: stdin needs `< /dev/null`; quota is shared;
-  transcripts land in the host-mounted project directory; depth is bounded; and
-  the one rule, never trace a command that touches the token.
-  - [x] ✅ Added the trap the functional probe actually found: a child started in
-    `/workspace` loads this project's `CLAUDE.md`, hooks daemon and skills, and
-    that context swamped a three-word prompt so completely that the child replied
-    about the repo's stop-hook rules. Authentication was fine. The skill now shows
-    both shapes, neutral cwd and project cwd, and says which to pick.
-
-### Phase 4: Entrypoint wiring
-
-- [x] ✅ **Task 4.1**: Conditional install placed **after** the `ccy.env` source.
-  The unconditional `/opt/claude-yolo/skills/` copy is untouched; only the
-  separate `optional/` tree is gated.
-- [x] ✅ **Task 4.2**: Enabled path symlinks the wrapper onto `PATH`, replaces the
-  skill wholesale, exports both flags so they survive the `exec`, and announces.
-- [x] ✅ **Task 4.3**: Disabled path removes the skill an earlier session left in
-  the host-persisted directory. Only that one path is touched, by exact name.
-- [x] ✅ **Task 4.4**: Refuses to start when the flag is set but the image lacks
-  the tree, naming `ccy --rebuild`. A malformed flag value is also rejected
-  rather than silently read as off.
-
-### Phase 5: Ship it through IaC
-
-- [x] ✅ **Task 5.1**: Copy tasks added to `playbooks/imports/play-claude-yolo.yml`,
-  following the existing skills pattern.
-- [x] ✅ **Task 5.2**: `COPY optional/` added to the Dockerfile, with the wrapper
-  made executable in the image.
-- [x] ✅ **Task 5.3**: `LABEL claude-yolo-version` and `REQUIRED_CONTAINER_VERSION`
-  both 2.28 → 2.29. Image content changed, so a rebuild is forced.
-- [x] ✅ **Task 5.4**: `CCY_VERSION` 3.45.1 → 3.46.0. The launcher **did** change,
-  because `REQUIRED_CONTAINER_VERSION` lives in it. Changelog entry added.
-- [x] ✅ **Task 5.5**: Commented, disabled example added to this project's own
-  `.claude/ccy/ccy.env`, so the option is discoverable where it is set.
+- [x] ✅ **Phase 1 — the standard.** `SECURITY-MODEL.md` states the seven invariants,
+  the threat model, and plainly that the credential scrub is not a boundary under root.
+  `acceptance.bash` implements one probe per invariant on `_planlib.inc.bash`
+  (PlanScriptStandards R1–R14); `plan_require_container` was added to the library so the
+  gate cannot go vacuously green on the host. `selftest-probes.bash` proves each probe
+  CAN fail, and found two real defects on its first run. The baseline also produced a
+  **true** I1 red: tracing the probe with `bash -x` put the token into the host-mounted
+  transcript. Remedy is token rotation, and it is the owner's.
+- [x] ✅ **Phase 2 — the wrapper.** `ccy-claude` honours an already-set
+  `CLAUDE_CODE_OAUTH_TOKEN`, otherwise recovers it from `/proc/1/environ`, fails fast
+  with a named cause, enforces the depth bound, and `exec claude "$@"` with arguments
+  verbatim. Diagnostics to stderr only. Verified against a stub `claude` reporting its
+  own argv.
+- [x] ✅ **Phase 3 — the skill.** `SKILL.md` leads with when **not** to use the feature,
+  because a child process is a worse subagent than the `Agent` tool, and documents the
+  traps — stdin needs `< /dev/null`, quota is shared, transcripts land in the host-mounted
+  project directory, never trace a command that touches the token. Includes the trap the
+  functional probe actually found: a child started in `/workspace` inherits this project's
+  whole harness and answers about it.
+- [x] ✅ **Phase 4 — entrypoint wiring.** The conditional install sits after the `ccy.env`
+  source and gates only the separate `optional/` tree. Enabled: symlink, skill replaced
+  wholesale, both flags exported past the `exec`. Disabled: the host-persisted skill is
+  removed. A flag set against an image that lacks the tree refuses to start, naming
+  `ccy --rebuild`.
+- [x] ✅ **Phase 5 — IaC.** Copy tasks in `play-claude-yolo.yml`, `COPY optional/` in the
+  Dockerfile, container 2.28 → 2.29 and `CCY_VERSION` 3.45.1 → 3.46.0 together, changelog
+  entry, and a commented example in this project's own `.claude/ccy/ccy.env`.
 
 ### Phase 6: Verify and review
 
@@ -187,28 +128,51 @@ touches in-container child processes.
 
 - [x] ✅ **Task 6.5**: Confirming `qa-reviewer` re-review, 2026-09-10 — Task 6.3's
   fixes had never themselves been reviewed. **FIX-BEFORE-MERGE**: 0 blocking,
-  5 fix-before-merge, 8 nits. Extensive clean list, including the live credential
-  absent from all 898 tracked files and all 227 host-mounted state files. Report:
+  **6** fix-before-merge, 8 nits. Extensive clean list, including the live credential
+  absent from all 898 tracked files and all 227 host-mounted state files. Report and
+  its authoritative `file:line` appendix:
   [subagent-reports/260910-qa-review-00092-opus-5.md](subagent-reports/260910-qa-review-00092-opus-5.md)
 
-- [ ] ⬜ **Task 6.6**: Fix I1's binary blind spot. **Verified at source and
-  demonstrated**: `probe-invariant.bash:132` passes `--binary-files=without-match`,
-  so binary files are never searched, and line 148 prints the *enumeration* count
-  as though they were — about 38% of files reported as searched were not. This is
-  the plan's own top-threat invariant reporting a partial result as a complete
-  one. **A second hazard found while confirming it**: `grep` in the CCY container
-  is `ugrep`, not GNU grep, and their default binary handling differs, so the
-  probe's coverage depends on which implementation is on `PATH`.
-  `--binary-files=text` was the only mode that matched under both, so it fixes
-  the blind spot and the divergence together. Any `COVERAGE:` line must count
-  what was actually searched
+- [x] ✅ **Task 6.6**: I1's binary blind spot fixed. `--binary-files=without-match`
+  meant `grep` never opened a file it judged binary while the pass line reported the
+  whole enumeration as searched — the plan's own top-threat invariant reporting a
+  partial result as a complete one. Now `--binary-files=text`, which also removes a
+  dependence on which `grep` is on `PATH` (ugrep in the container, GNU grep on the
+  host, differing defaults). Reasoning and the options weighed: [DECISIONS.md](DECISIONS.md)
+  Decision 4. **Run in this container after the change: `COVERAGE: searched 85054 of 85054 enumerated regular file(s) under 7 path(s), 0 skipped`, exit 0.**
 
-- [ ] ⬜ **Task 6.7**: The other four fix-before-merge findings —
-  `selftest-probes.bash` no longer covers `PRESENT` while still claiming to;
-  `probe-host.bash` H3 passes on unparsable input by comparing two sentinels;
-  `play-claude-yolo.yml:235` and `.claude/ccy/ccy.env:34` point into this plan
-  folder and break when it moves to `Completed/`; `deploy.bash` quotes container
-  2.29 when HEAD is 2.35, and an operator will run it for Task 6.4
+- [x] ✅ **Task 6.7**: The other five fix-before-merge findings, all fixed:
+
+  - `probe-host.bash` H3 guarded both sentinels on both values, as H2 does, so two
+    unreadable versions can no longer compare equal and print
+    "current at NOT-FOUND".
+  - `play-claude-yolo.yml` and `.claude/ccy/ccy.env` now reference Plan 00092 **by
+    number**, so neither breaks when this folder moves to `Completed/`. Swept the
+    tracked tree: the only remaining path reference is `CLAUDE/Plan/README.md`'s
+    index row, which is correct and moves with the plan.
+  - `deploy.bash` **reads** `REQUIRED_CONTAINER_VERSION` from the launcher instead of
+    quoting a literal, so its closing note cannot go stale again.
+  - `selftest-probes.bash` gained `PRESENT` cases: one green, plus two reds covering
+    both halves of the check — a wrapper that is not the image's, and an installed
+    skill that has drifted from the shipped one. **These are written but NOT yet
+    exercised**: this container has the mode off, so the run reports them
+    `UNVERIFIED: PRESENT cases — the mode is off, so both artefacts are absent by design`. Task 6.4 step 5 is what proves them.
+
+  **Selftest run in this container: passed 14, failed 0, unverified 1, VERDICT PASS.**
+
+- [x] ✅ **Task 6.8**: The eight nits, addressed rather than accepted:
+  `probe-invariant.bash` PRESENT now fails when the image-side reference `SKILL.md`
+  is absent instead of skipping the `cmp` and falling through to a pass;
+  `entrypoint.sh` validates `CCY_CHILD_CLAUDE_MAX_DEPTH` at session start on the same
+  terms as `CCY_CHILD_CLAUDE`, so the banner can no longer announce an unusable bound
+  (CCY 3.49.1, container 2.36); the risk table's stale `CCY_CLAUDE_DEPTH` renamed;
+  Delivery & Milestones filled in; Task 6.4 corrected below; the additive-only
+  build-context staging documented against the `state: absent` pattern that exists
+  because it was missed once; the name-collision warn-and-continue stated in
+  [SECURITY-MODEL.md](SECURITY-MODEL.md) under I6 and as Decision 5; and
+  `test-planlib.bash` wired into `qa-all.bash` — the nit that reached past this plan,
+  since `_planlib.inc.bash` backs every plan script in the repo and nothing ran its
+  regression suite automatically.
 
 - [ ] 🚫 **Task 6.4**: **Blocked — HOST ACTION, cannot run in the container.**
   Every step is a script in this folder, not a command to retype from chat, per
@@ -216,16 +180,20 @@ touches in-container child processes.
 
   1. `./triage.bash` on the HOST — what is stale before changing anything.
   2. `./deploy.bash` on the HOST — runs `play-claude-yolo.yml`. It deliberately
-     does **not** rebuild the image, and says so.
-  3. `ccy --rebuild` — required, the container version moved 2.28 → 2.29.
+     does **not** rebuild the image, and says so. **Attempted once already**: it
+     failed on the host, which is what produced the `_planlib.inc.bash` 1.1.1 fix
+     (`JOURNAL/`). The rerun has not happened.
+  3. `ccy --rebuild` — required; the launcher now asks for container **2.36**.
   4. `./triage.bash` again — its H4 leg confirms the rebuild landed.
-  5. `./acceptance.bash` INSIDE a container with `CCY_CHILD_CLAUDE=1` set.
+  5. `./acceptance.bash` INSIDE a container with `CCY_CHILD_CLAUDE=1` set. This is
+     also the only run that can exercise Task 6.7's new `PRESENT` cases.
   6. `./acceptance.bash` INSIDE a **later** container with the flag removed.
      This is the step that matters: it proves the mode can be turned off.
 
   - Before running it: I1 will report the session transcript from 2026-09-02
     unless the OAuth token is rotated first. That red is a true finding,
-    recorded in `JOURNAL/`, not a defect in the gate.
+    recorded in `JOURNAL/`, not a defect in the gate. (I1 is green in *this*
+    container, which holds a different token — that says nothing about the host.)
 
 ## Dependencies
 
@@ -237,38 +205,11 @@ touches in-container child processes.
 
 ## Technical Decisions
 
-### Decision 1: Recover the token from `/proc/1/environ`, not from a file or an env alias
-
-**Context**: the child needs the token; three mechanisms could supply it.
-**Options considered**:
-
-- *`env` key in `settings.json`* — documented to reach subprocesses, but
-  `/root/.claude` is the host-mounted project directory, so this writes a live
-  credential into the project tree. Rejected outright.
-- *A second, non-scrubbed variable name* — works, because only the exact name is
-  stripped. It makes the credential readable by every command in the session and
-  therefore by every transcript. A real widening. Rejected.
-- *Read `/proc/1/environ` inside the wrapper* — the value never enters a variable
-  the agent composes, never appears in argv, never reaches a transcript.
-  **Decision**: `/proc/1/environ`, because it is the only option that adds no new
-  exposure surface over what root in this container already has.
-  **Date**: 2026-09-02
-
-### Decision 2: The opt-in lives in `ccy.env`, and is a capability declaration, not a security control
-
-**Context**: an in-container gate cannot bind an agent running as root.
-**Decision**: state this plainly rather than implying the flag contains anything.
-`ccy.env` is already sourced as shell in-container, so the flag grants nothing the
-file could not already do. Its job is to declare intent and to keep the tooling and
-the skill out of sessions that did not ask for them.
-**Date**: 2026-09-02
-
-### Decision 3: Pass arguments through verbatim
-
-**Context**: the wrapper could inject `--dangerously-skip-permissions` for convenience.
-**Decision**: it does not. Injecting it would silently widen what a child may do,
-which is precisely the degradation this plan forbids. The caller passes what it needs.
-**Date**: 2026-09-02
+Five decisions, with their options and reasoning, are in
+[DECISIONS.md](DECISIONS.md): the token source (`/proc/1/environ` over `settings.json`
+or an env alias), the opt-in as a capability declaration rather than a control,
+verbatim argument pass-through, `--binary-files=text` in the I1 search, and leaving a
+name-colliding skill in place rather than deleting a user's work.
 
 ## Success Criteria
 
@@ -290,15 +231,15 @@ which is precisely the degradation this plan forbids. The caller passes what it 
 
 ## Risks & Mitigations
 
-| Risk                                                                         | Impact | Probability | Mitigation                                                       |
-| ---------------------------------------------------------------------------- | ------ | ----------- | ---------------------------------------------------------------- |
-| Stale skill persists into a disabled session via the host-mounted skills dir | H      | H           | Task 4.3 removes it actively; probed by `acceptance.bash`        |
-| Token leaks into a transcript through a diagnostic                           | H      | M           | Wrapper never echoes the value; probe asserts it                 |
-| PID 1 is not `tini` in a CI variant, so recovery fails obscurely             | M      | M           | Fail fast naming the cause; noted against Plan 00068             |
-| Runaway recursive spawning exhausts quota                                    | M      | M           | `CCY_CLAUDE_DEPTH` bounded, default max depth 1                  |
-| Image and launcher versions drift, so the flag is set but tooling is absent  | M      | M           | Task 4.4 fails fast; Task 5.3 bumps both version values together |
-| Agent uses child processes where the `Agent` tool is correct                 | L      | M           | The skill says when not to use it                                |
-| A child inherits the project harness and answers something unrelated         | M      | H           | Measured, not predicted; the skill shows neutral vs project cwd  |
+| Risk                                                                         | Impact | Probability | Mitigation                                                      |
+| ---------------------------------------------------------------------------- | ------ | ----------- | --------------------------------------------------------------- |
+| Stale skill persists into a disabled session via the host-mounted skills dir | H      | H           | Phase 4 removes it actively; probed by `acceptance.bash` (I6)   |
+| Token leaks into a transcript through a diagnostic                           | H      | M           | Wrapper never echoes the value; probe asserts it                |
+| PID 1 is not `tini` in a CI variant, so recovery fails obscurely             | M      | M           | Fail fast naming the cause; noted against Plan 00068            |
+| Runaway recursive spawning exhausts quota                                    | M      | M           | `CCY_CHILD_CLAUDE_DEPTH` bounded, default max depth 1           |
+| Image and launcher versions drift, so the flag is set but tooling is absent  | M      | M           | Phase 4 fails fast; Phase 5 bumps both version values together  |
+| Agent uses child processes where the `Agent` tool is correct                 | L      | M           | The skill says when not to use it                               |
+| A child inherits the project harness and answers something unrelated         | M      | H           | Measured, not predicted; the skill shows neutral vs project cwd |
 
 ## Delivery & Milestones
 
@@ -306,4 +247,18 @@ which is precisely the degradation this plan forbids. The caller passes what it 
      "when" — do not add dates). The blow-by-blow activity log lives in
      JOURNAL/00092-Journal-YY-MM-DD.md — see CLAUDE/PlanJournalling.md. -->
 
-- Plan filed
+- Plan filed; the seven invariants defined and gated before any code — `5c02138`
+- Feature landed end to end: wrapper, skill, entrypoint wiring, IaC, CCY 3.46.0 /
+  container 2.29 — `8e4480a`
+- Probes made falsifiable rather than merely green; `selftest-probes.bash` found two
+  real defects in them — `1ff0a70`
+- The wrapper's error path was dead code under `set -e`; measured, not theorised —
+  `2823cdb`
+- The cwd-inheritance trap found by the functional probe and written into the skill —
+  `6d36539`, `16a3137`
+- Host steps put into scripts rather than a chat message, per PlanTriage — `4d0e5c4`
+- First `qa-reviewer` round: all four FIX-BEFORE-MERGE findings resolved — `6ddef5b`
+- `planlib` 1.1.1, extracted from this plan's failed host deploy: a relative playbook
+  path now resolves against the repo root, not the cwd — `f4a2799`
+- Confirming re-review: the I1 probe was skipping 38% of what it reported as searched —
+  `2a9a000`, findings recorded at `file:line` in `7cf4932`

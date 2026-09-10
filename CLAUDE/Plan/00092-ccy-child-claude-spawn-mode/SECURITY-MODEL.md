@@ -91,6 +91,21 @@ when the immediately preceding session had the flag set. This requires active
 removal, because that directory is host-persisted and gitignored. Without I6 the
 mode cannot be switched off, only switched on.
 
+*The one case I6 deliberately does not clear.* `entrypoint.sh` removes
+`/root/.claude/skills/child-claude` only when it is recognisably **ours** — the shipped
+`SKILL.md` carrying `name: child-claude` in its frontmatter. A directory of that name
+holding anything else is reported and **left in place**, so a disabled session can start
+with a `child-claude` skill still on disk.
+
+That is the intended trade, and it is a trade, not an oversight. `/root/.claude` is the
+user's real host filesystem and the unconditional skills install merges into it, so a
+user-authored skill can legitimately share the name; deleting it by name alone would
+destroy someone else's work to satisfy a guard against an accident. The residue is inert
+either way — a skill is guidance text, and without the wrapper on `PATH` there is nothing
+for it to invoke — so the cost of leaving it is a stale document, while the cost of
+removing it is data loss. The warning names the path, so the state is visible rather than
+silent, and `probe-invariant.bash I6` reports the directory's existence as a red.
+
 **I7 — Bounded depth, as an accident guard.** A child launched through the wrapper
 does not spawn an unbounded tree by mistake. `CCY_CHILD_CLAUDE_DEPTH` is incremented
 by the wrapper and checked against `CCY_CHILD_CLAUDE_MAX_DEPTH`, default 1. The counter

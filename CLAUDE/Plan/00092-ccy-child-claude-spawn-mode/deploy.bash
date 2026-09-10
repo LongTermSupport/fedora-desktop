@@ -52,13 +52,27 @@ plan_deploy_leg "play-claude-yolo.yml" \
 
 # Deliberately NOT rebuilding the image here.
 #
-# The image version moved 2.28 -> 2.29, so a rebuild IS required before the feature reaches a
-# session. But `ccy --rebuild` is a long, interactive, resource-heavy operation the operator
-# should start knowingly, and burying it inside a deploy wrapper would make this script mean
+# The image version has moved, so a rebuild IS required before the feature reaches a session.
+# But `ccy --rebuild` is a long, interactive, resource-heavy operation the operator should
+# start knowingly, and burying it inside a deploy wrapper would make this script mean
 # something much bigger than its name. triage.bash's H4 leg reports whether one is pending,
 # so the need is surfaced rather than assumed.
+#
+# The version is READ from the launcher, never written here as a literal: a number typed
+# into this message goes stale the next time REQUIRED_CONTAINER_VERSION is bumped, and an
+# operator would be told to expect a version the launcher does not ask for.
+# `|| requiredVer=""` is the explicit-fallback form: grep exits 1 when the line is absent
+# and pipefail would otherwise kill the script at the assignment.
+requiredVer="$(grep -m1 -oE 'REQUIRED_CONTAINER_VERSION="[0-9.]+"' \
+    "${PLAN_REPO_ROOT}/files/var/local/claude-yolo/claude-yolo" |
+    grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?')" || requiredVer=""
 printf '\n'
-printf 'Staging done. The image still needs rebuilding: the container version moved to 2.29.\n'
+if [[ -n "${requiredVer}" ]]; then
+    printf 'Staging done. The image still needs rebuilding: the launcher requires container %s.\n' \
+        "${requiredVer}"
+else
+    printf 'Staging done. The image still needs rebuilding; triage.bash H4 reports the version.\n'
+fi
 printf 'Next, in this order:\n'
 printf '  1. ccy --rebuild\n'
 printf '  2. %s/triage.bash          # confirms the rebuild landed\n' "${PLAN_SCRIPT_DIR}"

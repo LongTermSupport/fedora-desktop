@@ -232,7 +232,14 @@
 
     # Staged OUTSIDE /opt/claude-yolo/skills/ deliberately. The entrypoint copies
     # that directory into every session unconditionally, so opt-in content cannot
-    # live there. See CLAUDE/Plan/00092-ccy-child-claude-spawn-mode/.
+    # live there. Reasoning: Plan 00092, by number under CLAUDE/Plan/.
+    #
+    # The next two tasks only ever ADD, exactly like the browsing copy above, and the
+    # Dockerfile COPYs this whole directory. So deleting a file from
+    # files/opt/claude-yolo/optional/ does NOT remove it from a host's build context, and
+    # the stale copy keeps shipping into the image. If anything under optional/ is ever
+    # removed or renamed, add it to a `state: absent` task — the pattern is at
+    # "Remove Obsolete Browsing Skill Files" below, which exists because this was missed once.
     - name: Copy Optional Child-Claude Wrapper into Docker Build Context
       become: true
       ansible.builtin.copy:

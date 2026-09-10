@@ -123,10 +123,28 @@ probe_H3() {
     deployedVer="$(read_pinned "${DEPLOYED_LAUNCHER}" 'CCY_VERSION="[0-9.]+"')"
     printf '   checkout CCY_VERSION:  %s\n' "${checkoutVer}"
     printf '   deployed CCY_VERSION:  %s  (%s)\n' "${deployedVer}" "${DEPLOYED_LAUNCHER}"
-    if [[ "${deployedVer}" == "UNREADABLE" ]]; then
-        printf '[FAIL] the deployed launcher is absent or unreadable — run the playbook.\n' >&2
-        return 1
-    fi
+    # BOTH sentinels on BOTH values, the way H2 does it. An earlier draft tested only
+    # `deployedVer == UNREADABLE`, so a renamed CCY_VERSION line made read_pinned answer
+    # NOT-FOUND for each side, the equality test passed, and H3 printed
+    # "deployed launcher is current at NOT-FOUND" — two failures to read compared to each
+    # other and reported as agreement.
+    case "${checkoutVer}" in
+        UNREADABLE | NOT-FOUND)
+            printf '[FAIL] could not read CCY_VERSION from the checkout, so nothing was proved.\n' >&2
+            return 1
+            ;;
+    esac
+    case "${deployedVer}" in
+        UNREADABLE)
+            printf '[FAIL] the deployed launcher is absent or unreadable — run the playbook.\n' >&2
+            return 1
+            ;;
+        NOT-FOUND)
+            printf '[FAIL] the deployed launcher carries no CCY_VERSION line, so its version\n' >&2
+            printf '       could not be established and staleness was never checked.\n' >&2
+            return 1
+            ;;
+    esac
     if [[ "${checkoutVer}" != "${deployedVer}" ]]; then
         printf '[FAIL] deployed launcher is stale. Run deploy.bash in this plan folder.\n' >&2
         return 1
