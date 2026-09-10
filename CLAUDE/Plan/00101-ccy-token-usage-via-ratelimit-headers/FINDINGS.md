@@ -114,6 +114,37 @@ weekly Fable limit. The probe now captures `error_code` and `disabled_reason`
 from the body, plus the message, `retry-after`, `request-id` and
 `x-should-retry`, and accepts `PROBE_ACCOUNT=all`.
 
-**What is still unobserved: a `7d_oi` header, from any response.** No sample has
-carried one. Until an account *with* credits is probed, H3 and H4 remain open —
-and the display must not assume either.
+### Host run 2 — the full pool, four accounts against Haiku and Fable
+
+| ID  | Fact                                                                                                                                                                                                                                           | Source     |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| F29 | **`7d_oi` was absent on all 8 probes**, including three clean Haiku 200s. **H3 is refuted**: a Haiku probe does not carry the Fable bucket                                                                                                     | HOST run 2 |
+| F30 | A real limit rejection *does* carry the headers. account-2's **Haiku** probe returned 429 with the full set — `7d-utilization 1.0`, `7d-status rejected`, `7d-surpassed-threshold 1.0`, `retry-after 121933`, and a specific message           | HOST run 2 |
+| F31 | All four **Fable** probes failed identically and *degenerately*: 429, body message literally `"Error"`, **no `error_code`, no `disabled_reason`, no `retry-after`, and no `anthropic-ratelimit-*` header at all**, with `x-should-retry: true` | HOST run 2 |
+| F32 | `overage-disabled-reason` is **not uniform**: `out_of_credits` on accounts 1–2, `org_level_disabled` on accounts 3–4. `overage-status: rejected` on all four                                                                                   | HOST run 2 |
+| F33 | Fable 5.1 carries the `rejects_disabled_thinking` capability, which the bundle pairs with a **2048-token thinking budget**. `max_tokens` must exceed a thinking budget                                                                         | bundle     |
+
+**F30 against F31 is the tell.** The same sweep produced a genuine unified
+rate-limit rejection that carried everything, and four Fable rejections that
+carried nothing. A refusal from the unified rate-limit system looks like F30. The
+Fable responses do not, so they did not come from it.
+
+**F33 explains why, and it is a defect in the probe, not a fact about Fable.**
+The probe sent `max_tokens: 1` with no thinking block. Fable rejects disabled
+thinking and needs a 2048-token budget, and `max_tokens` must exceed that budget
+— so **the Fable arm of runs 1 and 2 was never a valid request**. An invalid
+request cannot answer a question about buckets, and F24/F31 must not be read as
+evidence that Fable is refused for credits.
+
+**H5 is therefore unsupported by the runs**, though F26/F27 still stand as a
+mechanism that exists. F32 further weakens it: two accounts are
+`org_level_disabled` rather than out of credits, yet failed identically — which
+is what a request-shape fault predicts and a credits fault does not.
+
+Corrected: Fable and Mythos probes now send
+`max_tokens: 2100` with `thinking: {type: enabled, budget_tokens: 2048}`, and
+the report records the request body verbatim so a future reader can check what
+was actually asked.
+
+**Still unobserved: a `7d_oi` header from any response**, and now also **any
+successful Fable response**. H4 is untested.

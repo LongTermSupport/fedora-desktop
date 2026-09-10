@@ -50,8 +50,10 @@ default, probes EVERY account in it — the question is about the pool, and an
 answer from one account does not generalise to it.
 
 HOST-ONLY. Changes nothing, but it is NOT free: one billed POST /v1/messages per
-account-and-model pair (max_tokens=1, one character in), against the allowance
-it reports. Four accounts times the default Haiku and Fable is eight requests.
+account-and-model pair, against the allowance it reports. Four accounts times
+the default Haiku and Fable is eight requests. Input is one character; output is
+capped at 1 token, except for Fable and Mythos, which reject a request with
+thinking disabled and so must allow their 2048-token thinking budget.
 
   PROBE_MODELS   space-separated model ids to probe instead of the default
   PROBE_ACCOUNT  'all' (the DEFAULT), or a 1-based index into the sorted pool

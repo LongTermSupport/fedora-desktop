@@ -13,8 +13,10 @@
 # probes with Haiku to leave the expensive allowances alone), and if not, whether a FABLE
 # probe does.
 #
-# COST: NOT read-only. Each model costs one billed POST /v1/messages (max_tokens=1, one
-# character in) against the allowance it reports. Default list is two requests.
+# COST: NOT read-only. One billed POST /v1/messages per account-and-model pair, against the
+# allowance it reports. Input is one character throughout. Output is capped at 1 token for
+# ordinary models; a Fable or Mythos probe must allow its mandatory 2048-token thinking
+# budget, so it is capped at 2100 and may actually generate some of them.
 #
 # Leg of triage-buckets.bash. Standalone: ./probe-bucket-headers.bash /tmp/report.md
 #
@@ -80,6 +82,30 @@ BUCKET_ROWS=(
 )
 
 out() { printf '%s\n' "$*" >>"${REPORT}"; }
+
+# Echoes the request body for a model. stdout is the payload; there is no chatter here.
+#
+# Fable and Mythos carry the `rejects_disabled_thinking` capability, which the bundle pairs
+# with a 2048-token thinking budget, and `max_tokens` must exceed a thinking budget. So the
+# `max_tokens: 1` body that is correct for Haiku is NOT a valid request for them.
+#
+# That is almost certainly why sweep 1's Fable arm returned a degenerate error — literally
+# `"Error"`, no `error_code`, and no `anthropic-ratelimit-*` headers at all — while a genuine
+# rate-limit rejection on the same run (account-2, Haiku) came back with the full header set,
+# a real message and a `retry-after`. An invalid request cannot answer a question about
+# buckets, so ask the smallest VALID one instead.
+_probe_body() {
+    local model="$1"
+    case "${model}" in
+    *fable* | *mythos*)
+        printf '{"model":"%s","max_tokens":2100,"thinking":{"type":"enabled","budget_tokens":2048},"messages":[{"role":"user","content":"."}]}' \
+            "${model}"
+        ;;
+    *)
+        printf '{"model":"%s","max_tokens":1,"messages":[{"role":"user","content":"."}]}' "${model}"
+        ;;
+    esac
+}
 
 INCOMPLETE=0
 ANY_HEADERS=0
@@ -194,6 +220,12 @@ for probe in "${PROBES[@]}"; do
     : >"${HDR}"
     : >"${BODY}"
 
+    # Recorded verbatim, so the report says what was actually asked. Sweep 1 could not be
+    # re-read to check this, because the body it sent was only implied by the script version.
+    # It holds nothing secret — a model id, a token budget and a full stop.
+    requestBody="$(_probe_body "${model}")"
+    out "- Request body: \`${requestBody}\`"
+
     code="000"
     if ! code="$(printf 'header = "Authorization: Bearer %s"\n' "${TOKEN}" |
         curl --config - \
@@ -202,7 +234,7 @@ for probe in "${PROBES[@]}"; do
             --header 'content-type: application/json' \
             --header 'anthropic-version: 2023-06-01' \
             --header 'anthropic-beta: oauth-2025-04-20' \
-            --data "{\"model\":\"${model}\",\"max_tokens\":1,\"messages\":[{\"role\":\"user\",\"content\":\".\"}]}" \
+            --data "${requestBody}" \
             --dump-header "${HDR}" \
             --connect-timeout 5 \
             --max-time 20 \

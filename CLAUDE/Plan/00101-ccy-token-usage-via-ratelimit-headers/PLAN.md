@@ -73,9 +73,9 @@ change and two more cache fields, not a new request.
 
 Three hypotheses, leading to different work:
 
-- **H3** — a **Haiku** probe carries the `7d_oi` pair. Then ccy needs a parser
-  change only, and the Fable bar costs nothing beyond the request already made.
-  **Weakened by F23**: the one Haiku response seen did not carry it.
+- ~~**H3** — a **Haiku** probe carries the `7d_oi` pair~~ — **REFUTED by F29**.
+  Four accounts, three clean 200s, `7d_oi` absent on every one. The cheap probe
+  cannot show a Fable bar.
 - **H4** — only a **Fable** probe carries it, i.e. the bucket set is scoped to
   the request's model. Then showing the bar costs a Fable request, which
   Decision 3 deliberately avoided, and the cost has to be put to the user.
@@ -208,11 +208,21 @@ credits" from "weekly Fable limit reached". The probe was amended to capture the
   separates a credits refusal from a weekly limit, and which the top-level
   `rate_limit_error` type cannot
 
-- [ ] **Task 6.2b**: Run the sweep — `./triage-buckets.bash`, no arguments.
-  **This is the decision gate.** It answers whether *any* account emits a
-  `7d_oi` header, and reads the refusal reason on the ones that do not. Needs an
-  account with usage credits to be conclusive, since F28 has the current pool
-  out of them
+- [x] ✅ **Task 6.2b**: Full-pool sweep run — 8 probes, 4 accounts × 2 models.
+  **H3 refuted** (F29): three clean Haiku 200s, `7d_oi` absent on every one. The
+  Fable arm answered nothing, and F33 says why — the probe was sending an
+  invalid request
+
+- [x] ✅ **Task 6.2d**: Probe corrected. Fable and Mythos reject disabled
+  thinking and carry a mandatory 2048-token budget, which `max_tokens` must
+  exceed, so `max_tokens: 1` was never a valid Fable request. They now get
+  `max_tokens: 2100` with thinking enabled, and the report records the request
+  body verbatim so a run can be checked against what it actually asked
+
+- [ ] **Task 6.2e**: Re-run the Fable arm with the corrected body —
+  `PROBE_MODELS=claude-fable-5-1 ./triage-buckets.bash`, four requests.
+  **This is the decision gate for H4**, and the first valid Fable request this
+  plan will have made
 
 - [ ] **Task 6.2c** (H5 only): if every account is refused for credits, then no
   `7d_oi` figure exists to display and Tasks 6.3/6.4 do not apply. The work
