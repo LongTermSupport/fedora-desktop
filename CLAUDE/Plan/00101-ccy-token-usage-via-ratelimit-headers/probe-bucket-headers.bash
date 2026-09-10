@@ -21,7 +21,10 @@
 # Tuning (environment, so the leg call stays a plain command):
 #   PROBE_MODELS   space-separated model ids (default: claude-haiku-4-5-20251001
 #                  claude-fable-5-1)
-#   PROBE_ACCOUNT  1-based index into the sorted token pool, or "all" (default: 1)
+#   PROBE_ACCOUNT  "all" (the DEFAULT — every token in the pool), or a 1-based index into it
+#
+# It never prompts for a token. It enumerates ~/.claude-tokens/ccy/tokens/*.token directly,
+# sorted, so account-N means the same account across runs.
 #
 # The token reaches curl through --config on STDIN so it never appears in argv (BSH-09).
 # Accounts are reported as account-N, never by token filename: those are personal aliases and
@@ -81,6 +84,11 @@ out() { printf '%s\n' "$*" >>"${REPORT}"; }
 INCOMPLETE=0
 ANY_HEADERS=0
 
+# One row per probe, printed as a table at the end. With the whole pool probed against two
+# models the per-probe sections run long, and the question — did ANY response carry 7d_oi —
+# should be answerable without reading all of them.
+SUMMARY_ROWS=()
+
 # A missing tool is an IaC gap, not a skip (R11).
 if [[ -z "$(command -v curl)" ]]; then
     out ""
@@ -115,7 +123,11 @@ fi
 # Sorted, so account-N means the same account across runs.
 IFS=$'\n' read -r -d '' -a TOKEN_FILES < <(printf '%s\n' "${TOKEN_FILES[@]}" | sort && printf '\0')
 
-ACCOUNT="${PROBE_ACCOUNT:-1}"
+# DEFAULT IS THE WHOLE POOL. It was account-1 only, and that was a bad default which produced
+# a misleading answer: account-1 happened to be out of usage credits, so its Fable probe was
+# refused and the run said nothing about whether the bucket exists. The question is about the
+# ACCOUNT POOL, so probing one member of it and generalising was never sound.
+ACCOUNT="${PROBE_ACCOUNT:-all}"
 ACCOUNT_INDEXES=()
 if [[ "${ACCOUNT}" == "all" ]]; then
     for ((i = 1; i <= ${#TOKEN_FILES[@]}; i++)); do
@@ -163,12 +175,14 @@ for probe in "${PROBES[@]}"; do
     TOKEN=""
     if ! TOKEN="$(cat "${TOKEN_FILES[$((accountIndex - 1))]}")"; then
         out "- **UNANSWERABLE**: the token file could not be read."
+        SUMMARY_ROWS+=("account-${accountIndex} | ${model} | — | token unreadable")
         printf '[INCOMPLETE] could not read the token file for account-%s\n' "${accountIndex}" >&2
         INCOMPLETE=1
         continue
     fi
     if [[ -z "${TOKEN}" ]]; then
         out "- **UNANSWERABLE**: the token file is empty."
+        SUMMARY_ROWS+=("account-${accountIndex} | ${model} | — | token empty")
         printf '[INCOMPLETE] the token file for account-%s is empty\n' "${accountIndex}" >&2
         INCOMPLETE=1
         continue
@@ -212,6 +226,7 @@ for probe in "${PROBES[@]}"; do
 
     if [[ "${code}" == "000" ]]; then
         out "- The request never reached the API, so this model answers nothing."
+        SUMMARY_ROWS+=("account-${accountIndex} | ${model} | 000 | no response")
         printf '[INCOMPLETE] %s: no HTTP response\n' "${model}" >&2
         INCOMPLETE=1
         continue
@@ -225,6 +240,22 @@ for probe in "${PROBES[@]}"; do
             errType="${bodyMatch}"
         fi
         out "- Error type: \`${errType}\`"
+
+        # error.details.error_code is the DECISIVE field. The bundle branches on
+        # `credits_required` there, and it sits inside `details` while the top-level type stays
+        # a generic `rate_limit_error` — so capturing the type alone, as the first run did,
+        # cannot tell a credits refusal from a weekly limit being reached.
+        errCode="(none found in the body)"
+        if codeMatch="$(grep -aoE '"error_code"[[:space:]]*:[[:space:]]*"[a-z_]+"' "${BODY}" | head -1)"; then
+            errCode="${codeMatch}"
+        fi
+        out "- Error code (\`error.details.error_code\`): \`${errCode}\`"
+
+        errReason="(none found in the body)"
+        if reasonMatch="$(grep -aoE '"disabled_reason"[[:space:]]*:[[:space:]]*"[a-z_]+"' "${BODY}" | head -1)"; then
+            errReason="${reasonMatch}"
+        fi
+        out "- Disabled reason: \`${errReason}\`"
 
         # The MESSAGE separates "this account has no Fable entitlement" from "this account has
         # exhausted its Fable allowance". The type alone cannot, and that distinction decides
@@ -263,6 +294,7 @@ for probe in "${PROBES[@]}"; do
 
     if [[ -z "${headers}" ]]; then
         out "- The response carried NO anthropic-ratelimit-* headers."
+        SUMMARY_ROWS+=("account-${accountIndex} | ${model} | ${code} | no ratelimit headers")
         continue
     fi
 
@@ -274,6 +306,17 @@ for probe in "${PROBES[@]}"; do
     fi
     out "- \`representative-claim\` (the bucket the API calls binding): \`${claim}\`"
     out ""
+
+    # The one value the whole run exists to observe, pulled out separately so the summary
+    # table can lead with it.
+    oiState="absent"
+    if oiLine="$(printf '%s\n' "${headers}" | grep -aiE '^anthropic-ratelimit-unified-7d_oi-utilization:' | head -1)"; then
+        oiState="${oiLine#*:}"
+        oiState="${oiState# }"
+        oiState="${oiState%$'\r'}"
+        oiState="**${oiState}**"
+    fi
+    SUMMARY_ROWS+=("account-${accountIndex} | ${model} | ${code} | ${oiState}")
 
     out "| suffix | bucket | ccy label | utilization | reset |"
     out "| ------ | ------ | --------- | ----------- | ----- |"
@@ -309,7 +352,16 @@ for probe in "${PROBES[@]}"; do
 done
 
 out ""
-out "READ THE 7d_oi ROW FIRST. A utilization value there is the Fable allowance, arriving on"
+out "## Summary — did any response carry the Fable bucket?"
+out ""
+out "| account | probe model | HTTP | 7d_oi utilization |"
+out "| ------- | ----------- | ---- | ----------------- |"
+for row in "${SUMMARY_ROWS[@]}"; do
+    out "| ${row} |"
+done
+
+out ""
+out "READ THE 7d_oi COLUMN FIRST. A utilization value there is the Fable allowance, arriving on"
 out "the request ccy already makes. \`absent\` on every model means the header route cannot"
 out "show it, leaving only GET /api/oauth/usage — which Plan 00100 established stored"
 out "setup-tokens are refused on, for scope."

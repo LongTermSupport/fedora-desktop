@@ -95,6 +95,25 @@ If H5 holds, the Fable bar is not simply missing from ccy: for an account in
 this state there is no figure to show, and the honest display is the reason
 rather than a blank. That is a different piece of work from parsing a header.
 
-The error **message** is the discriminator between "out of credits" and "weekly
-Fable limit reached". The probe now captures it, along with `retry-after`,
-`request-id` and `x-should-retry`, and accepts `PROBE_ACCOUNT=all`.
+### H5 verified as a mechanism, and the account state confirmed
+
+| ID  | Fact                                                                                                                                                                                                                                              | Source          |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
+| F26 | **Fable spending is gated on usage credits.** The bundle defines a `fable_overage_consent_prompt` dialog whose payload is `{overagesEnabled, modelName, balanceCents, currency}` and whose result is `consent`/`switch_default`/`cancelled`       | bundle          |
+| F27 | The client carries dedicated `isFableCreditsRequired` / `setFableCreditsRequired` state, and parses a `credits_required` value at **`error.details.error_code`**, alongside `can_user_purchase_credits` and `has_chargeable_saved_payment_method` | bundle          |
+| F28 | **The owner's accounts are out of credits.** Confirmed directly, and independently visible as `overage-disabled-reason: out_of_credits` in F23                                                                                                    | owner statement |
+
+F26 and F27 make H5 a **mechanism, not a guess**: Fable is paid for out of usage
+credits, and the API has a specific error code for refusing it on that basis.
+With F28, the observed 429 on a Fable-entitled account is explained.
+
+**F27 also names a gap in the probe.** `error_code` lives inside
+`error.details`, while the top-level `type` stays a generic `rate_limit_error` —
+so run 1 recorded the one field that cannot distinguish a credits refusal from a
+weekly Fable limit. The probe now captures `error_code` and `disabled_reason`
+from the body, plus the message, `retry-after`, `request-id` and
+`x-should-retry`, and accepts `PROBE_ACCOUNT=all`.
+
+**What is still unobserved: a `7d_oi` header, from any response.** No sample has
+carried one. Until an account *with* credits is probed, H3 and H4 remain open —
+and the display must not assume either.

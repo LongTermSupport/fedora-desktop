@@ -199,12 +199,20 @@ credits" from "weekly Fable limit reached". The probe was amended to capture the
 *message*, `retry-after`, `request-id` and `x-should-retry`, and to accept
 `PROBE_ACCOUNT=all`. Three of the four accounts are unprobed.
 
-- [ ] **Task 6.2b**: Sweep the pool, Fable only — four requests:
-  `PROBE_ACCOUNT=all PROBE_MODELS=claude-fable-5-1 ./triage-buckets.bash`.
-  **This is the decision gate.** It answers two things at once: whether *any*
-  account gets a 200 from Fable (and therefore whether a `7d_oi` header is ever
-  emitted), and what the 429 message says on the ones refused — which separates
-  H5's "out of credits" from a plain weekly Fable limit
+- [x] ✅ **Task 6.2a**: Probing one account was the wrong default and produced a
+  misleading answer — account-1 was out of credits, so its Fable arm said
+  nothing about buckets. `PROBE_ACCOUNT` now defaults to **`all`**: the question
+  is about the pool, and one member does not generalise to it. The report also
+  gained a summary table, one row per probe, leading with the `7d_oi` column,
+  and captures `error.details.error_code` (F27) — the field that actually
+  separates a credits refusal from a weekly limit, and which the top-level
+  `rate_limit_error` type cannot
+
+- [ ] **Task 6.2b**: Run the sweep — `./triage-buckets.bash`, no arguments.
+  **This is the decision gate.** It answers whether *any* account emits a
+  `7d_oi` header, and reads the refusal reason on the ones that do not. Needs an
+  account with usage credits to be conclusive, since F28 has the current pool
+  out of them
 
 - [ ] **Task 6.2c** (H5 only): if every account is refused for credits, then no
   `7d_oi` figure exists to display and Tasks 6.3/6.4 do not apply. The work
