@@ -617,7 +617,7 @@ main() {
 
       echo -e "\n${GREEN}${BOLD}Done!${NC} Account ${add_alias} is ready."
       echo -e "${CYAN}i${NC} Run the playbook to deploy SSH config and git helpers:"
-      echo -e "   ${BOLD}ansible-playbook ~/Projects/fedora-desktop/playbooks/imports/play-github-cli-multi.yml${NC}"
+      echo -e "   ${BOLD}~/Projects/fedora-desktop/playbooks/imports/play-github-cli-multi.yml${NC}"
       ;;
 
     setup-all)

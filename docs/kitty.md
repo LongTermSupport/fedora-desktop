@@ -19,7 +19,7 @@ Anything *outside* those markers is your personal config and the playbook will n
 To re-deploy after edits:
 
 ```bash
-ansible-playbook ~/Projects/fedora-desktop/playbooks/imports/play-terminal-emulators.yml --tags kitty
+~/Projects/fedora-desktop/playbooks/imports/play-terminal-emulators.yml --tags kitty
 ```
 
 ## What's configured

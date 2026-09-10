@@ -31,9 +31,10 @@
    git commit -m "Update playbook"
    git push
 
-   # Then instruct USER to run on HOST:
+   # Then instruct USER to run on HOST (plays run by path from any directory;
+   # the bare `ansible-playbook <path>` form only works from the repo root):
    # "On your host system, run:"
-   # ansible-playbook ~/Projects/fedora-desktop/playbooks/imports/play-something.yml
+   # ~/Projects/fedora-desktop/playbooks/imports/play-something.yml
    ```
 
 **REMEMBER: In CCY container = EDIT ONLY, DEPLOY ON HOST**
