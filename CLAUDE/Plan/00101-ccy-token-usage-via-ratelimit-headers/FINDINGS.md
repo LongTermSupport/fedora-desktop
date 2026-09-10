@@ -73,13 +73,28 @@ F23 corroborates F20 independently: `0.69` read as a fraction is 69% of the
 weekly allowance, a plausible mid-week figure. Read as a percentage it would be
 0.69%, on an account clearly in heavy use.
 
-**F24 does not decide anything on its own.** Two explanations survive it, and
-the first run recorded only the error *type*, which cannot separate them:
+| ID  | Fact                                                                                                     | Source          |
+| --- | -------------------------------------------------------------------------------------------------------- | --------------- |
+| F25 | **account-1 does have Fable entitlement.** Confirmed by the owner, so F24's 429 is not an access refusal | owner statement |
 
-- account-1 has **no Fable entitlement**, so its 429 says nothing about buckets;
-- account-1 **has exhausted** a Fable allowance, in which case `7d_oi` exists
-  but was not reported to a Haiku request.
+F25 kills the first of the two readings F24 admitted. What is left:
 
-The error *message* separates them. The probe now captures it, along with
-`retry-after`, `request-id` and `x-should-retry`, and accepts
-`PROBE_ACCOUNT=all`.
+- ~~account-1 has no Fable entitlement, so its 429 says nothing about buckets~~
+  — **refuted by F25**;
+- account-1 is **entitled but currently refused**, so `7d_oi` may well exist and
+  simply was not reported to a *Haiku* request. That is **evidence for H4**, not
+  yet proof.
+
+**The likeliest mechanism, and it is still a hypothesis (H5).** The bucket is
+named `seven_day_overage_included`, and the same Haiku response that omitted it
+carried `overage-status: rejected` with `overage-disabled-reason: out_of_credits` (F23). If Fable is metered against the overage-included weekly
+bucket, an account out of credits would be refused Fable *and* have no
+`7d_oi` bucket to report — which is exactly the pair of observations in hand.
+
+If H5 holds, the Fable bar is not simply missing from ccy: for an account in
+this state there is no figure to show, and the honest display is the reason
+rather than a blank. That is a different piece of work from parsing a header.
+
+The error **message** is the discriminator between "out of credits" and "weekly
+Fable limit reached". The probe now captures it, along with `retry-after`,
+`request-id` and `x-should-retry`, and accepts `PROBE_ACCOUNT=all`.
