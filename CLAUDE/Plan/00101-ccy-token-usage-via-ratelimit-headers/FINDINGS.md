@@ -191,6 +191,34 @@ F26 and F27 remain true — a Fable overage-consent dialog and a
 *beyond* an included allowance, which is a different subject from the weekly
 window this plan is trying to display.
 
+### F36–F39 — from Anthropic's published documentation
+
+Web research, filed at
+[subagent-reports/260910-fable-limit-research-opus-5.md](subagent-reports/260910-fable-limit-research-opus-5.md).
+
+| ID  | Fact                                                                                                                                                                                                                                    | Source             |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| F36 | **On Max, Fable is included up to 50% of the weekly usage limit — a CEILING INSIDE the single weekly allowance, not a second allowance.** Other models draw from the same pool. On Pro, Fable is credits-only from the first token      | Fable help article |
+| F37 | The `anthropic-ratelimit-unified-*` family is **absent from Anthropic's public API documentation entirely**, and `7d_oi` appears in no public source. It is real (F18, F35) but unsupported and may change without notice               | rate limits docs   |
+| F38 | The **documented** ways to see this: `/usage` in Claude Code, Settings → Usage on claude.ai (account-wide), the VS Code usage dialog, and the `/model` picker, which flags "Requires usage credits" on the Fable row as a binary signal | Claude Code docs   |
+| F39 | Anthropic publishes **no absolute number** for any subscription session or weekly limit. Only the Fable 50% share is published. There are also open bugs where Fable is refused for credits on Max despite remaining quota              | docs + issues      |
+
+**F36 reframes the whole plan, and mostly answers the original question.**
+ccy cannot show a separate Fable allowance on a Max account because **there is
+no separate allowance** — Fable spends the same weekly pool ccy already draws as
+its "weekly limit" bar, and 50% of that pool is the most Fable may take. So the
+figure the user asked for is already partly on screen; what is missing is *how
+much of it was Fable*, which is a sub-cap gauge, not a second limit.
+
+That is the most plausible reading of what `7d_oi` is for: the gauge on that
+sub-cap. It stays consistent with F35's "per-model bucket", with the name
+"overage-included" (the portion included before overage), and with F36's
+ceiling. **Not proven** — no response has carried the header yet.
+
+F37 is the standing caveat on everything this plan builds: the header family is
+undocumented, so `usage_render_block` degrading cleanly when a bucket is absent
+is a requirement, not a nicety. F35 already says absent is normal.
+
 ### F34 — `overage-disabled-reason` values (about the CREDITS bucket, not Fable)
 
 **Kept for completeness, and explicitly out of scope**: these describe the

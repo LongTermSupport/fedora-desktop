@@ -65,6 +65,15 @@ Facts **F18–F22** in [FINDINGS.md](FINDINGS.md); bundle excerpts and schemas i
 bucket is `seven_day_overage_included`, suffix **`7d_oi`**, labelled "Fable
 limit" by the bundle itself.
 
+**F36 reframes the question, and mostly answers it.** Anthropic documents that
+on Max, Fable is included **up to 50% of the weekly usage limit** — a ceiling
+*inside* the single weekly allowance, not a second allowance. So there is no
+separate Fable limit for ccy to display: Fable spends the same pool ccy already
+draws as its weekly bar. What is missing is only *how much of that pool was
+Fable*, a sub-cap gauge — which is the most plausible reading of `7d_oi`, and
+still unobserved. F37 is the standing caveat: the whole unified header family is
+undocumented and unsupported.
+
 **What F18 implies and what it does not.** If the Fable figure arrives as
 `7d_oi-utilization`, it is already on the response `_usage_fetch_one` makes, and
 `_usage_extract` throws it away: that `case` matches five exact header names and
@@ -248,48 +257,20 @@ credits" from "weekly Fable limit reached". The probe was amended to capture the
 
 ## Technical Decisions
 
-### Decision 1: Human-triggered, never automatic
+Five decisions, with their context and outcomes, in
+[DECISIONS.md](DECISIONS.md):
 
-**Context**: Plan 00100's version fetched on every launch, which was free there.
-Here every fetch spends billed quota out of the allowance it reports.
-**Decision**: a keypress in the selector, never a launch-time fetch. The cost is
-stated in the option text so the user knows what pressing it does. This also
-removes the whole class of problems 00100 hit — no launch latency, no timeout
-tuning, no IP-throttle risk from a burst nobody asked for.
-**Date**: 2026-08-17
-
-### Decision 2: Direct HTTP, not `claude -p`
-
-**Context**: The obvious "minimal" call is `claude -p --model haiku` with tools
-off.
-**Decision**: bare `curl`. Two reasons, both grounded: the headers are the
-payload and F12 shows no code path prints them, so the CLI cannot deliver them
-at all; and `claude -p` is the *less* minimal option — it ships a large system
-prompt and tool schemas as input tokens, where the bare request sends one
-character with `max_tokens: 1`. The prototype still runs the `claude -p` arm as
-a control, so this is tested rather than asserted.
-**Date**: 2026-08-17
-
-### Decision 3: Probe with Haiku
-
-**Context**: Which model to spend the token on.
-**Decision**: Haiku. The weekly buckets are per-model (`seven_day_opus`,
-`seven_day_sonnet` in F3), so probing with the cheapest model avoids drawing
-down the allowance that actually matters to the user.
-**Date**: 2026-08-17
-
-### Decision 4: Ship on the percent reading rather than hold for Q2
-
-**Context**: Q2 (is utilisation 0-100 or 0-1?) could not be settled from the
-near-idle account probed, and settling it needs one more billed request.
-**Decision**: ship. The owner's steer was explicit — the spend in question is a
-few Haiku requests, and holding a finished feature for it is disproportionate.
-Mitigations rather than a guess left bare: the scale lives behind `_usage_pct()`
-alone, so flipping it is a one-function change; and a value that is non-zero but
-rounds to zero renders `<1%`, not `0%`, so the display never claims an account is
-untouched when it is not. If real accounts show implausible figures, that is the
-signal to flip it.
-**Date**: 2026-08-17
+1. **Human-triggered, never automatic** — a keypress, never a launch-time fetch,
+   because every fetch spends the allowance it reports.
+2. **Direct HTTP, not `claude -p`** — the CLI has no path that prints the
+   headers (F12/F14), and the bare request is the more minimal one anyway.
+3. **Probe with Haiku** — cheapest model for the 5-hour and weekly buckets.
+   Amended: insufficient for the Fable window (F29), and Fable cannot use the
+   1-token body at all (F33).
+4. **Ship on the percent reading rather than hold for Q2** — wrong, as its own
+   mitigation predicted, and recoverable in one function because of it.
+5. **Undocumented surface, so degrade rather than assume** — absence is a normal
+   state (F35/F37), and no row is ever synthesised from a neighbouring header.
 
 ## Success Criteria
 
