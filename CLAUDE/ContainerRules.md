@@ -92,10 +92,12 @@ CCY_VERSION="3.0.1"  # Fix: persist sessions in .claude/ccy/
 **This applies to:**
 
 - `files/var/local/claude-yolo/claude-yolo` (main CCY wrapper)
-- **`files/var/local/claude-yolo/lib/*.bash`** — the six libraries the launcher
-  sources are part of the same program, and together they are the larger half of
-  it. `CCY_VERSION` lives in the launcher, so a `lib/` change must stage the
-  launcher too in order to bump it.
+- **`files/var/local/claude-yolo/lib/*.bash`** — **every** `.bash` file in that
+  directory, not a named subset. They are part of the same program and together
+  are the larger half of it. `CCY_VERSION` lives in the launcher, so a `lib/`
+  change must stage the launcher too in order to bump it. Both the `pre-commit`
+  gate and `CCY_HASH` derive this set from the directory; do not restate a count
+  here, because a count is what went wrong (see 3.49.2).
 - **`files/var/local/claude-yolo/Dockerfile`** — image content carries its own
   version: bump `LABEL claude-yolo-version` in the Dockerfile **and**
   `REQUIRED_CONTAINER_VERSION` in the launcher, which must match.
@@ -116,6 +118,12 @@ launcher **alone**: 71 commits touched `lib/`, 22 of them without touching the
 launcher, so no bump was required and none was made — a behaviour change shipped
 with an unchanged version and a hash that still matched. Fixed in 3.41.0; see
 `docs/ccy-changelog.md`.
+
+The fix was itself partial for eight releases, which is the more useful half of
+the story: it widened the hash to a **hand-written list** of libraries, and the
+list was already a file short of the directory. 3.49.2 made both halves derive
+the set from `lib/` instead. If you are about to write down which files a program
+consists of, derive it.
 
 ---
 

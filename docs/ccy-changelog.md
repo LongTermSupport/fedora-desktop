@@ -17,6 +17,26 @@ Two version numbers move independently — see
 
 ---
 
+## 3.49.2
+
+**`CCY_HASH` derives the set it hashes, instead of naming it.**
+
+3.41.0 widened the integrity hash from the launcher alone to "the launcher plus every
+library it sources", and did it by reusing `CCY_LIBS` — the hand-written load-order list.
+That list was already one file short of `lib/`: `common-pure.bash` had existed since
+2026-06-10 and is sourced unconditionally by `common.bash`, so it was never hashed.
+Measured: appending a line to it left `CCY_HASH` unchanged, and the "modified without
+version bump" guard stayed silent.
+
+The two halves of that fix also disagreed. `scripts/git-hooks/pre-commit` globs
+`files/var/local/claude-yolo/lib/*.bash` and did require a bump for it; the runtime hash
+did not. `CCY_LIBS` exists so those cannot disagree, and they did.
+
+The hash now walks `lib/*.bash` itself, `LC_ALL=C`-sorted — the locale matters, because
+bash's glob order puts `common-pure.bash` either side of `common.bash` depending on
+collation, which would move the hash between machines. `CCY_LIBS` keeps its real job:
+load order and the presence check. An eighth library is covered the day it lands.
+
 ## 3.49.1 — container 2.36
 
 **`CCY_CHILD_CLAUDE_MAX_DEPTH` is validated at session start.**
@@ -371,6 +391,12 @@ hash, so those three cannot disagree about what "the CCY script" is. The matchin
 `pre-commit` gate was extended the same way: staging any `lib/*.bash` file now requires a
 version bump, and — since `CCY_VERSION` lives in the launcher — requires staging the
 launcher too.
+
+> **Corrected in 3.49.2.** The paragraph above was true of the intent and not of the code.
+> `CCY_LIBS` listed six libraries and `lib/` held seven — `common-pure.bash`, sourced by
+> `common.bash`, was never hashed — so this release fixed one file of seven by covering
+> six of eight, and the `pre-commit` half (a `*.bash` glob) covered a wider set than the
+> hash did. The hash derives its own set now.
 
 This bump also settles the accumulated drift. Every saved launch configuration reconfigures
 once on the version change, which is the normal upgrade path; nothing else is needed.

@@ -331,7 +331,8 @@ a comment explaining why zero would be misleading — and no guard for the
 | 6   | whitelists filtering whole LINES (00081)     | —                         | a real leak sharing that line   |
 | 7   | `commit-msg` static patterns only (00081)    | —                         | the whole denylist              |
 | 8   | `qa-python` discovery (00081)                | —                         | mode-0644 shebang files         |
-| 9   | `CCY_HASH` = `md5sum "$0"` (00081)           | the launcher              | the six `lib/` files it sources |
+| 9   | `CCY_HASH` = `md5sum "$0"` (00081)           | the launcher              | the `lib/` files it sources     |
+| 9b  | `CCY_HASH` = launcher + `CCY_LIBS` (00081)   | six named libraries       | the seventh file in `lib/`      |
 | 10  | `qa-ansible-syntax` population (00081)       | —                         | playbooks outside `imports/`    |
 | 11  | `qa-deployed-drift` basename match (00081)   | file not deployed here    | file deployed under a NEW name  |
 | 12  | `podfreeze` identity-axis offer (00079)      | zero values on the axis   | one value covering *some* of it |
@@ -354,9 +355,19 @@ fortnight after row 0 was fixed and written up. **Writing a fix down next to the
 thing you fixed is not the same as generalising it.**
 
 Row 9 says the same about scope: a check written when the launcher *was* the
-whole program never learned that six libraries had grown around it, larger than
-the launcher itself. When a program grows a second file, every check that names
-the first one by path is now partial.
+whole program never learned that libraries had grown around it, larger than the
+launcher itself. When a program grows a second file, every check that names the
+first one by path is now partial.
+
+**Row 9b is row 9's own fix, and it is the most instructive line in this table.**
+Widening the hash to "the launcher plus every library it sources" was done with a
+hand-written list — which was *already* a file short of `lib/` on the day it was
+written, and stayed so for eight releases, while the `pre-commit` half of the same
+fix used a `*.bash` glob and covered more. So the fix for "a check that names one
+file by path" was a check that named six files by path. **Replacing a stale
+enumeration with a fresher enumeration is not the fix; deriving the set is.** If
+you are about to write down which files a program consists of, ask what makes that
+list right tomorrow.
 
 Rows 12–17 came from **confirming re-reviews**: two plans whose review findings had
 been fixed, where nobody had reviewed the fixes. Three of the six are in the checks

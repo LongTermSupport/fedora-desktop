@@ -14,14 +14,16 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.49.1"  # CHILD-CLAUDE DEPTH VALIDATION. entrypoint.sh now rejects a non-numeric CCY_CHILD_CLAUDE_MAX_DEPTH at start, as it already did for CCY_CHILD_CLAUDE, instead of announcing an unusable bound in its banner. Container 2.36. See docs/ccy-changelog.md.
+CCY_VERSION="3.49.2"  # INTEGRITY HASH DERIVES ITS OWN SET. CCY_HASH now hashes every lib/*.bash found on disk rather than a hand-written list that was one file short — common-pure.bash was never hashed, so editing it left the hash unchanged. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Every library this launcher sources, in load order — which is also the order
-# they are fed to CCY_HASH below. Declared once so the presence check, the load
-# order and the integrity hash cannot disagree about what "the CCY script" is.
+# Every library this launcher sources DIRECTLY, in load order. This drives the
+# presence check below and nothing else: the integrity hash derives its own set
+# from lib/ (see CCY_HASH), because a hand-written list of what the program
+# consists of is a list that goes stale — this one omitted common-pure.bash,
+# which common.bash sources, for two months.
 CCY_LIBS=(common token-management ssh-handling network-management dockerfile-custom docker-health)
 
 if [ -f "$SCRIPT_DIR/lib/common.bash" ]; then
@@ -81,12 +83,29 @@ debug() {
 # so a behaviour change in lib/token-management.bash left the hash unchanged and
 # the "modified without version bump" guard below never fired. 22 commits in
 # this repo's history shipped lib-only changes that way. Plan 00081 F7.
+#
+# The hashed set is DERIVED from the directory, not enumerated. CCY_LIBS answers
+# "in what order are these loaded"; that is a different question from "what is
+# part of this program", and using one list for both is what went wrong: the
+# enumeration was a file short of lib/ the moment it was written, because
+# common-pure.bash predated it by two months and common.bash:12 sources it
+# unconditionally. Editing it left this hash unchanged while
+# scripts/git-hooks/pre-commit:129 — the other half of the same guard — globbed
+# `lib/*.bash` and did gate it. A derived set cannot go stale on the eighth
+# library. LC_ALL=C sort, because bash's own glob order follows the locale's
+# collation and `common-pure.bash` vs `common.bash` sorts differently under
+# en_US.UTF-8 than under C, which would move the hash between machines.
+CCY_LIB_COUNT=$(find "$SCRIPT_DIR/lib" -maxdepth 1 -name '*.bash' -type f | wc -l)
+if [ "$CCY_LIB_COUNT" -eq 0 ]; then
+    print_error "No libraries found in $SCRIPT_DIR/lib — refusing to vouch for an empty hash."
+    exit 1
+fi
 CCY_HASH=$(
     {
         grep -v '^CCY_HASH=' "$0"
-        for _ccy_lib in "${CCY_LIBS[@]}"; do
-            cat "$SCRIPT_DIR/lib/$_ccy_lib.bash"
-        done
+        find "$SCRIPT_DIR/lib" -maxdepth 1 -name '*.bash' -type f -print0 |
+            LC_ALL=C sort -z |
+            xargs -0 cat
     } | md5sum | cut -d' ' -f1 | cut -c1-16
 )
 
