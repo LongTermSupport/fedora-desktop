@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.49.0"  # PROJECT MOUNTS. A tracked .claude/ccy/mounts declares extra host binds (one src:dst[:ro|rw] per line), validated on the host and refused loudly on any problem; opt out with CCY_NO_PROJECT_MOUNTS=1. See docs/ccy-changelog.md.
+CCY_VERSION="3.49.1"  # CHILD-CLAUDE DEPTH VALIDATION. entrypoint.sh now rejects a non-numeric CCY_CHILD_CLAUDE_MAX_DEPTH at start, as it already did for CCY_CHILD_CLAUDE, instead of announcing an unusable bound in its banner. Container 2.36. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -64,7 +64,7 @@ source "$SCRIPT_DIR/lib/docker-health.bash"
 # ⚠️  THIS VALUE MUST MATCH the "claude-yolo-version" LABEL in Dockerfile!
 #     If they don't match, users get infinite rebuild loops.
 #     Update BOTH files together: Dockerfile label AND this variable.
-REQUIRED_CONTAINER_VERSION="2.35"
+REQUIRED_CONTAINER_VERSION="2.36"
 
 set -e
 

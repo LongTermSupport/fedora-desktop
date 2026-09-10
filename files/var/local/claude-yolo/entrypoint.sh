@@ -386,6 +386,18 @@ if [ "${CCY_CHILD_CLAUDE:-}" = "1" ]; then
     rm -rf "$_ccy_child_claude_skill"
     cp -r "$_ccy_child_claude_src/skills/child-claude" "$_ccy_child_claude_skill"
 
+    # Validated on the same terms as CCY_CHILD_CLAUDE above, and for the same reason.
+    # ccy-claude re-checks this at use time, but the banner below is printed NOW and
+    # would announce "max depth abc" as though it were a working bound — the operator
+    # is told the feature is configured when it is not.
+    case "${CCY_CHILD_CLAUDE_MAX_DEPTH:-1}" in
+        '' | *[!0-9]*)
+            echo "ERROR: CCY_CHILD_CLAUDE_MAX_DEPTH must be a whole number, got '$CCY_CHILD_CLAUDE_MAX_DEPTH'" >&2
+            echo "  Set it in $_ccy_env_file as: export CCY_CHILD_CLAUDE_MAX_DEPTH=1" >&2
+            exit 1
+            ;;
+    esac
+
     # Exported so the wrapper and the plan's acceptance script see them. A value
     # set in ccy.env without `export` would not survive the exec into claude.
     export CCY_CHILD_CLAUDE

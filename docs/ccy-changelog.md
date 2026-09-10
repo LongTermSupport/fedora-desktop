@@ -17,6 +17,22 @@ Two version numbers move independently — see
 
 ---
 
+## 3.49.1 — container 2.36
+
+**`CCY_CHILD_CLAUDE_MAX_DEPTH` is validated at session start.**
+
+`entrypoint.sh` already refused to start on a `CCY_CHILD_CLAUDE` that was not `1`, `0` or
+unset, because a typo that silently disables a feature the project asked for is a bad
+failure mode. Its companion variable got no such check: any string was exported, and the
+start-up banner printed `max depth <that string>` as though the bound were configured.
+
+`ccy-claude` does re-check it and refuses to run on a non-numeric value, so nothing unsafe
+followed — but the operator was told at start that a bound was in force which would not
+hold, and only found out at first use. Both variables now fail the same way, at the same
+moment, naming the file to fix.
+
+Image content changed, so this needs a one-time `ccy --rebuild`.
+
 ## 3.49.0
 
 **Project mounts: a tracked `.claude/ccy/mounts` file declares extra host binds.**
