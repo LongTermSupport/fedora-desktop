@@ -162,6 +162,7 @@ touches in-container child processes.
 ### Phase 6: Verify and review
 
 - [x] ✅ **Task 6.1**: `./scripts/qa-all.bash` passes, 640 files.
+
   - [x] ✅ Fixed a QA gate defect found on the way: `qa-all.bash` was **not
     idempotent**. Its own ansible-syntax stage installs Galaxy collections into
     the gitignored `.ansible/`, and only `.ansible/roles` was excluded from
@@ -172,18 +173,47 @@ touches in-container child processes.
     inside a company name this repo already documents, and every commit touching
     two tracked files was rejected with no way to comply. Now word-boundary
     matching with a 15-case test suite. Committed separately as 3956584.
+
 - [x] ✅ **Task 6.2**: `docs/ccy.md` gains a `CCY_CHILD_CLAUDE` subsection under
   per-project configuration, which is where `ccy.env` options already live, plus
   a `docs/ccy-changelog.md` entry for 3.46.0.
+
 - [x] ✅ **Task 6.3**: `qa-reviewer` run over the full diff. Verdict
   FIX-BEFORE-MERGE, no outstanding BLOCK. All four FIX-BEFORE-MERGE findings
   resolved: I1 now walks all of `/workspace` and `/root`; a `PRESENT` leg mirrors
   I6 in the enabled state; `docs/` no longer links into this folder; the
   version-gate gap is Plan 00093. Seven of eight nits taken, the eighth declined
   with a reason. Finding-by-finding detail: `JOURNAL/` 12:30.
+
+- [x] ✅ **Task 6.5**: Confirming `qa-reviewer` re-review, 2026-09-10 — Task 6.3's
+  fixes had never themselves been reviewed. **FIX-BEFORE-MERGE**: 0 blocking,
+  5 fix-before-merge, 8 nits. Extensive clean list, including the live credential
+  absent from all 898 tracked files and all 227 host-mounted state files. Report:
+  [subagent-reports/260910-qa-review-00092-opus-5.md](subagent-reports/260910-qa-review-00092-opus-5.md)
+
+- [ ] ⬜ **Task 6.6**: Fix I1's binary blind spot. **Verified at source and
+  demonstrated**: `probe-invariant.bash:132` passes `--binary-files=without-match`,
+  so binary files are never searched, and line 148 prints the *enumeration* count
+  as though they were — about 38% of files reported as searched were not. This is
+  the plan's own top-threat invariant reporting a partial result as a complete
+  one. **A second hazard found while confirming it**: `grep` in the CCY container
+  is `ugrep`, not GNU grep, and their default binary handling differs, so the
+  probe's coverage depends on which implementation is on `PATH`.
+  `--binary-files=text` was the only mode that matched under both, so it fixes
+  the blind spot and the divergence together. Any `COVERAGE:` line must count
+  what was actually searched
+
+- [ ] ⬜ **Task 6.7**: The other four fix-before-merge findings —
+  `selftest-probes.bash` no longer covers `PRESENT` while still claiming to;
+  `probe-host.bash` H3 passes on unparsable input by comparing two sentinels;
+  `play-claude-yolo.yml:235` and `.claude/ccy/ccy.env:34` point into this plan
+  folder and break when it moves to `Completed/`; `deploy.bash` quotes container
+  2.29 when HEAD is 2.35, and an operator will run it for Task 6.4
+
 - [ ] 🚫 **Task 6.4**: **Blocked — HOST ACTION, cannot run in the container.**
   Every step is a script in this folder, not a command to retype from chat, per
   [PlanTriage.md](../../PlanTriage.md). All three refuse to run in the wrong place.
+
   1. `./triage.bash` on the HOST — what is stale before changing anything.
   2. `./deploy.bash` on the HOST — runs `play-claude-yolo.yml`. It deliberately
      does **not** rebuild the image, and says so.
@@ -192,6 +222,7 @@ touches in-container child processes.
   5. `./acceptance.bash` INSIDE a container with `CCY_CHILD_CLAUDE=1` set.
   6. `./acceptance.bash` INSIDE a **later** container with the flag removed.
      This is the step that matters: it proves the mode can be turned off.
+
   - Before running it: I1 will report the session transcript from 2026-09-02
     unless the OAuth token is rotated first. That red is a true finding,
     recorded in `JOURNAL/`, not a defect in the gate.
