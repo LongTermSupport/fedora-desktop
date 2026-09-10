@@ -79,6 +79,39 @@ cannot, and the user has to keep re-granting something they already mandated.
   instruction sits above daemon config, so no `.claude/hooks-daemon.yaml`
   setting can clear it.
 
+### Tell a read-only reviewer WHERE to write, never that it must not write
+
+**Do not instruct a `qa-reviewer` to return a long report inline.** Name the file
+path it should write instead. This was got wrong three times in one day, on
+Plans 00079, 00092 and 00081, each time with the same well-meant reasoning: the
+role has no `Write`/`Edit` tool, so telling it "return findings in your response,
+do not create a file" looks like it is respecting the tool boundary.
+
+**Why it is wrong, in two independent ways:**
+
+1. **A subagent's reply travels over a bounded channel that elides the MIDDLE of
+   an oversized message silently.** A 20k-character report arrives looking
+   complete, with findings missing and nothing marking the cut. "Do not truncate"
+   cannot be honoured inline — the truncation is not the agent's to prevent.
+2. **The `subagent_report_size_blocker` hook enforces this**, and it fires at
+   SubagentStop, after the work is done. The instruction does not prevent a file;
+   it just makes the agent choose a path under pressure, having been told not to.
+   On 00092 one wrote a heredoc under exactly that pressure.
+
+**How to apply:**
+
+- Declare the destination in the dispatch prompt:
+  `<plan-folder>/subagent-reports/{yymmdd}-{agent-name}-{model}.md`, or
+  `untracked/agent-reports/…` for non-plan work. The `dispatch_declaration`
+  advisory asks for precisely this and is worth reading as an instruction, not a
+  reminder.
+- Expect the agent's final message to be a short summary plus the path. Read the
+  file; do not ask it to re-send the body.
+- If it used the neutral fallback path so the filing decision stays yours,
+  transcribe it into the plan folder and delete the fallback — after checking the
+  copy is complete. The markdown formatter realigns table pipes on write, so
+  compare table CELLS, not lines, or you will chase 26 phantom differences.
+
 ### Always fetch PR comments, not just the body
 
 When asked whether a PR is up to date, to review it, or to sync its state, pull
