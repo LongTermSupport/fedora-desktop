@@ -202,6 +202,77 @@ check_git_repo() {
 # ═══════════════════════════════════════════════════════════════════════════════
 # SECURITY: Ensure .claude/ccy/ is protected and check for tracked sensitive files
 # ═══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════════
+# Project mounts: extra host binds declared in the tracked .claude/ccy/mounts
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# One `<host-src>:<container-dst>[:ro|rw]` per line, `#` comments and blank
+# lines ignored. Read on the HOST before the container exists (ccy.env cannot
+# do this: it is sourced in-container, after the mounts are fixed). Every line
+# goes through ccy_validate_mount_line; the source must already exist on disk,
+# because a FUSE mount that is not up yet binds as an empty directory and the
+# session would see nothing. Any problem aborts the launch with every finding
+# listed: a tracked file that binds host paths must never half-apply.
+#
+# Opt out of a project's declared mounts with CCY_NO_PROJECT_MOUNTS=1, or
+# comment the line out. Fills PROJECT_MOUNTS with `-v src:dst:opt` tokens.
+load_project_mounts() {
+    local mounts_file=".claude/ccy/mounts"
+    PROJECT_MOUNTS=()
+
+    [ -f "$mounts_file" ] || return 0
+
+    if [ "${CCY_NO_PROJECT_MOUNTS:-}" = "1" ]; then
+        echo -e "${COLOR_YELLOW}⚠  CCY_NO_PROJECT_MOUNTS=1: ignoring $mounts_file${COLOR_RESET}"
+        return 0
+    fi
+
+    local line lineno=0 problems=0 parsed src dst opt
+    local -A seen_dst=()
+    while IFS= read -r line || [ -n "$line" ]; do
+        lineno=$((lineno + 1))
+        line="${line%%#*}"
+        line="${line#"${line%%[![:space:]]*}"}"
+        line="${line%"${line##*[![:space:]]}"}"
+        [ -z "$line" ] && continue
+
+        if ! parsed=$(ccy_validate_mount_line "$line" "$HOME" "$PWD" 2>&1); then
+            echo -e "${COLOR_RED}✗ $mounts_file line $lineno:${COLOR_RESET}" >&2
+            echo "$parsed" >&2
+            problems=$((problems + 1))
+            continue
+        fi
+        IFS='|' read -r src dst opt <<< "$parsed"
+
+        if [ ! -e "$src" ]; then
+            echo -e "${COLOR_RED}✗ $mounts_file line $lineno:${COLOR_RESET}" >&2
+            echo "  host path does not exist: $src" >&2
+            echo "  If it is a mount (e.g. an rclone FUSE mount), start it first: the bind" >&2
+            echo "  captures what is there at launch, and an absent mount binds as nothing." >&2
+            problems=$((problems + 1))
+            continue
+        fi
+        if [ -n "${seen_dst[$dst]:-}" ]; then
+            echo -e "${COLOR_RED}✗ $mounts_file line $lineno:${COLOR_RESET}" >&2
+            echo "  container path declared twice: $dst" >&2
+            problems=$((problems + 1))
+            continue
+        fi
+        seen_dst[$dst]=1
+        PROJECT_MOUNTS+=(-v "$src:$dst:$opt")
+        echo "✓ Project mount: $src → $dst ($opt)"
+    done < "$mounts_file"
+
+    if [ "$problems" -gt 0 ]; then
+        echo "" >&2
+        print_error "$problems problem(s) in $mounts_file — not launching."
+        echo "  Fix the lines above, comment them out, or set CCY_NO_PROJECT_MOUNTS=1" >&2
+        echo "  to launch without this project's declared mounts." >&2
+        return 1
+    fi
+    return 0
+}
+
 # The .claude/ccy/ directory contains sensitive session data that should NEVER
 # be committed to git. Only .gitignore and Dockerfile are safe to track.
 #
@@ -218,13 +289,14 @@ check_ccy_gitignore_safety() {
 
     # Expected .gitignore content
     local expected_gitignore="# CCY session data - NEVER commit sensitive files
-# Only .gitignore, Dockerfile, allowed-hostnames, ccy.env and the
+# Only .gitignore, Dockerfile, allowed-hostnames, ccy.env, mounts and the
 # claude-supervise* supervisor (any extension or none) are safe to track
 *
 !.gitignore
 !Dockerfile
 !allowed-hostnames
 !ccy.env
+!mounts
 !claude-supervise*"
 
     # ═══════════════════════════════════════════════════════════════════════════
@@ -250,6 +322,13 @@ check_ccy_gitignore_safety() {
             echo "✓ Creating .claude/ccy/.gitignore for security"
         fi
         echo "$expected_gitignore" > "$ccy_gitignore"
+    fi
+
+    # A .gitignore written before the tracked mounts file existed lacks its
+    # exception, so `git add .claude/ccy/mounts` would be refused. Append it.
+    if ! grep -qx '!mounts' "$ccy_gitignore"; then
+        echo "✓ Adding the mounts exception to .claude/ccy/.gitignore"
+        echo '!mounts' >> "$ccy_gitignore"
     fi
 
     # ═══════════════════════════════════════════════════════════════════════════
@@ -288,13 +367,15 @@ check_ccy_gitignore_safety() {
         local basename
         basename=$(basename "$file")
         case "$basename" in
-            .gitignore|Dockerfile|allowed-hostnames|ccy.env|claude-supervise*|CLAUDE.md|README.md)
+            .gitignore|Dockerfile|allowed-hostnames|ccy.env|mounts|claude-supervise*|CLAUDE.md|README.md)
                 # Safe to track. ccy.env is the tracked per-project ccy config
                 # (e.g. CCY_CLAUDE_WRAPPER) sourced in-container by entrypoint.sh;
-                # claude-supervise* is the vendored PTY supervisor that ccy.env's
-                # CCY_CLAUDE_WRAPPER points at (any extension or none, so it is not
-                # locked to Python). CLAUDE.md/README.md are project documentation.
-                # None of these hold session/secret data.
+                # mounts declares extra host binds, read on the host and validated
+                # by load_project_mounts before launch; claude-supervise* is the
+                # vendored PTY supervisor that ccy.env's CCY_CLAUDE_WRAPPER points
+                # at (any extension or none, so it is not locked to Python).
+                # CLAUDE.md/README.md are project documentation. None of these
+                # hold session/secret data.
                 ;;
             *)
                 # Dangerous!

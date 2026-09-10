@@ -1,0 +1,11 @@
+# Extra host paths bound into every CCY session of this project.
+# One per line: <host-src>:<container-dst>[:ro|rw]   (default rw)
+# `~/` or `$HOME/` may start the host path. Nothing else is expanded.
+#
+# Read on the HOST at launch. Every line is validated; the host path must
+# already exist (start a FUSE mount first). Any problem refuses the launch.
+# Opt out for one launch: CCY_NO_PROJECT_MOUNTS=1 ccy
+# Details: docs/ccy.md, "Extra Mounts".
+
+# Google Drive folder served by the rclone mount from play-rclone.yml.
+~/mnt/property-ai:/ccy/mnt/property-ai

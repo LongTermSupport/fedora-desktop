@@ -27,6 +27,10 @@
 # it holds config only, never session data or secrets.
 !ccy.env
 
+# And the tracked per-project mounts file. The launcher reads it on the host,
+# validates every line, and refuses to launch on any problem. Paths only.
+!mounts
+
 # And the PTY supervisor itself. The hooks daemon deploys claude-supervise.py
 # into project code (ccy.deploy_supervisor) precisely so it is TRACKED — a fresh
 # clone, or a ccy launch before the daemon has run, then already has it. The

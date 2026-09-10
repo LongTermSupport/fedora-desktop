@@ -123,5 +123,126 @@ is_token_valid() {
     fi
 }
 
+# Validate ONE line of a project's tracked .claude/ccy/mounts file.
+#
+# The file is tracked in git, so a clone declares binds of the cloner's host
+# paths at launch. That is the feature (a Drive mount follows the project) and
+# the risk (a repo could ask for ~/.ssh read-write), so every line is checked
+# here and any failure aborts the launch before a container exists. PURE: no
+# filesystem access, so the deny rules can be proven with fixtures. Existence
+# of the source is checked by the caller, which can see the disk.
+#
+# Line format: <host-src>:<container-dst>[:ro|rw]
+#   - `~/` or `$HOME/` at the start of the host path expands to $home; nothing
+#     else is expanded, so a line cannot run code or read other variables.
+#   - both paths must be absolute and free of `..` segments.
+#   - the host path may not be a credential or state directory, the project
+#     itself or an ancestor of it (that would expose sibling projects), or a
+#     system root.
+#   - the container path may not shadow the workspace, its state, or a system
+#     directory the container needs to function.
+#   - the only options are ro and rw (default rw). No SELinux relabels: a `:z`
+#     on a home directory relabels it for every container on the machine.
+#
+# Args:   line, home, project_dir
+# Prints: "<src>|<dst>|<opt>" on success
+# Errors: one message per rule broken, on stderr; return 1
+ccy_validate_mount_line() {
+    local line="$1" home="$2" project_dir="$3"
+    local src dst opt rest colons
+    local errors=0
+
+    colons="${line//[^:]/}"
+    if [ "${#colons}" -lt 1 ] || [ "${#colons}" -gt 2 ]; then
+        echo "  expected <host-src>:<container-dst>[:ro|rw], got: $line" >&2
+        return 1
+    fi
+    src="${line%%:*}"
+    rest="${line#*:}"
+    dst="${rest%%:*}"
+    opt=""
+    [ "$rest" != "$dst" ] && opt="${rest#*:}"
+    opt="${opt:-rw}"
+
+    # Literal prefixes, assembled so shellcheck does not read them as an
+    # intended expansion: these are the two spellings a mounts file may use.
+    local tilde_prefix home_prefix
+    tilde_prefix=$(printf '\x7e/')
+    home_prefix=$(printf '\x24HOME/')
+    if [ "${src#"$tilde_prefix"}" != "$src" ]; then
+        src="$home/${src#"$tilde_prefix"}"
+    elif [ "${src#"$home_prefix"}" != "$src" ]; then
+        src="$home/${src#"$home_prefix"}"
+    fi
+    [ "$src" != "/" ] && src="${src%/}"
+    [ "$dst" != "/" ] && dst="${dst%/}"
+
+    local p
+    for p in "$src" "$dst"; do
+        case "$p" in
+            /*) ;;
+            *) echo "  not an absolute path: $p" >&2; errors=$((errors + 1)) ;;
+        esac
+        case "/$p/" in
+            */../*) echo "  '..' is not allowed: $p" >&2; errors=$((errors + 1)) ;;
+        esac
+    done
+
+    case "$opt" in
+        ro|rw) ;;
+        *) echo "  option must be ro or rw, got: $opt" >&2; errors=$((errors + 1)) ;;
+    esac
+
+    # Host side: credentials, launcher state, system roots, and the project or
+    # any directory above it. The root and the home directory are refused
+    # exactly, not as prefixes: everything lives under them.
+    local denied
+    if [ "$src" = "/" ] || [ "$src" = "$home" ]; then
+        echo "  host path is off limits: $src" >&2
+        errors=$((errors + 1))
+    fi
+    local -a src_deny=(
+        "$home/.ssh" "$home/.gnupg" "$home/.aws" "$home/.kube"
+        "$home/.claude" "$home/.claude-tokens" "$home/.config/gh"
+        "$home/.local/share/keyrings" "$home/.password-store"
+        "/etc" "/root" "/run" "/var/run" "/proc" "/sys" "/dev" "/boot"
+    )
+    for denied in "${src_deny[@]}"; do
+        if [ "$src" = "$denied" ] || [[ "$src" == "$denied/"* ]]; then
+            echo "  host path is off limits: $src (under $denied)" >&2
+            errors=$((errors + 1))
+            break
+        fi
+    done
+    p="$project_dir"
+    while [ -n "$p" ] && [ "$p" != "/" ]; do
+        if [ "$src" = "$p" ]; then
+            echo "  host path is the project or a directory above it: $src" >&2
+            errors=$((errors + 1))
+            break
+        fi
+        p="${p%/*}"
+    done
+
+    # Container side: the workspace and its state, and what the image needs.
+    local -a dst_deny=(
+        "/" "/workspace" "/workspace/.claude" "/root" "/home"
+        "/etc" "/usr" "/bin" "/sbin" "/lib" "/lib64" "/opt"
+        "/proc" "/sys" "/dev" "/run" "/var" "/tmp/claude-config-import"
+    )
+    # `/` and `/workspace` are refused exactly; anything else is a prefix.
+    for denied in "${dst_deny[@]}"; do
+        if [ "$dst" = "$denied" ] || { [ "$denied" != "/" ] && [ "$denied" != "/workspace" ] && [[ "$dst" == "$denied/"* ]]; }; then
+            echo "  container path is off limits: $dst (under $denied)" >&2
+            errors=$((errors + 1))
+            break
+        fi
+    done
+
+    [ "$errors" -gt 0 ] && return 1
+    printf '%s|%s|%s\n' "$src" "$dst" "$opt"
+}
+
 export -f print_error
 export -f is_token_valid
+export -f ccy_validate_mount_line

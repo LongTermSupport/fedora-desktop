@@ -17,6 +17,25 @@ Two version numbers move independently — see
 
 ---
 
+## 3.49.0
+
+**Project mounts: a tracked `.claude/ccy/mounts` file declares extra host binds.**
+
+A project that needs a host path in every session, such as a Drive folder served by an
+rclone FUSE mount, could only get it through the per-launch `CCY_EXTRA_MOUNTS` export,
+which had to be remembered each time. `ccy.env` could not carry it: that file is sourced
+in-container after the mounts are fixed. The launcher now reads `.claude/ccy/mounts` on
+the host, one `src:dst[:ro|rw]` per line, and appends the binds.
+
+The file is tracked, so a clone declares binds of the cloner's host paths. Every line is
+therefore validated by a pure, fixture-proven function before a container exists:
+absolute paths only, no `..`, no credential or launcher-state directories, not the home
+directory or the project or anything above it, no system directories on either side,
+`ro`/`rw` only, no SELinux relabels, no duplicate targets, and the host path must exist.
+Any problem lists every finding and refuses the launch. `CCY_NO_PROJECT_MOUNTS=1` skips
+the file for one session. `mounts` joins the tracked-file whitelist, and the generated
+`.claude/ccy/.gitignore` gains its exception on existing projects.
+
 ## 3.48.1
 
 **Browser mode stub is a tracked file; caller flags verified** (container image 2.35).

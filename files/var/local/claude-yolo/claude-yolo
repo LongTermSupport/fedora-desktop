@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.48.1"  # BROWSER MODE IS AN EXPLICIT CHOICE. Container 2.35 blocks the bare agent-browser command and ships agent-browser-headed, agent-browser-headless and agent-browser-lite-headless instead, so background research no longer opens windows on the desktop. See docs/ccy-changelog.md.
+CCY_VERSION="3.49.0"  # PROJECT MOUNTS. A tracked .claude/ccy/mounts declares extra host binds (one src:dst[:ro|rw] per line), validated on the host and refused loudly on any problem; opt out with CCY_NO_PROJECT_MOUNTS=1. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1937,6 +1937,14 @@ if [ -n "${CCY_EXTRA_MOUNTS:-}" ]; then
     read -ra _extra_mounts <<< "$CCY_EXTRA_MOUNTS"
     DOCKER_MOUNTS+=("${_extra_mounts[@]}")
     debug "Added ${#_extra_mounts[@]} CCY_EXTRA_MOUNTS token(s) to DOCKER_MOUNTS"
+fi
+
+# Tracked per-project binds from .claude/ccy/mounts. Validated line by line;
+# any problem aborts here, before a container exists (see load_project_mounts).
+load_project_mounts || exit 1
+if [ "${#PROJECT_MOUNTS[@]}" -gt 0 ]; then
+    DOCKER_MOUNTS+=("${PROJECT_MOUNTS[@]}")
+    debug "Added ${#PROJECT_MOUNTS[@]} project mount token(s) to DOCKER_MOUNTS"
 fi
 
 # Note: Session state (history, databases, todos) will be stored in /workspace/.claude/ccy/

@@ -216,6 +216,7 @@ by the symlink.
 ├── ccy/
 │   ├── Dockerfile           # TRACK — project container definition
 │   ├── ccy.env              # TRACK — per-project CCY config (see below)
+│   ├── mounts               # TRACK — extra host binds, if used (see Extra Mounts)
 │   ├── claude-supervise.py  # TRACK — vendored supervisor, if deployed
 │   ├── allowed-hostnames    # TRACK — host restrictions, if used
 │   ├── .gitignore           # generated; whitelists the tracked files above
@@ -231,7 +232,7 @@ CCY generates `.claude/ccy/.gitignore` so runtime state stays out of git while t
 handful of files that *should* be shared with your team are whitelisted.
 
 It also enforces this: if any file under `.claude/ccy/` **other than** the known-safe
-whitelist (`.gitignore`, `Dockerfile`, `allowed-hostnames`, `ccy.env`,
+whitelist (`.gitignore`, `Dockerfile`, `allowed-hostnames`, `ccy.env`, `mounts`,
 `claude-supervise*`) is tracked in git, CCY prints a security alert and **refuses to
 start** until you untrack it. Session history and token metadata committed by accident
 are exactly what this catches.
@@ -816,16 +817,69 @@ For juggling several GitHub identities, see
 
 ## Extra Mounts
 
-`CCY_EXTRA_MOUNTS` appends read-only bind mounts for debugging host state that is not
-part of the project:
+Two ways to bind host paths that are not part of the checkout into a session. Both
+are decided on the host before the container exists, which is why neither can live in
+`ccy.env`: that file is sourced in-container, after the mounts are fixed.
+
+### Per project: the tracked `.claude/ccy/mounts` file
+
+For a bind the project always needs, such as a Drive folder served by an rclone FUSE
+mount, declare it once and commit it. One bind per line, `#` comments allowed:
+
+```
+# <host-src>:<container-dst>[:ro|rw]     default rw
+~/mnt/property-ai:/ccy/mnt/property-ai
+/srv/datasets:/ccy/datasets:ro
+```
+
+`~/` or `$HOME/` may start the host path. Nothing else is expanded, so a line cannot
+run code or read other variables. Symlinks inside the checkout do not work for this:
+the link is carried into the container, its target is not.
+
+Because the file is tracked, a clone declares binds of the cloner's host paths. So
+every line is validated on the host and **any problem refuses the launch** with every
+finding listed, before a container exists:
+
+- Both paths must be absolute, with no `..` segments.
+- The host path may not be `/`, your home directory itself, a credential or launcher
+  state directory (`~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.kube`, `~/.claude`,
+  `~/.claude-tokens`, `~/.config/gh`, keyrings, `~/.password-store`), a system
+  directory (`/etc`, `/root`, `/run`, `/proc`, `/sys`, `/dev`, `/boot`), or the project
+  directory or any directory above it (that would expose sibling projects).
+- The host path must already exist. A FUSE mount that is not up yet binds as an empty
+  directory, so start the mount first. Restart ccy after the mount restarts: the bind
+  captured the old instance.
+- The container path may not be `/`, `/workspace` itself, anything under
+  `/workspace/.claude`, or a system directory the image needs (`/etc`, `/usr`, `/bin`,
+  `/lib*`, `/opt`, `/root`, `/home`, `/var`, `/run`, `/proc`, `/sys`, `/dev`,
+  `/tmp/claude-config-import`). Outside the checkout, such as `/ccy/mnt/<name>`, is
+  best: repo tools never walk it.
+- The only options are `ro` and `rw`. No SELinux relabels (`:z`, `:Z`): relabelling a
+  home directory affects every container on the machine, and FUSE cannot be labelled.
+- A container path may be declared once.
+
+Every accepted bind is printed at launch as `✓ Project mount: <src> → <dst> (<opt>)`.
+
+**Opting out.** To launch a project without its declared mounts, for one session:
+
+```bash
+CCY_NO_PROJECT_MOUNTS=1 ccy
+```
+
+Or comment the line out. To reject a cloned project's mounts permanently, delete or
+edit the file; the launcher never re-creates it.
+
+### Per launch: `CCY_EXTRA_MOUNTS`
+
+For ad-hoc debugging of host state, export raw volume tokens for one launch:
 
 ```bash
 export CCY_EXTRA_MOUNTS="-v $HOME/.local/bin:/host-bin:ro"
 ccy
 ```
 
-Full details and the `scripts/desktop-symlinks` wrapper:
-[ccy-debug-mounts.md](ccy-debug-mounts.md).
+These tokens are passed through unvalidated and split on whitespace. Full details and
+the `scripts/desktop-symlinks` wrapper: [ccy-debug-mounts.md](ccy-debug-mounts.md).
 
 ---
 
