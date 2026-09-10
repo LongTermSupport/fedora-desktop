@@ -1,4 +1,4 @@
-#!/usr/bin/env ansible-playbook
+#!/usr/bin/env -S bash -c 'p=$(realpath "$0"); cd "${p%/playbooks/*}" && exec ansible-playbook "$p" "$@"'
 ---
 # Docker (rootful) — compatibility engine for DDEV.
 # See CLAUDE/ContainerEngines.md for the "Podman first, Docker only for

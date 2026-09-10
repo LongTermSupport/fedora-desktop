@@ -1,4 +1,4 @@
-#!/usr/bin/env ansible-playbook
+#!/usr/bin/env -S bash -c 'p=$(realpath "$0"); cd "${p%/playbooks/*}" && exec ansible-playbook "$p" "$@"'
 ---
 # Disable NetworkManager-wait-online.service so a slow DHCP / VPN /
 # portal-detection handshake doesn't stall boot — and, more importantly,

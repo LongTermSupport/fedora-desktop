@@ -130,6 +130,10 @@ _qa_first_line() {
 qa_has_shell_shebang() {
     local first_line
     first_line=$(_qa_first_line "$1") || return 1
+    # `bash -c '<script>'` runs the inline script, which hands the FILE to
+    # something else (the playbooks exec ansible-playbook on it), so the file
+    # body is not shell and must not be linted as shell.
+    [[ "$first_line" =~ ^#!/.*bash[[:space:]]+-c[[:space:]] ]] && return 1
     [[ "$first_line" =~ ^#!/.*bash ]] && return 0
     [[ "$first_line" == "#!/bin/sh" ]] && return 0
     [[ "$first_line" == "#!/usr/bin/sh" ]] && return 0

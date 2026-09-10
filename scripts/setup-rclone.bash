@@ -47,14 +47,14 @@ header() { echo ""; echo -e "${BOLD}━━━ $* ━━━${NC}"; echo ""; }
 check()  { echo -ne "  Checking ${DIM}$1${NC} ... "; }
 # ---------------------------------------------------------------------------
 
-# ansible.cfg (inventory, vault password, roles path) is only auto-loaded from
-# the current directory, so run from the project root with it pinned. Ansible
-# exits 0 when the host pattern matches nothing, so that case is caught here:
-# a play that ran on no hosts deployed nothing.
+# Playbooks are executed by path: their shebang changes to the repo root so
+# ansible.cfg (inventory, vault password, roles path) is found from any
+# directory. Ansible exits 0 when the host pattern matches nothing, so that
+# case is caught here: a play that ran on no hosts deployed nothing.
 run_playbook() {
     local log rc=0
     log=$(mktemp)
-    (cd "$PROJECT_ROOT" && ANSIBLE_CONFIG="$PROJECT_ROOT/ansible.cfg" ansible-playbook "$PLAYBOOK") 2>&1 | tee "$log" || rc=$?
+    "$PLAYBOOK" 2>&1 | tee "$log" || rc=$?
     if grep -q "skipping: no hosts matched" "$log"; then
         rm -f "$log"
         die "The playbook matched no hosts, so nothing was deployed.
@@ -576,6 +576,6 @@ if [[ "${DEPLOY,,}" == "y" ]]; then
         done
     fi
 else
-    info "Skipped. Deploy when ready (from the project root, so ansible.cfg is found):"
-    echo -e "    ${BOLD}cd $PROJECT_ROOT && ansible-playbook $PLAYBOOK${NC}"
+    info "Skipped. Deploy when ready:"
+    echo -e "    ${BOLD}$PLAYBOOK${NC}"
 fi

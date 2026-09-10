@@ -1,4 +1,4 @@
-#!/usr/bin/env ansible-playbook
+#!/usr/bin/env -S bash -c 'p=$(realpath "$0"); cd "${p%/playbooks/*}" && exec ansible-playbook "$p" "$@"'
 ---
 # Detachable terminal sessions for long-running work (Plan 00105): tmux with a system-wide
 # config that hides the multiplexer behind one key (F12 opens a session menu) and keeps

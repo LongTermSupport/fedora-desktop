@@ -8,7 +8,7 @@
 #   statically, so it requires a same-line # FAIL-FAST-OK: justification too.
 #
 # Check 2 (hygiene): Assert every PLAYBOOK file (contains a top-level "- hosts:")
-#   has the #!/usr/bin/env ansible-playbook shebang and the exec bit set.
+#   has the cd-to-repo-root shebang (see make-playbooks-executable.bash) and the exec bit set.
 #   Fixer: ./scripts/make-playbooks-executable.bash
 #
 # stdout:  terse — errors + summary only
@@ -166,7 +166,11 @@ done < "$TMP_MATCHES"
 # ---------------------------------------------------------------------------
 # Check 2: playbook hygiene — shebang + exec bit
 # ---------------------------------------------------------------------------
-SHEBANG='#!/usr/bin/env ansible-playbook'
+# Single source of truth for the line is scripts/make-playbooks-executable.bash,
+# which also explains it; this must match byte for byte.
+read -r SHEBANG <<'EOF'
+#!/usr/bin/env -S bash -c 'p=$(realpath "$0"); cd "${p%/playbooks/*}" && exec ansible-playbook "$p" "$@"'
+EOF
 HYGIENE_VIOLATIONS=()
 PLAYBOOK_COUNT=0
 

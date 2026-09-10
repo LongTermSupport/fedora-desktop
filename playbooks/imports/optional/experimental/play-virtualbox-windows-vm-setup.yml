@@ -1,4 +1,4 @@
-#!/usr/bin/env ansible-playbook
+#!/usr/bin/env -S bash -c 'p=$(realpath "$0"); cd "${p%/playbooks/*}" && exec ansible-playbook "$p" "$@"'
 ---
 # Split out of play-virtualbox-windows.yml (Plan 00061): this half sets up a
 # Windows 11 desktop VM (download + import + interactive-use tuning). It is

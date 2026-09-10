@@ -31,16 +31,16 @@ venv, no pip) — full pattern, rationale, and test layout in
 
 ### Requirements for Every Playbook
 
-1. **Shebang**: First line must be `#!/usr/bin/env ansible-playbook`
+1. **Shebang**: First line must be exactly the line below. Ansible only finds `ansible.cfg` (inventory, vault password, roles path) in the current directory, so the shebang changes to the repo root, found by stripping `/playbooks/...` off the play's resolved path, then execs `ansible-playbook`. That is what makes a play runnable by path from any directory. `scripts/make-playbooks-executable.bash` is the single source of the line and explains each part.
 2. **Executable permission**: File must have execute bit set (`chmod +x`)
-3. **Direct execution**: Must be runnable by path without `ansible-playbook` prefix
+3. **Direct execution**: Must be runnable by path, from any directory, without `ansible-playbook` prefix. The bare `ansible-playbook <path>` form still needs to be run from the repo root.
 
 ### Creating New Playbooks
 
 When creating a new playbook file, ALWAYS:
 
 ```yaml
-#!/usr/bin/env ansible-playbook
+#!/usr/bin/env -S bash -c 'p=$(realpath "$0"); cd "${p%/playbooks/*}" && exec ansible-playbook "$p" "$@"'
 ---
 - hosts: desktop
   name: Your Playbook Name
@@ -64,7 +64,7 @@ To add shebangs to all playbooks and make them executable, run:
 This script:
 
 - Scans all `.yml` files in `playbooks/` directory
-- Adds shebang if missing
+- Adds shebang if missing, replaces the legacy `#!/usr/bin/env ansible-playbook` one
 - Sets executable permission
 - Reports what was updated
 
@@ -91,7 +91,7 @@ Consider adding a pre-commit check to enforce this:
 ```bash
 # Check all .yml files in playbooks/ have shebang and are executable
 find playbooks -name "*.yml" -type f | while read file; do
-    if ! head -n1 "$file" | grep -q "^#!/usr/bin/env ansible-playbook"; then
+    if ! head -n1 "$file" | grep -q "^#!/usr/bin/env -S bash -c "; then
         echo "ERROR: Missing shebang in $file"
         exit 1
     fi

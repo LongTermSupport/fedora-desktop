@@ -1,4 +1,4 @@
-#!/usr/bin/env ansible-playbook
+#!/usr/bin/env -S bash -c 'p=$(realpath "$0"); cd "${p%/playbooks/*}" && exec ansible-playbook "$p" "$@"'
 ---
 # VirtualBox engine install (Plan 00061: split out of the former two-play file;
 # the Windows-VM setup now lives in play-virtualbox-windows-vm-setup.yml).

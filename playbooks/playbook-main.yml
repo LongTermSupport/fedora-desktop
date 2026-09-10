@@ -1,4 +1,4 @@
-#!/usr/bin/env ansible-playbook
+#!/usr/bin/env -S bash -c 'p=$(realpath "$0"); cd "${p%/playbooks/*}" && exec ansible-playbook "$p" "$@"'
 ---
 # NOTE: Everything imported here runs by default and is NOT optional.
 # Do not store playbooks imported here under imports/optional/ — move them to imports/.
