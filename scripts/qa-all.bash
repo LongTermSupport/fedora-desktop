@@ -97,7 +97,7 @@ fi
 # L0 no-kill safety gate (Plan 00055): the container-watch watchdog is
 # reporting-only and must never gain a process-termination call site. This is a
 # minimal, non-structural HARD gate — deliberately NOT a 7th jq-merged stage, so
-# it cannot corrupt the positional .[0]..[5] JSON merge below. It fails the whole
+# it cannot corrupt the positional .[0]..[6] JSON merge below. It fails the whole
 # run immediately if a forbidden kill call site is introduced.
 nokill_out=""
 if ! nokill_out="$(bash "$SCRIPT_DIR/qa-nokill-containerwatch.bash" 2>&1)"; then
@@ -132,7 +132,7 @@ echo "$drift_out"
 # one that makes the instruction people actually follow the correct one.
 #
 # Hard, non-structural gates like the two above — deliberately NOT jq-merged
-# stages, so they cannot disturb the positional .[0]..[5] merge below. Both are
+# stages, so they cannot disturb the positional .[0]..[6] merge below. Both are
 # fast (the suite is ~0.06s; the compat check is static).
 helper_out=""
 if ! helper_out="$(bash "$SCRIPT_DIR/qa-helper-tests.bash" 2>&1)"; then
@@ -176,6 +176,40 @@ fi
 planlib_summary=$(printf '%s' "$planlib_out" | grep -oE 'PASSED \(library version [0-9.]+\)') ||
     planlib_summary="passed"
 printf '✓ planlib-tests: %s\n' "$planlib_summary"
+
+# ccy's rootless-engine guard (Plan 00072), wired in by Plan 00081.
+#
+# This ran in .github/workflows/qa.yml and NOWHERE locally, which is a worse
+# version of the hole the helper-tests gate above exists to close: not
+# "documented but unrun", but "green here, red in CI" — so this file's own
+# promise that qa-all.bash is sufficient was false for anyone touching
+# lib/common-pure.bash. The decision under test is a pure function of the
+# engine's report, so it needs no podman and no daemon. 15 cases, ~0.03s.
+rootless_out=""
+if ! rootless_out="$(bash "$SCRIPT_DIR/test-ccy-rootless-guard.bash" 2>&1)"; then
+    echo "$rootless_out" >&2
+    echo "✗ QA FAILED: ccy rootless-engine guard unit tests" >&2
+    exit 1
+fi
+rootless_summary=$(printf '%s' "$rootless_out" | grep -oE 'passed: [0-9]+') ||
+    rootless_summary="passed"
+printf '✓ ccy-rootless-guard: %s\n' "$rootless_summary"
+
+# The fail-fast directive pattern's own unit suite (Plan 00081 F10).
+#
+# qa-ansible.bash enforces this repo's #1 rule with one regex, and that regex was
+# asymmetric for months — `failed_when: no` earned a green tick. The fix landed
+# with no test, so reverting it turned nothing red. This drives the shipped
+# definitions, read out of qa-ansible.bash rather than copied.
+failfast_out=""
+if ! failfast_out="$(bash "$SCRIPT_DIR/test-qa-ansible-failfast.bash" 2>&1)"; then
+    echo "$failfast_out" >&2
+    echo "✗ QA FAILED: fail-fast directive pattern unit tests" >&2
+    exit 1
+fi
+failfast_summary=$(printf '%s' "$failfast_out" | grep -oE 'passed: [0-9]+') ||
+    failfast_summary="passed"
+printf '✓ failfast-pattern-tests: %s\n' "$failfast_summary"
 
 compat_out=""
 if ! compat_out="$(cd "$SCRIPT_DIR/.." && python3 -m helpers.gnome.check_extension_compat 2>&1)"; then

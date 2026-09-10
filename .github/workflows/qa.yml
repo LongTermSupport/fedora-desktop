@@ -84,36 +84,17 @@ jobs:
           path: /tmp/qa-results.json
           if-no-files-found: ignore
 
-  helpers:
-    name: helper unit tests + extension version compat
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      # Helpers and their tests are stdlib-only by rule (helpers/CLAUDE.md), so no
-      # pip install step is needed — this job runs on the bare interpreter.
-      - name: Run helper unit tests
-        run: ./scripts/qa-helper-tests.bash
-
-      # ccy's rootless-engine guard (Plan 00072). The decision under test is a pure
-      # function of the engine's report, so this needs no podman, no docker and no
-      # daemon — which is the point: a rootful engine cannot be conjured on demand
-      # just to prove the guard notices one.
-      - name: Run ccy rootless-guard unit tests
-        run: ./scripts/test-ccy-rootless-guard.bash
-
-      # Static gate: every extensions/<uuid>/metadata.json must declare support for
-      # the GNOME Shell major that this branch's Fedora release (vars/fedora-version.yml)
-      # ships. Catches "metadata stale vs branch Fedora version" at PR time, before
-      # it reaches a desktop and GNOME flags the extension out of date.
-      - name: Check extension GNOME-Shell version compatibility
-        run: python3 -m helpers.gnome.check_extension_compat
+  # NO second job for the unit suites.
+  #
+  # There used to be a `helpers` job running qa-helper-tests.bash, the ccy
+  # rootless-guard suite and the extension-compat check as separate steps. Every
+  # one of those is now a hard gate inside qa-all.bash, which the job above runs.
+  #
+  # Removing it is not tidying. While the rootless-guard suite ran HERE and not in
+  # qa-all.bash, a local `./scripts/qa-all.bash` could pass on a change that CI
+  # then failed — and CLAUDE/QA.md tells everyone that command is sufficient.
+  # A gate listed in two places drifts; a gate listed once cannot. If you add a
+  # suite, add it to qa-all.bash and it reaches CI for free.
 
   gitleaks:
     name: gitleaks secret scan

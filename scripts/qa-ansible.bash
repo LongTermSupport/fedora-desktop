@@ -59,9 +59,19 @@ ERRORS=0
 # probes. That over-match announced itself on the first run — which is the whole
 # asymmetry this plan keeps meeting: an over-match prints the extra items and
 # gets fixed in a minute, while the under-match it replaced sat here silently.
+# One spelling list, and now one TEMPLATED form too. `ignore_errors` was checked
+# for `"{{ … }}"` and `ignore_unreachable` was not, which is the same asymmetry
+# this block already exists to fix, one directive further along: a templated value
+# is exactly as statically unverifiable whichever key it sits under.
+#
+# scripts/test-qa-ansible-failfast.bash drives these three definitions — read out
+# of THIS file, not copied — over a table of positive and negative cases, so a
+# re-narrowing turns something red. Before it existed, reverting this to the old
+# single-spelling regex turned nothing red anywhere (Plan 00081, F10's own gate).
 FF_FALSEY='(false|no|off)\b'
 FF_TRUTHY='(true|yes|on)\b'
-FF_PATTERN="failed_when:[[:space:]]+$FF_FALSEY|ignore_errors:[[:space:]]+$FF_TRUTHY|ignore_errors:[[:space:]]+\"[{][{]|ignore_unreachable:[[:space:]]+$FF_TRUTHY"
+FF_TEMPLATED='\"?[{][{]'
+FF_PATTERN="failed_when:[[:space:]]+$FF_FALSEY|ignore_errors:[[:space:]]+$FF_TRUTHY|ignore_errors:[[:space:]]+$FF_TEMPLATED|ignore_unreachable:[[:space:]]+$FF_TRUTHY|ignore_unreachable:[[:space:]]+$FF_TEMPLATED"
 
 FF_VIOLATIONS=()
 

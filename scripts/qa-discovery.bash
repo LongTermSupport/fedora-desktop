@@ -229,6 +229,48 @@ qa_tracked_shell_scripts() {
     return 0
 }
 
+# Populate QA_TRACKED_PLAYBOOK_CANDIDATES with every tracked YAML under playbooks/,
+# repo-relative. The independent yardstick for the ansible-syntax gate.
+#
+# The yardstick must not share the population's predicate, or the comparison
+# proves nothing. qa-ansible-syntax derives its population by CONTENT — a
+# top-level `- hosts:` or `- import_playbook:`. This function asks a different
+# question entirely: is the file tracked, and does it live in the directory whose
+# whole purpose is playbooks? Narrowing the content marker therefore breaks the
+# comparison, which is exactly the regression that went unnoticed once already:
+# deriving from `- hosts:` alone dropped playbooks/playbook-main.yml and the
+# reported total ROSE, 78 → 79, reading as a gain (Plan 00081 F14).
+#
+# Measured when written: 77 of 77 tracked YAML files under playbooks/ are in the
+# population, so this is a clean invariant rather than an aspiration. A genuine
+# non-playbook added there (a task file, a vars file) will fail this gate and
+# should be given an explicit exemption here, deliberately and with a reason.
+qa_tracked_playbook_candidates() {
+    local repo_root="$1" rel git_probe
+    if ! command -v git > /dev/null; then
+        echo "ERROR: git not found — QA coverage cannot be verified." >&2
+        echo "  These gates will not report a pass they cannot show they earned." >&2
+        exit 2
+    fi
+    if ! git_probe=$(git -C "$repo_root" rev-parse --git-dir 2>&1); then
+        echo "ERROR: $repo_root is not a git checkout, so coverage cannot be verified." >&2
+        echo "  git said: $git_probe" >&2
+        exit 2
+    fi
+
+    QA_TRACKED_PLAYBOOK_CANDIDATES=()
+    while IFS= read -r -d '' rel; do
+        [[ -f "$repo_root/$rel" ]] || continue
+        case "$rel" in
+            *.yml | *.yaml) ;;
+            *) continue ;;
+        esac
+        QA_TRACKED_PLAYBOOK_CANDIDATES+=("$rel")
+    done < <(git -C "$repo_root" ls-files -z -- 'playbooks/')
+
+    return 0
+}
+
 # Populate QA_PYTHON_FILES with every repo-owned Python file, as absolute paths.
 #
 # Shebang discovery is deliberately NOT restricted to `-executable`, for exactly

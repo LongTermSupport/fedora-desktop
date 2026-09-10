@@ -27,11 +27,45 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SRC_DIR="$REPO_ROOT/files/home/.local/bin"
 DEPLOYED_DIR="$HOME/.local/bin"
 
+if [ ! -d "$SRC_DIR" ]; then
+    echo "ERROR: source directory not found: $SRC_DIR" >&2
+    exit 2
+fi
+
+# ── The source-tree invariant, checked BEFORE any host skip ──────────────────
+#
+# Every `.j2` under files/home/.local/bin must map to a playbook `dest:` under
+# its stripped name. That is a fact about the REPO, not about this machine, so
+# it must not sit behind the three host-availability exits below — it did, and
+# the consequence was that the check never ran anywhere it was authored: the CCY
+# container returns at the first skip, and CI's checkout has no ~/.local/bin.
+# A gate that only executes on one developer's laptop is close enough to unrun.
+# Plan 00081 F4, second half.
+TEMPLATES=()
+for src in "$SRC_DIR"/*; do
+    [ -f "$src" ] || continue
+    name="$(basename "$src")"
+    [ "${name%.j2}" != "$name" ] || continue
+    rendered="${name%.j2}"
+    if ! grep -rqE --include='*.yml' -- "dest:.*/\.local/bin/${rendered//./\\.}([\"' ]|\$)" \
+        "$REPO_ROOT/playbooks"; then
+        echo "✗ deployed-drift: $name has no playbook dest: deploying it as '$rendered'" >&2
+        echo "  A template this gate cannot map to a deployed name is a file it" >&2
+        echo "  would report a pass over without comparing anything. Fix the play," >&2
+        echo "  or the naming convention this check relies on." >&2
+        exit 2
+    fi
+    TEMPLATES+=("$name -> $rendered")
+done
+
+# ── Host-only comparisons from here ──────────────────────────────────────────
+#
 # The CCY container mounts the repo at /workspace and deliberately has no
 # deployed system state — comparing there would compare the repo to nothing.
 # Same for a clean CI checkout. Neither is drift; both are "not the host".
 if [ "$REPO_ROOT" = "/workspace" ]; then
-    echo "✓ deployed-drift: skipped (CCY container — no deployed copies to compare)"
+    echo "✓ deployed-drift: skipped (CCY container — no deployed copies to compare);" \
+        "${#TEMPLATES[@]} template(s) verified to map to a playbook dest:"
     exit 0
 fi
 
@@ -46,19 +80,16 @@ git_common=""
 if git_dir=$(git -C "$REPO_ROOT" rev-parse --absolute-git-dir 2> /dev/null) \
     && git_common=$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-common-dir 2> /dev/null); then
     if [ "$git_dir" != "$git_common" ]; then
-        echo "✓ deployed-drift: skipped (linked git worktree — not the deployed checkout)"
+        echo "✓ deployed-drift: skipped (linked git worktree — not the deployed checkout);" \
+            "${#TEMPLATES[@]} template(s) verified to map to a playbook dest:"
         exit 0
     fi
 fi
 
 if [ ! -d "$DEPLOYED_DIR" ]; then
-    echo "✓ deployed-drift: skipped ($DEPLOYED_DIR does not exist)"
+    echo "✓ deployed-drift: skipped ($DEPLOYED_DIR does not exist);" \
+        "${#TEMPLATES[@]} template(s) verified to map to a playbook dest:"
     exit 0
-fi
-
-if [ ! -d "$SRC_DIR" ]; then
-    echo "ERROR: source directory not found: $SRC_DIR" >&2
-    exit 2
 fi
 
 # Which play deploys this file? Derived by searching the playbooks rather than
@@ -114,7 +145,6 @@ owning_play() {
 DRIFTED=0
 CHECKED=0
 NOT_DEPLOYED=0
-TEMPLATES=()
 
 # The deployed name is NOT always the repo name. `git-account-helper.j2` deploys
 # as `git-account-helper`, so a basename comparison looked for a `.j2` file in
@@ -127,8 +157,8 @@ TEMPLATES=()
 # of `{{ user_login }}` is that the two differ. So a `.j2` is NOT silently
 # skipped and NOT falsely compared — it is counted separately and DISCLOSED in
 # the summary, which is the honest answer when the gap is real rather than
-# fixable. What IS checked is that a play actually deploys it under the stripped
-# name; a template that maps to no `dest:` is a hard failure, not a shrug.
+# fixable. That a play deploys it under the stripped name is asserted ABOVE,
+# before the host skips, because that half is a source-tree fact.
 for src in "$SRC_DIR"/*; do
     if [ ! -f "$src" ]; then
         continue
@@ -136,16 +166,6 @@ for src in "$SRC_DIR"/*; do
     name="$(basename "$src")"
 
     if [ "${name%.j2}" != "$name" ]; then
-        rendered="${name%.j2}"
-        if ! grep -rqE --include='*.yml' -- "dest:.*/\.local/bin/${rendered//./\\.}([\"' ]|\$)" \
-            "$REPO_ROOT/playbooks"; then
-            echo "✗ deployed-drift: $name has no playbook dest: deploying it as '$rendered'" >&2
-            echo "  A template this gate cannot map to a deployed name is a file it" >&2
-            echo "  would report a pass over without comparing anything. Fix the play," >&2
-            echo "  or the naming convention this check relies on." >&2
-            exit 2
-        fi
-        TEMPLATES+=("$name -> $rendered")
         continue
     fi
 

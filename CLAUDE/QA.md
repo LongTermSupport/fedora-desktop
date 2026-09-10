@@ -16,8 +16,8 @@
 
 ## What qa-all.bash Runs
 
-`qa-all.bash` runs **thirteen** gates. Seven merge their JSON into
-`/tmp/qa-results.json`; the other six run separately (see below). A missing **required**
+`qa-all.bash` runs **fifteen** gates. Seven merge their JSON into
+`/tmp/qa-results.json`; the other eight run separately (see below). A missing **required**
 tool makes a stage (and the whole run) exit `2`; a real analyser crash (e.g.
 ruff/shellcheck exit ≥ 2) is a hard failure, never silently treated as "0 issues".
 
@@ -27,13 +27,13 @@ ruff/shellcheck exit ≥ 2) is a hard failure, never silently treated as "0 issu
 | `qa-python.bash`         | `python3 -m py_compile` + ruff (ruff exit ≥ 2 = hard fail; no `--fix` mutation in the check path). Exits 2 if discovery finds **0 files**, and (Plan 00081) if it misses **any tracked Python file**                                                                                                                             | Repo-owned Python files — discovered by extension **or shebang, regardless of file mode**                       |
 | `qa-patterns.bash`       | Semgrep rules from `.semgrep/bash-conventions.yml` (`\|\| echo` and other error-hiding patterns). Scans a temp mirror so coverage does not depend on file mode, and exits 2 if any discovered file is absent from `.paths.scanned` (Plan 00076)                                                                                  | Repo-owned bash                                                                                                 |
 | `qa-ansible.bash`        | Fail-fast grep (`failed_when: false`/`ignore_errors` without same-line `# FAIL-FAST-OK:`, case-insensitive), **self-default vars** (`x: "{{ x \| default(…) }}"` — the 2.19 recursive-loop footgun `--syntax-check` can't see), **plus** playbook shebang + exec-bit hygiene                                                     | `playbooks/ tasks/ vars/ environment/ roles/` (excludes `roles/vendor`), `*.yml`/`*.yaml`                       |
-| `qa-ansible-syntax.bash` | `ansible-playbook --syntax-check` on every playbook (files with a top-level `- hosts:`). Parse-only — safe in the CCY container                                                                                                                                                                                                  | `playbooks/playbook-main.yml` + standalone `playbooks/imports/**`                                               |
+| `qa-ansible-syntax.bash` | `ansible-playbook --syntax-check` on every playbook — a file with a top-level `- hosts:` **or `- import_playbook:`** (Plan 00081 F9/F14: deriving from `hosts:` alone dropped `playbook-main.yml`). Parse-only — safe in the CCY container. The pass line states the breakdown, so a coverage change is visible                  | **Repo-wide**, not a fixed path list; excludes vendor/upstream trees. Includes playbooks under `CLAUDE/Plan/**` |
 | `qa-js.bash`             | `node --check` on repo JS + `eslint .` in `extensions/`                                                                                                                                                                                                                                                                          | Repo-owned `.js` (excludes vendor/node_modules) + `extensions/`                                                 |
 | `qa-docs.bash`           | Link targets exist; every `#anchor` matches a real heading; every play imported by `playbook-main.yml` is named in both `docs/playbooks.md` and `docs/architecture.md`; every `CLAUDE/*.md` has an index row (Plan 00070)                                                                                                        | Core docs only — `docs/`, `CLAUDE/*.md`, `README.md`, `*/CLAUDE.md`, `.claude/rules/`. **Not** `CLAUDE/Plan/**` |
 
-Six further gates run inside `qa-all.bash` as **hard, non-structural** checks —
+Eight further gates run inside `qa-all.bash` as **hard, non-structural** checks —
 they are deliberately not jq-merged stages, so they cannot disturb the positional
-`.[0]..[5]` JSON merge. Any one of them fails the whole run immediately:
+`.[0]..[6]` JSON merge. Any one of them fails the whole run immediately:
 
 | Gate                                   | Checks                                                                                     |
 | -------------------------------------- | ------------------------------------------------------------------------------------------ |
@@ -42,6 +42,8 @@ they are deliberately not jq-merged stages, so they cannot disturb the positiona
 | `qa-helper-tests.bash`                 | the `helpers/` unit suite (Plan 00081 F11); the run prints the case count                  |
 | `test-secret-scan.bash`                | the pre-commit secret scanner's own unit suite (Plan 00092)                                |
 | `test-planlib.bash`                    | the `_planlib.inc.bash` regression suite behind every plan script (Plan 00092)             |
+| `test-ccy-rootless-guard.bash`         | ccy's rootless-engine verdict (Plan 00072); pure function, no podman needed                |
+| `test-qa-ansible-failfast.bash`        | the fail-fast directive regex in `qa-ansible.bash`, read from it rather than copied        |
 | `helpers.gnome.check_extension_compat` | every extension declares the GNOME Shell major this branch's Fedora ships                  |
 
 `qa-helper-tests.bash` and `check_extension_compat` were **documented here as gates and
@@ -49,11 +51,19 @@ not run by `qa-all.bash`** until Plan 00081. Following this document's own "ALWA
 ONLY use `qa-all.bash`" rule, a `helpers/` change earned `✓ QA passed` with its unit
 suite never executed. The fix was to run them rather than to soften the rule.
 
-The two `test-*` suites are the same shape of hole, closed later: each guards a defect
+The four `test-*` suites are the same shape of hole, closed later: each guards a defect
 class whose regression is **silent by construction**. A leak the secret scanner stopped
 catching produces no signal on any commit, and a `_planlib.inc.bash` regression surfaces
 only when someone next runs a plan's host script — which may be months, and on a plan
 nobody is working on. Being exercised incidentally is not the same as being tested.
+
+`test-ccy-rootless-guard.bash` was the sharpest case, because it was worse than
+unrun: it ran in `.github/workflows/qa.yml` and nowhere locally, so this page's
+"ALWAYS and ONLY use `qa-all.bash`" was false for anyone touching ccy's engine
+guard — green here, red in CI. **When adding a suite, add it to `qa-all.bash`
+first; CI runs `qa-all.bash`, so a separate CI step is a divergence, not a
+belt-and-braces.** `scripts/test-ccy-ssh-probe.bash` is deliberately not a gate:
+it needs a real host and a `gh` token, so it is a host diagnostic.
 
 ### All three source gates assert their own coverage (Plans 00076, 00081)
 
