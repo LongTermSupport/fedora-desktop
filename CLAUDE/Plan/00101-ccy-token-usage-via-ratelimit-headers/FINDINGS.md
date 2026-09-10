@@ -148,3 +148,70 @@ was actually asked.
 
 **Still unobserved: a `7d_oi` header from any response**, and now also **any
 successful Fable response**. H4 is untested.
+
+### F35 — what `seven_day_overage_included` actually is, from the bundle's own words
+
+The statusline contract documents the three windows it exposes:
+
+> Per-window usage for the session (5-hour), weekly (7-day), and
+> overage-included weekly (**per-model bucket; present only for accounts whose
+> responses carry that window**) **subscription** rate-limit windows, as read
+> from the `anthropic-ratelimit-unified-*` response headers. […] Windows absent
+> from the account state are absent here.
+
+Three things settle from that, and one of them corrects this document:
+
+1. **It is a SUBSCRIPTION window, not API billing.** The "overage-included" in
+   the name describes which weekly allowance it is, not a credits balance.
+2. **It is per-model**, which is why a Haiku probe carrying no `7d_oi` (F29) does
+   not prove the account has no Fable window.
+3. **It is legitimately absent for some accounts** — the contract says so
+   outright, twice. An absent window is a normal state, not a fault.
+
+It also restates the scale independently: utilisation is a fraction, "usually
+0–1", with values above 1 occurring when usage runs past a cap. That is a third
+confirmation of F20, and it validates the over-limit band the renderer already
+allows.
+
+### ~~H5 — struck~~
+
+H5 held that Fable is metered against the credits bucket, so an out-of-credits
+account is refused Fable and has no `7d_oi` to report. **It conflated two
+different buckets.** `seven_day_overage_included` ("Fable limit") and `overage`
+("usage credit limit") are separate rows in the bundle's own table, and F35 puts
+the first on the subscription side entirely.
+
+The owner made the same correction independently: the `overage-*` headers are
+the switch-to-API-billing fallback for when subscription usage runs out, which
+these accounts never use. F31's degenerate Fable failures were a malformed
+request (F33), and nothing about credits.
+
+F26 and F27 remain true — a Fable overage-consent dialog and a
+`credits_required` error code both exist — but they describe paying for Fable
+*beyond* an included allowance, which is a different subject from the weekly
+window this plan is trying to display.
+
+### F34 — `overage-disabled-reason` values (about the CREDITS bucket, not Fable)
+
+**Kept for completeness, and explicitly out of scope**: these describe the
+`overage` bucket, the API-billing fallback. They are recorded because F32
+observed two different values across the pool and a future reader will otherwise
+re-derive them — not because they bear on the Fable window.
+
+| Header value                                        | Client's wording                              | Meaning                                       |
+| --------------------------------------------------- | --------------------------------------------- | --------------------------------------------- |
+| `out_of_credits`                                    | usage credits exhausted                       | Provisioned and spent. Topping up restores it |
+| `org_level_disabled`, `org_service_level_disabled`  | usage credits turned off by your organization | An org admin has disabled credit spending     |
+| `org_level_disabled_until`, `org_spend_cap_reached` | usage credit limit reached                    | A spend cap, not an empty balance             |
+| `member_level_disabled`                             | usage credits turned off for your account     | Disabled for this member specifically         |
+| `seat_tier_level_disabled`, `*_zero_credit_limit`   | usage credits not available for your plan     | The seat tier carries no credit allowance     |
+
+A second function in the bundle separates them by whether extra usage is
+*obtainable*: it answers true for `out_of_credits` alone, and false for
+`org_level_disabled` and the rest. So on accounts 1–2 buying credits would
+restore the capability; on accounts 3–4 it would not, because the block is a
+setting rather than a balance.
+
+The client renders these strings prefixed "Fast mode disabled · " because that is
+the surface the function serves, but the value read is the shared
+`anthropic-ratelimit-unified-overage-disabled-reason` header.

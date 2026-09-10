@@ -73,17 +73,14 @@ change and two more cache fields, not a new request.
 
 Three hypotheses, leading to different work:
 
-- ~~**H3** — a **Haiku** probe carries the `7d_oi` pair~~ — **REFUTED by F29**.
-  Four accounts, three clean 200s, `7d_oi` absent on every one. The cheap probe
-  cannot show a Fable bar.
-- **H4** — only a **Fable** probe carries it, i.e. the bucket set is scoped to
-  the request's model. Then showing the bar costs a Fable request, which
-  Decision 3 deliberately avoided, and the cost has to be put to the user.
-- **H5** — Fable is metered against the overage-included bucket, so an account
-  `out_of_credits` is refused Fable *and* has no `7d_oi` bucket to report
-  (F23 carried exactly that pair). Then for such an account there is **no figure
-  to show**, and the honest display is the reason, not a blank or a zero bar.
-  That is a different piece of work from parsing a header.
+- ~~**H3** — a Haiku probe carries the `7d_oi` pair~~ — **REFUTED by F29**:
+  three clean 200s, absent on every one. The cheap probe cannot show the bar.
+- **H4** — only a **Fable** probe carries it, the window being per-model (F35).
+  The bar would then cost a Fable request, which Decision 3 avoided, and that
+  cost goes to the user. **Untested** — no valid Fable request has been made yet.
+- ~~**H5** — Fable is metered against the credits bucket~~ — **STRUCK**: it
+  conflated "Fable limit" with "usage credit limit", two separate buckets, one
+  subscription and one API-billing. See [FINDINGS.md](FINDINGS.md).
 
 F21 is the reason this is worth settling rather than assuming symmetry: the
 buckets are **not** uniformly available. Fable has a utilisation header and Opus
@@ -224,12 +221,13 @@ credits" from "weekly Fable limit reached". The probe was amended to capture the
   **This is the decision gate for H4**, and the first valid Fable request this
   plan will have made
 
-- [ ] **Task 6.2c** (H5 only): if every account is refused for credits, then no
-  `7d_oi` figure exists to display and Tasks 6.3/6.4 do not apply. The work
-  becomes showing the **reason** — `overage-disabled-reason` is already in the
-  response ccy fetches, and is already being discarded by the same `case` that
-  discards `7d_oi`. A "Fable limit: no usage credits" row is honest; a blank is
-  not, and a 0% bar would be a lie
+- [x] ~~**Task 6.2c** (H5 only): show the credits reason instead of a figure~~ —
+  **DROPPED with H5.** It would have displayed API-billing state on a row
+  labelled "Fable limit", which is a different subject and actively misleading.
+  **F35 supplies the correct handling**: the contract says this window is
+  "present only for accounts whose responses carry that window", so **absent is
+  a normal state**, and the row should say the window was not reported — not
+  invent a reason for it
 
 - [ ] **Task 6.3** (H3): parse `7d_oi-utilization` / `-reset` in
   `_usage_extract` and render the bar. Two more cache fields, **appended last**
