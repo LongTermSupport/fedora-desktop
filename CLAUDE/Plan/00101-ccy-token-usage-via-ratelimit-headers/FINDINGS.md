@@ -227,6 +227,41 @@ Because it is one pool, heavy non-Fable use still restricts Fable *indirectly*:
 at 90% total spent, only 10% of the pool remains for anything, Fable included.
 On Max with no credits, reaching either bound stops Fable until the weekly reset.
 
+### F40 — `/usage` in Claude Code *does* render a Fable row
+
+Read out of the view builder, so this is the client's behaviour rather than a
+secondary claim. The rows are:
+
+```js
+[{bar:"five_hour",  title:"Current session"},
+ {bar:"seven_day",  title:"Current week (all models)"},
+ ...(plan is max/team ? [{bar:"seven_day_sonnet", title:"Current week (Sonnet only)"}] : []),
+ ...jre(Le.limits, pB()).map(My)]        // pB() = tengu_usage_overage_included_models
+```
+
+and the title template for that last, generic group is:
+
+```js
+`Current week (${o.scope.model.display_name})`
+```
+
+So a Fable window appears as **"Current week (Fable 5.1)"**. The rows come from
+`Le.limits`, the `limits[]` array of `GET /api/oauth/usage` (F22), annotated by
+the overage-included models allowlist — the same flag that governs the
+`seven_day_overage_included` bucket.
+
+**Three surfaces can show it, and they share one source.** `/usage`, the VS Code
+usage dialog and claude.ai Settings → Usage all read that OAuth endpoint.
+
+**ccy cannot reach any of them**, for two independent reasons already recorded:
+F9 — stored setup-tokens are refused on `/api/oauth/usage` for scope, which is
+fixed at minting; and F29 — no rate-limit header carries the Fable window. This
+is the gap, and it is not closable from the header route.
+
+Known defect worth remembering (F39): the model-specific row can be missing when
+the usage endpoint is rate limited or when `/usage` is opened immediately after
+startup. Reopen it before concluding the row does not exist.
+
 **F36 reframes the whole plan, and mostly answers the original question.**
 ccy cannot show a separate Fable allowance on a Max account because **there is
 no separate allowance** — Fable spends the same weekly pool ccy already draws as
