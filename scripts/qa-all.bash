@@ -127,7 +127,7 @@ echo "$drift_out"
 # CLAUDE/QA.md says "ALWAYS and ONLY use ./scripts/qa-all.bash" and "NEVER use
 # individual scripts directly" — and then documented these two as gates this
 # script did not run. Following the stated rule, a helpers/ change got
-# "✓ QA passed" with its 161-test suite never executed. The two ways to fix that
+# "✓ QA passed" with its whole unit suite never executed. The two ways to fix that
 # were to run them or to stop claiming qa-all is sufficient; running them is the
 # one that makes the instruction people actually follow the correct one.
 #
@@ -148,8 +148,8 @@ printf '✓ helper-tests: %s\n' "$helper_summary"
 # The scanner LIBRARY runs on every commit, but a false-NEGATIVE regression in it
 # is silent by construction — a leak it stopped catching produces no signal at
 # all. That is the whole reason the suite exists, so "it is exercised on every
-# commit anyway" is not a reason to leave it unwired. Fifteen synthetic cases,
-# sub-second. Same shape as the helper-tests gate above, and for the same reason.
+# commit anyway" is not a reason to leave it unwired. Every case is synthetic and
+# the whole suite is sub-second. Same shape as the helper-tests gate above.
 scan_out=""
 if ! scan_out="$(bash "$SCRIPT_DIR/test-secret-scan.bash" 2>&1)"; then
     echo "$scan_out" >&2
@@ -158,6 +158,24 @@ if ! scan_out="$(bash "$SCRIPT_DIR/test-secret-scan.bash" 2>&1)"; then
 fi
 scan_summary=$(printf '%s' "$scan_out" | grep -oE 'passed: [0-9]+') || scan_summary="passed"
 printf '✓ secret-scan-tests: %s\n' "$scan_summary"
+
+# The plan-script library's own regression suite (scripts/test-planlib.bash).
+#
+# _planlib.inc.bash backs EVERY plan script in the repo — the deploy, triage and
+# acceptance scripts a human runs on the host — so a regression in it breaks the
+# tooling of plans that are not being worked on and whose scripts nobody will run
+# for months. One of its cases pins a defect that broke a live host deploy.
+# Nothing ran it automatically, which made it a suite whose passing was a matter
+# of someone remembering. Sub-second, same shape as the two gates above.
+planlib_out=""
+if ! planlib_out="$(bash "$SCRIPT_DIR/test-planlib.bash" 2>&1)"; then
+    echo "$planlib_out" >&2
+    echo "✗ QA FAILED: plan-script library regression tests" >&2
+    exit 1
+fi
+planlib_summary=$(printf '%s' "$planlib_out" | grep -oE 'PASSED \(library version [0-9.]+\)') ||
+    planlib_summary="passed"
+printf '✓ planlib-tests: %s\n' "$planlib_summary"
 
 compat_out=""
 if ! compat_out="$(cd "$SCRIPT_DIR/.." && python3 -m helpers.gnome.check_extension_compat 2>&1)"; then

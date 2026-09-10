@@ -16,10 +16,10 @@
 
 ## What qa-all.bash Runs
 
-`qa-all.bash` runs **eight** gates. Seven merge their JSON into `/tmp/qa-results.json`;
-the eighth runs separately (see below). A missing **required** tool makes a stage
-(and the whole run) exit `2`; a real analyser crash (e.g. ruff/shellcheck exit ≥ 2)
-is a hard failure, never silently treated as "0 issues".
+`qa-all.bash` runs **thirteen** gates. Seven merge their JSON into
+`/tmp/qa-results.json`; the other six run separately (see below). A missing **required**
+tool makes a stage (and the whole run) exit `2`; a real analyser crash (e.g.
+ruff/shellcheck exit ≥ 2) is a hard failure, never silently treated as "0 issues".
 
 | Script                   | Checks                                                                                                                                                                                                                                                                                                                           | Files                                                                                                           |
 | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
@@ -31,21 +31,29 @@ is a hard failure, never silently treated as "0 issues".
 | `qa-js.bash`             | `node --check` on repo JS + `eslint .` in `extensions/`                                                                                                                                                                                                                                                                          | Repo-owned `.js` (excludes vendor/node_modules) + `extensions/`                                                 |
 | `qa-docs.bash`           | Link targets exist; every `#anchor` matches a real heading; every play imported by `playbook-main.yml` is named in both `docs/playbooks.md` and `docs/architecture.md`; every `CLAUDE/*.md` has an index row (Plan 00070)                                                                                                        | Core docs only — `docs/`, `CLAUDE/*.md`, `README.md`, `*/CLAUDE.md`, `.claude/rules/`. **Not** `CLAUDE/Plan/**` |
 
-Two further gates run inside `qa-all.bash` as **hard, non-structural** checks —
+Six further gates run inside `qa-all.bash` as **hard, non-structural** checks —
 they are deliberately not jq-merged stages, so they cannot disturb the positional
-`.[0]..[5]` JSON merge. Either one fails the whole run immediately:
+`.[0]..[5]` JSON merge. Any one of them fails the whole run immediately:
 
 | Gate                                   | Checks                                                                                     |
 | -------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `qa-nokill-containerwatch.bash`        | the container-watch watchdog has gained no process-termination call site                   |
 | `qa-deployed-drift.bash`               | every repo-owned `files/home/.local/bin/` script matches its deployed `~/.local/bin/` copy |
-| `qa-helper-tests.bash`                 | the 161-test `helpers/` unit suite (Plan 00081 F11)                                        |
+| `qa-helper-tests.bash`                 | the `helpers/` unit suite (Plan 00081 F11); the run prints the case count                  |
+| `test-secret-scan.bash`                | the pre-commit secret scanner's own unit suite (Plan 00092)                                |
+| `test-planlib.bash`                    | the `_planlib.inc.bash` regression suite behind every plan script (Plan 00092)             |
 | `helpers.gnome.check_extension_compat` | every extension declares the GNOME Shell major this branch's Fedora ships                  |
 
-The last two were **documented here as gates and not run by `qa-all.bash`** until
-Plan 00081. Following this document's own "ALWAYS and ONLY use `qa-all.bash`"
-rule, a `helpers/` change earned `✓ QA passed` with its unit suite never
-executed. The fix was to run them rather than to soften the rule.
+`qa-helper-tests.bash` and `check_extension_compat` were **documented here as gates and
+not run by `qa-all.bash`** until Plan 00081. Following this document's own "ALWAYS and
+ONLY use `qa-all.bash`" rule, a `helpers/` change earned `✓ QA passed` with its unit
+suite never executed. The fix was to run them rather than to soften the rule.
+
+The two `test-*` suites are the same shape of hole, closed later: each guards a defect
+class whose regression is **silent by construction**. A leak the secret scanner stopped
+catching produces no signal on any commit, and a `_planlib.inc.bash` regression surfaces
+only when someone next runs a plan's host script — which may be months, and on a plan
+nobody is working on. Being exercised incidentally is not the same as being tested.
 
 ### All three source gates assert their own coverage (Plans 00076, 00081)
 

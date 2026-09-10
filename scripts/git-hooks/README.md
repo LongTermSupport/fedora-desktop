@@ -65,9 +65,12 @@ also be run alone:
 ./scripts/test-secret-scan.bash
 ```
 
-It is wired in, unlike `test-planlib.bash`, because a false-negative regression in the
-scanner is silent by construction: a leak it stopped catching produces no signal on any
-commit. The library running on every commit proves nothing about that.
+It is wired in because a false-negative regression in the scanner is silent by
+construction: a leak it stopped catching produces no signal on any commit. The library
+running on every commit proves nothing about that. `test-planlib.bash` is wired in
+alongside it, for the mirror-image reason — `_planlib.inc.bash` backs every plan script in
+the repo, and those scripts may go unrun for months, so a regression there surfaces at the
+worst possible moment rather than on the commit that caused it.
 
 Every value in it is synthetic, because the real denylist is built from a gitignored file
 holding the owner's actual identifiers and this repository is public.
