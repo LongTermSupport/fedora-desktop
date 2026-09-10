@@ -540,7 +540,12 @@ jq -n \
 # Terse summary
 # ---------------------------------------------------------------------------
 if [[ $ERRORS -eq 0 ]]; then
-    echo "✓ ansible: fail-fast patterns OK; no self-referential vars; no deprecated ansible_<fact> vars; scope+guard declarations OK; $PLAYBOOK_COUNT playbook(s) have correct shebang+exec"
+    # State the population, do not imply it — the same reason qa-ansible-syntax
+    # prints its breakdown. This gate and that one legitimately count DIFFERENT
+    # things (this one is scoped to the Ansible source dirs; that one is repo-wide
+    # and includes playbooks living inside CLAUDE/Plan/), and two bare numbers that
+    # disagree with no explanation is how a coverage gap reads as a rounding error.
+    echo "✓ ansible: fail-fast patterns OK; no self-referential vars; no deprecated ansible_<fact> vars; scope+guard declarations OK; $PLAYBOOK_COUNT playbook(s) have correct shebang+exec (scoped to playbooks/ tasks/ vars/ environment/ roles/ — qa-ansible-syntax counts repo-wide and will be higher)"
     exit 0
 else
     FF_COUNT=${#FF_VIOLATIONS[@]}

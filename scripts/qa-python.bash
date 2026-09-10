@@ -126,6 +126,51 @@ for file in "${PY_FILES[@]}"; do
     fi
 done
 
+# Python TEMPLATES: rendered-then-compiled, rather than excluded and forgotten.
+#
+# A `.j2` is not valid Python until rendered, which is why discovery skips it —
+# and that reasoning quietly exempted 349 lines of real Python from every gate in
+# the repo (Plan 00081 F3/F4). Substituting each `{{ … }}` with a Python literal
+# gives a file whose SYNTAX can be checked, which is the half that was missing.
+#
+# Only expressions are substitutable. A `{% … %}` statement can add or remove
+# lines of Python, so a substituted file would not represent any real render:
+# that is a HARD FAILURE naming the file, never a skip. "This gate cannot check
+# it" must not resolve to "this gate passes it".
+qa_discover_python_templates "$REPO_ROOT"
+TEMPLATE_COUNT=${#QA_PYTHON_TEMPLATES[@]}
+for tpl in "${QA_PYTHON_TEMPLATES[@]+"${QA_PYTHON_TEMPLATES[@]}"}"; do
+    rel_path="${tpl#"$REPO_ROOT"/}"
+    if grep -q '{%' "$tpl"; then
+        echo "✗ python: $rel_path contains Jinja statements ({% … %}), so its rendered" >&2
+        echo "  Python cannot be reconstructed by substitution and this gate cannot" >&2
+        echo "  check it. Extract the logic into a real .py module the gate can read," >&2
+        echo "  or render it in a fixture — do not let it pass unexamined." >&2
+        exit 2
+    fi
+    rendered_tmp="$(mktemp --suffix=.py)"
+    # `None` is a valid Python expression in every position an expression can
+    # appear, including inside a string literal, so the substitution never itself
+    # introduces a syntax error and a failure here is the template's own.
+    python3 -c '
+import re, sys
+src, dst = sys.argv[1], sys.argv[2]
+with open(src, encoding="utf-8") as fh:
+    text = fh.read()
+with open(dst, "w", encoding="utf-8") as fh:
+    fh.write(re.sub(r"\{\{.*?\}\}", "None", text, flags=re.S))
+' "$tpl" "$rendered_tmp"
+    if err=$(python3 -m py_compile "$rendered_tmp" 2>&1); then
+        jq -nc --arg f "$rel_path" '{"file":$f,"type":"python-template","status":"pass"}' >> "$TMP_RESULTS"
+    else
+        echo "✗ python: $rel_path (rendered): $err"
+        jq -nc --arg f "$rel_path" --arg e "$err" \
+            '{"file":$f,"type":"python-template","status":"fail","error":$e}' >> "$TMP_RESULTS"
+        ERRORS=$((ERRORS + 1))
+    fi
+    rm -f "$rendered_tmp"
+done
+
 # Ruff: capture diagnostics as JSON (read-only check — never mutate the tree).
 #
 # Crash handling (probe-then-fail): ruff rc 0 (clean) or 1 (lint findings) is
@@ -171,7 +216,13 @@ jq -s \
 
 # Terse summary
 if [[ $ERRORS -eq 0 ]]; then
-    echo "✓ python: $TOTAL files OK"
+    # Templates counted separately, because they were syntax-checked but not
+    # linted — saying "N files OK" over both would overstate what ruff saw.
+    if [[ $TEMPLATE_COUNT -gt 0 ]]; then
+        echo "✓ python: $TOTAL files OK; $TEMPLATE_COUNT rendered template(s) compile (syntax only, not linted)"
+    else
+        echo "✓ python: $TOTAL files OK"
+    fi
     exit 0
 else
     echo "✗ python: failed → $JSON_OUT"

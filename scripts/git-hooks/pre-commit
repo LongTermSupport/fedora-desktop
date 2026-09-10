@@ -307,6 +307,19 @@ trap 'rm -f "$DENYLIST_FILE"' EXIT
 DENY_RC=0
 hook_build_private_denylist "$REPO_ROOT" "$DENYLIST_FILE" || DENY_RC=$?
 
+# Any status OTHER than the three documented above is a hard failure, not an
+# "else". `source` under set -e catches a SYNTAX break in the library; it does not
+# catch a MISSING FUNCTION. Delete or rename hook_build_private_denylist and this
+# call returns 127, which fell through to the else, found an empty denylist file,
+# skipped the whole stage and printed the pass line. The gate would announce it
+# had checked for private identifiers while its list was never built.
+if [ "$DENY_RC" -ne 0 ] && [ "$DENY_RC" -ne 1 ] && [ "$DENY_RC" -ne 2 ]; then
+    echo -e "${RED}ERROR: denylist builder returned an undefined status ($DENY_RC)${NC}" >&2
+    echo "  Expected 0, 1 or 2. 127 means lib/secret-scan.bash no longer defines" >&2
+    echo "  hook_build_private_denylist. A security gate that did not run has not passed." >&2
+    exit 1
+fi
+
 if [ "$DENY_RC" -eq 1 ]; then
     echo -e "${RED}ERROR: failed to build private-identifier denylist from localhost.yml${NC}" >&2
     exit 1

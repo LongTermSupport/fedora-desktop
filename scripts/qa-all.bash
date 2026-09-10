@@ -85,6 +85,11 @@ fi
 # Documentation integrity (Plan 00070): link/anchor resolution, playbook
 # catalogue completeness, topic-file index. Scoped to CORE docs — the plan tree
 # is excluded so archiving a plan can never change this gate's verdict.
+#
+# qa-ansible-syntax takes the OPPOSITE view of CLAUDE/Plan/** and both are right:
+# a playbook in a plan folder is a playbook and must parse, while a plan's PROSE
+# is a working document whose links legitimately churn. Two gates, two policies,
+# stated here so neither reads as an oversight.
 rc=0
 QA_JSON_OUT="$TMP_DOCS" "$SCRIPT_DIR/qa-docs.bash" || rc=$?
 if [[ $rc -eq 2 ]]; then

@@ -41,7 +41,10 @@
       ansible.builtin.stat:
         path: "{{ repo_path }}/scripts/git-hooks/lib/secret-scan.bash"
       register: hooks_lib
-      failed_when: not hooks_lib.stat.exists
+      # Size, not just existence. A zero-byte file passes `stat.exists` and then
+      # defines none of the functions the hooks call — Plan 00067's shape, where a
+      # present-but-empty artefact satisfied a presence check.
+      failed_when: not hooks_lib.stat.exists or hooks_lib.stat.size == 0
 
     - name: Configure git to use tracked hooks directory
       community.general.git_config:

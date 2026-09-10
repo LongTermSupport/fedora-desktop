@@ -137,6 +137,16 @@ trap 'rm -f "$DENYLIST_FILE"' EXIT
 DENY_RC=0
 hook_build_private_denylist "$REPO_ROOT" "$DENYLIST_FILE" || DENY_RC=$?
 
+# Same guard as pre-commit: an undefined status is a hard failure, never an else.
+# 127 (the function is gone from the library) would otherwise skip this whole
+# stage and still print a pass — a gate that did not run has not passed.
+if [ "$DENY_RC" -ne 0 ] && [ "$DENY_RC" -ne 1 ] && [ "$DENY_RC" -ne 2 ]; then
+    echo -e "${RED}ERROR: denylist builder returned an undefined status ($DENY_RC)${NC}" >&2
+    echo "  Expected 0, 1 or 2. 127 means lib/secret-scan.bash no longer defines" >&2
+    echo "  hook_build_private_denylist." >&2
+    exit 1
+fi
+
 if [ "$DENY_RC" -eq 1 ]; then
     echo -e "${RED}ERROR: failed to build private-identifier denylist from localhost.yml${NC}" >&2
     exit 1

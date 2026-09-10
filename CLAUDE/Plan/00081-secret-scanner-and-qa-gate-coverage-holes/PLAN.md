@@ -45,119 +45,11 @@ holes, each behind a test that fails against the unfixed code.
 
 ## Facts
 
-- **F1** — `pre-commit:89` listed staged files with `--diff-filter=ACM`. Rename
-  detection is on by default (`diff.renames`, git ≥ 2.9), so a `git mv` plus an
-  edit is classified `R` and was **excluded entirely — never scanned**.
-  Reproduced on git 2.39.5: a 40-line file moved with one line appended reports
-  `R098`, `--diff-filter=ACM` returns nothing, and the hook printed
-  `✓ No files staged for commit` and exited 0. Moving a plan folder into
-  `Completed/` is exactly this shape
-- **F1b** — the hole **appears and disappears with file size**. A small file
-  falls below the rename-similarity threshold and is recorded `D`+`A`, so the
-  add *is* scanned. My own first reproduction used a 2-line file, passed, and
-  would have let me dismiss a real security finding as unreproducible
-- **F2** — the email whitelist filtered whole **lines** (`grep -v`), so a real
-  address sharing a line with `git@github.com` was deleted along with it.
-  Verified: that line matches the email pattern once and survives the chain with
-  zero matches remaining. The file's own comment says a legitimate reference
-  "no longer whitelists a genuine leak elsewhere in the same **file**" — that
-  was fixed; the same-**line** case was not
-- **F2b** — `CLAUDE/PlanTriage.md` already states the correct rule, learned from
-  a real leak in Plan 00066: *"Redact by substitution, never by dropping
-  anchored lines."* The scanner was doing the opposite of the repo's own
-  documented lesson
-- **F3** — `qa-python.bash` discovers by extension (`:31`) or **file mode**
-  (`:48-56`). This is Plan 00076's bash-gate defect, unfixed in the Python gate:
-  7 tracked repo-owned files, 4,003 lines, mode 0644 with a `python3` shebang,
-  are never compiled or linted — and the repo's own ruff config finds **31
-  violations** in them while the gate prints `✓ python: 35 files OK`.
-  `CLAUDE/QA.md` names `wsi-stream` as *the* example of Python needing care; it
-  is one of the seven
-- **F4** — `qa-deployed-drift.bash:117-125` compares by basename, so
-  `git-account-helper.j2` (deployed as `git-account-helper`) never matches, never
-  increments `CHECKED`, and the pass line still claims the deployed scripts
-  match. That is Plan 00094's failure on the one file in scope it cannot see
-- **F5** — `pre-commit:341-348` harvests the denylist with
-  `field.endswith("_username") or field.endswith("_account")`, but the file's
-  convention is the **plural** (`github_accounts` had to be hardcoded), so
-  `lastpass_accounts` and others are never harvested
-- **F6** — `docker-health.bash:73` iterates `exited created` while its own
-  comment and the user-facing message both name `dead`. Docker-only, rare, and
-  unexercisable in a container — recorded, not fixed
-- **F7** — **the CCY version-bump gate covers `claude-yolo` alone.**
-  `pre-commit:105` keys on that one path, and the runtime hash
-  (`claude-yolo:72`) is `md5sum` of `"$0"` — the launcher only. It sources six
-  libraries totalling **212 KB against the launcher's 149 KB**. Measured: **71
-  commits have touched `lib/`, and 22 of them touched `claude-yolo` not at
-  all**, so no bump was ever required and none was made. A behaviour change in
-  `lib/token-management.bash` therefore ships with an unchanged `CCY_VERSION`,
-  an unchanged hash, `validate_ccy_integrity` reporting a match, and no
-  changelog entry. `CLAUDE/ContainerRules.md` states the rule as "ANY code
-  change requires a version bump"; enforcement covers one file of seven
-- **F8** — **`commit-msg` has no `localhost.yml` denylist.** `pre-commit` runs
-  static patterns **and** the SEC-02 dynamic denylist; `commit-msg` runs only
-  the static patterns, then prints `✓ Commit message looks clean`. So a private
-  identifier with no static pattern — an account alias, a machine hostname, a
-  service username — is rejected in a staged *file* and accepted in a *commit
-  message*. That is the worse of the two: **a commit message cannot be fixed by
-  a follow-up commit**
-- **F9** — `qa-ansible-syntax.bash:51-61` hardcodes discovery to
-  `playbooks/imports` plus the entrypoint, so `playbooks/dev/play-collect-diagnostics.yml`
-  is **never** `--syntax-check`ed — and it has no zero guard either.
-  `AgentNotes.md` documents three 2.19 parse hazards that *only* this gate
-  catches, on a play that runs during an incident. `qa-ansible.bash`'s greps DO
-  cover `playbooks/dev/`, so the two Ansible gates disagree about the population
-  and neither says so
-- **F10** — `qa-ansible.bash:50`'s fail-fast regex accepts `yes` for
-  `ignore_errors` but not for `ignore_unreachable`, and only `false` (not `no`)
-  for `failed_when`. Both spellings are valid YAML booleans, so
-  `failed_when: no` earns `✓ ansible: fail-fast patterns OK` — a green tick on
-  the repo's #1 rule. The asymmetry sits inside a single regex
-- **F12** — F8 is not hypothetical. Building the denylist and scanning history
-  found a **private account alias published on `origin/F44` in four places**:
-  two tracked files (`00049-full-repo-audit/research/security.md:188`,
-  `00065-…/PLAN.md:117`), **the commit message of `fc20c5c9`**, and — added
-  2026-09-10 — **the blob of `31f66d2f`** at
-  `00079-podman-container-control/JOURNAL/00079-Journal-26-08-19.md:233,283`,
-  surfaced by a `qa-reviewer` pass over Plan 00079 and confirmed here. The
-  working tree was scrubbed by `0369468b`; the published blob was not. The
-  message is the F8 hole exactly: the identical string in a staged *file* would
-  have been rejected by `pre-commit`'s denylist. The alias was in the denylist
-  all along under `github_accounts` — `commit-msg` simply never consulted it.
-  Rewriting published history is out of scope here (see Non-Goals) and remains
-  the owner's call. **The working tree is now clean, and that was a separate
-  question the original reasoning ran together with history.** "The files are
-  un-editable without scrubbing, which is the gate working" describes the gate,
-  not the tree: an identifier sitting in a tracked file is in the copy everyone
-  clones today, and removing it is an ordinary commit — `0369468b` had already
-  done exactly that for the 00079 journal. `security.md:188` is now redacted by
-  substitution per [PlanTriage.md](../../PlanTriage.md), and the sweep below is
-  the evidence rather than the intent.
-  **Measured 2026-09-10 with the repo's own scanner** (`hook_build_private_denylist`
-  - `hook_scan_text_for_private`, which report the source FIELD and never a value)
-    over every file in `git ls-files`: **1 hit before, 0 after.** `00065-…/PLAN.md`
-    had already gone clean, so F12's "two tracked files" was stale as well.
-    **The count was three until the fourth was found by accident**, which is the
-    useful lesson: this inventory is a record of what has been looked at, not a
-    proof of what exists. Treat it as a floor
-- **F13** — widening the harvest to plural fields is measurably safe, not
-  merely plausible: against the real `localhost.yml` it takes the denylist from
-  **8 to 10 tokens**, and the two new ones appear in **zero** tracked files and
-  **zero** of the last 300 commit messages. A short, common-word token would
-  have blocked every future commit, so this was checked rather than assumed
-- **F14** — **a coverage LOSS can hide inside a rising count.** Rewriting
-  `qa-ansible-syntax.bash` to derive its population from `- hosts:` dropped
-  `playbooks/playbook-main.yml`, which contains no play of its own — and the
-  reported total went **78 → 79**, reading as a clean gain. The same defect
-  class wearing the opposite sign: every previous instance was a number that
-  looked complete, this was a number that looked *improved*. Caught only by
-  listing the population instead of trusting the total, which is now what the
-  gate's own pass line does
-- **F11** — `CLAUDE/QA.md` says "ALWAYS and ONLY use `./scripts/qa-all.bash`"
-  and "NEVER use individual scripts directly", then documents
-  `qa-helper-tests.bash` and `helpers.gnome.check_extension_compat` as gates.
-  `qa-all.bash` runs neither. Following the stated rule, a `helpers/` change
-  gets `✓ QA passed` with its unit suite never run
+F1–F14, each reproduced with the command that produced its figures, are in
+[FINDINGS.md](FINDINGS.md): the rename blind spot, the whole-line whitelist,
+`commit-msg`'s missing denylist, the CCY hash covering one file of seven, the
+Python gate inheriting 00076's executable-bit defect, the coverage LOSS that hid
+inside a rising count, and the published-identifier inventory.
 
 ## Tasks
 
@@ -181,17 +73,32 @@ holes, each behind a test that fails against the unfixed code.
   source — extracted rather than duplicated, because duplication is how the two
   drifted apart in the first place. `play-git-hooks-security.yml` verifies the
   library exists, since neither hook can run without it
-- [x] ✅ **Task 1.6b**: Extend `acceptance.bash` to 9 checks and add
-  `--hooks-dir`, so "these checks fail against the unfixed code" is re-runnable
-  rather than asserted. Measured at `0369468b~1`: **6 of 9 fail**
+- [x] ✅ **Task 1.6b**: Add `--hooks-dir` to `acceptance.bash`, so "these checks
+  fail against the unfixed code" is re-runnable rather than asserted. **Current
+  figures, re-measured 2026-09-10: 13 checks, 13 pass against HEAD, and 8 fail
+  against `0369468b~1` — 1, 2, 5, 6, 7, 9, 10, 11.** Checks 3, 8, 12 and 13 pass
+  in both states by design; they guard against the fixes over-correcting into
+  false positives. The suite now asserts its own COVERAGE line against
+  `PASS+FAIL`, so that line cannot outlive the suite. This task previously
+  carried "9 checks / 6 of 9" and Delivery carried "10 checks / 7 of 10", both
+  progress notes left in a document that is supposed to state current state — in
+  a plan whose thesis is that stale numbers mislead. **The script's own output is
+  the source of truth; do not restate a count here.**
 
 ### Phase 1b: The CCY integrity gate covers one file of seven
 
 - [x] ✅ **Task 1.7**: The version-bump gate and the runtime hash now cover the
-  launcher **and** the six libraries it sources (F7). `CCY_LIBS` is declared
-  once and drives the presence check, the load order and the hash, so those
-  three cannot disagree about what "the CCY script" is. Verified: an identical
-  lib-only edit moves the new hash and leaves the old formula unchanged.
+  launcher **and** every library in `lib/` (F7). **Corrected 2026-09-10, CCY
+  3.49.2**: this task originally said "the six libraries it sources" and used
+  `CCY_LIBS` — the hand-written load-order list — as the hashed set. That list
+  was one file short of the directory on the day it was written, because
+  `common-pure.bash` is sourced by `common.bash` rather than by the launcher, so
+  editing it left the hash unchanged for eight releases. The `pre-commit` half of
+  the same fix globbed `lib/*.bash` and did cover it, so the two halves
+  disagreed. The hash now derives its own set from the directory; `CCY_LIBS`
+  keeps load order and the presence check. **Replacing a stale enumeration with a
+  fresher enumeration was not the fix** — see `CLAUDE/AgentNotes.md` row 9b.
+  Verified: an identical lib-only edit moves the new hash and leaves the old formula unchanged.
   Accumulated drift is settled by the 3.41.0 bump itself — every saved config
   reconfigures once on a version change, which is the normal upgrade path
 
@@ -211,11 +118,17 @@ holes, each behind a test that fails against the unfixed code.
   file in `ruff.toml`'s `per-file-ignores`, not an inline suppression this repo
   blocks and not a global disable
 - [x] ✅ **Task 2.4**: `qa-ansible-syntax.bash` derives its population from the
-  whole repo — a top-level `- hosts:` **or `- import_playbook:`** — with a zero
-  guard, and its pass line now states the breakdown rather than a bare count
-  (F9). **78 → 80.** The `import_playbook` marker is not a nicety: deriving from
-  `- hosts:` alone dropped `playbook-main.yml`, and the count went 78 → 79 and
-  read as a gain. See F14
+  whole repo — a top-level `- hosts:` **or `- import_playbook:`** — and its pass
+  line states the breakdown rather than a bare count (F9). The `import_playbook`
+  marker is not a nicety: deriving from `- hosts:` alone dropped
+  `playbook-main.yml` and the reported count *rose*, reading as a gain. See F14.
+  **No population figure is recorded here on purpose** — one was, and it went
+  stale; the gate prints the live number every run.
+  - [x] ✅ **2026-09-10**: the zero guard was only half the fix. Added the
+    PARTIAL-coverage guard the three source gates already had — every tracked
+    YAML under `playbooks/` must be in the population, a yardstick derived
+    independently of the content marker so narrowing the marker breaks it.
+    Verified by re-introducing F14: it now names `playbook-main.yml` and exits 2.
 - [x] ✅ **Task 2.5**: One spelling list drives every fail-fast directive, so
   `failed_when: no` and `ignore_unreachable: yes` are caught (F10) — with a
   trailing `\b`, without which `no` matched inside `not` and produced 10 false
@@ -223,6 +136,17 @@ holes, each behind a test that fails against the unfixed code.
   documented-but-unrun gates (F11): running them is what makes this repo's own
   "ALWAYS and ONLY use `qa-all.bash`" instruction true, rather than softening the
   instruction to match the gap
+  - [x] ✅ **2026-09-10**: F10's own fix had no gate — reverting the spelling list
+    turned nothing red anywhere. `scripts/test-qa-ansible-failfast.bash` drives
+    the definitions **read out of** `qa-ansible.bash`, 18 cases including the
+    `not`/`no` over-match negative control. Re-introducing F10 fails 5 of them.
+    Also closed the asymmetry one directive along: `ignore_unreachable` was
+    checked for booleans but not the templated `"{{ … }}"` form.
+  - [x] ✅ **2026-09-10**: F11's generalisation had stopped at the two gates
+    `QA.md` happened to list. `test-ccy-rootless-guard.bash` ran in CI and
+    **nowhere locally** — worse than documented-but-unrun, because a green
+    `qa-all.bash` could be a red CI. Wired in, and the duplicate CI job removed
+    so the two cannot diverge again
 - [x] ✅ **Task 2.3**: `qa-deployed-drift.bash` no longer relies on the basename
   matching. A `.j2` is checked against a real playbook `dest:` under its stripped
   name — **exit 2 if none exists**, since a template mapping to no deployed name
@@ -232,11 +156,21 @@ holes, each behind a test that fails against the unfixed code.
   installed on this host. Exercised against a fake host: pass discloses 2
   compared / 35 not installed / 1 template; drift still exits 1; an unmapped
   template exits 2
+  - [x] ✅ **2026-09-10**: the `.j2 → dest:` assertion is a pure source-tree
+    invariant that sat **behind three host-availability early exits**, so it never
+    ran in the CCY container where it was written, nor in CI. Moved above them;
+    an unmapped template now exits 2 in this container
 
 ### Phase 3: Close out
 
-- [ ] ⬜ **Task 3.1**: `qa-reviewer` over the full diff
+- [x] ✅ **Task 3.1**: `qa-reviewer` over the full diff, 2026-09-10. Verdict
+  **BLOCK** — 2 blocking, 6 fix-before-merge, 10 nits. Every one resolved; each
+  fix verified by reverting it and watching something go red. Report:
+  [subagent-reports/260910-qa-review-00081-opus-5.md](subagent-reports/260910-qa-review-00081-opus-5.md)
 - [ ] ⬜ **Task 3.2**: Mark Complete, move to `Completed/`, update the README
+  index + statistics in the same commit. `CLAUDE/Plan/README.md`'s row still says
+  "remaining phases cover `qa-python.bash` and `qa-deployed-drift.bash`" — both
+  done — so rewrite it in that commit
 
 ## Success Criteria
 
@@ -245,10 +179,15 @@ holes, each behind a test that fails against the unfixed code.
   match is whitelisted still passes
 - [x] A commit **message** is held to the same denylist as a staged file
 - [x] Widening the harvest is shown not to block existing content
-- [ ] `qa-python.bash` covers every tracked repo-owned Python file and fails
-  loudly on a shortfall
-- [ ] Every fix has a gate that fails against the unfixed code
-- [ ] `./scripts/qa-all.bash` passes
+- [x] ✅ `qa-python.bash` covers every tracked repo-owned Python file and fails
+  loudly on a shortfall. **Demonstrated, not asserted**: simulating the pre-fix
+  discovery (shebang branch requiring `-executable`) makes the guard report
+  6 missed files and exit 2. The `.j2` the exclusion list hid — 349 lines with a
+  Python shebang — is now rendered and compiled too
+- [x] ✅ Every fix has a gate that fails against the unfixed code. The three that
+  had none (F9, F10, F4) now do, and each was proved by re-introducing the
+  original defect
+- [x] ✅ `./scripts/qa-all.bash` passes
 
 ## Risks & Mitigations
 
@@ -262,6 +201,6 @@ holes, each behind a test that fails against the unfixed code.
 
 - Phase 1 Tasks 1.1–1.3 delivered with `acceptance.bash` proving both fixes
 - Phase 1 complete (Tasks 1.4–1.6): one scanner in `lib/secret-scan.bash`,
-  sourced by both hooks. `acceptance.bash` is now 10 checks with `--hooks-dir`,
-  so the "fails against the unfixed code" claim is re-runnable: 7 of 10 fail at
-  `0369468b~1`
+  sourced by both hooks, with `--hooks-dir` so the "fails against the unfixed
+  code" claim is re-runnable rather than asserted. Figures live in Task 1.6b and
+  in the script's own COVERAGE line, not here

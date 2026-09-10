@@ -229,6 +229,28 @@ qa_tracked_shell_scripts() {
     return 0
 }
 
+# Populate QA_PYTHON_TEMPLATES with every tracked `.j2` that is Python once rendered.
+#
+# `.j2` is excluded from the ordinary Python discovery because a template is not
+# valid Python until it is rendered — which is true, and became a reason nothing
+# ever looked at `files/home/.local/bin/git-account-helper.j2`: 349 lines with a
+# `#!/usr/bin/env python3` shebang, never compiled, never linted, in a gate whose
+# pass line reads as a statement about the repo's Python (Plan 00081 F3/F4).
+#
+# Identified by shebang, not by path, so a second one is covered the day it lands.
+qa_discover_python_templates() {
+    local repo_root="$1" rel
+    QA_PYTHON_TEMPLATES=()
+    while IFS= read -r -d '' rel; do
+        [[ -f "$repo_root/$rel" ]] || continue
+        qa_py_is_excluded "$rel" && continue
+        qa_has_python_shebang "$repo_root/$rel" || continue
+        QA_PYTHON_TEMPLATES+=("$repo_root/$rel")
+    done < <(git -C "$repo_root" ls-files -z -- '*.j2')
+
+    return 0
+}
+
 # Populate QA_TRACKED_PLAYBOOK_CANDIDATES with every tracked YAML under playbooks/,
 # repo-relative. The independent yardstick for the ansible-syntax gate.
 #

@@ -395,6 +395,14 @@ case "$RES" in
 esac
 
 echo
+# The COVERAGE line below names a number. Assert it against the number actually
+# run, so the line cannot outlive the suite it describes — the stale-count defect
+# this whole plan is about, sitting in the plan's own acceptance script.
+if [ "$((PASS + FAIL))" -ne 13 ]; then
+    echo "✗ COVERAGE LINE STALE: it says 13 check(s), $((PASS + FAIL)) ran." >&2
+    echo "  Update the line below and the failing-set list with it." >&2
+    exit 1
+fi
 echo "=============================================================="
 echo "COVERAGE: 13 check(s) over 7 fixed defects, 12 driving a REAL hook"
 echo "  in a throwaway repo — 8 against pre-commit, 4 against commit-msg, 1"
