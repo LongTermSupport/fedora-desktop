@@ -50,7 +50,13 @@ probe model (max_tokens=1, one character in), against the allowance it reports.
 Default list is Haiku then Fable, so two requests.
 
   PROBE_MODELS   space-separated model ids to probe instead of the default
-  PROBE_ACCOUNT  1-based index into the sorted token pool (default: 1)
+  PROBE_ACCOUNT  1-based index into the sorted token pool, or 'all' (default: 1)
+
+One request is made per account-and-model pair, so 'all' multiplies the cost by
+the size of the pool. To find which account can reach Fable without re-probing
+Haiku on every one of them:
+
+  PROBE_ACCOUNT=all PROBE_MODELS=claude-fable-5-1 ./triage-buckets.bash
 
 Writes a report into <this plan folder>/triage-buckets-runs/<timestamp>/ and
 names it on completion."

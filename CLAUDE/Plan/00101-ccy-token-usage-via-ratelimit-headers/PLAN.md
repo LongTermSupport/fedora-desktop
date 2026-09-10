@@ -41,56 +41,17 @@ usage shown.
 
 ## Context & Background
 
-### Facts carried forward from Plan 00100
+**All established facts live in [FINDINGS.md](FINDINGS.md)** — F9 through F24,
+with their sources. Cite IDs from there; do not restate them here.
 
-| ID  | Fact                                                                                                                                    |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| F9  | `/api/oauth/usage` **and** `/api/oauth/profile` both return 403 `permission_error` — *"does not meet scope requirement `user:profile`"* |
-| F10 | The unified figures exist as response headers: `anthropic-ratelimit-unified-{5h,7d}-{utilization,reset,surpassed-threshold}`, `-status` |
+The three that shape everything below:
 
-### Established here
-
-| ID  | Fact                                                                                                                                                                                                                                 | Source                       |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------- |
-| F11 | Claude Code's OAuth requests carry `anthropic-beta: oauth-2025-04-20` — the only oauth-dated beta string in the binary                                                                                                               | string table in `claude.exe` |
-| F12 | The header names appear in a **mock/scenario harness** (`setScenario`, `addExceededLimit`, `setEarlyWarning`) that *synthesises* them for testing — confirming they are read from real responses, with no code path that prints them | JS in `claude.exe`           |
-
-F12 matters for the mechanism choice: there is no debug or print path that
-surfaces these headers, so the CLI cannot be the vehicle. Only a direct HTTP
-call exposes them.
-
-### Q1 — ANSWERED YES (HOST run)
-
-| ID  | Fact                                                                                                                                                                                                                                               | Source         |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
-| F13 | A bare `POST /v1/messages` (`max_tokens: 1`) with a stored `oat01` setup-token returns **200** and carries the full `anthropic-ratelimit-unified-*` header set                                                                                     | HOST prototype |
-| F14 | **F12 confirmed empirically**: `claude -p --tools "" --debug --debug-file` exited 0 and produced a 17 KB debug log containing **no** unified header. The CLI is not a viable vehicle — curl is the only route                                      | HOST prototype |
-| F15 | The response carries **more than the four headers assumed**: per-bucket `-5h-status` / `-7d-status`, a `-representative-claim` naming the binding bucket (`five_hour`), plus `-fallback-percentage`, `-overage-status`, `-overage-disabled-reason` | HOST prototype |
-| F16 | Utilisation values are **floats, not integers** (`0.0`, `0.02` observed) — the renderer's `%.0f` assumption held only because the probed account was near-idle                                                                                     | HOST prototype |
-
-F15 is a bonus: `-representative-claim` says which bucket is actually binding,
-which is exactly what a one-line menu column should lead with.
-
-### Q2 — ANSWERED: the scale is a fraction (`0`–`1`)
-
-| ID  | Fact                                                                                                                                              | Source           |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
-| F17 | **Eight samples across four accounts, every raw value between `0.04` and `0.41`** — all `<= 1`. Read as fractions: 14%/9%, 6%/4%, 8%/41%, 15%/13% | HOST triage.bash |
-
-Q2 was not cosmetic: guessing wrong misreports usage by 100×, and it did — the
-plan shipped on `percent` and every account displayed `<1%` for a week.
-
-**The discriminator is one-way**: any value **greater than 1** proves the
-`0`–`100` scale, because a fraction cannot exceed 1. **None was observed**, so
-F17 is strong evidence rather than proof. Two things make it decisive enough to
-act on: under `percent` these four accounts have used 0.04%–0.41% of their
-allowances on a machine running ccy sessions all day, and the fraction reading
-puts the weekly bucket *above* the 5-hour one on the busiest account, which is
-the shape mid-week usage actually has.
-
-Acted on, and made **self-refuting** rather than left as an assumption — see
-Task 5.3. The read cost nothing: `triage.bash` took the values out of the cache
-the user had already paid for.
+- **Q1 is answered yes.** A stored setup-token gets the full header set from a
+  bare `POST /v1/messages`, and the CLI has no path that prints them, so curl is
+  the only vehicle (F13, F14).
+- **Q2 is answered and now proven.** Utilisation is a fraction in `0`–`1`
+  (F17, F20). Guessing wrong misreports usage by 100×, and it did for a week.
+- **Q3 is open.** See below.
 
 ### Q3 — OPEN: ccy shows no Fable allowance. Is one on the wire?
 
@@ -99,16 +60,10 @@ about the Fable limit. These facts come from reading the installed Claude Code
 bundle (`@anthropic-ai/claude-code` v2.1.267) — a **reading, not an
 observation**, which is what Q3 exists to settle.
 
-| ID  | Fact                                                                                                                                                     |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| F18 | Buckets map to header suffixes, and the Fable one is `seven_day_overage_included` → **`7d_oi`**, read as `anthropic-ratelimit-unified-7d_oi-utilization` |
-| F19 | The bundle's label for that bucket is literally **"Fable limit"**                                                                                        |
-| F20 | Utilisation is a **fraction** — the bundle computes `Math.floor(utilization * 100)`. **This is the proof F17 could not supply**                          |
-| F21 | `seven_day_opus` and `seven_day_sonnet` have **no** utilisation header; Fable does. The buckets are not uniformly available                              |
-| F22 | Model-specific weekly rows come from `GET /api/oauth/usage` — the route Plan 00100 closed as 403 on scope. The richer payload does not reopen it         |
-
-Excerpts, offsets and the full schema:
-[RESEARCH-bucket-headers.md](RESEARCH-bucket-headers.md).
+Facts **F18–F22** in [FINDINGS.md](FINDINGS.md); bundle excerpts and schemas in
+[RESEARCH-bucket-headers.md](RESEARCH-bucket-headers.md). In short: the Fable
+bucket is `seven_day_overage_included`, suffix **`7d_oi`**, labelled "Fable
+limit" by the bundle itself.
 
 **What F18 implies and what it does not.** If the Fable figure arrives as
 `7d_oi-utilization`, it is already on the response `_usage_fetch_one` makes, and
@@ -133,25 +88,21 @@ does not, so "add the per-model buckets" is not one piece of work.
 
 ### Phase 1: Prototype ✅
 
-- [x] ✅ **Task 1.1**: Confirm the mechanism from the binary (F11, F12) — establish
-  that `claude -p` cannot surface headers, so a direct call is required
-- [x] ✅ **Task 1.2**: Write `prototype.bash` with two arms — bare `curl` and
-  `claude -p --model haiku` as a control — rendering the exact menu line ccy
-  would show, not just a header dump
-- [x] ✅ **Task 1.3**: Verify against stubs: headers present, 403, and
-  200-without-headers all render legibly. Two bugs found and fixed this way
-- [x] ✅ **Task 1.4**: Run `prototype.bash` on the HOST — **Q1 answered yes** (F13,
-  F14, F15, F16)
+- [x] ✅ **Task 1.1**: Mechanism confirmed from the binary — `claude -p` cannot
+  surface the headers, so a direct call is required (F11, F12)
+- [x] ✅ **Task 1.2**: `prototype.bash`, two arms — bare `curl` and
+  `claude -p --model haiku` as a control — rendering the menu line, not a dump
+- [x] ✅ **Task 1.3**: Verified against stubs (headers, 403, 200-without-headers).
+  Two bugs found this way
+- [x] ✅ **Task 1.4**: HOST run — **Q1 answered yes** (F13, F14, F15, F16)
 
 ### Phase 2: Decision gate ✅
 
-- [x] ✅ **Task 2.1**: Cancel-on-refusal branch — **not triggered**; the request
+- [x] ✅ **Task 2.1**: Cancel-on-refusal branch **not triggered** — the request
   succeeded rather than hitting a second scope wall
-- [x] ✅ **Task 2.2**: Header names and value formats recorded — resets are epoch
-  seconds, utilisation is a **float** (F16), and the set is wider than assumed
-  (F15)
-- [x] ✅ **Task 2.3**: Q2 deferred by owner decision, not left open — see
-  Decision 4. Ships on the percent reading with a `<1%` guard
+- [x] ✅ **Task 2.2**: Header names and formats recorded — epoch resets, float
+  utilisation (F16), a wider set than assumed (F15)
+- [x] ✅ **Task 2.3**: Q2 deferred by owner decision, not left open — Decision 4
 
 ### Phase 3: Human-triggered display in the selector 🔄
 
@@ -159,20 +110,16 @@ does not, so "add the per-model buckets" is not one piece of work.
   added to `select_token()`, cost stated in the option text itself
 - [x] ✅ **Task 3.2**: On press, fetches in parallel and **redraws the selector**
   with a usage column; the option then disappears so it cannot be double-spent
-- [x] ✅ **Task 3.3**: 00100 machinery reused — parallel fan-out, render-at-fetch,
-  worst-percentage colouring, visible degradation, worker that cannot abort the
-  menu. jq dropped entirely: headers parse in pure bash in a single pass
-- [x] ✅ **Task 3.4**: Cached with a 15-minute TTL. Long on purpose — in 00100 a
-  miss cost latency, here it costs quota
+- [x] ✅ **Task 3.3**: 00100 machinery reused — parallel fan-out, visible
+  degradation, a worker that cannot abort the menu. jq dropped: pure bash, one pass
+- [x] ✅ **Task 3.4**: 15-minute cache TTL, long on purpose — in 00100 a miss cost
+  latency, here it costs quota
 - [x] ✅ **Task 3.5**: `CCY_VERSION` 3.34.0, `token-management.bash` 1.9.0
 - [x] ✅ **Task 3.6**: `./scripts/qa-all.bash` green
-- [x] ✅ **Task 3.7**: `acceptance.bash` — verifies the deploy landed (deployed
-  library `cmp`s to the repo, versions match, usage functions and `u)` option
-  really present). Closes the 00100 wrong-play gap that
-  `qa-deployed-drift.bash` cannot see, since it covers only
+- [x] ✅ **Task 3.7**: `acceptance.bash` verifies the deploy landed. Closes the
+  00100 wrong-play gap `qa-deployed-drift.bash` cannot see, since it covers only
   `files/home/.local/bin/`
-- [x] ✅ **Task 3.8**: Deployed on the HOST; all four accounts rendered. Feature
-  confirmed working against real accounts
+- [x] ✅ **Task 3.8**: Deployed on the HOST; all four accounts rendered
 
 ### Phase 4: Legible display 🔄
 
@@ -188,64 +135,38 @@ does not, so "add the per-model buckets" is not one piece of work.
 - [x] ✅ **Task 4.5**: Retarget `acceptance.bash` — it checked for symbols this
   rewrite removed, so it would have failed a correct deploy
 - [x] ✅ **Task 4.6**: `CCY_VERSION` 3.35.0, lib 1.10.0, docs + changelog
-- [ ] 🔄 **Task 4.7**: Redeploy, then `CCY_USAGE_DEBUG=1 ccy` and press `u` to
-  settle Q2 from an observed value — **HOST action**
+- [x] ✅ **Task 4.7**: Q2 settled from observed values — closed by Task 5.2, and
+  proven outright by F20
 
 ### Phase 5: Every account reports `<1%` — Q2 comes due
 
-Reported in use: **every** account displays `<1%` on both buckets. That is the
-exact signature Decision 4 accepted as the risk of shipping on the unproven
-`percent` reading — a 0-1 fraction rendered as if it were already 0-100 puts any
-real usage below 0.5 and therefore under the `<1%` guard. It is **not** the only
-explanation, so this phase measures rather than assumes:
+Every account displayed `<1%` on both buckets — the exact signature Decision 4
+named as the risk of shipping on the unproven `percent` reading. Two
+hypotheses, not exclusive: **H1** the scale is `fraction`; **H2** the scale is
+right and the *bucket* is wrong, because the probe uses Haiku. Narrative in
+[JOURNAL/00101-Journal-26-08-18.md](JOURNAL/00101-Journal-26-08-18.md).
 
-- **H1** — the scale is `fraction`. A raw value ≤ 1 on every account and every
-  bucket is consistent with it; a value > 1 anywhere kills it outright.
+- [x] ✅ **Task 5.1**: `triage.bash` — raw values out of the existing cache, so
+  the default run spends nothing; `--headers` spends one request to dump every
+  `anthropic-ratelimit-*` header
 
-- **H2** — the numbers are right and the *bucket* is wrong. The probe uses Haiku
-  because the weekly buckets are per-model, so a heavy Opus user could genuinely
-  sit near zero on Haiku's weekly allowance while their real limit is elsewhere.
-  H2 and H1 are not exclusive.
+- [x] ✅ **Task 5.2**: HOST run. Eight samples, four accounts, all `<= 1` (F17).
+  **H1 holds; Q2 and Task 4.7 close with it.** H2 concerns which bucket, not the
+  scale, and is untouched by this
 
-- [x] ✅ **Task 5.1**: `triage.bash` — reads the raw values **out of the existing
-  cache**, so the default run spends nothing; prints RAW alongside what ccy shows
-  today and what it would show under `fraction`. `--headers` spends exactly one
-  request to dump *every* `anthropic-ratelimit-*` header, which the cache cannot
-  answer because it keeps only the four values displayed
+- [x] ✅ **Task 5.3**: Default flipped to `fraction` (lib 1.11.0). Eight samples
+  is not proof, so `_usage_scale_conflict` makes the inference self-refuting
+  rather than clamping the bar and hiding a 100× error. (F20 has since supplied
+  the proof; the guard stays, now covering a contract change instead)
 
-- [x] ✅ **Task 5.2**: Ran on the HOST. **Eight samples across four accounts,
-  every raw value between 0.04 and 0.41 — all \<= 1.** Read as fractions: 14%/9%,
-  6%/4%, 8%/41%, 15%/13%, with the weekly bucket above the 5-hour one on the
-  busiest account, which is the shape mid-week usage has. Read as percentages,
-  four accounts have used 0.04%-0.41% of their allowances on a machine that runs
-  ccy sessions all day. **H1 holds; Q2 and Task 4.7 close with it.** H2 is not
-  refuted and does not need to be — it concerns *which* bucket the weekly figure
-  describes, not the scale
+- [x] ✅ **Task 5.5**: H2 answered by the API rather than by inference —
+  `-representative-claim` captured as a fifth cache field, appended last so an
+  older library reads a 4-field record unchanged, and shown as a dim
+  `binding limit:` line. Unknown bucket names pass through verbatim (lib 1.12.0)
 
-- [x] ✅ **Task 5.3**: Default flipped to `fraction` (lib 1.11.0), with the
-  evidence recorded at the switch rather than in a commit message. **Eight
-  samples all \<= 1 is not proof** — one value above 1 would settle it outright
-  and none was seen — so `_usage_scale_conflict` makes the inference
-  self-refuting: a raw value the assumed scale cannot produce prints
-  `SCALE MISMATCH` naming the value and the override, instead of clamping the bar
-  to 100%. An unfalsifiable premise is indistinguishable from a wrong one, and
-  the clamp is what would have hidden a 100x error indefinitely
-
-- [x] ✅ **Task 5.5**: H2 — the display now answers it instead of leaving it to
-  inference. `-representative-claim` names the bucket the API considers binding
-  and was recorded as **F15** when the header set was first mapped, then never
-  captured. Now extracted into a fifth cache field (appended last, so a 4-field
-  record from an older library renders unchanged) and shown as a dim
-  `binding limit:` line. A `seven_day_opus` claim states outright that the weekly
-  figure above it is not the allowance being reported against. Unknown bucket
-  names pass through verbatim rather than being dropped — a future
-  `seven_day_haiku` is more useful visible than silently absent. Verified against
-  seven stub shapes including a tab-injected claim value and the 4-field
-  backward-compatibility path (lib 1.12.0)
-
-- [x] ✅ **Task 5.4**: Fix found while reading: a bucket the API did not report
-  was silently dropped from the display, three lines below a comment saying that
-  is exactly what must not happen (lib 1.10.1)
+- [x] ✅ **Task 5.4**: A bucket the API did not report was silently dropped from
+  the display, three lines below a comment saying that is what must not happen
+  (lib 1.10.1)
 
 ### Phase 6: The Fable allowance — Q3 🔄
 
@@ -259,9 +180,23 @@ explanation, so this phase measures rather than assumes:
   token mounted, so a run there would report "no tokens" and that reads as a
   fact about the pool
 
-- [ ] **Task 6.2**: Run it on the HOST against a Fable-entitled account. **This
-  is the decision gate — nothing below it starts until the `7d_oi` row is either
-  a number or `absent` on both models**
+- [x] ✅ **Task 6.2**: First HOST run, account-1 of 4. Results as F23/F24 below.
+  **The gate is NOT passed**: the Haiku arm answered, the Fable arm did not
+
+**Neither H3 nor H4 is settled.** The Haiku arm answered — no `7d_oi`, no
+`overage` — but the Fable arm returned 429 with no headers at all, and two
+explanations survive that: no entitlement on this account, or an exhausted Fable
+allowance. The first run recorded only the error *type*, which cannot separate
+them, so the probe was amended to capture the *message*, `retry-after`,
+`request-id` and `x-should-retry`, and to accept `PROBE_ACCOUNT=all`. Three of
+the four accounts are unprobed, and this session began on Fable 5.1, so at least
+one of them reaches it.
+
+- [ ] **Task 6.2b**: Re-run across the pool, Fable only, to find an account that
+  reaches Fable and to read the 429's message on those that do not:
+  `PROBE_ACCOUNT=all PROBE_MODELS=claude-fable-5-1 ./triage-buckets.bash`.
+  **This is the decision gate** — nothing below starts until a Fable-capable
+  account has been probed
 
 - [ ] **Task 6.3** (H3): parse `7d_oi-utilization` / `-reset` in
   `_usage_extract` and render the bar. Two more cache fields, **appended last**

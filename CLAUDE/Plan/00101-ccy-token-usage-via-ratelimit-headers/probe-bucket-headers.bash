@@ -21,7 +21,7 @@
 # Tuning (environment, so the leg call stays a plain command):
 #   PROBE_MODELS   space-separated model ids (default: claude-haiku-4-5-20251001
 #                  claude-fable-5-1)
-#   PROBE_ACCOUNT  1-based index into the sorted token pool (default: 1)
+#   PROBE_ACCOUNT  1-based index into the sorted token pool, or "all" (default: 1)
 #
 # The token reaches curl through --config on STDIN so it never appears in argv (BSH-09).
 # Accounts are reported as account-N, never by token filename: those are personal aliases and
@@ -116,28 +116,34 @@ fi
 IFS=$'\n' read -r -d '' -a TOKEN_FILES < <(printf '%s\n' "${TOKEN_FILES[@]}" | sort && printf '\0')
 
 ACCOUNT="${PROBE_ACCOUNT:-1}"
-if [[ ! "${ACCOUNT}" =~ ^[0-9]+$ ]] || [[ "${ACCOUNT}" -lt 1 ]] || [[ "${ACCOUNT}" -gt "${#TOKEN_FILES[@]}" ]]; then
-    printf '[FATAL] PROBE_ACCOUNT=%s is not between 1 and %s\n' "${ACCOUNT}" "${#TOKEN_FILES[@]}" >&2
+ACCOUNT_INDEXES=()
+if [[ "${ACCOUNT}" == "all" ]]; then
+    for ((i = 1; i <= ${#TOKEN_FILES[@]}; i++)); do
+        ACCOUNT_INDEXES+=("${i}")
+    done
+elif [[ "${ACCOUNT}" =~ ^[0-9]+$ ]] && [[ "${ACCOUNT}" -ge 1 ]] && [[ "${ACCOUNT}" -le "${#TOKEN_FILES[@]}" ]]; then
+    ACCOUNT_INDEXES=("${ACCOUNT}")
+else
+    printf '[FATAL] PROBE_ACCOUNT=%s is neither "all" nor a number between 1 and %s\n' \
+        "${ACCOUNT}" "${#TOKEN_FILES[@]}" >&2
     exit 64
-fi
-
-TOKEN=""
-if ! TOKEN="$(cat "${TOKEN_FILES[$((ACCOUNT - 1))]}")"; then
-    out "**UNANSWERABLE**: the token file for account-${ACCOUNT} could not be read."
-    printf '[INCOMPLETE] could not read the token file for account-%s\n' "${ACCOUNT}" >&2
-    exit 1
-fi
-if [[ -z "${TOKEN}" ]]; then
-    out "**UNANSWERABLE**: the token file for account-${ACCOUNT} is empty."
-    printf '[INCOMPLETE] the token file for account-%s is empty\n' "${ACCOUNT}" >&2
-    exit 1
 fi
 
 read -r -a MODELS <<<"${PROBE_MODELS:-claude-haiku-4-5-20251001 claude-fable-5-1}"
 
-out "Probed account-${ACCOUNT} of ${#TOKEN_FILES[@]} in the pool. Each probe below cost one"
-out "billed request. The suffix-to-bucket mapping is Claude Code's own, read out of the"
-out "installed bundle; the point is to see which of them the API actually sends."
+# One flat list of account|model pairs rather than nested loops: the probe body is identical
+# either way, and flattening keeps it at one indent level.
+PROBES=()
+for accountIndex in "${ACCOUNT_INDEXES[@]}"; do
+    for probeModel in "${MODELS[@]}"; do
+        PROBES+=("${accountIndex}|${probeModel}")
+    done
+done
+
+out "Pool holds ${#TOKEN_FILES[@]} accounts; probing ${#ACCOUNT_INDEXES[@]} of them against"
+out "${#MODELS[@]} model(s), so ${#PROBES[@]} billed requests. The suffix-to-bucket mapping is"
+out "Claude Code's own, read out of the installed bundle; the point is to see which of them"
+out "the API actually sends."
 
 # One pair of temp files for the whole run, so the trap always has a real path to remove. A
 # cleanup FUNCTION would be reached only through the trap, which shellcheck reports as
@@ -146,10 +152,27 @@ HDR="$(mktemp)"
 BODY="$(mktemp)"
 trap 'rm -f "${HDR}" "${BODY}"' EXIT INT TERM HUP
 
-for model in "${MODELS[@]}"; do
+for probe in "${PROBES[@]}"; do
+    accountIndex="${probe%%|*}"
+    model="${probe#*|}"
+
     out ""
-    out "### Probe model: ${model}"
+    out "### account-${accountIndex} · ${model}"
     out ""
+
+    TOKEN=""
+    if ! TOKEN="$(cat "${TOKEN_FILES[$((accountIndex - 1))]}")"; then
+        out "- **UNANSWERABLE**: the token file could not be read."
+        printf '[INCOMPLETE] could not read the token file for account-%s\n' "${accountIndex}" >&2
+        INCOMPLETE=1
+        continue
+    fi
+    if [[ -z "${TOKEN}" ]]; then
+        out "- **UNANSWERABLE**: the token file is empty."
+        printf '[INCOMPLETE] the token file for account-%s is empty\n' "${accountIndex}" >&2
+        INCOMPLETE=1
+        continue
+    fi
 
     # Truncate rather than re-create: curl may leave the output file untouched when a
     # response carries no body, and a stale body from the previous model would then be read
@@ -197,12 +220,38 @@ for model in "${MODELS[@]}"; do
     # A non-200 is data: it usually says this account has no entitlement for this model,
     # which is exactly what decides whether ccy can show the bar.
     if [[ "${code}" != "200" ]]; then
-        errType="(no error type found in the body)"
+        errType="(none found in the body)"
         if bodyMatch="$(grep -aoE '"type"[[:space:]]*:[[:space:]]*"[a-z_]+_error"' "${BODY}" | head -1)"; then
             errType="${bodyMatch}"
         fi
-        out "- Error type reported: \`${errType}\`"
-        out "- Only the error TYPE is recorded; the body is never written to the report."
+        out "- Error type: \`${errType}\`"
+
+        # The MESSAGE separates "this account has no Fable entitlement" from "this account has
+        # exhausted its Fable allowance". The type alone cannot, and that distinction decides
+        # whether ccy can show the bar at all. Recording only the type left the first run
+        # unable to say which had happened.
+        errMsg="(none found in the body)"
+        if msgMatch="$(grep -aoE '"message"[[:space:]]*:[[:space:]]*"[^"]{0,400}"' "${BODY}" | head -1)"; then
+            errMsg="${msgMatch#*:}"
+            errMsg="${errMsg# }"
+        fi
+        if printf '%s' "${errMsg}" | grep -aqiE 'sk-ant'; then
+            errMsg="(withheld — it held a credential-shaped string)"
+        fi
+        out "- Error message: ${errMsg}"
+
+        # A rejection can arrive BEFORE the unified rate-limit machinery attaches its headers,
+        # and then these are the only evidence about it there is.
+        for diag in retry-after request-id anthropic-request-id x-should-retry; do
+            if diagLine="$(grep -aiE "^${diag}:" "${HDR}" | head -1)"; then
+                diagValue="${diagLine#*:}"
+                diagValue="${diagValue# }"
+                diagValue="${diagValue%$'\r'}"
+                out "- \`${diag}\`: \`${diagValue}\`"
+            fi
+        done
+
+        out "- Only the fields above are recorded; the body is never written to the report."
     fi
 
     headers=""
