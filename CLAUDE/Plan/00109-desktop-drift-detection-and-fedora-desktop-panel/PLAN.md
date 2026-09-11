@@ -177,12 +177,11 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
   Evidence: [RESEARCH-wallpaper-and-backgrounds.md](RESEARCH-wallpaper-and-backgrounds.md)
   - [x] ✅ Decode is **once, not per monitor** — a ~520 MiB claim made during
     triage was wrong — and is paid roughly **once per login**, not per dock cycle.
-  - [x] ✅ **The symptom is a rendering failure, not a texture failure.** The user
-    reports the wallpaper renders correctly in the Overview and is black only on
-    the normal desktop. The Overview and the desktop draw from the same
-    `MetaBackground`, so a valid Overview render **proves the texture exists**. A
-    cache miss, a slow decode and a NULL texture are all ruled out: each would be
-    black in both views.
+  - [x] ✅ **The symptom is a rendering failure, not a texture failure.** The
+    wallpaper renders correctly in the Overview and is black only on the normal
+    desktop; both draw the same `MetaBackground`, so a valid Overview render
+    **proves the texture exists**, ruling out a cache miss, a slow decode and a
+    NULL texture together.
   - [x] ✅ Therefore the cause is in the `MetaBackgroundContent` paint path for the
     desktop view. Three checks converge on **`mutter#4767`** (empty redraw clip)
     over the sticky `CHANGED_BACKGROUND` variant: no Cogl/framebuffer errors are
@@ -206,21 +205,25 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     `helpers/displaylink_recovery/`, fired by the existing dock udev rule and
     suspend service, strictly after the wedge ladder and never while locked.
   - **Three faults found while adding it meant Plan 00056's recovery had never
-    run on this host at all** — each verified on HOST, each fixed in `9a79dd7`:
-    1. `copy:` does not create parent directories for a file destination, so the
-       helper tree was never made, the play aborted at that task (exit 2), and
-       the udev rule and dock-recovery unit after it never deployed.
-    2. `os.path.getsize()` on a sysfs EDID attribute **always returns 0** — the
-       file must be read. Every connected head therefore matched the wedge
-       signature on every system, arming service-restart → USB-reauth →
-       module-reload against working monitors.
-    3. `sudo` sanitises the child environment, dropping `DBUS_SESSION_BUS_ADDRESS`
-       passed via `env=`, so every dconf write was lost while exiting zero. Also
-       fixes `_notify()`, whose notifications had never reached a session.
+    run on this host at all** — a deploy that always failed on a missing parent
+    directory, a wedge signature that was always true (`getsize()` on sysfs
+    returns 0), and dconf writes discarded because `sudo` strips the bus address.
+    Each verified on HOST and fixed in `9a79dd7`; detail in the 13:05 journal
+    entry.
+  - ⚠️ **Known limitation — the resume path is effectively inert.** Measured on
+    this host: `lock-enabled true`, `lock-delay 0`, so the screen is already
+    locked when `displaylink-suspend.service` runs. `_session_locked()` then
+    correctly refuses (the toggle leaks ~57 MB per monitor from a lock screen)
+    and the run prints `action=none` — indistinguishable from "nothing needed".
+    The **dock/udev path still works**, since a user moving monitors around is
+    present and unlocked; the close-lid → reopen → unlock case is not covered.
+  - [ ] ⬜ **T5.4a**: Cover the unlock case. Needs something in the *user*
+    session that reacts to unlock, not a root oneshot — Phase 4's panel or a
+    user systemd unit is the natural owner.
   - [ ] ⬜ **Still to confirm in the wild**: that the refresh actually clears the
     black background when the symptom is present. It has been exercised on a
-    *healthy* desktop (runs clean, wallpaper preserved) but not yet against the
-    live fault.
+    *healthy* desktop (runs clean, all three background keys unchanged) but not
+    yet against the live fault.
   - **The one workaround that matches this failure**: force a real `bg-changed` by
     toggling `picture-uri`. That is the only signal that re-sets
     `CHANGED_BACKGROUND`; another `monitors-changed` does not recover it, and

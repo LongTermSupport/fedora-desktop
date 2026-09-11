@@ -38,6 +38,31 @@ MUTTER_ASSERTIONS = (
 )
 POLL_INTERVAL_SECONDS = 3
 POLL_TIMEOUT_SECONDS = 15
+BACKGROUND_SCHEMA = "org.gnome.desktop.background"
+# Any key in BACKGROUND_SCHEMA emits bg-changed, so the signal is carried by the
+# one whose loss is invisible. If this process dies between the nudge and the
+# restore, a wrong primary-color sits behind an opaque wallpaper and nobody sees
+# it; a lost picture-uri is a desktop with no wallpaper. `finally` does not run
+# on SIGTERM, so "we always restore" is not a guarantee that can be made.
+SIGNAL_KEY = "primary-color"
+RESTORE_ATTEMPTS = 3
+
+
+def nudged_signal_value(current: str) -> str:
+    """A SIGNAL_KEY value guaranteed to differ from `current`.
+
+    dconf suppresses a write that changes nothing, and a suppressed write emits
+    no bg-changed — so re-writing the current value would be a silent no-op.
+    Both candidates are valid colours, so whichever is chosen is harmless if the
+    restore never happens.
+
+    `current` is the GVariant printed form exactly as `gsettings get` returned
+    it, quotes included, and is compared and written back unmodified. Stripping
+    the quotes makes the value unparseable as a GVariant, at which point
+    gsettings falls back to treating it as a literal string — which round-trips
+    by luck for plain input and silently corrupts anything containing an escape.
+    """
+    return "'#ffffff'" if current == "'#000000'" else "'#000000'"
 
 
 def _read(path: str) -> str:
@@ -153,21 +178,46 @@ def _module_reload() -> None:
     subprocess.run(["modprobe", "evdi"], check=True)
 
 
-def _graphical_sessions() -> list[tuple[str, str]]:
-    """(username, uid) for every logged-in user, for reaching a session bus."""
+def _session_property(session_id: str, prop: str) -> str:
+    result = subprocess.run(
+        ["loginctl", "show-session", session_id, f"--property={prop}", "--value"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def graphical_sessions() -> list[tuple[str, str, str]]:
+    """(session_id, username, uid) for every session that can render a desktop.
+
+    Enumerated from loginctl and filtered on session Type, because `who` reports
+    neither sessions nor graphical-ness: this host shows a `wayland` session and
+    an `unspecified` one for the same user, and only the first has a desktop to
+    repaint. Filtering here keeps the lock check and the write operating on the
+    same set — checking one session's lock state while writing to every session
+    would let a write reach a locked one.
+    """
+    listed = subprocess.run(
+        ["loginctl", "list-sessions", "--no-legend"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if listed.returncode != 0:
+        return []
     sessions = []
-    who = subprocess.run(["who"], capture_output=True, text=True, check=False).stdout
-    for line in who.splitlines():
+    for line in listed.stdout.splitlines():
         fields = line.split()
         if not fields:
             continue
-        user = fields[0]
-        uid = subprocess.run(["id", "-u", user], capture_output=True, text=True, check=False)
-        if uid.returncode != 0:
+        session_id = fields[0]
+        if _session_property(session_id, "Type") not in ("wayland", "x11"):
             continue
-        entry = (user, uid.stdout.strip())
-        if entry not in sessions:
-            sessions.append(entry)
+        user = _session_property(session_id, "Name")
+        uid = _session_property(session_id, "User")
+        if user and uid:
+            sessions.append((session_id, user, uid))
     return sessions
 
 
@@ -198,28 +248,12 @@ def _session_locked() -> bool:
     refreshing when we should not (a ~57 MB per-monitor leak, gnome-shell#9188)
     is much worse than the cost of skipping a cosmetic repaint.
     """
-    sessions = _graphical_sessions()
+    sessions = graphical_sessions()
     if not sessions:
         return True
-    for _user, uid in sessions:
-        result = subprocess.run(
-            ["loginctl", "show-user", uid, "--property=Display", "--value"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        session_id = result.stdout.strip()
-        if result.returncode != 0 or not session_id:
-            return True
-        locked = subprocess.run(
-            ["loginctl", "show-session", session_id, "--property=LockedHint", "--value"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if locked.returncode != 0 or locked.stdout.strip() != "no":
-            return True
-    return False
+    # Every graphical session, not just the user's "Display" one: the refresh
+    # writes to all of them, so a single locked session is enough to skip.
+    return any(_session_property(sid, "LockedHint") != "no" for sid, _user, _uid in sessions)
 
 
 def _refresh_background() -> None:
@@ -235,29 +269,59 @@ def _refresh_background() -> None:
     would be emitted. The restore is in a `finally` so an exception mid-toggle
     cannot leave the user with no wallpaper.
     """
-    schema = "org.gnome.desktop.background"
-    for user, uid in _graphical_sessions():
-        for key in ("picture-uri", "picture-uri-dark"):
-            read = subprocess.run(
-                _as_user(user, uid, "gsettings", "get", schema, key),
+    for _sid, user, uid in graphical_sessions():
+        read = subprocess.run(
+            _as_user(user, uid, "gsettings", "get", BACKGROUND_SCHEMA, SIGNAL_KEY),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        current = read.stdout.strip()
+        if read.returncode != 0 or not current:
+            print(f"RECOVERY-BACKGROUND-SKIP: no readable {SIGNAL_KEY} for {user}")
+            continue
+
+        nudge = subprocess.run(
+            _as_user(
+                user, uid, "gsettings", "set",
+                BACKGROUND_SCHEMA, SIGNAL_KEY, nudged_signal_value(current),
+            ),
+            check=False,
+        )
+        if nudge.returncode != 0:
+            print(f"RECOVERY-BACKGROUND-SKIP: could not signal {user}, nothing changed")
+            continue
+
+        # Restore is check=False and verified by read-back rather than trusted.
+        # Raising here would mask whatever sent us into the restore, and an
+        # unverified write is the exact defect this whole change exists to fix:
+        # gsettings exits zero even when dconf discarded the write.
+        restored = False
+        for _ in range(RESTORE_ATTEMPTS):
+            subprocess.run(
+                _as_user(
+                    user, uid, "gsettings", "set", BACKGROUND_SCHEMA, SIGNAL_KEY, current
+                ),
+                check=False,
+            )
+            back = subprocess.run(
+                _as_user(user, uid, "gsettings", "get", BACKGROUND_SCHEMA, SIGNAL_KEY),
                 capture_output=True,
                 text=True,
                 check=False,
             )
-            current = read.stdout.strip()
-            if read.returncode != 0 or not current or current == "''":
-                continue
-            try:
-                subprocess.run(
-                    _as_user(user, uid, "gsettings", "set", schema, key, ""),
-                    check=True,
-                )
-            finally:
-                subprocess.run(
-                    _as_user(user, uid, "gsettings", "set", schema, key, current.strip("'")),
-                    check=True,
-                )
-        print(f"RECOVERY-BACKGROUND: refreshed desktop background for {user}")
+            if back.returncode == 0 and back.stdout.strip() == current:
+                restored = True
+                break
+        if restored:
+            print(f"RECOVERY-BACKGROUND: refreshed desktop background for {user}")
+        else:
+            print(
+                f"RECOVERY-BACKGROUND-WARN: {SIGNAL_KEY} left as "
+                f"{nudged_signal_value(current)} for {user}; it is hidden behind "
+                f"the wallpaper — restore with: gsettings set {BACKGROUND_SCHEMA} "
+                f"{SIGNAL_KEY} {current}"
+            )
 
 
 def _notify(message: str) -> None:
@@ -270,7 +334,7 @@ def _notify(message: str) -> None:
     )
     # Best-effort desktop notification to every graphical user session; a
     # missing/unreachable session bus must not fail the recovery run.
-    for user, uid in _graphical_sessions():
+    for _sid, user, uid in graphical_sessions():
         subprocess.run(
             _as_user(
                 user, uid, "notify-send", "-u", "critical", "DisplayLink dock", message

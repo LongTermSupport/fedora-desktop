@@ -19,9 +19,42 @@ import unittest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
 
-from helpers.displaylink_recovery.run_recovery import _as_user, edid_byte_count
+from helpers.displaylink_recovery.run_recovery import (
+    _as_user,
+    edid_byte_count,
+    nudged_signal_value,
+)
 
 SYSFS_DRM = "/sys/class/drm"
+
+
+class TestNudgedSignalValue(unittest.TestCase):
+    """Choosing a throwaway value that is guaranteed to differ from the current one.
+
+    The refresh works by changing *any* key in org.gnome.desktop.background,
+    which is what emits bg-changed. Writing a key back to the value it already
+    holds emits nothing — dconf suppresses a no-op write — so the nudge value
+    must never equal the current one.
+
+    It nudges `primary-color`, not `picture-uri`, because the process can die
+    between the nudge and the restore. Losing `primary-color` leaves a colour
+    that is invisible behind an opaque wallpaper; losing `picture-uri` leaves a
+    desktop with no wallpaper at all.
+    """
+
+    def test_differs_from_current(self):
+        for current in ("'#000000'", "'#ffffff'", "'#30307171aeae'", "''", "junk"):
+            with self.subTest(current=current):
+                self.assertNotEqual(nudged_signal_value(current), current)
+
+    def test_is_stable_for_a_given_input(self):
+        self.assertEqual(nudged_signal_value("'#123456'"), nudged_signal_value("'#123456'"))
+
+    def test_result_is_a_parseable_gvariant_string(self):
+        for current in ("'#000000'", "'#ffffff'", "'#30307171aeae'"):
+            with self.subTest(current=current):
+                nudged = nudged_signal_value(current)
+                self.assertTrue(nudged.startswith("'") and nudged.endswith("'"), nudged)
 
 
 class TestAsUser(unittest.TestCase):

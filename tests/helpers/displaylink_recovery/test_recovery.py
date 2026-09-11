@@ -54,6 +54,15 @@ class TestWedgedHeads(unittest.TestCase):
         result = wedged_heads(_state(heads=heads))
         self.assertEqual([h.name for h in result], ["card3-DVI-I-2"])
 
+    def test_unreadable_edid_is_not_wedged(self):
+        """-1 means the EDID could not be READ, which is not evidence of absence.
+
+        Treating it as a wedge would arm the recovery ladder — up to an evdi
+        module reload — on nothing more than a permissions or I/O hiccup.
+        """
+        heads = [HeadState(name="card2-DVI-I-1", status="connected", edid_bytes=-1)]
+        self.assertEqual(wedged_heads(_state(heads=heads)), [])
+
 
 class TestBackgroundRefresh(unittest.TestCase):
     """The desktop background goes black on some heads after a dock event.
