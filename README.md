@@ -1,3 +1,20 @@
+<!-- SUPERSEDED-BANNER:START -->
+> [!CAUTION]
+> # NO LONGER ACTIVE BRANCH — CURRENT BRANCH IS F44
+>
+> This branch targets **Fedora 43** and is **no longer maintained**.
+> It is kept only so machines still on that release have a matching checkout.
+>
+> ### [Go to F44, the current branch](https://github.com/LongTermSupport/fedora-desktop)
+>
+> ```bash
+> git fetch origin && git checkout F44
+> ```
+>
+> Documentation, playbooks and versions below this banner describe
+> **Fedora 43** and may be wrong for any later release.
+<!-- SUPERSEDED-BANNER:END -->
+
 # Fedora Desktop Configuration Manager
 
 Transform your fresh Fedora installation into a fully-configured development powerhouse in minutes, not hours.
