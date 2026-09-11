@@ -105,6 +105,16 @@ echo "Plan 00079 — podfreeze selection/labelling unit test"
 echo "=============================================================="
 echo
 
+# The five identity maps below are declared `-A` by podfreeze (sourced above),
+# so their subscripts are STRINGS. Re-declaring them here is a runtime no-op
+# that states the same fact to the analyser: the source directive above points
+# at /dev/null, so it cannot see podfreeze's declarations and reads
+# `[proj_yolo]=1` as an arithmetic subscript referencing an unset variable —
+# SC2154 warnings that gate qa-bash.bash. Without the `-A` these fixtures WOULD
+# be a genuine bug (every key evaluating to index 0, last write winning), which
+# is exactly why stating it at the point of use earns its space.
+declare -A INV_IS_CCY INV_HAS_LABELS INV_GITHUB INV_TOKEN INV_SSHKEYS
+
 INV_NAME=(proj_yolo proj_yolo_2 app-db app-web lone old_browser bare_yolo)
 INV_STATE=(running paused running running running running running)
 INV_NETS=(podman podman "appnet" "appnet,podman" none podman podman)
