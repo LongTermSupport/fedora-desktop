@@ -171,24 +171,66 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
 
 ### Phase 5: Wallpaper sizing and management
 
-- [ ] ⬜ **Task 5.1**: Establish the real cost and the real bug
-  - [ ] ⬜ Confirm whether mutter decodes once and shares the texture across
-    monitors, or allocates per monitor — this materially changes the size of
-    the problem and an unverified number must not drive the fix
-  - [ ] ⬜ Establish whether the black-background-on-some-monitors symptom after
-    DisplayLink hotplug is a known GNOME bug, and what actually triggers it
-  - [ ] ⬜ Findings go in a named supporting document, not in this file
-- [ ] ⬜ **Task 5.2**: Manage the wallpaper in `play-gsettings.yml`
-  - **Current state**: wallpaper is set to a 7008x4672, 27 MB camera original
-    (`~/.config/background`) and is unmanaged by any play. A pre-scaled 3840x2560
-    copy has been generated but **not yet applied** — applying it needs the play,
-    per the IaC rule.
-  - [ ] ⬜ Generate an appropriately-sized, EXIF-stripped wallpaper from the source
-  - [ ] ⬜ Set it via the play; verify on HOST
+- [x] ✅ **Task 5.1**: Establish the real cost and the real bug.
+  Evidence and citations: [RESEARCH-wallpaper-and-backgrounds.md](RESEARCH-wallpaper-and-backgrounds.md)
+  - [x] ✅ Decode is **once, not per monitor** — a claim of ~520 MiB made during
+    triage was wrong. mutter shares one texture; real cost is ~156 MiB shared plus
+    48.9 MiB of per-monitor FBOs.
+  - [x] ✅ **The lever is decode latency, not memory**: 342–466 ms at 7008x4672
+    versus 73–75 ms at 3072x1920 (measured on this host).
+  - [x] ✅ Mechanism: `_updateBackgrounds()` destroys every background manager
+    before rebuilding while the image cache holds only a **weak** reference, so
+    survival across a hotplug is GJS GC timing. Losers paint flat `primary-color`.
+    A slow decode is what loses that race.
+  - [x] ✅ **Two open upstream bugs cause the same symptom independently**
+    (`mutter#4767`, `mutter#4935`), plus an apparently unreported sticky variant.
+    Distinguishing test: the clip bug recovers when you open the Overview; the
+    sticky one does not. **Scaling cannot fix these** — Phase 5 is a mitigation.
+- [ ] 🚫 **Task 5.2**: Scale the wallpaper — *mechanism undecided, play approach rejected*
+  - **Current state**: wallpaper is a 7008x4672, 27 MB camera original at
+    `~/.config/background`, unmanaged. A pre-scaled 3840x2560 copy exists at
+    `~/.config/background-scaled.jpg`, **not applied**.
+  - 🚫 **A playbook is the wrong mechanism, and a first draft proved it twice.**
+    Ansible converges once; wallpaper selection is a recurring user action. A play
+    that scales whatever is at the source path and repoints `picture-uri` loses
+    its setting the moment the user picks a new wallpaper in GNOME Settings —
+    GNOME repoints `picture-uri` at *their* choice, the managed copy is
+    dereferenced, and the scaling only returns if someone re-runs Ansible. A
+    setting that silently reverts is worse than no setting.
+  - 🚫 The same draft hardcoded `wallpaper_max_geometry: "3840x2560"` — a fact
+    about one laptop's panel, written into a public repo that provisions
+    arbitrary hardware. See the 12:05 journal entry; the marker for this class is
+    that the justifying comment named the machine.
+  - **Design constraints carried forward**, whichever mechanism wins:
+    - Target geometry is **discovered on the host at install time**, never a
+      literal. A configurable default may exist; when discovered exceeds it, the
+      target grows to the discovered size plus padding.
+    - Discovery loops over `/sys/class/drm/*/status` + `modes`, so per
+      `playbooks/CLAUDE.md` it belongs in a stdlib-only TDD'd helper under
+      `helpers/`, invoked via `command:` + `argv:`.
+    - `-auto-orient` before `-strip`, so dropping the EXIF orientation tag cannot
+      rotate the result.
+  - [ ] ⬜ **Decide the mechanism** before writing any more code:
+    1. Event-driven — systemd user service watching `picture-uri`, rescaling on
+       change. The only option that survives the user changing wallpaper; needs
+       loop-protection against reacting to its own write. Phase 4's panel could
+       own it.
+    2. One-shot user tool in `~/.local/bin` — "scale this and set it". Honest and
+       tiny, but manual and easy to forget.
+    3. Drop it — see the note on Task 5.3 about what scaling can and cannot fix.
+  - [ ] ⬜ Only then: implement, QA, deploy on HOST, verify
 - [ ] ⬜ **Task 5.3**: Decide whether per-monitor pre-scaled caching is worth it
-  - [ ] ⬜ Gated on Task 5.1 — if mutter already shares one texture and scales on
-    the GPU, a per-monitor cache buys little and should be dropped. Decide from
-    the evidence, not from the intuition that it sounds like a win.
+  - [x] ✅ Gated on 5.1, now answered: a per-monitor cache does **not** buy what
+    it appeared to. There is no per-monitor decode to eliminate and no ~520 MiB
+    to reclaim — only decode latency, which one correctly-sized image already
+    captures.
+  - [x] ✅ "Surely somebody has built this already" — **GNOME has**, shipped and
+    unused: a background `.xml` with multiple `<size>` entries. No third-party
+    tool does it; they all composite one spanned image. Detail and the two
+    adoption caveats are in [RESEARCH-wallpaper-and-backgrounds.md](RESEARCH-wallpaper-and-backgrounds.md).
+  - [ ] ⬜ **Decision deferred.** Only worth it if 5.2 alone does not stop the
+    black backgrounds recurring — and it costs the shared-background fast path.
+    Re-evaluate after 5.2 ships and survives some dock cycles.
 
 ## Dependencies
 
