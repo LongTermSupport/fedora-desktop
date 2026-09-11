@@ -51,6 +51,8 @@ class SystemState:
     attempted_usb_reauth: bool
     attempted_module_reload: bool
     drm_client_active: bool
+    attempted_background_refresh: bool = False
+    session_locked: bool = False
 
 
 class Action(Enum):
@@ -59,6 +61,7 @@ class Action(Enum):
     USB_REAUTH = "usb_reauth"
     MODULE_RELOAD = "module_reload"
     NOTIFY_MUTTER_CORRUPTION = "notify_mutter_corruption"
+    REFRESH_BACKGROUND = "refresh_background"
 
 
 def wedged_heads(state: SystemState) -> list[HeadState]:
@@ -77,6 +80,10 @@ def decide(state: SystemState) -> Action:
         return Action.NOTIFY_MUTTER_CORRUPTION
 
     if not wedged_heads(state):
+        # Heads are healthy. The one remaining fault worth acting on is the
+        # black desktop background (mutter#4767) — see needs_background_refresh.
+        if needs_background_refresh(state):
+            return Action.REFRESH_BACKGROUND
         return Action.NONE
 
     if not state.attempted_service_restart:
@@ -89,3 +96,21 @@ def decide(state: SystemState) -> Action:
     # Every safe, automatable option has been tried (or is unsafe right now)
     # and a head is still wedged — this needs a human, not another retry.
     return Action.NOTIFY_MUTTER_CORRUPTION
+
+
+def needs_background_refresh(state: SystemState) -> bool:
+    """Whether to force a repaint of the desktop background.
+
+    Fires once per run, only with dock heads present and only when the heads
+    themselves are healthy — a wedged head is a real fault and outranks a
+    cosmetic one. Never while the session is locked: gnome-shell#9188 reports a
+    ~57 MB per-monitor leak when the background is toggled from the lock screen.
+
+    There is deliberately no attempt to DETECT the black background first. The
+    compositor reports nothing an outside process can read, and the corrective
+    action is a repaint costing one background reload, so speculatively
+    refreshing after a dock event is cheaper than any detection would be.
+    """
+    if state.session_locked or state.attempted_background_refresh:
+        return False
+    return bool(state.heads)

@@ -45,14 +45,36 @@ def _read(path: str) -> str:
         return f.read()
 
 
+def edid_byte_count(edid_path: str) -> int:
+    """Bytes of EDID actually present at a sysfs connector path.
+
+    The file MUST be read. `os.path.getsize()` (and `stat`) report **0 for every
+    sysfs binary attribute** regardless of content — the inode carries no size —
+    so sizing this by stat marks every connected head as having no EDID, which
+    is the wedge signature. Every head then looks wedged on every system,
+    including a perfectly healthy one, and the recovery ladder runs
+    service-restart into USB-reauth into module-reload against working monitors.
+
+    A real connector here reads 256-384 bytes while reporting st_size 0.
+    """
+    try:
+        with open(edid_path, "rb") as f:
+            return len(f.read())
+    except FileNotFoundError:
+        return 0
+    except OSError:
+        # An unreadable connector is not evidence of a missing EDID, and
+        # claiming 0 here would assert the wedge signature on no evidence.
+        return -1
+
+
 def _drm_head_states() -> list[HeadState]:
     heads = []
     for status_path in sorted(glob.glob("/sys/class/drm/card*-DVI-I-*/status")):
         connector_dir = os.path.dirname(status_path)
         name = os.path.basename(connector_dir)
         status = _read(status_path).strip()
-        edid_path = os.path.join(connector_dir, "edid")
-        edid_bytes = os.path.getsize(edid_path) if os.path.exists(edid_path) else 0
+        edid_bytes = edid_byte_count(os.path.join(connector_dir, "edid"))
         heads.append(HeadState(name=name, status=status, edid_bytes=edid_bytes))
     return heads
 
@@ -131,6 +153,113 @@ def _module_reload() -> None:
     subprocess.run(["modprobe", "evdi"], check=True)
 
 
+def _graphical_sessions() -> list[tuple[str, str]]:
+    """(username, uid) for every logged-in user, for reaching a session bus."""
+    sessions = []
+    who = subprocess.run(["who"], capture_output=True, text=True, check=False).stdout
+    for line in who.splitlines():
+        fields = line.split()
+        if not fields:
+            continue
+        user = fields[0]
+        uid = subprocess.run(["id", "-u", user], capture_output=True, text=True, check=False)
+        if uid.returncode != 0:
+            continue
+        entry = (user, uid.stdout.strip())
+        if entry not in sessions:
+            sessions.append(entry)
+    return sessions
+
+
+def _as_user(user: str, uid: str, *command: str) -> list[str]:
+    """argv running `command` as `user` with their session bus reachable.
+
+    The bus address must travel THROUGH sudo via `env`, not via subprocess's
+    own `env=`: sudo sanitises the environment it hands to the child, so a
+    DBUS_SESSION_BUS_ADDRESS set on this process is dropped. dconf then tries to
+    autolaunch a private bus, fails with "Failed to execute child process
+    dbus-launch", and every write is silently lost while the command still exits
+    zero — a change that reports success and does nothing.
+    """
+    return [
+        "sudo",
+        "-u",
+        user,
+        "env",
+        f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus",
+        *command,
+    ]
+
+
+def _session_locked() -> bool:
+    """True if any graphical session is locked.
+
+    Conservative: an unreadable lock state counts as locked, because the cost of
+    refreshing when we should not (a ~57 MB per-monitor leak, gnome-shell#9188)
+    is much worse than the cost of skipping a cosmetic repaint.
+    """
+    sessions = _graphical_sessions()
+    if not sessions:
+        return True
+    for _user, uid in sessions:
+        result = subprocess.run(
+            ["loginctl", "show-user", uid, "--property=Display", "--value"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        session_id = result.stdout.strip()
+        if result.returncode != 0 or not session_id:
+            return True
+        locked = subprocess.run(
+            ["loginctl", "show-session", session_id, "--property=LockedHint", "--value"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if locked.returncode != 0 or locked.stdout.strip() != "no":
+            return True
+    return False
+
+
+def _refresh_background() -> None:
+    """Force a `bg-changed` so mutter repaints the desktop background.
+
+    Works around mutter#4767: after a monitor change the background paint is
+    skipped on some heads and they show black, while the Overview — drawing the
+    same texture — renders correctly. Only a genuine `bg-changed` re-sets
+    CHANGED_BACKGROUND; another monitors-changed does not.
+
+    The key is blanked and restored rather than rewritten to its current value,
+    because dconf suppresses a write that does not change anything and no signal
+    would be emitted. The restore is in a `finally` so an exception mid-toggle
+    cannot leave the user with no wallpaper.
+    """
+    schema = "org.gnome.desktop.background"
+    for user, uid in _graphical_sessions():
+        for key in ("picture-uri", "picture-uri-dark"):
+            read = subprocess.run(
+                _as_user(user, uid, "gsettings", "get", schema, key),
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            current = read.stdout.strip()
+            if read.returncode != 0 or not current or current == "''":
+                continue
+            try:
+                subprocess.run(
+                    _as_user(user, uid, "gsettings", "set", schema, key, ""),
+                    check=True,
+                )
+            finally:
+                subprocess.run(
+                    _as_user(user, uid, "gsettings", "set", schema, key, current.strip("'")),
+                    check=True,
+                )
+        print(f"RECOVERY-BACKGROUND: refreshed desktop background for {user}")
+
+
 def _notify(message: str) -> None:
     print(f"RECOVERY-NOTIFY: {message}")
     subprocess.run(
@@ -141,26 +270,21 @@ def _notify(message: str) -> None:
     )
     # Best-effort desktop notification to every graphical user session; a
     # missing/unreachable session bus must not fail the recovery run.
-    who = subprocess.run(["who"], capture_output=True, text=True, check=False).stdout
-    for line in who.splitlines():
-        user = line.split()[0] if line.split() else ""
-        if not user:
-            continue
-        uid = subprocess.run(["id", "-u", user], capture_output=True, text=True, check=False)
-        if uid.returncode != 0:
-            continue
-        env = dict(
-            os.environ,
-            DBUS_SESSION_BUS_ADDRESS=f"unix:path=/run/user/{uid.stdout.strip()}/bus",
-        )
+    for user, uid in _graphical_sessions():
         subprocess.run(
-            ["sudo", "-u", user, "notify-send", "-u", "critical", "DisplayLink dock", message],
-            env=env,
+            _as_user(
+                user, uid, "notify-send", "-u", "critical", "DisplayLink dock", message
+            ),
             check=False,
         )
 
 
-def _observe(attempted_restart: bool, attempted_reauth: bool, attempted_reload: bool) -> SystemState:
+def _observe(
+    attempted_restart: bool,
+    attempted_reauth: bool,
+    attempted_reload: bool,
+    attempted_background: bool,
+) -> SystemState:
     heads = _drm_head_states()
     return SystemState(
         heads=heads,
@@ -170,6 +294,8 @@ def _observe(attempted_restart: bool, attempted_reauth: bool, attempted_reload: 
         attempted_usb_reauth=attempted_reauth,
         attempted_module_reload=attempted_reload,
         drm_client_active=_drm_client_active(heads),
+        attempted_background_refresh=attempted_background,
+        session_locked=_session_locked(),
     )
 
 
@@ -192,12 +318,15 @@ def main(argv: list[str] | None = None) -> int:
     attempted_restart = False
     attempted_reauth = False
     attempted_reload = False
+    attempted_background = False
     action = Action.NONE
 
     try:
         deadline = time.monotonic() + POLL_TIMEOUT_SECONDS
         while True:
-            state = _observe(attempted_restart, attempted_reauth, attempted_reload)
+            state = _observe(
+                attempted_restart, attempted_reauth, attempted_reload, attempted_background
+            )
             action = decide(state)
             print(f"RECOVERY-STATE: action={action.value}")
 
@@ -215,6 +344,9 @@ def main(argv: list[str] | None = None) -> int:
             elif action == Action.MODULE_RELOAD:
                 _module_reload()
                 attempted_reload = True
+            elif action == Action.REFRESH_BACKGROUND:
+                _refresh_background()
+                attempted_background = True
             elif action == Action.NOTIFY_MUTTER_CORRUPTION:
                 _notify(
                     "Display state may be corrupted after a dock hotplug — "

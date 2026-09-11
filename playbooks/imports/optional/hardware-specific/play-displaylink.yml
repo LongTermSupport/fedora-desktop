@@ -222,6 +222,20 @@
     # see that package's docstring for the full decision rationale, including
     # why mutter monitor-manager corruption can only be notified about, not
     # silently fixed, on Wayland.
+    # `copy:` does NOT create missing parent directories for a file destination,
+    # so without this every recovery deploy below fails and the play aborts —
+    # which is what happened on this host: the helper tree never existed, the
+    # udev rule and dock-recovery unit that follow were never reached, and
+    # displaylink-suspend.service sat enabled pointing at a WorkingDirectory
+    # that was not there, failing silently on every resume.
+    - name: Ensure the DisplayLink recovery helper tree exists
+      ansible.builtin.file:
+        path: /usr/local/lib/displaylink-recovery/helpers/displaylink_recovery
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
     - name: Deploy DisplayLink recovery decision logic
       ansible.builtin.copy:
         src: "{{ root_dir }}/helpers/displaylink_recovery/recovery.py"

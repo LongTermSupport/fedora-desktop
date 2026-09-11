@@ -30,6 +30,8 @@ def _state(**overrides) -> SystemState:
         "attempted_usb_reauth": False,
         "attempted_module_reload": False,
         "drm_client_active": True,
+        "attempted_background_refresh": False,
+        "session_locked": False,
     }
     defaults.update(overrides)
     return SystemState(**defaults)
@@ -53,10 +55,65 @@ class TestWedgedHeads(unittest.TestCase):
         self.assertEqual([h.name for h in result], ["card3-DVI-I-2"])
 
 
+class TestBackgroundRefresh(unittest.TestCase):
+    """The desktop background goes black on some heads after a dock event.
+
+    The signature is mutter#4767, an empty redraw clip: the wallpaper renders
+    correctly in the Overview — which proves the texture is valid — and is black
+    only on the normal desktop. It also recovers on its own with no `bg-changed`
+    and no shell restart, which the sticky CHANGED_BACKGROUND variant cannot do.
+    So the paint is being skipped, not painted wrong.
+
+    A genuine `bg-changed` forces a repaint, which is why toggling picture-uri
+    recovers it. Because the fault self-heals on any repaint, this action buys
+    promptness rather than rescue — so the decision logic keeps it strictly last
+    and never spends it at the expense of a real wedge.
+    """
+
+    def _healthy(self, **overrides):
+        heads = [HeadState(name="card2-DVI-I-1", status="connected", edid_bytes=256)]
+        return _state(heads=heads, **overrides)
+
+    def test_healthy_heads_refresh_the_background_once(self):
+        self.assertEqual(decide(self._healthy()), Action.REFRESH_BACKGROUND)
+
+    def test_not_repeated_once_attempted(self):
+        state = self._healthy(attempted_background_refresh=True)
+        self.assertEqual(decide(state), Action.NONE)
+
+    def test_never_while_the_session_is_locked(self):
+        """gnome-shell#9188: toggling picture-uri while locked leaks ~57MB per monitor."""
+        state = self._healthy(session_locked=True)
+        self.assertEqual(decide(state), Action.NONE)
+
+    def test_wedged_head_is_fixed_before_the_background(self):
+        """A black background is cosmetic; a head with no EDID is not."""
+        heads = [HeadState(name="card3-DVI-I-2", status="connected", edid_bytes=0)]
+        self.assertEqual(decide(_state(heads=heads)), Action.RESTART_SERVICE)
+
+    def test_mutter_corruption_still_outranks_it(self):
+        state = self._healthy(mutter_corruption_detected=True)
+        self.assertEqual(decide(state), Action.NOTIFY_MUTTER_CORRUPTION)
+
+    def test_no_heads_at_all_does_not_refresh(self):
+        """No dock heads means no dock event worth reacting to."""
+        self.assertEqual(decide(_state(heads=[])), Action.NONE)
+
+    def test_refreshes_even_when_only_disconnected_heads_remain(self):
+        """Undock is a monitors-changed too, and repaints the remaining screens."""
+        heads = [HeadState(name="card4-DVI-I-3", status="disconnected", edid_bytes=0)]
+        self.assertEqual(decide(_state(heads=heads)), Action.REFRESH_BACKGROUND)
+
+
 class TestDecide(unittest.TestCase):
-    def test_no_wedge_no_corruption_is_none(self):
+    def test_no_wedge_no_corruption_refreshes_background(self):
         heads = [HeadState(name="card2-DVI-I-1", status="connected", edid_bytes=256)]
         state = _state(heads=heads)
+        self.assertEqual(decide(state), Action.REFRESH_BACKGROUND)
+
+    def test_no_wedge_no_corruption_is_none_once_refreshed(self):
+        heads = [HeadState(name="card2-DVI-I-1", status="connected", edid_bytes=256)]
+        state = _state(heads=heads, attempted_background_refresh=True)
         self.assertEqual(decide(state), Action.NONE)
 
     def test_wedge_first_tries_service_restart(self):
@@ -110,8 +167,18 @@ class TestDecide(unittest.TestCase):
         self.assertEqual(decide(state), Action.NOTIFY_MUTTER_CORRUPTION)
 
     def test_healthy_system_with_prior_attempts_recorded_is_still_none(self):
+        """Spent wedge attempts must not manufacture an action on healthy heads.
+
+        `attempted_background_refresh` is set so this isolates the wedge ladder;
+        the background action has its own class above.
+        """
         heads = [HeadState(name="card2-DVI-I-1", status="connected", edid_bytes=256)]
-        state = _state(heads=heads, attempted_service_restart=True, attempted_usb_reauth=True)
+        state = _state(
+            heads=heads,
+            attempted_service_restart=True,
+            attempted_usb_reauth=True,
+            attempted_background_refresh=True,
+        )
         self.assertEqual(decide(state), Action.NONE)
 
 
