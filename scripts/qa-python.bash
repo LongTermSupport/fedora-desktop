@@ -218,11 +218,14 @@ jq -s \
 if [[ $ERRORS -eq 0 ]]; then
     # Templates counted separately, because they were syntax-checked but not
     # linted — saying "N files OK" over both would overstate what ruff saw.
-    if [[ $TEMPLATE_COUNT -gt 0 ]]; then
-        echo "✓ python: $TOTAL files OK; $TEMPLATE_COUNT rendered template(s) compile (syntax only, not linted)"
-    else
-        echo "✓ python: $TOTAL files OK"
-    fi
+    #
+    # The count is stated ALWAYS, including zero. Printing it only when non-zero
+    # was the defect this gate exists to catch, one level up: template discovery
+    # silently returning nothing would restore the exact hole Plan 00081 F3 found
+    # — 349 lines unchecked — and the pass line would look identical to the day it
+    # worked. A visible "0 template(s)" in a repo that has one is a question
+    # someone asks; a missing clause is not.
+    echo "✓ python: $TOTAL files OK; $TEMPLATE_COUNT rendered template(s) compile (syntax only, not linted)"
     exit 0
 else
     echo "✗ python: failed → $JSON_OUT"

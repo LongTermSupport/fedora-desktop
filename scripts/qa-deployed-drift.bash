@@ -202,15 +202,21 @@ fi
 # State what was NOT compared, on the passing path. A summary that reports only
 # what it looked at reads as a statement about everything — which is how the .j2
 # file stayed invisible while this line printed a tick every run.
+#
+# Both counts are stated ALWAYS, including zero. Appending a clause only when the
+# number is non-zero means a count that silently collapses to 0 produces a pass
+# line identical to the day it worked — the same defect one level up from the one
+# this block was written to fix. "0 template(s)" in a repo that has one is a
+# question somebody asks; a missing clause is not.
 summary="✓ deployed-drift: $CHECKED deployed script(s) match the repo"
-if [ "$NOT_DEPLOYED" -gt 0 ]; then
-    summary="$summary; $NOT_DEPLOYED not installed on this host"
-fi
-if [ "${#TEMPLATES[@]}" -gt 0 ]; then
-    summary="$summary; ${#TEMPLATES[@]} template(s) not byte-comparable"
-fi
+summary="$summary; $NOT_DEPLOYED not installed on this host"
+summary="$summary; ${#TEMPLATES[@]} template(s) not byte-comparable"
 echo "$summary"
-for t in "${TEMPLATES[@]}"; do
+# The bracket-at-plus form, which _planlib.inc.bash's own regression suite
+# enforces repo-wide: TEMPLATES can now legitimately be empty on a host with no
+# .j2 in scope, and a bare "${TEMPLATES[@]}" is an unbound-variable error under
+# `set -u` on bash before 4.4.
+for t in "${TEMPLATES[@]+${TEMPLATES[@]}}"; do
     echo "    template (rendered, so not compared): $t"
 done
 exit 0
