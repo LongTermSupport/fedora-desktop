@@ -55,8 +55,10 @@ single GNOME panel that fronts all of it.
   compare, but it must never move the working tree.
 - Replacing `check-pinned-versions.bash` or `qa-deployed-drift.bash` — this plan
   adds the missing third axis alongside them.
-- Managing the user's choice of wallpaper image. Phase 5 manages *size and
-  delivery*, not aesthetics.
+- Managing the user's choice of wallpaper image, or its size. Phase 5 began as
+  wallpaper sizing and was cancelled once the evidence showed size is irrelevant
+  to the symptom; it now recovers the background after a monitor change.
+- Fixing the upstream mutter bugs. They are open; this plan works around them.
 
 ## Context & Background
 
@@ -169,76 +171,56 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
 - [ ] ⬜ **Task 4.5**: ESLint clean (`cd extensions && node_modules/.bin/eslint`),
   deployed by a play, Wayland-correct
 
-### Phase 5: Wallpaper sizing and management
+### Phase 5: Recover the desktop background after a monitor change
 
 - [x] ✅ **Task 5.1**: Establish the real cost and the real bug.
-  Evidence and citations: [RESEARCH-wallpaper-and-backgrounds.md](RESEARCH-wallpaper-and-backgrounds.md)
+  Evidence: [RESEARCH-wallpaper-and-backgrounds.md](RESEARCH-wallpaper-and-backgrounds.md)
   - [x] ✅ Decode is **once, not per monitor** — a ~520 MiB claim made during
-    triage was wrong. The lever is decode *latency* (342–466 ms vs 73–75 ms), not
-    memory, and it is paid roughly **once per login**, not per dock cycle.
-  - [x] ✅ Mechanism: `_updateBackgrounds()` destroys every background manager
-    before rebuilding while the image cache holds only a **weak** reference, so
-    survival across a hotplug is GJS GC timing. Losers paint the flat colour.
-  - [x] ✅ **Two open upstream bugs cause the same symptom independently**
-    (`mutter#4767`, `mutter#4935`), plus an apparently unreported sticky variant.
-    **Scaling cannot fix those** — Phase 5 is at best a mitigation, and the
-    discriminator under 5.2 decides whether it is even that.
-- [ ] 🚫 **Task 5.2**: Scale the wallpaper — *mechanism undecided, play approach rejected*
-  - **Current state**: wallpaper is a 7008x4672, 27 MB camera original at
-    `~/.config/background`, unmanaged. A pre-scaled 3840x2560 copy exists at
-    `~/.config/background-scaled.jpg`, **not applied**.
-  - 🚫 **A playbook is the wrong mechanism, and a first draft proved it twice.**
-    Ansible converges once; wallpaper selection is a recurring user action. A play
-    that scales whatever is at the source path and repoints `picture-uri` loses
-    its setting the moment the user picks a new wallpaper in GNOME Settings —
-    GNOME repoints `picture-uri` at *their* choice, the managed copy is
-    dereferenced, and the scaling only returns if someone re-runs Ansible. A
-    setting that silently reverts is worse than no setting.
-  - 🚫 The same draft hardcoded `wallpaper_max_geometry: "3840x2560"` — a fact
-    about one laptop's panel, written into a public repo that provisions
-    arbitrary hardware. See the 12:05 journal entry; the marker for this class is
-    that the justifying comment named the machine.
-  - **Design constraints carried forward**, whichever mechanism wins:
-    - Target geometry is **discovered on the host at install time**, never a
-      literal. A configurable default may exist; when discovered exceeds it, the
-      target grows to the discovered size plus padding.
-    - Discovery loops over `/sys/class/drm/*/status` + `modes`, so per
-      `playbooks/CLAUDE.md` it belongs in a stdlib-only TDD'd helper under
-      `helpers/`, invoked via `command:` + `argv:`.
-    - `-auto-orient` before `-strip`, so dropping the EXIF orientation tag cannot
-      rotate the result.
-  - [ ] ⬜ **Run the free discriminator FIRST — it can cancel this whole task.**
-    Next time the backgrounds go black, **open the Overview**. If they come back,
-    the cause is the upstream clip bug (`mutter#4767`) and image size is
-    irrelevant — scaling would buy nothing and 5.2 should be dropped. If they stay
-    black, it is the GC-race or the sticky NULL-texture variant, and only then
-    does shrinking the decode window have a point. Costs nothing, needs no code,
-    and no mechanism should be chosen before it has been run.
-  - **Frequency caveat, load-bearing**: the ~350 ms decode is paid roughly once
-    per login, *not* per dock cycle — so this is not an ongoing performance cost
-    and must not be justified as one. Its only value is shrinking the GC-race
-    window. How often that race is actually lost here is **unmeasured**.
-  - [ ] ⬜ **Then decide the mechanism**, if the discriminator did not cancel it:
-    1. Event-driven — systemd user service watching `picture-uri`, rescaling on
-       change. The only option that survives the user changing wallpaper; needs
-       loop-protection against reacting to its own write. Phase 4's panel could
-       own it.
-    2. One-shot user tool in `~/.local/bin` — "scale this and set it". Honest and
-       tiny, but manual and easy to forget.
-    3. Drop it — see Task 5.3 on what scaling can and cannot fix.
-  - [ ] ⬜ Only then: implement, QA, deploy on HOST, verify
-- [ ] ⬜ **Task 5.3**: Decide whether per-monitor pre-scaled caching is worth it
-  - [x] ✅ Gated on 5.1, now answered: a per-monitor cache does **not** buy what
-    it appeared to. There is no per-monitor decode to eliminate and no ~520 MiB
-    to reclaim — only decode latency, which one correctly-sized image already
-    captures.
-  - [x] ✅ "Surely somebody has built this already" — **GNOME has**, shipped and
-    unused: a background `.xml` with multiple `<size>` entries. No third-party
-    tool does it; they all composite one spanned image. Detail and the two
-    adoption caveats are in [RESEARCH-wallpaper-and-backgrounds.md](RESEARCH-wallpaper-and-backgrounds.md).
-  - [ ] ⬜ **Decision deferred.** Only worth it if 5.2 alone does not stop the
-    black backgrounds recurring — and it costs the shared-background fast path.
-    Re-evaluate after 5.2 ships and survives some dock cycles.
+    triage was wrong — and is paid roughly **once per login**, not per dock cycle.
+  - [x] ✅ **The symptom is a rendering failure, not a texture failure.** The user
+    reports the wallpaper renders correctly in the Overview and is black only on
+    the normal desktop. The Overview and the desktop draw from the same
+    `MetaBackground`, so a valid Overview render **proves the texture exists**. A
+    cache miss, a slow decode and a NULL texture are all ruled out: each would be
+    black in both views.
+  - [x] ✅ Therefore the cause is in the `MetaBackgroundContent` paint path for the
+    desktop view — the `mutter#4767` clip family, or the sticky variant where
+    `CHANGED_BACKGROUND` is cleared with nothing to re-set it. Both are upstream
+    and open; neither is fixable here.
+- [x] ❌ **Task 5.2**: ~~Scale the wallpaper~~ — **cancelled, wrong problem**
+  - Image size is irrelevant to this symptom (see 5.1). Scaling would have shrunk
+    a GC-race window that is demonstrably *not* what is failing here. Cancelled
+    before any code shipped.
+  - Two defects in the rejected draft, kept as markers: it hardcoded
+    `3840x2560` — a fact about one laptop, in a public repo that provisions
+    arbitrary hardware — and a **playbook is the wrong mechanism for wallpaper**
+    regardless, since Ansible converges once while wallpaper selection is a
+    recurring user action, so GNOME repoints `picture-uri` and the managed value
+    silently reverts. See the 12:05 journal entry.
+- [x] ❌ **Task 5.3**: ~~Per-monitor pre-scaled caching~~ — **cancelled with 5.2**
+  - Worth recording: GNOME already ships per-monitor pre-scaling (a background
+    `.xml` with `<size>` entries) and no third-party tool does. Irrelevant now,
+    but the finding survives in the research document if wallpaper sizing is ever
+    revisited for a different reason.
+- [ ] ⬜ **Task 5.4**: Recover the background after a monitor reconfiguration
+  - **The one workaround that matches this failure**: force a real `bg-changed` by
+    toggling `picture-uri`. That is the only signal that re-sets
+    `CHANGED_BACKGROUND`; another `monitors-changed` does not recover it, and
+    `updateResolution()` refreshes only the animation. Restarting gnome-shell also
+    works but is not available under Wayland.
+  - ⚠️ **Do not toggle while the session is locked** — `gnome-shell#9188` reports
+    a ~57 MB per-monitor leak on that path. The recovery must check lock state and
+    defer.
+  - [ ] ⬜ Confirm the toggle actually recovers it on this host before building
+    anything around it — one manual toggle, next time the symptom appears
+  - [ ] ⬜ Decide the home. `helpers/displaylink_recovery/` already runs on dock
+    events via a udev rule and a suspend service, but it currently recovers
+    *wedged heads* (a driver-layer failure). This is a different failure at the
+    compositor layer sharing the same trigger — extend that helper, or add a
+    sibling, rather than inventing a new trigger path.
+  - [ ] ⬜ Idempotence and loop-safety: the toggle writes the key it watches
+  - [ ] ⬜ Tests first (stdlib-only, mirroring the helper path under `tests/`),
+    then QA, deploy on HOST, verify
 
 ## Dependencies
 
