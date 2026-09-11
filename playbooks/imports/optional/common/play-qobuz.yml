@@ -2,6 +2,12 @@
 ---
 - hosts: desktop
   name: Qobuz Apps - Native GUI Player, CLI Player and Last.fm Scrobbling
+  # The rescrobbled config is written well before the handler that restarts the
+  # unit, and the manual-setup block in between can abort the play. Without
+  # force_handlers that notification is lost for good: the next run sees an
+  # unchanged config.toml, notifies nothing, and leaves the old process running
+  # with the old config while reporting success.
+  force_handlers: true
   vars:
     root_dir: "{{ lookup('ansible.builtin.config', 'CONFIG_FILE') | dirname }}"
     scope: general   # general | gnome | server — see CLAUDE/AnsibleStyle.md
@@ -36,6 +42,9 @@
       ansible.builtin.set_fact:
         hifiRsUrl: "https://github.com/iamdb/hifi.rs/releases/download/v{{ hifiRsVersionFinal }}/hifi-rs-x86_64-unknown-linux-gnu.tar.gz"
 
+    # Prints one marker line on stdout as its payload (UNCHANGED / INSTALLED) so
+    # changed_when reflects what the script actually did; the human-readable
+    # version detail goes to stderr, as does the set -x trace.
     - name: Install hifi-rs
       ansible.builtin.shell: |
         set -exuo pipefail
@@ -43,7 +52,8 @@
           installedVersion="$(hifi-rs --version | grep -Po '[0-9.]+')"
           desiredVersion="{{ hifiRsVersionFinal }}"
           if  [[ "$installedVersion" == "$desiredVersion" ]]; then
-            echo "installed version $installedVersion is the same as the desired version $desiredVersion"
+            echo "installed version $installedVersion is the same as the desired version $desiredVersion" >&2
+            echo "HIFIRS_UNCHANGED"
             exit 0
           fi
         fi
@@ -52,8 +62,19 @@
         wget "{{ hifiRsUrl }}"
         tar -xf hifi-rs-x86_64-unknown-linux-gnu.tar.gz
         mv -f hifi-rs "{{ hifiRsPath }}"
+        echo "HIFIRS_INSTALLED"
       args:
         executable: /bin/bash
+      register: hifirs_install
+      changed_when: "'HIFIRS_INSTALLED' in hifirs_install.stdout"
+      # Demand exactly one marker. Treating "no INSTALLED marker" as "unchanged"
+      # would read a script that printed nothing — a broken or truncated run —
+      # as a clean no-op. The rc check is kept explicitly because defining
+      # failed_when replaces the shell module's own rc test.
+      failed_when: >-
+        hifirs_install.rc != 0
+        or (('HIFIRS_INSTALLED' in hifirs_install.stdout)
+            == ('HIFIRS_UNCHANGED' in hifirs_install.stdout))
       tags:
         - hifi-rs
 
@@ -125,6 +146,9 @@
         - >-
           'QBZ_RENDERER=gl' not in qbz_flatpak_override.stdout
           or 'org.freedesktop.secrets' not in qbz_flatpak_override.stdout
+      # The when: guard above already means this only runs when an override is
+      # missing, so reaching the command is itself the change.
+      changed_when: true
       tags:
         - qbz
 
@@ -140,10 +164,15 @@
         executable: /bin/bash
         creates: "{{ rescrobbledPath }}"
 
+    # 0700: this dir holds config.toml (Last.fm API key + secret) and the
+    # session token file, so it must not be group- or world-readable.
     - name: Create Rescrobbled Config Dir
       ansible.builtin.file:
         state: directory
         path: /home/{{ user_login }}/.config/rescrobbled/
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0700"
 
     # Needs Last FM API Account
     # Visit https://www.last.fm/api/account/create
@@ -246,22 +275,46 @@
 
     # Contains the Last.fm API key + secret in plaintext, so lock it to 0600 and
     # suppress logging/diff so `--diff` runs never print the credentials.
+    #
+    # player-ignorelist exists because this play installs TWO Qobuz players with
+    # different scrobbling needs. hifi-rs is a headless CLI binary with no
+    # scrobbler of its own — rescrobbled is the only thing that scrobbles it, and
+    # it must keep doing so. QBZ scrobbles to Last.fm itself, and also publishes
+    # MPRIS; with no ignorelist rescrobbled picks QBZ up too and every QBZ track
+    # is submitted twice. Both fire at the same point (Last.fm's half-duration /
+    # 4-minute rule), so the duplicates land seconds apart.
+    #
+    # "^QBZ$" is anchored against QBZ's MPRIS identity string. rescrobbled tests
+    # the ignorelist against identity, bus name, and instance-stripped bus name
+    # (player.rs regex_set_contains), and RegexSet matching is unanchored, so the
+    # anchors keep this from matching any other player's name by substring.
+    #
+    # The identity is upstream-controlled: if a QBZ release renames it, this stops
+    # matching and the double-scrobbling returns with no error anywhere. Do NOT
+    # widen the pattern — it would start swallowing hifi-rs. Confirm the current
+    # identity in `journalctl --user -u rescrobbled`, which prints it verbatim as
+    # "Player <identity> stopped, looking for a new MPRIS player...".
     - name: Configure Rescrobbled
       ansible.builtin.copy:
         content: |
           lastfm-key = "{{ lastfm_api_key }}"
           lastfm-secret = "{{ lastfm_api_secret }}"
+          player-ignorelist = [ "^QBZ$" ]
         dest: /home/{{ user_login }}/.config/rescrobbled/config.toml
         owner: "{{ user_login }}"
         group: "{{ user_login }}"
         mode: "0600"
       no_log: true
       diff: false
+      notify: Restart rescrobbled
 
     - name: Create Systemd User Dir
       ansible.builtin.file:
         state: directory
         path: /home/{{ user_login }}/.config/systemd/user/
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0755"
 
     - name: Rescrobbled Systemd Config
       ansible.builtin.copy:
@@ -278,6 +331,10 @@
           [Install]
           WantedBy=default.target
         dest: /home/{{ user_login }}/.config/systemd/user/rescrobbled.service
+        owner: "{{ user_login }}"
+        group: "{{ user_login }}"
+        mode: "0644"
+      notify: Restart rescrobbled
 
     - name: Check for Session File For Rescrobbled
       ansible.builtin.stat:
@@ -321,6 +378,14 @@
         daemon_reload: true
         scope: user
 
+    # Flushed here, after the daemon-reload above and before the start below, so
+    # that a restart and a first-install start cannot both fire in one run: on a
+    # fresh machine the handler starts the unit and "Start and Enable" is then a
+    # no-op for state. Running it before the verify is the point — the verify
+    # must see the unit that carries the new config, not the one it replaced.
+    - name: Flush handlers before starting rescrobbled
+      ansible.builtin.meta: flush_handlers
+
     - name: Start and Enable Rescrobbled Service
       ansible.builtin.systemd:
         name: rescrobbled
@@ -328,17 +393,23 @@
         enabled: true
         scope: user
 
+    # Queried via the systemd module with no state:, which reports the unit
+    # without touching it. Still fail-fast: a unit that is not active stops
+    # the play rather than letting the success message below lie.
     - name: Verify Rescrobbled Service is Running
-      ansible.builtin.command: systemctl --user is-active rescrobbled
+      ansible.builtin.systemd:
+        name: rescrobbled
+        scope: user
       register: rescrobbled_status
       changed_when: false
-      failed_when: rescrobbled_status.stdout != "active"
+      failed_when: rescrobbled_status.status.ActiveState != "active"
 
     - name: Display Success Message
       ansible.builtin.debug:
         msg: |
           ✓ Rescrobbled successfully installed and running!
-          ✓ Your music will now be scrobbled to Last.fm
+          ✓ hifi-rs playback will be scrobbled to Last.fm by rescrobbled
+          ✓ QBZ is ignored by rescrobbled — QBZ scrobbles itself
 
           To check status: systemctl --user status rescrobbled
           To view logs: journalctl --user -u rescrobbled -f
@@ -458,3 +529,13 @@
           - qobuz_status         - Show hifi-rs status
           - ""
           - "QBZ (GUI player) launches from the app grid, or: flatpak run com.blitzfc.qbz"
+
+  handlers:
+    # rescrobbled reads config.toml once at startup, and the "Start and Enable"
+    # task is a no-op against an already-running unit. Without this restart a
+    # config change stays inert until the next reboot.
+    - name: Restart rescrobbled
+      ansible.builtin.systemd:
+        name: rescrobbled
+        state: restarted
+        scope: user
