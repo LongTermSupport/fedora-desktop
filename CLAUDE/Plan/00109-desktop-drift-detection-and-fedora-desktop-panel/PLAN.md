@@ -184,25 +184,43 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
     cache miss, a slow decode and a NULL texture are all ruled out: each would be
     black in both views.
   - [x] ✅ Therefore the cause is in the `MetaBackgroundContent` paint path for the
-    desktop view — the `mutter#4767` clip family, or the sticky variant where
-    `CHANGED_BACKGROUND` is cleared with nothing to re-set it. Both are upstream
-    and open; neither is fixable here.
-- [x] ❌ **Task 5.2**: ~~Scale the wallpaper~~ — **cancelled, wrong problem**
-  - Image size is irrelevant to this symptom (see 5.1). Scaling would have shrunk
-    a GC-race window that is demonstrably *not* what is failing here. Cancelled
-    before any code shipped.
-  - Two defects in the rejected draft, kept as markers: it hardcoded
-    `3840x2560` — a fact about one laptop, in a public repo that provisions
-    arbitrary hardware — and a **playbook is the wrong mechanism for wallpaper**
-    regardless, since Ansible converges once while wallpaper selection is a
-    recurring user action, so GNOME repoints `picture-uri` and the managed value
-    silently reverts. See the 12:05 journal entry.
-- [x] ❌ **Task 5.3**: ~~Per-monitor pre-scaled caching~~ — **cancelled with 5.2**
-  - Worth recording: GNOME already ships per-monitor pre-scaling (a background
-    `.xml` with `<size>` entries) and no third-party tool does. Irrelevant now,
-    but the finding survives in the research document if wallpaper sizing is ever
-    revisited for a different reason.
-- [ ] ⬜ **Task 5.4**: Recover the background after a monitor reconfiguration
+    desktop view. Three checks converge on **`mutter#4767`** (empty redraw clip)
+    over the sticky `CHANGED_BACKGROUND` variant: no Cogl/framebuffer errors are
+    logged this boot (the sticky variant stems from FBO allocation failure); the
+    host runs `mutter-50.4`, which carries #4767 unfixed; and the monitors go
+    *black*, whereas the sticky variant would paint the flat `primary-color`,
+    here a dark slate blue. Convergent, not conclusive — that branch never logs.
+    Both are upstream and open; neither is fixable here.
+  - [ ] ⬜ **Confirm with the user**: literally black, or dark blue-grey? Blue-grey
+    would overturn the above and point back at the flat-colour path.
+- [x] ❌ **Task 5.2**: ~~Scale the wallpaper~~ — **cancelled, wrong problem.**
+  Image size is irrelevant to this symptom (see 5.1), and a playbook is the wrong
+  mechanism for wallpaper regardless. The rejected draft's two defects — a
+  hardcoded `3840x2560`, and a setting that silently reverts — are recorded in
+  the 12:05 journal entry as markers for their class.
+- [x] ❌ **Task 5.3**: ~~Per-monitor pre-scaled caching~~ — **cancelled with 5.2.**
+  GNOME already ships this (background `.xml` with `<size>`) and no third-party
+  tool does; the finding survives in the research document.
+- [x] ✅ **Task 5.4**: Recover the background after a monitor reconfiguration
+  - Delivered in `9a79dd7`. `Action.REFRESH_BACKGROUND` in
+    `helpers/displaylink_recovery/`, fired by the existing dock udev rule and
+    suspend service, strictly after the wedge ladder and never while locked.
+  - **Three faults found while adding it meant Plan 00056's recovery had never
+    run on this host at all** — each verified on HOST, each fixed in `9a79dd7`:
+    1. `copy:` does not create parent directories for a file destination, so the
+       helper tree was never made, the play aborted at that task (exit 2), and
+       the udev rule and dock-recovery unit after it never deployed.
+    2. `os.path.getsize()` on a sysfs EDID attribute **always returns 0** — the
+       file must be read. Every connected head therefore matched the wedge
+       signature on every system, arming service-restart → USB-reauth →
+       module-reload against working monitors.
+    3. `sudo` sanitises the child environment, dropping `DBUS_SESSION_BUS_ADDRESS`
+       passed via `env=`, so every dconf write was lost while exiting zero. Also
+       fixes `_notify()`, whose notifications had never reached a session.
+  - [ ] ⬜ **Still to confirm in the wild**: that the refresh actually clears the
+    black background when the symptom is present. It has been exercised on a
+    *healthy* desktop (runs clean, wallpaper preserved) but not yet against the
+    live fault.
   - **The one workaround that matches this failure**: force a real `bg-changed` by
     toggling `picture-uri`. That is the only signal that re-sets
     `CHANGED_BACKGROUND`; another `monitors-changed` does not recover it, and
