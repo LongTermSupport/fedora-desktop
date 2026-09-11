@@ -2602,8 +2602,15 @@ info "Installing Ansible requirements"
 # Do NOT suppress output — this is a supply-chain install (pulls roles/collections
 # from Galaxy/Git). Tee to a log so the user can see exactly what was fetched, and
 # surface the log if the install fails (set -e then aborts the run).
+#
+# --keep-scm-meta keeps the .git directory of any scm: git role. Without it
+# ansible-galaxy exports a bare file tree, so a role vendored under .ansible/
+# has no remote and no history — a fix made there cannot be committed, reviewed
+# or pushed upstream, and the only way to contribute one back is to clone the
+# project separately and reapply the change by hand. Roles land in gitignored
+# .ansible/, so the extra metadata never reaches this repository.
 _galaxy_log=$(mktemp)
-if ! ansible-galaxy install -r requirements.yml 2>&1 | tee "$_galaxy_log"; then
+if ! ansible-galaxy install --keep-scm-meta -r requirements.yml 2>&1 | tee "$_galaxy_log"; then
   error "ansible-galaxy install failed — see output above (log: $_galaxy_log)"
   exit 1
 fi
