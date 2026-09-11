@@ -103,6 +103,7 @@ every retired `F<VERSION>` branch, naming the branch that is now current:
 ```bash
 ./scripts/mark-branches-superseded.bash --dry-run   # preview the exact banner
 ./scripts/mark-branches-superseded.bash             # stamp and push
+./scripts/mark-branches-superseded.bash --check     # exit 1 if any are stale
 ```
 
 It re-stamps **all** retired branches, not just the one you have just retired.
@@ -112,10 +113,24 @@ branch that is itself no longer current. Running it after every release keeps al
 of them accurate; re-running changes nothing on a branch whose banner is already
 right, so it is safe to run at any time.
 
+Because the banner names a branch, a skipped run leaves behind something worse
+than no banner: one that is confidently wrong. `--check` is the detector — it
+writes nothing and exits 1 if any retired branch is missing or stale, so it can
+run in CI on the active branch and fail loudly rather than waiting for someone
+to notice.
+
 Each branch is edited in its own temporary git worktree, so your checkout is
-never switched. Branches are read from and written straight back to `origin`,
-and your local refs are left alone — `git fetch` afterwards to pick the commits
-up.
+never switched. Branches are read from and written straight back to `origin`;
+your local `refs/heads/*` are never touched.
+
+Two things to know before you run it:
+
+- **It needs push-bypass** on the PR-protected `F*` branches. The repository
+  owner has this; anyone else will see the push rejected and the script exit
+  non-zero.
+- **Commits are marked `[skip ci]`.** A retired branch's workflows are not
+  maintained and are not expected to still pass, so a plain push would turn an
+  untouched branch red on a failure that has nothing to do with the banner.
 
 ### After Changing the Default Branch — Resync Local Clones
 
