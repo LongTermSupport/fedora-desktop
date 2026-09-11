@@ -80,11 +80,42 @@ git push -u origin F44
 # 4. Set as default branch on GitHub
 gh repo edit --default-branch F44
 
-# 5. Update branch-specific changes
+# 5. Mark every older branch superseded (see below — do not skip)
+./scripts/mark-branches-superseded.bash
+
+# 6. Update branch-specific changes
 # - Test all playbooks
 # - Update package versions if needed
 # - Fix any compatibility issues
 ```
+
+### Marking Retired Branches Superseded
+
+Step 5 is not optional housekeeping. Old branches stay public and keep turning up
+in search results, bookmarks and old links, and their READMEs look perfectly
+current — nothing on the page says the branch is abandoned or which branch
+replaced it. Someone can follow one all the way through an install before
+noticing.
+
+`scripts/mark-branches-superseded.bash` puts a banner at the top of the README on
+every retired `F<VERSION>` branch, naming the branch that is now current:
+
+```bash
+./scripts/mark-branches-superseded.bash --dry-run   # preview the exact banner
+./scripts/mark-branches-superseded.bash             # stamp and push
+```
+
+It re-stamps **all** retired branches, not just the one you have just retired.
+The banner names the current branch, so when F45 lands, the banners sitting on
+F42 and F43 still point at F44 and must be refreshed — otherwise they advertise a
+branch that is itself no longer current. Running it after every release keeps all
+of them accurate; re-running changes nothing on a branch whose banner is already
+right, so it is safe to run at any time.
+
+Each branch is edited in its own temporary git worktree, so your checkout is
+never switched. Branches are read from and written straight back to `origin`,
+and your local refs are left alone — `git fetch` afterwards to pick the commits
+up.
 
 ### After Changing the Default Branch — Resync Local Clones
 
@@ -116,6 +147,9 @@ The two must agree. If they disagree, the local symref is stale — re-run the
 - **Active**: Current Fedora version branch
 - **Maintenance**: Previous version (critical fixes only)
 - **Archive**: Older versions (reference only)
+
+Everything other than **Active** carries the superseded banner described above.
+A retired branch without one is a bug — run `mark-branches-superseded.bash`.
 
 ## Ansible Style Guide
 
