@@ -72,6 +72,34 @@ Benchmarked with glycin on this machine (gjs + `Gly-2`, replicating `load_file()
 So ~156 MiB is held permanently to feed a 48.9 MiB output whose largest consumer
 is 3072x1920.
 
+## How often is that decode actually paid?
+
+Rarely, and **not on the events one would assume**. This matters because it rules
+out the "ongoing waste" framing entirely.
+
+| Event                                                                        | Full re-decode?                                                                                                                                              |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Session start                                                                | **Yes** — always, once per login                                                                                                                             |
+| Any `org.gnome.desktop.background` key, or `interface color-scheme`, changes | Yes, *if* the old image was already finalised; otherwise a cache hit                                                                                         |
+| Wallpaper **file contents** change on disk (`GFileMonitor`)                  | Yes, forced (`imageCache.purge`)                                                                                                                             |
+| **Monitor hotplug / reconfigure**                                            | **Normally no** — per-monitor FBOs are freed and re-rendered, a few GPU draws. Decode only if teardown transiently drops the last ref                        |
+| Resume from suspend                                                          | No for a static JPEG — `_refreshAnimation()` early-returns unless an XML slideshow is set. In practice resume also fires `monitors-changed`, so see that row |
+| Screen unlock                                                                | No — the shared `BackgroundSource` use-count stays above zero                                                                                                |
+| GL video memory purge                                                        | Yes, unconditionally — but **dormant here**: gnome-shell holds `card1` (i915), not `card0` (nvidia)                                                          |
+
+So on this host the realistic frequency is **once per login, plus the occasional
+light/dark switch**. A dock cycle normally costs GPU draws, not a decode.
+
+**Therefore the decode cost is not a performance problem and must not be sold as
+one.** ~350 ms once a day is irrelevant. The only thing that makes image size
+matter is the race described next — scaling shrinks the window in which a GC can
+blank the backgrounds, roughly 350 ms → 73 ms.
+
+**Not established:** how often a GC actually lands in that window on this
+machine. That is the number that would justify building anything, and it has not
+been measured. The only evidence to date is the user's report that the symptom
+occurs *often* when monitors are moved around.
+
 ## Why that latency causes black backgrounds
 
 `_updateBackgrounds()` **destroys every background manager before rebuilding

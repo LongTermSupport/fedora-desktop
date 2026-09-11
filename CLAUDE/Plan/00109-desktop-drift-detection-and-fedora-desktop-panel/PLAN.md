@@ -173,19 +173,16 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
 
 - [x] ✅ **Task 5.1**: Establish the real cost and the real bug.
   Evidence and citations: [RESEARCH-wallpaper-and-backgrounds.md](RESEARCH-wallpaper-and-backgrounds.md)
-  - [x] ✅ Decode is **once, not per monitor** — a claim of ~520 MiB made during
-    triage was wrong. mutter shares one texture; real cost is ~156 MiB shared plus
-    48.9 MiB of per-monitor FBOs.
-  - [x] ✅ **The lever is decode latency, not memory**: 342–466 ms at 7008x4672
-    versus 73–75 ms at 3072x1920 (measured on this host).
+  - [x] ✅ Decode is **once, not per monitor** — a ~520 MiB claim made during
+    triage was wrong. The lever is decode *latency* (342–466 ms vs 73–75 ms), not
+    memory, and it is paid roughly **once per login**, not per dock cycle.
   - [x] ✅ Mechanism: `_updateBackgrounds()` destroys every background manager
     before rebuilding while the image cache holds only a **weak** reference, so
-    survival across a hotplug is GJS GC timing. Losers paint flat `primary-color`.
-    A slow decode is what loses that race.
+    survival across a hotplug is GJS GC timing. Losers paint the flat colour.
   - [x] ✅ **Two open upstream bugs cause the same symptom independently**
     (`mutter#4767`, `mutter#4935`), plus an apparently unreported sticky variant.
-    Distinguishing test: the clip bug recovers when you open the Overview; the
-    sticky one does not. **Scaling cannot fix these** — Phase 5 is a mitigation.
+    **Scaling cannot fix those** — Phase 5 is at best a mitigation, and the
+    discriminator under 5.2 decides whether it is even that.
 - [ ] 🚫 **Task 5.2**: Scale the wallpaper — *mechanism undecided, play approach rejected*
   - **Current state**: wallpaper is a 7008x4672, 27 MB camera original at
     `~/.config/background`, unmanaged. A pre-scaled 3840x2560 copy exists at
@@ -210,14 +207,25 @@ here. See `JOURNAL/` for the incident narrative and the blow-by-blow.
       `helpers/`, invoked via `command:` + `argv:`.
     - `-auto-orient` before `-strip`, so dropping the EXIF orientation tag cannot
       rotate the result.
-  - [ ] ⬜ **Decide the mechanism** before writing any more code:
+  - [ ] ⬜ **Run the free discriminator FIRST — it can cancel this whole task.**
+    Next time the backgrounds go black, **open the Overview**. If they come back,
+    the cause is the upstream clip bug (`mutter#4767`) and image size is
+    irrelevant — scaling would buy nothing and 5.2 should be dropped. If they stay
+    black, it is the GC-race or the sticky NULL-texture variant, and only then
+    does shrinking the decode window have a point. Costs nothing, needs no code,
+    and no mechanism should be chosen before it has been run.
+  - **Frequency caveat, load-bearing**: the ~350 ms decode is paid roughly once
+    per login, *not* per dock cycle — so this is not an ongoing performance cost
+    and must not be justified as one. Its only value is shrinking the GC-race
+    window. How often that race is actually lost here is **unmeasured**.
+  - [ ] ⬜ **Then decide the mechanism**, if the discriminator did not cancel it:
     1. Event-driven — systemd user service watching `picture-uri`, rescaling on
        change. The only option that survives the user changing wallpaper; needs
        loop-protection against reacting to its own write. Phase 4's panel could
        own it.
     2. One-shot user tool in `~/.local/bin` — "scale this and set it". Honest and
        tiny, but manual and easy to forget.
-    3. Drop it — see the note on Task 5.3 about what scaling can and cannot fix.
+    3. Drop it — see Task 5.3 on what scaling can and cannot fix.
   - [ ] ⬜ Only then: implement, QA, deploy on HOST, verify
 - [ ] ⬜ **Task 5.3**: Decide whether per-monitor pre-scaled caching is worth it
   - [x] ✅ Gated on 5.1, now answered: a per-monitor cache does **not** buy what
