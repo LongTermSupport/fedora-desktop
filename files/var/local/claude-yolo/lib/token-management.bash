@@ -1022,9 +1022,21 @@ create_token() {
 # Sets: SELECTED_TOKEN global variable
 #       - container mode: path to chosen token file (or "" if create/renew picked)
 #       - host mode: path to chosen token file, OR "" if Desktop fallback picked
-# Returns: 0 on selection (or container-mode create/renew),
-#          1 in container mode if no valid tokens (no Desktop fallback there),
-#          0 in host mode if pool is empty (Desktop is automatic fallback)
+# Returns: 0 on selection (or container-mode create/renew), and in host mode
+#            when a genuinely empty pool short-circuits to Desktop
+#          1 on a usage error the caller cannot recover from (bad mode, or a
+#            missing token dir in container mode)
+#          2 when the human cancelled: EOF at the prompt, or too many invalid
+#            selections. Nothing was chosen and nothing was changed.
+#          3 when the pool yields no usable token — either it is empty or every
+#            token failed the expiry check. Host mode reaches this ONLY in the
+#            all-expired case, because a genuinely empty pool returns 0 above;
+#            container mode reaches it for both, and offers to create either way
+#
+# Callers MUST distinguish these. Both launchers invoke this function in a
+# condition context (`if !` in cc, `||` in ccy), and bash suppresses errexit for
+# the whole dynamic extent of such a command — so `set -e` is NOT live in here
+# and every failure must be returned explicitly rather than left to abort.
 #
 # container mode menu: numbered valid tokens, r1..rN renew options, 0 create new
 # host mode menu: numbered valid tokens, d for Desktop (host ~/.claude/ OAuth);
@@ -1091,7 +1103,7 @@ select_token() {
     fi
 
     # Host mode with a GENUINELY EMPTY pool: short-circuit to Desktop with the
-    # instruction banner. Both conditions are load-bearing — this branch must
+    # instruction banner. Every condition is load-bearing — this branch must
     # not fire when the pool holds tokens that merely failed the expiry check.
     #
     # The expiry date in a token's filename is a GUESS (a flat +90 days at
@@ -1112,13 +1124,20 @@ select_token() {
         return 0
     fi
 
+    # No usable token: pool empty, or every token failed the expiry check.
+    # Distinct from the usage errors above so the caller can name the real cause.
     if [ ${#valid_tokens[@]} -eq 0 ]; then
-        return 1
+        return 3
     fi
 
     # Usage is off until the user asks for it — see the Plan 00101 note above
     # usage_prime_cache(). The menu is redrawn once it has been fetched.
     local usage_fetched=0
+
+    # Bounded retries (InteractiveScripts rule 02). Counts only invalid input,
+    # persists across redraws, and is checked once at the top of the prompt loop.
+    local invalid_attempts=0
+    local max_tries=3
 
     # Redraw loop: every path out of the inner prompt either returns or asks for
     # a redraw, so the menu is reprinted only when its content actually changed.
@@ -1214,13 +1233,28 @@ select_token() {
 
     local redraw=0
     while true; do
-        read -r -p "Select token [${prompt_hint}]: " selection
+        if [ "$invalid_attempts" -ge "$max_tries" ]; then
+            echo "Giving up after $max_tries invalid selections. No token selected." >&2
+            return 2
+        fi
+
+        # EOF (Ctrl-D, or a non-TTY with no more input) is "cancelled", never a
+        # reason to re-prompt — InteractiveScripts rule 03. Without this check
+        # `selection` comes back empty, the branch below continues, and the loop
+        # spins for ever at ~250k lines/second: errexit is suppressed in here
+        # because both launchers call this function in a condition context.
+        if ! read -r -p "Select token [${prompt_hint}]: " selection; then
+            echo "" >&2
+            echo "Cancelled — no input. No token selected, nothing changed." >&2
+            return 2
+        fi
         echo ""
 
         if [ -z "$selection" ]; then
             echo "Invalid selection: (empty)"
             echo "Please enter one of: ${prompt_hint}"
             echo ""
+            invalid_attempts=$((invalid_attempts + 1))
             continue
         fi
 
@@ -1261,6 +1295,7 @@ select_token() {
             else
                 echo "Invalid renew selection: $selection"
                 echo ""
+                invalid_attempts=$((invalid_attempts + 1))
                 continue
             fi
         fi
@@ -1292,6 +1327,7 @@ select_token() {
             echo "Invalid selection: $selection"
             echo "Please enter one of: ${prompt_hint}"
             echo ""
+            invalid_attempts=$((invalid_attempts + 1))
         fi
     done
 

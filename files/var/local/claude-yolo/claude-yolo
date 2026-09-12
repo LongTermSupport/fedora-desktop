@@ -14,7 +14,7 @@
 # docs/ccy-changelog.md; per-change detail is in git. Do NOT append "Prior x.y.z:"
 # history here: it grew to 6,881 characters before being moved out.
 #
-CCY_VERSION="3.50.0"  # Fix: host cc no longer falls through to the Desktop account when every token is past its GUESSED expiry stamp — select_token host mode short-circuits only on a genuinely empty pool, so Desktop stays a deliberate choice. ccy (container mode) unaffected. See docs/ccy-changelog.md.
+CCY_VERSION="3.51.0"  # Fix: the token menu always terminates — EOF is a clean "cancelled" and invalid retries are capped at 3, closing an unbounded loop that both launchers had because calling select_token in a condition context suppresses errexit inside it. select_token's return codes are now a documented contract (0 chose / 1 usage error / 2 cancelled / 3 no usable token) and cc reports each distinctly. See docs/ccy-changelog.md.
 
 # Load shared helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

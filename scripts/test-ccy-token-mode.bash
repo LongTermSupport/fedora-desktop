@@ -107,11 +107,12 @@ check() {
 
 echo ""
 echo "=== container mode: ccy must NEVER launch without a named token ==="
-# All three return 1, so claude-yolo's caller reports "No Valid Tokens Available"
-# and exits rather than starting a session with no credential.
+# All three are non-zero, so claude-yolo's caller reports "No Valid Tokens
+# Available" and exits rather than starting a session with no credential.
+# 1 = usage error (the dir is not there at all); 3 = the pool yielded nothing.
 check "missing token dir"   "$WORK/does-not-exist" container 1 EMPTY
-check "empty pool"          "$WORK/empty-pool"     container 1 EMPTY
-check "expired tokens only" "$WORK/expired-only"   container 1 EMPTY
+check "empty pool"          "$WORK/empty-pool"     container 3 EMPTY
+check "expired tokens only" "$WORK/expired-only"   container 3 EMPTY
 
 echo ""
 echo "=== host mode: the DESIGNED Desktop short-circuit ==="
@@ -125,7 +126,54 @@ echo "=== host mode: THE case this test exists for ==="
 # Tokens are PRESENT but none passed the guessed stamp. Returning 0 here is the
 # bug: cc reads the empty SELECTED_TOKEN as "Desktop" and silently authenticates
 # as a different account. It must refuse instead.
-check "expired tokens only -> refuse" "$WORK/expired-only" host 1 EMPTY
+check "expired tokens only -> refuse" "$WORK/expired-only" host 3 EMPTY
+
+echo ""
+echo "=== the menu must terminate: EOF and bounded retries ==="
+# These are the ONLY cases that reach the `read -p` menu, so they run in a
+# subshell with piped stdin and a hard timeout — a regression here hangs, and a
+# hung gate must fail rather than stall CI.
+#
+# WHY: both launchers call select_token in a condition context (`if !` in cc,
+# `||` in ccy), and bash suppresses errexit for the whole dynamic extent of such
+# a command. `read` failing on EOF was therefore NOT fatal, the empty-selection
+# branch looped back to `read`, and the menu spun for ever at ~250k lines/second.
+# A human pressing Ctrl-D got a hang instead of an exit.
+# Two INDEPENDENT defences make the menu terminate, and asserting only the exit
+# status cannot tell them apart: the retry cap alone ends an EOF run too, so a
+# test checking just rc=2 still passes with the EOF check deleted (measured).
+# Each case therefore also asserts the message naming the mechanism that fired.
+menu_case() {
+    local desc="$1" input="$2" wantRc="$3" wantMsg="$4" rc=0 out=""
+    out="$(printf '%s' "$input" | timeout 10 bash -c "
+        set -uo pipefail
+        : \"\${GH_TOKEN:=}\" \"\${IMAGE_NAME:=}\"
+        source '$PURE_LIB'
+        source '$TOKEN_LIB'
+        select_token '$WORK/has-valid' host
+    " 2>&1)" || rc=$?
+    printf '\n--- %s ---\n%s\n' "$desc" "$out" >>"$BANNERS"
+
+    if [ "$rc" -eq 124 ]; then
+        printf '  FAIL  %-54s -> TIMED OUT (unbounded loop)\n' "$desc"
+        FAILED=$((FAILED + 1))
+    elif [ "$rc" -ne "$wantRc" ]; then
+        printf '  FAIL  %-54s -> rc=%s (want %s)\n' "$desc" "$rc" "$wantRc"
+        printf '        output for this case is in %s\n' "$BANNERS"
+        FAILED=$((FAILED + 1))
+    elif ! printf '%s' "$out" | grep -qF "$wantMsg"; then
+        printf '  FAIL  %-54s -> rc=%s but never said "%s"\n' "$desc" "$rc" "$wantMsg"
+        printf '        the OTHER defence ended this run; this one is not working\n'
+        FAILED=$((FAILED + 1))
+    else
+        printf '  PASS  %-54s -> rc=%s\n' "$desc" "$rc"
+        PASSED=$((PASSED + 1))
+    fi
+}
+
+menu_case "EOF at the prompt -> cancelled"    ''                    2 'Cancelled'
+menu_case "runaway invalid input -> gives up" $'9\n9\n9\n9\n9\n9\n' 2 'Giving up'
+menu_case "valid pick -> selects"             $'1\n'                0 'Selected token'
 
 echo ""
 echo "=== expiry-stamp boundary: 'expires today' counts as expired ==="

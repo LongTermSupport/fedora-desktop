@@ -17,6 +17,40 @@ Two version numbers move independently — see
 
 ---
 
+## 3.51.0
+
+**The token menu always terminates, and every refusal names its real cause.**
+
+Follow-up to 3.50.0, from the `qa-reviewer` pass on that change.
+
+3.50.0 made host mode able to return non-zero, so `cc` grew an `if ! select_token …` to
+handle it. Bash suppresses `errexit` for the whole dynamic extent of a command in a
+condition, which switched `set -e` off *inside* `select_token` — including its
+`read -r -p` menu. On EOF (Ctrl-D, or a non-TTY) `read` failed, the empty-selection branch
+looped straight back to it, and the menu spun at roughly 250k lines/second instead of
+exiting. Measured: 13 lines and a clean exit before, 1.5 million lines and a timeout after.
+`ccy` calls the same function through `||`, also a condition, so container mode had the
+hole already — it is fixed for both at once, in `select_token` where it belongs.
+
+- **EOF is "cancelled"**, with a message and a clean return, never a re-prompt
+  (`CLAUDE/InteractiveScripts.md` rule 03).
+- **Retries are bounded** at three invalid selections, then it gives up (rule 02). Two
+  independent defences, because either alone leaves a way to spin.
+- **Return codes are a documented contract**: `0` chose, `1` usage error, `2` cancelled,
+  `3` no usable token. `cc` reports each distinctly — previously every non-zero was
+  reported as "all your tokens are expired", which named a date that does not exist for an
+  old-format token and blamed the pool for a cancelled prompt.
+- **A stranded credential backup is surfaced.** With `CLAUDE_CONFIG_DIR` set, a backup
+  parked under `$HOME/.claude` by an earlier run was invisible to every later run and
+  silently unrecoverable. `cc` now refuses and spells out the recovery.
+
+Container behaviour is otherwise unchanged. `scripts/test-ccy-token-mode.bash` covers the
+menu paths under a hard timeout, so an unbounded loop fails the gate rather than hanging
+CI; each case asserts the message that names which defence fired, because the exit status
+alone cannot tell them apart.
+
+---
+
 ## 3.50.0
 
 **Host `cc` no longer switches Claude account without being asked.**
@@ -39,11 +73,13 @@ picking an account for you. Container mode is untouched, so `ccy` behaviour is u
 Three `cc` hardening fixes ship with it, all of the same silent-degradation shape:
 
 - **`CLAUDE_CONFIG_DIR` is honoured** for the credential park. It relocates the whole
-  config directory, credentials included on Linux, so hardcoding `$HOME/.claude` parked a
-  file `claude` was not reading — the real credential kept shadowing the injected token
-  while `/status` still reported the env token as active.
-- **The park is asserted.** A failed or partial move previously left the credential in
-  place and launched anyway, authenticating as the wrong account with no indication.
+  config directory, credentials included on Linux, so hardcoding `$HOME/.claude` *would*
+  park a file `claude` was not reading — the real credential shadowing the injected token
+  while `/status` still reported the env token as active. Deduced from the documented
+  scope, not observed: nothing in this repo sets the variable.
+- **The park is asserted.** Belt-and-braces only: the `mv` sits in an `if` body under
+  `set -e`, so a failing move already aborted. The assert covers the narrower case of a
+  move that exits 0 and still leaves the source behind.
 - **The backup is never clobbered.** With both a live and a parked credential present (a
   named-token session killed after `claude` wrote a fresh one), `mv -f` destroyed the
   parked Desktop credential, after which "Desktop" authenticated as the leftover. That

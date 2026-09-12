@@ -58,15 +58,23 @@ source "$TOKEN_MGMT"
 # directory, credentials included on Linux: "All settings, session history, and
 # plugins are stored under this path, as are credentials on Linux and Windows"
 # (code.claude.com/docs/en/env-vars; captured verbatim in Plan 00098's
-# research/raw-findings.md:240). Hardcoding $HOME/.claude here meant that with
-# the variable set, cc parked a file claude was not reading — so the real
-# credential kept shadowing the injected token and the session ran on the
-# Desktop account while /status still reported the env token as active. That
-# also settles Decision 7, which rejected the variable as "undocumented in
+# research/raw-findings.md:240). Hardcoding $HOME/.claude here WOULD mean that
+# with the variable set, cc parks a file claude is not reading — the real
+# credential keeps shadowing the injected token, and the session runs on the
+# Desktop account while /status still reports the env token as active. That is
+# a deduction from the documented scope, not an observed failure: nothing in
+# this repo sets CLAUDE_CONFIG_DIR, so the state has never been reached here.
+# It also settles Decision 7, which rejected the variable as "undocumented in
 # scope": it is documented, and this is the scope.
 CLAUDE_CONFIG_HOME="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 CRED_FILE="$CLAUDE_CONFIG_HOME/.credentials.json"
 CRED_BAK="$CRED_FILE.cc-desktop-bak"
+
+# Finding the backup only where CRED_FILE now lives would orphan one parked at
+# the DEFAULT location by an earlier run made before CLAUDE_CONFIG_DIR was set.
+# That credential is not recoverable by any later cc run, which is the same
+# silent-loss shape the refusal below exists to prevent, so name it explicitly.
+CRED_BAK_DEFAULT="$HOME/.claude/.credentials.json.cc-desktop-bak"
 
 # Self-heal: if a previous named-token session was hard-killed (SIGKILL, power
 # loss) before its EXIT trap restored the file, the real Desktop credential is
@@ -93,8 +101,10 @@ if [ -f "$CRED_FILE" ] && [ -f "$CRED_BAK" ]; then
         echo "  live:   $CRED_FILE"
         echo "  parked: $CRED_BAK"
         echo
-        echo "A previous named-token session was killed after claude wrote a new"
-        echo "credential, so the parked file is probably your real Desktop login."
+        echo "The parked file is most likely your real Desktop login, left behind"
+        echo "when a named-token session was killed after claude wrote a new"
+        echo "credential. cc takes no lock, so a second cc running concurrently"
+        echo "could also have produced this — check before discarding either."
         echo "Inspect both, then leave exactly one in place:"
         echo
         echo "  # keep the parked Desktop credential:"
@@ -102,6 +112,26 @@ if [ -f "$CRED_FILE" ] && [ -f "$CRED_BAK" ]; then
         echo
         echo "  # or discard it and keep the live one:"
         echo "  rm -i '$CRED_BAK'"
+    } >&2
+    exit 1
+fi
+
+# A backup orphaned at the default location by a pre-CLAUDE_CONFIG_DIR run is
+# invisible to every check above, because they all resolve under the relocated
+# dir. Say so rather than leaving the credential stranded and unmentioned.
+if [ "$CRED_BAK" != "$CRED_BAK_DEFAULT" ] && [ -f "$CRED_BAK_DEFAULT" ]; then
+    print_error "A parked Desktop credential is stranded at the default location"
+    {
+        echo "  stranded: $CRED_BAK_DEFAULT"
+        echo "  in use:   $CLAUDE_CONFIG_HOME"
+        echo
+        echo "CLAUDE_CONFIG_DIR moved the config dir after an earlier cc run parked"
+        echo "a credential under \$HOME/.claude. No cc run will ever restore it from"
+        echo "there. Move it where it belongs, or delete it if it is stale:"
+        echo
+        echo "  mv -i '$CRED_BAK_DEFAULT' '$HOME/.claude/.credentials.json'"
+        echo "  # or, if you no longer want that login:"
+        echo "  rm -i '$CRED_BAK_DEFAULT'"
     } >&2
     exit 1
 fi
@@ -130,26 +160,53 @@ write_status_token() {
 # for Desktop). Returns 0 in normal operation; never falls through with an
 # unset SELECTED_TOKEN.
 SELECTED_TOKEN=""
-# A non-zero return means the pool holds tokens but none passed the expiry
-# check. Handled explicitly rather than left to `set -e`: a bare abort here
-# exits with no closing message, and this is a script a human is sitting in
-# front of. Desktop is deliberately NOT offered as a consolation — falling
-# through to a different Claude account without being asked is the bug this
-# branch exists to prevent.
-if ! select_token "$TOKEN_DIR" "host"; then
-    print_error "No usable token in $TOKEN_DIR"
-    {
-        echo "  Every token in the pool is past the expiry date recorded in its"
-        echo "  filename. That date is a conservative +90d GUESS made at creation,"
-        echo "  not the token's real expiry, so one of them may well still work —"
-        echo "  but cc will not pick for you, and it will not quietly switch you"
-        echo "  to the Desktop account instead."
-        echo
-        echo "  Mint a fresh token:   ccy --create-token"
-        echo "  Use the host account: claude"
-    } >&2
-    exit 1
-fi
+# Each non-zero return is a DIFFERENT cause and gets its own message — see the
+# return-code contract above select_token(). Reporting them all as "expired"
+# would name a date that does not exist for an old-format token, or blame the
+# pool for a cancelled prompt.
+#
+# Handled explicitly rather than left to `set -e`: a bare abort exits with no
+# closing message, and this is a script a human is sitting in front of. Note
+# that this `if !` suppresses errexit for the whole of select_token, which is
+# why that function returns every failure explicitly instead of aborting.
+#
+# Desktop is deliberately NOT offered as a consolation on any of these paths —
+# falling through to a different Claude account without being asked is the bug
+# this branch exists to prevent. It stays available as the `d` key in the menu.
+select_token_rc=0
+select_token "$TOKEN_DIR" "host" || select_token_rc=$?
+case "$select_token_rc" in
+    0) ;;
+    2)
+        # Cancelled at the prompt. select_token has already said so.
+        exit 1
+        ;;
+    3)
+        print_error "No usable token in $TOKEN_DIR"
+        {
+            echo "  Every token in the pool is past the expiry date recorded in its"
+            echo "  filename. That date is a conservative +90d GUESS made at creation,"
+            echo "  not the token's real expiry, so one of them may well still work —"
+            echo "  but cc will not pick for you, and it will not quietly switch you"
+            echo "  to the Desktop account instead."
+            echo
+            echo "  Mint a fresh token:   ccy --create-token"
+            echo "  Use the host account: claude"
+        } >&2
+        exit 1
+        ;;
+    *)
+        print_error "Token chooser failed (status $select_token_rc)"
+        {
+            echo "  This is an internal error in select_token, not a verdict about"
+            echo "  your tokens. Check $TOKEN_DIR for files that do not match"
+            echo "  NAME.YYYY-MM-DD.token — an old-format token reports as unusable."
+            echo
+            echo "  Use the host account meanwhile: claude"
+        } >&2
+        exit 1
+        ;;
+esac
 
 # IMPORTANT: run `claude update` BEFORE exporting the OAuth token so the
 # self-updater never sees the chosen token. Then export and exec claude.
@@ -232,11 +289,13 @@ if [ -n "$SELECTED_TOKEN" ]; then
         # re-open exactly the clobber that check exists to close.
         mv "$CRED_FILE" "$CRED_BAK"
 
-        # Assert the park actually took. Without this, a failed or partial move
-        # left the credential in place and the session launched with it still
-        # shadowing the injected token — authenticating as the wrong account
-        # with no indication, which is the silent-degradation shape the
-        # fail-fast rule forbids. A move that did not move is a hard error.
+        # Assert the park actually took. NOT because a failed `mv` would be
+        # walked past — this is inside an `if` BODY, where `set -e` applies, so
+        # a non-zero `mv` already aborts with its own message. What is left
+        # uncovered is the narrower case of an `mv` that exits 0 and still
+        # leaves the source in place (an exotic filesystem, a racing writer).
+        # Cheap belt-and-braces against a state that would otherwise launch the
+        # session with the credential still shadowing the injected token.
         if [ -e "$CRED_FILE" ]; then
             print_error "Could not park the host credential at $CRED_FILE"
             echo "  The chosen token would be shadowed by it, so cc is stopping" >&2

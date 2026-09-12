@@ -138,6 +138,16 @@ Desktop mode leaves the file untouched. `CLAUDE_CONFIG_DIR` isolation was
 rejected: its scope is undocumented and would likely orphan host
 `settings.json`, MCP servers and project history. (2026-06-18)
 
+> **Superseded in part (2026-09-12).** The "undocumented scope" premise was
+> wrong. `code.claude.com/docs/en/env-vars` states the variable relocates the
+> whole config directory — "All settings, session history, and plugins are
+> stored under this path, as are credentials on Linux and Windows" — captured
+> verbatim at `research/raw-findings.md:240`. `cc` therefore now resolves
+> `CRED_FILE` under `${CLAUDE_CONFIG_DIR:-$HOME/.claude}`, so the park follows
+> the file `claude` actually reads. The rejection of `CLAUDE_CONFIG_DIR` as an
+> *isolation mechanism* still stands — cc does not set it, it only honours a
+> value the user has set.
+
 ### Decision 8: Write `LAST_TOKEN` for the status line
 
 The hooks-daemon `account_display` status handler reads `LAST_TOKEN` from
