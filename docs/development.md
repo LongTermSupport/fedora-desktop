@@ -62,7 +62,16 @@ git config core.hooksPath scripts/git-hooks
 
 ### Creating New Version Branch
 
-When Fedora releases a new version:
+A Fedora release has two halves. This section is the **repo** half — cutting the
+branch and retiring the old one. The **machine** half — upgrading an actual
+workstation to the new release — is `scripts/fedora-upgrade.bash`, covered under
+[Upgrading a Machine](#upgrading-a-machine) below. Do the repo half first: the
+upgrade script reads its target from the branch you run it out of.
+
+`vars/fedora-version.yml` is the single source of truth for the target version.
+Step 1 is the only place the number is typed; `run.bash`, `scripts/setup.bash`,
+the GNOME compat helper, `fedora-upgrade.bash` and the version-dependent
+playbooks all read it from there. Do not hardcode the release anywhere else.
 
 ```bash
 # 1. Update version in configuration
@@ -88,6 +97,25 @@ gh repo edit --default-branch F44
 # - Update package versions if needed
 # - Fix any compatibility issues
 ```
+
+### Upgrading a Machine
+
+Once the branch exists, upgrade a workstation onto it:
+
+```bash
+git checkout F44          # the branch decides the target release
+sudo ./scripts/fedora-upgrade.bash
+```
+
+The script reads `vars/fedora-version.yml` rather than carrying its own copy of
+the version, so it cannot target a different release from the branch it is run
+out of. It applies any pending updates first — rebooting if there were any, in
+which case run it again — then does `dnf system-upgrade` and reboots into the
+new release.
+
+After the machine comes back up, `dnf system-upgrade` will have replaced the
+system Python and broken every `pipx` venv stacked on it. The repair checklist
+is [Post-Upgrade Repair Guide](post-upgrade.md).
 
 ### Marking Retired Branches Superseded
 
